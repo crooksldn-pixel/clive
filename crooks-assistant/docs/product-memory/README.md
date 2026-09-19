@@ -2,7 +2,7 @@
 
 This directory is the canonical durable product memory for CROOKS OS.
 
-Current repository: `crooksldn-pixel/Shopify-theme`. Read these files from `claude/product-memory-foundation` by explicit ref; they are not assumed to exist on the repository's default theme branch or on the application baseline.
+Current repository: `crooksldn-pixel/clive`. Read these files from `claude/product-memory-foundation` by explicit ref; they are not assumed to exist on the repository's default theme branch or on the application baseline.
 
 The rule is simple:
 
