@@ -850,6 +850,27 @@ Sequencing: finish the in-flight harness review, reconcile its repairs, then fix
 
 This is intentionally compatible with the autonomy goal: the number of controls the owner needs should decrease over time. The console is a transition/control surface, not a regression to manual operation.
 
+
+## IDEA-053 — General work operating layer
+**Date:** 2026-09-19  
+**Status:** CAPTURED — long-term, not current implementation scope  
+**Theme:** work orchestration / adaptive interfaces
+
+Long-term, CLIVE may evolve beyond a business assistant into a general work operating layer that coordinates people, systems, devices and tasks from natural-language objectives.
+
+Example:
+“Split today’s order load evenly between workers X and Y, prepare each packing list, project them to Screen 1 and Screen 2, and prepare the corresponding order confirmations.”
+
+CLIVE would reason across capabilities such as orders, workers, task queues, displays, printers, scanners, fulfilment and messaging, then create and verify the required workflow rather than requiring a dedicated hard-coded screen for every operation.
+
+Core product implication:
+- CLIVE should understand entities, state, people/roles, capabilities, rules, objectives, actions and verification;
+- task-specific interfaces may be generated or selected for the current role/device/job rather than exposing a large permanent ERP-style UI;
+- staff may increasingly interact with CLIVE as the coordination layer above existing business systems;
+- the architecture should favour composable capabilities over an ever-growing catalogue of one-off workflows.
+
+This is deliberately **later-stage direction**. Do not let it displace current reliability, product quality, harness hardening, runtime verification or Engineering Orchestrator sequencing. Preserve the idea without treating the current mechanism, UI shape or example workflow as fixed.
+
 # Capture policy
 
 New ideas should be appended with:
