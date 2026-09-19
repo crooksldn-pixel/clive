@@ -230,8 +230,28 @@ that was a false positive, and MEDIUMs that were real.
 | `image-to-code-skill` | `Leonxlnx/taste-skill` | `e79ca9e` | **0 issues** | **CLEARED** |
 | `taste-skill` | `Leonxlnx/taste-skill` | `e79ca9e` | 2 HIGH, 4 MED | **REJECTED** |
 | `impeccable` | `pbakaus/impeccable` | `f2c7051` | 39 HIGH, 34 MED | **REJECTED for now** — §5.3 |
+| `agent-architecture-audit` | `affaan-m/ECC` | `07756ce` | **0 issues** (upstream, in the ECC audit) and **0 issues** on the exact candidate bytes | **CLEARED — PENDING APPLY** (§5.4) |
 
-**None of them is actually installed.** See §8 — writing to `.claude/` is blocked here.
+**None of the design skills is installed.** See §8 — writing to `.claude/` is blocked here, and
+that was true again for the harness candidate (§5.4).
+
+### 5.4 `agent-architecture-audit` — cleared twice, not yet landed
+
+From the ECC read-only audit (bridge round 2026-09-19; commit
+`07756cee15788a54506031462794ad645719b028`, `SKILL.md` sha256
+`64f57e232c3533877403703bc95b3c75df9de23f657899a306f13c703009ff57`, MIT). A single 16 KB
+markdown file, no scripts, no network. The candidate narrows its frontmatter from
+`tools: Read, Write, Edit, Bash, Grep, Glob` to `tools: Read, Grep, Glob` and changes nothing
+else; the body is byte-identical (candidate `SKILL.md` sha256
+`d7765c5617f5692ea314b34c893dcde52f1eb5f2955c98075d73fde01101bd2d`).
+
+Re-scanned as this gate requires — on what would land, not on upstream — with the Builder's
+SkillSpector 2.11.2 `--no-llm`: **0 issues**, `execution_successful`, no executable
+components. Nothing to read at the line.
+
+It is **not installed**: the worker's permission layer refused the write under
+`.claude/skills/`. The exact files (SKILL.md change, LICENSE, PROVENANCE.md) are specified in
+`docs/dev-environment/PROJECT_CLAUDE_FILES_PENDING.md` §6 for one human apply step.
 
 ### 5.2 The reasoning, per skill
 
@@ -384,15 +404,17 @@ flagged lines rather than accepting the verdict.
 
 ## 8. Not done, and why
 
-- **Project-scoped Claude configuration (`CLAUDE.md`, `.claude/rules/`, project skills, hooks) was
-  NOT created, and no skill was installed.** Writes to `/opt/crooks-builder/.claude/` are refused
-  by the agent's permission layer. The refusal was not worked around. The proposed layout is
-  specified in `docs/dev-environment/CLAUDE_PROJECT_LAYOUT.md` so it can be applied in one
-  reviewed step.
-- **`.gitignore` still ignores `.claude/`.** Adopting the layout requires changing that line to
-  `.claude/*` plus explicit negations — git cannot re-include a file inside an excluded
-  *directory*, so negations under `.claude/` are dead until the trailing slash goes. Left
-  unchanged because the configuration was not installed.
+- **Project-scoped Claude configuration — partly.** Under DEC-049, candidate
+  `claude/harness-hooks-experiment` adds the root `CLAUDE.md`, the `.gitignore` allowlist form,
+  the two project hooks (`scripts/hooks/guard_bash.py`, `scripts/hooks/gitleaks_gate.py`) with
+  their tests, the roster assertion (`scripts/roster_assert.py`) and the isolation proposal
+  (`docs/dev-environment/WORKER_TOOL_SURFACE_ISOLATION.md`). **Every write under `.claude/` —
+  rules, settings.json, the vendored skill — was refused again by the worker's permission
+  layer**, in the isolated worktree the decision approved. The refusal was not worked around;
+  the exact pending files are in `docs/dev-environment/PROJECT_CLAUDE_FILES_PENDING.md`. Until
+  a human creates `.claude/settings.json`, **no hook is active** in any session.
+- **`.gitignore` now uses `.claude/*` plus explicit negations** (§0 of CLAUDE_PROJECT_LAYOUT),
+  and ignores `.worktrees/`. `tests/test_project_claude_layout.py` holds it there.
 - **The `impeccable` scan did not finish** (§5.3).
 - **No system package was installed**; `/usr` is untouched and still read-only.
 - **No service was installed, started or changed. Tailscale untouched. Writes still disabled.

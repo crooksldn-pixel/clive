@@ -1,12 +1,23 @@
 # Proposed project-scoped Claude configuration
 
-**Status:** PROPOSED AND NOT INSTALLED.
+**Status:** PARTLY LANDED IN CANDIDATE `claude/harness-hooks-experiment`; the `.claude/` files
+themselves are still PENDING.
 
-Writes to `/opt/crooks-builder/.claude/` are refused by the agent's permission layer. That refusal
-was not worked around: no `.claude/` directory was created, no skill was installed, and no hook is
-active. This file specifies the layout precisely enough to be applied in one reviewed step.
+DEC-049 (2026-09-19) approved project-scoped `.claude/` files in isolated engineering
+workspaces. In the candidate built under it, the parts of this layout that live *outside*
+`.claude/` exist and are tested: the §0 `.gitignore` change, the root `CLAUDE.md`, the two
+hook scripts under `crooks-assistant/scripts/hooks/` (`guard_bash.py`, `gitleaks_gate.py`) with
+`tests/test_guard_bash.py` and `tests/test_gitleaks_gate.py`. Every write under `.claude/`
+(rules, settings, the vendored skill) was again refused by the worker's permission layer — the
+protection is Claude Code's own, keyed on the path, and an owner decision in product memory
+does not change it. The refusal was not worked around. The exact content of each pending
+file is in `PROJECT_CLAUDE_FILES_PENDING.md`, ready for one human apply step, and
+`tests/test_project_claude_layout.py` checks the files once they exist.
 
-Nothing here takes effect until a human creates these files.
+Nothing under `.claude/` takes effect until a human creates those files. The rest of this
+document is the layout as originally specified; §1's skill list still names the four design
+skills cleared earlier, which remain uninstalled — only `agent-architecture-audit` (ECC audit,
+2026-09-19) is in the pending set.
 
 ---
 
