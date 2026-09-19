@@ -1,254 +1,220 @@
 # CLAUDE OUTBOX — latest handoff only
 
-## 2026-09-19T22:28Z — Bounded repair of harness candidate `d7911b2`: **BLOCKED** (candidate worktree not clean at start)
+## 2026-09-19T22:50Z — Interrupted F-1…F-5 harness repair continued and published: candidate `fe96bb6` on `claude/harness-hooks-experiment` — **awaiting independent review**
 
-**Inbox consumed:** yes. Blob SHA processed: `a5ca9dddf0273bec2867086a94000ef7f7f2c37e`
-(`bridge/chatgpt-inbox.md`, heading "2026-09-20 — Bounded repair of harness candidate after d7911b2
-adversarial rejection", bridge commit `2fee579`). These instructions are now recorded as executed
-and must not be run again.
+**Inbox consumed:** yes. Blob SHA processed: `fb5a66e61984e7112ee6f10caaa62991ec600beb`
+(`bridge/chatgpt-inbox.md`, heading "Continue the interrupted F-1…F-5 harness repair", bridge
+commit `2913282`). These instructions are now recorded as executed and must not be run again.
 
-**Status: `BLOCKED` at the inbox's own first required check.** The candidate worktree
-`/opt/crooks-builder/.worktrees/harness-hooks-experiment` is at the exact required head
-`d7911b24979be2306749b7333ec60edc28cba857`, but it is **not clean**: two tracked files are modified
-and one file is untracked. The inbox says "If identity or cleanliness differs, stop and report
-`BLOCKED`; do not reset, clean or stash." I did exactly that. **Nothing was edited, committed,
-pushed, reset, cleaned or stashed** this round. No new candidate exists; the remote branch is still
-`d7911b2…`.
+**Status: DONE, STOPPED for review.** Exactly one new commit was created on
+`claude/harness-hooks-experiment` on top of `d7911b24979be2306749b7333ec60edc28cba857`, pushed, and
+read back from the remote:
 
-The leftover changes are not of unknown origin. The watcher journal shows this same inbox was
-already started once, and that attempt died before writing an outbox (§3). The uncommitted files
-are that attempt's work. I ran read-only diagnostics on them so the owner can decide whether to
-continue from them or discard them (§5); I did not act on that decision myself.
+| | SHA |
+|---|---|
+| Base (rejected by the second review) | `d7911b24979be2306749b7333ec60edc28cba857` |
+| **New candidate (local HEAD)** | **`fe96bb661140089647c3e6cb90a269c869a076fa`** |
+| Remote `refs/heads/claude/harness-hooks-experiment` after push (`git ls-remote`) | `fe96bb661140089647c3e6cb90a269c869a076fa` — identical |
+
+The candidate worktree is clean after the commit (0 status lines with `--untracked-files=all`,
+stash list empty). Nothing was merged, deployed, activated, installed, started or restarted. This
+candidate is **not accepted**: it needs a fresh independent adversarial review bound to `fe96bb6…`.
 
 ---
 
 ## 1. What was asked
 
-One bounded repair commit on `claude/harness-hooks-experiment` on top of exact `d7911b2…`, closing
-the second independent review's F-1 … F-5 via three root causes (relative protected-target
-resolution; whole-command / wrapped substitution marker gap in the shared lexer, including the
-gitleaks gate; dynamic git subcommand), with the review's reproducers as regression tests plus a
-few root-cause neighbours and positive controls; run the repair tests, the targeted set, the full
-offline suite, Ruff and a redacted range gitleaks; push exactly one commit and read back the remote
-SHA; report. Precondition: the worktree must start clean at `d7911b2…`, else stop with `BLOCKED`.
+Continue, not restart, the bounded F-1…F-5 repair whose first attempt was interrupted. First verify
+read-only that the candidate worktree is still at `d7911b2…` locally and remotely, that its dirty
+set is exactly the three same-attempt files, that their diff still maps only onto F-1…F-5, and that
+no newer candidate exists — else `BLOCKED`. Then finish only F-1…F-5 with regression tests; run the
+repair tests, the targeted harness/roster/layout/dev-environment set, the full offline suite, Ruff
+and the pinned redacted gitleaks range scan; one commit on `d7911b2…`, push, read back the remote
+SHA, verify a clean worktree, publish evidence, stop.
 
-## 2. Starting identity and cleanliness — the blocking evidence
+## 2. Starting state — the precondition, verified read-only before any edit
 
-Inspected before any action, exactly as found:
+All read before touching anything. Refs fetched explicitly (`git fetch origin <branch>`; the
+builder's stale `claude/bridge-builder` refspec still breaks `git fetch --all` and was not changed).
 
-| Repo | Branch | HEAD | Status |
-|---|---|---|---|
-| Builder `/opt/crooks-builder` | `claude/builder-environment-repair` | `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b` | **clean** (0 lines, `--untracked-files=all`) |
-| Candidate worktree `…/.worktrees/harness-hooks-experiment` | `claude/harness-hooks-experiment` | `d7911b24979be2306749b7333ec60edc28cba857` — **identity matches** | **NOT clean — 3 status lines** (below) |
-| Bridge `/opt/crooks-ai-bridge` | `crooks-ai-bridge` | `2fee579e0553271dc4e9f4925033f6c0ea32d473` | clean at start; only `bridge/claude-outbox.md` modified at end |
-| Production `/opt/crooks-os` (read-only: `rev-parse`, `status`, `branch` only) | `claude/linux-prod-migration-production` | `1cf3a0f3361b79f9de208d80f501543c53c244b5` | clean (0 lines), unchanged, never entered for anything else |
+| Check required by the inbox | Found |
+|---|---|
+| Candidate worktree `/opt/crooks-builder/.worktrees/harness-hooks-experiment` HEAD | `d7911b24979be2306749b7333ec60edc28cba857` ✔ |
+| Remote `refs/heads/claude/harness-hooks-experiment` (`git ls-remote`, fresh) | `d7911b2…` ✔ — no newer candidate; `refs/heads/claude/harness*` lists only this branch |
+| `git status --porcelain --untracked-files=all` | exactly 3 lines: ` M …/scripts/hooks/gitleaks_gate.py`, ` M …/scripts/hooks/guard_bash.py`, `?? …/tests/test_harness_review_d7911b2_repairs.py` ✔ (only ignored caches besides: `.ruff_cache/`, `__pycache__/`, `kb/.catalogue-cache.txt`) |
+| Stash list | empty ✔ |
+| Stray pytest from the interrupted attempt | none running ✔ |
+| Diff shape (`git diff --numstat`) | `gitleaks_gate.py` +2/−0, `guard_bash.py` +96/−60, test file 339 lines new — the same numbers the previous outbox recorded ✔ |
+| File mtimes | 22:17:27, 22:17:30, 22:19:32 UTC — unchanged since the previous outbox's provenance record ✔ |
+| Builder `/opt/crooks-builder` | `claude/builder-environment-repair` @ `295e483…`, clean |
+| Bridge `/opt/crooks-ai-bridge` | `crooks-ai-bridge` @ `2913282…`, clean at start |
+| Production `/opt/crooks-os` (read-only `rev-parse`/`status`/`branch` only) | `claude/linux-prod-migration-production` @ `1cf3a0f3361b79f9de208d80f501543c53c244b5`, clean, never entered otherwise |
 
-Candidate worktree `git status --porcelain --untracked-files=all` at start (and at end — unchanged):
+Canonical product memory read by explicit ref from `claude/product-memory-foundation` at remote
+head `c7a1cf64781a2ecfaf17908236404df06033cffe`: it records `d7911b2` as published and not
+accepted, pending a fresh independent review. The second review's F-1…F-5 text was read from the
+bridge history (`f2b1662:bridge/claude-outbox.md`) and the previous BLOCKED outbox from `8a642dc`.
 
-```
- M crooks-assistant/scripts/hooks/gitleaks_gate.py
- M crooks-assistant/scripts/hooks/guard_bash.py
-?? crooks-assistant/tests/test_harness_review_d7911b2_repairs.py
-```
+**Diff-to-findings mapping (re-read in full, hunk by hunk):** every hunk in the two hook files is
+one of the three root causes the review named, and nothing else. No `app/`, docs, `.claude/`,
+roster, layout, watcher or config change is in the diff. Details in §3. Precondition satisfied, so
+I continued from the interrupted files as instructed.
 
-Only ignored entries besides these (`.ruff_cache/`, `__pycache__/`, `kb/.catalogue-cache.txt`),
-which do not count. Git stash list: **0 entries** (nothing was stashed by anyone). No stray
-`pytest` process from the earlier attempt was still running. Local `d7911b2` matches
-`git ls-remote origin refs/heads/claude/harness-hooks-experiment` = `d7911b2…`, so **no commit
-was made or pushed by the earlier attempt either**.
+## 3. What the commit contains (the interrupted work, reviewed as my own)
 
-Fresh refs, not stale tracking: `git fetch origin claude/harness-hooks-experiment
-claude/product-memory-foundation` (explicit; `git fetch --all` still fails on the deleted
-`claude/bridge-builder` refspec, which I did **not** change, as instructed). Canonical truth was
-read by explicit ref from `claude/product-memory-foundation` at remote head
-`c7a1cf64781a2ecfaf17908236404df06033cffe` (`git show`): it records `d7911b2` as published and
-**not accepted**, pending a fresh independent review, and records the durable lesson that
-deterministic precondition failures (dirty workspace) should go to `BLOCKED / ESCALATED` rather
-than be retried. The latest outbox (review verdict `REJECT — REPAIR REQUIRED`, inbox `7ac15d08…`)
-was read from bridge commit `f2b1662`.
+`fe96bb6` — "The five findings of the second review, reduced to their three root causes and
+repaired there". 3 files, +437/−60. Author `Claude <noreply@anthropic.com>`, trailer
+`Co-Authored-By: Claude Fable 5.1`.
 
-## 3. Where the leftover files came from (watcher journal, read-only)
+- **F-1 (H) — relative write targets.** New `_write_target_problem()` in `guard_bash.py`: a
+  redirect target or a `cp`/`scp`/`rsync`/`install` destination that is not `/`-, `~`- or
+  `$`-anchored is joined to the tracked `ctx.cwd` before `_protected_hit`; under a protected cwd a
+  target that still does not resolve to an absolute path is refused `PROTECTED-CWD` regardless of
+  the base command's read-only status. `host:path` remote destinations are exempt for `scp`/`rsync`
+  only. `_path_rule` routes both redirect targets and copy-like destinations through it. Any
+  protected root counts (`/etc`, `/root` covered by tests — the review's item 2).
+- **F-2 / F-3 / F-5 — substitution marker gap.** `_segments()` rewritten: `$( … )` and backtick
+  substitutions are lexed as a piece of a word. New `_substitution_end()` finds the closing bracket
+  (tracks escapes, quotes, nesting; unterminated → `ValueError` → `UNPARSEABLE`). The body is
+  emitted first as its own segments (so `$(rm -rf …)` is still caught as `RM-RECURSIVE`), and the
+  substitution is replaced by `SUBST_MARKER` in the enclosing text, so the marker lands in
+  command-word position whether the substitution is the whole command, sits behind a wrapper or
+  assignment, or is glued to a literal prefix; as an argument it is inert. `MAX_SUBSTITUTION_NESTING
+  = 16`. The gate's `_publish_actions` shares this lexer and already raises on a marker command
+  word, which is how F-5 closes.
+- **F-4 — dynamic git subcommand.** `_git_rule` denies `UNPARSEABLE` when `_dynamic_word(call.sub)`;
+  `gitleaks_gate._publish_actions` raises `ValueError("dynamic git subcommand")` for the same case,
+  so `run_gate` fails closed as `UNPARSEABLE`.
+- **Tests** (`tests/test_harness_review_d7911b2_repairs.py`, 77 tests): every F-1…F-5 reproducer
+  string from the review verbatim; root-cause neighbours (all redirect operators, copy-like
+  destinations, `cd /opt && …crooks-os/…`, `/etc` and `/root`, nested/glued/piped/grouped
+  substitutions, unterminated forms, every passthrough wrapper, every dynamic spelling of a git
+  subcommand, gate laundering); positive controls (`echo $(date)`, `HEAD=$(git rev-parse HEAD)`,
+  `git push origin $BRANCH`, ordinary redirects and copies in the builder, `scp x host:y`); and a
+  subprocess test that the hook process exits 2 for the two high reproducers without echoing the
+  command text.
 
-`journalctl -u crooks-bridge-watcher` (secrets-filtered, nothing sensitive present):
+**Adjustments I made to the interrupted files: none.** I read the diff and the test file in full,
+confirmed that quoted substitution bodies (`echo "$(rm -rf …)"`) are still evaluated through the
+pre-existing heredoc/substitution-body path (`_strip_heredocs` → `_substitution_bodies`), which the
+segmenter change does not touch, and ran the extra spot checks in §4 before deciding the diff
+needed no change.
 
-```
-22:07:09  bridge: inbox 7ac15d08… recorded as processed                     (the review round)
-22:10:13  bridge: inbox a5ca9ddd… is new — starting Claude in /opt/crooks-builder
-22:21:06  crooks-bridge[709459]: Waiting for the suite to complete before committing.
-22:21:06  bridge: Claude wrote no outbox — nothing to publish, so inbox a5ca9ddd… is NOT processed
-22:21:06  bridge: run for inbox a5ca9ddd… failed (failure 1) — retrying in 60s
-22:22:07  bridge: inbox a5ca9ddd… is new — starting Claude in /opt/crooks-builder   (this session)
-```
+## 4. Test results (all run in the foreground; nothing left running)
 
-File modification times in the worktree line up with that first attempt: `guard_bash.py`
-22:17:27 UTC, `gitleaks_gate.py` 22:17:30 UTC, the new test file 22:19:32 UTC — all between the
-first attempt's start (22:10) and its exit (22:21), and after `d7911b2`'s commit time (21:25). The
-first attempt's last line of output was "Waiting for the suite to complete before committing":
-it ended its turn while the full suite was still running in the background, the CLI exited, no
-outbox was written, and the watcher retried the same inbox. The retry (this run) then met the
-clean-start rule with that attempt's uncommitted work in place.
-
-So the blocker is a **deterministic precondition failure caused by the previous attempt of this
-same inbox**, not tampering and not a foreign change. It still cannot be cleared by me: clearing it
-means either committing someone else's uncommitted edits as the repair, or discarding them
-(`git checkout --`/deleting the untracked file), and the inbox forbids both reset/clean and editing
-a non-clean tree.
-
-## 4. What the leftover working tree contains (read-only inspection)
-
-`git diff --numstat` against `d7911b2`:
-
-| File | + | − |
-|---|---|---|
-| `crooks-assistant/scripts/hooks/guard_bash.py` | 96 | 60 |
-| `crooks-assistant/scripts/hooks/gitleaks_gate.py` | 2 | 0 |
-| `crooks-assistant/tests/test_harness_review_d7911b2_repairs.py` (untracked, new) | 339 lines | — |
-
-Read of the diff — it maps onto the inbox's three root causes and nothing else (no `app/`, no
-docs, no `.claude/`, no roster/layout change; guard grows 2,024 → 2,060 lines):
-
-- **F-1** — new `_write_target_problem()` in `guard_bash.py`: a redirect or `cp`/`scp`/`rsync`/
-  `install` destination that is not absolute/home/variable-anchored is joined to the tracked
-  `ctx.cwd` before `_protected_hit`; and under a protected cwd a target that still does not
-  resolve to an absolute path is refused `PROTECTED-CWD` regardless of the base command's
-  read-only status. `host:path` remote destinations are left alone for `scp`/`rsync`.
-  `_path_rule` now routes both redirect targets and copy-like destinations through it.
-- **F-2 / F-3 / F-5** — the segmenter `_segments()` is rewritten: a `$( … )` or backtick
-  substitution is lexed as a piece of a word (new `_substitution_end()` finds its closing
-  bracket, tracking quotes/escapes/nesting; unterminated raises `ValueError`, which
-  `_evaluate_raw` already maps to `UNPARSEABLE`), its body is emitted first as its own segments,
-  and the substitution is replaced by `SUBST_MARKER` in the enclosing text. The marker therefore
-  lands in command-word position whether the substitution is the whole command, sits behind a
-  wrapper/assignment, or is glued to a literal prefix, and is inert as an argument. A nesting cap
-  (`MAX_SUBSTITUTION_NESTING = 16`) is added. The gate's `_publish_actions` shares this lexer.
-- **F-4** — `_git_rule` denies `UNPARSEABLE` when `_dynamic_word(call.sub)`; `gitleaks_gate.py`'s
-  `_publish_actions` raises `ValueError("dynamic git subcommand")` for the same case so the gate
-  fails closed (the F-5 test asserts `run_gate` → `UNPARSEABLE`).
-- The test file carries every F-1 … F-5 reproducer string from the review verbatim, root-cause
-  neighbours (every redirect operator, copy-like destinations, `cd /opt && …crooks-os/…`,
-  `/etc` and `/root` as D-13 breadth, nested/glued/piped substitutions, every passthrough
-  wrapper, every dynamic spelling of a git subcommand, gate laundering), positive controls
-  (`echo $(date)`, `HEAD=$(git rev-parse HEAD)`, `git push origin $BRANCH`, ordinary redirects
-  and copies in the builder), and a subprocess test that the hook process exits 2 for the two
-  high reproducers without echoing the command text.
-
-I did not modify any of it.
-
-## 5. Read-only diagnostics on the leftover tree (so the owner can decide continue vs discard)
-
-Run from the worktree's `crooks-assistant/` with the base builder's `.venv` and the pinned gitleaks
-by absolute path (the worktree has neither). These write only ignored caches; tracked state and the
-three leftover files are byte-identical before and after (status re-checked at the end).
+Run from the worktree's `crooks-assistant/` with the base builder's `.venv` and pinned tooling by
+absolute path (the worktree has no `.venv`/`.tooling`; both gitignored).
 
 | Check | Result |
 |---|---|
-| `pytest tests/test_harness_review_d7911b2_repairs.py` (the leftover file) | **77 passed**, 0.82 s |
-| Targeted: that file + `test_harness_review_repairs.py`, `test_guard_bash.py`, `test_gitleaks_gate.py`, `test_roster_assert.py`, `test_project_claude_layout.py`, `test_dev_env.py` | **645 passed, 2 skipped**, 23.8 s. The 2 skips are the same two `.claude/` layout tests as before ("this skip proves nothing") |
-| Full offline suite `pytest -m "not live" -q -n 4` | **3449 passed, 1 failed, 1 error, 10 skipped**, 230.7 s — see the two notes below |
+| Repair file `tests/test_harness_review_d7911b2_repairs.py` | **77 passed**, 1.06 s |
+| Targeted: repair file + `test_harness_review_repairs.py`, `test_guard_bash.py`, `test_gitleaks_gate.py`, `test_roster_assert.py`, `test_project_claude_layout.py`, `test_dev_env.py` | **645 passed, 2 skipped**, 23.2 s. Skips are the two `.claude/` layout tests ("pending the owner's apply step; this skip proves nothing") |
+| Full offline suite `pytest -m "not live" -q -n 4` | **3450 passed, 1 failed, 10 skipped**, 229.7 s — see note 1 |
 | `ruff check app config scripts tests` | All checks passed |
-| `gitleaks dir` (8.30.1, `--redact`, count only) on each of the three leftover files | exit 0 on all three (no findings). A **range** scan was not possible: there is no new commit |
+| `gitleaks git --log-opts="d7911b2..fe96bb6" --redact` (8.30.1, pinned) | 1 commit scanned, **no leaks found**, exit 0 |
+| Post-commit worktree | clean (0 status lines, stash empty) |
 
-**Full-suite note 1 — pre-existing, unrelated:** the 1 failure is
-`tests/test_experience.py::test_the_golden_scenarios[query_international_waiting]`, the exact
-failure the review reproduced on the accepted base `295e483` (catalogue drift: "normaliser
-repointed at live catalogue: 38 terms"). The candidate changes zero `app/` or experience code
-(`git diff --stat 295e483 HEAD -- app/ tests/test_experience.py` empty). Per the inbox, recorded as
-pre-existing; no product/fixture code was touched.
+**Note 1 — the one failure is the known pre-existing one, reproduced identically:**
+`tests/test_experience.py::test_the_golden_scenarios[query_international_waiting]`, with the same
+captured log line `normaliser repointed at live catalogue: 38 terms` the review and both prior
+rounds recorded on the accepted base `295e483`. The candidate changes zero `app/`, experience or
+fixture code. Recorded as pre-existing, not repaired here, per the inbox.
 
-**Full-suite note 2 — transient, unrelated:** the 1 error is a **setup error** in
-`tests/test_context.py::test_the_cross_site_guard_does_not_apply_to_the_context_read_but_the_login_gate_does`
-under the 4-worker run. Re-run alone it **passes** in the candidate worktree (1 passed, 1.02 s) and
-**passes** on the accepted base `295e483` (1 passed, 0.95 s); `test_context.py` and `app/` are
-unchanged between `295e483` and `d7911b2`. It is a parallel-run flake of an unchanged test, not a
-harness regression; whoever runs the next round should re-run it singly if it recurs. I did not
-see it in either prior round's counts (3373+1 / 3374), so it is new noise, flagged here so it is
-not mistaken for a candidate defect later.
+**Note 2 — the previous round's parallel-run noise did not recur.** The `test_context.py` setup
+error seen once under `-n 4` in the BLOCKED round did not appear this time (0 errors); nothing was
+repaired or changed for it. Arithmetic: 3450 passed = the earlier 3449 + the one that had errored.
 
-Arithmetic check: review baseline 3373 passed + 77 new tests = 3450 = 3449 passed + 1 error.
+**Note 3 — extra spot checks (mine, not the review's; not added as tests).** 15 vectors run
+in-process against the repaired guard. 13 gave the expected verdict, including
+`echo "$(rm -rf /opt/crooks-os)"` → `RM-RECURSIVE`, `"$(echo git)" push --force …` →
+`UNPARSEABLE`, `cd /opt/crooks-os && echo x >app/main.py` (no space) → `PROTECTED-PATH`,
+`… echo $(date) > app/main.py` → `PROTECTED-PATH`, `git commit -m "a (b) c"` → allowed,
+`ls $(` → `UNPARSEABLE`. Two gave a verdict I had not expected, and both are **identical on the
+unrepaired base `d7911b2`** (checked against a `git show` copy of the base file, then deleted):
+`cd /opt/crooks-os && echo x | tee /tmp/y` → `PROTECTED-CWD` (tee is not read-only under a
+protected cwd; pre-existing, conservative), and `echo $((2*3))` → `UNPARSEABLE` (arithmetic
+expansion with a glob character in it is refused as a dynamic word; `$((1+2))` is allowed;
+pre-existing, conservative). Neither is in F-1…F-5 and neither was touched; flagged for the
+reviewer so they are not mistaken for regressions.
 
-## 6. What I changed
+## 5. Files changed
 
-**Nothing in any repository.** No file in the candidate worktree, the builder, or production was
-created, modified or deleted by this round. The only file written outside `/root/.claude` is this
-handoff, `bridge/claude-outbox.md`. (In `/root/.claude` I saved one memory note about this failure
-mode for future rounds; that is session memory, not a repo or account change.)
+Only in the candidate worktree, only in commit `fe96bb6`:
 
-- Production branch HEAD: `1cf3a0f3361b79f9de208d80f501543c53c244b5`, clean, unchanged.
-- Candidate branch HEAD: `d7911b24979be2306749b7333ec60edc28cba857` local and remote, unchanged.
-- Builder HEAD: `295e483…`, clean, unchanged. `.git/info/exclude` still ends with the owner's
-  `.worktrees/` line, mtime 2026-09-19 19:47:45 — **not touched**.
-- Files changed by this round: none. Files left as found: the three in §2.
-- Commits: none. Pushes: none. Amend/reset/clean/stash: none.
+```
+crooks-assistant/scripts/hooks/gitleaks_gate.py               |   2 +
+crooks-assistant/scripts/hooks/guard_bash.py                  | 156 ++++----   (2,024 → 2,060 lines)
+crooks-assistant/tests/test_harness_review_d7911b2_repairs.py | 339 +++++  (new)
+```
 
-## 7. Service and server state (read-only)
+No other file in the worktree, builder, production or bridge was created, modified or deleted.
+The only file written outside the worktree is this handoff, `bridge/claude-outbox.md`.
 
-`crooks-assistant.service` **active**; `crooks-bridge-watcher.service` **active**; `ss -ltn` shows
-the API on `127.0.0.1:8000` only, nothing on `0.0.0.0:8000`. `/health` not called. Watcher unit not
-read for content, not edited. Network: two explicit `git fetch` reads and `git ls-remote` reads
-only; no push. No `.claude/` file exists anywhere in the builder or worktree.
+## 6. Repository, service and server state at the end (read-only)
 
-## 8. Safety constraints — all preserved
+- Production `/opt/crooks-os`: `claude/linux-prod-migration-production` @
+  `1cf3a0f3361b79f9de208d80f501543c53c244b5`, clean, unchanged, never edited/switched/reset.
+- Builder `/opt/crooks-builder`: `claude/builder-environment-repair` @ `295e483…`, clean, unchanged.
+  `.git/info/exclude` still ends with the owner's `.worktrees/` line, mtime 2026-09-19 19:47:45 —
+  not touched.
+- Candidate worktree: `claude/harness-hooks-experiment` @ `fe96bb6…`, clean; remote identical.
+  No `.claude/` directory exists in it (hooks remain inactive; nothing applied).
+- Bridge `/opt/crooks-ai-bridge`: `crooks-ai-bridge` @ `2913282…`; only `bridge/claude-outbox.md`
+  modified, for the watcher to publish.
+- `crooks-assistant.service` active; `crooks-bridge-watcher.service` active; neither read for
+  content, edited, restarted. `ss -ltn`: API on `127.0.0.1:8000` only; nothing on `0.0.0.0:8000`.
+  `/health` not called.
+- Network: explicit `git fetch` reads, `git ls-remote` reads, and **one push** of
+  `claude/harness-hooks-experiment` (`d7911b2..fe96bb6`). No other outward action.
+
+## 7. Safety constraints — all preserved
 
 `writes_enabled` false; `CROOKS_WRITES_LOCAL_OWNER` false; FastAPI on 127.0.0.1; port 8000 not
 public; proposal/action/verification semantics untouched; no live Shopify, Gmail or ElevenLabs
-call; no external mutation; V2 not begun; UI untouched; Mac deploy/rollback untouched;
-`/root/.claude` writable and used only for this session's memory note; no `/root/.claude`
+call; no external mutation beyond the one authorised branch push; V2 not begun; UI untouched; Mac
+deploy/rollback untouched; `/root/.claude` writable and not modified this round; no `/root/.claude`
 settings, account, MCP, connector, identity or credential change; no watcher/systemd change; no
-`.claude/` activation; no merge, deploy, install, start or restart; no destructive reset/clean/
-stash; no external spend or business write; **no secret value read, printed or committed**
-(the journal was filtered for token/secret/password before reading and contained none); nothing
-outside `bridge/claude-outbox.md` touched in the bridge. D-19 remains empirically unproven and was
-not touched.
+`.claude/` activation; no merge, deploy, install, start or restart; no reset/clean/stash; no
+amend/rebase (one new commit on the exact reviewed SHA); no external spend or business write;
+**no secret value read, printed or committed** (gitleaks range scan clean). D-19 and D-14 remain
+owner-held and untouched.
 
-## 9. Errors and limits
+## 8. Errors and limits
 
-- **Blocker (this round):** candidate worktree dirty at start (§2–§3). Deterministic; the watcher's
-  60-second retry cannot clear it and will not recur now that this outbox marks the inbox processed.
+- No errors this round. The full suite ran in the foreground (3 min 50 s) and finished before this
+  handoff was written; no background job was left running.
 - `git fetch --all` still fails on the builder's stale refspec; explicit fetches used; not changed.
-- The context-test setup error under `-n 4` (§5 note 2) is transient; re-run singly if seen again.
-- The `query_international_waiting` failure (§5 note 1) remains the separate catalogue-drift item.
-- I did not run the leftover tree's hooks as a Claude session, did not fuzz, and did not attack the
-  leftover repair adversarially: that is the next independent review's job, not the implementer's,
-  and this round did not implement.
+- The `query_international_waiting` failure (§4 note 1) is the separate catalogue-drift item, still
+  open at base level.
+- The `$(( ))` arithmetic and `tee`-under-protected-cwd verdicts (§4 note 3) are pre-existing
+  conservative denials, outside this repair; noted, not changed.
+- I did not run the repaired hooks as a live Claude session, did not fuzz, and did not attack the
+  repair adversarially beyond the spot checks above: that is the next independent review's job.
 
-## 10. Decisions needing the owner / Director
+## 9. Decisions or questions needing review
 
-The repair cannot proceed until one of these is chosen and issued as a new inbox. My
-recommendation is **(A)**.
+1. **Fresh independent adversarial review bound to `fe96bb661140089647c3e6cb90a269c869a076fa`.**
+   The reviewer should re-attack the three root causes with vectors of their own (relative and
+   `..`-resolved write targets under every protected root; whole-command, wrapped, glued, nested,
+   quoted and unterminated substitutions; dynamic git subcommands in guard and gate), reproduce the
+   evidence in §4, and check that the D-01…D-13 repairs of `d7911b2` still hold.
+2. Whether `$(( ))` arithmetic should be lexed as arithmetic rather than as a command substitution
+   (§4 note 3) is a small design question for a later round, not a defect of this repair.
+3. The guard-size/auditability point from the second review (finite command-word allow-list as a
+   separate design round) is unchanged and still not a reason to reject.
 
-**(A) Continue from the leftover working tree (recommended).** Issue a new inbox that (i) states the
-worktree is expected to be at `d7911b2…` with exactly the three files of §2 modified/untracked and
-nothing else, (ii) authorises the worker to review that diff as its own, adjust as needed, and
-commit it as the single repair commit, then push and read back. Basis: the provenance is
-established by the journal and mtimes, the diff is scoped exactly to the three root causes, and
-every read-only check in §5 passes on it. The worker should re-verify identity and that exact
-dirty set before touching anything, and refuse if anything else differs.
+## 10. Exact proposed next step
 
-**(B) Discard and restart clean.** The owner (or an explicitly authorised inbox) removes the two
-modifications and the untracked test file, confirms the worktree is clean at `d7911b2…`, and
-re-issues the original repair inbox unchanged. This throws away work that, on the evidence in §5,
-is in a passing state, and reproduces it from scratch.
+Owner records `fe96bb6…` in canonical product memory as the published, not-yet-accepted third
+candidate on `claude/harness-hooks-experiment`, then issues a review inbox: independent adversarial
+review of exactly `fe96bb661140089647c3e6cb90a269c869a076fa` (base `d7911b2…`), reviewer to fetch
+by explicit ref, reproduce §4, attack the three root causes, and return `ACCEPT` or `REJECT —
+REPAIR REQUIRED` with numbered findings. Any correction is again a new commit on the same branch,
+never an amend. No merge, no `.claude/` apply, no watcher/exclude change in the meantime.
 
-Either way, the next implementer round should run the full suite in the **foreground** and write
-the outbox before its turn ends; the prior attempt was lost to a background wait, and the
-watcher's transient-failure retry then turned a lost session into a `BLOCKED` round — exactly the
-"deterministic precondition failure → BLOCKED/ESCALATED, notify once" case CURRENT_TRUTH already
-names as a durable lesson. That watcher-side classification remains an owner-held item; I did not
-touch the watcher.
+## 11. Stop
 
-## 11. Exact proposed next step
+Round complete. One commit created and pushed; remote read back; worktree clean; nothing merged,
+deployed, activated or changed outside the candidate branch and this handoff.
 
-Owner picks (A) or (B) in §10 and issues a new inbox. Under (A): one round, start check = "HEAD is
-`d7911b2…` and the dirty set is exactly {`scripts/hooks/guard_bash.py` M,
-`scripts/hooks/gitleaks_gate.py` M, `tests/test_harness_review_d7911b2_repairs.py` ??}", then
-review/adjust the diff, run repair tests + targeted set + full suite (foreground) + Ruff + redacted
-range gitleaks `d7911b2..<new>`, one commit, push, read back the remote SHA, confirm clean
-worktree, report — then a fresh independent adversarial review bound to the new SHA. No merge, no
-`.claude/` apply, no watcher/exclude change.
-
-## 12. Stop
-
-Round ended at the inbox's blocking check. Nothing was implemented, committed or pushed. The
-candidate worktree is exactly as this round found it.
-
-Inbox SHA processed: `a5ca9dddf0273bec2867086a94000ef7f7f2c37e`
+Inbox SHA processed: `fb5a66e61984e7112ee6f10caaa62991ec600beb`
