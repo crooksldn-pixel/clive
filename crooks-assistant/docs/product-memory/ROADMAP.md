@@ -12,12 +12,12 @@ The final Sequencing rule and DEC-046 are authoritative for execution order. Eng
 # NOW — make the current CROOKS product genuinely reliable
 
 ## N1. Complete the always-on Linux deployment
-**Status:** BUILDING
+**Status:** RUNNING / PARTIALLY VERIFIED — production state ratified at `1cf3a0f`; remaining Gmail/device verification open
 
-- finish review of Linux migration code
-- provision secrets safely
-- install `crooks-assistant.service`
-- enable private Tailscale HTTPS
+- Linux migration candidate `1cf3a0f` reviewed and owner-ratified in production (DEC-048)
+- provision remaining secrets safely — Gmail OAuth still outstanding; no new secret provisioning approved by DEC-048
+- `crooks-assistant.service` installed/enabled/running and ratified
+- private tailnet-only Tailscale HTTPS active and ratified
 - verify reboot recovery
 - verify Claude Max auth under systemd
 - verify Shopify read path
@@ -202,7 +202,7 @@ Agents should escalate decisions that are fundamentally product/taste/strategy q
 The owner should not be used as a command courier.
 
 ## D7. Engineering Orchestrator V1
-**Status:** IMPLEMENTATION AUTHORISED — awaiting preceding DEC-046 prerequisite gates
+**Status:** IMPLEMENTATION AUTHORISED — harness preparation active; current-product/device/quality gates still precede major V1 implementation
 
 Detailed proposal: [ENGINEERING_ORCHESTRATOR_V1.md](./ENGINEERING_ORCHESTRATOR_V1.md). Record/review/recovery contracts and the proposed first trial are in [DEV_TEAM_V1_PILOT.md](./DEV_TEAM_V1_PILOT.md). The owner has explicitly authorised V1 implementation under the existing canonical specification and safety boundaries. DEC-046's preceding deployment/current-product gates remain binding; unresolved mechanism choices still require the reviews described by the specification.
 
@@ -700,11 +700,11 @@ Do not jump to Later/Someday because the concept is exciting.
 The current sequence, reaffirmed by the owner in the 2026-09-19 migration continuation (DEC-046), is:
 
 1. finish and review the permanent Builder Environment,
-2. complete controlled Linux production migration/promotion,
-3. provision runtime secrets through the approved process,
-4. establish the always-on server runtime,
-5. enable private Tailscale HTTPS when approved,
-6. verify real Samsung/iPhone/runtime behaviour,
+2. **controlled Linux production migration/promotion — ratified complete at `1cf3a0f`,**
+3. provision remaining runtime secrets through the approved process — Gmail OAuth outstanding,
+4. **always-on server runtime — installed/enabled/running and ratified,**
+5. **private tailnet-only Tailscale HTTPS — active and ratified,**
+6. verify real Samsung/iPhone/runtime behaviour — iPhone observed; Samsung outstanding,
 7. perfect current UI,
 8. perfect response behaviour and latency,
 9. conduct real-world CROOKS sessions and collect evidence,
