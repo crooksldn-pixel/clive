@@ -117,6 +117,8 @@ def _publish_actions(command: str) -> list[tuple[str, list[str], str | None]]:
             call = gb._git_subcommand(toks)
             if call is None:
                 continue
+            if gb._dynamic_word(call.sub):
+                raise ValueError("dynamic git subcommand")  # F-4: it may be a publish
             if call.sub in PUBLISH_SUBCOMMANDS:
                 actions.append((call.sub, call.rest, call.chdir))
     return actions

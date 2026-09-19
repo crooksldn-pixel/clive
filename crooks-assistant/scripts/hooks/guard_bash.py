@@ -129,9 +129,12 @@ RESERVED = frozenset({"{", "}", "!", "do", "done", "then", "else", "fi", "elif",
 ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.DOTALL)
 GIT_ENV_PATHS = frozenset({"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
                            "GIT_OBJECT_DIRECTORY"})
-# The segmenter puts this word in front of a command whose command word was produced by a
-# `$( … )` or backtick substitution: the hook cannot know what will run.
+# The segmenter replaces every `$( … )` or backtick substitution with this word (the body is
+# evaluated separately). Wherever the marker lands in command-word position — alone, behind a
+# wrapper or an assignment, or glued to a literal prefix — the hook cannot know what will run
+# and refuses (D-03; F-2/F-3 of the review of d7911b2). As an argument it is inert.
 SUBST_MARKER = "$SUBST"
+MAX_SUBSTITUTION_NESTING = 16
 DYNAMIC_WORD_CHARS = "$`{*?["
 
 READ_ONLY_COMMANDS = frozenset(
@@ -485,34 +488,68 @@ def _substitution_bodies(text: str) -> list[str]:
     return [f for f in found if f.strip()]
 
 
-def _segments(text: str) -> list[tuple[str, bool]]:
-    """Split at unquoted `;`, newline, `|`, `&`, `(`, `)` and backticks. The second element
-    says whether the segment is the right-hand side of a single `|`.
+def _substitution_end(text: str, start: int) -> int:
+    """Index of the `)` or backtick that closes the substitution opening at `start` (`$(` or a
+    backtick), tracking escapes, quotes and nested parentheses. ValueError when it never
+    closes: the hook then refuses the command rather than guess where the substitution ends."""
+    j = start + 1
+    if text[start] == "`":
+        while j < len(text):
+            if text[j] == "\\":
+                j += 2
+                continue
+            if text[j] == "`":
+                return j
+            j += 1
+        raise ValueError("unterminated backtick substitution")
+    depth = 1
+    quote: str | None = None
+    j = start + 2
+    while j < len(text):
+        ch = text[j]
+        if ch == "\\" and quote != "'":
+            j += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return j
+        j += 1
+    raise ValueError("unterminated command substitution")
 
-    A `$( … )` or backtick substitution that *starts* a command (nothing but whitespace before
-    it) produces the command word, and the hook cannot know what that word will be: the text
-    that follows the substitution is emitted with SUBST_MARKER in front so that the evaluator
-    refuses it (D-03). The substitution's own body is still emitted and evaluated as usual."""
+
+def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
+    """Split at unquoted `;`, newline, `|`, `&`, `(` and `)`. The second element says whether
+    the segment is the right-hand side of a single `|`.
+
+    A `$( … )` or backtick substitution is lexed as a piece of a word, not as a boundary: its
+    body is emitted first, as segments of its own (it runs, so it is evaluated as usual), and
+    the substitution itself is replaced by SUBST_MARKER in the enclosing text. The evaluator
+    then sees a dynamic word wherever the substitution's output would be the command word —
+    on its own, behind a passthrough wrapper or an assignment, or glued to a literal prefix
+    (D-03; F-2/F-3 of the review of d7911b2) — and leaves it inert as an argument
+    (`echo $(date)`, `x=$(…)`). An unterminated substitution raises ValueError."""
+    if nesting > MAX_SUBSTITUTION_NESTING:
+        raise ValueError("substitutions nested too deeply")
     out: list[tuple[str, bool]] = []
     buf: list[str] = []
     quote: str | None = None
     piped = False
-    depth = 0
-    dynamic: set[int] = set()  # depths whose continuation began with a substitution
-    in_backtick = False
     i = 0
     n = len(text)
 
-    def flush(next_piped: bool, *, new_command: bool = False) -> None:
+    def flush(next_piped: bool) -> None:
         nonlocal buf, piped
         seg = "".join(buf).strip()
         if seg:
-            if depth in dynamic:
-                seg = SUBST_MARKER + " " + seg
-                dynamic.discard(depth)
             out.append((seg, piped))
-        if new_command:
-            dynamic.discard(depth)
         buf = []
         piped = next_piped
 
@@ -542,44 +579,21 @@ def _segments(text: str) -> list[tuple[str, bool]]:
             continue
         if ch == "|":
             if text.startswith("||", i):
-                flush(False, new_command=True)
+                flush(False)
                 i += 2
             else:
-                flush(True, new_command=True)
+                flush(True)
                 i += 1
             continue
-        if ch == "$" and text.startswith("$(", i):
-            if not "".join(buf).strip():
-                dynamic.add(depth)
+        if ch == "`" or text.startswith("$(", i):
+            end = _substitution_end(text, i)
+            body = text[i + 1 : end] if ch == "`" else text[i + 2 : end]
+            out.extend(_segments(body, nesting + 1))
+            buf.append(SUBST_MARKER)
+            i = end + 1
+            continue
+        if ch in ("(", ")", ";", "\n", "&"):
             flush(False)
-            depth += 1
-            i += 2
-            continue
-        if ch == "`":
-            if in_backtick:
-                flush(False)
-                depth = max(0, depth - 1)
-                in_backtick = False
-            else:
-                if not "".join(buf).strip():
-                    dynamic.add(depth)
-                flush(False)
-                depth += 1
-                in_backtick = True
-            i += 1
-            continue
-        if ch == "(":
-            flush(False)
-            depth += 1
-            i += 1
-            continue
-        if ch == ")":
-            flush(False)
-            depth = max(0, depth - 1)
-            i += 1
-            continue
-        if ch in (";", "\n", "&"):
-            flush(False, new_command=True)
             i += 1
             continue
         buf.append(ch)
@@ -686,7 +700,8 @@ def _evaluate_raw(raw: str, ctx: _Ctx) -> Decision:
     try:
         segs = _segments(executable)
     except ValueError:
-        return deny("UNPARSEABLE", "command could not be split into shell words (unbalanced quote)")
+        return deny("UNPARSEABLE", "command could not be split into shell words (unbalanced "
+                    "quote or unterminated substitution)")
     prev_toks: list[str] | None = None
     for seg, piped in segs:
         try:
@@ -1218,6 +1233,27 @@ def _is_read_only(base: str, toks: list[str]) -> bool:
     return base in READ_ONLY_COMMANDS
 
 
+def _write_target_problem(target: str, what: str, ctx: _Ctx, *,
+                          remote_ok: bool = False) -> Decision | None:
+    """A redirect or copy destination, resolved the way the shell will resolve it (F-1): a
+    relative target is joined to the tracked working directory before the protected-path
+    check, and a target that is not absolute is refused outright when the working directory
+    is a protected checkout — whether or not the exact directory is known, and whatever the
+    base command's read-only status. `remote_ok` leaves `host:path` destinations alone."""
+    anchored = target.startswith(("/", "~", "$"))
+    remote = remote_ok and re.match(r"^[^/]*:", target) is not None
+    resolved = target
+    if not anchored and not remote and ctx.cwd is not None:
+        resolved = posixpath.join(ctx.cwd, target)
+    hit = _protected_hit(resolved)
+    if hit:
+        return deny("PROTECTED-PATH", f"{what} into {hit}")
+    if ctx.protected_cwd and not remote and not _normalise(resolved).startswith("/"):
+        return deny("PROTECTED-CWD", f"{what} to a relative path while the working directory "
+                    "is a protected checkout")
+    return _sensitive_write(target)
+
+
 def _path_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     # Redirections into a protected or write-sensitive path, whatever the command.
     targets: list[str] = []
@@ -1230,19 +1266,14 @@ def _path_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
         if m:
             targets.append(m.group(2))
     for target in targets:
-        hit = _protected_hit(target)
-        if hit:
-            return deny("PROTECTED-PATH", f"redirecting output into {hit}")
-        result = _sensitive_write(target)
+        result = _write_target_problem(target, "redirecting output", ctx)
         if result is not None:
             return result
     if base in ("cp", "scp", "rsync", "install"):
         positional = [t for t in toks[1:] if not t.startswith("-")]
         if positional:
-            hit = _protected_hit(positional[-1])
-            if hit:
-                return deny("PROTECTED-PATH", f"{base} into {hit}")
-            result = _sensitive_write(positional[-1])
+            result = _write_target_problem(positional[-1], base, ctx,
+                                           remote_ok=base in ("scp", "rsync"))
             if result is not None:
                 return result
         return None
@@ -1410,6 +1441,11 @@ def _git_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     if call is None:
         return None
     command, rest = call.sub, call.rest
+    if _dynamic_word(command):
+        # F-4: `git $p --force`, `git ${SUB} --hard` — the flags below are only read under the
+        # literal subcommand they belong to, so an unknown subcommand is refused, not ignored.
+        return deny("UNPARSEABLE", "the git subcommand contains a variable, substitution, brace "
+                    "or glob; the hook cannot tell which git command will run")
 
     # ---- global `-c` / `--config-env` (D-06) ----------------------------------------------------
     for conf in call.configs:
