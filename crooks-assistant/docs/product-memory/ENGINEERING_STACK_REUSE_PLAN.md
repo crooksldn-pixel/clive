@@ -59,16 +59,14 @@ Run multiple trials per worker/model on exact base SHAs. Record deterministic pa
 ### P0 — selective ECC adoption, never wholesale blind install
 Candidate upstream: affaan-m/ECC. Pin an exact commit and security-review each selected skill/hook before adoption.
 
-Highest-value skill candidates for CROOKS:
-- agent-architecture-audit;
-- agent-harness-construction;
-- agent-eval;
-- ai-regression-testing;
-- automation-audit-ops;
-- benchmark-methodology;
-- security-review;
-- tdd-workflow;
-- verification-loop.
+Audited at ECC commit `07756cee15788a54506031462794ad645719b028`:
+- **ADOPT STATIC:** `agent-architecture-audit` (with reviewer tools narrowed) and `agent-harness-construction` as reference content;
+- **ADAPT / REIMPLEMENT:** `agent-eval` methodology, `ai-regression-testing`, `automation-audit-ops`, selected `tdd-workflow` RED/evidence rules, and a small CROOKS-specific security checklist;
+- **REIMPLEMENT, DO NOT IMPORT:** the useful destructive-Git decision table from ECC GateGuard as a small fail-closed CROOKS project hook with ported tests;
+- **REJECT FOR ENGINEERING:** `benchmark-methodology` (marketing rubric), `verification-loop` (duplicates existing gates and its secret-grep pattern can expose values), and the full ECC plugin/runtime/hook graph;
+- **DEFER / EFFECTIVELY REJECT FOR V1:** `unified-memory`, because canonical Git and the Orchestrator task store already own governed state.
+
+The audit found 8/10 shortlisted skills with zero SkillSpector findings; the two HIGH findings were manually verified false-positive prose matches. Full ECC installation remains unjustified because it would add a large global executable/plugin/MCP surface for little incremental value.
 
 Useful methodology but higher integration surface:
 - unified-memory — only for unreviewed cross-harness handoffs; never replace canonical Git product memory or the task store;
@@ -178,3 +176,18 @@ The target is not maximum agent count. It is:
 - exact, independently verifiable release provenance.
 
 Any added tool that does not improve one of those measures should not become permanent infrastructure.
+
+
+## Verified ECC audit result — 2026-09-19
+
+Read-only audit completed against exact ECC commit `07756cee15788a54506031462794ad645719b028`.
+
+Material findings:
+- do **not** install ECC wholesale;
+- selective static/adapted content captures the useful value with far less executable surface;
+- the most valuable code concept is ECC's destructive-Git classification table, to be reimplemented as a small CROOKS fail-closed project hook rather than imported with ECC runtime;
+- current headless Claude engineering sessions inherit the owner's claude.ai connector/plugin roster, including business connectors such as Gmail, Shopify, Google Drive, Resend and Omnisend. Current unattended connector invocation was permission-denied, but mere exposure is unnecessary context/attack surface and is not an acceptable long-term isolation boundary;
+- worker launch should therefore move toward strict MCP/plugin isolation plus a deterministic launch-time roster assertion that fails closed on unexpected tools;
+- project-scoped `.claude/` harness files remain the preferred integration shape, but the current worker permission layer has previously refused writes there; that boundary requires explicit owner approval rather than a workaround.
+
+Audit evidence lives in the bridge outbox that processed inbox blob `4f5bfb5eaa32ef151a02c153a0ecbb548ea110b8`.
