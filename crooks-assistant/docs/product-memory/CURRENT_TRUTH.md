@@ -114,3 +114,6 @@ Every substantial release should operate from a curated Active Context Pack rath
 Dev Team specification planning may proceed while earlier operational work continues. Planning does not advance its implementation gate. DEC-046 records this ordering and resolves the older conflicting roadmap footer.
 
 Do not skip safety/deployment gates merely because later architecture is more exciting.
+
+
+- **Harness repair candidate published:** `claude/harness-hooks-experiment` now points to exact candidate `d7911b24979be2306749b7333ec60edc28cba857`, one commit on top of rejected `dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e`. Implementer evidence reports 181 new repair tests passing, targeted 568 passed/2 skipped, full offline 3374 passed/10 skipped, Ruff clean, range gitleaks 0, clean worktree, and no production/account/connector/service mutation. This is **not accepted**: it now requires a fresh independent adversarial review bound to `d7911b2…`. A stale Builder fetch refspec for deleted `claude/bridge-builder` still makes `git fetch --all` fail; the implementer worked around it with explicit branch fetches. Do not treat that local refspec problem as fixed.
