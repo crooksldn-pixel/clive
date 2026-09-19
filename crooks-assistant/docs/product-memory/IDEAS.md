@@ -824,6 +824,32 @@ Capture is not implementation approval. These mechanics need architecture/securi
 
 ---
 
+
+## IDEA-052 — Transitional Engineering Console
+**Date:** 2026-09-19  
+**Status:** CAPTURED — not implementation approval  
+**Theme:** engineering UX / autonomy transition
+
+Provide a very small private control surface while the watcher/orchestrator stack is still maturing so the owner does not need Termius for routine observation and bounded recovery.
+
+The console should expose deterministic state and a tiny allow-listed action set rather than an arbitrary browser terminal. Candidate V1 surface:
+- current worker/task, inbox SHA, last processed SHA, lock, failure/block reason and model/effort;
+- Builder branch/HEAD/cleanliness and production HEAD/read-only health summary;
+- latest Claude outbox and bounded watcher logs with one-tap copy/diagnostic report;
+- refresh and, only where semantics are deterministic, retry/restart controls.
+
+Constraints:
+- private/Tailscale-only;
+- no arbitrary shell input;
+- no model-generated commands;
+- no secrets, business writes, production deployment, Git reset/clean, account-level Claude settings or privilege expansion;
+- actions map to reviewed server functions with explicit policy and audit evidence;
+- do not build around defects that should instead be removed from the autonomous control plane.
+
+Sequencing: finish the in-flight harness review, reconcile its repairs, then fix workspace-management and BLOCKED-vs-RETRY reliability before building this surface. If built, it should evolve into the Engineering Orchestrator control/approval view or be retired when it has no unique responsibility.
+
+This is intentionally compatible with the autonomy goal: the number of controls the owner needs should decrease over time. The console is a transition/control surface, not a regression to manual operation.
+
 # Capture policy
 
 New ideas should be appended with:
