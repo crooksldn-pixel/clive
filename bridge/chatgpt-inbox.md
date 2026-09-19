@@ -1,101 +1,70 @@
 # CHATGPT INBOX
 
-## 2026-09-19 — Repair rejected harness candidate after independent review
+## 2026-09-20 — Independent adversarial review of repaired harness candidate d7911b2
 
-Repository is now `crooksldn-pixel/clive`. Fetch fresh refs; do not rely on stale tracking refs.
+Repository: `crooksldn-pixel/clive`.
 
-### Objective
+### Review target
 
-Perform one bounded repair round for the independently rejected harness candidate.
-
-- branch: `claude/harness-hooks-experiment`
-- rejected candidate: `dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e`
+- candidate branch: `claude/harness-hooks-experiment`
+- exact candidate: `d7911b24979be2306749b7333ec60edc28cba857`
+- exact parent / rejected candidate: `dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e`
 - accepted Builder base: `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`
-- review inbox: `2b1030bd48ee14888e0c85b7d160fa39b2cba6eb`
-- review verdict: `REJECT — REPAIR REQUIRED`
-- current canonical product-memory head after repo rename/review record: `052a27d496845a4c8b8eddb5c32685a3892b6a72`
+- prior review inbox: `2b1030bd48ee14888e0c85b7d160fa39b2cba6eb`
+- repair inbox: `4843e76fb5523a4486c1d275f67842d3ab567ef3`
 
-Read fresh canonical truth from `claude/product-memory-foundation` and the latest review outbox before editing.
+Read fresh canonical truth from `claude/product-memory-foundation` and read the latest outbox before reviewing. Do not trust stale local tracking refs. The Builder clone currently has a stale fetch refspec for deleted `claude/bridge-builder`; explicit branch fetches are acceptable for this read-only review. Do not repair that local config in this round.
 
-### Director resolution on D-14 workspace incident
+### Contract
 
-For this current single-worker watcher, **do not remove or relocate the existing candidate worktree during this repair** and do not weaken the dirty-tree guard.
+This is an **independent, read-only, adversarial review**. Do not implement, amend, merge, deploy, install, restart, clean, reset, stash, move worktrees, modify the owner-side `.git/info/exclude`, touch `.claude/`, alter the watcher unit, or change account/global Claude/MCP/connector/identity/secrets.
 
-The owner-side `.git/info/exclude` entry for `.worktrees/` is acknowledged as a temporary operational workaround used to unblock review. Preserve the candidate's tracked `.worktrees/` ignore and document the incident/workaround accurately.
+Verify exact candidate identity first. Treat the implementer's claims as untrusted until reproduced.
 
-The durable V1 direction remains external worker attempts such as `/opt/crooks-workers/<task-id>/<attempt-id>/`, but the reviewer correctly noted the current watcher unit only grants `ReadWritePaths=/opt/crooks-builder`. Therefore moving worker workspaces outside the Builder requires a separately reviewed watcher/systemd hardening change later; **do not change the watcher unit in this repair round**.
+### Required verification
 
-### Required repair
+1. Confirm candidate is exactly one commit on top of `dd50ebb…`, branch remote points to `d7911b2…`, and production remains exactly `1cf3a0f3361b79f9de208d80f501543c53c244b5`.
+2. Re-read every prior defect D-01…D-20 and the repair diff.
+3. Re-run:
+   - `tests/test_harness_review_repairs.py`;
+   - targeted harness/roster/layout/dev-environment tests;
+   - full offline suite;
+   - Ruff;
+   - redacted gitleaks over `dd50ebb…d7911b2…`.
+4. Re-attack each repaired rule with **new vectors not copied from the repair test file**, especially:
+   - command-position substitutions/dynamic command words;
+   - shell-fed text, nested wrappers, here-strings/heredocs;
+   - brace/path/cwd tracking and relative deletes;
+   - secret-store access and environment leakage;
+   - git `-c` executable config, `-C` parsing, stash forms;
+   - project `.claude/` and `.git/hooks/` mutation paths;
+   - gitleaks publish detection laundering and timeout/fail-open paths;
+   - roster unknown/deferred surfaces.
+5. Focus specifically on new parser complexity introduced by the repair: `_segments` substitution marking, `_shell_texts` / fed-text logic, brace alternatives, cwd state, glob-prefix handling, redirect parsing, joined curl flags, and gitleaks recursion.
+6. Assess D-13 breadth (`/etc` + `/root` write protection) for both safety and material false positives. Do not change it.
+7. Assess the documented `eval "$(python3 scripts/dev_env.py env)"` replacement. Do not change product scripts.
+8. Assess guard size/auditability (now ~2024 lines) as a design concern, but do not reject solely for line count; reject only for concrete contract or operational defects.
+9. Verify the claimed D-14 documentation and that the local exclude/worktree/unit were not changed by the repair.
+10. Re-state D-19 accurately: tool-surface isolation remains empirically unproven; no live init-line experiment in this round.
 
-Create exactly one new repair commit on `claude/harness-hooks-experiment` on top of `dd50ebb…`. Do not merge.
+### Verdict
 
-Repair the review's bounded defects:
+Return exactly one:
+- `ACCEPT FOR NEXT GATE`, or
+- `REJECT — REPAIR REQUIRED`.
 
-1. **D-01 H:** deny any access, including reads, under `/etc/crooks-os/credentials` and `/etc/crooks-os/secrets`; cover `.cred` and signing-key names without reading secret values.
-2. **D-02 H:** bare `git stash` is mutating; only explicit `stash list` / `stash show` are read-only.
-3. **D-03 H:** fail closed on command-word laundering / dynamic command names; cover variable command words, ANSI-C command words and `eval`.
-4. **D-04 H:** fail closed on shell-fed text via pipes, here-strings and prose heredocs; cover literal echo/printf only where the text itself is safely re-evaluated.
-5. **D-05 M:** inspect dropped assignments and protect `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`.
-6. **D-06 M:** detect `git -c core.hooksPath=...`.
-7. **D-07 M:** deny nested Claude launches that can change permission/settings/MCP/bare/print behaviour.
-8. **D-08 M:** project `.claude/` and `.git/hooks/` are Bash-write-protected; reads may remain allowed.
-9. **D-09 M:** joined curl short options and package-manager short-option verb parsing.
-10. **D-10 bounded cases:** brace/path spellings, relative `cd` tracking, deny `cd -` when safety state becomes ambiguous, and treat `{}` placeholders as unknown for destructive targeting. Record symlink-through-parent as a textual-hook limitation rather than pretending to solve filesystem aliasing.
-11. **D-11 M:** both hooks catch unexpected exceptions and exit fail-closed with a fixed non-secret stderr line and status 2.
-12. **D-12 bounded cases:** `printf` credential variables, sliced variable forms, `/proc/*/environ`, `declare/typeset -x`, and inline interpreter environment/secret-file reads.
-13. **D-15 M→H:** gitleaks publish detection must recurse into shell `-c` / here-string forms and remain effective against the repaired laundering cases.
-14. **D-16 L:** parse `git commit -C <commit>` correctly; only treat global `git -C` before the subcommand as checkout path.
-15. **D-17 M:** use one total gitleaks scan deadline that is safely below the registered hook timeout; do not extend timeout by touching pending `.claude/settings.json`.
-16. **D-18 M:** roster assertion fails closed on undocumented/list-valued roster surfaces and includes `slash_commands` in the digest. Unknown evidence is UNKNOWN, not PASS.
-17. **D-20 L:** isolation documentation must say the runtime roster assertion is a kill switch/backstop, not the primary gate; launch configuration is the gate.
-18. Correct the stale root `CLAUDE.md` approximate test-count wording if still present.
-19. Record D-14's temporary local exclude workaround and the future external-workspace/systemd implication in `DEV_ENVIRONMENT.md` or the existing isolation/workspace doc without presenting the workaround as permanent architecture.
+Acceptance means only that this candidate is good enough to proceed to the separately owner-gated project `.claude/`/isolation activation experiment. It does **not** authorise merge, production deployment, global/account changes, connector changes, secrets, business writes, or watcher/systemd changes.
 
-### Scope decision for D-13
-
-Prefer the simpler conservative rule where it reduces code: engineering workers do not write under `/etc` or `/root` except explicitly declared scratch/approved project-local paths. Do not broaden permissions to achieve this. Preserve legitimate read-only diagnostics only where they cannot expose credentials/secrets. If implementing this general rule would materially expand or destabilise the repair, keep the narrower CROOKS rules and document D-13 as deferred; do not silently add a large new policy surface.
-
-### D-19 / tool-surface rule
-
-Do **not** claim layer-1 roster isolation is proven. The deferred-tool / `ToolSearch` question remains empirical. Do not change account/global Claude settings, MCPs/connectors, identity, credentials or watcher launch flags in this round. Record the limitation and leave the empirical isolation experiment for a separately authorised live check.
-
-### Evidence contract
-
-For every repaired defect, add a negative regression test using the review's exact vectors or an equivalent minimal vector. Demonstrate failing-before / passing-after where practical from the rejected SHA, without exposing secret values.
-
-Re-run:
-- targeted hook/roster/layout/dev-environment tests;
-- full offline suite;
-- Ruff;
-- gitleaks over the new commit/range and changed files with redaction/no secret-value output;
-- exact diff and branch identity;
-- clean candidate worktree.
-
-If the 1,340-line guard can be made materially smaller **without reducing the proved safety contract**, do so; otherwise do not refactor for line count during a security repair. Auditability matters more than an arbitrary target.
-
-### Hard boundaries
-
-- no production changes;
-- no business writes;
-- no service/systemd/Tailscale mutation;
-- no account/global Claude or connector/MCP changes;
-- no new secrets or credential reads;
-- no `.claude/` writes or workaround attempts;
-- no merge;
-- no destructive cleanup/reset/stash of owner work;
-- do not touch the current owner-side local exclude entry;
-- do not self-certify acceptance.
-
-Push the one-commit repair candidate and read back its exact remote SHA.
+If rejecting, provide a bounded defect list with severity, exact reproducer, why it violates the contract, and smallest repair. Do not implement fixes.
 
 ### Handoff
 
 Replace only `bridge/claude-outbox.md` with:
-- exact new candidate SHA and parent;
-- defects repaired/deferred with evidence;
-- test/scan results;
-- remaining limitations;
-- proof production/global/account state was untouched;
-- recommendation for a **fresh independent review** of the new SHA.
+- exact identity evidence;
+- reproduced test/scan results;
+- adversarial probes and findings;
+- production/global/account/worktree invariants;
+- exact verdict;
+- smallest safe next step.
 
-STOP after publishing the repair candidate.
+STOP after publishing the review.
