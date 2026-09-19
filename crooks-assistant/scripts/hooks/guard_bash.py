@@ -12,11 +12,16 @@ exit 0  allowed. When the command is allowed but irreversible, stdout carries
 exit 2  DENIED. The reason is one line on stderr, which Claude Code feeds back to the model.
 
 Fail closed. Input that is absent, oversized, not JSON, not an object, not a Bash call, or a
-command that cannot be tokenised is denied. There is no environment variable, file, flag or
-magic comment that disables or relaxes this hook. It reads nothing but stdin, writes nothing
-but stdout and stderr, opens no file and no socket, and never echoes the command text or any
-argument value: a reason names a rule id, a command word, or the constant protected path or
-ref that matched, never what the model typed.
+command that cannot be tokenised is denied. So is a command word the hook cannot resolve
+statically (a variable, a substitution, a brace or glob form, `eval` of dynamic text), text fed
+to a shell that the hook cannot read (a pipe from anything but a literal `echo`/`printf`, a
+here-string or heredoc it did not evaluate, a bare shell reading stdin), and — since the
+independent review of 2026-09-19 — an unexpected exception anywhere in the hook: `main` prints
+one fixed line and exits 2. There is no environment variable, file, flag or magic comment that
+disables or relaxes this hook. It reads nothing but stdin, writes nothing but stdout and
+stderr, opens no file and no socket, and never echoes the command text or any argument value:
+a reason names a rule id, a command word, or the constant protected path or ref that matched,
+never what the model typed.
 
 Provenance
 ----------
@@ -35,12 +40,30 @@ state directory, the `node -e` bootstrap, the observer/persistence hooks and the
 
 Everything under "CROOKS additions" below is new: the production/infrastructure path guard,
 protected refs, service, Tailscale, secret, live-business-call, global-Claude-config and
-pipe-to-shell rules.
+pipe-to-shell rules, and the repairs from the review of candidate dd50ebb (defect ids D-01 …
+D-13 in the tests).
 
-A Bash-text hook is a nudge, not a boundary (the audit says so, and this file agrees). The
-boundaries are the watcher's systemd sandbox, the permission layer and the builder/production
-directory split. This hook exists so that the ordinary mistake is caught before those are
-tested, and so that the reason is written down.
+Known limits — a Bash-text hook is a nudge, not a boundary
+----------------------------------------------------------
+The boundaries are the watcher's systemd sandbox, the permission layer and the
+builder/production directory split. This hook exists so that the ordinary mistake is caught
+before those are tested, and so that the reason is written down. What it cannot do, and does
+not pretend to:
+
+- **Filesystem aliasing.** A symlink created earlier (`ln -s /opt /tmp/o`) makes
+  `/tmp/o/crooks-os` reach production; the hook sees text, not inodes. Bind mounts likewise.
+- **Script files.** `bash script.sh`, `source file.sh`, `python3 script.py` and `make` targets
+  run whatever the file says. The hook checks that the file is not under a protected path and
+  stops there. Text it *can* see — `-c` strings, here-strings, heredocs, `eval`, literal
+  `echo … | sh` — it evaluates; text it cannot see from a pipe or a file is refused.
+- **Unknown static command words are allowed** (`pytest`, `ruff`, `node`, a project script).
+  Only *dynamic* words are refused. A finite allow-list is a separate design decision.
+- **Variables inside paths** (`> $OUT`, `cp x $DIR/`) are not resolved beyond assignments on
+  the same command line; `cd $DIR` leaves the tracked working directory unknown.
+- **`PATH` hijack** (`PATH=/tmp/x git …`) is a script file by another name.
+- **Interpreter code is opaque** beyond the substrings it names: `os.system("git reset
+  --hard")` inside `python3 -c` is not seen. Protected paths, `.env`-style names and
+  environment reads inside inline code are.
 """
 
 from __future__ import annotations
@@ -56,18 +79,27 @@ from dataclasses import dataclass, field
 MAX_INPUT_BYTES = 64 * 1024
 MAX_COMMAND_CHARS = 16 * 1024
 MAX_DEPTH = 4
+INTERNAL_ERROR_LINE = "guard_bash: DENY [INTERNAL-ERROR] the hook failed unexpectedly; failing closed"
 
 # ----------------------------------------------------------------------------------------------
 # CROOKS constants. Every string here may appear verbatim in a denial reason; nothing else may.
 # ----------------------------------------------------------------------------------------------
 
+# Read-only for engineering work: writes, deletes and executes-as-code are denied; reads pass.
+# Specific roots come first so that a reason names the most specific one. `/etc` and `/root`
+# as a whole are the D-13 rule: engineering workers do not write under either; scratch is
+# /tmp, /var/tmp and the checkouts.
 PROTECTED_DIRS = (
-    "/opt/crooks-os",  # the production checkout — read-only for engineering work
+    "/opt/crooks-os",  # the production checkout
     "/etc/crooks-os",  # production configuration
     "/etc/systemd",  # unit files
     "/root/.claude",  # the account-level Claude login, settings, plugins
+    "/etc",
+    "/root",
 )
 PROTECTED_FILES = ("/root/.claude.json",)  # account-level Claude configuration
+# No access at all, reads included (D-01): the live credential store.
+SECRET_DIRS = ("/etc/crooks-os/credentials", "/etc/crooks-os/secrets")
 # Recursive deletes may reach strictly inside these, never the root itself.
 CHECKOUT_ROOTS = ("/opt/crooks-builder", "/opt/crooks-ai-bridge", "/opt/crooks-bridge-watcher")
 TMP_ROOTS = ("/tmp", "/var/tmp")
@@ -85,13 +117,22 @@ PROTECTED_REFS = frozenset(
 SHARED_BRANCHES = frozenset({"main", "master", "develop", "trunk"})
 
 SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+# Commands whose argument is a shell string: it is evaluated as its own command line (D-03).
+SHELL_STRING_COMMANDS = frozenset({"eval", "watch", "su"})
 INTERPRETER_CODE_FLAG = {"python": "-c", "perl": "-e", "ruby": "-e", "node": "-e", "php": "-r"}
 PASSTHROUGH = frozenset(
     {"sudo", "doas", "env", "nohup", "nice", "ionice", "command", "exec", "time", "timeout",
-     "xargs", "builtin", "watch", "stdbuf", "chronic", "caffeinate"}
+     "xargs", "builtin", "stdbuf", "chronic", "caffeinate"}
 )
 RESERVED = frozenset({"{", "}", "!", "do", "done", "then", "else", "fi", "elif", "if", "while",
                       "until", "esac"})
+ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.DOTALL)
+GIT_ENV_PATHS = frozenset({"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+                           "GIT_OBJECT_DIRECTORY"})
+# The segmenter puts this word in front of a command whose command word was produced by a
+# `$( … )` or backtick substitution: the hook cannot know what will run.
+SUBST_MARKER = "$SUBST"
+DYNAMIC_WORD_CHARS = "$`{*?["
 
 READ_ONLY_COMMANDS = frozenset(
     {"cat", "ls", "stat", "head", "tail", "wc", "grep", "rg", "egrep", "fgrep", "zgrep", "diff",
@@ -107,6 +148,11 @@ READ_ONLY_SYSTEMCTL = frozenset(
      "list-units", "list-unit-files", "list-timers", "list-dependencies", "list-sockets",
      "list-jobs", "show-environment", "get-default", "help", "--version"}
 )
+SYSTEMCTL_VALUE_OPTS = frozenset(
+    {"-n", "--lines", "-o", "--output", "-p", "--property", "-t", "--type", "--state", "-M",
+     "--machine", "-H", "--host", "-s", "--signal", "--kill-who", "--job-mode", "--root",
+     "--preset-mode", "--timestamp", "--reboot-argument", "--boot-loader-entry"}
+)
 READ_ONLY_LAUNCHCTL = frozenset({"list", "print", "print-disabled", "blame", "dumpstate", "help"})
 READ_ONLY_TAILSCALE = frozenset(
     {"status", "ip", "netcheck", "version", "whois", "ping", "bugreport", "metrics", "help",
@@ -119,6 +165,8 @@ GIT_READ_ONLY_SUBS = frozenset(
      "help", "grep", "whatchanged", "show-ref", "verify-commit", "verify-tag", "ls-remote",
      "cherry", "range-diff", "annotate", "show-branch", "fsck"}
 )
+# git subcommands that may name a `.claude/` or `.git/hooks/` path without writing the file.
+GIT_SENSITIVE_PATH_OK = GIT_READ_ONLY_SUBS | {"add", "commit", "reset"}
 GIT_BRANCH_MUTATING_FLAGS = frozenset(
     {"-d", "-D", "-m", "-M", "-c", "-C", "-f", "--delete", "--move", "--copy", "--force", "-u",
      "--set-upstream-to", "--unset-upstream", "--edit-description", "-t", "--track"}
@@ -126,6 +174,14 @@ GIT_BRANCH_MUTATING_FLAGS = frozenset(
 GIT_CONFIG_READ_FLAGS = frozenset(
     {"--get", "--get-all", "--get-regexp", "-l", "--list", "--show-origin", "--show-scope",
      "--get-urlmatch", "get", "list"}
+)
+# Config keys whose value is a command git runs (D-06): setting one, by `-c`, `--config-env`
+# or `git config`, is a way to execute text the hook never sees.
+GIT_EXEC_CONFIG_RE = re.compile(
+    r"^(core\.(hookspath|fsmonitor|sshcommand|pager|editor|askpass|gitproxy)"
+    r"|credential\.|diff\.external|difftool\.|mergetool\.|merge\.[^.]+\.driver|filter\."
+    r"|alias\.|gpg\.program|sequence\.editor|uploadpack\.|receive\."
+    r"|remote\.[^.]+\.(uploadpack|receivepack)|ssh\.)"
 )
 
 MAKE_SERVICE_TARGETS = frozenset(
@@ -149,11 +205,22 @@ SECRET_NAME_RE = re.compile(
     r"(KEY|TOKEN|SECRET|PASS(WORD|WD)?|CREDENTIAL|COOKIE|PRIVATE|BEARER|OAUTH|API_)",
     re.IGNORECASE,
 )
+SECRET_VAR_REF_RE = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
 SECRET_FILE_RE = re.compile(
     r"^(\.env(\..+)?|.*credentials\.json|token\.json|.*\.pem|id_(rsa|ed25519|ecdsa|dsa)|.*\.key"
-    r"|.*\.p12|.*\.pfx|\.netrc|\.npmrc|\.pypirc|secrets\.json|\.credentials\.json)$"
+    r"|.*\.p12|.*\.pfx|\.netrc|\.npmrc|\.pypirc|secrets\.json|\.credentials\.json"
+    r"|.*\.cred|.*signing_key)$"
 )
 SECRET_FILE_EXAMPLES = re.compile(r"^\.env\.(example|sample|template|dist)$")
+# Dotfile names a dot-prefixed glob (`.en?`, `.env*`) could expand to.
+SECRET_DOTFILES = (".env", ".netrc", ".npmrc", ".pypirc", ".credentials.json")
+PROC_ENVIRON_RE = re.compile(r"^/proc/[^/]+/environ$")
+# Inline interpreter code that reads the environment or a credential file (D-12). Written as
+# patterns so that this file itself never contains the literal calls it looks for.
+CODE_SECRET_RE = re.compile(
+    r"os\.environ|\benviron\b|\bget(env|ENV)\b|process\.env|\$ENV\b|ENV\[|/proc/"
+    r"|\.env\b|\.credentials|\.netrc|\.pem\b|\.cred\b|signing_key|_api_key"
+)
 FILE_READERS = frozenset(
     {"cat", "head", "tail", "less", "more", "bat", "strings", "grep", "rg", "egrep", "fgrep", "awk",
      "gawk", "sed", "xxd", "od", "hexdump", "cut", "sort", "uniq", "tee", "cp", "scp", "rsync",
@@ -167,6 +234,15 @@ PACKAGE_MUTATING_VERBS = frozenset(
      "reinstall", "uninstall", "refresh", "revert", "-S", "-R", "-Syu", "-U", "-i"}
 )
 DISK_COMMANDS = frozenset({"mkfs", "wipefs", "shred", "fdisk", "sfdisk", "parted", "mkswap"})
+FIREWALL_COMMANDS = frozenset({"ufw", "iptables", "ip6tables", "nft", "firewall-cmd"})
+FIREWALL_MUTATING = frozenset(
+    {"-A", "-I", "-D", "-F", "-P", "-X", "-N", "-R", "-Z", "--append", "--insert", "--delete",
+     "--flush", "--policy", "--new-chain", "--delete-chain", "add", "delete", "flush", "allow",
+     "deny", "reject", "limit", "enable", "disable", "reset", "reload", "insert", "route",
+     "default", "--add-port", "--remove-port", "--add-service", "--remove-service"}
+)
+# curl short options that take a value; needed to read joined bundles like `-sSXPOST` (D-09).
+CURL_VALUE_LETTERS = frozenset("AbcCdDeEFHKmoPQrtTuUwxXyYz")
 GLOB_CHARS = ("*", "?", "[")
 
 CONTEXT_TEXT = (
@@ -200,10 +276,18 @@ class _Ctx:
     depth: int = 0
     protected_cwd: bool = False
     notes: list[str] = field(default_factory=list)
+    cwd: str | None = None  # the tracked absolute working directory, when it is known
+    prev_cwd: str | None = None  # what `cd -` would return to, when that is known
+    find_scope: str | None = None  # the start directory of a `find … -exec` being evaluated
 
     def note(self, text: str) -> None:
         if text not in self.notes:
             self.notes.append(text)
+
+    def child(self) -> _Ctx:
+        """A context for nested text: one level deeper, same tracked state, shared notes."""
+        return _Ctx(depth=self.depth + 1, protected_cwd=self.protected_cwd, notes=self.notes,
+                    cwd=self.cwd, prev_cwd=self.prev_cwd, find_scope=self.find_scope)
 
 
 # ----------------------------------------------------------------------------------------------
@@ -247,8 +331,11 @@ def decide(raw: bytes) -> Decision:
 def evaluate(command: str, cwd: str | None = None) -> Decision:
     """Decide one command line. Exposed for tests; `decide` is what the hook runs."""
     ctx = _Ctx()
-    if cwd and _protected_hit(cwd):
-        ctx.protected_cwd = True
+    if cwd:
+        if cwd.startswith(("/", "~")):
+            ctx.cwd = _normalise(cwd)
+        if _protected_hit(cwd):
+            ctx.protected_cwd = True
     result = _evaluate_raw(command, ctx)
     if result.denied:
         return result
@@ -256,20 +343,27 @@ def evaluate(command: str, cwd: str | None = None) -> Decision:
 
 
 def main() -> int:
-    raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
-    result = decide(raw)
-    if result.denied:
-        sys.stderr.write(f"guard_bash: DENY [{result.rule}] {result.reason}\n")
-        return 2
-    if result.context:
-        out = {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "additionalContext": " ".join(result.context),
+    try:
+        raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
+        result = decide(raw)
+        if result.denied:
+            sys.stderr.write(f"guard_bash: DENY [{result.rule}] {result.reason}\n")
+            return 2
+        if result.context:
+            out = {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "additionalContext": " ".join(result.context),
+                }
             }
-        }
-        sys.stdout.write(json.dumps(out) + "\n")
-    return 0
+            sys.stdout.write(json.dumps(out) + "\n")
+        return 0
+    except BaseException:  # noqa: BLE001 — D-11: any failure is a DENY, never a non-blocking error
+        try:
+            sys.stderr.write(INTERNAL_ERROR_LINE + "\n")
+        except BaseException:  # noqa: BLE001
+            pass
+        return 2
 
 
 # ----------------------------------------------------------------------------------------------
@@ -358,10 +452,12 @@ def _strip_heredocs(raw: str) -> tuple[str, list[tuple[str, str]]]:
 
 def _heredoc_owner(line: str) -> str:
     """'shell' when the heredoc feeds sh/bash, 'code' when it feeds an interpreter, else
-    'prose'. An owner that cannot be parsed counts as a shell (fail closed)."""
-    head = line.split("<<", 1)[0]
+    'prose'. The whole line is read (D-04): `cat <<EOF | bash` feeds a shell even though the
+    shell sits to the right of the operator. An owner that cannot be parsed counts as a shell
+    (fail closed)."""
+    head, _, tail = line.partition("<<")
     try:
-        words = shlex.split(head, posix=True)
+        words = shlex.split(head + " " + tail, posix=True)
     except ValueError:
         return "shell"
     bases = [_basename(w) for w in words]
@@ -373,10 +469,14 @@ def _heredoc_owner(line: str) -> str:
 
 
 def _code_mentions_protected(code: str) -> str | None:
-    for root in PROTECTED_DIRS + PROTECTED_FILES + ("crooks-os", ".claude"):
+    for root in PROTECTED_DIRS + PROTECTED_FILES + ("crooks-os", ".claude", ".git/hooks"):
         if root in code:
             return root
     return None
+
+
+def _code_reads_secrets(code: str) -> bool:
+    return CODE_SECRET_RE.search(code) is not None
 
 
 def _substitution_bodies(text: str) -> list[str]:
@@ -387,19 +487,32 @@ def _substitution_bodies(text: str) -> list[str]:
 
 def _segments(text: str) -> list[tuple[str, bool]]:
     """Split at unquoted `;`, newline, `|`, `&`, `(`, `)` and backticks. The second element
-    says whether the segment is the right-hand side of a single `|`."""
+    says whether the segment is the right-hand side of a single `|`.
+
+    A `$( … )` or backtick substitution that *starts* a command (nothing but whitespace before
+    it) produces the command word, and the hook cannot know what that word will be: the text
+    that follows the substitution is emitted with SUBST_MARKER in front so that the evaluator
+    refuses it (D-03). The substitution's own body is still emitted and evaluated as usual."""
     out: list[tuple[str, bool]] = []
     buf: list[str] = []
     quote: str | None = None
     piped = False
+    depth = 0
+    dynamic: set[int] = set()  # depths whose continuation began with a substitution
+    in_backtick = False
     i = 0
     n = len(text)
 
-    def flush(next_piped: bool) -> None:
+    def flush(next_piped: bool, *, new_command: bool = False) -> None:
         nonlocal buf, piped
         seg = "".join(buf).strip()
         if seg:
+            if depth in dynamic:
+                seg = SUBST_MARKER + " " + seg
+                dynamic.discard(depth)
             out.append((seg, piped))
+        if new_command:
+            dynamic.discard(depth)
         buf = []
         piped = next_piped
 
@@ -429,14 +542,44 @@ def _segments(text: str) -> list[tuple[str, bool]]:
             continue
         if ch == "|":
             if text.startswith("||", i):
-                flush(False)
+                flush(False, new_command=True)
                 i += 2
             else:
-                flush(True)
+                flush(True, new_command=True)
                 i += 1
             continue
-        if ch in (";", "\n", "&", "(", ")", "`"):
+        if ch == "$" and text.startswith("$(", i):
+            if not "".join(buf).strip():
+                dynamic.add(depth)
             flush(False)
+            depth += 1
+            i += 2
+            continue
+        if ch == "`":
+            if in_backtick:
+                flush(False)
+                depth = max(0, depth - 1)
+                in_backtick = False
+            else:
+                if not "".join(buf).strip():
+                    dynamic.add(depth)
+                flush(False)
+                depth += 1
+                in_backtick = True
+            i += 1
+            continue
+        if ch == "(":
+            flush(False)
+            depth += 1
+            i += 1
+            continue
+        if ch == ")":
+            flush(False)
+            depth = max(0, depth - 1)
+            i += 1
+            continue
+        if ch in (";", "\n", "&"):
+            flush(False, new_command=True)
             i += 1
             continue
         buf.append(ch)
@@ -495,13 +638,19 @@ def _double_quoted_substitutions(segment: str) -> list[str]:
     return [b for b in out if b.strip()]
 
 
-def _tokens(segment: str) -> list[str]:
+def _tokens(segment: str) -> tuple[list[str], list[tuple[str, str]]]:
+    """Shell words of one segment, and the leading `NAME=value` assignments that were in front
+    of the command word (inspected by the evaluator, D-05)."""
     toks = shlex.split(segment, comments=False, posix=True)
-    while toks and (toks[0] in RESERVED or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0])):
-        toks.pop(0)
+    assigned: list[tuple[str, str]] = []
+    while toks and (toks[0] in RESERVED or ASSIGNMENT_RE.match(toks[0])):
+        t = toks.pop(0)
+        m = ASSIGNMENT_RE.match(t)
+        if m and t not in RESERVED:
+            assigned.append((m.group(1), m.group(2)))
     while toks and toks[-1] in ("{", "}"):
         toks.pop()
-    return toks
+    return toks, assigned
 
 
 def _basename(token: str) -> str:
@@ -517,6 +666,14 @@ def _interp(base: str) -> str | None:
     return None
 
 
+def _dynamic_word(word: str) -> bool:
+    """A command word the hook cannot resolve statically (D-03): a variable, a substitution,
+    a brace form or a glob. `[` and `[[` are the test builtins, not globs."""
+    if word in ("[", "[["):
+        return False
+    return any(c in word for c in DYNAMIC_WORD_CHARS)
+
+
 # ----------------------------------------------------------------------------------------------
 # Evaluation
 # ----------------------------------------------------------------------------------------------
@@ -530,55 +687,82 @@ def _evaluate_raw(raw: str, ctx: _Ctx) -> Decision:
         segs = _segments(executable)
     except ValueError:
         return deny("UNPARSEABLE", "command could not be split into shell words (unbalanced quote)")
-    prev_base = ""
+    prev_toks: list[str] | None = None
     for seg, piped in segs:
         try:
-            toks = _tokens(seg)
+            toks, assigned = _tokens(seg)
         except ValueError:
             return deny("UNPARSEABLE", "command could not be tokenised (unbalanced quote)")
         if not toks:
+            prev_toks = None
             continue
-        result = _evaluate_tokens(toks, ctx, piped_from=prev_base if piped else "")
+        result = _evaluate_tokens(toks, ctx, piped_from=prev_toks if piped else None,
+                                  assigned=assigned)
         if result.denied:
             return result
-        prev_base = _basename(toks[0])
+        prev_toks = toks
         # `echo "$(rm -rf x)"`: a substitution inside DOUBLE quotes still executes. The segmenter
         # leaves quoted text intact, so those bodies are pulled out here and evaluated on their
         # own. Single-quoted text is literal and is left alone.
         for body in _double_quoted_substitutions(seg):
-            sub = _Ctx(depth=ctx.depth + 1, protected_cwd=ctx.protected_cwd, notes=ctx.notes)
-            result = _evaluate_raw(body, sub)
+            result = _evaluate_raw(body, ctx.child())
             if result.denied:
                 return result
     for kind, body in extra:
         if kind == "code":
-            root = _code_mentions_protected(body)
-            if root:
-                return deny("INTERPRETER-PROTECTED-PATH",
-                            f"interpreter code fed by heredoc names {root}; the hook cannot see "
-                            "what it does")
+            result = _code_rule(body, "interpreter code fed by heredoc")
+            if result is not None:
+                return result
             continue
-        sub = _Ctx(depth=ctx.depth + 1, protected_cwd=ctx.protected_cwd, notes=ctx.notes)
-        result = _evaluate_raw(body, sub)
+        result = _evaluate_raw(body, ctx.child())
         if result.denied:
             return result
     return ALLOW
 
 
-def _evaluate_tokens(toks: list[str], ctx: _Ctx, piped_from: str = "") -> Decision:
+def _code_rule(code: str, what: str) -> Decision | None:
+    root = _code_mentions_protected(code)
+    if root:
+        return deny("INTERPRETER-PROTECTED-PATH",
+                    f"{what} names {root}; the hook cannot see what it does")
+    if _code_reads_secrets(code):
+        return deny("INTERPRETER-SECRET-READ",
+                    f"{what} reads the environment or a credential file; the hook cannot see "
+                    "where the value goes")
+    return None
+
+
+def _evaluate_tokens(toks: list[str], ctx: _Ctx, piped_from: list[str] | None = None,
+                     assigned: list[tuple[str, str]] | None = None) -> Decision:
     toks = list(toks)
+    assigned = list(assigned or [])
+    if toks[0] == SUBST_MARKER:
+        return deny("UNPARSEABLE", "the command word is the output of a substitution; the hook "
+                    "cannot tell what will run")
     first = _basename(toks[0])
-    if piped_from in ("curl", "wget", "fetch") and (first in SHELLS or _interp(first)):
+    if piped_from and _basename(piped_from[0]) in ("curl", "wget", "fetch") and (
+        first in SHELLS or _interp(first)
+    ):
         return deny("PIPE-TO-SHELL", "downloading content and piping it into an interpreter")
     for _ in range(8):  # unwrap sudo/env/timeout/... in front of the real command
         if not toks:
             return ALLOW
+        if _dynamic_word(toks[0]):
+            return deny("UNPARSEABLE", "the command word contains a variable, substitution, "
+                        "brace or glob; the hook cannot tell what will run")
         base = _basename(toks[0])
         if base in SHELLS:
-            return _shell_dash_c(toks, ctx)
+            return _shell_rule(toks, ctx, piped_from)
+        if base in SHELL_STRING_COMMANDS:
+            return _shell_string_rule(base, toks, ctx)
         if base in PASSTHROUGH:
-            if base == "env" and len(toks) == 1:
-                return deny("SECRET-ECHO", "bare env prints every variable, credentials included")
+            if base == "env":
+                if len(toks) == 1:
+                    return deny("SECRET-ECHO", "bare env prints every variable, credentials included")
+                split = _env_split_string(toks)
+                if split is not None:
+                    return _shell_text(split, ctx)
+                assigned.extend(_env_assignments(toks))
             toks = _unwrap(base, toks)
             continue
         break
@@ -586,14 +770,24 @@ def _evaluate_tokens(toks: list[str], ctx: _Ctx, piped_from: str = "") -> Decisi
         return ALLOW
     base = _basename(toks[0])
 
-    if base in ("cd", "pushd"):
-        target = next((t for t in toks[1:] if not t.startswith("-")), "")
-        if target:
-            if _protected_hit(target):
-                ctx.protected_cwd = True
-            elif target.startswith("/") or target.startswith("~"):
-                ctx.protected_cwd = False
-        return ALLOW
+    # D-01: the credential store is never named, by any command, in any position.
+    for t in [*toks, *(v for _n, v in assigned)]:
+        hit = _secret_dir_hit(t)
+        if hit:
+            return deny("SECRET-FILE-READ", f"naming a path under {hit}; the credential store "
+                        "is never read, listed or copied by engineering work")
+
+    if base in ("cd", "pushd", "popd"):
+        return _cd_rule(base, toks, ctx)
+
+    result = _assignment_rule(assigned, base, toks)
+    if result is not None:
+        return result
+
+    if piped_from is not None and _interp(base):
+        result = _piped_interpreter_rule(base, toks, piped_from)
+        if result is not None:
+            return result
 
     checks = (
         _git_rule,
@@ -610,6 +804,7 @@ def _evaluate_tokens(toks: list[str], ctx: _Ctx, piped_from: str = "") -> Decisi
         _secret_rule,
         _interpreter_rule,
         _network_rule,
+        _listen_rule,
         _path_rule,
     )
     for check in checks:
@@ -619,22 +814,195 @@ def _evaluate_tokens(toks: list[str], ctx: _Ctx, piped_from: str = "") -> Decisi
     return ALLOW
 
 
-def _shell_dash_c(toks: list[str], ctx: _Ctx) -> Decision:
-    """`bash -c '<code>'` (and `-lc`, `-ec`…): evaluate the code as its own command line."""
-    for i, t in enumerate(toks[1:], start=1):
-        if t.startswith("-") and not t.startswith("--") and "c" in t[1:]:
-            if i + 1 < len(toks):
-                sub = _Ctx(depth=ctx.depth + 1, protected_cwd=ctx.protected_cwd, notes=ctx.notes)
-                return _evaluate_raw(toks[i + 1], sub)
-            return deny("UNPARSEABLE", "shell -c without a command string")
-        if t == "--":
-            break
+def _shell_text(text: str, ctx: _Ctx) -> Decision:
+    """Evaluate text a shell will execute, refusing text the hook cannot read."""
+    if any(c in text for c in "$`"):
+        return deny("UNPARSEABLE", "shell text containing a variable or substitution; the hook "
+                    "cannot tell what will run")
+    return _evaluate_raw(text, ctx.child())
+
+
+def _shell_rule(toks: list[str], ctx: _Ctx, piped_from: list[str] | None) -> Decision:
+    """`bash -c '<code>'`, `bash <<< text`, `bash <<EOF`, `echo text | sh`, `bash script.sh`.
+    Whatever the shell will run is evaluated when it can be read and refused when it cannot
+    (D-04)."""
+    try:
+        texts = _shell_texts(toks, piped_from)
+    except ValueError as exc:
+        return deny("UNPARSEABLE", f"a shell would run text the hook cannot read ({exc})")
+    for text in texts:
+        if text:
+            result = _evaluate_raw(text, ctx.child())
+            if result.denied:
+                return result
     # `bash script.sh` — a script under a protected path is executing production code.
     for t in toks[1:]:
         hit = _protected_hit(t)
         if hit:
             return deny("PROTECTED-PATH", f"executing a script from {hit} is not read-only")
     return ALLOW
+
+
+def _shell_texts(toks: list[str], piped_from: list[str] | None) -> list[str]:
+    """The command text a shell invocation will execute, when the hook can see it. Raises
+    ValueError (with a constant message) when the shell would read text the hook cannot see.
+    Returns [] for `bash script.sh` (a documented limit) and for a shell whose stdin is a
+    heredoc the caller has already evaluated."""
+    texts: list[str] = []
+    positional: list[str] = []
+    stdin_seen = False
+    i = 1
+    while i < len(toks):
+        t = toks[i]
+        if t in ("--version", "--help"):
+            return []
+        if t == "--":
+            positional.extend(toks[i + 1:])
+            break
+        if t.startswith("<<<"):
+            operand = t[3:] if len(t) > 3 else (toks[i + 1] if i + 1 < len(toks) else None)
+            if operand is None:
+                raise ValueError("here-string without text")
+            if any(c in operand for c in "$`"):
+                raise ValueError("here-string built from a variable or substitution")
+            texts.append(operand)
+            stdin_seen = True
+            i += 1 if len(t) > 3 else 2
+            continue
+        if t.startswith("<<"):
+            stdin_seen = True  # a heredoc; its body is evaluated by the heredoc owner logic
+            i += 1 if len(t) > 2 else 2
+            continue
+        if re.match(r"^\d*<", t):
+            raise ValueError("stdin redirected from a file")
+        if re.match(r"^\d*(>>|>\||>|&>>|&>)$", t):
+            i += 2
+            continue
+        if re.match(r"^\d*(>>|>\||>|&>>|&>)", t):
+            i += 1
+            continue
+        if t in ("-o", "+o", "-O", "+O"):
+            i += 2
+            continue
+        if t.startswith("-") and not t.startswith("--") and "c" in t[1:]:
+            if i + 1 >= len(toks):
+                raise ValueError("-c without a command string")
+            texts.append(toks[i + 1])
+            return texts
+        if t.startswith("-") or t.startswith("+"):
+            i += 1
+            continue
+        positional.append(t)
+        i += 1
+    if texts or stdin_seen:
+        return texts
+    if positional and positional[0] != "-":
+        return []
+    if piped_from is not None:
+        fed = _fed_text(piped_from)
+        if fed is None:
+            raise ValueError("piped from a command whose output the hook cannot read")
+        return [fed]
+    raise ValueError("no command string, script, here-string or heredoc")
+
+
+def _piped_interpreter_rule(base: str, toks: list[str],
+                            piped_from: list[str]) -> Decision | None:
+    """`… | python3`: an interpreter with no code flag and no script file runs its stdin. The
+    text is checked when it is a literal echo/printf or an evaluated heredoc, refused when it
+    is not (D-04)."""
+    key = _interp(base) or ""
+    flag = INTERPRETER_CODE_FLAG.get(key, "-c")
+    if any(t == flag or (key == "node" and t in ("--eval", "-p", "--print")) for t in toks[1:]):
+        return None
+    positional = [t for t in toks[1:] if not t.startswith("-") and not re.match(r"^\d*[<>]", t)]
+    if positional:
+        return None  # `cat data | python3 script.py`: the script is the code, a documented limit
+    fed = _fed_text(piped_from)
+    if fed is None:
+        return deny("UNPARSEABLE", "an interpreter would run text from a pipe that the hook "
+                    "cannot read")
+    return _code_rule(fed, "interpreter code fed by pipe")
+
+
+def _fed_text(prev: list[str]) -> str | None:
+    """The literal text the previous pipeline stage feeds to a shell or interpreter: the
+    arguments of a plain `echo`/`printf`, or "" when that stage owns a heredoc the caller has
+    already evaluated. None when the text cannot be known."""
+    if any(t.startswith("<<") and not t.startswith("<<<") for t in prev):
+        return ""
+    base = _basename(prev[0])
+    if base not in ("echo", "printf"):
+        return None
+    args = prev[1:]
+    if base == "echo":
+        if args and args[0].startswith("-") and "e" in args[0]:
+            return None  # `echo -e`: escape sequences the hook does not interpret
+        while args and args[0] in ("-n", "-E", "-nE", "-En"):
+            args = args[1:]
+    text = " ".join(args)
+    if any(c in text for c in "$`\\") or (base == "printf" and "%" in text):
+        return None
+    return text
+
+
+def _shell_string_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision:
+    """`eval`, `watch`, `su -c`: the argument is a shell command line (D-03)."""
+    if base == "eval":
+        text = " ".join(toks[1:])
+    elif base == "watch":
+        rest: list[str] = []
+        i = 1
+        while i < len(toks):
+            t = toks[i]
+            if t in ("-n", "--interval", "-d", "--differences", "-w", "--wait"):
+                i += 2
+                continue
+            if t.startswith("-"):
+                i += 1
+                continue
+            rest.extend(toks[i:])
+            break
+        text = " ".join(rest)
+    else:  # su
+        text = ""
+        for i, t in enumerate(toks[1:], start=1):
+            if t in ("-c", "--command") and i + 1 < len(toks):
+                text = toks[i + 1]
+                break
+            if t.startswith("--command="):
+                text = t.split("=", 1)[1]
+                break
+        if not text:
+            return deny("UNPARSEABLE", "su without -c opens a shell the hook cannot read")
+    if not text.strip():
+        return ALLOW
+    return _shell_text(text, ctx)
+
+
+def _env_split_string(toks: list[str]) -> str | None:
+    """`env -S '<string>'` splits and runs the string: return it."""
+    for i, t in enumerate(toks[1:], start=1):
+        if t in ("-S", "--split-string") and i + 1 < len(toks):
+            return toks[i + 1]
+        if t.startswith("--split-string="):
+            return t.split("=", 1)[1]
+        if t.startswith("-S") and len(t) > 2:
+            return t[2:]
+        if not t.startswith("-") and not ASSIGNMENT_RE.match(t):
+            break
+    return None
+
+
+def _env_assignments(toks: list[str]) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for t in toks[1:]:
+        m = ASSIGNMENT_RE.match(t)
+        if m:
+            out.append((m.group(1), m.group(2)))
+        elif not t.startswith("-"):
+            break
+    return out
 
 
 def _unwrap(base: str, toks: list[str]) -> list[str]:
@@ -647,7 +1015,6 @@ def _unwrap(base: str, toks: list[str]) -> list[str]:
         "ionice": {"-c", "-n", "-p", "-P", "-u"},
         "xargs": {"-I", "-n", "-P", "-L", "-d", "-a", "-E", "-s", "--max-args", "--max-procs",
                   "--replace", "--delimiter", "--arg-file"},
-        "watch": {"-n", "--interval"},
         "stdbuf": {"-i", "-o", "-e"},
     }.get(base, set())
     i = 1
@@ -663,7 +1030,7 @@ def _unwrap(base: str, toks: list[str]) -> list[str]:
         if t.startswith("-"):
             i += 1
             continue
-        if base == "env" and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", t):
+        if base == "env" and ASSIGNMENT_RE.match(t):
             i += 1
             continue
         if positional_budget:
@@ -674,6 +1041,56 @@ def _unwrap(base: str, toks: list[str]) -> list[str]:
     return toks[i:]
 
 
+def _assignment_rule(assigned: list[tuple[str, str]], base: str,
+                     toks: list[str]) -> Decision | None:
+    """Leading `NAME=value` words are not dropped unseen (D-05): a value that reaches a
+    protected path is a global option to whatever runs next."""
+    for name, value in assigned:
+        hit = _protected_hit(value)
+        if not hit:
+            continue
+        if name in GIT_ENV_PATHS:
+            if base == "git" and _is_read_only(base, toks):
+                continue
+            return deny("PROTECTED-PATH", f"{name} points git at {hit}")
+        if not _is_read_only(base, toks):
+            return deny("PROTECTED-PATH", f"an assignment names {hit} for '{base}', which is not "
+                        "a read-only command")
+    return None
+
+
+def _cd_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision:
+    """Track the working directory through absolute, home, relative and `-` targets (D-10).
+    An unresolvable target leaves it unknown; `cd -` with nothing known to return to is
+    refused rather than guessed."""
+    if base == "popd":
+        target = "-"
+    else:
+        target = next((t for t in toks[1:] if t == "-" or not t.startswith("-")), "")
+    new: str | None
+    if target == "":
+        new = "/root"
+    elif target == "-":
+        if ctx.prev_cwd is None:
+            return deny("UNPARSEABLE", "cd - with no known previous directory leaves the working "
+                        "directory ambiguous")
+        new = ctx.prev_cwd
+    elif any(c in target for c in "$`") or any(c in target for c in GLOB_CHARS):
+        new = None
+    elif target.startswith(("/", "~")):
+        new = _normalise(target)
+    elif ctx.cwd is not None:
+        new = posixpath.normpath(posixpath.join(ctx.cwd, target))
+    else:
+        new = None
+    ctx.prev_cwd, ctx.cwd = ctx.cwd, new
+    if new is not None:
+        ctx.protected_cwd = _protected_hit(new) is not None
+    elif _protected_hit(target):
+        ctx.protected_cwd = True
+    return ALLOW
+
+
 # ----------------------------------------------------------------------------------------------
 # Paths
 # ----------------------------------------------------------------------------------------------
@@ -681,48 +1098,116 @@ def _unwrap(base: str, toks: list[str]) -> list[str]:
 
 def _path_candidates(token: str) -> list[str]:
     """Every absolute or home-anchored path-looking substring of a token, so that
-    `--git-dir=/opt/x`, `>/opt/x`, `2>>/opt/x` and `host:/opt/x` are all seen."""
-    return re.findall(r"(?:^|(?<=[=:<>,@|&]))((?:~|\$\{HOME\}|\$HOME|/)[^\s:=,<>|&]*)", token)
+    `--git-dir=/opt/x`, `>/opt/x`, `2>>/opt/x`, `host:/opt/x` and `-o/opt/x` are all seen."""
+    found = re.findall(r"(?:^|(?<=[=:<>,@|&]))((?:~|\$\{HOME\}|\$HOME|/)[^\s:=,<>|&]*)", token)
+    found += re.findall(r"^-[A-Za-z]+((?:~|/)[^\s:=,<>|&]*)", token)
+    return found
 
 
 def _normalise(path: str) -> str:
     p = path
-    for home in ("${HOME}", "$HOME", "~"):
+    for home in ("${HOME}", "$HOME", "~root", "~"):
         if p == home or p.startswith(home + "/"):
             p = "/root" + p[len(home):]
             break
+    p = re.sub(r"^/+", "/", p)  # `//opt/x` is `/opt/x` on Linux; normpath keeps the pair
     if any(c in p for c in GLOB_CHARS):
         return p
     return posixpath.normpath(p)
 
 
-def _protected_hit(token: str) -> str | None:
-    """The constant protected path a token reaches, or None."""
-    for cand in _path_candidates(token) or ([token] if token.startswith(("/", "~", "$")) else []):
-        p = _normalise(cand)
-        if any(c in p for c in GLOB_CHARS):
-            for root in PROTECTED_DIRS + PROTECTED_FILES:
-                # A glob whose literal prefix sits above the root could expand into it.
+def _brace_alternatives(token: str) -> list[str] | None:
+    """Expand `{a,b}` groups the way the shell would (D-10). None when the form cannot be
+    expanded — a `{a..b}` sequence, nested braces, or too many results — which callers treat
+    as unknown. `{}` and `{single}` are literal, as in bash."""
+    if "{" not in token:
+        return [token]
+    m = re.match(r"^([^{}]*)\{([^{}]*)\}(.*)$", token, re.DOTALL)
+    if not m:
+        return None
+    pre, body, post = m.groups()
+    rest = _brace_alternatives(post)
+    if rest is None:
+        return None
+    if "," not in body:
+        if ".." in body:
+            return None
+        return [pre + "{" + body + "}" + r for r in rest]
+    out: list[str] = []
+    for alt in body.split(","):
+        out.extend(pre + alt + r for r in rest)
+        if len(out) > 32:
+            return None
+    return out
+
+
+def _hit(token: str, dirs: tuple[str, ...], files: tuple[str, ...]) -> str | None:
+    """The constant path in `dirs`/`files` that a token reaches, or None."""
+    alts = _brace_alternatives(token)
+    if alts is None:
+        alts = [token.split("{", 1)[0] + "*"]  # unexpandable brace: a glob under its prefix
+    for alt in alts:
+        for cand in _path_candidates(alt) or ([alt] if alt.startswith(("/", "~", "$")) else []):
+            p = _normalise(cand)
+            if any(c in p for c in GLOB_CHARS):
                 literal = re.split(r"[*?\[]", p, maxsplit=1)[0]
-                if fnmatch.fnmatchcase(root, p) or root.startswith(literal):
+                for root in dirs + files:
+                    # A glob whose literal prefix sits above the root could expand into it; a
+                    # glob whose literal prefix sits at or under the root is inside it.
+                    if fnmatch.fnmatchcase(root, p) or root.startswith(literal) or \
+                            literal == root or literal.startswith(root + "/"):
+                        return root
+                continue
+            for root in dirs:
+                if p == root or p.startswith(root + "/"):
                     return root
-            continue
-        for root in PROTECTED_DIRS:
-            if p == root or p.startswith(root + "/"):
-                return root
-        for f in PROTECTED_FILES:
-            if p == f:
-                return f
+            for f in files:
+                if p == f:
+                    return f
     return None
+
+
+def _protected_hit(token: str) -> str | None:
+    return _hit(token, PROTECTED_DIRS, PROTECTED_FILES)
+
+
+def _secret_dir_hit(token: str) -> str | None:
+    return _hit(token, SECRET_DIRS, ())
+
+
+def _sensitive_project_path(token: str) -> str | None:
+    """`.claude/…` and `.git/hooks/…` in any spelling, relative or absolute (D-08)."""
+    t = re.sub(r"^\d*(>>|>\||>|&>>|&>|<)", "", token)
+    parts = t.split("/")
+    if ".claude" in parts:
+        return ".claude"
+    if ".git" in parts:
+        k = parts.index(".git")
+        if parts[k + 1:k + 2] == ["hooks"]:
+            return ".git/hooks"
+    return None
+
+
+def _verb_after_options(toks: list[str], value_opts: frozenset[str]) -> str:
+    i = 1
+    while i < len(toks):
+        t = toks[i]
+        if t in value_opts:
+            i += 2
+            continue
+        if t.startswith("-"):
+            i += 1
+            continue
+        return t
+    return ""
 
 
 def _is_read_only(base: str, toks: list[str]) -> bool:
     if base == "git":
-        sub = _git_subcommand(toks)
-        return sub is not None and _git_read_only(sub[0], sub[1])
+        call = _git_subcommand(toks)
+        return call is not None and _git_read_only(call.sub, call.rest)
     if base == "systemctl":
-        verb = next((t for t in toks[1:] if not t.startswith("-")), "list-units")
-        return verb in READ_ONLY_SYSTEMCTL
+        return (_verb_after_options(toks, SYSTEMCTL_VALUE_OPTS) or "list-units") in READ_ONLY_SYSTEMCTL
     if base == "sed":
         return not any(t == "--in-place" or t.startswith("--in-place=") or
                        (t.startswith("-") and not t.startswith("--") and "i" in t[1:])
@@ -734,31 +1219,61 @@ def _is_read_only(base: str, toks: list[str]) -> bool:
 
 
 def _path_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
-    # Redirections into a protected path, whatever the command.
-    for t in toks:
-        m = re.match(r"^\d*(>>|>\||>|&>|&>>)(.+)$", t)
-        if m:
-            hit = _protected_hit(m.group(2))
-            if hit:
-                return deny("PROTECTED-PATH", f"redirecting output into {hit}")
+    # Redirections into a protected or write-sensitive path, whatever the command.
+    targets: list[str] = []
     for i, t in enumerate(toks):
-        if re.match(r"^\d*(>>|>\||>|&>|&>>)$", t) and i + 1 < len(toks):
-            hit = _protected_hit(toks[i + 1])
-            if hit:
-                return deny("PROTECTED-PATH", f"redirecting output into {hit}")
+        if re.match(r"^\d*(&>>|&>|>>|>\||>)$", t):
+            if i + 1 < len(toks):
+                targets.append(toks[i + 1])
+            continue
+        m = re.match(r"^\d*(&>>|&>|>>|>\||>)([^>|&].*)$", t)
+        if m:
+            targets.append(m.group(2))
+    for target in targets:
+        hit = _protected_hit(target)
+        if hit:
+            return deny("PROTECTED-PATH", f"redirecting output into {hit}")
+        result = _sensitive_write(target)
+        if result is not None:
+            return result
     if base in ("cp", "scp", "rsync", "install"):
         positional = [t for t in toks[1:] if not t.startswith("-")]
         if positional:
             hit = _protected_hit(positional[-1])
             if hit:
                 return deny("PROTECTED-PATH", f"{base} into {hit}")
+            result = _sensitive_write(positional[-1])
+            if result is not None:
+                return result
         return None
+    read_only = _is_read_only(base, toks)
     hits = [h for h in (_protected_hit(t) for t in toks) if h]
-    if hits and not _is_read_only(base, toks):
+    if hits and not read_only:
         return deny("PROTECTED-PATH", f"'{base}' is not a read-only command and it names {hits[0]}")
-    if ctx.protected_cwd and not _is_read_only(base, toks) and base not in ("cd", "pushd", "popd"):
+    if not read_only:
+        git_ok = False
+        if base == "git":
+            call = _git_subcommand(toks)
+            git_ok = call is not None and call.sub in GIT_SENSITIVE_PATH_OK
+        if not git_ok:
+            for t in toks[1:]:
+                result = _sensitive_write(t)
+                if result is not None:
+                    return result
+    if ctx.protected_cwd and not read_only and base not in ("cd", "pushd", "popd"):
         return deny("PROTECTED-CWD", f"'{base}' is not read-only and the working directory is a "
                     "protected checkout")
+    return None
+
+
+def _sensitive_write(token: str) -> Decision | None:
+    sens = _sensitive_project_path(token)
+    if sens == ".claude":
+        return deny("PROJECT-CLAUDE-WRITE", "writing under a .claude/ directory changes the hooks, "
+                    "rules or permissions that govern this session")
+    if sens == ".git/hooks":
+        return deny("GIT-HOOKS-WRITE", "writing under .git/hooks/ installs code that runs on "
+                    "every commit")
     return None
 
 
@@ -767,29 +1282,51 @@ def _path_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
 # ----------------------------------------------------------------------------------------------
 
 
-def _git_subcommand(toks: list[str]) -> tuple[str, list[str], list[str]] | None:
-    """(subcommand, rest, global option paths) — skips git's own global options."""
+@dataclass
+class _GitCall:
+    sub: str
+    rest: list[str]
+    paths: list[str]  # values of -C, --git-dir, --work-tree
+    configs: list[str]  # values of -c and --config-env
+    chdir: str | None  # the last -C value: the checkout git runs in
+
+
+def _git_subcommand(toks: list[str]) -> _GitCall | None:
+    """The subcommand and what precedes it — skips git's own global options, recording the
+    ones that matter (paths, `-c` configuration, `-C`). Only options *before* the subcommand
+    are global: `git commit -C HEAD` is a commit option (D-16)."""
     if not toks or _basename(toks[0]) != "git":
         return None
-    value_short = {"-c", "-C"}
-    value_long = {"--git-dir", "--work-tree", "--namespace", "--super-prefix"}
+    value_long = {"--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
     paths: list[str] = []
+    configs: list[str] = []
+    chdir: str | None = None
     i = 1
     while i < len(toks):
         t = toks[i]
-        if t in value_short or t in value_long:
-            if t != "-c" and i + 1 < len(toks):
-                paths.append(toks[i + 1])
+        if t in ("-c", "-C") or t in value_long:
+            value = toks[i + 1] if i + 1 < len(toks) else ""
+            if t == "-c" or t == "--config-env":
+                configs.append(value)
+            elif t == "-C":
+                paths.append(value)
+                chdir = value
+            elif t in ("--git-dir", "--work-tree"):
+                paths.append(value)
             i += 2
             continue
-        if t.startswith(("--git-dir=", "--work-tree=", "--namespace=", "--super-prefix=")):
+        if t.startswith(("--git-dir=", "--work-tree=")):
             paths.append(t.split("=", 1)[1])
+            i += 1
+            continue
+        if t.startswith("--config-env="):
+            configs.append(t.split("=", 1)[1])
             i += 1
             continue
         if t.startswith("-"):
             i += 1
             continue
-        return t.lower(), toks[i + 1:], paths
+        return _GitCall(t.lower(), toks[i + 1:], paths, configs, chdir)
     return None
 
 
@@ -819,7 +1356,7 @@ def _git_read_only(sub: str, rest: list[str]) -> bool:
     if sub == "config":
         return any(t in GIT_CONFIG_READ_FLAGS for t in rest)
     if sub == "stash":
-        return not rest or rest[0] in ("list", "show")
+        return rest[:1] in (["list"], ["show"])  # bare `git stash` is `stash push` (D-02)
     if sub == "reflog":
         return not rest or rest[0] not in ("expire", "delete")
     if sub == "worktree":
@@ -869,10 +1406,20 @@ def _push_destinations(rest: list[str]) -> list[str]:
 def _git_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     if base != "git":
         return None
-    sub = _git_subcommand(toks)
-    if sub is None:
+    call = _git_subcommand(toks)
+    if call is None:
         return None
-    command, rest, gpaths = sub
+    command, rest = call.sub, call.rest
+
+    # ---- global `-c` / `--config-env` (D-06) ----------------------------------------------------
+    for conf in call.configs:
+        key = conf.split("=", 1)[0].lower()
+        if key == "core.hookspath":
+            return deny("GIT-CONFIG-HOOKSPATH", "core.hooksPath changes what runs on every commit")
+        if GIT_EXEC_CONFIG_RE.match(key):
+            return deny("GIT-CONFIG-EXEC", "git -c with a configuration key whose value is a "
+                        "command git would run (fsmonitor, sshCommand, pager, editor, "
+                        "credential helper, alias, filter, …)")
 
     # ---- ECC GateGuard table (ported) ---------------------------------------------------------
     if command == "reset":
@@ -911,6 +1458,9 @@ def _git_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
         for spec in _positionals(rest)[1:]:
             if spec.startswith(":"):
                 return deny("GIT-PUSH-DELETE", "an empty-source refspec deletes the remote ref")
+        if "--all" in rest:
+            return deny("GIT-PUSH-PROTECTED-REF", "git push --all publishes every local branch; "
+                        "name the candidate branch instead")
         for d in dests:
             if d in PROTECTED_REFS:
                 return deny("GIT-PUSH-PROTECTED-REF",
@@ -944,8 +1494,8 @@ def _git_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     if command == "stash":
         if rest[:1] in (["drop"], ["clear"]):
             return deny("GIT-STASH-DROP", "git stash drop/clear destroys stashed work")
-        if rest[:1] not in ([], ["list"], ["show"]):
-            ctx.note(CONTEXT_TEXT)
+        if rest[:1] not in (["list"], ["show"]):
+            ctx.note(CONTEXT_TEXT)  # bare `git stash` included: it is `stash push` (D-02)
     if command == "reflog" and rest[:1] in (["expire"], ["delete"]):
         return deny("GIT-REFLOG-EXPIRE", "git reflog expire/delete removes the recovery net")
     if command == "update-ref" and any(t in ("-d", "--delete") for t in rest):
@@ -975,14 +1525,19 @@ def _git_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
         return deny("GIT-GC-PRUNE", "git gc --prune deletes unreachable objects")
     if command in ("prune", "prune-packed"):
         return deny("GIT-GC-PRUNE", f"git {command} deletes unreachable objects")
-    if command == "config":
-        if any(t.lower() == "core.hookspath" for t in rest):
+    if command == "config" and not _git_read_only("config", rest):
+        keys = [t.lower() for t in _positionals(rest)]
+        if any(k == "core.hookspath" for k in keys):
             return deny("GIT-CONFIG-HOOKSPATH", "core.hooksPath changes what runs on every commit")
-        if any(t in ("--global", "--system") for t in rest) and not _git_read_only("config", rest):
+        if any(GIT_EXEC_CONFIG_RE.match(k) for k in keys):
+            return deny("GIT-CONFIG-EXEC", "git config of a key whose value is a command git "
+                        "would run (fsmonitor, sshCommand, pager, editor, credential helper, "
+                        "alias, filter, …)")
+        if any(t in ("--global", "--system") for t in rest):
             return deny("GIT-CONFIG-GLOBAL", "writing global/system git config is account-level")
     if command == "symbolic-ref" and any(t in ("-d", "--delete") for t in rest):
         return deny("GIT-SYMBOLIC-REF-DELETE", "git symbolic-ref -d deletes a ref")
-    for p in gpaths:
+    for p in call.paths:
         hit = _protected_hit(p)
         if hit and not _git_read_only(command, rest):
             return deny("PROTECTED-PATH", f"git {command} against the checkout at {hit}")
@@ -996,18 +1551,42 @@ def _git_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
 
 def _delete_target_problem(target: str, ctx: _Ctx) -> str | None:
     """Why a recursive delete of this target is refused, or None when it is acceptable."""
-    if "$" in target:
-        return "target contains an unexpanded variable"
+    if "$" in target or "`" in target:
+        return "target contains an unexpanded variable or substitution"
+    if "{}" in target:
+        # `find … -exec rm -rf {}`: the start directory is what `find` deletes under, and the
+        # find rule checks it. Anywhere else (xargs -I{}) the value is unknown (D-10).
+        return None if ctx.find_scope is not None else \
+            "target is a placeholder whose value the hook cannot see"
+    alts = _brace_alternatives(target)
+    if alts is None:
+        return "target uses a brace form the hook cannot expand"
+    for alt in alts:
+        problem = _delete_one_problem(alt, ctx)
+        if problem:
+            return problem
+    return None
+
+
+def _delete_one_problem(target: str, ctx: _Ctx) -> str | None:
     t = _normalise(target)
     if t in ("/", "~", "/root", ".", "..", "./", "../", "*", "./*", "~/"):
         return "target is the filesystem root, the home directory, the current directory or a bare glob"
     if t.startswith("../") or "/../" in t or t.endswith("/.."):
         return "target is a parent-relative path"
+    resolved = False
+    if not t.startswith("/") and ctx.cwd is not None:
+        joined = posixpath.join(ctx.cwd, t)
+        t = joined if any(c in t for c in GLOB_CHARS) else posixpath.normpath(joined)
+        resolved = True
     parts = [p for p in t.split("/") if p]
-    if ".git" in parts or ".worktrees" in parts:
-        return "target contains a .git or .worktrees component"
-    if _protected_hit(target):
-        return f"target is under a protected path ({_protected_hit(target)})"
+    if ".git" in parts:
+        return "target contains a .git component"
+    if ".claude" in parts:
+        return "target contains a .claude component"
+    hit = _protected_hit(target) or (_protected_hit(t) if t.startswith("/") else None)
+    if hit:
+        return f"target is under a protected path ({hit})"
     if t.startswith("/"):
         if len(parts) <= 1:
             return "target is a top-level directory"
@@ -1015,17 +1594,24 @@ def _delete_target_problem(target: str, ctx: _Ctx) -> str | None:
             t.startswith(r + "/") and len(parts) >= 2 for r in TMP_ROOTS
         ):
             return "target is an absolute glob outside /tmp"
+        roots = list(CHECKOUT_ROOTS)
+        if ".worktrees" in parts:
+            k = parts.index(".worktrees")
+            if len(parts) <= k + 2:
+                return "target is a worktree directory or the .worktrees tree itself"
+            roots = ["/" + "/".join(parts[:k + 2])]  # the worktree is a checkout of its own
         if any(t == r for r in CHECKOUT_ROOTS):
             return "target is a checkout root"
         if any(t.startswith(r + "/") for r in TMP_ROOTS):
             return None
-        for r in CHECKOUT_ROOTS:
+        for r in roots:
             if t.startswith(r + "/"):
-                # Strictly inside a checkout, and at least two levels below its root: the
-                # top-level trees (`crooks-assistant`, `.tooling`) are not deleted by a hook-
-                # guarded worker.
+                # Strictly inside a checkout. For a path written out in full, at least two
+                # levels below its root: the top-level trees (`crooks-assistant`, `.tooling`)
+                # are not deleted by a hook-guarded worker. A relative target resolved against
+                # the tracked cwd keeps the previous contract: inside the checkout is enough.
                 below = [p for p in t[len(r):].split("/") if p]
-                if len(below) >= 2:
+                if len(below) >= (1 if resolved else 2):
                     return None
                 return "target is a top-level tree of a checkout"
         return "target is an absolute path outside /tmp, /var/tmp or a builder checkout"
@@ -1083,7 +1669,11 @@ def _find_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
                 cmd.append(toks[k])
                 k += 1
             if cmd:
-                inner = _evaluate_tokens(cmd, ctx)
+                ctx.find_scope = starts[0]
+                try:
+                    inner = _evaluate_tokens(cmd, ctx)
+                finally:
+                    ctx.find_scope = None
                 if inner.denied:
                     return inner
                 if _basename(cmd[0]) in ("rm", "rmdir", "unlink", "shred", "mv", "chmod", "chown",
@@ -1106,13 +1696,13 @@ def _find_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
 
 
 # ----------------------------------------------------------------------------------------------
-# Services, Tailscale, make, scripts, gh, claude, packages, disks, secrets, interpreters
+# Services, Tailscale, make, scripts, gh, claude, packages, disks, secrets, interpreters, network
 # ----------------------------------------------------------------------------------------------
 
 
 def _service_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     if base == "systemctl":
-        verb = next((t for t in toks[1:] if not t.startswith("-")), "list-units")
+        verb = _verb_after_options(toks, SYSTEMCTL_VALUE_OPTS) or "list-units"
         if verb not in READ_ONLY_SYSTEMCTL:
             return deny("SERVICE-MUTATION", f"systemctl {verb} — services are an owner decision")
     if base == "service":
@@ -1124,6 +1714,9 @@ def _service_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
             return deny("SERVICE-MUTATION", f"launchctl {verb}")
     if base == "crontab" and not any(t == "-l" for t in toks[1:]):
         return deny("SERVICE-MUTATION", "crontab installs persistence")
+    if base in ("systemd-run", "at", "batch"):
+        return deny("SERVICE-MUTATION", f"{base} starts a transient or scheduled unit; services "
+                    "and persistence are an owner decision")
     return None
 
 
@@ -1208,6 +1801,8 @@ def _gh_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
                 method = toks[i + 1].upper()
             elif t.startswith("--method="):
                 method = t.split("=", 1)[1].upper()
+            elif t.startswith("-X") and len(t) > 2:
+                method = t[2:].upper()
         if method not in ("", "GET", "HEAD") or any(
             t in ("-f", "-F", "--field", "--raw-field", "--input") for t in toks
         ):
@@ -1215,26 +1810,40 @@ def _gh_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     return None
 
 
+CLAUDE_READ_ONLY = frozenset({("mcp", "list"), ("mcp", "get"), ("plugin", "list"),
+                              ("config", "get"), ("config", "list"), ("config", "ls")})
+
+
 def _claude_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
-    if base != "claude" or len(toks) < 2:
+    """`claude` from inside a session: only version/help/doctor and read-only queries of the
+    account configuration pass. A nested session — print mode, a different permission mode,
+    other setting sources, another MCP config, `--bare` — runs outside this harness (D-07)."""
+    if base != "claude":
         return None
-    group = toks[1]
-    verb = toks[2] if len(toks) > 2 else ""
-    if group in ("mcp", "plugin") and verb not in ("list", "get", "", "--help", "-h"):
+    args = toks[1:]
+    if args and args[0] in ("--version", "-v", "--help", "-h", "doctor"):
+        return None
+    group = args[0] if args else ""
+    verb = args[1] if len(args) > 1 else ""
+    if group in ("mcp", "plugin", "config"):
+        if (group, verb) in CLAUDE_READ_ONLY or verb in ("", "--help", "-h"):
+            return None
         return deny("GLOBAL-CLAUDE-CONFIG", f"claude {group} {verb} changes account-level configuration")
-    if group == "config" and verb not in ("get", "list", "ls", "", "--help", "-h"):
-        return deny("GLOBAL-CLAUDE-CONFIG", f"claude config {verb} changes account-level configuration")
     if group in ("install", "update", "migrate-installer", "setup-token", "login", "logout",
                  "auth"):
         return deny("GLOBAL-CLAUDE-CONFIG", f"claude {group} changes the account-level install or login")
-    return None
+    return deny("NESTED-CLAUDE-SESSION", "launching a nested Claude session (print mode, "
+                "permission, settings, MCP, plugin or bare flags) from inside a session escapes "
+                "this harness")
 
 
 def _package_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     if base in PACKAGE_MANAGERS:
-        verb = next((t for t in toks[1:] if not t.startswith("--")), "")
-        if verb in PACKAGE_MUTATING_VERBS:
-            return deny("SYSTEM-PACKAGE", f"{base} {verb} changes the system (and /usr is read-only)")
+        verb = next((t for t in toks[1:] if not t.startswith("-")), "")  # `-y` is not a verb (D-09)
+        short = [t for t in toks[1:] if t.startswith("-") and not t.startswith("--")]
+        if verb in PACKAGE_MUTATING_VERBS or any(s in PACKAGE_MUTATING_VERBS for s in short):
+            return deny("SYSTEM-PACKAGE", f"{base} {verb or short[0]} changes the system (and /usr "
+                        "is read-only)")
     if base == "dpkg" and any(t in ("-i", "--install", "-r", "--remove", "-P", "--purge",
                                     "--configure", "--unpack") for t in toks[1:]):
         return deny("SYSTEM-PACKAGE", "dpkg install/remove changes the system")
@@ -1261,17 +1870,37 @@ def _disk_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     return None
 
 
+def _names_secret_variable(text: str) -> bool:
+    return any(SECRET_NAME_RE.search(name) for name in SECRET_VAR_REF_RE.findall(text))
+
+
+def _secret_basename(name: str) -> bool:
+    if SECRET_FILE_RE.match(name) and not SECRET_FILE_EXAMPLES.match(name):
+        return True
+    if name.startswith(".") and any(c in name for c in GLOB_CHARS):
+        return any(fnmatch.fnmatchcase(dot, name) for dot in SECRET_DOTFILES)
+    return False
+
+
 def _secret_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     args = toks[1:]
     if base in ("env", "printenv") and not [a for a in args if not a.startswith("-")]:
         return deny("SECRET-ECHO", f"bare {base} prints every variable, credentials included")
     if base == "printenv" and any(SECRET_NAME_RE.search(a) for a in args):
         return deny("SECRET-ECHO", "printing a credential-named variable")
-    if base == "echo" and any(re.match(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$", a) and
-                              SECRET_NAME_RE.search(a) for a in args):
+    if base in ("echo", "printf") and any(_names_secret_variable(a) for a in args):
         return deny("SECRET-ECHO", "echoing a credential-named variable")
-    if base in ("set", "declare", "typeset", "export") and (not args or args == ["-p"]):
+    for i, t in enumerate(toks):
+        operand = t[3:] if t.startswith("<<<") and len(t) > 3 else (
+            toks[i + 1] if t == "<<<" and i + 1 < len(toks) else "")
+        if operand and _names_secret_variable(operand):
+            return deny("SECRET-ECHO", "feeding a credential-named variable to a command as text")
+    if base in ("set", "declare", "typeset", "export") and (
+        not args or all(a in ("-p", "-x", "-px", "-xp") for a in args)
+    ):
         return deny("SECRET-ECHO", f"bare {base} dumps the environment")
+    if any(PROC_ENVIRON_RE.match(t) for t in toks):
+        return deny("SECRET-ECHO", "/proc/<pid>/environ is the environment, credentials included")
     if base == "security" and any(a in ("-w", "-g") for a in args) and args[:1] and \
             args[0].startswith("find-"):
         return deny("SECRET-ECHO", "reading a keychain password")
@@ -1287,9 +1916,16 @@ def _secret_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
             return deny("SECRET-PROVISION", f"secret-tool {args[0]}")
     if base in FILE_READERS or _interp(base):
         for a in args:
-            name = _basename(a)
-            if SECRET_FILE_RE.match(name) and not SECRET_FILE_EXAMPLES.match(name):
+            if _secret_basename(_basename(a)):
                 return deny("SECRET-FILE-READ", "reading a credential file into the transcript")
+    # `< .env` feeds the file to whatever the command is (D-12).
+    for i, t in enumerate(toks):
+        m = re.match(r"^\d*<(?!<)(.*)$", t)
+        if not m:
+            continue
+        source = m.group(1) or (toks[i + 1] if i + 1 < len(toks) else "")
+        if source and _secret_basename(_basename(source)):
+            return deny("SECRET-FILE-READ", "redirecting a credential file into a command")
     return None
 
 
@@ -1302,38 +1938,86 @@ def _interpreter_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
         if t == flag or (key == "node" and t in ("--eval", "-p", "--print")) or \
                 (key == "perl" and t == "-E"):
             code = toks[i + 1] if i + 1 < len(toks) else ""
-            root = _code_mentions_protected(code)
-            if root:
-                return deny("INTERPRETER-PROTECTED-PATH",
-                            f"inline {key} code names {root}; the hook cannot see what it does")
-            return None
+            return _code_rule(code, f"inline {key} code")
     return None
+
+
+def _curl_request(toks: list[str]) -> tuple[str, bool]:
+    """(method, has_body) for curl, reading joined short options (`-XPOST`, `-sSXPOST`,
+    `-d'{}'`) as well as separate ones (D-09)."""
+    method = ""
+    body = False
+    i = 1
+    while i < len(toks):
+        t = toks[i]
+        if t in ("-X", "--request", "--method"):
+            method = toks[i + 1].upper() if i + 1 < len(toks) else ""
+            i += 2
+            continue
+        if t.startswith(("--request=", "--method=")):
+            method = t.split("=", 1)[1].upper()
+        elif t == "--json" or t.startswith(("--data", "--form", "--upload-file", "--json=")):
+            body = True
+            if "=" not in t:
+                i += 1
+        elif t.startswith("-") and not t.startswith("--") and len(t) > 1:
+            letters = t[1:]
+            for j, ch in enumerate(letters):
+                if ch in ("d", "F", "T"):
+                    body = True
+                if ch in CURL_VALUE_LETTERS:
+                    value = letters[j + 1:]
+                    if not value:
+                        value = toks[i + 1] if i + 1 < len(toks) else ""
+                        i += 1
+                    if ch == "X":
+                        method = value.upper()
+                    break
+        i += 1
+    return method, body
 
 
 def _network_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     """An outward mutation (POST/PUT/PATCH/DELETE or a request body) to anything that is not
     loopback is outside the engineering contract. Plain GETs are how pins are fetched."""
+    if base in FIREWALL_COMMANDS:
+        if any(t in FIREWALL_MUTATING for t in toks[1:]):
+            return deny("NETWORK-MUTATION", f"{base} changes what the host exposes; networking is "
+                        "an owner decision")
+        return None
     if base not in ("curl", "wget", "http", "https", "httpie", "xh"):
         return None
-    method = ""
-    body = False
-    for i, t in enumerate(toks[1:], start=1):
-        if t in ("-X", "--request", "--method") and i + 1 < len(toks):
-            method = toks[i + 1].upper()
-        elif t.startswith(("--request=", "--method=")):
-            method = t.split("=", 1)[1].upper()
-        elif t in ("-d", "-F", "-T", "--json") or t.startswith(("--data", "--form",
-                                                                 "--upload-file", "--post-data",
-                                                                 "--post-file", "--body-data")):
-            body = True
-        elif base in ("http", "https", "httpie", "xh") and t in ("POST", "PUT", "PATCH", "DELETE"):
-            method = t
+    if base == "curl":
+        method, body = _curl_request(toks)
+    else:
+        method = ""
+        body = False
+        for i, t in enumerate(toks[1:], start=1):
+            if t in ("-X", "--request", "--method") and i + 1 < len(toks):
+                method = toks[i + 1].upper()
+            elif t.startswith(("--request=", "--method=")):
+                method = t.split("=", 1)[1].upper()
+            elif t in ("-d", "-F", "-T", "--json") or t.startswith(("--data", "--form",
+                                                                     "--upload-file", "--post-data",
+                                                                     "--post-file", "--body-data")):
+                body = True
+            elif base in ("http", "https", "httpie", "xh") and t in ("POST", "PUT", "PATCH", "DELETE"):
+                method = t
     if method in ("", "GET", "HEAD") and not body:
         return None
     if any(("127.0.0.1" in t or "localhost" in t or "[::1]" in t) for t in toks[1:]):
         return None
     return deny("OUTWARD-MUTATION", f"{base} with a mutating method or request body to a "
                 "non-loopback host")
+
+
+def _listen_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
+    """A listener bound to every interface is public exposure (DEC-020: loopback only)."""
+    for t in toks[1:]:
+        if re.search(r"(^|[=:])(0\.0\.0\.0|\[::\]|::)$", t):
+            return deny("PUBLIC-BIND", "binding a listener to all interfaces; the backend stays on "
+                        "127.0.0.1 and the tailnet route is the only exposure")
+    return None
 
 
 if __name__ == "__main__":

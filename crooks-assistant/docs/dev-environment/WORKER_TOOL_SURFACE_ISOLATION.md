@@ -78,27 +78,66 @@ help text; everything else is inference and is marked so.
 `--disable-slash-commands` is held back until it is known whether it also removes project
 skills (`.claude/skills/`), which the experiment wants to keep.
 
+**Layer 1 is not proven, and this document does not claim it is.** Two facts from the review
+of 2026-09-19 (D-19) make it an open empirical question rather than a configuration detail:
+
+- In the very session that produced the review, the account's MCP tools were presented as
+  *deferred* tools reachable through a `ToolSearch` tool, not as first-class `mcp__*` entries.
+  If the `system/init` roster lists deferred tools the same way, the absence of `mcp__*` names
+  in `tools` proves nothing by itself; `ToolSearch` (and `Skill`, `Agent`, `Workflow`) are
+  therefore in the assertion's disallowed built-ins, so a roster that carries them is red.
+- `--disallowed-tools` may only *deny* a tool rather than remove it from the roster. If so, a
+  roster the assertion accepts may be unreachable under layer 1 alone, and layer 2 (a dedicated
+  engineering identity, or API-key `--bare` with the hooks re-registered another way) becomes
+  mandatory rather than optional.
+
+Both are settled only by capturing a real init line under the account the server uses — §5,
+step 1 and 2 — which is an owner-approved live check, not something a bridge round performs.
+No account, global Claude, connector, MCP, identity, credential or watcher launch flag was
+changed in the round that wrote this paragraph.
+
 ## 4. Layer 3 — the roster assertion
+
+**It is a kill switch, not the gate.** The init message is emitted after the session — and
+its tools — exist. A watcher acting on it terminates a violating session milliseconds later,
+and a first tool call could in principle race the reader; "before the model has produced a
+single token of work" is not guaranteed and is not claimed. The gate is the launch
+configuration (layers 1–2). This assertion is the backstop that turns "the launch was
+configured correctly" into a checked statement, and the digest it produces is what the outbox
+records.
 
 `scripts/roster_assert.py` decides on the first `{"type":"system","subtype":"init"}` message:
 
 - **any** `tools` entry starting with `mcp__` → violation;
-- any built-in outside `{Read, Edit, Write, Glob, Grep, Bash}` → violation (named);
+- any built-in outside `{Read, Edit, Write, Glob, Grep, Bash}` → violation (named); the
+  built-ins `ToolSearch`, `Skill`, `Agent`, `Workflow`, `WebFetch`, `WebSearch` and the cron,
+  messaging and worktree tools are named explicitly (see D-19 above for why `ToolSearch`);
 - any entry in `mcp_servers` → violation unless explicitly allowed (default: none);
 - any plugin-namespaced slash command (`name:cmd`) → violation unless its prefix is allowed;
+- any entry in the further documented surfaces `agents`, `skills`, `plugins` → violation
+  unless explicitly allowed (default: none); a mis-typed surface → violation;
+- **any key this module does not document whose value is a list or an object → violation**
+  ("undocumented roster surface"): a plugin surface exposed under a key the code does not know
+  is UNKNOWN, and UNKNOWN fails, not passes (D-18). Undocumented *scalar* keys are recorded
+  in the report as `unknown_keys` and do not pass silently either — they are printed;
 - `permissionMode` other than the one the unit launched with → violation;
 - `tools` missing or not a list → violation ("cannot prove the roster"); any non-object message
   → violation. Missing evidence is UNKNOWN and UNKNOWN fails.
 
-It returns a report with a sha256 **roster digest** over the sorted tool and server names, for
-the outbox. `tests/test_roster_assert.py` proves each rule and the fail-closed paths on fake
-messages. Exit code 3 from the script means "do not proceed".
+It returns a report with a sha256 **roster digest** over every surface seen — sorted tool,
+server, slash-command, agent, skill and plugin names, and any undocumented surface — for the
+outbox. `tests/test_roster_assert.py` and `tests/test_harness_review_repairs.py` (D-18) prove
+each rule and the fail-closed paths on fake messages. Exit code 3 from the script means "do not
+proceed".
 
 **What is assumed about the init message and must be confirmed empirically:** the field names
 `tools` (list of str), `mcp_servers` (list of `{name, status}`), `slash_commands` (list of
-str), `permissionMode`. These are the names the Agent SDK documents for the stream-json init
-event; they were not captured on this host in this round because capturing one means launching
-a Claude session under the owner's account, which is outside the round's approval.
+str), `permissionMode`, and the further surfaces `agents`, `skills`, `plugins` that recent
+Claude Code versions may carry. These are the names the Agent SDK documents for the stream-json
+init event; they were not captured on this host because capturing one means launching a Claude
+session under the owner's account, which is outside a bridge round's approval. Whatever the
+real message carries beyond these names fails the assertion until it is documented here — that
+is the point of the undocumented-surface rule, not a defect to be silenced.
 
 **Watcher integration (sketch, not applied):** `run_claude` pipes Claude's stdout through a
 small reader that (a) writes every line to the run log as today, (b) parses the first line as

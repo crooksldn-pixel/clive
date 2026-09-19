@@ -12,8 +12,13 @@ prose around it: why each thing is here, what it may and may not do, and what is
 python3 scripts/dev_env.py doctor      # is this the pinned environment       (read-only)
 python3 scripts/dev_env.py env         # the exports a browser run needs      (read-only)
 python3 scripts/dev_env.py plan        # the steps that rebuild it            (read-only)
-eval "$(python3 crooks-assistant/scripts/dev_env.py env)"
+python3 crooks-assistant/scripts/dev_env.py env > /tmp/crooks-env.sh && . /tmp/crooks-env.sh
 ```
+
+The last line was `eval "$(…)"` until the harness repair of 2026-09-19: the project Bash guard
+(`scripts/hooks/guard_bash.py`) refuses `eval` of a substitution because it cannot read what
+the substitution produces, so the exports go through a file the guard can name. `dev_env.py`'s
+own hint text still prints the `eval` form; it is output, not a command the guard sees.
 
 All three are read-only. **`plan` prints a plan; it does not install anything** — see §9 for why
 the command that used to be called `bootstrap` is not called that any more.
@@ -414,7 +419,17 @@ flagged lines rather than accepting the verdict.
   the exact pending files are in `docs/dev-environment/PROJECT_CLAUDE_FILES_PENDING.md`. Until
   a human creates `.claude/settings.json`, **no hook is active** in any session.
 - **`.gitignore` now uses `.claude/*` plus explicit negations** (§0 of CLAUDE_PROJECT_LAYOUT),
-  and ignores `.worktrees/`. `tests/test_project_claude_layout.py` holds it there.
+  and ignores `.worktrees/`. `tests/test_project_claude_layout.py` holds it there. The ignore
+  line only takes effect on a branch that has it — see §11 for what happened before it did.
+- **The harness candidate was independently reviewed and rejected, then repaired.** The
+  review (bridge inbox `2b1030bd…`, verdict `REJECT — REPAIR REQUIRED`, defects D-01 … D-20)
+  found the committed hooks unsound against their own contract; the repair commit on
+  `claude/harness-hooks-experiment` closes D-01 … D-13 and D-15 … D-18 with one negative test
+  per defect in `tests/test_harness_review_repairs.py`, each run failing against the rejected
+  source before the fix. D-19 (whether launch flags can remove account connectors at all) is
+  an empirical question that only an owner-approved live session can answer; it is recorded in
+  `WORKER_TOOL_SURFACE_ISOLATION.md` §3 and not claimed. The repaired candidate is a **review
+  candidate**; nothing about it is accepted or active until an independent review says so.
 - **The `impeccable` scan did not finish** (§5.3).
 - **No system package was installed**; `/usr` is untouched and still read-only.
 - **No service was installed, started or changed. Tailscale untouched. Writes still disabled.
@@ -638,3 +653,39 @@ that round's handoff, because a tree cannot contain a verified statement about i
 Nothing here installs a service, opens a listening socket, writes outside the builder worktree,
 touches `/usr`, needs a credential, or runs on or against production. The approval covered
 reconstruction fetches and nothing else.
+
+---
+
+## 11. Candidate worktrees under the builder — the D-14 incident and a temporary workaround
+
+**What happened (2026-09-19).** The harness worker created its candidate as a registered git
+worktree at `/opt/crooks-builder/.worktrees/harness-hooks-experiment`, which is the right shape
+for an isolated candidate. The accepted builder branch did not yet ignore `.worktrees/`, so the
+builder's `git status --untracked-files=all` showed `?? .worktrees/`, and the watcher — whose
+precondition is a clean builder — correctly refused to start the next round. It refused the
+same deterministic condition eight times over seventy minutes, with the review inbox left
+unprocessed, because it treated a precondition failure as a transient one.
+
+**The workaround, and what it is not.** To unblock the review, the owner-side Director added
+one line, `.worktrees/`, to the builder clone's local `.git/info/exclude`, and restarted the
+watcher. That file is per-clone, unversioned and invisible to this repository: a fresh clone
+does not have it, and no test can see it. It was a bookkeeping correction after inspecting the
+actual status and confirming no unfinished tracked work — not a stash, reset or clean, and not
+a weakening of the dirty-tree guard. It is recorded here so that the builder's "clean" state
+is not silently depending on a file nobody remembers. **It is a temporary operational
+workaround, not architecture.** The candidate's tracked `.gitignore` carries the same
+`.worktrees/` line, and that is the durable form — once a branch carrying it is what the
+builder has checked out, the local exclude entry is redundant and can be removed by the owner.
+Until then it must not be touched by a worker, and this candidate does not touch it.
+
+**The durable direction, and why it is not this round's change.** Legitimate worker workspaces
+should not live where they make the canonical builder look dirty. The preferred V1 shape is
+worker attempts outside the builder — `/opt/crooks-workers/<task-id>/<attempt-id>/` or an
+equivalently proven workspace manager — and precondition failures (dirty tree, missing
+permission, missing capability, invalid task contract) should go to `BLOCKED / ESCALATED`
+with one notification instead of consuming retry cycles. Neither is done here, deliberately:
+the watcher unit grants `ReadWritePaths=/opt/crooks-builder` (plus the bridge and `/root`)
+under `ProtectSystem=strict`, so a workspace outside the builder would be read-only to the
+worker until the unit is changed, and changing the unit is a separately reviewed
+watcher/systemd hardening step with its own installer test suite. This candidate keeps its
+worktree where it is, keeps the guard as it is, and records the implication.

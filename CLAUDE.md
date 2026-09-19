@@ -13,11 +13,14 @@ safety-gated. This file points; it does not contain.
 - `crooks-assistant/docs/dev-environment/CLAUDE_PROJECT_LAYOUT.md` — this configuration, and why
 
 ## Commands (from `crooks-assistant/`)
-    make test                              # offline suite (~2800 tests)
+    make test                              # the offline suite; the count is whatever it is today
     make lint                              # ruff
     make experience                        # scenarios against the golden fixture world
     python3 scripts/dev_env.py doctor      # is the pinned tooling present? (read-only)
-    eval "$(python3 scripts/dev_env.py env)"   # before any browser check
+    python3 scripts/dev_env.py env > /tmp/crooks-env.sh && . /tmp/crooks-env.sh   # before any browser check
+
+The last line used to be `eval "$(…)"`. The Bash guard refuses `eval` of a substitution — it
+cannot read what the substitution will produce — so the exports go through a file it can name.
 
 ## Safety invariants — never edit these away
 Writes stay disabled. FastAPI binds 127.0.0.1. Models propose; the server executes and
@@ -27,7 +30,8 @@ Gmail or ElevenLabs call from engineering work. No secret value is ever printed 
 ## Builder vs production
 You are in a builder worktree. Never edit, switch or reset `/opt/crooks-os`. Never merge to
 production. Never deploy, install, start or restart a service. Never touch `/root/.claude`.
-Never push to `main`, `master`, `claude/linux-prod-migration-production`,
+Never write under `/etc` or `/root`; scratch is `/tmp`, `/var/tmp` and the checkout. Never
+push to `main`, `master`, `claude/linux-prod-migration-production`,
 `claude/product-memory-foundation` or `crooks-ai-bridge`.
 
 ## Hooks and rules
@@ -37,4 +41,5 @@ fail-closed destructive/production/secret guard; `gitleaks_gate.py`, a secret sc
 rules live in `.claude/rules/`. **If those `.claude/` files are absent in this checkout, the
 hooks are not active** — see `crooks-assistant/docs/dev-environment/PROJECT_CLAUDE_FILES_PENDING.md`
 for the exact files and why they could not be written by the worker. A denial from a hook is
-a boundary, not a puzzle: do not rephrase the command to get past it — report it.
+a boundary, not a puzzle: do not rephrase the command to get past it — report it. What the
+guard cannot see (script files, symlinks, variables in paths) is listed in its own docstring.

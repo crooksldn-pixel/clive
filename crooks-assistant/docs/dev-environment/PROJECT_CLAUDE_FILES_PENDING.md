@@ -75,6 +75,12 @@ and the only stdout either ever writes is `additionalContext`.
 }
 ```
 
+The 120 s registered for `gitleaks_gate.py` is not extended by this candidate (review D-17):
+the gate now runs every scan a single call performs — two for `git commit -a` — against **one**
+shared budget of 100 s (`TOTAL_SCAN_BUDGET_S`), so it always answers inside the registered
+timeout instead of being killed by it, which Claude Code would treat as a non-blocking error.
+`tests/test_harness_review_repairs.py` holds the budget below the number written here.
+
 Deliberately absent (CLAUDE_PROJECT_LAYOUT §4 and the ECC audit §4.11): format-on-write,
 Stop-time formatters/type-checkers, session persistence, observer/learning capture, desktop
 notification, network-on-edit, MCP health, global-config protection, any `permissions` block,
