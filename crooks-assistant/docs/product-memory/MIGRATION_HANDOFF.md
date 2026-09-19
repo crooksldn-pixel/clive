@@ -80,7 +80,7 @@ Git keeps the history. Current truth drives the next release.
 ## 3. Current engineering control-plane state
 
 Repository:
-`crooksldn-pixel/Shopify-theme`
+`crooksldn-pixel/clive`
 
 ### Production application
 
