@@ -589,3 +589,46 @@ This approval removes the separate planning → implementation authorisation gat
 Implementation may begin once the preceding DEC-046 deployment/current-product prerequisite gates are satisfied, unless the owner explicitly changes that ordering in canonical Git.
 
 **Reason:** preserve the owner's explicit implementation approval without allowing it to be misread as a blanket waiver of established safety and sequencing constraints.
+
+
+## DEC-048 — Ratify the observed Linux production promotion
+**Date:** 2026-09-19  
+**Status:** ACTIVE  
+**Source:** explicit owner ratification in the GPT Director conversation
+
+**Decision:** The owner ratified the already-observed, owner-performed Linux production promotion to exact candidate `1cf3a0f3361b79f9de208d80f501543c53c244b5`, including the installed/enabled `crooks-assistant.service` backend and tailnet-only Tailscale HTTPS route.
+
+This ratifies the existing observed runtime state; it is **not** approval for another production deployment, broader exposure, Funnel/public networking, new secrets, broader privileges, CROOKS business writes, or account-level connector changes.
+
+The observed production runtime remains:
+- checkout at exact candidate `1cf3a0f3361b79f9de208d80f501543c53c244b5`;
+- backend bound to `127.0.0.1:8000`;
+- tailnet-only Tailscale HTTPS;
+- CROOKS writes disabled.
+
+Existing already-present credential state is recorded as observed runtime state. Any **new** secret provisioning, including the still-missing Gmail OAuth token, remains separately gated.
+
+**Reason:** reconcile canonical Git with the owner-performed and independently observed production state without widening authority beyond that exact state.
+
+**Consequences:** DEC-046's controlled Linux promotion, always-on backend, and private-HTTPS gates may be treated as satisfied by the ratified state. Remaining prerequisite work includes unresolved runtime-secret gaps, real-device/runtime verification, current UI/response quality, and real-world evidence.
+
+## DEC-049 — Approve project-scoped Claude harness experiment files
+**Date:** 2026-09-19  
+**Status:** ACTIVE / BOUNDED  
+**Source:** explicit owner approval in the GPT Director conversation
+
+**Decision:** Project-scoped `.claude/` files may be created or modified **only in isolated engineering workspaces** for the reviewed CROOKS harness experiment.
+
+This approval covers the bounded project harness experiment described by the verified ECC audit/reuse plan, including reviewed project-scoped rules, skills, settings/hooks and their tests. It does **not** approve:
+- user/global `/root/.claude` or account-level setting changes;
+- connector/MCP grant changes;
+- production deployment;
+- new secrets or credentials;
+- broader privileges;
+- business writes;
+- external spend;
+- destructive actions.
+
+The worker must not route around any unrelated permission refusal; it should use only the newly approved project-scoped workspace boundary and stop on any broader permission requirement.
+
+**Reason:** enable the smallest isolated harness-hardening experiment without weakening the account, production, connector, secret or privilege boundaries.
