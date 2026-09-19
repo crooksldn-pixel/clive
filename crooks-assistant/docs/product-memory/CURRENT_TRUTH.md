@@ -26,8 +26,7 @@ Core product principles remain:
 
 - Canonical repository: `crooksldn-pixel/Shopify-theme`.
 - Canonical product memory currently lives on `claude/product-memory-foundation`; read it by explicit ref. The default theme branch is not the CROOKS product-memory source.
-- Production application branch remains `claude/crooks-assistant-build-lgxlau` at the Phase 5 candidate baseline until an explicitly reviewed promotion changes it.
-- Linux migration review ref remains separate at `1cf3a0f3361b79f9de208d80f501543c53c244b5`. Git branch state alone does not establish which files are currently installed or which service is running; fresh runtime evidence is required.
+- **Linux production is ratified at exact candidate `1cf3a0f3361b79f9de208d80f501543c53c244b5` (DEC-048).** Independent read-only reconciliation observed `/opt/crooks-os` clean and byte-identical to that candidate, `crooks-assistant.service` installed/enabled/active on `127.0.0.1:8000`, and tailnet-only Tailscale HTTPS. The owner explicitly ratified that already-performed state on 2026-09-19. This does not authorise another deployment, new secrets, broader privileges, public/Funnel exposure, or CROOKS writes.
 - The GitHub communication bridge uses orphan branch `crooks-ai-bridge`.
 - The CROOKS bridge watcher is installed and enabled. Its runtime is now explicitly pinned to `claude-fable-5-1` at `high` effort from reviewed source revision `5ada7b47f13547f107be1f53beeb79021cc48c24`; the corrected installer upgrade-order regression suite passed `126 passed, 0 failed`. A real unattended post-install smoke round consumed inbox blob `5d659fbc9418f378a10ddc5666e79ffc5b94ae7c`, published a new outbox, made no application/infrastructure/production changes, and returned the watcher to `pending no`, `failures 0`, `lock free`. The single-worker bridge therefore has a verified deterministic Claude model/effort baseline; future Engineering Orchestrator routing remains task-specific rather than permanently fixed to this one model.
 - Headless Claude runs in the standalone isolated builder clone at `/opt/crooks-builder`, not the production checkout.
@@ -37,8 +36,9 @@ Core product principles remain:
 - SkillSpector provenance is now a fail-closed PEP 610 commit check. The existing `/opt/crooks-builder` tooling was installed using the older local-path method, so its own `doctor` is expected to fail until that gitignored Builder-local tool install is reconciled to the accepted pinned git requirement. Do not mistake this expected red check for regression in the accepted candidate.
 - Mobile Experience V1 is published at `claude/mobile-experience-v1-review`, commit `564ef3430d58b34de582f5548d7fe201c4cfe04b`; it remains the single-worker control sample for the later Dev Team mobile benchmark. It was not merged or deployed.
 - A read-only ECC reuse/security audit completed against pinned commit `07756cee15788a54506031462794ad645719b028`. Full ECC plugin/runtime installation is rejected; selected static methodologies and a small reimplemented destructive-command guard are preferred. The audit also proved current headless engineering Claude sessions inherit the owner's claude.ai business connector/plugin roster even though unattended connector use is presently permission-denied. Future worker hardening must remove that unnecessary tool surface and fail closed on the observed launch roster rather than relying on prompt instructions.
+- **DEC-049 explicitly approves project-scoped `.claude/` files in isolated engineering workspaces for the reviewed harness experiment.** It does not approve `/root/.claude` or account-level changes, connector/MCP grant changes, production deployment, new secrets, broader privileges, business writes, external spend or destructive actions.
 - The Builder rejection/repair served as Dev Team contract trial `ENV-REPRO-001`. False-success handling, exact candidate identity binding, review invalidation after candidate changes, and reviewer gating were exercised. Publication retry and integration re-verification were not falsely claimed where they did not occur. Contract gaps CG-01 through CG-05 remain open and CG-06 was added by the continuation; the in-candidate record is `docs/dev-environment/CONTRACT_TRIAL_ENV_REPRO_001.md` at `295e483`.
-- Latest worker read-only runtime observations reported production checkout `/opt/crooks-os/crooks-assistant` clean at `1cf3a0f`, `crooks-assistant` installed/enabled/running on loopback `127.0.0.1:8000`, and Tailscale listening on tailnet addresses. The Builder worker changed none of this. These observations conflict with older product-memory runtime notes and require provenance/approval reconciliation before any production promotion; do not infer approval merely from current runtime state.
+- Latest worker read-only runtime reconciliation proved the ratified Linux runtime above, with writes disabled. Gmail OAuth remains absent, so `/health` was degraded for that reason in the reconciliation round; new secret provisioning remains separately gated. iPhone activity has been observed on the Linux runtime, while Samsung verification remains outstanding.
 
 ## Dev-team direction
 
@@ -95,11 +95,11 @@ Every substantial release should operate from a curated Active Context Pack rath
 ## Current near-term order
 
 1. reconcile the accepted Builder Environment into the persistent builder and canonical Dev Team trial records,
-2. complete controlled Linux production migration/promotion,
-3. provision runtime secrets through the approved process,
-4. establish the always-on server runtime,
-5. enable private Tailscale HTTPS when approved,
-6. verify real Samsung/iPhone/runtime behaviour,
+2. **Linux production migration/promotion — ratified complete at `1cf3a0f` (DEC-048),**
+3. provision remaining runtime secrets through the approved process — Gmail OAuth remains outstanding and is not authorised by DEC-048,
+4. **always-on server runtime — installed/enabled/running and ratified,**
+5. **private tailnet-only Tailscale HTTPS — active and ratified,**
+6. verify real Samsung/iPhone/runtime behaviour — iPhone observed; Samsung still outstanding,
 7. perfect current UI,
 8. perfect response behaviour and latency,
 9. conduct real-world CROOKS sessions and collect evidence,
