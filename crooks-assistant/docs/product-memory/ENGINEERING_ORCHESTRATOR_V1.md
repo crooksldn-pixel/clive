@@ -162,6 +162,17 @@ Separate execution recovery from delivery recovery:
 
 Use bounded backoff for transient transport failures, with an elapsed-time ceiling and escalation. Application failure attempts and transport retries are separate counters. Neither counter resets merely because a new manager session starts.
 
+### 9.1 Empirical refinement from the 2026-09-19 watcher incident
+
+A real bridge round exposed a concrete distinction V1 must preserve. A legitimate registered worker worktree was created under `/opt/crooks-builder/.worktrees/`; because the parent Builder did not yet ignore that directory, its cleanliness check reported `?? .worktrees/`. The watcher correctly refused to launch another worker, preserving the fail-closed rule, but then retried the same deterministic blocker eight times under transient backoff.
+
+V1 should therefore make two mechanics explicit:
+
+- **Workspace placement is part of the safety contract.** Normal worker attempts should use the external `/opt/crooks-workers/<task-id>/<attempt-id>/` layout (or an equivalently proven builder-owned bare-repository scheme) so creation of a valid worker workspace cannot itself dirty the canonical Builder. Do not solve concurrency by setting a global allow-dirty switch.
+- **Classify before retrying.** Dirty/ambiguous workspace state, missing permission, missing required credential/capability, invalid task contract, unresolved authority, protected-path refusal, or other deterministic precondition failures transition to `BLOCKED / ESCALATED`. They are persisted with exact evidence and produce one material notification. Network/provider/remote-publication failures that are demonstrably transient may retry with bounded backoff. A restart must not erase the classification or create a fresh attempt merely to reset counters.
+
+The owner-side local `.git/info/exclude` entry used to unblock this specific review is an incident workaround, not the V1 architecture. Preserve the lesson, not that mechanism.
+
 ## 10. Evidence and independent review
 
 The runner/collector records raw results independently of the worker's prose. Run candidate code in a sandbox: a passing exit status alone cannot establish that assertions were meaningful or that the test runner was uncompromised.
