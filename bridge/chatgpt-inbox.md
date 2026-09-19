@@ -1,70 +1,54 @@
 # CHATGPT INBOX
 
-## 2026-09-20 — Independent adversarial review of repaired harness candidate d7911b2
+## 2026-09-20 — Bounded repair of harness candidate after d7911b2 adversarial rejection
 
 Repository: `crooksldn-pixel/clive`.
 
-### Review target
+### Target
 
 - candidate branch: `claude/harness-hooks-experiment`
-- exact candidate: `d7911b24979be2306749b7333ec60edc28cba857`
-- exact parent / rejected candidate: `dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e`
-- accepted Builder base: `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`
-- prior review inbox: `2b1030bd48ee14888e0c85b7d160fa39b2cba6eb`
-- repair inbox: `4843e76fb5523a4486c1d275f67842d3ab567ef3`
+- rejected exact head: `d7911b24979be2306749b7333ec60edc28cba857`
+- accepted Builder base remains: `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`
+- latest independent review verdict: `REJECT — REPAIR REQUIRED`
 
-Read fresh canonical truth from `claude/product-memory-foundation` and read the latest outbox before reviewing. Do not trust stale local tracking refs. The Builder clone currently has a stale fetch refspec for deleted `claude/bridge-builder`; explicit branch fetches are acceptable for this read-only review. Do not repair that local config in this round.
+Read fresh canonical truth from `claude/product-memory-foundation` and the latest `bridge/claude-outbox.md` before changing anything. Do not trust stale local tracking refs. `git fetch --all` is known to fail because of the deleted `claude/bridge-builder` refspec; explicit branch fetches are acceptable. Do not rewrite that local Git config in this round.
 
-### Contract
+### Scope
 
-This is an **independent, read-only, adversarial review**. Do not implement, amend, merge, deploy, install, restart, clean, reset, stash, move worktrees, modify the owner-side `.git/info/exclude`, touch `.claude/`, alter the watcher unit, or change account/global Claude/MCP/connector/identity/secrets.
+Repair only the five findings F-1…F-5 from the latest independent review. They reduce to three bounded root causes:
 
-Verify exact candidate identity first. Treat the implementer's claims as untrusted until reproduced.
+1. **F-1 relative protected-target resolution:** after a literal `cd` into a protected checkout, relative output redirects/copy-like destinations must be resolved against tracked cwd and denied when they target the protected tree. Cover `>` and `>>` and representative `echo`, `printf`, `cat`; inspect adjacent copy/rsync/install destination handling for the same root cause without widening unrelated policy.
+2. **F-2/F-3/F-5 substitution marker gap:** a whole-command `$()` or backtick substitution, and a dynamic command word behind passthrough wrappers/assignments, must fail closed as `UNPARSEABLE`; the gitleaks publish detector must likewise fail closed rather than miss a publish laundered through such a substitution. Repair the shared lexer/segmenter root cause rather than adding string-specific special cases.
+3. **F-4 dynamic git subcommand:** if the parsed git subcommand itself is dynamic (`$p`, `${SUB}`, substitution, equivalent), deny `UNPARSEABLE` before destructive flags can be ignored.
 
-### Required verification
+Use the exact reproducers in the review as regression tests, then add a small number of neighbouring/adversarial variants that exercise the repaired root causes rather than merely the literal strings. Preserve ordinary safe commands with positive controls.
 
-1. Confirm candidate is exactly one commit on top of `dd50ebb…`, branch remote points to `d7911b2…`, and production remains exactly `1cf3a0f3361b79f9de208d80f501543c53c244b5`.
-2. Re-read every prior defect D-01…D-20 and the repair diff.
-3. Re-run:
-   - `tests/test_harness_review_repairs.py`;
-   - targeted harness/roster/layout/dev-environment tests;
-   - full offline suite;
-   - Ruff;
-   - redacted gitleaks over `dd50ebb…d7911b2…`.
-4. Re-attack each repaired rule with **new vectors not copied from the repair test file**, especially:
-   - command-position substitutions/dynamic command words;
-   - shell-fed text, nested wrappers, here-strings/heredocs;
-   - brace/path/cwd tracking and relative deletes;
-   - secret-store access and environment leakage;
-   - git `-c` executable config, `-C` parsing, stash forms;
-   - project `.claude/` and `.git/hooks/` mutation paths;
-   - gitleaks publish detection laundering and timeout/fail-open paths;
-   - roster unknown/deferred surfaces.
-5. Focus specifically on new parser complexity introduced by the repair: `_segments` substitution marking, `_shell_texts` / fed-text logic, brace alternatives, cwd state, glob-prefix handling, redirect parsing, joined curl flags, and gitleaks recursion.
-6. Assess D-13 breadth (`/etc` + `/root` write protection) for both safety and material false positives. Do not change it.
-7. Assess the documented `eval "$(python3 scripts/dev_env.py env)"` replacement. Do not change product scripts.
-8. Assess guard size/auditability (now ~2024 lines) as a design concern, but do not reject solely for line count; reject only for concrete contract or operational defects.
-9. Verify the claimed D-14 documentation and that the local exclude/worktree/unit were not changed by the repair.
-10. Re-state D-19 accurately: tool-surface isolation remains empirically unproven; no live init-line experiment in this round.
+### Required evidence
 
-### Verdict
+- Verify the branch/worktree starts clean at exact `d7911b24979be2306749b7333ec60edc28cba857` before editing. If identity or cleanliness differs, stop and report `BLOCKED`; do not reset, clean or stash.
+- Add regression tests for every F-1…F-5 reproducer and the root-cause neighbours.
+- Run the repair-specific harness tests and targeted guard/gitleaks/roster/layout/dev-environment tests.
+- Run the full offline suite. The review reproduced `query_international_waiting` failing identically on accepted base because of current catalogue/data drift; if and only if that exact unrelated failure reproduces identically, record it as pre-existing rather than modifying product/fixture code in this repair.
+- Run Ruff.
+- Run redacted gitleaks across `d7911b2…<new-candidate>` with the pinned scanner.
+- Confirm clean candidate worktree after commit/push.
+- Create exactly one new repair commit on `claude/harness-hooks-experiment`, push it, and read back the exact remote SHA. Do not amend `d7911b2`.
+- Report diff/stat and exact test/scan results.
 
-Return exactly one:
-- `ACCEPT FOR NEXT GATE`, or
-- `REJECT — REPAIR REQUIRED`.
+### Hard boundaries
 
-Acceptance means only that this candidate is good enough to proceed to the separately owner-gated project `.claude/`/isolation activation experiment. It does **not** authorise merge, production deployment, global/account changes, connector changes, secrets, business writes, or watcher/systemd changes.
+No merge. No production changes or deployment. Do not enter production for writes. No `.claude/` activation. No `/root/.claude`, account/global Claude, MCP, connector, identity or credential changes. No watcher/systemd changes. Do not touch the owner-side `.git/info/exclude`. No destructive reset/clean/stash. No external spend or business writes. D-19 remains empirically unproven and is not part of this repair.
 
-If rejecting, provide a bounded defect list with severity, exact reproducer, why it violates the contract, and smallest repair. Do not implement fixes.
+Do not opportunistically refactor the ~2024-line guard beyond what is necessary for these three root causes. Auditability can be addressed separately after correctness is accepted.
 
 ### Handoff
 
 Replace only `bridge/claude-outbox.md` with:
-- exact identity evidence;
-- reproduced test/scan results;
-- adversarial probes and findings;
+- starting identity/cleanliness proof;
+- exact files changed and repair explanation mapped F-1…F-5;
+- exact new candidate SHA and remote read-back;
+- regression/targeted/full-suite/Ruff/gitleaks evidence;
 - production/global/account/worktree invariants;
-- exact verdict;
-- smallest safe next step.
+- any blocker or unrelated pre-existing failure clearly separated.
 
-STOP after publishing the review.
+STOP after publishing the new candidate. Do not self-certify it and do not start the next independent review.
