@@ -206,3 +206,20 @@ CURRENT_TRUTH.md preserves the compact active state.
 Future agents should not be forced to load the entire archive to work correctly.
 
 The system should remember enough to avoid repeating mistakes while remaining free to become substantially better.
+
+## 13. Incidents create lessons, not permanent mechanisms
+
+When an operational failure exposes a real weakness, preserve the **lesson, invariant and evidence** rather than automatically preserving the exact workaround used that day.
+
+A local exclusion, temporary branch convention, manual restart, one-off command, current model choice, watcher implementation, UI control or even an entire orchestration component may be the correct short-term mechanism and still be replaced later.
+
+Record:
+- what failed;
+- why the safety/control system behaved as it did;
+- what property the future system must preserve;
+- what temporary workaround was used;
+- what remains unproven.
+
+Do not convert emergency choreography into architecture by repetition.
+
+No current implementation mechanism is sacred. Active owner intent, safety invariants, desired outcomes and verified lessons survive; mechanisms remain open to better evidence and better designs.
