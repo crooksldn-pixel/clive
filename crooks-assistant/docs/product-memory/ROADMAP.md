@@ -28,19 +28,22 @@ The final Sequencing rule and DEC-046 are authoritative for execution order. Eng
 - keep Mac deployment as rollback
 - later move service from temporary root execution to a dedicated `crooks` user
 
-## N2. Install the Claude inbox watcher
-**Status:** SHIPPED
+## N2. Install and harden the Claude inbox watcher
+**Status:** SHIPPED / HARDENING
 
 - standalone bridge and builder clones
 - poll inbox blob SHA, not branch HEAD
 - single-run lock
 - failed instructions remain pending
-- bounded backoff/retry
+- bounded backoff/retry for genuinely transient failures
+- deterministic precondition/policy failures must evolve to explicit BLOCKED / ESCALATED state rather than repeated backoff
+- worker workspace creation must not dirty the canonical Builder; prefer external `/opt/crooks-workers/<task>/<attempt>/` attempts over nested `.worktrees/`
 - Claude Max auth preserved
 - production checkout read-only to watcher
 - watcher owns outbox publication
 - stdin prompt delivery regression-tested
 - corrected watcher passed end-to-end automatic smoke test
+- 2026-09-19 incident proved the dirty-tree fail-closed guard works, but also exposed the need for workspace-aware placement and blocked-vs-transient failure classification
 - no public webhook endpoint required
 - normal GPT → Claude → outbox loop no longer requires the owner to relay messages
 
