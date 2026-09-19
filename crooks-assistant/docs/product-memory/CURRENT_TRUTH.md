@@ -24,7 +24,8 @@ Core product principles remain:
 
 ## Engineering control plane
 
-- Canonical repository: `crooksldn-pixel/Shopify-theme`.
+- Canonical repository: `crooksldn-pixel/clive`.
+- Repository rename: `crooksldn-pixel/Shopify-theme` was renamed to `crooksldn-pixel/clive` on 2026-09-19. This is a repository identity/naming migration only; branches, commit history, safety decisions and product semantics are unchanged.
 - Canonical product memory currently lives on `claude/product-memory-foundation`; read it by explicit ref. The default theme branch is not the CROOKS product-memory source.
 - **Linux production is ratified at exact candidate `1cf3a0f3361b79f9de208d80f501543c53c244b5` (DEC-048).** Independent read-only reconciliation observed `/opt/crooks-os` clean and byte-identical to that candidate, `crooks-assistant.service` installed/enabled/active on `127.0.0.1:8000`, and tailnet-only Tailscale HTTPS. The owner explicitly ratified that already-performed state on 2026-09-19. This does not authorise another deployment, new secrets, broader privileges, public/Funnel exposure, or CROOKS writes.
 - The GitHub communication bridge uses orphan branch `crooks-ai-bridge`.
