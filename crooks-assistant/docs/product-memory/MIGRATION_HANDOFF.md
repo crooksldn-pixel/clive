@@ -84,36 +84,21 @@ Repository:
 
 ### Production application
 
-**Ratified Linux production candidate:**
+Ratified Linux production candidate:
 `1cf3a0f3361b79f9de208d80f501543c53c244b5`
 
-Independent read-only reconciliation observed:
-- production checkout clean and byte-identical to the candidate;
+Observed/ratified state:
+- `/opt/crooks-os` clean at the exact candidate;
 - `crooks-assistant.service` installed, enabled and active;
 - FastAPI bound to `127.0.0.1:8000`;
 - tailnet-only Tailscale HTTPS active;
-- CROOKS writes disabled.
+- CROOKS writes disabled;
+- Gmail OAuth token still absent, so health was degraded for that reason in the last reconciliation;
+- iPhone activity observed; Samsung verification remains outstanding.
 
-The owner explicitly ratified this already-performed state on 2026-09-19 (DEC-048). The ratification does not approve another deployment, new secrets, broader privileges, public/Funnel exposure, or business writes.
+DEC-048 ratifies only that already-performed state. It does not approve another deployment, new secrets, broader privileges, public/Funnel exposure, account-level connector changes or business writes.
 
-### Linux migration review provenance
-
-Review branch:
-`claude/linux-prod-migration-review`
-
-Candidate commit:
-`1cf3a0f3361b79f9de208d80f501543c53c244b5`
-
-Known review proof:
-- 2886 passed
-- 8 skipped
-- 2 deselected
-- Ruff clean
-- systemd-analyze verification clean
-
-The review candidate has now been deliberately promoted by the owner and canonically ratified.
-
-### Bridge
+### Bridge / watcher
 
 Communication-only orphan branch:
 `crooks-ai-bridge`
@@ -122,74 +107,91 @@ Files:
 - `bridge/chatgpt-inbox.md`
 - `bridge/claude-outbox.md`
 
-Do not merge this branch into application history.
+Watcher:
+- installed/enabled on the server;
+- model `claude-fable-5-1`, effort `high`;
+- reviewed source revision `5ada7b47f13547f107be1f53beeb79021cc48c24`;
+- polls inbox blob SHA;
+- uses a single-run lock;
+- leaves failed instructions pending;
+- owns outbox publication;
+- production checkout remains read-only to the watcher.
 
-### Watcher
+### Builder / accepted environment
 
-The CROOKS bridge watcher is installed, enabled and running on the Hetzner server.
-
-Important verified properties:
-
-- watches inbox blob SHA rather than generic branch motion,
-- failed inbox instructions remain pending,
-- bounded retry/backoff,
-- single-run lock,
-- builder and bridge are standalone clones,
-- production checkout is read-only to the watcher,
-- Claude Max auth can refresh,
-- Claude prompt is delivered over stdin,
-- watcher owns outbox commit/push,
-- end-to-end automatic smoke test passed,
-- the owner no longer needs to relay normal GPT ↔ Claude messages.
-
-The stdin launch regression was fixed and covered by the watcher test suite before the successful smoke test.
-
-### Builder
-
-Standalone isolated builder:
+Canonical builder checkout:
 `/opt/crooks-builder`
 
-Normal branch:
-`claude/bridge-builder`
+Observed branch:
+`claude/builder-environment-repair`
 
-Production must not be used as the autonomous worker checkout.
+Accepted Builder candidate:
+`295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`
 
----
+Accepted review branch:
+`claude/builder-environment-repair-review`
+
+The old watcher/unit assumption that the Builder branch is `claude/bridge-builder` is a standing discrepancy, not current truth.
+
+### Harness hardening candidate
+
+Candidate branch:
+`claude/harness-hooks-experiment`
+
+Exact candidate:
+`dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e`
+
+Exact base:
+`295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`
+
+The candidate contains the non-`.claude/` harness pieces: Bash safety guard, gitleaks gate, roster assertion, isolation proposal, tests, root `CLAUDE.md`, `.gitignore` changes and pending project-Claude-file specification. The worker could not create files under project `.claude/` because Claude Code itself refused the sensitive-file writes. DEC-049 approves those project-scoped files conceptually in isolated engineering workspaces, but it does not override that enforcement boundary. No hook is active until the project settings file exists.
+
+### Observed workspace incident
+
+The harness worker created a valid registered worktree at:
+`/opt/crooks-builder/.worktrees/harness-hooks-experiment`
+
+Because the accepted Builder did not yet ignore `.worktrees/`, the parent checkout showed:
+`?? .worktrees/`
+
+The watcher correctly failed closed and refused the next worker, but retried the same deterministic blocker eight times. After inspection confirmed this was the only dirty item, the owner-side Director added `.worktrees/` to the Builder checkout's local `.git/info/exclude`, restoring a clean parent without deleting/stashing/resetting anything or weakening the dirty-tree guard. The watcher was restarted and the pending independent review began.
+
+Durable lesson:
+- normal worker attempts should live outside the canonical Builder, preferably `/opt/crooks-workers/<task-id>/<attempt-id>/`, or use an equivalently proven workspace manager;
+- deterministic precondition/policy failures should become `BLOCKED / ESCALATED` with one notification, not repeated transient backoff;
+- the local exclude entry is a workaround, not architecture.
+
+### Headless tool-surface risk
+
+The ECC audit proved headless Claude under the shared `/root` identity can inherit schemas/tools for business connectors/plugins even though unattended use was permission-refused in the probe. Treat this as unnecessary attack/context surface. Future worker hardening must prove a narrow launch roster fail-closed; do not change account/global Claude settings or connector grants without explicit owner approval.
 
 ## 4. Current in-progress task — do not duplicate it
 
-At handoff time, the automated bridge inbox contains the task:
-
-**build the permanent CROOKS Builder development environment**
+The active bridge inbox is an **independent adversarial review** of the harness candidate.
 
 Inbox blob SHA:
-`607b607e54eb194b81d708dfbc7bd744c2e8cd18`
+`2b1030bd48ee14888e0c85b7d160fa39b2cba6eb`
 
-The latest outbox still contains the preceding successful watcher smoke test, so the Builder Environment task should be treated as **in progress / awaiting a new outbox**, not re-submitted.
+Review subject:
+- branch `claude/harness-hooks-experiment`;
+- base `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`;
+- candidate `dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e`.
 
-A new GPT Director should first inspect the latest bridge outbox before issuing another builder-environment instruction.
+As of this handoff update, the workspace cleanliness blocker has been cleared, the watcher was restarted, and its lock was observed **HELD**, meaning the review run had started. Do not restart, duplicate, manually implement fixes, or apply the pending `.claude/` files while that review is in flight.
 
-The task includes:
+The reviewer is required to inspect the actual diff/source, adversarially challenge the command guard/gitleaks gate/roster assertion, rerun evidence where practical, assess the nested-worktree design defect, and verify that no production/global/account/connector/secret/service/Tailscale/business-write change occurred.
 
-- inventory of existing tools/skills,
-- third-party skill security scanning,
-- Anthropic frontend-design + webapp-testing,
-- Vercel web-design-guidelines,
-- Impeccable,
-- create-design-md,
-- selected Taste skills,
-- DESIGN.md,
-- Playwright/browser/accessibility tooling,
-- engineering/security/performance tools,
-- concise project CLAUDE.md/rules/hooks,
-- DEV_ENVIRONMENT.md,
-- idempotent environment bootstrap/check,
-- exact version/provenance manifest,
-- no production deployment.
+Allowed overall verdicts are only:
+- `ACCEPTABLE AS PARTIAL REVIEW CANDIDATE`; or
+- `REJECT — REPAIR REQUIRED`.
 
-Do not interrupt or duplicate that task unless evidence shows it failed or became stuck.
+Even an acceptable partial verdict does **not** mean the harness is active or fully accepted because the project `.claude/` activation files remain unapplied.
 
----
+After the review completes:
+1. inspect the new outbox and exact evidence;
+2. accept the committed non-`.claude/` pieces only if the reviewer supports it, otherwise dispatch the smallest bounded repair;
+3. resolve project `.claude/` activation through an owner-approved mechanism rather than routing around Claude Code's refusal;
+4. harden workspace placement and BLOCKED-vs-RETRY behaviour before relying on unattended multi-round operation.
 
 ## 5. Approved future engineering organisation
 
@@ -291,23 +293,23 @@ A final privileged-control-plane bootstrap may still require deliberate manual i
 
 ## 7. Near-term sequence
 
-Unless new evidence changes sequencing:
+DEC-046 remains authoritative unless the owner explicitly changes it in canonical Git.
 
-1. reconcile the accepted permanent Builder Environment into the persistent builder and trial records,
-2. **Linux migration/promotion — ratified complete at `1cf3a0f`,**
-3. provision remaining runtime secrets through approved process — Gmail OAuth still outstanding,
-4. **CROOKS backend — installed/enabled/running and ratified,**
-5. **private tailnet-only Tailscale HTTPS — active and ratified,**
-6. verify remote iPhone/Samsung/runtime behaviour — iPhone observed; Samsung outstanding,
-7. perfect current UI and response behaviour,
-8. run real-device/real-world sessions,
-9. build Engineering Orchestrator V1 with model routing, isolated parallel workers and Fable,
-10. bootstrap Privileged Action Broker + Deployment/Infrastructure Controller,
+1. finish the in-flight harness independent review and bounded repair/acceptance work without duplicating the running round;
+2. reconcile the accepted Builder Environment into the persistent builder and canonical trial records;
+3. harden engineering reliability exposed by the watcher incident: external worker workspace placement, deterministic `BLOCKED / ESCALATED` classification, and remaining Builder/watcher branch/tooling discrepancies;
+4. provision remaining runtime secrets only through an approved process — Gmail OAuth remains outstanding;
+5. verify real Samsung/iPhone/runtime behaviour — iPhone observed, Samsung outstanding;
+6. perfect current CROOKS UI;
+7. perfect response behaviour and latency;
+8. run real-device/real-world sessions and collect evidence;
+9. implement Engineering Orchestrator / Dev Team V1 under the already-granted owner implementation approval and existing safety/review gates;
+10. bootstrap the Privileged Action Broker + Deployment/Infrastructure Controller;
 11. continue World / Event Ledger / Attention / automation / integrations from a stable product baseline.
 
-Do not skip current-product quality because future architecture is interesting.
+A small **Engineering Console** is captured as IDEA-052, not yet implementation-approved. If the owner later approves it, build it only after the immediate workspace/retry hardening. It should be a private deterministic control/status surface, not a browser terminal, and should either evolve into the Orchestrator control surface or be retired when it has no unique responsibility.
 
----
+Do not skip current-product quality because future architecture is interesting.
 
 ## 8. Safety/action invariants
 
@@ -348,21 +350,20 @@ For normal architecture/product discussion, direct comprehensive answers are app
 
 ---
 
-## 10. First actions in the new GPT conversation
+## 10. First actions in a new GPT conversation
 
 The new GPT Director should:
 
-1. run the `BOOTSTRAP` procedure from `DIRECTOR_PROTOCOL.md`,
-2. inspect the current bridge inbox/outbox,
-3. determine whether the Builder Environment round completed,
-4. if complete, review the actual candidate diff/tests/evidence before deciding the next instruction,
-5. if still running, do not interfere,
-6. if failed, diagnose from evidence before retrying,
-7. update `CURRENT_TRUTH.md` whenever material state changes.
+1. run the `BOOTSTRAP` procedure from `DIRECTOR_PROTOCOL.md`;
+2. read CURRENT_TRUTH and this handoff from the explicit product-memory ref;
+3. inspect the current bridge inbox/outbox and watcher state;
+4. if the harness review is still running, do not interfere;
+5. if it completed, inspect the actual verdict, exact candidate/evidence and reviewer findings before issuing any repair or acceptance instruction;
+6. never treat the local `.git/info/exclude` workaround as the durable workspace architecture;
+7. preserve the distinction between deterministic `BLOCKED / ESCALATED` failures and genuinely transient retryable failures;
+8. update `CURRENT_TRUTH.md` whenever material state changes.
 
-Do not ask the owner to reconstruct the old chat.
-
----
+Do not ask the owner to reconstruct the old chat. Do not infer that captured ideas such as IDEA-052 are implementation approval.
 
 ## 11. Memory discipline
 
