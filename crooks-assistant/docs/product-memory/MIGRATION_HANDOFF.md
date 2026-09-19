@@ -84,17 +84,21 @@ Repository:
 
 ### Production application
 
-Branch:
-`claude/crooks-assistant-build-lgxlau`
+**Ratified Linux production candidate:**
+`1cf3a0f3361b79f9de208d80f501543c53c244b5`
 
-Known Phase 5 candidate baseline:
-`e43aecdb39b87b622f64b6ab434e428d216ef157`
+Independent read-only reconciliation observed:
+- production checkout clean and byte-identical to the candidate;
+- `crooks-assistant.service` installed, enabled and active;
+- FastAPI bound to `127.0.0.1:8000`;
+- tailnet-only Tailscale HTTPS active;
+- CROOKS writes disabled.
 
-Production has not been silently moved to the Linux migration candidate.
+The owner explicitly ratified this already-performed state on 2026-09-19 (DEC-048). The ratification does not approve another deployment, new secrets, broader privileges, public/Funnel exposure, or business writes.
 
-### Linux migration review
+### Linux migration review provenance
 
-Branch:
+Review branch:
 `claude/linux-prod-migration-review`
 
 Candidate commit:
@@ -107,7 +111,7 @@ Known review proof:
 - Ruff clean
 - systemd-analyze verification clean
 
-This remains a review candidate until deliberately promoted.
+The review candidate has now been deliberately promoted by the owner and canonically ratified.
 
 ### Bridge
 
@@ -289,12 +293,12 @@ A final privileged-control-plane bootstrap may still require deliberate manual i
 
 Unless new evidence changes sequencing:
 
-1. finish and review the permanent Builder Environment,
-2. complete controlled Linux migration/promotion,
-3. provision runtime secrets through approved process,
-4. install/start CROOKS backend,
-5. enable private Tailscale HTTPS only after approval,
-6. verify remote iPhone/Samsung/runtime behaviour,
+1. reconcile the accepted permanent Builder Environment into the persistent builder and trial records,
+2. **Linux migration/promotion — ratified complete at `1cf3a0f`,**
+3. provision remaining runtime secrets through approved process — Gmail OAuth still outstanding,
+4. **CROOKS backend — installed/enabled/running and ratified,**
+5. **private tailnet-only Tailscale HTTPS — active and ratified,**
+6. verify remote iPhone/Samsung/runtime behaviour — iPhone observed; Samsung outstanding,
 7. perfect current UI and response behaviour,
 8. run real-device/real-world sessions,
 9. build Engineering Orchestrator V1 with model routing, isolated parallel workers and Fable,
