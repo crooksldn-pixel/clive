@@ -156,7 +156,7 @@ Providers are replaceable workers beneath these rules.
 ## Immediate research gates before installation
 
 1. Security-audit the selected ECC commit and shortlist with SkillSpector plus manual review.
-2. Prove a minimal project-scoped Claude hook/settings layout in an isolated branch with no production/business MCP exposure.
+2. Prove a minimal project-scoped Claude hook/settings layout in an isolated branch; DEC-049 authorises the project-scoped files. The experiment must not alter account/global connector configuration, and must separately specify/prove how production/business MCP exposure will be removed before unattended worker operation.
 3. Build the first frozen multi-worker benchmark and establish baseline Claude/Fable results before adding alternatives.
 4. Compare Symphony state/recovery semantics line-by-line against ENGINEERING_ORCHESTRATOR_V1 and import only the missing commodity mechanisms.
 5. Design the independent CI evidence envelope and candidate attestation format.
@@ -188,6 +188,6 @@ Material findings:
 - the most valuable code concept is ECC's destructive-Git classification table, to be reimplemented as a small CROOKS fail-closed project hook rather than imported with ECC runtime;
 - current headless Claude engineering sessions inherit the owner's claude.ai connector/plugin roster, including business connectors such as Gmail, Shopify, Google Drive, Resend and Omnisend. Current unattended connector invocation was permission-denied, but mere exposure is unnecessary context/attack surface and is not an acceptable long-term isolation boundary;
 - worker launch should therefore move toward strict MCP/plugin isolation plus a deterministic launch-time roster assertion that fails closed on unexpected tools;
-- project-scoped `.claude/` harness files remain the preferred integration shape, but the current worker permission layer has previously refused writes there; that boundary requires explicit owner approval rather than a workaround.
+- project-scoped `.claude/` harness files remain the preferred integration shape. **The owner explicitly approved creating/modifying them in isolated engineering workspaces for the reviewed harness experiment (DEC-049).** This does not extend to `/root/.claude`, account settings, connector/MCP grants, production, secrets, privileges, business writes, spend or destructive actions.
 
 Audit evidence lives in the bridge outbox that processed inbox blob `4f5bfb5eaa32ef151a02c153a0ecbb548ea110b8`.
