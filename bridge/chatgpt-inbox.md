@@ -1,90 +1,68 @@
 # CHATGPT INBOX
 
-## Bounded repair — Orchestrator V1 freeze G-01 / G-02 / G-03
+## Fresh independent read-only adversarial review — Orchestrator V1 freeze candidate 5eb25f8
 
-This is exactly one bounded repository-only repair round on the existing freeze-candidate branch. It is not production/runtime remediation and it is not owner adoption.
-
-### Exact identities
-
+Review exact candidate:
 - repository: `crooksldn-pixel/clive`
 - canonical base: `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`
 - candidate branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
-- rejected candidate: `31b0e07179877651da80065f5914575ee4d60d6c`
-- review outbox blob: `c68050463a7e3e0608a852a8afa3d9f868a7602b`
+- exact candidate SHA: `5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78`
+- superseded/rejected SHA: `31b0e07179877651da80065f5914575ee4d60d6c`
+- repair outbox blob: `5dae2a784fc9986f38b1a63191463eb783ecb96a`
 
-Before editing, explicitly fetch/read the candidate branch and canonical base. Abort and report BLOCKED if the candidate branch no longer resolves exactly to `31b0e07179877651da80065f5914575ee4d60d6c`, if merge-base is not the canonical base, or if the workspace contains unrelated owner work. Do not reset/clean/stash/discard anything.
+This is a fresh independent **read-only** review. The previous verdict is stale. Do not edit, commit, push, merge, switch/reset/clean/stash, create a worktree, change runtime/systemd/watcher state, touch secrets, account/global Claude settings, MCP/connectors, privileges, production, or business state.
 
-### Hard scope
+First verify:
+1. candidate branch resolves exactly to `5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78`;
+2. canonical base resolves exactly to `9e59860a945ec339c69af8709cd0721f0a795327`;
+3. merge-base(candidate, base) equals the canonical base;
+4. `31b0e071..5eb25f8` is exactly one repair commit and inspect its full diff.
 
-Allowed: repository-only edits on the same freeze-candidate branch to the freeze contract/state API/acceptance matrix/traceability/mechanical spec test needed to repair G-01/G-02/G-03, plus test execution and repository-local evidence.
+Re-review G-01/G-02/G-03 and try to break them:
 
-Forbidden: production deployment/promotion; systemd/watcher/runtime changes; secrets/credential reads; `/root/.claude` or account/global Claude changes; MCP/connector grant changes; privilege expansion; CROOKS/CLIVE business writes; public exposure; destructive reset/clean/stash; external spend; production merge; freeze adoption; sequencing changes.
+### G-01 — execution-bearing subject reconciliation
+- derive execution-bearing subject states from §3A.1 + §3B rather than trusting prose;
+- confirm every subject state that can own a non-terminal attempt/review_dispatch is covered by §1A and freeze-contract §21;
+- specifically verify TASK ASSIGNED + CREATED/STARTING attempt cannot strand after controller-epoch fencing;
+- confirm reconciliation uses the already-legal block edge, no blind redispatch;
+- ensure splitting §3A into §3A.1/§3A.2 leaves the §3/§3A joint oracle satisfiable.
 
-Do not repair the known Builder stale fetch refspec. Explicit branch fetches are acceptable.
+### G-02 — execution-attempt ceiling accounting
+- verify §3A.2 is total over the attempt disposition enum;
+- confirm CANCELLED/FENCED attempts that never reached RUNNING do not consume the ceiling;
+- confirm a model that did run cannot close CANCELLED/FENCED with the durable identity interpreted as “never ran”;
+- deterministic preflight failure must still consume budget;
+- restart/restore/epoch changes must neither reset nor decrement legitimate consumed attempts;
+- test whether disposition relabelling can game the budget.
 
-### G-01 — TASK stranded in ASSIGNED after pre-RUNNING fencing
+### G-03 — delivery crash/duplicate-effect prevention
+- verify delivery attempt-count arming is durably committed before any external effect;
+- verify `delivery.publish` cannot replay a PENDING record whose effect may already have started;
+- restart/restore/epoch change must force initiated PENDING -> UNKNOWN before another external effect;
+- `delivery.reconcile` against authoritative remote state must be the only exit from UNKNOWN;
+- test whether an adapter can perform more than one external effect inside a single publish call and bypass the count gate;
+- check interaction with delivery.block and controller.reconcile.
 
-Repair the TASK-side reconciliation hole identified by the independent review.
+Also adversarially search for any new material defect in:
+- task/attempt/integration/reviewer/delivery state legality;
+- cancellation and restart races;
+- stale-result admission and fencing;
+- idempotency/external-effect ambiguity;
+- attempt budget liveness/safety;
+- journal completeness;
+- §18A coverage and dangling acceptance IDs;
+- structural-test parser correctness / false greens;
+- regressions of N-01..N-04, B-01..B-05, R-01..R-03, F-01..F-03;
+- self-adoption or DEC-046/DEC-047 sequencing drift.
 
-Required outcome:
-- a TASK in `ASSIGNED` whose execution attempt is no longer non-terminal after controller-epoch fencing/cancellation cannot remain silently stranded;
-- state API §1A and freeze contract §21 must cover `ASSIGNED` consistently with the existing BUILDING/INTEGRATING/REVIEWING ambiguity rule, or replace the literal enumeration with an equivalent mechanically derivable rule;
-- reconciliation surfaces the subject as BLOCKED through the already-listed `task.block` edge; no blind redispatch.
+Mechanical verification:
+- run committed spec tests only if possible without violating read-only scope; otherwise recompute against blobs with `git show`;
+- independently verify zero dangling test IDs, complete MUST-bearing §18A coverage, every non-terminal attempt state has a terminal cleanup/fencing path, delivery enum/§3C completeness, and no self-adoption.
 
-Acceptance:
-- add ST-15: controller epoch changes while TASK is ASSIGNED and attempt is CREATED or STARTING -> attempt closes FENCED and task is surfaced BLOCKED with typed reason;
-- add a structural mechanical test deriving from §3A the subject states that can hold a non-terminal execution record and proving each is covered by both §1A and §21 reconciliation semantics. Avoid a literal-substring-only false green.
+Return exactly one:
+- `ENGINEERING CONTRACT READY — OWNER/RUNTIME GATES REMAIN`
+- `CHANGES REQUIRED BEFORE OWNER DECISION`
 
-### G-02 — restart fencing must not consume execution budget when no model ran
+If changes are required, list only material engineering blockers with exact location, consequence, smallest bounded repair and exact acceptance/mechanical test. List OWNER-PENDING and RUNTIME-PENDING separately. Record reviewer-independence limitation if same model/provider is used.
 
-Repair the attempt-ceiling accounting hole without weakening R-02.
-
-Required outcome:
-- an attempt that closes CANCELLED or FENCED having never reached RUNNING / never launched a model process does not consume the per-revision execution-attempt ceiling;
-- deterministic preflight failure remains budget-consuming because it closes FAILED or QUARANTINED, not CANCELLED/FENCED;
-- the rule is normative and consistent between state API §3A and freeze contract §10.3.1;
-- restart, DB restore and epoch change cannot reset or accidentally decrement legitimate consumed attempts.
-
-Acceptance:
-- add ST-16: repeated controller restarts while TASK is ASSIGNED with CREATED attempt do not exhaust the three real execution attempts; after three such restart-fencings a legitimate attempt assignment remains admissible according to the repaired accounting rule;
-- extend PR-10 so it asserts exactly which dispositions consume the ceiling and that persistence survives restart/restore/epoch change.
-
-### G-03 — delivery crash window between external effect and outcome persistence
-
-Repair the new delivery state machine so a crash after an external effect cannot cause blind duplicate publication.
-
-Required outcome:
-- before/when an external publication effect is initiated, persist durable evidence that the effect may have started (using the existing delivery attempt count if sufficient; do not add schema merely for convenience);
-- on restart/epoch change, PENDING with evidence that an effect may have been initiated reconciles to UNKNOWN before any further external effect;
-- `delivery.publish` cannot blindly replay that record;
-- freeze contract §21 delivery reconciliation and state API §3C agree;
-- authoritative remote reconciliation remains the only path out of ambiguity.
-
-Acceptance:
-- add DL-06: crash between external effect and outcome persistence -> restart produces UNKNOWN, publish is refused pending `delivery.reconcile`, and no second external effect occurs;
-- add a structural test proving every §3C state from which an external effect can be initiated is terminal or has an explicit reconciliation/precondition rule that prevents blind replay after an initiated effect.
-
-### Regression and evidence requirements
-
-Preserve all earlier repairs N-01..N-04, B-01..B-05, R-01..R-03, F-01..F-03. Update traceability for G-01/G-02/G-03.
-
-Run the committed mechanical spec test and any relevant document/static checks. Independently verify:
-- zero dangling acceptance IDs;
-- every MUST-bearing numbered FC/SA section is represented in §18A;
-- every non-terminal attempt state has a terminal cleanup/fencing path;
-- delivery enum and §3C remain mutually complete;
-- no self-adoption and no DEC-046/DEC-047 sequencing change.
-
-Before publishing the repair result, require:
-- exact base/rejected/new candidate SHAs;
-- exact changed-file set and diff summary;
-- test commands/results;
-- repository worktree clean after commit;
-- repository candidate secret scan with exact command/result and no secret values in the report;
-- exact remote branch readback equals the new candidate SHA.
-
-Publish the repair only to `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`. Do not merge or adopt it.
-
-### Handoff
-
-After the bounded repair is committed and pushed, report the exact new SHA and evidence in the outbox. Do **not** self-certify. State explicitly that the previous verdict is stale for the changed SHA and that a fresh independent read-only review is required.
+Do not certify based on detail. Try to break it.
