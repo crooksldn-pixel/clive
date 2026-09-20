@@ -1,183 +1,288 @@
-# CLAUDE OUTBOX
+# CLAUDE OUTBOX — Orchestrator V1 freeze candidate `2f1acc0`, fresh independent read-only adversarial review
 
-**Timestamp:** 2026-09-20T16:34:10Z
-**Inbox blob SHA processed:** `6b647f2fc42eda31d68cb95364d50690b5df1db4` — consumed as this round's sole instruction set. Recorded here so the same instructions are never executed twice.
-**Round type:** bounded repository-only repair (H-03 / H-04) on the existing freeze-candidate branch. Not owner adoption, not runtime remediation, not production work, not Orchestrator implementation.
+- **Timestamp (UTC):** 2026-09-20T16:49:23Z
+- **Inbox blob SHA processed:** `a06148a9ddb288f445b4e010b1d4f60091757ff0` — consumed as this round's sole instruction set. Recorded here so the same instructions are never executed twice.
+- **Round type:** read-only adversarial review. No repair performed, as instructed.
 
----
+## VERDICT
+
+**CHANGES REQUIRED BEFORE OWNER DECISION**
+
+One material engineering blocker (**J-01**), newly introduced by this repair commit. H-03 and H-04 as
+raised are otherwise correctly and thoroughly repaired; J-01 is the unfinished half of H-04's
+resource-release requirement, and it currently reproduces the H-04 consequence on one branch of a
+genuine ambiguity.
 
 ## 1. What was asked
 
-Perform exactly one bounded repository-only repair round on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`, repairing the two blockers the independent review raised against the rejected candidate:
+Fresh independent read-only adversarial review of exact candidate
+`2f1acc0b7edd233735e419d92cfbade914b0042f` on `crooksldn-pixel/clive`: verify identity against fresh
+remote truth, attack the H-03 (one owned process group / write-once handle) and H-04 (kernel-owned
+reviewer write-ahead identity) repairs, run a broader adversarial regression search, run the committed
+spec test or recompute from exact blobs, mutation-test structural gates using ephemeral scratch only,
+and return exactly one of two verdicts. Hard read-only scope everywhere except this outbox.
 
-- **H-03** — eliminate the process-group handle overwrite. Adopt the smaller *single per-attempt owned process group, write-once handle* design; `STARTING -> RUNNING` must not update the cleanup handle; close the adjacent identity-reuse ambiguity without prescribing a platform.
-- **H-04** — make the reviewer process identity write-ahead too; decide external-vs-kernel-owned from durable principal kind rather than from a NULL process-group identity; branch §6 step 3 on ownership first.
+## 2. Identity verification — all five checks PASS
 
-Plus: preserve all prior findings, add H-03/H-04 traceability, prove the new tests fail against the exact rejected SHA, recompute the standing invariants, report SHAs/diff/tests/clean worktree/secret scan/remote readback, publish only to the freeze-candidate branch, and do not self-certify.
+Resolved from `git ls-remote` against the live remote, not from tracking refs. The Builder's
+`remote.origin.fetch` refspec is still the stale single-branch form naming the deleted
+`claude/bridge-builder`, so both branches were fetched by explicit full refname. **The refspec was not
+repaired** (RUNTIME-PENDING, and out of scope).
 
-## 2. Preconditions verified before any edit
+| # | Check | Result |
+| --- | --- | --- |
+| 1 | candidate branch head | `2f1acc0b7edd233735e419d92cfbade914b0042f` — **exact match** |
+| 2 | canonical base head | `9e59860a945ec339c69af8709cd0721f0a795327` — **exact match** |
+| 3 | `merge-base(candidate, canonical)` | `9e59860a945ec339c69af8709cd0721f0a795327` == canonical — **PASS** |
+| 4 | `9fbe4a9..2f1acc0` | exactly **1** commit — "One process group per attempt, and a reviewer the kernel can still find after a crash" (Claude, 2026-09-20 16:33:42 +0000) |
+| 5 | repair diff + full freeze set re-read | done; 5 files, +300/−35 |
 
-Resolved from fresh remote truth via `git ls-remote` with explicit full refs (the builder's tracking refs are known-stale; they were not trusted).
+Repair touches exactly: `ORCHESTRATOR_V1_STATE_API.md` (+48/−23), `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`,
+`ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md`, `ORCHESTRATOR_V1_TRACEABILITY.md`,
+`tests/test_orchestrator_freeze_spec.py` (+242).
 
-| Check | Required | Found | Verdict |
-| --- | --- | --- | --- |
-| candidate head | `9fbe4a9212ef8a509856b8ff7fb75b78c253dc5f` | `9fbe4a9212ef8a509856b8ff7fb75b78c253dc5f` | exact match |
-| canonical base | `9e59860a945ec339c69af8709cd0721f0a795327` | `9e59860a945ec339c69af8709cd0721f0a795327` | exact match |
-| merge-base(candidate, base) | equals canonical | `9e59860a945ec339c69af8709cd0721f0a795327` | equals canonical |
-| worktree state | clean, no owner work | `git status --porcelain` = 0 lines | clean |
-| unrelated owner work | none | diff vs base = the known candidate surface only | none present |
+`DECISIONS.md` is byte-identical to canonical (`a6dc313`) — **no DEC-046/DEC-047 amendment**.
+`CURRENT_TRUTH.md` and `ROADMAP.md` are byte-identical to `5eb25f8`, where their candidate-not-authority
+framing was already verified; re-read confirms the freeze is described as a candidate requiring
+independent review and an exact accepted SHA, with DEC-046 still the active sequencing gate. **No
+self-adoption.**
 
-No reset, clean, stash or discard was performed at any point.
+## 3. Test execution — actual pytest, not recomputation
 
-**Builder checkout inspected first, as instructed:** `/opt/crooks-builder` was on `claude/builder-environment-repair` at `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`, working tree clean, nothing modified or untracked. The repair was done in the already-registered worktree `/opt/crooks-builder/.worktrees/freeze-repair`, which was already on the candidate branch at the rejected SHA and clean. Nothing about the builder checkout was assumed from a previous run.
+The pre-existing worktree `/opt/crooks-builder/.worktrees/freeze-repair` was already checked out at
+exactly `2f1acc0` and clean, so no worktree was created, switched or reset.
 
-## 3. What I found
+| Run | Tree | Result |
+| --- | --- | --- |
+| Committed spec suite at candidate | `2f1acc0` worktree | **51 passed** in 0.76s |
+| Candidate gate vs rejected SHA | `9fbe4a9` doc blobs + candidate test module, ephemeral scratch | **14 failed / 37 passed** |
 
-Both findings reproduced exactly as the review described them.
+Both figures independently reproduce the implementer's claims. All five blobs in the failing-before
+scratch were provenance-proved by `git hash-object` == `git rev-parse <sha>:<path>` before use. The
+scratch trees have been deleted; both worktrees ended at 0 status lines.
 
-**H-03.** `ORCHESTRATOR_V1_STATE_API.md` §3A.3 gave `lease.owned_process_group_handle` two population times — the preflight group on `CREATED -> STARTING`, then *updated* to the model process group on `STARTING -> RUNNING` — with no requirement to prove the preflight group empty before the overwrite. Between the overwrite and any later cleanup, a preflight child that outlived preflight is named by no durable field: §6 verifies emptiness of the model group only, and freeze contract §11's "workspace reuse is forbidden until emptiness is verified" then passes vacuously over the wrong set of processes. This also stood as a direct contradiction between two normative documents — §11 gave each attempt **one** cgroup covering the "complete attempt process tree" while §3A.3 gave it **two** with a handover.
+Notably `test_pre_running_cleanup_handle_and_ceiling_discriminator_are_distinct_facts` — which at
+`9fbe4a9` *asserted* the two-group handover and so locked the H-03 defect in — now fails against the old
+tree. That defect-locking assertion was correctly removed.
 
-Additionally confirmed: the existing test `test_pre_running_cleanup_handle_and_ceiling_discriminator_are_distinct_facts` *asserted* the handover wording (`assert "CREATED -> STARTING" in cleanup[2] and "STARTING -> RUNNING" in cleanup[2]`), so it locked the defect in and had to change with the fix rather than being left as a passing regression guard.
+## 4. H-03 — attacked, and found correctly repaired
 
-**H-04.** `review_dispatch`'s process-group/cgroup identity had no write-ahead ordering — §3A.3 was scoped to `attempt` only, even though §1A claimed its rules applied "uniformly to all three" execution records. NULL on that field was overloaded in the *opposite* direction from the attempt handle: it meant "external principal, do not signal". A controller crash between reviewer fork and identity persistence is therefore indistinguishable from an external reviewer, so §6 step 3 skipped it, released the required-review slot and the freeze contract §19 reviewer-concurrency unit, admitted a replacement, and left a live kernel-owned reviewer running untracked. That also defeats §3.1 `[EXEC-FENCE]`, which depends on §6 having actually stopped the group before the subject transition commits.
+Every sub-check the inbox named holds:
 
-## 4. What I changed
+- **Exactly one owned group for the full lifetime.** SA §3A.3 and FC §11 now agree: "**exactly one** per
+  attempt, created once before preflight". The prior direct FC-§11-vs-SA-§3A.3 contradiction (one cgroup
+  vs two) is gone.
+- **Write-once, committed before the group exists, never replaced on STARTING → RUNNING.** SA §3A (line
+  389) carries an explicit prohibition — "MUST NOT update, replace or clear" — rather than silence;
+  `CREATED -> STARTING` is declared "the only edge that may write" it.
+- **Preflight and model inhabit the same group; surviving preflight descendant stays discoverable.** SA §6
+  step 5 proves "the **entire** owned process group is empty"; FC §11 forbids reuse until "**that whole
+  group**" is empty and states that "an emptiness proof over any narrower group does not satisfy this
+  rule". The vacuous-emptiness path is genuinely closed.
+- **`attempt.running_process_group_identity` stays accounting-only.** Explicitly forbidden from being
+  promoted into the cleanup role, and §6 is forbidden from reading it. §3A.2 remains its only reader;
+  R-02 ceiling semantics are untouched.
+- **Stale/recycled handle fails closed.** §3A.3 requires a controller-allocated, attempt/dispatch-bound
+  identity (not a bare recyclable PGID) and §6 re-verifies that the resolved group is still this record's
+  before signalling; a failed check is never signalled and falls through to `QUARANTINED`/BLOCKED. This
+  closes the "PGID reuse defence not explicit" item carried forward from the `9fbe4a9` review. The wording
+  is substrate-agnostic ("per-record cgroup path or equivalent kernel-scoped container identity derived
+  from the record's own primary key") and is implementable and deterministic on Linux; it introduces no
+  second cleanup authority.
+- **ST-16** does prove the surviving-preflight-child case: it asserts the handle holds its `STARTING`
+  value after `RUNNING`, that the model joined the same group, that §6 finds the surviving child, and that
+  "a specification that hands the handle over at `STARTING -> RUNNING` fails this arm".
 
-One commit, five files, on the freeze-candidate branch only.
+**Attack that did not land (recorded so it is not re-derived):** the cleanup handle lives on `lease`, which
+is one row per `(subject_kind, subject_id, subject_revision)` while §3A.2 permits three attempts per
+revision — so I tried to overwrite a quarantined attempt's still-live group identity with a successor
+attempt's handle. It fails: SA §3A.2 line 423 plus FC §10.3.1 forbid relaunch "at all until cleanup is
+proven", FC §8 blocks reassignment on unprovable cleanup, and SA §3 line 318 requires the blocker resolved
+before `BLOCKED -> task.plan -> PLANNED`. The handle cannot be clobbered while it still names a live group.
 
-**H-03 — single owned group, write-once handle.**
-- `lease.owned_process_group_handle` is now write-once: committed before the attempt's single owned process group is created on `CREATED -> STARTING`, and never updated, replaced or cleared while the attempt is non-terminal.
-- The `STARTING -> RUNNING` row now carries an explicit prohibition ("MUST NOT update, replace or clear"), launches the model **inside the attempt's existing owned process group**, and states that no second group is created. The two-group handover wording is deleted from every freeze document.
-- `attempt.running_process_group_identity` remains the write-once ceiling discriminator, read only by §3A.2, and is explicitly forbidden from being promoted into the cleanup role.
-- Preflight and model execution share one group, so cancellation, restart and emptiness checks cover the whole of it; §6 step 5 now verifies the **entire** owned group is empty, and freeze contract §11 states one group per attempt and requires emptiness over that whole group ("an emptiness proof over any narrower group does not satisfy this rule"). A surviving preflight descendant can no longer become invisible.
-- Identity-reuse ambiguity closed without prescribing a platform: the handle MUST be a controller-allocated, attempt- or dispatch-bound identity (a per-record cgroup path or equivalent is given as an example, not a mandate) and MUST NOT be a bare recyclable OS process-group number. §6 re-verifies that the group a handle resolves to is still this record's **before signalling**; a failed check is never signalled and falls through to the fail-closed outcome (`QUARANTINED` for an attempt, `FENCED` + subject BLOCKED for a dispatch). Stale-handle reuse therefore fails closed and can never kill an unrelated recycled process.
+## 5. H-04 — attacked, correctly repaired **except** for its resource-release half (→ J-01)
 
-**H-04 — kernel-owned reviewer is write-ahead; ownership comes from the principal.**
-- §3A.3 is restated as normative for **all three** execution records, which is what makes §1A's "uniformly to all three" mechanically true rather than aspirational.
-- The reviewer principal/session identity now carries a declared **execution-ownership kind `KERNEL_OWNED|EXTERNAL`**, committed durably in the same transaction that creates the `DISPATCHED` row — before any reviewer process exists — and immutable thereafter. No new schema: this is a declared attribute of the existing principal/session binding, as the inbox permitted.
-- A `KERNEL_OWNED` dispatch commits its process-group handle before creating the reviewer group, under the same write-ahead/write-once/controller-allocated discipline as an attempt. NULL there is positive proof that no owned reviewer group exists — explicitly **not** a signal that the reviewer is external. An `EXTERNAL` dispatch is always NULL and fencing-only, with the limitation recorded.
-- §6 step 3 now branches on reviewer ownership/principal kind **first**, then identifies, ownership-verifies and signals. Fencing-only is reachable *only* through an `EXTERNAL` principal.
-- §6's release rule is pinned to "step 6 **and never step 7**", so neither the required-review slot nor the §19 reviewer-concurrency unit is released while a kernel-owned orphan may exist, and no replacement reviewer can be admitted. Freeze contract §21 step 8 reconciles on the same terms and names the exact crash: "A crash between the reviewer-handle commit and the reviewer fork is therefore reconciled as a kernel-owned dispatch with no group, not as an external reviewer." Freeze contract §15 states the same ordering for sibling-reviewer fencing.
+Sound: ownership kind is a durable `KERNEL_OWNED|EXTERNAL` attribute of the reviewer principal/session
+binding, committed in the same transaction as the `DISPATCHED` row and immutable thereafter, so it exists
+before any reviewer process does; NULL on a kernel-owned handle now positively means "no group created";
+§6 step 3 branches on principal kind **first**, then re-verifies ownership, then signals; FC §21 step 8
+reconciles a crash-before-fork as kernel-owned-with-no-group rather than as external; EXTERNAL retains
+fencing-only semantics with the limitation recorded and cannot absorb kernel-owned cleanup duties. ST-17
+covers both the kernel-owned crash arm (before and after fork) and the external negative arm.
 
-**Acceptance and traceability.**
-- **ST-16** gains a *surviving-preflight-child* arm: fork a preflight child that outlives preflight, let the attempt reach `RUNNING`, assert the handle holds exactly its `STARTING` value and the model joined that same group, then cancel/restart-fence and assert §6 finds the child through the one write-once handle, that emptiness is proved over the whole group rather than a model-only group, and that workspace reuse stays forbidden until the entire group is empty. Explicitly states R-02's attempt-budget semantics are preserved.
-- **ST-17** gains a *kernel-owned reviewer crash* arm (crash after the durable handle commit, both before and after reviewer fork, then `candidate.reject`; prove the reviewer is stopped before `REJECTED` commits or the subject is BLOCKED, and prove slot/concurrency are not released) and an *external-principal negative* arm (fencing-only, limitation recorded, reachable only via the external principal kind).
-- Traceability gains explicit **H-03** and **H-04** dispositions. The H-02 row's resolution text was corrected where it still described the now-deleted two-group handover; the finding description itself is unchanged.
+The one thing that does **not** hold is the repair's own new release rule. See J-01.
 
-**Files changed (5):**
+## 6. J-01 — MATERIAL ENGINEERING BLOCKER (new in `2f1acc0`)
 
-```
- crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md |   6 +-
- crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_FREEZE_CONTRACT.md   |  12 +-
- crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_STATE_API.md         |  71 ++++--
- crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_TRACEABILITY.md      |   4 +-
- crooks-assistant/tests/test_orchestrator_freeze_spec.py                   | 242 ++++++++++++++++++++-
- 5 files changed, 300 insertions(+), 35 deletions(-)
-```
+**A terminal execution record is required to keep holding a global concurrency unit, but every stated
+accounting mechanism counts only non-terminal rows, and the record model cannot represent "terminal,
+cleanup unproven" for a dispatch at all.**
 
-`DECISIONS.md` is byte-identical to canonical base `9e59860` (verified by empty diff). `CURRENT_TRUTH.md` and `ROADMAP.md` were not touched this round.
+### Exact locations
 
-## 5. Exact SHAs
-
-| | SHA |
+| Requires the unit **HELD** at step 7 | Requires / mechanically performs **RELEASE** |
 | --- | --- |
-| canonical base | `9e59860a945ec339c69af8709cd0721f0a795327` |
-| rejected candidate | `9fbe4a9212ef8a509856b8ff7fb75b78c253dc5f` |
-| **new candidate** | **`2f1acc0b7edd233735e419d92cfbade914b0042f`** |
-| merge-base(new, base) | `9e59860a945ec339c69af8709cd0721f0a795327` (equals canonical) |
+| `ORCHESTRATOR_V1_STATE_API.md` §6, line **597** — "resources MUST be released at step 6 **and never at step 7** … cannot have its required-review slot or its freeze-contract §19 reviewer-concurrency unit released" | `ORCHESTRATOR_V1_STATE_API.md` §6, line **597**, same bullet — "A terminal subject MUST NOT continue to occupy a slot, a lease or a concurrency unit." |
+| `ORCHESTRATOR_V1_STATE_API.md` §3B, line **493** — slot and §19 unit "**not** released while that orphan may still exist" | `ORCHESTRATOR_V1_STATE_API.md` §3.1, line **366** — "fencing releases resources immediately … the reviewer-concurrency and execution-slot occupancy freed by a fenced record MUST be reusable" |
+| `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §21 step 8, line **604** — "still held" | `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §19, line **560** — "The reviewer-concurrency ceiling is enforced against non-terminal `review_dispatch` rows, and the implementation/integration concurrency ceilings against non-terminal `attempt` rows" |
+| `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §15, line **449** — slot and unit "stay held" | `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §21 step **11**, line 607 — "fence obsolete … dispatches …, releasing the required-review slots, reviewer-concurrency units and execution slots they occupied" |
+| Acceptance `ST-17` kernel-owned arm — slot and §19 unit "**not** released … while a kernel-owned orphan can still exist" | Acceptance `ST-17`, same case — "The freed required-review slots and reviewer-concurrency units are immediately reusable"; `ORCHESTRATOR_V1_STATE_API.md` §1A line **247** — "at most one **non-terminal** dispatch per required-review slot" |
 
-Commit subject: *"One process group per attempt, and a reviewer the kernel can still find after a crash"*.
+The decisive facts: §6 step 7 makes the dispatch **`FENCED`**, and SA §1A line 118 states "`DISPATCHED` is
+the only non-terminal state; `COMPLETED`, `CANCELLED`, `FENCED` and `EXPIRED` are terminal". A step-7
+record is therefore terminal, and §19 counts it as zero. Symmetrically, an attempt at step 7 closes
+`QUARANTINED`, which is a disposition of terminal `CLOSED`, so §19's implementation/integration ceiling
+also counts it as zero.
 
-## 6. Test results
+Worse, the `review_dispatch` state enum (SA §1A line **112**,
+`DISPATCHED|COMPLETED|CANCELLED|FENCED|EXPIRED`) has **no** quarantine-equivalent and the record carries no
+`cleanup_proven` field. `FENCED` is reached both by the normal proven-clean fence path (§3B, slot "released
+for immediate reuse") and by the step-7 orphan path (§3B line 493, slot "not released"). The two are
+indistinguishable in the durable store — the same overloading defect as H-04's NULL, relocated from the
+process-group field onto the state enum.
 
-**Committed freeze-spec suite at the new SHA:** `51 passed` in 0.73s (was 38 at `9fbe4a9`; +13 new, of which 4 are parametrizations of the handover-wording guard across the freeze set).
+### Failure scenario (concrete)
 
-**Failing-before evidence against the exact rejected SHA `9fbe4a9`** — produced without modifying owner work, by materialising the rejected tree's docs into a scratch directory via `git archive 9fbe4a9 crooks-assistant/docs/product-memory` plus the candidate test module:
+Reviewer-concurrency ceiling = N. A `KERNEL_OWNED` reviewer's group cannot be proven empty on
+`candidate.reject`. §6 step 7 fires: dispatch → `FENCED` (terminal), subject → BLOCKED. The live untracked
+reviewer process keeps running. The controller now admits reviewer work by §19, counting non-terminal
+`review_dispatch` rows: the orphan's row is terminal, so the count is N−1 and a new dispatch **on a
+different subject** is admitted. Subject-BLOCKED does not prevent this, because the reviewer-concurrency
+ceiling is controller-global, not per-subject. Actual concurrent reviewer processes = N+1, exceeding a
+ceiling §19 says MUST NOT be exceeded — and reproducing precisely the H-04 consequence ("a live
+kernel-owned reviewer keeps running untracked" while its unit is reused) that this commit set out to
+eliminate.
 
-- Provenance proved blob-by-blob, `git hash-object` == `git rev-parse 9fbe4a9:<path>`:
-  - `ORCHESTRATOR_V1_STATE_API.md` → `4a12ba4de3499cfa389f0c12917d85723c89bbcf`
-  - `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` → `73de0f4b971598b1d47f4504a941c7b455eb3a28`
-  - `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md` → `2513f531fc54212646abcaae1bbf8b0dc16e64d7`
-  - `ORCHESTRATOR_V1_TRACEABILITY.md` → `727a3d3725d4e1279277cc34b720e7c572d4a257`
-- Result: **14 failed / 37 passed**. The failures are the defect-bearing ones, and they fail *because the rejected tree contains the handover wording*, not merely because it lacks new prose:
-  `test_pre_running_cleanup_handle_and_ceiling_discriminator_are_distinct_facts`,
-  `test_no_freeze_document_retains_the_two_group_handover_wording` (STATE_API, FREEZE_CONTRACT, TRACEABILITY — the acceptance matrix never carried it, so that parametrization correctly passes),
-  `test_the_running_commit_must_not_replace_the_cleanup_handle`,
-  `test_one_group_per_attempt_agrees_across_the_contract_and_the_state_api`,
-  `test_cleanup_handles_are_controller_allocated_and_reuse_fails_closed`,
-  `test_review_dispatch_records_a_durable_reviewer_ownership_kind`,
-  `test_kernel_owned_reviewer_handle_is_write_ahead_and_null_is_not_externality`,
-  `test_section_six_branches_on_reviewer_ownership_before_it_signals`,
-  `test_restart_reconciliation_treats_a_forkless_kernel_reviewer_as_kernel_owned`,
-  `test_the_substrate_rules_really_do_apply_to_all_three_execution_records`,
-  `test_acceptance_arms_exist_for_both_repaired_findings`,
-  `test_traceability_dispositions_every_reviewed_finding`.
+Attempt arm, sharper because V1 ships **one** implementation slot (FC §19): task A's attempt closes
+`QUARANTINED` with a live unprovable group. §19 counts non-terminal `attempt` rows → 0 → the single
+implementation slot is free → task B is admitted and launches a model. Two live attempt process groups
+exist on a one-slot controller, contending for the CPU/memory/process, browser-slot and port resources
+§19 exists to bound.
 
-**Mutation testing — the gate is non-vacuous.** In a separate scratch holding the *repaired* docs, each defect was re-introduced individually:
+Two conformant kernels cannot agree here: one implements §3.1 line 366 / §19 / §21 step 11 and releases;
+the other implements §6 line 597 / §3B line 493 / §21 step 8 and holds. Both cite MUSTs. `ST-17` as written
+cannot pass against a conformant implementation of §19.
 
-| Mutation | Result |
+### Why the gate did not catch it — confirmed false green
+
+The structural gate asserts the **presence of both contradictory strings** and never asks whether they can
+both hold: the test module at lines 1006 and 1012 asserts "MUST NOT continue to occupy a slot, a lease or
+a concurrency unit" appears in §3.1 *and* §6; line 1312 asserts "at step 6 **and never at step 7**"
+appears in §6; line 1331 asserts the slot and unit "stay held". No test binds §19's counting rule at all.
+
+Proved by mutation in ephemeral scratch (all against `2f1acc0`, control green at 51 passed):
+
+| Mutation | Gate |
 | --- | --- |
-| M1 — restore the handover on `STARTING -> RUNNING` (the exact H-03 defect) | 2 failed, 49 passed |
-| M2 — delete only the §6 ownership-re-verification clause | 1 failed, 50 passed |
-| M3 — re-overload NULL as externality in the `review_dispatch` record | 1 failed, 50 passed |
-| M4 — control, mutation reverted | 51 passed |
+| M1 — delete §6's ownership re-verification clause | **1 failed** (caught) |
+| M2 — re-overload NULL in §6 step 3 as externality | **1 failed** (caught) |
+| M3 — add a paraphrased two-group handover permission to §3A.3, leaving the prohibition sentence intact | **51 passed** (missed) |
+| M4 — §19 amended to release the unit at step 7 explicitly (**unsafe** resolution) | **51 passed** (missed) |
+| M5 — §19 amended to count unproven-cleanup rows (**safe** resolution) | **51 passed** (missed) |
 
-So the new tests bind to the specific normative claims rather than to incidental wording.
+M4/M5 are decisive: the gate is green on the ambiguity and on **both** resolutions, including the one
+that explicitly reinstates the H-04 failure. M3 additionally shows the H-03 guard is a verbatim blacklist
+(`HANDOVER_WORDINGS`, test-module lines 1148–1155) that cannot see a paraphrase, so a contradicting
+*addition* passes — which is structurally how J-01 itself survived 51 green tests.
 
-**Full offline suite at the new SHA:** `2857 passed, 8 skipped` in 224.57s (`pytest tests -m "not live" -q -n 4`). This is the expected `2844 + 13`; the doc-only candidate branch baseline was 2837/8 at `5eb25f8` with 31 spec tests, and `9fbe4a9` carried 38. Teardown emits harmless asyncio `Event loop is closed` noise from subprocess fixtures, as in previous rounds. **No regressions.**
+### Smallest bounded repair
 
-**Lint:** `ruff check tests/test_orchestrator_freeze_spec.py` → All checks passed. (`ruff format` is not a repo gate and was not run across the repo.)
+1. Give `review_dispatch` a durable way to record unproven cleanup — either a terminal `QUARANTINED`
+   state mirroring the attempt, or a `cleanup_proven` boolean — so "fenced, clean" and "fenced, orphan may
+   exist" are distinguishable in the store (SA §1A line 112).
+2. Amend FC §19 line 560 to define occupancy the way SA §3A.2 defines the ceiling — a pure function of
+   committed rows and dispositions: non-terminal rows **plus** terminal rows whose owned group was never
+   proven empty (`QUARANTINED` attempts; cleanup-unproven dispatches), released only when reconciliation
+   proves emptiness.
+3. Add the step-7 exclusion to SA §3.1 line 366, FC §21 step 11, and the "immediately reusable" clause of
+   ST-17, so no document still mandates release on the unproven path.
 
-**Recomputed standing invariants — all green at the new SHA, via the committed suite:**
-- zero dangling acceptance IDs (every referenced test ID resolves to a real matrix row);
-- complete §18A MUST coverage — every MUST-bearing numbered section is dispositioned, and no MUST hides in an unnumbered subsection;
-- every non-terminal attempt state has a terminal cleanup/fencing edge;
-- delivery enum ↔ §3C mutually complete;
-- no self-adoption (`DECISIONS.md` contains no freeze-candidate reference; the contract still declares itself a candidate until the Owner adopts an exact SHA);
-- no DEC-046/DEC-047 sequencing drift (`DECISIONS.md` byte-identical to canonical base; `ROADMAP.md` untouched);
-- §3.1 token/derivation behaviour intact, and the N-01..N-04, B-01..B-05, R-01..R-03, F-01..F-03, G-01..G-03, H-01, H-02 regression guards all still pass.
+### Exact acceptance / mechanical test
 
-Two notes on the gate's own constraints, which shaped the wording rather than the design: the pre-existing guard forbidding MUSTs outside numbered sections meant §3A.3's new subsections are bolded lead-ins rather than `####` headings (which would have created new indexable sections requiring §18A entries), and the record-schema blocks point at §3A.3 rather than restating its MUSTs. Both are the gate working as designed; I did not weaken it.
+- Extend `ST-17`'s kernel-owned crash arm and `ST-16`/`ST-13`'s quarantine arms: with the relevant ceiling
+  at N and one record holding an unprovable group, assert admission of the (N+1)-th unit is **refused**,
+  and that the unit becomes admissible only after reconciliation proves the group empty.
+- Add a structural test that recomputes FC §19's counting basis and asserts it names the
+  unproven-cleanup disposition set, and that neither SA §3.1 nor FC §21 step 11 releases those units —
+  i.e. a test that would fail M4 and pass M5. The present gate fails both ways round.
 
-## 7. Clean worktree, secret scan and remote readback
+## 7. Broader adversarial regression search — no further blockers
 
-- **Worktree clean:** `git status --porcelain` in `/opt/crooks-builder/.worktrees/freeze-repair` = **0 lines** after commit and after the full suite run. Scratch directories used for failing-before and mutation evidence were outside the repo and have been removed.
-- **Secret scan on the changed-file set:** gitleaks 8.30.1, `--redact --no-git --exit-code 1`, over `crooks-assistant/docs/product-memory` (~440 KB) and the changed test module (~69 KB) → **no leaks found**, exit 0 in both cases. No secret value is printed anywhere in this handoff.
-- **Push:** `9fbe4a9..2f1acc0 HEAD -> chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`. Only the freeze-candidate branch was pushed.
-- **Exact remote readback:** `git ls-remote origin refs/heads/chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` → `2f1acc0b7edd233735e419d92cfbade914b0042f`. Canonical base re-read unchanged at `9e59860a945ec339c69af8709cd0721f0a795327`.
+Checked and found sound: §3/§3A/§3B joint state legality and §3.1 per-row disposal; restart/epoch fencing
+and `FENCE_STALE` stale-result admission; attempt budget and R-02 ceiling accounting (unchanged by this
+commit); delivery §3C arming/idempotency/UNKNOWN reconciliation; journal completeness; zero dangling
+acceptance IDs and complete §18A MUST coverage (both gated, green); every non-terminal attempt state has a
+terminal `CLOSED` edge; delivery enum ↔ §3C mutual completeness; regressions N-01..N-04, B-01..B-05,
+R-01..R-03, F-01..F-03, G-01..G-03, H-01/H-02 — none reintroduced. Attempt/reviewer slot release is the one
+area that fails, and that is J-01.
 
-## 8. Service and server state
+**Open, non-blocking, carried forward** (unchanged, not re-derived): §7 has no dedicated reason code for
+ceiling exhaustion or delivery epoch/digest refusal; `BLOCKED/ESCALATED → task.plan → PLANNED` carries no
+ceiling guard; the attempt counter has no declared storage column; `QUARANTINED` from `STARTING` still
+consumes the ceiling though it never reached `RUNNING` (deliberate, fail-closed). New this round: the
+gate's mutation resistance on prose-absence guards (M3) — not a defect in the contract as written, but it
+is why J-01 was invisible.
 
-- `crooks-assistant.service`: **active**, **enabled**. Not restarted, reloaded or reconfigured this round.
-- FastAPI listener: `127.0.0.1:8000` only. Port 8000 is **not** publicly exposed.
-- `config/settings.py`: `writes_enabled: bool = False` — unchanged. `CROOKS_WRITES_LOCAL_OWNER` is not set on the unit and remains false.
-- Production checkout `/opt/crooks-os/crooks-assistant`: **untouched and not entered for any write**. Read-only inspection only — branch `claude/linux-prod-migration-production`, HEAD `1cf3a0f3361b79f9de208d80f501543c53c244b5`, `git status --porcelain` = 0 lines.
-- Builder main checkout `/opt/crooks-builder`: still `claude/builder-environment-repair` at `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`, clean. Not switched or reset.
-- No merge to any production branch, no deploy, no auto-merge. No systemd/watcher/builder-runtime change. The stale builder fetch refspec was **not** repaired (explicitly forbidden this round); branches were fetched by explicit full refname instead.
-- No live Shopify, Gmail or ElevenLabs call, no live external mutation, no MCP/connector change, no privilege expansion, no public exposure, no external spend. V2 not begun, UI not redesigned, Mac deployment and rollback path preserved, `/root/.claude` still writable.
+## 8. OWNER-PENDING and RUNTIME-PENDING — separate from the above, none actioned
 
-## 9. Errors
+- **OWNER-PENDING** — exact freeze adoption by SHA; any DEC-046 sequencing amendment. Neither touched;
+  `DECISIONS.md` is byte-identical to canonical.
+- **RUNTIME-PENDING** — live watcher/builder branch mismatch (unit declares `claude/bridge-builder`; the
+  checkout is on `claude/builder-environment-repair` at `295e483`); stale Builder fetch refspec (still the
+  single-branch form naming the deleted `claude/bridge-builder` — deliberately **not** repaired, as
+  `WATCHER_BUILDER_IDENTITY_REMEDIATION.md` BR-01/BR-04 depend on its current form); inherited business MCP
+  connector surface (this session was offered Shopify/Gmail/Drive/Resend/Omnisend/Wix connector tools
+  beyond the intended CLI allow-list — **none were invoked**; several also require OAuth this
+  non-interactive session cannot perform, and `plugin:marketing:similarweb` failed to connect).
 
-None that persisted. Four test failures occurred mid-round on first run and were resolved before commit:
+## 9. Reviewer-independence limitation — recorded
 
-- two were defects in my own new tests (a `.lower()` comparison against a mixed-case literal, and a wrong acceptance-matrix table header string) — fixed in the test module;
-- two were the pre-existing freeze gate correctly catching my edits: the `####` subheadings I had added inside §3A.3 put MUSTs outside any indexable numbered section, and I had introduced MUSTs into the `attempt`/`lease` record-schema blocks, which the gate forbids by design. Both were fixed by rewording the documents to satisfy the existing gate, not by relaxing the gate.
+The repair commit `2f1acc0` is authored by "Claude" and this review was performed by Claude Opus 5. This
+is **same-model, same-provider review**. It is a genuine independence limitation: shared priors can mask a
+shared blind spot. Mitigations actually applied — the verdict rests on mechanically reproduced evidence
+(hash-verified blobs, real pytest runs, five mutations) rather than on agreement with the repair's
+reasoning, and J-01 was found by attacking the repair's own new requirement rather than by re-reading its
+narrative. A different-provider review before owner adoption would still be worth having.
 
-No permission-layer blocks were encountered. Nothing was attempted that required widening permissions.
+## 10. State at end of run
 
-## 10. Decisions and questions needing review
+- **Production checkout `/opt/crooks-os/crooks-assistant`:** branch
+  `claude/linux-prod-migration-production`, HEAD `1cf3a0f3361b79f9de208d80f501543c53c244b5` (the DEC-048
+  ratified SHA), `git status` clean — **not written to, not modified, not switched, not reset**. There is
+  no `main` branch on the remote; that is the production branch.
+- **Builder `/opt/crooks-builder`:** branch `claude/builder-environment-repair`, HEAD `295e483`, status
+  clean (0 lines). Unchanged by this round.
+- **Worktree `.worktrees/freeze-repair`:** `2f1acc0`, status clean (0 lines). Pre-existing; used read-only
+  for the pytest run. Not created, switched or reset.
+- **Files changed by this round:** exactly one — `bridge/claude-outbox.md`. No commit, no push, no merge,
+  no deploy. Nothing else in `/opt/crooks-ai-bridge` was touched.
+- **Services:** `crooks-assistant.service` active and enabled; `crooks-bridge-watcher.service` active,
+  `.timer` inactive. FastAPI listening on `127.0.0.1:8000` only — no public exposure.
+- **Safety constraints:** all preserved. `writes_enabled` false, `CROOKS_WRITES_LOCAL_OWNER` false,
+  127.0.0.1 binding intact, proposal/action/verification semantics unchanged, no live Shopify/Gmail/
+  ElevenLabs call and no external mutation, V2 not begun, UI not redesigned, Mac deploy/rollback path
+  untouched, `/root/.claude` writable. No secret value was read, printed or committed.
+- **Ephemeral scratch:** `/tmp/rev-h34-before`, `/tmp/rev-h34-mut`, `/tmp/rev-h34-mut-pristine` created and
+  **deleted**; zero remain.
+- **Errors:** none. Nothing was blocked by the permission layer; no permission was widened.
 
-- **No owner approval was sought or recorded, because this round required none.** Nothing in the inbox asked for a service install/start, secret provisioning, Tailscale activation, live verification, or any irreversible or outward-facing action. The single outward action taken — pushing to the freeze-candidate branch — is what the inbox explicitly instructed ("Publish only to the freeze-candidate branch").
-- **Design decision worth a reviewer's attention:** H-04 is repaired *without new schema* by declaring `KERNEL_OWNED|EXTERNAL` as an attribute of the already-durable reviewer principal/session identity, as the inbox's "or equivalent existing principal/role identity" allowed. A reviewer may reasonably want to confirm that this is genuinely no-new-column rather than a column in disguise; I judged it an attribute of an existing binding, committed in the transaction that already creates the `DISPATCHED` row.
-- **Deliberately not widened:** the identity-reuse repair states a requirement (controller-allocated, attempt-/dispatch-bound, ownership re-verified before signalling, failing closed) and gives a per-record cgroup path only as an example. No platform-specific implementation is prescribed, per the inbox's constraint.
-- **Carried forward, non-blocking, unchanged by this round:** §7 still has no dedicated reason code for ceiling exhaustion or delivery epoch/digest refusal; `BLOCKED/ESCALATED → task.plan → PLANNED` carries no ceiling guard; the attempt counter has no declared storage column; `QUARANTINED` from `STARTING` still consumes the ceiling even though it never reached `RUNNING` (deliberate, fail-closed).
+## 11. Decisions or questions needing review
 
-## 11. Verdict status and the exact proposed next step
+No owner decision is requested by this round. The freeze is **not** ready for owner adoption: J-01 must be
+repaired and independently re-reviewed first. The only judgement call worth flagging to a senior reviewer
+is the scoping of J-01 as a single finding — the reviewer-concurrency arm and the implementation-slot arm
+share one root cause, one location set and one repair, so they are reported together rather than split to
+inflate the count.
 
-**I do not self-certify this repair.** The previous independent-review verdict is **stale for the changed SHA**: it was bound to `9fbe4a9212ef8a509856b8ff7fb75b78c253dc5f`, which is no longer the candidate head. It carries no authority over `2f1acc0b7edd233735e419d92cfbade914b0042f` and must not be read as covering it.
+## 12. Exact proposed next step
 
-**Exact proposed next step:** dispatch **exactly one** fresh, independent, read-only adversarial review bound to the exact new SHA `2f1acc0b7edd233735e419d92cfbade914b0042f` on branch `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` in `crooksldn-pixel/clive`, against canonical base `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`. That review should focus on H-03 and H-04 as repaired here, confirm the N/B/R/F/G/H-01/H-02 regressions are intact, and re-check that the new structural tests are not false greens — the mutation evidence in §6 is offered as a starting point, not as a substitute for its own adversarial check.
+Return `2f1acc0` to the implementer for **one** bounded repair commit on
+`chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`, addressing J-01 only, in the three parts of §6
+above: (1) a durable unproven-cleanup marker for `review_dispatch`; (2) FC §19 re-based to count
+unproven-cleanup rows for both the reviewer-concurrency and implementation/integration ceilings; (3) the
+step-7 exclusion added to SA §3.1 line 366, FC §21 step 11 and ST-17's "immediately reusable" clause — plus
+the two mechanical tests specified, one of which must fail mutation M4 and pass M5. Then a fresh
+independent review bound to that exact new SHA, ideally by a different provider.
 
-I have **not** dispatched that review or any other task, as instructed. This round is complete and awaiting that single review.
-
-**Inbox SHA processed:** `6b647f2fc42eda31d68cb95364d50690b5df1db4`
+Do **not** adopt `2f1acc0` and do **not** amend DEC-046/DEC-047 on the strength of this review. No owner
+approval is requested or implied by this round, and none was given in the inbox.
