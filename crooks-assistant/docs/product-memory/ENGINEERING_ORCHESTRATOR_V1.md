@@ -1,11 +1,13 @@
 # Engineering Orchestrator / Dev Team V1
 
-**Status:** IMPLEMENTATION AUTHORISED BY OWNER — execution remains subject to DEC-046 prerequisite ordering and all safety/review gates; deployment is not authorised  
+**Status:** FREEZE CANDIDATE UNDER ADVERSARIAL REVIEW — implementation remains owner-authorised but MUST bind to the eventual frozen contract; deployment is not authorised  
 **Owner direction:** D7–D11 / DEC-040–045; clarified in the migration continuation of 2026-09-19  
 **Repository baseline:** product memory `aaf1ad6e1c18a377176461cc8d99c185e62eca38`  
 **Latest observation:** 2026-09-19T06:38:39Z
 
 Detailed record contracts and proposed acceptance trial: [DEV_TEAM_V1_PILOT.md](./DEV_TEAM_V1_PILOT.md). Independent foundation review: [BUILDER_ENVIRONMENT_REVIEW.md](./BUILDER_ENVIRONMENT_REVIEW.md).
+
+> **2026-09-20 normative freeze overlay:** [ORCHESTRATOR_V1_FREEZE_CONTRACT.md](./ORCHESTRATOR_V1_FREEZE_CONTRACT.md), [ORCHESTRATOR_V1_TRACEABILITY.md](./ORCHESTRATOR_V1_TRACEABILITY.md) and [ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md](./ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md) resolve the previously open mechanism choices and contract gaps for the freeze candidate. Until independent review accepts that overlay, this file remains architectural background plus rationale. The 2026-09-19 observation table below is historical evidence and MUST NOT override CURRENT_TRUTH or the freeze overlay.
 
 ## 1. Purpose, scope and entry gate
 
