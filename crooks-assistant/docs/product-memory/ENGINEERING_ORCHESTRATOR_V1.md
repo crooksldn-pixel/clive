@@ -7,7 +7,7 @@
 
 Detailed record contracts and proposed acceptance trial: [DEV_TEAM_V1_PILOT.md](./DEV_TEAM_V1_PILOT.md). Independent foundation review: [BUILDER_ENVIRONMENT_REVIEW.md](./BUILDER_ENVIRONMENT_REVIEW.md).
 
-> **2026-09-20 normative freeze overlay:** [ORCHESTRATOR_V1_FREEZE_CONTRACT.md](./ORCHESTRATOR_V1_FREEZE_CONTRACT.md), [ORCHESTRATOR_V1_TRACEABILITY.md](./ORCHESTRATOR_V1_TRACEABILITY.md) and [ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md](./ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md) resolve the previously open mechanism choices and contract gaps for the freeze candidate. Until independent review accepts that overlay, this file remains architectural background plus rationale. The 2026-09-19 observation table below is historical evidence and MUST NOT override CURRENT_TRUTH or the freeze overlay.
+> **2026-09-20 normative freeze overlay:** [ORCHESTRATOR_V1_FREEZE_CONTRACT.md](./ORCHESTRATOR_V1_FREEZE_CONTRACT.md), [ORCHESTRATOR_V1_STATE_API.md](./ORCHESTRATOR_V1_STATE_API.md), [ORCHESTRATOR_V1_TRACEABILITY.md](./ORCHESTRATOR_V1_TRACEABILITY.md) and [ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md](./ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md) resolve the previously open mechanism choices and contract gaps for the freeze candidate. Until independent review accepts that overlay, this file remains architectural background plus rationale. The 2026-09-19 observation table below is historical evidence and MUST NOT override CURRENT_TRUTH or the freeze overlay.
 
 ## 1. Purpose, scope and entry gate
 
