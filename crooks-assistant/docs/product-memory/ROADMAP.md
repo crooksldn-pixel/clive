@@ -203,7 +203,7 @@ Agents should escalate decisions that are fundamentally product/taste/strategy q
 The owner should not be used as a command courier.
 
 ## D7. Engineering Orchestrator V1
-**Status:** FREEZE CANDIDATE IN REVIEW — owner implementation authorisation exists; repository-only deterministic kernel work may follow freeze, while model-running concurrency/cutover remains gated
+**Status:** FREEZE CANDIDATE IN REVIEW — owner implementation authorisation exists, but DEC-046 remains the active execution order until the owner explicitly changes it in DECISIONS.md
 
 Detailed proposal: [ENGINEERING_ORCHESTRATOR_V1.md](./ENGINEERING_ORCHESTRATOR_V1.md). Record/review/recovery contracts and the proposed first trial are in [DEV_TEAM_V1_PILOT.md](./DEV_TEAM_V1_PILOT.md). The owner has explicitly authorised V1 implementation under the existing canonical specification and safety boundaries. DEC-046's preceding deployment/current-product gates remain binding; unresolved mechanism choices still require the reviews described by the specification.
 
@@ -709,12 +709,11 @@ The current sequence, reaffirmed by the owner in the 2026-09-19 migration contin
 7. perfect current UI,
 8. perfect response behaviour and latency,
 9. conduct real-world CROOKS sessions and collect evidence,
-10. freeze Engineering Orchestrator / Dev Team V1 against the accepted harness, current Opus watcher state, Symphony/ECC traceability and the fault-injection matrix; then implement the repository-only deterministic kernel slice,
-11. complete remaining current-product/device/quality evidence before enabling model-running Orchestrator concurrency or replacing the watcher,
-12. bootstrap the privileged deployment/infrastructure control plane,
-13. expand World / Event Ledger / Attention / expectations / automation / integrations.
+10. implement Engineering Orchestrator / Dev Team V1 after the preceding DEC-046 deployment/current-product/device/quality/evidence gates are satisfied,
+11. bootstrap the privileged deployment/infrastructure control plane,
+12. expand World / Event Ledger / Attention / expectations / automation / integrations.
 
-The owner-authorised V1 work is split deliberately: the **repository-only deterministic kernel** may proceed after the V1 freeze because it cannot deploy or perform business actions; enabling unattended model workers, concurrency/cutover, privileged installation or production promotion remains gated by the applicable current-product/device/safety evidence and explicit authority. This resolves the earlier ambiguity between the roadmap sequence and the accepted-harness next gate.
+The 2026-09-20 freeze candidate proposes a narrower sequencing amendment: allow only Phase 0 repository-only deterministic-kernel work after an accepted V1 freeze, while keeping model-running workers, concurrency/cutover, new privileges and deployment behind the existing gates. **That split is a proposal, not current authority.** It becomes active only if the owner records an explicit DECISIONS.md entry adopting the exact freeze SHA and stating the sequencing amendment.
 
 This replaces the older footer that placed World/automation ahead of the engineering organisation. No active safety gate is removed.
 
