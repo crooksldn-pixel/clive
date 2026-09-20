@@ -29,7 +29,7 @@ The final Sequencing rule and DEC-046 are authoritative for execution order. Eng
 - later move service from temporary root execution to a dedicated `crooks` user
 
 ## N2. Install and harden the Claude inbox watcher
-**Status:** SHIPPED / HARDENING
+**Status:** SHIPPED / HARDENING — Opus model migration published; branch-identity and inherited-tool-surface hardening remain
 
 - standalone bridge and builder clones
 - poll inbox blob SHA, not branch HEAD
@@ -121,11 +121,9 @@ All future meaningful ideas and architecture decisions should become durable ent
 Active context must remain curated: Git stores history; current truth and active decisions drive new releases.
 
 ## N7. Permanent Builder Environment
-**Status:** TESTING — published candidate requires corrections
+**Status:** ACCEPTED FOR ENGINEERING USE AT EXACT CANDIDATE `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b` — local persistent-builder reconciliation/hygiene may remain
 
-Candidate `9a27bc441adad1e98e8a9ca257d1883246ee7eec` is published on `claude/builder-environment-review`. Independent review reproduced failures in bootstrap, environment validation and shell quoting; clean reconstruction remains incomplete. See [BUILDER_ENVIRONMENT_REVIEW.md](./BUILDER_ENVIRONMENT_REVIEW.md).
-
-No project skills/rules/hooks were installed because the worker's native permission layer refused them. Preserve that boundary. Current bridge intake has moved to Mobile Experience V1; reconcile that unacknowledged round before sending foundation repair work. Candidate delivery does not mean the permanent environment gate is passed.
+The rejected Builder candidate `9a27bc4` was repaired and independently accepted at exact candidate `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`. The accepted environment closes BE-01 through BE-04 and remains the engineering base referenced by the later harness acceptance. Project-scoped `.claude/` harness activation remains separately governed; acceptance of the Builder does not grant production, connector, account/global or privilege changes.
 
 Required foundation outcomes:
 
@@ -205,7 +203,7 @@ Agents should escalate decisions that are fundamentally product/taste/strategy q
 The owner should not be used as a command courier.
 
 ## D7. Engineering Orchestrator V1
-**Status:** IMPLEMENTATION AUTHORISED — harness preparation active; current-product/device/quality gates still precede major V1 implementation
+**Status:** FREEZE CANDIDATE IN REVIEW — owner implementation authorisation exists; repository-only deterministic kernel work may follow freeze, while model-running concurrency/cutover remains gated
 
 Detailed proposal: [ENGINEERING_ORCHESTRATOR_V1.md](./ENGINEERING_ORCHESTRATOR_V1.md). Record/review/recovery contracts and the proposed first trial are in [DEV_TEAM_V1_PILOT.md](./DEV_TEAM_V1_PILOT.md). The owner has explicitly authorised V1 implementation under the existing canonical specification and safety boundaries. DEC-046's preceding deployment/current-product gates remain binding; unresolved mechanism choices still require the reviews described by the specification.
 
@@ -711,11 +709,12 @@ The current sequence, reaffirmed by the owner in the 2026-09-19 migration contin
 7. perfect current UI,
 8. perfect response behaviour and latency,
 9. conduct real-world CROOKS sessions and collect evidence,
-10. implement Engineering Orchestrator / Dev Team V1,
-11. bootstrap the privileged deployment/infrastructure control plane,
-12. expand World / Event Ledger / Attention / expectations / automation / integrations.
+10. freeze Engineering Orchestrator / Dev Team V1 against the accepted harness, current Opus watcher state, Symphony/ECC traceability and the fault-injection matrix; then implement the repository-only deterministic kernel slice,
+11. complete remaining current-product/device/quality evidence before enabling model-running Orchestrator concurrency or replacing the watcher,
+12. bootstrap the privileged deployment/infrastructure control plane,
+13. expand World / Event Ledger / Attention / expectations / automation / integrations.
 
-Dev Team V1 implementation is owner-authorised, but execution remains sequenced after the preceding DEC-046 deployment/current-product gates. Planning and implementation preparation may proceed without treating that approval as a waiver of those gates.
+The owner-authorised V1 work is split deliberately: the **repository-only deterministic kernel** may proceed after the V1 freeze because it cannot deploy or perform business actions; enabling unattended model workers, concurrency/cutover, privileged installation or production promotion remains gated by the applicable current-product/device/safety evidence and explicit authority. This resolves the earlier ambiguity between the roadmap sequence and the accepted-harness next gate.
 
 This replaces the older footer that placed World/automation ahead of the engineering organisation. No active safety gate is removed.
 
