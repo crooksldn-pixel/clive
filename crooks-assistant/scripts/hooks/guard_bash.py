@@ -419,11 +419,74 @@ def _unquoted_heredoc_ops(line: str) -> list[tuple[str, bool, bool]]:
     return ops
 
 
+def _scan_continuations(text: str) -> tuple[str, bool]:
+    """`text` with every line continuation bash would remove taken out, and whether it ends
+    in an open one: a final unquoted backslash with nothing after it yet.
+
+    bash removes an unquoted or double-quoted backslash-newline pair from its input before
+    it reads a word, so `echo x >\\<newline>/opt/x` is `echo x >/opt/x`, `2\\<newline>>f` is
+    `2>f`, `rm -rf \\<newline>/opt/x` names `/opt/x` and `bash \\<newline><<EOF` owns the
+    heredoc. Inside single quotes both characters are literal and stay. A comment runs to the
+    end of its physical line, so a backslash inside one continues nothing. Every other
+    escaped character is left for the tokenizer. Nothing else is removed or reordered
+    (R-01 of the review of ef73fbe)."""
+    out: list[str] = []
+    quote: str | None = None
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and quote != "'":
+            if i + 1 == n:
+                out.append(ch)  # kept: the tokenizer refuses a dangling escape
+                return "".join(out), True
+            if text[i + 1] == "\n":
+                i += 2  # the pair vanishes; what follows joins the current word
+                continue
+            out.append(text[i : i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == "#" and (not out or out[-1][-1] in " \t;|&(\n"):
+            j = text.find("\n", i)
+            j = n if j == -1 else j
+            out.append(text[i:j])
+            i = j
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out), False
+
+
+def _join_continuations(text: str) -> str:
+    return _scan_continuations(text)[0]
+
+
+def _continued(line: str) -> bool:
+    """True when this physical line ends in a continuation bash honours, so the next physical
+    line is part of the same logical line."""
+    return _scan_continuations(line)[1]
+
+
+def _odd_trailing_backslashes(line: str) -> bool:
+    return (len(line) - len(line.rstrip("\\"))) % 2 == 1
+
+
 def _strip_heredocs(raw: str) -> tuple[str, list[tuple[str, str]]]:
     """Remove heredoc bodies from `raw`; return the executable text and the bodies that will
     still be executed, tagged ("shell", body) when the heredoc feeds a shell, ("code", body)
     when it feeds an interpreter, and ("shell", substitution) for each `$(...)` / backtick
     inside an unquoted prose heredoc.
+
+    Lines are read the way bash reads them (R-01): a physical line that ends in an unquoted
+    backslash is joined with the next before its words — and its heredoc operators and owner
+    — are read, so `bash \\<newline><<EOF` feeds a shell. Inside an unquoted heredoc body bash
+    joins continued lines before comparing a line with the delimiter; inside a quoted one it
+    does not, and neither does this.
 
     An unterminated heredoc strips nothing: what cannot be parsed is evaluated in full."""
     lines = raw.split("\n")
@@ -432,9 +495,12 @@ def _strip_heredocs(raw: str) -> tuple[str, list[tuple[str, str]]]:
     i = 0
     while i < len(lines):
         line = lines[i]
+        i += 1
+        while i < len(lines) and _continued(line):
+            line = line[:-1] + lines[i]
+            i += 1
         kept.append(line)
         ops = _unquoted_heredoc_ops(line)
-        i += 1
         if not ops:
             continue
         owner = _heredoc_owner(line)
@@ -443,11 +509,16 @@ def _strip_heredocs(raw: str) -> tuple[str, list[tuple[str, str]]]:
             j = i
             terminated = False
             while j < len(lines):
-                probe = lines[j].lstrip("\t") if strip_tabs else lines[j]
+                text = lines[j]
+                if not quoted:
+                    while j + 1 < len(lines) and _odd_trailing_backslashes(text):
+                        j += 1
+                        text = text[:-1] + lines[j]
+                probe = text.lstrip("\t") if strip_tabs else text
                 if probe == delim:
                     terminated = True
                     break
-                body.append(lines[j])
+                body.append(text)
                 j += 1
             if not terminated:
                 # Fail closed: keep every line as executable text.
@@ -550,9 +621,15 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
 
     A `|` or `&` that is part of a redirection operator — `>|`, `&>`, `&>>`, `>&`, `<&` —
     stays in the word with its operator rather than ending the segment (F-6 of the review of
-    fe96bb6), so that `echo x>|f` and `echo x&>f` reach the tokenizer as a redirection."""
+    fe96bb6), so that `echo x>|f` and `echo x&>f` reach the tokenizer as a redirection.
+
+    Unquoted and double-quoted line continuations are removed first, as bash removes them
+    before it reads a word (R-01 of the review of ef73fbe): every caller of this segmenter —
+    the guard, the heredoc owner and the gitleaks gate — sees `echo x >\\<newline>/opt/x` as
+    `echo x >/opt/x`. A single-quoted backslash-newline stays literal, as in bash."""
     if nesting > MAX_SUBSTITUTION_NESTING:
         raise ValueError("substitutions nested too deeply")
+    text = _join_continuations(text)
     out: list[tuple[str, bool]] = []
     buf: list[str] = []
     quote: str | None = None
@@ -746,8 +823,11 @@ def _split_redirects(segment: str) -> str:
 def _tokens(segment: str) -> tuple[list[str], list[tuple[str, str]]]:
     """Shell words of one segment, and the leading `NAME=value` assignments that were in front
     of the command word (inspected by the evaluator, D-05). Every unquoted redirection
-    operator ends the word before it, as in bash (F-6)."""
-    toks = shlex.split(_split_redirects(segment), comments=False, posix=True)
+    operator ends the word before it, as in bash (F-6), and a line continuation is gone
+    before the word is read, as in bash (R-01) — already so for a segment from `_segments`,
+    repeated here so that every caller reads the same words."""
+    toks = shlex.split(_split_redirects(_join_continuations(segment)), comments=False,
+                       posix=True)
     assigned: list[tuple[str, str]] = []
     while toks and (toks[0] in RESERVED or ASSIGNMENT_RE.match(toks[0])):
         t = toks.pop(0)
