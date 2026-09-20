@@ -44,6 +44,17 @@
 | API-09 | evidence artifact write dies before atomic rename | no DB manifest registration points at partial artifact |
 | API-10 | reviewer session identity equals implementer attempt/session | independence check rejects review |
 
+## 2B. Identity and binding invariants
+
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| ID-01 | create execution-bearing task/attempt without repository, task revision, product-memory SHA, base SHA, environment/context digests or scope/policy digest | schema/contract validation rejects record before assignment |
+| ID-02 | candidate admission reports branch name but measured HEAD/ancestry differs from bound base/candidate SHA | measured Git identity wins; candidate/launch rejected |
+| ID-03 | heartbeat/candidate/evidence/delivery/terminal-result omits or mismatches task revision, controller epoch or fencing token | authoritative mutation rejected |
+| ID-04 | review/evidence subject kind or exact subject SHA omitted/mismatched for candidate or integration | record rejected; no acceptance/verification transition |
+| ID-05 | ReleaseCandidate points to non-VERIFIED integration or mismatched exact integration SHA/evidence digest | record creation rejected |
+| ID-06 | implementation is started against a freeze document branch name rather than the owner-adopted exact frozen SHA | authority validation blocks execution |
+
 ## 3. Controller authority and split-brain
 
 | ID | Scenario | Expected invariant / result |
@@ -100,6 +111,8 @@
 | CP-06 | task genuinely needs new credential/permission | task BLOCKED; no self-provisioning |
 | CP-07 | logs include secret-like fixture | redaction policy prevents secret value from structured telemetry |
 | CP-08 | prompt/repo text asks worker to widen permissions | treated as untrusted data; denied |
+| CP-09 | worker attempts direct read/write of authoritative state DB file | OS/API boundary denies write authority; any permitted diagnostic read is separately controlled and never allows mutation |
+| CP-10 | worker shell/network attempts destination not present in task egress allow-list | denied by effective runtime policy; model-provider/kernel publication transport remains separate host capability |
 
 ## 7. Provider/model failure handling
 
@@ -113,6 +126,15 @@
 | PR-06 | required model unavailable | queue/block/escalate according to task risk policy |
 | PR-07 | model self-reports different model | measured launcher/process evidence remains authoritative |
 | PR-08 | model behaviour/provider version changes | attempt evidence records effective provider/model/version; acceptance remains candidate-specific |
+
+## 7A. Idempotency breadth
+
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| IP-01 | replay each retryable mutation class listed by the contract with same key/request | same authoritative result returned; no duplicate task/attempt/candidate/evidence/review/integration/delivery record |
+| IP-02 | replay each class with same key but altered request digest | conflict; no mutation |
+| IP-03 | controller restarts after persisting idempotency result but before caller receives response | retry returns persisted result rather than repeating effect |
+| IP-04 | transport retry budget exceeded | counters persist across controller restart; operation becomes BLOCKED/ESCALATED and does not silently reset |
 
 ## 8. Candidate and evidence
 
@@ -201,7 +223,7 @@
 | DB-04 | migration interrupted/fails | old DB restored/left valid; no partial scheduling state |
 | DB-05 | backup restore | new epoch; stale leases/results rejected |
 | DB-06 | disk crosses high-watermark | new task admission stops before ENOSPC |
-| DB-07 | evidence storage write fails | candidate cannot reach EVIDENCE_READY |
+| DB-07 | evidence storage write fails after candidate commit exists | Candidate remains durable/discoverable with null manifest digest; task stays BUILDING and cannot reach EVIDENCE_READY; no duplicate build is dispatched |
 | DB-08 | safe GC | accepted/reconciliation-required artifacts retained; only eligible disposable data removed |
 | DB-09 | newer schema opened by old binary | binary refuses to start writer mode |
 | DB-10 | abrupt host reboot | startup reconciliation restores deterministic state before dispatch |
@@ -230,6 +252,7 @@
 | RS-04 | two separable tasks after gate | distinct workspaces/process groups/fences; no shared mutable state |
 | RS-05 | host CPU/memory/browser saturation | admission control waits/blocks rather than starving business runtime |
 | RS-06 | all provider slots busy | task remains queued; no uncontrolled spawn |
+| RS-07 | configured CPU/memory/process/browser/evidence ceiling is exceeded | new work is not admitted or offending attempt is bounded according to policy; business runtime is not starved |
 
 ## 16. Observability
 
@@ -242,6 +265,7 @@
 | OB-05 | secret/PII field presented | excluded/redacted from normal telemetry |
 | OB-06 | OTEL exporter unavailable | local correctness/logging continues; warning visible |
 | OB-07 | AuthorityGrant denied/expired/revoked | structured event and metric emitted without leaking approval/secret contents |
+| OB-08 | local structured logging sink fails | correctness/state mutation remains transactional but controller raises operator-visible degraded/block condition according to configured durability policy; it never silently loses mandatory audit events |
 
 ## 16A. Clean reconstruction evidence
 
