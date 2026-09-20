@@ -27,7 +27,7 @@
 | ST-08 | task restart does not reset retry/correction counters | persisted counters unchanged |
 | ST-09 | finding can be BLOCKED while other findings RESOLVED | partial progress represented without task false-success |
 | ST-10 | restore DB backup | controller epoch increments; all old leases/results are stale |
-| ST-11 | generate a joint oracle across every task/integration subject state × attempt state × command | subject-state and attempt-state guards must agree for every combined mutation; exactly the intersection of the normative tables is accepted. The oracle must positively admit the split integration launch (`integration.begin` allocation, then `integration.start` preflight/process ownership) and reject every unlisted/conflicting edge with no partial state/event write |
+| ST-11 | generate a joint oracle across every task/integration subject state × attempt state × command | subject-state and attempt-state guards must agree for every combined mutation. The legal integration launch sequence is exact: `integration.begin` admits `(integration CREATED, attempt none) -> (INTEGRATING, CREATED)`; `integration.start` admits attempt `CREATED -> STARTING` while subject remains INTEGRATING, then `STARTING -> RUNNING` on successful preflight; every conflicting/unlisted combination rejects with no partial state/event write |
 | ST-12 | reject a candidate, then invoke the one permitted bounded correction | full `REJECTED -> attempt.assign -> ASSIGNED -> attempt STARTING/RUNNING -> BUILDING` path is legal with a fresh attempt/fencing token and retained prior candidate |
 | ST-13 | deterministic preflight failure occurs while task is ASSIGNED and attempt is STARTING | no model launch; attempt closes FAILED when cleanup is proven or QUARANTINED otherwise; task reaches BLOCKED through the listed `task.block` edge, never an illegal `ASSIGNED -> FAILED` task transition |
 | ST-14 | drive three attempts on one task revision through failure/block/re-plan paths, then request a fourth `attempt.assign` | the fourth assignment is refused by the transition guard because the per-revision attempt ceiling is exhausted; the persisted counter survives controller restart, DB restore and epoch change; when the third attempt is a non-rejection failure the task follows `BLOCKED -> task.escalate -> ESCALATED` and no further assignment is admissible |
@@ -216,9 +216,10 @@ Covers the MUST-bearing requirements of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §2
 | IN-12 | controller restart with an integration in `INTEGRATING` | the §21 integration-reconciliation step observes integrator process and workspace state before dispatch is enabled; there is never a blind re-dispatch and never a silent indefinite `INTEGRATING`; an integration in `INTEGRATING` with no non-terminal integration attempt is surfaced as BLOCKED |
 | IN-13 | an integrated review records a blocking finding against the integration subject | `integration.verify` is refused while that finding is `OPEN`/`BLOCKED`; the finding is queryable by `(subject kind = INTEGRATION, subject ID)`; a correction integration created under `parent_integration_id` inherits the unresolved finding and cannot reach `VERIFIED` until it is `RESOLVED` or `OBSOLETE` with a recorded reason — the integration analogue of `ST-09` |
 | IN-14 | a stale integration result is presented under a superseded or terminal integration attempt | rejected with `FENCE_STALE`; the integration state is unchanged by the rejected admission |
-| IN-15 | launch an integration from CREATED through `integration.begin` and `integration.start` | `integration.begin` atomically reserves the workspace and creates the INTEGRATION attempt/lease with no preflight or process launch; `integration.start` then performs measured preflight and establishes the owned process group before attempt RUNNING. Both §3 and §3A admit every edge and ST-11's joint oracle returns legal |
-| IN-16 | integrator preflight fails deterministically after `integration.begin` allocated the attempt/workspace | no integrator model/process reaches RUNNING; the attempt closes FAILED if cleanup is proven or QUARANTINED otherwise, the integration reaches BLOCKED through `integration.block`, the workspace remains reserved/quarantined as appropriate, and there is no unfenceable or unregistered preflight window |
-| IN-17 | cancel an integration while it is still CREATED, before `integration.begin` has allocated any attempt/lease/workspace | cancellation succeeds as a direct subject-state transition with no fictitious lease/process to fence; once `integration.begin` has allocated the attempt, all later cancellation paths use the normal lease/process-group fencing rules |
+| IN-15 | launch an integration through the exact allocation/preflight triples | `integration.begin` is legal only from `(integration CREATED, attempt none)` and leaves `(INTEGRATING, CREATED)` with workspace/lease allocated; `integration.start` is legal from `(INTEGRATING, CREATED)` to attempt STARTING and from `(INTEGRATING, STARTING)` to attempt RUNNING on successful measured preflight; no §3 row claims an attempt-state edge that §3A does not own |
+| IN-16 | integrator preflight fails deterministically after `integration.begin` allocated the attempt/workspace | no integrator process reaches RUNNING; the STARTING attempt closes FAILED if cleanup is proven or QUARANTINED otherwise, and the integration reaches BLOCKED through `integration.block`; no unfenceable or unregistered preflight window exists |
+| IN-17 | cancel an integration while it is still subject-state CREATED, before `integration.begin` | cancellation is a direct subject transition with no fictitious attempt/lease/process; once allocation has occurred, cancellation is governed by the real attempt/lease edges in §3A |
+| IN-18 | cancel/fence an allocated integration attempt while its attempt state is CREATED or STARTING, including controller-epoch change during that window | authority is fenced immediately; CREATED closes CANCELLED/FENCED with cleanup proven by construction; STARTING closes CANCELLED/FENCED only after preflight process cleanup is proven, otherwise QUARANTINED and subject BLOCKED; no live lease/attempt remains stranded |
 
 ## 11. Context and authority freshness
 
@@ -249,6 +250,17 @@ Covers the MUST-bearing requirements of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §2
 | PB-05 | worker attempts force push / protected branch write | denied by capability policy |
 | PB-06 | worker attempt has a usable remote push credential or can directly publish its candidate | preflight/policy rejects launch; candidate publication authority belongs only to the kernel publication adapter |
 | PB-07 | publication adapter creates candidate ref, response is lost, retry observes the same create-only ref at exact candidate SHA | reconcile as success; never create a second authoritative Candidate or force-update the ref |
+
+
+## 12A. Delivery state machine
+
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| DL-01 | create a delivery publication intent | `delivery.publish` creates/reuses PENDING only after idempotency key/request digest and expected remote identity are persisted before the external effect |
+| DL-02 | exact expected remote identity is observed after publication | PENDING -> PUBLISHED with observed identity persisted and a DELIVERY transition event |
+| DL-03 | publication response is ambiguous after the external effect | PENDING -> UNKNOWN; blind replay is forbidden until `delivery.reconcile` observes authoritative remote truth |
+| DL-04 | reconcile UNKNOWN delivery | authoritative remote truth moves UNKNOWN to PUBLISHED when exact identity exists, or FAILED when the intended effect definitively did not occur and no safe retry remains |
+| DL-05 | block a PENDING/UNKNOWN/FAILED delivery on deterministic policy/authority/conflict | `delivery.block` moves it to BLOCKED with typed persisted reason; PUBLISHED and BLOCKED are terminal for that delivery record |
 
 ## 13. Database durability and recovery
 
@@ -283,7 +295,7 @@ Covers the MUST-bearing requirements of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §1
 
 | ID | Scenario | Expected invariant / result |
 | --- | --- | --- |
-| OB-01 | emit every task/integration/review-dispatch **and delivery** transition and inspect the resulting journal events | each event carries the complete §18 minimum field set and a representable subject kind, including `DELIVERY` for delivery state changes (`PENDING|UNKNOWN|PUBLISHED|FAILED|BLOCKED`); delivery events carry no execution-record fencing token and instead record controller epoch plus delivery/idempotency identity; an event missing a required field is rejected together with its transition |
+| OB-01 | emit every task/integration/review-dispatch and **§3C delivery** transition and inspect the resulting journal events | each event carries the complete §18 minimum field set and a representable subject kind; delivery transitions DL-01..DL-05 emit `DELIVERY` events with controller epoch and delivery/idempotency identity and may have NULL execution-record fencing token; no authoritative transition commits without its journal event |
 | OB-04 | present a heartbeat, candidate, integration result and review verdict under a superseded or terminal execution record | each admission is refused and each refusal appends a journal event naming the stale execution identity and `FENCE_STALE`; the `stale-result rejections` metric is derivable from those events, so a fenced reviewer or integrator is never silently invisible |
 | OB-02 | enumerate the mandatory operational metrics listed in §18 | every listed metric is exposed by the running controller; a missing metric fails the health/readiness gate rather than being silently absent |
 | OB-03 | telemetry, logs and journal payloads are generated for a task carrying secret-like and PII-like fixtures | no secret value, raw credential, customer PII or full prompt is emitted by default; composes with `CP-07` on the worker side and covers the controller/journal side |
@@ -360,7 +372,7 @@ The §18 mechanical gate recomputes the MUST-bearing section set from the docume
 | FC | §4 | ID-01, ID-02, ID-03, ID-04, ID-05, ID-06, WS-02, WS-03, EV-01 |
 | FC | §5.3 | ST-09, RV-03, IN-13 |
 | FC | §6 | DB-01, DB-02, DB-03, DB-04, DB-08, DB-09, DB-10, DB-11, DB-12 |
-| FC | §7 | CT-01, CT-02, CT-03, CT-04, CT-05, CT-06, ID-03, ID-07, LS-03, LS-04, RV-11, RV-14, IN-14, OB-01 |
+| FC | §7 | CT-01, CT-02, CT-03, CT-04, CT-05, CT-06, ID-03, ID-07, LS-03, LS-04, RV-11, RV-14, IN-14, OB-01, DL-01, DL-02, DL-03, DL-04, DL-05 |
 | FC | §8 | LS-01, LS-02, LS-03, LS-05, LS-06, LS-07, LS-08, RV-12, RV-13 |
 | FC | §9 | IP-01, IP-02, IP-03, IP-04, API-02, API-03, API-08, EV-10, PB-01, PB-02, PB-07 |
 | FC | §10.1 | PR-03, PR-04, PR-05, PR-09, ST-08, WS-04, WS-13, DB-05 |
@@ -369,7 +381,7 @@ The §18 mechanical gate recomputes the MUST-bearing section set from the docume
 | FC | §12 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08, CP-09, CP-10, PB-05, PB-06 |
 | FC | §13 | CX-05, CX-06, CX-07, CX-08, AU-01 |
 | FC | §14.5 | PB-03, PB-04, PB-05, PB-06, PB-07 |
-| FC | §16 | IN-01, IN-02, IN-03, IN-04, IN-05, IN-06, IN-07, IN-08, IN-09, IN-10, IN-11, IN-12, IN-13, IN-14, IN-15, IN-16, IN-17 |
+| FC | §16 | IN-01, IN-02, IN-03, IN-04, IN-05, IN-06, IN-07, IN-08, IN-09, IN-10, IN-11, IN-12, IN-13, IN-14, IN-15, IN-16, IN-17, IN-18 |
 | FC | §18 | OB-01, OB-02, OB-03, OB-04 |
 | FC | §19 | RS-01, RS-02, DB-05, API-07 |
 | FC | §20 | UP-01, UP-02, UP-03, UP-04, UP-05, UP-06, DB-04 |
@@ -379,7 +391,7 @@ The §18 mechanical gate recomputes the MUST-bearing section set from the docume
 | FC | §23 | STATIC — reuse boundary; the MUST NOT is "do not import the ECC plugin/runtime graph", a repository-composition invariant with no runtime transition |
 | FC | §27 | STATIC — freeze acceptance is an owner/process gate, not a kernel transition; the anti-self-adoption half is tested by AU-01 and ID-06 |
 | SA | §1A | ID-03, LS-01, LS-03, LS-04, RV-11, RV-12, RV-13, RV-14, IN-11, IN-12, IN-14, CXN-05 |
-| SA | §3A | ST-11, ST-12, ST-13, ST-14, API-01, PR-10, IN-11, IN-12, IN-15, IN-16 |
+| SA | §3A | ST-11, ST-12, ST-13, ST-14, API-01, PR-10, IN-11, IN-12, IN-15, IN-16, IN-18 |
 | SA | §4 | ST-03, ST-04, ST-05, API-09, DB-01 |
 | SA | §5 | API-06, API-07, RS-02 |
 | SA | §5A | WS-12, WS-15, PB-06, CP-10 |
