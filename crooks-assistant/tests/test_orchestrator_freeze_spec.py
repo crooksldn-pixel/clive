@@ -161,15 +161,16 @@ def numbered_section_text(path: Path, section: str) -> str:
     return "\n".join(out)
 
 
-def table_rows_under_header(path: Path, header: str) -> list[list[str]]:
-    """Rows of the one markdown table whose header row is exactly `header`.
+def table_rows_under_header_in(text: str, header: str) -> list[list[str]]:
+    """Rows of the one markdown table whose header row is exactly `header`, over a document held
+    in memory rather than on disk.
 
-    Several documents now carry more than one table inside a single numbered section, so
-    `table_rows_in_numbered_section` is too coarse to address them individually.
+    The K-01 mutation harness has to parse a *mutated* copy of the state API, so every parser the
+    handle-write gate depends on is reachable from a string as well as from a path.
     """
     rows: list[list[str]] = []
     collecting = False
-    for line in read(path).splitlines():
+    for line in text.splitlines():
         if line.strip() == header.strip():
             collecting = True
             continue
@@ -181,6 +182,16 @@ def table_rows_under_header(path: Path, header: str) -> list[list[str]]:
         if not cells or set("".join(cells)) <= {"-", " "}:
             continue
         rows.append(cells)
+    return rows
+
+
+def table_rows_under_header(path: Path, header: str) -> list[list[str]]:
+    """Rows of the one markdown table whose header row is exactly `header`.
+
+    Several documents now carry more than one table inside a single numbered section, so
+    `table_rows_in_numbered_section` is too coarse to address them individually.
+    """
+    rows = table_rows_under_header_in(read(path), header)
     assert rows, f"{path.name}: no table found under header {header!r}"
     return rows
 
@@ -1381,29 +1392,278 @@ def test_acceptance_arms_exist_for_both_repaired_findings() -> None:
 GROUP_CARDINALITY_HEADER = "| Record kind | Owned process groups over the lifetime | Handle write points |"
 
 
-def declared_group_cardinality() -> dict[str, tuple[str, str]]:
+def declared_group_cardinality_in(api_text: str) -> dict[str, tuple[str, str]]:
     """§3A.3's cardinality table as `{record kind: (group count, write points)}`."""
-    rows = table_rows_under_header(STATE_API, GROUP_CARDINALITY_HEADER)
+    rows = table_rows_under_header_in(api_text, GROUP_CARDINALITY_HEADER)
+    assert rows, f"no table found under header {GROUP_CARDINALITY_HEADER!r}"
     return {row[0]: (row[1], row[2]) for row in rows}
 
 
-def attempt_rows_committing_the_cleanup_handle() -> list[list[str]]:
-    """§3A edges whose preconditions actually claim to commit the cleanup handle."""
-    return [
-        row for row in table_rows_in_numbered_section(STATE_API, "3A")
-        if len(row) >= 4 and f"`{CLEANUP_HANDLE}` is committed" in row[3]
+def declared_group_cardinality() -> dict[str, tuple[str, str]]:
+    """§3A.3's cardinality table, read from the committed state API."""
+    return declared_group_cardinality_in(read(STATE_API))
+
+
+# --------------------------------------------------------------------------------------------
+# K-01 — every §3A mention of the cleanup handle is *classified*, not scanned for one verb.
+#
+# The previous detector was `f"`{CLEANUP_HANDLE}` is committed" in row[3]`: a single verbatim
+# verb. An operative second write phrased "is written", "is rewritten", "is updated to",
+# "is replaced with" or "is set to" was therefore invisible, the derived write count stayed 1,
+# matched the declared 1, and the freeze gate went green on a restored H-03 handover. What
+# follows replaces that with a closed-marker classifier that assigns every mention exactly one
+# of WRITES / PROHIBITS_WRITE / READS_ONLY and fails closed on anything it cannot classify.
+# --------------------------------------------------------------------------------------------
+
+ATTEMPT_TRANSITION_HEADER = "| From | Trigger/command | To | Preconditions / result |"
+
+# Match the *field*, not the English phrase "cleanup handle". §3A's `STARTING -> RUNNING` row also
+# says the ceiling discriminator "MUST NOT be used as the cleanup handle", which is a statement
+# about `attempt.running_process_group_identity` and must not be dragged into this classification.
+HANDLE_MENTION_RE = re.compile(r"`(?:lease\.)?owned_process_group_handle`")
+
+WRITES = "WRITES"
+PROHIBITS_WRITE = "PROHIBITS_WRITE"
+READS_ONLY = "READS_ONLY"
+UNCLASSIFIED = "UNCLASSIFIED"
+
+# Closed marker set: verbs that put a value *into* the handle, with the grammatical variants the
+# freeze set actually uses. Nothing outside this set counts as a write, and a mention carrying no
+# marker at all is a gate failure rather than a pass — see `classify_handle_mention`.
+WRITE_VERBS = frozenset({
+    "commit", "commits", "committing", "committed",
+    "write", "writes", "writing", "written",
+    "rewrite", "rewrites", "rewriting", "rewritten",
+    "overwrite", "overwrites", "overwriting", "overwritten",
+    "update", "updates", "updating", "updated",
+    "replace", "replaces", "replacing", "replaced",
+    "clear", "clears", "clearing", "cleared",
+    "set", "sets", "setting",
+    "record", "records", "recording", "recorded",
+    "populate", "populates", "populating", "populated",
+    "assign", "assigns", "assigning", "assigned",
+    "supersede", "supersedes", "superseding", "superseded",
+    "retire", "retires", "retiring", "retired",
+})
+
+# Retirement is the one write §3A.3 places in a *different* commit from the edge that mentions it:
+# the handle is "durably retired in — and only in — the later commit that proves that whole group
+# empty", which §3D uses as an attempt's release record. A §3A row may therefore refer to it as a
+# future condition ("... until the handle is durably retired") without that row writing anything.
+RETIREMENT_VERBS = frozenset({"retire", "retires", "retiring", "retired"})
+
+# Fillers a prohibition may legitimately put between its negation and the verbs it governs.
+NEGATED_SPAN_FILLERS = frozenset({
+    "be", "been", "being", "ever", "again", "also", "then", "later",
+    "silently", "durably", "subsequently", "further", "otherwise",
+})
+
+READ_MARKERS = (
+    "identified from", "read from", "read by", "MUST NOT be read", "named by", "proven by",
+    "resolves to", "against", "being NULL", "is NULL", "stays NULL", "MUST NOT be used as",
+)
+
+# A deferral conjunction before the mention, with the write verb after it, marks a clause that
+# talks about a *later* commit rather than about this edge.
+DEFERRAL_RE = re.compile(r"(?<![\w-])(?:until|once|after)(?![\w-])", re.IGNORECASE)
+
+
+def _alternation(words: frozenset[str]) -> str:
+    return "|".join(sorted(words, key=len, reverse=True))
+
+
+# `(?<![\w-])` / `(?![\w-])` keep the hyphenated adjectives the spec really uses — `write-once`,
+# `write-ahead` — from being read as verbs.
+WRITE_VERB_RE = re.compile(rf"(?<![\w-])({_alternation(WRITE_VERBS)})(?![\w-])")
+
+NEGATION_RE = re.compile(
+    r"(?<![\w-])(?:MUST NOT|MUST never|must not|shall not|can never|cannot|may not"
+    r"|does not|do not|is not|are not|never)(?![\w-])"
+)
+
+_SPAN_TOKEN_RE = re.compile(rf"\s*(?:{_alternation(WRITE_VERBS | NEGATED_SPAN_FILLERS)})(?![\w-])")
+_SPAN_JOIN_RE = re.compile(r"(?:\s*,\s*|\s+(?:or|and|nor)\s+)")
+
+# Clause boundaries: a semicolon, or a full stop that ends a sentence. The lookahead demands
+# whitespace then a capital or a backtick, so `§3A.3`, `§10.3.1` and `lease.owned_...` survive.
+_CLAUSE_BOUNDARY_RE = re.compile(r";|(?<=[\w)`*])\.\s+(?=[A-Z`*])")
+
+
+def attempt_transition_rows(api_text: str) -> list[list[str]]:
+    """The rows of §3A's *transition matrix* alone.
+
+    `table_rows_in_numbered_section(STATE_API, "3A")` also returns §3A.1's subject bindings,
+    §3A.2's ceiling classification and §3A.3's cardinality and durable-fact tables — and the
+    durable-fact table has four columns and names the handle, so a width filter cannot separate
+    them. Addressing the matrix by its own header keeps the gate pointed at real edges. The
+    header is shared with two §3B tables, so the scan is also bounded to §3A.
+    """
+    rows: list[list[str]] = []
+    in_section = False
+    in_table = False
+    for line in api_text.splitlines():
+        if re.match(r"^##\s+3A(?:\.|\s)", line):
+            in_section = True
+            continue
+        if in_section and re.match(r"^##\s", line):
+            break
+        if not in_section:
+            continue
+        if line.strip() == ATTEMPT_TRANSITION_HEADER:
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        if not line.startswith("|"):
+            in_table = False
+            continue
+        cells = [cell.strip() for cell in line.split("|")[1:-1]]
+        if not cells or set("".join(cells)) <= {"-", " "}:
+            continue
+        rows.append(cells)
+    assert rows, "§3A carries no attempt transition matrix"
+    return rows
+
+
+def _negated_spans(clause: str) -> list[tuple[int, int]]:
+    """Character spans governed by a negation, as `MUST NOT update, replace or clear`.
+
+    The span is the coordinated verb list the negation actually governs, not the rest of the
+    clause. That distinction is what stops a prohibition sentence from cloaking an operative
+    write appended after it in the same clause.
+    """
+    spans: list[tuple[int, int]] = []
+    for negation in NEGATION_RE.finditer(clause):
+        pos = end = negation.end()
+        while True:
+            join = _SPAN_JOIN_RE.match(clause, pos)
+            token = _SPAN_TOKEN_RE.match(clause, join.end() if join else pos)
+            if token is None:
+                break
+            pos = end = token.end()
+        if end > negation.end():
+            spans.append((negation.end(), end))
+    return spans
+
+
+def classify_handle_mention(clause: str) -> str:
+    """Classify one clause mentioning the cleanup handle into exactly one semantic class.
+
+    The order is fail-closed: an operative write anywhere in the clause wins over a prohibition
+    in the same clause, because the dangerous edit is precisely a write *added beside* a
+    surviving prohibition sentence.
+    """
+    handle = HANDLE_MENTION_RE.search(clause)
+    negated = _negated_spans(clause)
+    deferrals = [found.start() for found in DEFERRAL_RE.finditer(clause)]
+
+    operative = prohibited = deferred_retirement = False
+    for verb in WRITE_VERB_RE.finditer(clause):
+        if any(start <= verb.start() < stop for start, stop in negated):
+            prohibited = True
+        elif (
+            handle is not None
+            and verb.group(1) in RETIREMENT_VERBS
+            and verb.start() > handle.end()
+            and any(deferral < handle.start() for deferral in deferrals)
+        ):
+            deferred_retirement = True
+        else:
+            operative = True
+
+    if operative:
+        return WRITES
+    if prohibited:
+        return PROHIBITS_WRITE
+    if deferred_retirement or any(marker in clause for marker in READ_MARKERS):
+        return READS_ONLY
+    return UNCLASSIFIED
+
+
+def classified_handle_mentions(api_text: str) -> list[tuple[list[str], str, str]]:
+    """Every §3A transition-row mention of the cleanup handle, as `(row, class, clause)`.
+
+    A cell is split into clauses first, so one cell may carry several independently classified
+    mentions — the `STARTING -> RUNNING` cell holds a prohibition today, and an injected second
+    write must be seen beside it rather than swallowed by it.
+    """
+    mentions: list[tuple[list[str], str, str]] = []
+    for row in attempt_transition_rows(api_text):
+        for cell in row:
+            for clause in _CLAUSE_BOUNDARY_RE.split(cell):
+                if HANDLE_MENTION_RE.search(clause):
+                    mentions.append((row, classify_handle_mention(clause), clause.strip()))
+    return mentions
+
+
+def attempt_rows_writing_the_cleanup_handle(api_text: str) -> list[list[str]]:
+    """§3A transition rows that operatively write the cleanup handle.
+
+    Fails closed first: any mention this classifier cannot place is a gate failure, so unknown
+    wording can never be silently dropped from the derived count.
+    """
+    mentions = classified_handle_mentions(api_text)
+    assert mentions, "§3A's transition matrix mentions the cleanup handle nowhere"
+
+    unclassified = [
+        f"{row[0]} -> {row[2]}: {clause}"
+        for row, verdict, clause in mentions
+        if verdict == UNCLASSIFIED
     ]
+    assert not unclassified, (
+        "§3A mentions the cleanup handle in wording this gate cannot classify as WRITES, "
+        "PROHIBITS_WRITE or READS_ONLY; the freeze gate fails closed rather than assuming it is "
+        "harmless:\n  " + "\n  ".join(unclassified)
+    )
+
+    writing: list[list[str]] = []
+    for row, verdict, _clause in mentions:
+        if verdict == WRITES and row not in writing:
+            writing.append(row)
+    return writing
+
+
+def assert_declared_write_point_matches_the_matrix(api_text: str) -> None:
+    """§3A.3's declared handle cardinality must equal what §3A's edges actually do.
+
+    Split out of the test body so the mutation harness below can run the identical gate against a
+    mutated document and require it to fail.
+    """
+    attempt_kind = "`attempt` (TASK or INTEGRATION)"
+    cardinality = declared_group_cardinality_in(api_text)
+    assert attempt_kind in cardinality, sorted(cardinality)
+    groups, write_points = cardinality[attempt_kind]
+
+    writing = attempt_rows_writing_the_cleanup_handle(api_text)
+    assert len(writing) == int(groups), (
+        f"{len(writing)} §3A edges write the cleanup handle; §3A.3 declares {groups}: "
+        + "; ".join(f"{row[0]} -> {row[2]}" for row in writing)
+    )
+    assert f"`{writing[0][0]} -> {writing[0][2]}`" == write_points, (
+        f"§3A writes the handle on {writing[0][0]} -> {writing[0][2]}, "
+        f"but §3A.3 declares the write point as {write_points}"
+    )
 
 
 def test_one_owned_group_per_attempt_is_a_declared_count_not_a_missing_phrase() -> None:
     """The H-03 guard, restated positively.
 
-    The previous guard was `HANDOVER_WORDINGS`: a verbatim blacklist. Mutation testing showed a
+    The first guard was `HANDOVER_WORDINGS`: a verbatim blacklist. Mutation testing showed a
     *paraphrased* two-group handover could be added while the prohibition sentence stayed, and the
     gate went green — prose-absence checks cannot see a contradicting addition. So the invariant is
     now carried by a number: §3A.3 declares how many groups a record owns over its lifetime and how
     many write points its handle has, and those declarations are cross-checked against the edges
-    that actually write it. A second write point fails whatever words introduce it.
+    that actually write it.
+
+    K-01: that cross-check was itself phrase-dependent — it recognised a write only from the
+    literal ``` `lease.owned_process_group_handle` is committed ```, so a second write point
+    spelled "is written" or "is rewritten" left the derived count at 1 and the gate green. The
+    detection is now `attempt_rows_writing_the_cleanup_handle`, which classifies *every* §3A
+    transition-row mention of the handle over a closed marker set and fails closed on wording it
+    cannot classify. What this proves, precisely: a second write point on a real §3A edge fails
+    whatever verb from that marker set introduces it, and an unrecognised verb fails too, because
+    an unclassifiable mention is an error rather than a pass. What it does not prove is stated
+    with the mutation harness below.
     """
     cardinality = declared_group_cardinality()
 
@@ -1419,17 +1679,9 @@ def test_one_owned_group_per_attempt_is_a_declared_count_not_a_missing_phrase() 
     assert external_groups == "0", external_groups
     assert external_writes.startswith("none"), external_writes
 
-    # The declaration must match the matrix: exactly one §3A edge commits the handle, and it is
+    # The declaration must match the matrix: exactly one §3A edge writes the handle, and it is
     # the edge the table names. A handover adds a second such row and fails here.
-    committing = attempt_rows_committing_the_cleanup_handle()
-    assert len(committing) == 1, (
-        f"{len(committing)} §3A edges commit the cleanup handle; the declared count is 1: "
-        + "; ".join(f"{row[0]} -> {row[2]}" for row in committing)
-    )
-    assert f"`{committing[0][0]} -> {committing[0][2]}`" == write_points, (
-        f"§3A commits the handle on {committing[0][0]} -> {committing[0][2]}, "
-        f"but §3A.3 declares the write point as {write_points}"
-    )
+    assert_declared_write_point_matches_the_matrix(read(STATE_API))
 
     # The count is normative in its own right, not a summary of the prohibition.
     three_a_three = numbered_section_text(STATE_API, "3A").split("### 3A.3", 1)[1]
@@ -1438,6 +1690,137 @@ def test_one_owned_group_per_attempt_is_a_declared_count_not_a_missing_phrase() 
 
     # And freeze contract §11 must declare the same cardinality rather than merely agreeing in tone.
     assert "**exactly one** per attempt" in numbered_section_text(FREEZE_CONTRACT, "11")
+
+
+def test_every_handle_mention_in_the_attempt_matrix_is_classified() -> None:
+    """The fail-closed half of K-01, asserted directly rather than only as a side effect.
+
+    If a future edit rewords a handle mention into something the marker set does not cover, the
+    right outcome is a red gate, not a quietly smaller write count. This test pins the classes the
+    committed matrix actually produces, so both a new unclassifiable mention and a silent
+    reclassification of an existing one are visible.
+    """
+    mentions = classified_handle_mentions(read(STATE_API))
+    assert not [m for m in mentions if m[1] == UNCLASSIFIED], [m[2] for m in mentions]
+
+    by_edge: dict[str, set[str]] = {}
+    for row, verdict, _clause in mentions:
+        by_edge.setdefault(f"{row[0]} -> {row[2]}", set()).add(verdict)
+
+    # The one write point, and the prohibition that guards the edge which must not write.
+    assert by_edge["CREATED -> STARTING"] == {WRITES}, by_edge
+    assert by_edge["STARTING -> RUNNING"] == {PROHIBITS_WRITE}, by_edge
+    # Every other mention is a read: cancellation edges identify, name or prove a group from the
+    # handle, and the quarantine edges refer to a *later* §3D retirement of it.
+    for edge, verdicts in by_edge.items():
+        if edge not in {"CREATED -> STARTING", "STARTING -> RUNNING"}:
+            assert verdicts == {READS_ONLY}, (edge, verdicts)
+
+
+# The `STARTING -> RUNNING` cell as the candidate commits it — the edge H-03 forbids to write the
+# handle, and therefore the edge a restored handover would attack.
+RUNNING_EDGE_MARKER = "`attempt.running_process_group_identity` is written in this same commit"
+
+# Operative second writes, in the ordinary paraphrases the K-01 review proved invisible. Variants
+# A and B of that review — "is durably rewritten to name" and "is written" — are the two that must
+# flip from MISSED to CAUGHT, so both appear here explicitly.
+SECOND_WRITE_PHRASINGS = (
+    "is written to name",
+    "is rewritten to name",
+    "is durably rewritten to name",
+    "is updated to name",
+    "is replaced with",
+    "is set to",
+    "is recorded as",
+    "is superseded by the identity of",
+    "is committed for",
+)
+
+
+def state_api_with_a_second_handle_write(phrasing: str) -> str:
+    """The committed state API, with one operative second write injected into a real §3A edge.
+
+    The mutation is deliberately minimal and deliberately *survivable* by the other two gates:
+    §3A.3's prohibition sentence and its declared count of `1` are both left exactly as they are,
+    and the injection lands on the genuine `STARTING -> RUNNING` row rather than on a row invented
+    for the test. That is the shape the review demonstrated, and the shape a careless freeze edit
+    would take.
+    """
+    api = read(STATE_API)
+    edge_lines = [
+        line for line in api.splitlines()
+        if line.startswith("| STARTING |") and RUNNING_EDGE_MARKER in line
+    ]
+    assert len(edge_lines) == 1, edge_lines
+    original = edge_lines[0]
+
+    injected = (
+        f". A fresh controller-allocated process group is created for the model process "
+        f"and `{CLEANUP_HANDLE}` {phrasing} that group"
+    )
+    mutated_line = original[: original.rindex("|")].rstrip() + injected + " |"
+    mutated = api.replace(original, mutated_line)
+    assert mutated != api
+
+    # The mutant must leave the two independent gates satisfied, or it would prove nothing about
+    # this one.
+    assert "MUST NOT update, replace or clear `lease.owned_process_group_handle`" in mutated
+    assert "| `attempt` (TASK or INTEGRATION) | 1 | `CREATED -> STARTING` |" in mutated
+    return mutated
+
+
+@pytest.mark.parametrize("phrasing", SECOND_WRITE_PHRASINGS)
+def test_a_second_handle_write_is_caught_whatever_verb_introduces_it(phrasing: str) -> None:
+    """K-01's required mutation proof: the gate must fail on each of these, not just on "committed".
+
+    Each case restores the H-03 two-group handover as an operative write on the real
+    `STARTING -> RUNNING` edge, in contradiction of the prohibition sitting in the same cell, and
+    leaves §3A.3's prohibition and declared count of `1` untouched. Before this repair every
+    phrasing but the last left the suite fully green.
+    """
+    mutated = state_api_with_a_second_handle_write(phrasing)
+
+    writing = attempt_rows_writing_the_cleanup_handle(mutated)
+    assert len(writing) == 2, (
+        f"a second write phrased {phrasing!r} was not derived as a write: "
+        + "; ".join(f"{row[0]} -> {row[2]}" for row in writing)
+    )
+    assert [f"{row[0]} -> {row[2]}" for row in writing] == [
+        "CREATED -> STARTING",
+        "STARTING -> RUNNING",
+    ]
+
+    with pytest.raises(AssertionError, match="§3A edges write the cleanup handle"):
+        assert_declared_write_point_matches_the_matrix(mutated)
+
+
+def test_the_gate_fails_closed_on_handle_wording_it_cannot_classify() -> None:
+    """Requirement 5, proved rather than asserted: unknown wording is not silently ignored.
+
+    A mention carrying no marker from any of the three sets is not evidence that the edge is
+    harmless — it is evidence that this gate can no longer speak about the edge, which must stop
+    the freeze rather than pass it.
+    """
+    api = read(STATE_API)
+    edge_lines = [
+        line for line in api.splitlines()
+        if line.startswith("| STARTING |") and RUNNING_EDGE_MARKER in line
+    ]
+    original = edge_lines[0]
+    mutated = api.replace(
+        original,
+        original[: original.rindex("|")].rstrip()
+        + f". The model group thereafter enjoys `{CLEANUP_HANDLE}` |",
+    )
+    assert mutated != api
+
+    with pytest.raises(AssertionError, match="cannot classify"):
+        attempt_rows_writing_the_cleanup_handle(mutated)
+
+
+def test_the_pristine_candidate_is_the_control_for_those_mutations() -> None:
+    """The mutation cases above are only evidence if the unmutated document passes the same gate."""
+    assert_declared_write_point_matches_the_matrix(read(STATE_API))
 
 
 # --------------------------------------------------------------------------------------------
