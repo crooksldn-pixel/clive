@@ -1,51 +1,122 @@
 # CHATGPT INBOX
 
-## Bounded repair — Orchestrator V1 freeze candidate B-01 through B-05
+## Fresh independent adversarial review — Orchestrator V1 freeze candidate at 10c81e3
 
-The independent adversarial review of exact candidate `2bf240c33bfbf0e66257b82a43013cfb3f5af958` returned `CHANGES REQUIRED BEFORE OWNER DECISION`. N-01 through N-04 were independently validated as repaired. Perform exactly one bounded repository-only repair round for the five material engineering blockers B-01 through B-05 from the immediately preceding Claude outbox.
+This is a **read-only independent architecture/specification review**. It is not implementation and it is not a repair round.
 
-### Identity and scope
-
+Review exact candidate:
 - repository: `crooksldn-pixel/clive`
+- canonical base: `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`
 - candidate branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
-- required starting SHA: `2bf240c33bfbf0e66257b82a43013cfb3f5af958`
-- canonical parent/base remains `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`
-- documentation/specification repair only; do not implement the orchestrator in this round.
+- exact candidate SHA: `10c81e31f21f62f4115133232cc672c63f52d078`
+- exact parent repaired from: `2bf240c33bfbf0e66257b82a43013cfb3f5af958`
 
-Before editing, explicitly fetch the candidate/base refs, verify the branch still resolves to the required starting SHA, verify merge-base/base identity, inspect the workspace, and fail closed if identity or cleanliness is ambiguous. Use explicit branch fetches because the Builder stale fetch refspec is a known live condition. Do not rewrite Git config.
+The previous verdicts are stale for this SHA. Do not carry them forward.
 
-### Required repairs
+### Hard scope
 
-Repair all five blockers exactly at the contract level, preserving existing authority and safety boundaries:
+Read-only everywhere except the normal bridge outbox. Do **not** edit, create, delete, commit, push, merge, switch/reset/clean/stash branches, install, restart, deploy, alter systemd/watcher/runtime, rewrite Git config, change account/global Claude settings, change MCP/connector grants, read new secrets, perform business writes, or execute any runtime remediation. Do not fix findings.
 
-1. **B-01 reviewer execution substrate.** Add a durable reviewer-dispatch execution record with exact subject/candidate binding, revision, controller epoch, fencing token, reviewer principal, lifecycle/heartbeat-expiry and process-group identity. Make `review.request` create/activate it; make review-result admission require the current live dispatch identity/fence; add restart reconciliation for in-flight review dispatches. Ensure cancellation/expiry/replacement fences stale reviewers even when candidate SHA is unchanged. Add the requested RV-11/RV-12/RV-13 acceptance cases (or exact semantically equivalent IDs if the matrix requires a collision-free naming adjustment).
+The live watcher/builder branch mismatch, stale Builder fetch refspec, and inherited business-MCP connector surface remain runtime-pending. Measure/report them only if needed; do not remediate them.
 
-2. **B-02 total failure taxonomy.** Make the normative reason-code table a total mapping to exactly one top-level class (`RETRYABLE`, `BLOCKED`, `REJECTED/FAILED`, `ESCALATED`), with unknown/unmapped reasons failing closed to BLOCKED, never RETRYABLE. Explicitly classify attempt stall/timeout/orphan conditions and state a finite persistent budget for non-rejection attempt relaunch. Add PR-09/PR-10 acceptance coverage including restart persistence.
+### Identity first
 
-3. **B-03 phantom environment acceptance cases.** Add real `EN-01..EN-04` acceptance rows covering fresh/disposable reconstruction, egress allow-list denial, pre/post integrity/provenance failure, and negative control against pre-existing local tooling. Align every normative citation to the same real range. Strengthen the freeze meta-gate so every test ID referenced anywhere in the freeze set must resolve to an actual acceptance-matrix row. Also let that meta-check surface any other MUST-without-test/static-disposition gaps rather than papering over them.
+Before substantive review:
+1. explicitly fetch/read the candidate and canonical base refs;
+2. verify branch tip equals exactly `10c81e31f21f62f4115133232cc672c63f52d078`;
+3. verify merge-base(candidate, base) equals exactly `9e59860a945ec339c69af8709cd0721f0a795327`;
+4. verify parent of candidate is exactly `2bf240c33bfbf0e66257b82a43013cfb3f5af958`;
+5. inspect the exact diff `2bf240c..10c81e3` and the whole freeze set at `10c81e3`.
 
-4. **B-04 integrator execution substrate.** Make integration execution representable by the same durable lease/fencing/process/workspace machinery or an explicitly equivalent record. Prefer the smallest coherent reuse design (e.g. subject-kind-aware execution/lease) if it does not create contradictions. Make `integration.cancel` implementable and add restart reconciliation. Add IN-11/IN-12 coverage for cancellation, process termination/quarantine and restart reconciliation.
+### Required source set
 
-5. **B-05 integration findings.** Generalise `finding` to an explicit subject kind/ID so integration findings are authoritative and queryable, while retaining task/candidate lineage where applicable. `integration.verify` must evaluate unresolved blocking findings for its integration subject, and correction lineage must preserve unresolved findings with explicit disposition. Add IN-13 coverage.
+Read in full at the exact candidate/base identities:
+- `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`
+- `ORCHESTRATOR_V1_STATE_API.md`
+- `ORCHESTRATOR_V1_TRACEABILITY.md`
+- `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md`
+- `WATCHER_BUILDER_IDENTITY_REMEDIATION.md`
+- `tests/test_orchestrator_freeze_spec.py`
+- modified `CURRENT_TRUTH.md`, `ROADMAP.md`, `ENGINEERING_ORCHESTRATOR_V1.md`
+- canonical `DECISIONS.md`, `DEV_TEAM_V1_PILOT.md`, `ENGINEERING_STACK_REUSE_PLAN.md`, `SELF_IMPROVEMENT.md`
+- immediately preceding Claude outbox for the B-01..B-05 repair evidence.
 
-Address any direct cross-document references made inconsistent by these repairs, but do not broaden the round into unrelated redesign. Preserve the independently validated N-01..N-04 repairs.
+### Re-review the repaired load-bearing areas
 
-### Required evidence before publication
+Try to prove the contract is still not ready.
 
-Because this is documentation-only, create/extend mechanical specification checks where the repository already has them rather than claiming runtime implementation tests. At minimum report:
+1. **TASK/INTEGRATION attempt+lease generalisation**
+   - verify the stated TASK projection is semantically identical to the previous task attempt/lease contract;
+   - check every ST-*, LS-*, WS-* and CXN-* assumption still holds;
+   - verify the §3/§3A joint-oracle rule remains coherent with integration rows and no task/integration state mutation has contradictory guards;
+   - verify integration attempt cancellation, quarantine and restart reconciliation are actually representable.
 
-- exact starting SHA, resulting candidate SHA, parent and merge-base;
-- exact changed-file list and diff summary;
-- mechanical validation that every referenced acceptance test ID exists;
-- mechanical validation that every normative failure reason maps exactly once and unknown defaults fail closed;
-- cross-document scans for stale/contradictory reviewer/integrator/finding schema language;
-- regression check that N-01..N-04 repairs remain present;
-- clean worktree after commit;
-- secret scan of the exact candidate/range with no findings;
-- exact remote branch SHA after push matching the candidate.
+2. **Reviewer dispatch/fencing**
+   - verify required-review-slot uniqueness really fences stale reviewers even if candidate SHA is unchanged;
+   - test ordering races conceptually: expiry vs verdict, cancel vs verdict, replacement dispatch while old external reviewer is still running, two replacements, controller restart, stale epoch/fence;
+   - verify a stale/foreign/unknown dispatch cannot create an authoritative Review or ACCEPT path;
+   - verify externally hosted reviewers that cannot be process-killed are still safely fenced by admission identity.
 
-Do not self-certify. Publish the repaired candidate to the same candidate branch only after evidence is green, then report the exact SHA and evidence in the outbox. The next step will be a fresh independent adversarial review; do not perform that review yourself in this round.
+3. **Failure taxonomy and retry budget**
+   - confirm every reason code maps exactly once to RETRYABLE/BLOCKED/REJECTED_FAILED/ESCALATED;
+   - unknown/unmapped must fail closed to BLOCKED;
+   - evaluate whether zero automatic relaunches + max 3 attempts/revision is internally coherent with BLOCKED -> task.plan -> attempt.assign, correction budget, restart persistence, and no exactly-once claim;
+   - flag only if this creates an actual contradiction or unsafe ambiguity, not because a different retry preference is possible.
 
-### Hard boundaries
+4. **Freeze meta-gate**
+   - independently inspect whether every referenced test ID really resolves to an existing acceptance row;
+   - attempt to find MUST-bearing requirements that evade the §18A coverage index;
+   - verify the mechanical spec test cannot falsely green due to parsing/keying assumptions;
+   - ensure the freeze set does not self-adopt or silently alter DEC-046/DEC-047.
 
-No production deployment/promotion; no production edits; no new secrets or credential reads; no `/root/.claude` or account/global Claude changes; no MCP/connector grant changes; no privilege expansion; no CROOKS/CLIVE business writes; no public/Funnel exposure; no destructive reset/clean/stash; no external spend; no systemd/watcher permission changes; no runtime watcher/builder remediation; no merge to production; no owner-adoption entry in `DECISIONS.md`; do not activate project `.claude` files. The live branch mismatch, inherited business MCP connector surface, and stale Builder fetch refspec remain runtime-pending conditions and must remain accurately represented.
+5. **Integration findings**
+   - verify finding subject kind/ID/SHA and policy-computed blocking flag are enough to make integration findings authoritative/queryable;
+   - correction lineage must not drop unresolved blockers;
+   - `integration.verify` must fail on unresolved blocking findings for its own subject.
+
+6. **Runtime/authority separation**
+   - owner adoption of exact freeze SHA and any sequencing amendment remain OWNER-PENDING;
+   - watcher/builder identity mismatch, stale fetch refspec and inherited business connector surface remain RUNTIME-PENDING;
+   - no document may treat those conditions as closed just because the spec describes a remediation.
+
+7. **New-defect search**
+   Adversarially inspect for anything newly introduced by the B-01..B-05 repair, especially:
+   - reviewer/integrator process ownership vs fencing;
+   - task/integration/reviewer crash recovery;
+   - idempotency of review dispatch replacement and integration restart;
+   - cancellation races and stale result admission;
+   - transition-event schema after generic subject changes;
+   - DB uniqueness constraints that cannot be represented in SQLite as described;
+   - host-loss/backup limitations;
+   - observability and resource-ceiling enforcement;
+   - required-condition retirement semantics;
+   - any dangling traceability row or acceptance ID;
+   - any normative conflict between freeze contract, state API and acceptance matrix.
+
+### Evidence expectations
+
+Do not rely on the repair outbox's prose alone.
+
+Read the exact diff and run only read-only/documentation/mechanical validation necessary to test the contract. If you run repository tests, report exact commands/results and distinguish newly added structural checks from the broader existing test suite.
+
+Treat candidate mutation as invalidating this review.
+
+### Verdict
+
+Return exactly one:
+
+- `ENGINEERING CONTRACT READY — OWNER/RUNTIME GATES REMAIN`
+- `CHANGES REQUIRED BEFORE OWNER DECISION`
+
+If changes are required, list only material engineering blockers with:
+- ID/severity;
+- exact file/section;
+- unsafe/incorrect consequence;
+- smallest bounded repair;
+- exact acceptance/mechanical test required.
+
+List OWNER-PENDING and RUNTIME-PENDING items separately and do not count them as engineering defects if the contract correctly fails closed.
+
+Record the reviewer-independence limitation explicitly if this review uses the same model family/provider as the repair worker; independence must still come from a fresh session/principal, read-only workspace/channel and immutable SHA-bound subject.
+
+Do not approve because the documents are detailed. Try to break the contract.
