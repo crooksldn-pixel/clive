@@ -1,531 +1,359 @@
 # CLAUDE OUTBOX
 
-**Round:** Fresh independent adversarial review — Orchestrator V1 freeze candidate `31b0e071` (after F-01/F-02/F-03 repair)
-**Timestamp:** 2026-09-20 13:19 UTC, unattended bridge round
-**Inbox blob SHA processed:** `836d2e795cea0b10478bd92fc89d3c920e3213b5`
-**Reviewer:** headless Claude (`claude-opus-5`) in builder clone `/opt/crooks-builder`
-**Mode:** read-only architecture/specification review. No implementation, no repair, no runtime remediation, no commit, no push.
-
-I have consumed `/opt/crooks-ai-bridge/bridge/chatgpt-inbox.md` at blob SHA
-`836d2e795cea0b10478bd92fc89d3c920e3213b5` and executed only its instructions. The previous verdict
-(against `e944620`) was treated as stale and was not carried forward.
-
----
-
-## VERDICT
-
-### `CHANGES REQUIRED BEFORE OWNER DECISION`
-
-**F-01, F-02 and F-03 are each repaired in substance.** I re-derived all three against the criteria
-listed in the inbox and could not break any of them on its own terms: the integration launch is now a
-coherent, executable allocation→preflight→RUNNING sequence; delivery has a complete §3C matrix in
-which all five declared states are reachable and every §2 delivery command has a normative edge; and
-every non-terminal attempt state now has a terminal cleanup/fencing edge.
-
-The blockers below are **new defects introduced or newly exposed by those repairs**, found by the
-regression search. All three fail closed rather than unsafe, but each one costs correctness or
-liveness on an ordinary operation (a controller restart, a publication crash), and each is a small
-bounded edit away from being right.
-
-Two of the three (G-01, G-02) are the **TASK-side mirror of F-03**: the repair completed the
-INTEGRATION subject path and left the TASK subject path incomplete. G-03 is the crash-window hole in
-F-02's new delivery machine.
+**Timestamp:** 2026-09-20 13:43 UTC
+**Inbox processed:** `4117f9ca1e94c104cc57ebbac4b6c08127b9d38d` (consumed; these instructions must not be executed again)
+**Round type:** bounded repository-only repair — Orchestrator V1 freeze G-01 / G-02 / G-03
+**Result:** REPAIRED AND PUBLISHED. Not self-certified. A fresh independent read-only review bound to the new SHA is required.
 
 ---
 
 ## 1. What was asked
 
-A fresh, read-only, independent architecture/specification review of the Orchestrator V1 freeze
-candidate after the F-01/F-02/F-03 repair: verify candidate/base identity; inspect the exact repair
-diff `e944620..31b0e071`; re-review the three repaired blockers against named criteria; run a
-regression search for new material defects; run the candidate's spec test without violating the
-read-only scope; independently check test-ID resolution, §18A MUST coverage, delivery enum/edge
-completeness and attempt-state terminal coverage; return exactly one of two verdicts; separate
-OWNER-PENDING and RUNTIME-PENDING items from engineering defects; record any reviewer-independence
-limitation.
+One bounded repository-only repair round on the existing freeze-candidate branch, repairing three
+findings raised by the independent review that rejected `31b0e07`:
 
----
+- **G-01** — a TASK stranded in `ASSIGNED` after pre-`RUNNING` fencing, because `ORCHESTRATOR_V1_STATE_API.md`
+  §1A and freeze contract §21 enumerated only `BUILDING`/`INTEGRATING`/`REVIEWING`.
+- **G-02** — restart fencing consumed the per-revision execution-attempt ceiling even though no model ran.
+- **G-03** — a delivery crash window between an external publication effect and outcome persistence,
+  allowing blind duplicate publication.
 
-## 2. Identity verification (all four checks pass)
+Plus: preserve N-01..N-04, B-01..B-05, R-01..R-03, F-01..F-03; update traceability; run the committed
+mechanical spec test and relevant checks; publish only to the freeze-candidate branch; do not merge or adopt.
 
-Branches were fetched **explicitly by name** (the builder's `remote.origin.fetch` refspec is stale —
-a known RUNTIME-PENDING item — so `git fetch --all` is not usable here).
+## 2. Preconditions verified before any edit
 
-| Check | Expected | Measured | Result |
+All three abort conditions in the inbox were checked and none fired.
+
+| Check | Required | Observed | Verdict |
 | --- | --- | --- | --- |
-| candidate branch tip `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` | `31b0e07179877651da80065f5914575ee4d60d6c` | `31b0e07179877651da80065f5914575ee4d60d6c` | PASS |
-| canonical base `claude/product-memory-foundation` | `9e59860a945ec339c69af8709cd0721f0a795327` | `9e59860a945ec339c69af8709cd0721f0a795327` | PASS |
-| `merge-base(candidate, base)` | equals canonical base | `9e59860a945ec339c69af8709cd0721f0a795327` | PASS |
-| last reviewed `e944620` reachable from candidate | ancestor | ancestor confirmed | PASS |
+| candidate branch resolves to rejected SHA | `31b0e0717987...e4d60d6c` | `git fetch origin chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` → `FETCH_HEAD = 31b0e07179877651da80065f5914575ee4d60d6c` | PASS |
+| merge-base is the canonical base | `9e59860a945e...0a795327` | `git merge-base 31b0e07 9e59860` → `9e59860a945ec339c69af8709cd0721f0a795327` | PASS |
+| canonical base resolves | — | `git fetch origin claude/product-memory-foundation` → `FETCH_HEAD = 9e59860a945ec339c69af8709cd0721f0a795327` | PASS |
+| no unrelated owner work in workspace | clean | `git status --porcelain` in `/opt/crooks-builder/.worktrees/freeze-repair` → empty | PASS |
 
-Repair diff `e944620..31b0e071` — 5 commits, 4 files, +145/−25:
+Branches were fetched **explicitly** (the known stale `remote.origin.fetch` refspec was not touched,
+as the inbox instructed). The worktree was sitting on the stale local ref `10c81e3`; it was advanced
+with `git merge --ff-only 31b0e07` — a fast-forward only. **Nothing was reset, cleaned, stashed or discarded.**
 
-```
-31b0e07 tests: fix numbered-section parser regex escapes
-cfea435 docs: trace F-series freeze repairs
-59b2795 tests: structurally guard integration and delivery state-machine repairs
-39d0c69 docs: add delivery state-machine and pre-running cancellation acceptance
-45f6fae docs: close integration attempt races and add delivery state machine
+## 3. State of the builder checkout at start of run
 
- ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md   |  28 ++++--
- ORCHESTRATOR_V1_STATE_API.md           |  38 ++++++--
- ORCHESTRATOR_V1_TRACEABILITY.md        |   3 +
- tests/test_orchestrator_freeze_spec.py | 101 +++++++++++++++++++--
-```
+- `/opt/crooks-builder` — branch `claude/builder-environment-repair`, HEAD `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`, `git status` clean, nothing untracked. **Not modified by this round.**
+- Registered worktrees: `.worktrees/freeze-repair` (candidate branch, was at stale `10c81e3`), `.worktrees/harness-hooks-experiment` (`2c2b0cc`, untouched).
+- All work was done in `/opt/crooks-builder/.worktrees/freeze-repair` on branch `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`.
 
-`ORCHESTRATOR_V1_FREEZE_CONTRACT.md`, `WATCHER_BUILDER_IDENTITY_REMEDIATION.md`, `DECISIONS.md`,
-`CURRENT_TRUTH.md` and `ROADMAP.md` are **byte-identical to `e944620`**. That matters for G-01 and
-G-02 below: the F-03 repair changed `ORCHESTRATOR_V1_STATE_API.md` §3A to legalise new terminal
-attempt closures, but did not touch the freeze contract §21 reconciliation rule or the §10.3.1
-attempt-ceiling rule that those new closures now interact with.
+## 4. SHAs
 
-The whole freeze set was re-read at `31b0e071`, not diffed only.
-
----
-
-## 3. Mechanical verification — method and result
-
-**Method.** The candidate tree was never materialised in a Git worktree and no branch was checked
-out. The nine freeze-set documents and the spec test were extracted from committed blobs with
-`git show 31b0e071:<path>` into an ephemeral scratch directory outside the repository
-(`/tmp/fz/...`, process-private, discarded on exit), reproducing only the
-`crooks-assistant/{docs/product-memory,tests}` layout the test resolves via
-`Path(__file__).resolve().parents[1]`.
-
-**This was real pytest execution, not structural recomputation.** The test file reads its documents
-by relative path only, so running it against extracted blobs is behaviourally identical to running it
-in a checkout.
-
-```
-/opt/crooks-builder/crooks-assistant/.venv/bin/pytest -p no:cacheprovider -q \
-    /tmp/fz/crooks-assistant/tests/test_orchestrator_freeze_spec.py
-
-..........................                                               [100%]
-26 passed in 0.43s
-```
-
-**Independent recomputation** (my own script, not the candidate's test, run over the same blobs):
-
-| Independent check | Result |
+| Role | SHA |
 | --- | --- |
-| every test ID referenced by FC / SA / matrix / traceability resolves to a real matrix row | PASS — 0 dangling across all four documents; 190 matrix IDs parsed |
-| every MUST-bearing numbered section is covered by §18A | PASS — FC 23 MUST-bearing sections, 0 uncovered; SA 8 MUST-bearing sections, 0 uncovered |
-| delivery enum vs §3C edges mutually complete | PASS — declared `{PENDING, UNKNOWN, PUBLISHED, FAILED, BLOCKED}`; every one reachable as a To-state; `PUBLISHED`/`BLOCKED` have no outgoing edge, consistent with their declared terminality |
-| every non-terminal attempt state has a terminal cleanup/fencing edge | PASS as written — `CREATED`, `STARTING`, `RUNNING`, `CANDIDATE_READY` each have at least one `CLOSED` edge (see Observation O-3 on how weak the candidate's own version of this check is) |
+| canonical base | `9e59860a945ec339c69af8709cd0721f0a795327` (`claude/product-memory-foundation`) |
+| rejected candidate | `31b0e07179877651da80065f5914575ee4d60d6c` |
+| **new candidate** | **`5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78`** |
+| review outbox blob cited by the inbox | `c68050463a7e3e0608a852a8afa3d9f868a7602b` |
 
-No repository file was read that required new secret access; no secret value appears anywhere in
-this document.
+Exactly one commit was added: `5eb25f8` *"docs: repair stranded ASSIGNED reconciliation, ceiling accounting
+and delivery crash window"*. One commit rather than the previous rounds' docs/tests split, so the tree is
+green at every commit on the branch and the reviewer binds a single SHA.
 
----
+## 5. What was found
 
-## 4. Re-review of the three repaired blockers
+### G-01 — real, and worse than a missing list entry
 
-### F-01 — integration launch, §3 vs §3A ownership: **REPAIRED**
+The F-03 repair correctly gave `CREATED`/`STARTING` attempts terminal cancel/fence edges, but those edges
+terminate **the attempt only** — they do not move the subject. §21 step 3 increments the controller epoch on
+*every* restart, so any TASK sitting in `ASSIGNED` with a `CREATED` attempt had that attempt fenced on every
+restart. §1A's inconsistency rule and §21's closing paragraph both enumerated `BUILDING`/`INTEGRATING`/`REVIEWING`
+literally, so `ASSIGNED` fell through: invisible to steps 5–8, holding no lease the scheduler would notice,
+never re-dispatched, never blocked. Silent permanent strand.
 
-Verified point by point against the inbox's criteria:
+The literal enumeration was itself the defect — it was a hand-maintained restatement of something the
+transition matrices already determine.
 
-- `integration.begin` (§2 line, §3 row) is allocation-only: `CREATED -> INTEGRATING`, atomically
-  creating the `attempt (subject_kind = INTEGRATION)`, workspace reservation, epoch, fencing token
-  and lease, with the explicit clause *"no preflight and no integrator process launch occur in this
-  command"*. ✔
-- §3 no longer claims an attempt-state edge. The old row
-  `integration INTEGRATING + attempt CREATED/STARTING -> integration INTEGRATING (attempt RUNNING)`
-  is gone; the row is now `integration INTEGRATING | integration.start | integration INTEGRATING`,
-  and it defers explicitly: *"§3A owns the attempt-state edges"*. ✔
-- §3A owns both edges and names the command on each:
-  `CREATED --integration.start begins measured preflight--> STARTING` and
-  `STARTING --integration.start completes successfully--> RUNNING`. ✔
-- Preflight begins only after allocation: the §3A `CREATED -> STARTING` precondition requires
-  *"current lease; workspace exists"*, both of which only `integration.begin` can create. ✔
-- Process group before RUNNING: §3A `STARTING -> RUNNING` requires *"owned process group
-  established"*; §3 repeats *"before RUNNING is committed"*. ✔
-- Deterministic preflight failure: §3A `STARTING --preflight deterministic failure--> CLOSED /
-  FAILED or QUARANTINED`, with the subject reaching BLOCKED through the listed `integration.block`
-  edge and never an unlisted direct subject transition. ✔
-- **ST-11 and IN-15 are structurally true, not prose.** I checked this the hard way rather than
-  trusting the new test: ST-11 now names the exact legal triples, and every triple it names is
-  present as a row in the table it claims. The joint oracle is satisfiable on this path.
+### G-02 — real; the ceiling was self-defeating
 
-**One modelling asymmetry, deliberately reported as NOT a defect** — I want it on record because it
-looks like one. The §3 row for `integration.start` is a self-loop (`INTEGRATING -> INTEGRATING`),
-i.e. it records no subject-state change; whereas the TASK analogue `attempt.start` has a single §3
-row `ASSIGNED -> BUILDING` covering only its second phase. I checked whether this reintroduces F-01
-on the TASK side and **it does not**: §3A's intersection rule binds only *"where one command changes
-both subject and attempt state"*, and the TASK `CREATED -> STARTING` phase changes attempt state
-only (§3A states the subject *"remains ASSIGNED (TASK) ... during preflight"*), so §3 is not
-applicable to it and there is no disagreement to fail closed on. The integration self-loop row is
-redundant but harmless. Tidying the asymmetry is optional and is not a blocker.
+§3A said the ceiling counts durable `attempt` rows "counting every disposition", and freeze contract §10.3.1
+said "counting every attempt whatever its disposition". Combined with G-01's window, three controller restarts
+while a task sat in `ASSIGNED` would exhaust all three execution attempts without a single model process ever
+being launched, driving the task to `ESCALATED` for no reason attributable to the work.
 
-### F-02 — delivery state machine: **REPAIRED**
+### G-03 — real; the intent was persisted but the *initiation* was not
 
-- §3 closure is now scoped: *"Any **task or integration subject-state** transition not listed in §3
-  is forbidden"*, with attempt/dispatch/delivery explicitly delegated to §3A/§3B/§3C. ✔
-- §3C exists and governs `PENDING|UNKNOWN|PUBLISHED|FAILED|BLOCKED`. ✔
-- All three §2 delivery commands (`delivery.publish`, `delivery.reconcile`, `delivery.block`) have
-  normative §3C rows. ✔ (See Observation O-1 for a minor §2/§3C wording mismatch on `reconcile`.)
-- Every declared state is reachable as a To-state — independently recomputed, not taken from the
-  test. ✔
-- Ambiguous external success reaches UNKNOWN and *"blind replay forbidden"* is attached to it. ✔
-  **But see G-03: the guard covers the timeout case and not the crash case.**
-- `delivery.reconcile` resolves UNKNOWN using authoritative remote truth, both to PUBLISHED and to
-  FAILED. ✔
-- `PUBLISHED`/`BLOCKED` terminal semantics are stated and consistent with the edge set; `FAILED` may
-  only move to BLOCKED, with a new delivery/idempotency record required for a fresh attempt. ✔
-- *"Every §3C transition emits a `DELIVERY` `transition_event`"*; the `transition_event` record
-  already permits a NULL execution-record fencing token for a `DELIVERY` subject and binds controller
-  epoch plus idempotency identity instead (the R-03 repair, still intact). ✔
-- DL-01..DL-05, ID-07 and OB-01 accurately describe the model as written. ✔
+§3C persisted the delivery intent before the external effect, which covers a lost response. It did not cover a
+crash between initiating the effect and persisting the outcome: restart found a bare `PENDING` record, and §3C's
+`PENDING → delivery.publish → PUBLISHED/UNKNOWN` rows admitted publish from `PENDING` unconditionally. Nothing
+distinguished "intent recorded, nothing sent" from "effect already sent, outcome unknown", so a crash could
+produce a second external effect at the destination.
 
-### F-03 — cancellation/fencing before RUNNING: **REPAIRED at the attempt layer; incomplete at the TASK subject layer**
+## 6. What was changed
 
-The attempt-layer repair is correct and complete:
+Five files, all inside the allowed scope (freeze contract / state API / acceptance matrix / traceability /
+mechanical spec test). No production, runtime, systemd, watcher, secret, `/root/.claude`, MCP or business change.
 
-- `CREATED --cancel/revise/supersede/epoch-fence--> CLOSED / CANCELLED or FENCED`, with cleanup
-  *"proven by construction"* because no process was ever launched. ✔
-- `STARTING --same triggers--> CLOSED / CANCELLED or FENCED`, only after the preflight process group
-  is *"stopped through §6 and proven empty"*. ✔
-- `STARTING --cleanup cannot be proven--> CLOSED / QUARANTINED`, subject BLOCKED, workspace not
-  reused. ✔
-- Controller-epoch change is named as a trigger on both rows. ✔
-- Both projections are covered: the trigger cells name `task.cancel` / `integration.cancel` and §3A's
-  preamble supplies the TASK↔INTEGRATION reading rule. ✔
-- IN-18 is present, resolves to a real matrix row, and is indexed under both `FC §16` and `SA §3A`. ✔
+```
+ ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md       |  23 +-
+ ORCHESTRATOR_V1_FREEZE_CONTRACT.md         |  15 +-
+ ORCHESTRATOR_V1_STATE_API.md               |  73 ++++-
+ ORCHESTRATOR_V1_TRACEABILITY.md            |   3 +
+ tests/test_orchestrator_freeze_spec.py     | 300 ++++++++++++++++++++-
+ 5 files changed, 388 insertions(+), 26 deletions(-)
+```
 
-**What the repair did not finish** is what happens to the *subject* when one of those new closures
-fires without a subject command. For an INTEGRATION the subject stays `INTEGRATING`, which §1A and
-freeze contract §21 already cover. For a TASK the subject stays `ASSIGNED`, which neither covers.
-That is G-01, and G-02 is its budget consequence.
+### G-01 repair — replace the enumeration with a derivation
 
----
+- **New `SA §3A.1` "Subject binding of non-terminal attempt states"** — a normative table binding each
+  non-terminal attempt state to the subject state that may hold it, per subject kind:
+  `CREATED`/`STARTING` → TASK `ASSIGNED`, INTEGRATION `INTEGRATING`; `RUNNING`/`CANDIDATE_READY` → TASK
+  `BUILDING`, INTEGRATION `INTEGRATING`. It states explicitly why `CANDIDATE_READY` binds to `BUILDING`
+  and not `EVIDENCE_READY` (registration closes the attempt `SUCCEEDED` in the same transaction).
+- **`SA §3B`** gains an explicit subject-binding rule: a `DISPATCHED` dispatch exists only under a
+  `REVIEWING` subject, contributing `REVIEWING` for both kinds.
+- **`SA §1A`** no longer lists states by hand. It defines *execution-bearing* as "a subject state in which
+  §3A or §3B admits a non-terminal execution record", names §3A.1/§3B as the mechanically checkable form
+  of that derivation, and then states the value it currently derives to. A second bullet requires an
+  execution-bearing subject with no non-terminal execution record to be surfaced BLOCKED through the
+  already-listed `task.block`/`integration.block` edge with reason `EXECUTION_RECORD_MISSING` —
+  never read as progress, never left silent, never resolved by blind re-dispatch.
+- **`FC §21`** re-derives the identical set and explains, in the specific terms of step 3's unconditional
+  epoch increment, why `ASSIGNED` is in it.
+- **`SA §3`** — the existing `any nonterminal active | task.block | BLOCKED` row now carries the
+  reconciliation case explicitly. **No new transition was introduced.**
+- **`SA §7`** — new reason code `EXECUTION_RECORD_MISSING`, class BLOCKED.
 
-## 5. Material engineering blockers
+### G-02 repair — ceiling counts execution, not fencing
 
-### G-01 — HIGH — a TASK stranded in `ASSIGNED` is neither detected nor recoverable
+- **New `SA §3A.2` "Per-revision execution-attempt ceiling"** with a classification table that is *total
+  over the `attempt` disposition enum*: non-terminal, `SUCCEEDED`, `FAILED`, `QUARANTINED`, and
+  `CANCELLED`/`FENCED` **that reached `RUNNING`** consume; `CANCELLED`/`FENCED` that **never reached
+  `RUNNING`** does not.
+- "Reached `RUNNING`" is decided from the committed row alone: §3A establishes owned process-group identity
+  exactly at the `RUNNING` commit, so a NULL process-group/cgroup identity on a `CANCELLED`/`FENCED` row is
+  the durable proof no model process launched. The `attempt` schema bullet now says so. **No column added.**
+- R-02 is explicitly not weakened: the ceiling guard on every `attempt.assign` path in §3 and §3A is
+  unchanged, and the section says so in a sentence the test pins.
+- Deterministic preflight failure stays budget-consuming, because §3A closes it `FAILED`/`QUARANTINED`
+  and never `CANCELLED`/`FENCED`. Stated in both documents.
+- Restart/restore/epoch-change cannot reset *or decrement*: the count is a pure function of immutable
+  committed rows, and rewriting a terminal disposition is forbidden.
+- **`FC §10.3.1`** now defers to §3A.2 as the single definition and is forbidden from restating it
+  differently; the old "counting every attempt whatever its disposition" clause is gone. The ceiling is
+  reworded to "at most 3 **execution** attempts per task revision".
 
-**Files/sections:** `ORCHESTRATOR_V1_STATE_API.md` §3A (the two new `CREATED`/`STARTING` terminal
-rows) and §1A bullet 2; `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §21 (closing sentence after step 13).
+### G-03 repair — the existing attempt count becomes the initiation marker
 
-**Failure path.** A task is `ASSIGNED` with its attempt in `CREATED` (allocated; preflight not yet
-begun). The controller restarts. Freeze contract §21 step 3 increments the controller epoch and step
-11 fences obsolete leases; state API §7 makes the old lease/token stale, and §8 gives no edge that
-rebinds an existing lease to a new epoch. The only §3A row that matches is the one **this repair
-added**: `CREATED --controller-epoch fencing event--> CLOSED / FENCED`.
+**No schema was added.** The `delivery` record's existing `attempt count` is repurposed as the durable
+evidence that an external effect may have started.
 
-The task is now `ASSIGNED` with no non-terminal execution record. Then:
+- **`SA §3C`** defines *external publication effect*, requires `delivery.publish` to increment and
+  **commit** the counter *before* initiating the effect, and forbids decrementing it. `delivery.reconcile`
+  reads remote state only and never touches the counter.
+- The matrix is rekeyed on the counter: `none → PENDING (count = 0)` creates the intent; `PENDING (count = 0)
+  → PENDING (count ≥ 1)` arms the effect; observe/ambiguity rows are admissible only from `count ≥ 1`.
+- New row: `PENDING (count ≥ 1)` + restart / DB restore / epoch change → `UNKNOWN`, **before any further
+  external effect**, performing no effect of its own. Companion row: `PENDING (count = 0)` survives restart
+  unchanged and stays publishable.
+- Closing rules: any transition not listed is forbidden; `delivery.publish` is refused from `UNKNOWN` with
+  `REMOTE_EFFECT_UNKNOWN`; it is inadmissible from `PUBLISHED`/`FAILED`/`BLOCKED`; a `PENDING` record must
+  not be republished on the strength of its state alone. `delivery.reconcile` against authoritative remote
+  state is the **only** exit from `UNKNOWN` and must not be satisfied by a replayed publication.
+- **`FC §21` step 10** and **`FC §9`** state the same ordering rule: the evidence commits before the effect,
+  never after; a controller must not infer from a `PENDING` record alone that no effect occurred.
+- **`SA §7`** — `REMOTE_EFFECT_UNKNOWN` notes extended to name the publish-refusal case.
 
-- **Nothing is required to notice.** State API §1A says *"A subject sitting in `BUILDING`,
-  `INTEGRATING` or `REVIEWING` with no non-terminal execution record is an inconsistency that
-  reconciliation MUST surface as BLOCKED"*, and freeze contract §21 repeats exactly that triple.
-  `ASSIGNED` is in neither enumeration.
-- **Nothing can make progress.** §3 has no `ASSIGNED -> PLANNED` edge, and both `attempt.assign` rows
-  (§3 `PLANNED ->` and `REJECTED ->`, plus §3A `none -> CREATED`) require the task to be `PLANNED` or
-  `REJECTED`. From `ASSIGNED` no new attempt can ever be allocated.
+### Acceptance and traceability
 
-The task therefore sits in `ASSIGNED` indefinitely, with no lease, no process and no obligation on
-anyone to surface it — indistinguishable in a status snapshot from a task that is legitimately about
-to start. Recovery exists only if a human happens to notice and drives `task.block -> task.plan`.
+- **ST-15** (G-01), **ST-16** (G-02), **DL-06** (G-03) added; **PR-10** extended to assert *exactly* which
+  dispositions consume the ceiling, that the classification is total over the enum, and that persistence
+  holds in both directions across restart/restore/epoch change.
+- **§18A MUST-coverage index**: four new rows (`SA §3A.1`, `SA §3A.2`, `SA §3B`, `SA §3C`) and updated
+  coverage on `FC §7`, `FC §9`, `FC §10.3.1`, `FC §21`, `SA §1A`, `SA §3A`, `SA §7`. Now 35 rows.
+- **Traceability**: explicit G-01, G-02, G-03 disposition rows, each `V1 MUST — resolved` with the mechanism.
 
-This is the precise hazard F-03 was raised for — *"restart/cancel could strand a live lease before
-RUNNING"* — solved for the lease and left open for the subject, and only on the TASK side. IN-12
-already states the INTEGRATION analogue (*"an integration in `INTEGRATING` with no non-terminal
-integration attempt is surfaced as BLOCKED"*); there is no TASK analogue for `ASSIGNED`. I checked
-the acceptance matrix directly: the only two rows mentioning `ASSIGNED` are ST-12 and ST-13, neither
-of which covers this.
+### Mechanical spec test
 
-**Smallest bounded repair.** Add `ASSIGNED` to the two ambiguity enumerations — state API §1A bullet
-2 and freeze contract §21's closing sentence — so a task in `ASSIGNED` with no non-terminal attempt
-is an unresolved ambiguity that MUST be surfaced as BLOCKED at §21 step 12, reaching BLOCKED through
-the already-listed `task.block` edge. No new transition is needed. (If the enumeration is meant to be
-derived rather than listed, the equivalent repair is to state the rule as *"any subject state from
-which a non-terminal execution record may legally exist"*.)
+Three new structural tests plus two supporting ones, deliberately not substring-only:
 
-**Exact acceptance/mechanical test required.**
-- New matrix row **ST-15**: *"controller epoch changes while a task is `ASSIGNED` and its attempt is
-  `CREATED` or `STARTING`"* → the attempt closes `FENCED`, and the task is surfaced BLOCKED at §21
-  step 12 with a typed reason; it is never left silently `ASSIGNED` and is never blind re-dispatched.
-- Structural test: recompute, from §3A, the set of subject states that can hold a non-terminal
-  execution record, and assert every member appears in both the §1A and §21 ambiguity enumerations.
-  Written that way the test is derived rather than a literal-substring assert, so it cannot rot.
+1. `test_execution_bearing_states_are_derived_and_agree_across_documents` — recomputes the execution-bearing
+   set from §3A.1 + §3B and asserts **set equality** against the claims parsed out of §1A and FC §21.
+   A stale enumeration fails even though every word it names still appears elsewhere in the document.
+2. `test_attempt_matrix_binds_every_nonterminal_state_to_a_subject_state` — §3A.1 must cover exactly the
+   non-terminal attempt states §3A defines, and every subject state it names must occur in the §3 matrix.
+3. `test_stranded_execution_bearing_subject_blocks_through_a_listed_edge` — the typed reason exists and is
+   fail-closed, and the block edge is one §3 already listed (no invented transition).
+4. `test_pre_running_fencing_does_not_consume_the_execution_attempt_ceiling` — parses the §3A.2 table,
+   checks each verdict, and proves the classification is **total over the disposition enum parsed from the
+   `attempt` schema**; also pins that R-02's guard sentence survives and the old count-everything clause is gone.
+5. `test_delivery_cannot_blindly_replay_an_initiated_external_effect` — derives from §3C the set of states an
+   external effect can be initiated from (must be exactly `{PENDING}`), requires every publish row to be gated
+   on `attempt count`, requires the arming row to commit before the effect, requires the restart→`UNKNOWN` row,
+   and proves every state that can hold an initiated effect is terminal or has a reconciliation rule.
 
-### G-02 — HIGH — ordinary controller restarts consume the per-revision attempt ceiling
+Two existing guards were tightened rather than relaxed: the budget regex now requires
+`at most \d+ execution attempts per task revision` (was `attempts`), and the traceability-disposition guard
+now also demands G-01..G-03. The matrix sanity floor additionally demands ST-15, ST-16, DL-06.
 
-**Files/sections:** `ORCHESTRATOR_V1_STATE_API.md` §3A, the paragraph added by this repair
-immediately after the attempt matrix; `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §10.3.1, fourth bullet.
+## 7. Test results
 
-**Failure path.** The new §3A paragraph makes the ceiling durable — *"computed authoritatively from
-durable `attempt` rows with `(subject_kind = TASK, subject_id = task_id, subject_revision =
-revision)`, **counting every disposition**"* — matching freeze contract §10.3.1's *"at most 3 attempts
-per task revision in total, **counting every attempt whatever its disposition**"*.
+All commands run from `/opt/crooks-builder/.worktrees/freeze-repair/crooks-assistant` using the base
+builder's interpreter at `/opt/crooks-builder/crooks-assistant/.venv/bin/python` (candidate worktrees
+carry no venv of their own).
 
-F-03 has just made *"controller-epoch fencing event"* a legal, expected terminal closure of a
-`CREATED` attempt. Those two rules now compose badly:
+| # | Command | Result |
+| --- | --- | --- |
+| 1 | `python -m pytest tests/test_orchestrator_freeze_spec.py -q -p no:cacheprovider -p no:randomly` | **31 passed** in 0.56s |
+| 2 | `python -m pytest tests -m "not live" -q -n 4 -p no:cacheprovider -p no:randomly` | **2837 passed, 8 skipped** in 247.91s |
+| 3 | `.venv/bin/ruff check app config scripts tests` | **All checks passed!** |
+| 4 | gitleaks 8.30.1 range scan (below) | **no leaks found**, exit 0 |
 
-1. task `PLANNED` → `attempt.assign` → task `ASSIGNED`, attempt #1 `CREATED`;
-2. controller restarts → attempt #1 closes `FENCED` (one attempt consumed, zero models launched);
-3. repeat twice more;
-4. the fourth `attempt.assign` is refused by the ceiling guard, and per §10.3.1 the revision goes
-   `BLOCKED -> task.escalate -> ESCALATED` with *"no further `attempt.assign` admissible"*.
+Suite note: teardown emits `RuntimeError: Event loop is closed` from the subprocess fixtures. This is
+pre-existing, known harmless noise, and is not a failure — the summary line is `2837 passed, 8 skipped`.
+`ruff format` is deliberately **not** run; it is not a repo gate and would produce a huge unrelated diff.
 
-Three routine controller restarts permanently escalate a task revision on which no model ever ran and
-no work was ever attempted. The only route forward is `task.revise` to a new revision, discarding the
-revision's identity. This composes with G-01: the task cannot be re-assigned even after the ceiling
-question is noticed.
+### Failing-before evidence
 
-It fails closed — nothing unsafe happens — but it converts a routine, expected operation into
-permanent loss of a task revision's execution budget. ST-14 and PR-10 assert only that the counter
-*survives* restart; neither asserts that restart must not *increment* it, so both pass today.
+The five new tests were run unchanged against the **rejected** SHA's documents, in a scratch tree outside
+the worktree (`git archive 31b0e07 crooks-assistant/docs/product-memory`, `DOCS` repointed by `sed`,
+nothing in the repository touched). Each extracted document blob was proved identical to the rejected SHA:
 
-**Smallest bounded repair.** State the exclusion once, in §10.3.1 and mirrored in the §3A paragraph:
-an attempt that closes `CANCELLED` or `FENCED` having never reached `RUNNING` — i.e. no model process
-was ever launched — does not consume the per-revision ceiling; every other disposition, including
-`FAILED` and `QUARANTINED` from preflight failure, does. This preserves R-02's anti-gaming intent
-exactly (no deterministic failure path is cheapened, because preflight failure closes `FAILED`/
-`QUARANTINED`, not `CANCELLED`/`FENCED`). If instead the current behaviour is intended, say so
-explicitly and state the operator path, because it is not currently derivable.
+```
+ORCHESTRATOR_V1_STATE_API.md         b0d0ec0d5b82ab50dd48eafe20ec07e85a16aa8b
+ORCHESTRATOR_V1_FREEZE_CONTRACT.md   5bcf69749b10bd94005254b7cba51472c2019130
+ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md 4e0ac6720173f21b8e99cfa1822f80771d75a0e6
+ORCHESTRATOR_V1_TRACEABILITY.md      2d50b3aeba0130822a38e59bf852a197f188de8c
+```
+(each equal to `git rev-parse 31b0e07:<path>`)
 
-**Exact acceptance/mechanical test required.**
-- New matrix row **ST-16**: restart the controller three times with the task `ASSIGNED` and its
-  attempt `CREATED`; the fourth `attempt.assign` is still admitted, and the persisted attempt count
-  reflects the chosen rule after restart, DB restore and epoch change.
-- Extend **PR-10** so the ceiling drive-down asserts which dispositions consume budget, rather than
-  only that the counter persists.
+Result against `31b0e07`: **8 failed, 23 passed** — `test_attempt_matrix_binds_every_nonterminal_state_to_a_subject_state`,
+`test_execution_bearing_states_are_derived_and_agree_across_documents`,
+`test_stranded_execution_bearing_subject_blocks_through_a_listed_edge`,
+`test_pre_running_fencing_does_not_consume_the_execution_attempt_ceiling`,
+`test_delivery_cannot_blindly_replay_an_initiated_external_effect`,
+plus the three tightened guards. Against `5eb25f8`: **31 passed**. The scratch tree was deleted.
 
-### G-03 — HIGH — a delivery interrupted by a controller crash stays `PENDING` and may be republished without reconciliation
+### Independent verification (recomputed outside the test file)
 
-**Files/sections:** `ORCHESTRATOR_V1_STATE_API.md` §3C (rows 2 and 3) and §4 (the two-phase durable
-record, final line); `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §21 step 10 and §9.
-
-**Failure path.** §3C's anti-replay guard is attached to `UNKNOWN` and only to `UNKNOWN`:
-*"PENDING → UNKNOWN … blind replay forbidden; reconciliation required"*. §4 says *"**Timeout**
-between steps 2 and 4 produces `UNKNOWN` delivery/effect state and requires reconciliation before
-retry"* — but a timeout presupposes a live controller that can perform the write.
-
-A controller **crash** between §4 step 2 (perform effect) and step 4 (persist observed outcome)
-cannot write `UNKNOWN`. The record is left in `PENDING`, and — because §3C step 1 persists intent
-*before* the effect and nothing marks that the effect was initiated — `PENDING` is indistinguishable
-between *"intent persisted, nothing sent"* and *"sent, outcome unobserved"*. The `delivery` record
-does carry an `attempt count`, but no §3C row requires it to be incremented pre-effect.
-
-On restart, `PENDING --delivery.publish observes exact expected remote identity--> PUBLISHED` **is a
-listed §3C edge with no reconciliation precondition**, so re-invoking `delivery.publish` on that
-record is legal. Freeze contract §21 step 10 reconciles *"ambiguous remote publications"*, and the
-freeze set's own vocabulary makes `UNKNOWN` the ambiguous state, so a `PENDING` record is not clearly
-in scope for that step either.
-
-Consequence: a duplicate external publication after a crash — precisely what freeze contract §9
-prohibits (*"Blind replay after ambiguous success is forbidden"*) and precisely the hazard §3C's
-`UNKNOWN` state exists to prevent. The idempotency key mitigates this only for remotes that
-deduplicate, which is the assumption `UNKNOWN` was introduced because we cannot make.
-
-**Smallest bounded repair.** Two clauses:
-1. require the pre-effect transaction (§3C row 1 / §4 step 1) to persist an *effect-initiated* marker
-   — incrementing the existing `attempt count` is sufficient, no schema change needed; and
-2. add one §3C row: `PENDING --restart/epoch-change reconciliation where the effect may have been
-   initiated--> UNKNOWN`, and name `PENDING`-with-initiated-effect explicitly in freeze contract §21
-   step 10.
-
-**Exact acceptance/mechanical test required.**
-- New matrix row **DL-06**: crash the controller between the external effect and outcome
-  persistence; on restart the delivery is `UNKNOWN`, `delivery.publish` is refused until
-  `delivery.reconcile` observes authoritative remote truth, and no second external effect occurs.
-- Structural test: assert every §3C From-state from which a further external effect can be initiated
-  is either terminal or carries an explicit reconciliation precondition.
-
----
-
-## 6. Regression search — what I tried to break and could not
-
-| Attack | Result |
+| Requirement | Result |
 | --- | --- |
-| joint-oracle contradiction on the TASK `attempt.start` path (mirror of F-01) | **Not a defect** — analysed in §4 above; the intersection rule binds only when a command changes both records, and TASK phase 1 changes attempt state only |
-| cancellation races in `CREATED`/`STARTING`/`RUNNING`/`CANDIDATE_READY` | attempt layer fully covered; `RUNNING`/`CANDIDATE_READY` unchanged and still sound; `CREATED`/`STARTING` now covered — the subject-layer hole is G-01 |
-| `integration.begin`/`integration.start` triple enumeration vs the tables | every triple ST-11 names is present as an actual row |
-| delivery command/state left unrepresented | none — all 3 commands, all 5 states, independently recomputed |
-| delivery state reachable only as a From-state | none |
-| impossible or unjournalled record state | none found; §3C mandates a `DELIVERY` event per transition, and the R-03 NULL-fencing-token representation is intact |
-| attempt-ceiling bypass after BLOCKED/ESCALATED/rejection/restart/restore | no bypass — the guard is on all three allocation paths. The defect is the opposite polarity: over-counting (G-02) |
-| durable attempt-count derivation vs persistence | satisfies persistence correctly: derived from durable rows keyed on `(subject_kind, subject_id, subject_revision)`, not an in-memory counter |
-| restart reconciliation across allocated-but-not-started attempts | **this is where G-01 and G-03 came from** |
-| reviewer dispatch fencing / stale verdict admission | §3B untouched; `FENCE_STALE` still `REJECTED_FAILED`; §1A rule that cancellation/expiry/replacement strip authority *"even when the subject SHA has not changed"* intact |
-| malformed §18A rows / dangling test IDs / MUST-bearing section with no disposition | none — independently recomputed, 0 dangling, 0 uncovered |
-| structural-test helper/parser, regex/section parsing, false-green | parser is sound (see below); two false-green vectors in how it is *used* — Observation O-3 |
-| regression of N-01..N-04, B-01..B-05, R-01..R-03 | none. All guards present and green; one weakening noted as O-4 |
-| self-adoption / DEC-046 / DEC-047 sequencing change | none — `DECISIONS.md`, `CURRENT_TRUTH.md` and `ROADMAP.md` are byte-identical to `e944620`; the anti-self-adoption test still passes |
+| zero dangling acceptance IDs across all four freeze docs | **NONE dangling** (193 matrix rows defined) |
+| every MUST-bearing numbered FC/SA section represented in §18A | **NONE undispositioned** (35 index rows) |
+| every non-terminal attempt state has a terminal cleanup/fencing path | **NONE missing** (`CREATED`, `STARTING`, `RUNNING`, `CANDIDATE_READY` all have `CLOSED` edges) |
+| delivery enum and §3C mutually complete | enum `{PENDING, UNKNOWN, PUBLISHED, FAILED, BLOCKED}`; **no state without an incoming edge**; **no non-terminal state without an outgoing edge** |
+| no self-adoption | `orchestrator-v1-freeze-candidate` absent from `DECISIONS.md`; `DECISIONS.md`, `CURRENT_TRUTH.md`, `ROADMAP.md` **all unmodified by this commit** |
+| no DEC-046 / DEC-047 sequencing change | `DECISIONS.md` untouched (DEC-046 ×4, DEC-047 ×1 mentions unchanged) |
 
-**On the parser itself** (`table_rows_in_numbered_section`, whose regex escaping was the subject of
-the final commit `31b0e07`): I audited it directly rather than trusting it. `^##\s+<section>(?:\.|\s)`
-correctly distinguishes `## 3.` from `## 3A.` — the character after `3` must be a dot or whitespace,
-and `A` is neither. The `^##\s` break condition correctly stops at the next `##` heading while *not*
-stopping at `###` subsections (since `#` is not `\s`), which is required for the `### \`delivery\``
-lookup elsewhere in the same test. Header/separator rows are filtered on `cells[0] in {"From", "---"}`,
-which is correct for §3/§3A/§3C but *not* for §2 (whose header cell is `Command`, so the header row
-is returned as data) — harmless there only because the caller filters on a `` `delivery. `` prefix.
-The parser is sound; it is the assertions built on it that are weak.
+### Secret scan
 
----
+```
+/opt/crooks-builder/.tooling/bin/gitleaks git --no-banner --redact --exit-code 1 \
+  --log-opts="31b0e07179877651da80065f5914575ee4d60d6c..5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78" \
+  /opt/crooks-builder/.worktrees/freeze-repair
+→ gitleaks 8.30.1 · 1 commits scanned · ~37.98 KB · "no leaks found" · exit 0
+```
+No secret value appears anywhere in this report.
 
-## 7. Non-blocking observations
+## 8. Publication
 
-**O-1 — §2 grants `delivery.reconcile` an edge §3C does not.** §2 says `delivery.reconcile` may move
-a delivery *"to PUBLISHED, FAILED or BLOCKED only through §3C"*, but §3C grants `BLOCKED` solely via
-`delivery.block`. It fails closed because §2 defers to §3C explicitly, so it is a wording mismatch
-rather than an unsafe permission — but it is the same shape as F-01 and should be tidied in the same
-pass.
+```
+git push origin HEAD:refs/heads/chatgpt/orchestrator-v1-freeze-candidate-2026-09-20
+  31b0e07..5eb25f8
 
-**O-2 — the three central transition matrices escape the §18A coverage gate.** §3, §3B and §3C
-contain no RFC-2119 `MUST`, so `must_bearing_sections()` does not see them and §18A carries no row
-for any of the three. The gate is internally honest, but the state API's most normative content is
-dispositioned only indirectly — DL-01..DL-05 are hung off `FC §7` rather than `SA §3C`. Not a
-regression (§3 was already in this position before the repair), and F-02 did not make it worse, but
-it means "every MUST-bearing section is covered" is a weaker claim than it sounds.
+git ls-remote origin refs/heads/chatgpt/orchestrator-v1-freeze-candidate-2026-09-20
+  5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78
+```
 
-**O-3 — the new F-03 test is weaker than its name.** In
-`test_every_nonterminal_attempt_state_has_a_terminal_fencing_or_cleanup_edge`, the loop accepts *any*
-row whose To-cell contains `CLOSED`. `STARTING` therefore passes on the pre-existing preflight-failure
-row alone and `CANDIDATE_READY` on its `CLOSED / SUCCEEDED` row alone — neither of which is a
-fencing or cleanup edge. Only `CREATED` is genuinely guarded by the loop. The actual protection for
-F-03 comes from three brittle literal-substring asserts, which will silently stop protecting anything
-if the table is reworded. Deriving the check (e.g. requiring a terminal edge whose trigger names a
-cancellation/fencing event) would make it real.
+**Remote branch readback equals the new candidate SHA.** Fast-forward from the rejected SHA; no force push.
+Nothing was merged, adopted, promoted or deployed. No other branch was pushed.
 
-**O-4 — the R-01 guard lost two assertions.** Rewriting `test_integration_launch_is_split_into_
-allocation_then_preflight` for F-01 dropped its asserts on `integration CREATED | integration.cancel
-| integration CANCELLED` and *"no fictitious execution record to fence"*. Both strings are still
-present in the candidate's §3 and §2 — I verified this directly — so nothing is currently broken, but
-that part of R-01 is no longer mechanically protected.
+Worktree after commit: **clean** (`git status --porcelain` empty), on branch
+`chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` at `5eb25f8`.
 
-**O-5 — delivery has no bounded retry budget.** The `delivery` record carries an `attempt count`, but
-no §3C row consumes or bounds it, and there is no delivery analogue of §10.2/§10.3.1. A delivery can
-in principle be retried within `PENDING` without limit. Related to G-03 but separable.
+## 9. Service and server state (unchanged by this round)
 
----
+- `crooks-assistant.service`: **active**, **enabled** — not restarted, reloaded or modified.
+- Listener: `127.0.0.1:8000` only. **Not publicly exposed.** Unchanged.
+- Production checkout `/opt/crooks-os/crooks-assistant`: branch `claude/linux-prod-migration-production`,
+  HEAD `1cf3a0f3361b79f9de208d80f501543c53c244b5`, `git status` clean. **Read only; never edited, switched or reset.**
+- Builder checkout `/opt/crooks-builder`: branch `claude/builder-environment-repair`, HEAD `295e483`, clean.
+  Untouched by this round.
+- Host: up 1 day 22:47, load 1.21/1.60/0.89, `/` 14G used of 75G (19%).
 
-## 8. OWNER-PENDING (not engineering defects)
+### Safety constraints — all preserved
 
-- **Exact freeze adoption / any DEC-046 sequencing amendment.** The contract still fails closed
-  correctly: *"This specification is a candidate until the Owner adopts an exact candidate SHA"*,
-  and `DECISIONS.md` contains no reference to `orchestrator-v1-freeze-candidate`. The
-  anti-self-adoption test passes. **No approval is recorded or implied by this round.**
+`writes_enabled` false · `CROOKS_WRITES_LOCAL_OWNER` false · FastAPI bound to `127.0.0.1` · port 8000 not
+publicly exposed · proposal/action/verification safety semantics unchanged · no live Shopify, Gmail or
+ElevenLabs calls · no live external mutations · V2 not begun · UI not redesigned · Mac deployment and
+rollback path preserved · `/root/.claude` writable · no secret printed or committed · no systemd, watcher
+or runtime change · no account/global Claude change · no MCP/connector grant change ·
+no privilege expansion · no CROOKS/CLIVE business write · no external spend · no destructive
+reset/clean/stash · the stale Builder `remote.origin.fetch` refspec was **not** repaired (branches were
+fetched explicitly, as instructed).
 
-## 9. RUNTIME-PENDING (measured only, not remediated, per inbox scope)
+## 10. Errors
 
-- **Live watcher/builder branch mismatch.** Measured: `/opt/crooks-builder` is on
-  `claude/builder-environment-repair` at `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`, not
-  `claude/bridge-builder`. Unchanged by this round.
-- **Stale Builder fetch refspec.** Confirmed still stale — `remote.origin.fetch` names a deleted
-  remote, so both candidate and base had to be fetched explicitly by branch name. Not repaired ad
-  hoc, per `CURRENT_TRUTH.md`'s standing instruction.
-- **Inherited business MCP connector surface.** This session again inherited Shopify, Gmail, Resend,
-  Omnisend, Google Drive and Wix/Base44 connector tools. **None was invoked.** No live Shopify, Gmail
-  or ElevenLabs call and no external mutation occurred in this round.
-- Several MCP servers require OAuth that cannot be completed in a non-interactive session, and
-  `plugin:marketing:similarweb` failed to connect. Neither affects this round.
+None. No command failed unexpectedly, nothing was blocked by the permission layer, and no owner approval
+was required or assumed. One test iteration failed on first run and was corrected before commit: the G-03
+test initially required the `attempt count` gate in the From/precondition cells only, which the
+intent-creation row (`none → PENDING (count = 0)`) satisfies in its To cell instead; the assertion was
+widened to the whole row. That is a test-authoring fix, not a specification change.
 
----
+## 11. Decisions and judgement calls needing reviewer attention
 
-## 10. State of the machine at end of round
+1. **`QUARANTINED` consumes the ceiling even when it never reached `RUNNING`.** §3A closes a `STARTING`
+   attempt `QUARANTINED` when a preflight process group cannot be proven stopped. The inbox exempted only
+   `CANCELLED`/`FENCED`, so I left `QUARANTINED` consuming. Consequence: repeated restarts during `STARTING`
+   *with unprovable cleanup* can still exhaust the ceiling. I judged that correct and deliberately
+   fail-closed — FC §10.3.1 already forbids relaunching a quarantined attempt until cleanup is proven, and
+   the terminus is `ESCALATED`, which is operator-visible. **Flagging it because it is a residual path by
+   which restarts can consume budget**, which is adjacent to what G-02 asked to eliminate.
+2. **Two existing regression guards were made stricter, not looser** — the §10.3.1 budget regex and the
+   traceability-disposition list. Called out so the reviewer does not read a modified assertion as a
+   weakened one.
+3. **Single commit** rather than the previous rounds' docs/tests split, so every commit on the branch has a
+   green test file and the reviewer binds one SHA.
+4. **New numbered subsections `SA §3A.1` and `SA §3A.2`.** These are genuinely new numbered sections in a
+   normative document; both are MUST-bearing and both received §18A dispositions. A reviewer may
+   reasonably want to check that splitting §3A does not orphan any coverage previously attributed to §3A —
+   `SA §3A` retains its full test list and the two new rows add to it.
+5. **Not repaired, still open (non-blocking, carried from the previous review):** §7 has no dedicated
+   reason code for ceiling exhaustion (falls to the BLOCKED default); `BLOCKED/ESCALATED → task.plan →
+   PLANNED` still carries no ceiling guard, so an exhausted task can re-plan into an unassignable dead end;
+   the attempt counter has no declared storage column (it is derivable from `attempt` rows, which §3A.2
+   now makes explicit). These were outside the G-01/G-02/G-03 scope and were deliberately left alone.
 
-**Builder worktree `/opt/crooks-builder`**
-- branch `claude/builder-environment-repair`, HEAD `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`
-- `git status --porcelain`: **empty (clean)** — verified at start and at end of round
-- files changed by me in this repository: **none**. No commit, no push, no branch switch, no
-  reset/clean/stash. The only Git operations performed were `fetch`, `rev-parse`, `merge-base`,
-  `log`, `diff`, `show`, `ls-tree`, `ls-remote` and `status`.
+## 12. Verdict status
 
-**Production checkout `/opt/crooks-os/crooks-assistant` — read only, never touched**
-- branch `claude/linux-prod-migration-production`
-- HEAD `1cf3a0f3361b79f9de208d80f501543c53c244b5`
-- working tree clean
-- note: `git ls-remote origin refs/heads/claude/linux-prod-migration-production` returned **no ref**,
-  i.e. the production branch appears to exist locally only and is not published on `origin`. There is
-  also no `refs/heads/main` on `origin`. Reported as measured, not remediated.
+**The previous verdict is stale for the changed SHA.** The review that produced G-01/G-02/G-03 was bound to
+`31b0e07`; the candidate is now `5eb25f8`, and four normative documents plus the mechanical spec test changed.
 
-**Bridge worktree `/opt/crooks-ai-bridge`**
-- branch `crooks-ai-bridge`; the only file I modified is `bridge/claude-outbox.md` (this file).
-  Nothing was staged, committed or pushed — the watcher publishes.
-
-**Services**
-- `crooks-assistant.service` — active (running), FastAPI backend
-- `crooks-bridge-watcher.service` — active (running)
-- listener: `127.0.0.1:8000` only. Port 8000 is **not** exposed publicly. ✔
-
-**Safety constraints — all preserved and unchanged by this round**
-`writes_enabled` false; `CROOKS_WRITES_LOCAL_OWNER` false; FastAPI bound to 127.0.0.1; port 8000 not
-public; proposal/action/verification semantics untouched; no live Shopify/Gmail/ElevenLabs calls and
-no external mutations; V2 not begun; UI not redesigned; Mac deployment and rollback path preserved;
-`/root/.claude` writable; no secret value printed or committed.
-
-**Errors:** none. The spec suite ran clean (26/26) and no command failed.
-
-**Permission-layer blocks:** none. Nothing the inbox asked for was refused by my permission layer,
-and I did not widen permissions or route around anything.
-
----
-
-## 11. Reviewer-independence limitation (recorded explicitly, as required)
-
-I am Claude (`claude-opus-5`), the **same model family and the same provider** as the author of the
-F-01/F-02/F-03 repairs under review. This is a genuine independence limitation: shared inductive
-biases mean a defect class that this model family is systematically blind to would likely survive
-both the repair and this review. Two partial mitigations applied in this round: every structural
-claim was recomputed with my own script rather than accepted from the candidate's own test suite, and
-all three findings were reached by attacking the *composition* of the repairs with the untouched
-documents (freeze contract §21, §10.3.1, §9) rather than by re-reading the repaired text alone. Those
-mitigations reduce the risk; they do not make this an independent review in the sense the freeze
-acceptance rule intends. A genuinely independent reviewer — different provider, or a human — remains
-warranted before adoption.
-
----
-
-## 12. Questions / decisions needing review
-
-1. **G-02 polarity is a design question, not only a defect.** Is a controller-restart-induced fence of
-   a never-started attempt *intended* to consume the per-revision ceiling? I have assumed not and
-   proposed the exclusion accordingly. If the owner intends the strict reading, the repair is to say
-   so explicitly plus state the operator recovery path — the current text is simply silent, and that
-   silence is the defect either way.
-2. **G-03's repair touches the freeze contract**, which the last two repair rounds left untouched.
-   Confirm that amending `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §21 is in scope for the next repair
-   round, or the delivery crash window cannot be closed properly.
-3. **O-2** — should §3/§3B/§3C be given RFC-2119 `MUST` phrasing so the §18A gate actually reaches
-   the state API's transition matrices? This is a small edit with a real increase in gate coverage,
-   but it enlarges the MUST-bearing set and so requires §18A rows for all three.
-
----
+**I do not certify this repair.** A **fresh independent read-only adversarial review bound exactly to
+`5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78`** is required before the freeze candidate moves any further.
+Per the standing round contract, that review must not check the candidate out; it should re-implement the
+spec assertions against blobs read with `git show <sha>:<path>`.
 
 ## 13. Exact proposed next step
 
-**One bounded repair round on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`, branching from
-`31b0e07179877651da80065f5914575ee4d60d6c`, fixing exactly G-01, G-02 and G-03 and nothing else:**
+Issue a read-only independent adversarial review round with this inbox content:
 
-1. **G-01** — add `ASSIGNED` to the ambiguity enumeration in `ORCHESTRATOR_V1_STATE_API.md` §1A
-   bullet 2 and in `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §21's closing sentence. Add matrix row
-   **ST-15** and a *derived* structural test that recomputes, from §3A, every subject state which can
-   hold a non-terminal execution record and asserts each appears in both enumerations.
-2. **G-02** — add the ceiling-exclusion clause to `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §10.3.1 and
-   mirror it in the §3A ceiling paragraph. Add matrix row **ST-16** and extend **PR-10** to assert
-   which dispositions consume budget.
-3. **G-03** — require an effect-initiated marker in the §3C/§4 pre-effect transaction; add the §3C
-   row `PENDING -> UNKNOWN` on restart-with-possibly-initiated-effect; name `PENDING` explicitly in
-   freeze contract §21 step 10. Add matrix row **DL-06**.
-4. Optionally fold in **O-1** (the `delivery.reconcile` §2/§3C wording mismatch) and **O-3**
-   (strengthen the F-03 test from literal substrings to a derived check) — both are one-line-class
-   edits in the same files and both were found by this review.
-5. Add `G-01`, `G-02`, `G-03` rows to `ORCHESTRATOR_V1_TRACEABILITY.md`; the existing
-   `test_traceability_dispositions_every_reviewed_finding` must be extended to require them, or
-   silence will again pass as a disposition.
-6. Do **not** touch `DECISIONS.md`, `CURRENT_TRUTH.md` or `ROADMAP.md`; the anti-self-adoption gate
-   must stay green.
-7. Publish the new candidate SHA and send a fresh inbox naming it, the base `9e59860a`, and
-   `31b0e071` as the last-reviewed SHA, for a fourth independent read-only review.
+- repository `crooksldn-pixel/clive`; canonical base `9e59860a945ec339c69af8709cd0721f0a795327`;
+  candidate branch `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`;
+  **candidate SHA `5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78`**; superseded SHA `31b0e07179877651da80065f5914575ee4d60d6c`;
+  this outbox blob as the reviewed handoff.
+- Read-only: no checkout, no commit, no push, no worktree mutation. Abort and report BLOCKED if the branch
+  does not resolve exactly to `5eb25f8` or if merge-base is not `9e59860`.
+- Confirm or reject G-01, G-02, G-03 individually, on the specific questions this repair leaves open:
+  1. **G-01** — is the derived execution-bearing set actually complete? Specifically: is there any subject
+     state, for either kind, in which a non-terminal `attempt` or `review_dispatch` can exist that §3A.1/§3B
+     do not bind — and does the joint-oracle rule of §3/§3A remain satisfiable with §3A split into §3A.1/§3A.2?
+  2. **G-02** — can the classification in §3A.2 be gamed? Is there any sequence in which an attempt that
+     *did* run a model closes `CANCELLED`/`FENCED` with a NULL process-group identity, or any path where a
+     deterministic failure can be re-labelled `CANCELLED`/`FENCED` to escape the budget?
+  3. **G-03** — is `attempt count` sufficient, or does an adapter that performs several effects under one
+     delivery record (retry inside a single `delivery.publish` call) break the `count = 0` gate? Does the
+     restart→`UNKNOWN` row interact correctly with `delivery.block` and with `controller.reconcile`'s
+     delivery scope?
+- Re-verify the five global invariants (dangling IDs, §18A completeness, attempt-state terminal edges,
+  delivery enum/§3C completeness, no self-adoption / no DEC-046/047 sequencing change) independently.
+- Confirm N-01..N-04, B-01..B-05, R-01..R-03, F-01..F-03 are still intact at `5eb25f8`.
+- Report `ACCEPT` / `CHANGES REQUIRED` / `REJECT` bound to the exact SHA, with each finding reproducible.
 
-**Not proposed, and explicitly awaiting the owner:** freeze adoption, any DEC-046 sequencing
-amendment, any merge to a production branch, any deployment, and any of the three RUNTIME-PENDING
-remediations. This round performed none of them and records no approval that was not given.
-
----
-
-**Inbox SHA processed:** `836d2e795cea0b10478bd92fc89d3c920e3213b5`
-**Candidate reviewed:** `31b0e07179877651da80065f5914575ee4d60d6c`
-**Canonical base:** `9e59860a945ec339c69af8709cd0721f0a795327`
-**Verdict:** `CHANGES REQUIRED BEFORE OWNER DECISION`
+Owner adoption is **not** requested and **not** implied. No approval was given in the inbox and none is
+recorded here.
