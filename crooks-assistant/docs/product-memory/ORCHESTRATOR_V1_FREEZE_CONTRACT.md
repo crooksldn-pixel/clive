@@ -41,6 +41,7 @@ A later Privileged Action Broker / Deployment Controller is a separate authority
 | Owner | set intent; grant material permissions; approve owner-gated release/privilege decisions | be required as routine message courier |
 | GPT Director | compile objective/scope; reconcile evidence; challenge plans; perform final independent review | mutate state DB directly; deploy; self-authorise owner gates |
 | Deterministic kernel | validate contracts; persist state; schedule; fence; admit results; dispatch reviews; enforce policy | make product judgement; infer approval from prose |
+| Evidence Collector (kernel component) | measure committed workspace identity read-only; copy/hash evidence from worker staging into kernel-owned immutable storage; create Candidate/Evidence records | execute candidate-controlled code to determine identity; run inside worker process group; accept worker prose as identity |
 | Architecture specialist (normally Opus) | propose plans/contracts; diagnose ambiguity; perform high-scrutiny technical review | grant itself scope, privileges or acceptance |
 | Implementation worker | modify one authorised attempt workspace and produce one candidate | accept/review itself; write controller DB; deploy; access unrelated business tools |
 | Independent reviewer | inspect exact candidate/evidence and submit findings/verdict through validated channel | modify the candidate it certifies |
@@ -121,7 +122,7 @@ This closes contract gap CG-04: partial progress is represented without falsely 
 
 ## 6. Durable store
 
-V1 is single-host. The authoritative store MUST be SQLite unless an architecture review explicitly replaces it before freeze implementation.
+V1 is single-host. The authoritative store MUST be SQLite for frozen V1. Replacing it requires a new reviewed revision of this contract; implementation may not substitute another store under an informal architecture exception.
 
 Required SQLite settings/behaviour:
 
@@ -139,7 +140,7 @@ Required SQLite settings/behaviour:
 
 Database corruption or failed integrity check MUST stop scheduling and enter operator-visible `BLOCKED`; V1 MUST NOT guess-repair authoritative state.
 
-Backups MUST never be restored while an older controller instance can still publish authoritative results. Restore increments the controller epoch and invalidates all pre-restore leases.
+Before model-running V1 is enabled, a tested online-backup destination independent of the active DB file MUST exist. Backups are required before every schema migration and at controlled periodic intervals chosen to meet the declared recovery-point objective; backup integrity and restore are rehearsed in acceptance. Backups MUST never be restored while an older controller instance can still publish authoritative results. Restore increments the controller epoch, enters DRAINING/BLOCKED until reconciliation finishes, and invalidates all pre-restore leases.
 
 ## 7. Single-controller authority and fencing
 
@@ -284,7 +285,8 @@ Before launch the kernel MUST verify:
 - working tree clean;
 - Git common-dir is not production;
 - no foreign worker process owns the workspace;
-- effective tool/network/credential roster matches task policy.
+- effective tool/network/credential roster matches task policy;
+- measured environment/toolchain fingerprint equals the environment-manifest digest bound to the task revision; an exit-0 `doctor` or self-report cannot override a fingerprint mismatch.
 
 After cancellation/failure, the complete attempt process tree is terminated via dedicated cgroup/process group: TERM, bounded grace, then KILL. Workspace reuse is forbidden until emptiness is verified.
 
@@ -296,7 +298,7 @@ Engineering workers MUST receive only engineering capabilities required by the t
 
 The launcher MUST assert the **effective** tool/MCP/plugin roster after launch. Prompt instructions and `--allowed-tools` alone are insufficient.
 
-Unexpected access to business connectors (Shopify, Gmail, Google Drive, Omnisend, Resend or similar) MUST fail the attempt closed before substantive execution.
+Unexpected access to business connectors (Shopify, Gmail, Google Drive, Omnisend, Resend or similar) MUST fail the attempt closed before substantive execution. Worker-tool network egress is default-deny except destinations explicitly required by the task policy. Model-provider transport, candidate publication and controller APIs are host/kernel capabilities rather than permission for arbitrary worker-shell egress.
 
 Workers MUST NOT receive:
 
@@ -325,7 +327,7 @@ A grant binds:
 - expiry/revocation condition;
 - exact approval text/reference digest where relevant.
 
-The kernel enforces the structured boundary. A model cannot convert conversational prose into broader authority on its own.
+The kernel enforces the structured boundary. A model cannot convert conversational prose into broader authority on its own. An expired or revoked grant is equivalent to no grant. Grant validity MUST be re-evaluated at every authority-bearing transition; revocation while an attempt is active immediately fences that attempt before any further authoritative result is admitted.
 
 This closes contract gap CG-06.
 
@@ -333,15 +335,16 @@ This closes contract gap CG-06.
 
 ### 14.1 Candidate
 
-A Candidate record is created by the collector **after** a commit exists. It binds:
+A Candidate record is created by the kernel-owned collector **immediately after an immutable commit exists and before evidence collection begins**. Creation-time fields bind:
 
 - task revision;
 - attempt;
 - base SHA;
 - candidate SHA;
 - complete changed-file set and diff digest;
-- workspace/environment identity;
-- evidence-manifest digest.
+- measured workspace/environment identity.
+
+`evidence_manifest_digest` is nullable at Candidate creation and is populated only after the evidence manifest is durably stored and validated at the `EVIDENCE_READY` transition. Candidate existence therefore survives evidence-storage, outbox or delivery failure and is independently discoverable during reconciliation.
 
 A candidate cannot authoritatively define its own identity.
 
@@ -366,7 +369,7 @@ Required fields:
 - limitations;
 - redaction status.
 
-Raw evidence is independently addressable and content-addressed where practical.
+Raw evidence is independently addressable and content-addressed where practical. Final evidence storage is kernel-owned and not writable by the worker; the worker may write only to attempt-local staging, which the collector measures and imports.
 
 Missing evidence is UNKNOWN, never PASS.
 
@@ -374,7 +377,7 @@ This closes CG-01.
 
 ### 14.3 Evidence invalidation
 
-V1 uses a deliberately strict rule: **any candidate SHA change invalidates candidate-bound evidence and review by default.**
+V1 uses a deliberately strict rule: **any candidate SHA change invalidates candidate-bound evidence and review.**
 
 Evidence reuse across candidate changes is DEFERRED to V1.x until a machine-checkable input-closure system exists.
 
@@ -382,11 +385,19 @@ This closes CG-02 without introducing a false-green optimisation.
 
 ### 14.4 Candidate persistence vs delivery
 
-Candidate state is persisted independently from result/outbox delivery. A candidate may exist even if publication of the human/model handoff fails.
+Candidate state is persisted independently from evidence completion and from result/outbox delivery. A candidate may exist with no evidence manifest yet, and may remain discoverable even if publication of the human/model handoff fails.
 
 Delivery has its own durable record and idempotency key.
 
 This closes CG-03.
+
+### 14.5 Candidate publication
+
+Remote candidate publication is a **kernel publication-adapter operation**, never a worker push. Attempt workspaces MUST have no usable remote push credential.
+
+The kernel reads the exact local candidate SHA from the quarantined/read-only post-build workspace, verifies it matches the Candidate record, and publishes that commit to a create-only namespaced ref such as `orchestrator/candidate/<task-id>/<candidate-id>` using a narrow kernel credential. The ref is for discoverability only; reviewers/integrators consume the immutable SHA, never the branch name. Corrections create new candidate IDs/refs; no candidate ref is force-updated.
+
+Unknown push outcomes use the §9 reconcile-before-retry rule.
 
 ## 15. Review contract
 
@@ -410,7 +421,20 @@ A reviewer may not silently patch the candidate it certifies. If it supplies cod
 
 Review records bind exact candidate/evidence identities. Candidate mutation invalidates review automatically.
 
-Required review is risk-based, not agent-count-based.
+Risk classification is deterministic and closed:
+
+| Risk class | Rule | Minimum gate |
+| --- | --- | --- |
+| `DOCUMENTARY_NONNORMATIVE` | prose/history only; cannot change executable config, tests, policy, authority, safety, acceptance or runtime behaviour | independent document review; exact-SHA doc/schema/link checks as applicable |
+| `MATERIAL` | any code, test, config, dependency, build, harness, normative policy/acceptance document, or behavior-affecting change not in a higher class | independent technical review + independent exact-SHA CI/reverification |
+| `EXPERIENCE` | meaningful UI/UX/interaction change | MATERIAL gates + Fable direction/post-build review + browser/accessibility/device evidence as required |
+| `SECURITY_CRITICAL` | auth, secrets, permissions, business-write semantics, controller/kernel, deployment, sandbox, credential or safety-boundary change | MATERIAL gates + independent security/architecture review + negative permission tests + owner gate where authority changes |
+
+Unclassified work is `MATERIAL`. Models may propose a class but the kernel/policy rules compute the authoritative class.
+
+Review independence requires at minimum: a distinct reviewer session/principal, a distinct review workspace/channel with no candidate write authority, immutable candidate/evidence inputs, and no access to the implementer's hidden reasoning/conversation. For MATERIAL and above, use a distinct model or provider where a verified equal-or-stronger reviewer is available; if unavailable, a separate high-quality session may review but the limitation is recorded and the GPT Director gate remains mandatory.
+
+Required review is risk-based under this closed table, not agent-count-based.
 
 ## 16. Integration contract
 
@@ -561,6 +585,22 @@ Security-sensitive changes require negative permission/security tests.
 
 CodeQL/equivalent static analysis SHOULD be required for relevant code classes. SBOMs and external artifact attestations are REQUIRED only for releasable deployable artifacts, not every repository-only documentation or tiny test candidate.
 
+## 22A. Clean reconstruction claims
+
+Whenever a task or release claims that an environment/toolchain is reproducibly reconstructible, that claim MUST be proved on a disposable environment with no pre-existing target toolchain state.
+
+The reconstruction contract MUST include:
+
+- explicit approved egress policy and destination allow-list;
+- pinned release tags/asset URLs or equivalent immutable package identities;
+- pre-extraction/download integrity verification;
+- post-install/version/provenance verification;
+- a fresh environment fingerprint;
+- equality of the reconstructed fingerprint to the declared environment manifest;
+- evidence that pre-existing local tooling did not satisfy the test accidentally.
+
+A rerun on the already-provisioned Builder is not reconstruction evidence.
+
 ## 23. Symphony/ECC reuse boundary
 
 V1 adopts commodity mechanisms, not external authority semantics.
@@ -586,7 +626,7 @@ From ECC/skills research, V1 selectively adopts/reimplements methodology and gua
 - **CG-02:** invalidation granularity -> strict full invalidation on candidate SHA change in V1; reuse deferred.
 - **CG-03:** candidate without result -> Candidate record is independent of Delivery record.
 - **CG-04:** partial BLOCKED state -> per-finding dispositions plus task-level BLOCKED.
-- **CG-05:** clean reconstruction -> decomposed acceptance requirements: approved egress policy, allow-list, pinned assets, integrity checks, disposable environment, fresh reconstruction evidence.
+- **CG-05:** clean reconstruction -> resolved normatively by §22A and EN-01..EN-03 acceptance cases.
 - **CG-06:** approval prose -> structured AuthorityGrant bound to task/scope.
 
 ## 25. Owner-only decisions
@@ -656,6 +696,10 @@ Add evidence-based Opus/Sonnet/Fable routing and external GPT Director automatio
 Production deployment remains outside V1 implementation authority.
 
 ## 27. Freeze acceptance rule
+
+This specification is a candidate until the Owner adopts an exact candidate SHA in `DECISIONS.md`. A Director/authored document cannot re-sequence owner gates or promote itself to normative authority. Any sequencing change from active DEC-046/DEC-047 must be stated explicitly in that owner decision.
+
+The accepted freeze SHA is then recorded in a separate follow-up canonical product-memory commit, matching the existing harness-acceptance pattern; the recording commit does not alter the frozen contract content.
 
 This specification may be marked **FROZEN V1** only when:
 
