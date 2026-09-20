@@ -1,65 +1,61 @@
 # CHATGPT INBOX
 
-## Bounded repair — Orchestrator V1 freeze K-01
+## Fresh independent read-only adversarial review — Orchestrator V1 freeze candidate `a904a20`
 
-Perform exactly one bounded repository-only repair round on the existing freeze-candidate branch.
+Perform exactly one fresh independent **read-only** adversarial review. Do not edit the freeze candidate, canonical product memory, runtime, watcher, systemd, connectors, credentials, production, business state, or any other branch except publishing your review to the normal bridge outbox.
 
-### Exact identities
+### Exact identities to resolve fresh before review
 - repository: `crooksldn-pixel/clive`
-- canonical base: `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`
-- candidate branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
-- rejected candidate: `c7c3d523b7bafe5c73ae4d82275e6f1a297600f0`
-- review inbox consumed: `7c038f0cd016dbf261b38f43f6c573db358d2fff`
-- review outbox blob: `9fb68c00e96a368ccdc198fb784bbffe7bddf626`
-- verdict: `CHANGES REQUIRED BEFORE OWNER DECISION`
-- only material blocker: K-01
+- freeze branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
+- exact candidate under review: `a904a209d57add65f3878b4f7ee3eec19b6c35a9`
+- candidate's historical pinned base: `9e59860a945ec339c69af8709cd0721f0a795327`
+- current canonical branch: `claude/product-memory-foundation`
+- current canonical observed immediately before dispatch: `3ba4edeb1bdeb317a08932e44557c7e6051fa510`
+- rejected parent: `c7c3d523b7bafe5c73ae4d82275e6f1a297600f0`
+- K-01 repair changed exactly `crooks-assistant/tests/test_orchestrator_freeze_spec.py`
 
-Before editing, resolve canonical and candidate from fresh remote truth. Abort if identities or merge-base differ, or unrelated owner work is present. Never trust the known-stale tracking ref. Do not reset/clean/stash/discard owner work.
+Abort and report BLOCKED if the freeze branch no longer resolves to the exact candidate above or if evidence identity cannot be established. Do not carry forward any previous verdict.
 
-### Hard scope
-This round is **test-module-only** unless a strictly necessary correction to the test's own documentation is inside that same module:
-- allowed file: `crooks-assistant/tests/test_orchestrator_freeze_spec.py`
-- do not change freeze-contract/state-API/acceptance/traceability prose; the independent review found the J-01/H-03/H-04 contract itself sound.
-- no production/runtime/systemd/watcher changes, stale-refspec repair, secrets reads, account/global Claude changes, MCP/connector changes, privilege expansion, business writes, public exposure, destructive operations, spend, merge, adoption, DEC-046/047 changes, or Orchestrator implementation.
-- do **not** take the review's optional non-blocking §3B row-504 hardening in this round. Keep this repair single-purpose.
+### Review objective
+Attack the exact candidate rather than confirming the implementer's report. Recompute relevant facts from committed source. Determine whether K-01 is genuinely closed without weakening J-01/H-03/H-04/R-02 or any prior freeze invariant.
 
-### K-01 repair
-The current helper `attempt_rows_committing_the_cleanup_handle()` only detects the literal phrase:
-``lease.owned_process_group_handle` is committed`
-so an operative second write in a real §3A row using ordinary paraphrases such as `is written` or `is rewritten` passes the gate.
+Specifically verify:
+1. every §3A transition-row mention of `lease.owned_process_group_handle` is structurally/fail-closed classified as WRITES / PROHIBITS_WRITE / READS_ONLY;
+2. ordinary paraphrases cannot introduce an operative second write while declared count remains 1;
+3. negated/prohibition wording cannot be misclassified as a write, and a real write beside a prohibition cannot be swallowed by the prohibition;
+4. unknown/unclassifiable critical wording fails closed;
+5. sole derived write point is the declared CREATED -> STARTING point;
+6. the seven prior J-01/K-01 mutation cases are independently reproduced and all unsafe variants fail;
+7. invent additional adversarial mutations beyond the implementer's exact cases, including sentence/clause rearrangement, alternate grammatical forms, punctuation, and plausible ordinary write language. If a plausible operative write can evade the gate, report it as a material blocker;
+8. mutation resistance is structural rather than dependent on literal strings shared by the test and fixture;
+9. committed freeze-spec suite and relevant static checks are green;
+10. exact diff `c7c3d52..a904a20` is bounded to the one test module and no DECISIONS/adoption/sequence change occurred in the repair.
 
-Replace that single-verb detector with a structural/fail-closed classifier over every §3A transition-row mention of `lease.owned_process_group_handle`.
+### Recheck global freeze invariants
+Read the exact freeze documents from `a904a20` and adversarially spot-check prior repaired areas, especially:
+- J-01 durable occupancy / cleanup-unproven semantics and N+1 refusal;
+- H-03 one process group per attempt, write-once durable handle, preflight/model same group, stale/recycled identity fail-closed;
+- H-04 reviewer ownership kind and kernel-owned NULL/cleanup semantics;
+- R-02 attempt-budget semantics remain separate from occupancy;
+- crash consistency, fencing, exact candidate/evidence identity, reviewer independence, no self-adoption.
 
-Requirements:
-1. Every relevant §3A row/cell mentioning the cleanup handle must be classified into exactly one semantic class:
-   - WRITES
-   - PROHIBITS_WRITE
-   - READS_ONLY
-2. Use a closed, explicit marker set. WRITES must cover at least: committed, written, rewritten, updated, replaced, cleared, set, recorded, populated, assigned, superseded and normal grammatical variants needed by the actual spec.
-3. Negated/prohibition forms such as `MUST NOT update, replace or clear` must classify as PROHIBITS_WRITE rather than WRITES.
-4. Read-only/reference forms such as `identified from`, `read from`, `named by`, `proven by`, `MUST NOT be used as` must not count as writes.
-5. Any handle mention that cannot be classified unambiguously must make the freeze gate fail closed. Unknown wording is not silently ignored.
-6. Derive the real WRITES rows from actual §3A transition rows. Assert their count equals the declared cardinality and the sole write row equals the declared `CREATED -> STARTING` write point.
-7. Keep the independent prohibition/cardinality checks. Do not solve this by adding another narrow blacklist.
-8. Correct the test docstring so it claims only what the implementation actually proves.
+### Canonical-base movement — read-only reconciliation assessment
+Canonical product memory advanced after the repair started and now resolves to `3ba4edeb...`, adding owner product direction including DEC-050. Do **not** rebase, merge, edit, or adopt anything.
 
-### Required mutation proof
-Add a parametrised test/harness that leaves §3A.3's prohibition and declared count `1` intact while injecting an operative second write into the real `STARTING -> RUNNING` row. At minimum prove each of these is caught:
-- `is written`
-- `is rewritten`
-- `is updated to`
-- `is replaced with`
-- `is set to`
+Read-only determine:
+- ancestry from `9e59860` to current canonical;
+- exact overlap between current canonical and the freeze candidate;
+- whether a merge/reconciliation is mechanically conflict-free;
+- whether any current canonical decision/product direction semantically conflicts with the freeze contract;
+- the smallest safe reconciliation path if the freeze receives a clean engineering verdict.
 
-Also rerun the seven mutation cases from the review. All **7/7 must be caught** for structural/derived reasons, with the pristine candidate control green. Specifically the prior variants A/B that returned 63 passed must flip to a failing gate.
+Do not treat base movement alone as an engineering defect in `a904a20` if the exact candidate remains valid against its pinned base. Keep engineering readiness separate from owner adoption/reconciliation.
 
-### Evidence
-Prove failing-before against exact rejected SHA `c7c3d52` using immutable/hash-verified blobs or equivalent scratch without modifying owner work. Then run:
-- committed freeze-spec suite;
-- the required mutation suite/evidence;
-- relevant Ruff/static checks;
-- changed-file secret scan with no values printed.
+### Verdict
+Return exactly one:
+- `ENGINEERING CONTRACT READY — OWNER/RECONCILIATION/RUNTIME GATES REMAIN`
+- `CHANGES REQUIRED BEFORE OWNER DECISION`
 
-Before publishing report exact base/rejected/new SHA, exact changed-file set (expected one file), tests/mutations, clean worktree and exact remote readback. Publish only to the existing freeze-candidate branch.
+If changes are required, identify only material blockers with exact evidence and the smallest bounded repair. If ready, explicitly state that the verdict binds only to `a904a209d57add65f3878b4f7ee3eec19b6c35a9` and does not itself adopt/rebase/merge/deploy it.
 
-Do not self-certify. Previous verdict becomes stale for the changed SHA. State that exactly one fresh independent read-only adversarial review bound to the new exact SHA is required next.
+Also disclose reviewer/provider independence limitations.
