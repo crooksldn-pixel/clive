@@ -118,7 +118,9 @@ Every review/test finding has its own disposition:
 - `BLOCKED`
 - `OBSOLETE`
 
-This closes contract gap CG-04: partial progress is represented without falsely calling the whole task complete.
+A finding binds an explicit **subject kind** (`CANDIDATE` or `INTEGRATION`) and subject ID, exactly as review and evidence records do, and retains task/candidate lineage wherever a single source task owns it. Integration findings are therefore authoritative and queryable in their own right rather than depending on the next reviewer rediscovering them. A blocking finding is evaluated against its own subject: `candidate.accept` MUST evaluate blocking findings for that candidate and `integration.verify` MUST evaluate blocking findings for that integration. Where a rejected integration is corrected under `parent_integration_id`, unresolved findings are carried into the correction and MUST each reach an explicit `RESOLVED` or `OBSOLETE` disposition with a recorded reason before the correction can be VERIFIED.
+
+This closes contract gap CG-04: partial progress is represented without falsely calling the whole task complete, and it is represented for integrations as well as candidates.
 
 ## 6. Durable store
 
@@ -153,11 +155,11 @@ On a single host:
 3. all new leases/results bind that epoch;
 4. a second controller that cannot acquire the lock MUST fail closed or run read-only diagnostics only.
 
-Every lease acquisition increments a per-task monotonic fencing token.
+Every lease acquisition increments a monotonic fencing token for its subject, and every review dispatch carries its own monotonic dispatch fencing token for its subject.
 
-Every heartbeat, candidate admission, evidence admission, delivery update and terminal result MUST present the current task revision, controller epoch and fencing token.
+Every heartbeat, candidate admission, **integration-result admission**, evidence admission, **review-result admission**, delivery update and terminal result MUST present the current subject revision, the current controller epoch and the current fencing token of the exact execution record it claims to act under — the attempt's lease token for task and integration attempts, the dispatch token for review results. `ORCHESTRATOR_V1_STATE_API.md` §1A defines those three execution records and no result may be admitted without one.
 
-A stale token MUST be rejected even if the worker is still running and its output would otherwise pass tests.
+A stale token MUST be rejected even if the worker is still running and its output would otherwise pass tests. This applies identically to reviewers and integrators, and it applies **even when the subject SHA has not changed**: cancellation, expiry, replacement and epoch change each strip authority on their own, and candidate-mutation invalidation is an additional mechanism rather than the only one. Rejection uses reason code `FENCE_STALE` and is recorded as a transition event.
 
 PID identity alone is never authority and PID reuse is irrelevant to correctness.
 
@@ -165,7 +167,7 @@ PID identity alone is never authority and PID reuse is irrelevant to correctness
 
 A lease records:
 
-- task revision;
+- subject kind (`TASK` or `INTEGRATION`), subject ID and subject revision;
 - attempt ID;
 - controller epoch;
 - fencing token;
@@ -176,7 +178,9 @@ A lease records:
 
 Heartbeats prove liveness only. They MUST NOT extend scope or mark progress/success.
 
-Lease expiry does not by itself prove the process is dead. Before reassignment the controller MUST reconcile process/cgroup state. If the old process tree cannot be proven stopped, quarantine the workspace and block reassignment.
+One authoritative lease exists per `(subject kind, subject ID, subject revision)`, so an implementation attempt and an integration attempt never contend for the same lease. Review dispatches are not leases: several independent reviewers may run concurrently on one subject, so each review dispatch is fenced individually under its own dispatch token, bounded by the §19 reviewer-concurrency ceiling.
+
+Lease expiry does not by itself prove the process is dead. Before reassignment the controller MUST reconcile process/cgroup state. If the old process tree cannot be proven stopped, quarantine the workspace and block reassignment. The same rule applies to an expired review dispatch: expiry strips the dispatch's authority immediately, but it does not by itself prove the reviewer process is gone, and an unprovable reviewer process blocks the subject rather than triggering a silent re-dispatch.
 
 Clock rules:
 
@@ -256,6 +260,20 @@ Default:
 - a second substantive rejection or changed diagnosis triggers re-planning/escalation.
 
 A changed objective, authority, acceptance criterion or scope creates a new task revision.
+
+#### 10.3.1 Non-rejection attempt failure budget
+
+The correction budget above governs **evidence-backed rejection** only. An attempt that closes `FAILED` or `QUARANTINED` without ever producing a candidate — stall, timeout, orphaned process, crash, preflight failure — is governed by this separate budget, which exists because such an attempt may already have caused real side effects in its workspace and V1 explicitly does not guarantee exactly-once model execution (§9).
+
+Defaults, all persistent:
+
+- **automatic relaunches after a non-rejection attempt failure: zero.** `PROCESS_TIMEOUT`, `PROCESS_STALLED` and `PROCESS_ORPHANED` are classified BLOCKED by `ORCHESTRATOR_V1_STATE_API.md` §7, so the subject enters operator-visible BLOCKED with the exact reason persisted, and no model is relaunched automatically;
+- an attempt that closed `QUARANTINED` MUST NOT be relaunched at all until its workspace/process state is proven and released;
+- a controlled relaunch remains available through the existing authority-bearing path `BLOCKED -> task.plan -> attempt.assign`, which requires the blocker to be resolved and therefore cannot spin;
+- **absolute ceiling: at most 3 attempts per task revision in total**, counting every attempt whatever its disposition. On exhaustion the task goes to `FAILED` or `ESCALATED`, never to a further attempt;
+- these counters are persisted and MUST survive controller restart, DB restore and epoch change. Restart MUST NOT reset them and MUST NOT reclassify a persisted BLOCKED reason into a retry.
+
+The total number of model relaunches arising from a non-rejection failure is therefore finite and stated, not left to implementer discretion. This is deliberately stricter than the §10.2 transport budget: the incident this rule exists to prevent is a deterministic failure being retried repeatedly as though it were transient.
 
 ## 11. Workspace contract
 
@@ -459,6 +477,13 @@ Any integration edit creates a new subject. Relevant tests/replay/reviews MUST b
 
 Prior isolated reviews remain historical evidence; they are not proof that the integrated result is accepted.
 
+Integration **execution** is not a pure function. An integrator is a process-owning, cancellable, crash-prone worker exactly as an implementation worker is, so it MUST be represented by the same durable execution substrate: an `attempt` with `subject_kind = INTEGRATION`, holding its own authoritative lease, controller epoch, monotonic fencing token, isolated workspace and owned process group (`ORCHESTRATOR_V1_STATE_API.md` §1A). Consequently:
+
+- `integration.cancel` is implementable as written — it fences a lease and stops a process group that actually exist;
+- integrator cleanup uses the same §11 TERM/grace/KILL and verified-emptiness rule, and an integration workspace MUST NOT be reused until emptiness is proven;
+- if the integrator process group cannot be proven empty, the integration attempt closes `QUARANTINED` and the integration goes to BLOCKED rather than reporting CANCELLED on unproven cleanup;
+- an integration in `INTEGRATING` after a controller restart has a defined reconciliation path under §21 and MUST NOT stall silently.
+
 ## 17. Context freshness and scope change
 
 Before planning, launch, review and integration the controller checks the task's context manifest against current required product-memory/policy sources.
@@ -504,6 +529,8 @@ Mandatory operational metrics:
 - orphan-process kills/quarantines;
 - release-candidate age.
 
+A **rejected** admission MUST also emit an event. A heartbeat, candidate, integration result or review verdict refused with `FENCE_STALE` appends an event recording the rejection, the stale execution identity and the reason, even though no state changed — otherwise a stale reviewer or integrator leaves no trace in the journal and the `stale-result rejections` metric above cannot be derived.
+
 Local structured logs are mandatory. OpenTelemetry-compatible export is SHOULD, not a dependency for correctness.
 
 Secrets, raw credentials, customer PII and full prompts MUST NOT be emitted by default.
@@ -520,6 +547,8 @@ The controller MUST enforce configured ceilings for:
 - evidence/workspace disk high-watermark.
 
 V1 starts with **one implementation slot**. Two concurrent implementation slots may be enabled only after the two-candidate isolation acceptance gate passes.
+
+Each ceiling is enforced at admission: when a ceiling is reached the controller MUST refuse to admit further work of that class rather than exceed it. The reviewer-concurrency ceiling is enforced against non-terminal `review_dispatch` rows, and the implementation/integration concurrency ceilings against non-terminal `attempt` rows of the corresponding subject kind, so every ceiling is measured against a durable record rather than an in-memory count.
 
 At disk high-watermark, admit no new work until safe GC/recovery occurs.
 
@@ -560,13 +589,17 @@ On controller start/restart:
 2. open DB and verify schema/integrity;
 3. increment controller epoch;
 4. enter implicit drain/no-dispatch mode;
-5. reconcile recorded active attempts with cgroups/processes;
-6. reconcile workspaces and measured Git identity;
-7. reconcile candidate/evidence records;
-8. reconcile ambiguous remote publications;
-9. fence obsolete leases/results;
-10. surface unresolved ambiguity as BLOCKED;
-11. only then enable dispatch.
+5. reconcile recorded active implementation attempts with cgroups/processes;
+6. reconcile recorded active **integration attempts** with cgroups/processes and integration workspaces, on the same terms as step 5; an integration left in `INTEGRATING` is reconciled here and never blind re-dispatched;
+7. reconcile workspaces and measured Git identity;
+8. reconcile **in-flight review dispatches**: for every non-terminal `review_dispatch`, observe process state, fence any dispatch that is expired or whose liveness cannot be proven, terminate reviewer process groups the kernel owns, and for each required-review slot either create exactly one replacement dispatch under a new fencing token or block the subject — never both, and never leave the subject silently in `REVIEWING`;
+9. reconcile candidate/evidence records;
+10. reconcile ambiguous remote publications;
+11. fence obsolete leases, dispatches and results;
+12. surface unresolved ambiguity as BLOCKED;
+13. only then enable dispatch.
+
+Steps 5, 6 and 8 together cover all three execution records of `ORCHESTRATOR_V1_STATE_API.md` §1A. A subject in `BUILDING`, `INTEGRATING` or `REVIEWING` with no non-terminal execution record is itself an unresolved ambiguity and MUST be surfaced as BLOCKED at step 12.
 
 Absence of a heartbeat, process or outbox is never enough by itself to conclude that work never completed.
 
@@ -625,8 +658,8 @@ From ECC/skills research, V1 selectively adopts/reimplements methodology and gua
 - **CG-01:** evidence manifest identity -> canonical JSON + SHA-256 + independently addressable raw artifacts.
 - **CG-02:** invalidation granularity -> strict full invalidation on candidate SHA change in V1; reuse deferred.
 - **CG-03:** candidate without result -> Candidate record is independent of Delivery record.
-- **CG-04:** partial BLOCKED state -> per-finding dispositions plus task-level BLOCKED.
-- **CG-05:** clean reconstruction -> resolved normatively by §22A and EN-01..EN-03 acceptance cases.
+- **CG-04:** partial BLOCKED state -> per-finding dispositions with an explicit subject kind, plus task-level BLOCKED.
+- **CG-05:** clean reconstruction -> resolved normatively by §22A and acceptance cases `EN-01`..`EN-04`.
 - **CG-06:** approval prose -> structured AuthorityGrant bound to task/scope.
 
 ## 25. Owner-only decisions

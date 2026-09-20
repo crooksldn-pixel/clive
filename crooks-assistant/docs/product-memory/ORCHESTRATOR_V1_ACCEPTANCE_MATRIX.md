@@ -52,7 +52,7 @@
 | --- | --- | --- |
 | ID-01 | create execution-bearing task/attempt without repository, task revision, product-memory SHA, base SHA, environment/context digests or scope/policy digest | schema/contract validation rejects record before assignment |
 | ID-02 | candidate admission reports branch name but measured HEAD/ancestry differs from bound base/candidate SHA | measured Git identity wins; candidate/launch rejected |
-| ID-03 | heartbeat/candidate/evidence/delivery/terminal-result omits or mismatches task revision, controller epoch or fencing token | authoritative mutation rejected |
+| ID-03 | heartbeat, candidate admission, integration-result admission, evidence admission, **review-result admission**, delivery update or terminal result omits or mismatches the subject revision, controller epoch or the current fencing token of the execution record it claims to act under | authoritative mutation rejected with `FENCE_STALE`; enumerated over all three execution records of `ORCHESTRATOR_V1_STATE_API.md` §1A so no admission path is exempt |
 | ID-04 | review/evidence subject kind or exact subject SHA omitted/mismatched for candidate or integration | record rejected; no acceptance/verification transition |
 | ID-05 | ReleaseCandidate points to non-VERIFIED integration or mismatched exact integration SHA/evidence digest | record creation rejected |
 | ID-06 | implementation is started against a freeze document branch name rather than the owner-adopted exact frozen SHA | authority validation blocks execution |
@@ -110,6 +110,17 @@
 | BR-03 | local semantic branch ref has changed from expected old SHA before local reconciliation | expected-old `update-ref`/equivalent fails; no reset/clean/stash or unguarded rewrite occurs |
 | BR-04 | guarded remote create and local branch reconciliation succeed in scratch rehearsal | post-create remote readback equals exact accepted SHA; checked-out tree bytes and HEAD remain identical before/after; existing narrowed fetch refspec works after ref recreation |
 
+## 5B. Clean reconstruction claims
+
+Covers the MUST-bearing requirements of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §22A. These are the acceptance cases cited by CG-05 in §24 of the freeze contract and in the traceability matrix; before this section existed, §22A had no test coverage at all.
+
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| EN-01 | reconstruct the declared environment on a fresh disposable host with no pre-existing target toolchain state | reconstruction completes from pinned immutable artifact identities and the resulting environment fingerprint equals the declared environment-manifest digest; a rerun on the already-provisioned Builder is explicitly rejected as reconstruction evidence rather than counted as a pass |
+| EN-02 | reconstruction attempts a download/egress destination that is absent from the approved allow-list | denied by effective runtime policy and the reconstruction is BLOCKED with a typed reason; the destination is never silently skipped, and a partially reconstructed environment is never reported as reconstructed |
+| EN-03 | a pinned asset's digest mismatches at pre-extraction verification, and separately a post-install version/provenance check disagrees with the pinned identity | reconstruction fails closed in both cases independently; an exit status of zero from a bootstrap/doctor script does not override either failure (the §22A pairing of `WS-13`/`WS-14` at reconstruction time) |
+| EN-04 | pre-existing local tooling on the host could have satisfied the reconstruction check | the test proves by negative control that it did not — the declared toolchain is absent before reconstruction and its absence is measured, not assumed; without that proof the reconstruction claim is rejected |
+
 ## 6. Capability, connector and secret isolation
 
 | ID | Scenario | Expected invariant / result |
@@ -137,6 +148,8 @@
 | PR-06 | required model unavailable | queue/block/escalate according to task risk policy |
 | PR-07 | model self-reports different model | measured launcher/process evidence remains authoritative |
 | PR-08 | model behaviour/provider version changes | attempt evidence records effective provider/model/version; acceptance remains candidate-specific |
+| PR-09 | enumerate every reason code in `ORCHESTRATOR_V1_STATE_API.md` §7 and resolve each to a top-level class | every code resolves to exactly one of RETRYABLE/BLOCKED/REJECTED_FAILED/ESCALATED; no code is unmapped and none maps twice; an unknown or implementation-added code with no resolvable mapping resolves to BLOCKED and never to RETRYABLE. The test fails if any code is unmapped rather than defaulting silently |
+| PR-10 | an attempt stalls past its deadline with no candidate | the attempt closes FAILED when cleanup is proven or QUARANTINED otherwise; the task reaches BLOCKED through its legal block edge; the total number of automatic model relaunches equals the declared §10.3.1 budget of zero and the per-revision attempt ceiling is never exceeded; the counters persist across controller restart and DB restore, composing with `ST-08` and `IP-04` |
 
 ## 7A. Idempotency breadth
 
@@ -178,6 +191,10 @@
 | RV-08 | task is unclassified or model claims it is low-risk without a deterministic rule | authoritative risk class defaults to MATERIAL; independent review and exact-SHA CI remain required |
 | RV-09 | reviewer uses implementer's session, workspace, hidden reasoning context or candidate write authority under a different label/attempt ID | independence check rejects review |
 | RV-10 | MATERIAL reviewer uses same model/provider because no verified equal-or-stronger alternative is available | allowed only as a distinct session/workspace with limitation recorded and GPT Director gate still required; never silently represented as stronger diversity |
+| RV-11 | a review dispatch is cancelled or expires and is replaced, then the original reviewer submits `ACCEPT` for the **identical unchanged** candidate SHA | the verdict is rejected as stale on the dispatch fencing token with reason `FENCE_STALE`; no Review row is written; `candidate.accept` never observes it; the rejection is recorded as a `transition_event`. Candidate-mutation invalidation is not what catches this, because the SHA did not change |
+| RV-12 | the controller is killed while a review is in flight, then restarted | restart reconciles the review dispatch at the §21 review-reconciliation step **before** dispatch is enabled, terminates the orphaned reviewer process group the kernel owns, and then either creates exactly one replacement dispatch under a new fencing token or blocks the subject — never both, never a duplicate paid review, and never a silent indefinite `REVIEWING` |
+| RV-13 | `task.cancel` (and separately `integration.cancel`) arrives while a review is in flight | every non-terminal dispatch for that subject is fenced immediately; any later verdict is rejected; no partial verdict becomes authoritative. This makes `CXN-05` mechanically testable rather than aspirational |
+| RV-14 | a verdict is presented with no dispatch identity, an unknown dispatch identity, a dispatch belonging to a different subject, or a reviewer principal that differs from the one bound to the named dispatch | rejected in every case with no Review row written; a verdict can only be admitted under its own live dispatch |
 
 ## 10. Integration
 
@@ -193,6 +210,10 @@
 | IN-08 | integration target base changed | stale integration invalid; explicit re-plan/rebase/review required |
 | IN-09 | integrated change intersects unknown/uncomputable verification input closure | full required gate set reruns; unknown closure never permits evidence reuse |
 | IN-10 | rejected integration is corrected | correction creates a new immutable integration record/SHA and requires fresh integrated evidence/review; rejected integration record remains historical |
+| IN-11 | `integration.cancel` while an integrator process is running | the integration attempt's lease/fence is invalidated immediately, the process group receives TERM/grace/KILL, and emptiness is verified before any workspace reuse. If the process cannot be proven stopped the integration attempt closes QUARANTINED, the workspace is not reused and the integration goes BLOCKED rather than CANCELLED — mirroring `WS-10`/`WS-11`/`LS-06` on the integration subject |
+| IN-12 | controller restart with an integration in `INTEGRATING` | the §21 integration-reconciliation step observes integrator process and workspace state before dispatch is enabled; there is never a blind re-dispatch and never a silent indefinite `INTEGRATING`; an integration in `INTEGRATING` with no non-terminal integration attempt is surfaced as BLOCKED |
+| IN-13 | an integrated review records a blocking finding against the integration subject | `integration.verify` is refused while that finding is `OPEN`/`BLOCKED`; the finding is queryable by `(subject kind = INTEGRATION, subject ID)`; a correction integration created under `parent_integration_id` inherits the unresolved finding and cannot reach `VERIFIED` until it is `RESOLVED` or `OBSOLETE` with a recorded reason — the integration analogue of `ST-09` |
+| IN-14 | a stale integration result is presented under a superseded or terminal integration attempt | rejected with `FENCE_STALE`; the integration state is unchanged by the rejected admission |
 
 ## 11. Context and authority freshness
 
@@ -249,7 +270,27 @@
 | CXN-02 | result arrives after cancel | rejected as stale |
 | CXN-03 | cancellation signal lost | reconciliation observes process; retries termination; no reassignment until resolved |
 | CXN-04 | process dies but grandchild survives | ownership scan catches child; quarantine if cleanup incomplete |
-| CXN-05 | reviewer cancelled | no partial verdict becomes authoritative |
+| CXN-05 | reviewer cancelled | no partial verdict becomes authoritative; enforced by fencing the reviewer's `review_dispatch` rather than by a lease it never held, and mechanised by RV-13 |
+
+## 14A. Observability contract
+
+Covers the MUST-bearing requirements of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §18. Added because the strengthened §18 meta-gate below surfaces MUST sections with no test ID rather than tolerating them.
+
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| OB-01 | emit every transition in the normative matrices and inspect the resulting journal events | each event carries the complete §18 minimum field set; an event missing a required field is rejected together with its transition, so an authoritative mutation can never be committed without its journal record |
+| OB-04 | present a heartbeat, candidate, integration result and review verdict under a superseded or terminal execution record | each admission is refused and each refusal appends a journal event naming the stale execution identity and `FENCE_STALE`; the `stale-result rejections` metric is derivable from those events, so a fenced reviewer or integrator is never silently invisible |
+| OB-02 | enumerate the mandatory operational metrics listed in §18 | every listed metric is exposed by the running controller; a missing metric fails the health/readiness gate rather than being silently absent |
+| OB-03 | telemetry, logs and journal payloads are generated for a task carrying secret-like and PII-like fixtures | no secret value, raw credential, customer PII or full prompt is emitted by default; composes with `CP-07` on the worker side and covers the controller/journal side |
+
+## 14B. Resource and storage ceilings
+
+Covers the MUST-bearing requirements of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §19.
+
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| RS-01 | enumerate every ceiling §19 requires — implementation concurrency, reviewer concurrency, per-provider concurrency, per-attempt CPU/memory/process, browser slots, evidence/workspace disk high-watermark — and drive each to its limit | admission is refused at the ceiling rather than exceeded; each ceiling is measured against durable records (non-terminal `attempt` rows per subject kind, non-terminal `review_dispatch` rows) rather than an in-memory counter, so it survives controller restart |
+| RS-02 | reviewer-concurrency and browser-slot ceilings are reached while further eligible work exists | the work queues rather than exceeding the ceiling, no retry/correction budget is consumed, and no ceiling is silently widened; composes with `API-07` |
 
 ## 15. Integration and Director release gate
 
@@ -293,7 +334,50 @@ Before marking the V1 contract frozen:
 - the branch-identity mismatch has an independently reviewed remediation path; `WATCHER_BUILDER_IDENTITY_REMEDIATION.md` is the current candidate plan, and live closure is mandatory before Phase 1/model-worker execution;
 - canonical truth/roadmap are reconciled without self-authorising an owner gate;
 - a mechanical doc-consistency check scans `CURRENT_TRUTH.md` and `ROADMAP.md` for every CG/finding identifier the freeze set marks resolved/addressed and fails if either file asserts a conflicting current status;
+- **every test ID referenced anywhere in the freeze set resolves to an actual row of this matrix.** A normative document MUST NOT certify a requirement, close a contract gap or cite coverage using a test ID that does not exist here. This check exists because status-agreement scanning alone cannot detect a resolution claim that cites a phantom test set, which is how CG-05 came to be certified by a non-existent `EN` family;
+- **the MUST-coverage index in §18A is complete and accurate.** Every section of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` and `ORCHESTRATOR_V1_STATE_API.md` that contains a MUST or MUST NOT appears in that index exactly once, and each entry names either at least one existing test ID, or `STATIC` with a matching entry in `ORCHESTRATOR_V1_STATE_API.md` §10, or `DEFERRED` with an explicit recorded reason. The mechanical gate recomputes the MUST-bearing section set from the documents themselves and **fails on any section it finds that the index does not disposition** — it reports the gap rather than papering over it, and a MUST that is neither tested nor explicitly static nor explicitly deferred is a freeze blocker;
+- the normative failure reason-code table in `ORCHESTRATOR_V1_STATE_API.md` §7 is a total mapping — every code resolves to exactly one top-level class, no code is listed twice, and the fail-closed default for unmapped codes is BLOCKED rather than RETRYABLE (mechanised by `PR-09`);
 - that same mechanical gate maintains an explicit required set of live unremediated runtime conditions on which the freeze/remediation plan depends and fails if any required condition is absent from `CURRENT_TRUTH.md`; the initial set is (a) watcher/builder branch mismatch, (b) inherited business MCP connector surface, and (c) the Builder `remote.origin.fetch` refspec naming the absent `claude/bridge-builder` ref;
 - traceability has no unexplained V1-relevant row;
 - a fresh independent adversarial reviewer bound to the exact candidate SHA finds no material missing failure mode, authority leak or contradiction;
 - the accepted freeze SHA is then recorded in a separate follow-up canonical product-memory commit.
+
+## 18A. MUST-coverage index
+
+Every section of the two normative documents that contains a MUST or MUST NOT appears here exactly once. `FC` is `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`; `SA` is `ORCHESTRATOR_V1_STATE_API.md`. Coverage is one of: a list of test IDs that exist in this matrix, `STATIC` for a documentary invariant listed in `SA` §10, or `DEFERRED` with an explicit reason.
+
+The §18 mechanical gate recomputes the MUST-bearing section set from the documents and fails on any section missing from this table, so a new MUST cannot be added to the freeze set without receiving a disposition here.
+
+| Doc | Section | Coverage |
+| --- | --- | --- |
+| FC | §1 | STATIC — V1 objective and the models-never-mutate-authority rule; enforced structurally by CP-03, CP-09, DG-04 |
+| FC | §3 | STATIC — authority table; per-principal enforcement is tested by RV-01, RV-02, RV-09, CP-03, CP-05, EV-11, DG-01, DG-04 |
+| FC | §4 | ID-01, ID-02, ID-03, ID-04, ID-05, ID-06, WS-02, WS-03, EV-01 |
+| FC | §5.3 | ST-09, RV-03, IN-13 |
+| FC | §6 | DB-01, DB-02, DB-03, DB-04, DB-08, DB-09, DB-10, DB-11, DB-12 |
+| FC | §7 | CT-01, CT-02, CT-03, CT-04, CT-05, CT-06, ID-03, LS-03, LS-04, RV-11, RV-14, IN-14 |
+| FC | §8 | LS-01, LS-02, LS-03, LS-05, LS-06, LS-07, LS-08, RV-12, RV-13 |
+| FC | §9 | IP-01, IP-02, IP-03, IP-04, API-02, API-03, API-08, EV-10, PB-01, PB-02, PB-07 |
+| FC | §10.1 | PR-03, PR-04, PR-05, PR-09, ST-08, WS-04, WS-13, DB-05 |
+| FC | §10.3.1 | PR-09, PR-10, ST-08, IP-04 |
+| FC | §11 | WS-01, WS-04, WS-05, WS-06, WS-07, WS-08, WS-09, WS-10, WS-11, WS-13, WS-14, CXN-01, CXN-04, IN-11 |
+| FC | §12 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08, CP-09, CP-10, PB-05, PB-06 |
+| FC | §13 | CX-05, CX-06, CX-07, CX-08, AU-01 |
+| FC | §14.5 | PB-03, PB-04, PB-05, PB-06, PB-07 |
+| FC | §16 | IN-01, IN-02, IN-03, IN-04, IN-05, IN-06, IN-07, IN-08, IN-09, IN-10, IN-11, IN-12, IN-13, IN-14 |
+| FC | §18 | OB-01, OB-02, OB-03, OB-04 |
+| FC | §19 | RS-01, RS-02, DB-05, API-07 |
+| FC | §20 | UP-01, UP-02, UP-03, UP-04, UP-05, UP-06, DB-04 |
+| FC | §21 | LS-07, CT-03, IN-12, RV-12, DB-07, EV-09, API-08 |
+| FC | §22 | EV-07, EV-08, ID-06, RV-08 |
+| FC | §22A | EN-01, EN-02, EN-03, EN-04 |
+| FC | §23 | STATIC — reuse boundary; the MUST NOT is "do not import the ECC plugin/runtime graph", a repository-composition invariant with no runtime transition |
+| FC | §27 | STATIC — freeze acceptance is an owner/process gate, not a kernel transition; the anti-self-adoption half is tested by AU-01 and ID-06 |
+| SA | §1A | ID-03, LS-01, LS-03, LS-04, RV-11, RV-12, RV-13, RV-14, IN-11, IN-12, IN-14, CXN-05 |
+| SA | §3A | ST-11, ST-12, ST-13, API-01, PR-10, IN-11, IN-12 |
+| SA | §4 | ST-03, ST-04, ST-05, API-09, DB-01 |
+| SA | §5 | API-06, API-07, RS-02 |
+| SA | §5A | WS-12, WS-15, PB-06, CP-10 |
+| SA | §5B | WS-13, WS-14, EN-01, EN-03 |
+| SA | §7 | PR-09, PR-10 |
+| SA | §8 | API-09, EV-02, EV-03, DB-06 |
