@@ -274,6 +274,44 @@ Automate the memory procedures in DIRECTOR_PROTOCOL:
 
 ---
 
+# CURRENT PRODUCT QUALITY — Live Experience V0.5 and evaluation foundation
+
+This work may proceed in isolated repo-only branches while Orchestrator freeze convergence continues. It does not itself authorise production/runtime/connector changes.
+
+## Q1. Retire Split as user-facing interaction
+**Status:** BUILDING IN ISOLATED STREAM
+
+Replace manual halves with one CLIVE session and independently progressing jobs. Preserve useful concurrency internals during migration where they still have a unique responsibility.
+
+## Q2. Continuous voice/work state
+**Status:** APPROVED DIRECTION
+
+Create one explicit state authority from physical hold-to-speak through hearing, understanding, thinking, work, progressive result and response. Real-device evidence must exercise the microphone/STT path; post-transcription injection alone is insufficient.
+
+## Q3. Progressive simultaneous jobs
+**Status:** APPROVED DIRECTION
+
+Render useful completed work immediately while slower dependencies continue. Support interruption, foreground context changes and adding background work without manual workspace management.
+
+## Q4. Liquid-glass hierarchy refinement
+**Status:** APPROVED DIRECTION
+
+Continue the premium dark/liquid-glass direction while reducing dead space, permanent diagnostics and competing chrome. Visual state must communicate real system state.
+
+## Q5. Continuous evaluation foundation
+**Status:** APPROVED DIRECTION
+
+Treat real sessions as privacy-minimised evaluation evidence. Add multidimensional independent evaluation, black-box/device testing, hidden/scenario-mutated cases, test mutation, long-session evidence and evaluator-drift controls.
+
+## Q6. Typed scene compiler evolution
+**Status:** APPROVED DIRECTION
+
+Evolve from existing safe presentation primitives toward objective/evidence/device-driven scene composition. Do not permit arbitrary model-generated executable UI or weaken action contracts.
+
+Detailed active doctrine: [CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md](./CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md).
+
+---
+
 # NEXT — make CROOKS proactive and operationally useful
 
 ## X1. Formal issue/improvement pipeline
