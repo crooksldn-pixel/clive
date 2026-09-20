@@ -2,7 +2,7 @@
 
 **Purpose:** compact active context for GPT/Claude/Fable/engineering workers  
 **Status:** ACTIVE — update whenever a material product/architecture state changes  
-**As of:** 2026-09-19
+**As of:** 2026-09-20
 
 This file is intentionally not a historical transcript. It answers: **what is true and important now?**
 
@@ -46,7 +46,7 @@ Core product principles remain:
 
 ## 2026-09-20 Orchestrator freeze candidate
 
-A repository-only freeze candidate is being prepared on branch `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`. Its normative candidate files are `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`, `ORCHESTRATOR_V1_TRACEABILITY.md` and `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md`. No implementation, deployment, privilege change or business write is authorised merely by those documents. Freeze requires independent adversarial review and an exact accepted commit SHA before implementation binds to them.
+A repository-only freeze candidate is being prepared on branch `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`. Its normative candidate files are `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`, `ORCHESTRATOR_V1_STATE_API.md`, `ORCHESTRATOR_V1_TRACEABILITY.md` and `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md`. No implementation, deployment, privilege change or business write is authorised merely by those documents. Freeze requires independent adversarial review and an exact accepted commit SHA before implementation binds to them.
 
 ## Dev-team direction
 
@@ -63,7 +63,7 @@ The approved direction is a quality-first engineering organisation:
 
 Cost and speed are subordinate to quality. Cheaper/faster models may handle genuinely mechanical work, but substantive product/code quality is not traded away to save usage.
 
-[ENGINEERING_ORCHESTRATOR_V1.md](./ENGINEERING_ORCHESTRATOR_V1.md) holds the detailed V1 specification. **Owner implementation approval was explicitly granted on 2026-09-19** for Engineering Orchestrator V1 under the existing canonical specification and safety boundaries. This removes the planning→implementation approval gate but does **not** waive DEC-046's prerequisite ordering, owner-only gates, or unresolved mechanism reviews. Major implementation starts only when the existing deployment/current-product prerequisites are satisfied or canonical Git is explicitly changed by the owner.
+[ENGINEERING_ORCHESTRATOR_V1.md](./ENGINEERING_ORCHESTRATOR_V1.md) holds the original detailed V1 design. The 2026-09-20 freeze candidate adds a normative state/API contract, traceability ledger and fault-injection matrix. **Owner implementation approval was explicitly granted on 2026-09-19**, but only implementation bound to the eventual accepted freeze SHA may proceed. Repository-only deterministic-kernel work may follow that freeze; unattended model-worker concurrency/cutover, new privileges and deployment remain separately gated.
 
 [DEV_TEAM_V1_PILOT.md](./DEV_TEAM_V1_PILOT.md) defines proposed durable record/review/recovery contracts and the acceptance trial seeded by the reproduced Builder defects. The first manual/simulated trial has now run through the rejected-and-repaired Builder candidate; its observed contract gaps must be reconciled into the canonical planning docs rather than silently worked around. Foundation repair through the existing bridge and later Orchestrator acceptance remain separate activities.
 
@@ -104,18 +104,17 @@ Every substantial release should operate from a curated Active Context Pack rath
 
 1. reconcile the accepted Builder Environment into the persistent builder and canonical Dev Team trial records,
 2. **Linux production migration/promotion — ratified complete at `1cf3a0f` (DEC-048),**
-3. provision remaining runtime secrets through the approved process — Gmail OAuth remains outstanding and is not authorised by DEC-048,
+3. provision remaining runtime secrets only through an approved process — Gmail OAuth remains outstanding,
 4. **always-on server runtime — installed/enabled/running and ratified,**
 5. **private tailnet-only Tailscale HTTPS — active and ratified,**
-6. verify real Samsung/iPhone/runtime behaviour — iPhone observed; Samsung still outstanding,
-7. perfect current UI,
-8. perfect response behaviour and latency,
-9. conduct real-world CROOKS sessions and collect evidence,
-10. implement Engineering Orchestrator / Dev Team V1 — **owner implementation approval is granted; execute when the preceding DEC-046 prerequisite gates are satisfied**,
-11. bootstrap the privileged deployment/infrastructure control plane,
-12. expand World / Event Ledger / Attention / expectations / automation / integrations.
+6. freeze Engineering Orchestrator V1 against the accepted harness, current Opus watcher evidence, Symphony/ECC traceability, explicit state/API semantics and the adversarial acceptance matrix,
+7. after freeze, implement only the repository-only deterministic kernel slice (no model launch, deployment, privilege change or business write),
+8. continue real Samsung/iPhone/runtime verification, UI quality, response/latency refinement and real-world evidence,
+9. enable model-running Orchestrator workers/concurrency/cutover only when their runtime isolation/tool-roster/device/current-product prerequisites are proven,
+10. bootstrap the privileged deployment/infrastructure control plane separately,
+11. expand World / Event Ledger / Attention / expectations / automation / integrations.
 
-Dev Team specification planning may proceed while earlier operational work continues. Planning does not advance its implementation gate. DEC-046 records this ordering and resolves the older conflicting roadmap footer.
+This split preserves DEC-046's safety intent while resolving the later accepted-harness next gate: non-privileged repository-only kernel work may proceed after a frozen contract; operational cutover and broader autonomy do not skip the current-product/runtime gates.
 
 Do not skip safety/deployment gates merely because later architecture is more exciting.
 
