@@ -668,7 +668,7 @@ Implement and fault-test:
 
 ### Phase 1 — one isolated worker adapter
 
-Only after Phase 0 acceptance:
+Only after Phase 0 acceptance **and** independent evidence that the live watcher/builder branch-identity mismatch is closed according to `WATCHER_BUILDER_IDENTITY_REMEDIATION.md`:
 
 - one implementation slot;
 - exact-base workspace creation;
@@ -707,7 +707,7 @@ This specification may be marked **FROZEN V1** only when:
 2. state/API contract has no undefined authoritative transition or mutation path;
 3. acceptance/fault-injection matrix covers every MUST-level invariant;
 4. canonical current-truth/roadmap drift is reconciled;
-5. the existing bridge branch/checkout identity defect has a reviewed remediation path and write-capable V1 does not depend on the defective assumption;
+5. the existing bridge branch/checkout identity defect has an independently reviewed remediation path; the current plan is `WATCHER_BUILDER_IDENTITY_REMEDIATION.md`. Live closure of that defect is a hard prerequisite for Phase 1 model workers and any write-capable bridge round, but not for repository-only Phase 0;
 6. independent adversarial review finds no material missing control-plane/safety/recovery contract;
 7. the exact freeze commit SHA is recorded in canonical product memory.
 
