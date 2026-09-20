@@ -632,3 +632,23 @@ This approval covers the bounded project harness experiment described by the ver
 The worker must not route around any unrelated permission refusal; it should use only the newly approved project-scoped workspace boundary and stop on any broader permission requirement.
 
 **Reason:** enable the smallest isolated harness-hardening experiment without weakening the account, production, connector, secret or privilege boundaries.
+
+
+## DEC-050 — Retire user-facing Split; one CLIVE session manages simultaneous work
+**Date:** 2026-09-20  
+**Status:** ACTIVE PRODUCT DIRECTION  
+**Source:** explicit owner direction in GPT Director conversation
+
+**Decision:** The future CLIVE interaction model must not require the owner to divide the assistant into manual halves. Retire the user-facing Split / Half 1 / Half 2 / Merge / Close abstraction.
+
+Useful internal branch/concurrency mechanisms may survive temporarily or evolve where they retain a unique responsibility. User-facing simultaneous work should instead appear as independently progressing jobs/objectives inside one coherent CLIVE session.
+
+The immediate interaction direction is a continuous perceptible lifecycle from listening/hearing through understanding/work/result/response, progressive results, interruption without losing unrelated work, and the premium dark/liquid-glass visual direction.
+
+Every real session should increasingly produce privacy-minimised evaluation evidence. Important quality gates should use independent/adversarial evaluation, including mutation of the tests themselves where material. Dynamic UI should evolve through typed safe primitives/scene composition rather than arbitrary model-generated executable UI.
+
+Detailed doctrine and observed research findings are recorded in [CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md](./CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md).
+
+**Reason:** Split exposes internal concurrency management to the owner and has accumulated interaction complexity. The desired product is one operating intelligence that manages simultaneous objectives itself. Existing evidence also shows post-transcription tests do not prove the live voice experience, so current-product quality must be evaluated end-to-end.
+
+**Consequences:** Existing Split-specific UI/tests are migration evidence, not permanent product requirements. Retiring them is valid under DEC-037/038. This decision does **not** alter DEC-046 sequencing, adopt an Orchestrator freeze candidate, authorise production deployment, enable connectors/secrets/business writes, expand privileges, or weaken action-safety invariants.
