@@ -93,11 +93,13 @@ Lease replacement and fencing-token increment occur atomically.
 - `candidate_id TEXT PRIMARY KEY`;
 - task/revision/attempt;
 - base SHA;
-- candidate SHA UNIQUE within repository identity;
+- repository identity;
+- candidate SHA;
 - diff digest;
 - changed-files digest;
-- environment digest;
-- evidence-manifest digest;
+- measured environment digest;
+- evidence-manifest digest NULL until evidence completes;
+- UNIQUE(repository identity, task_id, revision, candidate SHA);
 - created timestamp.
 
 Candidate rows are immutable. A replacement candidate is a new row.
@@ -125,6 +127,7 @@ Canonical manifest bytes use UTF-8 canonical JSON with stable key ordering and n
 
 ### `integration`
 - `integration_id TEXT PRIMARY KEY`;
+- `parent_integration_id TEXT NULL` for a bounded correction lineage;
 - state `CREATED|INTEGRATING|EVIDENCE_READY|REVIEWING|VERIFIED|REJECTED|BLOCKED|CANCELLED`;
 - target base SHA;
 - ordered accepted input-SHA digest;
@@ -198,8 +201,8 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | `attempt.start` | runner adapter | ASSIGNED -> BUILDING only after measured preflight |
 | `attempt.heartbeat` | current runner adapter | renew current lease only |
 | `attempt.cancel_ack` | runner/process manager | record process-tree stop/quarantine outcome |
-| `candidate.register` | deterministic collector | BUILDING -> EVIDENCE_READY when immutable commit + required evidence exist |
-| `evidence.register` | collector/CI adapter | attach content-addressed evidence |
+| `candidate.register` | deterministic collector | while task remains BUILDING, create durable Candidate immediately after immutable commit identity is measured; does not itself advance task state |
+| `evidence.register` | collector/CI adapter | attach content-addressed evidence; when required manifest is complete, advance BUILDING -> EVIDENCE_READY atomically |
 | `review.request` | review coordinator | EVIDENCE_READY -> REVIEWING |
 | `review.record` | validated independent reviewer channel | persist exact-SHA verdict/findings |
 | `candidate.accept` | kernel policy | REVIEWING -> ACCEPTED only when all required reviews/findings satisfy policy |
@@ -209,7 +212,7 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | `integration.register` | deterministic collector | INTEGRATING -> EVIDENCE_READY after integration SHA + evidence exist |
 | `integration.review_request` | review coordinator | EVIDENCE_READY -> REVIEWING |
 | `integration.verify` | kernel policy/CI/review coordinator | REVIEWING -> VERIFIED when required integrated gates pass |
-| `integration.reject` | kernel policy | REVIEWING -> REJECTED on blocking integrated finding |
+| `integration.reject` | kernel policy | REVIEWING -> REJECTED on blocking integrated finding; REJECTED integration is immutable/terminal and any correction uses a new integration record with parent_integration_id |
 | `release_candidate.mark` | GPT Director validated channel + kernel policy | create immutable ReleaseCandidate from VERIFIED integration |
 | `delivery.publish` | publication adapter | publish immutable result/ref with idempotency |
 | `controller.reconcile` | authoritative controller | observe DB/process/workspace/remote truth; no blind effects |
@@ -231,7 +234,8 @@ Any transition not listed is forbidden.
 | ESCALATED | task.plan | PLANNED | escalation resolved; same-revision contract still valid |
 | PLANNED | attempt.assign | ASSIGNED | controller RUNNING; capacity; no current lease; dependencies accepted; workspace reservation succeeds |
 | ASSIGNED | attempt.start | BUILDING | current epoch/fence; measured clean exact base; tool/capability roster passes; process ownership established |
-| BUILDING | candidate.register | EVIDENCE_READY | current epoch/fence; candidate commit measured; required evidence manifest complete |
+| BUILDING | candidate.register | BUILDING (Candidate row added) | current epoch/fence; candidate commit measured; Candidate persisted before evidence collection; evidence digest may be NULL |
+| BUILDING + Candidate | evidence.register | EVIDENCE_READY | current epoch/fence; required evidence artifacts durably imported; manifest digest validated and attached |
 | EVIDENCE_READY | review.request | REVIEWING | exact candidate/evidence frozen; required reviewer policy resolved |
 | REVIEWING | candidate.accept | ACCEPTED | all required independent reviews ACCEPT; no OPEN/BLOCKED blocking findings; context still current |
 | REVIEWING | candidate.reject | REJECTED | one or more required reviews CHANGES_REQUIRED or blocking finding |
@@ -245,12 +249,12 @@ Any transition not listed is forbidden.
 | integration VERIFIED | release_candidate.mark | ReleaseCandidate record | GPT Director independently accepts exact integrated SHA/evidence/limitations |
 | any nonterminal active | task.block | BLOCKED | typed deterministic reason persisted; active attempt fenced/stopped when continuation unsafe |
 | any nonterminal active | task.escalate | ESCALATED | ambiguity/decision beyond automatic authority |
-| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/ACCEPTED/REJECTED/BLOCKED/ESCALATED/FAILED | task.cancel | CANCELLED | caller authorised; any active lease fenced immediately; no later result admitted |
-| any state except RELEASE_CANDIDATE/CANCELLED/SUPERSEDED | task.supersede | SUPERSEDED | replacement revision/objective reference recorded; active attempt fenced |
-| any state except RELEASE_CANDIDATE/CANCELLED/SUPERSEDED | task.revise | PROPOSED (new revision) | revision-changing authority valid; old revision immutable/superseded; active attempt fenced; new context/base/acceptance revalidated before planning |
+| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.cancel | CANCELLED | caller authorised; any active lease fenced immediately; no later result admitted |
+| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.supersede | SUPERSEDED | replacement revision/objective reference recorded; active attempt fenced |
+| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.revise | PROPOSED (new revision) | revision-changing authority valid; old revision immutable/superseded; active attempt fenced; new context/base/acceptance revalidated before planning |
 | BUILDING/REJECTED | task.fail | FAILED | execution/correction/integration budget exhausted or unrecoverable failure within current contract |
 
-`ACCEPTED`, `CANCELLED` and `SUPERSEDED` are terminal task states for V1. Integration/release records have their own terminal states. A `FAILED` task does not auto-resume; continuation requires `task.revise` to a new PROPOSED revision (or explicit supersession).
+`ACCEPTED`, `CANCELLED` and `SUPERSEDED` are terminal task states for V1. They cannot be revised, cancelled or superseded in-place. If later product intent invalidates an accepted outcome, a new task is created and dependency/currentness rules decide whether downstream work remains valid. Integration/release records have their own terminal states. A `FAILED` task does not auto-resume; continuation requires `task.revise` to a new PROPOSED revision (or explicit supersession before terminal acceptance).
 
 ## 4. Atomic transaction rules
 
@@ -285,6 +289,23 @@ A task revision may list dependency candidate SHAs and required interface/contex
 - slot exhaustion keeps work queued/PLANNED; it is not a failure and MUST NOT consume a retry budget.
 
 V1 does not need a separate distributed message broker.
+
+## 5A. Workspace source and publication authority
+
+Workspace creation MUST start from a builder-owned non-production source/mirror and then verify the exact task base SHA.
+
+- If the local source/mirror contains the exact base SHA, clone/fetch that object into the standalone attempt workspace and checkout the exact SHA.
+- If the mirror is stale or lacks the base SHA, the kernel MAY refresh only from the task-approved repository origin under the task's network policy, then MUST re-measure the exact SHA.
+- If the exact SHA remains unavailable, the task is BLOCKED with `PRECONDITION_BASE_MISMATCH`.
+- Production checkout paths are never fallback clone sources.
+
+Workers receive no usable remote push credential. Candidate publication is performed by the kernel publication adapter under a narrow credential after Candidate registration. The adapter publishes the exact candidate commit to a create-only namespaced candidate ref and reconciles remote SHA on ambiguous outcomes; it never force-updates a candidate ref.
+
+## 5B. Pre-launch environment identity
+
+Before `attempt.start`, the runner adapter MUST independently compute/obtain the environment/toolchain fingerprint defined by the task's environment manifest and compare it to the bound `environment_manifest_digest`.
+
+An exit status of zero from bootstrap/doctor scripts is insufficient. Version/provenance/fingerprint mismatch produces `PRECONDITION_CAPABILITY_MISSING` or a more specific environment mismatch subcode and blocks launch before model execution.
 
 ## 6. Cancellation race contract
 
@@ -348,6 +369,18 @@ Evidence/artifact storage MUST be crash-safe:
 
 A DB evidence record MUST NOT point to an artifact that has not completed this protocol.
 
+## 8A. Evidence collector authority
+
+The Evidence Collector is a kernel component, not part of the worker process group.
+
+- it opens the attempt workspace read-only after candidate commit creation;
+- independently measures repository identity, base/candidate SHA, diff and changed paths;
+- imports worker-staged raw artifacts into kernel-owned content-addressed storage using §8;
+- creates/updates Candidate/Evidence records only after digest verification;
+- does not execute candidate-controlled code to derive identity.
+
+A collector running with worker authority or inside the worker process group is not authoritative and its result is rejected.
+
 ## 9. Review independence identity
 
 A review is independent only if:
@@ -357,7 +390,7 @@ A review is independent only if:
 - reviewer is given immutable candidate/evidence identity;
 - any patch authored by the reviewer is treated as a new implementation candidate and cannot be certified by the same review record.
 
-Using the same model family is permitted; independence is an authority/session/workspace property, not a vendor-name property.
+Independence always requires distinct session/principal, review channel/workspace and no candidate write authority. For MATERIAL-or-higher work, a distinct verified equal-or-stronger model/provider SHOULD be used where available; if unavailable, a separate high-quality session may review only with the limitation recorded and the GPT Director gate retained. Model/vendor diversity strengthens review but never substitutes for authority/session/workspace separation.
 
 ## 10. Static invariants
 
