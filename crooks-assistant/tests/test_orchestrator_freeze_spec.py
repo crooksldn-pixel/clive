@@ -1046,8 +1046,14 @@ def test_pre_running_cleanup_handle_and_ceiling_discriminator_are_distinct_facts
     cleanup, ceiling = facts
     # Population timing is normative and opposite: the handle is written *before* the fork, the
     # discriminator only at the RUNNING commit.
-    assert "**before** the owned process group is created" in cleanup[2]
-    assert "CREATED -> STARTING" in cleanup[2] and "STARTING -> RUNNING" in cleanup[2]
+    assert "**before** the attempt's single owned process group is created" in cleanup[2]
+    assert "CREATED -> STARTING" in cleanup[2]
+    # H-03: the handle has exactly ONE population time. It must not also be written at the
+    # RUNNING commit — that handover is the defect, not a second legitimate timing.
+    assert "STARTING -> RUNNING" not in cleanup[2], (
+        "the cleanup handle is written at STARTING -> RUNNING too, which is the H-03 handover"
+    )
+    assert "never written again" in cleanup[2]
     assert "exactly once" in ceiling[2] and "STARTING -> RUNNING" in ceiling[2]
     assert "NULL at every other time" in ceiling[2]
 
@@ -1133,6 +1139,236 @@ def test_crash_during_starting_is_cleaned_up_without_quarantine_or_budget_loss()
 
 
 # --------------------------------------------------------------------------------------------
+# H-03 — one owned process group per attempt, and a write-once cleanup handle.
+# --------------------------------------------------------------------------------------------
+
+# The exact wording the rejected tree used to hand the handle from a preflight group to a model
+# group. Scanning for it is what makes this guard fail `9fbe4a9` rather than merely describe the
+# repair: the defect was a *positive* claim, so its absence is checkable.
+HANDOVER_WORDINGS = (
+    "updated to the model process group",
+    "and then for the model process group on `STARTING -> RUNNING`",
+    "first for the preflight group on `CREATED -> STARTING`",
+    "the durable identity of whatever process group this attempt currently owns",
+    "the durable identity of whatever process group the attempt currently owns",
+    "preflight group on `CREATED -> STARTING`, model group on `STARTING -> RUNNING`",
+)
+
+
+@pytest.mark.parametrize("path", FREEZE_SET, ids=lambda p: p.name)
+def test_no_freeze_document_retains_the_two_group_handover_wording(path: Path) -> None:
+    """H-03: the handle must not be described as moving from one group to another.
+
+    Between overwriting the handle and proving the first group empty, a surviving preflight
+    descendant is owned by nothing the database can name. Freeze contract §11's "no reuse until
+    emptiness is verified" then passes vacuously over the model group alone.
+    """
+    text = read(path)
+    for wording in HANDOVER_WORDINGS:
+        assert wording not in text, (
+            f"{path.name} still hands the cleanup handle over to a second group: {wording!r}"
+        )
+
+
+def test_the_running_commit_must_not_replace_the_cleanup_handle() -> None:
+    """The `STARTING -> RUNNING` row carries an explicit prohibition, not merely silence.
+
+    Silence would leave two conformant kernels free to disagree, which is exactly how the
+    handover survived the H-02 repair.
+    """
+    rows = table_rows_in_numbered_section(STATE_API, "3A")
+    to_running = [
+        row for row in rows if len(row) >= 3 and row[0] == "STARTING" and row[2] == "RUNNING"
+    ]
+    assert len(to_running) == 1, to_running
+    cell = to_running[0][3]
+
+    assert "MUST NOT update, replace or clear" in cell, (
+        "the RUNNING edge does not forbid replacing the cleanup handle"
+    )
+    assert CLEANUP_HANDLE in cell
+    # The model process joins the group that already exists rather than getting a new one.
+    assert "inside the attempt's existing owned process group" in cell
+    assert "no second group is created" in cell
+    # And the ceiling discriminator is not quietly promoted into the vacated cleanup role.
+    assert "MUST NOT be used as the cleanup handle" in cell
+
+    # The one edge that *may* write the handle is the earlier one, and it says so exclusively.
+    to_starting = [
+        row for row in rows if len(row) >= 3 and row[0] == "CREATED" and row[2] == "STARTING"
+    ]
+    assert len(to_starting) == 1, to_starting
+    assert "only edge that may write" in to_starting[0][3]
+
+
+def test_one_group_per_attempt_agrees_across_the_contract_and_the_state_api() -> None:
+    """FC §11 and SA §3A.3 must agree on one group with a write-once lifetime owner.
+
+    The rejected tree had §11 giving each attempt one cgroup covering the "complete attempt
+    process tree" while §3A.3 gave it two with a handover — a direct contradiction between two
+    normative documents, which the freeze gate is supposed to make impossible.
+    """
+    workspace = numbered_section_text(FREEZE_CONTRACT, "11")
+    assert "**exactly one** per attempt" in workspace
+    assert "never handed over to a second group while the attempt is live" in workspace
+    # Emptiness is proved over the whole group, so a narrower proof cannot satisfy the rule.
+    assert "verified empty" in workspace and "that whole group" in workspace
+    assert "an emptiness proof over any narrower group does not satisfy this rule" in workspace
+
+    three_a_three = numbered_section_text(STATE_API, "3A").split("### 3A.3", 1)[1]
+    assert "**exactly one** controller-created process group" in three_a_three
+    assert "both preflight and model execution run inside it" in three_a_three
+    assert "the cleanup handle is therefore **write-once**" in three_a_three.lower()
+    assert "A two-group handover" in three_a_three and "is **forbidden**" in three_a_three
+    # The consequence that closes the finding: the surviving child stays visible.
+    assert "cannot become invisible" in three_a_three
+
+    # §6 must prove emptiness over the entire group, not over whatever the handle last named.
+    cancellation = numbered_section_text(STATE_API, "6")
+    assert "verify the **entire** owned process group is empty" in cancellation
+    assert "surviving preflight descendants are included" in cancellation
+
+
+def test_cleanup_handles_are_controller_allocated_and_reuse_fails_closed() -> None:
+    """A handle that outlives a crash must not resolve onto a recycled unrelated group."""
+    three_a_three = numbered_section_text(STATE_API, "3A").split("### 3A.3", 1)[1]
+
+    assert "controller-allocated, attempt-bound (or dispatch-bound) identity" in three_a_three
+    assert "MUST NOT be a bare recyclable OS process-group/process number" in three_a_three
+    # Ownership is re-verified before a signal is sent, and a failed check fails closed.
+    assert "before signalling, §6 MUST verify" in three_a_three
+    assert "the controller MUST NOT signal it" in three_a_three
+    assert "fails closed" in three_a_three
+
+    cancellation = numbered_section_text(STATE_API, "6")
+    assert "verify that the group the handle resolves to is still the one this record created" in (
+        cancellation
+    )
+    assert "A handle that fails the ownership check is never signalled" in cancellation
+
+
+# --------------------------------------------------------------------------------------------
+# H-04 — a kernel-owned reviewer is write-ahead too, and ownership is read from the principal.
+# --------------------------------------------------------------------------------------------
+
+
+def review_dispatch_block() -> str:
+    """The `review_dispatch` schema block, addressed as a record rather than as prose."""
+    api = read(STATE_API)
+    return api.split("### `review_dispatch`", 1)[1].split("### `authority_grant`", 1)[0]
+
+
+def test_review_dispatch_records_a_durable_reviewer_ownership_kind() -> None:
+    """H-04: external-vs-kernel-owned must be a committed fact, not an inference from NULL."""
+    block = review_dispatch_block()
+
+    assert "`KERNEL_OWNED|EXTERNAL`" in block, (
+        "the dispatch records no durable execution-ownership kind for its reviewer principal"
+    )
+    # It must be durable before any reviewer process exists, or the crash window reopens.
+    assert "committed durably in the same transaction that creates the `DISPATCHED` row" in block
+    assert "immutable thereafter" in block
+    assert "before any reviewer process exists" in block
+    assert "the **only** authoritative answer" in block
+
+
+def test_kernel_owned_reviewer_handle_is_write_ahead_and_null_is_not_externality() -> None:
+    """The dispatch's process-group identity obeys the attempt's write-ahead rule.
+
+    The rejected tree read NULL as "external principal, do not signal". A crash between reviewer
+    fork and identity persistence is indistinguishable from that, so §6 skipped a live
+    kernel-owned reviewer and released its slot.
+    """
+    block = review_dispatch_block()
+
+    assert "same §3A.3 write-ahead, write-once, controller-allocated rule" in block
+    assert "committed **before** the reviewer process group is created" in block
+    assert "positive proof that no owned reviewer group exists" in block
+    assert "**not** a signal that the reviewer is external" in block, (
+        "NULL on the dispatch handle is still overloaded as externality"
+    )
+    # External dispatches keep fencing-only semantics, and that limitation stays recorded.
+    assert "For an `EXTERNAL` dispatch it is always NULL" in block
+    assert "cancellation relies on fencing alone" in block
+    assert "that limitation is recorded" in block
+
+
+def test_section_six_branches_on_reviewer_ownership_before_it_signals() -> None:
+    """§6 step 3 must decide ownership from the principal first, then signal."""
+    cancellation = numbered_section_text(STATE_API, "6")
+    step_three = cancellation.split("3. ", 1)[1].split("\n4. ", 1)[0]
+
+    assert "ownership first" in step_three
+    assert "from durable principal/role identity, never from a NULL handle" in step_three
+    # The kernel-owned branch covers attempts and kernel-owned dispatches identically.
+    assert "execution-ownership kind `KERNEL_OWNED`" in step_three
+    assert "it does **not** mean the process belongs to someone else" in step_three
+    # Fencing-only is reachable only through an EXTERNAL principal.
+    assert "only for a `review_dispatch` whose reviewer principal carries execution-ownership" in (
+        step_three
+    )
+
+    # Resources are released at the proof of emptiness, never at the unprovable-cleanup step.
+    assert "at step 6 **and never at step 7**" in cancellation
+    assert "no replacement reviewer can be admitted while that orphan may still be alive" in (
+        cancellation
+    )
+
+
+def test_restart_reconciliation_treats_a_forkless_kernel_reviewer_as_kernel_owned() -> None:
+    """Freeze contract §21 step 8 must reconcile on ownership, not on a NULL identity."""
+    step_eight = numbered_section_text(FREEZE_CONTRACT, "21")
+    step_eight = step_eight.split("8. reconcile", 1)[1].split("\n9. ", 1)[0]
+
+    assert "never the process-group identity" in step_eight
+    assert "write-once handle committed before the reviewer was forked" in step_eight
+    assert "a NULL handle proves no group was created" in step_eight
+    # The exact crash the finding describes, named and resolved.
+    assert (
+        "A crash between the reviewer-handle commit and the reviewer fork is therefore "
+        "reconciled as a kernel-owned dispatch with no group, not as an external reviewer"
+    ) in step_eight
+    # The slot and the concurrency unit stay held while the orphan may exist.
+    assert "still held" in step_eight
+
+
+def test_the_substrate_rules_really_do_apply_to_all_three_execution_records() -> None:
+    """§1A claims uniformity over all three records; §3A.3 must actually deliver it."""
+    one_a = numbered_section_text(STATE_API, "1A")
+    assert "The following rules apply uniformly to all three" in one_a
+    assert "implementation attempt, integration attempt and review dispatch alike" in one_a
+    assert "**at most one** controller-created process group" in one_a
+    assert "MUST NOT hand its cleanup handle over from one group to another" in one_a
+    assert "never from a NULL cleanup handle" in one_a
+
+    three_a_three = numbered_section_text(STATE_API, "3A").split("### 3A.3", 1)[1]
+    assert "normative for **all three** execution records" in three_a_three
+    assert "not for attempts alone" in three_a_three
+
+
+def test_acceptance_arms_exist_for_both_repaired_findings() -> None:
+    """ST-16 and ST-17 must carry the arms that would catch a regression of H-03/H-04."""
+    rows = {row[0]: row for row in table_rows_under_header(
+        ACCEPTANCE_MATRIX, "| ID | Scenario | Expected invariant / result |"
+    ) if row}
+
+    st16 = " ".join(rows["ST-16"])
+    assert "Surviving-preflight-child arm" in st16
+    assert "neither updated nor replaced it" in st16
+    assert "rather than over a model-only group" in st16
+    # R-02's budget semantics are explicitly preserved by the new arm.
+    assert "R-02's attempt-budget semantics are preserved" in st16
+
+    st17 = " ".join(rows["ST-17"])
+    assert "Kernel-owned reviewer crash arm" in st17
+    assert "around reviewer process creation" in st17
+    assert "before `REJECTED` commits" in st17
+    assert "are **not** released" in st17
+    assert "External-principal negative arm" in st17
+    assert "fencing-only path is reachable *only* through the external principal kind" in st17
+
+
+# --------------------------------------------------------------------------------------------
 # Regression guards for the previously validated N-series repairs.
 # --------------------------------------------------------------------------------------------
 
@@ -1141,7 +1377,7 @@ def test_traceability_dispositions_every_reviewed_finding() -> None:
     """Silence is not a disposition: N-01..N-04 and B-01..B-05 each carry an explicit row."""
     text = read(TRACEABILITY)
     assert "Silence is not a disposition." in text
-    for finding in ("N-01", "N-02", "N-03", "N-04", "B-01", "B-02", "B-03", "B-04", "B-05", "R-01", "R-02", "R-03", "F-01", "F-02", "F-03", "G-01", "G-02", "G-03", "H-01", "H-02"):
+    for finding in ("N-01", "N-02", "N-03", "N-04", "B-01", "B-02", "B-03", "B-04", "B-05", "R-01", "R-02", "R-03", "F-01", "F-02", "F-03", "G-01", "G-02", "G-03", "H-01", "H-02", "H-03", "H-04"):
         assert f"re-review {finding} " in text, f"{finding} has no traceability disposition"
 
 

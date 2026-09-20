@@ -176,13 +176,13 @@ A lease records:
 - acquired time;
 - heartbeat deadline;
 - workspace ID;
-- `owned_process_group_handle` — the durable identity of whatever process group the attempt currently owns, committed before that group is created, per `ORCHESTRATOR_V1_STATE_API.md` §3A.3. It is the cleanup handle only; whether the attempt ever reached `RUNNING` is the separate `attempt.running_process_group_identity` fact, and the two MUST NOT be conflated.
+- `owned_process_group_handle` — the durable identity of the **single** process group the attempt owns for its whole lifetime, committed before that group is created on `CREATED -> STARTING` and **never replaced while the attempt is live**, per `ORCHESTRATOR_V1_STATE_API.md` §3A.3. It is the cleanup handle only; whether the attempt ever reached `RUNNING` is the separate `attempt.running_process_group_identity` fact, and the two MUST NOT be conflated. It is a controller-allocated, attempt-bound identity rather than a recyclable OS process-group number, and §6 re-verifies ownership before signalling.
 
 Heartbeats prove liveness only. They MUST NOT extend scope or mark progress/success.
 
 One authoritative lease exists per `(subject kind, subject ID, subject revision)`, so an implementation attempt and an integration attempt never contend for the same lease. Review dispatches are not leases: several independent reviewers may run concurrently on one subject, so each review dispatch is fenced individually under its own dispatch token, bounded by the §19 reviewer-concurrency ceiling.
 
-Lease expiry does not by itself prove the process is dead. Before reassignment the controller MUST reconcile process/cgroup state, identifying the group from `owned_process_group_handle`. If the old process tree cannot be proven stopped, quarantine the workspace and block reassignment. A NULL handle is not an unknown: because the handle is committed before the group is forked, NULL proves no owned group was ever created, cleanup is proven, and quarantine MUST NOT be used for that case. The same rule applies to an expired review dispatch: expiry strips the dispatch's authority immediately, but it does not by itself prove the reviewer process is gone, and an unprovable reviewer process blocks the subject rather than triggering a silent re-dispatch.
+Lease expiry does not by itself prove the process is dead. Before reassignment the controller MUST reconcile process/cgroup state, identifying the group from `owned_process_group_handle`. If the old process tree cannot be proven stopped, quarantine the workspace and block reassignment. A NULL handle is not an unknown: because the handle is committed before the group is forked, NULL proves no owned group was ever created, cleanup is proven, and quarantine MUST NOT be used for that case. The same rule applies to an expired review dispatch: expiry strips the dispatch's authority immediately, but it does not by itself prove the reviewer process is gone, and an unprovable reviewer process blocks the subject rather than triggering a silent re-dispatch. For a review dispatch the kernel owns — reviewer principal execution-ownership kind `KERNEL_OWNED` — the dispatch's own process-group handle is committed before the reviewer group is forked under the identical write-ahead rule, so NULL there also proves no group exists; whether the kernel owns the reviewer at all is read from the durable principal kind and never inferred from a NULL handle.
 
 Clock rules:
 
@@ -299,7 +299,7 @@ Each attempt receives isolated:
 - browser profile;
 - ports;
 - artifact staging;
-- process group/cgroup.
+- process group/cgroup — **exactly one** per attempt, created once before preflight under the write-once handle of `ORCHESTRATOR_V1_STATE_API.md` §3A.3, containing both the preflight processes and the model process, and never handed over to a second group while the attempt is live.
 
 Before launch the kernel MUST verify:
 
@@ -311,7 +311,7 @@ Before launch the kernel MUST verify:
 - effective tool/network/credential roster matches task policy;
 - measured environment/toolchain fingerprint equals the environment-manifest digest bound to the task revision; an exit-0 `doctor` or self-report cannot override a fingerprint mismatch.
 
-After cancellation/failure, the complete attempt process tree is terminated via dedicated cgroup/process group: TERM, bounded grace, then KILL. Workspace reuse is forbidden until emptiness is verified.
+After cancellation/failure, the complete attempt process tree is terminated via that one dedicated cgroup/process group: TERM, bounded grace, then KILL. Because the same group has covered the attempt since before preflight, "complete attempt process tree" and "the owned group" are the same set of processes, and a preflight child that survived into `RUNNING` is inside it. Workspace reuse is forbidden until **that whole group** is verified empty — an emptiness proof over any narrower group does not satisfy this rule.
 
 No reset/clean/stash of owner work is permitted as a recovery mechanism.
 
@@ -445,6 +445,8 @@ A reviewer may not silently patch the candidate it certifies. If it supplies cod
 Review records bind exact candidate/evidence identities. Candidate mutation invalidates review automatically.
 
 Required reviews run concurrently, so a subject decision is frequently reachable before every reviewer has reported: one `CHANGES_REQUIRED` verdict or one blocking finding decides `candidate.reject`, and a failed gate decides `integration.reject`. The siblings that are still running MUST NOT simply be abandoned. `ORCHESTRATOR_V1_STATE_API.md` §3.1 requires every such transition to fence each remaining `review_dispatch`, stop its owned reviewer process group per §6, and release its required-review slot and reviewer-concurrency unit, all before the subject transition commits. A fenced reviewer's later verdict is rejected with `FENCE_STALE` even though the subject SHA never changed, and the freed slot is immediately reusable rather than occupied by a review whose subject is already terminal.
+
+Whether §6 has a reviewer process group to stop is decided from the dispatch's durable reviewer-principal execution-ownership kind, never from a NULL process-group identity. A `KERNEL_OWNED` reviewer's group is named by a handle committed before the reviewer was forked, so it is stopped and proved empty before the subject transition commits; the slot and the §19 reviewer-concurrency unit are released only at that proof. An `EXTERNAL` reviewer has no kernel-owned process, is fenced only, and that limitation is recorded. Where a `KERNEL_OWNED` reviewer's group cannot be proven empty, the dispatch is `FENCED`, its slot and concurrency unit stay held, and the subject is BLOCKED rather than re-dispatched.
 
 Risk classification is deterministic and closed:
 
@@ -599,7 +601,7 @@ On controller start/restart:
 5. reconcile recorded active implementation attempts with cgroups/processes, identifying each owned group from `owned_process_group_handle` (`ORCHESTRATOR_V1_STATE_API.md` §3A.3). An attempt found in `STARTING` is reconciled here even though it never reached `RUNNING`: its recorded handle names any live preflight group, which is stopped per §6 before the attempt closes `FENCED`, and a NULL handle proves no group exists rather than leaving cleanup unknown. `QUARANTINED` is reserved for a group named by a non-NULL handle that cannot be proven stopped, and a `STARTING` attempt fenced this way does not consume the §10.3.1 ceiling because `running_process_group_identity` is NULL;
 6. reconcile recorded active **integration attempts** with cgroups/processes and integration workspaces, on the same terms as step 5, including the `STARTING` preflight window and the same handle/discriminator separation; an integration left in `INTEGRATING` is reconciled here and never blind re-dispatched;
 7. reconcile workspaces and measured Git identity;
-8. reconcile **in-flight review dispatches**: for every non-terminal `review_dispatch`, observe process state, fence any dispatch that is expired or whose liveness cannot be proven, terminate reviewer process groups the kernel owns, and for each required-review slot either create exactly one replacement dispatch under a new fencing token or block the subject — never both, and never leave the subject silently in `REVIEWING`;
+8. reconcile **in-flight review dispatches**: for every non-terminal `review_dispatch`, first read the durable reviewer-principal execution-ownership kind — never the process-group identity — to decide whether the kernel owns the reviewer. For a `KERNEL_OWNED` dispatch, identify its owned group from the write-once handle committed before the reviewer was forked, stop it per §6 and prove it empty; a NULL handle proves no group was created, and a group that cannot be proven empty leaves the dispatch `FENCED` with its required-review slot and §19 reviewer-concurrency unit still held and the subject BLOCKED. For an `EXTERNAL` dispatch, fencing alone is the available semantics and the limitation is recorded. Then fence any dispatch that is expired or whose liveness cannot be proven, and for each required-review slot whose cleanup is proven either create exactly one replacement dispatch under a new fencing token or block the subject — never both, and never leave the subject silently in `REVIEWING`. A crash between the reviewer-handle commit and the reviewer fork is therefore reconciled as a kernel-owned dispatch with no group, not as an external reviewer;
 9. reconcile candidate/evidence records;
 10. reconcile ambiguous remote publications, **including every `delivery` record left `PENDING`**: a PENDING delivery whose `attempt count` is non-zero is durable evidence that an external publication effect may already have been initiated, so it MUST be moved to `UNKNOWN` through `ORCHESTRATOR_V1_STATE_API.md` §3C **before any further external effect**, and `delivery.publish` MUST NOT replay it. A PENDING delivery with a zero `attempt count` initiated no effect and survives unchanged;
 11. fence obsolete leases, dispatches and results, releasing the required-review slots, reviewer-concurrency units and execution slots they occupied so they are immediately reusable;
