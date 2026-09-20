@@ -107,14 +107,15 @@ Every substantial release should operate from a curated Active Context Pack rath
 3. provision remaining runtime secrets only through an approved process — Gmail OAuth remains outstanding,
 4. **always-on server runtime — installed/enabled/running and ratified,**
 5. **private tailnet-only Tailscale HTTPS — active and ratified,**
-6. freeze Engineering Orchestrator V1 against the accepted harness, current Opus watcher evidence, Symphony/ECC traceability, explicit state/API semantics and the adversarial acceptance matrix,
-7. after freeze, implement only the repository-only deterministic kernel slice (no model launch, deployment, privilege change or business write),
-8. continue real Samsung/iPhone/runtime verification, UI quality, response/latency refinement and real-world evidence,
-9. enable model-running Orchestrator workers/concurrency/cutover only when their runtime isolation/tool-roster/device/current-product prerequisites are proven,
-10. bootstrap the privileged deployment/infrastructure control plane separately,
-11. expand World / Event Ledger / Attention / expectations / automation / integrations.
+6. verify real Samsung/iPhone/runtime behaviour — iPhone observed; Samsung outstanding,
+7. perfect current UI,
+8. perfect response behaviour and latency,
+9. conduct real-world CROOKS sessions and collect evidence,
+10. implement Engineering Orchestrator / Dev Team V1 under the existing owner authorisation once the preceding DEC-046 gates are satisfied,
+11. bootstrap the privileged deployment/infrastructure control plane separately,
+12. expand World / Event Ledger / Attention / expectations / automation / integrations.
 
-This split preserves DEC-046's safety intent while resolving the later accepted-harness next gate: non-privileged repository-only kernel work may proceed after a frozen contract; operational cutover and broader autonomy do not skip the current-product/runtime gates.
+The 2026-09-20 freeze candidate proposes, but does not itself authorise, a narrower amendment allowing Phase 0 repository-only deterministic-kernel work immediately after an accepted freeze. Until the owner explicitly records that amendment in DECISIONS.md against the exact freeze SHA, the sequence above remains authoritative.
 
 Do not skip safety/deployment gates merely because later architecture is more exciting.
 
