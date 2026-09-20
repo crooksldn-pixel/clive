@@ -218,6 +218,7 @@ Covers the MUST-bearing requirements of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §2
 | IN-14 | a stale integration result is presented under a superseded or terminal integration attempt | rejected with `FENCE_STALE`; the integration state is unchanged by the rejected admission |
 | IN-15 | launch an integration from CREATED through `integration.begin` and `integration.start` | `integration.begin` atomically reserves the workspace and creates the INTEGRATION attempt/lease with no preflight or process launch; `integration.start` then performs measured preflight and establishes the owned process group before attempt RUNNING. Both §3 and §3A admit every edge and ST-11's joint oracle returns legal |
 | IN-16 | integrator preflight fails deterministically after `integration.begin` allocated the attempt/workspace | no integrator model/process reaches RUNNING; the attempt closes FAILED if cleanup is proven or QUARANTINED otherwise, the integration reaches BLOCKED through `integration.block`, the workspace remains reserved/quarantined as appropriate, and there is no unfenceable or unregistered preflight window |
+| IN-17 | cancel an integration while it is still CREATED, before `integration.begin` has allocated any attempt/lease/workspace | cancellation succeeds as a direct subject-state transition with no fictitious lease/process to fence; once `integration.begin` has allocated the attempt, all later cancellation paths use the normal lease/process-group fencing rules |
 
 ## 11. Context and authority freshness
 
@@ -282,7 +283,7 @@ Covers the MUST-bearing requirements of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §1
 
 | ID | Scenario | Expected invariant / result |
 | --- | --- | --- |
-| OB-01 | emit every task/integration/review-dispatch **and delivery** transition and inspect the resulting journal events | each event carries the complete §18 minimum field set and a representable subject kind, including `DELIVERY` for delivery state changes (`PENDING|UNKNOWN|PUBLISHED|FAILED|BLOCKED`); an event missing a required field is rejected together with its transition, so authoritative mutation can never commit without its journal record |
+| OB-01 | emit every task/integration/review-dispatch **and delivery** transition and inspect the resulting journal events | each event carries the complete §18 minimum field set and a representable subject kind, including `DELIVERY` for delivery state changes (`PENDING|UNKNOWN|PUBLISHED|FAILED|BLOCKED`); delivery events carry no execution-record fencing token and instead record controller epoch plus delivery/idempotency identity; an event missing a required field is rejected together with its transition |
 | OB-04 | present a heartbeat, candidate, integration result and review verdict under a superseded or terminal execution record | each admission is refused and each refusal appends a journal event naming the stale execution identity and `FENCE_STALE`; the `stale-result rejections` metric is derivable from those events, so a fenced reviewer or integrator is never silently invisible |
 | OB-02 | enumerate the mandatory operational metrics listed in §18 | every listed metric is exposed by the running controller; a missing metric fails the health/readiness gate rather than being silently absent |
 | OB-03 | telemetry, logs and journal payloads are generated for a task carrying secret-like and PII-like fixtures | no secret value, raw credential, customer PII or full prompt is emitted by default; composes with `CP-07` on the worker side and covers the controller/journal side |
@@ -359,16 +360,16 @@ The §18 mechanical gate recomputes the MUST-bearing section set from the docume
 | FC | §4 | ID-01, ID-02, ID-03, ID-04, ID-05, ID-06, WS-02, WS-03, EV-01 |
 | FC | §5.3 | ST-09, RV-03, IN-13 |
 | FC | §6 | DB-01, DB-02, DB-03, DB-04, DB-08, DB-09, DB-10, DB-11, DB-12 |
-| FC | §7 |CT-01, CT-02, CT-03, CT-04, CT-05, CT-06, ID-03, LS-03, LS-04, RV-11, RV-14, IN-14, ID-07, OB-01 |
+| FC | §7 | CT-01, CT-02, CT-03, CT-04, CT-05, CT-06, ID-03, ID-07, LS-03, LS-04, RV-11, RV-14, IN-14, OB-01 |
 | FC | §8 | LS-01, LS-02, LS-03, LS-05, LS-06, LS-07, LS-08, RV-12, RV-13 |
 | FC | §9 | IP-01, IP-02, IP-03, IP-04, API-02, API-03, API-08, EV-10, PB-01, PB-02, PB-07 |
 | FC | §10.1 | PR-03, PR-04, PR-05, PR-09, ST-08, WS-04, WS-13, DB-05 |
-| FC | §10.3.1 |PR-09, PR-10, ST-08, IP-04, ST-14, PR-10 |
+| FC | §10.3.1 | PR-09, PR-10, ST-08, ST-14, IP-04 |
 | FC | §11 | WS-01, WS-04, WS-05, WS-06, WS-07, WS-08, WS-09, WS-10, WS-11, WS-13, WS-14, CXN-01, CXN-04, IN-11 |
 | FC | §12 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08, CP-09, CP-10, PB-05, PB-06 |
 | FC | §13 | CX-05, CX-06, CX-07, CX-08, AU-01 |
 | FC | §14.5 | PB-03, PB-04, PB-05, PB-06, PB-07 |
-| FC | §16 | IN-01, IN-02, IN-03, IN-04, IN-05, IN-06, IN-07, IN-08, IN-09, IN-10, IN-11, IN-12, IN-13, IN-14 |
+| FC | §16 | IN-01, IN-02, IN-03, IN-04, IN-05, IN-06, IN-07, IN-08, IN-09, IN-10, IN-11, IN-12, IN-13, IN-14, IN-15, IN-16, IN-17 |
 | FC | §18 | OB-01, OB-02, OB-03, OB-04 |
 | FC | §19 | RS-01, RS-02, DB-05, API-07 |
 | FC | §20 | UP-01, UP-02, UP-03, UP-04, UP-05, UP-06, DB-04 |
@@ -378,7 +379,7 @@ The §18 mechanical gate recomputes the MUST-bearing section set from the docume
 | FC | §23 | STATIC — reuse boundary; the MUST NOT is "do not import the ECC plugin/runtime graph", a repository-composition invariant with no runtime transition |
 | FC | §27 | STATIC — freeze acceptance is an owner/process gate, not a kernel transition; the anti-self-adoption half is tested by AU-01 and ID-06 |
 | SA | §1A | ID-03, LS-01, LS-03, LS-04, RV-11, RV-12, RV-13, RV-14, IN-11, IN-12, IN-14, CXN-05 |
-| SA | §3A | ST-11, ST-12, ST-13, API-01, PR-10, IN-11, IN-12 |
+| SA | §3A | ST-11, ST-12, ST-13, ST-14, API-01, PR-10, IN-11, IN-12, IN-15, IN-16 |
 | SA | §4 | ST-03, ST-04, ST-05, API-09, DB-01 |
 | SA | §5 | API-06, API-07, RS-02 |
 | SA | §5A | WS-12, WS-15, PB-06, CP-10 |
