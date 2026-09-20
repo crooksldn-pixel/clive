@@ -147,12 +147,12 @@ def table_rows_in_numbered_section(path: Path, section: str) -> list[list[str]]:
     """Return non-header markdown table rows from one numbered section."""
     rows: list[list[str]] = []
     in_section = False
-    heading_re = re.compile(r"^##\\s+" + re.escape(section) + r"(?:\\.|\\s)")
+    heading_re = re.compile(r"^##\s+" + re.escape(section) + r"(?:\.|\s)")
     for line in read(path).splitlines():
         if heading_re.match(line):
             in_section = True
             continue
-        if in_section and re.match(r"^##\\s", line):
+        if in_section and re.match(r"^##\s", line):
             break
         if not in_section or not line.startswith("|"):
             continue
@@ -471,7 +471,7 @@ def test_delivery_has_its_own_authority_and_complete_state_machine() -> None:
         if len(row) < 3:
             continue
         for state in declared:
-            if re.search(rf"\\b{re.escape(state)}\\b", row[2]):
+            if re.search(rf"\b{re.escape(state)}\b", row[2]):
                 to_states.add(state)
     assert declared <= to_states, f"delivery states with no incoming normative edge: {sorted(declared - to_states)}"
 
