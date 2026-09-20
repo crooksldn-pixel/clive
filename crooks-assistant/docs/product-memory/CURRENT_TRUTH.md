@@ -2,7 +2,7 @@
 
 **Purpose:** compact active context for GPT/Claude/Fable/engineering workers  
 **Status:** ACTIVE — update whenever a material product/architecture state changes  
-**As of:** 2026-09-19
+**As of:** 2026-09-20
 
 This file is intentionally not a historical transcript. It answers: **what is true and important now?**
 
@@ -21,6 +21,28 @@ Core product principles remain:
 - autonomy is narrow and earned,
 - models/providers are replaceable,
 - self-improvement is isolated, evidence-driven and reversible.
+
+## Active Live Experience / evaluation direction — 2026-09-20
+
+The owner has explicitly retired **user-facing Split** as the future interaction model. Preserve useful concurrency primitives internally where they still earn their place, but simultaneous work should appear as independently progressing jobs inside one CLIVE session rather than Half 1 / Half 2 / Merge / Close.
+
+An isolated repo-only implementation stream exists at `chatgpt/clive-live-experience-v0-5`, initial contract `4469e0b9c4450cd1f7244b028a5684394a0a0b6f`. It is intentionally separate from the Orchestrator freeze and is not production authority.
+
+Immediate product direction:
+- one perceptible lifecycle: `IDLE → LISTENING → HEARING → UNDERSTOOD → THINKING → WORKING → RESPONDING → IDLE`, with explicit interruption/error/recovery;
+- test the physical voice path, not only post-transcription `POST /turn`; existing experience evidence explicitly did not call `/speak`;
+- progressive results: useful completed work renders while slower sibling jobs continue;
+- liquid-glass/dark CROOKS direction, with less dead space and less permanent plumbing/status chrome;
+- connection health is contextual and truthful;
+- scene composition evolves toward typed safe primitives selected for objective/evidence/device rather than one hard-coded screen per workflow;
+- every real session becomes privacy-minimised evaluation evidence;
+- quality evaluation is multidimensional and independently reviewed, not naive same-model self-scoring;
+- important gates are tested adversarially, including mutation of the tests themselves, hidden/scenario-mutated/device/long-session evaluation and blind baseline/candidate comparison where useful;
+- evaluator drift/gaming is controlled through versioning, hidden sets, human calibration, disagreement retention and frozen replay.
+
+Full doctrine and research/observed findings: [CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md](./CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md).
+
+This direction does not waive DEC-046/047, exact-SHA Orchestrator adoption, runtime/credential/connector/deployment/privilege gates, or action-safety invariants.
 
 ## Engineering control plane
 
