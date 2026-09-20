@@ -27,6 +27,7 @@
 | ST-08 | task restart does not reset retry/correction counters | persisted counters unchanged |
 | ST-09 | finding can be BLOCKED while other findings RESOLVED | partial progress represented without task false-success |
 | ST-10 | restore DB backup | controller epoch increments; all old leases/results are stale |
+| ST-11 | property-test every defined task/integration/attempt state against every command | exactly the normative transition tables are accepted; every unlisted edge returns a stable typed error and no partial state/event write |
 
 ## 2A. Command/transition completeness
 
@@ -83,6 +84,9 @@
 | WS-10 | cancelled worker leaves background child | cgroup/process-group cleanup removes it before reuse |
 | WS-11 | child cannot be removed | quarantine + BLOCKED |
 | WS-12 | local clone source/mirror unavailable | typed BLOCKED/RETRY according to cause; no production checkout fallback |
+| WS-13 | measured toolchain/environment fingerprint differs from task-bound environment-manifest digest | BLOCKED before any model starts |
+| WS-14 | `doctor`/bootstrap exits 0 while measured tool versions/provenance differ from bound manifest | false green rejected; launch blocked despite exit 0 |
+| WS-15 | local mirror exists but exact task base SHA is absent/stale | refresh only from task-approved origin under allowed network policy, then re-measure exact SHA; if still absent, BLOCKED; never fall back to production checkout |
 
 ## 6. Capability, connector and secret isolation
 
@@ -122,8 +126,10 @@
 | EV-06 | candidate SHA changes after review | previous review invalidated automatically |
 | EV-07 | worker says tests passed but independent CI fails | CI failure blocks acceptance |
 | EV-08 | skipped/deselected/timed-out checks present | remain explicit; cannot be silently counted as pass |
-| EV-09 | candidate exists but delivery/outbox publication fails | candidate remains discoverable and no rebuild is triggered |
+| EV-09 | candidate commit exists and evidence collection/storage fails before manifest completion | Candidate record remains durable/discoverable with null evidence-manifest digest; it cannot reach EVIDENCE_READY and reconciliation does not re-dispatch the completed build |
 | EV-10 | evidence/result publication succeeds but response is lost | reconcile remote identity before retry; no duplicate authoritative record |
+| EV-11 | collector is invoked from inside worker process group or with worker write authority over candidate/evidence store | candidate admission rejected; authoritative collector must be kernel-owned and outside worker writable/process boundary |
+| EV-12 | candidate exists but delivery/outbox publication fails after evidence completion | Candidate/Evidence records remain discoverable; only Delivery is retried, never rebuild |
 
 ## 9. Review and correction
 
@@ -136,6 +142,9 @@
 | RV-05 | second substantive rejection | task escalates/re-plans; no infinite patch loop |
 | RV-06 | reviewer unavailable | task BLOCKED, not silently relabelled or skipped |
 | RV-07 | reviewers disagree | Director investigates evidence; vote count does not override demonstrated defect |
+| RV-08 | task is unclassified or model claims it is low-risk without a deterministic rule | authoritative risk class defaults to MATERIAL; independent review and exact-SHA CI remain required |
+| RV-09 | reviewer uses implementer's session, workspace, hidden reasoning context or candidate write authority under a different label/attempt ID | independence check rejects review |
+| RV-10 | MATERIAL reviewer uses same model/provider because no verified equal-or-stronger alternative is available | allowed only as a distinct session/workspace with limitation recorded and GPT Director gate still required; never silently represented as stronger diversity |
 
 ## 10. Integration
 
@@ -149,8 +158,15 @@
 | IN-06 | integrator makes conflict-resolution edit | integrated SHA is new subject requiring relevant review |
 | IN-07 | integration changes UX contract | corresponding experience review rerun |
 | IN-08 | integration target base changed | stale integration invalid; explicit re-plan/rebase/review required |
+| IN-09 | integrated change intersects unknown/uncomputable verification input closure | full required gate set reruns; unknown closure never permits evidence reuse |
+| IN-10 | rejected integration is corrected | correction creates a new immutable integration record/SHA and requires fresh integrated evidence/review; rejected integration record remains historical |
 
 ## 11. Context and authority freshness
+
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| AU-01 | canonical prose/spec/roadmap asserts a sequencing or authority change without an owner-adopted DECISIONS entry bound to exact SHA | kernel authority/gate state does not change; typed AUTHORITY_STALE/BLOCKED finding is emitted |
+
 
 | ID | Scenario | Expected invariant / result |
 | --- | --- | --- |
@@ -160,6 +176,8 @@
 | CX-04 | owner narrows scope mid-run | new task revision; current attempt fenced |
 | CX-05 | owner broadens privilege mid-run | structured AuthorityGrant/new revision required |
 | CX-06 | prose approval exists without structured grant | kernel does not widen authority |
+| CX-07 | AuthorityGrant is expired at an authority-bearing transition | treated as no grant; transition blocked |
+| CX-08 | AuthorityGrant is revoked while attempt is running | attempt is immediately fenced before any further authoritative result; revocation event persisted |
 
 ## 12. Publication ambiguity and Git remote behaviour
 
@@ -170,6 +188,8 @@
 | PB-03 | worker attempts production push | denied by credential/policy layer |
 | PB-04 | remote branch points to unexpected SHA | publication blocked/escalated; no blind overwrite |
 | PB-05 | branch name reused for unrelated history | immutable candidate/base SHA ancestry checks prevent confusion |
+| PB-06 | worker attempts any remote push using attempt credentials | fails at credential/capability layer; worker has no usable push credential |
+| PB-07 | kernel candidate publication succeeds but acknowledgement is lost | kernel reconciles namespaced candidate ref against exact candidate SHA and returns the same idempotent result without rebuilding/force-updating |
 
 ## 13. Database, disk and recovery
 
@@ -185,6 +205,8 @@
 | DB-08 | safe GC | accepted/reconciliation-required artifacts retained; only eligible disposable data removed |
 | DB-09 | newer schema opened by old binary | binary refuses to start writer mode |
 | DB-10 | abrupt host reboot | startup reconciliation restores deterministic state before dispatch |
+| DB-11 | backup artifact is truncated/corrupt | backup integrity check/restore rehearsal fails; it cannot be declared usable recovery evidence |
+| DB-12 | periodic backup is restored in rehearsal | exact schema/invariants load, new epoch fencing works and reconciliation begins in no-dispatch mode |
 
 ## 14. Drain, upgrade and cutover
 
@@ -219,6 +241,16 @@
 | OB-04 | reconciliation after restart | duration/outcome visible |
 | OB-05 | secret/PII field presented | excluded/redacted from normal telemetry |
 | OB-06 | OTEL exporter unavailable | local correctness/logging continues; warning visible |
+| OB-07 | AuthorityGrant denied/expired/revoked | structured event and metric emitted without leaking approval/secret contents |
+
+## 16A. Clean reconstruction evidence
+
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| EN-01 | reconstruction tries to fetch a dependency/asset outside task-approved egress allow-list or immutable origin identity | denied; reconstruction evidence invalid |
+| EN-02 | fetched asset/package digest or installed provenance/version differs from pinned manifest | fail closed before reconstruction can be accepted |
+| EN-03 | reconstruction is run on a host/environment already containing target toolchain state | cannot count as clean reconstruction evidence unless pre-existing state is proven absent/isolated; disposable fresh environment required |
+| EN-04 | two clean reconstructions from same declared manifest complete | resulting environment fingerprints must match each other and the bound manifest digest |
 
 ## 17. End-to-end gates
 
