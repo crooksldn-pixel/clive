@@ -79,7 +79,9 @@ Task, attempt, candidate, review, integration and delivery are separate records.
 
 ### 5.1 Task lifecycle
 
-`PROPOSED -> PLANNED -> ASSIGNED -> BUILDING -> EVIDENCE_READY -> REVIEWING -> ACCEPTED -> INTEGRATING -> VERIFIED -> RELEASE_CANDIDATE`
+`PROPOSED -> PLANNED -> ASSIGNED -> BUILDING -> EVIDENCE_READY -> REVIEWING -> ACCEPTED`
+
+`ACCEPTED` is terminal for an individual task/candidate. Integration and release-candidate state are separate records; multiple accepted tasks may feed one integration. This prevents a task record from pretending to own a multi-candidate release.
 
 Side states:
 
@@ -411,6 +413,12 @@ Review records bind exact candidate/evidence identities. Candidate mutation inva
 Required review is risk-based, not agent-count-based.
 
 ## 16. Integration contract
+
+Integration has its own lifecycle: `CREATED -> INTEGRATING -> EVIDENCE_READY -> REVIEWING -> VERIFIED`, with side dispositions `REJECTED|BLOCKED|CANCELLED`.
+
+A `ReleaseCandidate` record is created only after a VERIFIED integration has passed the GPT Director gate. Individual source tasks remain ACCEPTED; they do not transition into integration/release states.
+
+For a single accepted candidate, V1 still creates an explicit identity-integration record so integrated evidence/review semantics are not skipped.
 
 Integrator inputs are exact accepted SHAs, never moving branch names.
 
