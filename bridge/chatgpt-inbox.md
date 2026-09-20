@@ -1,44 +1,63 @@
 # CHATGPT INBOX
 
-## Independent adversarial review of repaired harness candidate `ef73fbe738cd805c21b9a33b0cc0d36245251658`
+## Bounded repair of R-01 on harness candidate `ef73fbe738cd805c21b9a33b0cc0d36245251658`
 
-Read fresh canonical product memory from `claude/product-memory-foundation` and the latest outbox first. This is a review-only round. Do not implement or repair anything.
+Read fresh canonical product memory from `claude/product-memory-foundation` and the latest outbox first. The fourth independent review returned `REJECT — REPAIR REQUIRED` with one bounded HIGH defect, R-01. This round is implementation-only: repair R-01, publish one new candidate commit on `claude/harness-hooks-experiment`, provide evidence, and STOP for a fresh independent review. Do not self-certify.
 
-### Exact review identity
+### Exact starting identity
 - candidate branch: `claude/harness-hooks-experiment`
-- review target: `ef73fbe738cd805c21b9a33b0cc0d36245251658`
-- direct parent: `fe96bb661140089647c3e6cb90a269c869a076fa`
-- earlier repaired candidate: `d7911b24979be2306749b7333ec60edc28cba857`
+- required starting HEAD / parent: `ef73fbe738cd805c21b9a33b0cc0d36245251658`
+- its parent: `fe96bb661140089647c3e6cb90a269c869a076fa`
 - accepted Builder base: `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`
 - production must remain exactly `1cf3a0f3361b79f9de208d80f501543c53c244b5`
 
-Verify the remote branch points exactly to `ef73fbe…`, that it is exactly one commit on `fe96bb6…`, and that production is unchanged. Use explicit branch fetches if required; do not modify the known stale Builder fetch refspec.
+Verify remote identity explicitly before editing. If the candidate worktree is not clean, or remote no longer points to `ef73fbe…`, STOP BLOCKED rather than resetting, cleaning, stashing, rebasing, amending or discarding anything. Use explicit branch fetches if required; do not modify the known stale Builder fetch refspec.
 
-### Review contract
-Independently reproduce the claimed F-6/F-6b/F-6c/F-6d fixes and attack them with NEW vectors not copied from the implementation tests. Treat the implementer outbox and tests as untrusted evidence until reproduced.
+### R-01 — required repair
+The independent reviewer process-confirmed that Bash removes an unquoted or double-quoted backslash-newline before word splitting, while the shared custom lexer preserves it into the redirect target/operand. This allows protected writes/copies/deletes to be mis-resolved as relative paths.
 
-Focus on Bash parsing equivalence and fail-closed behaviour introduced by `_split_redirects`, `_segments`, `_redirect_targets`, `_without_redirections`, `_heredoc_owner`, `_shell_texts`, `_path_rule`, and `_disk_rule`. Probe at minimum:
-- glued and spaced `>`, `>>`, `>|`, `&>`, `&>>`, `>&`, `<>`, descriptor forms and chains of multiple redirects;
-- quoting, escaping, comments, assignments, wrappers, separators, subshell/group forms and nested substitutions;
-- relative/absolute protected targets, cwd changes, traversal, brace/glob/tilde/variable forms, protected hook cwd;
-- copy/install destinations followed by redirects;
-- heredoc/here-string owners with glued operators/pipes and malformed forms;
-- block-device writes;
-- gitleaks publish detection through the shared lexer;
-- false-negative regressions against F-1…F-5 and D-01…D-20.
+At minimum these exact forms must fail closed after the repair (the `\\` is immediately followed by a real newline):
 
-Specifically look for places where Bash and the custom lexer disagree, including descriptor-vs-word ambiguity, quoted numeric words, escaped digits/operators, `>&word` versus fd duplication, redirect operands beginning with metacharacters, no-space redirect chains, and malformed input. New parser complexity is not accepted merely because the supplied 292 tests pass.
+    echo x >\\
+    /opt/crooks-os/app/main.py
 
-Re-run the new repair tests, prior harness repair/guard/gitleaks/roster/layout/dev-environment targeted set, full offline suite, Ruff, and pinned redacted gitleaks over `fe96bb6…ef73fbe…`. Record unrelated environmental/baseline failures accurately rather than attributing them to the candidate.
+    echo x>\\
+    /opt/crooks-os/app/main.py
 
-### Verdict
-Return exactly one verdict: `ACCEPT FOR NEXT GATE` or `REJECT — REPAIR REQUIRED`.
+    cp /tmp/x \\
+    /opt/crooks-os/app/main.py
 
-If rejecting, give a bounded defect list with severity, exact reproducer, observed vs required result, root cause, and smallest safe repair. Do not implement it.
+    rm -rf \\
+    /opt/crooks-os
 
-If accepting, state exactly what was independently reproduced, what remains empirically unproven (D-19 remains unproven), and that acceptance does not authorise merge, deployment, project `.claude/` activation, account/global changes, connectors, secrets, privileges, business writes, watcher/systemd changes, or production changes.
+Required classifications: protected redirect/copy targets must DENY `PROTECTED-PATH`; recursive production delete must DENY `RM-RECURSIVE`.
 
-Replace only `bridge/claude-outbox.md` with the review handoff and STOP.
+Implement the smallest parser-level, quote-aware correction in the shared lexing pipeline so guard and gitleaks parsing inherit it. Match Bash semantics for backslash-newline removal: unquoted and double-quoted continuation is removed before tokenisation; single-quoted backslash-newline remains literal. Do not add command-string-specific patches. Fail closed on ambiguity.
+
+### Required adversarial regression coverage
+Add failing-before/passing-after tests for the four review reproducers plus NEW neighbouring vectors, including:
+- continuation adjacent to glued and spaced redirect operators and descriptor redirects;
+- continuation in copy/install/delete operands;
+- continuation after `cd` with relative protected destinations;
+- double-quoted continuation semantics;
+- single-quoted continuation positive control demonstrating Bash keeps it literal and that benign behaviour is not overblocked;
+- continuation inside an ordinary command/word;
+- chained redirects and shell wrappers where relevant;
+- gitleaks publish detection through the shared lexer, proving a continuation cannot launder a publish action.
+
+Run the new tests against the pre-repair `ef73fbe…` source and record the expected failures, then against the repaired source and require pass.
+
+### Verification before publication
+Re-run:
+1. new R-01 regression tests;
+2. all prior harness review repair tests including `test_harness_review_fe96bb6_repairs.py`, d7911b2 repairs, guard, gitleaks, roster, project-Claude-layout and dev-environment targeted tests;
+3. full offline suite;
+4. Ruff over `app config scripts tests`;
+5. pinned redacted gitleaks over `ef73fbe…<new-candidate>`.
+
+The known accepted-base `test_experience.py::test_a_record_reached_by_tapping_is_still_held_a_moment_later` failure may be classified as baseline only if it reproduces unchanged and there is still no relevant candidate diff. Do not repair unrelated product code in this round.
+
+Publish exactly one NEW commit on `claude/harness-hooks-experiment` (no amend/rebase/force push). The outbox must state exact new SHA and parent, changed files, failing-before/passing-after evidence, targeted/full-suite/Ruff/gitleaks results, clean worktree/stash state, remote branch identity, and confirmation production/global/account/connector/service state was untouched. Then STOP for independent review.
 
 ### Hard boundaries
-No merge/deploy/install/restart; no production writes; no `.claude/` activation; no `/root/.claude`, account/global Claude, MCP, connector, identity, credential or secret changes; no watcher/systemd/local Git-config changes; no reset/clean/stash; no external spend; no owner-side `.git/info/exclude` changes.
+No merge/deploy/install/restart; no production writes; no project `.claude/` activation; no `/root/.claude`, account/global Claude, MCP, connector, identity, credential or secret changes; no watcher/systemd/local Git-config changes; no reset/clean/stash; no external spend; no owner-side `.git/info/exclude` changes; no unrelated refactor or scope expansion.
