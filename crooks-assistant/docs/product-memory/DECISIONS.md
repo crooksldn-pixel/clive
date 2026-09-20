@@ -652,3 +652,28 @@ Detailed doctrine and observed research findings are recorded in [CONTINUOUS_PRO
 **Reason:** Split exposes internal concurrency management to the owner and has accumulated interaction complexity. The desired product is one operating intelligence that manages simultaneous objectives itself. Existing evidence also shows post-transcription tests do not prove the live voice experience, so current-product quality must be evaluated end-to-end.
 
 **Consequences:** Existing Split-specific UI/tests are migration evidence, not permanent product requirements. Retiring them is valid under DEC-037/038. This decision does **not** alter DEC-046 sequencing, adopt an Orchestrator freeze candidate, authorise production deployment, enable connectors/secrets/business writes, expand privileges, or weaken action-safety invariants.
+
+---
+
+## DEC-051 — CLIVE is a persistent intent-to-execution operational layer
+
+**Date:** 2026-09-20  
+**Status:** ACTIVE PRODUCT DIRECTION  
+**Source:** explicit owner approval after product-philosophy synthesis
+
+**Decision:** CLIVE's north-star product identity is a persistent operational layer between human intention and the software, people, devices and real-world processes required to accomplish it.
+
+The product should not collapse into an AI dashboard, unified inbox, phrase-to-screen router, or one-shot chatbot. It should maintain evidence-backed operational state outside conversation, infer objectives from language plus context, investigate for significance rather than merely repeat source-system facts, coordinate deterministic capabilities beneath the reasoning layer, maintain objectives and commitments as reality changes, and present the smallest role/device-appropriate interface justified by the current situation.
+
+The same utterance may require different work under different contexts; different utterances may represent the same objective. Evaluation must explicitly test both properties. Information gain, operational usefulness and human attention consumed are product-quality concerns, not only factual correctness.
+
+People and staff may participate in shared objectives through permission-scoped workspaces. External collaborators may receive structured context and return evidence into the same operational model. Relevant working-monologue commitments should persist and resurface when useful rather than becoming recall spam.
+
+Capability gaps are structured self-improvement evidence. Repeated/high-value gaps may drive proposed new capabilities through isolated implementation, adversarial/hidden evaluation, independent review and controlled adoption. This does not authorise uncontrolled self-modification.
+
+Detailed doctrine: [CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md](./CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md).
+
+**Reason:** The intended product removes human glue work — remembering, checking, translating, routing, coordinating, chasing and reconstructing context — rather than merely aggregating applications. The existing multi-API, dynamic-UI, persistent-memory, staff-workspace and self-improvement directions become coherent under this model.
+
+**Consequences:** Future features should be challenged against whether they reduce human coordination/attention while preserving actual intention, authority and evidence. Deterministic fast paths remain valuable for genuinely explicit objectives, but keyword-triggered fixed outcomes must not substitute for contextual understanding. This decision does **not** alter DEC-046/047 sequencing, adopt any freeze candidate, authorise deployment, grant credentials/connectors, expand privileges or weaken action safety.
+
