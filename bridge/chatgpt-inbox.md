@@ -1,68 +1,51 @@
 # CHATGPT INBOX
 
-## Fresh independent read-only adversarial review — Orchestrator V1 freeze candidate 5eb25f8
+## Bounded repair — Orchestrator V1 freeze H-01 / H-02
 
-Review exact candidate:
+This is exactly one bounded repository-only repair round on the existing freeze-candidate branch. It is not production/runtime remediation and it is not owner adoption.
+
+### Exact identities
 - repository: `crooksldn-pixel/clive`
 - canonical base: `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`
 - candidate branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
-- exact candidate SHA: `5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78`
-- superseded/rejected SHA: `31b0e07179877651da80065f5914575ee4d60d6c`
-- repair outbox blob: `5dae2a784fc9986f38b1a63191463eb783ecb96a`
+- rejected candidate: `5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78`
+- independent review outbox processed: timestamp 2026-09-20 14:15 UTC, inbox blob `0fe99fdf734a845734aaaeee829af504034b75f7`
 
-This is a fresh independent **read-only** review. The previous verdict is stale. Do not edit, commit, push, merge, switch/reset/clean/stash, create a worktree, change runtime/systemd/watcher state, touch secrets, account/global Claude settings, MCP/connectors, privileges, production, or business state.
+Before editing, explicitly fetch/read the candidate branch and canonical base. Abort and report BLOCKED if the candidate branch no longer resolves exactly to `5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78`, merge-base is not the canonical base, or the workspace contains unrelated owner work. Never trust stale local tracking refs. Do not reset/clean/stash/discard anything.
 
-First verify:
-1. candidate branch resolves exactly to `5eb25f8fe00a3196cb27d7b2c92b2b5fbf4a5c78`;
-2. canonical base resolves exactly to `9e59860a945ec339c69af8709cd0721f0a795327`;
-3. merge-base(candidate, base) equals the canonical base;
-4. `31b0e071..5eb25f8` is exactly one repair commit and inspect its full diff.
+### Hard scope
+Allowed: repository-only edits on the same freeze-candidate branch to state API/freeze contract/acceptance matrix/traceability/mechanical spec tests needed to repair H-01/H-02, plus test execution and repository-local evidence.
+Forbidden: production deployment/promotion; systemd/watcher/builder-runtime changes; secrets/credential reads; `/root/.claude` or account/global Claude changes; MCP/connector changes; privilege expansion; CROOKS/CLIVE business writes; public exposure; destructive reset/clean/stash; external spend; production merge; freeze adoption; DEC-046/DEC-047 sequencing changes; Orchestrator implementation.
+Do not repair the live watcher/builder mismatch or stale fetch refspec in runtime; those remain runtime-pending.
 
-Re-review G-01/G-02/G-03 and try to break them:
+### H-01 — subject transitions can strand live execution records
+Repair the internal contradiction identified by the independent review.
+Required outcome:
+- every §3 subject transition leaving an execution-bearing state MUST terminally fence/cancel every non-terminal attempt and review_dispatch owned by that subject before the subject transition commits, unless the transition atomically closes that exact record through the paired §3A/§3B edge;
+- explicitly cover `candidate.reject`, `integration.reject`, `integration.block`, `task.escalate`, `task.fail`; make `task.block` fencing unconditional;
+- add matching triggers/semantics to §3A and §3B so matrices agree;
+- no DISPATCHED review or non-terminal attempt may remain under a subject state outside the mechanically derived execution-bearing set;
+- owned process groups stop per §6 before subject transition commit; freed review slot/concurrency becomes immediately reusable.
+Acceptance: add ST-17 covering REVIEWING with >=2 live dispatches followed by reject/block/escalate and BUILDING followed by fail/escalate, proving all non-terminal execution records terminal and process groups stopped before subject transition; no stale slot/concurrency occupation.
+Mechanical test: derive from actual §3 transition rows, not just restatement prose. For every §3 row whose From includes an execution-bearing state and whose To is outside it, assert the row requires corresponding execution-record termination/fencing (or atomic paired close). Preserve set-equality checks against §1A and FC §21, but do not allow two prose restatements to false-green each other.
 
-### G-01 — execution-bearing subject reconciliation
-- derive execution-bearing subject states from §3A.1 + §3B rather than trusting prose;
-- confirm every subject state that can own a non-terminal attempt/review_dispatch is covered by §1A and freeze-contract §21;
-- specifically verify TASK ASSIGNED + CREATED/STARTING attempt cannot strand after controller-epoch fencing;
-- confirm reconciliation uses the already-legal block edge, no blind redispatch;
-- ensure splitting §3A into §3A.1/§3A.2 leaves the §3/§3A joint oracle satisfiable.
+### H-02 — pre-RUNNING process-group identity / attempt-budget ambiguity
+Repair the STARTING crash window deterministically.
+Required outcome:
+- specify a durable handle for any owned preflight process group before RUNNING;
+- separately specify the durable authoritative fact used to decide whether an attempt ever reached RUNNING for §3A.2 ceiling accounting; do not overload one field ambiguously;
+- §1A, §3A, §3A.2 and §6 must agree exactly on when each fact is populated and how restart cleanup uses it;
+- controller crash during STARTING with a live preflight group must identify and stop that group per §6, then close FENCED/CANCELLED without consuming execution budget when cleanup is proven;
+- QUARANTINED is permitted only when cleanup genuinely cannot be proven, not merely because no durable identity was recorded;
+- deterministic preflight failure remains budget-consuming and R-02 remains intact.
+Prefer the smallest schema-free repair if an existing durable lease field and existing committed RUNNING fact can provide distinct authoritative roles; otherwise make the minimum explicit schema change required by the contract.
+Acceptance: extend ST-16 with crash-during-STARTING and live preflight process-group arm; prove durable identification, cleanup, FENCED closure, unchanged ceiling; assert QUARANTINED only for genuinely unprovable cleanup.
+Mechanical test: assert the ceiling discriminator and pre-RUNNING process-group cleanup handle are explicitly named, distinct in role, their population timing is normative, and §1A/§3A/§3A.2/§6 agree.
 
-### G-02 — execution-attempt ceiling accounting
-- verify §3A.2 is total over the attempt disposition enum;
-- confirm CANCELLED/FENCED attempts that never reached RUNNING do not consume the ceiling;
-- confirm a model that did run cannot close CANCELLED/FENCED with the durable identity interpreted as “never ran”;
-- deterministic preflight failure must still consume budget;
-- restart/restore/epoch changes must neither reset nor decrement legitimate consumed attempts;
-- test whether disposition relabelling can game the budget.
+### Regression/evidence
+Preserve N-01..N-04, B-01..B-05, R-01..R-03, F-01..F-03, G-01..G-03. Update traceability for H-01/H-02. Run committed mechanical freeze spec test and relevant non-live/static checks. Independently verify zero dangling acceptance IDs, complete §18A MUST coverage, terminal cleanup paths for every non-terminal attempt state, delivery enum/§3C completeness, no self-adoption, no DEC-046/DEC-047 sequencing change.
 
-### G-03 — delivery crash/duplicate-effect prevention
-- verify delivery attempt-count arming is durably committed before any external effect;
-- verify `delivery.publish` cannot replay a PENDING record whose effect may already have started;
-- restart/restore/epoch change must force initiated PENDING -> UNKNOWN before another external effect;
-- `delivery.reconcile` against authoritative remote state must be the only exit from UNKNOWN;
-- test whether an adapter can perform more than one external effect inside a single publish call and bypass the count gate;
-- check interaction with delivery.block and controller.reconcile.
+Before publishing require exact base/rejected/new SHAs, exact changed-file set/diff summary, tests/results, clean worktree, candidate secret scan with no values printed, and exact remote branch readback equal to new SHA. Publish only to the freeze-candidate branch. Do not merge/adopt/deploy.
 
-Also adversarially search for any new material defect in:
-- task/attempt/integration/reviewer/delivery state legality;
-- cancellation and restart races;
-- stale-result admission and fencing;
-- idempotency/external-effect ambiguity;
-- attempt budget liveness/safety;
-- journal completeness;
-- §18A coverage and dangling acceptance IDs;
-- structural-test parser correctness / false greens;
-- regressions of N-01..N-04, B-01..B-05, R-01..R-03, F-01..F-03;
-- self-adoption or DEC-046/DEC-047 sequencing drift.
-
-Mechanical verification:
-- run committed spec tests only if possible without violating read-only scope; otherwise recompute against blobs with `git show`;
-- independently verify zero dangling test IDs, complete MUST-bearing §18A coverage, every non-terminal attempt state has a terminal cleanup/fencing path, delivery enum/§3C completeness, and no self-adoption.
-
-Return exactly one:
-- `ENGINEERING CONTRACT READY — OWNER/RUNTIME GATES REMAIN`
-- `CHANGES REQUIRED BEFORE OWNER DECISION`
-
-If changes are required, list only material engineering blockers with exact location, consequence, smallest bounded repair and exact acceptance/mechanical test. List OWNER-PENDING and RUNTIME-PENDING separately. Record reviewer-independence limitation if same model/provider is used.
-
-Do not certify based on detail. Try to break it.
+### Handoff
+After repair, report exact new SHA and evidence in outbox. Do not self-certify. State previous verdict is stale for the changed SHA and a fresh independent read-only adversarial review is required. Do not dispatch more than this one repair task.
