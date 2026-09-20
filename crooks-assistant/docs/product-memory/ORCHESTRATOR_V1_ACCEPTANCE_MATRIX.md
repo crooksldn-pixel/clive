@@ -27,7 +27,9 @@
 | ST-08 | task restart does not reset retry/correction counters | persisted counters unchanged |
 | ST-09 | finding can be BLOCKED while other findings RESOLVED | partial progress represented without task false-success |
 | ST-10 | restore DB backup | controller epoch increments; all old leases/results are stale |
-| ST-11 | property-test every defined task/integration/attempt state against every command | exactly the normative transition tables are accepted; every unlisted edge returns a stable typed error and no partial state/event write |
+| ST-11 | generate a joint oracle across every task state × attempt/integration state × command | task-side and attempt/integration-side guards must agree for every combined mutation; exactly the intersection of the normative tables is accepted, every unlisted/conflicting edge returns a stable typed error and no partial state/event write |
+| ST-12 | reject a candidate, then invoke the one permitted bounded correction | full `REJECTED -> attempt.assign -> ASSIGNED -> attempt STARTING/RUNNING -> BUILDING` path is legal with a fresh attempt/fencing token and retained prior candidate |
+| ST-13 | deterministic preflight failure occurs while task is ASSIGNED and attempt is STARTING | no model launch; attempt closes FAILED when cleanup is proven or QUARANTINED otherwise; task reaches BLOCKED through the listed `task.block` edge, never an illegal `ASSIGNED -> FAILED` task transition |
 
 ## 2A. Command/transition completeness
 
@@ -98,6 +100,15 @@
 | WS-13 | measured toolchain/environment fingerprint differs from task-bound environment-manifest digest | BLOCKED before any model starts |
 | WS-14 | `doctor`/bootstrap exits 0 while measured tool versions/provenance differ from bound manifest | false green rejected; launch blocked despite exit 0 |
 | WS-15 | local mirror exists but exact task base SHA is absent/stale | refresh only from task-approved origin under allowed network policy, then re-measure exact SHA; if still absent, BLOCKED; never fall back to production checkout |
+
+## 5A. Existing bridge identity remediation rehearsal
+
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| BR-01 | scratch remote reproduces current topology: remote `claude/bridge-builder` absent, local ref at ancestor, accepted SHA available through another remote ref, narrowed fetch refspec names absent branch | documented remediation sequence completes without `fatal: couldn't find remote ref`; no fetch-all dependency |
+| BR-02 | remote `claude/bridge-builder` appears at an unexpected SHA after absence check but before create | create-only compare-and-swap/lease fails; procedure stops without overwrite |
+| BR-03 | local semantic branch ref has changed from expected old SHA before local reconciliation | expected-old `update-ref`/equivalent fails; no reset/clean/stash or unguarded rewrite occurs |
+| BR-04 | guarded remote create and local branch reconciliation succeed in scratch rehearsal | post-create remote readback equals exact accepted SHA; checked-out tree bytes and HEAD remain identical before/after; existing narrowed fetch refspec works after ref recreation |
 
 ## 6. Capability, connector and secret isolation
 
@@ -336,6 +347,7 @@ Before marking the V1 contract frozen:
 - every MUST in `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` and `ORCHESTRATOR_V1_STATE_API.md` has a test ID here or is explicitly a static/documentary invariant;
 - the branch-identity mismatch has an independently reviewed remediation path; `WATCHER_BUILDER_IDENTITY_REMEDIATION.md` is the current candidate plan, and live closure is mandatory before Phase 1/model-worker execution;
 - canonical truth/roadmap are reconciled without self-authorising an owner gate;
+- a mechanical doc-consistency check scans `CURRENT_TRUTH.md` and `ROADMAP.md` for every CG/finding identifier the freeze set marks resolved/addressed and fails if either file asserts a conflicting current status;
 - traceability has no unexplained V1-relevant row;
 - a fresh independent adversarial reviewer bound to the exact candidate SHA finds no material missing failure mode, authority leak or contradiction;
 - the accepted freeze SHA is then recorded in a separate follow-up canonical product-memory commit.
