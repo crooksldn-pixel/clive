@@ -107,16 +107,22 @@ Candidate rows are immutable. A replacement candidate is a new row.
 ### `evidence_manifest`
 - `manifest_digest TEXT PRIMARY KEY`;
 - schema version;
-- candidate SHA;
+- subject kind `CANDIDATE|INTEGRATION`;
+- subject ID;
+- exact subject SHA;
 - storage root/reference;
 - redaction status;
 - created timestamp.
+
+The manifest schema is shared by candidate and integration evidence. The exact subject SHA is mandatory.
 
 Canonical manifest bytes use UTF-8 canonical JSON with stable key ordering and no insignificant whitespace; SHA-256 is computed over those exact bytes.
 
 ### `review`
 - `review_id TEXT PRIMARY KEY`;
-- candidate SHA;
+- subject kind `CANDIDATE|INTEGRATION`;
+- subject ID;
+- exact subject SHA;
 - evidence-manifest digest;
 - reviewer principal/session identity;
 - reviewer role;
@@ -124,6 +130,8 @@ Canonical manifest bytes use UTF-8 canonical JSON with stable key ordering and n
 - findings digest;
 - created timestamp;
 - invalidated timestamp nullable.
+
+A review is immutable once recorded; invalidation is a separate timestamped state change caused by subject/evidence/policy change.
 
 ### `integration`
 - `integration_id TEXT PRIMARY KEY`;
@@ -213,6 +221,8 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | `integration.review_request` | review coordinator | EVIDENCE_READY -> REVIEWING |
 | `integration.verify` | kernel policy/CI/review coordinator | REVIEWING -> VERIFIED when required integrated gates pass |
 | `integration.reject` | kernel policy | REVIEWING -> REJECTED on blocking integrated finding; REJECTED integration is immutable/terminal and any correction uses a new integration record with parent_integration_id |
+| `integration.block` | kernel/policy/review coordinator | CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING -> BLOCKED with typed reason; no automatic retry |
+| `integration.cancel` | authorised controller/Director policy | CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED -> CANCELLED; integrator attempt fenced/stopped |
 | `release_candidate.mark` | GPT Director validated channel + kernel policy | create immutable ReleaseCandidate from VERIFIED integration |
 | `delivery.publish` | publication adapter | publish immutable result/ref with idempotency |
 | `controller.reconcile` | authoritative controller | observe DB/process/workspace/remote truth; no blind effects |
@@ -246,6 +256,8 @@ Any transition not listed is forbidden.
 | integration EVIDENCE_READY | integration.review_request | integration REVIEWING | required integrated reviewer policy resolved |
 | integration REVIEWING | integration.verify | integration VERIFIED | all required integrated tests/reviews pass; no blocking findings |
 | integration REVIEWING | integration.reject | integration REJECTED | blocking finding or required gate failure |
+| integration CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING | integration.block | integration BLOCKED | deterministic dependency/authority/evidence/resource blocker; exact reason persisted |
+| integration CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel | integration CANCELLED | caller authorised; any integrator process/lease fenced and stopped |
 | integration VERIFIED | release_candidate.mark | ReleaseCandidate record | GPT Director independently accepts exact integrated SHA/evidence/limitations |
 | any nonterminal active | task.block | BLOCKED | typed deterministic reason persisted; active attempt fenced/stopped when continuation unsafe |
 | any nonterminal active | task.escalate | ESCALATED | ambiguity/decision beyond automatic authority |
@@ -255,6 +267,25 @@ Any transition not listed is forbidden.
 | BUILDING/REJECTED | task.fail | FAILED | execution/correction/integration budget exhausted or unrecoverable failure within current contract |
 
 `ACCEPTED`, `CANCELLED` and `SUPERSEDED` are terminal task states for V1. They cannot be revised, cancelled or superseded in-place. If later product intent invalidates an accepted outcome, a new task is created and dependency/currentness rules decide whether downstream work remains valid. Integration/release records have their own terminal states. A `FAILED` task does not auto-resume; continuation requires `task.revise` to a new PROPOSED revision (or explicit supersession before terminal acceptance).
+
+## 3A. Attempt transition matrix
+
+Attempt transitions are independent from the task state transaction but must be performed atomically with the corresponding lease/task mutation where one exists.
+
+| From | Trigger/command | To | Preconditions / result |
+| --- | --- | --- | --- |
+| none | `attempt.assign` | CREATED | task PLANNED; capacity/workspace reservation succeeds; new epoch/fence bound |
+| CREATED | runner preflight begins | STARTING | current lease; workspace exists; no model process yet |
+| STARTING | `attempt.start` | RUNNING | exact base/branch/environment/tool/capability checks pass; owned process group established |
+| STARTING | preflight deterministic failure | CLOSED / FAILED or QUARANTINED | no model launch; task becomes BLOCKED/FAILED according to typed cause |
+| RUNNING | `candidate.register` | CANDIDATE_READY | current epoch/fence; immutable candidate commit independently measured and Candidate row persisted |
+| RUNNING | process exits without candidate | CLOSED / FAILED | diagnostics/evidence persisted; task retry/correction policy decides next task state |
+| RUNNING | `task.cancel` / fencing event | CLOSED / CANCELLED or FENCED | old token immediately loses authority; process cleanup follows §6 |
+| RUNNING | process cannot be proven stopped | CLOSED / QUARANTINED | task BLOCKED; workspace cannot be reused |
+| CANDIDATE_READY | evidence completion / task reaches EVIDENCE_READY | CLOSED / SUCCEEDED | candidate already durable; no later worker authority needed |
+| CANDIDATE_READY | cancellation/fence before evidence completion | CLOSED / FENCED | Candidate remains durable/discoverable; evidence may remain incomplete |
+
+`CLOSED` is terminal for an attempt. A correction always creates a new attempt with a new fencing token.
 
 ## 4. Atomic transaction rules
 
