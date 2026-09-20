@@ -176,7 +176,7 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | Command | Allowed caller | Core effect |
 | --- | --- | --- |
 | `task.create` | Director/intake adapter | create PROPOSED task + revision 1 |
-| `task.revise` | Director | create immutable new revision; fence obsolete active revision |
+| `task.revise` | Director | from any nonterminal task, create immutable new revision, fence obsolete attempt/lease, mark old revision superseded and set new revision to PROPOSED |
 | `task.plan` | Director through validated channel | PROPOSED/BLOCKED/ESCALATED -> PLANNED after contract/context validation |
 | `task.block` | kernel/policy/reviewer/Director channel | enter BLOCKED with typed reason |
 | `task.escalate` | kernel/reviewer/Director | enter ESCALATED |
@@ -227,11 +227,12 @@ Any transition not listed is forbidden.
 | VERIFIED | release_candidate.mark | RELEASE_CANDIDATE | GPT Director independently accepts exact integrated SHA/evidence/limitations |
 | any nonterminal active | task.block | BLOCKED | typed deterministic reason persisted; active attempt fenced/stopped when continuation unsafe |
 | any nonterminal active | task.escalate | ESCALATED | ambiguity/decision beyond automatic authority |
-| PLANNED/ASSIGNED/BUILDING/REVIEWING/INTEGRATING | task.cancel | CANCELLED | caller authorised; active lease fenced immediately |
-| any nonterminal | task.supersede | SUPERSEDED | replacement revision/objective reference recorded |
-| BUILDING/REJECTED | task.fail | FAILED | execution/correction budget exhausted or unrecoverable task failure within current contract |
+| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/ACCEPTED/REJECTED/INTEGRATING/VERIFIED/BLOCKED/ESCALATED/FAILED | task.cancel | CANCELLED | caller authorised; any active lease fenced immediately; no later result admitted |
+| any state except RELEASE_CANDIDATE/CANCELLED/SUPERSEDED | task.supersede | SUPERSEDED | replacement revision/objective reference recorded; active attempt fenced |
+| any state except RELEASE_CANDIDATE/CANCELLED/SUPERSEDED | task.revise | PROPOSED (new revision) | revision-changing authority valid; old revision immutable/superseded; active attempt fenced; new context/base/acceptance revalidated before planning |
+| BUILDING/REJECTED/INTEGRATING | task.fail | FAILED | execution/correction/integration budget exhausted or unrecoverable failure within current contract |
 
-`RELEASE_CANDIDATE`, `CANCELLED` and `SUPERSEDED` are terminal for V1. `FAILED` can only resume through an explicit re-plan/new revision, not an automatic state reset.
+`RELEASE_CANDIDATE`, `CANCELLED` and `SUPERSEDED` are terminal for V1. A `FAILED` task does not auto-resume; continuation requires `task.revise` to a new PROPOSED revision (or explicit supersession).
 
 ## 4. Atomic transaction rules
 
