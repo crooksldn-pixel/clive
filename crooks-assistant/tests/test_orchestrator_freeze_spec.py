@@ -805,7 +805,7 @@ SUBJECT_MATRIX_HEADER = "| From | Command | To | Mandatory preconditions |"
 PROCESS_FACT_HEADER = "| Durable fact | Field | Written | Read by |"
 
 ANY_NONTERMINAL = "any nonterminal active"
-DISPATCH_TERMINAL = frozenset({"COMPLETED", "CANCELLED", "FENCED", "EXPIRED"})
+DISPATCH_TERMINAL = frozenset({"COMPLETED", "CANCELLED", "FENCED", "EXPIRED", "QUARANTINED"})
 
 
 def subject_states_in(cell: str) -> frozenset[str]:
@@ -1002,14 +1002,19 @@ def test_fencing_frees_the_slot_and_stops_the_process_group_before_the_commit() 
     cancellation = numbered_section_text(STATE_API, "6")
 
     assert "MUST be stopped through §6 before that commit" in fencing
+    # J-01: the release is conditioned on the cleanup proof, not on the fencing. The clean path
+    # still frees at the subject commit; the unproven path keeps its occupancy.
     assert "MUST be reusable as soon as the subject transition commits" in fencing
-    assert "MUST NOT continue to occupy a slot, a lease or a concurrency unit" in fencing
+    assert "**Terminality alone MUST NOT release a resource**" in fencing
+    assert "MUST keep it occupying its slot, its concurrency unit and its lease" in fencing
 
     # §6 must actually cover review dispatches, not attempts alone, and must order itself
     # before the subject transition.
     assert "review dispatches" in cancellation
     assert "before the subject transition commits" in cancellation
-    assert "MUST NOT continue to occupy a slot, a lease or a concurrency unit" in cancellation
+    assert (
+        "MUST continue to occupy the slot, the lease and the concurrency unit it held"
+    ) in cancellation
 
     # §3B must forbid the strand explicitly and point at the mechanism that prevents it.
     dispatch = numbered_section_text(STATE_API, "3B")
@@ -1366,6 +1371,391 @@ def test_acceptance_arms_exist_for_both_repaired_findings() -> None:
     assert "are **not** released" in st17
     assert "External-principal negative arm" in st17
     assert "fencing-only path is reachable *only* through the external principal kind" in st17
+
+
+# --------------------------------------------------------------------------------------------
+# H-03 follow-up — the one-group invariant proved by a declared count, not by a phrase blacklist.
+# --------------------------------------------------------------------------------------------
+
+
+GROUP_CARDINALITY_HEADER = "| Record kind | Owned process groups over the lifetime | Handle write points |"
+
+
+def declared_group_cardinality() -> dict[str, tuple[str, str]]:
+    """§3A.3's cardinality table as `{record kind: (group count, write points)}`."""
+    rows = table_rows_under_header(STATE_API, GROUP_CARDINALITY_HEADER)
+    return {row[0]: (row[1], row[2]) for row in rows}
+
+
+def attempt_rows_committing_the_cleanup_handle() -> list[list[str]]:
+    """§3A edges whose preconditions actually claim to commit the cleanup handle."""
+    return [
+        row for row in table_rows_in_numbered_section(STATE_API, "3A")
+        if len(row) >= 4 and f"`{CLEANUP_HANDLE}` is committed" in row[3]
+    ]
+
+
+def test_one_owned_group_per_attempt_is_a_declared_count_not_a_missing_phrase() -> None:
+    """The H-03 guard, restated positively.
+
+    The previous guard was `HANDOVER_WORDINGS`: a verbatim blacklist. Mutation testing showed a
+    *paraphrased* two-group handover could be added while the prohibition sentence stayed, and the
+    gate went green — prose-absence checks cannot see a contradicting addition. So the invariant is
+    now carried by a number: §3A.3 declares how many groups a record owns over its lifetime and how
+    many write points its handle has, and those declarations are cross-checked against the edges
+    that actually write it. A second write point fails whatever words introduce it.
+    """
+    cardinality = declared_group_cardinality()
+
+    attempt_kind = "`attempt` (TASK or INTEGRATION)"
+    assert attempt_kind in cardinality, sorted(cardinality)
+    groups, write_points = cardinality[attempt_kind]
+    assert groups == "1", f"an attempt is declared to own {groups} process groups, not 1"
+    assert write_points == "`CREATED -> STARTING`", write_points
+
+    # A kernel-owned dispatch owns one group too; an external one owns none and never writes.
+    assert cardinality["`review_dispatch` (`KERNEL_OWNED`)"][0] == "1"
+    external_groups, external_writes = cardinality["`review_dispatch` (`EXTERNAL`)"]
+    assert external_groups == "0", external_groups
+    assert external_writes.startswith("none"), external_writes
+
+    # The declaration must match the matrix: exactly one §3A edge commits the handle, and it is
+    # the edge the table names. A handover adds a second such row and fails here.
+    committing = attempt_rows_committing_the_cleanup_handle()
+    assert len(committing) == 1, (
+        f"{len(committing)} §3A edges commit the cleanup handle; the declared count is 1: "
+        + "; ".join(f"{row[0]} -> {row[2]}" for row in committing)
+    )
+    assert f"`{committing[0][0]} -> {committing[0][2]}`" == write_points, (
+        f"§3A commits the handle on {committing[0][0]} -> {committing[0][2]}, "
+        f"but §3A.3 declares the write point as {write_points}"
+    )
+
+    # The count is normative in its own right, not a summary of the prohibition.
+    three_a_three = numbered_section_text(STATE_API, "3A").split("### 3A.3", 1)[1]
+    assert "raises the owned-group count above the declared number" in three_a_three
+    assert "satisfying only the prohibition MUST NOT be sufficient" in three_a_three
+
+    # And freeze contract §11 must declare the same cardinality rather than merely agreeing in tone.
+    assert "**exactly one** per attempt" in numbered_section_text(FREEZE_CONTRACT, "11")
+
+
+# --------------------------------------------------------------------------------------------
+# J-01 — durable resource occupancy when cleanup is unproven.
+# --------------------------------------------------------------------------------------------
+
+
+OCCUPANCY_HEADER = "| Record | Occupies | While |"
+RELEASE_HEADER = "| Cleanup-unproven record | Release transition | Precondition for the release |"
+
+# The exact accounting rules that made a terminal record release its unit. These are positive
+# claims in the rejected tree, so their absence is checkable — and unlike a prose blacklist each
+# one is paired below with a derived check that fails if the rule returns in another wording.
+RELEASE_BY_TERMINALITY = (
+    "The reviewer-concurrency ceiling is enforced against non-terminal `review_dispatch` rows",
+    "the implementation/integration concurrency ceilings against non-terminal `attempt` rows",
+    "a terminal subject MUST NOT continue to occupy a slot, a lease or a concurrency unit",
+    "the freed slot is immediately reusable",
+    "so they are immediately reusable",
+)
+
+
+def occupancy_rules() -> dict[str, tuple[str, str]]:
+    """§3D's occupancy table as `{record: (resources occupied, while-condition)}`."""
+    return {row[0]: (row[1], row[2]) for row in table_rows_under_header(STATE_API, OCCUPANCY_HEADER)}
+
+
+def release_rules() -> dict[str, tuple[str, str]]:
+    """§3D's release table as `{cleanup-unproven record: (transition, precondition)}`."""
+    return {row[0]: (row[1], row[2]) for row in table_rows_under_header(STATE_API, RELEASE_HEADER)}
+
+
+def dispatch_state_enum() -> frozenset[str]:
+    """The `review_dispatch.state` enum, read from the record schema rather than from prose."""
+    block = review_dispatch_block()
+    line = next(line for line in block.splitlines() if line.startswith("- state `"))
+    return frozenset(line.split("`")[1].split("|"))
+
+
+def test_a_cleanup_unproven_dispatch_cannot_be_represented_as_ordinary_fenced() -> None:
+    """J-01's root cause: `FENCED` carried both the clean and the orphan outcome.
+
+    §6 reaches a terminal dispatch on both paths, so if the enum offers one terminal state for
+    both, committed durable state cannot answer "may a reviewer process still be alive?" — and
+    every occupancy rule built on terminality is then unsound by construction.
+    """
+    enum = dispatch_state_enum()
+    assert "QUARANTINED" in enum, (
+        "`review_dispatch` has no cleanup-unproven terminal state; `FENCED` is overloaded again"
+    )
+    assert "FENCED" in enum and enum >= {"DISPATCHED", "COMPLETED", "CANCELLED", "EXPIRED"}, enum
+
+    block = review_dispatch_block()
+    assert "`FENCED` means authority is revoked **and** kernel-owned cleanup is proven" in block
+    assert "cleanup is **not** proven" in block
+    # An external reviewer is fencing-only by virtue of its principal; it must not be swept into
+    # quarantine, or it would hold a reviewer unit for ever on cleanup grounds it can never meet.
+    assert "An `EXTERNAL` dispatch never reaches `QUARANTINED`" in block
+
+    # §3B must route the unprovable-cleanup outcome to QUARANTINED, not to FENCED.
+    rows = table_rows_in_numbered_section(STATE_API, "3B")
+    unproven = [
+        row for row in rows
+        if len(row) >= 3 and row[0] == "DISPATCHED" and "cannot be proven stopped" in row[1]
+    ]
+    assert len(unproven) == 1, unproven
+    assert unproven[0][2].startswith("QUARANTINED"), (
+        f"the unprovable-cleanup dispatch edge still lands on {unproven[0][2]!r}"
+    )
+    assert "a single state cannot carry both facts" in unproven[0][3]
+
+    # And the clean FENCED edge must say it is the proven path, so the two cannot drift together.
+    clean = [row for row in rows if len(row) >= 3 and row[0] == "DISPATCHED" and row[2] == "FENCED"]
+    assert len(clean) == 1, clean
+    assert "admissible only on the **cleanup-proven** path" in clean[0][3]
+
+
+def test_durable_occupancy_counts_cleanup_unproven_terminal_records() -> None:
+    """§3D must define occupancy over committed rows, including terminal quarantined ones."""
+    occupancy = occupancy_rules()
+    assert len(occupancy) == 3, sorted(occupancy)
+
+    dispatch = occupancy["`review_dispatch`"]
+    assert "reviewer-concurrency unit" in dispatch[0]
+    assert "required-review slot" in dispatch[0]
+    assert "**global**" in dispatch[0], "the reviewer ceiling is per-subject, so a sibling escapes it"
+    assert "`DISPATCHED`" in dispatch[1] and "`QUARANTINED`" in dispatch[1], dispatch[1]
+
+    for kind in ("TASK", "INTEGRATION"):
+        occupies, while_ = occupancy[f"`attempt` with `subject_kind = {kind}`"]
+        assert "concurrency unit" in occupies and "`lease`" in occupies
+        assert "`CLOSED / QUARANTINED`" in while_, while_
+        assert "has not yet been durably retired" in while_, while_
+        for state in ("CREATED", "STARTING", "RUNNING", "CANDIDATE_READY"):
+            assert f"`{state}`" in while_, f"{kind} occupancy omits non-terminal state {state}"
+
+    section = numbered_section_text(STATE_API, "3D")
+    assert "**Terminality MUST NOT imply release.**" in section
+    assert "pure function of committed records" in section
+    # Restart must not be able to release a unit, which is the whole point of durability here.
+    assert "Controller restart, DB restore and controller-epoch change therefore cannot release" in (
+        section
+    )
+    # Budget and occupancy stay separate in both directions (R-02 / §3A.2 preservation).
+    assert "Neither MUST be derived from the other." in section
+
+
+def test_the_release_transition_exists_and_requires_proven_emptiness() -> None:
+    """Occupancy must end at a named transition gated on proof, never by decay or by terminality."""
+    release = release_rules()
+    assert len(release) == 2, sorted(release)
+
+    dispatch_transition, dispatch_precondition = release["`review_dispatch` `QUARANTINED`"]
+    assert "`QUARANTINED -> FENCED`" in dispatch_transition
+    assert "proven empty" in dispatch_precondition
+    assert "authority-terminal" in dispatch_precondition
+    assert "`FENCE_STALE`" in dispatch_precondition, (
+        "the release does not say stale verdicts stay inadmissible across it"
+    )
+
+    attempt_transition, attempt_precondition = release["`attempt` `CLOSED / QUARANTINED`"]
+    assert f"`{CLEANUP_HANDLE}`" in attempt_transition
+    assert "proven empty" in attempt_precondition
+    assert "terminal disposition is **not** rewritten" in attempt_precondition, (
+        "releasing occupancy rewrites the disposition, which would corrupt the §3A.2 budget"
+    )
+    assert "no relaunch" in attempt_precondition, "the release invents a relaunch path"
+
+    section = numbered_section_text(STATE_API, "3D")
+    assert "MUST NOT revive result authority" in section
+    assert "MUST be committed **before or in the same transaction as** the release" in section
+
+    # §3B must actually carry the dispatch release edge, and it must be the only edge out of a
+    # terminal dispatch state.
+    rows = table_rows_in_numbered_section(STATE_API, "3B")
+    from_terminal = [row for row in rows if len(row) >= 3 and row[0] in DISPATCH_TERMINAL]
+    assert len(from_terminal) == 1, from_terminal
+    assert from_terminal[0][0] == "QUARANTINED" and from_terminal[0][2] == "FENCED", from_terminal
+    assert "proves the owned reviewer process group empty" in from_terminal[0][1]
+    assert "It restores nothing" in from_terminal[0][3]
+
+    # `controller.reconcile` is the command that commits it, so the release has an owner.
+    reconcile = next(
+        line for line in read(STATE_API).splitlines() if line.startswith("| `controller.reconcile`")
+    )
+    assert "§3D release transition" in reconcile and "no relaunch" in reconcile
+
+
+def test_freeze_contract_ceilings_count_exactly_the_occupying_rows() -> None:
+    """FC §19 is where J-01 actually bit: it counted non-terminal rows, so step 7 released.
+
+    This binds §19 to the §3D states rather than to a paraphrase, and it is the mutation case the
+    review asked for: a §19 amended back to "non-terminal rows only", or amended to release at §6
+    step 7, fails here.
+    """
+    section = numbered_section_text(FREEZE_CONTRACT, "19")
+
+    assert "defined once, normatively, by `ORCHESTRATOR_V1_STATE_API.md` §3D" in section
+    assert "MUST NOT restate it differently" in section
+    assert "non-terminal execution records **plus cleanup-unproven terminal records**" in section
+
+    # The reviewer bullet must name *exactly* the dispatch states §3D declares as occupying. This
+    # is the derived form of the check: amending §19 back to "non-terminal rows" drops
+    # `QUARANTINED` from the bullet, and set equality sees that without knowing the new wording.
+    reviewer_bullet = next(
+        line for line in section.splitlines()
+        if line.startswith("- the **reviewer-concurrency** ceiling")
+    )
+    declared = frozenset(re.findall(r"`([A-Z_]+)`", occupancy_rules()["`review_dispatch`"][1]))
+    assert declared == {"DISPATCHED", "QUARANTINED"}, declared
+    assert frozenset(re.findall(r"`([A-Z_]+)`", reviewer_bullet)) == declared, (
+        f"§19's reviewer ceiling counts {sorted(re.findall(r'`([A-Z_]+)`', reviewer_bullet))}, "
+        f"but §3D declares {sorted(declared)} as occupying"
+    )
+    assert "global" in reviewer_bullet, "a per-subject reviewer ceiling lets a sibling exceed N"
+
+    execution_bullet = next(
+        line for line in section.splitlines()
+        if line.startswith("- the **implementation-concurrency**")
+    )
+    assert "non-terminal" in execution_bullet
+    assert "disposition `QUARANTINED` whose `lease.owned_process_group_handle`" in execution_bullet
+    assert "has not yet been durably retired" in execution_bullet
+
+    # No sentence of §19 may scope a ceiling to non-terminal rows on its own. A reintroduced
+    # "enforced against non-terminal rows" fails here whatever else the section still says.
+    for sentence in re.split(r"(?<=[.;])\s+", section):
+        if "non-terminal" not in sentence:
+            continue
+        assert any(
+            marker in sentence
+            for marker in ("QUARANTINED", "specification error", "cleanup-unproven")
+        ), f"§19 scopes a ceiling to non-terminal rows alone: {sentence.strip()[:120]!r}"
+
+    # The two mutations the gate must catch, stated as prohibitions §19 itself carries.
+    assert "Terminality MUST NOT be read as release." in section
+    assert "enforcing any of these ceilings against non-terminal rows alone is a specification error" in (
+        section
+    )
+
+    # §6 must still order release at step 6 and retention at step 7 — the other half of the mutation.
+    cancellation = numbered_section_text(STATE_API, "6")
+    assert "at step 6 **and never at step 7**" in cancellation
+    step_seven = cancellation.split("\n7. ", 1)[1].split("\n\n", 1)[0]
+    assert "QUARANTINED" in step_seven and "cleanup-unproven" in step_seven
+    assert "FENCED" not in step_seven, (
+        "§6 step 7 still produces the cleanup-proven representation for a dispatch"
+    )
+
+
+@pytest.mark.parametrize("path", FREEZE_SET, ids=lambda p: p.name)
+def test_no_document_releases_a_resource_on_terminality_alone(path: Path) -> None:
+    """No freeze document may keep a statement that contradicts quarantine occupancy."""
+    text = read(path)
+    for wording in RELEASE_BY_TERMINALITY:
+        assert wording not in text, (
+            f"{path.name} still releases a resource on terminality alone: {wording!r}"
+        )
+
+
+def test_per_slot_uniqueness_and_admission_treat_quarantine_as_occupied() -> None:
+    """A replacement for a quarantined slot is the exact failure H-04 was reopened by."""
+    block = review_dispatch_block()
+    assert "restricted to the rows §3D counts as **occupying** that slot" in block
+    assert "every `DISPATCHED` row and every `QUARANTINED` row" in block
+    assert "Restricting it to non-terminal rows alone would admit a replacement" in block
+
+    # The admission edge itself must refuse, rather than relying on the constraint alone.
+    rows = table_rows_in_numbered_section(STATE_API, "3B")
+    create = [row for row in rows if len(row) >= 3 and row[0] == "none" and row[2] == "DISPATCHED"]
+    assert len(create) == 1, create
+    cell = create[0][3]
+    assert "no other dispatch occupies this required-review slot under §3D" in cell
+    assert "a replacement for a quarantined slot is refused" in cell
+    assert "past the freeze contract §19 ceiling" in cell, (
+        "dispatch admission checks the slot but not the global reviewer ceiling"
+    )
+
+    section = numbered_section_text(STATE_API, "3D")
+    assert "**per-slot uniqueness counts quarantine.**" in section
+    assert "**global reviewer concurrency counts quarantine.**" in section
+    assert "at most N-1 further reviewers may be admitted across all subjects" in section
+    # §21 reconciliation must not be the back door that replaces a quarantined slot.
+    step_eight = numbered_section_text(FREEZE_CONTRACT, "21")
+    step_eight = step_eight.split("8. reconcile", 1)[1].split("\n9. ", 1)[0]
+    assert "whose §3D occupancy has been released" in step_eight
+    assert "gets neither a replacement nor a silent release" in step_eight
+
+
+def test_attempt_occupancy_counts_quarantined_without_touching_the_budget() -> None:
+    """The single implementation slot must not be handed on merely because the row is terminal."""
+    section = numbered_section_text(STATE_API, "3D")
+    assert "**the single implementation slot and the integration ceilings count quarantine.**" in (
+        section
+    )
+    assert "no second task may start while that attempt's owned group may still exist" in section
+    assert "MUST NOT take that capacity merely because the attempt row is terminal" in section
+
+    # Both §3A quarantine edges must say the row keeps occupying, not just that it is terminal.
+    rows = table_rows_in_numbered_section(STATE_API, "3A")
+    quarantines = [
+        row for row in rows
+        if len(row) >= 4 and row[0] in {"STARTING", "RUNNING"} and row[2] == "CLOSED / QUARANTINED"
+    ]
+    assert {row[0] for row in quarantines} == {"STARTING", "RUNNING"}, [r[0] for r in quarantines]
+    for row in quarantines:
+        assert "§3D" in row[3], f"the {row[0]} quarantine edge says nothing about occupancy"
+        assert "retired" in row[3], f"the {row[0]} quarantine edge names no release condition"
+
+    # R-02: occupancy and budget stay separate, in both directions.
+    ceiling = numbered_section_text(STATE_API, "3A").split("### 3A.2", 1)[1].split("### 3A.3", 1)[0]
+    assert "**Budget consumption is not resource occupancy.**" in ceiling
+    assert "Releasing occupancy under §3D MUST NOT decrement this ceiling" in ceiling
+    assert "MUST NOT be taken as evidence that a resource was released" in ceiling
+
+
+def acceptance_rows() -> dict[str, list[str]]:
+    """Every acceptance row of the matrix, keyed by test ID.
+
+    `table_rows_under_header` stops at the first table, and the matrix repeats the same header in
+    every numbered section, so the resource-ceiling rows of §14B are unreachable through it.
+    """
+    rows: dict[str, list[str]] = {}
+    for line in read(ACCEPTANCE_MATRIX).splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.split("|")[1:-1]]
+        if cells and re.fullmatch(r"[A-Z]{2,4}-\d{2}", cells[0]):
+            rows[cells[0]] = cells
+    assert rows, "no acceptance rows parsed"
+    return rows
+
+
+def test_acceptance_covers_both_occupancy_ceilings_and_their_release() -> None:
+    """RS-03/RS-04 must exercise the ceilings, the refusals and the release, not just assert prose."""
+    rows = acceptance_rows()
+
+    rs03 = " ".join(rows["RS-03"])
+    assert "global reviewer-concurrency ceiling to N" in rs03
+    assert "a reviewer for a **different** subject is refused" in rs03
+    assert "same** required-review slot is refused" in rs03
+    assert "`QUARANTINED -> FENCED` commits **before** the unit or the slot becomes usable" in rs03
+    assert "**EXTERNAL arm:**" in rs03 and "never reaches `QUARANTINED`" in rs03
+    assert "**Clean-path arm:**" in rs03
+
+    rs04 = " ".join(rows["RS-04"])
+    assert "one** implementation slot" in rs04
+    assert "`CLOSED / QUARANTINED`" in rs04
+    assert "admission for task B is refused" in rs04
+    assert "terminality of the row is asserted not to be sufficient" in rs04
+    assert "no result from task A's quarantined attempt regains authority" in rs04
+    assert "§10.3.1 execution-attempt budget is unchanged by the release" in rs04
+
+    # ST-13/ST-17 carry the same distinction at the points the review named.
+    assert "keeps both occupied under" in " ".join(rows["ST-13"])
+    st17 = " ".join(rows["ST-17"])
+    assert "the same fresh-dispatch probe is asserted to be **refused**" in st17
+    assert "a state distinct from `FENCED`" in st17
 
 
 # --------------------------------------------------------------------------------------------
