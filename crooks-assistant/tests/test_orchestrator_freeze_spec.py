@@ -483,10 +483,28 @@ def test_every_nonterminal_attempt_state_has_a_terminal_fencing_or_cleanup_edge(
         terminal = [row for row in rows if len(row) >= 3 and row[0] == state and "CLOSED" in row[2]]
         assert terminal, f"{state} has no terminal attempt edge"
 
-    api = read(STATE_API)
-    assert "CREATED | `task.cancel` / `integration.cancel`" in api
-    assert "STARTING | `task.cancel` / `integration.cancel`" in api
-    assert "STARTING | cancellation/fencing event where a preflight process group cannot be proven stopped" in api
+    # F-03's substance, taken from the matrix rather than from three fixed substrings: the two
+    # pre-RUNNING states must each carry a *command-triggered* terminal edge — not merely an
+    # abstract "fencing event" — and STARTING must additionally carry the unproven-cleanup edge.
+    for state in ("CREATED", "STARTING"):
+        commanded = [
+            row for row in rows
+            if len(row) >= 3
+            and row[0] == state
+            and "CLOSED" in row[2]
+            and "`task.cancel`" in row[1]
+            and "`integration.cancel`" in row[1]
+        ]
+        assert commanded, f"{state} has no command-triggered terminal cancellation edge"
+
+    quarantine = [
+        row for row in rows
+        if len(row) >= 3
+        and row[0] == "STARTING"
+        and "QUARANTINED" in row[2]
+        and "cannot be proven stopped" in row[1]
+    ]
+    assert len(quarantine) == 1, quarantine
 
 
 def test_attempt_ceiling_is_a_transition_guard_not_only_prose() -> None:
@@ -779,6 +797,342 @@ def test_delivery_cannot_blindly_replay_an_initiated_external_effect() -> None:
 
 
 # --------------------------------------------------------------------------------------------
+# H-01 — no §3 subject transition may strand a live execution record.
+# --------------------------------------------------------------------------------------------
+
+
+SUBJECT_MATRIX_HEADER = "| From | Command | To | Mandatory preconditions |"
+PROCESS_FACT_HEADER = "| Durable fact | Field | Written | Read by |"
+
+ANY_NONTERMINAL = "any nonterminal active"
+DISPATCH_TERMINAL = frozenset({"COMPLETED", "CANCELLED", "FENCED", "EXPIRED"})
+
+
+def subject_states_in(cell: str) -> frozenset[str]:
+    """Subject-state names in a §3 `From`/`To` cell.
+
+    `ReleaseCandidate record` deliberately yields nothing: it is not a subject state, and the
+    `release_candidate.mark` row must not be mistaken for an exit from the execution-bearing set.
+    """
+    return frozenset(re.findall(r"\b([A-Z][A-Z_]{2,})\b", cell))
+
+
+def subject_matrix() -> list[dict[str, object]]:
+    """§3 rows as structured records, with subject kind and command resolved per row."""
+    derived = derived_execution_bearing_states()
+    parsed: list[dict[str, object]] = []
+    for row in table_rows_under_header(STATE_API, SUBJECT_MATRIX_HEADER):
+        assert len(row) == 4, f"unparseable §3 row: {row}"
+        source, command_cell, target, preconditions = row
+        command_match = re.match(r"([a-z_]+\.[a-z_]+)", command_cell)
+        assert command_match is not None, f"§3 row names no command: {command_cell!r}"
+        command = command_match.group(1)
+        kind = (
+            "INTEGRATION"
+            if "integration" in f"{source} {command} {target}"
+            else "TASK"
+        )
+        bearing = derived[kind]
+        if ANY_NONTERMINAL in source:
+            # "any nonterminal active" is every non-terminal subject state, which necessarily
+            # includes every execution-bearing one.
+            from_states: frozenset[str] = bearing
+        else:
+            from_states = subject_states_in(source)
+        parsed.append(
+            {
+                "from": from_states,
+                "command": command,
+                "to": subject_states_in(target),
+                "preconditions": preconditions,
+                "kind": kind,
+                "bearing": bearing,
+            }
+        )
+    assert len(parsed) > 25, f"§3 matrix looks truncated: {len(parsed)} rows"
+    return parsed
+
+
+def rows_leaving_the_execution_bearing_set() -> list[dict[str, object]]:
+    """Exactly the §3 rows that carry a subject out of its execution-bearing set."""
+    leaving = []
+    for row in subject_matrix():
+        held = row["from"] & row["bearing"]
+        if not held:
+            continue
+        if not row["to"]:
+            # No subject state is entered (`release_candidate.mark` creates a record instead).
+            continue
+        if row["to"] & row["bearing"]:
+            continue
+        leaving.append(row)
+    return leaving
+
+
+def test_every_subject_transition_leaving_execution_disposes_of_its_records() -> None:
+    """H-01: `candidate.reject` could strand live reviewers, and `task.block` fenced only
+    "when continuation unsafe".
+
+    This is derived from the §3 rows themselves. It recomputes which rows leave the
+    execution-bearing set — using the same §3A.1/§3B derivation §1A depends on — and requires each
+    one to carry an explicit, normative disposal obligation. A prose restatement elsewhere cannot
+    satisfy it, which is the point: two documents agreeing with each other is exactly how the
+    contradiction survived the previous round.
+    """
+    leaving = rows_leaving_the_execution_bearing_set()
+
+    # The specific edges the review named, stated so a future edit that quietly removes one from
+    # the matrix cannot shrink this check into vacuous truth.
+    commands = {row["command"] for row in leaving}
+    for required in (
+        "candidate.reject",
+        "integration.reject",
+        "integration.block",
+        "task.escalate",
+        "task.fail",
+        "task.block",
+    ):
+        assert required in commands, f"{required} no longer appears as an edge leaving execution"
+
+    problems: list[str] = []
+    for row in leaving:
+        cell = row["preconditions"]
+        fence = "[EXEC-FENCE]" in cell
+        atomic = "[EXEC-ATOMIC-CLOSE:" in cell
+        if fence == atomic:
+            problems.append(
+                f"{row['command']} ({row['kind']}) leaves {sorted(row['from'] & row['bearing'])} "
+                f"for {sorted(row['to'])} carrying "
+                + ("both tokens" if fence else "neither [EXEC-FENCE] nor [EXEC-ATOMIC-CLOSE]")
+            )
+    assert not problems, "; ".join(problems)
+
+    # `task.block` fences unconditionally now; the conditional qualifier was the defect.
+    task_block = [row for row in leaving if row["command"] == "task.block"]
+    assert len(task_block) == 1, task_block
+    assert "when continuation unsafe" not in task_block[0]["preconditions"], (
+        "task.block still fences only when continuation is judged unsafe"
+    )
+    assert "unconditionally" in task_block[0]["preconditions"]
+
+    section = numbered_section_text(STATE_API, "3")
+    assert "### 3.1 Execution-record fencing on subject transitions" in section
+    assert "before the subject transition commits" in section
+
+
+def test_atomic_close_rows_name_a_real_terminal_attempt_edge() -> None:
+    """The `[EXEC-ATOMIC-CLOSE]` escape may only cite an edge that exists and is terminal."""
+    attempt_rows = table_rows_in_numbered_section(STATE_API, "3A")
+    atomic = [
+        row for row in rows_leaving_the_execution_bearing_set()
+        if "[EXEC-ATOMIC-CLOSE:" in row["preconditions"]
+    ]
+    assert {row["command"] for row in atomic} == {"evidence.register", "integration.register"}, (
+        sorted(row["command"] for row in atomic)
+    )
+    for row in atomic:
+        named = re.search(r"\[EXEC-ATOMIC-CLOSE: §3A ([A-Z_]+) -> (CLOSED) / ([A-Z]+)\]", row["preconditions"])
+        assert named is not None, f"{row['command']} names no parseable §3A edge"
+        source, _, disposition = named.groups()
+        matching = [
+            edge for edge in attempt_rows
+            if len(edge) >= 3 and edge[0] == source and "CLOSED" in edge[2] and disposition in edge[2]
+        ]
+        assert matching, f"{row['command']} cites §3A {source} -> CLOSED / {disposition}, which does not exist"
+
+
+def test_attempt_and_dispatch_matrices_carry_the_fencing_triggers_section_3_needs() -> None:
+    """H-01's "matrices must agree" half, derived rather than restated.
+
+    For every `[EXEC-FENCE]` row, §3A.1 says which non-terminal attempt states the states it
+    leaves can actually hold, and §3B says whether those states can hold a dispatch. Each such
+    command must then appear as a trigger on the corresponding terminal edge. Adding a §3 edge
+    without teaching §3A/§3B about it fails here.
+    """
+    binding = attempt_subject_binding()
+    dispatch_section = numbered_section_text(STATE_API, "3B")
+    dispatch_bearing = {
+        kind: re.search(rf"`{kind}` subject state `([A-Z_]+)`", dispatch_section).group(1)
+        for kind in ("TASK", "INTEGRATION")
+    }
+
+    attempt_rows = table_rows_in_numbered_section(STATE_API, "3A")
+    terminal_attempt_edges: dict[str, list[str]] = {}
+    for row in attempt_rows:
+        if len(row) >= 3 and row[0] in binding and "CLOSED" in row[2]:
+            terminal_attempt_edges.setdefault(row[0], []).append(row[1])
+
+    terminal_dispatch_triggers = " ".join(
+        row[1] for row in table_rows_in_numbered_section(STATE_API, "3B")
+        if len(row) >= 3 and row[0] == "DISPATCHED" and row[2] in DISPATCH_TERMINAL
+    )
+
+    # The requirement is derived from *which rows leave the set*, not from which rows carry the
+    # token. Driving it off the token would make this test vacuously green on a matrix that has
+    # no tokens at all — precisely the false-green shape this repair exists to remove.
+    missing: list[str] = []
+    checked = 0
+    for row in rows_leaving_the_execution_bearing_set():
+        if "[EXEC-ATOMIC-CLOSE:" in row["preconditions"]:
+            # Closed through the named paired edge instead; covered by its own test.
+            continue
+        command, kind = row["command"], row["kind"]
+        held = row["from"] & row["bearing"]
+
+        for attempt_state, kinds in binding.items():
+            if kinds[kind] not in held:
+                continue
+            checked += 1
+            triggers = terminal_attempt_edges.get(attempt_state, [])
+            if not any(f"`{command}`" in trigger for trigger in triggers):
+                missing.append(f"§3A {attempt_state} has no `{command}` terminal trigger")
+
+        if dispatch_bearing[kind] in held:
+            checked += 1
+            if f"`{command}`" not in terminal_dispatch_triggers:
+                missing.append(f"§3B DISPATCHED has no `{command}` terminal trigger")
+
+    assert checked > 20, f"only {checked} matrix agreements derived; the derivation went vacuous"
+    assert not missing, "; ".join(sorted(set(missing)))
+
+
+def test_fencing_frees_the_slot_and_stops_the_process_group_before_the_commit() -> None:
+    """The two consequences H-01 requires beyond mere record termination."""
+    fencing = numbered_section_text(STATE_API, "3")
+    cancellation = numbered_section_text(STATE_API, "6")
+
+    assert "MUST be stopped through §6 before that commit" in fencing
+    assert "MUST be reusable as soon as the subject transition commits" in fencing
+    assert "MUST NOT continue to occupy a slot, a lease or a concurrency unit" in fencing
+
+    # §6 must actually cover review dispatches, not attempts alone, and must order itself
+    # before the subject transition.
+    assert "review dispatches" in cancellation
+    assert "before the subject transition commits" in cancellation
+    assert "MUST NOT continue to occupy a slot, a lease or a concurrency unit" in cancellation
+
+    # §3B must forbid the strand explicitly and point at the mechanism that prevents it.
+    dispatch = numbered_section_text(STATE_API, "3B")
+    assert "MUST NOT exist under any other subject state" in dispatch
+    assert "MUST fence those siblings rather than abandon them" in dispatch
+
+
+# --------------------------------------------------------------------------------------------
+# H-02 — the pre-RUNNING cleanup handle and the ceiling discriminator are separate facts.
+# --------------------------------------------------------------------------------------------
+
+
+CLEANUP_HANDLE = "lease.owned_process_group_handle"
+CEILING_DISCRIMINATOR = "attempt.running_process_group_identity"
+
+
+def test_pre_running_cleanup_handle_and_ceiling_discriminator_are_distinct_facts() -> None:
+    """H-02: one `process-group identity` field answered both "what do I kill?" and "did this
+    attempt ever run?", and those two questions have different answers during STARTING.
+
+    The repair is schema-free — an existing lease field and the existing committed-RUNNING fact
+    take one role each — so this test's job is to prove the roles really are separate: two named
+    fields, two population times, one reader each, and no document naming one where the other is
+    meant.
+    """
+    api = read(STATE_API)
+
+    facts = table_rows_under_header(STATE_API, PROCESS_FACT_HEADER)
+    assert len(facts) == 2, facts
+    fields = [row[1].strip("`") for row in facts]
+    assert fields == [CLEANUP_HANDLE, CEILING_DISCRIMINATOR], fields
+    assert len(set(fields)) == 2, "the two durable facts collapsed onto one field"
+
+    cleanup, ceiling = facts
+    # Population timing is normative and opposite: the handle is written *before* the fork, the
+    # discriminator only at the RUNNING commit.
+    assert "**before** the owned process group is created" in cleanup[2]
+    assert "CREATED -> STARTING" in cleanup[2] and "STARTING -> RUNNING" in cleanup[2]
+    assert "exactly once" in ceiling[2] and "STARTING -> RUNNING" in ceiling[2]
+    assert "NULL at every other time" in ceiling[2]
+
+    # One reader each, and neither is the other's reader.
+    assert "§6" in cleanup[3] and "§21" in cleanup[3]
+    assert ceiling[3].strip().startswith("§3A.2")
+    assert "§3A.2" not in cleanup[3]
+    assert "§6" not in ceiling[3]
+
+    # The schema declares each field on exactly one record.
+    attempt_block = api.split("### `attempt`", 1)[1].split("### `lease`", 1)[0]
+    lease_block = api.split("### `lease`", 1)[1].split("### `review_dispatch`", 1)[0]
+    assert "`running_process_group_identity`" in attempt_block
+    assert "`owned_process_group_handle`" in lease_block
+    assert "- `owned_process_group_handle`" not in attempt_block
+    assert "- `running_process_group_identity`" not in lease_block
+
+
+def test_the_four_sections_agree_on_which_fact_they_use() -> None:
+    """§1A, §3A, §3A.2 and §6 must each name the field whose role they actually need."""
+    ceiling = numbered_section_text(STATE_API, "3A")
+    # §3A.2 lives inside §3A; address the ceiling subsection precisely through its own table.
+    assert CEILING_DISCRIMINATOR in ceiling.split("### 3A.2", 1)[1].split("### 3A.3", 1)[0], (
+        "§3A.2 does not name the ceiling discriminator"
+    )
+
+    one_a = numbered_section_text(STATE_API, "1A")
+    assert "two different fields with two different population times" in one_a
+    assert "MUST NOT be inferred from the other" in one_a
+
+    cancellation = numbered_section_text(STATE_API, "6")
+    assert f"`{CLEANUP_HANDLE}`" in cancellation, "§6 identifies no durable cleanup handle"
+    assert CEILING_DISCRIMINATOR not in cancellation, (
+        "§6 reaches for the ceiling discriminator, which is NULL exactly when cleanup matters most"
+    )
+
+    # The pre-RUNNING attempt edges must populate and read the right one.
+    rows = table_rows_in_numbered_section(STATE_API, "3A")
+    to_starting = [row for row in rows if len(row) >= 3 and row[0] == "CREATED" and row[2] == "STARTING"]
+    assert len(to_starting) == 1, to_starting
+    assert f"`{CLEANUP_HANDLE}` is committed **before**" in to_starting[0][3]
+    assert "`attempt.running_process_group_identity` stays NULL" in to_starting[0][3]
+
+    to_running = [row for row in rows if len(row) >= 3 and row[0] == "STARTING" and row[2] == "RUNNING"]
+    assert len(to_running) == 1, to_running
+    assert "`attempt.running_process_group_identity` is written in this same commit" in to_running[0][3]
+
+
+def test_crash_during_starting_is_cleaned_up_without_quarantine_or_budget_loss() -> None:
+    """The STARTING crash window resolves deterministically, in all three of its outcomes."""
+    three_a_three = numbered_section_text(STATE_API, "3A").split("### 3A.3", 1)[1]
+
+    # A missing handle is proof of no group, not an unknown — that is what removes the ambiguity.
+    assert "positive proof that no owned group exists" in three_a_three
+    assert "MUST close `FENCED`/`CANCELLED`" in three_a_three
+    # A live group is identified, stopped and closed FENCED without charging the ceiling.
+    assert "stopping the named group through §6" in three_a_three
+    assert "cannot consume execution budget" in three_a_three
+    # QUARANTINED is reserved for genuinely unprovable cleanup.
+    assert "MUST NOT be used merely because no durable identity was recorded" in three_a_three
+    # R-02 survives: deterministic preflight failure is still budget-consuming.
+    assert "remains budget-consuming and R-02 is not weakened" in three_a_three
+
+    rows = table_rows_in_numbered_section(STATE_API, "3A")
+    quarantine = [
+        row for row in rows
+        if len(row) >= 3
+        and row[0] == "STARTING"
+        and "QUARANTINED" in row[2]
+        and "cannot be proven stopped" in row[1]
+    ]
+    assert len(quarantine) == 1, quarantine
+    assert CLEANUP_HANDLE in quarantine[0][1], (
+        "the STARTING quarantine edge does not say which group could not be proven stopped"
+    )
+    assert "a NULL or absent handle is proof of no group" in quarantine[0][3]
+
+    # Restart reconciliation must use the same fact under the same rule.
+    step_five = numbered_section_text(FREEZE_CONTRACT, "21")
+    assert "`owned_process_group_handle`" in step_five
+    assert "An attempt found in `STARTING` is reconciled here" in step_five
+    assert "does not consume the §10.3.1 ceiling" in step_five
+
+
+# --------------------------------------------------------------------------------------------
 # Regression guards for the previously validated N-series repairs.
 # --------------------------------------------------------------------------------------------
 
@@ -787,7 +1141,7 @@ def test_traceability_dispositions_every_reviewed_finding() -> None:
     """Silence is not a disposition: N-01..N-04 and B-01..B-05 each carry an explicit row."""
     text = read(TRACEABILITY)
     assert "Silence is not a disposition." in text
-    for finding in ("N-01", "N-02", "N-03", "N-04", "B-01", "B-02", "B-03", "B-04", "B-05", "R-01", "R-02", "R-03", "F-01", "F-02", "F-03", "G-01", "G-02", "G-03"):
+    for finding in ("N-01", "N-02", "N-03", "N-04", "B-01", "B-02", "B-03", "B-04", "B-05", "R-01", "R-02", "R-03", "F-01", "F-02", "F-03", "G-01", "G-02", "G-03", "H-01", "H-02"):
         assert f"re-review {finding} " in text, f"{finding} has no traceability disposition"
 
 

@@ -176,13 +176,13 @@ A lease records:
 - acquired time;
 - heartbeat deadline;
 - workspace ID;
-- runner/process-group identity.
+- `owned_process_group_handle` — the durable identity of whatever process group the attempt currently owns, committed before that group is created, per `ORCHESTRATOR_V1_STATE_API.md` §3A.3. It is the cleanup handle only; whether the attempt ever reached `RUNNING` is the separate `attempt.running_process_group_identity` fact, and the two MUST NOT be conflated.
 
 Heartbeats prove liveness only. They MUST NOT extend scope or mark progress/success.
 
 One authoritative lease exists per `(subject kind, subject ID, subject revision)`, so an implementation attempt and an integration attempt never contend for the same lease. Review dispatches are not leases: several independent reviewers may run concurrently on one subject, so each review dispatch is fenced individually under its own dispatch token, bounded by the §19 reviewer-concurrency ceiling.
 
-Lease expiry does not by itself prove the process is dead. Before reassignment the controller MUST reconcile process/cgroup state. If the old process tree cannot be proven stopped, quarantine the workspace and block reassignment. The same rule applies to an expired review dispatch: expiry strips the dispatch's authority immediately, but it does not by itself prove the reviewer process is gone, and an unprovable reviewer process blocks the subject rather than triggering a silent re-dispatch.
+Lease expiry does not by itself prove the process is dead. Before reassignment the controller MUST reconcile process/cgroup state, identifying the group from `owned_process_group_handle`. If the old process tree cannot be proven stopped, quarantine the workspace and block reassignment. A NULL handle is not an unknown: because the handle is committed before the group is forked, NULL proves no owned group was ever created, cleanup is proven, and quarantine MUST NOT be used for that case. The same rule applies to an expired review dispatch: expiry strips the dispatch's authority immediately, but it does not by itself prove the reviewer process is gone, and an unprovable reviewer process blocks the subject rather than triggering a silent re-dispatch.
 
 Clock rules:
 
@@ -444,6 +444,8 @@ A reviewer may not silently patch the candidate it certifies. If it supplies cod
 
 Review records bind exact candidate/evidence identities. Candidate mutation invalidates review automatically.
 
+Required reviews run concurrently, so a subject decision is frequently reachable before every reviewer has reported: one `CHANGES_REQUIRED` verdict or one blocking finding decides `candidate.reject`, and a failed gate decides `integration.reject`. The siblings that are still running MUST NOT simply be abandoned. `ORCHESTRATOR_V1_STATE_API.md` §3.1 requires every such transition to fence each remaining `review_dispatch`, stop its owned reviewer process group per §6, and release its required-review slot and reviewer-concurrency unit, all before the subject transition commits. A fenced reviewer's later verdict is rejected with `FENCE_STALE` even though the subject SHA never changed, and the freed slot is immediately reusable rather than occupied by a review whose subject is already terminal.
+
 Risk classification is deterministic and closed:
 
 | Risk class | Rule | Minimum gate |
@@ -482,7 +484,7 @@ Any integration edit creates a new subject. Relevant tests/replay/reviews MUST b
 
 Prior isolated reviews remain historical evidence; they are not proof that the integrated result is accepted.
 
-Integration **execution** is not a pure function. An integrator is a process-owning, cancellable, crash-prone worker exactly as an implementation worker is, so it MUST be represented by the same durable execution substrate: an `attempt` with `subject_kind = INTEGRATION`, holding its own authoritative lease, controller epoch, monotonic fencing token, isolated workspace and owned process group (`ORCHESTRATOR_V1_STATE_API.md` §1A). Consequently:
+Integration **execution** is not a pure function. An integrator is a process-owning, cancellable, crash-prone worker exactly as an implementation worker is, so it MUST be represented by the same durable execution substrate: an `attempt` with `subject_kind = INTEGRATION`, holding its own authoritative lease, controller epoch, monotonic fencing token, isolated workspace and owned process group recorded in `owned_process_group_handle` (`ORCHESTRATOR_V1_STATE_API.md` §1A, §3A.3). Consequently:
 
 - `integration.cancel` is implementable as written — it fences a lease and stops a process group that actually exist;
 - integrator cleanup uses the same §11 TERM/grace/KILL and verified-emptiness rule, and an integration workspace MUST NOT be reused until emptiness is proven;
@@ -594,13 +596,13 @@ On controller start/restart:
 2. open DB and verify schema/integrity;
 3. increment controller epoch;
 4. enter implicit drain/no-dispatch mode;
-5. reconcile recorded active implementation attempts with cgroups/processes;
-6. reconcile recorded active **integration attempts** with cgroups/processes and integration workspaces, on the same terms as step 5; an integration left in `INTEGRATING` is reconciled here and never blind re-dispatched;
+5. reconcile recorded active implementation attempts with cgroups/processes, identifying each owned group from `owned_process_group_handle` (`ORCHESTRATOR_V1_STATE_API.md` §3A.3). An attempt found in `STARTING` is reconciled here even though it never reached `RUNNING`: its recorded handle names any live preflight group, which is stopped per §6 before the attempt closes `FENCED`, and a NULL handle proves no group exists rather than leaving cleanup unknown. `QUARANTINED` is reserved for a group named by a non-NULL handle that cannot be proven stopped, and a `STARTING` attempt fenced this way does not consume the §10.3.1 ceiling because `running_process_group_identity` is NULL;
+6. reconcile recorded active **integration attempts** with cgroups/processes and integration workspaces, on the same terms as step 5, including the `STARTING` preflight window and the same handle/discriminator separation; an integration left in `INTEGRATING` is reconciled here and never blind re-dispatched;
 7. reconcile workspaces and measured Git identity;
 8. reconcile **in-flight review dispatches**: for every non-terminal `review_dispatch`, observe process state, fence any dispatch that is expired or whose liveness cannot be proven, terminate reviewer process groups the kernel owns, and for each required-review slot either create exactly one replacement dispatch under a new fencing token or block the subject — never both, and never leave the subject silently in `REVIEWING`;
 9. reconcile candidate/evidence records;
 10. reconcile ambiguous remote publications, **including every `delivery` record left `PENDING`**: a PENDING delivery whose `attempt count` is non-zero is durable evidence that an external publication effect may already have been initiated, so it MUST be moved to `UNKNOWN` through `ORCHESTRATOR_V1_STATE_API.md` §3C **before any further external effect**, and `delivery.publish` MUST NOT replay it. A PENDING delivery with a zero `attempt count` initiated no effect and survives unchanged;
-11. fence obsolete leases, dispatches and results;
+11. fence obsolete leases, dispatches and results, releasing the required-review slots, reviewer-concurrency units and execution slots they occupied so they are immediately reusable;
 12. surface unresolved ambiguity as BLOCKED;
 13. only then enable dispatch.
 
@@ -609,6 +611,8 @@ Steps 5, 6 and 8 together cover all three execution records of `ORCHESTRATOR_V1_
 An **execution-bearing** subject state — one in which §3A or §3B admits a non-terminal execution record, derived mechanically there rather than listed by hand here — found with no non-terminal execution record is itself an unresolved ambiguity and MUST be surfaced as BLOCKED at step 12, through the subject's listed `task.block`/`integration.block` edge with reason code `EXECUTION_RECORD_MISSING` and never by blind re-dispatch. Under the matrices as written it derives to the `TASK` subject states `ASSIGNED`, `BUILDING`, `REVIEWING`, and the `INTEGRATION` subject states `INTEGRATING`, `REVIEWING`.
 
 `ASSIGNED` is in that set because step 3 increments the controller epoch on **every** restart, which terminally fences an attempt still in `CREATED` or `STARTING` without moving the subject. A task whose only attempt was fenced in that pre-`RUNNING` window would otherwise sit in `ASSIGNED` for ever: invisible to steps 5–8, holding no lease the scheduler would notice, and never re-dispatched. It is surfaced as BLOCKED here instead, and the fenced attempt does not consume the §10.3.1 execution-attempt ceiling.
+
+The dual inconsistency is a **live** execution record under a subject state *outside* that set — a `DISPATCHED` review under a `REJECTED` candidate, or a `RUNNING` attempt under a `BLOCKED` task. Reconciliation cannot repair that case by blocking the subject, because the subject has already left the set, so `ORCHESTRATOR_V1_STATE_API.md` §3.1 forbids it at the transition instead: every §3 edge out of an execution-bearing state MUST terminally fence its records, or atomically close them through the paired §3A/§3B edge, before it commits. Any such record found here is nevertheless fenced at step 11 and reported at step 12; it is a specification or implementation violation, never a normal state.
 
 Absence of a heartbeat, process or outbox is never enough by itself to conclude that work never completed.
 

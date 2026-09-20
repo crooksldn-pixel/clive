@@ -75,7 +75,7 @@ A finding is authoritative for its own subject, and findings are queryable by `(
 - controller epoch;
 - fencing token;
 - provider/model/effort/runner kind;
-- process-group/cgroup identity — NULL until the attempt commits `RUNNING`, non-NULL from then on, because §3A establishes owned process-group identity exactly at that commit. It is therefore the durable record of whether a model process was ever launched under this attempt, which §3A's execution-attempt ceiling reads;
+- `running_process_group_identity` — the **execution-ceiling discriminator** of §3A.3. NULL until the attempt commits `RUNNING`, non-NULL from then on, written exactly once in that commit, and never written by any other edge. It is the durable authoritative fact of whether this attempt ever reached `RUNNING`, and §3A.2 is its only reader. It is deliberately **not** the handle used to find and stop an owned process group; §3A.3 gives that role to `lease.owned_process_group_handle`, which is populated earlier, so neither field is asked two questions at once;
 - start/end timestamps;
 - failure code nullable.
 
@@ -91,9 +91,9 @@ One authoritative lease per `(subject_kind, subject_id, subject_revision)`, take
 - acquired time;
 - heartbeat deadline;
 - workspace ID;
-- runner/process-group identity.
+- `owned_process_group_handle` — the **owned-process-group cleanup handle** of §3A.3: the durable identity of whatever process group this attempt currently owns, committed **before** that group is created, first for the preflight group on `CREATED -> STARTING` and then for the model process group on `STARTING -> RUNNING`. NULL means no owned group has ever been created under this attempt, which is a positive proof rather than an absence of knowledge, because the write always precedes the fork.
 
-Lease replacement and fencing-token increment occur atomically. Workspace ID and runner/process-group identity are listed here to match the lease contents already required by `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §8.
+Lease replacement and fencing-token increment occur atomically. Workspace ID and `owned_process_group_handle` are listed here to match the lease contents already required by `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §8. `owned_process_group_handle` is the cleanup handle only; the separate question of whether the attempt ever reached `RUNNING` is answered by `attempt.running_process_group_identity`, per §3A.3.
 
 ### `review_dispatch`
 The durable execution record for one dispatched reviewer. Review execution is a scheduled, cancellable, crash-prone model process, so §1A requires it to be represented before it runs rather than only once a verdict arrives.
@@ -254,6 +254,8 @@ The following rules apply uniformly to all three, and are the reason the substra
 - result admission MUST present the current controller epoch and the current fencing token of that exact record, and MUST be rejected with `FENCE_STALE` when the record is terminal, superseded or unknown — **including when the subject SHA has not changed**;
 - cancellation, expiry and replacement each move the record to a terminal state, and that is what makes a late result stale. Candidate-mutation invalidation (freeze contract §14.3) is an additional and independent mechanism; it MUST NOT be relied on as the only one, because a stale reviewer or integrator commonly returns against an unchanged SHA;
 - termination follows the §6 cancellation race contract against that record's own process group, and workspace reuse follows the freeze-contract §11 emptiness rule;
+- the durable handle used to **find and stop** an owned process group and the durable fact used to decide whether an attempt ever **reached `RUNNING`** are two different fields with two different population times, defined once in §3A.3. One MUST NOT be inferred from the other: a missing cleanup handle proves no group was created, and it MUST NOT be read as "the attempt never ran" for ceiling purposes, nor MUST a populated ceiling discriminator be used as a cleanup handle;
+- a subject transition that leaves an execution-bearing state MUST NOT strand a record this substrate created. §3.1 makes that a per-row obligation on the §3 matrix, so the guarantee is checked against the transitions themselves rather than promised here;
 - restart reconciliation (freeze contract §21) covers all three record kinds before dispatch is re-enabled.
 
 `subject_kind = TASK` is exactly the pre-existing implementation-attempt semantics under a generalised column name, so this section adds an execution substrate for integrators and reviewers without changing the task-attempt model that `ST-*`, `LS-*`, `WS-*` and `CXN-01..CXN-04` already prove.
@@ -267,13 +269,13 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | `task.create` | Director/intake adapter | create PROPOSED task + revision 1 |
 | `task.revise` | Director | from any nonterminal task, create immutable new revision, fence obsolete attempt/lease, mark old revision superseded and set new revision to PROPOSED |
 | `task.plan` | Director through validated channel | PROPOSED/BLOCKED/ESCALATED -> PLANNED after contract/context validation |
-| `task.block` | kernel/policy/reviewer/Director channel | enter BLOCKED with typed reason |
-| `task.escalate` | kernel/reviewer/Director | enter ESCALATED |
-| `task.fail` | kernel | enter FAILED when approved execution budget exhausted |
+| `task.block` | kernel/policy/reviewer/Director channel | enter BLOCKED with typed reason; fences every non-terminal execution record of the subject per §3.1 |
+| `task.escalate` | kernel/reviewer/Director | enter ESCALATED; fences every non-terminal execution record of the subject per §3.1 |
+| `task.fail` | kernel | enter FAILED when approved execution budget exhausted; fences every non-terminal execution record of the subject per §3.1 |
 | `task.cancel` | authorised controller/Owner/Director policy | fence active attempt; enter CANCELLED |
 | `task.supersede` | Director/Owner | fence active attempt; enter SUPERSEDED |
 | `attempt.assign` | scheduler | PLANNED or bounded-correction REJECTED -> ASSIGNED; create a fresh attempt/workspace reservation + lease |
-| `attempt.start` | runner adapter | ASSIGNED -> BUILDING only after measured preflight |
+| `attempt.start` | runner adapter | ASSIGNED -> BUILDING only after measured preflight; commits the §3A.3 owned-process-group handle before creating any preflight process group, and the §3A.3 ceiling discriminator in the `RUNNING` commit |
 | `attempt.heartbeat` | current runner adapter | renew the presenting attempt's current lease only; valid for either attempt subject kind |
 | `attempt.cancel_ack` | runner/process manager | record process-tree stop/quarantine outcome; valid for either attempt subject kind |
 | `candidate.register` | deterministic collector | while task remains BUILDING, create durable Candidate immediately after immutable commit identity is measured; does not itself advance task state |
@@ -281,16 +283,16 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | `review.request` | review coordinator | EVIDENCE_READY -> REVIEWING and create one non-terminal `review_dispatch` per required-review slot, each bound to exact subject SHA, subject revision, controller epoch and a fresh dispatch fencing token, before any reviewer process is launched |
 | `review.record` | validated independent reviewer channel | persist exact-SHA verdict/findings under a named live dispatch; that dispatch becomes `COMPLETED` in the same transaction |
 | `review.cancel` | review coordinator/kernel policy | move a named `review_dispatch` to `CANCELLED`, `FENCED` or `EXPIRED` and stop its owned process group per §6; no later verdict from that dispatch is admissible |
-| `candidate.accept` | kernel policy | REVIEWING -> ACCEPTED only when all required reviews/findings satisfy policy |
-| `candidate.reject` | kernel policy | REVIEWING -> REJECTED |
+| `candidate.accept` | kernel policy | REVIEWING -> ACCEPTED only when all required reviews/findings satisfy policy; fences any non-terminal `review_dispatch` still owned by the candidate per §3.1 |
+| `candidate.reject` | kernel policy | REVIEWING -> REJECTED; fences every non-terminal `review_dispatch` still owned by the candidate per §3.1, including the dispatches that have not reported |
 | `integration.create` | integration coordinator | create separate CREATED integration from one or more exact ACCEPTED candidate SHAs |
 | `integration.begin` | integrator coordinator | CREATED -> INTEGRATING and atomically create the integration `attempt` (`subject_kind = INTEGRATION`), workspace reservation, controller epoch, fencing token and authoritative `lease`; allocation only — no model/toolchain preflight and no integrator process launch occur here |
-| `integration.start` | runner adapter | while the integration remains INTEGRATING, drive its allocated attempt through STARTING -> RUNNING only after the measured §5B/§11 preflight passes and owned process-group identity is established |
+| `integration.start` | runner adapter | while the integration remains INTEGRATING, drive its allocated attempt through STARTING -> RUNNING only after the measured §5B/§11 preflight passes; the §3A.3 owned-process-group handle is committed before any preflight process group is created and the §3A.3 ceiling discriminator is written in the `RUNNING` commit |
 | `integration.register` | deterministic collector | INTEGRATING -> EVIDENCE_READY after integration SHA + evidence exist; requires the current epoch/fencing token of the live integration attempt |
 | `integration.review_request` | review coordinator | EVIDENCE_READY -> REVIEWING and create one non-terminal `review_dispatch` per required integrated-review slot, exactly as `review.request` does for candidates |
 | `integration.verify` | kernel policy/CI/review coordinator | REVIEWING -> VERIFIED when required integrated gates pass and no blocking finding for that integration subject is `OPEN`/`BLOCKED` |
-| `integration.reject` | kernel policy | REVIEWING -> REJECTED on blocking integrated finding; REJECTED integration is immutable/terminal and any correction uses a new integration record with parent_integration_id |
-| `integration.block` | kernel/policy/review coordinator | CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING -> BLOCKED with typed reason; no automatic retry |
+| `integration.reject` | kernel policy | REVIEWING -> REJECTED on blocking integrated finding; fences every non-terminal `review_dispatch` of the integration per §3.1; REJECTED integration is immutable/terminal and any correction uses a new integration record with parent_integration_id |
+| `integration.block` | kernel/policy/review coordinator | CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING -> BLOCKED with typed reason; fences every non-terminal integration `attempt` and `review_dispatch` of the integration per §3.1; no automatic retry |
 | `integration.cancel` | authorised controller/Director policy | CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED -> CANCELLED. If still `CREATED` before `integration.begin`, no attempt/lease exists and the subject is cancelled directly. Otherwise the allocated integration attempt's lease is fenced and its process group stopped per §6, and any non-terminal `review_dispatch` is fenced. If an owned process group cannot be proven empty the attempt closes `QUARANTINED`, the workspace is not reused and the integration goes to BLOCKED instead of CANCELLED |
 | `release_candidate.mark` | GPT Director validated channel + kernel policy | create immutable ReleaseCandidate from VERIFIED integration |
 | `delivery.publish` | publication adapter | create/reuse a durable PENDING delivery intent before the external publication effect; after the effect, persist exact observed success as PUBLISHED or an ambiguous outcome as UNKNOWN according to §3C |
@@ -316,33 +318,54 @@ Any **task or integration subject-state** transition not listed in §3 is forbid
 | PLANNED | attempt.assign | ASSIGNED | controller RUNNING; capacity; no current lease; dependencies accepted; **per-revision attempt ceiling not exhausted**; workspace reservation succeeds |
 | ASSIGNED | attempt.start | BUILDING | current epoch/fence; measured clean exact base; tool/capability roster passes; process ownership established |
 | BUILDING | candidate.register | BUILDING (Candidate row added) | current epoch/fence; candidate commit measured; Candidate persisted before evidence collection; evidence digest may be NULL |
-| BUILDING + Candidate | evidence.register | EVIDENCE_READY | current epoch/fence; required evidence artifacts durably imported; manifest digest validated and attached |
+| BUILDING + Candidate | evidence.register | EVIDENCE_READY | current epoch/fence; required evidence artifacts durably imported; manifest digest validated and attached; the same transaction closes the `CANDIDATE_READY` attempt `SUCCEEDED`, so no execution record survives the move out of BUILDING. [EXEC-ATOMIC-CLOSE: §3A CANDIDATE_READY -> CLOSED / SUCCEEDED] |
 | EVIDENCE_READY | review.request | REVIEWING | exact candidate/evidence frozen; required reviewer policy resolved; one non-terminal `review_dispatch` created per required-review slot under the current revision/epoch and a fresh dispatch fencing token |
 | REVIEWING | review.record | REVIEWING (Review row added) | presented `review_dispatch_id` exists, is in state `DISPATCHED`, belongs to this exact subject/SHA, and presents the current task revision, controller epoch and that dispatch's current fencing token; presenting reviewer principal equals the dispatch's bound principal; §9 independence holds. The dispatch becomes `COMPLETED` in the same transaction. Any other case is rejected with `FENCE_STALE` and no Review row is written |
 | REVIEWING | review.cancel | REVIEWING (dispatch terminal) | caller authorised or deterministic expiry/replacement condition met; dispatch moves to `CANCELLED`/`FENCED`/`EXPIRED`; owned reviewer process group stopped per §6; rejection of any later verdict from it is thereafter automatic |
-| REVIEWING | candidate.accept | ACCEPTED | all required independent reviews ACCEPT, each admitted under a then-live dispatch for a distinct required-review slot; no `OPEN`/`BLOCKED` blocking finding for this candidate subject; context still current |
-| REVIEWING | candidate.reject | REJECTED | one or more required reviews CHANGES_REQUIRED or blocking finding for this candidate subject |
+| REVIEWING | candidate.accept | ACCEPTED | all required independent reviews ACCEPT, each admitted under a then-live dispatch for a distinct required-review slot; no `OPEN`/`BLOCKED` blocking finding for this candidate subject; context still current. `ACCEPTED` is terminal, so any `review_dispatch` still `DISPATCHED` is fenced before the subject transition commits. [EXEC-FENCE] |
+| REVIEWING | candidate.reject | REJECTED | one or more required reviews CHANGES_REQUIRED or blocking finding for this candidate subject. Rejection is decidable from one verdict while sibling dispatches are still live, so every `review_dispatch` of this candidate that is still `DISPATCHED` is fenced, its owned reviewer process group stopped per §6 and its required-review slot released, before `REJECTED` commits. [EXEC-FENCE] |
 | REJECTED | attempt.assign | ASSIGNED | same task revision; correction budget available; **per-revision attempt ceiling not exhausted**; fresh attempt/fence; prior candidate retained |
 | ACCEPTED task(s) | integration.create | integration CREATED | one or more exact accepted candidate SHAs; explicit target base; dependencies/context current; source task states remain ACCEPTED |
 | integration CREATED | integration.begin | integration INTEGRATING | controller RUNNING; integration capacity available; no current integration lease; workspace reservation succeeds; integration `attempt` (`subject_kind = INTEGRATION`) and authoritative `lease` are created atomically; **no preflight and no integrator process launch occur in this command** |
 | integration INTEGRATING | integration.start | integration INTEGRATING | current integration epoch/fence and reserved workspace; the allocated integration attempt is CREATED or STARTING; §3A owns the attempt-state edges; measured exact base/branch/environment/tool/capability preflight passes before RUNNING and an owned integrator process group is established before RUNNING is committed |
-| integration INTEGRATING | integration.register | integration EVIDENCE_READY | current epoch/fencing token of the live integration attempt; integration SHA independently measured; required evidence manifest exists; the integration attempt reaches `CANDIDATE_READY` and then `CLOSED / SUCCEEDED` |
+| integration INTEGRATING | integration.register | integration EVIDENCE_READY | current epoch/fencing token of the live integration attempt; integration SHA independently measured; required evidence manifest exists; the integration attempt reaches `CANDIDATE_READY` and then `CLOSED / SUCCEEDED` in that same transaction. [EXEC-ATOMIC-CLOSE: §3A CANDIDATE_READY -> CLOSED / SUCCEEDED] |
 | integration EVIDENCE_READY | integration.review_request | integration REVIEWING | required integrated reviewer policy resolved; one non-terminal `review_dispatch` created per required integrated-review slot |
-| integration REVIEWING | integration.verify | integration VERIFIED | all required integrated tests/reviews pass, each verdict admitted under a then-live dispatch; no blocking finding whose subject is this integration is `OPEN` or `BLOCKED`; where this integration carries `parent_integration_id`, every unresolved inherited finding has an explicit `RESOLVED`/`OBSOLETE` disposition with a recorded reason |
-| integration REVIEWING | integration.reject | integration REJECTED | blocking finding for this integration subject or required gate failure |
-| integration CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING | integration.block | integration BLOCKED | deterministic dependency/authority/evidence/resource blocker; exact reason persisted |
+| integration REVIEWING | integration.verify | integration VERIFIED | all required integrated tests/reviews pass, each verdict admitted under a then-live dispatch; no blocking finding whose subject is this integration is `OPEN` or `BLOCKED`; where this integration carries `parent_integration_id`, every unresolved inherited finding has an explicit `RESOLVED`/`OBSOLETE` disposition with a recorded reason; any `review_dispatch` still `DISPATCHED` is fenced before `VERIFIED` commits. [EXEC-FENCE] |
+| integration REVIEWING | integration.reject | integration REJECTED | blocking finding for this integration subject or required gate failure; every `review_dispatch` of this integration that is still `DISPATCHED` is fenced, its owned reviewer process group stopped per §6 and its slot released, before `REJECTED` commits. [EXEC-FENCE] |
+| integration CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING | integration.block | integration BLOCKED | deterministic dependency/authority/evidence/resource blocker; exact reason persisted; every non-terminal integration `attempt` and `review_dispatch` of this integration is terminally fenced and its owned process group stopped per §6 before `BLOCKED` commits, unconditionally. This is also the edge §1A reconciliation uses for an execution-bearing INTEGRATION subject found with no non-terminal execution record, carrying `EXECUTION_RECORD_MISSING`. [EXEC-FENCE] |
 | integration CREATED | integration.cancel | integration CANCELLED | caller authorised; `integration.begin` has not allocated an attempt/lease/workspace, so cancellation is a direct subject-state transition with no fictitious execution record to fence |
-| integration INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel | integration CANCELLED | caller authorised; the allocated integration attempt's `lease` is fenced and any owned process group is stopped through the §6 TERM/grace/KILL sequence; process group verified empty; every non-terminal `review_dispatch` for this integration is fenced |
-| integration INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel where an owned process group cannot be proven empty | integration BLOCKED | integration attempt closes `QUARANTINED`; integration workspace is not reused; the blocking reason is persisted. Cancellation never reports CANCELLED on unproven cleanup |
+| integration INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel | integration CANCELLED | caller authorised; the allocated integration attempt's `lease` is fenced and any owned process group is stopped through the §6 TERM/grace/KILL sequence; process group verified empty; every non-terminal `review_dispatch` for this integration is fenced and its slot released, before `CANCELLED` commits. [EXEC-FENCE] |
+| integration INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel where an owned process group cannot be proven empty | integration BLOCKED | integration attempt closes `QUARANTINED` — itself a terminal disposition, so the record is not left non-terminal — integration workspace is not reused, non-terminal `review_dispatch` rows are still fenced, and the blocking reason is persisted. Cancellation never reports CANCELLED on unproven cleanup. [EXEC-FENCE] |
 | integration VERIFIED | release_candidate.mark | ReleaseCandidate record | GPT Director independently accepts exact integrated SHA/evidence/limitations |
-| any nonterminal active | task.block | BLOCKED | typed deterministic reason persisted; active attempt fenced/stopped when continuation unsafe. This is also the edge §1A reconciliation uses for an execution-bearing TASK subject — `ASSIGNED`, `BUILDING` or `REVIEWING` — found with no non-terminal execution record, carrying `EXECUTION_RECORD_MISSING`; no new transition and no blind re-dispatch is introduced for that case |
-| any nonterminal active | task.escalate | ESCALATED | ambiguity/decision beyond automatic authority |
-| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.cancel | CANCELLED | caller authorised; any active lease fenced immediately; no later result admitted |
-| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.supersede | SUPERSEDED | replacement revision/objective reference recorded; active attempt fenced |
-| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.revise | PROPOSED (new revision) | revision-changing authority valid; old revision immutable/superseded; active attempt fenced; new context/base/acceptance revalidated before planning |
-| BUILDING/REJECTED | task.fail | FAILED | execution/correction/integration budget exhausted or unrecoverable failure within current contract |
+| any nonterminal active | task.block | BLOCKED | typed deterministic reason persisted; every non-terminal `attempt` and `review_dispatch` owned by the task is terminally fenced and its owned process group stopped per §6 before `BLOCKED` commits — unconditionally, not only when continuation is judged unsafe, because `BLOCKED` is outside the execution-bearing set and no live record may survive there. [EXEC-FENCE] This is also the edge §1A reconciliation uses for an execution-bearing TASK subject — `ASSIGNED`, `BUILDING` or `REVIEWING` — found with no non-terminal execution record, carrying `EXECUTION_RECORD_MISSING`; no new transition and no blind re-dispatch is introduced for that case |
+| any nonterminal active | task.escalate | ESCALATED | ambiguity/decision beyond automatic authority; `ESCALATED` waits on a human decision of unbounded duration, so every non-terminal `attempt` and `review_dispatch` owned by the task is terminally fenced and its owned process group stopped per §6 before `ESCALATED` commits, and the freed review slot/execution concurrency is immediately reusable. [EXEC-FENCE] |
+| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.cancel | CANCELLED | caller authorised; any active lease fenced immediately; every non-terminal `attempt` and `review_dispatch` owned by the task is terminally closed and its owned process group stopped per §6 before `CANCELLED` commits; no later result admitted. [EXEC-FENCE] |
+| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.supersede | SUPERSEDED | replacement revision/objective reference recorded; every non-terminal `attempt` and `review_dispatch` owned by the task is terminally fenced and its owned process group stopped per §6 before `SUPERSEDED` commits. [EXEC-FENCE] |
+| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.revise | PROPOSED (new revision) | revision-changing authority valid; old revision immutable/superseded; every non-terminal `attempt` and `review_dispatch` owned by the old revision is terminally fenced and its owned process group stopped per §6 before the new revision commits; new context/base/acceptance revalidated before planning. [EXEC-FENCE] |
+| BUILDING/REJECTED | task.fail | FAILED | execution/correction/integration budget exhausted or unrecoverable failure within current contract; from BUILDING a `RUNNING` or `CANDIDATE_READY` attempt may still be live, so every non-terminal `attempt` and `review_dispatch` owned by the task is terminally fenced and its owned process group stopped per §6 before `FAILED` commits. [EXEC-FENCE] |
 
 `ACCEPTED`, `CANCELLED` and `SUPERSEDED` are terminal task states for V1. They cannot be revised, cancelled or superseded in-place. If later product intent invalidates an accepted outcome, a new task is created and dependency/currentness rules decide whether downstream work remains valid. Integration/release records have their own terminal states. A `FAILED` task does not auto-resume; continuation requires `task.revise` to a new PROPOSED revision (or explicit supersession before terminal acceptance).
+
+### 3.1 Execution-record fencing on subject transitions
+
+§1A defines which subject states are **execution-bearing**, and §3A.1/§3B bind each non-terminal execution record to those states. The two claims are only consistent if every §3 edge that carries a subject *out* of the execution-bearing set also disposes of the records that set admits. Without that obligation the matrices contradict each other: §3B says a `DISPATCHED` dispatch cannot exist under a non-`REVIEWING` subject, while §3 lets `candidate.reject` move a candidate to `REJECTED` with two reviewers still running. This section is the missing obligation, and it is written as a per-row requirement so it is checked against the transitions rather than against a restatement of them.
+
+**The rule.** Let *E(kind)* be the execution-bearing set derived for that subject kind. A §3 row **qualifies** when its **From** cell names at least one state in *E(kind)* and its **To** cell names at least one subject state, none of which is in *E(kind)*. Every qualifying row MUST carry exactly one of the following two tokens in its preconditions cell. The token is the requirement, not a label for one stated elsewhere:
+
+| Token | Obligation |
+| --- | --- |
+| `[EXEC-FENCE]` | Before the subject transition commits, in the same transaction, every non-terminal `attempt` and every non-terminal `review_dispatch` owned by that subject MUST be moved to a terminal state — `CLOSED` with a terminal disposition for an attempt, `CANCELLED`/`FENCED`/`EXPIRED` for a dispatch. Each such record's owned process group MUST be stopped through §6 before that commit, and `QUARANTINED` (attempt) or `FENCED` + subject `BLOCKED` (dispatch) MUST be used where cleanup cannot be proven, so an unprovable process never yields a silently clean subject transition. |
+| `[EXEC-ATOMIC-CLOSE: <edge>]` | The same transaction closes exactly those records through the named paired §3A/§3B edge. This is admissible only when the named edge is terminal and the row can close no record it does not name. |
+
+Three consequences are normative:
+
+- no `review_dispatch` in `DISPATCHED` and no `attempt` in `CREATED`/`STARTING`/`RUNNING`/`CANDIDATE_READY` may exist under a subject state outside *E(kind)*. `[EXEC-FENCE]` and `[EXEC-ATOMIC-CLOSE]` are the only two ways a §3 edge may leave that set, so the §3B binding rule and §1A's derivation hold by construction rather than by assertion;
+- the commands named by qualifying `[EXEC-FENCE]` rows MUST appear as triggers on terminal edges of §3A and §3B wherever those matrices can actually hold a record for the states the row leaves. Concretely: if a state in *From ∩ E(kind)* binds a non-terminal attempt state under §3A.1, §3A MUST list that command on a terminal edge out of each such attempt state; if a state in *From ∩ E(kind)* is a §3B dispatch-bearing subject state, §3B MUST list that command on a terminal edge out of `DISPATCHED`. This is what makes the three matrices agree, and it is derived from §3A.1/§3B rather than restated;
+- fencing releases resources immediately. The required-review slot freed by a fenced dispatch and the reviewer-concurrency and execution-slot occupancy freed by a fenced record MUST be reusable as soon as the subject transition commits; a terminal subject MUST NOT continue to occupy a slot, a lease or a concurrency unit.
+
+`task.block` is unconditional under this rule. Its earlier "when continuation unsafe" qualifier let a `BLOCKED` task keep a `RUNNING` attempt, which is exactly the strand §1A's `EXECUTION_RECORD_MISSING` reconciliation cannot see, because the inconsistency there is a live record under a non-execution-bearing subject rather than a missing record under an execution-bearing one.
+
+Rows that stay inside *E(kind)* — `attempt.start` (ASSIGNED -> BUILDING), `candidate.register`, `review.record`, `review.cancel`, `integration.start` — carry no token, because they strand nothing. `integration CREATED -> CANCELLED` likewise carries none: `integration.begin` has not run, so no execution record exists to fence, and §3A.1 does not bind any attempt state to `CREATED`.
 
 ## 3A. Attempt transition matrix
 
@@ -355,19 +378,19 @@ This matrix applies to both attempt subject kinds. Where the trigger differs by 
 | From | Trigger/command | To | Preconditions / result |
 | --- | --- | --- | --- |
 | none | `attempt.assign` (TASK) / `integration.begin` (INTEGRATION) | CREATED | TASK: task is `PLANNED`, or task is `REJECTED` with bounded-correction budget available as permitted by §3; in **both TASK branches the per-revision attempt ceiling must not be exhausted**. INTEGRATION: integration is `CREATED`. Capacity/workspace reservation succeeds; new epoch/fence bound |
-| CREATED | `attempt.start` (TASK) / `integration.start` (INTEGRATION) begins measured preflight | STARTING | current lease; workspace exists; no model process yet; subject remains ASSIGNED (TASK) or INTEGRATING (INTEGRATION) during preflight |
-| STARTING | `attempt.start` (TASK) / `integration.start` (INTEGRATION) completes successfully | RUNNING | exact base/branch/environment/tool/capability checks pass; owned process group established |
+| CREATED | `attempt.start` (TASK) / `integration.start` (INTEGRATION) begins measured preflight | STARTING | current lease; workspace exists; no model process yet; subject remains ASSIGNED (TASK) or INTEGRATING (INTEGRATION) during preflight. If this edge will own a preflight process group, `lease.owned_process_group_handle` is committed **before** that group is created (§3A.3); `attempt.running_process_group_identity` stays NULL |
+| STARTING | `attempt.start` (TASK) / `integration.start` (INTEGRATION) completes successfully | RUNNING | exact base/branch/environment/tool/capability checks pass; `lease.owned_process_group_handle` is updated to the model process group **before** it is created, and `attempt.running_process_group_identity` is written in this same commit and only here (§3A.3) |
 | STARTING | preflight deterministic failure | CLOSED / FAILED or QUARANTINED | no model launch; a TASK subject reaches `BLOCKED` through §3 `task.block`, while an INTEGRATION subject reaches `BLOCKED` through §3 `integration.block`, using the typed precondition reason. Attempt disposition is `FAILED` when cleanup is proven complete, or `QUARANTINED` when process/workspace safety cannot be proven. Preflight failure never fabricates RUNNING and never uses an unlisted direct subject transition. |
-| CREATED | `task.cancel` / `integration.cancel` / `task.revise` / `task.supersede` / controller-epoch fencing event, as applicable to the subject kind | CLOSED / CANCELLED or FENCED | no model process has been launched, so process cleanup is proven by construction; the lease is released/retired and the old fencing token can never admit a result |
-| STARTING | `task.cancel` / `integration.cancel` / `task.revise` / `task.supersede` / controller-epoch fencing event, as applicable to the subject kind | CLOSED / CANCELLED or FENCED | authority is fenced immediately; any preflight process group is stopped through §6 and proven empty before the non-quarantined terminal disposition |
-| STARTING | cancellation/fencing event where a preflight process group cannot be proven stopped | CLOSED / QUARANTINED | authority remains fenced, workspace is not reused, and the subject is BLOCKED until cleanup/reconciliation proves safety |
+| CREATED | `task.cancel` / `task.supersede` / `task.revise` / `task.block` / `task.escalate` (TASK) / `integration.cancel` / `integration.block` (INTEGRATION) / controller-epoch fencing event, as applicable to the subject kind | CLOSED / CANCELLED or FENCED | no owned process group has been created, proven by `lease.owned_process_group_handle` being NULL (§3A.3), so process cleanup is proven by construction; the lease is released/retired and the old fencing token can never admit a result. `running_process_group_identity` is NULL, so §3A.2 does not charge the ceiling |
+| STARTING | `task.cancel` / `task.supersede` / `task.revise` / `task.block` / `task.escalate` (TASK) / `integration.cancel` / `integration.block` (INTEGRATION) / controller-epoch fencing event, as applicable to the subject kind | CLOSED / CANCELLED or FENCED | authority is fenced immediately; the preflight process group is identified from `lease.owned_process_group_handle`, stopped through §6 and proven empty before the non-quarantined terminal disposition. A NULL handle means no group was ever created (§3A.3) and cleanup is therefore proven, not unknown. `running_process_group_identity` is NULL, so §3A.2 does not charge the ceiling |
+| STARTING | cancellation/fencing event where a preflight process group named by `lease.owned_process_group_handle` cannot be proven stopped | CLOSED / QUARANTINED | authority remains fenced, workspace is not reused, and the subject is BLOCKED until cleanup/reconciliation proves safety. This disposition requires a genuinely unprovable *live* group: a NULL or absent handle is proof of no group and takes the FENCED/CANCELLED edge above instead, so missing durable identity can never be the reason for quarantine (§3A.3) |
 | RUNNING | `candidate.register` (TASK) / `integration.register` (INTEGRATION) | CANDIDATE_READY | current epoch/fence; immutable commit identity independently measured and the Candidate / integration SHA persisted |
 | RUNNING | process exits without producing a commit | CLOSED / FAILED | diagnostics/evidence persisted; the subject takes the §10.3 non-rejection path of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`, which is a finite persistent budget rather than implementer discretion |
 | RUNNING | process stalls past its deadline with no commit | CLOSED / FAILED or QUARANTINED | reason code `PROCESS_STALLED`/`PROCESS_TIMEOUT`, which §7 classifies BLOCKED; disposition is `FAILED` when cleanup is proven and `QUARANTINED` otherwise; the subject reaches BLOCKED through its legal block edge |
-| RUNNING | `task.cancel` / `integration.cancel` / fencing event | CLOSED / CANCELLED or FENCED | old token immediately loses authority; process cleanup follows §6 |
+| RUNNING | `task.cancel` / `task.supersede` / `task.revise` / `task.block` / `task.escalate` / `task.fail` (TASK) / `integration.cancel` / `integration.block` (INTEGRATION) / controller-epoch fencing event, as applicable to the subject kind | CLOSED / CANCELLED or FENCED | old token immediately loses authority; the process group is identified from `lease.owned_process_group_handle` and cleanup follows §6. `running_process_group_identity` is non-NULL, so §3A.2 charges the ceiling |
 | RUNNING | process cannot be proven stopped | CLOSED / QUARANTINED | subject BLOCKED; workspace cannot be reused |
 | CANDIDATE_READY | evidence completion / subject reaches EVIDENCE_READY | CLOSED / SUCCEEDED | commit already durable; no later worker authority needed |
-| CANDIDATE_READY | cancellation/fence before evidence completion | CLOSED / FENCED | the Candidate or integration SHA remains durable/discoverable; evidence may remain incomplete |
+| CANDIDATE_READY | `task.cancel` / `task.supersede` / `task.revise` / `task.block` / `task.escalate` / `task.fail` (TASK) / `integration.cancel` / `integration.block` (INTEGRATION) / controller-epoch fencing event, as applicable to the subject kind, before evidence completion | CLOSED / FENCED | the Candidate or integration SHA remains durable/discoverable; evidence may remain incomplete; cleanup follows §6 against `lease.owned_process_group_handle`, and `QUARANTINED` is used instead when that group cannot be proven stopped |
 
 `CLOSED` is terminal for an attempt. A correction always creates a new attempt with a new fencing token.
 
@@ -399,7 +422,7 @@ The ceiling bounds **model relaunches**, so it counts **execution-consuming** at
 | `CLOSED / CANCELLED` or `CLOSED / FENCED` **that reached `RUNNING`** | yes | a model process was launched under this attempt |
 | `CLOSED / CANCELLED` or `CLOSED / FENCED` **that never reached `RUNNING`** | **no** | no model process was ever launched, so charging it would let controller restarts and epoch changes consume a budget that exists to bound model relaunches |
 
-Whether an attempt reached `RUNNING` MUST be decidable from the committed `attempt` row alone, without replaying journal history: §3A establishes owned process-group identity exactly when `RUNNING` is committed, so a NULL process-group/cgroup identity on a `CANCELLED`/`FENCED` row is the durable proof that no model process was launched. No additional column is introduced for this.
+Whether an attempt reached `RUNNING` MUST be decidable from the committed `attempt` row alone, without replaying journal history. The authoritative fact is `attempt.running_process_group_identity`, which §3A.3 defines as NULL until the attempt commits `RUNNING`, non-NULL from then on and written exactly once in that commit: a NULL value on a `CANCELLED`/`FENCED` row is the durable proof that no model process was launched. §3A.2 is the only reader of that field, and it MUST NOT be used as a cleanup handle; conversely `lease.owned_process_group_handle` MUST NOT be read here, because it is populated before `RUNNING` and a pre-`RUNNING` preflight group would otherwise be miscounted as an execution attempt. No additional column is introduced for this.
 
 Three consequences are normative:
 
@@ -408,6 +431,30 @@ Three consequences are normative:
 - the count is a pure function of committed `attempt` rows and their immutable terminal dispositions, so controller restart, DB restore and controller-epoch change can neither reset it nor decrement a legitimately consumed attempt. Reclassifying an already-`CLOSED` attempt is forbidden by §4's atomicity rules; a disposition is written once.
 
 The ceiling guard on every `attempt.assign` path in §3 and in this matrix is unchanged — only the definition of which rows it counts is repaired.
+
+### 3A.3 Pre-RUNNING process-group identity and the ceiling discriminator
+
+An attempt in `STARTING` may already own a preflight process group: §5B/§11 preflight measures a real environment and can fork real tool processes. Two different questions are therefore asked about a pre-`RUNNING` attempt, and answering both from one field is what made the `STARTING` crash window non-deterministic:
+
+1. *which process group, if any, does this attempt own, so that §6 can stop it?* — a **cleanup** question, asked from the moment the first group is forked;
+2. *did this attempt ever reach `RUNNING`, so that §3A.2 can decide whether it consumed execution budget?* — an **accounting** question, answerable only at the `RUNNING` commit.
+
+These are two durable facts in two fields with two population times. One MUST NOT be derived from the other.
+
+| Durable fact | Field | Written | Read by |
+| --- | --- | --- | --- |
+| owned-process-group cleanup handle | `lease.owned_process_group_handle` | committed **before** the owned process group is created — before the preflight group on the `CREATED -> STARTING` edge, and updated to the model process group before it is created on `STARTING -> RUNNING`. Retired when the attempt closes and cleanup is proven | §6 cancellation, and freeze contract §21 steps 5, 6 and 11 restart cleanup |
+| execution-ceiling discriminator | `attempt.running_process_group_identity` | exactly once, in the transaction that commits `STARTING -> RUNNING`; NULL at every other time and never written by any other edge | §3A.2 only |
+
+The population timing is normative, and the write-ahead ordering is what makes the crash window deterministic:
+
+- the handle MUST be committed before the corresponding process group is created. A controller crash can therefore leave a recorded handle with no group, but never a group with no recorded handle;
+- consequently a NULL `lease.owned_process_group_handle` on a pre-`RUNNING` attempt is **positive proof that no owned group exists**, not an absence of information. Cleanup is proven, and the attempt MUST close `FENCED`/`CANCELLED`;
+- a controller crash during `STARTING` with a live preflight group MUST be reconciled by reading that handle, stopping the named group through §6, and then closing the attempt `FENCED` once emptiness is verified. Because `running_process_group_identity` is NULL, §3A.2 does not charge the ceiling, so crash-and-restart in the `STARTING` window cannot consume execution budget;
+- `QUARANTINED` is permitted **only** when a group named by a non-NULL handle cannot be proven stopped. It MUST NOT be used merely because no durable identity was recorded, which under the ordering above cannot happen for a group that exists;
+- a deterministic preflight failure is unaffected: §3A closes it `FAILED` (or `QUARANTINED` on genuinely unprovable cleanup) and never `CANCELLED`/`FENCED`, so it remains budget-consuming and R-02 is not weakened.
+
+§1A, §3A, §3A.2 and §6 all refer to exactly these two fields under exactly these names and timings; any document that names one where the other is meant is a specification error and MUST fail closed.
 
 ## 3B. Review dispatch transition matrix
 
@@ -419,12 +466,12 @@ Authoritative for `review_dispatch` state. Review dispatch is the third executio
 | DISPATCHED | `review.record` | COMPLETED | preconditions of the §3 `review.record` row hold; the Review row and this terminal transition are one transaction |
 | DISPATCHED | `review.cancel` by authorised caller | CANCELLED | owned reviewer process group stopped per §6; no verdict admitted |
 | DISPATCHED | heartbeat/expiry deadline passes without a verdict | EXPIRED | expiry is deterministic and recorded; the subject does not silently remain in `REVIEWING`; policy then either creates exactly one replacement dispatch for the slot or blocks the subject, never both |
-| DISPATCHED | replacement dispatch required for the same slot, or `task.cancel`/`task.supersede`/`task.revise`/`integration.cancel`, or controller-epoch change | FENCED | fencing happens **before** any replacement row is created, so the slot uniqueness constraint holds and the original reviewer loses authority even though the subject SHA is unchanged |
+| DISPATCHED | replacement dispatch required for the same slot, or controller-epoch change, or any §3.1 `[EXEC-FENCE]` subject transition out of `REVIEWING` — `candidate.accept` / `candidate.reject` / `integration.verify` / `integration.reject` / `integration.block` / `integration.cancel` / `task.block` / `task.escalate` / `task.cancel` / `task.supersede` / `task.revise` | FENCED | fencing happens **before** any replacement row is created and **before** the subject transition commits, so the slot uniqueness constraint holds, the original reviewer loses authority even though the subject SHA is unchanged, and no `DISPATCHED` row survives under a subject state outside the execution-bearing set. The owned reviewer process group is stopped per §6 and the required-review slot is released for immediate reuse |
 | DISPATCHED | reviewer process cannot be proven stopped after cancellation/expiry | FENCED, subject BLOCKED | the dispatch loses authority immediately, but the subject is BLOCKED rather than re-dispatched, mirroring the attempt quarantine rule |
 
 Every terminal state is final. A verdict presented for a terminal, unknown or non-matching dispatch is rejected with `FENCE_STALE`, and the rejection is recorded as a `transition_event`.
 
-**Subject binding.** A `review_dispatch` is created only while its subject is `REVIEWING` and every edge out of `DISPATCHED` is terminal, so a `DISPATCHED` dispatch MUST NOT exist under any other subject state. For §1A's derivation this contributes exactly the `TASK` subject state `REVIEWING` and the `INTEGRATION` subject state `REVIEWING`, and a subject left in `REVIEWING` with no non-terminal dispatch MUST be surfaced as BLOCKED by §1A's execution-bearing rule rather than silently re-dispatched.
+**Subject binding.** A `review_dispatch` is created only while its subject is `REVIEWING` and every edge out of `DISPATCHED` is terminal, so a `DISPATCHED` dispatch MUST NOT exist under any other subject state. That is not self-enforcing: it holds only because §3.1 requires every §3 edge leaving `REVIEWING` for a non-execution-bearing state to fence the live dispatches in the same transaction, and requires each such command to appear as a trigger on the FENCED row above. A rejection, verification, block or escalation decided from one verdict while sibling reviewers are still running MUST fence those siblings rather than abandon them, including the case of two or more concurrent `DISPATCHED` rows on distinct required-review slots. For §1A's derivation this contributes exactly the `TASK` subject state `REVIEWING` and the `INTEGRATION` subject state `REVIEWING`, and a subject left in `REVIEWING` with no non-terminal dispatch MUST be surfaced as BLOCKED by §1A's execution-bearing rule rather than silently re-dispatched.
 
 ## 3C. Delivery transition matrix
 
@@ -507,17 +554,24 @@ An exit status of zero from bootstrap/doctor scripts is insufficient. Version/pr
 
 ## 6. Cancellation race contract
 
+This contract governs every owned process group of §1A — implementation attempts, integration attempts and review dispatches alike — and it is the sequence §3.1 requires to complete **before** a subject transition out of an execution-bearing state commits.
+
 On cancellation:
 
-1. transactionally mark cancellation requested and advance/fence lease authority;
-2. stop accepting heartbeats/candidates/evidence from the old token;
-3. send TERM to the attempt cgroup/process group;
+1. transactionally mark cancellation requested and advance/fence lease or dispatch authority;
+2. stop accepting heartbeats/candidates/evidence/verdicts from the old token;
+3. identify the owned process group from its durable handle — `lease.owned_process_group_handle` for an attempt (§3A.3), the `review_dispatch` process-group/cgroup identity for a dispatch — and send TERM to it. A NULL attempt handle means no group was ever created and this step is satisfied without signalling anything; a NULL dispatch identity means an external reviewer principal the kernel does not own, where cancellation relies on fencing alone and the limitation is recorded;
 4. after configured grace, send KILL;
 5. verify process group empty;
-6. if empty, close attempt CANCELLED;
-7. if not provably empty, mark attempt QUARANTINED and task BLOCKED.
+6. if empty, close the attempt `CANCELLED`/`FENCED`, or the dispatch `CANCELLED`/`FENCED`/`EXPIRED`;
+7. if not provably empty, mark the attempt `QUARANTINED` — or the dispatch `FENCED` — and the subject BLOCKED.
 
-A candidate arriving after step 1 is stale even if it was produced before the signal reached the process.
+Two ordering rules are normative:
+
+- for a §3.1 `[EXEC-FENCE]` transition, steps 1–7 MUST complete for every non-terminal record owned by the subject before the subject transition commits. A subject MUST NOT reach a non-execution-bearing state while any of its records is still non-terminal, and where step 7 applies the subject takes its BLOCKED/QUARANTINED outcome instead of the transition it requested;
+- resources MUST be released at step 6: the workspace becomes reusable under the freeze-contract §11 emptiness rule, the required-review slot of a terminated dispatch becomes immediately available to a replacement, and the reviewer-concurrency and execution-slot units the record occupied are freed at the same commit. A terminal subject MUST NOT continue to occupy a slot, a lease or a concurrency unit.
+
+A candidate arriving after step 1 is stale even if it was produced before the signal reached the process. The same holds for a verdict from a dispatch fenced at step 1.
 
 ## 7. Failure reason codes
 

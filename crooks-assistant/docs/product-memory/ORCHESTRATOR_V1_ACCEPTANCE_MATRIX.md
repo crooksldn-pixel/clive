@@ -32,7 +32,8 @@
 | ST-13 | deterministic preflight failure occurs while task is ASSIGNED and attempt is STARTING | no model launch; attempt closes FAILED when cleanup is proven or QUARANTINED otherwise; task reaches BLOCKED through the listed `task.block` edge, never an illegal `ASSIGNED -> FAILED` task transition |
 | ST-14 | drive three attempts on one task revision through failure/block/re-plan paths, then request a fourth `attempt.assign` | the fourth assignment is refused by the transition guard because the per-revision attempt ceiling is exhausted; the persisted counter survives controller restart, DB restore and epoch change; when the third attempt is a non-rejection failure the task follows `BLOCKED -> task.escalate -> ESCALATED` and no further assignment is admissible |
 | ST-15 | controller epoch changes while a TASK is `ASSIGNED` and its only attempt is `CREATED` or `STARTING` | the attempt closes `FENCED` (or `QUARANTINED` when a `STARTING` preflight process group cannot be proven stopped) and the task does not stay silently in `ASSIGNED`: §21 reconciliation identifies `ASSIGNED` as an execution-bearing state holding no non-terminal execution record and surfaces the task BLOCKED through the listed `task.block` edge with typed reason `EXECUTION_RECORD_MISSING`. No blind redispatch occurs, and the same holds for `BUILDING`/`REVIEWING` and for an `INTEGRATION` subject in `INTEGRATING`/`REVIEWING` through `integration.block` |
-| ST-16 | restart the controller repeatedly while a TASK sits in `ASSIGNED` with a `CREATED` attempt, so each restart fences that attempt before any model runs | each fencing closes the attempt `FENCED` having never reached `RUNNING`, so none of them consumes the per-revision execution-attempt ceiling; after three such restart-fencings a legitimate `attempt.assign` is still admissible, and the three real execution attempts remain available. Attempts that did reach `RUNNING`, and attempts closed `FAILED`/`QUARANTINED` by deterministic preflight failure, still consume the ceiling |
+| ST-16 | restart the controller repeatedly while a TASK sits in `ASSIGNED` with a `CREATED` attempt, so each restart fences that attempt before any model runs; then repeat with the attempt in `STARTING` having forked a live preflight process group, killing the controller mid-preflight | each fencing closes the attempt `FENCED` having never reached `RUNNING`, so none of them consumes the per-revision execution-attempt ceiling; after three such restart-fencings a legitimate `attempt.assign` is still admissible, and the three real execution attempts remain available. Attempts that did reach `RUNNING`, and attempts closed `FAILED`/`QUARANTINED` by deterministic preflight failure, still consume the ceiling. **Crash-during-STARTING arm:** the restarted controller identifies the orphaned preflight process group from the durable `lease.owned_process_group_handle` written before the fork, stops it through the §6 TERM/grace/KILL sequence, verifies emptiness and closes the attempt `FENCED`; `attempt.running_process_group_identity` is NULL, so the ceiling is unchanged and the task's three real attempts survive. A NULL handle is proved to mean no group was ever created and also yields `FENCED`, never `QUARANTINED`; `QUARANTINED` is produced only by injecting a preflight group named by a non-NULL handle that cannot be proven stopped. The two fields are asserted to be distinct: the handle is non-NULL while `running_process_group_identity` is still NULL throughout `STARTING` |
+| ST-17 | drive a candidate to `REVIEWING` with **two or more** live `DISPATCHED` reviewers on distinct required-review slots, then fire each of `candidate.reject`, `task.block`, `task.escalate` in turn; separately drive an integration to `REVIEWING` with two live dispatches and fire `integration.reject` and `integration.block`; separately drive a TASK to `BUILDING` with a `RUNNING` attempt and fire `task.fail` and `task.escalate` | in every arm the subject transition commits only after every non-terminal execution record it owned is terminal: each remaining `review_dispatch` is `FENCED` (never left `DISPATCHED`) and each non-terminal `attempt` is `CLOSED` with a terminal disposition, and each owned process group has been stopped and proved empty through §6 **before** the commit. A verdict submitted afterwards by a fenced reviewer is rejected with `FENCE_STALE` even though the subject SHA never changed. No `DISPATCHED` row and no non-terminal attempt exists under any subject state outside the mechanically derived execution-bearing set. The freed required-review slots and reviewer-concurrency units are immediately reusable — a fresh dispatch for the same slot on a different subject succeeds at once — and no lease or execution slot remains occupied by the terminal subject. Where an owned group cannot be proven stopped, the arm instead yields `QUARANTINED`/BLOCKED rather than a silently clean transition |
 
 ## 2A. Command/transition completeness
 
@@ -358,6 +359,8 @@ Before marking the V1 contract frozen:
 - **the MUST-coverage index in §18A is complete and accurate.** Every section of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` and `ORCHESTRATOR_V1_STATE_API.md` that contains a MUST or MUST NOT appears in that index exactly once, and each entry names either at least one existing test ID, or `STATIC` with a matching entry in `ORCHESTRATOR_V1_STATE_API.md` §10, or `DEFERRED` with an explicit recorded reason. The mechanical gate recomputes the MUST-bearing section set from the documents themselves and **fails on any section it finds that the index does not disposition** — it reports the gap rather than papering over it, and a MUST that is neither tested nor explicitly static nor explicitly deferred is a freeze blocker;
 - the normative failure reason-code table in `ORCHESTRATOR_V1_STATE_API.md` §7 is a total mapping — every code resolves to exactly one top-level class, no code is listed twice, and the fail-closed default for unmapped codes is BLOCKED rather than RETRYABLE (mechanised by `PR-09`);
 - that same mechanical gate maintains an explicit required set of live unremediated runtime conditions on which the freeze/remediation plan depends and fails if any required condition is absent from `CURRENT_TRUTH.md`; the initial set is (a) watcher/builder branch mismatch, (b) inherited business MCP connector surface, and (c) the Builder `remote.origin.fetch` refspec naming the absent `claude/bridge-builder` ref;
+- **no subject transition may strand an execution record.** The mechanical gate recomputes, from the `ORCHESTRATOR_V1_STATE_API.md` §3 matrix and the §3A.1/§3B derivation of the execution-bearing set, exactly which §3 rows carry a subject out of that set, and fails unless each one carries the §3.1 `[EXEC-FENCE]` or `[EXEC-ATOMIC-CLOSE]` obligation **and** each such command appears as a trigger on the corresponding terminal §3A/§3B edge. The check is driven by the derived rows rather than by the tokens present, so a matrix carrying no tokens fails rather than passing vacuously;
+- **the pre-RUNNING process-group cleanup handle and the execution-ceiling discriminator are separate named facts.** The gate asserts `ORCHESTRATOR_V1_STATE_API.md` §3A.3 declares exactly two durable fields with distinct roles, distinct population times and one reader each, and that §1A, §3A, §3A.2 and §6 each name the one whose role they need;
 - traceability has no unexplained V1-relevant row;
 - a fresh independent adversarial reviewer bound to the exact candidate SHA finds no material missing failure mode, authority leak or contradiction;
 - the accepted freeze SHA is then recorded in a separate follow-up canonical product-memory commit.
@@ -376,7 +379,7 @@ The §18 mechanical gate recomputes the MUST-bearing section set from the docume
 | FC | §5.3 | ST-09, RV-03, IN-13 |
 | FC | §6 | DB-01, DB-02, DB-03, DB-04, DB-08, DB-09, DB-10, DB-11, DB-12 |
 | FC | §7 | CT-01, CT-02, CT-03, CT-04, CT-05, CT-06, ID-03, ID-07, LS-03, LS-04, RV-11, RV-14, IN-14, OB-01, DL-01, DL-02, DL-03, DL-04, DL-05, DL-06 |
-| FC | §8 | LS-01, LS-02, LS-03, LS-05, LS-06, LS-07, LS-08, RV-12, RV-13 |
+| FC | §8 | LS-01, LS-02, LS-03, LS-05, LS-06, LS-07, LS-08, RV-12, RV-13, ST-16 |
 | FC | §9 | IP-01, IP-02, IP-03, IP-04, API-02, API-03, API-08, EV-10, PB-01, PB-02, PB-07, DL-06 |
 | FC | §10.1 | PR-03, PR-04, PR-05, PR-09, ST-08, WS-04, WS-13, DB-05 |
 | FC | §10.3.1 | PR-09, PR-10, ST-08, ST-14, ST-16, IP-04 |
@@ -384,23 +387,27 @@ The §18 mechanical gate recomputes the MUST-bearing section set from the docume
 | FC | §12 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08, CP-09, CP-10, PB-05, PB-06 |
 | FC | §13 | CX-05, CX-06, CX-07, CX-08, AU-01 |
 | FC | §14.5 | PB-03, PB-04, PB-05, PB-06, PB-07 |
-| FC | §16 | IN-01, IN-02, IN-03, IN-04, IN-05, IN-06, IN-07, IN-08, IN-09, IN-10, IN-11, IN-12, IN-13, IN-14, IN-15, IN-16, IN-17, IN-18 |
+| FC | §15 | RV-01, RV-02, RV-03, RV-04, RV-05, RV-06, RV-07, RV-08, RV-09, RV-10, RV-11, RV-12, RV-13, RV-14, ST-17 |
+| FC | §16 | IN-01, IN-02, IN-03, IN-04, IN-05, IN-06, IN-07, IN-08, IN-09, IN-10, IN-11, IN-12, IN-13, IN-14, IN-15, IN-16, IN-17, IN-18, ST-17 |
 | FC | §18 | OB-01, OB-02, OB-03, OB-04 |
 | FC | §19 | RS-01, RS-02, DB-05, API-07 |
 | FC | §20 | UP-01, UP-02, UP-03, UP-04, UP-05, UP-06, DB-04 |
-| FC | §21 | LS-07, CT-03, IN-12, RV-12, DB-07, EV-09, API-08, ST-15, ST-16, DL-06 |
+| FC | §21 | LS-07, CT-03, IN-12, RV-12, DB-07, EV-09, API-08, ST-15, ST-16, ST-17, DL-06 |
 | FC | §22 | EV-07, EV-08, ID-06, RV-08 |
 | FC | §22A | EN-01, EN-02, EN-03, EN-04 |
 | FC | §23 | STATIC — reuse boundary; the MUST NOT is "do not import the ECC plugin/runtime graph", a repository-composition invariant with no runtime transition |
 | FC | §27 | STATIC — freeze acceptance is an owner/process gate, not a kernel transition; the anti-self-adoption half is tested by AU-01 and ID-06 |
-| SA | §1A | ID-03, LS-01, LS-03, LS-04, RV-11, RV-12, RV-13, RV-14, IN-11, IN-12, IN-14, CXN-05, ST-15 |
-| SA | §3A | ST-11, ST-12, ST-13, ST-14, ST-15, API-01, PR-10, IN-11, IN-12, IN-15, IN-16, IN-18 |
+| SA | §1A | ID-03, LS-01, LS-03, LS-04, RV-11, RV-12, RV-13, RV-14, IN-11, IN-12, IN-14, CXN-05, ST-15, ST-16, ST-17 |
+| SA | §3.1 | ST-17, ST-15, ST-12, RV-12, RV-13, IN-11, IN-17, WS-10 |
+| SA | §3A | ST-11, ST-12, ST-13, ST-14, ST-15, ST-16, ST-17, API-01, PR-10, IN-11, IN-12, IN-15, IN-16, IN-18 |
 | SA | §3A.1 | ST-15, IN-12, IN-18, RV-12 |
 | SA | §3A.2 | ST-14, ST-16, PR-10, ST-08 |
-| SA | §3B | RV-11, RV-12, RV-13, RV-14, ST-15 |
+| SA | §3A.3 | ST-16, ST-13, ST-15, IN-18, WS-10, WS-11 |
+| SA | §3B | RV-11, RV-12, RV-13, RV-14, ST-15, ST-17 |
 | SA | §3C | DL-01, DL-02, DL-03, DL-04, DL-05, DL-06, API-08, PB-01, PB-07 |
 | SA | §4 | ST-03, ST-04, ST-05, API-09, DB-01 |
 | SA | §5 | API-06, API-07, RS-02 |
+| SA | §6 | WS-10, WS-11, LS-06, IN-11, RV-12, ST-16, ST-17 |
 | SA | §5A | WS-12, WS-15, PB-06, CP-10 |
 | SA | §5B | WS-13, WS-14, EN-01, EN-03 |
 | SA | §7 | PR-09, PR-10, ST-15, DL-06 |
