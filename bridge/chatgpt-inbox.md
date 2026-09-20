@@ -1,80 +1,93 @@
 # CHATGPT INBOX
 
-## Independent adversarial review — Orchestrator V1 freeze candidate
+## Fresh independent adversarial re-review — Orchestrator V1 freeze candidate
 
-This is a **read-only independent architecture/specification review**. It is not implementation.
+This is a **read-only independent architecture/specification re-review**. It is not implementation.
 
 Review exact candidate:
 - repository: `crooksldn-pixel/clive`
 - base: `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`
 - candidate branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
-- candidate SHA: `f1c808eff1f0a6cafcb50cbb624cd2c913e2a6b1`
+- candidate SHA: `a4ec77ff953bd7af5117e5adb5756adddd942fdb`
 
-The candidate adds/updates:
-- `crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_FREEZE_CONTRACT.md`
+The prior review of `f1c808e...` is stale. Do not carry its verdict forward. The candidate has materially changed.
+
+Read in full:
+- `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`
+- `ORCHESTRATOR_V1_STATE_API.md`
 - `ORCHESTRATOR_V1_TRACEABILITY.md`
 - `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md`
-- `ENGINEERING_ORCHESTRATOR_V1.md`
-- `CURRENT_TRUTH.md`
-- `ROADMAP.md`
+- `WATCHER_BUILDER_IDENTITY_REMEDIATION.md`
+- modified `ENGINEERING_ORCHESTRATOR_V1.md`, `CURRENT_TRUTH.md`, `ROADMAP.md`
+- canonical `DECISIONS.md`, `DEV_TEAM_V1_PILOT.md`, `ENGINEERING_STACK_REUSE_PLAN.md`, `SELF_IMPROVEMENT.md`, `HARNESS_ACCEPTANCE_2C2B0CC.md`
+- accepted Builder contract trial at exact SHA `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b:crooks-assistant/docs/dev-environment/CONTRACT_TRIAL_ENV_REPRO_001.md`
+- previous outbox review for the findings F-01 through F-12.
 
 ### Hard scope
 
-Do **not** edit, create, delete, commit, push, merge, switch/reset/clean/stash branches, install, restart, deploy or alter any repository/runtime/systemd/account/global Claude/MCP/connector/credential/permission/production state. Do not fix findings. Read remote Git content by exact SHA/branch and write only the normal bridge outbox.
+Do **not** edit, create, delete, commit, push, merge, switch/reset/clean/stash branches, install, restart, deploy or alter any repository/runtime/systemd/account/global Claude/MCP/connector/credential/permission/production state. Do not fix findings. Read remote Git by exact SHA and write only the normal bridge outbox.
 
-The current builder checkout branch mismatch is known from the previous verification round and is itself part of the evidence to review. Do not reconcile it in this round.
+The live builder branch mismatch remains known and must not be reconciled in this review.
 
-### Review objective
+### Required re-review
 
-Try to prove this V1 contract is **not ready to freeze**.
+First verify the exact candidate SHA/merge-base/diff.
 
-Read the candidate diff and the canonical source docs it claims to reconcile, including at minimum:
-- ENGINEERING_ORCHESTRATOR_V1.md
-- DEV_TEAM_V1_PILOT.md
-- ENGINEERING_STACK_REUSE_PLAN.md
-- SELF_IMPROVEMENT.md
-- DECISIONS.md
-- ROADMAP.md
-- CURRENT_TRUTH.md
-- HARNESS_ACCEPTANCE_2C2B0CC.md
-- accepted Builder contract-trial record at `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b:crooks-assistant/docs/dev-environment/CONTRACT_TRIAL_ENV_REPRO_001.md`
-- latest bridge outbox before this round.
+Then explicitly check whether each prior blocker F-01 through F-12 is:
+- CLOSED,
+- OWNER-PENDING,
+- RUNTIME-PENDING, or
+- STILL OPEN.
 
-Adversarially inspect:
-1. state machine completeness and contradictory transitions;
-2. controller crash/split-brain/epoch/fencing semantics;
-3. idempotency and ambiguous external effects;
-4. SQLite durability, corruption, backup, migration and restore semantics;
-5. workspace/Git identity and branch mismatch handling;
-6. process/cgroup/orphan cleanup and cancellation races;
-7. provider 429/5xx/auth/quota/outage classification;
-8. effective tool/MCP/secret isolation;
-9. evidence manifest identity, candidate mutation/invalidation and delivery separation;
-10. reviewer independence and integration re-verification;
-11. context/authority freshness and structured approvals;
-12. observability, disk/resource exhaustion and GC;
-13. drain/upgrade/downgrade/cutover safety;
-14. Symphony/ECC/skills findings that were silently dropped or misapplied;
-15. DEV_TEAM contract gaps CG-01 through CG-06;
-16. role design: missing or redundant authority boundaries;
-17. V1 vs V1.x/V2 scope — flag anything essential deferred too late or optional complexity pulled into V1 unnecessarily;
-18. whether every MUST-level freeze requirement has a corresponding acceptance/fault test or clearly static invariant.
+In particular verify:
+- ROADMAP/CURRENT_TRUTH no longer self-authorise a DEC-046 sequencing change;
+- owner adoption by exact freeze SHA is a required gate rather than inferred authority;
+- complete task/attempt/integration state and command semantics are executable and non-contradictory;
+- Candidate is durable before evidence completion;
+- CG-01..CG-06 are genuinely closed, including clean reconstruction;
+- risk taxonomy/default and CI/review gates are deterministic;
+- Evidence Collector is an explicit kernel principal outside worker authority;
+- candidate publication is kernel-only and workers have no push credential;
+- environment/toolchain fingerprint is actually checked;
+- AuthorityGrant expiry/revocation are enforced and tested;
+- watcher/builder mismatch has a concrete bounded remediation plan and Phase 1 is blocked on live closure;
+- no evidence-invalidation/store escape clauses remain;
+- reviewer independence is defined and testable;
+- candidate/integration evidence and reviews use exact generic subject identity;
+- every MUST-level invariant in both normative contracts has an acceptance test or is explicitly static.
 
-Treat model/worker prose as claims, not proof. Prefer a smaller rigorous V1.
+Also adversarially search for **new** contradictions introduced by the repairs. Pay special attention to:
+- terminal task states versus revision/cancellation;
+- attempt lifecycle edges;
+- integration correction/block/cancel semantics;
+- idempotency across every retryable mutation;
+- DB backup/restore and host-loss limitations;
+- mirror staleness/base-object retrieval;
+- network/tool/credential isolation;
+- artifact-store crash safety;
+- observability/audit event durability;
+- drain/upgrade/schema compatibility;
+- whether anything essential was improperly deferred to V1.x/V2.
+
+### Authority-specific verdict handling
+
+The owner has **not yet** made the F-01 sequencing/adoption decision. That absence by itself should be reported as `OWNER-PENDING`, not as an engineering-contract defect, **provided** the candidate correctly fails closed until owner adoption.
+
+The live watcher/builder mismatch should be `RUNTIME-PENDING`, not an engineering-contract defect, **provided** the remediation plan is technically sound, separately gated, and Phase 1/write-capable model execution cannot proceed before closure.
 
 ### Verdict
 
-Return exactly one:
-- `ACCEPT FOR V1 FREEZE`
-- `CHANGES REQUIRED BEFORE V1 FREEZE`
+Return exactly one engineering verdict:
+- `ENGINEERING CONTRACT READY — OWNER/RUNTIME GATES REMAIN`
+- `CHANGES REQUIRED BEFORE OWNER DECISION`
 
-If changes are required, list only material blocking findings, each with:
+If changes are required, list only material blocking engineering findings with:
 - ID/severity;
 - exact file/section;
-- why it can cause an incorrect or unsafe implementation;
-- smallest contract change required;
-- corresponding acceptance test that must be added/changed.
+- failure/unsafe consequence;
+- smallest repair;
+- exact acceptance test required.
 
-Also list non-blocking V1.x/V2 suggestions separately so they do not contaminate the freeze gate.
+List owner/runtime pending gates separately and do not conflate them with engineering defects.
 
-Do not approve because the documents are detailed. Approve only if the contract is internally coherent, traceable, testable and leaves no material control-plane/safety/recovery mechanism to be invented during coding.
+Do not approve because the documents are detailed. Try to break the contract.
