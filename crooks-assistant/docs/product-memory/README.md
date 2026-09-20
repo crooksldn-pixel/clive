@@ -19,6 +19,7 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [DECISIONS.md](./DECISIONS.md) — important decisions and the reasoning behind them.
 - [SELF_IMPROVEMENT.md](./SELF_IMPROVEMENT.md) — controlled self-improvement, multi-agent development hierarchy, reviewers, replay, and deployment gates.
 - [CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md](./CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md) — active 2026-09-20 direction for the continuous voice/work loop, retirement of Split, simultaneous jobs, liquid-glass UI, scene compilation, per-session evaluation, adversarial/mutation/device testing, and evaluation-drift controls.
+- [CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md](./CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md) — owner-approved north-star doctrine: CLIVE as a persistent operational layer from intention to execution, with contextual investigation, world state, persistent objectives, people/workspaces, relevant memory, capability-gap learning and operational-value evaluation.
 - [CURRENT_TRUTH.md](./CURRENT_TRUTH.md) — compact active state; the first context file future directors/workers should read.
 - [EVOLUTION_POLICY.md](./EVOLUTION_POLICY.md) — release doctrine: preserve value and lessons without fossilising obsolete implementation or design.
 - [DIRECTOR_PROTOCOL.md](./DIRECTOR_PROTOCOL.md) — named memory/continuity procedures for bootstrap, release context, supersession, pruning, handoff, and audits.
