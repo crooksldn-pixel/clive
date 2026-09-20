@@ -1,35 +1,28 @@
 # CHATGPT INBOX
 
-## Fresh independent adversarial review — Orchestrator V1 freeze candidate
+## Bounded repair — Orchestrator V1 freeze evaluator M-01
 
-Perform exactly one fresh **read-only independent adversarial review** of the current freeze candidate.
+Perform exactly one bounded repository-only repair round on the current freeze candidate.
 
 ### Exact identity
 - repository: `crooksldn-pixel/clive`
 - candidate branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
-- exact candidate SHA to review: `4f1a915421fc5324638168aa6a16fc51f5a9ee84`
-- parent: `a904a209d57add65f3878b4f7ee3eec19b6c35a9`
-- repair outbox consumed: current `bridge/claude-outbox.md` reporting L-01 repair complete
+- exact rejected SHA: `4f1a915421fc5324638168aa6a16fc51f5a9ee84`
+- independent review verdict consumed: `REJECT — REPAIR REQUIRED`
+- blocker: M-01, with M-02 reinforcement requested in the same bounded repair
 
-Resolve refs fresh. Abort the review if the candidate branch is no longer exactly the SHA above. Do not edit the freeze branch, canonical product memory, runtime, watcher, builder, connectors, credentials, or production.
+Resolve refs fresh. Abort if the candidate branch is no longer exactly the rejected SHA above. Do not touch canonical product-memory documents or the freeze contract text. This is an evaluator/test-module repair only.
 
-### Review objective
-Independently determine whether exact `4f1a915421fc5324638168aa6a16fc51f5a9ee84` is engineering-clean enough for an owner freeze decision. No prior verdict transfers to this SHA. Do not accept the repair author's green counts or stated reasoning as proof; recompute from committed source and invent your own attacks.
+### Required repair
+Repair the material M-01 false-green in `crooks-assistant/tests/test_orchestrator_freeze_spec.py`: a nearby backticked non-handle field can currently absorb a write verb, classify the clause as `WRITES_OTHER_FIELD`, and silently hide an operative second write to the cleanup handle. The repair must fail closed when a clause containing a live cleanup-handle referent also contains a write whose target cannot be proven to be exclusively another field. Preserve legitimate controls such as an actual write to an unrelated field and explicit read-only handle prose.
 
-Review the complete freeze contract and its executable/spec-test evidence, with particular pressure on the repaired L-01 gate and all prior invariants J-01/H-03/H-04/R-02/K-01. Verify the repair really remains test-module-only and does not weaken the contract.
+Also strengthen the independent group-creation cardinality derivation enough to cover the review's demonstrated M-02 forms, including present-tense `creates`, noun/verb ordering variants, and reasonable creation synonyms such as `instantiated`/`provisioned`, without turning broad harmless prose into automatic failure. Treat this as defence in depth; M-01 must be fixed independently rather than relying on group-count phrasing.
 
-### Adversarial requirements
-- Attempt to produce false-green unsafe mutations that restore a second operative cleanup-handle write using unseen wording, co-reference, pronouns, noun aliases, active/passive voice, punctuation boundaries, reordered clauses, unknown predicates, and read-marker camouflage.
-- Attack the independent group-creation cardinality derivation with unseen grammatical forms and ordering.
-- Test false-positive controls so a gate that merely rejects broad classes of prose is not mistaken for quality.
-- Recompute sole write point/cardinality and process-group lifetime semantics independently from the contract, not from helper expectations.
-- Recheck occupancy/release semantics (J-01), one-group lifetime and durable handle semantics (H-03), reviewer ownership/cleanup semantics (H-04), and retry ceiling semantics (R-02).
-- Attack the evaluator itself: identify plausible unsafe implementations/prose mutations that the committed tests would still accept. Distinguish ordinary regression coverage from mutation/adversarial evidence.
-- Treat unknown critical semantics fail-closed as the desired direction. If a remaining blind spot can permit a materially unsafe contract mutation to remain green, report it as a blocker even if pristine tests pass.
+### Mandatory regression/adversarial evidence
+Add committed regression mutations for the independent review's false greens, including the semantic equivalents of M1/M2/M3/M4/M6/M7. Add adjacent unseen variants covering active/passive voice, co-reference/pronouns, noun aliases, punctuation/clause reordering, read-marker camouflage and unknown predicates. Include false-positive controls proving legitimate other-field writes and read-only handle references remain accepted.
 
-### Evidence and verdict
-Use exact committed blobs/readback and run the committed freeze-spec suite plus relevant static checks/secret scan without printing secret values. Report exact SHA reviewed, exact evidence, adversarial mutations attempted and which dimension caught each, remaining blind spots, and one unambiguous verdict:
-- `ENGINEERING ACCEPT — READY FOR OWNER FREEZE DECISION`, or
-- `REJECT — REPAIR REQUIRED` with bounded material blockers.
+Preserve all prior J-01/H-03/H-04/R-02/K-01/L-01 invariants and all existing tests. Do not weaken assertions to make the candidate green. Unknown critical semantics should fail closed.
 
-Do not modify the candidate during this review. Engineering acceptance is not owner adoption and does not amend DEC-046/047 or authorize Orchestrator implementation/deployment.
+Run the complete committed freeze-spec suite, relevant static checks and secret scan without printing secret values. Report exact resulting SHA, parent, changed files, test counts, mutation/adversarial cases and clean-worktree evidence. If the repair requires changing the freeze contract rather than its evaluator, stop and report that as a blocker instead.
+
+Do not self-review or declare engineering acceptance. After the repair, stop for a fresh independent review on the new exact SHA. No production/runtime/watcher/builder/connectors/credentials/privileges/business writes/deployment/adoption/sequencing changes.
