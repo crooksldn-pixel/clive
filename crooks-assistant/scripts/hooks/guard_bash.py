@@ -64,6 +64,13 @@ not pretend to:
 - **Interpreter code is opaque** beyond the substrings it names: `os.system("git reset
   --hard")` inside `python3 -c` is not seen. Protected paths, `.env`-style names and
   environment reads inside inline code are.
+- **Substitutions are read as bash 5.2 reads them** (the shell on this host): a heredoc
+  named inside a `$( … )` that closes on its line takes its body from the lines below, as
+  5.2 does. A `case` pattern's bare `)` inside a substitution is taken for its end; the text
+  after it is still evaluated, so nothing is hidden, but the words may be misread. Two
+  heredocs on one logical line, one inside a substitution still open at its end, are read
+  in operator order rather than bash's; the outer body is then not found and the command is
+  refused as unterminated.
 """
 
 from __future__ import annotations
@@ -255,6 +262,38 @@ FIREWALL_MUTATING = frozenset(
 )
 # curl short options that take a value; needed to read joined bundles like `-sSXPOST` (D-09).
 CURL_VALUE_LETTERS = frozenset("AbcCdDeEFHKmoPQrtTuUwxXyYz")
+# The option grammar of coreutils `cp` and `install` (A-01 of the review of c16d6db), read so
+# that the operand a line writes to is the one coreutils writes to: `-t DIR` / `-tDIR` /
+# `--target-directory[=]DIR` copies every operand INTO DIR; an option's value is never an
+# operand (`install x DIR -m 644` writes DIR, not `644`); `install -d` makes every operand a
+# directory. Per command: short letters that take a value, short letters that take none,
+# long options that take a value (`--opt=V` or `--opt V`), long options whose value is
+# optional (`--opt[=V]` only) and long options that take none. GNU getopt also accepts any
+# unambiguous abbreviation of a long option (`--targ DIR`), so names are matched by prefix.
+# rsync's `-t` is `--times` and scp has no target-directory option: for both, the last
+# operand is the destination, which is the rule the general copy branch already applies.
+COPY_OPTIONS: dict[str, tuple[frozenset[str], frozenset[str], tuple[str, ...], tuple[str, ...],
+                              tuple[str, ...]]] = {
+    "cp": (
+        frozenset("St"),
+        frozenset("abdfHilLnPpRrsTuvxZ"),
+        ("no-preserve", "sparse", "suffix", "target-directory"),
+        ("backup", "context", "preserve", "reflink", "update"),
+        ("archive", "attributes-only", "copy-contents", "debug", "dereference", "force",
+         "help", "interactive", "keep-directory-symlink", "link", "no-clobber",
+         "no-dereference", "no-target-directory", "one-file-system", "parents", "recursive",
+         "remove-destination", "strip-trailing-slashes", "symbolic-link", "verbose",
+         "version"),
+    ),
+    "install": (
+        frozenset("gmoSt"),
+        frozenset("bcCdDpsTvZ"),
+        ("group", "mode", "owner", "strip-program", "suffix", "target-directory"),
+        ("backup", "context"),
+        ("compare", "debug", "directory", "help", "no-target-directory", "preserve-context",
+         "preserve-timestamps", "strip", "verbose", "version"),
+    ),
+}
 GLOB_CHARS = ("*", "?", "[")
 
 CONTEXT_TEXT = (
@@ -383,10 +422,62 @@ def main() -> int:
 # ----------------------------------------------------------------------------------------------
 
 
+# How every scanner below reads quotes and substitutions — one rule, so that no scanner can
+# be talked into a quote state another scanner does not share (A-02 of the review of c16d6db):
+#
+#   * A backslash outside single quotes escapes the next character. Inside single quotes
+#     nothing is special until the closing quote.
+#   * A `$( … )` substitution, met unquoted or INSIDE DOUBLE QUOTES, is a command of its own.
+#     Its quotes, comments and parentheses are read with fresh state and it ends at its own
+#     `)`; the enclosing state — a double quote that was open before `$(` — resumes after it,
+#     untouched by anything the substitution contained. So `echo "$(echo "it's")" >f` is a
+#     double-quoted word followed by a redirection, as bash reads it, and the apostrophe
+#     inside the substitution opens nothing outside it.
+#   * A backtick substitution, met unquoted or inside double quotes, ends at the first
+#     backtick that is not escaped, whatever quotes sit between (bash extracts the text first
+#     and parses it afterwards); its text is likewise a command of its own.
+#   * A word-initial unquoted `#` starts a comment that runs to the end of its physical
+#     line, inside a substitution too.
+#   * A substitution that never closes leaves the enclosing state dead: what follows is the
+#     substitution's own text and is read with fresh state; the segmenter then refuses the
+#     command because the substitution is unterminated (fail closed).
+#
+# The scanners themselves: `_substitution_end` finds where one closes; `_scan_continuations`
+# removes line continuations; `_unquoted_heredoc_ops` finds the heredoc operators of a
+# logical line; `_segments` splits into commands and replaces each substitution by a marker
+# — so the tokenizer never sees a nested quote — after emitting its body as commands of its
+# own. What these scanners cannot read is written in the module docstring.
+
+COMMENT_LEAD = " \t;|&(\n"  # a `#` after one of these (or first) begins a comment
+
+
 def _unquoted_heredoc_ops(line: str) -> list[tuple[str, bool, bool]]:
-    """(delimiter, strip_tabs, quoted) for every `<<` that is outside quotes on this line."""
+    """(delimiter, strip_tabs, quoted) for every `<<` on this logical line that bash would read
+    as a heredoc operator whose body is the lines that follow: outside quotes, outside a
+    comment, and not inside a backtick substitution that closes on this line (bash parses
+    that text on its own, so its heredoc ends with it and the following lines are commands —
+    witnessed, bash 5.2). Inside a `$( … )` — closed on this line or still open — and inside
+    the text of a backtick still open at the end of the line, an operator's body is the
+    lines that follow, as in bash 5.2, and it is reported."""
+    return _heredoc_scan(line)[0]
+
+
+def _heredoc_scan(line: str) -> tuple[list[tuple[str, bool, bool]], int, int]:
+    """The heredoc operators of one logical line (see `_unquoted_heredoc_ops`), and where the
+    command that owns the first of them is written: (ops, owner_start, owner_end). When the
+    first operator sits inside a substitution, the owner is the substitution's own text —
+    `x="$(cat <<EOF` is owned by `cat`, not by `x=` — so owner_start is the index after the
+    innermost `$(` or backtick open at the operator, and owner_end the index of the `)` that
+    closes it on this line, or the end of the line. Outside any substitution they are 0 and
+    the end of the line."""
     ops: list[tuple[str, bool, bool]] = []
     quote: str | None = None
+    # One entry per `$(` still open — (its saved enclosing quote, the index after it) — and
+    # ("(", -1) for a bare paren inside one; the open backtick's text start when there is one.
+    stack: list[tuple[str | None, int]] = []
+    backtick_start = 0
+    owner_start, owner_end = 0, len(line)
+    owner_depth = -1  # the stack depth of the `$(` that owns the first operator, if any
     i = 0
     n = len(line)
     while i < n:
@@ -394,8 +485,26 @@ def _unquoted_heredoc_ops(line: str) -> list[tuple[str, bool, bool]]:
         if ch == "\\" and quote != "'":
             i += 2
             continue
-        if quote:
-            if ch == quote:
+        if quote == "'":
+            if ch == "'":
+                quote = None
+            i += 1
+            continue
+        if ch == "`":
+            try:
+                i = _substitution_end(line, i) + 1  # closed here: its heredoc is not fed below
+            except ValueError:
+                quote, stack = None, []  # open at the end of the line: the rest is its text
+                backtick_start = i + 1
+                i += 1
+            continue
+        if line.startswith("$(", i):
+            stack.append((quote, i + 2))
+            quote = None
+            i += 2
+            continue
+        if quote == '"':
+            if ch == '"':
                 quote = None
             i += 1
             continue
@@ -403,7 +512,18 @@ def _unquoted_heredoc_ops(line: str) -> list[tuple[str, bool, bool]]:
             quote = ch
             i += 1
             continue
-        if ch == "<" and line.startswith("<<", i) and not line.startswith("<<<", i) and (
+        if ch == "#" and (i == 0 or line[i - 1] in COMMENT_LEAD):
+            break  # a comment: nothing after it on this line is read
+        if stack and ch == "(":
+            stack.append(("(", -1))
+        elif stack and ch == ")":
+            saved, _start = stack.pop()
+            if saved != "(":
+                quote = saved
+                if len(stack) == owner_depth:
+                    owner_end = i
+                    owner_depth = -1
+        elif ch == "<" and line.startswith("<<", i) and not line.startswith("<<<", i) and (
             i == 0 or line[i - 1] != "<"
         ):
             m = re.match(r"<<(-?)\s*(?:'([^']*)'|\"([^\"]*)\"|\\?([A-Za-z_][A-Za-z0-9_]*))",
@@ -412,14 +532,21 @@ def _unquoted_heredoc_ops(line: str) -> list[tuple[str, bool, bool]]:
                 delim = m.group(2) or m.group(3) or m.group(4) or ""
                 quoted = m.group(2) is not None or m.group(3) is not None
                 if delim:
+                    if not ops:
+                        opens = [k for k, (saved, _s) in enumerate(stack) if saved != "("]
+                        if opens:
+                            owner_depth = opens[-1]
+                            owner_start = stack[owner_depth][1]
+                        else:
+                            owner_start = backtick_start
                     ops.append((delim, m.group(1) == "-", quoted))
                 i += m.end()
                 continue
         i += 1
-    return ops
+    return ops, owner_start, owner_end
 
 
-def _scan_continuations(text: str) -> tuple[str, bool]:
+def _scan_continuations(text: str, nesting: int = 0) -> tuple[str, bool]:
     """`text` with every line continuation bash would remove taken out, and whether it ends
     in an open one: a final unquoted backslash with nothing after it yet.
 
@@ -429,9 +556,16 @@ def _scan_continuations(text: str) -> tuple[str, bool]:
     heredoc. Inside single quotes both characters are literal and stay. A comment runs to the
     end of its physical line, so a backslash inside one continues nothing. Every other
     escaped character is left for the tokenizer. Nothing else is removed or reordered
-    (R-01 of the review of ef73fbe)."""
+    (R-01 of the review of ef73fbe).
+
+    A substitution is read with its own state (A-02): inside `$( … )` and inside backticks
+    the pair is removed too — as bash does, witnessed — with the substitution's own quotes
+    deciding, and the enclosing quote resumes after it."""
+    if nesting > MAX_SUBSTITUTION_NESTING:
+        raise ValueError("substitutions nested too deeply")
     out: list[str] = []
     quote: str | None = None
+    stack: list[str | None] = []  # the enclosing quote saved at each `$(`; "(" for a bare paren
     i = 0
     n = len(text)
     while i < n:
@@ -446,24 +580,54 @@ def _scan_continuations(text: str) -> tuple[str, bool]:
             out.append(text[i : i + 2])
             i += 2
             continue
-        if quote:
-            if ch == quote:
+        if quote == "'":
+            if ch == "'":
+                quote = None
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "`":
+            try:
+                end = _substitution_end(text, i, nesting)
+            except ValueError:
+                quote, stack = None, []  # never closes: the rest is the substitution's text
+                out.append(ch)
+                i += 1
+                continue
+            inner, _open = _scan_continuations(text[i + 1 : end], nesting + 1)
+            out.append("`" + inner + "`")
+            i = end + 1
+            continue
+        if text.startswith("$(", i):
+            stack.append(quote)
+            quote = None
+            out.append("$(")
+            i += 2
+            continue
+        if quote == '"':
+            if ch == '"':
                 quote = None
         elif ch in ("'", '"'):
             quote = ch
-        elif ch == "#" and (not out or out[-1][-1] in " \t;|&(\n"):
+        elif ch == "#" and (not out or out[-1][-1] in COMMENT_LEAD):
             j = text.find("\n", i)
             j = n if j == -1 else j
             out.append(text[i:j])
             i = j
             continue
+        elif stack and ch == "(":
+            stack.append("(")
+        elif stack and ch == ")":
+            top = stack.pop()
+            if top != "(":
+                quote = top
         out.append(ch)
         i += 1
     return "".join(out), False
 
 
-def _join_continuations(text: str) -> str:
-    return _scan_continuations(text)[0]
+def _join_continuations(text: str, nesting: int = 0) -> str:
+    return _scan_continuations(text, nesting)[0]
 
 
 def _continued(line: str) -> bool:
@@ -488,6 +652,13 @@ def _strip_heredocs(raw: str) -> tuple[str, list[tuple[str, str]]]:
     joins continued lines before comparing a line with the delimiter; inside a quoted one it
     does not, and neither does this.
 
+    An operator inside a comment, inside quotes, or inside a backtick substitution that
+    closes on its line reads no body (A-02 and its neighbours): the lines that follow are
+    commands and stay in the executable text. A logical line that names two heredocs, one
+    of them inside a substitution that is still open at the end of the line, is read in
+    operator order, which is not bash's order for the outer one; the outer body is then
+    not found, nothing is stripped, and the unterminated substitution is refused.
+
     An unterminated heredoc strips nothing: what cannot be parsed is evaluated in full."""
     lines = raw.split("\n")
     kept: list[str] = []
@@ -500,10 +671,10 @@ def _strip_heredocs(raw: str) -> tuple[str, list[tuple[str, str]]]:
             line = line[:-1] + lines[i]
             i += 1
         kept.append(line)
-        ops = _unquoted_heredoc_ops(line)
+        ops, owner_start, owner_end = _heredoc_scan(line)
         if not ops:
             continue
-        owner = _heredoc_owner(line)
+        owner = _heredoc_owner(line[owner_start:owner_end])
         for delim, strip_tabs, quoted in ops:
             body: list[str] = []
             j = i
@@ -539,7 +710,10 @@ def _heredoc_owner(line: str) -> str:
     shell sits to the right of the operator. An owner that cannot be parsed counts as a shell
     (fail closed). The words are read the way the evaluator reads them — split at unquoted
     `|`, `;`, `&` and at redirection operators — so `cat<<EOF|bash` and `cat <<EOF|bash` feed
-    a shell exactly as `cat <<EOF | bash` does (F-6)."""
+    a shell exactly as `cat <<EOF | bash` does (F-6). For an operator inside a substitution
+    the caller passes the substitution's own text (A-02): `x="$(cat <<EOF` is owned by
+    `cat`, and its output reaching a shell outside the substitution is a pipe the evaluator
+    refuses on its own (`echo "$(…)" | bash` feeds text the hook cannot read)."""
     head, _, tail = line.partition("<<")
     try:
         words = [w for seg, _piped in _segments(head + " " + tail) for w in _tokens(seg)[0]]
@@ -570,13 +744,23 @@ def _substitution_bodies(text: str) -> list[str]:
     return [f for f in found if f.strip()]
 
 
-def _substitution_end(text: str, start: int) -> int:
+def _substitution_end(text: str, start: int, nesting: int = 0) -> int:
     """Index of the `)` or backtick that closes the substitution opening at `start` (`$(` or a
-    backtick), tracking escapes, quotes and nested parentheses. ValueError when it never
-    closes: the hook then refuses the command rather than guess where the substitution ends."""
+    backtick). ValueError when it never closes, or when substitutions nest deeper than
+    MAX_SUBSTITUTION_NESTING: the hook then refuses the command rather than guess.
+
+    A backtick substitution ends at the first backtick that is not escaped, whatever quotes
+    sit between. A `$( … )` substitution is a command of its own: its escapes, quotes,
+    comments and parentheses are read with fresh state, and a nested `$( … )` or backtick met
+    inside it — unquoted or inside its double quotes — is closed by this same rule before the
+    scan continues, so nothing inside the nested one reaches the enclosing state (A-02 of the
+    review of c16d6db). A `)` inside quotes or inside a comment closes nothing."""
+    if nesting > MAX_SUBSTITUTION_NESTING:
+        raise ValueError("substitutions nested too deeply")
+    n = len(text)
     j = start + 1
     if text[start] == "`":
-        while j < len(text):
+        while j < n:
             if text[j] == "\\":
                 j += 2
                 continue
@@ -587,16 +771,30 @@ def _substitution_end(text: str, start: int) -> int:
     depth = 1
     quote: str | None = None
     j = start + 2
-    while j < len(text):
+    while j < n:
         ch = text[j]
         if ch == "\\" and quote != "'":
             j += 2
             continue
-        if quote:
-            if ch == quote:
+        if quote == "'":
+            if ch == "'":
                 quote = None
-        elif ch in ("'", '"'):
+            j += 1
+            continue
+        if ch == "`" or text.startswith("$(", j):
+            j = _substitution_end(text, j, nesting + 1) + 1
+            continue
+        if quote == '"':
+            if ch == '"':
+                quote = None
+            j += 1
+            continue
+        if ch in ("'", '"'):
             quote = ch
+        elif ch == "#" and text[j - 1] in COMMENT_LEAD:
+            k = text.find("\n", j)
+            j = n if k == -1 else k
+            continue
         elif ch == "(":
             depth += 1
         elif ch == ")":
@@ -626,10 +824,17 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
     Unquoted and double-quoted line continuations are removed first, as bash removes them
     before it reads a word (R-01 of the review of ef73fbe): every caller of this segmenter —
     the guard, the heredoc owner and the gitleaks gate — sees `echo x >\\<newline>/opt/x` as
-    `echo x >/opt/x`. A single-quoted backslash-newline stays literal, as in bash."""
+    `echo x >/opt/x`. A single-quoted backslash-newline stays literal, as in bash.
+
+    A substitution INSIDE DOUBLE QUOTES is a substitution too (A-02 of the review of
+    c16d6db): `echo "$(rm -rf x)"` runs the rm, so its body is emitted as segments of its own
+    exactly like an unquoted one, and the marker takes its place inside the quotes. The
+    tokenizer therefore never meets a quote that belongs to a nested command, and a
+    malformed quote later in the text cannot reach back and turn an earlier redirection into
+    quoted data: `echo "$(echo "it's")" >/opt/x` is a double-quoted word and a redirection."""
     if nesting > MAX_SUBSTITUTION_NESTING:
         raise ValueError("substitutions nested too deeply")
-    text = _join_continuations(text)
+    text = _join_continuations(text, nesting)
     out: list[tuple[str, bool]] = []
     buf: list[str] = []
     quote: str | None = None
@@ -653,8 +858,23 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
             i += 2
             tail = ""
             continue
-        if quote:
-            if ch == quote:
+        if quote == "'":
+            if ch == "'":
+                quote = None
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == "`" or text.startswith("$(", i):
+            # Unquoted or inside double quotes: a command of its own, read with its own state.
+            end = _substitution_end(text, i, nesting)
+            body = text[i + 1 : end] if ch == "`" else text[i + 2 : end]
+            out.extend(_segments(body, nesting + 1))
+            buf.append(SUBST_MARKER)
+            i = end + 1
+            tail = ""
+            continue
+        if quote == '"':
+            if ch == '"':
                 quote = None
             buf.append(ch)
             i += 1
@@ -665,7 +885,7 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
             i += 1
             tail = ""
             continue
-        if ch == "#" and (i == 0 or text[i - 1] in " \t;|&(\n"):
+        if ch == "#" and (i == 0 or text[i - 1] in COMMENT_LEAD):
             # A word-initial unquoted `#` starts a comment. shlex's own comment handling would
             # also treat a mid-word `#` as one (`git push origin#x --force` → `--force` lost),
             # so comments are removed here and shlex runs with comments=False.
@@ -692,14 +912,6 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
             i += 1
             tail = (tail + ch)[-2:]
             continue
-        if ch == "`" or text.startswith("$(", i):
-            end = _substitution_end(text, i)
-            body = text[i + 1 : end] if ch == "`" else text[i + 2 : end]
-            out.extend(_segments(body, nesting + 1))
-            buf.append(SUBST_MARKER)
-            i = end + 1
-            tail = ""
-            continue
         if ch in ("(", ")", ";", "\n", "&"):
             flush(False)
             i += 1
@@ -712,54 +924,6 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
         raise ValueError("unbalanced quote")
     flush(False)
     return out
-
-
-def _double_quoted_substitutions(segment: str) -> list[str]:
-    """Bodies of `$(...)` and backtick substitutions that sit inside double quotes."""
-    out: list[str] = []
-    quote: str | None = None
-    i = 0
-    n = len(segment)
-    while i < n:
-        ch = segment[i]
-        if ch == "\\" and quote != "'":
-            i += 2
-            continue
-        if quote == '"':
-            if ch == '"':
-                quote = None
-                i += 1
-                continue
-            if segment.startswith("$(", i):
-                depth = 1
-                j = i + 2
-                while j < n and depth:
-                    if segment[j] == "(":
-                        depth += 1
-                    elif segment[j] == ")":
-                        depth -= 1
-                    j += 1
-                out.append(segment[i + 2 : j - 1])
-                i = j
-                continue
-            if ch == "`":
-                j = segment.find("`", i + 1)
-                if j == -1:
-                    j = n
-                out.append(segment[i + 1 : j])
-                i = j + 1
-                continue
-            i += 1
-            continue
-        if quote == "'":
-            if ch == "'":
-                quote = None
-            i += 1
-            continue
-        if ch in ("'", '"'):
-            quote = ch
-        i += 1
-    return [b for b in out if b.strip()]
 
 
 def _split_redirects(segment: str) -> str:
@@ -868,8 +1032,8 @@ def _dynamic_word(word: str) -> bool:
 def _evaluate_raw(raw: str, ctx: _Ctx) -> Decision:
     if ctx.depth > MAX_DEPTH:
         return deny("UNPARSEABLE", "command nesting exceeded the depth this hook will follow")
-    executable, extra = _strip_heredocs(raw)
     try:
+        executable, extra = _strip_heredocs(raw)
         segs = _segments(executable)
     except ValueError:
         return deny("UNPARSEABLE", "command could not be split into shell words (unbalanced "
@@ -889,12 +1053,8 @@ def _evaluate_raw(raw: str, ctx: _Ctx) -> Decision:
             return result
         prev_toks = toks
         # `echo "$(rm -rf x)"`: a substitution inside DOUBLE quotes still executes. The segmenter
-        # leaves quoted text intact, so those bodies are pulled out here and evaluated on their
-        # own. Single-quoted text is literal and is left alone.
-        for body in _double_quoted_substitutions(seg):
-            result = _evaluate_raw(body, ctx.child())
-            if result.denied:
-                return result
+        # emits its body as segments of its own, exactly like an unquoted one (A-02), so it has
+        # already been evaluated above. Single-quoted text is literal and is left alone.
     for kind, body in extra:
         if kind == "code":
             result = _code_rule(body, "interpreter code fed by heredoc")
@@ -1465,6 +1625,87 @@ def _without_redirections(toks: list[str]) -> list[str]:
     return kept
 
 
+def _long_option(name: str, *tables: tuple[str, ...]) -> tuple[int, str] | None:
+    """(index of the table, full option name) for `--name` under GNU getopt's rules: an exact
+    name, else the one option it unambiguously abbreviates. None when it is unknown or
+    ambiguous — coreutils then refuses the whole line, and so does the caller."""
+    for k, table in enumerate(tables):
+        if name in table:
+            return k, name
+    matches = [(k, full) for k, table in enumerate(tables) for full in table
+               if full.startswith(name)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _copy_destinations(base: str, operands: list[str]) -> list[str]:
+    """The operands a `cp` or `install` line writes to, read with coreutils' own option
+    grammar (COPY_OPTIONS; A-01 of the review of c16d6db). The value of every `-t DIR`,
+    `-tDIR`, `--target-directory DIR` and `--target-directory=DIR` — in any bundle
+    (`-rt DIR`) and under any abbreviation getopt accepts (`--targ DIR`, `--t=DIR`) — is a
+    directory every other operand is copied INTO, so no operand is a destination; with
+    install's `-d` / `--directory` every operand is a directory to create; otherwise the last
+    operand is the destination. An option's value is consumed, never read as an operand, and
+    `--` ends the options. When the line cannot be read — an option this table does not
+    know, an ambiguous abbreviation, or a value option with nothing after it — every operand
+    is returned, so that a protected one is refused rather than guessed about."""
+    short_value, short_flag, long_value, long_optional, long_flag = COPY_OPTIONS[base]
+    targets: list[str] = []
+    positional: list[str] = []
+    unreadable = False
+    every_operand = False
+    i = 0
+    while i < len(operands):
+        t = operands[i]
+        i += 1
+        if t == "--":
+            positional.extend(operands[i:])
+            break
+        if t.startswith("--") and len(t) > 2:
+            name, eq, value = t[2:].partition("=")
+            found = _long_option(name, long_value, long_optional, long_flag)
+            if found is None:
+                unreadable = True
+                continue
+            kind, full = found
+            if kind == 0 and not eq:  # `--opt V`: the value is the next word
+                if i < len(operands):
+                    value = operands[i]
+                    i += 1
+                else:
+                    unreadable = True
+                    continue
+            if full == "target-directory":
+                targets.append(value)
+            elif full == "directory":
+                every_operand = True
+            continue
+        if t.startswith("-") and len(t) > 1:
+            for k, letter in enumerate(t[1:], start=1):
+                if letter in short_value:
+                    value = t[k + 1:]
+                    if not value:
+                        if i < len(operands):
+                            value = operands[i]
+                            i += 1
+                        else:
+                            unreadable = True
+                            break
+                    if letter == "t":
+                        targets.append(value)
+                    break
+                if letter not in short_flag:
+                    unreadable = True
+                elif letter == "d" and base == "install":
+                    every_operand = True
+            continue
+        positional.append(t)
+    if unreadable or every_operand:
+        return targets + positional
+    if targets:
+        return targets
+    return positional[-1:]
+
+
 def _path_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
     # Every output redirection is a write, whatever the command: a read-only `echo`, `printf`
     # or `cat` with `>` is writing (F-6). Its target is checked first, and independently of
@@ -1473,13 +1714,20 @@ def _path_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
         result = _write_target_problem(target, "redirecting output", ctx)
         if result is not None:
             return result
-    if base in ("cp", "scp", "rsync", "install"):
-        # The destination is the last operand of the command itself; a redirection after it
-        # (`cp x /opt/crooks-os/app/ >log`) is not the destination and was checked above.
+    if base in ("cp", "install"):
+        # Where coreutils writes (A-01): into `-t DIR` when it is given, else the last operand;
+        # a redirection after it (`cp x /opt/crooks-os/app/ >log`) was checked above.
+        for target in _copy_destinations(base, _without_redirections(toks[1:])):
+            result = _write_target_problem(target, base, ctx)
+            if result is not None:
+                return result
+        return None
+    if base in ("scp", "rsync"):
+        # The destination is the last operand of the command itself (rsync's `-t` keeps
+        # times; scp's sink mode names the directory last).
         positional = [t for t in _without_redirections(toks[1:]) if not t.startswith("-")]
         if positional:
-            result = _write_target_problem(positional[-1], base, ctx,
-                                           remote_ok=base in ("scp", "rsync"))
+            result = _write_target_problem(positional[-1], base, ctx, remote_ok=True)
             if result is not None:
                 return result
         return None
