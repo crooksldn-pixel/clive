@@ -98,6 +98,7 @@ Status values:
 | Adversarial re-review N-01 | watcher remediation assumed a remote branch existed when it was deleted | **V1 MUST — resolved in plan** | remediation now models absent remote ref, guarded create, explicit existing-ref fetch, compare-and-swap local ref update and scratch rehearsal BR-01..BR-04 |
 | Adversarial re-review N-02 | task and attempt transition tables disagreed on correction/preflight paths | **V1 MUST — resolved** | §3/§3A use a joint fail-closed oracle; bounded correction and deterministic preflight-block paths are explicit; ST-11..ST-13 |
 | Adversarial re-review N-03 | CURRENT_TRUTH reported CG-01..CG-05 open while freeze candidate reported CG-01..CG-06 resolved | **V1 MUST — resolved without self-adoption** | CURRENT_TRUTH now distinguishes candidate-addressed from canonically closed; freeze gate adds mechanical CG/finding status consistency check |
+| Adversarial re-review N-04 | truth reconciliation silently deleted the live stale Builder fetch-refspec condition that the remediation rehearsal depends on | **V1 MUST — resolved** | CURRENT_TRUTH explicitly restores the live condition and no-ad-hoc-repair instruction; freeze gate now requires persistence of the explicit live unremediated runtime-condition set, preventing silent deletion |
 
 ## Freeze interpretation
 
