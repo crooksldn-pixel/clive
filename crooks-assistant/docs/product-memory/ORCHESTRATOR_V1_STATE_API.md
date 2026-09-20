@@ -75,7 +75,7 @@ A finding is authoritative for its own subject, and findings are queryable by `(
 - controller epoch;
 - fencing token;
 - provider/model/effort/runner kind;
-- process-group/cgroup identity;
+- process-group/cgroup identity — NULL until the attempt commits `RUNNING`, non-NULL from then on, because §3A establishes owned process-group identity exactly at that commit. It is therefore the durable record of whether a model process was ever launched under this attempt, which §3A's execution-attempt ceiling reads;
 - start/end timestamps;
 - failure code nullable.
 
@@ -206,7 +206,7 @@ Represents publication independently from work completion.
 - state `PENDING|UNKNOWN|PUBLISHED|FAILED|BLOCKED`;
 - expected remote identity;
 - observed remote identity;
-- attempt count;
+- attempt count — the number of external publication effects that have been *initiated* for this delivery. §3C requires the increment to be committed before each effect is initiated and never decremented, which makes a non-zero count the durable evidence that an effect may already have reached the destination;
 - last error/reconcile timestamp.
 
 ### `idempotency`
@@ -249,7 +249,8 @@ Every model-running or process-owning unit of work in V1 has a durable execution
 The following rules apply uniformly to all three, and are the reason the substrate is generalised rather than duplicated:
 
 - the execution record MUST exist and be non-terminal before any model process is launched for that unit;
-- an in-flight unit MUST be visible in the database. A subject sitting in `BUILDING`, `INTEGRATING` or `REVIEWING` with no non-terminal execution record is an inconsistency that reconciliation MUST surface as BLOCKED; it MUST NOT be read as progress, and it MUST NOT be resolved by blind re-dispatch;
+- an in-flight unit MUST be visible in the database. Which subject states can hold one is **derived, not hand-enumerated**: a subject state is **execution-bearing** exactly when §3A or §3B admits a non-terminal execution record — an `attempt` in `CREATED`, `STARTING`, `RUNNING` or `CANDIDATE_READY`, or a `review_dispatch` in `DISPATCHED` — while the subject sits in that state. §3A's subject-binding table and §3B's binding rule are that derivation in mechanically checkable form, and adding an edge there extends this rule automatically. Under the matrices as written it derives to the `TASK` subject states `ASSIGNED`, `BUILDING`, `REVIEWING`, and the `INTEGRATION` subject states `INTEGRATING`, `REVIEWING`;
+- an execution-bearing subject with **no** non-terminal execution record is an inconsistency that reconciliation MUST surface as BLOCKED, using the subject's already-listed §3 block edge — `task.block` for a `TASK` subject and `integration.block` for an `INTEGRATION` subject — with reason code `EXECUTION_RECORD_MISSING`. It MUST NOT be read as progress, it MUST NOT be left silently in that state, and it MUST NOT be resolved by blind re-dispatch. `ASSIGNED` is covered for exactly the same reason as `BUILDING`: controller-epoch fencing closes a `CREATED` or `STARTING` attempt terminally (§3A) without touching the subject, so an `ASSIGNED` task whose only attempt has just been fenced is precisely the stranded case this rule exists to catch;
 - result admission MUST present the current controller epoch and the current fencing token of that exact record, and MUST be rejected with `FENCE_STALE` when the record is terminal, superseded or unknown — **including when the subject SHA has not changed**;
 - cancellation, expiry and replacement each move the record to a terminal state, and that is what makes a late result stale. Candidate-mutation invalidation (freeze contract §14.3) is an additional and independent mechanism; it MUST NOT be relied on as the only one, because a stale reviewer or integrator commonly returns against an unchanged SHA;
 - termination follows the §6 cancellation race contract against that record's own process group, and workspace reuse follows the freeze-contract §11 emptiness rule;
@@ -334,7 +335,7 @@ Any **task or integration subject-state** transition not listed in §3 is forbid
 | integration INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel | integration CANCELLED | caller authorised; the allocated integration attempt's `lease` is fenced and any owned process group is stopped through the §6 TERM/grace/KILL sequence; process group verified empty; every non-terminal `review_dispatch` for this integration is fenced |
 | integration INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel where an owned process group cannot be proven empty | integration BLOCKED | integration attempt closes `QUARANTINED`; integration workspace is not reused; the blocking reason is persisted. Cancellation never reports CANCELLED on unproven cleanup |
 | integration VERIFIED | release_candidate.mark | ReleaseCandidate record | GPT Director independently accepts exact integrated SHA/evidence/limitations |
-| any nonterminal active | task.block | BLOCKED | typed deterministic reason persisted; active attempt fenced/stopped when continuation unsafe |
+| any nonterminal active | task.block | BLOCKED | typed deterministic reason persisted; active attempt fenced/stopped when continuation unsafe. This is also the edge §1A reconciliation uses for an execution-bearing TASK subject — `ASSIGNED`, `BUILDING` or `REVIEWING` — found with no non-terminal execution record, carrying `EXECUTION_RECORD_MISSING`; no new transition and no blind re-dispatch is introduced for that case |
 | any nonterminal active | task.escalate | ESCALATED | ambiguity/decision beyond automatic authority |
 | PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.cancel | CANCELLED | caller authorised; any active lease fenced immediately; no later result admitted |
 | PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/REJECTED/BLOCKED/ESCALATED/FAILED | task.supersede | SUPERSEDED | replacement revision/objective reference recorded; active attempt fenced |
@@ -370,7 +371,43 @@ This matrix applies to both attempt subject kinds. Where the trigger differs by 
 
 `CLOSED` is terminal for an attempt. A correction always creates a new attempt with a new fencing token.
 
-For TASK attempts, the per-revision attempt ceiling is computed authoritatively from durable `attempt` rows with `(subject_kind = TASK, subject_id = task_id, subject_revision = revision)`, counting every disposition. It is never an in-memory-only counter, so restart, restore and controller-epoch changes cannot reset it.
+### 3A.1 Subject binding of non-terminal attempt states
+
+Every edge above either leaves the subject state alone or is paired with a §3 subject edge, so the subject states that may hold a non-terminal attempt are a **derivation of this matrix** rather than a separate claim. The table restates that derivation so §1A and freeze contract §21 can be checked against it mechanically; it is normative, and it MUST agree with the edges above. An attempt state that gains a new subject pairing above MUST gain it here, and §1A/§21 MUST then be re-derived.
+
+| Non-terminal attempt state | TASK subject state | INTEGRATION subject state |
+| --- | --- | --- |
+| `attempt` CREATED | `ASSIGNED` | `INTEGRATING` |
+| `attempt` STARTING | `ASSIGNED` | `INTEGRATING` |
+| `attempt` RUNNING | `BUILDING` | `INTEGRATING` |
+| `attempt` CANDIDATE_READY | `BUILDING` | `INTEGRATING` |
+
+`CANDIDATE_READY` is bound to `BUILDING`/`INTEGRATING` rather than `EVIDENCE_READY` because `evidence.register` and `integration.register` advance the subject to `EVIDENCE_READY` and close the attempt `SUCCEEDED` in the same transaction; the attempt is never non-terminal under an `EVIDENCE_READY` subject.
+
+### 3A.2 Per-revision execution-attempt ceiling
+
+For TASK attempts, the per-revision execution-attempt ceiling is computed authoritatively from durable `attempt` rows with `(subject_kind = TASK, subject_id = task_id, subject_revision = revision)`. It is never an in-memory-only counter, so restart, restore and controller-epoch changes cannot reset it.
+
+The ceiling bounds **model relaunches**, so it counts **execution-consuming** attempt rows, and the classification is total over the `attempt` disposition enum:
+
+| Attempt row | Consumes the ceiling? | Why |
+| --- | --- | --- |
+| non-terminal (`CREATED`/`STARTING`/`RUNNING`/`CANDIDATE_READY`) | yes | the execution opportunity is currently held |
+| `CLOSED / SUCCEEDED` | yes | a model process ran and produced a candidate |
+| `CLOSED / FAILED` | yes | includes deterministic preflight failure, which §3A closes `FAILED`, so a deterministic failure can never be retried around this budget |
+| `CLOSED / QUARANTINED` | yes | process or workspace safety could not be proven; freeze contract §10.3.1 forbids relaunching it at all until cleanup is proven |
+| `CLOSED / CANCELLED` or `CLOSED / FENCED` **that reached `RUNNING`** | yes | a model process was launched under this attempt |
+| `CLOSED / CANCELLED` or `CLOSED / FENCED` **that never reached `RUNNING`** | **no** | no model process was ever launched, so charging it would let controller restarts and epoch changes consume a budget that exists to bound model relaunches |
+
+Whether an attempt reached `RUNNING` MUST be decidable from the committed `attempt` row alone, without replaying journal history: §3A establishes owned process-group identity exactly when `RUNNING` is committed, so a NULL process-group/cgroup identity on a `CANCELLED`/`FENCED` row is the durable proof that no model process was launched. No additional column is introduced for this.
+
+Three consequences are normative:
+
+- an attempt that closes `CANCELLED` or `FENCED` before reaching `RUNNING` MUST NOT consume the ceiling, so repeated controller restarts, cancellations or epoch changes while a task sits in `ASSIGNED` with a `CREATED` attempt cannot exhaust the three real execution attempts;
+- a deterministic preflight failure MUST remain budget-consuming; §3A gives it the disposition `FAILED` (or `QUARANTINED` on unproven cleanup) and never `CANCELLED`/`FENCED`, so this rule cannot be used to retry a deterministic failure indefinitely;
+- the count is a pure function of committed `attempt` rows and their immutable terminal dispositions, so controller restart, DB restore and controller-epoch change can neither reset it nor decrement a legitimately consumed attempt. Reclassifying an already-`CLOSED` attempt is forbidden by §4's atomicity rules; a disposition is written once.
+
+The ceiling guard on every `attempt.assign` path in §3 and in this matrix is unchanged — only the definition of which rows it counts is repaired.
 
 ## 3B. Review dispatch transition matrix
 
@@ -387,22 +424,35 @@ Authoritative for `review_dispatch` state. Review dispatch is the third executio
 
 Every terminal state is final. A verdict presented for a terminal, unknown or non-matching dispatch is rejected with `FENCE_STALE`, and the rejection is recorded as a `transition_event`.
 
+**Subject binding.** A `review_dispatch` is created only while its subject is `REVIEWING` and every edge out of `DISPATCHED` is terminal, so a `DISPATCHED` dispatch MUST NOT exist under any other subject state. For §1A's derivation this contributes exactly the `TASK` subject state `REVIEWING` and the `INTEGRATION` subject state `REVIEWING`, and a subject left in `REVIEWING` with no non-terminal dispatch MUST be surfaced as BLOCKED by §1A's execution-bearing rule rather than silently re-dispatched.
+
 ## 3C. Delivery transition matrix
 
 Authoritative for the `delivery.state` enum. Delivery is not an execution record and owns no lease/fencing token; §7 of the freeze contract defines its controller-epoch and idempotency authority.
 
+An **external publication effect** is any outward-facing call that may create, mutate or deliver the intended artifact at the destination. The `delivery` record's `attempt count` is the durable evidence that such an effect may have been initiated: `delivery.publish` MUST increment it and MUST commit that increment **before** initiating the effect, and it is never decremented. Because the marker is committed first, a crash between initiating the effect and persisting its outcome leaves exactly the same durable evidence as a lost response, which is what makes the two indistinguishable to reconciliation and is the reason a crash cannot produce a blind duplicate publication. `delivery.reconcile` reads authoritative remote state and initiates no external publication effect, so it never touches this counter.
+
 | From | Trigger/command | To | Preconditions / result |
 | --- | --- | --- | --- |
-| none | `delivery.publish` | PENDING | idempotency key/request digest validated; expected remote identity and destination persisted **before** the external effect |
-| PENDING | `delivery.publish` observes exact expected remote identity after the effect | PUBLISHED | authoritative remote readback matches the intended immutable identity; observed identity persisted |
-| PENDING | `delivery.publish` loses/receives an ambiguous response after the effect | UNKNOWN | ambiguity persisted; blind replay forbidden; reconciliation required |
-| PENDING | `delivery.reconcile` observes exact expected remote identity | PUBLISHED | authoritative remote truth proves the intended effect occurred |
+| none | `delivery.publish` creates the intent | PENDING with `attempt count = 0` | idempotency key/request digest validated; expected remote identity and destination persisted; the intent commits before any external effect and no effect has been initiated |
+| PENDING with `attempt count = 0` | `delivery.publish` arms the external effect | PENDING with `attempt count >= 1` | current controller epoch; matching idempotency key/request digest; the increment is committed **before** the external publication effect is initiated. This row is the durable record that an effect may have started, and it is the only admissible way to reach an initiated effect |
+| PENDING with `attempt count >= 1` | `delivery.publish` observes exact expected remote identity after the effect | PUBLISHED | authoritative remote readback matches the intended immutable identity; observed identity persisted |
+| PENDING with `attempt count >= 1` | `delivery.publish` loses or receives an ambiguous response after the effect | UNKNOWN | ambiguity persisted with reason `REMOTE_EFFECT_UNKNOWN`; blind replay forbidden; reconciliation required |
+| PENDING with `attempt count >= 1` | controller restart, DB restore or controller-epoch change reconciles the record (freeze contract §21 step 10) | UNKNOWN | the committed counter proves an external effect may already have been initiated, so the record MUST reconcile to UNKNOWN **before any further external effect**. This transition performs no external effect of its own |
+| PENDING with `attempt count = 0` | controller restart, DB restore or controller-epoch change reconciles the record | PENDING with `attempt count = 0` | no external effect was ever initiated under this record, so the intent survives unchanged and `delivery.publish` remains admissible; `delivery.state` does not change |
+| PENDING | `delivery.reconcile` observes exact expected remote identity | PUBLISHED | authoritative remote truth proves the intended effect occurred; no external publication effect is performed |
 | PENDING | `delivery.reconcile` proves a definite non-ambiguous terminal failure | FAILED | exact failure evidence/reason persisted; no claim of publication success |
 | UNKNOWN | `delivery.reconcile` observes exact expected remote identity | PUBLISHED | ambiguous effect reconciled as success without replay |
 | UNKNOWN | `delivery.reconcile` proves the intended effect did not occur and no safe retry remains | FAILED | authoritative remote evidence persisted; no duplicate external effect |
 | PENDING / UNKNOWN / FAILED | `delivery.block` | BLOCKED | typed deterministic policy/authority/conflict reason persisted; no external retry while blocked |
 
-`PUBLISHED` and `BLOCKED` are terminal for the delivery record. `FAILED` may only move to BLOCKED in V1; a new permitted publication attempt after a failed delivery uses a new delivery/idempotency record rather than silently resetting this record. Every §3C transition emits a `DELIVERY` `transition_event`.
+Any delivery transition not listed above is forbidden, and `delivery.publish` is the only trigger in this matrix that initiates an external publication effect. Every state it is admissible from is listed, and each such row carries an explicit `attempt count` precondition, so no state admits an effect without first committing the evidence that one may have started. Consequently:
+
+- `delivery.publish` MUST be refused for a record in `UNKNOWN`, with reason code `REMOTE_EFFECT_UNKNOWN`. Authoritative remote reconciliation through `delivery.reconcile` is the **only** path out of `UNKNOWN`, and it MUST NOT be satisfied by replaying the publication;
+- `delivery.publish` is inadmissible from `PUBLISHED`, `FAILED` and `BLOCKED` because no row lists it there. `PUBLISHED` and `BLOCKED` are terminal for the delivery record; `FAILED` may only move to BLOCKED in V1, and a new permitted publication attempt after a failed delivery uses a new delivery/idempotency record rather than silently resetting this one;
+- a `PENDING` record MUST NOT be republished on the strength of its state alone. `attempt count = 0` is the only condition under which a fresh external effect may be armed, and reaching `attempt count >= 1` commits the record to the observe-or-reconcile path.
+
+Every §3C transition that changes `delivery.state` emits a `DELIVERY` `transition_event`.
 
 ## 4. Atomic transaction rules
 
@@ -493,7 +543,8 @@ The following table is the normative reason-code set and is a **total mapping**:
 | `RESOURCE_CAPACITY` | BLOCKED | recorded only where a capacity condition prevents admission of already-authorised work. Ordinary scheduler slot exhaustion is **not** a failure, is not recorded with this code, and per §5 leaves the task PLANNED/queued without consuming any budget |
 | `DB_INTEGRITY` | BLOCKED | no guess-repair of authoritative state |
 | `DB_IO` | BLOCKED | fail closed; never a silent retry against a possibly damaged store |
-| `REMOTE_EFFECT_UNKNOWN` | BLOCKED | BLOCKED until reconciled; reconciliation may then permit a bounded retry under §9 |
+| `REMOTE_EFFECT_UNKNOWN` | BLOCKED | BLOCKED until reconciled; reconciliation may then permit a bounded retry under §9. Also the refusal code for a `delivery.publish` presented against an `UNKNOWN` delivery, or against a `PENDING` delivery whose `attempt count` already shows an initiated effect (§3C) |
+| `EXECUTION_RECORD_MISSING` | BLOCKED | an execution-bearing subject state (§1A) holds no non-terminal execution record — the stranded case left behind when cancellation or controller-epoch fencing terminates the record without moving the subject. Reconciliation surfaces the subject BLOCKED through its listed `task.block`/`integration.block` edge; never a blind re-dispatch |
 | `PUBLICATION_CONFLICT` | BLOCKED | no force push |
 | `EVIDENCE_MISSING` | BLOCKED | missing evidence is UNKNOWN, never PASS |
 | `EVIDENCE_DIGEST_MISMATCH` | BLOCKED | integrity failure |

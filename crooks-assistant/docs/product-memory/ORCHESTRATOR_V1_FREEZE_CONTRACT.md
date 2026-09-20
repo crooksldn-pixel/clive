@@ -210,6 +210,8 @@ V1 MUST NOT claim exactly-once model execution. It guarantees at most one **auth
 
 If an external write may have succeeded but its response is lost, the controller MUST reconcile authoritative remote state before retrying. Blind replay after ambiguous success is forbidden.
 
+A lost response is not the only way an outcome goes unrecorded: the controller can also die between initiating an external effect and persisting what happened. The two MUST be indistinguishable after restart, and that is achieved by ordering rather than by hope — durable evidence that an external effect **may have been initiated** MUST be committed *before* the effect is initiated, never after it. For delivery that evidence is the `delivery` record's `attempt count`, whose increment `ORCHESTRATOR_V1_STATE_API.md` §3C requires to commit ahead of the effect; §21 step 10 then reconciles any such record to `UNKNOWN` before any further external effect. A controller MUST NOT infer from a `PENDING` record alone that no effect has occurred.
+
 ## 10. Failure taxonomy and retry policy
 
 Failures are classified before retry.
@@ -272,8 +274,9 @@ Defaults, all persistent:
 - **automatic relaunches after a non-rejection attempt failure: zero.** `PROCESS_TIMEOUT`, `PROCESS_STALLED` and `PROCESS_ORPHANED` are classified BLOCKED by `ORCHESTRATOR_V1_STATE_API.md` §7, so the subject enters operator-visible BLOCKED with the exact reason persisted, and no model is relaunched automatically;
 - an attempt that closed `QUARANTINED` MUST NOT be relaunched at all until its workspace/process state is proven and released;
 - a controlled relaunch remains available through the existing authority-bearing path `BLOCKED -> task.plan -> attempt.assign`, which requires the blocker to be resolved and therefore cannot spin;
-- **absolute ceiling: at most 3 attempts per task revision in total**, counting every attempt whatever its disposition. The ceiling is an explicit guard on every `attempt.assign` path. When a non-rejection failure consumes the third attempt, the normal failure is first persisted as `BLOCKED`; the kernel then applies the already-legal `task.escalate` edge from `BLOCKED` to **`ESCALATED`**, and no further `attempt.assign` is admissible for that revision. `FAILED` is not used for this ceiling-exhaustion path;
-- these counters are persisted and MUST survive controller restart, DB restore and epoch change. Restart MUST NOT reset them and MUST NOT reclassify a persisted BLOCKED reason into a retry.
+- **absolute ceiling: at most 3 execution attempts per task revision in total**. The ceiling is an explicit guard on every `attempt.assign` path. When a non-rejection failure consumes the third attempt, the normal failure is first persisted as `BLOCKED`; the kernel then applies the already-legal `task.escalate` edge from `BLOCKED` to **`ESCALATED`**, and no further `attempt.assign` is admissible for that revision. `FAILED` is not used for this ceiling-exhaustion path;
+- **what the ceiling counts** is defined once, normatively, by `ORCHESTRATOR_V1_STATE_API.md` §3A.2, and this section MUST NOT restate it differently. In summary: it counts every non-terminal attempt and every attempt closed `SUCCEEDED`, `FAILED` or `QUARANTINED`, plus any attempt closed `CANCELLED`/`FENCED` that had reached `RUNNING`. An attempt closed `CANCELLED` or `FENCED` that **never reached `RUNNING`** launched no model process and MUST NOT consume the ceiling — otherwise restart fencing, which §21 step 3 performs on every single restart, would silently spend a budget whose whole purpose is to bound model relaunches, and a task could be starved of its three real attempts without one model ever having run. Deterministic preflight failure is unaffected and remains budget-consuming, because `ORCHESTRATOR_V1_STATE_API.md` §3A closes it `FAILED` or `QUARANTINED`, never `CANCELLED`/`FENCED`;
+- these counters are persisted and MUST survive controller restart, DB restore and epoch change. Restart MUST NOT reset them and MUST NOT reclassify a persisted BLOCKED reason into a retry. Because the count is recomputed from immutable committed `attempt` rows rather than held as a running total, restart and restore cannot decrement a legitimately consumed attempt either; a terminal disposition is written once and MUST NOT be rewritten.
 
 The total number of model relaunches arising from a non-rejection failure is therefore finite and stated, not left to implementer discretion. This is deliberately stricter than the §10.2 transport budget: the incident this rule exists to prevent is a deterministic failure being retried repeatedly as though it were transient.
 
@@ -596,12 +599,16 @@ On controller start/restart:
 7. reconcile workspaces and measured Git identity;
 8. reconcile **in-flight review dispatches**: for every non-terminal `review_dispatch`, observe process state, fence any dispatch that is expired or whose liveness cannot be proven, terminate reviewer process groups the kernel owns, and for each required-review slot either create exactly one replacement dispatch under a new fencing token or block the subject — never both, and never leave the subject silently in `REVIEWING`;
 9. reconcile candidate/evidence records;
-10. reconcile ambiguous remote publications;
+10. reconcile ambiguous remote publications, **including every `delivery` record left `PENDING`**: a PENDING delivery whose `attempt count` is non-zero is durable evidence that an external publication effect may already have been initiated, so it MUST be moved to `UNKNOWN` through `ORCHESTRATOR_V1_STATE_API.md` §3C **before any further external effect**, and `delivery.publish` MUST NOT replay it. A PENDING delivery with a zero `attempt count` initiated no effect and survives unchanged;
 11. fence obsolete leases, dispatches and results;
 12. surface unresolved ambiguity as BLOCKED;
 13. only then enable dispatch.
 
-Steps 5, 6 and 8 together cover all three execution records of `ORCHESTRATOR_V1_STATE_API.md` §1A. A subject in `BUILDING`, `INTEGRATING` or `REVIEWING` with no non-terminal execution record is itself an unresolved ambiguity and MUST be surfaced as BLOCKED at step 12.
+Steps 5, 6 and 8 together cover all three execution records of `ORCHESTRATOR_V1_STATE_API.md` §1A, and step 10 covers delivery, which is not an execution record.
+
+An **execution-bearing** subject state — one in which §3A or §3B admits a non-terminal execution record, derived mechanically there rather than listed by hand here — found with no non-terminal execution record is itself an unresolved ambiguity and MUST be surfaced as BLOCKED at step 12, through the subject's listed `task.block`/`integration.block` edge with reason code `EXECUTION_RECORD_MISSING` and never by blind re-dispatch. Under the matrices as written it derives to the `TASK` subject states `ASSIGNED`, `BUILDING`, `REVIEWING`, and the `INTEGRATION` subject states `INTEGRATING`, `REVIEWING`.
+
+`ASSIGNED` is in that set because step 3 increments the controller epoch on **every** restart, which terminally fences an attempt still in `CREATED` or `STARTING` without moving the subject. A task whose only attempt was fenced in that pre-`RUNNING` window would otherwise sit in `ASSIGNED` for ever: invisible to steps 5–8, holding no lease the scheduler would notice, and never re-dispatched. It is surfaced as BLOCKED here instead, and the fenced attempt does not consume the §10.3.1 execution-attempt ceiling.
 
 Absence of a heartbeat, process or outbox is never enough by itself to conclude that work never completed.
 

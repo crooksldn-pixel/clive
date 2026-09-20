@@ -143,6 +143,65 @@ def coverage_index() -> dict[str, str]:
     return index
 
 
+def numbered_section_text(path: Path, section: str) -> str:
+    """The body of one numbered `##` section, up to the next `##` heading."""
+    lines = read(path).splitlines()
+    heading_re = re.compile(r"^##\s+" + re.escape(section) + r"(?:\.|\s)")
+    out: list[str] = []
+    in_section = False
+    for line in lines:
+        if heading_re.match(line):
+            in_section = True
+            continue
+        if in_section and re.match(r"^##\s", line):
+            break
+        if in_section:
+            out.append(line)
+    assert in_section, f"{path.name} has no section {section}"
+    return "\n".join(out)
+
+
+def table_rows_under_header(path: Path, header: str) -> list[list[str]]:
+    """Rows of the one markdown table whose header row is exactly `header`.
+
+    Several documents now carry more than one table inside a single numbered section, so
+    `table_rows_in_numbered_section` is too coarse to address them individually.
+    """
+    rows: list[list[str]] = []
+    collecting = False
+    for line in read(path).splitlines():
+        if line.strip() == header.strip():
+            collecting = True
+            continue
+        if not collecting:
+            continue
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.split("|")[1:-1]]
+        if not cells or set("".join(cells)) <= {"-", " "}:
+            continue
+        rows.append(cells)
+    assert rows, f"{path.name}: no table found under header {header!r}"
+    return rows
+
+
+def declared_execution_bearing_states(text: str) -> dict[str, frozenset[str]]:
+    """Parse the `TASK`/`INTEGRATION` execution-bearing state claims out of a normative passage.
+
+    Both `ORCHESTRATOR_V1_STATE_API.md` §1A and `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §21 restate
+    the same derived set in the same shape, which is what lets this be compared as a set rather
+    than matched as a substring.
+    """
+    parsed: dict[str, frozenset[str]] = {}
+    for kind in ("TASK", "INTEGRATION"):
+        match = re.search(
+            rf"`{kind}` subject states ((?:`[A-Z_]+`(?:, )?)+)", text
+        )
+        assert match is not None, f"no `{kind}` execution-bearing state list in the passage"
+        parsed[kind] = frozenset(re.findall(r"`([A-Z_]+)`", match.group(1)))
+    return parsed
+
+
 def table_rows_in_numbered_section(path: Path, section: str) -> list[list[str]]:
     """Return non-header markdown table rows from one numbered section."""
     rows: list[list[str]] = []
@@ -174,7 +233,7 @@ def test_matrix_defines_the_acceptance_cases_the_freeze_gate_assumes() -> None:
     assert len(ids) > 100, f"matrix looks truncated: only {len(ids)} rows parsed"
     for required in ("EN-01", "EN-02", "EN-03", "EN-04"):
         assert required in ids, f"{required} missing; CG-05 would again cite a phantom family"
-    for required in ("RV-11", "RV-12", "RV-13", "PR-09", "PR-10", "IN-11", "IN-12", "IN-13", "IN-15", "IN-16", "IN-17", "IN-18", "ST-14", "ID-07", "DL-01", "DL-02", "DL-03", "DL-04", "DL-05"):
+    for required in ("RV-11", "RV-12", "RV-13", "PR-09", "PR-10", "IN-11", "IN-12", "IN-13", "IN-15", "IN-16", "IN-17", "IN-18", "ST-14", "ST-15", "ST-16", "ID-07", "DL-01", "DL-02", "DL-03", "DL-04", "DL-05", "DL-06"):
         assert required in ids, f"{required} missing from the acceptance matrix"
 
 
@@ -245,7 +304,7 @@ def test_non_rejection_attempt_relaunch_budget_is_finite_and_persistent() -> Non
     text = read(FREEZE_CONTRACT)
     assert "Non-rejection attempt failure budget" in text
     assert "automatic relaunches after a non-rejection attempt failure: zero" in text
-    assert re.search(r"at most \d+ attempts per task revision", text), (
+    assert re.search(r"at most \d+ execution attempts per task revision", text), (
         "no absolute per-revision attempt ceiling is stated"
     )
     assert "MUST survive controller restart" in text
@@ -485,6 +544,241 @@ def test_delivery_has_its_own_authority_and_complete_state_machine() -> None:
         assert command in matrix_commands, f"{command} has no §3C transition row"
 
 # --------------------------------------------------------------------------------------------
+# G-01 / G-02 / G-03 — stranded ASSIGNED subjects, ceiling accounting, delivery crash window.
+# --------------------------------------------------------------------------------------------
+
+
+ATTEMPT_BINDING_HEADER = "| Non-terminal attempt state | TASK subject state | INTEGRATION subject state |"
+CEILING_HEADER = "| Attempt row | Consumes the ceiling? | Why |"
+
+
+def attempt_subject_binding() -> dict[str, dict[str, str]]:
+    """§3A.1 as `{"CREATED": {"TASK": "ASSIGNED", "INTEGRATION": "INTEGRATING"}}`."""
+    binding: dict[str, dict[str, str]] = {}
+    for row in table_rows_under_header(STATE_API, ATTEMPT_BINDING_HEADER):
+        match = re.fullmatch(r"`attempt` ([A-Z_]+)", row[0])
+        assert match is not None, f"unparseable §3A.1 row: {row[0]!r}"
+        binding[match.group(1)] = {
+            "TASK": row[1].strip("`"),
+            "INTEGRATION": row[2].strip("`"),
+        }
+    return binding
+
+
+def derived_execution_bearing_states() -> dict[str, frozenset[str]]:
+    """Recompute §1A's execution-bearing set from §3A.1 and §3B rather than trusting either.
+
+    This is the whole point of the G-01 repair: the set is a *derivation* of the transition
+    matrices, so adding an attempt or dispatch edge under a new subject state must move this
+    value and therefore fail every document that still claims the old one.
+    """
+    derived: dict[str, set[str]] = {"TASK": set(), "INTEGRATION": set()}
+    for states in attempt_subject_binding().values():
+        for kind, subject_state in states.items():
+            derived[kind].add(subject_state)
+
+    # §3B contributes the review-dispatch execution record, stated in the singular there.
+    dispatch = numbered_section_text(STATE_API, "3B")
+    for kind in ("TASK", "INTEGRATION"):
+        match = re.search(rf"`{kind}` subject state `([A-Z_]+)`", dispatch)
+        assert match is not None, f"§3B states no {kind} subject binding for `DISPATCHED`"
+        derived[kind].add(match.group(1))
+
+    return {kind: frozenset(states) for kind, states in derived.items()}
+
+
+def test_attempt_matrix_binds_every_nonterminal_state_to_a_subject_state() -> None:
+    """§3A.1 must cover exactly the non-terminal attempt states §3A actually defines."""
+    binding = attempt_subject_binding()
+    assert set(binding) == {"CREATED", "STARTING", "RUNNING", "CANDIDATE_READY"}, sorted(binding)
+
+    # Every bound subject state must be a state the §3 subject matrix really uses, so the
+    # binding cannot drift into naming something that does not exist.
+    subject_rows = table_rows_in_numbered_section(STATE_API, "3")
+    subject_states = set()
+    for row in subject_rows:
+        if len(row) >= 3:
+            subject_states.update(re.findall(r"\b([A-Z][A-Z_]{3,})\b", f"{row[0]} {row[2]}"))
+    for state, kinds in binding.items():
+        for kind, subject_state in kinds.items():
+            assert subject_state in subject_states, (
+                f"§3A.1 binds attempt {state} ({kind}) to unknown subject state {subject_state}"
+            )
+
+
+def test_execution_bearing_states_are_derived_and_agree_across_documents() -> None:
+    """G-01: `ASSIGNED` was missing from a hand-written list, so a fenced task was stranded.
+
+    The repair replaces the list with a derivation. This test performs that derivation from
+    §3A.1/§3B and asserts set equality against §1A and freeze contract §21 — not substring
+    presence, so a document that keeps a stale enumeration fails even though every individual
+    word it names still appears somewhere.
+    """
+    derived = derived_execution_bearing_states()
+
+    # The specific hole G-01 named. Stated explicitly so a future edit that silently drops the
+    # ASSIGNED binding from §3A.1 fails here rather than quietly shrinking the derived set.
+    assert "ASSIGNED" in derived["TASK"], (
+        "a TASK attempt in CREATED/STARTING is held under ASSIGNED; the derivation lost it"
+    )
+    assert derived["TASK"] == frozenset({"ASSIGNED", "BUILDING", "REVIEWING"}), derived["TASK"]
+    assert derived["INTEGRATION"] == frozenset({"INTEGRATING", "REVIEWING"}), derived["INTEGRATION"]
+
+    for label, text in (
+        ("state API §1A", numbered_section_text(STATE_API, "1A")),
+        ("freeze contract §21", numbered_section_text(FREEZE_CONTRACT, "21")),
+    ):
+        claimed = declared_execution_bearing_states(text)
+        for kind in ("TASK", "INTEGRATION"):
+            assert claimed[kind] == derived[kind], (
+                f"{label} claims {kind} execution-bearing states {sorted(claimed[kind])}, "
+                f"but §3A.1/§3B derive {sorted(derived[kind])}"
+            )
+
+
+def test_stranded_execution_bearing_subject_blocks_through_a_listed_edge() -> None:
+    """Reconciliation must surface the stranded subject, with a typed reason and no redispatch."""
+    api = read(STATE_API)
+    contract = read(FREEZE_CONTRACT)
+
+    assert dict(reason_code_table()).get("EXECUTION_RECORD_MISSING") == "BLOCKED", (
+        "the stranded-subject reason code is missing or not fail-closed"
+    )
+    for text, name in ((api, "state API"), (contract, "freeze contract")):
+        assert "EXECUTION_RECORD_MISSING" in text, f"{name} names no typed reason for the strand"
+
+    # The block edge must already exist in §3; the repair may not invent a new transition.
+    subject_rows = table_rows_in_numbered_section(STATE_API, "3")
+    block_edges = [
+        row for row in subject_rows
+        if len(row) >= 3 and row[1] in {"task.block", "integration.block"} and row[2].endswith("BLOCKED")
+    ]
+    assert {row[1] for row in block_edges} == {"task.block", "integration.block"}, block_edges
+    task_block = next(row for row in block_edges if row[1] == "task.block")
+    assert "EXECUTION_RECORD_MISSING" in task_block[3], (
+        "the §3 task.block row does not carry the reconciliation case"
+    )
+    assert "ASSIGNED" in task_block[3]
+
+    one_a = numbered_section_text(STATE_API, "1A")
+    assert "MUST NOT be resolved by blind re-dispatch" in one_a
+
+
+def test_pre_running_fencing_does_not_consume_the_execution_attempt_ceiling() -> None:
+    """G-02: restart fencing burned real execution budget, so restarts could starve a task."""
+    rows = table_rows_under_header(STATE_API, CEILING_HEADER)
+    verdicts = {row[0]: row[1].lower() for row in rows}
+    assert set(verdicts.values()) <= {"yes", "no", "**no**"}, verdicts
+
+    def verdict_for(fragment: str) -> str:
+        matches = [value for key, value in verdicts.items() if fragment in key]
+        assert len(matches) == 1, f"{fragment!r} matches {len(matches)} ceiling rows"
+        return matches[0].strip("*")
+
+    assert verdict_for("non-terminal") == "yes"
+    assert verdict_for("`CLOSED / SUCCEEDED`") == "yes"
+    assert verdict_for("`CLOSED / FAILED`") == "yes"
+    assert verdict_for("`CLOSED / QUARANTINED`") == "yes"
+    assert verdict_for("**that reached `RUNNING`**") == "yes"
+    assert verdict_for("**that never reached `RUNNING`**") == "no"
+
+    # Totality: every terminal disposition the schema declares is classified exactly once.
+    attempt_block = read(STATE_API).split("### `attempt`", 1)[1].split("### `lease`", 1)[0]
+    match = re.search(r"terminal disposition nullable `([^`]+)`", attempt_block)
+    assert match is not None
+    dispositions = set(match.group(1).split("|"))
+    classified = {
+        disposition
+        for disposition in dispositions
+        if any(disposition in key for key in verdicts)
+    }
+    assert classified == dispositions, (
+        f"dispositions with no ceiling classification: {sorted(dispositions - classified)}"
+    )
+
+    api = read(STATE_API)
+    contract = read(FREEZE_CONTRACT)
+    # Reaching RUNNING must be decidable from the committed row, without a new column.
+    assert "NULL until the attempt commits `RUNNING`" in api
+    # R-02 must not be weakened: the guard stays on every assignment path.
+    assert "The ceiling guard on every `attempt.assign` path in §3 and in this matrix is unchanged" in api
+    # Deterministic preflight failure must stay budget-consuming.
+    assert "never `CANCELLED`/`FENCED`" in contract
+    # The contract must defer to one definition rather than keeping the old count-everything rule.
+    assert "counting every attempt whatever its disposition" not in contract
+    assert "MUST NOT restate it differently" in contract
+
+
+def test_delivery_cannot_blindly_replay_an_initiated_external_effect() -> None:
+    """G-03: a crash between the external effect and outcome persistence must not duplicate it."""
+    rows = table_rows_in_numbered_section(STATE_API, "3C")
+    section = numbered_section_text(STATE_API, "3C")
+
+    def from_states(cell: str) -> set[str]:
+        return set(re.findall(r"\b(PENDING|UNKNOWN|PUBLISHED|FAILED|BLOCKED|none)\b", cell))
+
+    publish_rows = [row for row in rows if len(row) >= 4 and "delivery.publish" in row[1]]
+    assert publish_rows, "§3C lists no `delivery.publish` edge at all"
+
+    # Every state an external effect can be initiated from, taken from the matrix rather than
+    # asserted by prose.
+    initiating = set()
+    for row in publish_rows:
+        initiating |= from_states(row[0]) - {"none"}
+    assert initiating == {"PENDING"}, (
+        f"`delivery.publish` is admissible from {sorted(initiating)}; only PENDING may arm an effect"
+    )
+
+    # Each publish row must be gated on the durable initiation marker, in From or preconditions.
+    for row in publish_rows:
+        assert "attempt count" in f"{row[0]} {row[2]} {row[3]}", (
+            f"§3C publish row has no `attempt count` gate: {row[0]!r} / {row[1]!r}"
+        )
+
+    # The arming row must commit the marker before the effect.
+    arming = [row for row in publish_rows if "arms the external effect" in row[1]]
+    assert len(arming) == 1, arming
+    assert "attempt count = 0" in arming[0][0]
+    assert "attempt count >= 1" in arming[0][2]
+    assert "committed **before** the external publication effect is initiated" in arming[0][3]
+
+    # Restart with the marker set must reconcile to UNKNOWN before any further external effect.
+    restart_rows = [
+        row for row in rows
+        if len(row) >= 4 and "restart" in row[1] and "attempt count >= 1" in row[0]
+    ]
+    assert len(restart_rows) == 1, restart_rows
+    assert restart_rows[0][2] == "UNKNOWN", restart_rows[0]
+    assert "before any further external effect" in restart_rows[0][3]
+
+    # Every state that can initiate an effect must be terminal or carry an explicit
+    # reconciliation rule out of the ambiguity it can produce.
+    reconcile_targets: set[str] = set()
+    for row in rows:
+        if len(row) >= 3 and ("delivery.reconcile" in row[1] or "restart" in row[1]):
+            reconcile_targets |= from_states(row[0])
+    terminal = {"PUBLISHED", "BLOCKED"}
+    for state in initiating | {"UNKNOWN"}:
+        assert state in terminal or state in reconcile_targets, (
+            f"§3C state {state} can hold an initiated effect with no reconciliation rule"
+        )
+
+    # Replay out of ambiguity is refused, and reconciliation is the only exit.
+    assert not [row for row in publish_rows if "UNKNOWN" in from_states(row[0])], (
+        "§3C admits `delivery.publish` directly from UNKNOWN"
+    )
+    assert "MUST be refused for a record in `UNKNOWN`, with reason code `REMOTE_EFFECT_UNKNOWN`" in section
+    assert "is the **only** path out of `UNKNOWN`" in section
+    assert "MUST NOT be satisfied by replaying the publication" in section
+    assert "Any delivery transition not listed above is forbidden" in section
+
+    contract = read(FREEZE_CONTRACT)
+    assert "MUST be committed *before* the effect is initiated, never after it" in contract
+    assert "MUST NOT infer from a `PENDING` record alone that no effect has occurred" in contract
+    assert "before any further external effect" in numbered_section_text(FREEZE_CONTRACT, "21")
+
+
+# --------------------------------------------------------------------------------------------
 # Regression guards for the previously validated N-series repairs.
 # --------------------------------------------------------------------------------------------
 
@@ -493,7 +787,7 @@ def test_traceability_dispositions_every_reviewed_finding() -> None:
     """Silence is not a disposition: N-01..N-04 and B-01..B-05 each carry an explicit row."""
     text = read(TRACEABILITY)
     assert "Silence is not a disposition." in text
-    for finding in ("N-01", "N-02", "N-03", "N-04", "B-01", "B-02", "B-03", "B-04", "B-05", "R-01", "R-02", "R-03", "F-01", "F-02", "F-03"):
+    for finding in ("N-01", "N-02", "N-03", "N-04", "B-01", "B-02", "B-03", "B-04", "B-05", "R-01", "R-02", "R-03", "F-01", "F-02", "F-03", "G-01", "G-02", "G-03"):
         assert f"re-review {finding} " in text, f"{finding} has no traceability disposition"
 
 

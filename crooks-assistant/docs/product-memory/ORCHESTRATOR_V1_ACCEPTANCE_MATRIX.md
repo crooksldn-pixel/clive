@@ -31,6 +31,8 @@
 | ST-12 | reject a candidate, then invoke the one permitted bounded correction | full `REJECTED -> attempt.assign -> ASSIGNED -> attempt STARTING/RUNNING -> BUILDING` path is legal with a fresh attempt/fencing token and retained prior candidate |
 | ST-13 | deterministic preflight failure occurs while task is ASSIGNED and attempt is STARTING | no model launch; attempt closes FAILED when cleanup is proven or QUARANTINED otherwise; task reaches BLOCKED through the listed `task.block` edge, never an illegal `ASSIGNED -> FAILED` task transition |
 | ST-14 | drive three attempts on one task revision through failure/block/re-plan paths, then request a fourth `attempt.assign` | the fourth assignment is refused by the transition guard because the per-revision attempt ceiling is exhausted; the persisted counter survives controller restart, DB restore and epoch change; when the third attempt is a non-rejection failure the task follows `BLOCKED -> task.escalate -> ESCALATED` and no further assignment is admissible |
+| ST-15 | controller epoch changes while a TASK is `ASSIGNED` and its only attempt is `CREATED` or `STARTING` | the attempt closes `FENCED` (or `QUARANTINED` when a `STARTING` preflight process group cannot be proven stopped) and the task does not stay silently in `ASSIGNED`: §21 reconciliation identifies `ASSIGNED` as an execution-bearing state holding no non-terminal execution record and surfaces the task BLOCKED through the listed `task.block` edge with typed reason `EXECUTION_RECORD_MISSING`. No blind redispatch occurs, and the same holds for `BUILDING`/`REVIEWING` and for an `INTEGRATION` subject in `INTEGRATING`/`REVIEWING` through `integration.block` |
+| ST-16 | restart the controller repeatedly while a TASK sits in `ASSIGNED` with a `CREATED` attempt, so each restart fences that attempt before any model runs | each fencing closes the attempt `FENCED` having never reached `RUNNING`, so none of them consumes the per-revision execution-attempt ceiling; after three such restart-fencings a legitimate `attempt.assign` is still admissible, and the three real execution attempts remain available. Attempts that did reach `RUNNING`, and attempts closed `FAILED`/`QUARANTINED` by deterministic preflight failure, still consume the ceiling |
 
 ## 2A. Command/transition completeness
 
@@ -151,7 +153,7 @@ Covers the MUST-bearing requirements of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §2
 | PR-07 | model self-reports different model | measured launcher/process evidence remains authoritative |
 | PR-08 | model behaviour/provider version changes | attempt evidence records effective provider/model/version; acceptance remains candidate-specific |
 | PR-09 | enumerate every reason code in `ORCHESTRATOR_V1_STATE_API.md` §7 and resolve each to a top-level class | every code resolves to exactly one of RETRYABLE/BLOCKED/REJECTED_FAILED/ESCALATED; no code is unmapped and none maps twice; an unknown or implementation-added code with no resolvable mapping resolves to BLOCKED and never to RETRYABLE. The test fails if any code is unmapped rather than defaulting silently |
-| PR-10 | exercise non-rejection attempt failures across controller restart/DB restore until the per-revision ceiling is reached | automatic relaunch count remains zero; persisted attempt count never resets; the third attempt may finish only through the declared BLOCKED path and then deterministic `task.escalate` to ESCALATED; a fourth `attempt.assign` is rejected by the transition precondition with a stable typed error |
+| PR-10 | exercise non-rejection attempt failures across controller restart/DB restore until the per-revision ceiling is reached, and separately enumerate every terminal attempt disposition against the ceiling | automatic relaunch count remains zero; persisted attempt count never resets; the third attempt may finish only through the declared BLOCKED path and then deterministic `task.escalate` to ESCALATED; a fourth `attempt.assign` is rejected by the transition precondition with a stable typed error. The disposition enumeration asserts *exactly* which rows consume the ceiling per `ORCHESTRATOR_V1_STATE_API.md` §3A.2 — non-terminal, `SUCCEEDED`, `FAILED`, `QUARANTINED`, and `CANCELLED`/`FENCED` that reached `RUNNING`, consume; `CANCELLED`/`FENCED` that never reached `RUNNING` do not — and that this classification is total over the disposition enum. Persistence is proved across controller restart, DB restore and controller-epoch change in both directions: a consumed attempt is never decremented or reclassified, and a non-consuming fencing never becomes consuming |
 
 ## 7A. Idempotency breadth
 
@@ -261,6 +263,7 @@ Covers the MUST-bearing requirements of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §2
 | DL-03 | publication response is ambiguous after the external effect | PENDING -> UNKNOWN; blind replay is forbidden until `delivery.reconcile` observes authoritative remote truth |
 | DL-04 | reconcile UNKNOWN delivery | authoritative remote truth moves UNKNOWN to PUBLISHED when exact identity exists, or FAILED when the intended effect definitively did not occur and no safe retry remains |
 | DL-05 | block a PENDING/UNKNOWN/FAILED delivery on deterministic policy/authority/conflict | `delivery.block` moves it to BLOCKED with typed persisted reason; PUBLISHED and BLOCKED are terminal for that delivery record |
+| DL-06 | kill the controller after `delivery.publish` has initiated the external publication effect but before any outcome is persisted | the `attempt count` increment was committed before the effect, so restart finds PENDING with a non-zero count and §21 step 10 reconciles it to UNKNOWN before any further external effect; a subsequent `delivery.publish` is refused with `REMOTE_EFFECT_UNKNOWN` pending `delivery.reconcile`; exactly one external effect ever occurs, and the destination is reached at most once. Repeat with the crash placed *before* the increment commits: the record is PENDING with `attempt count = 0`, no effect was initiated, and publish remains admissible |
 
 ## 13. Database durability and recovery
 
@@ -372,11 +375,11 @@ The §18 mechanical gate recomputes the MUST-bearing section set from the docume
 | FC | §4 | ID-01, ID-02, ID-03, ID-04, ID-05, ID-06, WS-02, WS-03, EV-01 |
 | FC | §5.3 | ST-09, RV-03, IN-13 |
 | FC | §6 | DB-01, DB-02, DB-03, DB-04, DB-08, DB-09, DB-10, DB-11, DB-12 |
-| FC | §7 | CT-01, CT-02, CT-03, CT-04, CT-05, CT-06, ID-03, ID-07, LS-03, LS-04, RV-11, RV-14, IN-14, OB-01, DL-01, DL-02, DL-03, DL-04, DL-05 |
+| FC | §7 | CT-01, CT-02, CT-03, CT-04, CT-05, CT-06, ID-03, ID-07, LS-03, LS-04, RV-11, RV-14, IN-14, OB-01, DL-01, DL-02, DL-03, DL-04, DL-05, DL-06 |
 | FC | §8 | LS-01, LS-02, LS-03, LS-05, LS-06, LS-07, LS-08, RV-12, RV-13 |
-| FC | §9 | IP-01, IP-02, IP-03, IP-04, API-02, API-03, API-08, EV-10, PB-01, PB-02, PB-07 |
+| FC | §9 | IP-01, IP-02, IP-03, IP-04, API-02, API-03, API-08, EV-10, PB-01, PB-02, PB-07, DL-06 |
 | FC | §10.1 | PR-03, PR-04, PR-05, PR-09, ST-08, WS-04, WS-13, DB-05 |
-| FC | §10.3.1 | PR-09, PR-10, ST-08, ST-14, IP-04 |
+| FC | §10.3.1 | PR-09, PR-10, ST-08, ST-14, ST-16, IP-04 |
 | FC | §11 | WS-01, WS-04, WS-05, WS-06, WS-07, WS-08, WS-09, WS-10, WS-11, WS-13, WS-14, CXN-01, CXN-04, IN-11 |
 | FC | §12 | CP-01, CP-02, CP-03, CP-04, CP-05, CP-06, CP-07, CP-08, CP-09, CP-10, PB-05, PB-06 |
 | FC | §13 | CX-05, CX-06, CX-07, CX-08, AU-01 |
@@ -385,16 +388,20 @@ The §18 mechanical gate recomputes the MUST-bearing section set from the docume
 | FC | §18 | OB-01, OB-02, OB-03, OB-04 |
 | FC | §19 | RS-01, RS-02, DB-05, API-07 |
 | FC | §20 | UP-01, UP-02, UP-03, UP-04, UP-05, UP-06, DB-04 |
-| FC | §21 | LS-07, CT-03, IN-12, RV-12, DB-07, EV-09, API-08 |
+| FC | §21 | LS-07, CT-03, IN-12, RV-12, DB-07, EV-09, API-08, ST-15, ST-16, DL-06 |
 | FC | §22 | EV-07, EV-08, ID-06, RV-08 |
 | FC | §22A | EN-01, EN-02, EN-03, EN-04 |
 | FC | §23 | STATIC — reuse boundary; the MUST NOT is "do not import the ECC plugin/runtime graph", a repository-composition invariant with no runtime transition |
 | FC | §27 | STATIC — freeze acceptance is an owner/process gate, not a kernel transition; the anti-self-adoption half is tested by AU-01 and ID-06 |
-| SA | §1A | ID-03, LS-01, LS-03, LS-04, RV-11, RV-12, RV-13, RV-14, IN-11, IN-12, IN-14, CXN-05 |
-| SA | §3A | ST-11, ST-12, ST-13, ST-14, API-01, PR-10, IN-11, IN-12, IN-15, IN-16, IN-18 |
+| SA | §1A | ID-03, LS-01, LS-03, LS-04, RV-11, RV-12, RV-13, RV-14, IN-11, IN-12, IN-14, CXN-05, ST-15 |
+| SA | §3A | ST-11, ST-12, ST-13, ST-14, ST-15, API-01, PR-10, IN-11, IN-12, IN-15, IN-16, IN-18 |
+| SA | §3A.1 | ST-15, IN-12, IN-18, RV-12 |
+| SA | §3A.2 | ST-14, ST-16, PR-10, ST-08 |
+| SA | §3B | RV-11, RV-12, RV-13, RV-14, ST-15 |
+| SA | §3C | DL-01, DL-02, DL-03, DL-04, DL-05, DL-06, API-08, PB-01, PB-07 |
 | SA | §4 | ST-03, ST-04, ST-05, API-09, DB-01 |
 | SA | §5 | API-06, API-07, RS-02 |
 | SA | §5A | WS-12, WS-15, PB-06, CP-10 |
 | SA | §5B | WS-13, WS-14, EN-01, EN-03 |
-| SA | §7 | PR-09, PR-10 |
+| SA | §7 | PR-09, PR-10, ST-15, DL-06 |
 | SA | §8 | API-09, EV-02, EV-03, DB-06 |
