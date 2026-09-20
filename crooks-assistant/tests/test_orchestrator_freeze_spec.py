@@ -154,7 +154,7 @@ def test_matrix_defines_the_acceptance_cases_the_freeze_gate_assumes() -> None:
     assert len(ids) > 100, f"matrix looks truncated: only {len(ids)} rows parsed"
     for required in ("EN-01", "EN-02", "EN-03", "EN-04"):
         assert required in ids, f"{required} missing; CG-05 would again cite a phantom family"
-    for required in ("RV-11", "RV-12", "RV-13", "PR-09", "PR-10", "IN-11", "IN-12", "IN-13"):
+    for required in ("RV-11", "RV-12", "RV-13", "PR-09", "PR-10", "IN-11", "IN-12", "IN-13", "IN-15", "IN-16", "IN-17", "ST-14", "ID-07"):
         assert required in ids, f"{required} missing from the acceptance matrix"
 
 
@@ -378,6 +378,8 @@ def test_integration_launch_is_split_into_allocation_then_preflight() -> None:
     assert "| `integration.start` | runner adapter |" in api
     assert "`attempt.start` (TASK) / `integration.start` (INTEGRATION)" in api
     assert "integration INTEGRATING + attempt CREATED/STARTING | integration.start" in api
+    assert "integration CREATED | integration.cancel | integration CANCELLED" in api
+    assert "no fictitious execution record to fence" in api
 
 
 def test_attempt_ceiling_is_a_transition_guard_not_only_prose() -> None:
@@ -396,6 +398,7 @@ def test_delivery_has_its_own_authority_and_journal_subject() -> None:
     contract = read(FREEZE_CONTRACT)
     assert "TASK|INTEGRATION|CANDIDATE|REVIEW|DELIVERY" in api
     assert "controller epoch of the last authoritative delivery mutation" in api
+    assert "or NULL for a `DELIVERY` subject" in api
     assert "Delivery updates are not execution-record admissions" in contract
     assert "delivery idempotency key" in contract
     assert "idempotency-key/request-digest conflict" in contract
