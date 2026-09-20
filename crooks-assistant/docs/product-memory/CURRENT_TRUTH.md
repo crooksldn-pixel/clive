@@ -22,6 +22,25 @@ Core product principles remain:
 - models/providers are replaceable,
 - self-improvement is isolated, evidence-driven and reversible.
 
+
+### North-star operational philosophy
+
+The owner has approved CLIVE's broader product identity as a **persistent intent-to-execution operational layer**, not an AI dashboard or phrase-to-screen router.
+
+Operational implications:
+- conversation can end while objectives, commitments and relevant state remain alive;
+- language is interpreted with conversation, role, current work, device, time and world state;
+- the same phrase may require different investigations in different contexts, while different phrases may express the same objective;
+- APIs are evidence/action capabilities beneath reasoning, not destinations the owner must manually coordinate;
+- investigate for exceptions, blockers, dependencies, changes and cross-system significance rather than reproducing obvious source facts;
+- dynamic UI is a role/device-appropriate projection of the evolving objective and evidence, and may correctly render almost nothing when nothing needs attention;
+- staff, collaborators and devices can participate in shared objectives under scoped permissions;
+- working-monologue commitments should persist and resurface when relevant, not as indiscriminate recall;
+- capability gaps become controlled self-improvement evidence rather than dead ends or permission for uncontrolled self-modification;
+- product quality includes operational value and human attention removed, not only correctness or test counts.
+
+Full doctrine: [CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md](./CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md).
+
 ## Active Live Experience / evaluation direction — 2026-09-20
 
 The owner has explicitly retired **user-facing Split** as the future interaction model. Preserve useful concurrency primitives internally where they still earn their place, but simultaneous work should appear as independently progressing jobs inside one CLIVE session rather than Half 1 / Half 2 / Merge / Close.
