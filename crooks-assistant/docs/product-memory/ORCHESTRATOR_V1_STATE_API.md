@@ -199,6 +199,7 @@ Release candidates are immutable V1 outputs; they carry no deployment authority.
 ### `delivery`
 Represents publication independently from work completion.
 - `delivery_id TEXT PRIMARY KEY`;
+- controller epoch of the last authoritative delivery mutation;
 - subject kind/id;
 - destination;
 - idempotency key UNIQUE;
@@ -221,7 +222,7 @@ A duplicate key with the same request digest returns the stored result. Same key
 Append-only:
 - monotonically increasing sequence;
 - event ID;
-- subject kind `TASK|INTEGRATION|CANDIDATE|REVIEW` and subject ID;
+- subject kind `TASK|INTEGRATION|CANDIDATE|REVIEW|DELIVERY` and subject ID;
 - `task_id`/`revision` — mandatory for a `TASK` subject, retained for other subject kinds wherever a single source task owns the event, otherwise NULL, so an integration-only or review-only event is representable;
 - attempt/candidate/review/`review_dispatch`/integration identifiers as applicable;
 - from/to state;
@@ -282,7 +283,8 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | `candidate.accept` | kernel policy | REVIEWING -> ACCEPTED only when all required reviews/findings satisfy policy |
 | `candidate.reject` | kernel policy | REVIEWING -> REJECTED |
 | `integration.create` | integration coordinator | create separate CREATED integration from one or more exact ACCEPTED candidate SHAs |
-| `integration.begin` | integrator coordinator | CREATED -> INTEGRATING and create the integration `attempt` (`subject_kind = INTEGRATION`) with workspace reservation, controller epoch, fencing token, process-group identity and authoritative `lease`, after the same measured preflight §5B/§11 require; no integrator process is launched before that preflight passes |
+| `integration.begin` | integrator coordinator | CREATED -> INTEGRATING and atomically create the integration `attempt` (`subject_kind = INTEGRATION`), workspace reservation, controller epoch, fencing token and authoritative `lease`; allocation only — no model/toolchain preflight and no integrator process launch occur here |
+| `integration.start` | runner adapter | while the integration remains INTEGRATING, drive its allocated attempt through STARTING -> RUNNING only after the measured §5B/§11 preflight passes and owned process-group identity is established |
 | `integration.register` | deterministic collector | INTEGRATING -> EVIDENCE_READY after integration SHA + evidence exist; requires the current epoch/fencing token of the live integration attempt |
 | `integration.review_request` | review coordinator | EVIDENCE_READY -> REVIEWING and create one non-terminal `review_dispatch` per required integrated-review slot, exactly as `review.request` does for candidates |
 | `integration.verify` | kernel policy/CI/review coordinator | REVIEWING -> VERIFIED when required integrated gates pass and no blocking finding for that integration subject is `OPEN`/`BLOCKED` |
@@ -308,7 +310,7 @@ Any transition not listed is forbidden.
 | PROPOSED | task.plan | PLANNED | complete immutable revision; context/authority current; no missing required source |
 | BLOCKED | task.plan | PLANNED | blocker resolved and same revision remains valid; otherwise task.revise first |
 | ESCALATED | task.plan | PLANNED | escalation resolved; same-revision contract still valid |
-| PLANNED | attempt.assign | ASSIGNED | controller RUNNING; capacity; no current lease; dependencies accepted; workspace reservation succeeds |
+| PLANNED | attempt.assign | ASSIGNED | controller RUNNING; capacity; no current lease; dependencies accepted; **per-revision attempt ceiling not exhausted**; workspace reservation succeeds |
 | ASSIGNED | attempt.start | BUILDING | current epoch/fence; measured clean exact base; tool/capability roster passes; process ownership established |
 | BUILDING | candidate.register | BUILDING (Candidate row added) | current epoch/fence; candidate commit measured; Candidate persisted before evidence collection; evidence digest may be NULL |
 | BUILDING + Candidate | evidence.register | EVIDENCE_READY | current epoch/fence; required evidence artifacts durably imported; manifest digest validated and attached |
@@ -317,9 +319,10 @@ Any transition not listed is forbidden.
 | REVIEWING | review.cancel | REVIEWING (dispatch terminal) | caller authorised or deterministic expiry/replacement condition met; dispatch moves to `CANCELLED`/`FENCED`/`EXPIRED`; owned reviewer process group stopped per §6; rejection of any later verdict from it is thereafter automatic |
 | REVIEWING | candidate.accept | ACCEPTED | all required independent reviews ACCEPT, each admitted under a then-live dispatch for a distinct required-review slot; no `OPEN`/`BLOCKED` blocking finding for this candidate subject; context still current |
 | REVIEWING | candidate.reject | REJECTED | one or more required reviews CHANGES_REQUIRED or blocking finding for this candidate subject |
-| REJECTED | attempt.assign | ASSIGNED | same task revision; correction budget available; fresh attempt/fence; prior candidate retained |
+| REJECTED | attempt.assign | ASSIGNED | same task revision; correction budget available; **per-revision attempt ceiling not exhausted**; fresh attempt/fence; prior candidate retained |
 | ACCEPTED task(s) | integration.create | integration CREATED | one or more exact accepted candidate SHAs; explicit target base; dependencies/context current; source task states remain ACCEPTED |
-| integration CREATED | integration.begin | integration INTEGRATING | integrator workspace/base preflight passes as measured, not self-reported; integration `attempt` (`subject_kind = INTEGRATION`) and its authoritative `lease` created atomically with the transition; no integrator process launched before the preflight passes |
+| integration CREATED | integration.begin | integration INTEGRATING | controller RUNNING; integration capacity available; no current integration lease; workspace reservation succeeds; integration `attempt` (`subject_kind = INTEGRATION`) and authoritative `lease` are created atomically; **no preflight and no integrator process launch occur in this command** |
+| integration INTEGRATING + attempt CREATED/STARTING | integration.start | integration INTEGRATING (attempt RUNNING) | current integration epoch/fence and reserved workspace; measured exact base/branch/environment/tool/capability preflight passes; owned integrator process group is established before RUNNING is committed |
 | integration INTEGRATING | integration.register | integration EVIDENCE_READY | current epoch/fencing token of the live integration attempt; integration SHA independently measured; required evidence manifest exists; the integration attempt reaches `CANDIDATE_READY` and then `CLOSED / SUCCEEDED` |
 | integration EVIDENCE_READY | integration.review_request | integration REVIEWING | required integrated reviewer policy resolved; one non-terminal `review_dispatch` created per required integrated-review slot |
 | integration REVIEWING | integration.verify | integration VERIFIED | all required integrated tests/reviews pass, each verdict admitted under a then-live dispatch; no blocking finding whose subject is this integration is `OPEN` or `BLOCKED`; where this integration carries `parent_integration_id`, every unresolved inherited finding has an explicit `RESOLVED`/`OBSOLETE` disposition with a recorded reason |
@@ -347,10 +350,10 @@ This matrix applies to both attempt subject kinds. Where the trigger differs by 
 
 | From | Trigger/command | To | Preconditions / result |
 | --- | --- | --- | --- |
-| none | `attempt.assign` (TASK) / `integration.begin` (INTEGRATION) | CREATED | TASK: task is `PLANNED`, or task is `REJECTED` with bounded-correction budget available as permitted by §3. INTEGRATION: integration is `CREATED`. Capacity/workspace reservation succeeds; new epoch/fence bound |
+| none | `attempt.assign` (TASK) / `integration.begin` (INTEGRATION) | CREATED | TASK: task is `PLANNED`, or task is `REJECTED` with bounded-correction budget available as permitted by §3; in **both TASK branches the per-revision attempt ceiling must not be exhausted**. INTEGRATION: integration is `CREATED`. Capacity/workspace reservation succeeds; new epoch/fence bound |
 | CREATED | runner preflight begins | STARTING | current lease; workspace exists; no model process yet |
-| STARTING | `attempt.start` (TASK) / integrator process ownership established under `integration.begin` (INTEGRATION) | RUNNING | exact base/branch/environment/tool/capability checks pass; owned process group established |
-| STARTING | preflight deterministic failure | CLOSED / FAILED or QUARANTINED | no model launch; task transitions to `BLOCKED` through the legal §3 `task.block` edge with the typed precondition reason. Attempt disposition is `FAILED` when cleanup is proven complete, or `QUARANTINED` when process/workspace safety cannot be proven. A preflight failure does not use `task.fail` from ASSIGNED. |
+| STARTING | `attempt.start` (TASK) / `integration.start` (INTEGRATION) | RUNNING | exact base/branch/environment/tool/capability checks pass; owned process group established |
+| STARTING | preflight deterministic failure | CLOSED / FAILED or QUARANTINED | no model launch; a TASK subject reaches `BLOCKED` through §3 `task.block`, while an INTEGRATION subject reaches `BLOCKED` through §3 `integration.block`, using the typed precondition reason. Attempt disposition is `FAILED` when cleanup is proven complete, or `QUARANTINED` when process/workspace safety cannot be proven. Preflight failure never fabricates RUNNING and never uses an unlisted direct subject transition. |
 | RUNNING | `candidate.register` (TASK) / `integration.register` (INTEGRATION) | CANDIDATE_READY | current epoch/fence; immutable commit identity independently measured and the Candidate / integration SHA persisted |
 | RUNNING | process exits without producing a commit | CLOSED / FAILED | diagnostics/evidence persisted; the subject takes the §10.3 non-rejection path of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`, which is a finite persistent budget rather than implementer discretion |
 | RUNNING | process stalls past its deadline with no commit | CLOSED / FAILED or QUARANTINED | reason code `PROCESS_STALLED`/`PROCESS_TIMEOUT`, which §7 classifies BLOCKED; disposition is `FAILED` when cleanup is proven and `QUARANTINED` otherwise; the subject reaches BLOCKED through its legal block edge |
