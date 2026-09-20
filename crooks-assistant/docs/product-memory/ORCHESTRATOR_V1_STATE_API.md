@@ -125,13 +125,24 @@ Canonical manifest bytes use UTF-8 canonical JSON with stable key ordering and n
 
 ### `integration`
 - `integration_id TEXT PRIMARY KEY`;
+- state `CREATED|INTEGRATING|EVIDENCE_READY|REVIEWING|VERIFIED|REJECTED|BLOCKED|CANCELLED`;
 - target base SHA;
-- ordered input-SHA digest;
+- ordered accepted input-SHA digest;
 - integration SHA nullable until committed;
 - integration-only-edit digest;
 - evidence-manifest digest;
-- state;
 - created/updated timestamps.
+
+### `release_candidate`
+- `release_candidate_id TEXT PRIMARY KEY`;
+- integration ID;
+- exact integration SHA;
+- evidence-manifest digest;
+- GPT Director decision reference/digest;
+- limitations/release-plan digest;
+- created timestamp.
+
+Release candidates are immutable V1 outputs; they carry no deployment authority.
 
 ### `delivery`
 Represents publication independently from work completion.
@@ -193,10 +204,13 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | `review.record` | validated independent reviewer channel | persist exact-SHA verdict/findings |
 | `candidate.accept` | kernel policy | REVIEWING -> ACCEPTED only when all required reviews/findings satisfy policy |
 | `candidate.reject` | kernel policy | REVIEWING -> REJECTED |
-| `integration.begin` | integrator coordinator | ACCEPTED -> INTEGRATING; bind exact ordered input SHAs |
-| `integration.register` | deterministic collector | persist integration SHA + evidence |
-| `integration.verify` | kernel policy/CI/review coordinator | INTEGRATING -> VERIFIED |
-| `release_candidate.mark` | GPT Director validated channel + kernel policy | VERIFIED -> RELEASE_CANDIDATE |
+| `integration.create` | integration coordinator | create separate CREATED integration from one or more exact ACCEPTED candidate SHAs |
+| `integration.begin` | integrator coordinator | CREATED -> INTEGRATING |
+| `integration.register` | deterministic collector | INTEGRATING -> EVIDENCE_READY after integration SHA + evidence exist |
+| `integration.review_request` | review coordinator | EVIDENCE_READY -> REVIEWING |
+| `integration.verify` | kernel policy/CI/review coordinator | REVIEWING -> VERIFIED when required integrated gates pass |
+| `integration.reject` | kernel policy | REVIEWING -> REJECTED on blocking integrated finding |
+| `release_candidate.mark` | GPT Director validated channel + kernel policy | create immutable ReleaseCandidate from VERIFIED integration |
 | `delivery.publish` | publication adapter | publish immutable result/ref with idempotency |
 | `controller.reconcile` | authoritative controller | observe DB/process/workspace/remote truth; no blind effects |
 | `controller.drain` | authorised operator/controller policy | set DRAINING; no new assignments |
@@ -222,17 +236,21 @@ Any transition not listed is forbidden.
 | REVIEWING | candidate.accept | ACCEPTED | all required independent reviews ACCEPT; no OPEN/BLOCKED blocking findings; context still current |
 | REVIEWING | candidate.reject | REJECTED | one or more required reviews CHANGES_REQUIRED or blocking finding |
 | REJECTED | attempt.assign | ASSIGNED | same task revision; correction budget available; fresh attempt/fence; prior candidate retained |
-| ACCEPTED | integration.begin | INTEGRATING | exact accepted SHAs; explicit target base; dependencies/context current |
-| INTEGRATING | integration.verify | VERIFIED | integration SHA measured; required integrated evidence/reviews pass |
-| VERIFIED | release_candidate.mark | RELEASE_CANDIDATE | GPT Director independently accepts exact integrated SHA/evidence/limitations |
+| ACCEPTED task(s) | integration.create | integration CREATED | one or more exact accepted candidate SHAs; explicit target base; dependencies/context current; source task states remain ACCEPTED |
+| integration CREATED | integration.begin | integration INTEGRATING | integrator workspace/base preflight passes |
+| integration INTEGRATING | integration.register | integration EVIDENCE_READY | integration SHA measured; required evidence manifest exists |
+| integration EVIDENCE_READY | integration.review_request | integration REVIEWING | required integrated reviewer policy resolved |
+| integration REVIEWING | integration.verify | integration VERIFIED | all required integrated tests/reviews pass; no blocking findings |
+| integration REVIEWING | integration.reject | integration REJECTED | blocking finding or required gate failure |
+| integration VERIFIED | release_candidate.mark | ReleaseCandidate record | GPT Director independently accepts exact integrated SHA/evidence/limitations |
 | any nonterminal active | task.block | BLOCKED | typed deterministic reason persisted; active attempt fenced/stopped when continuation unsafe |
 | any nonterminal active | task.escalate | ESCALATED | ambiguity/decision beyond automatic authority |
-| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/ACCEPTED/REJECTED/INTEGRATING/VERIFIED/BLOCKED/ESCALATED/FAILED | task.cancel | CANCELLED | caller authorised; any active lease fenced immediately; no later result admitted |
+| PROPOSED/PLANNED/ASSIGNED/BUILDING/EVIDENCE_READY/REVIEWING/ACCEPTED/REJECTED/BLOCKED/ESCALATED/FAILED | task.cancel | CANCELLED | caller authorised; any active lease fenced immediately; no later result admitted |
 | any state except RELEASE_CANDIDATE/CANCELLED/SUPERSEDED | task.supersede | SUPERSEDED | replacement revision/objective reference recorded; active attempt fenced |
 | any state except RELEASE_CANDIDATE/CANCELLED/SUPERSEDED | task.revise | PROPOSED (new revision) | revision-changing authority valid; old revision immutable/superseded; active attempt fenced; new context/base/acceptance revalidated before planning |
-| BUILDING/REJECTED/INTEGRATING | task.fail | FAILED | execution/correction/integration budget exhausted or unrecoverable failure within current contract |
+| BUILDING/REJECTED | task.fail | FAILED | execution/correction/integration budget exhausted or unrecoverable failure within current contract |
 
-`RELEASE_CANDIDATE`, `CANCELLED` and `SUPERSEDED` are terminal for V1. A `FAILED` task does not auto-resume; continuation requires `task.revise` to a new PROPOSED revision (or explicit supersession).
+`ACCEPTED`, `CANCELLED` and `SUPERSEDED` are terminal task states for V1. Integration/release records have their own terminal states. A `FAILED` task does not auto-resume; continuation requires `task.revise` to a new PROPOSED revision (or explicit supersession).
 
 ## 4. Atomic transaction rules
 
