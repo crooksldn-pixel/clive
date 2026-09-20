@@ -363,6 +363,43 @@ def test_fence_stale_is_a_classified_reason_code() -> None:
     assert mapping.get("FENCE_STALE") == "REJECTED_FAILED", mapping.get("FENCE_STALE")
 
 
+
+# --------------------------------------------------------------------------------------------
+# R-01 / R-02 / R-03 — repair the integration launch, attempt ceiling and delivery authority.
+# --------------------------------------------------------------------------------------------
+
+
+def test_integration_launch_is_split_into_allocation_then_preflight() -> None:
+    """R-01: integration allocation and preflight must be two legal, jointly representable phases."""
+    api = read(STATE_API)
+    assert "| `integration.begin` | integrator coordinator | CREATED -> INTEGRATING" in api
+    begin_line = next(line for line in api.splitlines() if line.startswith("| `integration.begin` |"))
+    assert "no model/toolchain preflight" in begin_line
+    assert "| `integration.start` | runner adapter |" in api
+    assert "`attempt.start` (TASK) / `integration.start` (INTEGRATION)" in api
+    assert "integration INTEGRATING + attempt CREATED/STARTING | integration.start" in api
+
+
+def test_attempt_ceiling_is_a_transition_guard_not_only_prose() -> None:
+    """R-02: the fourth attempt is impossible because every TASK allocation path checks the ceiling."""
+    api = read(STATE_API)
+    contract = read(FREEZE_CONTRACT)
+    assert api.count("per-revision attempt ceiling not exhausted") >= 2
+    assert "both TASK branches the per-revision attempt ceiling must not be exhausted" in api
+    assert "BLOCKED` to **`ESCALATED`**" in contract
+    assert "no further `attempt.assign` is admissible" in contract
+
+
+def test_delivery_has_its_own_authority_and_journal_subject() -> None:
+    """R-03: delivery is journalled but is not forced through an execution-record fence it does not own."""
+    api = read(STATE_API)
+    contract = read(FREEZE_CONTRACT)
+    assert "TASK|INTEGRATION|CANDIDATE|REVIEW|DELIVERY" in api
+    assert "controller epoch of the last authoritative delivery mutation" in api
+    assert "Delivery updates are not execution-record admissions" in contract
+    assert "delivery idempotency key" in contract
+    assert "idempotency-key/request-digest conflict" in contract
+
 # --------------------------------------------------------------------------------------------
 # Regression guards for the previously validated N-series repairs.
 # --------------------------------------------------------------------------------------------
@@ -372,7 +409,7 @@ def test_traceability_dispositions_every_reviewed_finding() -> None:
     """Silence is not a disposition: N-01..N-04 and B-01..B-05 each carry an explicit row."""
     text = read(TRACEABILITY)
     assert "Silence is not a disposition." in text
-    for finding in ("N-01", "N-02", "N-03", "N-04", "B-01", "B-02", "B-03", "B-04", "B-05"):
+    for finding in ("N-01", "N-02", "N-03", "N-04", "B-01", "B-02", "B-03", "B-04", "B-05", "R-01", "R-02", "R-03"):
         assert f"re-review {finding} " in text, f"{finding} has no traceability disposition"
 
 
