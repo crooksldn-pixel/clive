@@ -30,7 +30,7 @@ set -euo pipefail
 # Every one of these is overridable from the unit file or the environment, which is also how
 # the test suite points the whole thing at a temporary directory.
 
-REPO_SLUG="${CROOKS_BRIDGE_REPO:-crooksldn-pixel/Shopify-theme}"
+REPO_SLUG="${CROOKS_BRIDGE_REPO:-crooksldn-pixel/clive}"
 BRANCH="${CROOKS_BRIDGE_BRANCH:-crooks-ai-bridge}"
 INBOX_PATH="${CROOKS_BRIDGE_INBOX:-bridge/chatgpt-inbox.md}"
 OUTBOX_PATH="${CROOKS_BRIDGE_OUTBOX:-bridge/claude-outbox.md}"
@@ -73,7 +73,7 @@ CLAUDE_TIMEOUT_S="${CROOKS_BRIDGE_CLAUDE_TIMEOUT_S:-7200}"
 # Pin the single-worker bridge to an explicit model and effort so unattended runs never inherit
 # a mutable Claude Code/account default. The future Engineering Orchestrator may route by task;
 # this is only the deterministic default for this watcher.
-CLAUDE_MODEL="${CROOKS_BRIDGE_CLAUDE_MODEL:-claude-fable-5-1}"
+CLAUDE_MODEL="${CROOKS_BRIDGE_CLAUDE_MODEL:-claude-opus-5}"
 CLAUDE_EFFORT="${CROOKS_BRIDGE_CLAUDE_EFFORT:-high}"
 CLAUDE_PERMISSION_MODE="${CROOKS_BRIDGE_PERMISSION_MODE:-acceptEdits}"
 CLAUDE_ALLOWED_TOOLS="${CROOKS_BRIDGE_ALLOWED_TOOLS:-Read,Edit,Write,Glob,Grep,Bash}"

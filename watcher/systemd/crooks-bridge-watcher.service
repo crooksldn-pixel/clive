@@ -50,7 +50,7 @@ Environment=CROOKS_BRIDGE_CLAUDE_TIMEOUT_S=7200
 
 # Deterministic model selection for unattended runs. Do not inherit a mutable Claude Code/account
 # default. The future Engineering Orchestrator may route models per task; this watcher does not.
-Environment=CROOKS_BRIDGE_CLAUDE_MODEL=claude-fable-5-1
+Environment=CROOKS_BRIDGE_CLAUDE_MODEL=claude-opus-5
 Environment=CROOKS_BRIDGE_CLAUDE_EFFORT=high
 
 # What Claude may do when nobody is at the keyboard. acceptEdits plus an explicit tool list:

@@ -506,7 +506,7 @@ t_the_unit_does_not_grant_write_access_to_production() {
     contains "  the bridge clone is writable"   "$unit" "ReadWritePaths=/opt/crooks-ai-bridge"
     contains "  production is explicitly read-only" "$unit" "ReadOnlyPaths=/opt/crooks-os"
     contains "  and the filesystem is strict by default" "$unit" "ProtectSystem=strict"
-    contains "  the unit pins Fable 5.1" "$unit" "Environment=CROOKS_BRIDGE_CLAUDE_MODEL=claude-fable-5-1"
+    contains "  the unit pins Opus 5" "$unit" "Environment=CROOKS_BRIDGE_CLAUDE_MODEL=claude-opus-5"
     contains "  the unit pins high effort" "$unit" "Environment=CROOKS_BRIDGE_CLAUDE_EFFORT=high"
 }
 
@@ -520,7 +520,7 @@ t_the_prompt_carries_the_safety_contract() {
                   "never edit, switch or reset" "do not widen your permissions"; do
         contains "the prompt says: $phrase" "$prompt" "$phrase"
     done
-    contains "runs with Fable 5.1 pinned" "$args" "--model claude-fable-5-1"
+    contains "runs with Opus 5 pinned" "$args" "--model claude-opus-5"
     contains "runs with high effort pinned" "$args" "--effort high"
     contains "runs with acceptEdits" "$args" "--permission-mode acceptedits"
     lacks "the prompt is not passed as a positional argument" "$args" "you have been started automatically"
