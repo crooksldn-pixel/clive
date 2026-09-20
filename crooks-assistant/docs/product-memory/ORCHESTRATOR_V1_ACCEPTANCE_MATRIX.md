@@ -28,6 +28,21 @@
 | ST-09 | finding can be BLOCKED while other findings RESOLVED | partial progress represented without task false-success |
 | ST-10 | restore DB backup | controller epoch increments; all old leases/results are stale |
 
+## 2A. Command/transition completeness
+
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| API-01 | enumerate every task state × command pair | only pairs listed in the normative transition matrix can mutate state; all others reject without side effects |
+| API-02 | same idempotency key + same canonical request | stored result returned; no duplicate transition/event |
+| API-03 | same idempotency key + different canonical request | conflict; no mutation |
+| API-04 | BLOCKED/ESCALATED resume with unchanged valid revision | must pass task.plan validation before execution resumes |
+| API-05 | scope/authority/acceptance changed while blocked | old revision cannot resume; task.revise required and active attempt fenced |
+| API-06 | dependency candidate not ACCEPTED/current | scheduler leaves dependent task blocked/unqueued; no attempt created |
+| API-07 | slot capacity exhausted | task remains planned/queued; retry/correction budget unchanged |
+| API-08 | external effect intent persisted, effect succeeds, process dies before outcome persistence | recovery enters UNKNOWN/reconcile path and observes remote identity before any repeat |
+| API-09 | evidence artifact write dies before atomic rename | no DB manifest registration points at partial artifact |
+| API-10 | reviewer session identity equals implementer attempt/session | independence check rejects review |
+
 ## 3. Controller authority and split-brain
 
 | ID | Scenario | Expected invariant / result |
