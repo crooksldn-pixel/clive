@@ -228,7 +228,7 @@ Append-only:
 - from/to state;
 - actor principal;
 - controller epoch;
-- fencing token presented, and the execution record it belonged to;
+- fencing token presented and the execution record it belonged to, or NULL for a `DELIVERY` subject whose authority is the controller epoch plus delivery idempotency key/request digest;
 - reason code;
 - trace ID;
 - payload digest;
@@ -290,7 +290,7 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | `integration.verify` | kernel policy/CI/review coordinator | REVIEWING -> VERIFIED when required integrated gates pass and no blocking finding for that integration subject is `OPEN`/`BLOCKED` |
 | `integration.reject` | kernel policy | REVIEWING -> REJECTED on blocking integrated finding; REJECTED integration is immutable/terminal and any correction uses a new integration record with parent_integration_id |
 | `integration.block` | kernel/policy/review coordinator | CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING -> BLOCKED with typed reason; no automatic retry |
-| `integration.cancel` | authorised controller/Director policy | CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED -> CANCELLED; the integration attempt's lease is fenced and its process group stopped per §6, and any non-terminal `review_dispatch` for that integration is fenced. If the process group cannot be proven empty the attempt closes `QUARANTINED`, the workspace is not reused and the integration goes to BLOCKED instead of CANCELLED |
+| `integration.cancel` | authorised controller/Director policy | CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED -> CANCELLED. If still `CREATED` before `integration.begin`, no attempt/lease exists and the subject is cancelled directly. Otherwise the allocated integration attempt's lease is fenced and its process group stopped per §6, and any non-terminal `review_dispatch` is fenced. If an owned process group cannot be proven empty the attempt closes `QUARANTINED`, the workspace is not reused and the integration goes to BLOCKED instead of CANCELLED |
 | `release_candidate.mark` | GPT Director validated channel + kernel policy | create immutable ReleaseCandidate from VERIFIED integration |
 | `delivery.publish` | publication adapter | publish immutable result/ref with idempotency |
 | `controller.reconcile` | authoritative controller | observe DB/process/workspace/remote truth across all three execution record kinds of §1A; no blind effects |
@@ -328,8 +328,9 @@ Any transition not listed is forbidden.
 | integration REVIEWING | integration.verify | integration VERIFIED | all required integrated tests/reviews pass, each verdict admitted under a then-live dispatch; no blocking finding whose subject is this integration is `OPEN` or `BLOCKED`; where this integration carries `parent_integration_id`, every unresolved inherited finding has an explicit `RESOLVED`/`OBSOLETE` disposition with a recorded reason |
 | integration REVIEWING | integration.reject | integration REJECTED | blocking finding for this integration subject or required gate failure |
 | integration CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING | integration.block | integration BLOCKED | deterministic dependency/authority/evidence/resource blocker; exact reason persisted |
-| integration CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel | integration CANCELLED | caller authorised; the integration attempt's `lease` is fenced and its process group is stopped through the §6 TERM/grace/KILL sequence; process group verified empty; every non-terminal `review_dispatch` for this integration is fenced |
-| integration CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel where the process group cannot be proven empty | integration BLOCKED | integration attempt closes `QUARANTINED`; integration workspace is not reused; the blocking reason is persisted. Cancellation never reports CANCELLED on unproven cleanup |
+| integration CREATED | integration.cancel | integration CANCELLED | caller authorised; `integration.begin` has not allocated an attempt/lease/workspace, so cancellation is a direct subject-state transition with no fictitious execution record to fence |
+| integration INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel | integration CANCELLED | caller authorised; the allocated integration attempt's `lease` is fenced and any owned process group is stopped through the §6 TERM/grace/KILL sequence; process group verified empty; every non-terminal `review_dispatch` for this integration is fenced |
+| integration INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED | integration.cancel where an owned process group cannot be proven empty | integration BLOCKED | integration attempt closes `QUARANTINED`; integration workspace is not reused; the blocking reason is persisted. Cancellation never reports CANCELLED on unproven cleanup |
 | integration VERIFIED | release_candidate.mark | ReleaseCandidate record | GPT Director independently accepts exact integrated SHA/evidence/limitations |
 | any nonterminal active | task.block | BLOCKED | typed deterministic reason persisted; active attempt fenced/stopped when continuation unsafe |
 | any nonterminal active | task.escalate | ESCALATED | ambiguity/decision beyond automatic authority |
