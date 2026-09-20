@@ -1,28 +1,37 @@
 # CHATGPT INBOX
 
-## Bounded repair — Orchestrator V1 freeze evaluator M-01
+## Fresh independent adversarial review — Orchestrator V1 freeze candidate
 
-Perform exactly one bounded repository-only repair round on the current freeze candidate.
+Perform exactly one fresh **read-only independent adversarial review** of the current freeze candidate.
 
 ### Exact identity
 - repository: `crooksldn-pixel/clive`
 - candidate branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
-- exact rejected SHA: `4f1a915421fc5324638168aa6a16fc51f5a9ee84`
-- independent review verdict consumed: `REJECT — REPAIR REQUIRED`
-- blocker: M-01, with M-02 reinforcement requested in the same bounded repair
+- exact candidate SHA to review: `de9bea2b040808175077777afc35c5394eb4d716`
+- parent repaired from: `4f1a915421fc5324638168aa6a16fc51f5a9ee84`
+- repair claimed: M-01 decoy-field cleanup-handle false-green plus M-02 group-creation cardinality reinforcement
 
-Resolve refs fresh. Abort if the candidate branch is no longer exactly the rejected SHA above. Do not touch canonical product-memory documents or the freeze contract text. This is an evaluator/test-module repair only.
+Resolve the branch fresh and **abort if it is not exactly `de9bea2b040808175077777afc35c5394eb4d716`**. Do not carry any verdict from an earlier SHA. Do not modify the candidate, freeze documents, tests, canonical product memory, runtime or infrastructure during this round.
 
-### Required repair
-Repair the material M-01 false-green in `crooks-assistant/tests/test_orchestrator_freeze_spec.py`: a nearby backticked non-handle field can currently absorb a write verb, classify the clause as `WRITES_OTHER_FIELD`, and silently hide an operative second write to the cleanup handle. The repair must fail closed when a clause containing a live cleanup-handle referent also contains a write whose target cannot be proven to be exclusively another field. Preserve legitimate controls such as an actual write to an unrelated field and explicit read-only handle prose.
+### Review objective
+Independently determine whether this exact candidate is genuinely fit for the next engineering gate. Do not accept the repair prose, 144/144 count, or existing mutations as proof. Recompute the relevant invariants from source truth and actively attempt to make the evaluator falsely accept unsafe freeze semantics.
 
-Also strengthen the independent group-creation cardinality derivation enough to cover the review's demonstrated M-02 forms, including present-tense `creates`, noun/verb ordering variants, and reasonable creation synonyms such as `instantiated`/`provisioned`, without turning broad harmless prose into automatic failure. Treat this as defence in depth; M-01 must be fixed independently rather than relying on group-count phrasing.
+Attack at minimum:
+- M-01: decoy/other-field writes near a live cleanup-handle referent, target ambiguity, co-reference, pronouns, aliases, active/passive voice, punctuation/clause boundaries, read-marker camouflage, unknown predicates and combinations not present in committed tests;
+- M-02: independent group-creation cardinality across tense/voice/order/synonyms, negation, segment boundaries and harmless prose controls;
+- preservation of J-01/H-03/H-04/R-02/K-01/L-01 and all earlier freeze invariants;
+- fail-closed behaviour for unknown critical semantics;
+- false positives as well as false negatives: legitimate unrelated-field writes and genuine read-only handle references must remain accepted;
+- whether the tests can be mutated or bypassed while leaving the suite green;
+- exact-SHA identity, changed-file scope, freeze-document byte identity, clean worktree, relevant static checks and secret scan without exposing secret values.
 
-### Mandatory regression/adversarial evidence
-Add committed regression mutations for the independent review's false greens, including the semantic equivalents of M1/M2/M3/M4/M6/M7. Add adjacent unseen variants covering active/passive voice, co-reference/pronouns, noun aliases, punctuation/clause reordering, read-marker camouflage and unknown predicates. Include false-positive controls proving legitimate other-field writes and read-only handle references remain accepted.
+Invent **new** adversarial mutations rather than merely replaying the repair's own examples. Where possible, compare behaviour against the rejected parent to demonstrate information gain. Treat ordinary regression green counts as necessary but insufficient.
 
-Preserve all prior J-01/H-03/H-04/R-02/K-01/L-01 invariants and all existing tests. Do not weaken assertions to make the candidate green. Unknown critical semantics should fail closed.
+### Required verdict
+Return exactly one engineering verdict bound only to `de9bea2b040808175077777afc35c5394eb4d716`:
+- `ACCEPT FOR NEXT GATE`, only if the exact candidate survives the independent adversarial review; or
+- `REJECT — REPAIR REQUIRED`, with precise reproducible blockers and the smallest safe repair scope.
 
-Run the complete committed freeze-spec suite, relevant static checks and secret scan without printing secret values. Report exact resulting SHA, parent, changed files, test counts, mutation/adversarial cases and clean-worktree evidence. If the repair requires changing the freeze contract rather than its evaluator, stop and report that as a blocker instead.
+Engineering acceptance is **not** owner adoption and does not authorise rebase, merge, deployment, runtime/watcher changes, secrets/connectors, privilege expansion, business writes, production promotion, freeze adoption or DEC-046/047 sequencing changes.
 
-Do not self-review or declare engineering acceptance. After the repair, stop for a fresh independent review on the new exact SHA. No production/runtime/watcher/builder/connectors/credentials/privileges/business writes/deployment/adoption/sequencing changes.
+After reporting the verdict, stop.
