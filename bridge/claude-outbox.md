@@ -1,183 +1,445 @@
 # CLAUDE OUTBOX
 
-**Timestamp:** 2026-09-20 18:25 UTC
-**Inbox consumed:** `2b04ee8abdef4471d5f81a73b890cc4c03eaef31` — read in full and executed as this round's only instructions.
-**Round type:** bounded repository-only repair, Orchestrator V1 freeze K-01.
-**Result:** K-01 repaired and published. **Do not adopt on my word — one fresh independent read-only adversarial review bound to the exact new SHA is required next.**
+**Timestamp:** 2026-09-20T19:17:15Z
+**Inbox SHA processed:** `376d63b16297e9827e37d15973506290d2f8c648` (consumed; these instructions are not to be executed again)
+**Round type:** fresh independent read-only adversarial review — Orchestrator V1 freeze candidate
+**Role:** reviewer only. Nothing was edited, committed, merged, rebased, adopted or deployed.
 
 ---
 
-## Headline
+## VERDICT
 
-| Field | Value |
-| --- | --- |
-| Repository | `crooksldn-pixel/clive` |
-| Canonical base (pinned by inbox) | `9e59860a945ec339c69af8709cd0721f0a795327` |
-| Rejected candidate | `c7c3d523b7bafe5c73ae4d82275e6f1a297600f0` |
-| **New candidate SHA** | **`a904a209d57add65f3878b4f7ee3eec19b6c35a9`** |
-| Branch published to | `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` (existing, fast-forward) |
-| Changed-file set vs `c7c3d52` | **exactly one file**, `crooks-assistant/tests/test_orchestrator_freeze_spec.py`, +407/−24 |
-| Freeze documents changed | **none** |
-| Prior verdict | now **stale** — it was bound to `c7c3d52` |
+# CHANGES REQUIRED BEFORE OWNER DECISION
 
-Commit: `a904a20` — *"A gate that knew one verb for "write", and the six paraphrases that walked past it"*.
+One material blocker, **L-01**, recorded below with reproduction and a bounded repair.
 
----
-
-## ⚠️ One thing that needs a decision, and that I deliberately did not act on
-
-**The canonical base moved while this round was running.** At the start of the round `git ls-remote` gave `claude/product-memory-foundation = 9e59860a945ec339c69af8709cd0721f0a795327`, matching the inbox exactly. On read-back after publishing it was **`a7792c0f7fbf062fabb62cf9ccd2ccd885a62ecd`**.
-
-Characterised read-only, nothing acted on:
-
-- It is a **fast-forward**: `9e59860` is still an ancestor of `a7792c0`, so every merge-base identity check in this round remains valid and my abort conditions were correctly not triggered.
-- Five owner documentation commits: `a47e461`, `c4913ed`, `e378cf9`, `397b32c`, `a7792c0` — *"live experience and continuous evaluation direction"*.
-- Files: new `crooks-assistant/docs/product-memory/CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md` (+649), plus `CURRENT_TRUTH.md`, `IDEAS.md`, `README.md`, `ROADMAP.md` (+785/−1 total).
-- **Overlap with the freeze candidate:** the candidate also edits `CURRENT_TRUTH.md` and `ROADMAP.md`. A read-only `git merge-tree a904a20 a7792c0` returns **exit 0 — conflict-free**.
-
-**Why I did nothing about it:** the inbox pinned canonical at `9e59860`, scoped the round to a single test module, and forbade unrelated work. Rebasing or reconciling the candidate onto `a7792c0` is neither in scope nor mine to decide. **Flagging it for the owner/reviewer:** the freeze candidate's merge-base is now behind canonical, and whether the freeze is adopted against `9e59860` or re-based onto `a7792c0` is an owner decision. No action taken, no owner approval assumed.
+K-01 is **narrowed, not closed**. The repair genuinely fixes the exact defect as it was
+*phrased* in the K-01 report (a second write introduced by a different **verb**), and I
+reproduced that independently. But the replacement detector still only inspects clauses that
+textually repeat the backticked field name, so an operative second write that refers to the
+handle by ordinary co-reference — "it", "this field", "the cleanup handle", "the attempt's
+owned process group handle" — restores the H-03 two-group handover on the real
+`STARTING -> RUNNING` edge with **the entire 75-test committed suite green**. The inbox
+directs that a plausible operative write which evades the gate be reported as a material
+blocker; four do.
 
 ---
 
-## What was asked
+## 1. Evidence identity — established fresh, not carried forward
 
-One bounded, test-module-only repair round closing K-01, the single material blocker from the review that rejected `c7c3d52` (review inbox `7c038f0`, review outbox blob `9fb68c0`, verdict *CHANGES REQUIRED BEFORE OWNER DECISION*). Specifically: replace the single-verb cleanup-handle-write detector with a structural, fail-closed classifier; keep the independent prohibition and cardinality gates; correct the test docstring; add a parametrised mutation proof; rerun the review's seven mutations; produce failing-before evidence against `c7c3d52`; publish only to the existing candidate branch; do not self-certify. Explicitly excluded: the optional §3B row-504 hardening, and any freeze-contract/state-API/acceptance/traceability prose change.
-
-## What I found
-
-**Identity, resolved from fresh remote truth before editing** (`git ls-remote`, then fetch by explicit full refname — the known-stale tracking refspec was never trusted and was **not** repaired):
-
-| Check | Required | Observed | Result |
-| --- | --- | --- | --- |
-| candidate ref at start | `c7c3d52…` | `c7c3d523b7bafe5c73ae4d82275e6f1a297600f0` | PASS |
-| canonical ref at start | `9e59860…` | `9e59860a945ec339c69af8709cd0721f0a795327` | PASS |
-| merge-base(candidate, canonical) | == canonical | `9e59860a945ec339c69af8709cd0721f0a795327` | PASS |
-| unrelated owner work in candidate | none | 56 commits, all freeze-set docs + the spec test module | PASS |
-| builder worktree state | clean | `/opt/crooks-builder/.worktrees/freeze-repair` at `c7c3d52`, `git status` **0 lines** before and after | PASS |
-| merge-base(new SHA, canonical) | == canonical | `9e59860a945ec339c69af8709cd0721f0a795327` | PASS |
-| `c7c3d52..a904a20` | exactly one commit | 1; parent of `a904a20` **is** `c7c3d52` | PASS |
-| `DECISIONS.md` vs canonical | byte-identical | empty diff | PASS |
-
-The builder checkout I was started in (`/opt/crooks-builder`, branch `claude/builder-environment-repair`, HEAD `295e483`) was clean and is **untouched** — I did all work in the pre-existing candidate worktree, which was already clean at `c7c3d52`.
-
-**The defect, confirmed independently.** `attempt_rows_committing_the_cleanup_handle()` selected §3A rows by the literal substring ``` `lease.owned_process_group_handle` is committed ```. Any other verb was invisible, so an operative second write on the real `STARTING -> RUNNING` row left the derived write count at `1`, matched §3A.3's declared `1`, and returned the suite fully green — with the prohibition sentence still sitting in the same cell. The docstring's claim *"A second write point fails whatever words introduce it"* was false.
-
-A second, related weakness I found while fixing it and closed in the same change: the helper selected §3A rows by `len(row) >= 4`. §3A.3's *durable-fact* table also has four columns and also names the handle, so that filter only avoided a false positive by luck — the handle string happened not to land in cell index 3. The new code addresses §3A's transition matrix **by its own header**, bounded to §3A (the same header appears on two §3B tables).
-
-## What I changed
-
-One file, `crooks-assistant/tests/test_orchestrator_freeze_spec.py`. No freeze-document text changed — §3A.3 already stated the invariant correctly, as the review said.
-
-- **`attempt_transition_rows(api_text)`** — §3A's transition matrix only, addressed by header, scanned within §3A.
-- **`classify_handle_mention(clause)`** — assigns every clause mentioning the handle **exactly one** of `WRITES` / `PROHIBITS_WRITE` / `READS_ONLY`, over closed, explicit marker sets:
-  - *write verbs* with their grammatical variants: commit, write, rewrite, overwrite, update, replace, clear, set, record, populate, assign, supersede, retire. Hyphenated compounds (`write-once`, `write-ahead`) are excluded by word-boundary guards, so the spec's own adjectives are not read as verbs.
-  - *negation* is scoped to the **coordinated verb list it actually governs** (`MUST NOT update, replace or clear`), not to the rest of the clause. This is the crux: a write appended *beside* a surviving prohibition in the same clause is still seen, because an operative write outranks a prohibition.
-  - *read/reference* forms: `identified from`, `read from`, `named by`, `proven by`, `resolves to`, `against`, `being NULL`, `MUST NOT be used as`.
-  - *deferred retirement*: §3A.3 puts handle retirement in a **later** commit (the §3D release record), so a row saying "… until the handle is durably retired" references rather than writes. Only a **retirement** verb may be deferred — any other verb behind `until`/`once`/`after` still counts as a write, so the deferral rule cannot be used as a hiding place.
-- **Mentions are classified per clause, not per cell**, so the `STARTING -> RUNNING` cell's existing prohibition cannot swallow an injected write.
-- **Fail-closed:** `attempt_rows_writing_the_cleanup_handle()` raises on any mention it cannot classify. Unknown wording stops the freeze instead of quietly shrinking the count.
-- **`assert_declared_write_point_matches_the_matrix(api_text)`** — the cardinality cross-check, extracted so the mutation harness can run the identical gate against a mutated document.
-- **`table_rows_under_header_in(text, header)`** — the existing path-based helper now delegates to a text-based one so a mutant can be parsed. No behaviour change for existing callers.
-- **Docstring corrected** to state what is proved and to point at the limits below.
-- **New tests:** the parametrised mutation harness (9 phrasings), a per-mention classification test pinning the classes the committed matrix produces, a fail-closed test, and an explicit control.
-
-The independent prohibition and cardinality checks are untouched and still run (`test_the_running_commit_must_not_replace_the_cleanup_handle`, `HANDOVER_WORDINGS`, the declared-count assertions). K-01 was **not** solved by adding another narrow blacklist.
-
-## Test results
-
-**Committed freeze-spec suite at `a904a20`: 75 passed** (63 at `c7c3d52`; +12).
-
-**Failing-before evidence.** Scratch built from `c7c3d52` via `git archive`, provenance proved by `git hash-object` == `git rev-parse c7c3d52:<path>` for both the rejected test module (`0e68c72…`) and `ORCHESTRATOR_V1_STATE_API.md` (`189601e…`). Each mutation was applied to a fresh copy of those blobs; the owner worktree was never modified.
-
-Every mutation injects an operative second handle write into the **real** `STARTING -> RUNNING` row and **leaves §3A.3's prohibition sentence and declared count `1` intact** — asserted by the harness itself before the run counts.
-
-| Mutation | Rejected gate (`c7c3d52`) | Repaired gate (`a904a20`) |
+| Fact | Resolved value | Status |
 | --- | --- | --- |
-| control — pristine candidate | 63 passed | **75 passed** |
-| `is durably rewritten to name` *(review variant A)* | 63 passed — **MISSED** | 3 failed — **CAUGHT** |
-| `is written` to name *(review variant B)* | 63 passed — **MISSED** | 3 failed — **CAUGHT** |
-| `is rewritten` to name | 63 passed — **MISSED** | 3 failed — **CAUGHT** |
-| `is updated to` name | 63 passed — **MISSED** | 3 failed — **CAUGHT** |
-| `is replaced with` | 63 passed — **MISSED** | 3 failed — **CAUGHT** |
-| `is set to` | 63 passed — **MISSED** | 3 failed — **CAUGHT** |
-| `is committed for` (the old gate's own verb) | 1 failed | 3 failed — CAUGHT |
+| repository | `crooksldn-pixel/clive` (`origin` of the builder checkout) | ✅ |
+| freeze branch | `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` | ✅ |
+| branch resolves to | `a904a209d57add65f3878b4f7ee3eec19b6c35a9` | ✅ matches inbox exactly |
+| candidate parent | `c7c3d523b7bafe5c73ae4d82275e6f1a297600f0` | ✅ matches "rejected parent" |
+| pinned historical base | `9e59860a945ec339c69af8709cd0721f0a795327` | ✅ still an ancestor of the candidate |
+| `merge-base(a904a20, canonical)` | `9e59860a945ec339c69af8709cd0721f0a795327` | ✅ |
+| current canonical `claude/product-memory-foundation` | `3ba4edeb1bdeb317a08932e44557c7e6051fa510` | ✅ matches inbox |
 
-All five phrasings the inbox required are caught, and review variants A and B both flipped from MISSED to CAUGHT.
+Both refs were fetched by explicit full refname before use. Review artefacts were produced in
+a scratch tree from `git archive`/`git show` of committed objects; every blob used was proved
+by `git hash-object` == `git rev-parse <sha>:<path>`:
 
-**The review's seven mutations, rerun — 7/7 CAUGHT** (was 6/7; control green before and after):
+- test module @ `a904a20` = `77ca5595c3fcc8ed87d67f3f952d9db01b5fcb21`
+- test module @ `c7c3d52` (the rejected gate, used as the before-side) = `0e68c720fdeeafcaf2bc0389d4148406c172043c`
+- `ORCHESTRATOR_V1_STATE_API.md` @ `a904a20` = `189601e8a6b6f468aa87cd87096037014ffb3929`
 
-| # | Mutation | Rejected gate | Repaired gate |
-| --- | --- | --- | --- |
-| 1 | FC §19 counts non-terminal dispatches only | 1 failed | 1 failed — CAUGHT |
-| 2 | step-7 unproven cleanup releases occupancy | 1 failed | 1 failed — CAUGHT |
-| 3 | QUARANTINED dispatch represented as FENCED | 1 failed | 1 failed — CAUGHT |
-| 4 | per-slot uniqueness ignores quarantine | 1 failed | 1 failed — CAUGHT |
-| 5 | release transition no longer requires proven emptiness | 1 failed | 1 failed — CAUGHT |
-| 6 | attempt quarantine no longer occupies capacity | 1 failed | 1 failed — CAUGHT |
-| 7 | paraphrased second attempt handover/write path | **63 passed — MISSED** | **3 failed — CAUGHT** |
-
-**The catches are structural, not incidental.** The three failing tests are `test_one_owned_group_per_attempt_is_a_declared_count_not_a_missing_phrase` (*"2 §3A edges write the cleanup handle; §3A.3 declares 1: CREATED -> STARTING; STARTING -> RUNNING"*), `test_every_handle_mention_in_the_attempt_matrix_is_classified` (the injected clause classifies `WRITES` beside the surviving `PROHIBITS_WRITE` on the same edge) and the control.
-
-**Derived classification of the committed matrix** — recomputed, not asserted by phrase:
-
-| Edge | Class |
-| --- | --- |
-| `CREATED -> STARTING` | **WRITES** (the sole write point, equal to §3A.3's declaration) |
-| `STARTING -> RUNNING` | PROHIBITS_WRITE |
-| `CREATED -> CLOSED / CANCELLED or FENCED` | READS_ONLY |
-| `STARTING -> CLOSED / CANCELLED or FENCED` | READS_ONLY |
-| `STARTING -> CLOSED / QUARANTINED` | READS_ONLY |
-| `RUNNING -> CLOSED / CANCELLED or FENCED` | READS_ONLY |
-| `RUNNING -> CLOSED / QUARANTINED` | READS_ONLY (deferred §3D retirement) |
-| `CANDIDATE_READY -> CLOSED / FENCED` | READS_ONLY |
-
-Zero unclassified mentions. Derived WRITES count `1` == declared `1`, sole write row == declared `CREATED -> STARTING`.
-
-**Other gates:**
-
-- Full offline suite at `a904a20`: **2881 passed, 8 skipped** in 3m35s (`pytest tests -m "not live" -q -n 4`). Baseline at `c7c3d52` was 2868 passed / 8 skipped plus one known `-n 4` `delta.py` setup race; that race did not reproduce, so 2868 + 1 + 12 new tests = 2881. No regression. Teardown emits the known harmless asyncio *"Event loop is closed"* noise from subprocess fixtures.
-- **Ruff:** `ruff check app config scripts tests` — *All checks passed!* (`ruff format` is not a repo gate and was not run as one.)
-- **Secret scan:** gitleaks 8.30.1 over `c7c3d52..a904a20` — *1 commit scanned, no leaks found*. **No secret value appears anywhere in this outbox.**
-- Worktree `git status`: **0 lines** after the commit, after the full suite, and after scratch removal. Scratch deleted.
-
-## Known limits of the repaired gate — disclosed, not discovered later
-
-Stating these explicitly because the last round's disclosure was narrower than the real gap, and that is what became K-01.
-
-1. **The marker set is closed by construction.** It covers the thirteen write verbs the inbox required plus `retire`/`overwrite`, with grammatical variants. A write verb outside that set does **not** silently pass — it produces an unclassifiable mention and fails the gate — but the failure message will say "cannot classify" rather than "second write point". That is the intended fail-closed direction; a reviewer should confirm they agree it is the right one.
-2. **Clause segmentation is `;` plus sentence boundaries.** A single clause that both prohibits and writes is handled (write wins). A write expressed across two sentences with the field named in only one — e.g. "… `handle` (§3A.3). It is then rewritten for the model group" — would classify the *naming* clause only, and the second sentence carries no field mention to classify. This is narrower than K-01 but it is the same family, and I could not close it without matching the English phrase "the handle", which would reintroduce phrase dependence.
-3. **The gate reads §3A's transition matrix.** A handover asserted purely as §3A.3 prose that no §3A edge implements still passes this particular check — the limit disclosed last round, unchanged and still true. §3A.3's own prohibition text is separately asserted.
-4. **Deferral covers `until`/`once`/`after` and only for retirement verbs.** A retirement asserted as happening *on* a §3A edge would classify as WRITES and fail the cardinality check. I believe that is correct — §3A.3 says retirement happens only in the later emptiness-proving commit — but it is a judgement call a reviewer should check.
-5. I did **not** take the optional §3B row-504 hardening, as instructed.
-
-## Service and server state — unchanged
-
-Nothing was installed, started, stopped, configured or deployed. All safety constraints preserved: `writes_enabled` false, `CROOKS_WRITES_LOCAL_OWNER` false, FastAPI bound to `127.0.0.1`, port 8000 not publicly exposed, proposal/action/verification safety semantics untouched, no live Shopify/Gmail/ElevenLabs calls, no live external mutations, V2 not begun, UI not redesigned, Mac deployment and rollback path preserved, `/root/.claude` writable, no secret printed or committed. The production checkout `/opt/crooks-os/crooks-assistant` was never read, edited, switched or reset. No merge, no deploy, no auto-merge. The stale builder tracking refspec was **not** repaired — out of scope, still RUNTIME-PENDING.
-
-## Errors
-
-None. No step was blocked by the permission layer; no permission was widened.
-
-## Decisions and questions needing review
-
-1. **The canonical-base advance to `a7792c0` needs an owner decision** (§"One thing that needs a decision" above). Conflict-free, fast-forward, but the freeze candidate's base is now behind canonical.
-2. **Judgement call to confirm:** deferred-retirement mentions classify READS_ONLY. Rationale in limit 4 above.
-3. **Judgement call to confirm:** an operative write outranks a prohibition in the same clause. This is what catches the K-01 shape; it also means a clause containing any unnegated write verb can never classify PROHIBITS_WRITE.
-4. Limits 1–5 above are disclosed as the *known* gaps. I am not claiming the gate is complete.
-
-## Exact proposed next step
-
-**Exactly one fresh, independent, read-only adversarial review bound to the exact SHA `a904a209d57add65f3878b4f7ee3eec19b6c35a9`.** The previous verdict is stale for this SHA. I have not self-certified, and nothing here should be read as approval to adopt.
-
-That review should, at minimum:
-
-1. Re-resolve identity from fresh remote truth and confirm `c7c3d52..a904a20` is exactly one commit touching exactly one file, with no freeze-document change and `DECISIONS.md` byte-identical to canonical.
-2. Attack the classifier directly — construct handle-write phrasings outside my marker set and outside my clause segmentation, and confirm each either fails the gate or is a limit I already disclosed above. Limit 2 is the most promising line of attack.
-3. Independently rerun the seven mutations and the K-01 phrasings with its own parsing code rather than my helpers.
-4. Confirm the J-01/H-03/H-04 contract findings still hold at this SHA (they should — no document changed).
-5. Decide whether the canonical-base advance to `a7792c0` blocks the owner decision or is orthogonal to it.
-
-No merge, no adoption and no deployment should happen until that review reports.
+No previous verdict was carried forward; every claim below was recomputed from committed source.
 
 ---
-*Inbox SHA processed this round: `2b04ee8abdef4471d5f81a73b890cc4c03eaef31`. These instructions have been executed once and must not be executed again.*
+
+## 2. What the repair actually is
+
+`git diff --name-status c7c3d52 a904a20` → **exactly one file**:
+
+```
+M  crooks-assistant/tests/test_orchestrator_freeze_spec.py      +407 / −24
+```
+
+Inbox item 10 ✅. The four freeze documents are **byte-identical** between `c7c3d52` and
+`a904a20` (`git diff c7c3d52 a904a20 -- crooks-assistant/docs/` is empty). No DECISIONS,
+adoption or sequencing change occurred; `DECISIONS.md` @ `a904a20` is blob
+`a6dc313173bca86e139ebb5acd221753f1aaaeff`, identical to the pinned base.
+
+**No prior guard was removed or weakened.** Test count 53 → 57; the set difference is four
+*additions* only. The 24 deleted lines are the broken detector
+(`attempt_rows_committing_the_cleanup_handle`, which matched the verbatim substring
+`` `lease.owned_process_group_handle` is committed ``), its two assertions, and the
+refactor of `table_rows_under_header` into a text-taking `table_rows_under_header_in` with
+the original kept as a wrapper. The false docstring claim *"A second write point fails
+whatever words introduce it"* was correctly deleted.
+
+---
+
+## 3. Inbox verification items — findings
+
+| # | Item | Result |
+| --- | --- | --- |
+| 1 | every §3A transition-row handle mention classified fail-closed | ✅ verified — 8 mentions, all classified, see §3.1 |
+| 2 | ordinary paraphrases cannot introduce an operative write while count stays 1 | ❌ **FAILS — blocker L-01** |
+| 3 | prohibition not misread as write; a real write beside a prohibition not swallowed | ✅ verified by mutation |
+| 4 | unknown/unclassifiable critical wording fails closed | ✅ verified by mutation |
+| 5 | sole derived write point is `CREATED -> STARTING` | ✅ verified |
+| 6 | seven prior J-01/K-01 mutation cases independently reproduced | ✅ reproduced, all unsafe variants fail |
+| 7 | invent further adversarial mutations | ❌ **4 of 10 evade — blocker L-01** |
+| 8 | mutation resistance structural, not shared literal strings | ⚠️ **partial** — verb set is now open-ended, but the *mention* test is still one literal identifier |
+| 9 | committed suite and static checks green | ✅ 75 passed; ruff clean; gitleaks clean |
+| 10 | diff bounded to one test module, no DECISIONS/sequence change | ✅ verified |
+
+### 3.1 What the classifier produces on the pristine candidate
+
+Recomputed from `a904a20`'s committed `ORCHESTRATOR_V1_STATE_API.md` (14 §3A transition rows,
+8 handle mentions):
+
+```
+[WRITES]      CREATED -> STARTING                        "This is the only edge that may write the cleanup handle: … is committed **before** …"
+[PROHIBITS]   STARTING -> RUNNING                        "… MUST NOT update, replace or clear `lease.owned_process_group_handle` …"
+[READS_ONLY]  CREATED -> CLOSED / CANCELLED or FENCED    "… proven by … being NULL"
+[READS_ONLY]  STARTING -> CLOSED / CANCELLED or FENCED   "… identified from …"
+[READS_ONLY]  STARTING -> CLOSED / QUARANTINED           "… named by …"
+[READS_ONLY]  RUNNING -> CLOSED / CANCELLED or FENCED    "… identified from the write-once …"
+[READS_ONLY]  RUNNING -> CLOSED / QUARANTINED            "… until … is durably retired …"   (deferred-retirement path)
+[READS_ONLY]  CANDIDATE_READY -> CLOSED / FENCED         "… cleanup follows §6 against …"
+
+declared cardinality: attempt = (1 group, `CREATED -> STARTING`)   derived writes = [CREATED -> STARTING]
+```
+
+Items 1, 3, 4 and 5 hold on the committed text. `attempt_transition_rows()` addressing §3A's
+matrix **by its own header** is a real improvement: it correctly excludes §3A.3's durable-fact
+table, which also has four columns and names the handle, so the old `len(row) >= 4` filter was
+indeed luck.
+
+### 3.2 Item 6 — the before/after evidence reproduces exactly
+
+Rejected gate (`c7c3d52` module) vs repaired gate (`a904a20` module), both against the
+*same* committed documents, one operative second write injected into the genuine
+`STARTING -> RUNNING` row, prohibition and declared count `1` left intact:
+
+| injected phrasing | rejected gate | repaired gate |
+| --- | --- | --- |
+| `is written to name` | **63 passed (MISSED)** | 3 failed, 72 passed |
+| `is rewritten to name` | **63 passed (MISSED)** | 3 failed, 72 passed |
+| `is durably rewritten to name` | **63 passed (MISSED)** | 3 failed, 72 passed |
+| `is updated to name` | **63 passed (MISSED)** | 3 failed, 72 passed |
+| `is replaced with` | **63 passed (MISSED)** | 3 failed, 72 passed |
+| `is set to` | **63 passed (MISSED)** | 3 failed, 72 passed |
+| `is recorded as` | **63 passed (MISSED)** | 3 failed, 72 passed |
+| `is superseded by the identity of` | **63 passed (MISSED)** | 3 failed, 72 passed |
+| `is committed for` | 1 failed, 62 passed | 3 failed, 72 passed |
+| *control (pristine)* | 63 passed | **75 passed** |
+
+The implementer's claim is accurate and non-inflated. Prior-invariant regression battery,
+run independently against `a904a20` (control green, 75 passed, between every case):
+
+| mutation | result |
+| --- | --- |
+| J-01 — FC §19 ceilings back to non-terminal rows only | CAUGHT (1 failed) |
+| J-01 — SA §6 "released at step 6 **and also at step 7**" | CAUGHT (2 failed) |
+| J-01 — "Terminality alone **MAY** release a resource" | CAUGHT (1 failed) |
+| J-01 — unproven dispatch row back to `FENCED` | CAUGHT (1 failed) |
+| J-01 — §3B per-slot uniqueness back to non-terminal rows | CAUGHT (1 failed) |
+| J-01 — §3D dispatch release gated on a grace period, not emptiness | CAUGHT (1 failed) |
+| H-03 — verbatim two-group handover restored | CAUGHT (4 failed) |
+| H-03 — §3A.3 drops `write-once` | CAUGHT (1 failed) |
+| R-02 — SA §3A.2 charges pre-`RUNNING` fencing to the ceiling | CAUGHT (1 failed) |
+
+J-01, H-03's write-once half, H-04's dispatch representation and R-02's budget/occupancy
+separation are **not** weakened by this repair. Nothing in the repair could weaken the
+contract, because the contract text is byte-identical to the parent.
+
+---
+
+## 4. L-01 — MATERIAL BLOCKER
+
+**An operative second write of the cleanup handle evades the new classifier whenever the
+writing clause refers to the handle by co-reference instead of repeating the backticked
+field name. The full committed suite stays green on a restored H-03 two-group handover.**
+
+### Mechanism
+
+`classified_handle_mentions()` (test module lines 1583–1596) splits each cell into clauses and
+then classifies **only** clauses matching:
+
+```python
+HANDLE_MENTION_RE = re.compile(r"`(?:lease\.)?owned_process_group_handle`")   # line 1423
+...
+for clause in _CLAUSE_BOUNDARY_RE.split(cell):
+    if HANDLE_MENTION_RE.search(clause):                                       # line 1594
+        mentions.append((row, classify_handle_mention(clause), clause.strip()))
+```
+
+A clause without that literal identifier is not classified, not counted, and — critically —
+**not flagged as unclassifiable either**. The fail-closed rule at lines 1608–1617 only fires on
+mentions the classifier *saw*. `_CLAUSE_BOUNDARY_RE` splits on `;` and on sentence-ending `. `,
+which is exactly where ordinary English drops the repeated identifier and switches to a pronoun.
+
+So K-01 moved the gate from *"one literal verb"* to *"a closed verb set, applied only to clauses
+containing one literal noun."* Inbox item 8 — "structural rather than dependent on literal
+strings shared by the test and the fixture" — is therefore only half satisfied.
+
+### Reproduction (independently run, not taken from the implementer)
+
+Each mutation appends to the genuine `STARTING -> RUNNING` row of the committed
+`ORCHESTRATOR_V1_STATE_API.md`, leaving **both** independent gates satisfied — the
+`MUST NOT update, replace or clear …` prohibition sentence and
+``| `attempt` (TASK or INTEGRATION) | 1 | `CREATED -> STARTING` |`` are untouched — and then
+runs the **entire committed 75-test freeze-spec suite**:
+
+| # | appended to the `STARTING -> RUNNING` cell | suite |
+| --- | --- | --- |
+| M1 | `; a fresh controller-allocated process group is created for the model process and it is set to that group's identity` | **75 passed — MISSED** |
+| M2 | `. A fresh controller-allocated process group is created for the model process and the cleanup handle is rewritten to name it` | **75 passed — MISSED** |
+| M3 | `. A fresh controller-allocated process group is created for the model process. This field is then updated to name that group` | **75 passed — MISSED** |
+| M5 | `. The attempt's owned process group handle is replaced with the identity of a fresh controller-allocated model process group` | **75 passed — MISSED** |
+| — | *control, pristine* | 75 passed |
+
+Each of M1/M2/M3/M5 is an **operative** second write plus an explicit second group creation on
+the edge H-03 forbids to write — i.e. the H-03 defect fully restored, in prose a careless
+freeze edit would plausibly produce, with the derived write count still reported as `1`.
+M2 and M5 use verbs that *are* in the new closed marker set (`rewritten`, `replaced`); they
+evade purely because the clause does not repeat the backticked identifier.
+
+### Mutations the repair correctly catches (so the finding is narrow, not general)
+
+| mutation | result |
+| --- | --- |
+| write verb placed *before* a trailing prohibition in the same clause | CAUGHT (cardinality) |
+| write appended after `MUST NOT update, replace or clear …` in the same clause | CAUGHT (cardinality) |
+| em-dash clause chain (``… — `handle` is updated to name it``) | CAUGHT (cardinality) |
+| `until`-deferral with a **non**-retirement verb (`is recorded as`) | CAUGHT (cardinality) |
+| unknown verb (`assumes the identity of`) | CAUGHT (fail-closed) |
+| deferred **retirement** on `STARTING -> RUNNING` (`Once preflight is proven empty, … is retired …`) | CAUGHT — by `test_every_handle_mention_in_the_attempt_matrix_is_classified` pinning that edge to `{PROHIBITS_WRITE}` |
+
+The negation-scoping work (`_negated_spans`) is sound: I could not construct a case where an
+operative verb was swallowed by a prohibition span, nor one where a prohibition was misread as
+a write. Inbox item 3 is genuinely satisfied. The defect is exclusively the *mention* predicate.
+
+### Smallest bounded repair
+
+Test-module only; **no freeze-document change is required** — §3A.3 already states the
+invariant correctly, so this remains a gate defect, not a contract defect.
+
+**Primary (verified, catches all four):** make the fail-closed rule cover the *cell*, not just
+the matched clause. Within any §3A transition-row cell that mentions the handle at all,
+every clause carrying an un-negated `WRITE_VERBS` verb must name a backticked
+`record.field` identifier as its target. A clause naming the handle → `WRITES`; a clause naming
+a different field (e.g. `` `attempt.running_process_group_identity` is written in this same
+commit ``) → ignored; a clause naming **no** field → `UNCLASSIFIED` → gate failure.
+
+Prototyped against the committed document: **zero** false positives on the pristine candidate
+and **all four** of M1/M2/M3/M5 caught. One pristine clause needs an explicit carve-out —
+`CREATED -> CLOSED / CANCELLED or FENCED`: *"the lease is released/retired and the old fencing
+token can never admit a result"*, whose subject is `the lease`, not the handle. Recognising the
+literal subject `the lease` is sufficient; that carve-out is itself a marker set and should be
+closed and asserted.
+
+**Secondary (defence in depth, recommended alongside):** cross-check the **first** column of
+§3A.3's cardinality table, which is currently declared and never used. The table declares
+``| `attempt` (TASK or INTEGRATION) | 1 | `CREATED -> STARTING` |`` — the gate verifies the
+write-point column and ignores the group-count column. Deriving group *creations* from §3A
+transition rows and asserting the count equals the declared `1` is structural in a way the
+handle-name scan can never be, since a handover must create a second group whatever it calls the
+handle. Prototyped: green on pristine (one creation, `CREATED -> STARTING`; `no second group is
+created` correctly read as negated) and catches M1/M2/M3. It does **not** catch M5, whose
+creation is a past participle — so it is not a substitute for the primary repair, only a
+reinforcement.
+
+**Also required:** the docstring at lines 1663–1666 should state the residual limit explicitly.
+It currently reads *"a second write point on a real §3A edge fails whatever verb from that marker
+set introduces it, and an unrecognised verb fails too"* — accurate as written, but it does not
+disclose that both claims are conditional on the clause repeating the backticked identifier.
+The previous round's lesson was precisely that an over-broad docstring hid a live hole.
+
+---
+
+## 5. Non-blocking observations (not gating this candidate)
+
+1. **H-04 ownership sentence is unguarded against inversion.** Replacing SA §6's bold lead-in
+   *"**Ownership is decided from the principal, never from NULL.**"* with
+   *"Ownership is decided from the process-group identity: NULL means external."* leaves the
+   suite **75 passed**. The document would then be self-contradictory (§6 step 3, FC §21 step 8
+   and the §3A.3 write-ahead rule still say the right thing), so the H-04 *contract* is intact
+   and the defect is not exploitable as written. Same family as L-01 — a prose-presence guard
+   cannot see a contradicting alteration. Pre-existing; **not** introduced by this repair.
+2. **FC §19's summary of §3A.2 is unguarded.** Flipping FC line 278 from
+   *"MUST NOT consume the ceiling"* to *"MUST consume the ceiling"* leaves the suite green;
+   only the normative SA §3A.2 table is gated. FC §19 explicitly defers to §3A.2 and is
+   forbidden from restating it differently, so the contract still resolves correctly, but the
+   restatement-drift risk is real. Pre-existing.
+3. **The classifier is over-strict in the safe direction.** Innocuous rewording such as *"the
+   group recorded in `lease.owned_process_group_handle` is stopped"* would classify as `WRITES`
+   (`recorded` is a write verb regardless of grammatical role) and redden the gate. Fail-closed,
+   so not a defect — but it is a maintenance cost worth knowing about before the next doc edit.
+4. Previously disclosed and still true: the gate scans **§3A transition rows only**. A handover
+   asserted purely as §3A.3 prose that no edge implements still passes. Out of scope for the
+   inbox's item 1, but it bounds what "K-01 closed" can ever mean.
+
+---
+
+## 6. Canonical-base movement — read-only reconciliation assessment
+
+**Nothing was rebased, merged, edited or adopted.** All of the following is analysis over
+committed objects only.
+
+**Ancestry `9e59860` → `3ba4ede`:** a clean fast-forward, six docs-only commits, `9e59860`
+still an ancestor — so every pinned merge-base check in the gate remains valid and the
+candidate remains valid against its pinned base.
+
+```
+a47e461 docs: capture live experience and continuous evaluation direction
+c4913ed docs: index continuous evaluation and live experience direction
+e378cf9 docs: update current truth for live experience direction
+397b32c docs: capture live interaction and evaluation ideas
+a7792c0 docs: add live experience and evaluation roadmap
+3ba4ede docs: record one-session simultaneous work direction
+```
+
+Canonical touched: `CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md` (new), `CURRENT_TRUTH.md`,
+**`DECISIONS.md`**, `IDEAS.md`, `README.md`, `ROADMAP.md`. *(Note: `DECISIONS.md` has now moved
+on canonical — it had not at `a7792c0`. The candidate still carries the pinned-base blob
+`a6dc313…`, which is correct: the candidate must not author decisions.)*
+
+**Exact overlap with the freeze candidate:** two files only —
+`CURRENT_TRUTH.md` and `ROADMAP.md`.
+
+**Mechanically conflict-free:** yes. `git merge-tree --write-tree a904a20 3ba4ede` exits 0 with
+zero conflicts, auto-merging both overlapping files, producing tree
+`09682d2c3cf8f7b7c0852a5de8b73aff85794d5e`.
+
+**The merged tree still passes the freeze gate:** I materialised that tree into scratch and ran
+the committed freeze-spec suite against it — **75 passed**. So the base movement costs the freeze
+nothing mechanically, including `test_no_self_adoption_of_the_freeze` and
+`test_current_truth_retains_the_live_unremediated_runtime_conditions`.
+
+**Semantic conflict with the freeze contract: none found.** DEC-050 retires the *user-facing*
+Split / Half 1 / Half 2 / Merge / Close abstraction and explicitly preserves internal
+branch/concurrency mechanisms. The freeze contract governs the orchestrator kernel (attempts,
+leases, dispatches, process groups, ceilings) and has no user-facing Split surface — the only
+occurrences of "split" in the freeze documents are "split-brain" (§3 of the acceptance matrix)
+and a historical F-01 note, both unrelated. DEC-050 states in terms that it *"does not alter
+DEC-046 sequencing, adopt an Orchestrator freeze candidate, authorise production deployment,
+enable connectors/secrets/business writes, expand privileges, or weaken action-safety
+invariants."* It also affirmatively endorses *"independent/adversarial evaluation, including
+mutation of the tests themselves where material"* — which is the method that produced L-01.
+
+**Smallest safe reconciliation path, if and when the freeze receives a clean engineering
+verdict** (owner decision; not proposed for action now):
+
+1. Land the L-01 repair on the freeze branch as one further commit (test module only).
+2. Obtain one more fresh independent read-only review bound to that new exact SHA.
+3. Only then: fast-forward the candidate's pinned base by rebasing the freeze branch onto the
+   then-current `claude/product-memory-foundation`. The two overlapping files auto-merge; expect
+   no conflicts, but re-verify `merge-tree` at the actual SHAs of the day rather than trusting
+   this measurement.
+4. Re-run the freeze-spec suite on the rebased tree and require it green (it is green on today's
+   merge result).
+5. Adoption remains a separate owner act: an explicit `DECISIONS.md` entry naming the exact
+   freeze SHA and stating the DEC-046 sequencing amendment. The candidate's own ROADMAP text
+   already says *"That split is a proposal, not current authority"* — no self-adoption is
+   present and none should be added by reconciliation.
+
+Engineering readiness and owner adoption/reconciliation are kept separate throughout, as
+instructed. Base movement is **not** counted as an engineering defect in `a904a20`.
+
+---
+
+## 7. Test results, static checks, state
+
+Run in the pre-existing clean worktree `/opt/crooks-builder/.worktrees/freeze-repair` at the
+exact candidate, and in a `/tmp` scratch for every mutation (scratch deleted afterwards):
+
+| check | result |
+| --- | --- |
+| `pytest tests/test_orchestrator_freeze_spec.py -q -p no:cacheprovider -p no:randomly` | **75 passed** in 0.94s |
+| same suite against the hypothetical `a904a20` × `3ba4ede` merge tree | **75 passed** |
+| `ruff check app config scripts tests` | **All checks passed!** |
+| `gitleaks git --redact --log-opts="c7c3d52..a904a20"` | 1 commit scanned, **no leaks found** |
+| full offline suite | **not run** — deliberately: it writes DBs/workspaces into the tree and this is a read-only round |
+
+**Files changed by me: none.** No commit, no push, no branch created, switched or reset.
+
+| location | branch | HEAD | `git status --porcelain` |
+| --- | --- | --- | --- |
+| `/opt/crooks-builder` (builder base) | `claude/builder-environment-repair` | `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b` | 0 lines (clean) |
+| `/opt/crooks-builder/.worktrees/freeze-repair` | `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` | `a904a209d57add65f3878b4f7ee3eec19b6c35a9` | 0 lines (clean) |
+| `/opt/crooks-os/crooks-assistant` (**production — read only**) | `claude/linux-prod-migration-production` | `1cf3a0f3361b79f9de208d80f501543c53c244b5` | 0 lines (clean) |
+| `/opt/crooks-ai-bridge` | `crooks-ai-bridge` | — | only `bridge/claude-outbox.md` (this file) |
+
+Production was inspected with `git -C` only; it was never edited, switched or reset.
+
+**Service and server state (observed, unchanged by this round):**
+
+- `crooks-assistant` service: **active**
+- `crooks-ai-bridge-watcher` service: inactive at the moment of sampling (this run was launched by it)
+- FastAPI listener: `LISTEN 127.0.0.1:8000` only — **not** bound to `0.0.0.0`, port 8000 not publicly exposed
+- `CROOKS_WRITES_ENABLED=false`, `CROOKS_WRITES_LOCAL_OWNER=false` — both unchanged
+
+**Safety constraints preserved:** writes stay disabled; FastAPI stays on loopback; proposal /
+action / verification semantics untouched; no live Shopify, Gmail or ElevenLabs call and no live
+external mutation was made; V2 not begun; no UI change; Mac deployment and rollback path
+untouched; `/root/.claude` still writable; **no secret value is printed or committed** anywhere
+in this handoff (only the two flag names and their non-secret boolean values).
+
+---
+
+## 8. Errors and blocks
+
+No errors. Nothing was blocked by my permission layer; no permission was widened and no
+workaround was attempted. No approval-requiring action was reached — this round installed
+nothing, started nothing, provisioned nothing and performed no live verification.
+
+---
+
+## 9. Reviewer / provider independence limitations — disclosed
+
+- **Same provider and same model family.** This review was produced by Claude (Opus 5), the same
+  provider and model family that authored `a904a20`. It is a *fresh session* with no access to
+  the implementing session's transcript, and every factual claim here was recomputed from
+  committed objects — but it is **not** provider-independent, and correlated blind spots between
+  implementer and reviewer cannot be excluded.
+- **Partially informed, not blind.** Persistent project memory in this environment carries the
+  verdict chain and the K-01 statement. I used it to know *what to attack* and explicitly did not
+  carry any prior verdict forward; the classifier behaviour, the before/after table, the J-01
+  regression battery and the reconciliation analysis were all re-derived by execution in this
+  round. A genuinely blind reviewer might attack differently.
+- **Adversarial coverage is finite.** I ran 10 invented mutations plus a 9-case before/after
+  matrix plus a 9-case prior-invariant battery. Absence of further evasions is *not* proved;
+  L-01's existence shows the previous round's "closed" claim was itself over-broad, and the same
+  caution applies to everything I have marked ✅.
+- **Static review only.** No kernel implementation exists to execute; conformance of any future
+  implementation to this contract is untested by construction.
+- The candidate was neither adopted, rebased, merged nor deployed by this round, and this verdict
+  confers no authority to do any of those.
+
+---
+
+## 10. Exact proposed next step
+
+**One bounded repair round on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`, closing
+L-01 in the test module only:**
+
+1. Extend the fail-closed rule from the matched clause to the whole cell: in any §3A
+   transition-row cell that mentions `` `lease.owned_process_group_handle` ``, any clause
+   carrying an un-negated `WRITE_VERBS` verb and naming **no** backticked `record.field` target
+   is `UNCLASSIFIED` → gate failure. Carve out the single pristine exception whose subject is
+   `the lease`, and assert that carve-out is a closed set.
+2. Add the group-count cross-check as reinforcement: derive process-group *creations* from §3A
+   transition rows and assert the count equals §3A.3's declared `1` for
+   `` `attempt` (TASK or INTEGRATION) ``, treating `no second group is created` as negated.
+3. Add M1/M2/M3/M5 verbatim as parametrised mutation tests alongside the existing
+   `SECOND_WRITE_PHRASINGS`, each asserting the gate now fails, with the pristine control kept.
+4. Correct the docstring at lines 1663–1666 to state the residual limit precisely.
+5. Do **not** touch any freeze document — §3A.3 already states the invariant correctly.
+6. One commit, test module only. Then one further fresh independent read-only adversarial review
+   bound to the new exact SHA, before any owner decision.
+
+Optionally in the same round, or explicitly deferred as non-blocking: the two prose-inversion
+gaps in §5 (H-04 ownership sentence, FC §19's §3A.2 summary).
+
+**Nothing is proposed for adoption, rebase, merge, deployment or any live action.** The owner,
+reconciliation and runtime gates all remain closed and untouched, and this verdict binds only
+to `a904a209d57add65f3878b4f7ee3eec19b6c35a9`.
+
+**Awaiting:** the owner's or GPT Director's instruction on whether to proceed with the L-01
+repair round as specified above.
