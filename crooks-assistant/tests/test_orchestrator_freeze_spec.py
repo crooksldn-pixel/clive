@@ -1461,11 +1461,95 @@ NEGATED_SPAN_FILLERS = frozenset({
 READ_MARKERS = (
     "identified from", "read from", "read by", "MUST NOT be read", "named by", "proven by",
     "resolves to", "against", "being NULL", "is NULL", "stays NULL", "MUST NOT be used as",
+    # Absence/evidence predicates. §3A.3 makes a NULL handle *positive proof* that no group
+    # exists, so §3A states that fact on the cancellation edges. These are copular predicates:
+    # they assert what a handle value means and can commit nothing. They are consulted only when
+    # the clause carries no operative write verb, so they cannot mask a write.
+    "is proof of", "is positive proof", "means no",
 )
 
 # A deferral conjunction before the mention, with the write verb after it, marks a clause that
 # talks about a *later* commit rather than about this edge.
 DEFERRAL_RE = re.compile(r"(?<![\w-])(?:until|once|after)(?![\w-])", re.IGNORECASE)
+
+
+# --------------------------------------------------------------------------------------------
+# L-01 — co-reference. The K-01 classifier above only ever *looked at* clauses that repeated the
+# backticked field name, so an operative second write whose subject was a pronoun or an ordinary
+# English alias was not misclassified — it was never examined, and therefore could not even be
+# reported as unclassifiable. Four such writes appended to the real `STARTING -> RUNNING` cell
+# left the whole suite green.
+#
+# The repair makes the unit of inspection the *cell*, not the matching clause. Once a cell has
+# established cleanup-handle context, every following clause is inspected, and every un-negated
+# write verb in it must be attributed to a referent: the handle (literal, alias or anaphor), an
+# explicitly different backticked `record.field`, or a closed, individually asserted carve-out
+# for a legitimate non-handle subject. A write verb that resolves to none of those is
+# UNCLASSIFIED and fails the gate, so ambiguity stops the freeze instead of passing it.
+# --------------------------------------------------------------------------------------------
+
+WRITES_OTHER_FIELD = "WRITES_OTHER_FIELD"
+NEUTRAL = "NEUTRAL"
+
+# Referent kinds a write verb can be attributed to.
+_HANDLE = "handle"
+_OTHER_FIELD = "other-field"
+
+# Backticked `record.field` / `field` tokens. Field names in these documents are lower-case with
+# underscores; state and disposition literals (`STARTING`, `QUARANTINED`) are upper-case, so the
+# leading lower-case requirement separates a field reference from a state reference without a
+# hand-maintained list of either.
+FIELD_MENTION_RE = re.compile(r"`[a-z][a-z_]*(?:\.[a-z_]+)*`")
+
+# English noun phrases that *name* the cleanup handle without backticks. These are self-
+# establishing: they identify the field on their own, wherever they appear in the cell.
+HANDLE_ALIAS_RE = re.compile(
+    r"(?<![\w-])(?:"
+    r"cleanup[\s-]handle"
+    r"|owned[\s-]process[\s-]group[\s-]handle"
+    r"|process[\s-]group[\s-]handle"
+    r"|process[\s-]group[\s-]cleanup[\s-]identity"
+    r")(?![\w-])",
+    re.IGNORECASE,
+)
+
+# Co-referential continuations. These denote the handle only *after* the cell has established it,
+# which is why `classified_handle_mentions` tracks establishment clause by clause. `it` is the
+# bare pronoun the review used; the determiner+noun forms cover "this field", "that value",
+# "the same handle", "a NULL or absent handle" and the like without enumerating phrasings.
+HANDLE_ANAPHOR_RE = re.compile(
+    r"(?<![\w-])(?:"
+    r"it"
+    r"|(?:the|this|that|a|an|its|each|any|such|no)\s+(?:[\w'*-]+\s+){0,3}?"
+    r"(?:handle|field|value|identifier|column)"
+    r")(?![\w-])",
+    re.IGNORECASE,
+)
+
+# Closed, explicit carve-outs: write verbs whose grammatical subject is a legitimately *different*
+# thing that carries no backticked name of its own. Each entry is asserted against the committed
+# matrix by `test_every_non_handle_write_carve_out_is_live_and_narrow`, so a carve-out cannot be
+# added speculatively and cannot quietly outlive the prose it was written for.
+NON_HANDLE_WRITE_SUBJECTS = (
+    # §3A `CREATED -> CLOSED / CANCELLED or FENCED`: "the lease is released/retired". The *lease*
+    # is retired here, not the handle — the clause immediately before proves the handle NULL.
+    re.compile(r"(?<![\w-])the lease is (?:released/)?retired(?![\w-])", re.IGNORECASE),
+)
+
+# Requirement 6 — defence in depth. §3A.3 declares how many process groups an attempt owns over
+# its lifetime; that number is derivable from §3A independently of any wording about the handle,
+# by counting the edges that assert a group is created. An unsafe second controller-created group
+# therefore fails on a second, disjoint dimension even if the handle prose is rephrased.
+GROUP_NOUN_RE = re.compile(r"(?<![\w-])(?:process[\s-]group|cgroup|group)(?![\w-])", re.IGNORECASE)
+GROUP_CREATION_RE = re.compile(
+    r"(?<![\w-])(?:created|allocated|spawned|forked|established)(?![\w-])", re.IGNORECASE
+)
+# Negators that can make a creation assertion a *denial* of creation ("no second group is
+# created", "no group was ever created"). Scoped to the creation's own comma-delimited segment.
+CREATION_NEGATION_RE = re.compile(
+    r"(?<![\w-])(?:no|not|never|nor|without|MUST NOT|cannot|can never)(?![\w-])", re.IGNORECASE
+)
+_SEGMENT_BOUNDARY_RE = re.compile(r"[,:;]")
 
 
 def _alternation(words: frozenset[str]) -> str:
@@ -1546,26 +1630,94 @@ def _negated_spans(clause: str) -> list[tuple[int, int]]:
     return spans
 
 
-def classify_handle_mention(clause: str) -> str:
-    """Classify one clause mentioning the cleanup handle into exactly one semantic class.
+def _carved_out_write_spans(clause: str) -> list[tuple[int, int]]:
+    """Spans of `NON_HANDLE_WRITE_SUBJECTS` matches, i.e. asserted non-handle subjects."""
+    return [
+        (found.start(), found.end())
+        for pattern in NON_HANDLE_WRITE_SUBJECTS
+        for found in pattern.finditer(clause)
+    ]
 
-    The order is fail-closed: an operative write anywhere in the clause wins over a prohibition
-    in the same clause, because the dangerous edit is precisely a write *added beside* a
-    surviving prohibition sentence.
+
+def _referents(clause: str, established: bool) -> list[tuple[int, int, str]]:
+    """Ordered `(start, end, kind)` markers a write verb in this clause can be attributed to.
+
+    Literal backticked handle mentions and English aliases denote the handle on their own.
+    Anaphors only count once the cell has established what they refer back to — that is the whole
+    of L-01: `it` means nothing until something has been named, and means the handle once it has.
+    Any other backticked field is a competing referent, which is how a legitimate write to a
+    different field is told apart from a write to the handle.
     """
-    handle = HANDLE_MENTION_RE.search(clause)
+    marks: list[tuple[int, int, str]] = []
+
+    def add(start: int, stop: int, kind: str) -> None:
+        if not any(held_start <= start < held_stop for held_start, held_stop, _ in marks):
+            marks.append((start, stop, kind))
+
+    for found in HANDLE_MENTION_RE.finditer(clause):
+        add(found.start(), found.end(), _HANDLE)
+    for found in FIELD_MENTION_RE.finditer(clause):
+        if HANDLE_MENTION_RE.fullmatch(found.group(0)):
+            continue
+        add(found.start(), found.end(), _OTHER_FIELD)
+    for found in HANDLE_ALIAS_RE.finditer(clause):
+        add(found.start(), found.end(), _HANDLE)
+    if established:
+        for found in HANDLE_ANAPHOR_RE.finditer(clause):
+            add(found.start(), found.end(), _HANDLE)
+
+    marks.sort()
+    return marks
+
+
+def _resolve_write_target(
+    verb_start: int, marks: list[tuple[int, int, str]]
+) -> tuple[str, tuple[int, int, str]] | tuple[None, None]:
+    """Attribute a write verb to its nearest referent — to the left first, then to the right.
+
+    Nearest-to-the-left covers the ordinary subject-verb order of every phrasing in these
+    documents ("the cleanup handle is rewritten", "it is set to"). The right-hand fallback covers
+    the active voice, where the verb precedes its object ("the controller rewrites the handle").
+    A verb with no referent on either side is unattributable, and unattributable is fatal.
+    """
+    before = [mark for mark in marks if mark[1] <= verb_start]
+    if before:
+        return before[-1][2], before[-1]
+    after = [mark for mark in marks if mark[0] >= verb_start]
+    if after:
+        return after[0][2], after[0]
+    return None, None
+
+
+def classify_handle_clause(clause: str, established: bool) -> str:
+    """Classify one clause of a handle-bearing cell into exactly one semantic class.
+
+    Fail-closed ordering: an operative handle write anywhere in the clause outranks a prohibition
+    in the same clause (the dangerous edit is a write added *beside* a surviving prohibition), and
+    an unattributable write verb outranks every benign class.
+    """
+    marks = _referents(clause, established)
     negated = _negated_spans(clause)
+    carved = _carved_out_write_spans(clause)
     deferrals = [found.start() for found in DEFERRAL_RE.finditer(clause)]
 
-    operative = prohibited = deferred_retirement = False
+    operative = prohibited = deferred_retirement = other_field = unattributable = False
     for verb in WRITE_VERB_RE.finditer(clause):
         if any(start <= verb.start() < stop for start, stop in negated):
             prohibited = True
+            continue
+        if any(start <= verb.start() < stop for start, stop in carved):
+            continue
+        target, mark = _resolve_write_target(verb.start(), marks)
+        if target is None:
+            unattributable = True
+        elif target == _OTHER_FIELD:
+            other_field = True
         elif (
-            handle is not None
-            and verb.group(1) in RETIREMENT_VERBS
-            and verb.start() > handle.end()
-            and any(deferral < handle.start() for deferral in deferrals)
+            verb.group(1) in RETIREMENT_VERBS
+            and mark is not None
+            and verb.start() > mark[1]
+            and any(deferral < mark[0] for deferral in deferrals)
         ):
             deferred_retirement = True
         else:
@@ -1573,26 +1725,44 @@ def classify_handle_mention(clause: str) -> str:
 
     if operative:
         return WRITES
+    if unattributable:
+        return UNCLASSIFIED
     if prohibited:
         return PROHIBITS_WRITE
+    if other_field:
+        return WRITES_OTHER_FIELD
     if deferred_retirement or any(marker in clause for marker in READ_MARKERS):
         return READS_ONLY
-    return UNCLASSIFIED
+    if any(kind == _HANDLE for _start, _stop, kind in marks):
+        # The clause speaks about the handle in wording that carries no marker from any set.
+        # That is not evidence the edge is harmless; it is evidence the gate cannot say.
+        return UNCLASSIFIED
+    return NEUTRAL
 
 
 def classified_handle_mentions(api_text: str) -> list[tuple[list[str], str, str]]:
-    """Every §3A transition-row mention of the cleanup handle, as `(row, class, clause)`.
+    """Every classified clause of every §3A transition cell that establishes handle context.
 
-    A cell is split into clauses first, so one cell may carry several independently classified
-    mentions — the `STARTING -> RUNNING` cell holds a prohibition today, and an injected second
-    write must be seen beside it rather than swallowed by it.
+    Scope is the point of L-01. A row's cells are read in order and split into clauses; from the
+    first clause that *names* the handle (backticked field or English alias) onward, every clause
+    is classified, whether or not it repeats the name. Establishment carries across cells because
+    a transition row is one piece of prose — the `STARTING -> CLOSED / QUARANTINED` row names the
+    handle in its trigger and then co-refers to it as "that handle" in its preconditions. Clauses
+    before the naming point have nothing to co-refer to and are left alone, which is what keeps
+    the ordinary preconditions prose out of the gate.
     """
     mentions: list[tuple[list[str], str, str]] = []
     for row in attempt_transition_rows(api_text):
+        established = False
         for cell in row:
             for clause in _CLAUSE_BOUNDARY_RE.split(cell):
-                if HANDLE_MENTION_RE.search(clause):
-                    mentions.append((row, classify_handle_mention(clause), clause.strip()))
+                names_it = bool(HANDLE_MENTION_RE.search(clause) or HANDLE_ALIAS_RE.search(clause))
+                if not (established or names_it):
+                    continue
+                established = True
+                verdict = classify_handle_clause(clause, established=True)
+                if verdict != NEUTRAL:
+                    mentions.append((row, verdict, clause.strip()))
     return mentions
 
 
@@ -1645,6 +1815,63 @@ def assert_declared_write_point_matches_the_matrix(api_text: str) -> None:
     )
 
 
+def _asserts_a_group_creation(clause: str) -> bool:
+    """Does this clause assert that a process group *is created*, un-negated?
+
+    Derived structurally: a creation verb whose nearest preceding noun, inside its own
+    comma/colon/semicolon-delimited segment, is a process group. Negation is looked for in that
+    same segment, so "no second group is created" and "no group was ever created" are denials
+    rather than creations.
+    """
+    for verb in GROUP_CREATION_RE.finditer(clause):
+        nouns = [found for found in GROUP_NOUN_RE.finditer(clause) if found.end() <= verb.start()]
+        if not nouns:
+            continue
+        noun = nouns[-1]
+        boundaries = [found.end() for found in _SEGMENT_BOUNDARY_RE.finditer(clause, 0, noun.start())]
+        segment = clause[(boundaries[-1] if boundaries else 0) : verb.end()]
+        if CREATION_NEGATION_RE.search(segment):
+            continue
+        return True
+    return False
+
+
+def attempt_rows_creating_an_owned_process_group(api_text: str) -> list[list[str]]:
+    """§3A transition rows that assert a controller-created process group comes into existence."""
+    rows: list[list[str]] = []
+    for row in attempt_transition_rows(api_text):
+        for cell in row:
+            for clause in _CLAUSE_BOUNDARY_RE.split(cell):
+                if _asserts_a_group_creation(clause) and row not in rows:
+                    rows.append(row)
+    return rows
+
+
+def assert_declared_group_count_matches_the_matrix(api_text: str) -> None:
+    """Requirement 6: the declared *group* count, derived from §3A without reading handle prose.
+
+    This is deliberately disjoint from `assert_declared_write_point_matches_the_matrix`. That one
+    reasons about who writes the handle; this one reasons only about how many groups §3A brings
+    into existence. An unsafe second controller-created attempt process group therefore has to
+    defeat two independent derivations, and rewording the handle sentence defeats neither.
+    """
+    attempt_kind = "`attempt` (TASK or INTEGRATION)"
+    cardinality = declared_group_cardinality_in(api_text)
+    assert attempt_kind in cardinality, sorted(cardinality)
+    groups, write_points = cardinality[attempt_kind]
+
+    creating = attempt_rows_creating_an_owned_process_group(api_text)
+    assert len(creating) == int(groups), (
+        f"{len(creating)} §3A edges create an owned process group; §3A.3 declares {groups}: "
+        + "; ".join(f"{row[0]} -> {row[2]}" for row in creating)
+    )
+    assert f"`{creating[0][0]} -> {creating[0][2]}`" == write_points, (
+        f"§3A creates the attempt's group on {creating[0][0]} -> {creating[0][2]}, but §3A.3 "
+        f"declares the handle write point as {write_points}; the group must be created on the "
+        f"edge that commits the handle naming it"
+    )
+
+
 def test_one_owned_group_per_attempt_is_a_declared_count_not_a_missing_phrase() -> None:
     """The H-03 guard, restated positively.
 
@@ -1682,6 +1909,9 @@ def test_one_owned_group_per_attempt_is_a_declared_count_not_a_missing_phrase() 
     # The declaration must match the matrix: exactly one §3A edge writes the handle, and it is
     # the edge the table names. A handover adds a second such row and fails here.
     assert_declared_write_point_matches_the_matrix(read(STATE_API))
+    # L-01 requirement 6: and the same table's *group* column is derived a second time, from
+    # §3A's creation prose alone, so the invariant does not rest on handle wording only.
+    assert_declared_group_count_matches_the_matrix(read(STATE_API))
 
     # The count is normative in its own right, not a summary of the prohibition.
     three_a_three = numbered_section_text(STATE_API, "3A").split("### 3A.3", 1)[1]
@@ -1707,9 +1937,13 @@ def test_every_handle_mention_in_the_attempt_matrix_is_classified() -> None:
     for row, verdict, _clause in mentions:
         by_edge.setdefault(f"{row[0]} -> {row[2]}", set()).add(verdict)
 
-    # The one write point, and the prohibition that guards the edge which must not write.
-    assert by_edge["CREATED -> STARTING"] == {WRITES}, by_edge
-    assert by_edge["STARTING -> RUNNING"] == {PROHIBITS_WRITE}, by_edge
+    # The one write point, beside the read of the ceiling discriminator in the same cell.
+    assert by_edge["CREATED -> STARTING"] == {WRITES, READS_ONLY}, by_edge
+    # The prohibition that guards the edge which must not write — and, now that L-01 widened the
+    # scope from "clauses repeating the field name" to "every clause of the row once the handle
+    # has been named", the legitimate write to the *other* field in the same cell, which the
+    # previous classifier never looked at. Distinguishing those two is requirement 3.
+    assert by_edge["STARTING -> RUNNING"] == {PROHIBITS_WRITE, WRITES_OTHER_FIELD}, by_edge
     # Every other mention is a read: cancellation edges identify, name or prove a group from the
     # handle, and the quarantine edges refer to a *later* §3D retirement of it.
     for edge, verdicts in by_edge.items():
@@ -1821,6 +2055,267 @@ def test_the_gate_fails_closed_on_handle_wording_it_cannot_classify() -> None:
 def test_the_pristine_candidate_is_the_control_for_those_mutations() -> None:
     """The mutation cases above are only evidence if the unmutated document passes the same gate."""
     assert_declared_write_point_matches_the_matrix(read(STATE_API))
+    assert_declared_group_count_matches_the_matrix(read(STATE_API))
+
+
+# --------------------------------------------------------------------------------------------
+# L-01 — co-referential second writes, and the two independent dimensions that must catch them.
+#
+# Every case below is appended to the *real* `STARTING -> RUNNING` cell and leaves §3A.3's
+# prohibition sentence and its declared count of `1` exactly as committed, because that is the
+# shape the review proved invisible and the shape a careless freeze edit would take. Each case is
+# labelled with the grammatical device it exercises, so a reader can see the class is covered
+# rather than a list of sentences.
+# --------------------------------------------------------------------------------------------
+
+
+def state_api_with_appended_running_edge_prose(tail: str) -> str:
+    """The committed state API with `tail` appended to the genuine `STARTING -> RUNNING` cell."""
+    api = read(STATE_API)
+    edge_lines = [
+        line for line in api.splitlines()
+        if line.startswith("| STARTING |") and RUNNING_EDGE_MARKER in line
+    ]
+    assert len(edge_lines) == 1, edge_lines
+    original = edge_lines[0]
+    mutated = api.replace(original, original[: original.rindex("|")].rstrip() + tail + " |")
+    assert mutated != api
+
+    assert "MUST NOT update, replace or clear `lease.owned_process_group_handle`" in mutated
+    assert "| `attempt` (TASK or INTEGRATION) | 1 | `CREATED -> STARTING` |" in mutated
+    return mutated
+
+
+# The four escapes the L-01 review demonstrated against `a904a20`, verbatim from the inbox.
+REVIEW_CO_REFERENCE_ESCAPES = (
+    (
+        "pronoun 'it', semicolon boundary",
+        "; a fresh controller-allocated process group is created for the model process"
+        " and it is set to that group's identity",
+    ),
+    (
+        "alias 'the cleanup handle', sentence boundary",
+        ". A fresh controller-allocated process group is created for the model process"
+        " and the cleanup handle is rewritten to name it",
+    ),
+    (
+        "anaphor 'This field', own sentence",
+        ". A fresh controller-allocated process group is created for the model process."
+        " This field is then updated to name that group",
+    ),
+    (
+        "noun-phrase alias 'The attempt's owned process group handle'",
+        ". The attempt's owned process group handle is replaced with the identity of a fresh"
+        " controller-allocated model process group",
+    ),
+)
+
+# Escapes invented here rather than taken from the review, covering the rest of the class: bare
+# pronoun, alias, demonstrative+noun, active voice, an em-dash aside, and a passive with an
+# adverb between auxiliary and participle.
+INVENTED_CO_REFERENCE_ESCAPES = (
+    (
+        "bare pronoun after a semicolon",
+        "; it is then written to name a freshly created model process group",
+    ),
+    (
+        "active voice — verb precedes its object",
+        ". The controller rewrites the attempt's cleanup handle to the identity of the model"
+        " process group",
+    ),
+    (
+        "noun-phrase alias with a trailing qualifier",
+        ". The owned process group handle for this attempt is assigned the identity of the"
+        " model process group",
+    ),
+    (
+        "demonstrative + generic noun ('this value')",
+        "; this value is superseded by the model process group's identity",
+    ),
+    (
+        "em-dash aside, and two coordinated verbs",
+        ". The handle — write-once until now — is cleared and then set to the new group",
+    ),
+    (
+        "passive with an adverb inside the verb phrase",
+        ". That field is durably populated with the model group's controller-allocated identity",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "device,tail",
+    REVIEW_CO_REFERENCE_ESCAPES + INVENTED_CO_REFERENCE_ESCAPES,
+    ids=lambda value: value.replace(" ", "-")[:40],
+)
+def test_a_co_referential_second_handle_write_is_derived_as_a_write(device: str, tail: str) -> None:
+    """L-01's core proof: a second write that never repeats the field name is still counted.
+
+    Before this repair `classified_handle_mentions` only *looked at* clauses matching the
+    backticked identifier, so none of these were classified at all — not even as unclassifiable —
+    and the derived write count stayed at 1. Each case must now derive two write points on two
+    distinct edges and fail the declared-cardinality gate.
+    """
+    mutated = state_api_with_appended_running_edge_prose(tail)
+
+    writing = attempt_rows_writing_the_cleanup_handle(mutated)
+    assert [f"{row[0]} -> {row[2]}" for row in writing] == [
+        "CREATED -> STARTING",
+        "STARTING -> RUNNING",
+    ], f"{device}: co-referential write not derived"
+
+    with pytest.raises(AssertionError, match="§3A edges write the cleanup handle"):
+        assert_declared_write_point_matches_the_matrix(mutated)
+
+
+# Prose that refers to the handle in wording carrying no marker from any of the three closed sets.
+# The right outcome is a red gate: the classifier can no longer speak about the edge, and silence
+# is not a safety argument. Requirement 4's "unknown/ambiguous critical prose fails closed".
+AMBIGUOUS_HANDLE_PROSE = (
+    ("pronoun with an unknown predicate", ". It thereafter designates the model process group"),
+    ("alias with an unknown predicate", ". The cleanup handle henceforth tracks the model group"),
+    (
+        "literal field with an unknown predicate",
+        f". The model group thereafter enjoys `{CLEANUP_HANDLE}`",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "device,tail", AMBIGUOUS_HANDLE_PROSE, ids=lambda value: value.replace(" ", "-")[:40]
+)
+def test_ambiguous_handle_prose_fails_closed_whether_or_not_it_names_the_field(
+    device: str, tail: str
+) -> None:
+    """Ambiguity is fatal for a co-reference too, not only for a literal mention.
+
+    This is the property that stops the L-01 repair from becoming a broad heuristic that produces
+    false confidence: the classifier does not guess that an unrecognised predicate is harmless.
+    """
+    mutated = state_api_with_appended_running_edge_prose(tail)
+    with pytest.raises(AssertionError, match="cannot classify"):
+        attempt_rows_writing_the_cleanup_handle(mutated)
+
+
+# Legitimate additions that must NOT turn the gate red, or the gate would merely be rejecting
+# every write verb near the handle and would prove nothing.
+LEGITIMATE_HANDLE_CONTEXT_PROSE = (
+    (
+        "write to an explicitly different backticked field",
+        ". `attempt.running_process_group_identity` is recorded for the model process in this"
+        " same commit",
+    ),
+    ("lease retirement, not handle retirement", ". The lease is retired once cleanup is proven"),
+    (
+        "an unambiguous read of the handle",
+        f". The group named by `{CLEANUP_HANDLE}` is left exactly as it is",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "device,tail", LEGITIMATE_HANDLE_CONTEXT_PROSE, ids=lambda value: value.replace(" ", "-")[:40]
+)
+def test_legitimate_prose_in_handle_context_keeps_the_gate_green(device: str, tail: str) -> None:
+    """The negative controls. Requirement 3 and requirement 4's carve-outs, proved non-vacuous."""
+    mutated = state_api_with_appended_running_edge_prose(tail)
+    assert_declared_write_point_matches_the_matrix(mutated)
+    assert_declared_group_count_matches_the_matrix(mutated)
+
+
+def test_every_non_handle_write_carve_out_is_live_and_narrow() -> None:
+    """Requirement 4: the carve-out set is closed, and every member of it is asserted.
+
+    A carve-out is a hole in a fail-closed gate, so it may not be added speculatively and may not
+    outlive the prose it was written for. Each pattern must match somewhere in the committed §3A
+    matrix, and must not match the handle itself.
+    """
+    matrix = "\n".join(" | ".join(row) for row in attempt_transition_rows(read(STATE_API)))
+    for pattern in NON_HANDLE_WRITE_SUBJECTS:
+        found = pattern.search(matrix)
+        assert found, f"carve-out {pattern.pattern!r} matches nothing in §3A and must be removed"
+        assert not HANDLE_MENTION_RE.search(found.group(0)), found.group(0)
+        assert not HANDLE_ALIAS_RE.search(found.group(0)), found.group(0)
+
+    # And the carve-out must be doing real work: without it the pristine document fails closed,
+    # which is what proves it is a deliberate, narrow exception rather than dead code.
+    lease_clause = "the lease is released/retired and the old fencing token can never admit a result"
+    assert classify_handle_clause(lease_clause, established=True) == NEUTRAL
+    assert _carved_out_write_spans(lease_clause)
+
+
+# --------------------------------------------------------------------------------------------
+# L-01 requirement 6 — defence in depth. The declared group count, derived from §3A's own prose
+# about group creation, with no reference to the cleanup handle at all.
+# --------------------------------------------------------------------------------------------
+
+
+def test_the_declared_group_count_is_derived_from_the_matrix_independently() -> None:
+    """Exactly one §3A edge brings an owned process group into existence, and §3A.3 says 1."""
+    api = read(STATE_API)
+    creating = attempt_rows_creating_an_owned_process_group(api)
+    assert [f"{row[0]} -> {row[2]}" for row in creating] == ["CREATED -> STARTING"], creating
+    assert_declared_group_count_matches_the_matrix(api)
+
+
+def test_group_creation_denials_in_the_matrix_are_not_read_as_creations() -> None:
+    """The derivation is only sound if `no second group is created` counts as zero groups.
+
+    These three denials are load-bearing prose in the committed matrix; misreading any one of
+    them as a creation would make the count 2 or more and turn the invariant into noise.
+    """
+    for denial in (
+        "so this edge MUST NOT update, replace or clear the handle and no second group is created",
+        "no owned process group has been created, proven by the handle being NULL",
+        "A NULL handle means no group was ever created and cleanup is therefore proven",
+    ):
+        assert not _asserts_a_group_creation(denial), denial
+
+    assert _asserts_a_group_creation(
+        "the attempt's single owned process group is created (§3A.3)"
+    )
+
+
+@pytest.mark.parametrize(
+    "device,tail",
+    [case for case in REVIEW_CO_REFERENCE_ESCAPES if "process group is created" in case[1]],
+    ids=lambda value: value.replace(" ", "-")[:40],
+)
+def test_a_second_created_group_fails_on_the_cardinality_dimension_alone(
+    device: str, tail: str
+) -> None:
+    """The reinforcement, proved to be genuinely independent of the handle wording.
+
+    Three of the review's four escapes announce a second controller-created process group. Those
+    fail here on group cardinality alone — no clause about the handle is consulted — so however
+    the handle sentence is reworded, the unsafe second group still cannot pass.
+    """
+    mutated = state_api_with_appended_running_edge_prose(tail)
+
+    creating = attempt_rows_creating_an_owned_process_group(mutated)
+    assert [f"{row[0]} -> {row[2]}" for row in creating] == [
+        "CREATED -> STARTING",
+        "STARTING -> RUNNING",
+    ], device
+
+    with pytest.raises(AssertionError, match="§3A edges create an owned process group"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+def test_the_group_cardinality_dimension_has_a_stated_blind_spot() -> None:
+    """Honest scope: the fourth review escape creates no group *in prose*, so this gate is silent.
+
+    It names an already-existing "fresh controller-allocated model process group" without
+    asserting that §3A creates one. The handle-write dimension is what catches it. Recording the
+    limit here keeps the two dimensions from being mistaken for one redundant gate — and pins the
+    division of labour, so a future edit cannot quietly leave the escape covered by neither.
+    """
+    _device, tail = REVIEW_CO_REFERENCE_ESCAPES[3]
+    mutated = state_api_with_appended_running_edge_prose(tail)
+
+    assert_declared_group_count_matches_the_matrix(mutated)  # silent, by construction
+    with pytest.raises(AssertionError, match="§3A edges write the cleanup handle"):
+        assert_declared_write_point_matches_the_matrix(mutated)
 
 
 # --------------------------------------------------------------------------------------------
