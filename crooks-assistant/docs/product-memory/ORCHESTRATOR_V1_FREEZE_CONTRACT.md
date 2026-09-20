@@ -7,7 +7,7 @@
 
 The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT** and **MAY** are normative.
 
-This contract governs Engineering Orchestrator V1. Older prose remains evidence and rationale, but where it conflicts with this file after freeze, this file is authoritative for V1 implementation. Product safety decisions in `DECISIONS.md` remain superior.
+This contract governs Engineering Orchestrator V1 together with the normative companions `ORCHESTRATOR_V1_STATE_API.md`, `ORCHESTRATOR_V1_TRACEABILITY.md` and `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md`. Older prose remains evidence and rationale, but where it conflicts with this freeze set after acceptance, the freeze set is authoritative for V1 implementation. Product safety decisions in `DECISIONS.md` remain superior.
 
 ## 1. V1 objective
 
@@ -652,10 +652,11 @@ Production deployment remains outside V1 implementation authority.
 This specification may be marked **FROZEN V1** only when:
 
 1. traceability matrix has no unexplained V1-relevant research item;
-2. acceptance/fault-injection matrix covers every MUST-level invariant;
-3. canonical current-truth/roadmap drift is reconciled;
-4. the existing bridge branch/checkout identity defect has a reviewed remediation path and write-capable V1 does not depend on the defective assumption;
-5. independent adversarial review finds no material missing control-plane/safety/recovery contract;
-6. the exact freeze commit SHA is recorded in canonical product memory.
+2. state/API contract has no undefined authoritative transition or mutation path;
+3. acceptance/fault-injection matrix covers every MUST-level invariant;
+4. canonical current-truth/roadmap drift is reconciled;
+5. the existing bridge branch/checkout identity defect has a reviewed remediation path and write-capable V1 does not depend on the defective assumption;
+6. independent adversarial review finds no material missing control-plane/safety/recovery contract;
+7. the exact freeze commit SHA is recorded in canonical product memory.
 
 Implementation MUST bind to that exact frozen SHA.
