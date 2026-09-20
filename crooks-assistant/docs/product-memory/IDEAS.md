@@ -871,6 +871,80 @@ Core product implication:
 
 This is deliberately **later-stage direction**. Do not let it displace current reliability, product quality, harness hardening, runtime verification or Engineering Orchestrator sequencing. Preserve the idea without treating the current mechanism, UI shape or example workflow as fixed.
 
+## IDEA-054 — One-session simultaneous work replaces Split
+**Date:** 2026-09-20  
+**Status:** APPROVED / BUILDING IN ISOLATED STREAM  
+**Theme:** interaction model / concurrency
+
+Retire the user-facing Split/Half/Merge/Close model. Preserve useful concurrency machinery internally, but represent simultaneous work as independently progressing jobs inside one CLIVE session.
+
+The owner expresses objectives; CLIVE manages concurrency. A foreground interruption or new request must not require the owner to manually allocate the assistant's attention.
+
+Detailed direction: [CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md](./CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md).
+
+---
+
+## IDEA-055 — Every session is an evaluation session
+**Date:** 2026-09-20  
+**Status:** APPROVED DIRECTION  
+**Theme:** evaluation / self-improvement
+
+Every real interaction should emit privacy-minimised evidence sufficient to evaluate understanding, latency, progressive work, scene choice, corrections, interruption, completion and failure.
+
+Do not rely on naive same-model self-scoring. Use deterministic evidence plus independent evaluation and aggregate/reproduce patterns before changing the product.
+
+---
+
+## IDEA-056 — Adversarial product-test quality
+**Date:** 2026-09-20  
+**Status:** APPROVED DIRECTION  
+**Theme:** testing / verification
+
+Important product and safety gates should themselves be attacked.
+
+Use a combination of:
+- mutation testing of the test/gate;
+- hidden scenarios;
+- wording/state/order mutations;
+- black-box device interaction;
+- interruption and partial-failure sequences;
+- long-session tests;
+- frozen replay;
+- blind baseline/candidate experience comparison where useful.
+
+A green suite is evidence only to the extent that the suite has demonstrated it can catch plausible defects.
+
+---
+
+## IDEA-057 — Typed dynamic scene compiler
+**Date:** 2026-09-20  
+**Status:** APPROVED DIRECTION — incremental evolution, not arbitrary model UI code  
+**Theme:** adaptive UI
+
+Compose the smallest useful interface from typed safe primitives using objective, evidence, entities, device, urgency, job state and safe available actions.
+
+The model may select semantic primitives but does not emit arbitrary trusted executable UI. Generated actions remain typed, authorised, staged/idempotent/verified as applicable.
+
+---
+
+## IDEA-058 — Liquid-glass CLIVE interaction material
+**Date:** 2026-09-20  
+**Status:** APPROVED DIRECTION  
+**Theme:** visual design
+
+Continue the premium dark/liquid-glass direction as a coherent material system:
+- orb as living state object;
+- restrained translucent grouping/depth;
+- thin highlights/borders;
+- reduced idle dead space;
+- motion communicates state;
+- content takes priority once useful work exists;
+- reduced-motion/lite-device behaviour remains respected.
+
+Do not use visual polish to disguise fragmented interaction state.
+
+---
+
 # Capture policy
 
 New ideas should be appended with:
