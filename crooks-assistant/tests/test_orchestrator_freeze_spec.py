@@ -1541,8 +1541,24 @@ NON_HANDLE_WRITE_SUBJECTS = (
 # by counting the edges that assert a group is created. An unsafe second controller-created group
 # therefore fails on a second, disjoint dimension even if the handle prose is rephrased.
 GROUP_NOUN_RE = re.compile(r"(?<![\w-])(?:process[\s-]group|cgroup|group)(?![\w-])", re.IGNORECASE)
+# M-02 — the derivation was past-participle-only and noun-before-verb-only, so present-tense
+# "the controller creates a second process group", ordinary creation synonyms (`instantiated`,
+# `provisioned`, `opened`) and object-after-verb phrasing ("placed into a newly created group")
+# all slipped past it. The inflections are enumerated rather than stemmed so the set stays closed
+# and readable; the hyphen lookbehind still keeps compound adjectives such as
+# `controller-allocated` from being read as verbs.
 GROUP_CREATION_RE = re.compile(
-    r"(?<![\w-])(?:created|allocated|spawned|forked|established)(?![\w-])", re.IGNORECASE
+    r"(?<![\w-])(?:"
+    r"creat(?:e|es|ing|ed)"
+    r"|allocat(?:e|es|ing|ed)"
+    r"|instantiat(?:e|es|ing|ed)"
+    r"|establish(?:|es|ing|ed)"
+    r"|provision(?:|s|ing|ed)"
+    r"|spawn(?:|s|ing|ed)"
+    r"|fork(?:|s|ing|ed)"
+    r"|open(?:|s|ing|ed)"
+    r")(?![\w-])",
+    re.IGNORECASE,
 )
 # Negators that can make a creation assertion a *denial* of creation ("no second group is
 # created", "no group was ever created"). Scoped to the creation's own comma-delimited segment.
@@ -1689,19 +1705,84 @@ def _resolve_write_target(
     return None, None
 
 
+# --------------------------------------------------------------------------------------------
+# M-01 — a decoy field must not be allowed to absorb a write the cleanup handle could have taken.
+#
+# `_resolve_write_target` attributes a write verb to its *nearest* referent, left first. That is
+# sound when the clause offers one candidate, but it is exactly the wrong bias when it offers two:
+# putting a backticked non-handle `record.field` nearer the verb than the handle referent made the
+# clause classify `WRITES_OTHER_FIELD`, and `WRITES_OTHER_FIELD` is (a) not counted by
+# `attempt_rows_writing_the_cleanup_handle`, which only counts `WRITES`, and (b) returned *before*
+# the fail-closed arm at the foot of `classify_handle_clause`, so the decoy also bought the whole
+# clause an exemption from failing closed. Six mutations appended to the real `STARTING -> RUNNING`
+# row — an operative second write to the handle, sitting beside the surviving prohibition and the
+# declared count of `1` — left the entire suite green.
+#
+# The repair is a rule about what the gate is entitled to conclude, not a longer list of phrasings:
+# charging a write to another field is a *positive* claim that the handle did not receive it, and
+# that claim is only available when no live cleanup-handle referent shares the clause. A referent is
+# live unless the clause itself defuses it by making it the object of a read — a READ_MARKERS phrase
+# ending immediately in front of it, which is how the committed `STARTING -> RUNNING` cell says the
+# ceiling discriminator "MUST NOT be used as the cleanup handle". A read marker *behind* the
+# referent is deliberately not enough: "... is written into `attempt.running_process_group_identity`
+# and into the cleanup handle, which is read from the lease" would otherwise dress an operative
+# second write as a read. A contested clause is UNCLASSIFIED, and UNCLASSIFIED fails the freeze.
+# --------------------------------------------------------------------------------------------
+
+# How close in front of a handle referent a read marker must sit to be read as governing it. The
+# committed case is " the " — five characters — between "MUST NOT be used as" and "cleanup handle";
+# the window is kept tight so that a marker belonging to some other part of the clause cannot reach
+# across and defuse a referent it never spoke about.
+READ_MARKER_BINDING_CHARS = 12
+
+
+def _read_marker_spans(clause: str) -> list[tuple[int, int]]:
+    """Character spans of every `READ_MARKERS` phrase occurring in the clause."""
+    spans: list[tuple[int, int]] = []
+    for marker in READ_MARKERS:
+        start = clause.find(marker)
+        while start != -1:
+            spans.append((start, start + len(marker)))
+            start = clause.find(marker, start + 1)
+    return spans
+
+
+def _live_handle_referents(
+    clause: str, marks: list[tuple[int, int, str]]
+) -> list[tuple[int, int, str]]:
+    """Handle referents in this clause that the clause has not itself defused as reads.
+
+    Anything left over is a referent the prose still offers as a possible target of a write. Its
+    presence is what makes a "this write went to some other field" verdict unprovable.
+    """
+    read_marked = _read_marker_spans(clause)
+    return [
+        mark
+        for mark in marks
+        if mark[2] == _HANDLE
+        and not any(
+            0 <= mark[0] - marker_stop <= READ_MARKER_BINDING_CHARS
+            for _marker_start, marker_stop in read_marked
+        )
+    ]
+
+
 def classify_handle_clause(clause: str, established: bool) -> str:
     """Classify one clause of a handle-bearing cell into exactly one semantic class.
 
     Fail-closed ordering: an operative handle write anywhere in the clause outranks a prohibition
     in the same clause (the dangerous edit is a write added *beside* a surviving prohibition), and
-    an unattributable write verb outranks every benign class.
+    an unattributable — or contested — write verb outranks every benign class, `WRITES_OTHER_FIELD`
+    included. That last ordering is M-01: a decoy field no longer buys the clause an exemption.
     """
     marks = _referents(clause, established)
     negated = _negated_spans(clause)
     carved = _carved_out_write_spans(clause)
     deferrals = [found.start() for found in DEFERRAL_RE.finditer(clause)]
+    live_handles = _live_handle_referents(clause, marks)
 
     operative = prohibited = deferred_retirement = other_field = unattributable = False
+    contested = False
     for verb in WRITE_VERB_RE.finditer(clause):
         if any(start <= verb.start() < stop for start, stop in negated):
             prohibited = True
@@ -1712,7 +1793,12 @@ def classify_handle_clause(clause: str, established: bool) -> str:
         if target is None:
             unattributable = True
         elif target == _OTHER_FIELD:
-            other_field = True
+            # M-01: nearest-referent attribution is only evidence of exclusivity when there is
+            # nothing else in the clause the write could have landed on.
+            if live_handles:
+                contested = True
+            else:
+                other_field = True
         elif (
             verb.group(1) in RETIREMENT_VERBS
             and mark is not None
@@ -1725,7 +1811,7 @@ def classify_handle_clause(clause: str, established: bool) -> str:
 
     if operative:
         return WRITES
-    if unattributable:
+    if unattributable or contested:
         return UNCLASSIFIED
     if prohibited:
         return PROHIBITS_WRITE
@@ -1815,24 +1901,39 @@ def assert_declared_write_point_matches_the_matrix(api_text: str) -> None:
     )
 
 
+def _segment_bounds(clause: str, start: int, stop: int) -> tuple[int, int]:
+    """The comma/colon/semicolon-delimited segment of `clause` containing `[start, stop)`."""
+    left, right = 0, len(clause)
+    for found in _SEGMENT_BOUNDARY_RE.finditer(clause):
+        if found.end() <= start:
+            left = found.end()
+        elif found.start() >= stop:
+            right = found.start()
+            break
+    return left, right
+
+
 def _asserts_a_group_creation(clause: str) -> bool:
     """Does this clause assert that a process group *is created*, un-negated?
 
-    Derived structurally: a creation verb whose nearest preceding noun, inside its own
-    comma/colon/semicolon-delimited segment, is a process group. Negation is looked for in that
-    same segment, so "no second group is created" and "no group was ever created" are denials
-    rather than creations.
+    Derived structurally: a creation verb sharing its own comma/colon/semicolon-delimited segment
+    with a process-group noun. M-02 widened this from "nearest *preceding* noun" to "a noun
+    anywhere in the verb's own segment", because English puts the created thing on either side of
+    the verb — "the controller creates a second process group" and "placed into a newly created
+    controller-allocated group" assert exactly what "a second process group is created" asserts.
+
+    Negation is looked for in that same segment, so "no second group is created" and "no group was
+    ever created" remain denials. Requiring the group noun *and* bounding both the noun and the
+    negator to one segment is what keeps the derivation from firing on unrelated prose; a creation
+    verb with no group in its segment (a created workspace, an established lease) is not a group.
     """
     for verb in GROUP_CREATION_RE.finditer(clause):
-        nouns = [found for found in GROUP_NOUN_RE.finditer(clause) if found.end() <= verb.start()]
-        if not nouns:
-            continue
-        noun = nouns[-1]
-        boundaries = [found.end() for found in _SEGMENT_BOUNDARY_RE.finditer(clause, 0, noun.start())]
-        segment = clause[(boundaries[-1] if boundaries else 0) : verb.end()]
+        start, stop = _segment_bounds(clause, verb.start(), verb.end())
+        segment = clause[start:stop]
         if CREATION_NEGATION_RE.search(segment):
             continue
-        return True
+        if GROUP_NOUN_RE.search(segment):
+            return True
     return False
 
 
@@ -2316,6 +2417,309 @@ def test_the_group_cardinality_dimension_has_a_stated_blind_spot() -> None:
     assert_declared_group_count_matches_the_matrix(mutated)  # silent, by construction
     with pytest.raises(AssertionError, match="§3A edges write the cleanup handle"):
         assert_declared_write_point_matches_the_matrix(mutated)
+
+
+# --------------------------------------------------------------------------------------------
+# M-01 — the decoy-field false green, and the class of escapes it belongs to.
+#
+# Every mutation below appends an operative second write to the *real* `STARTING -> RUNNING` cell
+# while leaving §3A.3's prohibition sentence and its declared count of `1` exactly as committed —
+# the shape the independent review proved invisible. What they have in common is that a backticked
+# non-handle `record.field` sits nearer the write verb than the handle referent does, so the L-01
+# classifier charged the write to that field and returned `WRITES_OTHER_FIELD`, which is both
+# uncounted and exempt from failing closed.
+#
+# Each case is labelled with the device it exercises so the *class* is visible rather than a list
+# of sentences. The first six are the semantic equivalents of the review's M1/M2/M3/M4/M6/M7; the
+# rest are adjacent variants invented here, covering the grammar the review did not walk.
+# --------------------------------------------------------------------------------------------
+
+# The review's demonstrated false greens, restated. M6 and M7 are complete two-group handovers —
+# a creation *and* a rewrite — and were green on both dimensions at once, because their creation
+# verbs were also outside the M-02 derivation.
+REVIEW_DECOY_ESCAPES = (
+    (
+        "M1 — literal decoy field, literal handle, known verb",
+        ". The identity of the new model group is written into"
+        f" `attempt.running_process_group_identity` and into `{CLEANUP_HANDLE}`",
+    ),
+    (
+        "M2 — literal decoy field, English alias for the handle",
+        ". The identity of the new model group is recorded in"
+        " `attempt.running_process_group_identity` and in the cleanup handle",
+    ),
+    (
+        "M3 — decoy first, handle carried by an elliptical 'as is'",
+        ". `attempt.running_process_group_identity` is set to that group, as is the cleanup handle",
+    ),
+    (
+        "M4 — decoy absorbs the known verb, handle takes an unknown predicate",
+        ". `attempt.running_process_group_identity` is written here, and the cleanup handle"
+        " thereafter designates that same new group",
+    ),
+    (
+        "M6 — two-group handover, present-tense creation plus a decoy-shielded rewrite",
+        ". The controller creates a second process group for the model process."
+        " The identity of that group is written into `attempt.running_process_group_identity`"
+        " and into the cleanup handle",
+    ),
+    (
+        "M7 — two-group handover, object-after-verb creation plus a decoy-shielded rewrite",
+        ". The model process is placed into a newly instantiated controller-allocated group."
+        " That group's identity is recorded in `attempt.running_process_group_identity` and in"
+        " the attempt's owned process group handle",
+    ),
+)
+
+# Adjacent variants the review did not demonstrate, one per grammatical device. Measured against
+# the rejected gate, five of these seven were false greens exactly like M1–M4; the first two —
+# active voice and the bare pronoun — were already caught there, because nearest-referent
+# resolution happened to land on the handle. They are kept as regression controls rather than
+# dropped: the M-01 rule must not lose a case the rejected gate already held.
+INVENTED_DECOY_ESCAPES = (
+    (
+        "active voice — the controller as subject, verb before both objects",
+        ". The controller updates `attempt.running_process_group_identity` and the cleanup handle"
+        " in the same commit",
+    ),
+    (
+        "co-reference — the second target is a bare pronoun",
+        ". `attempt.running_process_group_identity` is written here, and it is populated with the"
+        " same value",
+    ),
+    (
+        "noun alias — 'the attempt's process group handle'",
+        ". The new group's identity is recorded in `attempt.running_process_group_identity` and in"
+        " the attempt's process group handle",
+    ),
+    (
+        "clause reordering — the decoy is fronted so it is nearest the verb",
+        ". Into the cleanup handle, and into `attempt.running_process_group_identity`, the new"
+        " model group's identity is written",
+    ),
+    (
+        "read-marker camouflage — the marker trails the handle instead of governing it",
+        ". The identity of the new model group is written into"
+        " `attempt.running_process_group_identity` and into the cleanup handle, which is read"
+        " from the lease",
+    ),
+    (
+        "unknown predicate on the handle, known verb on the decoy",
+        ". `attempt.running_process_group_identity` is updated in this commit, and that field"
+        " thereafter doubles as the cleanup identity of the model group",
+    ),
+    (
+        "prohibition survives, decoy carries the operative write",
+        ". This edge MUST NOT clear the cleanup handle, which"
+        " `attempt.running_process_group_identity` is then written into",
+    ),
+)
+
+DECOY_ESCAPES = REVIEW_DECOY_ESCAPES + INVENTED_DECOY_ESCAPES
+
+
+@pytest.mark.parametrize(
+    "device,tail", DECOY_ESCAPES, ids=lambda value: value.replace(" ", "-")[:44]
+)
+def test_a_decoy_field_cannot_absorb_a_write_to_the_cleanup_handle(device: str, tail: str) -> None:
+    """M-01's core proof: the freeze gate rejects every one of these.
+
+    The assertion is deliberately on the *gate*, not on a particular verdict, because two verdicts
+    are both correct answers here: a write the classifier can attribute to the handle is a second
+    write point and fails on cardinality, while a write it cannot prove went elsewhere is
+    UNCLASSIFIED and fails closed. What must never happen again is the third outcome — silence.
+    """
+    mutated = state_api_with_appended_running_edge_prose(tail)
+
+    with pytest.raises(AssertionError) as raised:
+        assert_declared_write_point_matches_the_matrix(mutated)
+    assert re.search(
+        r"cannot classify|§3A edges write the cleanup handle", str(raised.value)
+    ), f"{device}: gate failed for an unrelated reason: {raised.value}"
+
+
+@pytest.mark.parametrize(
+    "device,tail", DECOY_ESCAPES, ids=lambda value: value.replace(" ", "-")[:44]
+)
+def test_no_decoy_escape_is_ever_classified_as_a_write_to_another_field(
+    device: str, tail: str
+) -> None:
+    """The precise M-01 property, asserted clause by clause rather than through the gate.
+
+    `WRITES_OTHER_FIELD` is the verdict that made the gate go quiet, so it is the verdict none of
+    these clauses may receive. Asserting it here — instead of only observing that the gate goes
+    red — pins the mechanism, so a future edit cannot restore the false green while keeping these
+    cases failing for some other, accidental reason.
+    """
+    injected = [clause for clause in _CLAUSE_BOUNDARY_RE.split(tail) if clause.strip()]
+    assert injected, device
+
+    verdicts = {classify_handle_clause(clause, established=True) for clause in injected}
+    assert WRITES_OTHER_FIELD not in verdicts, f"{device}: decoy absorbed the write: {verdicts}"
+    assert verdicts & {WRITES, UNCLASSIFIED}, f"{device}: no clause was found dangerous: {verdicts}"
+
+
+# Prose that must stay green, or the repair would just be a ban on write verbs near the handle.
+# The first two are the legitimate controls the repair is required to preserve: a real write to an
+# unrelated field, and explicit read-only handle prose.
+LEGITIMATE_DECOY_ADJACENT_PROSE = (
+    (
+        "a genuine write to an unrelated field, with no handle referent in the clause",
+        ". `attempt.running_process_group_identity` is written for the model process in this same"
+        " commit",
+    ),
+    (
+        "a genuine write to an unrelated field beside a read-marked handle",
+        f". The group named by `{CLEANUP_HANDLE}` is unchanged, and"
+        " `attempt.running_process_group_identity` is written in this same commit",
+    ),
+    (
+        "explicit read-only handle prose, no write anywhere",
+        f". The preflight group is identified from `{CLEANUP_HANDLE}` and is left exactly as it is",
+    ),
+    (
+        "the committed 'MUST NOT be used as the cleanup handle' shape, restated",
+        ". `attempt.workspace_epoch` is written in this same commit as the workspace discriminator"
+        " alone, and MUST NOT be used as the cleanup handle",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "device,tail",
+    LEGITIMATE_DECOY_ADJACENT_PROSE,
+    ids=lambda value: value.replace(" ", "-")[:44],
+)
+def test_the_decoy_rule_leaves_legitimate_other_field_writes_and_reads_green(
+    device: str, tail: str
+) -> None:
+    """The false-positive controls for M-01, through both dimensions of the gate."""
+    mutated = state_api_with_appended_running_edge_prose(tail)
+    assert_declared_write_point_matches_the_matrix(mutated)
+    assert_declared_group_count_matches_the_matrix(mutated)
+
+
+def test_the_committed_running_edge_still_charges_its_write_to_the_other_field() -> None:
+    """The narrowest control of all: §3A's own ceiling-discriminator clause.
+
+    This is the single committed clause in the whole matrix that classifies `WRITES_OTHER_FIELD`,
+    and it does so only because "MUST NOT be used as" governs the handle referent beside it. If the
+    M-01 rule ever stopped honouring a read marker that precedes its referent, this clause would
+    fail closed and the pristine freeze document would be rejected by its own gate.
+    """
+    clause = (
+        "`attempt.running_process_group_identity` is written in this same commit and only here, as"
+        " the ceiling discriminator alone, and MUST NOT be used as the cleanup handle (§3A.3)"
+    )
+    assert clause in read(STATE_API)
+    assert classify_handle_clause(clause, established=True) == WRITES_OTHER_FIELD
+    assert not _live_handle_referents(clause, _referents(clause, established=True))
+
+    # And the same sentence with the marker removed is contested, not silently charged elsewhere.
+    without_marker = clause.replace("MUST NOT be used as the cleanup handle", "the cleanup handle")
+    assert classify_handle_clause(without_marker, established=True) == UNCLASSIFIED
+
+
+# --------------------------------------------------------------------------------------------
+# M-02 — the group-creation derivation, widened to the forms the review demonstrated.
+# --------------------------------------------------------------------------------------------
+
+# Creation assertions the derivation missed at the rejected SHA: present tense, synonyms, and the
+# created group named *after* its verb. Each is appended to the real `STARTING -> RUNNING` cell and
+# says nothing whatever about the cleanup handle, so the group dimension has to catch it alone.
+M02_CREATION_FORMS = (
+    ("present tense, active voice", ". The controller creates a second process group for the model"),
+    (
+        "object after the verb, past participle",
+        ". The model process is placed into a newly created controller-allocated group",
+    ),
+    ("synonym 'instantiated'", ". A second owned process group is instantiated for the model"),
+    ("synonym 'provisioned'", ". The controller provisions a second process group for the model"),
+    ("synonym 'opened', object after the verb", ". The controller opens a second process group"),
+    ("present participle, object after the verb", ". The controller is creating a second cgroup"),
+)
+
+
+@pytest.mark.parametrize(
+    "device,tail", M02_CREATION_FORMS, ids=lambda value: value.replace(" ", "-")[:44]
+)
+def test_the_group_derivation_covers_the_creation_forms_the_review_demonstrated(
+    device: str, tail: str
+) -> None:
+    """M-02: a second group is a second group however the sentence is arranged."""
+    mutated = state_api_with_appended_running_edge_prose(tail)
+
+    creating = attempt_rows_creating_an_owned_process_group(mutated)
+    assert [f"{row[0]} -> {row[2]}" for row in creating] == [
+        "CREATED -> STARTING",
+        "STARTING -> RUNNING",
+    ], device
+
+    with pytest.raises(AssertionError, match="§3A edges create an owned process group"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# Prose containing a creation verb that creates no *group*, or denies creating one. Requirement:
+# widening the verb set must not turn broad harmless prose into an automatic failure.
+M02_NON_CREATIONS = (
+    "the workspace reservation established at admission is unchanged",
+    "a new lease is created for the corrected attempt",
+    "evidence for the model process is recorded in the same commit",
+    "no second process group is created for the model process",
+    "the controller never creates a second process group",
+    "the model process is launched inside the attempt's existing owned process group",
+    "a replacement workspace is provisioned without a new process group, reusing the existing one",
+)
+
+
+@pytest.mark.parametrize("clause", M02_NON_CREATIONS, ids=lambda value: value[:44])
+def test_the_widened_group_derivation_does_not_fire_on_harmless_prose(clause: str) -> None:
+    """The false-positive controls for M-02, at clause level.
+
+    The last case is the load-bearing one: a creation verb and a group noun in the same clause but
+    in different segments, with the group explicitly *not* created. Segment scoping, not distance,
+    is what keeps the two apart.
+    """
+    assert not _asserts_a_group_creation(clause), clause
+
+
+def test_the_group_derivation_still_requires_a_group_noun_in_the_verbs_own_segment() -> None:
+    """Why the widening is safe: the verb alone never asserts a group.
+
+    Without the noun requirement, every `created`/`established`/`opened` in §3A — of a lease, a
+    workspace, an epoch — would be counted as a process group, and the cardinality invariant would
+    be noise. The noun and the negator are both scoped to the verb's own segment, so neither can
+    reach across a comma to a clause it never spoke about.
+    """
+    assert not _asserts_a_group_creation("a new fencing token is created")
+    assert _asserts_a_group_creation("a new process group is created")
+    assert _asserts_a_group_creation("the controller creates a new process group")
+    # Reaching across a segment boundary in either direction must not manufacture a creation.
+    assert not _asserts_a_group_creation(
+        "a new fencing token is created, and the existing process group is reused"
+    )
+    # ... nor must a negator in a neighbouring segment suppress a real one.
+    assert _asserts_a_group_creation(
+        "no model process is launched yet, and a second process group is created here"
+    )
+
+
+def test_the_group_derivation_blind_spots_are_stated_rather_than_assumed_closed() -> None:
+    """Honest scope for M-02, carried forward for the next review.
+
+    The derivation reads assertions, not references: a clause that *mentions* an already-created
+    group without asserting a new one is silent here by construction, and a back-reference to the
+    legitimate `CREATED -> STARTING` creation is counted as a creation (over-strict, fail-closed).
+    Both are recorded so a later reader cannot mistake the widened set for completeness.
+    """
+    # Silent: names a group, asserts no creation. The handle dimension is what catches this class.
+    assert not _asserts_a_group_creation(
+        "the identity of a fresh controller-allocated model process group"
+    )
+    # Over-strict, in the safe direction: a back-reference reads as a creation and turns it red.
+    assert _asserts_a_group_creation(
+        "the preflight group created on the earlier edge continues to hold the child"
+    )
 
 
 # --------------------------------------------------------------------------------------------
