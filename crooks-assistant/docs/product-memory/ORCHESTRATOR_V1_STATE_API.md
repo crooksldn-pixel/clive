@@ -292,17 +292,19 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | `integration.block` | kernel/policy/review coordinator | CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING -> BLOCKED with typed reason; no automatic retry |
 | `integration.cancel` | authorised controller/Director policy | CREATED/INTEGRATING/EVIDENCE_READY/REVIEWING/BLOCKED -> CANCELLED. If still `CREATED` before `integration.begin`, no attempt/lease exists and the subject is cancelled directly. Otherwise the allocated integration attempt's lease is fenced and its process group stopped per §6, and any non-terminal `review_dispatch` is fenced. If an owned process group cannot be proven empty the attempt closes `QUARANTINED`, the workspace is not reused and the integration goes to BLOCKED instead of CANCELLED |
 | `release_candidate.mark` | GPT Director validated channel + kernel policy | create immutable ReleaseCandidate from VERIFIED integration |
-| `delivery.publish` | publication adapter | publish immutable result/ref with idempotency |
-| `controller.reconcile` | authoritative controller | observe DB/process/workspace/remote truth across all three execution record kinds of §1A; no blind effects |
+| `delivery.publish` | publication adapter | create/reuse a durable PENDING delivery intent before the external publication effect; after the effect, persist exact observed success as PUBLISHED or an ambiguous outcome as UNKNOWN according to §3C |
+| `delivery.reconcile` | publication adapter / controller reconciliation | reconcile a PENDING or UNKNOWN delivery against authoritative remote state and move it to PUBLISHED, FAILED or BLOCKED only through §3C |
+| `delivery.block` | kernel/policy/publication adapter | move PENDING/UNKNOWN/FAILED delivery to BLOCKED with a typed persisted reason |
+| `controller.reconcile` | authoritative controller | observe DB/process/workspace/remote truth across all three execution record kinds of §1A **and delivery publication state**; no blind effects |
 | `controller.drain` | authorised operator/controller policy | set DRAINING; no new assignments |
 | `controller.resume` | authorised operator/controller policy | RUNNING only after health/reconciliation |
 | `status.snapshot` | read-only consumer | return current deterministic state |
 
 No model receives an operation that bypasses these guards.
 
-## 3. Transition matrix
+## 3. Task and integration subject transition matrix
 
-Any transition not listed is forbidden.
+Any **task or integration subject-state** transition not listed in §3 is forbidden. Attempt, review-dispatch and delivery-record transitions are governed by §3A, §3B and §3C respectively; a command that mutates more than one record must satisfy every applicable matrix.
 
 | From | Command | To | Mandatory preconditions |
 | --- | --- | --- | --- |
@@ -322,7 +324,7 @@ Any transition not listed is forbidden.
 | REJECTED | attempt.assign | ASSIGNED | same task revision; correction budget available; **per-revision attempt ceiling not exhausted**; fresh attempt/fence; prior candidate retained |
 | ACCEPTED task(s) | integration.create | integration CREATED | one or more exact accepted candidate SHAs; explicit target base; dependencies/context current; source task states remain ACCEPTED |
 | integration CREATED | integration.begin | integration INTEGRATING | controller RUNNING; integration capacity available; no current integration lease; workspace reservation succeeds; integration `attempt` (`subject_kind = INTEGRATION`) and authoritative `lease` are created atomically; **no preflight and no integrator process launch occur in this command** |
-| integration INTEGRATING + attempt CREATED/STARTING | integration.start | integration INTEGRATING (attempt RUNNING) | current integration epoch/fence and reserved workspace; measured exact base/branch/environment/tool/capability preflight passes; owned integrator process group is established before RUNNING is committed |
+| integration INTEGRATING | integration.start | integration INTEGRATING | current integration epoch/fence and reserved workspace; the allocated integration attempt is CREATED or STARTING; §3A owns the attempt-state edges; measured exact base/branch/environment/tool/capability preflight passes before RUNNING and an owned integrator process group is established before RUNNING is committed |
 | integration INTEGRATING | integration.register | integration EVIDENCE_READY | current epoch/fencing token of the live integration attempt; integration SHA independently measured; required evidence manifest exists; the integration attempt reaches `CANDIDATE_READY` and then `CLOSED / SUCCEEDED` |
 | integration EVIDENCE_READY | integration.review_request | integration REVIEWING | required integrated reviewer policy resolved; one non-terminal `review_dispatch` created per required integrated-review slot |
 | integration REVIEWING | integration.verify | integration VERIFIED | all required integrated tests/reviews pass, each verdict admitted under a then-live dispatch; no blocking finding whose subject is this integration is `OPEN` or `BLOCKED`; where this integration carries `parent_integration_id`, every unresolved inherited finding has an explicit `RESOLVED`/`OBSOLETE` disposition with a recorded reason |
@@ -352,9 +354,12 @@ This matrix applies to both attempt subject kinds. Where the trigger differs by 
 | From | Trigger/command | To | Preconditions / result |
 | --- | --- | --- | --- |
 | none | `attempt.assign` (TASK) / `integration.begin` (INTEGRATION) | CREATED | TASK: task is `PLANNED`, or task is `REJECTED` with bounded-correction budget available as permitted by §3; in **both TASK branches the per-revision attempt ceiling must not be exhausted**. INTEGRATION: integration is `CREATED`. Capacity/workspace reservation succeeds; new epoch/fence bound |
-| CREATED | runner preflight begins | STARTING | current lease; workspace exists; no model process yet |
-| STARTING | `attempt.start` (TASK) / `integration.start` (INTEGRATION) | RUNNING | exact base/branch/environment/tool/capability checks pass; owned process group established |
+| CREATED | `attempt.start` (TASK) / `integration.start` (INTEGRATION) begins measured preflight | STARTING | current lease; workspace exists; no model process yet; subject remains ASSIGNED (TASK) or INTEGRATING (INTEGRATION) during preflight |
+| STARTING | `attempt.start` (TASK) / `integration.start` (INTEGRATION) completes successfully | RUNNING | exact base/branch/environment/tool/capability checks pass; owned process group established |
 | STARTING | preflight deterministic failure | CLOSED / FAILED or QUARANTINED | no model launch; a TASK subject reaches `BLOCKED` through §3 `task.block`, while an INTEGRATION subject reaches `BLOCKED` through §3 `integration.block`, using the typed precondition reason. Attempt disposition is `FAILED` when cleanup is proven complete, or `QUARANTINED` when process/workspace safety cannot be proven. Preflight failure never fabricates RUNNING and never uses an unlisted direct subject transition. |
+| CREATED | `task.cancel` / `integration.cancel` / `task.revise` / `task.supersede` / controller-epoch fencing event, as applicable to the subject kind | CLOSED / CANCELLED or FENCED | no model process has been launched, so process cleanup is proven by construction; the lease is released/retired and the old fencing token can never admit a result |
+| STARTING | `task.cancel` / `integration.cancel` / `task.revise` / `task.supersede` / controller-epoch fencing event, as applicable to the subject kind | CLOSED / CANCELLED or FENCED | authority is fenced immediately; any preflight process group is stopped through §6 and proven empty before the non-quarantined terminal disposition |
+| STARTING | cancellation/fencing event where a preflight process group cannot be proven stopped | CLOSED / QUARANTINED | authority remains fenced, workspace is not reused, and the subject is BLOCKED until cleanup/reconciliation proves safety |
 | RUNNING | `candidate.register` (TASK) / `integration.register` (INTEGRATION) | CANDIDATE_READY | current epoch/fence; immutable commit identity independently measured and the Candidate / integration SHA persisted |
 | RUNNING | process exits without producing a commit | CLOSED / FAILED | diagnostics/evidence persisted; the subject takes the §10.3 non-rejection path of `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`, which is a finite persistent budget rather than implementer discretion |
 | RUNNING | process stalls past its deadline with no commit | CLOSED / FAILED or QUARANTINED | reason code `PROCESS_STALLED`/`PROCESS_TIMEOUT`, which §7 classifies BLOCKED; disposition is `FAILED` when cleanup is proven and `QUARANTINED` otherwise; the subject reaches BLOCKED through its legal block edge |
@@ -364,6 +369,8 @@ This matrix applies to both attempt subject kinds. Where the trigger differs by 
 | CANDIDATE_READY | cancellation/fence before evidence completion | CLOSED / FENCED | the Candidate or integration SHA remains durable/discoverable; evidence may remain incomplete |
 
 `CLOSED` is terminal for an attempt. A correction always creates a new attempt with a new fencing token.
+
+For TASK attempts, the per-revision attempt ceiling is computed authoritatively from durable `attempt` rows with `(subject_kind = TASK, subject_id = task_id, subject_revision = revision)`, counting every disposition. It is never an in-memory-only counter, so restart, restore and controller-epoch changes cannot reset it.
 
 ## 3B. Review dispatch transition matrix
 
@@ -379,6 +386,23 @@ Authoritative for `review_dispatch` state. Review dispatch is the third executio
 | DISPATCHED | reviewer process cannot be proven stopped after cancellation/expiry | FENCED, subject BLOCKED | the dispatch loses authority immediately, but the subject is BLOCKED rather than re-dispatched, mirroring the attempt quarantine rule |
 
 Every terminal state is final. A verdict presented for a terminal, unknown or non-matching dispatch is rejected with `FENCE_STALE`, and the rejection is recorded as a `transition_event`.
+
+## 3C. Delivery transition matrix
+
+Authoritative for the `delivery.state` enum. Delivery is not an execution record and owns no lease/fencing token; §7 of the freeze contract defines its controller-epoch and idempotency authority.
+
+| From | Trigger/command | To | Preconditions / result |
+| --- | --- | --- | --- |
+| none | `delivery.publish` | PENDING | idempotency key/request digest validated; expected remote identity and destination persisted **before** the external effect |
+| PENDING | `delivery.publish` observes exact expected remote identity after the effect | PUBLISHED | authoritative remote readback matches the intended immutable identity; observed identity persisted |
+| PENDING | `delivery.publish` loses/receives an ambiguous response after the effect | UNKNOWN | ambiguity persisted; blind replay forbidden; reconciliation required |
+| PENDING | `delivery.reconcile` observes exact expected remote identity | PUBLISHED | authoritative remote truth proves the intended effect occurred |
+| PENDING | `delivery.reconcile` proves a definite non-ambiguous terminal failure | FAILED | exact failure evidence/reason persisted; no claim of publication success |
+| UNKNOWN | `delivery.reconcile` observes exact expected remote identity | PUBLISHED | ambiguous effect reconciled as success without replay |
+| UNKNOWN | `delivery.reconcile` proves the intended effect did not occur and no safe retry remains | FAILED | authoritative remote evidence persisted; no duplicate external effect |
+| PENDING / UNKNOWN / FAILED | `delivery.block` | BLOCKED | typed deterministic policy/authority/conflict reason persisted; no external retry while blocked |
+
+`PUBLISHED` and `BLOCKED` are terminal for the delivery record. `FAILED` may only move to BLOCKED in V1; a new permitted publication attempt after a failed delivery uses a new delivery/idempotency record rather than silently resetting this record. Every §3C transition emits a `DELIVERY` `transition_event`.
 
 ## 4. Atomic transaction rules
 
