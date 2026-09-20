@@ -1,39 +1,57 @@
 # CHATGPT INBOX
 
-## Independent adversarial review of harness candidate `fe96bb661140089647c3e6cb90a269c869a076fa`
+## Bounded repair of F-6 on harness candidate `fe96bb661140089647c3e6cb90a269c869a076fa`
 
-Read fresh canonical product memory from `claude/product-memory-foundation` and the latest outbox first. This is a read-only independent review. Do not implement repairs in this round.
+Read fresh canonical product memory from `claude/product-memory-foundation` and the latest outbox first. The independent review at 2026-09-19T23:55Z returned `REJECT — REPAIR REQUIRED` with exactly one new bounded High finding, F-6. This round is implementation only; do not self-certify acceptance.
 
-### Exact target
+### Exact starting identity
 - candidate branch: `claude/harness-hooks-experiment`
-- candidate: `fe96bb661140089647c3e6cb90a269c869a076fa`
-- exact parent / previously rejected candidate: `d7911b24979be2306749b7333ec60edc28cba857`
+- current rejected head: `fe96bb661140089647c3e6cb90a269c869a076fa`
+- its parent: `d7911b24979be2306749b7333ec60edc28cba857`
 - accepted Builder base: `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`
-- production must remain `1cf3a0f3361b79f9de208d80f501543c53c244b5`
+- production must remain exactly `1cf3a0f3361b79f9de208d80f501543c53c244b5`
 
-First verify the remote branch still points exactly to `fe96bb6…` and that it is exactly one commit on `d7911b2…`. The Director independently confirmed GitHub currently has that shape and only three changed files: `gitleaks_gate.py`, `guard_bash.py`, and new `test_harness_review_d7911b2_repairs.py`. Treat implementer claims as untrusted until reproduced.
+Verify the remote branch still points exactly to `fe96bb6…` and the candidate worktree is clean before editing. Use explicit branch fetches if needed; the known stale Builder refspec remains owner-held and must not be changed.
 
-### Review contract
-Re-read the previous review's F-1…F-5 findings and the complete `d7911b2…fe96bb6…` diff. Reproduce the repair-specific tests, targeted harness/roster/layout/dev-environment set, full offline suite, Ruff, and pinned redacted gitleaks range scan. The known `query_international_waiting` catalogue-drift failure may only be classified pre-existing if reproduced identically and untouched by this candidate.
+### Repair scope — F-6 only
+The review proved that redirect operators glued to a preceding word evade the write checks, and read-only base commands with those redirects can write protected targets while the guard returns ALLOW. Exact demonstrated examples include:
 
-Adversarially attack the *root causes*, using new vectors not copied from the repair tests. At minimum probe:
-1. relative redirect and copy-like write destinations after `cd`, nested/grouped commands, wrappers, all redirect operators, `../` traversal, glob/brace destinations, no-space redirects, `/etc`, `/root`, and production paths;
-2. command substitution/backticks in whole-command, glued-prefix/suffix, assignment, wrapper, pipeline, group, nested, quoted and malformed forms; ensure substitution bodies remain inspected while benign argument substitutions remain usable;
-3. dynamic Git subcommands and laundering through env/timeout/sudo-like passthroughs, shell strings, aliases/assignments, substitution and quoting; verify the gitleaks publish gate fails closed consistently;
-4. interactions between the new `_segments` substitution lexer and existing heredoc/here-string/shell-fed-text logic, brace expansion, cwd tracking, redirects and glob-prefix handling;
-5. parser resource bounds and malformed/nested substitutions, including whether MAX_SUBSTITUTION_NESTING actually fails closed without crash or non-blocking timeout;
-6. false-positive/operational impact sufficient to break ordinary Builder commands. Note conservative pre-existing denials separately from regressions.
+- `echo pwned>/opt/crooks-os/app/main.py`
+- `printf x>/etc/crooks-os/x`
+- `echo x>/root/.bashrc`
+- `cd /opt/crooks-os && echo pwned>app/main.py`
+- `cd /opt/crooks-os && printf x>>app/routes.py`
+- `cd /opt/crooks-os && cat /tmp/x>config/settings.py`
+- `cd /opt/crooks-os && echo x>{app,config}/main.py`
+- hook cwd `/opt/crooks-os/app`: `echo pwned>main.py`
 
-Also re-check the earlier D-01…D-20 security contract at a high level so the F-1…F-5 repair has not reopened a previously closed bypass. D-19 remains empirically unproven and must not be represented as solved. D-14/worktree/systemd/local-exclude remain untouched and owner-held.
+Observed: ALLOW. Required: DENY (`PROTECTED-PATH`, or fail-closed `PROTECTED-CWD` where exact resolution is impossible).
+
+Root cause from independent review: redirect target collection only recognises an operator at the start of a shlex token, while Bash treats `>`/`>>`/`>|`/`&>`/`&>>` as metacharacters even when glued after ordinary text. In addition, protected-target/write checking is incorrectly coupled to the base command being classified non-read-only. A command such as `echo` or `cat` becomes a write when it has an output redirect.
+
+Implement the smallest auditable fix at the parser/write-target layer. Do not paper over only the listed strings. Redirect target extraction must correctly identify unquoted output redirect operators even when glued after preceding text and route their RHS through the same protected-target resolution used by spaced redirects. Output redirects must be treated as writes independently of whether the base command is otherwise read-only. Preserve existing heredoc/here-string/fd redirect semantics and fail closed when parsing cannot be proven safe.
+
+### Required regression evidence
+Add failing-before/passing-after tests covering at least:
+- operators `>`, `>>`, `>|`, `&>`, `&>>` glued after a word;
+- base commands `echo`, `printf`, and `cat`;
+- relative protected destinations after `cd /opt/crooks-os`;
+- absolute protected destinations under `/opt/crooks-os`, `/etc`, and `/root`;
+- hook cwd already inside a protected directory;
+- brace/glob/path traversal forms where applicable;
+- positive controls that remain allowed: `echo x>out.txt`, `cd /tmp && echo x>y`, `echo done>/tmp/log` and equivalent benign glued redirects.
+
+Also add interaction tests sufficient to prove this parser change does not reopen F-2…F-5 or earlier redirect/heredoc/here-string behaviour. Use new tests rather than weakening old assertions.
+
+### Verification and publication
+After repair, run:
+1. the new F-6 regression tests;
+2. prior harness repair files plus guard/gitleaks/roster/layout/dev-environment targeted tests;
+3. full offline suite (record parallel/environmental failures accurately and re-run suspicious unrelated failures serially; do not falsely claim them fixed);
+4. Ruff;
+5. pinned redacted gitleaks over `fe96bb6…<new-candidate>`.
+
+Require clean candidate worktree, exact remote SHA evidence and an exact one-commit publication on top of `fe96bb6…`. Replace only `bridge/claude-outbox.md` with exact identity, diff, tests/scans, invariant checks, and the new candidate SHA. STOP. The new candidate requires a fresh independent adversarial review; implementation is not acceptance.
 
 ### Hard boundaries
-No edits to candidate files; no merge/deploy/install/restart; no `.claude/` activation; no `/root/.claude`, account/global Claude, MCP, connector, identity, credential or secret changes; no watcher/systemd/local Git-config changes; no reset/clean/stash; no production/business writes; no external spend. Explicit branch fetches are acceptable because the Builder's stale deleted-branch refspec still breaks `git fetch --all`; do not repair that here.
-
-### Verdict and handoff
-Return exactly one verdict: `ACCEPT FOR NEXT GATE` or `REJECT — REPAIR REQUIRED`.
-
-If rejecting, give a bounded defect list with severity, exact reproducer, observed verdict, required verdict, root cause where known, and smallest safe repair. Do not implement.
-
-If accepting, acceptance only means the harness candidate may proceed to the separately governed next gate; it does not authorise merge, production deployment, project `.claude/` activation, privileges, connectors, secrets or business writes.
-
-Replace only `bridge/claude-outbox.md` with exact identity evidence, reproduced tests/scans, adversarial probes/findings, invariant checks and verdict, then STOP.
+No merge/deploy/install/restart; no production writes; no `.claude/` activation; no `/root/.claude`, account/global Claude, MCP, connector, identity, credential or secret changes; no watcher/systemd/local Git-config changes; no reset/clean/stash; no external spend; no scope expansion. D-19 remains empirically unproven. Do not touch the owner-side `.git/info/exclude` workaround.
