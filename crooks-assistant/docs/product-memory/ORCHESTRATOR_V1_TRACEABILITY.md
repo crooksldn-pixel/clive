@@ -32,7 +32,8 @@ Status values:
 | CLIVE stronger contract | owner-only authority classes | **V1 MUST** | structured AuthorityGrant + explicit owner-only list |
 | CLIVE stronger contract | release verification separate from implementation | **V1 MUST** | deployment controller outside V1 |
 | Builder/watch incident | deterministic precondition retried eight times | **V1 MUST** | deterministic BLOCKED vs transient RETRY |
-| Builder/watch incident | nested worker worktree dirtied canonical Builder | **V1 MUST** | external `/opt/crooks-workers/<task>/<attempt>` attempts |
+| Builder/watch incident | nested worker worktree dirtied canonical Builder | **V1 MUST** | external `/opt/crooks-workers/<task>/<attempt>` attempts; first V1 uses standalone clones with independent Git metadata |
+| DEC-012 original wording | every autonomous worker gets its own worktree | **V1 MUST outcome preserved; implementation form strengthened** | preserve one-writer/one-isolated-workspace invariant; first V1 standalone clones avoid the nested-worktree parent-dirty failure. This supersedes the literal `worktree` mechanism without weakening isolation |
 | Bridge verification 2026-09-20 | prompt/unit branch differed from actual checkout | **V1 MUST** | branches are labels; measured SHA/ancestry is authority; mismatch blocks writes |
 | Bridge verification 2026-09-20 | actual process proved Opus request while self-report alone would be weaker | **V1 MUST** | launcher/process evidence outranks model self-report |
 | Bridge verification 2026-09-20 | `--allowed-tools` did not remove inherited business MCP tools | **V1 MUST** | effective runtime roster assertion; fail closed on unexpected connector surface |
@@ -67,7 +68,7 @@ Status values:
 | DEV_TEAM trial CG-02 | evidence invalidation granularity undefined | **V1 MUST — resolved conservatively** | any candidate SHA change invalidates evidence/reviews; reuse deferred |
 | DEV_TEAM trial CG-03 | candidate without outbox/result invisible | **V1 MUST — resolved** | Candidate record independent of Delivery record |
 | DEV_TEAM trial CG-04 | whole-task BLOCKED hides partial progress | **V1 MUST — resolved** | per-finding lifecycle + task-level state |
-| DEV_TEAM trial CG-05 | clean reconstruction was underspecified | **V1 MUST — resolved** | explicit egress allow-list, pins, integrity, disposable host, fresh evidence |
+| DEV_TEAM trial CG-05 | clean reconstruction was underspecified | **V1 MUST — resolved** | freeze contract §22A + acceptance EN-01..EN-04 require allow-listed egress, immutable pins, integrity checks, disposable/fresh environment and fingerprint equality |
 | DEV_TEAM trial CG-06 | prose approval unenforceable | **V1 MUST — resolved** | structured AuthorityGrant |
 | SELF_IMPROVEMENT | Observer -> Triage -> Reproduction -> Builder -> Review -> QA -> Integration -> Director | **V1-compatible, mostly DEFER observer/triage automation** | V1 must not preclude later upstream Observer/Triage; Builder onward is foundation |
 | SELF_IMPROVEMENT | historical replay | **V1 SHOULD** | task-specific proof/review gate |
@@ -83,7 +84,7 @@ Status values:
 | Role research | separate Release Manager agent | **REJECT for V1** | release authority belongs to future deterministic privileged controller |
 | Distributed systems review | single writer/controller epoch | **V1 MUST** | OS lock + persisted epoch |
 | Distributed systems review | idempotency for every retryable mutation | **V1 MUST** | unique keys + duplicate-safe responses |
-| Distributed systems review | DB corruption/restore policy | **V1 MUST** | integrity check, backup, restore with epoch invalidation |
+| Distributed systems review | DB corruption/restore policy | **V1 MUST** | integrity check, independent backup destination, restore rehearsal, epoch invalidation and no-dispatch reconciliation |
 | Distributed systems review | provider 429/5xx/auth/quota distinctions | **V1 MUST** | typed failure taxonomy |
 | Distributed systems review | orphan child process cleanup | **V1 MUST** | cgroup/process-group ownership and quarantine |
 | Distributed systems review | clock skew | **V1 MUST** | monotonic local lease timing; worker clocks non-authoritative |
@@ -93,7 +94,7 @@ Status values:
 | Supply-chain review | dependency/tool pins and integrity | **V1 MUST where external artifacts are used** | manifest digest and provenance checks |
 | Repository housekeeping | preserve Shopify theme but separate it from CLIVE control plane | **DEFER separate bounded task** | no need to destabilise V1 freeze/first kernel slice |
 | Product-memory discipline | history must not ossify current architecture | **V1 MUST** | Active Context compiler classifies active/historical/superseded constraints |
-| Product-memory discipline | CURRENT_TRUTH/ROADMAP drift misleads workers | **V1 MUST before freeze** | reconcile canonical docs to current Opus/harness state |
+| Product-memory discipline | CURRENT_TRUTH/ROADMAP drift misleads workers | **V1 MUST before freeze** | candidate reconciles current Opus/harness state; sequencing changes still require explicit owner adoption in DECISIONS by exact SHA |
 
 ## Freeze interpretation
 
