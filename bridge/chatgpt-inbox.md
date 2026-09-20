@@ -1,6 +1,6 @@
 # CHATGPT INBOX
 
-## Fresh independent adversarial re-review — Orchestrator V1 freeze candidate
+## Fresh independent adversarial re-review — Orchestrator V1 freeze candidate after N-01/N-02/N-03 repair
 
 This is a **read-only independent architecture/specification re-review**. It is not implementation.
 
@@ -8,9 +8,17 @@ Review exact candidate:
 - repository: `crooksldn-pixel/clive`
 - base: `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`
 - candidate branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
-- candidate SHA: `a4ec77ff953bd7af5117e5adb5756adddd942fdb`
+- candidate SHA: `3c5a06271ac6cda3f6a9942632ff1390e2daa16b`
 
-The prior review of `f1c808e...` is stale. Do not carry its verdict forward. The candidate has materially changed.
+The prior review of `a4ec77ff...` is stale. Do not carry its verdict forward.
+
+### Hard scope
+
+Read-only everywhere except the normal bridge outbox. Do **not** edit, create, delete, commit, push, merge, switch/reset/clean/stash branches, install, restart, deploy or alter repository/runtime/systemd/account/global Claude/MCP/connector/credential/permission/production state. Do not execute the watcher/builder runtime remediation. Do not fix findings.
+
+### Required review
+
+Verify exact candidate SHA, base, merge-base and diff first.
 
 Read in full:
 - `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`
@@ -18,76 +26,58 @@ Read in full:
 - `ORCHESTRATOR_V1_TRACEABILITY.md`
 - `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md`
 - `WATCHER_BUILDER_IDENTITY_REMEDIATION.md`
-- modified `ENGINEERING_ORCHESTRATOR_V1.md`, `CURRENT_TRUTH.md`, `ROADMAP.md`
-- canonical `DECISIONS.md`, `DEV_TEAM_V1_PILOT.md`, `ENGINEERING_STACK_REUSE_PLAN.md`, `SELF_IMPROVEMENT.md`, `HARNESS_ACCEPTANCE_2C2B0CC.md`
-- accepted Builder contract trial at exact SHA `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b:crooks-assistant/docs/dev-environment/CONTRACT_TRIAL_ENV_REPRO_001.md`
-- previous outbox review for the findings F-01 through F-12.
+- modified `CURRENT_TRUTH.md`, `ROADMAP.md`, `ENGINEERING_ORCHESTRATOR_V1.md`
+- canonical `DECISIONS.md`, `DEV_TEAM_V1_PILOT.md`, `ENGINEERING_STACK_REUSE_PLAN.md`, `SELF_IMPROVEMENT.md`
+- the previous outbox review that raised N-01, N-02 and N-03.
 
-### Hard scope
+Explicitly re-check the three repaired findings:
 
-Do **not** edit, create, delete, commit, push, merge, switch/reset/clean/stash branches, install, restart, deploy or alter any repository/runtime/systemd/account/global Claude/MCP/connector/credential/permission/production state. Do not fix findings. Read remote Git by exact SHA and write only the normal bridge outbox.
+1. **N-01 watcher/builder remediation topology**
+   - remote `claude/bridge-builder` is absent;
+   - plan now treats publication as a guarded create, not a fake fast-forward;
+   - accepted Builder ref fetch uses an actually existing ref and does not depend on the broken configured fetch path;
+   - create is compare-and-swap guarded against a raced/unexpected ref;
+   - local semantic ref reconciliation is expected-old guarded and does not require reset/clean/stash;
+   - scratch rehearsal BR-01..BR-04 is sufficient and technically executable;
+   - Phase 1/write-capable execution remains blocked until live closure.
 
-The live builder branch mismatch remains known and must not be reconciled in this review.
+2. **N-02 task/attempt state-table overlap**
+   - `REJECTED -> attempt.assign` correction is legal in both task and attempt tables;
+   - deterministic preflight failure from ASSIGNED/STARTING reaches task BLOCKED through a listed edge and closes/quarantines the attempt coherently;
+   - the joint-oracle rule makes overlap fail closed rather than ambiguous;
+   - ST-11..ST-13 make the combined state machine testable.
 
-### Required re-review
+3. **N-03 canonical truth drift**
+   - CURRENT_TRUTH now distinguishes "addressed by freeze candidate" from "canonically closed only after owner adoption";
+   - no document self-adopts the freeze or re-sequences DEC-046;
+   - the freeze gate's mechanical gap/finding consistency check would catch a conflicting status.
 
-First verify the exact candidate SHA/merge-base/diff.
+Then adversarially search again for **new material defects** introduced by these repairs or still present anywhere in the V1 freeze set. Pay special attention to:
+- task/attempt/integration lifecycle contradictions;
+- idempotency/replay of every retryable command;
+- authoritative principal boundaries;
+- candidate/evidence/review identity and invalidation;
+- branch/ref publication and ambiguous external effects;
+- DB backup/restore/schema/host-loss assumptions;
+- capability/network/MCP/credential isolation;
+- cancellation/orphan-process races;
+- risk classification/reviewer independence;
+- drain/upgrade/cutover;
+- any MUST that lacks a deterministic acceptance/fault test or an explicitly static invariant;
+- any Symphony/ECC/skills finding silently dropped;
+- any owner/runtime gate accidentally converted into implementation authority.
 
-Then explicitly check whether each prior blocker F-01 through F-12 is:
-- CLOSED,
-- OWNER-PENDING,
-- RUNTIME-PENDING, or
-- STILL OPEN.
+### Owner/runtime handling
 
-In particular verify:
-- ROADMAP/CURRENT_TRUTH no longer self-authorise a DEC-046 sequencing change;
-- owner adoption by exact freeze SHA is a required gate rather than inferred authority;
-- complete task/attempt/integration state and command semantics are executable and non-contradictory;
-- Candidate is durable before evidence completion;
-- CG-01..CG-06 are genuinely closed, including clean reconstruction;
-- risk taxonomy/default and CI/review gates are deterministic;
-- Evidence Collector is an explicit kernel principal outside worker authority;
-- candidate publication is kernel-only and workers have no push credential;
-- environment/toolchain fingerprint is actually checked;
-- AuthorityGrant expiry/revocation are enforced and tested;
-- watcher/builder mismatch has a concrete bounded remediation plan and Phase 1 is blocked on live closure;
-- no evidence-invalidation/store escape clauses remain;
-- reviewer independence is defined and testable;
-- candidate/integration evidence and reviews use exact generic subject identity;
-- every MUST-level invariant in both normative contracts has an acceptance test or is explicitly static.
-
-Also adversarially search for **new** contradictions introduced by the repairs. Pay special attention to:
-- terminal task states versus revision/cancellation;
-- attempt lifecycle edges;
-- integration correction/block/cancel semantics;
-- idempotency across every retryable mutation;
-- DB backup/restore and host-loss limitations;
-- mirror staleness/base-object retrieval;
-- network/tool/credential isolation;
-- artifact-store crash safety;
-- observability/audit event durability;
-- drain/upgrade/schema compatibility;
-- whether anything essential was improperly deferred to V1.x/V2.
-
-### Authority-specific verdict handling
-
-The owner has **not yet** made the F-01 sequencing/adoption decision. That absence by itself should be reported as `OWNER-PENDING`, not as an engineering-contract defect, **provided** the candidate correctly fails closed until owner adoption.
-
-The live watcher/builder mismatch should be `RUNTIME-PENDING`, not an engineering-contract defect, **provided** the remediation plan is technically sound, separately gated, and Phase 1/write-capable model execution cannot proceed before closure.
+Do not treat these as engineering defects if the contract correctly fails closed:
+- owner adoption of the exact freeze SHA and any DEC-046 sequencing amendment = **OWNER-PENDING**;
+- live watcher/builder branch mismatch = **RUNTIME-PENDING**;
+- inherited business MCP connector surface for unattended engineering workers = **RUNTIME-PENDING**.
 
 ### Verdict
 
-Return exactly one engineering verdict:
+Return exactly one:
 - `ENGINEERING CONTRACT READY — OWNER/RUNTIME GATES REMAIN`
 - `CHANGES REQUIRED BEFORE OWNER DECISION`
 
-If changes are required, list only material blocking engineering findings with:
-- ID/severity;
-- exact file/section;
-- failure/unsafe consequence;
-- smallest repair;
-- exact acceptance test required.
-
-List owner/runtime pending gates separately and do not conflate them with engineering defects.
-
-Do not approve because the documents are detailed. Try to break the contract.
+If changes are required, list only material engineering blockers with exact file/section, unsafe consequence, smallest repair and exact acceptance test. List owner/runtime pending gates separately. Do not approve because the documents are detailed; try to break them.
