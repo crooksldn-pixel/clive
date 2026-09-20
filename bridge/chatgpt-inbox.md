@@ -1,82 +1,65 @@
 # CHATGPT INBOX
 
-## Fresh independent read-only adversarial review — Orchestrator V1 freeze candidate c7c3d52
+## Bounded repair — Orchestrator V1 freeze K-01
 
-Review exact candidate only:
+Perform exactly one bounded repository-only repair round on the existing freeze-candidate branch.
+
+### Exact identities
 - repository: `crooksldn-pixel/clive`
 - canonical base: `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`
 - candidate branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
-- exact candidate SHA: `c7c3d523b7bafe5c73ae4d82275e6f1a297600f0`
-- parent/rejected SHA: `2f1acc0b7edd233735e419d92cfbade914b0042f`
-- J-01 repair outbox consumed: blob from the immediately preceding completed repair round; do not trust its prose without reproducing evidence.
+- rejected candidate: `c7c3d523b7bafe5c73ae4d82275e6f1a297600f0`
+- review inbox consumed: `7c038f0cd016dbf261b38f43f6c573db358d2fff`
+- review outbox blob: `9fb68c00e96a368ccdc198fb784bbffe7bddf626`
+- verdict: `CHANGES REQUIRED BEFORE OWNER DECISION`
+- only material blocker: K-01
 
-This is exactly one fresh independent **read-only** adversarial review. The previous verdict is stale for this SHA.
+Before editing, resolve canonical and candidate from fresh remote truth. Abort if identities or merge-base differ, or unrelated owner work is present. Never trust the known-stale tracking ref. Do not reset/clean/stash/discard owner work.
 
 ### Hard scope
-Read-only everywhere except normal publication of `bridge/claude-outbox.md`. Do not edit candidate/canonical/product code or docs, commit, push, merge, deploy, switch/reset/clean/stash owner work, change watcher/systemd/runtime, repair the stale Builder fetch refspec, alter `/root/.claude` or account/global settings, change MCP/connectors, read new secrets, widen privileges, perform CROOKS/CLIVE business writes, expose anything publicly, spend externally, adopt the freeze, or amend DEC-046/DEC-047.
+This round is **test-module-only** unless a strictly necessary correction to the test's own documentation is inside that same module:
+- allowed file: `crooks-assistant/tests/test_orchestrator_freeze_spec.py`
+- do not change freeze-contract/state-API/acceptance/traceability prose; the independent review found the J-01/H-03/H-04 contract itself sound.
+- no production/runtime/systemd/watcher changes, stale-refspec repair, secrets reads, account/global Claude changes, MCP/connector changes, privilege expansion, business writes, public exposure, destructive operations, spend, merge, adoption, DEC-046/047 changes, or Orchestrator implementation.
+- do **not** take the review's optional non-blocking §3B row-504 hardening in this round. Keep this repair single-purpose.
 
-### Identity first
-Resolve candidate and canonical refs from fresh remote truth using explicit full refs / ls-remote. Abort review as BLOCKED if candidate != exact `c7c3d523b7bafe5c73ae4d82275e6f1a297600f0`, canonical != exact `9e59860a945ec339c69af8709cd0721f0a795327`, merge-base(candidate, canonical) != canonical, or unrelated owner work contaminates the review workspace. Never trust the known-stale tracking ref. Verify `2f1acc0..c7c3d52` is exactly one commit and inspect the full five-file diff.
+### K-01 repair
+The current helper `attempt_rows_committing_the_cleanup_handle()` only detects the literal phrase:
+``lease.owned_process_group_handle` is committed`
+so an operative second write in a real §3A row using ordinary paraphrases such as `is written` or `is rewritten` passes the gate.
 
-### Re-review J-01 aggressively
-Try to break the new durable occupancy model rather than confirming the narrative.
+Replace that single-verb detector with a structural/fail-closed classifier over every §3A transition-row mention of `lease.owned_process_group_handle`.
 
-Verify from the actual normative tables/state enum/transitions that:
-- `review_dispatch.QUARANTINED` is durable, authority-terminal, distinct from clean `FENCED`, and cannot admit a result;
-- EXTERNAL reviewers never acquire kernel cleanup/quarantine semantics merely because they lack a process-group handle;
-- occupancy is a pure function of committed records and counts cleanup-unproven terminal records, not terminality/non-terminality alone;
-- a QUARANTINED kernel-owned dispatch holds both its required-review slot and global reviewer-concurrency unit across controller restart/epoch change/DB restore;
-- a CLOSED/QUARANTINED attempt with an unretired owned-process-group handle holds its implementation/integration execution capacity and lease;
-- same-slot replacement and different-subject admission cannot exceed the configured ceiling while quarantine occupancy exists;
-- the only dispatch release transition is cleanup-proven `QUARANTINED -> FENCED`, committed after authoritative emptiness proof, without restoring result authority;
-- attempt occupancy release by durable handle retirement likewise requires authoritative emptiness proof and does not decrement/reset R-02 execution-attempt budget or create a relaunch path;
-- clean cancellation/fencing releases promptly only after cleanup proof and does not leak capacity;
-- stale/recycled process identity remains fail-closed;
-- §3.1, §3B, §3D, §6, FC §15, FC §19, FC §21 and ST-13/ST-16/ST-17/RS-03/RS-04 agree without a second contradictory accounting rule.
+Requirements:
+1. Every relevant §3A row/cell mentioning the cleanup handle must be classified into exactly one semantic class:
+   - WRITES
+   - PROHIBITS_WRITE
+   - READS_ONLY
+2. Use a closed, explicit marker set. WRITES must cover at least: committed, written, rewritten, updated, replaced, cleared, set, recorded, populated, assigned, superseded and normal grammatical variants needed by the actual spec.
+3. Negated/prohibition forms such as `MUST NOT update, replace or clear` must classify as PROHIBITS_WRITE rather than WRITES.
+4. Read-only/reference forms such as `identified from`, `read from`, `named by`, `proven by`, `MUST NOT be used as` must not count as writes.
+5. Any handle mention that cannot be classified unambiguously must make the freeze gate fail closed. Unknown wording is not silently ignored.
+6. Derive the real WRITES rows from actual §3A transition rows. Assert their count equals the declared cardinality and the sole write row equals the declared `CREATED -> STARTING` write point.
+7. Keep the independent prohibition/cardinality checks. Do not solve this by adding another narrow blacklist.
+8. Correct the test docstring so it claims only what the implementation actually proves.
 
-Attack cross-resource cases: quarantined reviewer + unrelated reviewer, quarantined implementation attempt + integration attempt, multiple tasks, restart during reconciliation, crash after emptiness proof but before release commit, crash after release commit, and late result before/during/after release transition.
+### Required mutation proof
+Add a parametrised test/harness that leaves §3A.3's prohibition and declared count `1` intact while injecting an operative second write into the real `STARTING -> RUNNING` row. At minimum prove each of these is caught:
+- `is written`
+- `is rewritten`
+- `is updated to`
+- `is replaced with`
+- `is set to`
 
-### H-03 structural guard
-The prior review showed a paraphrased two-group handover could coexist with a prohibition and still pass. Verify the new positive cardinality/write-point invariant actually derives one lifetime owned group and one handle write point from the real transition rows, and cannot be bypassed by adding a second semantically equivalent write/handover path or by rephrasing the old defect. Check that FC §11 and SA §3A.3 still agree.
+Also rerun the seven mutation cases from the review. All **7/7 must be caught** for structural/derived reasons, with the pristine candidate control green. Specifically the prior variants A/B that returned 63 passed must flip to a failing gate.
 
-### Mechanical-test quality / false-green search
-Re-run the committed freeze-spec suite if possible. Reproduce the implementer's failing-before evidence against exact parent `2f1acc0` using immutable blobs/scratch only. Independently inspect the new test logic, not just its pass count. Try mutations equivalent to:
-1. FC §19 counts non-terminal dispatches only;
-2. step-7 unproven cleanup releases occupancy;
-3. QUARANTINED dispatch represented as FENCED;
-4. per-slot uniqueness ignores quarantine;
-5. release transition no longer requires proven emptiness;
-6. attempt quarantine no longer occupies capacity;
-7. a paraphrased second attempt process-group handover/write path is introduced.
-A conforming gate should fail each unsafe mutation for a structural/derived reason, not only a brittle phrase blacklist.
+### Evidence
+Prove failing-before against exact rejected SHA `c7c3d52` using immutable/hash-verified blobs or equivalent scratch without modifying owner work. Then run:
+- committed freeze-spec suite;
+- the required mutation suite/evidence;
+- relevant Ruff/static checks;
+- changed-file secret scan with no values printed.
 
-### Full regression search
-Also re-check all prior resolved classes N-01..N-04, B-01..B-05, R-01..R-03, F-01..F-03, G-01..G-03, H-01..H-04 for regression. Recompute/inspect:
-- zero dangling acceptance IDs;
-- complete §18A MUST coverage;
-- every non-terminal attempt state has terminal cleanup/fencing;
-- delivery enum ↔ §3C completeness and crash/idempotency guarantees;
-- subject/attempt/reviewer/integration joint-state legality;
-- restart/epoch/stale-result fencing;
-- attempt-ceiling liveness/safety;
-- journal completeness;
-- no self-adoption;
-- no DEC-046/DEC-047 sequencing drift.
+Before publishing report exact base/rejected/new SHA, exact changed-file set (expected one file), tests/mutations, clean worktree and exact remote readback. Publish only to the existing freeze-candidate branch.
 
-Search for any new material engineering blocker, not just J-01. Distinguish engineering blockers from known owner/runtime gates.
-
-### Owner/runtime separation
-These remain separate and are not engineering defects if the contract correctly fails closed:
-- exact freeze adoption by SHA = OWNER-PENDING;
-- any DEC-046 sequencing amendment = OWNER-PENDING;
-- live watcher/builder branch mismatch = RUNTIME-PENDING;
-- stale Builder fetch refspec = RUNTIME-PENDING;
-- inherited business MCP connector surface = RUNTIME-PENDING.
-Do not remediate them.
-
-### Verdict
-Return exactly one:
-- `ENGINEERING CONTRACT READY — OWNER/RUNTIME GATES REMAIN`
-- `CHANGES REQUIRED BEFORE OWNER DECISION`
-
-If changes are required, report only material engineering blockers with exact location, concrete failure scenario/consequence, smallest bounded repair, and exact acceptance/mechanical test. Record reviewer-independence limitations. Do not self-certify because the documents are detailed; try to break the contract.
+Do not self-certify. Previous verdict becomes stale for the changed SHA. State that exactly one fresh independent read-only adversarial review bound to the new exact SHA is required next.
