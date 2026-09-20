@@ -143,6 +143,26 @@ def coverage_index() -> dict[str, str]:
     return index
 
 
+def table_rows_in_numbered_section(path: Path, section: str) -> list[list[str]]:
+    """Return non-header markdown table rows from one numbered section."""
+    rows: list[list[str]] = []
+    in_section = False
+    heading_re = re.compile(r"^##\\s+" + re.escape(section) + r"(?:\\.|\\s)")
+    for line in read(path).splitlines():
+        if heading_re.match(line):
+            in_section = True
+            continue
+        if in_section and re.match(r"^##\\s", line):
+            break
+        if not in_section or not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.split("|")[1:-1]]
+        if not cells or cells[0] in {"From", "---"}:
+            continue
+        rows.append(cells)
+    return rows
+
+
 # --------------------------------------------------------------------------------------------
 # B-03 — no normative document may cite an acceptance case that does not exist.
 # --------------------------------------------------------------------------------------------
@@ -154,7 +174,7 @@ def test_matrix_defines_the_acceptance_cases_the_freeze_gate_assumes() -> None:
     assert len(ids) > 100, f"matrix looks truncated: only {len(ids)} rows parsed"
     for required in ("EN-01", "EN-02", "EN-03", "EN-04"):
         assert required in ids, f"{required} missing; CG-05 would again cite a phantom family"
-    for required in ("RV-11", "RV-12", "RV-13", "PR-09", "PR-10", "IN-11", "IN-12", "IN-13", "IN-15", "IN-16", "IN-17", "ST-14", "ID-07"):
+    for required in ("RV-11", "RV-12", "RV-13", "PR-09", "PR-10", "IN-11", "IN-12", "IN-13", "IN-15", "IN-16", "IN-17", "IN-18", "ST-14", "ID-07", "DL-01", "DL-02", "DL-03", "DL-04", "DL-05"):
         assert required in ids, f"{required} missing from the acceptance matrix"
 
 
@@ -370,30 +390,65 @@ def test_fence_stale_is_a_classified_reason_code() -> None:
 
 
 def test_integration_launch_is_split_into_allocation_then_preflight() -> None:
-    """R-01: integration allocation and preflight must be two legal, jointly representable phases."""
+    """F-01: subject and attempt matrices agree on the exact integration-start sequence."""
     api = read(STATE_API)
     assert "| `integration.begin` | integrator coordinator | CREATED -> INTEGRATING" in api
     begin_line = next(line for line in api.splitlines() if line.startswith("| `integration.begin` |"))
     assert "no model/toolchain preflight" in begin_line
     assert "| `integration.start` | runner adapter |" in api
-    assert "`attempt.start` (TASK) / `integration.start` (INTEGRATION)" in api
-    assert "integration INTEGRATING + attempt CREATED/STARTING | integration.start" in api
-    assert "integration CREATED | integration.cancel | integration CANCELLED" in api
-    assert "no fictitious execution record to fence" in api
+
+    subject_rows = table_rows_in_numbered_section(STATE_API, "3")
+    attempt_rows = table_rows_in_numbered_section(STATE_API, "3A")
+
+    subject_start = [row for row in subject_rows if len(row) >= 3 and row[1] == "integration.start"]
+    assert len(subject_start) == 1, subject_start
+    assert subject_start[0][0] == "integration INTEGRATING"
+    assert "attempt CREATED/STARTING" not in subject_start[0][0]
+
+    created_edges = [
+        row for row in attempt_rows
+        if len(row) >= 3 and row[0] == "CREATED" and "integration.start" in row[1] and row[2] == "STARTING"
+    ]
+    running_edges = [
+        row for row in attempt_rows
+        if len(row) >= 3 and row[0] == "STARTING" and "integration.start" in row[1] and row[2] == "RUNNING"
+    ]
+    assert len(created_edges) == 1, created_edges
+    assert len(running_edges) == 1, running_edges
+
+
+def test_every_nonterminal_attempt_state_has_a_terminal_fencing_or_cleanup_edge() -> None:
+    """F-03: allocation/preflight races cannot strand an authoritative lease forever."""
+    rows = table_rows_in_numbered_section(STATE_API, "3A")
+    for state in ("CREATED", "STARTING", "RUNNING", "CANDIDATE_READY"):
+        terminal = [row for row in rows if len(row) >= 3 and row[0] == state and "CLOSED" in row[2]]
+        assert terminal, f"{state} has no terminal attempt edge"
+
+    api = read(STATE_API)
+    assert "CREATED | `task.cancel` / `integration.cancel`" in api
+    assert "STARTING | `task.cancel` / `integration.cancel`" in api
+    assert "STARTING | cancellation/fencing event where a preflight process group cannot be proven stopped" in api
 
 
 def test_attempt_ceiling_is_a_transition_guard_not_only_prose() -> None:
     """R-02: the fourth attempt is impossible because every TASK allocation path checks the ceiling."""
     api = read(STATE_API)
     contract = read(FREEZE_CONTRACT)
-    assert api.count("per-revision attempt ceiling not exhausted") >= 2
+    subject_rows = table_rows_in_numbered_section(STATE_API, "3")
+    assign_rows = [
+        row for row in subject_rows
+        if len(row) >= 4 and row[1] == "attempt.assign" and row[0] in {"PLANNED", "REJECTED"}
+    ]
+    assert {row[0] for row in assign_rows} == {"PLANNED", "REJECTED"}
+    assert all("per-revision attempt ceiling not exhausted" in row[3] for row in assign_rows)
     assert "both TASK branches the per-revision attempt ceiling must not be exhausted" in api
+    assert "computed authoritatively from durable `attempt` rows" in api
     assert "BLOCKED` to **`ESCALATED`**" in contract
     assert "no further `attempt.assign` is admissible" in contract
 
 
-def test_delivery_has_its_own_authority_and_journal_subject() -> None:
-    """R-03: delivery is journalled but is not forced through an execution-record fence it does not own."""
+def test_delivery_has_its_own_authority_and_complete_state_machine() -> None:
+    """F-02: delivery authority and every declared delivery state have normative transitions."""
     api = read(STATE_API)
     contract = read(FREEZE_CONTRACT)
     assert "TASK|INTEGRATION|CANDIDATE|REVIEW|DELIVERY" in api
@@ -402,6 +457,32 @@ def test_delivery_has_its_own_authority_and_journal_subject() -> None:
     assert "Delivery updates are not execution-record admissions" in contract
     assert "delivery idempotency key" in contract
     assert "idempotency-key/request-digest conflict" in contract
+
+    delivery_record = api.split("### `delivery`", 1)[1].split("### `idempotency`", 1)[0]
+    state_line = next(line for line in delivery_record.splitlines() if "state `" in line)
+    match = re.search(r"state `([^`]+)`", state_line)
+    assert match is not None
+    declared = set(match.group(1).split("|"))
+
+    rows = table_rows_in_numbered_section(STATE_API, "3C")
+    assert rows, "§3C delivery transition matrix missing"
+    to_states: set[str] = set()
+    for row in rows:
+        if len(row) < 3:
+            continue
+        for state in declared:
+            if re.search(rf"\\b{re.escape(state)}\\b", row[2]):
+                to_states.add(state)
+    assert declared <= to_states, f"delivery states with no incoming normative edge: {sorted(declared - to_states)}"
+
+    section2 = table_rows_in_numbered_section(STATE_API, "2")
+    delivery_commands = {
+        row[0].strip("`") for row in section2
+        if row and row[0].startswith("`delivery.")
+    }
+    matrix_commands = " ".join(row[1] for row in rows if len(row) >= 2)
+    for command in delivery_commands:
+        assert command in matrix_commands, f"{command} has no §3C transition row"
 
 # --------------------------------------------------------------------------------------------
 # Regression guards for the previously validated N-series repairs.
@@ -412,7 +493,7 @@ def test_traceability_dispositions_every_reviewed_finding() -> None:
     """Silence is not a disposition: N-01..N-04 and B-01..B-05 each carry an explicit row."""
     text = read(TRACEABILITY)
     assert "Silence is not a disposition." in text
-    for finding in ("N-01", "N-02", "N-03", "N-04", "B-01", "B-02", "B-03", "B-04", "B-05", "R-01", "R-02", "R-03"):
+    for finding in ("N-01", "N-02", "N-03", "N-04", "B-01", "B-02", "B-03", "B-04", "B-05", "R-01", "R-02", "R-03", "F-01", "F-02", "F-03"):
         assert f"re-review {finding} " in text, f"{finding} has no traceability disposition"
 
 
