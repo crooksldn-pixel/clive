@@ -109,9 +109,10 @@ def test_f1_a_protected_cwd_whose_exact_directory_is_unknown_still_refuses() -> 
     denied("cd /opt/crooks-os/$X && cp /tmp/x app/", "PROTECTED-CWD")
     # A target the hook cannot resolve is refused under a protected cwd rather than assumed.
     denied("cd /opt/crooks-os && echo x > $OUT", "PROTECTED-CWD")
-    # `>|` is also split by the segmenter at its `|`, so the residual is the command word;
-    # the verdict is the cwd backstop rather than the path rule, but it is a denial.
-    denied("cd /opt/crooks-os && echo x >| app/main.py", "PROTECTED-CWD")
+    # Until the repair of fe96bb6 (F-6) the segmenter split `>|` at its `|`, the residual
+    # became the command word and the verdict was the cwd backstop by accident. `>|` is now
+    # lexed as the clobber operator, so the verdict is the path rule's — still a denial.
+    denied("cd /opt/crooks-os && echo x >| app/main.py", "PROTECTED-PATH")
 
 
 def test_f1_reads_from_and_absolute_writes_out_of_a_protected_cwd_stay_allowed() -> None:

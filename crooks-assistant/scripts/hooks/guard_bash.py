@@ -136,6 +136,15 @@ GIT_ENV_PATHS = frozenset({"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_IN
 SUBST_MARKER = "$SUBST"
 MAX_SUBSTITUTION_NESTING = 16
 DYNAMIC_WORD_CHARS = "$`{*?["
+# Every bash redirection operator, longest spelling first. An unquoted operator ends the word
+# in front of it — `echo x>f` is `echo x >f` — unless that word is a bare descriptor number
+# (`2>f`, `2>&1`), which bash keeps with the operator (F-6 of the review of fe96bb6).
+REDIRECT_OPERATOR_RE = re.compile(r"&>>|&>|>>|>\||>&|>|<<<|<<-|<<|<>|<&|<")
+# The operators that open a file for writing, with the optional descriptor number in front and
+# whatever is glued after them. `>&` writes a file only when its operand is not a descriptor
+# number or `-` (`>&2` duplicates; `>&log` is `&>log`).
+OUTPUT_REDIRECT_RE = re.compile(r"^(\d*)(&>>|&>|>>|>\||>&|>|<>)(.*)$", re.DOTALL)
+ANY_REDIRECT_RE = re.compile(r"^(\d*)(&>>|&>|>>|>\||>&|>|<<<|<<-|<<|<>|<&|<)(.*)$", re.DOTALL)
 
 READ_ONLY_COMMANDS = frozenset(
     {"cat", "ls", "stat", "head", "tail", "wc", "grep", "rg", "egrep", "fgrep", "zgrep", "diff",
@@ -457,10 +466,12 @@ def _heredoc_owner(line: str) -> str:
     """'shell' when the heredoc feeds sh/bash, 'code' when it feeds an interpreter, else
     'prose'. The whole line is read (D-04): `cat <<EOF | bash` feeds a shell even though the
     shell sits to the right of the operator. An owner that cannot be parsed counts as a shell
-    (fail closed)."""
+    (fail closed). The words are read the way the evaluator reads them — split at unquoted
+    `|`, `;`, `&` and at redirection operators — so `cat<<EOF|bash` and `cat <<EOF|bash` feed
+    a shell exactly as `cat <<EOF | bash` does (F-6)."""
     head, _, tail = line.partition("<<")
     try:
-        words = shlex.split(head + " " + tail, posix=True)
+        words = [w for seg, _piped in _segments(head + " " + tail) for w in _tokens(seg)[0]]
     except ValueError:
         return "shell"
     bases = [_basename(w) for w in words]
@@ -535,13 +546,18 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
     then sees a dynamic word wherever the substitution's output would be the command word —
     on its own, behind a passthrough wrapper or an assignment, or glued to a literal prefix
     (D-03; F-2/F-3 of the review of d7911b2) — and leaves it inert as an argument
-    (`echo $(date)`, `x=$(…)`). An unterminated substitution raises ValueError."""
+    (`echo $(date)`, `x=$(…)`). An unterminated substitution raises ValueError.
+
+    A `|` or `&` that is part of a redirection operator — `>|`, `&>`, `&>>`, `>&`, `<&` —
+    stays in the word with its operator rather than ending the segment (F-6 of the review of
+    fe96bb6), so that `echo x>|f` and `echo x&>f` reach the tokenizer as a redirection."""
     if nesting > MAX_SUBSTITUTION_NESTING:
         raise ValueError("substitutions nested too deeply")
     out: list[tuple[str, bool]] = []
     buf: list[str] = []
     quote: str | None = None
     piped = False
+    tail = ""  # the last two unquoted, unescaped characters appended; "" after a boundary
     i = 0
     n = len(text)
 
@@ -558,6 +574,7 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
         if ch == "\\" and quote != "'":
             buf.append(text[i : i + 2])
             i += 2
+            tail = ""
             continue
         if quote:
             if ch == quote:
@@ -569,6 +586,7 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
             quote = ch
             buf.append(ch)
             i += 1
+            tail = ""
             continue
         if ch == "#" and (i == 0 or text[i - 1] in " \t;|&(\n"):
             # A word-initial unquoted `#` starts a comment. shlex's own comment handling would
@@ -577,13 +595,25 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
             while i < n and text[i] != "\n":
                 i += 1
             continue
+        after_single_arrow = tail.endswith((">", "<")) and not tail.endswith((">>", "<<"))
         if ch == "|":
+            if after_single_arrow and tail.endswith(">"):
+                buf.append(ch)  # `>|`: the clobber operator, not a pipe
+                i += 1
+                tail = ""
+                continue
             if text.startswith("||", i):
                 flush(False)
                 i += 2
             else:
                 flush(True)
                 i += 1
+            tail = ""
+            continue
+        if ch == "&" and (after_single_arrow or text.startswith("&>", i)):
+            buf.append(ch)  # `>&`, `<&`, `&>`, `&>>`: a redirection, not a background operator
+            i += 1
+            tail = (tail + ch)[-2:]
             continue
         if ch == "`" or text.startswith("$(", i):
             end = _substitution_end(text, i)
@@ -591,13 +621,16 @@ def _segments(text: str, nesting: int = 0) -> list[tuple[str, bool]]:
             out.extend(_segments(body, nesting + 1))
             buf.append(SUBST_MARKER)
             i = end + 1
+            tail = ""
             continue
         if ch in ("(", ")", ";", "\n", "&"):
             flush(False)
             i += 1
+            tail = ""
             continue
         buf.append(ch)
         i += 1
+        tail = (tail + ch)[-2:]
     if quote:
         raise ValueError("unbalanced quote")
     flush(False)
@@ -652,10 +685,69 @@ def _double_quoted_substitutions(segment: str) -> list[str]:
     return [b for b in out if b.strip()]
 
 
+def _split_redirects(segment: str) -> str:
+    """Put a space in front of every unquoted redirection operator that is glued to the word
+    before it, so that shlex ends the word where bash does: `echo x>f` becomes `echo x >f`,
+    `'ls'>f` becomes `'ls' >f`, `x>a>b` becomes `x >a >b`. A word that is a bare, unquoted
+    descriptor number keeps its operator (`2>f`, `2>&1`), as in bash; `x2>f`, `"2">f` and
+    `\\2>f` are words followed by a redirection. Quoted and escaped operator characters are
+    text and are left alone. Only spaces are inserted: nothing is removed or reordered
+    (F-6 of the review of fe96bb6)."""
+    out: list[str] = []
+    quote: str | None = None
+    word = ""  # the current word so far; "" at a word boundary
+    word_plain = True  # no quote, escape or operator has contributed to the current word
+    i = 0
+    n = len(segment)
+    while i < n:
+        ch = segment[i]
+        if ch == "\\" and quote != "'":
+            out.append(segment[i : i + 2])
+            i += 2
+            word += ch
+            word_plain = False
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+            out.append(ch)
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            out.append(ch)
+            i += 1
+            word += ch
+            word_plain = False
+            continue
+        if ch in (" ", "\t"):
+            out.append(ch)
+            i += 1
+            word = ""
+            word_plain = True
+            continue
+        m = REDIRECT_OPERATOR_RE.match(segment, i)
+        if m:
+            op = m.group()
+            descriptor = word_plain and word.isdigit() and op[0] in "<>"
+            if word and not descriptor:
+                out.append(" ")
+            out.append(op)
+            i += len(op)
+            word = op  # the operator starts a new word, which is never a descriptor number
+            word_plain = False
+            continue
+        out.append(ch)
+        i += 1
+        word += ch
+    return "".join(out)
+
+
 def _tokens(segment: str) -> tuple[list[str], list[tuple[str, str]]]:
     """Shell words of one segment, and the leading `NAME=value` assignments that were in front
-    of the command word (inspected by the evaluator, D-05)."""
-    toks = shlex.split(segment, comments=False, posix=True)
+    of the command word (inspected by the evaluator, D-05). Every unquoted redirection
+    operator ends the word before it, as in bash (F-6)."""
+    toks = shlex.split(_split_redirects(segment), comments=False, posix=True)
     assigned: list[tuple[str, str]] = []
     while toks and (toks[0] in RESERVED or ASSIGNMENT_RE.match(toks[0])):
         t = toks.pop(0)
@@ -890,10 +982,10 @@ def _shell_texts(toks: list[str], piped_from: list[str] | None) -> list[str]:
             continue
         if re.match(r"^\d*<", t):
             raise ValueError("stdin redirected from a file")
-        if re.match(r"^\d*(>>|>\||>|&>>|&>)$", t):
+        if re.match(r"^\d*(>>|>\||>&|>|&>>|&>)$", t):
             i += 2
             continue
-        if re.match(r"^\d*(>>|>\||>|&>>|&>)", t):
+        if re.match(r"^\d*(>>|>\||>&|>|&>>|&>)", t):
             i += 1
             continue
         if t in ("-o", "+o", "-O", "+O"):
@@ -1254,23 +1346,57 @@ def _write_target_problem(target: str, what: str, ctx: _Ctx, *,
     return _sensitive_write(target)
 
 
-def _path_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
-    # Redirections into a protected or write-sensitive path, whatever the command.
+def _redirect_targets(toks: list[str]) -> list[str]:
+    """The file every output redirection in `toks` opens for writing. `_tokens` has already
+    ended each word at its operator (F-6), so an operator is either a token of its own (`>`,
+    `2>>`, `&>`) followed by its target, or glued to its target (`>f`, `2>>f`). `>&N`, `>&-`
+    and `N>&M` duplicate a descriptor and open nothing; `>&word` is `&>word`."""
     targets: list[str] = []
-    for i, t in enumerate(toks):
-        if re.match(r"^\d*(&>>|&>|>>|>\||>)$", t):
-            if i + 1 < len(toks):
-                targets.append(toks[i + 1])
+    i = 0
+    while i < len(toks):
+        m = OUTPUT_REDIRECT_RE.match(toks[i])
+        i += 1
+        if not m:
             continue
-        m = re.match(r"^\d*(&>>|&>|>>|>\||>)([^>|&].*)$", t)
-        if m:
-            targets.append(m.group(2))
-    for target in targets:
+        op, rhs = m.group(2), m.group(3)
+        if not rhs and i < len(toks):
+            rhs = toks[i]
+            i += 1
+        if op == ">&" and (rhs.isdigit() or rhs == "-"):
+            continue
+        if rhs:
+            targets.append(rhs)
+    return targets
+
+
+def _without_redirections(toks: list[str]) -> list[str]:
+    """`toks` minus every redirection operator and its operand, so that a command's own
+    operands can be read without a trailing `>log` or `2>/dev/null` being mistaken for one."""
+    kept: list[str] = []
+    i = 0
+    while i < len(toks):
+        m = ANY_REDIRECT_RE.match(toks[i])
+        i += 1
+        if not m:
+            kept.append(toks[i - 1])
+            continue
+        if not m.group(3):
+            i += 1  # the operand is the next token
+    return kept
+
+
+def _path_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
+    # Every output redirection is a write, whatever the command: a read-only `echo`, `printf`
+    # or `cat` with `>` is writing (F-6). Its target is checked first, and independently of
+    # the base command's read-only status below, resolved the way the shell resolves it.
+    for target in _redirect_targets(toks):
         result = _write_target_problem(target, "redirecting output", ctx)
         if result is not None:
             return result
     if base in ("cp", "scp", "rsync", "install"):
-        positional = [t for t in toks[1:] if not t.startswith("-")]
+        # The destination is the last operand of the command itself; a redirection after it
+        # (`cp x /opt/crooks-os/app/ >log`) is not the destination and was checked above.
+        positional = [t for t in _without_redirections(toks[1:]) if not t.startswith("-")]
         if positional:
             result = _write_target_problem(positional[-1], base, ctx,
                                            remote_ok=base in ("scp", "rsync"))
@@ -1899,9 +2025,9 @@ def _disk_rule(base: str, toks: list[str], ctx: _Ctx) -> Decision | None:
         return deny("DISK-DESTRUCTIVE", f"{base}")
     if base == "dd" and any(t.startswith("of=/dev/") for t in toks):
         return deny("DISK-DESTRUCTIVE", "dd writing to a device")
-    for t in toks:
-        m = re.match(r"^\d*(>>|>)(/dev/(sd|nvme|vd|hd|mmcblk|disk).*)$", t)
-        if m:
+    # Spaced or glued, the same targets `_path_rule` reads (F-6): `> /dev/sda` was unseen.
+    for target in _redirect_targets(toks):
+        if re.match(r"^/dev/(sd|nvme|vd|hd|mmcblk|disk)", target):
             return deny("DISK-DESTRUCTIVE", "redirecting into a block device")
     return None
 
