@@ -205,7 +205,7 @@ Commands are deterministic kernel operations. A local library/CLI/API may expose
 | `task.fail` | kernel | enter FAILED when approved execution budget exhausted |
 | `task.cancel` | authorised controller/Owner/Director policy | fence active attempt; enter CANCELLED |
 | `task.supersede` | Director/Owner | fence active attempt; enter SUPERSEDED |
-| `attempt.assign` | scheduler | PLANNED -> ASSIGNED; create attempt/workspace reservation + lease |
+| `attempt.assign` | scheduler | PLANNED or bounded-correction REJECTED -> ASSIGNED; create a fresh attempt/workspace reservation + lease |
 | `attempt.start` | runner adapter | ASSIGNED -> BUILDING only after measured preflight |
 | `attempt.heartbeat` | current runner adapter | renew current lease only |
 | `attempt.cancel_ack` | runner/process manager | record process-tree stop/quarantine outcome |
@@ -270,14 +270,16 @@ Any transition not listed is forbidden.
 
 ## 3A. Attempt transition matrix
 
-Attempt transitions are independent from the task state transaction but must be performed atomically with the corresponding lease/task mutation where one exists.
+The task matrix in §3 is authoritative for **task-state** changes. This attempt matrix is authoritative for **attempt-state** changes and adds attempt-specific preconditions. Where one command changes both task and attempt state, **both tables must permit the same operation**; the kernel uses their intersection. Any disagreement is a specification error and MUST fail closed rather than allowing either table to override the other silently.
+
+Attempt transitions are independent records from the task state transaction but must be performed atomically with the corresponding lease/task mutation where one exists.
 
 | From | Trigger/command | To | Preconditions / result |
 | --- | --- | --- | --- |
-| none | `attempt.assign` | CREATED | task PLANNED; capacity/workspace reservation succeeds; new epoch/fence bound |
+| none | `attempt.assign` | CREATED | task is `PLANNED`, or task is `REJECTED` with bounded-correction budget available as permitted by §3; capacity/workspace reservation succeeds; new epoch/fence bound |
 | CREATED | runner preflight begins | STARTING | current lease; workspace exists; no model process yet |
 | STARTING | `attempt.start` | RUNNING | exact base/branch/environment/tool/capability checks pass; owned process group established |
-| STARTING | preflight deterministic failure | CLOSED / FAILED or QUARANTINED | no model launch; task becomes BLOCKED/FAILED according to typed cause |
+| STARTING | preflight deterministic failure | CLOSED / FAILED or QUARANTINED | no model launch; task transitions to `BLOCKED` through the legal §3 `task.block` edge with the typed precondition reason. Attempt disposition is `FAILED` when cleanup is proven complete, or `QUARANTINED` when process/workspace safety cannot be proven. A preflight failure does not use `task.fail` from ASSIGNED. |
 | RUNNING | `candidate.register` | CANDIDATE_READY | current epoch/fence; immutable candidate commit independently measured and Candidate row persisted |
 | RUNNING | process exits without candidate | CLOSED / FAILED | diagnostics/evidence persisted; task retry/correction policy decides next task state |
 | RUNNING | `task.cancel` / fencing event | CLOSED / CANCELLED or FENCED | old token immediately loses authority; process cleanup follows §6 |
