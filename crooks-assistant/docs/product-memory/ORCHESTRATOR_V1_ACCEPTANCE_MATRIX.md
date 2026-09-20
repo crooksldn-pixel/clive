@@ -216,128 +216,73 @@
 
 | ID | Scenario | Expected invariant / result |
 | --- | --- | --- |
-| PB-01 | Git push succeeds, response lost | remote ref/SHA readback reconciles before retry |
-| PB-02 | force-push/branch deletion by outside actor | candidate SHA record survives; routing ref drift surfaced |
-| PB-03 | worker attempts production push | denied by credential/policy layer |
-| PB-04 | remote branch points to unexpected SHA | publication blocked/escalated; no blind overwrite |
-| PB-05 | branch name reused for unrelated history | immutable candidate/base SHA ancestry checks prevent confusion |
-| PB-06 | worker attempts any remote push using attempt credentials | fails at credential/capability layer; worker has no usable push credential |
-| PB-07 | kernel candidate publication succeeds but acknowledgement is lost | kernel reconciles namespaced candidate ref against exact candidate SHA and returns the same idempotent result without rebuilding/force-updating |
+| PB-01 | Git publication times out after send | controller does not blind-push again; reconcile exact remote ref/SHA first |
+| PB-02 | remote already contains exact intended SHA/ref | treat as success idempotently |
+| PB-03 | remote contains different SHA at expected ref | BLOCKED; no force push |
+| PB-04 | branch name matches but commit ancestry wrong | exact SHA/ancestry wins; reject |
+| PB-05 | worker attempts force push / protected branch write | denied by capability policy |
+| PB-06 | worker attempt has a usable remote push credential or can directly publish its candidate | preflight/policy rejects launch; candidate publication authority belongs only to the kernel publication adapter |
+| PB-07 | publication adapter creates candidate ref, response is lost, retry observes the same create-only ref at exact candidate SHA | reconcile as success; never create a second authoritative Candidate or force-update the ref |
 
-## 13. Database, disk and recovery
-
-| ID | Scenario | Expected invariant / result |
-| --- | --- | --- |
-| DB-01 | clean startup integrity check | controller may reconcile |
-| DB-02 | integrity check fails | no dispatch; BLOCKED with restore path |
-| DB-03 | migration succeeds | schema version advanced atomically; post-check passes |
-| DB-04 | migration interrupted/fails | old DB restored/left valid; no partial scheduling state |
-| DB-05 | backup restore | new epoch; stale leases/results rejected |
-| DB-06 | disk crosses high-watermark | new task admission stops before ENOSPC |
-| DB-07 | evidence storage write fails after candidate commit exists | Candidate remains durable/discoverable with null manifest digest; task stays BUILDING and cannot reach EVIDENCE_READY; no duplicate build is dispatched |
-| DB-08 | safe GC | accepted/reconciliation-required artifacts retained; only eligible disposable data removed |
-| DB-09 | newer schema opened by old binary | binary refuses to start writer mode |
-| DB-10 | abrupt host reboot | startup reconciliation restores deterministic state before dispatch |
-| DB-11 | backup artifact is truncated/corrupt | backup integrity check/restore rehearsal fails; it cannot be declared usable recovery evidence |
-| DB-12 | periodic backup is restored in rehearsal | exact schema/invariants load, new epoch fencing works and reconciliation begins in no-dispatch mode |
-
-## 14. Drain, upgrade and cutover
+## 13. Database durability and recovery
 
 | ID | Scenario | Expected invariant / result |
 | --- | --- | --- |
-| UP-01 | enter DRAINING | no new assignments; reconciliation continues |
-| UP-02 | active attempt during drain | follows explicit finish/cancel policy; no surprise reassignment |
-| UP-03 | upgrade with ambiguous remote publication | upgrade blocked until reconciled |
-| UP-04 | schema upgrade | backup + integrity + exclusive authority required |
-| UP-05 | new binary fails smoke test | scheduling remains stopped; rollback/recovery path invoked |
-| UP-06 | old binary incompatible with new schema | downgrade fails closed |
-| UP-07 | existing bridge cutover | persist watermark, only one consumer enabled, watcher retained as rollback until parity proven |
+| DB-01 | abrupt controller kill during WAL activity | integrity check passes or controller blocks for recovery; no silent scheduling |
+| DB-02 | DB corruption detected | DRAINING/BLOCKED; restore procedure required |
+| DB-03 | restore backup | epoch increment + stale lease invalidation + full reconciliation before dispatch |
+| DB-04 | schema migration fails | rollback/restore known-good schema; no worker launch on half-migrated DB |
+| DB-05 | disk reaches admission high-watermark | new attempts blocked; evidence not deleted blindly |
+| DB-06 | disk exhaustion during evidence import | atomic temp write not registered; task BLOCKED/retryable after space recovery |
+| DB-07 | controller dies after `candidate.register` but before evidence manifest completion | restart finds durable Candidate with null evidence digest; task remains BUILDING until evidence is completed or explicitly blocked; build is not re-dispatched |
+| DB-08 | backup job writes to same active DB path/filesystem object | rejected as not an independent backup destination |
+| DB-09 | restore rehearsal from latest declared backup | recovered DB passes integrity check; controller increments epoch and reconciles before dispatch |
+| DB-10 | backup is older than declared RPO | health/admission gate reports degraded/BLOCKED according to policy; no false backup-health green |
+| DB-11 | primary SQLite path becomes unreadable/corrupt while controller is live | controller drains/blocks scheduling, preserves diagnostics and requires restore/reconciliation; it does not create a fresh empty authority store |
+| DB-12 | restore onto a replacement host/process from the declared independent backup destination | recovered store passes integrity/migration checks, new controller epoch invalidates all prior leases/tokens, and no dispatch occurs until remote/workspace/process reconciliation completes |
 
-## 15. Resource isolation and concurrency
-
-| ID | Scenario | Expected invariant / result |
-| --- | --- | --- |
-| RS-01 | V1 initial state | max implementation concurrency = 1 |
-| RS-02 | reviewer runs alongside implementation | only if resource/tool/workspace isolation policy permits |
-| RS-03 | second implementation enabled before two-task gate | configuration rejected |
-| RS-04 | two separable tasks after gate | distinct workspaces/process groups/fences; no shared mutable state |
-| RS-05 | host CPU/memory/browser saturation | admission control waits/blocks rather than starving business runtime |
-| RS-06 | all provider slots busy | task remains queued; no uncontrolled spawn |
-| RS-07 | configured CPU/memory/process/browser/evidence ceiling is exceeded | new work is not admitted or offending attempt is bounded according to policy; business runtime is not starved |
-
-## 16. Observability
+## 14. Cancellation and orphan process races
 
 | ID | Scenario | Expected invariant / result |
 | --- | --- | --- |
-| OB-01 | every state transition | append-only structured event emitted with task/revision/epoch/fence/trace |
-| OB-02 | stale result rejected | explicit metric/event with reason |
-| OB-03 | provider retry/block | typed reason visible |
-| OB-04 | reconciliation after restart | duration/outcome visible |
-| OB-05 | secret/PII field presented | excluded/redacted from normal telemetry |
-| OB-06 | OTEL exporter unavailable | local correctness/logging continues; warning visible |
-| OB-07 | AuthorityGrant denied/expired/revoked | structured event and metric emitted without leaking approval/secret contents |
-| OB-08 | local structured logging sink fails | correctness/state mutation remains transactional but controller raises operator-visible degraded/block condition according to configured durability policy; it never silently loses mandatory audit events |
+| CXN-01 | cancel while worker running | fence token invalid immediately; process tree terminated |
+| CXN-02 | result arrives after cancel | rejected as stale |
+| CXN-03 | cancellation signal lost | reconciliation observes process; retries termination; no reassignment until resolved |
+| CXN-04 | process dies but grandchild survives | ownership scan catches child; quarantine if cleanup incomplete |
+| CXN-05 | reviewer cancelled | no partial verdict becomes authoritative |
 
-## 16A. Clean reconstruction evidence
+## 15. Integration and Director release gate
 
 | ID | Scenario | Expected invariant / result |
 | --- | --- | --- |
-| EN-01 | reconstruction tries to fetch a dependency/asset outside task-approved egress allow-list or immutable origin identity | denied; reconstruction evidence invalid |
-| EN-02 | fetched asset/package digest or installed provenance/version differs from pinned manifest | fail closed before reconstruction can be accepted |
-| EN-03 | reconstruction is run on a host/environment already containing target toolchain state | cannot count as clean reconstruction evidence unless pre-existing state is proven absent/isolated; disposable fresh environment required |
-| EN-04 | two clean reconstructions from same declared manifest complete | resulting environment fingerprints must match each other and the bound manifest digest |
+| DG-01 | integration verified but Director has not accepted | no ReleaseCandidate record |
+| DG-02 | Director accepts exact integrated SHA/evidence | ReleaseCandidate record created |
+| DG-03 | later candidate accepted after RC | existing RC immutable; new integration/RC required |
+| DG-04 | model attempts deployment from RC | denied; deployment controller outside V1 |
 
-## 17. End-to-end gates
+## 16. Drain, upgrade and cutover
 
-### E2E-0 — deterministic kernel, no model
+| ID | Scenario | Expected invariant / result |
+| --- | --- | --- |
+| UP-01 | controller enters DRAINING | no new attempts; active attempts reconcile/finish per policy |
+| UP-02 | cutover watermark set | results from pre-watermark attempts obey explicit admission rule; no ambiguous mixed epochs |
+| UP-03 | controller binary/schema upgrade | backup + migration + new epoch + reconcile before RUNNING |
+| UP-04 | rollback controller version | schema compatibility checked; if unsafe, remain DRAINING/BLOCKED |
+| UP-05 | bridge cutover begins with pending inbox | intake frozen at watermark; exactly one system owns post-watermark tasks |
+| UP-06 | bridge fallback requested | Orchestrator drained first; old bridge re-enabled only after ownership proof |
 
-Using fake worker/remote/process adapters:
+## 17. Acceptance proof for first V1 slice
 
-- create task revision;
-- assign attempt;
-- simulate candidate/evidence;
-- review/accept;
-- integration/verify;
-- crash controller at each transition boundary;
-- repeat duplicate commands;
-- inject stale tokens;
-- prove deterministic recovery.
+Minimum proof before moving beyond model-free Phase 0:
 
-No network/model/production access.
-
-### E2E-1 — one isolated model worker
-
-One bounded repository-only task:
-
-- exact base SHA measured;
-- narrow effective tool roster proven;
-- one workspace;
-- candidate collector creates record;
-- evidence manifest generated;
-- independent review occurs in separate session/workspace;
-- no deployment.
-
-### E2E-2 — correction path
-
-Intentionally reject a candidate, perform exactly one bounded correction, verify new SHA invalidates old evidence/review and fresh independent review is required.
-
-### E2E-3 — ambiguous publication
-
-Force remote publication to succeed while the controller observes a timeout. Prove readback prevents duplicate build/publication.
-
-### E2E-4 — two-candidate isolation
-
-Only after E2E-0..3:
-
-- two separable implementation tasks;
-- independent workspaces/process groups;
-- bounded resource use;
-- no shared mutable Git/config;
-- exact-SHA integration and fresh verification.
-
-### E2E-5 — experience lane
-
-One meaningful UI/UX task with verified Fable adapter, browser/accessibility evidence, real-device evidence when the task contract requires it, and post-build experience review.
+1. all schema/state/property tests green;
+2. fault-injection suite green for controller kill, stale lease, ambiguous publication, DB restore, disk pressure and orphan process;
+3. workspace isolation suite green;
+4. effective capability roster test green;
+5. one synthetic task reaches ACCEPTED with exact evidence;
+6. one synthetic accepted task reaches VERIFIED integration;
+7. Director marks a ReleaseCandidate;
+8. no production deployment occurs.
 
 ## 18. Freeze gate
 
@@ -348,6 +293,7 @@ Before marking the V1 contract frozen:
 - the branch-identity mismatch has an independently reviewed remediation path; `WATCHER_BUILDER_IDENTITY_REMEDIATION.md` is the current candidate plan, and live closure is mandatory before Phase 1/model-worker execution;
 - canonical truth/roadmap are reconciled without self-authorising an owner gate;
 - a mechanical doc-consistency check scans `CURRENT_TRUTH.md` and `ROADMAP.md` for every CG/finding identifier the freeze set marks resolved/addressed and fails if either file asserts a conflicting current status;
+- that same mechanical gate maintains an explicit required set of live unremediated runtime conditions on which the freeze/remediation plan depends and fails if any required condition is absent from `CURRENT_TRUTH.md`; the initial set is (a) watcher/builder branch mismatch, (b) inherited business MCP connector surface, and (c) the Builder `remote.origin.fetch` refspec naming the absent `claude/bridge-builder` ref;
 - traceability has no unexplained V1-relevant row;
 - a fresh independent adversarial reviewer bound to the exact candidate SHA finds no material missing failure mode, authority leak or contradiction;
 - the accepted freeze SHA is then recorded in a separate follow-up canonical product-memory commit.
