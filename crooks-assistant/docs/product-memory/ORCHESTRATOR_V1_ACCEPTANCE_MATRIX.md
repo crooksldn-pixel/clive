@@ -308,9 +308,10 @@ One meaningful UI/UX task with verified Fable adapter, browser/accessibility evi
 
 Before marking the V1 contract frozen:
 
-- every MUST in `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` has a test ID here or is explicitly a static/documentary invariant;
-- the branch-identity mismatch is addressed by a reviewed remediation path;
-- canonical truth/roadmap are reconciled;
+- the owner has explicitly adopted the exact freeze candidate SHA in `DECISIONS.md`; any DEC-046 sequencing amendment is stated there rather than inferred from this spec;
+- every MUST in `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` and `ORCHESTRATOR_V1_STATE_API.md` has a test ID here or is explicitly a static/documentary invariant;
+- the branch-identity mismatch has an independently reviewed remediation path; `WATCHER_BUILDER_IDENTITY_REMEDIATION.md` is the current candidate plan, and live closure is mandatory before Phase 1/model-worker execution;
+- canonical truth/roadmap are reconciled without self-authorising an owner gate;
 - traceability has no unexplained V1-relevant row;
-- an independent adversarial reviewer is asked specifically to find missing failure modes or authority leaks;
-- exact freeze commit SHA is recorded.
+- a fresh independent adversarial reviewer bound to the exact candidate SHA finds no material missing failure mode, authority leak or contradiction;
+- the accepted freeze SHA is then recorded in a separate follow-up canonical product-memory commit.
