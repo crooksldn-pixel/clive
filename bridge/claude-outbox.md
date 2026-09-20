@@ -1,538 +1,266 @@
 # CLAUDE OUTBOX
 
-**Round:** Fresh independent adversarial re-review — Orchestrator V1 freeze candidate after N-04 repair
-**Timestamp:** 2026-09-20 (UTC), unattended bridge round
-**Inbox blob SHA processed:** `63f7bcf18fd4b4d99467bd01ecbab511e76b9a2c`
-**Worker:** headless Claude (`claude-opus-5`, effort `high`) in builder clone `/opt/crooks-builder`
-**Mode:** READ-ONLY architecture/specification review. No implementation. No findings fixed.
+**Round:** Bounded repair round — Orchestrator V1 freeze candidate blockers B-01 … B-05
+**Timestamp:** 2026-09-20 11:06 UTC, unattended bridge round
+**Inbox blob SHA processed:** `7f148989ffc589fad02edb96a181a855ee394f27`
+**Worker:** headless Claude (`claude-opus-5`) in builder clone `/opt/crooks-builder`
+**Mode:** documentation/specification repair + mechanical specification checks. No orchestrator implementation. No review of my own repair.
 
-I have consumed `/opt/crooks-ai-bridge/bridge/chatgpt-inbox.md` at the blob SHA above and executed only its
-instructions. All prior verdicts were treated as stale for this changed tree and none was carried forward.
+I have consumed `/opt/crooks-ai-bridge/bridge/chatgpt-inbox.md` at the blob SHA above and executed only its instructions.
 
 ---
 
-## VERDICT
+## RESULT
 
-**CHANGES REQUIRED BEFORE OWNER DECISION**
+**All five blockers repaired, evidence green, candidate published.**
 
-The N-01..N-04 repairs are correct and I could not break them. The candidate fails on five material
-engineering defects that are new to this review and independent of the N-series: four of them concentrate in
-the parts of the control plane that execute **reviewers and integrators**, which — unlike implementation
-attempts — have no durable execution record, no fencing and no reconciliation path; the fifth is a freeze-gate
-violation where the contract certifies a resolved contract gap using acceptance cases that do not exist.
+| Item | Value |
+| --- | --- |
+| Required starting SHA (inbox) | `2bf240c33bfbf0e66257b82a43013cfb3f5af958` |
+| Measured starting SHA | `2bf240c33bfbf0e66257b82a43013cfb3f5af958` — **exact match** |
+| **Resulting candidate SHA** | **`10c81e31f21f62f4115133232cc672c63f52d078`** |
+| Parent of candidate | `2bf240c33bfbf0e66257b82a43013cfb3f5af958` (one commit, linear) |
+| Canonical base | `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327` |
+| Merge-base(candidate, base) | `9e59860a945ec339c69af8709cd0721f0a795327` — **equals the base** |
+| Remote branch SHA after push | `10c81e31f21f62f4115133232cc672c63f52d078` — **matches the candidate** |
 
-This verdict is bound to candidate SHA `2bf240c33bfbf0e66257b82a43013cfb3f5af958` only.
+The next step is a **fresh independent adversarial review bound to `10c81e3`**. I did not review my own repair, and no verdict is claimed here.
 
 ---
 
 ## 1. What was asked
 
-Perform a fresh, independent, read-only adversarial architecture/specification re-review of the Orchestrator
-V1 freeze candidate after the N-04 repair. Verify exact candidate/base/merge-base/diff first; read the full V1
-freeze set; re-check N-01..N-04 with particular attention to the N-04 repair across `CURRENT_TRUTH.md`,
-`ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md` §18 and `ORCHESTRATOR_V1_TRACEABILITY.md`; confirm no repair
-self-adopts the freeze, changes DEC-046/DEC-047 authority, executes runtime remediation or implies Phase 1
-write-capable model-worker authority; then adversarially search for any new material engineering defect.
-Return exactly one of two verdicts. Treat owner adoption and the live runtime conditions as OWNER-PENDING /
-RUNTIME-PENDING rather than engineering defects.
+Perform exactly one bounded, repository-only repair round for the five material engineering blockers B-01 … B-05 from the immediately preceding outbox, at contract level, preserving existing authority and safety boundaries and the independently validated N-01 … N-04 repairs. Verify identity first with explicit branch fetches and fail closed on ambiguity. Because the round is documentation-only, create/extend **mechanical specification checks** where the repository already has them rather than claiming runtime implementation tests. Publish to the same candidate branch only after evidence is green, then report the exact SHA and evidence. Do not self-certify; do not perform the next review.
 
 ---
 
-## 2. Identity verification (performed first, before reading any content)
+## 2. Identity verification and workspace state, performed before any edit
 
-| Item | Declared in inbox | Measured | Match |
-| --- | --- | --- | --- |
-| Repository | `crooksldn-pixel/clive` | `https://github.com/crooksldn-pixel/clive.git` | yes |
-| Candidate branch | `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` | fetched explicitly | yes |
-| Candidate SHA | `2bf240c33bfbf0e66257b82a43013cfb3f5af958` | `2bf240c33bfbf0e66257b82a43013cfb3f5af958` | **exact** |
-| Base | `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327` | `9e59860a945ec339c69af8709cd0721f0a795327` | **exact** |
-| Merge-base | (implied) | `9e59860a945ec339c69af8709cd0721f0a795327` | **equals base** |
-
-The base **is** the merge-base, so the candidate is a clean linear descendant of the canonical parent with no
-divergence. 33 commits, documentation only.
+Explicit branch fetches were used because the stale Builder fetch refspec is a known live condition; `git fetch --all` is unusable there and `CURRENT_TRUTH.md` forbids repairing the refspec ad hoc. I did not repair it and did not rewrite any Git config.
 
 ```
- crooks-assistant/docs/product-memory/CURRENT_TRUTH.md                        |  26 +-
- crooks-assistant/docs/product-memory/ENGINEERING_ORCHESTRATOR_V1.md          |   4 +-
- crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md    | 299 +++++
- crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_FREEZE_CONTRACT.md      | 714 +++++++++
- crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_STATE_API.md            | 438 +++++++
- crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_TRACEABILITY.md         | 107 +++
- crooks-assistant/docs/product-memory/ROADMAP.md                              |  14 +-
- crooks-assistant/docs/product-memory/WATCHER_BUILDER_IDENTITY_REMEDIATION.md | 128 ++++
- 8 files changed, 1710 insertions(+), 20 deletions(-)
+git ls-remote origin chatgpt/orchestrator-v1-freeze-candidate-2026-09-20
+  2bf240c33bfbf0e66257b82a43013cfb3f5af958
+git ls-remote origin claude/product-memory-foundation
+  9e59860a945ec339c69af8709cd0721f0a795327
+git merge-base 2bf240c 9e59860  ->  9e59860…  (base IS the merge-base; no divergence)
 ```
 
-No executable code, test, dependency, config, service unit or harness file is touched. `DECISIONS.md` is
-**not modified** (verified: zero diff lines), which is the structural proof that the candidate does not
-self-adopt the freeze and does not alter DEC-046/DEC-047 authority.
+**Builder checkout inspected before acting, not assumed:** branch `claude/builder-environment-repair`, HEAD `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b`, `git status --porcelain` **empty**. It is still on that branch and that HEAD now, unchanged and clean.
+
+I did **not** switch the main Builder checkout. I created a registered worktree `/opt/crooks-builder/.worktrees/freeze-repair` on the candidate branch at the exact starting SHA and did all work there. `.worktrees/` is already in the Builder's local `.git/info/exclude`, so the canonical Builder remained clean throughout and the watcher's dirty-tree guard was never tripped. That worktree is still registered and can be pruned at any time; it holds no uncommitted work.
 
 ---
 
-## 3. N-01 … N-04 re-check
+## 3. What was found, and what changed
 
-### N-04 (the repair under particular scrutiny) — CORRECTLY REPAIRED, all three conditions met
+The five blockers were not five independent defects. B-01 and B-04 share one root cause: the candidate modelled **implementation** execution rigorously — attempt record, lease, controller epoch, monotonic fencing token, process group, reconciliation step — and then treated **reviewers and integrators** as if they were pure functions, although the rest of the document describes them as scheduled, cancellable, crash-prone model processes. I repaired that once rather than twice, which is the direction the previous review itself recommended.
 
-**(a) `CURRENT_TRUTH.md` retains the live Builder refspec condition.** The restored sentence reads, in full:
+### B-01 — reviewer execution substrate
 
-> The Builder clone's `remote.origin.fetch` refspec still names the deleted remote `claude/bridge-builder`,
-> so `git fetch --all` fails there; use explicit branch fetches. Do not repair the refspec ad hoc — its
-> current form is a precondition of the `WATCHER_BUILDER_IDENTITY_REMEDIATION.md` rehearsal (BR-01/BR-04)
-> and it becomes valid again only when that ref is recreated.
+- New `review_dispatch` record in state API §1: dispatch ID, subject kind/ID, exact subject SHA, subject revision, evidence digest, **required-review slot identity**, reviewer principal/role, controller epoch, **monotonic dispatch fencing token**, state `DISPATCHED|COMPLETED|CANCELLED|FENCED|EXPIRED`, heartbeat/expiry deadlines, process-group identity, nullable `review_id`.
+- `review.request` / `integration.review_request` now **create** one non-terminal dispatch per required-review slot *before* any reviewer runs. New `review.cancel` command fences one.
+- `review.record` admission requires the presented dispatch to exist, be `DISPATCHED`, belong to that exact subject/SHA, present the current revision/epoch/dispatch fence, and match the dispatch's bound reviewer principal. Anything else is rejected with `FENCE_STALE` and writes no Review row. New state API §3B gives the dispatch lifecycle.
+- **The stale-verdict-on-unchanged-SHA hole is closed by slot uniqueness, not by SHA comparison.** A uniqueness constraint over `(subject kind, subject ID, required-review slot)` restricted to non-terminal rows means a replacement dispatch can exist only after the previous one is terminal — so cancellation, expiry and replacement each strip authority even though the candidate SHA never changed. That is precisely the case candidate-mutation invalidation cannot catch, and the documents now say so explicitly.
+- Freeze contract §7 fencing rule now enumerates **review-result admission** and **integration-result admission**; `ID-03` amended to match; §21 gained a review-dispatch reconciliation step that must either create exactly one replacement under a new fence or block the subject — never both, never a silent indefinite `REVIEWING`.
+- Acceptance: `RV-11`, `RV-12`, `RV-13`, plus `RV-14` (verdict with absent/unknown/foreign dispatch or mismatched principal).
 
-All three required elements are present: the refspec condition, the `git fetch --all` failure, and the
-no-ad-hoc-repair instruction explicitly tied to BR-01/BR-04.
+### B-02 — total failure taxonomy
 
-**(b) `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md` §18 makes persistence a mechanical freeze gate.** The added
-bullet:
+- State API §7 is now a **table**, not a bullet list: 29 codes each mapped to exactly one of `RETRYABLE`, `BLOCKED`, `REJECTED_FAILED`, `ESCALATED`. Measured distribution: BLOCKED 23, RETRYABLE 3, REJECTED_FAILED 2, ESCALATED 1.
+- `PROCESS_TIMEOUT`, `PROCESS_STALLED`, `PROCESS_ORPHANED` are **BLOCKED** explicitly.
+- Stated fail-closed default: an unknown or unmapped code **MUST be treated as BLOCKED and MUST NOT be treated as RETRYABLE**; subcodes inherit their top-level class; restart MUST NOT reclassify a persisted code.
+- New freeze contract **§10.3.1** gives non-rejection attempt failure the budget it never had: **zero automatic relaunches**, `QUARANTINED` attempts never relaunched until proven, an absolute ceiling of **at most 3 attempts per task revision**, and counters that MUST survive restart/DB restore/epoch change. A controlled relaunch remains available through the existing authority-bearing `BLOCKED -> task.plan -> attempt.assign` path.
+- Acceptance: `PR-09`, `PR-10`.
+- **One deliberate departure from the review's recommendation, flagged for the reviewer** — see §7 decision 1: the review suggested "at most one relaunch"; I specified **zero automatic** relaunches plus a hard ceiling.
 
-> that same mechanical gate maintains an explicit required set of live unremediated runtime conditions on
-> which the freeze/remediation plan depends and fails if any required condition is absent from
-> `CURRENT_TRUTH.md`; the initial set is (a) watcher/builder branch mismatch, (b) inherited business MCP
-> connector surface, and (c) the Builder `remote.origin.fetch` refspec naming the absent
-> `claude/bridge-builder` ref.
+### B-03 — the phantom `EN` family
 
-This is **persistence** ("fails if any required condition is *absent*"), not merely contradiction detection,
-and it explicitly enumerates all three required conditions including the branch mismatch and the inherited
-business MCP connector surface. Correct.
+- Acceptance matrix **§5B** now defines real `EN-01`…`EN-04` covering freeze contract §22A: disposable-host reconstruction with fingerprint equality and explicit rejection of a Builder rerun as evidence; egress allow-list denial failing closed rather than skipping; pre-extraction digest mismatch **and** post-install provenance disagreement each failing closed with exit-0 not overriding; and a negative control proving pre-existing local tooling did not satisfy the check.
+- Freeze contract §24 CG-05 now cites `EN-01`..`EN-04`, matching the traceability row. Both citing documents name one real range.
+- **Freeze meta-gate strengthened** in §18: every test ID referenced anywhere in the freeze set must resolve to a real matrix row, and the reason-code table must be total with a BLOCKED default.
+- New **§18A MUST-coverage index**: 31 rows dispositioning every MUST-bearing section of both normative documents as tested test-IDs, `STATIC` with a stated reason, or `DEFERRED` with a reason. The gate **recomputes** the MUST-bearing set from the documents and fails on anything undispositioned, so it reports gaps instead of papering over them.
+- That gate immediately surfaced the two gaps the previous review had filed as *non-blocking* (freeze contract §18 metrics, §19 ceilings). Rather than tolerate a gate my own candidate would fail, I closed them: new matrix §14A (`OB-01`…`OB-04`) and §14B (`RS-01`, `RS-02`), and §19 now states that ceilings are enforced at admission against durable records.
 
-**(c) `ORCHESTRATOR_V1_TRACEABILITY.md` dispositions N-04** with an explicit `V1 MUST — resolved` row naming
-both halves of the repair, and the closing rule **"Silence is not a disposition."** is preserved verbatim.
+### B-04 — integrator execution substrate, by reuse
 
-**No self-adoption / no authority change / no runtime execution / no Phase 1 implication.** `DECISIONS.md`
-untouched; freeze contract §27 states "A Director/authored document cannot re-sequence owner gates or promote
-itself to normative authority"; `ROADMAP.md` and `CURRENT_TRUTH.md` both label the Phase 0 sequencing split as
-"a proposal, not current authority"; acceptance case `AU-01` makes prose-asserted sequencing changes emit
-`AUTHORITY_STALE`/BLOCKED; `ID-06` blocks implementation bound to a freeze *branch name* rather than the
-owner-adopted exact SHA. Remediation plan §5 is explicitly "separately authorised execution", and §6 keeps
-Phase 1 model workers behind live closure of the mismatch. Clean.
+Chose the smallest coherent reuse design, which was also the previous review's Director-level recommendation:
 
-### N-01 — repaired, and I independently re-proved its premises against live reality
+- `attempt` generalised over `subject kind TASK|INTEGRATION` with subject ID/revision; `lease` keyed on `(subject_kind, subject_id, subject_revision)`. **For `TASK` this is the previous binding renamed**, stated explicitly in both documents, so `ST-*`, `LS-*`, `WS-*` and `CXN-01..04` keep their meaning and need no re-derivation — which was the stated cost of this option and is the reason I recorded the projection rule rather than leaving it implied. `INTEGRATION` occupies a disjoint key space. Integration revision is fixed at 1 because a corrected integration is a new `integration_id` under `parent_integration_id`.
+- `integration.begin` now creates the integration attempt, workspace reservation, epoch, fence, process group and lease after measured preflight, with no integrator process launched first. §3A is subject-kind aware.
+- **`integration.cancel` is now implementable**: it fences a lease and stops a process group that actually exist. If the group cannot be proven empty, the attempt closes `QUARANTINED` and the integration goes **BLOCKED rather than CANCELLED** — cancellation never reports success on unproven cleanup.
+- Freeze contract §21 gained an integration reconciliation step; §16 states the substrate requirement.
+- Acceptance: `IN-11`, `IN-12`, plus `IN-14` (stale integration result rejected with `FENCE_STALE`).
 
-The plan (§3) now models an **absent** remote ref and a guarded create rather than a fast-forward of an
-existing ref. I verified both load-bearing premises read-only this round:
+### B-05 — integration findings
 
-- `git ls-remote --heads origin claude/bridge-builder` → **empty (ref absent on origin)**;
-- local `claude/bridge-builder` = `9a27bc441adad1e98e8a9ca257d1883246ee7eec`, and
-  `git merge-base --is-ancestor 9a27bc4 295e483` → **true**.
+- `finding` now carries `subject kind CANDIDATE|INTEGRATION`, subject ID, exact subject SHA, a **policy-computed `blocking` flag a model cannot set**, and a disposition-reason digest mandatory once disposition leaves `OPEN`. `task_id`/`revision` become nullable and are retained wherever a single source task owns the finding, so lineage is preserved rather than dropped.
+- `integration.verify` MUST evaluate unresolved blocking findings **for its own integration subject**, and a correction under `parent_integration_id` MUST disposition every inherited unresolved finding as `RESOLVED`/`OBSOLETE` with a recorded reason before reaching `VERIFIED`. Freeze contract §5.3 states the same.
+- Acceptance: `IN-13`.
 
-The documented topology matches measured reality exactly. The create-only lease shape
-(`--force-with-lease=refs/heads/claude/bridge-builder:` with an empty expected value) is correct Git semantics
-for "the ref must not already exist"; BR-02 tests refusal on a raced ref; BR-03 requires an expected-old
-`update-ref` for the local move; no reset/clean/stash appears anywhere. Sound.
+### One adjacent consistency fix, disclosed because it was not on the list
 
-### N-02 — repaired
-
-`ORCHESTRATOR_V1_STATE_API.md` §3A states the joint oracle explicitly ("both tables must permit the same
-operation; the kernel uses their intersection … MUST fail closed"), the bounded-correction path
-(`REJECTED -> attempt.assign`) and the deterministic preflight path (attempt `FAILED`/`QUARANTINED` with the
-task reaching BLOCKED via the legal `task.block` edge, never an illegal `ASSIGNED -> FAILED`). Tests
-ST-11..ST-13 cover the oracle, the correction path and the preflight case. I walked every command that mutates
-both tables and found no residual disagreement.
-
-### N-03 — repaired
-
-`CURRENT_TRUTH.md` now distinguishes candidate-addressed from canonically closed ("CG-01 through CG-06 are
-addressed by the … freeze candidate … but they become canonically closed only if the owner adopts that freeze
-by exact SHA; until adoption they remain open in canonical truth"), and §18 adds the mechanical CG/finding
-status consistency scan. Correct — **but see blocker B-03**, which shows that scan checks status *agreement*
-only and cannot detect a resolution claim that cites acceptance cases which do not exist.
+`transition_event` was mandatorily `task/revision`-bound, so the rejection events my own `RV-11`/`IN-14` cases require — an integration-only or review-only event — were not representable. I made it subject-kind aware, added the `review_dispatch` identifier, and put the normative "a rejected admission MUST also emit an event" in freeze contract §18 (covered by new `OB-04`). Without this the B-01/B-04 repairs would have cited events the schema forbade. I also added workspace ID and runner/process-group identity to the state API `lease` record, which freeze contract §8 already required and §1 had omitted.
 
 ---
 
-## 4. Material engineering blockers
+## 4. Files changed
 
-Ranked most severe first. All are defects in the candidate documents themselves, not runtime or owner gates.
+`git diff --stat 2bf240c..10c81e3`:
 
----
+```
+ .../ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md           |  88 ++++-
+ .../ORCHESTRATOR_V1_FREEZE_CONTRACT.md             |  63 +++-
+ .../product-memory/ORCHESTRATOR_V1_STATE_API.md    | 233 ++++++++----
+ .../product-memory/ORCHESTRATOR_V1_TRACEABILITY.md |   6 +
+ .../tests/test_orchestrator_freeze_spec.py         | 410 +++++++++++++++++++++
+ 5 files changed, 714 insertions(+), 86 deletions(-)
+```
 
-### B-01 — Reviewer execution has no durable record, no lease, no fencing binding and no reconciliation step
-
-**File/section:** `ORCHESTRATOR_V1_STATE_API.md` §1 (record list), §2 (`review.request` / `review.record`),
-§3 (transition matrix); `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §7 (fencing rule), §21 (reconciliation order).
-
-**Defect.** Implementation work has a full execution substrate: an `attempt` record, a `lease`, a controller
-epoch, a monotonic fencing token, process-group ownership and an explicit reconciliation step. Reviewer
-execution has **none of it**, despite being a scheduled, model-running, cancellable principal in this design
-(freeze contract §19 sets a "reviewer concurrency" ceiling; `CXN-05` asserts reviewer cancellation semantics;
-`RV-06` asserts reviewer-unavailability semantics). Each of the following was verified in the candidate text:
-
-1. **There is no reviewer record.** `review.request` only moves the *task* `EVIDENCE_READY -> REVIEWING`; the
-   `review` row is not created until a verdict arrives. An in-flight review is invisible to the database.
-2. **A reviewer cannot hold a lease.** `lease` is specified as "One authoritative lease per
-   `(task_id, revision)`" and carries an `attempt ID`. That single lease is already owned by the
-   implementation attempt, and `attempt.assign` is legal only from task `PLANNED`/`REJECTED` — never from
-   `REVIEWING` — so a reviewer cannot be represented as an attempt either.
-3. **Review admission is omitted from the fencing rule.** Freeze contract §7: "Every **heartbeat, candidate
-   admission, evidence admission, delivery update and terminal result** MUST present the current task
-   revision, controller epoch and fencing token." Review result admission is absent from that list, absent
-   from the `review.record` preconditions in §2/§3, and absent from test `ID-03`, which enumerates exactly the
-   same five. The `review` table carries no revision, epoch or fencing-token column.
-4. **§21 has no step that reconciles in-flight reviews.** Steps 5–8 cover attempts/cgroups, workspaces,
-   candidate/evidence records and remote publications.
-
-**Unsafe consequence.** Two distinct failures, both defeating the acceptance gate the contract exists to
-protect:
-
-- *Stale verdict admission.* Reviewer R1 is dispatched for candidate SHA `C`, stalls past its deadline, and
-  the controller blocks the task (`RV-06`) or substitutes R2. R1 later returns `ACCEPT` bound to exact SHA
-  `C`. Nothing in `review.record`'s preconditions, the `review` schema or `ID-03` rejects it — the SHA still
-  matches, so candidate-mutation invalidation never fires. That stale `ACCEPT` is admitted and counts toward
-  `candidate.accept`'s "all required independent reviews ACCEPT". The same hole makes `task.cancel`'s promise
-  of "no later result admitted" and `CXN-05`'s "no partial verdict becomes authoritative" unenforceable,
-  because both are lease-based mechanisms and reviewers have no lease.
-- *Orphaned reviewers and duplicate dispatch.* If the controller dies while a reviewer is running, restart
-  finds a task in `REVIEWING` with no lease, no attempt, no process record and no reconciliation step. The
-  orphaned reviewer process is never killed (§11's TERM/grace/KILL cgroup cleanup is attempt-scoped), and the
-  controller either re-dispatches — duplicating a paid model review — or leaves the task in `REVIEWING`
-  indefinitely with no operator-visible blocked state.
-
-**Smallest repair.** Give review execution the same substrate that already exists for attempts, without
-introducing a new concurrency model:
-
-1. Add a `review_dispatch` record: `dispatch_id`, subject kind/ID, exact subject SHA, task revision,
-   controller epoch, fencing token, reviewer principal, state
-   `DISPATCHED|COMPLETED|CANCELLED|FENCED|EXPIRED`, heartbeat/expiry deadline, process-group identity.
-   Create it in `review.request`.
-2. Amend freeze contract §7 to add "**review result admission**" to the enumerated fencing list, and add the
-   matching `review_dispatch_id` + epoch + fencing-token precondition to `review.record` in §2 and §3. Reject
-   any verdict whose dispatch is not the current non-terminal dispatch for that subject.
-3. Add step 7a to §21: "reconcile in-flight review dispatches against process state; fence expired or
-   unprovable dispatches and surface unresolved ambiguity as BLOCKED."
-4. Amend `ID-03` to include review result admission.
-
-**Exact acceptance test.** Add to §9 of the matrix:
-
-- `RV-11` — a reviewer dispatch is cancelled/expired and replaced, then the original reviewer submits
-  `ACCEPT` for the identical unchanged candidate SHA → verdict rejected as stale on the fencing token;
-  `candidate.accept` does not observe it; a `transition_event` records the rejection.
-- `RV-12` — the controller is killed while a review is in flight, then restarted → restart reconciles the
-  review dispatch before enabling dispatch, terminates the orphaned reviewer process group, and either
-  re-dispatches exactly once under a new fencing token or enters BLOCKED; never both, and never a silent
-  indefinite `REVIEWING`.
-- `RV-13` — `task.cancel` while a review is in flight → dispatch fenced immediately; any later verdict
-  rejected; no partial verdict becomes authoritative (makes `CXN-05` mechanically testable).
+All under `crooks-assistant/`. **No existing source file, existing test, dependency, config, service unit, installer or harness file is modified.** The only non-documentation change is one **new** test module. `DECISIONS.md` is untouched (zero diff lines), which is the structural proof that this repair does not self-adopt the freeze and does not alter DEC-046/DEC-047 authority.
 
 ---
 
-### B-02 — The failure taxonomy defines 29 reason codes but never maps them to the four retry classes; attempt stall/timeout is unclassified
+## 5. Evidence
 
-**File/section:** `ORCHESTRATOR_V1_STATE_API.md` §7 (Failure reason codes);
-`ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §10.1 / §10.2 / §10.3.
+### 5.1 Mechanical specification checks — new, durable, and failing-before
 
-**Defect.** §7 mandates that implementations "MUST preserve stable top-level classification into RETRYABLE,
-BLOCKED, REJECTED/FAILED or ESCALATED" — but the freeze set never supplies that mapping. §10.1 and §10.2 are
-each explicitly headed "**Examples:**", not total functions. Cross-checking the 29 normative codes against
-those example lists leaves at least these unclassified: `PROCESS_TIMEOUT`, `PROCESS_STALLED`,
-`PROCESS_ORPHANED`, `DB_IO`, `RESOURCE_CAPACITY`, `PUBLICATION_CONFLICT`, `EVIDENCE_MISSING`,
-`EVIDENCE_DIGEST_MISMATCH`, `CONTEXT_STALE`, `AUTHORITY_STALE`, `DEPENDENCY_BLOCKED`, `REVIEW_REJECTED`.
+`crooks-assistant/tests/test_orchestrator_freeze_spec.py` (22 checks) lives in the repository's existing pytest suite, as the inbox required, rather than being a one-off grep. It is structural on purpose: it recomputes what the documents contain and compares that against what they claim.
 
-The process codes are the dangerous ones. §3A says only "`RUNNING` | process exits without candidate |
-`CLOSED / FAILED` | diagnostics/evidence persisted; **task retry/correction policy decides next task state**",
-and §10.3's correction budget is scoped exclusively to *evidence-backed rejection* ("after evidence-backed
-rejection, at most one bounded same-contract correction"). A model attempt that stalls or times out **without
-ever producing a candidate** is therefore governed by no stated budget at all.
+**Failing-before proof.** Run unchanged against the documents at the starting SHA `2bf240c` (staged read-only via `git archive` into scratch, scratch deleted afterwards): **14 failed, 8 passed**. Against the repaired tree: **22 passed**. The failures named the real defects, for example:
 
-**Unsafe consequence.** Two conformant implementations can legitimately disagree on whether a stalled Opus
-attempt is RETRYABLE (up to §10.2's 5 attempts within a 15-minute window) or BLOCKED (no automatic retry).
-Under the RETRYABLE reading the controller silently relaunches a long, expensive model attempt up to five
-times with no owner-visible block — and because §9 explicitly declines to guarantee exactly-once model
-execution, each relaunch may already have produced real side effects in its workspace. This reproduces, in a
-new location, exactly the incident the traceability matrix records as a founding lesson ("deterministic
-precondition retried eight times" → "deterministic BLOCKED vs transient RETRY"). For a contract whose stated
-purpose is determinism, leaving the retry class of its own reason codes to implementer discretion defeats the
-freeze.
+```
+ORCHESTRATOR_V1_FREEZE_CONTRACT.md references acceptance IDs that do not exist: ['EN-01', 'EN-03']
+ORCHESTRATOR_V1_TRACEABILITY.md  references acceptance IDs that do not exist: ['EN-01', 'EN-04']
+reason-code table looks truncated: 0 rows
+PROCESS_TIMEOUT is absent from the normative reason-code table
+B-01 has no traceability disposition
+```
 
-**Smallest repair.** Add one column to the §7 reason-code list giving each code its normative top-level class
-(RETRYABLE / BLOCKED / REJECTED-FAILED / ESCALATED), and state that the list is total — an unclassified or
-unknown code defaults to BLOCKED, never RETRYABLE. Classify `PROCESS_TIMEOUT`, `PROCESS_STALLED` and
-`PROCESS_ORPHANED` explicitly, and add one sentence to §10.3 giving the bounded budget for non-rejection
-attempt failure (recommend: at most one relaunch, then BLOCKED/ESCALATED) so the relaunch count is finite and
-stated.
+Note the first two lines: the check reproduced not only the phantom family but the *disagreement between the two ranges*, independently of my reading.
 
-**Exact acceptance test.** Add to §7 of the matrix:
+### 5.2 Every referenced acceptance test ID exists
 
-- `PR-09` — enumerate every reason code in `ORCHESTRATOR_V1_STATE_API.md` §7 and assert each resolves to
-  exactly one top-level class; an unknown/unmapped code resolves to BLOCKED. The test fails if any code is
-  unmapped.
-- `PR-10` — an attempt stalls past its deadline with no candidate → the attempt closes `FAILED`/`QUARANTINED`,
-  the task takes the budgeted path, and the **total number of model relaunches is bounded and equal to the
-  declared budget**; counters persist across controller restart (composes with `ST-08` / `IP-04`).
+179 acceptance rows across 23 families (`API=10 AU=1 BR=4 CP=10 CT=6 CX=8 CXN=5 DB=12 DG=4 EN=4 EV=12 ID=6 IN=14 IP=4 LS=8 OB=4 PB=7 PR=10 RS=2 RV=14 ST=13 UP=6 WS=15`).
 
----
+| Document | Test IDs referenced | Dangling |
+| --- | --- | --- |
+| `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` | 2 | **none** |
+| `ORCHESTRATOR_V1_STATE_API.md` | 2 | **none** |
+| `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md` | 179 | **none** |
+| `ORCHESTRATOR_V1_TRACEABILITY.md` | 19 | **none** |
 
-### B-03 — The freeze contract and traceability matrix both certify CG-05 using acceptance cases `EN-01..EN-0x` that do not exist, and disagree on the range
+### 5.3 Every normative failure reason maps exactly once, unknown fails closed
 
-**File/section:** `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §24 (CG-05 line) and §22A;
-`ORCHESTRATOR_V1_TRACEABILITY.md` (CG-05 row); `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md` (whole file).
+29 codes, 29 unique, zero duplicates, zero classes outside the normative four. `PROCESS_TIMEOUT`/`PROCESS_STALLED`/`PROCESS_ORPHANED` → `BLOCKED`. The fail-closed default sentences are asserted verbatim by the checks.
 
-**Defect.** Mechanically verified against the candidate tree:
+### 5.4 MUST-coverage
 
-- Freeze contract §24: "**CG-05:** clean reconstruction -> resolved normatively by §22A and **EN-01..EN-03**
-  acceptance cases."
-- Traceability CG-05 row: "freeze contract §22A + acceptance **EN-01..EN-04** require allow-listed egress,
-  immutable pins, integrity checks, disposable/fresh environment and fingerprint equality".
-- `grep -cE "^\| EN-"` over the acceptance matrix → **0**. The matrix defines exactly these ID prefixes:
-  `API AU BR CP CT CX CXN DB DG EV ID IN IP LS PB PR RV ST UP WS`. There is no `EN` family anywhere in the
-  repository.
+31 index rows; MUST-bearing sections recomputed from the documents: freeze contract 23, state API 8 — **31, with zero undispositioned**. A further check asserts no MUST hides in an unnumbered record subsection where the index could not see it, closing the loophole that the index's section keying would otherwise leave.
 
-A contract gap is therefore certified **resolved** by a named test set that does not exist, and the two
-normative documents cite two different sizes for that non-existent set.
+### 5.5 Cross-document scans for stale reviewer/integrator/finding schema language
 
-**Unsafe consequence.** §22A is a MUST-bearing section — it governs every "this environment is reproducibly
-reconstructible" claim, requiring an approved egress allow-list, immutable pinned artifact identities,
-pre-extraction and post-install integrity verification, a fresh fingerprint, fingerprint equality, and proof
-that pre-existing local tooling did not satisfy the test accidentally. It currently has **zero** test coverage
-in the acceptance matrix. That directly violates freeze acceptance rule 3 ("acceptance/fault-injection matrix
-covers every MUST-level invariant") and §18's own gate ("every MUST in … has a test ID here or is explicitly a
-static/documentary invariant" — §22A is neither). Worse, the candidate would **pass its own §18 mechanical
-scan**: that scan checks `CURRENT_TRUTH.md` / `ROADMAP.md` for conflicting status assertions, so it cannot
-detect a resolution that cites a phantom test set. The owner would be adopting a freeze whose most
-supply-chain-sensitive requirement is certified by nothing — the precise false-green failure class that BE-04
-and `WS-14` exist to prevent.
+| Stale construct | Result |
+| --- | --- |
+| `One authoritative lease per (task_id, revision)` as a normative rule | gone; survives only inside an explicit "this is exactly the previous rule" clause |
+| `integrator attempt fenced/stopped` (unimplementable wording) | gone |
+| `per-task monotonic fencing token` | gone |
+| `finding` with mandatory `- task/revision;` | gone (the two remaining instances are `authority_grant`, legitimately task-scoped, and `transition_event`, repaired) |
+| §7 fencing list omitting review/integration admission | gone |
+| `EN-01..EN-03` vs `EN-01..EN-04` disagreement | gone; single range in both citing documents |
 
-**Smallest repair.** Add the missing `EN-01..EN-04` block to the acceptance matrix covering §22A, and align
-both citing documents to the same range. Then extend the §18 mechanical gate from "status agreement" to also
-assert that **every test ID referenced anywhere in the freeze set resolves to a row that exists in the
-acceptance matrix**, which would have caught this defect automatically.
+### 5.6 N-01 … N-04 regression check
 
-**Exact acceptance test.**
+Preserved, and now mechanically guarded rather than asserted:
 
-- `EN-01` — reconstruct the declared environment on a disposable host with no pre-existing target toolchain →
-  the resulting fingerprint equals the declared environment-manifest digest; a rerun on the already-provisioned
-  Builder is explicitly rejected as reconstruction evidence.
-- `EN-02` — reconstruction attempts a destination absent from the approved egress allow-list → denied and
-  BLOCKED, not silently skipped.
-- `EN-03` — a pinned asset's digest mismatches at pre-extraction, and separately a post-install
-  version/provenance check disagrees → reconstruction fails closed in both cases; exit-0 does not override.
-- `EN-04` — pre-existing local tooling could have satisfied the check → the test proves it did not (negative
-  control), otherwise the reconstruction claim is rejected.
-- Plus a meta-check in §18: every referenced test ID exists.
+- traceability still dispositions N-01…N-04 (and now B-01…B-05), and **"Silence is not a disposition."** is intact;
+- `CURRENT_TRUTH.md` **was not modified this round** and still carries all three required live unremediated runtime conditions — watcher/builder branch mismatch, inherited business MCP connector surface, and the stale `remote.origin.fetch` refspec with its `git fetch --all` failure, its no-ad-hoc-repair instruction and its `BR-01/BR-04` tie. `test_current_truth_retains_the_live_unremediated_runtime_conditions` now asserts each of these, so the N-04 repair is defended by a test instead of by good intentions;
+- `test_no_self_adoption_of_the_freeze` asserts `DECISIONS.md` contains no freeze-candidate entry and the contract still reads "a candidate until the Owner adopts an exact candidate SHA".
+
+### 5.7 Full test suite
+
+`python -m pytest tests -q -p no:randomly` in the candidate worktree: **2828 passed, 10 skipped, 0 failed** in 513s (8m33s). Teardown emitted asyncio `Event loop is closed` noise from pre-existing subprocess fixtures; no test failed.
+
+I did **not** run a separate pre-change baseline suite. The diff modifies no existing source or test file — only four documents and one new test module that nothing imports — so a regression is not reachable by this change. I am stating that reasoning rather than implying a baseline comparison I did not perform.
+
+### 5.8 Secret scan
+
+- `gitleaks git --log-opts="2bf240c..10c81e3"` — **no leaks found** (1 commit, 67.6 KB). This is the range the inbox asked for.
+- `gitleaks dir` on the full candidate tree — **5 findings, all pre-existing and none mine.** I scanned the pristine tree at the starting SHA `2bf240c` for comparison and got the **identical 5**: `generic-api-key` in `tests/test_observability.py:81`, `tests/test_observability_redaction.py:279`, `tests/test_scribe.py:24`, `tests/test_scribe.py:448`, `tests/test_tts.py:20`. All are test fixtures in files this commit does not touch. A sixth transient hit was a `__pycache__/*.pyc` byte-compiled artifact produced by my own test run; it is gitignored, was never committed, and I deleted it. **No secret value is printed here or anywhere in this round.**
+
+### 5.9 Clean worktree after commit, and exact remote readback
+
+```
+git status --porcelain   ->  empty (candidate worktree clean)
+git ls-remote origin chatgpt/orchestrator-v1-freeze-candidate-2026-09-20
+  10c81e31f21f62f4115133232cc672c63f52d078   == the candidate SHA
+```
+
+Published with an explicit compare-and-swap (`--force-with-lease=refs/heads/chatgpt/orchestrator-v1-freeze-candidate-2026-09-20:2bf240c…`), so the push could only advance the branch from the exact expected old SHA. It was a fast-forward: `2bf240c..10c81e3`.
 
 ---
 
-### B-04 — `integration.cancel` requires fencing an "integrator attempt / lease" that the schema cannot represent
+## 6. Service, server and safety state
 
-**File/section:** `ORCHESTRATOR_V1_STATE_API.md` §2 (`integration.cancel` row), §3 (integration.cancel
-transition row), §1 (`lease` record); `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §21.
-
-**Defect.** The command surface says `integration.cancel` → "integrator **attempt** fenced/stopped", and the
-transition matrix says "any integrator **process/lease** fenced and stopped". No such record exists. `lease`
-is uniquely keyed to `(task_id, revision)` and holds an `attempt ID`; an integration is explicitly **not** a
-task (freeze contract §16: "Individual source tasks remain ACCEPTED; they do not transition into
-integration/release states"), and `attempt.assign` is legal only from task `PLANNED`/`REJECTED`. The
-integrator therefore has no attempt, no lease, no fencing token and no process-group record. §21's
-reconciliation order likewise contains no integration step.
-
-**Unsafe consequence.** A normative precondition is unimplementable as written — the kernel is instructed to
-fence something that cannot exist, which is precisely the "undefined authoritative transition or mutation
-path" that freeze acceptance rule 2 forbids. Operationally: a cancelled or crashed integrator's process tree
-is never proven stopped (§11's cgroup cleanup is attempt-scoped), its integration workspace is released for
-reuse without the emptiness verification the contract mandates for attempts, and after a controller restart an
-`INTEGRATING` integration has no reconciliation path and stalls with no operator-visible BLOCKED state. The
-state guard does prevent a stale integrator's *result* from being admitted (`CANCELLED` is terminal, so
-`integration.register` is illegal), so this is narrower than B-01 — but the orphan-process and workspace-reuse
-hazards are real and the textual contradiction is explicit.
-
-**Smallest repair.** Either (i) extend the `attempt` / `lease` records to carry a subject kind
-(`TASK|INTEGRATION`) and key the lease on `(subject_kind, subject_id, revision)`, or (ii) add a minimal
-`integration_attempt` record mirroring `attempt` (state, epoch, fencing token, workspace, process-group,
-disposition). Option (i) is smaller and reuses the fencing machinery wholesale. Then add an integration
-reconciliation step to freeze contract §21.
-
-**Exact acceptance test.** Add to §10 of the matrix:
-
-- `IN-11` — `integration.cancel` while an integrator process is running → lease/fence invalidated, process
-  group TERM/grace/KILL, emptiness verified before workspace reuse; if the process cannot be proven stopped,
-  the workspace is QUARANTINED and the integration BLOCKED (mirrors `WS-10` / `WS-11` / `LS-06`).
-- `IN-12` — controller restart with an integration in `INTEGRATING` → reconciliation observes integrator
-  process/workspace state before dispatch is enabled; never blind re-dispatch, never silent indefinite
-  `INTEGRATING`.
-
----
-
-### B-05 — The `finding` record is task-scoped, so integration-review blocking findings cannot be represented, yet `integration.verify` / `integration.reject` gate on them
-
-**File/section:** `ORCHESTRATOR_V1_STATE_API.md` §1 (`finding` record), §2/§3 (`integration.verify`,
-`integration.reject`); `ORCHESTRATOR_V1_FREEZE_CONTRACT.md` §5.3.
-
-**Defect.** `finding` is specified with a mandatory `task/revision` binding and no subject-kind discriminator
-— unlike `review` and `evidence_manifest`, which both carry `subject kind CANDIDATE|INTEGRATION`. (The
-document's own convention marks optional columns "nullable"/"NULL"; `task/revision` is not so marked.) Yet
-`integration.verify`'s precondition is "all required integrated tests/reviews pass; **no blocking findings**"
-and `integration.reject` fires "on blocking integrated **finding**". Integration findings gate two normative
-transitions but have nowhere to live, and `IN-10`'s rejected-integration correction lineage has no per-finding
-disposition to carry forward.
-
-**Unsafe consequence.** The kernel cannot evaluate `integration.verify`'s stated precondition, so that gate is
-enforced only by whatever the next reviewer happens to re-discover — weaker than the contract claims. CG-04's
-whole purpose (represent partial progress without falsely calling work complete) does not extend to
-integrations: if a rejected integration had three blocking findings and the replacement resolves two, there is
-no authoritative record of the third, and `parent_integration_id` carries lineage without carrying the open
-findings. Severity is lower than B-01..B-04 because `IN-10` still requires a fresh integrated review, but it
-is a genuine dropped-traceability defect against a gate the contract asserts.
-
-**Smallest repair.** Give `finding` the same discriminator its neighbouring records already use: replace the
-mandatory `task/revision` with `subject kind CANDIDATE|INTEGRATION` + `subject_id` + nullable
-`task_id`/`revision`, and state that `integration.verify` evaluates open/blocking findings for its own
-subject.
-
-**Exact acceptance test.** Add to §10 of the matrix:
-
-- `IN-13` — an integration review records a blocking finding → `integration.verify` is refused while that
-  finding is `OPEN`/`BLOCKED`; the finding is queryable by integration subject; a correction integration
-  created under `parent_integration_id` inherits the unresolved finding and cannot reach `VERIFIED` until it
-  is `RESOLVED` or `OBSOLETE` with a recorded reason (the integration analogue of `ST-09`).
-
----
-
-## 5. Non-blocking observations (recorded so they are not silently lost)
-
-- **§18's required-condition set has no defined removal path.** The gate "fails if any required condition is
-  absent from `CURRENT_TRUTH.md`" and names an "initial set". Once a condition is genuinely remediated — e.g.
-  the fetch refspec becomes valid after the ref is recreated — the gate as written would either fail forever
-  or force `CURRENT_TRUTH.md` to keep asserting something no longer true. Suggest one sentence naming the
-  evidence and authority required to retire an entry. Not a blocker: "live unremediated" is arguably
-  self-limiting by definition.
-- **`meta.operational_mode` has no command that sets `BLOCKED`.** `controller.drain` sets `DRAINING` and
-  `controller.resume` sets `RUNNING`; entry into `BLOCKED` is only implied by freeze contract §6. Behaviour is
-  covered by `DB-01` / `DB-02` / `DB-11`, so this is tidiness rather than a hole.
-- **Freeze contract §18 observability metrics and §19 browser-slot ceilings have no test IDs** and are not
-  listed among the static/documentary invariants in `ORCHESTRATOR_V1_STATE_API.md` §10. Minor coverage gap of
-  the same family as B-03; the meta-check proposed there would surface it.
-
----
-
-## 6. Owner / runtime pending gates — NOT engineering defects
-
-Per the inbox's handling rule, these fail closed correctly in the contract and are listed separately.
-
-- **OWNER-PENDING — adoption of the exact freeze SHA.** The freeze is a candidate until the owner records
-  exact SHA `2bf240c33bfbf0e66257b82a43013cfb3f5af958` in `DECISIONS.md` (freeze contract §27, matrix §18).
-  `DECISIONS.md` is untouched by this candidate; DEC-046 / DEC-047 authority is intact.
-- **OWNER-PENDING — any DEC-046 sequencing amendment.** The candidate *proposes* allowing Phase 0
-  repository-only kernel work immediately after an accepted freeze; both `ROADMAP.md` and `CURRENT_TRUTH.md`
-  state in terms that this "is a proposal, not current authority". Correct fail-closed behaviour. No approval
-  is recorded or inferred by me.
-- **RUNTIME-PENDING — watcher/builder branch mismatch.** Re-observed live this round: `/opt/crooks-builder` is
-  on `claude/builder-environment-repair` at `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b` while the watcher unit
-  declares `claude/bridge-builder`. The remediation plan exists
-  (`WATCHER_BUILDER_IDENTITY_REMEDIATION.md`); execution is separately authorised and was **not** performed.
-- **RUNTIME-PENDING — stale Builder `remote.origin.fetch` refspec.** Re-observed live: the only configured
-  refspec is `+refs/heads/claude/bridge-builder:refs/remotes/origin/claude/bridge-builder`, and that remote
-  ref is absent on origin, so `git fetch --all` fails there. Per `CURRENT_TRUTH.md`'s explicit
-  no-ad-hoc-repair instruction I did **not** repair it and used explicit branch fetches instead.
-- **RUNTIME-PENDING — inherited business MCP connector surface.** This unattended session again presented
-  account-level business connector tools (Shopify, Gmail, Google Drive, Omnisend, Resend) beyond the intended
-  narrow engineering roster. **None were invoked.** This is the live condition that freeze contract §12 and
-  test `CP-02` require to fail closed before write-capable workers run.
-
-All three live runtime conditions that §18 requires `CURRENT_TRUTH.md` to persist were independently
-re-measured this round, and **all three are still present and accurately described** — so the N-04 repair is
-validated against reality, not merely against the text.
-
----
-
-## 7. State of this checkout, the production branch, and the environment
-
-**The builder checkout was inspected before acting, and was not assumed to be where a previous run left it.**
+Observed read-only; unchanged by this round.
 
 | Item | Value |
 | --- | --- |
-| Builder path | `/opt/crooks-builder` |
-| Branch at start and at end | `claude/builder-environment-repair` (unchanged) |
-| HEAD at start and at end | `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b` (unchanged) |
-| `git status --porcelain` at start and at end | empty — clean; nothing modified, nothing untracked |
-| Local `claude/bridge-builder` ref | `9a27bc441adad1e98e8a9ca257d1883246ee7eec` (unchanged) |
-| `remote.origin.fetch` | unchanged — still the single stale refspec |
+| **Production branch HEAD** | `claude/linux-prod-migration-production` at **`1cf3a0f3361b79f9de208d80f501543c53c244b5`** (DEC-048 ratified), working tree clean |
+| Production checkout | `/opt/crooks-os/crooks-assistant` — **read only; never edited, switched or reset** |
+| `crooks-assistant.service` | active, enabled |
+| `crooks-bridge-watcher.service` | active, enabled |
+| Listener | `127.0.0.1:8000` only (`LISTEN 0 2048 127.0.0.1:8000`); port 8000 not publicly exposed |
+| `/health` | `degraded` — for the pre-existing absent Gmail OAuth reason recorded in `CURRENT_TRUTH.md`, not caused by this round |
+| Writes | `disabled — CROOKS_WRITES_ENABLED=false`; live capabilities report `writes_enabled: false` with an empty writes list |
+| `CROOKS_WRITES_LOCAL_OWNER` | `false` |
 
-**Production checkout — read only, never edited, switched or reset:** `/opt/crooks-os/crooks-assistant`,
-branch `claude/linux-prod-migration-production`, **HEAD `1cf3a0f3361b79f9de208d80f501543c53c244b5`** (the
-DEC-048 ratified SHA), working tree clean.
+**Safety constraints preserved.** `writes_enabled` false; `CROOKS_WRITES_LOCAL_OWNER` false; FastAPI bound to `127.0.0.1`; port 8000 not exposed; proposal/action/verification safety semantics unchanged; no live Shopify, Gmail or ElevenLabs call and no live external mutation; V2 not begun; UI not redesigned; Mac deployment and rollback path untouched; `/root/.claude` untouched and writable; no secret value printed, logged or committed. No systemd, watcher, account, global Claude, MCP, connector, credential or permission state altered. No merge to any production branch, no deployment, no promotion, no auto-merge. No `DECISIONS.md` owner-adoption entry. No project `.claude` file activated. No runtime remediation executed. No external spend. No destructive `reset`/`clean`/`stash`. No Git config rewritten.
 
-**Files changed by me:** exactly one — `/opt/crooks-ai-bridge/bridge/claude-outbox.md` (this file). No other
-file in the bridge worktree was touched. No `git add`, no commit, no push, by design; the watcher publishes
-this file itself.
+**Repository side effects, disclosed in full:** the one commit `10c81e3` on the candidate branch and its push; remote-tracking refs `origin/chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` and `origin/claude/product-memory-foundation` created/updated by the explicit fetches; a new local branch and registered worktree `/opt/crooks-builder/.worktrees/freeze-repair`. The canonical Builder checkout's branch, HEAD, working tree and fetch refspec are all unchanged.
 
-**One repository side effect, disclosed in full:** to read the candidate at all I ran explicit `git fetch`
-into named remote-tracking refs, which created
-`refs/remotes/origin/chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` and advanced
-`refs/remotes/origin/claude/product-memory-foundation` from `c7a1cf6` to `9e59860`. This touches
-remote-tracking refs only — no working tree, no HEAD, no local branch, no config, no checkout, no switch, no
-reset/clean/stash. It is the explicit-branch-fetch method `CURRENT_TRUTH.md` instructs workers to use.
+**Runtime-pending conditions, re-observed live and still accurately represented in `CURRENT_TRUTH.md`:**
 
-**Test results:** none run, and none were appropriate — this is a read-only specification review of a
-documentation-only candidate that changes no code, test or config. I ran no build, no pytest, no ruff, no
-gitleaks, no installer and no watcher test. I am reporting that plainly rather than implying coverage that
-does not exist.
+1. **Watcher/builder branch mismatch** — `/opt/crooks-builder` is on `claude/builder-environment-repair` at `295e483…` while the watcher unit declares `claude/bridge-builder`. Not remediated; remediation is separately authorised.
+2. **Stale Builder `remote.origin.fetch` refspec** — still the single refspec naming the absent `claude/bridge-builder` ref. Deliberately **not** repaired, per the explicit no-ad-hoc-repair instruction; explicit branch fetches were used instead.
+3. **Inherited business MCP connector surface** — this unattended session again presented account-level business connector tools (Shopify, Gmail, Google Drive, Omnisend, Resend). **None were invoked.** Several MCP servers additionally reported unauthenticated or failed-to-connect; nothing was authorised or retried.
 
-**Service and server state (observed read-only, unchanged by this round):**
-
-- `crooks-assistant.service` — active, enabled.
-- `crooks-bridge-watcher.service` — active, enabled.
-- Listener: `127.0.0.1:8000` only (`LISTEN 0 2048 127.0.0.1:8000`). Not publicly exposed.
-
-**Safety constraints preserved.** `writes_enabled` remains false; `CROOKS_WRITES_LOCAL_OWNER` remains false;
-FastAPI remains bound to `127.0.0.1`; port 8000 is not exposed publicly; proposal/action/verification safety
-semantics are unchanged; no live Shopify, Gmail or ElevenLabs call and no live external mutation; V2 not
-begun; UI not redesigned; the Mac deployment and rollback path are untouched; `/root/.claude` untouched and
-writable; no secret value printed, logged or committed. No systemd, account, global Claude, MCP, connector,
-credential or permission state was altered. No runtime remediation was executed. No finding was fixed.
-
-**Errors:** none. No command failed, and nothing was blocked by my permission layer.
+**Errors:** none. No command failed. **Nothing was blocked by my permission layer**, and I did not widen permissions or look for a way around anything.
 
 ---
 
-## 8. Decisions and questions needing review
+## 7. Decisions and questions needing review
 
-1. **The verdict turns on B-01 and B-03, not on document quality.** The freeze set is genuinely detailed and
-   the N-series repairs are sound; I deliberately did not approve on that basis. B-01 is a control-plane hole
-   that lets a stale reviewer verdict count toward acceptance; B-03 means the owner would be adopting a freeze
-   in which the reconstruction MUSTs are certified by test IDs that do not exist.
-2. **B-01 and B-04 share one root cause.** The candidate models *implementation* execution rigorously and then
-   treats reviewers and integrators as if they were pure functions rather than the scheduled, cancellable,
-   crash-prone model processes the rest of the document says they are. Whoever repairs this should consider
-   generalising `attempt` / `lease` over a subject kind once, rather than patching reviewer and integrator
-   separately — that single change closes B-01 and B-04 together and is smaller than two bespoke records.
-3. **Question for the Director, above a review round's authority:** in B-04 I recommend option (i)
-   (generalise the existing lease over `subject_kind`) over option (ii) (a parallel `integration_attempt`
-   record). Option (i) is smaller and reuses fencing machinery, but it changes a record already load-bearing
-   for `ST-01..ST-13` and `LS-01..LS-08`, so those tests would need re-derivation. That trade-off is an
-   architecture call, not a review call.
-4. **No owner approval is recorded, inferred or implied by this round.** Nothing here authorises adoption,
-   implementation, remediation execution, deployment or any privilege change.
+1. **I specified a stricter budget than the review recommended, deliberately.** For B-02 the review suggested "at most one relaunch, then BLOCKED/ESCALATED". I specified **zero automatic relaunches** plus a hard per-revision ceiling of 3 attempts. Reason: a stalled attempt may already have caused real side effects in its workspace, V1 explicitly does not guarantee exactly-once model execution, and "BLOCKED" already means "no automatic retry" — allowing one automatic relaunch under a BLOCKED classification would have been internally contradictory. A controlled relaunch remains available through `BLOCKED -> task.plan -> attempt.assign`, which requires the blocker to be resolved, so no capability is lost. **If the Director intended one automatic relaunch, this is the line to change**, and `PR-10` asserts equality with the declared budget either way.
+2. **B-04 resolved by reuse, option (i).** I generalised `attempt`/`lease` over `subject_kind` rather than adding a parallel `integration_attempt`. The previous review flagged that this touches records load-bearing for `ST-*`/`LS-*` and called the trade-off an architecture call. I mitigated it rather than ignored it: the `TASK` projection is stated in both documents to be the previous binding renamed with no semantic change, so those tests do not require re-derivation. **A reviewer should check that claim specifically** — it is the load-bearing assertion of this repair.
+3. **Reviewers deliberately do not use `lease`.** Review independence requires several concurrent reviewer principals on one subject, and `lease` is one-per-subject by design. Shoehorning reviewers into it would have contradicted the reviewer-concurrency ceiling, so `review_dispatch` is a third record with per-dispatch fencing. This is the one place I did not reuse, and the reason is recorded in state API §1A.
+4. **I closed two previously non-blocking observations** (freeze contract §18 metrics, §19 ceilings) because the strengthened meta-gate I was asked to add would otherwise have failed on my own candidate. Adding a gate a candidate cannot pass would have been worse than the gap.
+5. **Not addressed, and named so it is not lost:** the previous review's observation that §18's required-condition set has **no defined retirement path** — once a live condition is genuinely remediated the gate as written would either fail forever or force `CURRENT_TRUTH.md` to keep asserting something untrue. I left it alone because retiring a condition is an authority question, not a contract-repair one, and touching it would have risked weakening the N-04 repair I was told to preserve. It needs a Director decision on what evidence and authority retire an entry.
+6. **No owner approval is recorded, inferred or implied by this round.** Nothing here authorises adoption, implementation, remediation execution, deployment or any privilege change. The freeze remains a candidate.
 
 ---
 
-## 9. Exact proposed next step
+## 8. Exact proposed next step
 
-**Return the candidate to the Director for repair. Do not put `2bf240c` in front of the owner for adoption.**
+**Commission a fresh, independent, read-only adversarial review bound to exact candidate SHA `10c81e31f21f62f4115133232cc672c63f52d078`** — not to the branch name, and not carrying forward any earlier verdict. Per the candidate's own §14.3 and `EV-06`, the previous review of `2bf240c` is automatically invalidated by this SHA change, and under §15 this repair is `MATERIAL` because it touches normative acceptance and authority-bearing documents.
 
-Precisely:
+The reviewer should be pointed at, in priority order:
 
-1. On a **new** candidate branch from `2bf240c33bfbf0e66257b82a43013cfb3f5af958`, apply the five smallest
-   repairs in §4: B-01 (review dispatch record + fencing + §21 reconciliation step + `ID-03` amendment),
-   B-02 (total reason-code → retry-class mapping + bounded non-rejection relaunch budget), B-03 (add the
-   `EN-01..EN-04` block, align both citing documents to one range, extend the §18 mechanical gate to assert
-   every referenced test ID exists), B-04 (subject-kind-generalised lease + §21 integration reconciliation
-   step), B-05 (subject-kind discriminator on `finding`).
-2. Add the new acceptance cases named above: `RV-11`, `RV-12`, `RV-13`, `PR-09`, `PR-10`, `EN-01`..`EN-04`,
-   `IN-11`, `IN-12`, `IN-13`, plus the §18 referenced-test-ID meta-check.
-3. Because the repair touches normative acceptance and authority-bearing documents, it is `MATERIAL` under the
-   candidate's own §15 risk table and requires a **fresh** independent adversarial review bound to the new
-   exact candidate SHA. Per §14.3 and `EV-06`, this review of `2bf240c` is automatically invalidated by any
-   candidate SHA change — do not carry this verdict forward.
-4. Owner adoption remains gated until that fresh review returns
-   `ENGINEERING CONTRACT READY — OWNER/RUNTIME GATES REMAIN`. The two RUNTIME-PENDING conditions remain
-   independently gated regardless of the freeze outcome, and Phase 1 / write-capable model workers stay
-   blocked on live closure of the watcher/builder identity mismatch either way.
+1. **The `TASK`-projection claim** (decision 2 above) — verify that generalising `attempt`/`lease` over `subject_kind` genuinely leaves every `ST-*`, `LS-*`, `WS-*` and `CXN-01..04` precondition unchanged in meaning, and that the §3/§3A joint oracle from N-02 still holds for the new `INTEGRATION` rows and the new §3B dispatch table.
+2. **Whether `review_dispatch` slot uniqueness actually closes the stale-verdict hole** in every ordering — including expiry racing a verdict, two replacements in flight, and an external reviewer principal whose process the kernel does not own (where the documents admit cancellation relies on fencing alone).
+3. **Whether the zero-automatic-relaunch budget** (decision 1) is the intended reading, and whether the 3-attempt ceiling interacts correctly with the §10.3 correction budget.
+4. **Whether the §18/§18A meta-gate is now genuinely total**, or whether a MUST can still escape the coverage index by some route the new checks do not model.
+5. Anything new the repair introduced. The repair is deliberately larger in state API than elsewhere (+233 lines) and that is where new defects are most likely.
 
-**Nothing in this round was a merge, deploy, remediation or approval, and none is proposed as a next step
-without explicit owner authorisation.**
+Owner adoption remains gated until such a review returns `ENGINEERING CONTRACT READY — OWNER/RUNTIME GATES REMAIN`. The three runtime-pending conditions remain independently gated regardless of the freeze outcome, and Phase 1 / write-capable model workers stay blocked on live closure of the watcher/builder identity mismatch either way.
+
+**Nothing in this round was a merge, deploy, remediation, adoption or approval, and none is proposed as a next step without explicit owner authorisation.**
 
 ---
 
-**Inbox SHA processed this round:** `63f7bcf18fd4b4d99467bd01ecbab511e76b9a2c`
-**Candidate reviewed:** `2bf240c33bfbf0e66257b82a43013cfb3f5af958`
+**Inbox SHA processed this round:** `7f148989ffc589fad02edb96a181a855ee394f27`
+**Starting candidate:** `2bf240c33bfbf0e66257b82a43013cfb3f5af958`
+**Resulting candidate (published, remote verified):** `10c81e31f21f62f4115133232cc672c63f52d078`
 **Base / merge-base:** `9e59860a945ec339c69af8709cd0721f0a795327`
-**Verdict:** `CHANGES REQUIRED BEFORE OWNER DECISION`
+**Repairs:** B-01, B-02, B-03, B-04, B-05 — all five, plus two disclosed adjacent consistency fixes
+**Self-certification:** none. A fresh independent review bound to `10c81e3` is required.
