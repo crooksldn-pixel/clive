@@ -1,128 +1,90 @@
 # CHATGPT INBOX
 
-## Fresh independent adversarial review — Orchestrator V1 freeze candidate after F-01/F-02/F-03 repair
+## Bounded repair — Orchestrator V1 freeze G-01 / G-02 / G-03
 
-This is a **read-only independent architecture/specification review**. It is not implementation and it is not a repair round.
+This is exactly one bounded repository-only repair round on the existing freeze-candidate branch. It is not production/runtime remediation and it is not owner adoption.
 
-Review exact candidate:
+### Exact identities
+
 - repository: `crooksldn-pixel/clive`
 - canonical base: `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`
 - candidate branch: `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`
-- exact candidate SHA: `31b0e07179877651da80065f5914575ee4d60d6c`
-- last reviewed candidate: `e944620fbcf3f7f7c914219762bfe844009e05f2`
+- rejected candidate: `31b0e07179877651da80065f5914575ee4d60d6c`
+- review outbox blob: `c68050463a7e3e0608a852a8afa3d9f868a7602b`
 
-The previous verdict is stale for this SHA. Do not carry it forward.
+Before editing, explicitly fetch/read the candidate branch and canonical base. Abort and report BLOCKED if the candidate branch no longer resolves exactly to `31b0e07179877651da80065f5914575ee4d60d6c`, if merge-base is not the canonical base, or if the workspace contains unrelated owner work. Do not reset/clean/stash/discard anything.
 
 ### Hard scope
 
-Read-only everywhere except the normal bridge outbox. Do **not** edit, create, delete, commit, push, merge, switch/reset/clean/stash branches, install, restart, deploy, alter systemd/watcher/runtime, rewrite Git config, change account/global Claude settings, change MCP/connector grants, read new secrets, perform business writes, or execute any runtime remediation. Do not fix findings.
+Allowed: repository-only edits on the same freeze-candidate branch to the freeze contract/state API/acceptance matrix/traceability/mechanical spec test needed to repair G-01/G-02/G-03, plus test execution and repository-local evidence.
 
-The live watcher/builder branch mismatch, stale Builder fetch refspec, and inherited business-MCP connector surface remain runtime-pending. Measure/report only if needed; do not remediate.
+Forbidden: production deployment/promotion; systemd/watcher/runtime changes; secrets/credential reads; `/root/.claude` or account/global Claude changes; MCP/connector grant changes; privilege expansion; CROOKS/CLIVE business writes; public exposure; destructive reset/clean/stash; external spend; production merge; freeze adoption; sequencing changes.
 
-### Identity first
+Do not repair the known Builder stale fetch refspec. Explicit branch fetches are acceptable.
 
-Before substantive review:
-1. explicitly fetch/read the candidate and canonical base refs;
-2. verify candidate branch tip equals exactly `31b0e07179877651da80065f5914575ee4d60d6c`;
-3. verify canonical base equals exactly `9e59860a945ec339c69af8709cd0721f0a795327`;
-4. verify merge-base(candidate, base) equals the canonical base;
-5. inspect the exact repair diff `e944620..31b0e071`;
-6. re-read the whole freeze set at `31b0e071`, including:
-   - `ORCHESTRATOR_V1_FREEZE_CONTRACT.md`
-   - `ORCHESTRATOR_V1_STATE_API.md`
-   - `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md`
-   - `ORCHESTRATOR_V1_TRACEABILITY.md`
-   - `tests/test_orchestrator_freeze_spec.py`
-   - `WATCHER_BUILDER_IDENTITY_REMEDIATION.md`
-   - canonical `DECISIONS.md`, `CURRENT_TRUTH.md`, `ROADMAP.md`.
+### G-01 — TASK stranded in ASSIGNED after pre-RUNNING fencing
 
-### Re-review the three repaired blockers
+Repair the TASK-side reconciliation hole identified by the independent review.
 
-#### F-01 — integration launch / §3 vs §3A ownership
-Verify the exact legal path is coherent and executable:
-- `integration.begin` owns only subject CREATED -> INTEGRATING plus attempt/workspace/lease allocation;
-- §3 no longer claims an attempt-state edge for `integration.start`;
-- §3A owns `CREATED -> STARTING` and `STARTING -> RUNNING` for `integration.start`;
-- preflight begins only after the integration attempt, lease and workspace reservation exist;
-- successful preflight establishes the owned process group before RUNNING;
-- deterministic preflight failure closes FAILED/QUARANTINED and blocks the integration through the listed edge;
-- ST-11 and IN-15 are structurally true, not merely prose assertions.
+Required outcome:
+- a TASK in `ASSIGNED` whose execution attempt is no longer non-terminal after controller-epoch fencing/cancellation cannot remain silently stranded;
+- state API §1A and freeze contract §21 must cover `ASSIGNED` consistently with the existing BUILDING/INTEGRATING/REVIEWING ambiguity rule, or replace the literal enumeration with an equivalent mechanically derivable rule;
+- reconciliation surfaces the subject as BLOCKED through the already-listed `task.block` edge; no blind redispatch.
 
-#### F-03 — cancellation/fencing before RUNNING
-Verify every non-terminal attempt state has a safe terminal fencing/cleanup path:
-- CREATED attempt can close CANCELLED/FENCED without inventing a process;
-- STARTING attempt fences immediately and only closes non-quarantined after any preflight process group is proven empty;
-- unproven preflight cleanup becomes QUARANTINED and subject BLOCKED;
-- controller-epoch change can fence CREATED/STARTING attempts;
-- TASK and INTEGRATION projections are both covered;
-- IN-18 and the structural mechanical test really detect a missing terminal edge.
+Acceptance:
+- add ST-15: controller epoch changes while TASK is ASSIGNED and attempt is CREATED or STARTING -> attempt closes FENCED and task is surfaced BLOCKED with typed reason;
+- add a structural mechanical test deriving from §3A the subject states that can hold a non-terminal execution record and proving each is covered by both §1A and §21 reconciliation semantics. Avoid a literal-substring-only false green.
 
-#### F-02 — delivery state machine
-Verify delivery is now a complete authoritative state machine:
-- §3 closure is scoped only to task/integration subject state;
-- §3C exists and governs delivery states `PENDING|UNKNOWN|PUBLISHED|FAILED|BLOCKED`;
-- `delivery.publish`, `delivery.reconcile` and `delivery.block` in §2 all have normative §3C edges;
-- every declared delivery state is reachable as a To-state;
-- ambiguous external success reaches UNKNOWN and cannot be blindly replayed;
-- reconciliation can resolve UNKNOWN using authoritative remote truth;
-- PUBLISHED/BLOCKED terminal semantics are coherent;
-- every §3C transition produces a DELIVERY journal event;
-- DELIVERY events are representable with NULL execution-record fencing token and current controller epoch/idempotency identity;
-- DL-01..DL-05, ID-07 and OB-01 accurately cover the model.
+### G-02 — restart fencing must not consume execution budget when no model ran
 
-### Regression search
+Repair the attempt-ceiling accounting hole without weakening R-02.
 
-Try to break the new candidate beyond those three findings. In particular inspect:
+Required outcome:
+- an attempt that closes CANCELLED or FENCED having never reached RUNNING / never launched a model process does not consume the per-revision execution-attempt ceiling;
+- deterministic preflight failure remains budget-consuming because it closes FAILED or QUARANTINED, not CANCELLED/FENCED;
+- the rule is normative and consistent between state API §3A and freeze contract §10.3.1;
+- restart, DB restore and epoch change cannot reset or accidentally decrement legitimate consumed attempts.
 
-- task/attempt/integration joint-oracle contradictions;
-- cancellation races in CREATED/STARTING/RUNNING/CANDIDATE_READY;
-- restart reconciliation across allocated-but-not-started attempts;
-- delivery UNKNOWN/PUBLISHED/FAILED/BLOCKED recovery and idempotency;
-- whether a delivery command/state is still unrepresented;
-- whether any task/integration/review/delivery record has an impossible or unjournalled state;
-- attempt-ceiling bypasses after BLOCKED/ESCALATED/rejection/restart/restore;
-- whether the new durable attempt-count derivation actually satisfies persistence;
-- reviewer dispatch fencing and stale verdict admission;
-- malformed §18A rows, dangling test IDs, or a MUST-bearing section with no disposition;
-- the structural-test helper/parser itself, including regex/section parsing and whether the new tests can false-green;
-- any regression of N-01..N-04, B-01..B-05, R-01..R-03;
-- any self-adoption or DEC-046/DEC-047 sequencing change.
+Acceptance:
+- add ST-16: repeated controller restarts while TASK is ASSIGNED with CREATED attempt do not exhaust the three real execution attempts; after three such restart-fencings a legitimate attempt assignment remains admissible according to the repaired accounting rule;
+- extend PR-10 so it asserts exactly which dispositions consume the ceiling and that persistence survives restart/restore/epoch change.
 
-### Mechanical verification
+### G-03 — delivery crash window between external effect and outcome persistence
 
-Run the candidate's spec test if this can be done without violating the read-only scope:
-`tests/test_orchestrator_freeze_spec.py`.
+Repair the new delivery state machine so a crash after an external effect cannot cause blind duplicate publication.
 
-If materialising the candidate tree would violate the scope, use committed blobs through `git show` and an ephemeral read-only script, as in the previous review. Report the exact command/method and distinguish pytest execution from equivalent structural recomputation.
+Required outcome:
+- before/when an external publication effect is initiated, persist durable evidence that the effect may have started (using the existing delivery attempt count if sufficient; do not add schema merely for convenience);
+- on restart/epoch change, PENDING with evidence that an effect may have been initiated reconciles to UNKNOWN before any further external effect;
+- `delivery.publish` cannot blindly replay that record;
+- freeze contract §21 delivery reconciliation and state API §3C agree;
+- authoritative remote reconciliation remains the only path out of ambiguity.
 
-Also independently check:
-- every test ID referenced by the freeze set resolves to a real matrix row;
-- every MUST-bearing numbered section is covered by §18A;
-- the delivery state enum and §3C edges are mutually complete;
-- every non-terminal attempt state has at least one terminal cleanup/fencing edge.
+Acceptance:
+- add DL-06: crash between external effect and outcome persistence -> restart produces UNKNOWN, publish is refused pending `delivery.reconcile`, and no second external effect occurs;
+- add a structural test proving every §3C state from which an external effect can be initiated is terminal or has an explicit reconciliation/precondition rule that prevents blind replay after an initiated effect.
 
-### Owner/runtime handling
+### Regression and evidence requirements
 
-Do not count these as engineering defects if the contract correctly fails closed:
-- exact freeze adoption / any DEC-046 sequencing amendment = **OWNER-PENDING**;
-- live watcher/builder branch mismatch = **RUNTIME-PENDING**;
-- stale Builder fetch refspec = **RUNTIME-PENDING**;
-- inherited business MCP connector surface = **RUNTIME-PENDING**.
+Preserve all earlier repairs N-01..N-04, B-01..B-05, R-01..R-03, F-01..F-03. Update traceability for G-01/G-02/G-03.
 
-### Verdict
+Run the committed mechanical spec test and any relevant document/static checks. Independently verify:
+- zero dangling acceptance IDs;
+- every MUST-bearing numbered FC/SA section is represented in §18A;
+- every non-terminal attempt state has a terminal cleanup/fencing path;
+- delivery enum and §3C remain mutually complete;
+- no self-adoption and no DEC-046/DEC-047 sequencing change.
 
-Return exactly one:
+Before publishing the repair result, require:
+- exact base/rejected/new candidate SHAs;
+- exact changed-file set and diff summary;
+- test commands/results;
+- repository worktree clean after commit;
+- repository candidate secret scan with exact command/result and no secret values in the report;
+- exact remote branch readback equals the new candidate SHA.
 
-- `ENGINEERING CONTRACT READY — OWNER/RUNTIME GATES REMAIN`
-- `CHANGES REQUIRED BEFORE OWNER DECISION`
+Publish the repair only to `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`. Do not merge or adopt it.
 
-If changes are required, list only material engineering blockers with:
-- ID/severity;
-- exact file/section;
-- unsafe/incorrect consequence;
-- smallest bounded repair;
-- exact acceptance/mechanical test required.
+### Handoff
 
-List OWNER-PENDING and RUNTIME-PENDING items separately. Record the same-model/provider reviewer-independence limitation explicitly if applicable.
-
-Do not approve because the documents are detailed. Try to break the contract.
+After the bounded repair is committed and pushed, report the exact new SHA and evidence in the outbox. Do **not** self-certify. State explicitly that the previous verdict is stale for the changed SHA and that a fresh independent read-only review is required.
