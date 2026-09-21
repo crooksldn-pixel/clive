@@ -131,6 +131,8 @@ If no eligible reviewer exists, transition to a visible routing block. Do not qu
 
 Where risk justifies it, independence should also vary model/session/context, not merely worktree.
 
+**Phase 1 identity limitation:** the repository simulator's `worker_id` fields are plain strings and therefore are not trustworthy attestations when supplied by a worker. They are placeholders for controller-issued identity. Before any runtime phase relies on reviewer independence for authority, worker/attempt identity must be issued or bound by the controller rather than self-asserted by the worker. Repository-only Phase 1 may exercise the scheduling semantics with strings, but must not claim cryptographic or process-level identity enforcement.
+
 ## 7. Generated active engineering state
 
 Curated product memory should not be forced to track every repair SHA.
