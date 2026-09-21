@@ -103,3 +103,17 @@ def test_the_service_worker_under_node():
     )
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
     assert "# fail 0" in result.stdout
+
+
+@needs_node
+def test_the_one_interaction_state_under_node():
+    """V0.5 invariant 2: IDLE → LISTENING → HEARING → UNDERSTOOD → THINKING → WORKING →
+    RESPONDING → IDLE, with error, interruption and recovery explicit — and the four
+    latencies the evidence gate asks for, measured from pointer-down and from release
+    (web/live-state.js)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / "live-state.test.js")],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout
