@@ -121,10 +121,17 @@
       };
     }
 
-    function emit(from, to, reason) {
+    // Written down, for the evidence. Not everything worth recording is a transition, so
+    // this is deliberately separate from telling anybody about it.
+    function record(from, to, reason) {
       const at = now();
       history.push({ turn, from, to, reason: reason || '', at });
       if (history.length > HISTORY_LIMIT) history.shift();
+      return at;
+    }
+
+    function emit(from, to, reason) {
+      const at = record(from, to, reason);
       for (const fn of listeners) {
         try { fn(to, from, reason || ''); } catch { /* a bad subscriber never stops the machine */ }
       }
@@ -253,9 +260,12 @@
     // Something the owner can actually read has landed — a card, a number, a completed job's
     // summary. Not a spinner, and not a state word. This is the measurement the whole slice
     // exists to move, so it is recorded wherever the turn happens to be.
+    // Recorded, never announced. A card landing is not a change of state, and a subscriber
+    // that repainted the caption for it would show the owner WORKING twice in a row for no
+    // reason the screen could explain.
     function usefulResult(reason) {
       if (marks.usefulMs === null && marks.releasedAt) marks.usefulMs = now() - marks.releasedAt;
-      emit(state, state, reason || 'useful result');
+      record(state, state, reason || 'useful result');
       return true;
     }
 

@@ -214,3 +214,35 @@ def test_v05_moves_persistent_service_status_out_of_the_idle_surface() -> None:
     # A fault in the current objective still has somewhere to appear in the main flow.
     assert 'id="conn"' in index[:index.index("<main")]
     assert 'id="notes-global"' in index
+
+
+ACCEPTANCE = Path(__file__).resolve().parent / "web" / "acceptance-v05.test.js"
+
+
+def test_v05_acceptance_harness_says_it_is_a_fixture_and_does_not_claim_otherwise() -> None:
+    """§E: 'use an honest fixture/fake adapter … and label it as such. Do not pretend fixture
+    data is live.' A harness that reads as a measurement is exactly the failure that rule is
+    written against."""
+    assert ACCEPTANCE.is_file()
+    source = ACCEPTANCE.read_text(encoding="utf-8")
+
+    assert "FIXTURE RUN" in source
+    assert "proves nothing about how fast the Mac is" in source
+    assert "FIXTURE: true" in source, "the harness answers for itself, not only in a comment"
+    # And no test in it claims to be anything it is not. (The header quotes the contract's
+    # own "live Gmail/model access" clause, so the check is on what the TESTS say they did.)
+    for name in re.findall(r"^test\('([^']*)'", source, flags=re.M):
+        # Whole words: CLIVE is the assistant's name, not a claim about this run.
+        for claim in ("live", "real", "device", "measured"):
+            assert not re.search(rf"\b{claim}\b", name, re.I), \
+                f"the harness test {name!r} claims to be {claim!r}"
+
+    # And it covers the five things the evidence gate names by name.
+    for scenario in (
+        "interrupts the answer and keeps the work in flight",
+        "the first useful result does not wait for the slowest job",
+        "one job failing leaves the others",
+        "adds a job, not a Split",
+        "no interval passes with nothing on screen to explain it",
+    ):
+        assert scenario in source, f"the harness does not cover: {scenario}"

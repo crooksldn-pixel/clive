@@ -43,7 +43,7 @@ test('the spine runs in the order the contract sets', () => {
   fullTurn(h);
   const path_ = h.seen.map((line) => line.split('->')[1].split(':')[0]);
   assert.deepEqual(path_, [
-    'LISTENING', 'HEARING', 'HEARING', 'UNDERSTOOD', 'THINKING', 'WORKING', 'WORKING', 'RESPONDING', 'IDLE',
+    'LISTENING', 'HEARING', 'HEARING', 'UNDERSTOOD', 'THINKING', 'WORKING', 'RESPONDING', 'IDLE',
   ]);
   assert.equal(h.m.state, 'IDLE');
   assert.deepEqual(h.m.refusals(), []);
@@ -305,4 +305,17 @@ test('tapping a shortcut over an answer interrupts it, exactly as holding does',
   assert.ok(h.m.asked(12));
   assert.ok(h.seen.some((line) => line === 'RESPONDING->INTERRUPTED:new question'));
   assert.equal(h.m.turn, 2);
+});
+
+
+test('a useful result is written down but never announced as a transition', () => {
+  const h = machine();
+  h.m.pointerDown(); h.m.released(); h.m.final(10); h.m.thinking(); h.m.working('orders');
+  const announced = h.seen.length;
+  h.tick(500);
+  h.m.usefulResult('order card');
+  assert.equal(h.seen.length, announced,
+    'a card landing is not a change of state; repainting the caption for it would show WORKING twice');
+  assert.equal(h.m.marks().usefulMs, 500, 'and it is still measured');
+  assert.ok(h.m.history().some((step) => step.reason === 'order card'), 'and still written down');
 });
