@@ -18,7 +18,14 @@ from typing import Iterable
 
 from pydantic import BaseModel
 
-from .contracts import (\n    ActiveState,\n    EngineeringResult,\n    EngineeringTask,\n    ProgressEvent,\n    TaskRuntimeState,\n)
+from .contracts import (
+    ActiveState,
+    EngineeringResult,
+    EngineeringTask,
+    ProgressEvent,
+    ProgressEventKind,
+    TaskRuntimeState,
+)
 
 
 class RecordConflictError(RuntimeError):
@@ -84,6 +91,9 @@ class JsonRecordStore:
                 f"progress sequence must be contiguous: expected {expected}, got {event.sequence}"
             )
 
+        if not existing and event.kind is not ProgressEventKind.ATTEMPT_STARTED:
+            raise ProgressSequenceError("progress stream must begin with attempt_started")
+
         if existing:
             previous = ProgressEvent.model_validate_json(
                 existing[-1].read_text(encoding="utf-8")
@@ -95,6 +105,10 @@ class JsonRecordStore:
                 or previous.worker_id != event.worker_id
             ):
                 raise ProgressSequenceError("progress stream identity changed within an attempt")
+            if previous.kind is ProgressEventKind.ATTEMPT_COMPLETED:
+                raise ProgressSequenceError("completed attempt cannot accept further progress events")
+            if event.occurred_at < previous.occurred_at:
+                raise ProgressSequenceError("progress event time cannot move backwards")
 
         attempt_dir.mkdir(parents=True, exist_ok=True)
         self._atomic_write(path, payload)
