@@ -360,11 +360,15 @@ class StreamState(StrictRecord):
     owner_gate: bool = False
     progress_health: ProgressHealth | None = None
     current_activity: str | None = None
+    active_step_label: str | None = None
     completed_step_count: int = Field(default=0, ge=0)
+    completed_step_labels: tuple[str, ...] = ()
     evidence_count: int = Field(default=0, ge=0)
+    evidence_refs: tuple[str, ...] = ()
     waiting_on: str | None = None
     next_known_action: str | None = None
     last_progress_at: datetime | None = None
+    last_heartbeat_at: datetime | None = None
     last_transition_at: datetime
 
     @field_validator("head_sha")
@@ -372,7 +376,7 @@ class StreamState(StrictRecord):
     def validate_head_sha(cls, value: str) -> str:
         return _validate_sha(value)
 
-    @field_validator("last_transition_at", "last_progress_at")
+    @field_validator("last_transition_at", "last_progress_at", "last_heartbeat_at")
     @classmethod
     def timezone_required(cls, value: datetime | None) -> datetime | None:
         if value is None:
