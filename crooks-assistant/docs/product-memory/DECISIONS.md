@@ -732,3 +732,28 @@ Detailed plan: [ENGINEERING_CONTROL_PLANE_VNEXT.md](./ENGINEERING_CONTROL_PLANE_
 **Reason:** Overnight operation demonstrated real idle gaps and stream starvation despite correct safety rules: one stream repeatedly occupied the shared lane, another stopped moving, and completed work could remain undispatched until a later hourly tick. M-01 through M-08 also demonstrated the cost of asking a mechanical evaluator to infer critical semantics from unrestricted English.
 
 **Consequences:** Phase 0/1 repository work may proceed within existing engineering boundaries. This decision alone does **not** authorise watcher/systemd/runtime installation, production promotion, secrets/credentials, connector changes, privilege expansion, business writes or owner-only freeze adoption.
+
+
+---
+
+## DEC-055 — Engineering work-in-progress is observable operational state
+
+**Date:** 2026-09-21
+**Status:** ACTIVE ENGINEERING DIRECTION
+**Source:** explicit owner direction while reviewing hourly-controller utilisation and Orchestrator philosophy
+
+**Decision:** Active engineering attempts must expose structured operational progress rather than collapsing to a binary running/not-running state.
+
+The minimum useful progress model includes current bounded activity, completed milestones, evidence produced, waiting/blocking state, next known action, last meaningful progress and separate liveness heartbeat, all bound to exact task/revision/attempt/worker identity.
+
+Heartbeat must not count as meaningful progress.
+
+The hourly supervisor should consume this progress and use its window productively: leave healthy work intact, schedule unrelated eligible work when safe spare capacity exists, investigate alive-but-nonprogressing attempts without duplicating them, reconcile stale attempts before retry, park blocked/owner-gated streams while others move, and advance completed attempts through already-authorised next actions immediately.
+
+Operator visibility is also a product requirement for the engineering system. Termius and later CLIVE engineering surfaces should be able to render a compact live progress table from the same machine-readable state. This is operational telemetry, not exposure of hidden model reasoning.
+
+Do not invent percentage completion where no reliable bounded denominator exists; show concrete milestones/evidence instead.
+
+**Reason:** Binary liveness wastes supervisory windows and hides whether useful work is advancing. The Orchestrator's purpose is not merely to know whether a worker process exists, but to understand enough verified operational state to coordinate useful work around it without interruption or duplication.
+
+**Consequences:** Phase 1 control-plane work should include append-only progress events, progress projection into ACTIVE_STATE, supervisor interpretation and a human-readable progress view. This decision does not authorise live watcher/systemd/runtime changes, production deployment, additional worker concurrency, new privileges, credentials, connectors, business writes or owner-only release/adoption decisions.
