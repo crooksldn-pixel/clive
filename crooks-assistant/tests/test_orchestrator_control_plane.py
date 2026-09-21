@@ -101,6 +101,7 @@ def test_bounded_repair_can_flow_directly_to_independent_review() -> None:
         make_task(),
         make_result(),
         candidate_worker_id="claude-reviewer-2",
+        current_branch_head=SHA_B,
     )
     assert decision.allowed is True
     assert "same authorised bounded workflow" in decision.reason
@@ -111,13 +112,16 @@ def test_author_cannot_satisfy_independent_review() -> None:
         make_task(),
         make_result(),
         candidate_worker_id="claude-builder-1",
+        current_branch_head=SHA_B,
     )
     assert decision.allowed is False
     assert "cannot satisfy independent review" in decision.reason
 
 
 def test_review_waits_only_for_reviewer_resolution_not_hourly_owner_poll() -> None:
-    unresolved = evaluate_obvious_continuation(make_task(), make_result())
+    unresolved = evaluate_obvious_continuation(
+        make_task(), make_result(), current_branch_head=SHA_B
+    )
     assert unresolved.allowed is False
     assert "reviewer identity" in unresolved.reason
 
@@ -125,6 +129,7 @@ def test_review_waits_only_for_reviewer_resolution_not_hourly_owner_poll() -> No
         make_task(),
         make_result(),
         candidate_worker_id="fresh-review-session",
+        current_branch_head=SHA_B,
     )
     assert resolved.allowed is True
 
@@ -143,6 +148,7 @@ def test_stale_subject_sha_cannot_continue() -> None:
         make_task(),
         result,
         candidate_worker_id="fresh-review-session",
+        current_branch_head=SHA_B,
     )
     assert decision.allowed is False
     assert "stale or mismatched" in decision.reason
@@ -151,12 +157,12 @@ def test_stale_subject_sha_cannot_continue() -> None:
 def test_result_from_wrong_task_revision_or_base_cannot_continue() -> None:
     wrong_revision = make_result(task_revision=2)
     assert evaluate_obvious_continuation(
-        make_task(), wrong_revision, candidate_worker_id="reviewer"
+        make_task(), wrong_revision, candidate_worker_id="reviewer", current_branch_head=SHA_B
     ).allowed is False
 
     wrong_base = make_result(base_sha=SHA_C)
     assert evaluate_obvious_continuation(
-        make_task(), wrong_base, candidate_worker_id="reviewer"
+        make_task(), wrong_base, candidate_worker_id="reviewer", current_branch_head=SHA_B
     ).allowed is False
 
 
@@ -166,6 +172,7 @@ def test_out_of_scope_changed_path_fails_closed() -> None:
         make_task(),
         result,
         candidate_worker_id="fresh-review-session",
+        current_branch_head=SHA_B,
     )
     assert decision.allowed is False
     assert "outside task scope" in decision.reason
@@ -177,6 +184,7 @@ def test_missing_required_evidence_blocks_review_but_allows_evidence_stage() -> 
         make_task(),
         missing,
         candidate_worker_id="fresh-review-session",
+        current_branch_head=SHA_B,
     )
     assert review.allowed is False
     assert "required evidence remains incomplete" in review.reason
@@ -191,7 +199,9 @@ def test_missing_required_evidence_blocks_review_but_allows_evidence_stage() -> 
             remaining_evidence=("secret_scan",),
         ),
     )
-    decision = evaluate_obvious_continuation(make_task(), evidence)
+    decision = evaluate_obvious_continuation(
+        make_task(), evidence, current_branch_head=SHA_B
+    )
     assert decision.allowed is True
 
 
@@ -232,6 +242,65 @@ def test_done_is_terminal_not_an_excuse_to_invent_more_work() -> None:
     assert decision.allowed is False
     assert "terminal/gated" in decision.reason
 
+
+
+def test_result_identity_rejects_path_traversal_attempt_id() -> None:
+    with pytest.raises(ValidationError):
+        make_result(attempt_id="../escape")
+
+    with pytest.raises(ValidationError):
+        make_result(attempt_id="nested/attempt")
+
+
+def test_fresh_remote_head_is_required_before_candidate_continuation() -> None:
+    unresolved = evaluate_obvious_continuation(
+        make_task(),
+        make_result(),
+        candidate_worker_id="fresh-review-session",
+    )
+    assert unresolved.allowed is False
+    assert "fresh branch HEAD" in unresolved.reason
+
+    moved = evaluate_obvious_continuation(
+        make_task(),
+        make_result(),
+        candidate_worker_id="fresh-review-session",
+        current_branch_head=SHA_C,
+    )
+    assert moved.allowed is False
+    assert "current branch HEAD differs" in moved.reason
+
+
+def test_worker_cannot_invent_invalid_next_stage_for_task_kind() -> None:
+    review_task = make_task(kind=TaskKind.REVIEW)
+    looping_review = make_result(
+        next_action=NextAction(
+            kind=NextActionKind.REVIEW,
+            reason="review myself again",
+            subject_sha=SHA_B,
+            mechanically_authorised=True,
+            required_reviewer_independence=True,
+        )
+    )
+    decision = evaluate_obvious_continuation(
+        review_task,
+        looping_review,
+        candidate_worker_id="fresh-review-session",
+        current_branch_head=SHA_B,
+    )
+    assert decision.allowed is False
+    assert "not a valid next stage" in decision.reason
+
+
+def test_branch_movement_after_result_blocks_otherwise_valid_review() -> None:
+    decision = evaluate_obvious_continuation(
+        make_task(),
+        make_result(),
+        candidate_worker_id="fresh-review-session",
+        current_branch_head=SHA_C,
+    )
+    assert decision.allowed is False
+    assert "current branch HEAD differs" in decision.reason
 
 def test_record_store_is_idempotent_but_rejects_identity_reuse(tmp_path) -> None:
     store = JsonRecordStore(tmp_path)
