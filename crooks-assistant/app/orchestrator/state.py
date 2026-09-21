@@ -11,10 +11,12 @@ from .contracts import (
     EngineeringResult,
     EngineeringTask,
     NextActionKind,
+    ProgressSnapshot,
     StreamState,
     TaskRuntimeState,
     TaskStatus,
 )
+from .progress import assess_progress
 from .store import latest_result_by_task_revision
 
 
@@ -46,6 +48,7 @@ def build_active_state(
     tasks: Sequence[EngineeringTask],
     results: Sequence[EngineeringResult],
     task_states: Sequence[TaskRuntimeState] = (),
+    progress_snapshots: Sequence[ProgressSnapshot] = (),
     branch_heads: Mapping[str, str],
     generated_at: datetime,
 ) -> ActiveState:
@@ -57,6 +60,13 @@ def build_active_state(
         if current is None or state.transition_seq > current.transition_seq:
             runtime[key] = state
 
+    progress_by_attempt: dict[tuple[str, int, str], ProgressSnapshot] = {}
+    for snapshot in progress_snapshots:
+        key = (snapshot.task_id, snapshot.task_revision, snapshot.attempt_id)
+        current = progress_by_attempt.get(key)
+        if current is None or snapshot.last_event_at > current.last_event_at:
+            progress_by_attempt[key] = snapshot
+
     streams: list[StreamState] = []
 
     for task in sorted(tasks, key=lambda item: (item.stream_id, item.task_id, item.revision)):
@@ -66,15 +76,30 @@ def build_active_state(
 
         result = latest.get((task.task_id, task.revision))
         task_state = runtime.get((task.task_id, task.revision))
+
+        selected_attempt = (
+            task_state.attempt_id
+            if task_state and task_state.attempt_id
+            else result.attempt_id if result else None
+        )
+        snapshot = (
+            progress_by_attempt.get((task.task_id, task.revision, selected_attempt))
+            if selected_attempt is not None
+            else None
+        )
+
         if result is not None and result.result_sha is not None and result.result_sha != head:
             stage = TaskStatus.OBSOLETE
             blocker_class = BlockerClass.OBSOLETE
+            snapshot = None
         elif task_state is not None:
             stage = task_state.status
             blocker_class = task_state.blocker_class
         else:
             stage = _stage_from_result(task, result)
             blocker_class = result.blocker_class if result else BlockerClass.NONE
+
+        progress_health = assess_progress(snapshot, now=generated_at) if snapshot else None
 
         streams.append(
             StreamState(
@@ -99,6 +124,13 @@ def build_active_state(
                     (task_state and task_state.owner_gate)
                     or (result and result.owner_decision_required)
                 ),
+                progress_health=progress_health,
+                current_activity=snapshot.current_activity if snapshot else None,
+                completed_step_count=len(snapshot.completed_steps) if snapshot else 0,
+                evidence_count=len(snapshot.evidence_refs) if snapshot else 0,
+                waiting_on=snapshot.waiting_on if snapshot else None,
+                next_known_action=snapshot.next_known_action if snapshot else None,
+                last_progress_at=snapshot.last_meaningful_progress_at if snapshot else None,
                 last_transition_at=(
                     task_state.updated_at
                     if task_state
