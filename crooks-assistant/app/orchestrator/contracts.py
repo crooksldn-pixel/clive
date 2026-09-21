@@ -94,7 +94,7 @@ class EngineeringTask(StrictRecord):
     required_evidence: tuple[str, ...] = ()
     reviewer_must_be_independent: bool = True
     authorising_reference: str = Field(min_length=1)
-    status: TaskStatus = TaskStatus.READY
+    priority: int = Field(default=0, ge=-100, le=100)
     created_at: datetime
 
     @field_validator("base_sha", "product_memory_sha")
@@ -114,6 +114,54 @@ class EngineeringTask(StrictRecord):
     def no_empty_entries(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(not item.strip() for item in value):
             raise ValueError("entries must not be empty")
+        return value
+
+
+class TaskRuntimeState(StrictRecord):
+    schema_version: Literal["clive.task_runtime_state.v1"] = "clive.task_runtime_state.v1"
+    task_id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")
+    task_revision: int = Field(ge=1)
+    status: TaskStatus
+    transition_seq: int = Field(ge=0)
+    attempt_id: str | None = Field(
+        default=None,
+        max_length=120,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    worker_id: str | None = Field(default=None, max_length=200)
+    blocker_class: BlockerClass = BlockerClass.NONE
+    blocker_reason: str | None = None
+    owner_gate: bool = False
+    updated_at: datetime
+
+    @field_validator("updated_at")
+    @classmethod
+    def timezone_required(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must be timezone-aware")
+        return value
+
+    @model_validator(mode="after")
+    def blocker_fields_are_consistent(self) -> "TaskRuntimeState":
+        if self.blocker_class is BlockerClass.NONE and self.blocker_reason is not None:
+            raise ValueError("blocker_reason requires a non-none blocker_class")
+        if self.blocker_class is not BlockerClass.NONE and not self.blocker_reason:
+            raise ValueError("non-none blocker_class requires blocker_reason")
+        if self.blocker_class is BlockerClass.OWNER_ONLY and not self.owner_gate:
+            raise ValueError("owner_only blocker requires owner_gate=true")
+        return self
+
+
+class WorkerProfile(StrictRecord):
+    worker_id: str = Field(min_length=1, max_length=200)
+    roles: tuple[str, ...] = ()
+    available: bool = True
+
+    @field_validator("roles")
+    @classmethod
+    def roles_are_nonempty(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not role.strip() for role in value):
+            raise ValueError("worker roles must not be empty")
         return value
 
 
