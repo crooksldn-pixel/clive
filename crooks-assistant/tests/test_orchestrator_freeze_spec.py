@@ -2350,6 +2350,34 @@ _ADDITIVE_COORDINATORS = (
 # The subset that may also appear *inside* a run, joining a conjunct that is not itself a group.
 _ADDITIVE_COORDINATOR_WORDS = frozenset({"and", "plus"})
 
+# M-08 — a coordinator does not have to stand against the head noun it coordinates.
+#
+# The M-07 rule read additive coordination only when the coordinator opened the run between the two
+# group nouns. English lets the first conjunct carry its own postmodifier first, and
+#
+#     a process group **for the attempt** and a group for the reviewer are created
+#
+# is two groups under one creation predicate. `for the attempt` in front of the coordinator made the
+# relation read as "not coordination", which fell back to `max([1, 1])` — one, which is exactly the
+# number §3A.3 declares. This is the M-07 false green restored by a postmodifier: unlike the
+# comma-split under-count, which reports 2 for 3 and still fails a declared 1, it reports 1 for 2 and
+# leaves the gate green.
+#
+# What may be believed is bounded by what can be established. A later coordinator counts only when
+# everything between the first head noun and it is that head's own postmodifier material: a run of
+# prepositional phrases, each a postmodifying preposition followed by the noun phrase it governs.
+# Searching for any later `and` would have been the unsafe repair — `creates a process group for the
+# attempt and records the group for cleanup` has one group and one `and`, and must never derive two.
+#
+# These prepositions are all `_CONSTITUENT_BOUNDARIES` members, readmitted in this one position and
+# nowhere else. Relativisers (`which`, `who`, `where`) and subordinators (`if`, `when`, `because`)
+# are deliberately absent: what they open is a clause, whose end this walk cannot find, so a
+# coordinator behind one is unplaceable rather than additive.
+_POSTMODIFIER_PREPOSITIONS = frozenset({
+    "of", "for", "in", "into", "on", "at", "to", "by", "with", "from",
+    "under", "over", "upon", "through", "during", "against", "between", "within",
+})  # fmt: skip
+
 
 def _may_stand_inside_a_coordinated_run(token: str) -> bool:
     """May this token sit between two coordinated group nouns without ending the coordination?
@@ -2384,21 +2412,82 @@ def _may_stand_inside_a_coordinated_run(token: str) -> bool:
     return not _heads_a_different_noun_phrase(token)
 
 
+def _may_stand_inside_a_governed_noun_phrase(token: str) -> bool:
+    """May this token sit inside the noun phrase a postmodifying preposition governs?
+
+    The vocabulary a coordinated run admits, minus the coordinators themselves: a coordinator
+    inside a postmodifier is the very token the scan is hunting for, so it has to end the phrase
+    rather than be swallowed by it. Everything that ends a coordinated run ends this one too — an
+    auxiliary or modal, a negator, a boundary word, a bare plural that can only head a phrase of
+    its own — which is what keeps a relative clause or a new predication from passing as a
+    postmodifier.
+    """
+    return token not in _ADDITIVE_COORDINATOR_WORDS and _may_stand_inside_a_coordinated_run(token)
+
+
+def _is_a_bounded_postmodifier(tokens: list[str]) -> bool:
+    """Is `tokens` exactly the postmodifier run of the noun phrase in front of it?
+
+    Zero or more prepositional phrases and nothing else: a postmodifying preposition, then at least
+    one token that can stand inside the noun phrase it governs, repeated until the tokens run out.
+    The empty run is one, which is M-07's adjacent coordinator unchanged.
+
+    "Exactly" is the load-bearing word. A run that ends early — on a relativiser, on an auxiliary,
+    on a preposition governing nothing — is not a shorter postmodifier, it is the absence of an
+    answer, and the caller must not treat the coordinator behind it as joining these two phrases.
+    """
+    index = 0
+    while index < len(tokens) and tokens[index] in _POSTMODIFIER_PREPOSITIONS:
+        governed = index + 1
+        while governed < len(tokens) and _may_stand_inside_a_governed_noun_phrase(tokens[governed]):
+            governed += 1
+        if governed == index + 1:
+            return False
+        index = governed
+    return index == len(tokens)
+
+
+def _additive_coordinator_at(tokens: list[str], index: int) -> tuple[str, ...] | None:
+    """The additive coordinator beginning at `index`, if one does."""
+    for coordinator in _ADDITIVE_COORDINATORS:
+        if tuple(tokens[index : index + len(coordinator)]) == coordinator:
+            return coordinator
+    return None
+
+
 def _coordination_between(between: str) -> bool | None:
     """Do the two group nouns flanking `between` name different created objects?
 
     `True` when they are coordinated conjuncts of one predicate and therefore add; `False` when
     the relation is anything else, which is the alias/appositive/back-reference case `max` already
-    handles correctly; `None` when a coordinator opens the run but the rest of it cannot be read
-    as a noun phrase's premodifiers, where the honest answer is that the number is unknown.
+    handles correctly; `None` when a coordinator is present but the run around it cannot be read,
+    where the honest answer is that the number is unknown.
+
+    M-08 — the coordinator is looked for anywhere in the run, not only at its head, but it is
+    believed only when everything before it is the first conjunct's own postmodifier and everything
+    after it is the next conjunct's premodifiers. A coordinator that fails either test is not
+    evidence of one group; it is evidence of an unreadable sentence, and unknown is red.
+
+    The one relation that stays `False` on a coordinator it cannot place is a predication opening
+    the run with no postmodifier inside it — `a group **is created and the** group is recorded`
+    coordinates two predications about one group, which is precisely what `max` is for, and which
+    the M-07 controls pin. Put a postmodifier between that predicate and the coordinator and the
+    two readings (a gapped second conjunct, or a second predication) stop being distinguishable
+    from inside this window, so that shape falls back to unknown rather than to a guess.
     """
     tokens = [found.group().lower() for found in _QUANTIFIER_TOKEN_RE.finditer(between)]
-    for coordinator in _ADDITIVE_COORDINATORS:
-        if tuple(tokens[: len(coordinator)]) == coordinator:
-            rest = tokens[len(coordinator) :]
+    for index in range(len(tokens)):
+        coordinator = _additive_coordinator_at(tokens, index)
+        if coordinator is not None:
             break
     else:
         return False
+
+    prefix, rest = tokens[:index], tokens[index + len(coordinator) :]
+    if not _is_a_bounded_postmodifier(prefix):
+        if prefix[0] in _PREDICATION_AUXILIARIES and not (set(prefix) & _POSTMODIFIER_PREPOSITIONS):
+            return False
+        return None
     if all(_may_stand_inside_a_coordinated_run(token) for token in rest):
         return True
     return None
@@ -4321,24 +4410,296 @@ def test_coordination_is_decided_structurally_not_by_the_presence_of_a_conjuncti
 
 
 def test_the_coordination_blind_spots_are_stated_rather_than_assumed_closed() -> None:
-    """Honest scope for M-07, carried forward for the next review, exactly as M-05 did.
+    """Honest scope for M-07 as M-08 leaves it, carried forward for the next review.
 
-    The repair reads coordination that is adjacent to the head noun it coordinates. It does not
-    parse a postmodified first conjunct, and a comma still ends the segment before the coordinator
-    is reached. Both are under-counts, so both are ways a future edit could be missed — neither is
-    a way for legitimate prose to be wrongly rejected, and neither is reachable in the committed
-    text, which holds exactly one group noun in exactly one creation segment.
+    The postmodified first conjunct that this test used to pin as an under-count is M-08 and is
+    closed; what remains is the comma. A comma-separated list is split into segments before the
+    coordination is ever seen, so the verb's own segment holds only the conjuncts that follow the
+    last comma. That is an under-count — three read as two — and therefore a direction a future
+    edit could exploit, but not at the declared number: two still fails a declared one. It is not
+    reachable in the committed text either, whose one creation segment holds one group noun.
     """
-    # A prepositional postmodifier on the first conjunct puts the coordinator out of reach.
-    assert group_creations(
-        "a process group for the attempt and a group for the reviewer are created"
-    )[0][1] == 1
-    # A comma-separated list is split into segments before the coordination is ever seen, so the
-    # verb's own segment holds only the conjuncts that follow the last comma.
     assert group_creations("a process group, another group and a third group are created")[0][1] == 2
 
-    # Neither shape exists in §3A: the one creation segment there has one group noun.
+    # The shape does not exist in §3A: the one creation segment there has one group noun.
     assert [count for _verb, count in group_creations(COMMITTED_CREATION_PROSE)] == [1]
+
+
+# --------------------------------------------------------------------------------------------
+# M-08 — a coordinator behind the first conjunct's postmodifier is still a coordinator.
+#
+# M-07 summed coordinated conjuncts only while the coordinator stood directly against the first
+# conjunct's head noun. The first conjunct is allowed its own postmodifier:
+#
+#   a process group **for the attempt** and a group for the reviewer are created
+#
+# Semantic cardinality two, derived cardinality one — `_coordination_between` answered "not
+# coordination" and `max([1, 1])` gave back exactly the number §3A.3 declares. Written over the one
+# §3A clause that legitimately creates the attempt's group, it creates a second group and leaves the
+# gate green. That is worse than the comma under-count the M-07 repair disclosed beside it: the
+# comma case reports two where the truth is three and still fails a declared one, while this one
+# lands *on* the declared number.
+#
+# The repair is bounded by what can be established rather than by what can be found. A coordinator
+# anywhere in the run between the two group nouns is believed only when everything in front of it is
+# the first conjunct's own postmodifier — prepositional phrases and nothing else — and everything
+# behind it is the next conjunct's premodifiers. A coordinator that fails either test is not read as
+# one group; it is read as an unreadable sentence, which is the `None` this gate fails closed on.
+# `creates a process group for the attempt and records the group for cleanup` is the case that makes
+# the distinction necessary: one group, one `and`, and a rule that merely hunted for a later `and`
+# would have derived two from it.
+#
+# Every mutation below rewrites the committed `CREATED -> STARTING` creation clause, so the creating
+# *row* count stays one and §3A.3's declared `1` stays as committed — the derived count is again the
+# only thing that can object.
+# --------------------------------------------------------------------------------------------
+POSTMODIFIED_COORDINATED_CREATIONS = (
+    ("the reported shape",
+     "a process group for the attempt and a group for the reviewer are created", 2),
+    ("quantified first conjunct",
+     "two process groups for the attempt and another group for the reviewer are created", 3),
+    ("both conjuncts quantified",
+     "two process groups for the attempt and three cgroups for the reviewer are created", 5),
+    ("active voice",
+     "the controller creates a process group for the attempt and a group for the reviewer", 2),
+    ("active voice, quantified first conjunct",
+     "the controller creates two process groups for the attempt and another group for the "
+     "reviewer", 3),
+    ("two prepositional phrases on the first conjunct",
+     "a process group for the attempt on the current host and a group for the reviewer are "
+     "created", 2),
+    ("a postmodifier nested inside a postmodifier",
+     "a process group for the attempt of this subject revision and a group for the reviewer are "
+     "created", 2),
+    ("a possessive inside the postmodifier",
+     "a process group for the attempt's preflight and another group are created", 2),
+    ("`as well as` behind a postmodifier",
+     "a process group for the attempt as well as a group for the reviewer are created", 2),
+    ("`plus` behind a postmodifier",
+     "a process group for the attempt plus another group are created", 2),
+    ("three postmodified conjuncts",
+     "a process group for the attempt and a group for the reviewer and a third group for cleanup "
+     "are created", 3),
+    ("postmodifier on the second conjunct only",
+     "a process group and a group for the reviewer are created", 2),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement,count",
+    POSTMODIFIED_COORDINATED_CREATIONS,
+    ids=lambda value: str(value).replace(" ", "-")[:44],
+)
+def test_a_postmodified_first_conjunct_is_still_a_conjunct(
+    device: str, replacement: str, count: int
+) -> None:
+    """M-08. The postmodifier belongs to the conjunct; it does not dissolve the coordination.
+
+    The row dimension is asserted unchanged first, because it is: one §3A edge still creates and
+    §3A.3 still declares one. As with M-07, nothing but the derived count can catch these.
+    """
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    assert [
+        f"{row[0]} -> {row[2]}" for row in attempt_rows_creating_an_owned_process_group(mutated)
+    ] == ["CREATED -> STARTING"], f"{device}: the mutation was not confined to one row"
+    assert len(owned_process_group_creation_assertions(mutated)) == count, device
+
+    with pytest.raises(AssertionError, match=f"asserts {count} owned process group creations"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# Coordination behind material the rule cannot bound. None of these may be read as one group, and
+# none of them may be read as a number either: the evidence that the coordinator joins the two group
+# phrases is absent, so the count is unknown and unknown is red. This is the half of M-08 that keeps
+# the repair from being "look for a later `and`", and the first entry is the sentence that makes the
+# difference — one group, one `and`, and an active-voice verb behind it.
+POSTMODIFIED_COORDINATIONS_THAT_CANNOT_BE_PLACED = (
+    ("an active-voice predicate behind the coordinator",
+     "the controller creates a process group for the attempt and records the group for cleanup"),
+    ("a relative clause on the first conjunct",
+     "a process group which is owned by the attempt and a group for the reviewer are created"),
+    ("a predicate interposed before the postmodifier",
+     "a process group is created for the attempt and a group for the reviewer"),
+    ("an unquantified second conjunct behind a postmodifier",
+     "a process group for the attempt and several groups for the reviewer are created"),
+    ("`and/or` behind a postmodifier",
+     "a process group for the attempt and/or a group for the reviewer are created"),
+    ("a subordinate clause on the first conjunct",
+     "a process group for the attempt when cleanup is proven and a group for the reviewer are "
+     "created"),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement",
+    POSTMODIFIED_COORDINATIONS_THAT_CANNOT_BE_PLACED,
+    ids=lambda value: str(value).replace(" ", "-")[:44],
+)
+def test_a_postmodified_coordination_that_cannot_be_placed_fails_closed(
+    device: str, replacement: str
+) -> None:
+    """The fail-closed half of M-08, on the same clause and the same row as its additive half."""
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    with pytest.raises(AssertionError, match="without saying how many"):
+        owned_process_group_creation_assertions(mutated)
+    with pytest.raises(AssertionError, match="without saying how many"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# The direction that must not move, restated with a postmodifier in front of it. Each of these names
+# a group twice, postmodifies the first mention, and creates exactly one group. A rule that read the
+# postmodifier as licence to sum whatever came later would redden every one of them.
+POSTMODIFIED_SAME_GROUP_MENTIONED_TWICE = (
+    ("appositive behind a postmodifier",
+     "a process group for the attempt (the group the handle names) is created"),
+    ("disjunction behind a postmodifier",
+     "a process group for the attempt or another group for the reviewer is created"),
+    ("relative clause behind a postmodifier",
+     "a process group for the attempt which the group handle names is created"),
+    ("prepositional back-reference behind a postmodifier",
+     "a process group for the attempt is created inside that group"),
+    ("a comma between the creation and the back-reference",
+     "a process group for the attempt is created, and the group runs preflight"),
+    ("ordinary singular normative creation, postmodified",
+     "the attempt's single owned process group for that attempt is created"),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement",
+    POSTMODIFIED_SAME_GROUP_MENTIONED_TWICE,
+    ids=lambda value: str(value).replace(" ", "-")[:44],
+)
+def test_a_postmodified_group_named_twice_is_still_one_group(device: str, replacement: str) -> None:
+    """The false-positive control for M-08, the same standard M-07's control applies."""
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    assert len(owned_process_group_creation_assertions(mutated)) == 1, device
+    assert_declared_group_count_matches_the_matrix(mutated)
+    assert_declared_write_point_matches_the_matrix(mutated)
+
+
+def test_a_comma_separated_coordination_is_still_red_though_its_total_is_undercounted() -> None:
+    """The disclosed under-count must stay a *red* under-count, not become a green one.
+
+    Three conjuncts split by a comma derive two, because the comma ends the creation verb's segment
+    before the first conjunct is reached. Two is wrong and is pinned as wrong above — but two is not
+    one, so the declared cardinality still rejects it. This is the test that would fail if a future
+    segmentation change made the conservative answer land on the declared number.
+    """
+    mutated = state_api_with_rewritten_prose(
+        COMMITTED_CREATION_PROSE, "a process group, another group and a third group are created"
+    )
+
+    assert len(owned_process_group_creation_assertions(mutated)) == 2
+    with pytest.raises(AssertionError, match="asserts 2 owned process group creations"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+def test_a_coordinator_is_placed_before_it_is_believed() -> None:
+    """M-08 stated as a property of `_coordination_between`, so an edit cannot regress it.
+
+    The answers M-07 fixed are repeated here unchanged, because the scan that finds a coordinator
+    anywhere in the run is exactly the change that could have moved them.
+    """
+    # Placeable: the coordinator stands behind the first conjunct's own postmodifier.
+    assert _coordination_between(" for the attempt and a ") is True
+    assert _coordination_between(" of the attempt on this host and another ") is True
+    assert _coordination_between(" for the attempt as well as a ") is True
+    assert _coordination_between(" for the attempt's preflight plus another ") is True
+
+    # Unplaceable: a relative clause, a subordinate clause, an interposed predicate, a preposition
+    # governing nothing, and a run behind the coordinator that is not a noun phrase.
+    assert _coordination_between(" which is owned by the attempt and a ") is None
+    assert _coordination_between(" when cleanup is proven and a ") is None
+    assert _coordination_between(" is created for the attempt and a ") is None
+    assert _coordination_between(" for and a ") is None
+    assert _coordination_between(" for the attempt and records the ") is None
+
+    # Not coordination at all, and therefore still `max`: M-07's answers, unmoved.
+    assert _coordination_between(" is created and the ") is False
+    assert _coordination_between(" for the attempt or another ") is False
+    assert _coordination_between(" for the attempt, inside the ") is False
+    assert _coordination_between(" (the attempt's owned ") is False
+
+    # The postmodifying prepositions are boundary words readmitted in this one position only, and
+    # nothing that opens a clause is among them — an unbounded clause is what `None` is for.
+    assert _POSTMODIFIER_PREPOSITIONS < _CONSTITUENT_BOUNDARIES
+    assert not (_POSTMODIFIER_PREPOSITIONS & _ADDITIVE_COORDINATOR_WORDS)
+    assert not (
+        _POSTMODIFIER_PREPOSITIONS
+        & {"which", "who", "whom", "whose", "where", "if", "when", "while", "unless", "until",
+           "because", "though", "although", "and", "or", "but"}
+    )
+
+
+def test_the_postmodified_coordination_limits_are_stated_rather_than_assumed_closed() -> None:
+    """Honest scope for M-08, in the same form M-05, M-06 and M-07 used.
+
+    Closing the postmodified conjunct made two shapes newly *red* that a reader would call one
+    group. Both are cases where a predicate stands between the first group noun and the coordinator
+    and the second conjunct could equally be a gapped noun phrase or a new predication — a
+    distinction this window genuinely cannot draw, so it declines to draw it. Red is the direction a
+    cardinality invariant is allowed to be wrong in, and neither shape occurs in the committed text,
+    whose one creation segment holds one group noun and no coordinator at all.
+    """
+    # Legitimate one-group prose that is now unknown rather than one. Stated, not hidden.
+    assert group_creations(
+        "a process group is created for the attempt and the group is recorded"
+    )[0][1] is None
+    assert group_creations(
+        "a process group for the attempt is created and the group runs preflight"
+    )[0][1] is None
+
+    # The M-07 form of both — no postmodifier anywhere — is still green at one, which is what keeps
+    # the fail-closed arm from swallowing ordinary back-references.
+    assert group_creations("a process group is created and the group runs preflight")[0][1] == 1
+
+    # And the committed clause is untouched by all of it.
+    assert [count for _verb, count in group_creations(COMMITTED_CREATION_PROSE)] == [1]
+    assert_declared_group_count_matches_the_matrix(read(STATE_API))
+
+
+def test_two_under_counts_outside_the_coordination_rule_are_recorded_as_still_open() -> None:
+    """Found while attacking M-08, left open deliberately, and pinned so they cannot go quiet.
+
+    Neither of these is the coordination rule being wrong; both are cardinality the rule never
+    sees, and both are *material* in the sense the M-08 report used — they derive exactly the `1`
+    that §3A.3 declares from prose that creates two groups, so the gate is green. Repairing either
+    is a change to a different mechanism than the one this round was scoped to, and each deserves
+    its own bounded round rather than being folded in here:
+
+      * **Segmentation.** `_segment_bounds` ends a creation verb's segment at a comma or semicolon,
+        so a conjunct on the far side of one is not in the verb's segment and is never counted. The
+        three-conjunct form the M-07 repair disclosed under-counts three as two and still fails a
+        declared one; the two-conjunct form under-counts two as *one* and passes. The fix is not
+        this rule but the constituent the segment stands for: a comma-delimited conjunct list is
+        one noun phrase, not two segments.
+
+      * **Elided heads.** A coordinated conjunct may omit the head noun — `and another for the
+        reviewer` — and `GROUP_NOUN_RE` has nothing to match, so the segment holds one group noun
+        and derives one. Counting it needs the elided head to be recovered from the first conjunct,
+        which is a question about the noun phrase, not about the coordinator.
+
+    Both predate this repair: each derives 1 at `f06730a` and at every SHA before it.
+    """
+    # Segmentation: a comma between the conjuncts hides one of them entirely.
+    assert group_creations("a process group, and a group for the reviewer are created")[0][1] == 1
+    assert group_creations(
+        "a process group, for the attempt, and a group for the reviewer are created"
+    )[0][1] == 1
+    assert group_creations(
+        "a process group for the attempt; and a group for the reviewer are created"
+    )[0][1] == 1
+    # The three-conjunct form is the same defect at a number that still fails the declared one.
+    assert group_creations("a process group, another group and a third group are created")[0][1] == 2
+
+    # Elided head: the second conjunct is a conjunct, but there is no group noun in it to count.
+    assert group_creations(
+        "a process group for the attempt and another for the reviewer are created"
+    )[0][1] == 1
 
 
 # --------------------------------------------------------------------------------------------
