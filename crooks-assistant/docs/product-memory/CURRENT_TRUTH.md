@@ -1,8 +1,8 @@
-# CROOKS OS — Current Truth
+# CLIVE — Current Truth
 
 **Purpose:** compact active context for GPT/Claude/Fable/engineering workers  
 **Status:** ACTIVE — update whenever a material product/architecture state changes  
-**As of:** 2026-09-20
+**As of:** 2026-09-21
 
 This file is intentionally not a historical transcript. It answers: **what is true and important now?**
 
@@ -10,7 +10,7 @@ For historical rationale, use Git and DECISIONS.md. For release evolution rules,
 
 ## Product
 
-CROOKS OS is the intelligent operating layer for the business: persistent state, controlled capabilities, verified actions, proactive exception handling, and minimal owner attention.
+CLIVE is the intelligent persistent operational layer for the business: contextual understanding, persistent state/objectives, controlled capabilities, verified actions, proactive exception handling, and minimal owner attention.
 
 Core product principles remain:
 
@@ -41,11 +41,23 @@ Operational implications:
 
 Full doctrine: [CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md](./CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md).
 
+### CLIVE identity and home surface — 2026-09-21
+
+The user-facing product identity is **CLIVE — Computer Language Interface Virtual Environment**.
+
+The home surface must not visually imply that CLIVE wakes empty and waits for a command. When relevant operational state exists, home projects the highest-value current objectives, changes, commitments, exceptions and unfinished work. A sparse/empty surface is valid when nothing earns attention.
+
+The orb is CLIVE's presence/status object rather than merely a giant microphone button. Voice is one interaction path. Useful information may displace/reposition the orb when it deserves the space. Permanent provider/service status and fixed implementation-module navigation should not define the primary surface; health is contextual to the current objective and scenes are response/objective-driven.
+
+Startup identity direction: point of light → abstract world/intelligence orb → C/L/I/V/E acronym reveal → CLIVE wordmark.
+
+Full direction: [CLIVE_IDENTITY_AND_HOME_SURFACE.md](./CLIVE_IDENTITY_AND_HOME_SURFACE.md).
+
 \n### Long-horizon adaptation doctrine\n\nCLIVE must preserve its **mission and accumulated operational understanding without treating its current mechanisms as permanent**. Large organisations already exhibit distributed agency across people, software, rules, records and incentives; CLIVE's opportunity is to make more of that implicit organisational cognition explicit while reducing coordination cost and preserving human authority.\n\nThe capability frontier is permanently moving. There is no meaningful final 100% state. Models, APIs, interfaces, organisations and working patterns will change, so components should be expected to be replaced or deleted when superior mechanisms appear. Preserve durable semantics — objectives, identity, evidence/provenance, authority, time, commitments, capabilities, uncertainty, outcomes and verification — while keeping providers, frameworks, databases, orchestration, UI and connectors replaceable.\n\nCore rule: **preserve accumulated understanding; make accumulated implementation expendable.** CLIVE should be able to consume technology that would otherwise obsolete its current implementation. Adaptability remains controlled: observed limitation → candidate change → isolated experiment → adversarial evaluation → independent review → controlled adoption.\n\nMaturity principle: **no reasonable objective should leave CLIVE without a useful next move**, even when autonomous completion is impossible.\n\nFull doctrine: [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md).\n\n## Active Live Experience / evaluation direction — 2026-09-20
 
 The owner has explicitly retired **user-facing Split** as the future interaction model. Preserve useful concurrency primitives internally where they still earn their place, but simultaneous work should appear as independently progressing jobs inside one CLIVE session rather than Half 1 / Half 2 / Merge / Close.
 
-An isolated repo-only implementation stream exists at `chatgpt/clive-live-experience-v0-5`, initial contract `4469e0b9c4450cd1f7244b028a5684394a0a0b6f`. It is intentionally separate from the Orchestrator freeze and is not production authority.
+An isolated repo-only implementation stream exists at `chatgpt/clive-live-experience-v0-5`; initial contract `4469e0b9c4450cd1f7244b028a5684394a0a0b6f`, current observed implementation head at this reconciliation `f9bdc7682939448d77f10aeaf4048ca62eb370fb`. It is intentionally separate from the Orchestrator freeze and is not production authority.
 
 Immediate product direction:
 - one perceptible lifecycle: `IDLE → LISTENING → HEARING → UNDERSTOOD → THINKING → WORKING → RESPONDING → IDLE`, with explicit interruption/error/recovery;
@@ -62,6 +74,16 @@ Immediate product direction:
 Full doctrine and research/observed findings: [CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md](./CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md).
 
 This direction does not waive DEC-046/047, exact-SHA Orchestrator adoption, runtime/credential/connector/deployment/privilege gates, or action-safety invariants.
+
+### Control-plane throughput lesson — 2026-09-21
+
+Dual-stream operation proved that the current Git bridge/hourly-controller combination is safe but throughput-limited: the single inbox behaves as a shared lane, repeated repair/review cycles can starve another stream, and completion can sit idle until the next supervisory tick. Preserve the precision; remove the coordination waste.
+
+Approved direction: persistent tmux-backed Termius workers, one task/worktree/session/candidate, machine-readable queued tasks/results, event-driven continuation, scheduler-enforced reviewer independence, generated volatile ACTIVE_STATE, explicit blocker classes and starvation prevention. The hourly GPT controller becomes reconciliation/supervision rather than the normal continuation clock.
+
+Critical contract semantics should migrate toward structured data or a constrained grammar rather than indefinitely expanding regex interpretation of unrestricted prose.
+
+Plan: [ENGINEERING_CONTROL_PLANE_VNEXT.md](./ENGINEERING_CONTROL_PLANE_VNEXT.md).
 
 ## Engineering control plane
 
