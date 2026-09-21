@@ -18,7 +18,7 @@ from typing import Iterable, TypeVar
 
 from pydantic import BaseModel
 
-from .contracts import ActiveState, EngineeringResult, EngineeringTask
+from .contracts import ActiveState, EngineeringResult, EngineeringTask, TaskRuntimeState
 
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -28,16 +28,22 @@ class RecordConflictError(RuntimeError):
     """Raised when an immutable record identity is reused with different content."""
 
 
+class StateConflictError(RuntimeError):
+    """Raised when mutable task state is updated from a stale transition sequence."""
+
+
 class JsonRecordStore:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         self.tasks_dir = self.root / "tasks"
         self.results_dir = self.root / "results"
+        self.task_states_dir = self.root / "task-state"
         self.state_path = self.root / "ACTIVE_STATE.json"
 
     def ensure_layout(self) -> None:
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
         self.results_dir.mkdir(parents=True, exist_ok=True)
+        self.task_states_dir.mkdir(parents=True, exist_ok=True)
 
     def put_task(self, task: EngineeringTask) -> Path:
         path = self.tasks_dir / f"{task.task_id}.r{task.revision}.json"
@@ -48,6 +54,47 @@ class JsonRecordStore:
         path = self.results_dir / result.task_id / f"{result.attempt_id}.json"
         self._put_immutable(path, result)
         return path
+
+
+
+    def write_task_state(
+        self,
+        state: TaskRuntimeState,
+        *,
+        expected_previous_seq: int | None,
+    ) -> Path:
+        """Write one operational state transition with a simple compare-and-swap guard.
+
+        This JSON implementation is for repository/offline simulation. A production
+        multi-process controller will require a transactional store.
+        """
+
+        self.ensure_layout()
+        path = self.task_states_dir / f"{state.task_id}.r{state.task_revision}.json"
+        if not path.exists():
+            if expected_previous_seq is not None:
+                raise StateConflictError("task state does not exist at expected sequence")
+            if state.transition_seq != 0:
+                raise StateConflictError("initial task state must use transition_seq=0")
+        else:
+            current = TaskRuntimeState.model_validate_json(path.read_text(encoding="utf-8"))
+            if expected_previous_seq != current.transition_seq:
+                raise StateConflictError(
+                    f"stale task state: expected {expected_previous_seq}, "
+                    f"current {current.transition_seq}"
+                )
+            if state.transition_seq != current.transition_seq + 1:
+                raise StateConflictError("task state transition sequence must increment by one")
+        self._atomic_write(path, self._canonical_bytes(state))
+        return path
+
+    def read_task_states(self) -> tuple[TaskRuntimeState, ...]:
+        if not self.task_states_dir.exists():
+            return ()
+        return tuple(
+            TaskRuntimeState.model_validate_json(path.read_text(encoding="utf-8"))
+            for path in sorted(self.task_states_dir.glob("*.json"))
+        )
 
     def write_active_state(self, state: ActiveState) -> Path:
         self.ensure_layout()
