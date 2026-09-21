@@ -18,7 +18,7 @@ from typing import Iterable
 
 from pydantic import BaseModel
 
-from .contracts import ActiveState, EngineeringResult, EngineeringTask, TaskRuntimeState
+from .contracts import (\n    ActiveState,\n    EngineeringResult,\n    EngineeringTask,\n    ProgressEvent,\n    TaskRuntimeState,\n)
 
 
 class RecordConflictError(RuntimeError):
@@ -29,18 +29,24 @@ class StateConflictError(RuntimeError):
     """Raised when mutable task state is updated from a stale transition sequence."""
 
 
+class ProgressSequenceError(RuntimeError):
+    """Raised when a progress event stream is non-contiguous or reuses an identity."""
+
+
 class JsonRecordStore:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         self.tasks_dir = self.root / "tasks"
         self.results_dir = self.root / "results"
         self.task_states_dir = self.root / "task-state"
+        self.progress_dir = self.root / "progress"
         self.state_path = self.root / "ACTIVE_STATE.json"
 
     def ensure_layout(self) -> None:
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
         self.results_dir.mkdir(parents=True, exist_ok=True)
         self.task_states_dir.mkdir(parents=True, exist_ok=True)
+        self.progress_dir.mkdir(parents=True, exist_ok=True)
 
     def put_task(self, task: EngineeringTask) -> Path:
         path = self.tasks_dir / f"{task.task_id}.r{task.revision}.json"
@@ -51,6 +57,63 @@ class JsonRecordStore:
         path = self.results_dir / result.task_id / f"{result.attempt_id}.json"
         self._put_immutable(path, result)
         return path
+
+
+
+    def put_progress_event(self, event: ProgressEvent) -> Path:
+        """Append one immutable progress event to a contiguous attempt stream."""
+
+        self.ensure_layout()
+        attempt_dir = (
+            self.progress_dir
+            / f"{event.task_id}.r{event.task_revision}"
+            / event.attempt_id
+        )
+        path = attempt_dir / f"{event.sequence:08d}.json"
+        payload = self._canonical_bytes(event)
+
+        if path.exists():
+            if path.read_bytes() == payload:
+                return path
+            raise RecordConflictError(f"immutable progress identity already exists: {path}")
+
+        existing = sorted(attempt_dir.glob("*.json")) if attempt_dir.exists() else []
+        expected = len(existing)
+        if event.sequence != expected:
+            raise ProgressSequenceError(
+                f"progress sequence must be contiguous: expected {expected}, got {event.sequence}"
+            )
+
+        if existing:
+            previous = ProgressEvent.model_validate_json(
+                existing[-1].read_text(encoding="utf-8")
+            )
+            if (
+                previous.task_id != event.task_id
+                or previous.task_revision != event.task_revision
+                or previous.attempt_id != event.attempt_id
+                or previous.worker_id != event.worker_id
+            ):
+                raise ProgressSequenceError("progress stream identity changed within an attempt")
+
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+        self._atomic_write(path, payload)
+        return path
+
+    def read_progress_events(
+        self,
+        *,
+        task_id: str,
+        task_revision: int,
+        attempt_id: str,
+    ) -> tuple[ProgressEvent, ...]:
+        attempt_dir = self.progress_dir / f"{task_id}.r{task_revision}" / attempt_id
+        if not attempt_dir.exists():
+            return ()
+        return tuple(
+            ProgressEvent.model_validate_json(path.read_text(encoding="utf-8"))
+            for path in sorted(attempt_dir.glob("*.json"))
+        )
 
     def write_task_state(
         self,
