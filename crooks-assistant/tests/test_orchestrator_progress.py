@@ -16,9 +16,11 @@ from app.orchestrator.contracts import (
     TaskStatus,
 )
 from app.orchestrator.progress import assess_progress, project_progress, render_progress_table
+from app.orchestrator.reporter import ProgressReporter
 from app.orchestrator.state import build_active_state
 from app.orchestrator.store import JsonRecordStore, ProgressSequenceError, RecordConflictError
 from app.orchestrator.supervision import SupervisorAction, choose_supervisor_hint
+from scripts.orchestrator_progress import build_snapshots
 
 
 SHA_A = "a" * 40
@@ -348,6 +350,96 @@ def test_progress_table_shows_useful_operational_context() -> None:
     assert "| 1 | 0 |" in table
 
 
+
+
+def test_reporter_emits_contiguous_operational_progress_end_to_end(tmp_path) -> None:
+    store = JsonRecordStore(tmp_path)
+    task = make_task()
+    store.put_task(task)
+
+    times = iter(
+        [
+            NOW,
+            NOW + timedelta(minutes=1),
+            NOW + timedelta(minutes=2),
+            NOW + timedelta(minutes=3),
+            NOW + timedelta(minutes=4),
+        ]
+    )
+    reporter = ProgressReporter(
+        store=store,
+        task=task,
+        attempt_id="attempt-1",
+        worker_id="worker-1",
+        subject_sha=SHA_A,
+        clock=lambda: next(times),
+    )
+
+    reporter.start("Resolving fresh Git truth", next_known_action="Inspect contracts")
+    reporter.step_started("inspect", "Inspect contracts")
+    reporter.step_completed(
+        "inspect",
+        "Inspect contracts",
+        next_known_action="Run tests",
+    )
+    reporter.evidence(
+        "pytest:test_orchestrator_progress",
+        activity="Recorded targeted test evidence",
+    )
+    reporter.step_started(
+        "tests",
+        "Run tests",
+        activity="Running targeted tests",
+        next_known_action="Independent review",
+    )
+
+    events = store.read_progress_events(
+        task_id=task.task_id,
+        task_revision=task.revision,
+        attempt_id="attempt-1",
+    )
+    assert [item.sequence for item in events] == [0, 1, 2, 3, 4]
+
+    snapshots = build_snapshots(store)
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot.current_activity == "Running targeted tests"
+    assert snapshot.completed_steps == ("inspect",)
+    assert snapshot.evidence_refs == ("pytest:test_orchestrator_progress",)
+    assert snapshot.next_known_action == "Independent review"
+
+
+def test_reporter_rejects_worker_identity_takeover(tmp_path) -> None:
+    store = JsonRecordStore(tmp_path)
+    task = make_task()
+    store.put_task(task)
+
+    first = ProgressReporter(
+        store=store,
+        task=task,
+        attempt_id="attempt-1",
+        worker_id="worker-1",
+        clock=lambda: NOW,
+    )
+    first.start("Start")
+
+    imposter = ProgressReporter(
+        store=store,
+        task=task,
+        attempt_id="attempt-1",
+        worker_id="worker-2",
+        clock=lambda: NOW + timedelta(seconds=1),
+    )
+    with pytest.raises(ValueError, match="different worker"):
+        imposter.heartbeat()
+
+
+def test_progress_view_fails_closed_if_events_have_no_task_contract(tmp_path) -> None:
+    store = JsonRecordStore(tmp_path)
+    store.put_progress_event(event(0, ProgressEventKind.ATTEMPT_STARTED, "Start"))
+
+    with pytest.raises(ValueError, match="without immutable task contract"):
+        build_snapshots(store)
 
 def test_active_state_carries_current_attempt_progress_for_hourly_controller() -> None:
     task = make_task()
