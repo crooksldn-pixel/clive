@@ -85,6 +85,10 @@ Critical contract semantics should migrate toward structured data or a constrain
 
 Plan: [ENGINEERING_CONTROL_PLANE_VNEXT.md](./ENGINEERING_CONTROL_PLANE_VNEXT.md).
 
+**Freeze-loop status — 2026-09-21:** the unrestricted-English prose-freeze repair/review loop is parked. Its state-machine, identity, stale-result and review lessons remain evidence, but the 5k-line natural-language parser is no longer the active route to the Orchestrator. Do not dispatch further M-series/parser rounds unless the owner explicitly reopens that experiment. The active engineering path is the typed control-plane implementation plus CLIVE Live Experience V0.5.
+
+Exact control-plane Phase 1 candidate `8588776455a1832da763810064cacb47d7192ef4` received an independent `REJECT — REPAIR REQUIRED` for R-01..R-06, with R-07/R-08 advisory. A successor repair branch is expected to address lint, filesystem/path traversal, controller-owned owner/obsolete gates, genuine CAS/starvation mutation coverage, changed-path/result-SHA binding and the simulation-only worker-identity limitation before a fresh exact-SHA review.
+
 ## Engineering control plane
 
 - Canonical repository: `crooksldn-pixel/clive`.
