@@ -347,7 +347,8 @@ def test_progress_table_shows_useful_operational_context() -> None:
     assert "Running mutation tests" in table
     assert "Independent review" in table
     assert "control-plane" in table
-    assert "| 1 | 0 |" in table
+    assert "Resolve branch truth" in table
+    assert "| 0 |" in table
 
 
 
