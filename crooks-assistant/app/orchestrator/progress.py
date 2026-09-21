@@ -193,15 +193,23 @@ def render_progress_table(
     """Render a compact Markdown table suitable for Termius/controller output."""
 
     header = (
-        "| Stream | Task | Worker | Health | Current activity | Done | Evidence | "
+        "| Stream | Task | Worker | Health | Current activity | Completed | Evidence | "
         "Waiting / next | Last progress |\n"
-        "| --- | --- | --- | --- | --- | ---: | ---: | --- | --- |"
+        "| --- | --- | --- | --- | --- | --- | ---: | --- | --- |"
     )
     rows: list[str] = []
 
     for snapshot in sorted(snapshots, key=lambda item: (item.stream_id, item.task_id)):
         health = assess_progress(snapshot, now=now).value
         waiting_next = snapshot.waiting_on or snapshot.next_known_action or "—"
+        if snapshot.completed_step_labels:
+            recent_completed = snapshot.completed_step_labels[-2:]
+            completed_text = "; ".join(recent_completed)
+            hidden_count = len(snapshot.completed_step_labels) - len(recent_completed)
+            if hidden_count > 0:
+                completed_text += f" (+{hidden_count})"
+        else:
+            completed_text = "—"
         age = now - snapshot.last_meaningful_progress_at
         total_seconds = max(0, int(age.total_seconds()))
         if total_seconds < 60:
@@ -223,7 +231,7 @@ def render_progress_table(
                     clean(snapshot.worker_id),
                     clean(health),
                     clean(snapshot.current_activity),
-                    str(len(snapshot.completed_steps)),
+                    clean(completed_text),
                     str(len(snapshot.evidence_refs)),
                     clean(waiting_next),
                     age_text,
