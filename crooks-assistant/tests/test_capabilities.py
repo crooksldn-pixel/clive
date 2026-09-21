@@ -8,6 +8,7 @@ generated manifests; these are the tests that keep it one.
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -191,3 +192,71 @@ def test_the_spoken_delta_names_what_went_as_well_as_what_arrived():
     said = spoken_delta({"previous": before, "current": after})
     assert "gone" in said.lower(), said
     assert len(said) <= SPOKEN_CHARS, said
+
+
+def test_two_starts_against_one_log_directory_do_not_take_each_other_out(tmp_path):
+    """The capability record is written atomically, and until this test the ATOMIC part was
+    doing all the work while the source of the rename was a single shared `capabilities.tmp`.
+
+    Two starts against the same log directory — `make up` overlapping the launchd agent
+    through a restart, or two pytest workers — and whichever renamed first took the other's
+    scratch file away, so the second os.replace raised FileNotFoundError out of record_build,
+    out of runtime.build, out of the lifespan, and the backend did not come up.
+    """
+    import json
+    import threading
+
+    from app.capabilities.delta import record_build
+
+    log_dir = tmp_path / "logs"
+    starts = 12
+    ready = threading.Barrier(starts)
+    failures: list[BaseException] = []
+
+    def start(n: int) -> None:
+        try:
+            ready.wait(timeout=10)
+            record_build({"build": f"b{n}", "fingerprint": f"f{n}", "reads": [], "writes": [],
+                          "batches": [], "query_dimensions": {}, "ui_components": []}, log_dir)
+        except BaseException as error:  # noqa: BLE001 — the whole point is that none escapes
+            failures.append(error)
+
+    threads = [threading.Thread(target=start, args=(n,)) for n in range(starts)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+
+    assert not failures, f"a start failed: {failures[0]!r}"
+    # One file, whole and readable — a half-written record would be worse than a crash.
+    written = sorted(p.name for p in log_dir.iterdir())
+    assert written == ["capabilities.json"], f"scratch left behind: {written}"
+    record = json.loads((log_dir / "capabilities.json").read_text(encoding="utf-8"))
+    assert record["current"]["fingerprint"].startswith("f")
+
+
+def test_each_write_names_its_own_scratch_file(monkeypatch, tmp_path):
+    """The deterministic half of the test above: it is the UNIQUENESS of the scratch name
+    that fixes the race, so that is asserted directly rather than only stressed for."""
+    # `app.capabilities` re-exports the delta FUNCTION under that name, so `app.capabilities.delta`
+    # as an attribute IS that function and `import … as` resolves to it. The module itself has
+    # to be asked for by name.
+    import importlib
+
+    delta_module = importlib.import_module("app.capabilities.delta")
+
+    sources: list[str] = []
+    real_replace = delta_module.os.replace
+
+    def watched(src, dst):
+        sources.append(str(src))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(delta_module.os, "replace", watched)
+    path = tmp_path / "capabilities.json"
+    delta_module._write(path, {"current": {"build": "a"}})
+    delta_module._write(path, {"current": {"build": "b"}})
+
+    assert len(set(sources)) == 2, f"two writes shared one scratch file: {sources}"
+    assert all(name.endswith(".tmp") for name in sources)
+    assert all(str(os.getpid()) in name for name in sources), "the scratch name is not this process's"

@@ -11,6 +11,8 @@ fingerprint has not moved.
 
 from __future__ import annotations
 
+import contextlib
+import itertools
 import json
 import os
 import time
@@ -34,15 +36,32 @@ def _read(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+# Every scratch file this process writes gets a number of its own, so two writes from the
+# same process cannot collide either.
+_SCRATCH = itertools.count()
+
+
 def _write(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    # A scratch name belonging to THIS writer. It used to be one shared `capabilities.tmp`,
+    # and the rename is atomic but the source was not unique: two starts against the same log
+    # directory — `make up` overlapping the launchd agent through a restart, or two test
+    # workers — and whichever renamed first took the other's scratch file out from under it.
+    # The second os.replace then raised FileNotFoundError out of record_build, out of
+    # runtime.build, and out of the lifespan: the backend did not come up at all.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{next(_SCRATCH)}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
         os.write(fd, (json.dumps(data, ensure_ascii=False, default=str) + "\n").encode("utf-8"))
     finally:
         os.close(fd)
-    os.replace(tmp, path)
+    try:
+        os.replace(tmp, path)
+    except OSError:
+        # Never leave scratch behind for the next start to wonder about.
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def record_build(manifest: dict[str, Any], log_dir: Path | str, *, clock=time.time) -> dict[str, Any]:
