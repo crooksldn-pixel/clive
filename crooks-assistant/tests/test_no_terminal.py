@@ -236,7 +236,7 @@ def _stop_literals(path: Path) -> list[tuple[int, str]]:
                     found.extend(_strings_under(arg))
         # 2. {"reason": "…"}
         if isinstance(node, ast.Dict):
-            for key, value in zip(node.keys, node.values):
+            for key, value in zip(node.keys, node.values, strict=True):
                 if isinstance(key, ast.Constant) and key.value in OWNER_FACING_KEYS:
                     found.extend(_strings_under(value))
         # 3. out["reason"] = "…"  /  out.update({"reason": "…"}) is shape 2 already
