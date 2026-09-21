@@ -169,6 +169,45 @@ If prose itself must be normative, define a constrained semantic grammar and fai
 
 Do not indefinitely grow an accidental natural-language parser for authority/safety invariants.
 
+## 8.1 Obvious continuation should not wait for the owner or hourly controller
+
+A worker/controller should continue automatically when the next action is a mechanically implied stage of the **same already-authorised objective** and does not widen authority, scope, risk or side effects.
+
+Examples:
+- bounded implementation finishes cleanly → publish exact result/evidence;
+- repair finishes → schedule a fresh eligible independent review of that exact SHA;
+- review returns a bounded unambiguous defect → schedule one bounded repair under the same contract;
+- a required test/evidence step is still outstanding and is already named in the task contract → run it;
+- publication acknowledgement is missing but remote identity can be reconciled read-only → reconcile and complete publication bookkeeping;
+- one sibling task completes while another remains eligible → continue the eligible sibling rather than waiting for an hourly poll.
+
+This is **continuation**, not new planning authority.
+
+A worker/controller must stop or escalate when continuation would require:
+- changing the objective, acceptance criteria or allowed scope;
+- choosing between materially different product/architecture directions;
+- relaxing a safety invariant or review requirement;
+- new credentials/secrets, connector permissions or privilege;
+- deployment/runtime/systemd/watcher mutation;
+- business writes or external spend;
+- destructive cleanup;
+- owner-only adoption, sequencing changes or release approval;
+- proceeding despite contradictory evidence or an unresolved blocker.
+
+Every result record should therefore expose a machine-readable `next_action` with:
+- `kind`: continue / review / repair / evidence / integrate / blocked / owner_gate / done;
+- `reason`;
+- exact subject/base SHA;
+- whether the action is mechanically authorised by the current task revision;
+- required worker/reviewer eligibility;
+- any remaining evidence requirements.
+
+The scheduler validates `next_action` against policy. It does not blindly trust a model's suggestion.
+
+The operating principle is:
+
+> **Do not ask the owner or wait for the hourly supervisor to approve the obvious next step of an already-approved bounded workflow. Do stop when the next step changes what is being decided or what authority is required.**
+
 ## 9. Queue and retry semantics
 
 Different failures require different treatment.
