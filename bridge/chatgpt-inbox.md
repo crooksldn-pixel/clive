@@ -1,25 +1,41 @@
 # CHATGPT INBOX
 
-## Fresh independent adversarial review — exact freeze SHA f06730a
+## Bounded repair — M-08 postmodified coordinated group cardinality false-green
 
-Review exact SHA `f06730aa361bb6054ae47bfa284539772a062782` on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`.
+Repair exactly one bounded evaluator defect on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`, currently expected exact HEAD `f06730aa361bb6054ae47bfa284539772a062782`. Resolve the remote branch identity yourself and STOP without changes if HEAD differs.
 
-This is a review-only round. Do not modify the candidate. Do not carry any prior verdict across SHAs. Do not accept the repair handoff as evidence; independently re-derive behaviour from source and tests.
+### Independent review verdict on exact f06730a
 
-The immediately preceding round was the M-07 repair authored by Claude. The reviewer for this round must be independent of that repair authorship. If this bridge instance cannot satisfy that independence requirement, return a clear routing block rather than self-certifying.
+`REJECT — REPAIR REQUIRED`.
 
-Attack the evaluator rather than trusting its green suite. In particular:
-- invent new coordinated-subject/object cases beyond the added table;
-- test elided heads such as “two process groups and three more”;
-- test “both … and …”, nested/appositive coordination, compounds/hyphenation, conjunction/disjunction ambiguity, active/passive variants, and punctuation/comma coordination;
-- independently assess the disclosed postmodified-first-conjunct and comma-separated under-counts;
-- decide whether the deliberate fail-closed `None` behaviour for unreadable coordination is an acceptable conservative gate or a material false-red defect;
-- look for adjacent false-greens and false-reds not mentioned by the repair author;
-- independently re-derive that M-01..M-06, L-01, K-01, J-01, H-03/H-04 and R-02 remain intact;
-- require mutation/adversarial evidence and semantic recomputation, not just passing test counts.
+Fresh independent source review finds M-07 remains materially reachable through a plausible coordinated-NP shape the repair itself disclosed but treated as an acceptable residual limit:
 
-Return exactly one engineering verdict bound to this exact SHA:
-- `ACCEPT FOR NEXT GATE`, only if no material defect remains; or
-- `REJECT — REPAIR REQUIRED`, with bounded concrete defect(s) and reproducing counterexample(s).
+- `a process group for the attempt and a group for the reviewer are created`
 
-Engineering acceptance is not owner adoption. Do not merge, deploy, amend DEC-046/047 sequencing, change runtime/systemd/watcher state, read new secrets/credentials, widen connector/MCP permissions, perform business writes, or make production changes.
+Semantic cardinality is 2. The current `_coordination_between` only recognises additive coordination when the coordinator begins the text directly between adjacent group heads. The first conjunct's postmodifier (`for the attempt`) therefore makes the relation return non-additive and `_coordinated_group_count` falls back to the largest individual reading, 1. Rewriting the one legitimate §3A creation clause to this wording can therefore leave the declared one-group invariant green while the prose creates two groups.
+
+This is material, not merely an imprecise red count: unlike the comma-separated disclosed case (which may undercount 3 as 2 but still fails the one-group invariant), this postmodified-first-conjunct case can undercount 2 as exactly 1 and false-green the gate.
+
+Call this **M-08**.
+
+### Repair scope
+
+Make the smallest test/evaluator-module-only repair needed to recognise additive coordination when the first group conjunct carries a bounded postmodifier before the coordinator, without converting clause coordination, apposition, relative clauses, prepositional back-references, or unrelated nouns into additive group creation.
+
+Do not blindly search for any later `and`. Establish structural evidence that the coordinator joins the two group noun phrases governed by the same creation predicate. If that cannot be established safely, fail closed rather than assume one.
+
+Add adversarial mutation evidence proving at minimum:
+- `a process group for the attempt and a group for the reviewer are created` fails the one-group invariant with semantic count 2;
+- quantified variants such as `two process groups for the attempt and another group for the reviewer are created` cannot be under-counted;
+- active-voice equivalents are covered;
+- same-entity/appositive/prepositional references are not spuriously summed;
+- `the controller creates a process group for the attempt and records the group for cleanup` does not become a two-group creation;
+- ordinary singular normative creation remains green;
+- comma-separated coordination remains red even if its exact total is conservatively undercounted;
+- prior M-01..M-07, L-01, K-01, J-01, H-03/H-04 and R-02 protections remain intact.
+
+Attack your repair with nested postmodifiers, multiple prepositional phrases, relative clauses, active/passive voice, conjunction/disjunction and elided heads. Run the relevant freeze suite, static checks and secret scan available in the isolated repository context. Require clean worktree and exact resulting SHA evidence.
+
+Do not modify normative freeze/product-memory documents. Do not self-certify the resulting candidate. Return a repair handoff only. The resulting exact SHA still requires a fresh independent review by a party that did not author the repair.
+
+Hard boundaries remain: repository-only isolated repair; no production/runtime/systemd/watcher changes, no secrets/credential reads, no connectors/MCP changes, no privilege expansion, no business writes, no deployment, no sequencing amendment, no owner-only adoption/merge/Phase0 authority.
