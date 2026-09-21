@@ -90,9 +90,15 @@
    *   1  content        the orb, the deck, the cards            .orb-zone (no z-index), .deck
    *   2  actions        workspace-local actions                 .context, .context-nav, .armed
    *   3  navigation     the chrome that moves between places    .top, .bottom, .dock (3 + 1)
-   *   4  branch         Split / the two halves / Merge / Close  .branch-zone
+   *   4  branch         the work in flight, and what is left of   .job-zone, .branch-zone
+   *                    the branch chrome (internal in V0.5)
    *   5  voice          the hold-to-speak target                .talk
    *   20 emergency      the sheet, the system layer, the banner .sheet, .system, .dev-banner
+   *
+   * Layer 4 holds two bands rather than one, which is safe for the reason the ladder exists
+   * to make checkable: they are separate ROWS of the app grid and cannot overlap each other,
+   * so neither needs to win a comparison with the other. Both are out here for the same
+   * reason — each carries a control, and `.talk` covers the stage.
    *
    * Two of those entries carry a note, and both are deliberate. `.orb-zone` has NO z-index at
    * all: it is the content layer by position in the document, and giving it a number is what
@@ -106,10 +112,10 @@
    * overlaps nothing. That is bought with GEOMETRY, not z-index:
    *
    *   orb mode      `.talk` is `inset:0` on `.stage` — which is one grid row of `.app`, and
-   *                 the branch band, the workspace messages and the footer are the rows below
-   *                 it. In that row there is the orb (itself a voice target) and five lines of
-   *                 text, and nothing a finger presses. The line that caused D-1 is the same
-   *                 line; what changed is what is inside the box it describes.
+   *                 the work band, the branch band, the workspace messages and the footer are
+   *                 the rows below it. In that row there is the orb (itself a voice target)
+   *                 and five lines of text, and nothing a finger presses. The line that caused
+   *                 D-1 is the same line; what changed is what is inside the box it describes.
    *   context mode  `.talk` is the hold pill's `--hold-w` slot in the middle of the dock band,
    *                 not the full width of it. The dock's four icons sit either side.
    *
