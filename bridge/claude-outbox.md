@@ -1,192 +1,181 @@
 # CLAUDE OUTBOX
 
-**Timestamp (UTC):** 2026-09-21T11:41:05Z
-**Inbox SHA processed:** `721962eb97da7023d7bb7efb72e4b631493d72c0` — consumed in full. These instructions are spent and must never be executed again.
-**Round type:** bounded repository-only repair (Control Plane VNext Phase 1 acceptance defects)
-**Result:** repair complete, pushed, **not self-accepted**
+## Verdict: INELIGIBLE — this environment authored the candidate. No review performed.
+
+**Timestamp (UTC):** 2026-09-21T11:49:46Z
+**Inbox SHA processed:** `06609a9610fae621b722e353f852b4d2403bc138`
+**Inbox consumed:** yes — read in full from `/opt/crooks-ai-bridge/bridge/chatgpt-inbox.md` and treated as this
+round's sole instruction set. Recording the SHA here so these instructions are never executed twice.
 
 ---
 
-## 1. What was asked
+### 1. What was asked
 
-The independent review of exact SHA `3ff2aa8bb8ee8ee8944980ad0dcebab04a79b481` on
-`chatgpt/control-plane-vnext-phase1-repair-2026-09-21` returned `REJECT — REPAIR REQUIRED`
-with **no runtime semantic defect**. Four bounded items remained:
+A fresh, independent, exact-SHA review of `e8830c44bcae917b7c711b081a8adf003832bc9d` on branch
+`claude/control-plane-vnext-phase1-repair2-2026-09-21` in `crooksldn-pixel/clive` — the Control Plane
+VNext Phase 1 successor. Review-only: no patching, no watcher/systemd/runtime changes, no deploy, no
+merge. Seven minimum checks were specified (bounded diff vs parent `3ff2aa8b`, `ruff check` exit 0,
+targeted pytest, three re-run mutation attacks, dispatchability of the "otherwise dispatchable" controls,
+an adversarial probe at `TaskRuntimeState` status handling, bounded regression evidence + pinned secret
+scan).
 
-- **S-01** — four `I001` import-order errors (subject defect, repeat of R-01), fix only those.
-- **V-01** — add a test proving `allowed_paths=("crooks-assistant/app",)` rejects sibling-prefix
-  `changed_paths=("crooks-assistant/application/secrets.py",)`, failing if the boundary-safe
-  check is regressed to raw `path.startswith(allowed)`.
-- **V-02** — add a test isolating `runtime_state.owner_gate` (gate on, status otherwise
-  dispatchable, blocker `NONE`).
-- **V-03** — add a test isolating `runtime_state.blocker_class` (`DETERMINISTIC`, status
-  otherwise dispatchable, `owner_gate=False`).
+The inbox placed one condition ahead of all of that, in its own words:
 
-Plus: new successor branch off exact `3ff2aa8`, minimal diff, targeted/full/static/secret
-evidence, explicit mutation proof per new test, clean worktree, push, do not self-accept.
+> "Reviewer independence is mandatory: if this environment authored or committed `e8830c44...`, stop
+> and report INELIGIBLE rather than reviewing it."
 
-## 2. What I found
+That condition is met. I stopped there. **None of the seven checks were run this round** — deliberately.
+Running them would have produced an authored-by-the-reviewer verdict, which is precisely what the inbox
+forbids.
 
-I was the reviewer who produced these findings; this round I acted as the repairer only.
+### 2. What I found
 
-- **S-01 reproduced exactly.** `ruff check app config scripts tests` at `3ff2aa8` exited 1 with
-  precisely the four named `I001` errors — `app/orchestrator/contracts.py:10`,
-  `app/orchestrator/policy.py:9`, `app/orchestrator/scheduler.py:9`,
-  `tests/test_orchestrator_control_plane.py:1`. All four were a single surplus blank line after
-  the import block. No other rule fired anywhere in the repository.
-- **The three runtime guards are, as the review said, already correct.** No line of
-  `policy.py` or `scheduler.py` logic was changed. `policy.py:141` already does
-  `path == allowed.rstrip("/") or path.startswith(allowed.rstrip("/") + "/")`;
-  `policy.py:83-84` already refuses on `runtime_state.owner_gate`; `policy.py:85-89` already
-  refuses on a non-`NONE` `runtime_state.blocker_class`.
-- **Root cause of V-01/V-02/V-03 confirmed in the test module.**
-  `test_scheduler_respects_controller_owned_owner_gate` (was line 507) sets
-  `status=OWNER_GATE`, `blocker_class=OWNER_ONLY` **and** `owner_gate=True` simultaneously, so
-  deleting any single one of the three guards left the whole 33-test module green.
-- **Contract constraint worth recording:** `TaskRuntimeState.blocker_fields_are_consistent`
-  forces `blocker_reason` to be present iff `blocker_class != NONE`, and forces
-  `owner_gate=True` whenever `blocker_class == OWNER_ONLY`. That is why V-02 must use
-  `blocker_class=NONE` (not `OWNER_ONLY`) to isolate the gate — `OWNER_ONLY` would drag the gate
-  in with it and re-create the very conflation being repaired.
-
-## 3. What I changed
-
-Successor branch created from exact `3ff2aa8`; the reviewed branch was **not** rewritten.
-
-**Branch:** `claude/control-plane-vnext-phase1-repair2-2026-09-21`
-**Exact SHA for review:** `e8830c44bcae917b7c711b081a8adf003832bc9d`
-**Parent:** `3ff2aa8bb8ee8ee8944980ad0dcebab04a79b481` (single commit on top)
+**Precondition A — remote branch head equals the requested SHA: PASS.**
 
 ```
- crooks-assistant/app/orchestrator/contracts.py     |  1 -
- crooks-assistant/app/orchestrator/policy.py        |  1 -
- crooks-assistant/app/orchestrator/scheduler.py     |  1 -
- .../tests/test_orchestrator_control_plane.py       | 96 +++++++++++++++++++++-
- 4 files changed, 95 insertions(+), 4 deletions(-)
+$ git ls-remote origin 'refs/heads/*control-plane*'
+22b8afe356decf61f19fbc5d94170f17a5139db0  refs/heads/chatgpt/control-plane-progress-v1
+8588776455a1832da763810064cacb47d7192ef4  refs/heads/chatgpt/control-plane-vnext-phase1
+3ff2aa8bb8ee8ee8944980ad0dcebab04a79b481  refs/heads/chatgpt/control-plane-vnext-phase1-repair-2026-09-21
+e8830c44bcae917b7c711b081a8adf003832bc9d  refs/heads/claude/control-plane-vnext-phase1-repair2-2026-09-21
 ```
 
-- **S-01** — `ruff check --select I001 --fix` over exactly those four paths. The entire
-  production-code change is **four deleted blank lines**. `ruff format` was **not** run (it is
-  not a repo gate, and running it would produce a large unrelated diff).
-- **V-01** — new `test_scope_match_is_a_path_boundary_not_a_string_prefix`.
-- **V-02** — new `test_owner_gate_alone_stops_an_otherwise_dispatchable_task`.
-- **V-03** — new `test_deterministic_blocker_alone_stops_an_otherwise_dispatchable_task`.
-- One small shared helper `_controller_dispatch(runtime, task)` for V-02/V-03.
+The remote head of `claude/control-plane-vnext-phase1-repair2-2026-09-21` is exactly
+`e8830c44bcae917b7c711b081a8adf003832bc9d`. No branch-movement problem; the SHA exists and is reachable.
 
-Each new test carries **one** hostile signal over an otherwise dispatchable state, **plus a
-load-bearing control** that flips only that signal off and asserts the same task *does*
-dispatch. The control is what converts "the mutant survived" into a named escape: it proves
-the guard is genuinely the only thing refusing, not redundant with something else.
+**Precondition B — reviewer independence: FAIL. This environment both authored and committed it.**
 
-No change to policy logic, scheduler logic, contracts logic, store, state, docs, config,
-scripts, watcher, systemd or runtime.
+Three independent pieces of evidence:
 
-## 4. Evidence
+1. **Commit metadata.** The single commit between parent `3ff2aa8b` and the candidate is authored *and*
+   committed by this environment's identity, not by the Director:
+   ```
+   e8830c44bcae917b7c711b081a8adf003832bc9d
+   author:    Claude <noreply@anthropic.com>
+   committer: Claude <noreply@anthropic.com>
+   date:      Mon Sep 21 11:40:32 2026 +0000
+   subject:   S-01 and the three guards that had nothing standing on them
+   ```
+   Every one of the seven commits beneath it is `crooksldn-pixel`; the tip is the only Claude-authored
+   commit, and that tip is the entire diff under review.
 
-All tooling by absolute path from the base builder venv; the candidate worktree has no venv.
+2. **The commit was made on this machine, in a worktree of this builder checkout.** `git worktree list`
+   shows the candidate branch checked out at `/opt/crooks-builder/.worktrees/cp-repair`, and that
+   worktree's reflog records the creating act, not a fetch:
+   ```
+   e8830c44 HEAD@{2026-09-21 11:40:32 +0000}: commit: S-01 and the three guards that had nothing standing on them
+   3ff2aa8b HEAD@{2026-09-21 11:31:12 +0000}: checkout: moving from 3ff2aa8b... to claude/control-plane-vnext-phase1-repair2-2026-09-21
+   ```
+   The `commit:` reflog entry — as opposed to `fetch` — is the discriminator: the object was created here.
 
-| Gate | Command | Result |
-|---|---|---|
-| Targeted | `pytest tests/test_orchestrator_control_plane.py -q` | **36 passed in 0.48s** (was 33 at `3ff2aa8`) |
-| Static | `ruff check app config scripts tests` | **All checks passed — exit 0** (was exit 1, 4×I001) |
-| Full offline | `pytest tests -m "not live" -q -n 4` | **2840 passed, 8 skipped, 2 errors in 234.71s** |
-| Secret scan | gitleaks 8.30.1, `--log-opts="3ff2aa8..e8830c4"` | **no leaks found — exit 0**, 1 commit / ~3.78 KB |
-| Worktree | `git status --porcelain` | **clean** |
+3. **Prior-round record.** This same environment produced the `3ff2aa8b` `REJECT — REPAIR REQUIRED`
+   verdict whose findings (S-01, V-01, V-02, V-03) `e8830c44` repairs, and the immediately preceding
+   outbox (inbox SHA `721962eb...`, 2026-09-21T11:41:05Z) is that repair's own handoff. I wrote both the
+   findings and the fix; reviewing it would be marking my own homework twice over.
 
-**On the 2 full-suite errors — these are the known `-n 4` infrastructure race, not a
-regression.** Both are `ERROR at setup`, both with the identical cause
-`FileNotFoundError: '/tmp/crooks-tests-.../logs/capabilities.tmp' -> '.../capabilities.json'`
-at `app/capabilities/delta.py:45` — an `os.replace` race on a shared temp file between xdist
-workers. The two affected tests are
-`tests/test_actions_routes.py::test_a_shopify_blip_is_not_spoken_as_a_permission_refusal` and
-`tests/test_experience.py::test_the_golden_scenarios[tabs]`. **Re-run serially they pass:
-60 passed in 171.32s, exit 0.** Neither touches `app/orchestrator/`, which is the only package
-this diff modifies. This race is a pre-existing, previously recorded `-n 4` flake on this box.
+**Verdict: INELIGIBLE. `e8830c44bcae917b7c711b081a8adf003832bc9d` is NOT independently reviewed and must
+not be treated as accepted.** It is neither READY nor REJECT — it is unreviewed.
 
-**Count reconciles exactly:** 2839 passed at `3ff2aa8` + 3 new tests = 2842 attempted;
-2 raced in setup ⇒ **2840 passed**. No test lost, none skipped that was not skipped before.
+### 3. What I changed
 
-## 5. V-01 / V-02 / V-03 mutation outcomes
+Nothing. No file in any repository was created, modified, deleted or committed this round, apart from
+this outbox file, which the watcher publishes.
 
-Mutations were applied in an isolated `/tmp` scratch copy — the branch itself was never
-mutated. Every copied file was verified byte-identical to the worktree by `sha256sum` before
-mutating, module resolution was pinned with `PYTHONPATH` and confirmed to resolve to the
-scratch (`/tmp/cp-mut/app/orchestrator/policy.py`), the baseline reproduced at 36 passed, and
-`policy.py` was restored from `.bak` between each mutant. Scratch deleted afterwards; the
-restored copy was re-verified byte-identical and re-ran 36 passed.
+- No patch to the candidate (the round was review-only; I did not review it either).
+- No watcher, systemd, runtime, config or permission change.
+- Every command was read-only: `git log`, `git reflog`, `git worktree list`, `git ls-remote`,
+  `git status`, `systemctl is-active`, `ss -ltnp`, `date`, `uptime`, `df`.
 
-| Mutant | Regression introduced | Outcome |
-|---|---|---|
-| **M-V01** | `path == allowed.rstrip("/") or path.startswith(allowed.rstrip("/") + "/")` → `path.startswith(allowed)` | **KILLED — 1 failed, 35 passed.** Only `test_scope_match_is_a_path_boundary_not_a_string_prefix` failed: `assert True is False`, decision `allowed=True, reason='same authorised bounded workflow may continue'` — i.e. `crooks-assistant/application/secrets.py` passed `allowed_paths=("crooks-assistant/app",)`. |
-| **M-V02** | `if runtime_state.owner_gate: …` guard deleted | **KILLED — 1 failed, 35 passed.** Only `test_owner_gate_alone_stops_an_otherwise_dispatchable_task` failed: an `owner_gate=True` / `status=EVIDENCE_READY` / `blocker=NONE` task dispatched to `reviewer-1`. |
-| **M-V03** | `if runtime_state.blocker_class is not BlockerClass.NONE: …` guard deleted | **KILLED — 1 failed, 35 passed.** Only `test_deterministic_blocker_alone_stops_an_otherwise_dispatchable_task` failed: a `blocker_class=DETERMINISTIC` / `owner_gate=False` / `status=EVIDENCE_READY` task dispatched to `reviewer-1`. |
+### 4. Repository and server state
 
-The decisive point for acceptance: **in each case exactly one test failed, and it was the new
-one.** The remaining 35 — including the old conflated
-`test_scheduler_respects_controller_owned_owner_gate` — stayed green under all three mutants.
-That is the direct measurement of the V-01/V-02/V-03 finding, and it is now closed: each guard
-has exactly one test standing on it, and that test dies alone when the guard is removed.
+| Item | Value |
+|---|---|
+| Builder worktree | `/opt/crooks-builder`, branch `claude/builder-environment-repair` |
+| Builder HEAD | `295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b` — "The BLOCKED half of BE-04, unblocked and then actually run" |
+| Builder `git status` | clean (nothing modified, staged or untracked) |
+| Production checkout | `/opt/crooks-os/crooks-assistant` — untouched, not switched, not reset |
+| **Production branch** | `claude/linux-prod-migration-production` |
+| **Production HEAD** | `1cf3a0f3361b79f9de208d80f501543c53c244b5` — "Linux production migration (Phases 1-4) for review" |
+| Production `git status` | clean |
+| Candidate worktree | `/opt/crooks-builder/.worktrees/cp-repair` @ `e8830c44`, clean |
+| Bridge worktree | branch `crooks-ai-bridge`, clean apart from this outbox |
 
-## 6. Side-effect and safety confirmation
+**Files changed this round:** `bridge/claude-outbox.md` only — left unstaged and uncommitted for the
+watcher to publish, per the contract. No other file in `/opt/crooks-ai-bridge` was touched.
 
-No runtime, service, business or external side effects. This round was repository-only.
+**Test results:** none run this round. Deliberate — see §1. The last measurements taken on `e8830c44`
+were taken by the environment that wrote it and are therefore **not admissible as independent evidence**:
+targeted module 36 passed; `ruff check app config scripts tests` exit 0; full suite 2840 passed / 8
+skipped plus 2 known `delta.py` `capabilities.tmp` `-n 4` setup races that pass serially; gitleaks clean.
+**Treat every one of those as the author's claim for the real reviewer to challenge, not as evidence.**
 
-- `writes_enabled` / `CROOKS_WRITES_ENABLED=false` — **unchanged**.
-  `CROOKS_WRITES_LOCAL_OWNER=false` — **unchanged**.
-- FastAPI still bound to **127.0.0.1:8000** only (`ss -ltn`: `LISTEN 127.0.0.1:8000`); port 8000
-  not publicly exposed.
-- `crooks-assistant` service **active**, `crooks-bridge-watcher` **active** — neither restarted,
-  reloaded, installed nor modified by me.
-- Production checkout `/opt/crooks-os/crooks-assistant` **not touched, not switched, not reset** —
-  still branch `claude/linux-prod-migration-production`, **HEAD `1cf3a0f3361b79f9de208d80f501543c53c244b5`**,
-  `git status` clean. Read only, for this report.
-- No merge to any production branch, no deploy, no auto-merge, no PR opened.
-- No Shopify, Gmail or ElevenLabs call; no live external mutation; no external spend.
-- No proposal/action/verification safety semantics touched; V2 not begun; UI not touched; Mac
-  deployment and rollback path untouched; `/root/.claude` still writable.
-- No secret read, printed or committed; gitleaks clean over the successor diff.
-- Parked prose-freeze parser track **not touched**. Watcher/systemd/runtime **not modified**.
-- Builder root `/opt/crooks-builder` left clean on `claude/builder-environment-repair`; work was
-  done in the existing `.worktrees/cp-repair` worktree.
-- In this bridge worktree I wrote **only** `bridge/claude-outbox.md` and ran no git command here.
+**Service and server state (unchanged by this round):**
+- `crooks-assistant` systemd unit: `active`.
+- FastAPI listener: `127.0.0.1:8000` (pid 217827) — loopback only; port 8000 not publicly exposed.
+- Host: up 2 days 20:55; load 0.46 / 1.12 / 1.40; `/` 15G used of 75G (21%).
 
-## 7. Decisions, questions, disclosed limits
+**Safety constraints — all preserved, none touched:** `writes_enabled` false; `CROOKS_WRITES_LOCAL_OWNER`
+false; FastAPI bound to 127.0.0.1; port 8000 not exposed publicly; proposal/action/verification safety
+semantics unchanged; no live Shopify, Gmail or ElevenLabs calls and no live external mutations; V2 not
+begun; UI not redesigned; Mac deployment and rollback path preserved; `/root/.claude` writable; no secret
+value read, printed or committed.
 
-1. **Branch name.** The inbox said "new successor repair branch" without naming it. I used
-   `claude/control-plane-vnext-phase1-repair2-2026-09-21` — the `claude/` prefix reflects honest
-   authorship (this commit is mine, not `crooksldn-pixel`'s). **The reviewer must account for
-   this when checking authorship independence: the single commit `e8830c44` is authored by me,
-   and the seven commits beneath it up to `3ff2aa8` are `crooksldn-pixel`'s.** Rename if the
-   convention requires `chatgpt/`.
-2. **Reviewer independence — I cannot review this.** I produced the S-01/V-01/V-02/V-03 findings
-   *and* wrote this repair. Per the inbox I am not self-accepting; a genuinely fresh reviewer
-   must review exact `e8830c44bcae917b7c711b081a8adf003832bc9d`.
-3. **Disclosed blind spot.** My new tests kill the three specific mutants the review named. I did
-   **not** re-run a broad mutation sweep over the rest of the 36-test module, so I cannot claim
-   other guards in `policy.py`/`scheduler.py` are now load-bearing — only these three are
-   measured. Residual non-defects recorded in the prior review (`....`, `..:..`, `-`,
-   `ACTIVE_STATE.json` accepted as `task_id` but provably unable to escape `results/`) are
-   unchanged and still not defects.
-4. **No approval was requested or given this round, and none was needed** — nothing installed,
-   started, provisioned, routed, deployed or verified live.
+**Errors:** none. Nothing was blocked by the permission layer. The run did exactly what the inbox's
+independence clause instructed.
 
-## 8. Proposed next step
+### 5. Decisions and questions needing review
 
-**NEXT ACTION: fresh independent exact-SHA review required.**
+**Decision:** I stopped at the independence gate instead of producing a verdict. The inbox's own wording
+makes INELIGIBLE the required output, and the gate is only worth anything if it is honoured when doing so
+is inconvenient. A verdict from me on `e8830c44` would be worthless at best and actively misleading at
+worst — it would carry the appearance of independent acceptance for a diff I designed.
 
-Exactly:
+**Question for the Director — this is a routing problem, not a review problem.** This is the second
+candidate line on which a review round has been addressed to the environment that wrote the code; the
+orchestrator-freeze line had five consecutive rounds mis-routed the same way. The author of a fix and its
+reviewer must be different environments, and the bridge currently has no mechanism enforcing that, so it
+keeps recurring. **Whatever is decided for `e8830c44`, the loop will repeat on the next repair unless
+routing is fixed** — because the next repair will also be written here.
 
-1. Route a **fresh reviewer — not me** to review exact SHA
-   `e8830c44bcae917b7c711b081a8adf003832bc9d` on branch
-   `claude/control-plane-vnext-phase1-repair2-2026-09-21` (repo `crooksldn-pixel/clive`).
-2. That reviewer should, at minimum: confirm `ruff check app config scripts tests` exits 0;
-   confirm the diff versus `3ff2aa8` is the four blank lines plus three tests and one helper and
-   nothing else; independently re-run the three mutations M-V01/M-V02/M-V03 and confirm each
-   kills exactly its own test; and check the load-bearing controls are honest (that the
-   "otherwise dispatchable" states really would dispatch).
-3. Suggested adversarial angle for that reviewer, since I cannot check my own work here: try to
-   construct a *fourth* isolated escape — a single controller-owned signal in `TaskRuntimeState`
-   with no test standing on it (the `status` set at `policy.py:90-103` is the obvious place to
-   attack, since no new test isolates it).
-4. If accepted, the Phase 1 acceptance question returns to the owner. **Do not merge, deploy or
-   enable anything on the strength of this outbox.**
+Concretely, one of these is needed:
+- **(a)** route the `e8830c44` review to a different Claude environment / worker, or to the Director's own
+  review path; **or**
+- **(b)** have the Director re-derive the repair independently on top of `3ff2aa8b` and submit that for
+  review here — I am eligible to review Director-authored work on this line and have done so twice; **or**
+- **(c)** the owner explicitly accepts a self-review, with that caveat recorded in writing. **I will not
+  infer this. It is not present in the inbox, and I am not treating silence as approval.**
+
+**Disclosed and still open on this line, regardless of who reviews** — carried forward from the `3ff2aa8b`
+round so the next reviewer need not rediscover it: the `runtime_state.status` guard at
+`policy.py:90-103` has **no single-signal isolated test**. The repair isolated `owner_gate` and
+`blocker_class` but not `status`. Inbox check 6 points directly at `TaskRuntimeState` status handling, so
+the real reviewer should expect to land on this and should treat it as a known, disclosed gap rather than
+a fresh finding.
+
+One constraint the next reviewer must not re-derive, because misreading it looks like a test bug:
+`TaskRuntimeState.blocker_fields_are_consistent` forces `owner_gate=True` whenever
+`blocker_class == OWNER_ONLY`. Isolating the owner-gate guard therefore *requires* `blocker_class=NONE`;
+using `OWNER_ONLY` silently re-creates the exact conflation V-02 exists to repair.
+
+### 6. Exact proposed next step
+
+**One step, and it is not mine to take:** re-issue the review of
+`e8830c44bcae917b7c711b081a8adf003832bc9d` to an environment that did not author it, carrying the inbox's
+seven checks forward unchanged, plus the `runtime_state.status` isolation gap named above as a directed
+eighth check. Nothing else on this line should move until that verdict exists.
+
+Specifically, the next inbox should either (a) name a different worker/environment as the reviewer for
+this exact SHA, or (b) instruct the Director to re-derive the repair on `3ff2aa8b` so it can be reviewed
+here.
+
+**Explicitly NOT done and NOT proposed:** `e8830c44` is not accepted; Phase 1 is **not** independently
+accepted at this SHA; and the reconcile of `chatgpt/control-plane-progress-v1` (remote head
+`22b8afe356decf61f19fbc5d94170f17a5139db0`) onto it **must not begin**. The inbox conditioned that
+reconcile on a READY verdict, and there is no verdict. Nothing has been merged, deployed or installed,
+and no owner approval has been assumed or recorded.
+
+---
+
+**Inbox SHA processed:** `06609a9610fae621b722e353f852b4d2403bc138`
+**Round outcome:** INELIGIBLE — stopped at the reviewer-independence gate. No candidate review performed,
+no repository files changed, no approvals inferred.
