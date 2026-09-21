@@ -16,6 +16,9 @@ from .contracts import (
     EngineeringTask,
     NextActionKind,
     TaskKind,
+    TaskRuntimeState,
+    TaskStatus,
+    validate_exact_sha,
 )
 
 
@@ -57,6 +60,8 @@ def evaluate_obvious_continuation(
     *,
     candidate_worker_id: str | None = None,
     current_branch_head: str | None = None,
+    runtime_state: TaskRuntimeState | None = None,
+    latest_task_revision: int | None = None,
 ) -> ContinuationDecision:
     """Return whether the proposed next action can advance mechanically.
 
@@ -66,6 +71,37 @@ def evaluate_obvious_continuation(
 
     if result.task_id != task.task_id or result.task_revision != task.revision:
         return ContinuationDecision(False, "task identity or revision mismatch")
+
+    if latest_task_revision is not None and task.revision != latest_task_revision:
+        return ContinuationDecision(False, "task revision is obsolete")
+
+    if runtime_state is not None:
+        if (
+            runtime_state.task_id != task.task_id
+            or runtime_state.task_revision != task.revision
+        ):
+            return ContinuationDecision(False, "runtime state identity or revision mismatch")
+        if runtime_state.owner_gate:
+            return ContinuationDecision(False, "controller-owned owner gate is active")
+        if runtime_state.blocker_class is not BlockerClass.NONE:
+            return ContinuationDecision(
+                False,
+                f"controller-owned blocker: {runtime_state.blocker_class.value}",
+            )
+        if runtime_state.status in {
+            TaskStatus.OWNER_GATE,
+            TaskStatus.BLOCKED,
+            TaskStatus.OBSOLETE,
+            TaskStatus.CANCELLED,
+            TaskStatus.DONE,
+            TaskStatus.ASSIGNED,
+            TaskStatus.RUNNING,
+            TaskStatus.REVIEWING,
+        }:
+            return ContinuationDecision(
+                False,
+                f"controller-owned task state is not dispatchable: {runtime_state.status.value}",
+            )
 
     if result.base_sha != task.base_sha:
         return ContinuationDecision(False, "result base SHA does not match task revision")
@@ -123,6 +159,10 @@ def evaluate_obvious_continuation(
     if result.result_sha is not None:
         if current_branch_head is None:
             return ContinuationDecision(False, "fresh branch HEAD has not been resolved")
+        try:
+            current_branch_head = validate_exact_sha(current_branch_head)
+        except ValueError:
+            return ContinuationDecision(False, "current branch HEAD is not an exact Git SHA")
         if current_branch_head != result.result_sha:
             return ContinuationDecision(False, "current branch HEAD differs from result SHA")
 
