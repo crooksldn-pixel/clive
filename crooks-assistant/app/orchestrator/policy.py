@@ -74,6 +74,21 @@ def evaluate_obvious_continuation(
     if not result.clean_worktree:
         return ContinuationDecision(False, "worker result is not from a clean worktree")
 
+    if task.allowed_paths:
+        escaped = [
+            path
+            for path in result.changed_paths
+            if not any(
+                path == allowed.rstrip("/") or path.startswith(allowed.rstrip("/") + "/")
+                for allowed in task.allowed_paths
+            )
+        ]
+        if escaped:
+            return ContinuationDecision(
+                False,
+                "result changed paths outside task scope: " + ", ".join(sorted(escaped)),
+            )
+
     missing_evidence = set(task.required_evidence) - set(result.evidence_satisfied)
     if action.kind is not NextActionKind.EVIDENCE and missing_evidence:
         return ContinuationDecision(
