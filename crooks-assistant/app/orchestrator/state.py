@@ -126,11 +126,15 @@ def build_active_state(
                 ),
                 progress_health=progress_health,
                 current_activity=snapshot.current_activity if snapshot else None,
+                active_step_label=snapshot.active_step_label if snapshot else None,
                 completed_step_count=len(snapshot.completed_steps) if snapshot else 0,
+                completed_step_labels=snapshot.completed_step_labels if snapshot else (),
                 evidence_count=len(snapshot.evidence_refs) if snapshot else 0,
+                evidence_refs=snapshot.evidence_refs if snapshot else (),
                 waiting_on=snapshot.waiting_on if snapshot else None,
                 next_known_action=snapshot.next_known_action if snapshot else None,
                 last_progress_at=snapshot.last_meaningful_progress_at if snapshot else None,
+                last_heartbeat_at=snapshot.last_heartbeat_at if snapshot else None,
                 last_transition_at=(
                     task_state.updated_at
                     if task_state
