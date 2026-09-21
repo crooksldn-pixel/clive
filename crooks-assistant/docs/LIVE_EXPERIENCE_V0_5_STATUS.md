@@ -87,7 +87,7 @@ from the `live_marks` the page posts.
 | --- | --- |
 | Existing relevant tests green, or intentionally replaced | done — the four that encoded the retired shell were replaced, with the reason in each |
 | The suite is stable enough to be evidence | done — a full `-n 4` run is now clean apart from item 5; the intermittent "ERROR at setup" was a real startup race, fixed |
-| Deterministic tests: state transitions, interruption, out-of-order completion, one job failing, no Split | done — 27 + 23 + 11 Node tests, run from pytest |
+| Deterministic tests: state transitions, interruption, out-of-order completion, one job failing, no Split | done — 27 + 25 + 11 Node tests, run from pytest |
 | Browser/device evidence at 390x844 and the tablet target | **not taken** — see open item 4 |
 | pointer-down → acknowledgement, release → transcript / first progress / first useful result | measured by the machine and posted as `live_marks`; the allow-list in `app/routes/observe.py` was stripping all five until it was fixed |
 | No production deploy | held |
