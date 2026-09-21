@@ -166,7 +166,19 @@
        orb zone that button sat under the voice target with the branch chips. -->
   <div id="notes-orb" class="notes notes-workspace" role="status" aria-live="polite" hidden></div>
 
-  <!-- ZONE 5 · BRANCH CHROME. The two halves, named, when there are two; Split when there is
+  <!-- ZONE 5 · THE WORK IN FLIGHT. One line per job — "Checking today's orders · done",
+       "Preparing packing list · queued" — and nothing at all when there is no work, which is
+       most of the time. It is how invariant 5 and 6 are SEEN: independent jobs finishing in
+       any order, inside one CLIVE session, instead of a single "Thinking" covering a fast
+       lane and an eleven-second read graph alike.
+
+       A band of the APP, for the same reason as the branch chrome below it and `.bottom`
+       before that: in orb mode `#talk` is `inset:0` on `.stage`, so a retry button inside the
+       stage would be painted and hit-tested under the voice target and could never be
+       pressed. Out here there is nothing above it. (D-1, web/jobs.js.) -->
+  <section id="job-zone" class="job-zone" aria-label="Work in progress" role="status" aria-live="polite" hidden></section>
+
+  <!-- ZONE 6 · BRANCH CHROME. The two halves, named, when there are two; Split when there is
        one. The gestures are the quick way; this is the way that always works, and the way a
        half working in the background says so.
 
@@ -257,6 +269,7 @@
 <script src="/static/notify.js"></script>
 <script src="/static/action-state.js"></script>
 <script src="/static/live-state.js"></script>
+<script src="/static/jobs.js"></script>
 <script src="/static/ui.js"></script>
 <script src="/static/app.js"></script>
 </body>

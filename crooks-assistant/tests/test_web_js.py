@@ -117,3 +117,16 @@ def test_the_one_interaction_state_under_node():
     )
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
     assert "# fail 0" in result.stdout
+
+
+@needs_node
+def test_the_work_in_flight_under_node():
+    """V0.5 slice C: independent jobs inside one session — out-of-order completion, one job
+    failing while the others carry on, a retry only where re-running is safe, and a strip
+    that disappears rather than becoming a dashboard (web/jobs.js)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / "jobs.test.js")],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout

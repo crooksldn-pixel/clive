@@ -29,6 +29,7 @@ const SHELL = [
   '/static/ui.js',
   '/static/action-state.js',
   '/static/live-state.js',
+  '/static/jobs.js',
   '/static/telemetry.js',
   '/static/collide.js',
   '/static/touch.js',

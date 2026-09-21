@@ -113,3 +113,82 @@ def test_v05_measures_the_four_latencies_the_evidence_gate_names() -> None:
     assert "heard_chars: marks.heardChars" in marks
     for leak in ("el.heard", "data.answer", "data.question", "textContent"):
         assert leak not in marks, f"the evaluation record carries {leak!r}"
+
+
+JOBS = WEB / "jobs.js"
+STYLE = WEB / "style.css"
+
+
+def test_v05_ships_a_progressive_job_surface() -> None:
+    """Slice C: a compact work surface, present only while there is meaningful work."""
+    assert JOBS.is_file()
+    source = JOBS.read_text(encoding="utf-8")
+    for state in ("QUEUED", "WORKING", "DONE", "FAILED"):
+        assert f"'{state}'" in source
+
+    index = INDEX.read_text(encoding="utf-8")
+    assert '<script src="/static/jobs.js"></script>' in index
+    assert "'/static/jobs.js'," in SW.read_text(encoding="utf-8")
+    # It starts hidden: an empty strip is not a surface, and the idle screen is unchanged.
+    assert '<section id="job-zone" class="job-zone" aria-label="Work in progress" role="status" aria-live="polite" hidden>' in index
+
+
+def test_v05_job_surface_is_a_band_of_the_app_and_not_under_the_voice_target() -> None:
+    """D-1's rule, applied to the new surface: it carries a button, and in orb mode `#talk`
+    is inset:0 over the whole stage. A control inside the stage could never be pressed."""
+    index = INDEX.read_text(encoding="utf-8")
+    main = index[index.index('<main id="stage"'):index.index("</main>")]
+    assert 'id="job-zone"' not in main
+    zone = index[index.index('<section id="orb-zone"'):]
+    assert 'id="job-zone"' not in zone[:zone.index("</section>")]
+    # And it is a ROW of the app grid, so nothing above it can cover it.
+    style = STYLE.read_text(encoding="utf-8")
+    assert '"stage" "message" "work" "halves" "foot"' in style
+    assert ".job-zone{grid-area:work}" in style
+
+
+def test_v05_job_surface_keeps_the_liquid_glass_rules() -> None:
+    """Slice D's rules for translucency, applied where the new surface uses them: one pane
+    that communicates grouping, restrained blur, a thin highlight, and no motion at rest."""
+    style = STYLE.read_text(encoding="utf-8")
+    strip = style[style.index("/* ------------------------------------------------------------ work in flight */"):]
+    strip = strip[:strip.index(".branch-zone{\n  position:relative")]
+
+    panes = [line for line in strip.splitlines() if "backdrop-filter:blur" in line]
+    assert len(panes) == 1, "the strip is one translucent surface, not a pane per row"
+    # The same restrained value the rest of the chrome uses, not a frosted slab of its own.
+    assert "blur(var(--blur-surface))" in strip
+    assert "inset 0 1px 0 rgba(255,255,255,.07)" in strip, "the thin highlight along the top edge"
+    # Depth from opacity, border and shadow — never from something that keeps moving.
+    assert "animation" not in strip and "@keyframes" not in strip
+    for transition in re.findall(r"transition:([^;}]+)", strip):
+        assert "transform" not in transition or "var(--t-1)" in transition
+    # The 2019 tablet in lite mode pays for no blur it did not ask for.
+    assert "html[data-lite] .job-list{-webkit-backdrop-filter:none;backdrop-filter:none}" in style
+
+
+def test_v05_job_labels_never_carry_a_tool_name() -> None:
+    """Invariant 7: architecture must not leak into interaction language."""
+    source = APP.read_text(encoding="utf-8")
+    table = source[source.index("const DETAIL_WORDS = {"):]
+    table = table[:table.index("};")]
+    # Every entry is a tool name mapped to a verb and an object — the pair the strip draws.
+    pairs = re.findall(r"(\w+): \[('[^']+'), ('[^']+')\]", table)
+    assert len(pairs) >= 12
+    for name, verb, obj in pairs:
+        assert "_" not in verb and "_" not in obj, f"{name} leaks its tool name onto the glass"
+
+    # The strip is fed from the tool the Mac says is running, and the previous one is finished
+    # by that fact rather than by a guess.
+    assert "if (runningJob) jobs.done(runningJob);" in source
+    assert "noteRunningTool(data.detail);" in source
+    assert "endJobs();" in source
+
+
+def test_v05_offers_no_retry_it_cannot_honour() -> None:
+    """Invariant 9: the safe semantics are preserved, which here means not drawing a control
+    the Mac has no endpoint for. jobs.js can draw one; the page does not ask it to yet."""
+    source = APP.read_text(encoding="utf-8")
+    assert "window.CrooksJobs.render(el.jobZone, list);" in source
+    assert "onRetry" not in source
+    assert "onRetry" in JOBS.read_text(encoding="utf-8"), "the affordance exists for when it can be honoured"

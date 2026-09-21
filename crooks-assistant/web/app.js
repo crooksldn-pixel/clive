@@ -59,7 +59,7 @@ const el = {
   deck: $('deck'), cards: $('cards'),
   attention: $('attention'), attentionCount: $('attention-count'), attentionText: $('attention-text'),
   recent: $('recent'), recentLabel: $('recent-label'), branchBar: $('branch-bar'), orbZone: $('orb-zone'),
-  branchZone: $('branch-zone'),
+  branchZone: $('branch-zone'), jobZone: $('job-zone'),
   branchHead: $('branch-head'),
   svc: { shopify: $('svc-shopify'), gmail: $('svc-gmail'), voice: $('svc-voice'), changes: $('svc-changes') },
   talk: $('talk'), talkLabel: $('talk-label'),
@@ -200,6 +200,39 @@ function watchForSpeech() {
 }
 function stopWatchingForSpeech() { if (hearingPoll) { clearInterval(hearingPoll); hearingPoll = null; } }
 
+/* --------------------------------------------------------- the work in flight */
+
+// Slice C. The jobs of one turn, as objects with names, drawn on the band below the stage.
+// No retry is offered from here: the Mac has no endpoint that re-runs a single read, and a
+// button that cannot do what it says is worse than no button. web/jobs.js draws one the
+// moment there is somewhere safe for it to go.
+const jobs = window.CrooksJobs ? window.CrooksJobs.create({ onChange: drawJobs }) : null;
+function drawJobs(list) {
+  if (window.CrooksJobs) window.CrooksJobs.render(el.jobZone, list);
+}
+
+// The Mac reports ONE running tool at a time on /state. A tool that was running and is not
+// any more has finished — that is the whole derivation, and it is what makes two reads show
+// as two jobs finishing in the order they actually finished rather than as one word.
+let runningJob = '';
+function noteRunningTool(name) {
+  if (!jobs) return;
+  const words = DETAIL_WORDS[String(name || '')];
+  if (!words) return;                       // a tool with no words of its own is not a job
+  if (runningJob === name) return;
+  if (runningJob) jobs.done(runningJob);
+  runningJob = String(name);
+  jobs.start(runningJob, words[0], words[1]);
+}
+
+// The turn is over. Whatever was still named as running has finished with it, and the strip
+// keeps only work that is unfinished or a failure nobody has read (web/jobs.js endTurn).
+function endJobs() {
+  if (!jobs) return;
+  if (runningJob) { jobs.done(runningJob); runningJob = ''; }
+  jobs.endTurn();
+}
+
 /* ------------------------------------------------------------------ state */
 
 // What the orb says beneath itself. The first line is the state; the second is what is
@@ -233,12 +266,16 @@ function setState(state, label, sub) {
 
 // What the Mac is doing, in the owner's words. The /state poll carries the running tool's
 // name; the screen never shows a tool name.
+// A verb and an object, never a tool name (invariant 7). One table, read by two surfaces:
+// the sub-line under the orb joins the pair into a sentence, and the job strip keeps them
+// apart so a long object can ellipse without taking the verb with it.
 const DETAIL_WORDS = {
-  shopify_find_order: 'Finding the order', shopify_order_detail: 'Reading the order', shopify_list_orders: 'Listing orders',
-  shopify_find_customer: 'Finding the customer', shopify_customer_orders: 'Reading their orders', shopify_sales_summary: 'Adding up sales',
-  shopify_inventory: 'Checking stock', shopify_order_note_append: 'Preparing the note', shopify_customer_history: 'Reading their history',
-  gmail_search: 'Searching the inbox', gmail_read_thread: 'Reading the thread', gmail_recent: 'Reading recent mail',
+  shopify_find_order: ['Finding', 'the order'], shopify_order_detail: ['Reading', 'the order'], shopify_list_orders: ['Listing', 'orders'],
+  shopify_find_customer: ['Finding', 'the customer'], shopify_customer_orders: ['Reading', 'their orders'], shopify_sales_summary: ['Adding up', 'sales'],
+  shopify_inventory: ['Checking', 'stock'], shopify_order_note_append: ['Preparing', 'the note'], shopify_customer_history: ['Reading', 'their history'],
+  gmail_search: ['Searching', 'the inbox'], gmail_read_thread: ['Reading', 'the thread'], gmail_recent: ['Reading', 'recent mail'],
 };
+const detailSentence = (name) => (DETAIL_WORDS[name] ? DETAIL_WORDS[name].join(' ') : undefined);
 const LONG_THINK_MS = 6000;
 let turnStartedAt = 0;
 // "2 of 3 read" — the Mac's own count of the reads it is making for this answer
@@ -247,7 +284,7 @@ const COUNTED = /^(\d+) of (\d+) read$/;
 
 function detailWords(detail, state) {
   const name = String(detail || '');
-  if (DETAIL_WORDS[name]) return DETAIL_WORDS[name];
+  if (DETAIL_WORDS[name]) return detailSentence(name);
   const counted = COUNTED.exec(name);
   if (counted) return `${counted[1]} of ${counted[2]} checked`;
   if (name.indexOf('refused ') === 0) return 'Trying another way';
@@ -3028,6 +3065,7 @@ function startStatePolling() {
       // The workspace as it stands, patched in place. A card the reads have already produced
       // is readable NOW; the turn's own answer reconciles against it when it comes.
       if (data.workspace) applyWorkspace(data.workspace);
+      noteRunningTool(data.detail);
       if (data.state && data.state !== 'READY' && data.state !== 'ERROR') setState(data.state, undefined, detailWords(data.detail, data.state));
       else if (busy && Date.now() - turnStartedAt > LONG_THINK_MS) el.sub.textContent = `Still working · ${Math.round((Date.now() - turnStartedAt) / 1000)} s`;
       // The transcript, the moment the Mac has it: a mis-heard question shows before the
@@ -3202,6 +3240,7 @@ async function submit(body, isAudio) {
   } finally {
     clearTimeout(timeout);
     inflight.delete(key);
+    endJobs();
     // Invariant 11: what this turn FELT like, in milliseconds and counts only. No transcript,
     // no answer, no entity — the machine was never given any of them to leak.
     if (live) {

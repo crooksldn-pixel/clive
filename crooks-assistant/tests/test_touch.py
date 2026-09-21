@@ -197,7 +197,10 @@ def test_the_dock_is_navigation_and_the_bands_are_placed_by_name():
     was hidden — which is its normal state. The stage could then not shrink below the orb's
     340px, and the branch band came out 310px tall on the idle screen and 0px beside the cards.
     """
-    assert 'grid-template-areas:"notes" "top" "stage" "message" "halves" "foot";' in STYLE
+    # V0.5 adds a seventh band between the workspace messages and the branch chrome: the
+    # work in flight (#job-zone). A band, not a layer, for exactly the reason this test
+    # exists — it carries a retry button, and `#talk` is inset:0 over the stage.
+    assert 'grid-template-areas:"notes" "top" "stage" "message" "work" "halves" "foot";' in STYLE
     for place in ("#notes-global{grid-area:notes}", ".top{grid-area:top}", ".stage{grid-area:stage}",
                   "#notes-orb{grid-area:message}", ".branch-zone{grid-area:halves}", ".bottom{grid-area:foot}"):
         assert place in STYLE, f"missing placement: {place}"
