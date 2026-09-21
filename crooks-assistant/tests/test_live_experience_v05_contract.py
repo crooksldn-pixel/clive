@@ -193,6 +193,26 @@ def test_v05_job_labels_never_carry_a_tool_name() -> None:
         assert obj.strip(), f"{name} has no object"
 
 
+def _shipped_tools() -> dict[str, bool]:
+    """Every tool the Mac ships, and whether it writes — name -> ToolSpec.write.
+
+    Filtered by where the handler comes from, not by its name. Other test modules register
+    `mock_*` tools into the same process-wide registry, and under `-n 4` one of them lands in
+    the same worker as this file; a prefix rule would have quietly grown into one that could
+    swallow a real tool.
+    """
+    from experience import tool_matrix
+
+    tool_matrix.load()
+    from app.tools import registry
+
+    return {
+        name: bool(spec.write)
+        for name, spec in registry._REGISTRY.items()
+        if getattr(spec.handler, "__module__", "").startswith("app.")
+    }
+
+
 def test_v05_every_tool_the_mac_can_run_has_words_and_no_others() -> None:
     """The job strip is only as honest as this table. A tool with no row shows as no work at
     all, which on a turn of four reads means most of it invisible — and a row for a tool the
@@ -200,29 +220,33 @@ def test_v05_every_tool_the_mac_can_run_has_words_and_no_others() -> None:
 
     Both were true when this was first run: two rows named tools that had been gone for some
     time, and thirty-nine tools had nothing to say."""
-    from experience import tool_matrix
-
-    tool_matrix.load()
-    from app.tools import registry
-
-    registered = set(registry.names())
+    shipped = set(_shipped_tools())
     described = set(_detail_words())
-    assert not (registered - described), \
-        "the Mac can run these and the tablet has no words for them: " + ", ".join(sorted(registered - described))
-    assert not (described - registered), \
-        "the tablet has words for tools the Mac does not have: " + ", ".join(sorted(described - registered))
+    assert not (shipped - described), \
+        "the Mac can run these and the tablet has no words for them: " + ", ".join(sorted(shipped - described))
+    assert not (described - shipped), \
+        "the tablet has words for tools the Mac does not have: " + ", ".join(sorted(described - shipped))
 
 
-def test_v05_every_tool_that_changes_the_shop_is_marked_as_one() -> None:
-    """Invariant 9. Nothing reads the write flag yet; the moment a retry is offered it is what
-    stops the tablet offering to re-run a refund, so it has to be right before then."""
+def test_v05_the_write_flag_is_the_macs_answer_and_not_the_tablets_guess() -> None:
+    """Invariant 9. Nothing reads the flag yet; the moment a retry is offered it is what stops
+    the tablet offering to re-run a refund, so it has to agree with the Mac before then — and
+    it must agree by being COPIED from it, not by being reasoned about on this side.
+
+    Written as an exact comparison because a guess was wrong on the first attempt: the five
+    batch tools read as changes ("Sending the replies") but only STAGE one, and the change
+    itself goes through the confirmation path afterwards. The Mac has always said so."""
+    shipped = _shipped_tools()
     words = _detail_words()
-    # The unambiguous ones, by the verb the table itself uses.
-    for name, (verb, _obj, writes) in words.items():
-        if verb in ("Sending", "Refunding", "Cancelling", "Fulfilling", "Tagging", "Archiving", "Drafting"):
-            assert writes, f"{name} says {verb!r} and is not marked as changing anything"
-        if verb in ("Reading", "Listing", "Finding", "Searching", "Summarising", "Adding up"):
-            assert not writes, f"{name} says {verb!r} and is marked as changing something"
+    disagree = {
+        name: (words[name][2], writes)
+        for name, writes in shipped.items()
+        if name in words and words[name][2] != writes
+    }
+    assert not disagree, "tablet says / Mac says: " + ", ".join(
+        f"{name} {tablet} / {mac}" for name, (tablet, mac) in sorted(disagree.items())
+    )
+    assert sum(shipped.values()) >= 15, "a registry with no writes in it would pass vacuously"
 
 
 def test_v05_jobs_are_derived_from_what_the_mac_says_is_running() -> None:

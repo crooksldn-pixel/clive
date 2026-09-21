@@ -278,8 +278,10 @@ function setState(state, label, sub) {
 // tools with nothing to say — which on the job strip meant most of a turn's work showing as
 // no work at all.
 //
-// The third element is the write flag. Nothing reads it yet; the moment a retry is offered it
-// is what stops the tablet from offering to re-run a refund (web/jobs.js, invariant 9).
+// The third element is the write flag, and it is the Mac's own `ToolSpec.write` rather than a
+// judgement made here — a test compares every row against it. Nothing reads it yet; the moment
+// a retry is offered it is what stops the tablet offering to re-run a refund (web/jobs.js,
+// invariant 9).
 const DETAIL_WORDS = {
   // Reading the shop
   shopify_find_order: ['Finding', 'the order'], shopify_order_detail: ['Reading', 'the order'], shopify_list_orders: ['Listing', 'orders'],
@@ -306,10 +308,11 @@ const DETAIL_WORDS = {
   gmail_draft_reply: ['Drafting', 'the reply', true], gmail_draft_new: ['Drafting', 'a new message', true],
   gmail_send_reply: ['Sending', 'the reply', true], gmail_send_new: ['Sending', 'the message', true],
   gmail_thread_archive: ['Archiving', 'the thread', true],
-  // Several at once
-  batch_email_drafts: ['Drafting', 'the replies', true], batch_email_send: ['Sending', 'the replies', true],
-  batch_email_archive: ['Archiving', 'the messages', true], batch_order_tags_add: ['Tagging', 'the orders', true],
-  batch_order_tags_remove: ['Removing', "the orders' tags", true],
+  // Several at once. These STAGE a batch; the change itself goes through the confirmation
+  // path afterwards, so the Mac does not call them writes and neither does this.
+  batch_email_drafts: ['Drafting', 'the replies'], batch_email_send: ['Preparing', 'the replies'],
+  batch_email_archive: ['Preparing', 'the messages'], batch_order_tags_add: ['Preparing', "the orders' tags"],
+  batch_order_tags_remove: ['Preparing', "the orders' tags"],
   // The query layer, which answers without naming one shop read
   commerce_query: ['Reading', 'the shop'], commerce_summary: ['Summarising', 'the shop'],
   commerce_aggregate: ['Adding up', 'the numbers'], commerce_capabilities: ['Checking', 'what the shop allows'],
