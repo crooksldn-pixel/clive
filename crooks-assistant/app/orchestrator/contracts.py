@@ -193,10 +193,10 @@ class NextAction(StrictRecord):
 
 class EngineeringResult(StrictRecord):
     schema_version: Literal["clive.engineering_result.v1"] = "clive.engineering_result.v1"
-    task_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")
     task_revision: int = Field(ge=1)
-    attempt_id: str = Field(min_length=1)
-    worker_id: str = Field(min_length=1)
+    attempt_id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")
+    worker_id: str = Field(min_length=1, max_length=200)
     base_sha: ExactSha
     result_sha: ExactSha | None = None
     changed_paths: tuple[str, ...] = ()
