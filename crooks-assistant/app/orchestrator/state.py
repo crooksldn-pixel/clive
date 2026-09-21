@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Mapping, Sequence
 
 from .contracts import (
     ActiveState,
