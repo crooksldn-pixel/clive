@@ -38,7 +38,7 @@ def _stage_from_result(task: EngineeringTask, result: EngineeringResult | None) 
         return TaskStatus.READY
     if result.next_action.kind is NextActionKind.INTEGRATE:
         return TaskStatus.ACCEPTED
-    return task.status
+    return TaskStatus.READY
 
 
 def build_active_state(
