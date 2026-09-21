@@ -2146,8 +2146,17 @@ _CARDINAL_WORDS = {
 # group" is one group, not two — the ordinal says *which*, the cardinality is still singular.
 _SINGULAR_QUANTIFIERS = frozenset({
     "single", "sole", "lone", "only", "first", "second", "third", "fourth", "fifth", "sixth",
-    "next", "last", "same", "another", "new", "existing",
+    "next", "last", "another",
 })  # fmt: skip
+# M-06 — `new`, `existing` and `same` are not quantifiers, and treating them as ones that pin the
+# phrase at one was a false green. They are ordinary noun modifiers: they say *which* groups are
+# meant, never how many. `a new process group` is one because of `a`; `two new process groups` is
+# two, and the leftward walk used to stop dead on `new` and report one without ever reading `two`.
+# So they are skipped exactly like any other adjective, and the number is taken from whatever
+# quantifier or determiner really heads the phrase — or, for a bare plural, from nothing, which is
+# the unknown count the gate already fails closed on. (`same` is also an `_NP_DETERMINERS` member,
+# so `the same group` still resolves to one there, while `the same groups` becomes unknown.)
+_NON_QUANTIFYING_MODIFIERS = frozenset({"new", "existing", "same"})
 # Quantifiers that assert *more than one* without naming a number. Unknown critical cardinality.
 _INDEFINITE_PLURAL_QUANTIFIERS = frozenset({
     "several", "many", "multiple", "various", "numerous", "additional", "further", "more",
@@ -2206,6 +2215,23 @@ def _as_cardinal(token: str) -> int | None:
     return _CARDINAL_WORDS.get(token)
 
 
+def _heads_a_different_noun_phrase(token: str) -> bool:
+    """Has the leftward walk left the premodifier run of the phrase it started in?
+
+    M-06's other half. Reached only after every quantifier, determiner and boundary vocabulary has
+    been consulted, so what is left is an ordinary word of this prose. English premodifiers are
+    adjectives, participles and *singular* noun modifiers — `owned`, `controller-allocated`,
+    `preflight`, `process`, and possessives such as `the attempt's`. A bare plural word is not one:
+    meeting it means the walk has crossed out of this noun phrase and into the subject or object
+    phrase next door, so `two attempts create new process groups` must not read `two` as the number
+    of groups. Possessives keep the walk alive — they modify a head, they do not head one.
+
+    Stopping here is the fail-closed direction for the case that matters: a plural head that finds
+    no quantifier of its own yields `None`, the unknown count the gate already refuses.
+    """
+    return token.endswith("s") and "'" not in token and "’" not in token
+
+
 def _asserted_group_count(segment: str, noun: re.Match[str]) -> int | None:
     """How many groups the noun phrase headed at `noun` asserts, or `None` if it does not say.
 
@@ -2215,10 +2241,25 @@ def _asserted_group_count(segment: str, noun: re.Match[str]) -> int | None:
     as this phrase's. A cardinal or numeral is the count; a singular quantifier or a determiner is
     one, *unless the noun is plural*, in which case the determiner says nothing about how many and
     the count is unknown.
+
+    M-06 — no modifier may end the walk before an explicit cardinal in the same phrase is read.
+    `new` and `existing` used to, so `two new process groups are created` reported one and the
+    `two` beside it was never seen. Modifiers are now all transparent and only *record* what they
+    mean, so a stated number always outranks them; the walk ends where the noun phrase itself
+    ends — at its determiner, at a boundary word, at the word limit, or at a plural word that can
+    only head a phrase of its own. The two modifier vocabularies stay distinct because they differ
+    in what they say when no cardinal is found: a singular quantifier asserts one even with no
+    determiner to lean on (`single process group`), while `new` asserts nothing at all, leaving a
+    bare plural unknown.
     """
     plural = noun.group().lower().endswith("s")
     indefinite = False
+    singular = False
     tokens = _quantifier_tokens_before(segment, noun.start())[-_GOVERNMENT_WORD_LIMIT:]
+
+    def settled() -> int | None:
+        return None if indefinite or (plural and not singular) else 1
+
     for token in reversed(tokens):
         number = _as_cardinal(token)
         if number is not None:
@@ -2230,12 +2271,17 @@ def _asserted_group_count(segment: str, noun: re.Match[str]) -> int | None:
             indefinite = True
             continue
         if token in _SINGULAR_QUANTIFIERS:
-            return None if indefinite else 1
+            singular = True
+            continue
+        if token in _NON_QUANTIFYING_MODIFIERS:
+            continue
         if token in _NP_DETERMINERS:
-            return None if plural or indefinite else 1
+            return settled()
         if token in _CONSTITUENT_BOUNDARIES:
             break
-    return None if plural or indefinite else 1
+        if _heads_a_different_noun_phrase(token):
+            break
+    return settled()
 
 
 def _asserted_write_repetitions(segment: str, verb_start: int, verb_stop: int) -> int | None:
@@ -3674,6 +3720,160 @@ def test_a_plural_group_noun_is_recognised_at_all() -> None:
 
     assert _asserts_a_group_creation("two process groups are created")
     assert not _asserts_a_group_creation("no further process groups are created")
+
+
+# --------------------------------------------------------------------------------------------
+# M-06 — an ordinary adjective is not a quantifier.
+#
+# The M-05 walk stopped at the first `_SINGULAR_QUANTIFIERS` member it met and reported one. That
+# set contained `new` and `existing`, which are not quantifiers at all: they say *which* groups,
+# never how many. So `two new process groups are created` stopped on `new`, returned one, and
+# never read the `two` sitting immediately beside it. Written over the one clause that legitimately
+# creates the attempt's group, that keeps the number of creating *rows* at one and the declared
+# cardinality at one, so the asserted count was the only guard — and it was wrong.
+#
+# These mutations rewrite the committed `CREATED -> STARTING` creation clause rather than appending
+# a sentence, exactly so the row-counting dimension cannot answer for the count. All of them were
+# GREEN at `7f92215`.
+# --------------------------------------------------------------------------------------------
+QUANTIFIED_MODIFIER_CREATIONS = (
+    ("cardinal before `new`", "two new process groups are created", 2),
+    ("cardinal before `existing`", "three existing process groups are created", 3),
+    ("cardinal before `new`, bare noun", "two new groups are provisioned", 2),
+    ("cardinal before `new`, `cgroups`", "two new cgroups are created", 2),
+    ("numeral before `new`", "2 new process groups are created", 2),
+    ("`both` before `new`", "both new process groups are created", 2),
+    ("cardinal before two modifiers", "three new same process groups are created", 3),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement,count",
+    QUANTIFIED_MODIFIER_CREATIONS,
+    ids=lambda value: str(value).replace(" ", "-")[:44],
+)
+def test_an_explicit_cardinal_outranks_a_non_quantifying_modifier(
+    device: str, replacement: str, count: int
+) -> None:
+    """M-06. The number the prose states is read even when an adjective stands between it and
+    the noun it governs.
+
+    The row dimension is asserted to be satisfied first, because it is: exactly one §3A edge still
+    creates, and §3A.3 still declares one. The count is the whole of the guard here.
+    """
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    creating = attempt_rows_creating_an_owned_process_group(mutated)
+    assert [f"{row[0]} -> {row[2]}" for row in creating] == ["CREATED -> STARTING"], (
+        f"{device}: the mutation was not confined to the one committed creating row"
+    )
+    assert len(owned_process_group_creation_assertions(mutated)) == count, device
+
+    with pytest.raises(AssertionError, match=f"asserts {count} owned process group creations"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# The same family with the plurality asserted but unquantified. `new`/`existing` used to collapse
+# these to one as well, which is worse than over-counting: an unknown critical cardinality must be
+# a red gate, not an assumed one.
+UNQUANTIFIED_MODIFIER_CREATIONS = (
+    ("`several` before `new`", "several new process groups are created"),
+    ("`multiple` before `existing`", "multiple existing process groups are created"),
+    ("`the same` plus plural", "the same process groups are created"),
+    ("bare plural behind `new`", "new process groups are created"),
+    ("bare plural behind `existing`", "existing cgroups are created"),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement",
+    UNQUANTIFIED_MODIFIER_CREATIONS,
+    ids=lambda value: str(value).replace(" ", "-")[:44],
+)
+def test_a_modifier_cannot_collapse_an_unstated_plurality_to_one(
+    device: str, replacement: str
+) -> None:
+    """The fail-closed half of M-06, on the same clause and the same row."""
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    with pytest.raises(AssertionError, match="without saying how many"):
+        owned_process_group_creation_assertions(mutated)
+    with pytest.raises(AssertionError, match="without saying how many"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# The direction that must not move. Every one of these genuinely asserts one group, and the freeze
+# set has to keep passing on prose of exactly this shape.
+SINGULAR_CREATIONS_THAT_MUST_STILL_PASS = (
+    ("determiner plus `new`", "a new process group is created"),
+    ("determiner plus `existing`", "the existing owned process group is created"),
+    ("determiner plus ordinal", "a second owned process group is created"),
+    ("`another` plus `new`", "another new process group is created"),
+    ("cardinal `one` plus `new`", "one new process group is created"),
+    ("`single` plus `new`", "the single new process group is created"),
+    ("`the same` plus singular", "the same process group is created"),
+    ("possessive plus `new`", "the attempt's new owned process group is created"),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement",
+    SINGULAR_CREATIONS_THAT_MUST_STILL_PASS,
+    ids=lambda value: str(value).replace(" ", "-")[:44],
+)
+def test_prose_that_genuinely_asserts_one_group_still_passes(device: str, replacement: str) -> None:
+    """The false-positive control for M-06.
+
+    A cardinality gate that reddens on ordinary singular prose is unmaintainable, and a repair
+    that bought its catches that way would be traded straight back at the next freeze-doc edit.
+    """
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    assert len(owned_process_group_creation_assertions(mutated)) == 1, device
+    assert_declared_group_count_matches_the_matrix(mutated)
+    assert_declared_write_point_matches_the_matrix(mutated)
+
+
+def test_a_number_is_never_stolen_from_the_phrase_next_door() -> None:
+    """The bound on M-06's repair: a cardinal counts only for the noun it premodifies.
+
+    Letting the walk see past `new` is only safe while it still stops where the noun phrase does.
+    A bare plural word cannot premodify a head in this prose, so meeting one means the walk has
+    crossed into the subject phrase — and the number found there is not this phrase's number.
+    Every case below therefore reads *unknown*, which is red, rather than a borrowed number.
+    """
+    for clause in (
+        "two attempts create new process groups",
+        "two attempts create process groups",
+        "three leases provision existing cgroups",
+        "after two failures new process groups are created",
+    ):
+        assert [count for _, count in group_creations(clause)] == [None], clause
+
+    # The stop is on the plural word, not on distance: a possessive is a premodifier and the walk
+    # survives it, while a determiner still ends the phrase and still answers one.
+    assert group_creations("the attempt's two new owned process groups are created")[0][1] == 2
+    assert group_creations("two leases each create a new process group")[0][1] == 1
+
+
+def test_new_and_existing_are_not_treated_as_quantifiers() -> None:
+    """M-06 stated as a property of the vocabulary, so a later edit cannot re-add them.
+
+    The distinction is the whole repair: `_SINGULAR_QUANTIFIERS` members pin a phrase at one and
+    may end the walk; `_NON_QUANTIFYING_MODIFIERS` members say nothing about number and may not.
+    """
+    assert not (_SINGULAR_QUANTIFIERS & _NON_QUANTIFYING_MODIFIERS)
+    for modifier in ("new", "existing", "same"):
+        assert modifier in _NON_QUANTIFYING_MODIFIERS
+        assert modifier not in _SINGULAR_QUANTIFIERS, modifier
+        assert _as_cardinal(modifier) is None, modifier
+
+    # Both kinds of modifier are transparent to a stated number — that is M-06 — but they differ
+    # where no number is stated: a singular quantifier still asserts one, `new` asserts nothing.
+    assert group_creations("two new process groups are created")[0][1] == 2
+    assert group_creations("two single process groups are created")[0][1] == 2
+    assert group_creations("the single process group is created")[0][1] == 1
+    assert group_creations("new process groups are created")[0][1] is None
 
 
 # Explicitly repeated writes. One operative verb, more than one write event.
