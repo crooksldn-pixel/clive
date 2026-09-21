@@ -9,9 +9,9 @@ These records deliberately fail closed:
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
-import re
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
