@@ -1,24 +1,17 @@
 # CHATGPT INBOX
 
-## Bounded repair — Orchestrator V1 freeze evaluator M-05
+## Fresh independent adversarial review — Orchestrator V1 freeze candidate
 
-Perform exactly one bounded repository-only repair on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`.
+Perform exactly one **read-only independent adversarial review** of exact candidate `7f92215f0fc1a44f0865af316ce0f02780345417` on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`.
 
-Fresh controller identity: branch HEAD is `2ee1836c976ba9a9cefbf188763d1de0da0cc44e`, parent `de9bea2b040808175077777afc35c5394eb4d716`; expected prior changed scope remains only `crooks-assistant/tests/test_orchestrator_freeze_spec.py`. Resolve fresh and STOP if HEAD differs.
+Fresh controller identity: remote branch HEAD has been independently resolved at `7f92215f0fc1a44f0865af316ce0f02780345417`, parent `2ee1836c976ba9a9cefbf188763d1de0da0cc44e`. Canonical product-memory HEAD is `654a9ed7d790e38597a3c5852d9b3e0a42902a1a`. Resolve all identities yourself and STOP if the candidate HEAD differs.
 
-The attempted independent review could not be routed through this same Claude because Claude authored `2ee1836`; that independence stop was correct. ChatGPT independently inspected the exact candidate source and found a bounded material evaluator defect that must be repaired before another review:
+The immediately preceding M-05 repair was authored by Claude and explicitly did **not** self-certify. This review counts only if the reviewer did not author or materially direct the `7f92215` repair or the immediately preceding repair chain. If this execution context cannot provide that independence, do not pretend otherwise: return an explicit independence/routing blocker and make no changes.
 
-### M-05 — semantic cardinality can exceed verb cardinality
+If independent, attack the evaluator rather than accepting its 203 green tests. Recompute the freeze invariants from source and normative documents. Invent adjacent semantic mutations and plausible paraphrases/counterexamples, especially around M-05 semantic cardinality, quantified/plural group creation, repeated writes, ambiguous cardinality, negation/government boundaries, co-reference/pronouns, multiple writes or creations within one row/transition, and fail-closed unknown semantics. Verify prior M-01/M-02/M-03/M-04, L-01, K-01, J-01, H-03/H-04, R-02 and earlier invariants remain protected. Attempt to produce false greens and false reds; do not treat raw test count as quality proof.
 
-The repaired evaluator now counts one write assertion per operative write verb and one group creation per creation verb. That is not equivalent to the normative cardinality being checked. A single grammatical predication can explicitly assert multiple events/entities.
+Also verify exact Git identity, candidate-vs-parent changed scope, normative freeze/product-memory document immutability across this repair, clean worktree, relevant pytest/static evidence, secret-scan evidence, and any claimed full-suite baseline. Distinguish known unrelated timing flakes from candidate-caused failures only when evidence supports that distinction.
 
-Minimal mutation families to reproduce against the real §3A matrix:
+Return one precise verdict bound only to exact SHA `7f92215f0fc1a44f0865af316ce0f02780345417`: either `ACCEPT FOR NEXT GATE` or `REJECT — REPAIR REQUIRED`, with reproducible evidence. Engineering acceptance is not owner adoption, merge, deployment, sequencing amendment, or Phase0 implementation authority.
 
-1. **Group count false green:** mutate the legitimate group-creation prose on the real `CREATED -> STARTING` edge from one group to an explicit plural/quantified creation such as `two process groups are created` / `creates two process groups`, while leaving §3A.3's declared owned-group count at `1`. `group_creation_assertions()` currently returns one match per creation verb, so a single verb can still satisfy the declared count even though the prose asserts two groups.
-2. **Handle-write count false green:** mutate the legitimate cleanup-handle write on the real `CREATED -> STARTING` edge so one operative write verb explicitly asserts repeated cardinality, e.g. the handle `is written twice` / `is committed two times`, while leaving §3A.3's declared write-point/cardinality semantics unchanged. `_classify_handle_clause()` currently derives asserted count from independent write-verb occurrences and therefore can count this as one despite the prose explicitly asserting more than one write.
-
-Treat the exact wording above as mutation examples, not a phrase blacklist. Repair the evaluator so explicit semantic cardinality greater than one cannot be collapsed to one merely because it uses one verb. Preserve fail-closed behaviour for ambiguous critical cardinality. Add adversarial regression mutations covering at least numeric words/digits and singular/plural variants where the grammar is plausible, plus legitimate controls that must remain accepted. Do not weaken or remove existing M-01/M-02/M-03/M-04, L-01, K-01, J-01, H-03/H-04, R-02 or earlier invariants.
-
-Scope: test/evaluator module only unless the exact source proves a minimal adjacent test fixture is strictly necessary. Do not change freeze contract/state/API/acceptance/traceability normative text to make the gate pass. No runtime, production, systemd, watcher, secrets, connectors, permissions, business state, deployment, merge, rebase or owner-only adoption changes.
-
-Required evidence in outbox: exact new SHA and parent; changed scope; clean worktree; regression/mutation evidence demonstrating both M-05 families fail before and are caught after; full relevant pytest/static checks; secret scan; preservation of prior invariants. Do not self-certify the repaired candidate. After repair, stop and request one fresh independent exact-SHA adversarial review by a reviewer that did not author or materially direct the repair.
+Read-only review only. Do not modify candidate files, production/runtime/systemd/watcher state, secrets, connectors/MCP, permissions, business state, deployment state, canonical sequencing, or owner-only decisions.
