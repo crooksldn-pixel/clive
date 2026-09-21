@@ -73,6 +73,34 @@ class NextActionKind(StrEnum):
     DONE = "done"
 
 
+class ProgressEventKind(StrEnum):
+    ATTEMPT_STARTED = "attempt_started"
+    STEP_STARTED = "step_started"
+    STEP_COMPLETED = "step_completed"
+    EVIDENCE_RECORDED = "evidence_recorded"
+    WAITING = "waiting"
+    RESUMED = "resumed"
+    BLOCKED = "blocked"
+    HEARTBEAT = "heartbeat"
+    ATTEMPT_COMPLETED = "attempt_completed"
+
+
+class ProgressState(StrEnum):
+    WORKING = "working"
+    WAITING = "waiting"
+    BLOCKED = "blocked"
+    COMPLETE = "complete"
+
+
+class ProgressHealth(StrEnum):
+    PROGRESSING = "progressing"
+    WORKING_NO_RECENT_PROGRESS = "working_no_recent_progress"
+    WAITING = "waiting"
+    BLOCKED = "blocked"
+    COMPLETE = "complete"
+    STALE = "stale"
+
+
 class StrictRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -162,6 +190,88 @@ class WorkerProfile(StrictRecord):
     def roles_are_nonempty(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(not role.strip() for role in value):
             raise ValueError("worker roles must not be empty")
+        return value
+
+
+class ProgressEvent(StrictRecord):
+    schema_version: Literal["clive.progress_event.v1"] = "clive.progress_event.v1"
+    task_id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")
+    task_revision: int = Field(ge=1)
+    attempt_id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9._:-]+$")
+    worker_id: str = Field(min_length=1, max_length=200)
+    sequence: int = Field(ge=0)
+    kind: ProgressEventKind
+    occurred_at: datetime
+    activity: str = Field(min_length=1, max_length=500)
+    step_id: str | None = Field(
+        default=None,
+        max_length=120,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    step_label: str | None = Field(default=None, max_length=300)
+    evidence_ref: str | None = Field(default=None, max_length=500)
+    waiting_on: str | None = Field(default=None, max_length=500)
+    next_known_action: str | None = Field(default=None, max_length=500)
+    subject_sha: ExactSha | None = None
+
+    @field_validator("occurred_at")
+    @classmethod
+    def timezone_required(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must be timezone-aware")
+        return value
+
+    @field_validator("subject_sha")
+    @classmethod
+    def validate_optional_sha(cls, value: str | None) -> str | None:
+        return None if value is None else _validate_sha(value)
+
+    @model_validator(mode="after")
+    def kind_specific_fields_are_consistent(self) -> "ProgressEvent":
+        if self.kind in {ProgressEventKind.STEP_STARTED, ProgressEventKind.STEP_COMPLETED}:
+            if not self.step_id or not self.step_label:
+                raise ValueError("step events require step_id and step_label")
+        if self.kind is ProgressEventKind.EVIDENCE_RECORDED and not self.evidence_ref:
+            raise ValueError("evidence_recorded requires evidence_ref")
+        if self.kind is ProgressEventKind.WAITING and not self.waiting_on:
+            raise ValueError("waiting requires waiting_on")
+        return self
+
+
+class ProgressSnapshot(StrictRecord):
+    schema_version: Literal["clive.progress_snapshot.v1"] = "clive.progress_snapshot.v1"
+    stream_id: str = Field(min_length=1, max_length=120)
+    task_id: str = Field(min_length=1, max_length=120)
+    task_revision: int = Field(ge=1)
+    attempt_id: str = Field(min_length=1, max_length=120)
+    worker_id: str = Field(min_length=1, max_length=200)
+    objective: str = Field(min_length=1)
+    state: ProgressState
+    current_activity: str = Field(min_length=1, max_length=500)
+    active_step_id: str | None = None
+    active_step_label: str | None = None
+    completed_steps: tuple[str, ...] = ()
+    completed_step_labels: tuple[str, ...] = ()
+    evidence_refs: tuple[str, ...] = ()
+    waiting_on: str | None = None
+    next_known_action: str | None = None
+    last_event_at: datetime
+    last_activity_change_at: datetime
+    last_meaningful_progress_at: datetime
+    last_heartbeat_at: datetime | None = None
+
+    @field_validator(
+        "last_event_at",
+        "last_activity_change_at",
+        "last_meaningful_progress_at",
+        "last_heartbeat_at",
+    )
+    @classmethod
+    def timestamps_timezone_required(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must be timezone-aware")
         return value
 
 
