@@ -196,21 +196,31 @@ def test_v05_job_labels_never_carry_a_tool_name() -> None:
 def _shipped_tools() -> dict[str, bool]:
     """Every tool the Mac ships, and whether it writes — name -> ToolSpec.write.
 
-    Filtered by where the handler comes from, not by its name. Other test modules register
-    `mock_*` tools into the same process-wide registry, and under `-n 4` one of them lands in
-    the same worker as this file; a prefix rule would have quietly grown into one that could
-    swallow a real tool.
+    Filtered by where the handler comes from, never by what it is called. Two things are not
+    shipped work: another test module's own doubles, which land in this process-wide registry
+    and under `-n 4` share a worker with this file; and `app/tools/mock.py`, three tools that
+    exist only to prove the gate refuses a RED one. The capabilities manifest already draws
+    the same line — "the diagnostics are not a capability" — and the words on the glass follow
+    it rather than inventing a second one.
+
+    A name-prefix rule would have quietly grown into one that could swallow a real tool, so
+    the diagnostics module is excluded by module and asserted to still be there.
     """
     from experience import tool_matrix
 
     tool_matrix.load()
     from app.tools import registry
 
-    return {
-        name: bool(spec.write)
-        for name, spec in registry._REGISTRY.items()
-        if getattr(spec.handler, "__module__", "").startswith("app.")
-    }
+    DIAGNOSTICS = "app.tools.mock"
+    shipped, diagnostics = {}, 0
+    for name, spec in registry._REGISTRY.items():
+        module = getattr(spec.handler, "__module__", "")
+        if module == DIAGNOSTICS:
+            diagnostics += 1
+        elif module.startswith("app."):
+            shipped[name] = bool(spec.write)
+    assert diagnostics, f"{DIAGNOSTICS} registered nothing — this exclusion has stopped matching"
+    return shipped
 
 
 def test_v05_every_tool_the_mac_can_run_has_words_and_no_others() -> None:
