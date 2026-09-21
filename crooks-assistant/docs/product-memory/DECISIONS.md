@@ -676,3 +676,58 @@ Detailed doctrine: [CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md](./CLIVE_INTENT_TO_E
 **Reason:** The intended product removes human glue work — remembering, checking, translating, routing, coordinating, chasing and reconstructing context — rather than merely aggregating applications. The existing multi-API, dynamic-UI, persistent-memory, staff-workspace and self-improvement directions become coherent under this model.
 
 **Consequences:** Future features should be challenged against whether they reduce human coordination/attention while preserving actual intention, authority and evidence. Deterministic fast paths remain valuable for genuinely explicit objectives, but keyword-triggered fixed outcomes must not substitute for contextual understanding. This decision does **not** alter DEC-046/047 sequencing, adopt any freeze candidate, authorise deployment, grant credentials/connectors, expand privileges or weaken action safety.\n---\n\n## DEC-052 — Preserve CLIVE's mission while making its mechanisms replaceable\n\n**Date:** 2026-09-21  \n**Status:** ACTIVE PRODUCT / ARCHITECTURE DIRECTION  \n**Source:** explicit owner direction after long-horizon product-philosophy discussion\n\n**Decision:** CLIVE must be designed for a permanently moving technological and organisational frontier. Its identity is attached to the durable problem — preserving human intention through distributed execution — rather than to today's models, APIs, UI, databases, orchestration or connectors.\n\nLarge organisations already exhibit distributed organisational agency across people, software, policies, records, incentives and delegated authority. CLIVE should progressively make relevant organisational cognition more explicit: objectives, evidence, unresolved state, dependencies, authority, capabilities, consequences and verified outcomes. The aim is not centralised machine control; it is reducing the human coordination tax while preserving human judgement and consequential authority.\n\nThere is no meaningful final \"100% complete\" CLIVE. Capability is a moving frontier. The architecture should preserve durable semantics such as objectives, identity/relationships, evidence/provenance, authority, time, uncertainty, commitments/dependencies, capabilities, outcomes and verification while allowing implementation mechanisms to be replaced or deleted.\n\nCore architectural rule: **preserve accumulated understanding; make accumulated implementation expendable.** A technology that makes part of CLIVE obsolete should normally be treated as an opportunity to simplify or move the product's differentiation upward, not as something the old implementation must resist.\n\nAdaptability remains controlled, not arbitrary self-modification: observed limitation → candidate change → isolated implementation/experiment → adversarial evaluation → independent review → controlled adoption. Tests protect active desired properties, not historical mechanisms. Components survive only while they retain a unique responsibility.\n\nMaturity principle: **no reasonable objective should leave CLIVE without a useful next move.** When completion is impossible, the next move may be investigation, composition, delegation, missing-evidence request, human decision, capability proposal, physical-world step or explicit authority/safety boundary.\n\nDetailed doctrine: [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md).\n\n**Reason:** The owner explicitly identified technological obsolescence and organisational inertia as central risks. A system intended to mediate intention and execution over a long horizon must be capable of incorporating discontinuous technological change without fossilising the mechanisms that happened to work in 2026.\n\n**Consequences:** Major architecture choices should identify the durable semantic contract separately from the replaceable mechanism and should state deletion/replacement conditions where useful. This strengthens EVOLUTION_POLICY and DEC-051; it does not waive DEC-046/047, adopt a freeze candidate, authorise deployment, credentials/connectors, privileges, business writes, or weaken action-safety/evidence gates.\n\n
+
+---
+
+## DEC-053 — CLIVE is the primary product identity and home projects persistent world state
+
+**Date:** 2026-09-21
+**Status:** ACTIVE PRODUCT DIRECTION
+**Source:** explicit owner direction while reviewing the current mobile interface and startup identity
+
+**Decision:** The user-facing product identity is **CLIVE**, expanded as **Computer Language Interface Virtual Environment**.
+
+The primary CLIVE surface must not conceptually reset to an empty assistant waiting for a command. When relevant operational state exists, home should project the highest-value objectives, changes, commitments, exceptions and unfinished work from CLIVE's persistent operational model.
+
+The orb remains a core identity/presence object, but is not merely a giant microphone button. Voice is one interaction path into CLIVE. The orb may contract or reposition when useful information deserves the space.
+
+Permanent provider/service plumbing does not belong on the primary idle surface. Capability health becomes prominent when it materially affects the current objective. Fixed navigation/shortcuts may exist where useful, but must not make CLIVE behave like a dashboard of implementation modules.
+
+Startup identity should move from point of light → abstract world/intelligence orb → CLIVE acronym reveal → final CLIVE wordmark. This records the conceptual identity, not one permanent animation asset.
+
+Detailed direction: [CLIVE_IDENTITY_AND_HOME_SURFACE.md](./CLIVE_IDENTITY_AND_HOME_SURFACE.md).
+
+**Reason:** The current screen's “System ready / What do you need?” framing contradicts CLIVE's persistent intent-to-execution model by visually implying the system wakes with no objectives or unfinished state. The interface should expose operational significance, not internal plumbing.
+
+**Consequences:** Existing CROOKS-branded shell elements and fixed status/navigation patterns are migration evidence rather than permanent identity requirements. This decision does not require all historical CROOKS product-memory documents to be renamed immediately, and it does not authorise production deployment or weaken existing safety/authority gates.
+
+---
+
+## DEC-054 — Engineering continuation should become queued and event-driven; hourly polling is supervisory
+
+**Date:** 2026-09-21
+**Status:** ACTIVE ENGINEERING DIRECTION
+**Source:** observed dual-stream freeze/Live Experience operation plus explicit owner approval to improve the Termius/Claude workflow
+
+**Decision:** The current single-slot bridge/hourly-controller pattern is a validated bootstrap mechanism, not the desired control plane.
+
+The next repository implementation should move toward:
+- durable machine-readable task/result records rather than one overwriteable inbox;
+- exact base/result SHA and worker identity on every attempt;
+- scheduler-enforced reviewer independence;
+- one task = one isolated worktree = one persistent worker session = one candidate;
+- event-driven continuation immediately after completion;
+- hourly GPT supervision as reconciliation/stall recovery rather than the normal continuation clock;
+- generated active engineering state separate from curated product memory;
+- explicit deterministic/transient/obsolete/owner-only blocker classes;
+- fairness so a repeated repair/review loop in one stream cannot silently starve unrelated repository-only work in another.
+
+Termius/manual workers should run in persistent tmux sessions so closing the mobile SSH client does not terminate legitimate work.
+
+Critical machine invariants should migrate toward structured representations or a constrained semantic grammar rather than indefinitely extending regex/NLP-like interpretation of unrestricted prose.
+
+Detailed plan: [ENGINEERING_CONTROL_PLANE_VNEXT.md](./ENGINEERING_CONTROL_PLANE_VNEXT.md).
+
+**Reason:** Overnight operation demonstrated real idle gaps and stream starvation despite correct safety rules: one stream repeatedly occupied the shared lane, another stopped moving, and completed work could remain undispatched until a later hourly tick. M-01 through M-08 also demonstrated the cost of asking a mechanical evaluator to infer critical semantics from unrestricted English.
+
+**Consequences:** Phase 0/1 repository work may proceed within existing engineering boundaries. This decision alone does **not** authorise watcher/systemd/runtime installation, production promotion, secrets/credentials, connector changes, privilege expansion, business writes or owner-only freeze adoption.
