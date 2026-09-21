@@ -250,7 +250,7 @@ async def test_the_favicon_is_the_page_icon(client):
 
 async def test_index_serves_the_tablet_page(client):
     r = await client.get("/")
-    assert r.status_code == 200 and "CROOKS" in r.text
+    assert r.status_code == 200 and "CLIVE" in r.text
 
 
 async def test_reload_kb_resets_the_provider_prompt(client):

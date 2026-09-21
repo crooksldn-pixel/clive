@@ -78,8 +78,11 @@ def test_every_icon_exists_at_the_size_it_claims(purpose, size):
 
 def test_the_page_carries_what_chrome_needs_and_nothing_stale():
     assert '<link rel="manifest" href="/manifest.webmanifest">' in INDEX
-    assert "<title>CROOKS OS</title>" in INDEX
-    assert '<meta name="application-name" content="CROOKS OS">' in INDEX
+    # V0.5: the shell is CLIVE. The installed name on the home screen is the name the
+    # owner says out loud, and "CROOKS OS" was neither.
+    assert "<title>CLIVE</title>" in INDEX
+    assert '<meta name="application-name" content="CLIVE">' in INDEX
+    assert "CROOKS OS" not in INDEX
     assert '<meta name="mobile-web-app-capable" content="yes">' in INDEX
     assert 'rel="icon" type="image/png" sizes="192x192"' in INDEX
     assert "viewport-fit=cover" in INDEX

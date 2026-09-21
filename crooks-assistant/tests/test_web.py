@@ -386,7 +386,10 @@ def test_the_settings_sheet_says_which_voice_is_which():
 def test_the_shell_is_the_orb_not_a_dashboard():
     assert 'id="orb"' in INDEX and "<canvas" in INDEX
     assert 'id="talk"' in INDEX and "Hold to speak" in INDEX
-    assert "System ready." in INDEX and "What do you need?" in INDEX
+    # V0.5 invariant 2: the idle line names the assistant and says the session is
+    # continuous. "System ready. / What do you need?" framed CLIVE as an empty command
+    # prompt that forgets between questions, which is the opposite of what it is.
+    assert "CLIVE ready" in INDEX and "Ask, interrupt, or continue" in INDEX
     assert "How can I help" not in INDEX
     # Two navs and no more: the context rail (where the conversation has been) and the dock
     # (four areas, either side of the hold). No sidebar, no menu, no tabs across the top —
