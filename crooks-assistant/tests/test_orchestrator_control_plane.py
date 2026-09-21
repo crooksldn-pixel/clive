@@ -19,7 +19,12 @@ from app.orchestrator.contracts import (
 from app.orchestrator.policy import evaluate_obvious_continuation
 from app.orchestrator.scheduler import ContinuationCandidate, select_obvious_dispatch
 from app.orchestrator.state import build_active_state
-from app.orchestrator.store import (\n    JsonRecordStore,\n    RecordConflictError,\n    StateConflictError,\n    latest_result_by_task_revision,\n)
+from app.orchestrator.store import (
+    JsonRecordStore,
+    RecordConflictError,
+    StateConflictError,
+    latest_result_by_task_revision,
+)
 
 
 SHA_A = "a" * 40
