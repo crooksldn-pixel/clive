@@ -12,11 +12,14 @@ from app.orchestrator.contracts import (
     NextAction,
     NextActionKind,
     TaskKind,
+    TaskRuntimeState,
     TaskStatus,
+    WorkerProfile,
 )
 from app.orchestrator.policy import evaluate_obvious_continuation
+from app.orchestrator.scheduler import ContinuationCandidate, select_obvious_dispatch
 from app.orchestrator.state import build_active_state
-from app.orchestrator.store import JsonRecordStore, RecordConflictError, latest_result_by_task_revision
+from app.orchestrator.store import (\n    JsonRecordStore,\n    RecordConflictError,\n    StateConflictError,\n    latest_result_by_task_revision,\n)
 
 
 SHA_A = "a" * 40
@@ -41,7 +44,6 @@ def make_task(**overrides) -> EngineeringTask:
         "required_evidence": ("pytest", "secret_scan"),
         "reviewer_must_be_independent": True,
         "authorising_reference": "DEC-054",
-        "status": TaskStatus.READY,
         "created_at": NOW,
     }
     data.update(overrides)
@@ -327,6 +329,152 @@ def test_result_publication_is_idempotent_and_round_trips(tmp_path) -> None:
     assert loaded == (result,)
 
 
+
+def test_runtime_state_compare_and_swap_rejects_stale_writer(tmp_path) -> None:
+    store = JsonRecordStore(tmp_path)
+    initial = TaskRuntimeState(
+        task_id="freeze-repair-008",
+        task_revision=1,
+        status=TaskStatus.READY,
+        transition_seq=0,
+        updated_at=NOW,
+    )
+    store.write_task_state(initial, expected_previous_seq=None)
+
+    running = TaskRuntimeState(
+        task_id="freeze-repair-008",
+        task_revision=1,
+        status=TaskStatus.RUNNING,
+        transition_seq=1,
+        attempt_id="attempt-1",
+        worker_id="claude-builder-1",
+        updated_at=NOW + timedelta(seconds=1),
+    )
+    store.write_task_state(running, expected_previous_seq=0)
+    assert store.read_task_states() == (running,)
+
+    stale = TaskRuntimeState(
+        task_id="freeze-repair-008",
+        task_revision=1,
+        status=TaskStatus.BLOCKED,
+        transition_seq=1,
+        blocker_class=BlockerClass.DETERMINISTIC,
+        blocker_reason="stale writer should not win",
+        updated_at=NOW + timedelta(seconds=2),
+    )
+    with pytest.raises(StateConflictError):
+        store.write_task_state(stale, expected_previous_seq=0)
+
+
+def test_runtime_state_initial_sequence_must_start_at_zero(tmp_path) -> None:
+    store = JsonRecordStore(tmp_path)
+    invalid = TaskRuntimeState(
+        task_id="freeze-repair-008",
+        task_revision=1,
+        status=TaskStatus.READY,
+        transition_seq=2,
+        updated_at=NOW,
+    )
+    with pytest.raises(StateConflictError):
+        store.write_task_state(invalid, expected_previous_seq=None)
+
+
+def test_scheduler_dispatches_obvious_review_without_hourly_poll() -> None:
+    candidate = ContinuationCandidate(
+        task=make_task(),
+        result=make_result(),
+        current_branch_head=SHA_B,
+    )
+    workers = [
+        WorkerProfile(worker_id="claude-builder-1", roles=("builder",)),
+        WorkerProfile(
+            worker_id="claude-reviewer-2",
+            roles=("independent-reviewer",),
+        ),
+    ]
+    dispatch = select_obvious_dispatch(candidates=[candidate], workers=workers)
+    assert dispatch is not None
+    assert dispatch.worker_id == "claude-reviewer-2"
+    assert dispatch.action is NextActionKind.REVIEW
+    assert dispatch.subject_sha == SHA_B
+
+
+def test_scheduler_skips_unroutable_stream_instead_of_starving_other_stream() -> None:
+    blocked_review = ContinuationCandidate(
+        task=make_task(task_id="a-review", stream_id="stream-a"),
+        result=make_result(task_id="a-review"),
+        current_branch_head=SHA_B,
+        stream_last_dispatched_at=None,
+    )
+    useful_evidence = ContinuationCandidate(
+        task=make_task(
+            task_id="b-evidence",
+            stream_id="stream-b",
+            kind=TaskKind.EVIDENCE,
+            required_evidence=("pytest", "secret_scan"),
+        ),
+        result=make_result(
+            task_id="b-evidence",
+            evidence_satisfied=("pytest",),
+            next_action=NextAction(
+                kind=NextActionKind.EVIDENCE,
+                reason="finish the already-required evidence",
+                subject_sha=SHA_B,
+                mechanically_authorised=True,
+                required_role="builder",
+                remaining_evidence=("secret_scan",),
+            ),
+        ),
+        current_branch_head=SHA_B,
+        stream_last_dispatched_at=NOW,
+    )
+    workers = [WorkerProfile(worker_id="builder-2", roles=("builder",))]
+    dispatch = select_obvious_dispatch(
+        candidates=[blocked_review, useful_evidence],
+        workers=workers,
+    )
+    assert dispatch is not None
+    assert dispatch.stream_id == "stream-b"
+    assert dispatch.task_id == "b-evidence"
+
+
+def test_scheduler_fairness_prefers_least_recently_dispatched_equal_priority_stream() -> None:
+    worker = WorkerProfile(worker_id="reviewer", roles=("independent-reviewer",))
+    recent = ContinuationCandidate(
+        task=make_task(task_id="recent", stream_id="stream-a"),
+        result=make_result(task_id="recent"),
+        current_branch_head=SHA_B,
+        stream_last_dispatched_at=NOW,
+    )
+    waiting = ContinuationCandidate(
+        task=make_task(task_id="waiting", stream_id="stream-b"),
+        result=make_result(task_id="waiting"),
+        current_branch_head=SHA_B,
+        stream_last_dispatched_at=NOW - timedelta(hours=1),
+    )
+    dispatch = select_obvious_dispatch(candidates=[recent, waiting], workers=[worker])
+    assert dispatch is not None
+    assert dispatch.stream_id == "stream-b"
+
+
+def test_scheduler_priority_can_override_fairness_deliberately() -> None:
+    worker = WorkerProfile(worker_id="reviewer", roles=("independent-reviewer",))
+    high = ContinuationCandidate(
+        task=make_task(task_id="high", stream_id="stream-a", priority=10),
+        result=make_result(task_id="high"),
+        current_branch_head=SHA_B,
+        stream_last_dispatched_at=NOW,
+    )
+    low_waiting = ContinuationCandidate(
+        task=make_task(task_id="low", stream_id="stream-b", priority=0),
+        result=make_result(task_id="low"),
+        current_branch_head=SHA_B,
+        stream_last_dispatched_at=None,
+    )
+    dispatch = select_obvious_dispatch(candidates=[low_waiting, high], workers=[worker])
+    assert dispatch is not None
+    assert dispatch.task_id == "high"
+
 def test_latest_result_uses_revision_then_timestamp_then_attempt_identity() -> None:
     older = make_result(attempt_id="attempt-1", completed_at=NOW)
     newer = make_result(attempt_id="attempt-2", completed_at=NOW + timedelta(seconds=1))
@@ -375,6 +523,30 @@ def test_active_state_is_generated_from_exact_branch_and_result_state(tmp_path) 
     assert store.read_active_state() == state
 
 
+
+
+def test_active_state_uses_runtime_state_when_present() -> None:
+    task = make_task()
+    result = make_result()
+    runtime = TaskRuntimeState(
+        task_id=task.task_id,
+        task_revision=task.revision,
+        status=TaskStatus.RUNNING,
+        transition_seq=1,
+        attempt_id="attempt-live",
+        worker_id="worker-live",
+        updated_at=NOW + timedelta(minutes=20),
+    )
+    state = build_active_state(
+        tasks=[task],
+        results=[result],
+        task_states=[runtime],
+        branch_heads={task.target_branch: SHA_B},
+        generated_at=NOW + timedelta(minutes=21),
+    )
+    assert state.streams[0].stage is TaskStatus.RUNNING
+    assert state.streams[0].attempt_id == "attempt-live"
+    assert state.streams[0].worker_id == "worker-live"
 
 def test_active_state_marks_result_obsolete_if_branch_has_advanced() -> None:
     task = make_task()
