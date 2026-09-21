@@ -563,3 +563,37 @@ def test_the_cli_marks_a_session_on_disk_when_the_backend_is_not_running(tmp_pat
     assert cli.main(["report", "--out", str(tmp_path / "reports")]) == 0
     written = Path(capsys.readouterr().out.strip())
     assert written == tmp_path / "reports" / f"{session_id}.md" and "## 1. Session summary" in written.read_text()
+
+
+async def test_the_live_marks_survive_the_allow_list_and_carry_no_words(client):
+    """V0.5 invariant 11. The tablet's state machine measures what one interaction felt like
+    (web/live-state.js) and posts it as `live_marks`. The ingest allow-list is the reason
+    nothing else can ride along — which is exactly why the measurements themselves have to be
+    ON it, or the evidence the gate asks for would be stripped in silence."""
+    from tests.test_actions_routes import OWNER
+
+    configure(client, logins=OWNER)
+    await client.post("/test-session/start", json={"name": "live marks"})
+    assert (await client.post("/turn", json={"text": "hello", "session_id": "mine"}, headers=PROXIED)).status_code == 200
+    response = await client.post("/telemetry", json={"session_id": "mine", "events": [{
+        "kind": "live_marks", "turn_id": "turn_x", "state": "IDLE",
+        "ack_ms": 0, "transcript_ms": 812, "progress_ms": 940, "useful_ms": 1560, "responding_ms": 2100,
+        "partials": 3, "heard_chars": 47, "interruptions": 1, "faults": 0,
+        # What the machine was never given, offered anyway: the route drops it.
+        "heard": "check today's orders", "answer": "14 today",
+    }]}, headers=PROXIED)
+    assert response.status_code == 204 and response.headers["x-crooks-telemetry"] == "1"
+
+    stopped = (await client.post("/test-session/stop")).json()
+    client.runtime.timeline.flush()
+    marks = [e for e in read_events(Path(stopped["path"])) if e.get("kind") == "tablet_live_marks"]
+    assert len(marks) == 1
+    event = marks[0]
+    # Every measurement the evidence gate names, landed and intact.
+    assert event["ack_ms"] == 0 and event["transcript_ms"] == 812
+    assert event["progress_ms"] == 940 and event["useful_ms"] == 1560
+    assert event["responding_ms"] == 2100
+    assert event["partials"] == 3 and event["heard_chars"] == 47 and event["interruptions"] == 1
+    # And nothing that could repeat what was said.
+    assert "heard" not in event and "answer" not in event
+    assert "orders" not in json.dumps(event)

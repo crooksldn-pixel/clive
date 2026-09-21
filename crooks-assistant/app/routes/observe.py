@@ -47,6 +47,14 @@ ALLOWED_FIELDS = frozenset({
     # that lets the report tell a gesture that ended a recording from a recogniser that could
     # make nothing of it — six turns of the live session were filed as the recogniser's.
     "fingers", "relations", "fields", "cursor", "total", "entity_kind",
+    # V0.5 invariant 11. What one interaction FELT like, so acknowledgement latency,
+    # transcript correction, time-to-first-useful-result, progression, completion, errors and
+    # abandonment can be assessed afterwards. Milliseconds and counts, every one of them:
+    # `heard_chars` is how MUCH was said, and the tablet's state machine (web/live-state.js)
+    # is never given a word of the conversation, so there is nothing here that could carry
+    # one. This list is an allow-list precisely so that stays true.
+    "ack_ms", "transcript_ms", "progress_ms", "useful_ms", "responding_ms",
+    "partials", "heard_chars", "interruptions", "faults",
 })
 
 
