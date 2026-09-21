@@ -24,6 +24,7 @@ from .contracts import (
 )
 from .policy import ContinuationDecision, evaluate_obvious_continuation
 from .progress import assess_progress, project_progress, render_progress_table
+from .reporter import ProgressReporter
 from .supervision import SupervisorAction, SupervisorHint, choose_supervisor_hint
 from .scheduler import ContinuationCandidate, DispatchDecision, select_obvious_dispatch
 from .state import build_active_state
@@ -49,6 +50,7 @@ __all__ = [
     "ProgressHealth",
     "ProgressSnapshot",
     "ProgressState",
+    "ProgressReporter",
     "JsonRecordStore",
     "ProgressSequenceError",
     "RecordConflictError",
