@@ -1,210 +1,288 @@
-# CLAUDE OUTBOX — M-06 repair handoff
+# CLAUDE OUTBOX — M-07 repair handoff
 
-**Timestamp:** 2026-09-21T04:57:58Z
-**Inbox SHA processed:** `ce544b327576bbec785e4d6ead1a56cdde62c484` (consumed; these instructions are now spent)
-**Round type:** bounded repair. **NOT a certification.** See §7.
+**Timestamp (UTC):** 2026-09-21T06:01:41Z
+**Inbox SHA processed:** `342db0195d8969a75e2a05401bf97ef288e009df` — consumed in full; this round
+executed those instructions and only those, and they are now spent.
+**Round type:** bounded evaluator repair (M-07). **Not** a review, **not** a certification.
 
 ---
 
 ## 1. What was asked
 
-Repair exactly one bounded evaluator defect — **M-06**, a quantified-adjective false green in
-`_asserted_group_count` — on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`, required to be
-at exact HEAD `7f92215f0fc1a44f0865af316ce0f02780345417`, stopping without changes if it differed.
+Repair exactly one bounded evaluator defect, **M-07**, on
+`chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` at exact HEAD
+`450cc524e4da1397b44df022ac6e2fa546edd13d`; stop without changes if the remote HEAD differs.
 
-Smallest test/evaluator-module-only repair so explicit cardinals governing the same noun phrase
-outrank non-cardinal modifiers (`new`/`existing`), without letting quantifiers leak across
-constituent boundaries; preserve fail-closed behaviour for genuinely ambiguous plurality; do not
-touch normative freeze/product-memory documents. Add adversarial regression evidence; self-attack
-adjacent adjective/quantifier ordering; run the freeze suite, static checks and secret scan;
-require a clean worktree and exact SHA evidence; **do not self-certify**.
+The finding: `group_creations` in `crooks-assistant/tests/test_orchestrator_freeze_spec.py` computes
+`_asserted_group_count` for every live group noun in one creation verb's segment and reduces with
+`max`. `max` is fail-closed only when those nouns are alternate descriptions of the *same* created
+object. It under-counts when one creation predicate coordinates additive noun phrases — e.g.
+`one process group and another group are created`, where `max([1, 1]) == 1` and §3A.3's declared
+`1` stays satisfied although two groups are created.
 
-## 2. Preconditions checked before acting
+Required: smallest test/evaluator-module-only repair; do **not** blindly swap `max` for `sum`; prove
+no double-counting of aliases/appositives; fail closed where cardinality cannot be established
+safely; adversarial regression evidence; clean worktree and exact resulting SHA; no normative
+freeze/product-memory document edits; no self-certification; repair handoff only.
 
-| Check | Result |
-|---|---|
-| Builder checkout at start | `/opt/crooks-builder`, branch `claude/builder-environment-repair`, HEAD `295e483`, **clean** — not touched this round |
-| Candidate branch resolved | explicit fetch (the local refspec is stale and must never be trusted) |
-| Candidate HEAD | `7f92215f0fc1a44f0865af316ce0f02780345417` — **exact match to the inbox**, no drift, so the round proceeded |
-| Repair worktree | `/opt/crooks-builder/.worktrees/freeze-repair`, already at `7f92215`, **0 dirty lines** before any edit |
-| Authorship note | I authored the M-05 repair at `7f92215`. That is a bar on *reviewing* it, not on repairing it under an explicit instruction, so this round proceeded. It is also why §7 and §10 are not optional. |
+## 2. Branch identity resolved before acting
 
-## 3. What I found — M-06 confirmed, and wider than stated
+The `origin/chatgpt/...` remote-tracking ref in this checkout is **stale** (it pointed at `a904a20`),
+so identity was resolved authoritatively rather than from the tracking ref:
 
-**Confirmed exactly as described.** `_SINGULAR_QUANTIFIERS` contained `new`, `existing` and `same`.
-These are not quantifiers at all: they say *which* groups are meant, never how many. The leftward
-walk in `_asserted_group_count` **returned** on the first such token, reporting `1`, so an explicit
-cardinal sitting immediately to its left was never read.
+```
+git ls-remote origin refs/heads/chatgpt/orchestrator-v1-freeze-candidate-2026-09-20
+450cc524e4da1397b44df022ac6e2fa546edd13d
+```
 
-The dangerous placement is **not** appending a sentence to a §3A row — that adds a second creating
-*row*, which the row-counting dimension catches regardless of the count. The escape is **rewriting
-the one committed clause that legitimately creates the attempt's group** (`CREATED -> STARTING`).
-There the creating-row count stays `1` and §3A.3's declared cardinality stays `1`, so the asserted
-group count is the *entire* remaining guard — and it was wrong.
+Matches the inbox exactly. Work proceeded.
 
-Measured against `7f92215`'s own test module (blob `41d9340a0418042e416674b880a4dab8f15cfd21`,
-`git hash-object` proven equal to `git rev-parse 7f92215:<path>`) with byte-identical docs:
+## 3. State of the builder checkout on entry
 
-| `CREATED -> STARTING` clause rewritten to | at `7f92215` | at `450cc52` |
+| Checkout | Branch | HEAD | Status |
+|---|---|---|---|
+| `/opt/crooks-builder` (main builder worktree) | `claude/builder-environment-repair` | `295e483` | clean |
+| `/opt/crooks-builder/.worktrees/freeze-repair` | `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` | `450cc52` | clean |
+| `/opt/crooks-builder/.worktrees/harness-hooks-experiment` | `claude/harness-hooks-experiment` | `2c2b0cc` | clean |
+
+Nothing modified or untracked anywhere on entry. All work was done in the `freeze-repair` worktree.
+No `main` branch exists locally or on `origin` in this repository.
+
+## 4. What I found (defect reproduced before repair)
+
+Reconnaissance on the **committed** `ORCHESTRATOR_V1_STATE_API.md` §3A: exactly **one** creation
+segment exists and it holds exactly **one** group noun —
+
+> `` `lease.owned_process_group_handle` is committed **before** the attempt's single owned process group is created (§3A.3) ``
+
+so the coordination path is unreachable in the committed text, and every mutation below had to be
+written **over** that clause to be sharp.
+
+Reproduced at `450cc52`, clause level (`group_creations(...)[0][1]`):
+
+| clause | semantic | `450cc52` |
 |---|---|---|
-| `two new process groups are created` | **GREEN** | RED — asserts 2 |
-| `three existing process groups are created` | **GREEN** | RED — asserts 3 |
-| `two new groups are provisioned` | **GREEN** | RED — asserts 2 |
-| `two new cgroups are created` | **GREEN** | RED — asserts 2 |
-| `2 new process groups are created` (numeral) | **GREEN** | RED — asserts 2 |
-| `both new process groups are created` | **GREEN** | RED — asserts 2 |
-| `three new same process groups are created` | **GREEN** | RED — asserts 3 |
-| `several new process groups are created` | **GREEN** | RED — unstated count |
-| `the same process groups are created` | **GREEN** | RED — unstated count |
-| `new process groups are created` (bare plural) | **GREEN** | RED — unstated count |
+| `one process group and another group are created` | 2 | **1 — false green** |
+| `two process groups and another group are created` | 3 | **2 — under-counted red** |
+| `a process group and another group and a third group are created` | 3 | **1** |
+| `the controller creates one process group and another group` | 2 | **1** |
+| `a process group and a further group are created` | unknown | `None` (already fail-closed) |
 
-**Two escapes beyond the inbox's report**, same root cause: `new`/`existing` also collapsed an
-*unquantified* plurality to one (`several new process groups`, bare `new process groups`), which is
-worse than over-counting — an unknown critical cardinality must redden the gate, not be read as 1.
+The file's own `test_the_cardinality_blind_spots_are_stated_rather_than_assumed_closed` had this
+recorded as an accepted limit (`a preflight group and a model group are created` asserted `== 1`).
+M-07 is that stated limit turning out to be materially reachable.
 
-**A second, pre-existing weakness surfaced while bounding the fix**: the walk already skipped
-unknown tokens freely, so it would *steal* a number from the neighbouring phrase —
-`two attempts create process groups` derived **2** at `7f92215`. Both readings are red, but the
-stolen number is not this phrase's number, and letting the walk see further past `new` would have
-made stealing easier. It is fixed as part of the bound (§4.3).
+## 5. What I changed
 
-## 4. What I changed
+**One file, one commit. No normative document touched.**
 
-**One file, test module only: `crooks-assistant/tests/test_orchestrator_freeze_spec.py`, +204 / −4.
-Zero freeze/product-memory documents touched — all 21 docs blobs verified byte-identical to
-`7f92215`.**
+`crooks-assistant/tests/test_orchestrator_freeze_spec.py` — +306 / −11 lines.
 
-1. `new`, `existing`, `same` moved out of `_SINGULAR_QUANTIFIERS` into a new, documented
-   `_NON_QUANTIFYING_MODIFIERS`.
-2. **No modifier ends the walk any more.** Modifiers now *record* what they mean and the walk
-   continues, so a stated cardinal in the same phrase always outranks them. The two vocabularies
-   stay distinct because they differ when no cardinal is found: a singular quantifier asserts one
-   even with no determiner to lean on (`single process group` → 1), while `new` asserts nothing,
-   leaving a bare plural **unknown** → red. This also removes a residual miss the narrow fix would
-   have left behind and pinned: `two single process groups` now reads 2, not 1.
-3. **New bound, `_heads_a_different_noun_phrase`.** Letting the walk see further needs a new stop
-   or it reads the phrase next door. English premodifiers here are adjectives, participles,
-   singular noun modifiers and possessives; a **bare plural word cannot premodify a head**, so
-   meeting one means the walk has crossed into the subject phrase and the count is unknown.
-   Possessives (`the attempt's`) keep the walk alive. The existing determiner / boundary-word /
-   8-word-limit stops are unchanged, so no quantifier crosses a constituent boundary.
+### Evaluator (the repair itself)
 
-## 5. Self-attack — adjacent adjective/quantifier ordering
+`max` is **not** replaced by `sum`. `sum` would read `a process group (the attempt's owned group) is
+created` as two groups and redden ordinary prose. What separates addition from aliasing is
+structural and lives in the text *between* two live group nouns:
 
-15 orderings I invented, gated the same way (rewriting the committed creating clause):
+* **additive coordination** puts a coordinator directly after the first conjunct's head noun and
+  then nothing but the next conjunct's premodifier run — `group **and another** group`;
+* **every other relation** puts something else there first — a determiner opening an appositive, a
+  preposition, or the verb of a new predication (`a group **is created and the** group is
+  recorded`, which is one group mentioned twice).
 
-| Form | `7f92215` | `450cc52` |
+Added:
+
+* `_ADDITIVE_COORDINATORS` — closed, additive-only token sequences: `and`, `plus`, `as well as`,
+  `along with`, `together with`. `or`, `nor` and `and/or` are deliberately **excluded**: they are
+  alternatives, and `max` over alternatives is already the correct fail-closed reading.
+* `_may_stand_inside_a_coordinated_run(token)` — what may sit inside the run: determiners,
+  quantifiers, cardinals, non-quantifying modifiers, possessives, and a further `and`/`plus` joining
+  a non-group conjunct. Rejected: boundary words, auxiliaries/modals, negators, repetition
+  vocabulary, and bare plural words (reusing the existing `_heads_a_different_noun_phrase` rule,
+  which is how an active-voice verb — `and **records** the group` — is refused).
+* `_coordination_between(between) -> bool | None` — three answers: `True` conjuncts (add), `False`
+  any other relation (`max`, unchanged behaviour), `None` a coordinator whose run cannot be placed.
+* `_coordinated_group_count(segment, nouns, counts)` — accumulates along coordination chains, resets
+  on a non-coordinated mention, returns the largest reading; returns `None` if any noun's own count
+  is `None`.
+* `group_creations` now calls `_coordinated_group_count` instead of `max`.
+
+**`None` is fail-closed**, and `owned_process_group_creation_assertions` already turns it into
+`"§3A asserts that process groups are created without saying how many …"` — the same refusal M-05
+established. This is what stops the `max` fallback from being a way back into M-07 for any
+coordination the rule does not recognise.
+
+### Regression / mutation evidence added (22 new tests)
+
+* `COORDINATED_GROUP_CREATIONS` (10, parametrized) — coordination mutations written **over** the
+  committed `CREATED -> STARTING` creation clause via `state_api_with_rewritten_prose`, so the
+  creating-**row** count stays 1 and §3A.3's declared `1` stays as committed; the derived count is
+  the only possible guard. Each asserts the row dimension is unmoved and the exact semantic count.
+* `UNQUANTIFIED_COORDINATED_CREATIONS` (5) — coordination that cannot be counted must be red, not 1.
+* `SAME_GROUP_MENTIONED_TWICE` (5) — the false-positive control: two live group nouns, one created
+  group, gate stays **green** on both dimensions. This is the proof the repair is not `sum`.
+* `test_coordination_is_decided_structurally_not_by_the_presence_of_a_conjunction` — pins the three
+  answers of `_coordination_between` and that `or`/`nor` are not additive.
+* `test_the_coordination_blind_spots_are_stated_rather_than_assumed_closed` — the residual limits,
+  stated rather than left for a reviewer to rediscover (see §8).
+* Updated the pre-existing blind-spot test: the coordination entry now asserts `== 2` and is
+  labelled as the limit M-07 closed; its comment was corrected accordingly.
+
+## 6. Test results
+
+All commands run from `/opt/crooks-builder/.worktrees/freeze-repair/crooks-assistant` using the base
+builder's interpreter (`/opt/crooks-builder/crooks-assistant/.venv/bin/python`); candidate worktrees
+have no venv of their own.
+
+### Before/after gate table
+
+Both module versions were loaded side by side in one process. The `450cc52` copy was extracted with
+`git show` and proved identical by `git hash-object` == `git rev-parse 450cc52:<path>` =
+`7c003eb2b58530960dcd17f540b12b855537005b`.
+
+**M-07 mutations** (committed creation clause rewritten; `n` = derived creation assertions):
+
+| mutation | `450cc52` | repair |
 |---|---|---|
-| `two additional new process groups`, `the two new owned process groups`, `the attempt's two new process groups`, `two further existing cgroups`, `a further two new process groups`, `up to two new process groups`, `two or three new process groups`, `between two and four new process groups`, `two new controller-allocated process groups`, `twelve new process groups` | **GREEN (10)** | RED — stated count |
-| `one or more new process groups`, `both of the new process groups`, `all new process groups` | **GREEN (3)** | RED — unstated count |
-| `two brand-new process groups`, `two newly provisioned process groups` | already RED | RED (unchanged) |
+| `one process group and another group are created` | GREEN(n=1) | **RED(n=2)** |
+| `two process groups and another group are created` | RED(n=2) | **RED(n=3)** |
+| `two process groups and three cgroups are created` | RED(n=3) | **RED(n=5)** |
+| `a process group and another group and a third group are created` | GREEN(n=1) | **RED(n=3)** |
+| `a process group and a lease and another group are created` | GREEN(n=1) | **RED(n=2)** |
+| `the controller creates one process group and another group` | GREEN(n=1) | **RED(n=2)** |
+| `the attempt's process group and the reviewer's group are created` | GREEN(n=1) | **RED(n=2)** |
+| `a new process group and another new cgroup are created` | GREEN(n=1) | **RED(n=2)** |
+| `a process group plus another group are created` | GREEN(n=1) | **RED(n=2)** |
+| `a process group as well as another group are created` | GREEN(n=1) | **RED(n=2)** |
 
-**False-positive controls — the direction that must not move.** 8 genuinely singular rewrites stay
-**GREEN on both dimensions**: `a new process group`, `the existing owned process group`,
-`a second owned process group`, `another new process group`, `one new process group`,
-`the single new process group`, `the same process group`, `the attempt's new owned process group`
-(plus `its new`, `each new`, `the same single new`). **Pristine is GREEN on both dimensions before
-and after.**
+Eight were false greens. The two already red were red at the **wrong** number (`max` reporting the
+larger conjunct, not the total) and are now pinned to the semantic total — an under-counted red is
+still a defect, because removing one conjunct in a later edit would silently turn it green.
 
-**No-theft controls:** `two attempts create new process groups` (**GREEN → unknown/red**),
-`two attempts create process groups` (**stolen 2 → unknown**), `three leases provision existing
-cgroups`, `after two failures new process groups are created` — all now read *unknown*, which is
-red, rather than a borrowed number. `the attempt's two new owned process groups` still reads 2, and
-`two leases each create a new process group` still reads 1.
+**Coordination that cannot be counted** (must be red, never 1):
 
-## 6. Verification
+| mutation | `450cc52` | repair |
+|---|---|---|
+| `a process group and a further group are created` | RED(unknown) | RED(unknown) |
+| `a process group and several other groups are created` | RED(unknown) | RED(unknown) |
+| `a process group and new groups are created` | RED(unknown) | RED(unknown) |
+| `a process group and/or another group are created` | GREEN(n=1) | **RED(unknown)** |
+| `the controller creates a process group and records the group` | GREEN(n=1) | **RED(unknown)** |
 
-| Check | Result |
+**Same group named twice — must stay green at one** (the anti-`sum` control): all five
+(`parenthetical appositive`, `disjunction of two descriptions`, `relative clause naming the group`,
+`back-reference in a following predication`, `back-reference behind a preposition`) are
+**GREEN(n=1) at both** `450cc52` and the repair.
+
+**Prior families unmoved** — all 7 `QUANTIFIED_GROUP_CREATIONS`, 7 `QUANTIFIED_MODIFIER_CREATIONS`,
+5 `UNQUANTIFIED_GROUP_CREATIONS`, 5 `UNQUANTIFIED_MODIFIER_CREATIONS` and 8
+`SINGULAR_CREATIONS_THAT_MUST_STILL_PASS` produce **identical verdicts and identical counts** before
+and after (M-05 / M-06 protections intact by measurement, not by assertion).
+
+**Committed document:** GREEN with exactly 1 creation assertion at `450cc52` **and** at the repair,
+on both the group and the write-point dimensions.
+
+### Suites
+
+| check | result |
 |---|---|
-| Freeze spec suite | **225 passed** (203 at `7f92215`), 2.6 s |
-| Test functions | **94 → 99**: 5 added (all parametrised), **0 removed, 0 renamed** (`comm` on sorted `^def test_`) |
-| Deleted asserts / `pytest.raises` | **0** (`git diff -U0` grep) |
-| `skip` / `xfail` | **0** |
-| Prior protections M-01..M-05, L-01, K-01, J-01, H-03/H-04, R-02 | intact — every earlier round's test is still present, unmodified and green inside the 225 |
-| `ruff check app config scripts tests` | **All checks passed** (`ruff format` deliberately not run — it is not a repo gate and would reformat ~114 unrelated files) |
-| gitleaks 8.30.1, changed file | no leaks |
-| gitleaks 8.30.1, range `7f92215..450cc52` | no leaks, 1 commit scanned |
-| Full offline suite `pytest tests -m "not live" -n 4` | **3029 passed / 8 skipped / 2 failed** in 3m03s |
-| Those 2 failures | the **known `test_experience.py` `-n 4` load flakes** — `test_experience.py` run alone immediately after: **85 passed**, 3m37s. Reconciles exactly: `7f92215` was 3006 passed + 3 flakes = 3009; 3009 + 22 new = 3031 = 3029 + 2 |
-| Files changed vs `7f92215` | exactly 1; `docs/` files changed: **0** |
-| Worktree after everything | **0 dirty lines** |
+| `pytest tests/test_orchestrator_freeze_spec.py -q -p no:randomly` | **247 passed** in 3.4 s (was **225** at `450cc52`; +22) |
+| `pytest tests -m "not live" -q -n 4 -p no:randomly` | **3051 passed, 8 skipped, 2 failed** in 185 s (baseline at `450cc52`: 3029 passed / 8 skipped; 3051 = 3029 + 22) |
+| the 2 failures | `tests/test_experience.py::test_a_record_is_only_replayed_to_the_conversation_it_was_shown_to` and `::test_a_record_reached_by_tapping_is_still_held_a_moment_later` — the **known `-n 4` load/timing flakes** already recorded on this branch. Re-run alone: `pytest tests/test_experience.py` → **85 passed** in 210 s. Unrelated to this change: this commit touches one test file, `test_orchestrator_freeze_spec.py`, which imports no app code. |
+| `ruff check app config scripts tests` | **All checks passed** (`ruff format` is not a repo gate and was not run) |
+| `gitleaks git --no-banner --redact --exit-code 1 --log-opts="450cc52..f06730a"` | 1 commit scanned, **no leaks found**, exit 0 |
 
-## 7. Result — exact SHA, NOT certified
+## 7. Resulting SHA and worktree state
 
-| | |
+```
+branch : chatgpt/orchestrator-v1-freeze-candidate-2026-09-20
+parent : 450cc524e4da1397b44df022ac6e2fa546edd13d
+HEAD   : f06730aa361bb6054ae47bfa284539772a062782
+title  : One creation verb, two groups, and the count that read them as one
+files  : crooks-assistant/tests/test_orchestrator_freeze_spec.py  (+306 / -11)
+status : clean (git status --porcelain empty)
+remote : origin refs/heads/chatgpt/... = f06730aa361bb6054ae47bfa284539772a062782
+         (verified by git ls-remote after the push)
+```
+
+One commit, one file, repository-only. Pushed to the isolated candidate branch **only** so an
+independent reviewer can fetch the exact SHA — the same publication path every prior round on this
+branch used. No merge, no production branch touched, no deployment.
+
+## 8. Disclosed residual blind spots (stated in-tree, not hidden)
+
+All are **under-counts** — ways a future edit could be missed, never ways legitimate prose is
+wrongly rejected — and none is reachable in the committed §3A, which has one group noun in one
+creation segment. Pinned by `test_the_coordination_blind_spots_are_stated_rather_than_assumed_closed`:
+
+1. **Postmodified first conjunct.** `a process group for the attempt and a group for the reviewer
+   are created` → 1. The prepositional postmodifier puts the coordinator out of adjacency, and
+   relaxing adjacency is exactly what would let clause coordination be misread as NP coordination.
+2. **Comma-separated conjunct lists.** `a process group, another group and a third group are
+   created` → 2: `_segment_bounds` splits on the comma before coordination is ever seen. This is
+   pre-existing segmentation behaviour, unchanged by M-07.
+3. Carried forward from M-05, unchanged: elided second predicates (`…, as is a second process
+   group`) and repetition nouns other than `time`/`occasion` (`written in two batches`).
+
+**Deliberate fail-closed cost — flagged for reviewer judgement.** When an additive coordinator sits
+directly after a group noun but the run to the next group noun cannot be placed, the count is
+`None` → red, rather than collapsing to `max`. Consequence: `the controller creates a process group
+and records the group` — one group, plausible prose — now **reddens** the gate with "without saying
+how many". I chose this over `max` because `max` there is precisely the silent under-count M-07 is
+about, and the inbox directs failing closed when cardinality cannot be established safely. It is a
+loud, self-describing failure, it does not fire on the committed document or on any existing green
+control, and it is asserted as intended behaviour in `UNQUANTIFIED_COORDINATED_CREATIONS` and
+`test_coordination_is_decided_structurally_not_by_the_presence_of_a_conjunction`. **If the reviewer
+judges that trade wrong, this is the single line to challenge** — `_coordination_between` returning
+`None` rather than `False`.
+
+## 9. Safety constraints — all preserved, none touched
+
+`writes_enabled` false, `CROOKS_WRITES_LOCAL_OWNER` false, FastAPI bound to `127.0.0.1` (verified:
+the only listener on 8000 is `127.0.0.1:8000`, not publicly exposed), proposal/action/verification
+semantics unchanged, no live Shopify / Gmail / ElevenLabs call and no live external mutation, V2 not
+begun, UI not redesigned, Mac deployment and rollback path untouched, `/root/.claude` writable, no
+secret value printed or committed (gitleaks clean). No production, runtime, systemd, watcher,
+connector, MCP, privilege, business-write, deployment, sequencing or adoption change of any kind. No
+normative freeze or product-memory document was modified — the whole diff is one test file.
+
+## 10. Service and server state (observed; unchanged by this round)
+
+| item | state |
 |---|---|
-| **Resulting candidate SHA** | **`450cc524e4da1397b44df022ac6e2fa546edd13d`** |
-| Parent | `7f92215f0fc1a44f0865af316ce0f02780345417` |
-| Commits added | exactly 1 |
-| Branch (pushed) | `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` — remote head verified `450cc52` |
-| Canonical base | `claude/product-memory-foundation` @ **`654a9ed7d790e38597a3c5852d9b3e0a42902a1a`** (unmoved). Merge-base with the candidate is still `9e59860`; `git merge-tree --write-tree 450cc52 654a9ed` exits **0** → tree `677d3ddb0804d0ec1be436058f1606653fc622e4`, conflict-free |
-| **Production branch HEAD** | **`1cf3a0f3361b79f9de208d80f501543c53c244b5`** — remote branch `claude/linux-prod-migration-review`; the local production checkout `/opt/crooks-os/crooks-assistant` is on local branch `claude/linux-prod-migration-production` at the same SHA `1cf3a0f`, **0 dirty lines, not touched, not switched, not reset**. There is no `main` on this remote. |
+| Production checkout `/opt/crooks-os/crooks-assistant` | branch `claude/linux-prod-migration-production`, HEAD `1cf3a0f3361b79f9de208d80f501543c53c244b5`, **clean** — never edited, switched or reset |
+| Production branch HEAD | `1cf3a0f` — `Linux production migration (Phases 1-4) for review`. No `main` branch exists locally or on `origin` |
+| `crooks-assistant` service | `active` (untouched) |
+| `crooks-ai-bridge-watcher` | `inactive` at the time of the check (it invoked this run) |
+| Listener on port 8000 | `127.0.0.1:8000` only |
+| `/opt/crooks-ai-bridge` | branch `crooks-ai-bridge`, clean apart from this outbox file |
 
-**I did not certify this candidate and this handoff is not an acceptance.** I authored both this
-repair and the M-05 repair it sits on. A fresh reviewer that did not author them must review
-`450cc52` before any acceptance can count.
+## 11. Errors, blockers, approvals
 
-## 8. Service and server state (observed read-only; nothing changed)
+* **No errors.** Nothing was blocked by my permission layer. No permission was widened and no
+  workaround was sought.
+* **No owner approval was sought, given, assumed or recorded.** Nothing in this round required it:
+  it is a repository-only test-module repair.
+* **No self-certification.** I authored this repair and therefore cannot review it.
+* **Process note for the bridge operator:** the last three rounds routed my own repair back to me
+  for review, and each of those review rounds stalled without a verdict. `f06730a` must be routed to
+  a **fresh independent reviewer that did not author it**.
 
-`crooks-assistant.service` active/running; `crooks-bridge-watcher.service` active/running.
-FastAPI listening on **`127.0.0.1:8000` only** — port 8000 not exposed publicly.
-`writes_enabled: bool = False` (`config/settings.py:116`); `CROOKS_WRITES_LOCAL_OWNER=false`.
-No Shopify, Gmail or ElevenLabs call, no live external mutation, no deployment, no merge, no
-systemd/watcher/runtime change, no secret read or printed, V2 not begun, UI not touched, Mac
-deploy/rollback path untouched, `/root/.claude` still writable.
+## 12. Exact proposed next step
 
-## 9. Errors, and decisions a reviewer should challenge
+Commission a **fresh independent source review of exact SHA
+`f06730aa361bb6054ae47bfa284539772a062782`** on
+`chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`, by a reviewer that did not author the repair.
+Ask that review specifically to:
 
-**No errors and nothing blocked.** Nothing hit my permission layer; nothing needed owner approval.
+1. attack `_coordination_between` with coordination shapes not in the added tables — coordinated
+   subjects, elided heads (`two process groups and three more`), `both … and …`, nested
+   parentheticals, and hyphenated or compound group nouns;
+2. rule on the §8 fail-closed trade (`None` vs `False` for an unreadable coordinated run) — the one
+   deliberate false-red family this repair introduces;
+3. confirm the two disclosed under-counts (postmodified first conjunct; comma-split conjunct lists)
+   are acceptable as stated limits rather than M-07 resurfacing under another wording;
+4. re-derive from the source — not from this handoff — that M-01..M-06, L-01, K-01, J-01, H-03/H-04
+   and R-02 remain intact.
 
-Three judgement calls, made explicit because they are the places to attack:
-
-1. **I went one step past the literal ask.** The inbox named `new`/`existing`; I also made *true*
-   singular quantifiers (`single`, `second`, …) transparent to a stated cardinal. The narrow fix
-   would have left `two single process groups` reading 1 and I would have had to pin that false
-   green in a test — this review chain has been bitten before by tests that lock a defect in.
-   Challenge whether the wider rule is right.
-2. **`_heads_a_different_noun_phrase` is shape-based, not a lexicon**: "a token ending in `s`,
-   without an apostrophe, that no earlier arm claimed". Consequences, all fail-closed: an adjective
-   ending in `s` (`previous process groups`) stops the walk and reads *unknown* (red) instead of
-   counting; auxiliaries `is`/`was`/`has` also stop it (no case found where a cardinal legitimately
-   sits left of one). Verified it never fires on the committed prose.
-3. **Disclosed residual limits — none reachable in committed prose, direction is red not green:**
-   ranges and approximations (`up to two`, `two or three`, `between two and four`) are read as the
-   first number they state rather than as ranges; `both of the new process groups` is unknown, not
-   2. All of M-05's previously disclosed under-counts (coordination under one verb, elided
-   predicates, repetition nouns outside `time(s)`/`occasion(s)`) are **unchanged** — M-06 did not
-   touch the write dimension at all.
-
-## 10. Exact proposed next step
-
-**One fresh independent adversarial review bound to exactly
-`450cc524e4da1397b44df022ac6e2fa546edd13d`, by an agent that did not author it.**
-
-**Routing is the blocking problem, not the code.** Three consecutive review rounds (`de9bea2`,
-`2ee1836`, `7f92215`) were routed back to the agent that wrote the repair; two ended with **no
-verdict at all**. `2ee1836`'s M-03/M-04 work and `7f92215`'s M-05 work have *still* never been
-checked by any independent reviewer — only by ChatGPT reading the source, which is how M-05 and
-M-06 were both found. Sending `450cc52` to a Claude session on this machine will produce a fourth
-stop, and a *fresh* Claude session would not detect that it doesn't qualify.
-
-So: **route the `450cc52` review to ChatGPT**, which has now found two defects from source and
-authored neither repair.
-
-The review should attack, in this order:
-
-1. `_heads_a_different_noun_phrase` — the `s`-suffix rule. Find a premodifier it wrongly stops on,
-   or a plural word it wrongly walks through (hyphenated forms, acronyms, possessives written
-   without an apostrophe, `-ss` words such as `process`/`status`/`access`).
-2. Whether making true singular quantifiers transparent opened anything — specifically a phrase
-   where `single`/`sole`/an ordinal used to bound the walk and now no longer does.
-3. `max(counts)` in `group_creations` across several live group nouns in one segment, now that more
-   nouns resolve to a number instead of to 1.
-4. The `indefinite`/`singular` interaction in `settled()`: is there a phrase where both flags are
-   set and the answer should not be unknown?
-5. Everything `7f92215` still owes a reviewer: `_quantifier_tokens_after`'s single boundary
-   crossing, whether the M-05 `UNCLASSIFIED` arm can *suppress* a real write, and the M-03/M-04
-   clause-counting and negation-government walks.
-
-**No owner approval is requested by this round and none was given.** Adoption, merge, deployment
-and Phase 0 authority remain untouched and owner-only.
+No acceptance, adoption, merge or Phase 0 authority is claimed or implied by this round.
