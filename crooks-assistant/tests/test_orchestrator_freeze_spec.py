@@ -1560,11 +1560,58 @@ GROUP_CREATION_RE = re.compile(
     r")(?![\w-])",
     re.IGNORECASE,
 )
-# Negators that can make a creation assertion a *denial* of creation ("no second group is
-# created", "no group was ever created"). Scoped to the creation's own comma-delimited segment.
-CREATION_NEGATION_RE = re.compile(
-    r"(?<![\w-])(?:no|not|never|nor|without|MUST NOT|cannot|can never)(?![\w-])", re.IGNORECASE
-)
+# M-04 — negation must *govern* the creation it suppresses.
+#
+# The previous rule was "a negator anywhere in the creation verb's own comma-delimited segment
+# makes the segment a denial". Presence in the segment is not government: an unrelated negator
+# belonging to a different predication defused a real creation, so
+# `if cleanup cannot be proven a second process group is created` — where `cannot` negates
+# *proven* — read as a denial and left the gate green. Widening the window (either side of the
+# verb) widened the defusal identically; narrowing it to "before the verb" still lost that case
+# and would have broken `without a new process group`, which negates from *after*.
+#
+# The rule below is positional but constituent-aware rather than a phrase list. A negator counts
+# only when it lies inside one of the two constituents a denial can attach to:
+#
+#   * the creation verb's own predication — its auxiliary chain and the subject noun phrase that
+#     chain belongs to: `MUST NOT create`, `is never created`, `no second group is created`;
+#   * the noun phrase of the group being created — its determiner, or a negating preposition one
+#     step outside that determiner: `no owned process group`, `without a new process group`.
+#
+# Anything else is a negator speaking about something else in the same segment, and the creation
+# stands. That is the fail-closed direction: an ungoverned negator can no longer buy silence.
+_CREATION_NEGATORS = frozenset({"no", "not", "never", "nor", "cannot", "neither", "none"})
+# The only preposition in this prose that negates a noun phrase from outside its determiner.
+_NEGATING_PREPOSITIONS = frozenset({"without"})
+# Auxiliaries, modals and adverbs may stand between a negator and the verb it governs without
+# breaking that government: "no group *was ever* created", "*MUST NOT* create". Adverbs are an
+# open class, so `-ly` forms are admitted by shape (`_is_transparent_to_government`) and only the
+# irregular ones are enumerated.
+_PREDICATION_AUXILIARIES = frozenset({
+    "is", "are", "was", "were", "be", "been", "being", "am",
+    "has", "have", "had", "having", "do", "does", "did",
+    "will", "would", "shall", "should", "may", "might", "must", "can", "could",
+    "ever", "also", "only", "still", "already", "yet", "again",
+})  # fmt: skip
+# Determiners head a noun phrase. A leftward walk stops when it reaches one, because everything
+# further left belongs to a different constituent — which is exactly what keeps `cannot` in
+# "if cleanup cannot be proven a second process group is created" away from `created`.
+_NP_DETERMINERS = frozenset({
+    "a", "an", "the", "this", "that", "these", "those", "its", "their", "his", "her", "our",
+    "your", "each", "every", "any", "some", "no", "one", "another", "both", "same",
+})  # fmt: skip
+# Words that end a constituent outright, so a walk that meets one has left the phrase it started
+# in. Needed for bare plurals ("process groups are created"), which carry no determiner to stop on.
+_CONSTITUENT_BOUNDARIES = frozenset({
+    "and", "or", "but", "if", "when", "while", "unless", "until", "because", "so", "then",
+    "which", "who", "whom", "whose", "where", "after", "before", "once", "though", "although",
+    "into", "in", "to", "for", "of", "on", "at", "by", "with", "from", "as", "than", "under",
+    "over", "upon", "through", "during", "against", "between", "within",
+})  # fmt: skip
+# A leftward walk that has not met a determiner or a boundary by this many words has left the
+# constituent it started in, whatever the punctuation says.
+_GOVERNMENT_WORD_LIMIT = 8
+_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'’-]*")
 _SEGMENT_BOUNDARY_RE = re.compile(r"[,:;]")
 
 
@@ -1767,13 +1814,50 @@ def _live_handle_referents(
     ]
 
 
-def classify_handle_clause(clause: str, established: bool) -> str:
-    """Classify one clause of a handle-bearing cell into exactly one semantic class.
+# M-03 — how many writes one clause asserts.
+#
+# A `WRITES` verdict says the clause writes the handle; it does not say how often, and the
+# declared cardinality in §3A.3 is a count of write *points*. Counting every operative verb
+# over-counts two ways that the committed matrix itself demonstrates: `may write` states a
+# permission, not a second write event, and `in this same commit` is the *noun* `commit`, which
+# is in `WRITE_VERBS` because the verb is. Both are recognised structurally — a permission modal
+# immediately governing the verb, and a determiner heading the phrase the token sits in — so a
+# clause asserting one write counts one, and a clause asserting two counts two.
+_PERMISSION_MODALS = frozenset({"may", "can", "might", "could"})
+
+
+def _is_an_independent_write_assertion(clause: str, verb_start: int) -> bool:
+    """Does the write verb at `verb_start` assert a write event of its own?"""
+    words = _words_before(clause, verb_start)[-3:]
+    if not words:
+        return True
+    # A noun in a noun phrase — `this same commit`, `a record` — is not a write event.
+    tail = words[-2:]
+    if any(word in _NP_DETERMINERS for word in tail) and not any(
+        _is_transparent_to_government(word) for word in tail
+    ):
+        return False
+    # `the only edge that may write the cleanup handle` grants permission for the write the rest
+    # of the clause then states; it is the same event, not a second one.
+    for word in reversed(words):
+        if word in _PERMISSION_MODALS:
+            return False
+        if not _is_transparent_to_government(word):
+            break
+    return True
+
+
+def _classify_handle_clause(clause: str, established: bool) -> tuple[str, int]:
+    """Classify one clause of a handle-bearing cell, and count the writes it asserts.
 
     Fail-closed ordering: an operative handle write anywhere in the clause outranks a prohibition
     in the same clause (the dangerous edit is a write added *beside* a surviving prohibition), and
     an unattributable — or contested — write verb outranks every benign class, `WRITES_OTHER_FIELD`
     included. That last ordering is M-01: a decoy field no longer buys the clause an exemption.
+
+    The count is zero unless the verdict is `WRITES`, and never less than one when it is: a clause
+    the classifier calls a write asserts at least one write even if every verb in it is discounted
+    by `_is_an_independent_write_assertion`.
     """
     marks = _referents(clause, established)
     negated = _negated_spans(clause)
@@ -1781,8 +1865,9 @@ def classify_handle_clause(clause: str, established: bool) -> str:
     deferrals = [found.start() for found in DEFERRAL_RE.finditer(clause)]
     live_handles = _live_handle_referents(clause, marks)
 
-    operative = prohibited = deferred_retirement = other_field = unattributable = False
+    prohibited = deferred_retirement = other_field = unattributable = False
     contested = False
+    operative: list[int] = []
     for verb in WRITE_VERB_RE.finditer(clause):
         if any(start <= verb.start() < stop for start, stop in negated):
             prohibited = True
@@ -1807,26 +1892,32 @@ def classify_handle_clause(clause: str, established: bool) -> str:
         ):
             deferred_retirement = True
         else:
-            operative = True
+            operative.append(verb.start())
 
     if operative:
-        return WRITES
+        asserted = sum(1 for start in operative if _is_an_independent_write_assertion(clause, start))
+        return WRITES, max(1, asserted)
     if unattributable or contested:
-        return UNCLASSIFIED
+        return UNCLASSIFIED, 0
     if prohibited:
-        return PROHIBITS_WRITE
+        return PROHIBITS_WRITE, 0
     if other_field:
-        return WRITES_OTHER_FIELD
+        return WRITES_OTHER_FIELD, 0
     if deferred_retirement or any(marker in clause for marker in READ_MARKERS):
-        return READS_ONLY
+        return READS_ONLY, 0
     if any(kind == _HANDLE for _start, _stop, kind in marks):
         # The clause speaks about the handle in wording that carries no marker from any set.
         # That is not evidence the edge is harmless; it is evidence the gate cannot say.
-        return UNCLASSIFIED
-    return NEUTRAL
+        return UNCLASSIFIED, 0
+    return NEUTRAL, 0
 
 
-def classified_handle_mentions(api_text: str) -> list[tuple[list[str], str, str]]:
+def classify_handle_clause(clause: str, established: bool) -> str:
+    """The semantic class of one clause of a handle-bearing cell. See `_classify_handle_clause`."""
+    return _classify_handle_clause(clause, established)[0]
+
+
+def classified_handle_clauses(api_text: str) -> list[tuple[list[str], str, str, int]]:
     """Every classified clause of every §3A transition cell that establishes handle context.
 
     Scope is the point of L-01. A row's cells are read in order and split into clauses; from the
@@ -1836,8 +1927,10 @@ def classified_handle_mentions(api_text: str) -> list[tuple[list[str], str, str]
     handle in its trigger and then co-refers to it as "that handle" in its preconditions. Clauses
     before the naming point have nothing to co-refer to and are left alone, which is what keeps
     the ordinary preconditions prose out of the gate.
+
+    The fourth element is how many writes the clause asserts (M-03), zero unless it is a `WRITES`.
     """
-    mentions: list[tuple[list[str], str, str]] = []
+    clauses: list[tuple[list[str], str, str, int]] = []
     for row in attempt_transition_rows(api_text):
         established = False
         for cell in row:
@@ -1846,10 +1939,31 @@ def classified_handle_mentions(api_text: str) -> list[tuple[list[str], str, str]
                 if not (established or names_it):
                     continue
                 established = True
-                verdict = classify_handle_clause(clause, established=True)
+                verdict, writes = _classify_handle_clause(clause, established=True)
                 if verdict != NEUTRAL:
-                    mentions.append((row, verdict, clause.strip()))
-    return mentions
+                    clauses.append((row, verdict, clause.strip(), writes))
+    return clauses
+
+
+def classified_handle_mentions(api_text: str) -> list[tuple[list[str], str, str]]:
+    """`classified_handle_clauses` without the write count, which is how the gate reads it."""
+    return [(row, verdict, clause) for row, verdict, clause, _ in classified_handle_clauses(api_text)]
+
+
+def cleanup_handle_write_assertions(api_text: str) -> list[str]:
+    """Every asserted write of the cleanup handle in §3A, one entry each, as `EDGE: clause`.
+
+    M-03: `attempt_rows_writing_the_cleanup_handle` deduplicates by transition row, so the one row
+    that legitimately writes the handle could absorb a second, unsafe write and still be counted
+    once. §3A.3 declares a number of write *points*, so the authoritative comparison has to be
+    against the assertions themselves; the row-level derivation is kept for its diagnostics and
+    for the write-point identity check, both of which speak about rows.
+    """
+    assertions: list[str] = []
+    for row, verdict, clause, writes in classified_handle_clauses(api_text):
+        if verdict == WRITES:
+            assertions.extend([f"{row[0]} -> {row[2]}: {clause}"] * writes)
+    return assertions
 
 
 def attempt_rows_writing_the_cleanup_handle(api_text: str) -> list[list[str]]:
@@ -1900,6 +2014,16 @@ def assert_declared_write_point_matches_the_matrix(api_text: str) -> None:
         f"but §3A.3 declares the write point as {write_points}"
     )
 
+    # M-03 — the two checks above both speak about rows, and a row is not the declared unit. A
+    # second write added *inside* the row that legitimately writes the handle leaves both of them
+    # satisfied, so the count that decides the gate is the count of assertions. Deliberately last:
+    # every mutation the earlier rounds pinned still fails on its own message.
+    asserted = cleanup_handle_write_assertions(api_text)
+    assert len(asserted) == int(groups), (
+        f"§3A asserts {len(asserted)} writes of the cleanup handle; §3A.3 declares {groups}:\n  "
+        + "\n  ".join(asserted)
+    )
+
 
 def _segment_bounds(clause: str, start: int, stop: int) -> tuple[int, int]:
     """The comma/colon/semicolon-delimited segment of `clause` containing `[start, stop)`."""
@@ -1913,8 +2037,68 @@ def _segment_bounds(clause: str, start: int, stop: int) -> tuple[int, int]:
     return left, right
 
 
-def _asserts_a_group_creation(clause: str) -> bool:
-    """Does this clause assert that a process group *is created*, un-negated?
+def _words_before(text: str, index: int) -> list[str]:
+    """The lower-cased words of `text` that end at or before `index`, in reading order."""
+    return [found.group().lower() for found in _WORD_RE.finditer(text[:index])]
+
+
+def _is_transparent_to_government(word: str) -> bool:
+    """May this word stand between a negator and the verb it negates?
+
+    Auxiliaries, modals and adverbs may; a content word may not, because reaching one means the
+    walk has left the verb's own auxiliary chain and entered its subject.
+    """
+    return word in _PREDICATION_AUXILIARIES or (word.endswith("ly") and len(word) > 3)
+
+
+def _negation_governs_the_predication(segment: str, verb_offset: int) -> bool:
+    """Is the verb at `verb_offset` negated by a negator that actually governs *it*?
+
+    The walk runs leftward from the verb through its own auxiliary chain and then into the
+    subject noun phrase that chain belongs to, stopping at that phrase's determiner. A negator
+    met on the way is the verb's own: `MUST NOT create`, `the controller never creates`,
+    `no second group is created`, `no group was ever created`. A negator met after the walk has
+    stopped belongs to a different predication and is ignored — M-04's
+    `if cleanup cannot be proven a second process group is created`, where the walk halts at the
+    determiner `a` and never reaches `cannot`.
+    """
+    words = _words_before(segment, verb_offset)[-_GOVERNMENT_WORD_LIMIT:]
+    in_auxiliary_chain = True
+    for word in reversed(words):
+        if word in _CREATION_NEGATORS:
+            return True
+        if in_auxiliary_chain and _is_transparent_to_government(word):
+            continue
+        in_auxiliary_chain = False
+        if word in _NP_DETERMINERS or word in _CONSTITUENT_BOUNDARIES:
+            return False
+    return False
+
+
+def _negation_governs_the_noun_phrase(segment: str, noun_offset: int) -> bool:
+    """Is the group noun phrase headed at `noun_offset` itself denied?
+
+    `no second group` and `without a new process group` both say the group does not come into
+    existence, so a creation verb sharing their segment creates nothing. The walk runs leftward
+    through the phrase's own modifiers to its determiner and is then allowed exactly one further
+    step, onto a negating preposition — the only way English negates such a phrase from outside
+    its determiner. `a second process group is created ... without delay` is precisely the case
+    this must *not* defuse: there `without` governs `delay`, a phrase of its own.
+    """
+    words = _words_before(segment, noun_offset)[-_GOVERNMENT_WORD_LIMIT:]
+    for steps, word in enumerate(reversed(words)):
+        if word in _CREATION_NEGATORS or word in _NEGATING_PREPOSITIONS:
+            return True
+        if word in _NP_DETERMINERS:
+            outside = words[: len(words) - steps - 1]
+            return bool(outside) and outside[-1] in _NEGATING_PREPOSITIONS
+        if word in _CONSTITUENT_BOUNDARIES:
+            return False
+    return False
+
+
+def group_creation_assertions(clause: str) -> list[re.Match[str]]:
+    """Every un-negated assertion in this clause that a process group comes into existence.
 
     Derived structurally: a creation verb sharing its own comma/colon/semicolon-delimited segment
     with a process-group noun. M-02 widened this from "nearest *preceding* noun" to "a noun
@@ -1922,19 +2106,32 @@ def _asserts_a_group_creation(clause: str) -> bool:
     the verb — "the controller creates a second process group" and "placed into a newly created
     controller-allocated group" assert exactly what "a second process group is created" asserts.
 
-    Negation is looked for in that same segment, so "no second group is created" and "no group was
-    ever created" remain denials. Requiring the group noun *and* bounding both the noun and the
-    negator to one segment is what keeps the derivation from firing on unrelated prose; a creation
-    verb with no group in its segment (a created workspace, an established lease) is not a group.
+    M-04 replaced "a negator somewhere in the segment" with government: the creation survives
+    unless a negator governs its predication, or every group noun in the segment is itself denied.
+    Requiring the group noun *and* bounding it to one segment is still what keeps the derivation
+    from firing on unrelated prose; a creation verb with no group in its segment (a created
+    workspace, an established lease) is not a group.
+
+    One entry per verb, not per clause: M-03's lesson is that the declared cardinality is a count
+    of creations, so two creations in one sentence must count as two.
     """
+    assertions: list[re.Match[str]] = []
     for verb in GROUP_CREATION_RE.finditer(clause):
         start, stop = _segment_bounds(clause, verb.start(), verb.end())
         segment = clause[start:stop]
-        if CREATION_NEGATION_RE.search(segment):
+        if _negation_governs_the_predication(segment, verb.start() - start):
             continue
-        if GROUP_NOUN_RE.search(segment):
-            return True
-    return False
+        if any(
+            not _negation_governs_the_noun_phrase(segment, noun.start())
+            for noun in GROUP_NOUN_RE.finditer(segment)
+        ):
+            assertions.append(verb)
+    return assertions
+
+
+def _asserts_a_group_creation(clause: str) -> bool:
+    """Does this clause assert that a process group *is created*, un-negated?"""
+    return bool(group_creation_assertions(clause))
 
 
 def attempt_rows_creating_an_owned_process_group(api_text: str) -> list[list[str]]:
@@ -1946,6 +2143,23 @@ def attempt_rows_creating_an_owned_process_group(api_text: str) -> list[list[str
                 if _asserts_a_group_creation(clause) and row not in rows:
                     rows.append(row)
     return rows
+
+
+def owned_process_group_creation_assertions(api_text: str) -> list[str]:
+    """Every §3A assertion that an owned process group comes into existence, one entry each.
+
+    M-03: `attempt_rows_creating_an_owned_process_group` deduplicates by transition row, so the
+    one row that legitimately creates the attempt's group could absorb a second creation and
+    still be counted once. §3A.3 declares a number of *groups*, not a number of rows, so the
+    authoritative comparison has to be against the assertions themselves.
+    """
+    assertions: list[str] = []
+    for row in attempt_transition_rows(api_text):
+        for cell in row:
+            for clause in _CLAUSE_BOUNDARY_RE.split(cell):
+                for verb in group_creation_assertions(clause):
+                    assertions.append(f"{row[0]} -> {row[2]}: {verb.group()!r} in {clause.strip()}")
+    return assertions
 
 
 def assert_declared_group_count_matches_the_matrix(api_text: str) -> None:
@@ -1970,6 +2184,15 @@ def assert_declared_group_count_matches_the_matrix(api_text: str) -> None:
         f"§3A creates the attempt's group on {creating[0][0]} -> {creating[0][2]}, but §3A.3 "
         f"declares the handle write point as {write_points}; the group must be created on the "
         f"edge that commits the handle naming it"
+    )
+
+    # M-03, the same defect on this dimension: the row that legitimately creates the attempt's
+    # one group could absorb a second creation without changing the number of rows. §3A.3 declares
+    # a number of groups. Deliberately last, for the same reason as on the write dimension.
+    asserted = owned_process_group_creation_assertions(api_text)
+    assert len(asserted) == int(groups), (
+        f"§3A asserts {len(asserted)} owned process group creations; §3A.3 declares {groups}:\n  "
+        + "\n  ".join(asserted)
     )
 
 
@@ -2719,6 +2942,370 @@ def test_the_group_derivation_blind_spots_are_stated_rather_than_assumed_closed(
     # Over-strict, in the safe direction: a back-reference reads as a creation and turns it red.
     assert _asserts_a_group_creation(
         "the preflight group created on the earlier edge continues to hold the child"
+    )
+
+
+# --------------------------------------------------------------------------------------------
+# M-03 — a row is not the declared unit.
+#
+# Both cardinality derivations deduplicated by transition row (`if row not in rows`), so the one
+# row that legitimately writes the handle and creates the attempt's group could absorb a *second*
+# write and a *second* creation and still be counted once. §3A.3's prohibition sentence and its
+# declared count of `1` stayed intact, both dimensions stayed green, and the classifier was never
+# fooled — it emitted the second `WRITES` and `_asserts_a_group_creation` returned True; the
+# aggregation threw the evidence away. Every earlier handover mutation placed its second write on
+# a *different* row, which is the only placement row-counting can see.
+#
+# Every mutation below is therefore confined to `CREATED -> STARTING`, the legitimate row.
+# --------------------------------------------------------------------------------------------
+
+# The `CREATED -> STARTING` cell as the candidate commits it: the one edge that may write the
+# handle, and the one edge that creates the attempt's single owned process group.
+CREATING_EDGE_MARKER = "is committed **before** the attempt's single owned process group is created"
+
+
+def state_api_with_appended_prose(row_prefix: str, marker: str, tail: str) -> str:
+    """The committed state API with `tail` appended to the §3A row identified by `marker`.
+
+    The generalisation of `state_api_with_appended_running_edge_prose` to any edge. M-03 needs its
+    mutations inside `CREATED -> STARTING`, and M-04 needs a row carrying no handle context at all,
+    so that the group dimension is demonstrably the only thing standing between the document and
+    an unsafe second group.
+    """
+    api = read(STATE_API)
+    edge_lines = [
+        line for line in api.splitlines() if line.startswith(row_prefix) and marker in line
+    ]
+    assert len(edge_lines) == 1, edge_lines
+    original = edge_lines[0]
+    mutated = api.replace(original, original[: original.rindex("|")].rstrip() + tail + " |")
+    assert mutated != api
+
+    # The mutant has to leave every other dimension of the gate satisfied, or it proves nothing.
+    assert "MUST NOT update, replace or clear `lease.owned_process_group_handle`" in mutated
+    assert "| `attempt` (TASK or INTEGRATION) | 1 | `CREATED -> STARTING` |" in mutated
+    return mutated
+
+
+def state_api_with_appended_creating_edge_prose(tail: str) -> str:
+    """The committed state API with `tail` appended to the genuine `CREATED -> STARTING` cell."""
+    return state_api_with_appended_prose("| CREATED |", CREATING_EDGE_MARKER, tail)
+
+
+# Complete handovers — a second group created *and* the handle rewritten to name it — placed
+# entirely inside the legitimate row. Each is labelled with the device it exercises. All six left
+# the rejected gate green on the dimension named in the test; the row count never moved off 1.
+SAME_ROW_HANDOVERS = (
+    (
+        "explicit backticked handle, second sentence in the same cell",
+        ". A second controller-allocated process group is created for the model process, and"
+        " `lease.owned_process_group_handle` is rewritten to name it",
+    ),
+    (
+        "natural-language alias for the handle",
+        ". A second controller-allocated process group is created for the model process, and the"
+        " attempt's cleanup handle is then updated to name that group",
+    ),
+    (
+        "decoy field beside the alias — M-01's device inside M-03's placement",
+        ". A second controller-allocated process group is created for the model process. Its"
+        " identity is written into `attempt.running_process_group_identity` and into the cleanup"
+        " handle",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "device,tail", SAME_ROW_HANDOVERS, ids=lambda value: value.replace(" ", "-")[:44]
+)
+def test_a_complete_handover_inside_the_legitimate_row_fails_both_dimensions(
+    device: str, tail: str
+) -> None:
+    """M-03's core proof: the count that decides the gate is a count of assertions, not of rows.
+
+    The row-level derivations are deliberately asserted to be *unchanged* here — one writing row,
+    one creating row — because that is the whole point: they cannot see this mutation, and a
+    repair that merely made them noisier would not have found the defect.
+    """
+    mutated = state_api_with_appended_creating_edge_prose(tail)
+
+    assert [
+        f"{row[0]} -> {row[2]}" for row in attempt_rows_creating_an_owned_process_group(mutated)
+    ] == ["CREATED -> STARTING"], f"{device}: the mutation was not confined to one row"
+
+    with pytest.raises(AssertionError, match="owned process group creations"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+    with pytest.raises(AssertionError) as raised:
+        assert_declared_write_point_matches_the_matrix(mutated)
+    assert re.search(
+        r"cannot classify|asserts \d+ writes of the cleanup handle", str(raised.value)
+    ), f"{device}: the write dimension failed for an unrelated reason: {raised.value}"
+
+
+def test_a_second_creation_inside_the_legitimate_row_fails_the_group_dimension_alone() -> None:
+    """Half of the handover, so neither dimension can be credited with the other's catch.
+
+    Nothing here says a word about the cleanup handle, so the write dimension is silent by
+    construction and the group cardinality is the only guard — exactly the division of labour
+    `test_the_group_cardinality_dimension_has_a_stated_blind_spot` pins from the other side.
+    """
+    mutated = state_api_with_appended_creating_edge_prose(
+        ". A second controller-allocated process group is created for the model process"
+    )
+
+    assert_declared_write_point_matches_the_matrix(mutated)  # silent, by construction
+    assert len(owned_process_group_creation_assertions(mutated)) == 2
+    with pytest.raises(AssertionError, match="owned process group creations"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+def test_a_second_write_inside_the_legitimate_row_fails_the_write_dimension_alone() -> None:
+    """The other half: a second write to the handle that creates no group in prose."""
+    mutated = state_api_with_appended_creating_edge_prose(
+        ". `lease.owned_process_group_handle` is rewritten to name the model process group"
+    )
+
+    assert_declared_group_count_matches_the_matrix(mutated)  # silent, by construction
+    assert [
+        f"{row[0]} -> {row[2]}" for row in attempt_rows_writing_the_cleanup_handle(mutated)
+    ] == ["CREATED -> STARTING"]
+    with pytest.raises(AssertionError, match="asserts 2 writes of the cleanup handle"):
+        assert_declared_write_point_matches_the_matrix(mutated)
+
+
+def test_a_second_write_in_the_same_clause_is_counted_as_a_second_write() -> None:
+    """The escape one step past M-03: same row *and* same clause, so clause-counting alone misses.
+
+    The tail carries no sentence or semicolon boundary, so it joins the committed write clause
+    rather than forming a new one. Counting `WRITES` clauses would still say 1; counting the write
+    assertions inside them says 2.
+    """
+    mutated = state_api_with_appended_creating_edge_prose(
+        " and `lease.owned_process_group_handle` is then set to the model group's identity"
+    )
+
+    pristine = classified_handle_mentions(read(STATE_API))
+    assert len(classified_handle_mentions(mutated)) == len(pristine), "a new clause was created"
+    with pytest.raises(AssertionError, match="asserts 2 writes of the cleanup handle"):
+        assert_declared_write_point_matches_the_matrix(mutated)
+
+
+def test_the_committed_matrix_asserts_exactly_one_write_and_exactly_one_creation() -> None:
+    """The pristine control for M-03, and the measurement the counts are calibrated against.
+
+    Both numbers are 1 for reasons worth pinning. The write clause contains *two* `WRITE_VERBS`
+    tokens attributed to the handle — "the only edge that **may write** the cleanup handle" and
+    "is **committed**" — which name one write event, not two; the permission modal is what
+    separates them. The creating segment contains one creation verb. If either number moves, the
+    counts have started measuring something other than what §3A.3 declares.
+    """
+    api = read(STATE_API)
+
+    assert len(cleanup_handle_write_assertions(api)) == 1, cleanup_handle_write_assertions(api)
+    assert len(owned_process_group_creation_assertions(api)) == 1, (
+        owned_process_group_creation_assertions(api)
+    )
+
+    write_clause = (
+        "This is the only edge that may write the cleanup handle:"
+        " `lease.owned_process_group_handle` is committed **before** the attempt's single owned"
+        " process group is created (§3A.3), and preflight runs inside that group"
+    )
+    assert write_clause in api
+    assert _classify_handle_clause(write_clause, established=True) == (WRITES, 1)
+    assert len(list(WRITE_VERB_RE.finditer(write_clause))) == 2
+
+
+# Prose added to the legitimate row that is genuinely harmless. If any of these turned the gate
+# red, the assertion counts would be a ban on writing about the row at all.
+LEGITIMATE_PROSE_INSIDE_THE_CREATING_ROW = (
+    (
+        "a real write to an unrelated field, read-marked handle beside it",
+        ". `attempt.workspace_epoch` is written in this same commit as the workspace discriminator"
+        " alone, and MUST NOT be used as the cleanup handle",
+    ),
+    (
+        "a read-only reference to the handle",
+        f". The preflight group is identified from `{CLEANUP_HANDLE}` and is left exactly as it is",
+    ),
+    (
+        "a creation of something that is not a process group",
+        ". A new fencing token is created for the correction, and a new lease is established",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "device,tail",
+    LEGITIMATE_PROSE_INSIDE_THE_CREATING_ROW,
+    ids=lambda value: value.replace(" ", "-")[:44],
+)
+def test_counting_assertions_leaves_legitimate_prose_in_the_creating_row_green(
+    device: str, tail: str
+) -> None:
+    """The false-positive controls for M-03, through both dimensions of the gate."""
+    mutated = state_api_with_appended_creating_edge_prose(tail)
+    assert_declared_write_point_matches_the_matrix(mutated)
+    assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# --------------------------------------------------------------------------------------------
+# M-04 — a negator that governs nothing may not defuse a creation.
+#
+# The M-02 repair scoped negation to the creation verb's own comma-delimited segment and then
+# accepted *any* negator found there. Presence is not government: an unrelated negator suppressed
+# a real creation, so `a second process group is created for the model without delay` — where
+# `without` governs `delay` — read as a denial and the gate went green. Widening the window
+# widened the defusal identically.
+#
+# These mutations go on `RUNNING -> CANDIDATE_READY`: a §3A row that names the cleanup handle
+# nowhere and carries no byte-level pin, so the write dimension is silent by construction and the
+# group cardinality is provably the only thing that can catch them.
+# --------------------------------------------------------------------------------------------
+
+CANDIDATE_READY_EDGE_MARKER = "immutable commit identity independently measured"
+
+# A real second group, accompanied by a negator that speaks about something else. Each left the
+# rejected gate fully green.
+UNGOVERNED_NEGATION_CREATIONS = (
+    (
+        "negating preposition after the verb, governing its own object",
+        ". A second controller-allocated process group is created for the model without delay",
+    ),
+    (
+        "coordinated negative adjunct after the verb",
+        ". A second controller-allocated process group is created for the model and not for"
+        " preflight",
+    ),
+    (
+        "preceding unrelated condition — `cannot` governs `proven`, not `created`",
+        ". If cleanup cannot be proven a second controller-allocated process group is created here",
+    ),
+    (
+        "post-verb `never` governing a different verb",
+        ". A second controller-allocated process group is created here and never reused afterwards",
+    ),
+    (
+        "`no` governing an unrelated noun earlier in the segment",
+        ". With no further approval a second controller-allocated process group is created",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "device,tail", UNGOVERNED_NEGATION_CREATIONS, ids=lambda value: value.replace(" ", "-")[:44]
+)
+def test_an_ungoverned_negator_no_longer_defuses_a_real_group_creation(
+    device: str, tail: str
+) -> None:
+    """M-04's core proof, on the one dimension that can see these at all."""
+    mutated = state_api_with_appended_prose(
+        "| RUNNING |", CANDIDATE_READY_EDGE_MARKER, tail
+    )
+
+    assert_declared_write_point_matches_the_matrix(mutated)  # silent, by construction
+    assert [
+        f"{row[0]} -> {row[2]}" for row in attempt_rows_creating_an_owned_process_group(mutated)
+    ] == ["CREATED -> STARTING", "RUNNING -> CANDIDATE_READY"], device
+
+    with pytest.raises(AssertionError, match="create an owned process group"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+def test_ungoverned_negation_and_same_row_multiplicity_compose() -> None:
+    """The two blockers crossed: M-04's device used at M-03's placement.
+
+    A repair for either one alone leaves this green — row-counting cannot see the placement, and
+    segment-presence negation cannot see the creation — so it is the combination that proves both
+    halves are really fixed.
+    """
+    mutated = state_api_with_appended_creating_edge_prose(
+        ". A second controller-allocated process group is created for the model without delay"
+    )
+
+    assert [
+        f"{row[0]} -> {row[2]}" for row in attempt_rows_creating_an_owned_process_group(mutated)
+    ] == ["CREATED -> STARTING"]
+    assert len(owned_process_group_creation_assertions(mutated)) == 2
+    with pytest.raises(AssertionError, match="owned process group creations"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# Genuine denials. The first three are the load-bearing prose of the committed matrix, restated
+# here at clause level; the rest are the ordinary ways a freeze document would deny a creation and
+# must keep working, or the M-04 rule would just be "negation no longer counts".
+GENUINE_CREATION_DENIALS = (
+    "so this edge MUST NOT update, replace or clear the handle and no second group is created",
+    "no owned process group has been created, proven by the handle being NULL",
+    "A NULL handle means no group was ever created and cleanup is therefore proven",
+    "the controller MUST NOT create a second process group for the model",
+    "the controller never creates a second process group",
+    "a second owned process group is never created on this edge",
+    "a replacement workspace is provisioned without a new process group, reusing the existing one",
+    "no second process group is created for the model process",
+)
+
+
+@pytest.mark.parametrize("clause", GENUINE_CREATION_DENIALS, ids=lambda value: value[:44])
+def test_negation_that_governs_the_creation_still_denies_it(clause: str) -> None:
+    """The false-positive controls for M-04, at clause level.
+
+    Two directions of government are covered and both are needed. The negator may sit in the
+    creation verb's own predication — its auxiliary chain (`MUST NOT create`, `is never created`)
+    or the subject noun phrase that chain belongs to (`no second group is created`) — or it may
+    deny the created group's noun phrase from outside its determiner (`without a new process
+    group`). A rule with only the first direction loses the last case; a rule with only the second
+    loses `MUST NOT create`.
+    """
+    assert not _asserts_a_group_creation(clause), clause
+
+
+def test_the_negation_rule_is_government_not_proximity() -> None:
+    """The M-04 rule stated as a property, so a later edit cannot regress it into a phrase list.
+
+    The same negator, the same segment and nearly the same distance decide opposite ways purely on
+    what the negator governs. That is the distinction the rejected gate did not draw.
+    """
+    # `cannot` governs `proven` in one and `create` in the other.
+    assert _asserts_a_group_creation("if cleanup cannot be proven a second process group is created")
+    assert not _asserts_a_group_creation("the controller cannot create a second process group")
+
+    # `without` governs `delay` in one and the group's own noun phrase in the other.
+    assert _asserts_a_group_creation("a second process group is created for the model without delay")
+    assert not _asserts_a_group_creation("the model is relaunched without a second process group")
+
+    # `never` governs `released` in one and `created` in the other.
+    assert _asserts_a_group_creation("a second process group is created here and never released")
+    assert not _asserts_a_group_creation("a second process group is never created here")
+
+    # And the two walks are individually load-bearing, at the exact offsets the gate uses.
+    assert _negation_governs_the_predication("the controller MUST NOT create a group", 30)
+    assert not _negation_governs_the_predication(
+        "if cleanup cannot be proven a second process group is created", 51
+    )
+    assert _negation_governs_the_noun_phrase("relaunched without a second process group", 27)
+    assert not _negation_governs_the_noun_phrase(
+        "a second process group is created without delay", 2
+    )
+
+
+def test_ambiguous_creation_semantics_fail_closed_rather_than_silent() -> None:
+    """Requirement: where government is unclear, the creation stands and the gate goes red.
+
+    A negator the walks cannot bind to the creation is treated as speaking about something else,
+    which counts the creation — the direction that stops a freeze rather than passing one. The
+    cost is recorded honestly: a genuine denial phrased so that the negator reaches the creation
+    through neither constituent is over-counted, turning the gate red on prose that meant no harm.
+    """
+    # Negation of the *placement* rather than of the creation: the group is still asserted to
+    # exist, so it is counted. Over-strict in the safe direction.
+    assert _asserts_a_group_creation(
+        "the model process is not placed into a newly created controller-allocated group"
+    )
+    # A negator separated from the creation by a whole intervening predication never binds.
+    assert _asserts_a_group_creation(
+        "the handle is not read here and a second process group is created"
     )
 
 
