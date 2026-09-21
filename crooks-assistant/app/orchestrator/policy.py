@@ -15,6 +15,7 @@ from .contracts import (
     EngineeringResult,
     EngineeringTask,
     NextActionKind,
+    TaskKind,
 )
 
 
@@ -26,6 +27,22 @@ _AUTO_CONTINUE_KINDS = frozenset(
         NextActionKind.EVIDENCE,
     }
 )
+
+_ALLOWED_NEXT_BY_TASK_KIND = {
+    TaskKind.BUILD: frozenset(
+        {NextActionKind.CONTINUE, NextActionKind.EVIDENCE, NextActionKind.REVIEW}
+    ),
+    TaskKind.REPAIR: frozenset(
+        {NextActionKind.CONTINUE, NextActionKind.EVIDENCE, NextActionKind.REVIEW}
+    ),
+    TaskKind.REVIEW: frozenset({NextActionKind.REPAIR, NextActionKind.EVIDENCE}),
+    TaskKind.EVIDENCE: frozenset(
+        {NextActionKind.CONTINUE, NextActionKind.EVIDENCE, NextActionKind.REVIEW}
+    ),
+    TaskKind.INTEGRATION: frozenset(
+        {NextActionKind.CONTINUE, NextActionKind.EVIDENCE, NextActionKind.REVIEW}
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +56,7 @@ def evaluate_obvious_continuation(
     result: EngineeringResult,
     *,
     candidate_worker_id: str | None = None,
+    current_branch_head: str | None = None,
 ) -> ContinuationDecision:
     """Return whether the proposed next action can advance mechanically.
 
@@ -68,6 +86,12 @@ def evaluate_obvious_continuation(
     if action.kind not in _AUTO_CONTINUE_KINDS:
         return ContinuationDecision(False, f"{action.kind.value} is not auto-continuable in V1")
 
+    if action.kind not in _ALLOWED_NEXT_BY_TASK_KIND[task.kind]:
+        return ContinuationDecision(
+            False,
+            f"{action.kind.value} is not a valid next stage for {task.kind.value}",
+        )
+
     if not action.mechanically_authorised:
         return ContinuationDecision(False, "worker did not mark next action mechanically authorised")
 
@@ -95,6 +119,12 @@ def evaluate_obvious_continuation(
             False,
             "required evidence remains incomplete: " + ", ".join(sorted(missing_evidence)),
         )
+
+    if result.result_sha is not None:
+        if current_branch_head is None:
+            return ContinuationDecision(False, "fresh branch HEAD has not been resolved")
+        if current_branch_head != result.result_sha:
+            return ContinuationDecision(False, "current branch HEAD differs from result SHA")
 
     if action.subject_sha is not None:
         if result.result_sha is None:
