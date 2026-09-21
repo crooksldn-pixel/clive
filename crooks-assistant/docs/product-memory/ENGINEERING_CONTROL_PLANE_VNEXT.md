@@ -119,6 +119,48 @@ The hourly GPT controller remains valuable as:
 
 It should not be the normal clock that makes work continue.
 
+## 5.1 Observable work-in-progress is first-class state
+
+A worker being merely `running` is insufficient control-plane information.
+
+Every active attempt should publish structured operational progress that can be consumed by:
+- the deterministic scheduler;
+- the hourly supervisory controller;
+- Termius/operator views;
+- future CLIVE engineering scenes.
+
+Progress is **operational telemetry, not hidden model reasoning**. It should expose facts such as:
+- current activity / active bounded step;
+- completed step identities;
+- evidence artifacts produced;
+- waiting dependency or blocker;
+- next known action;
+- last activity change;
+- last meaningful progress;
+- liveness heartbeat;
+- exact task/attempt/worker identity.
+
+Heartbeat and progress are different facts. A fresh heartbeat proves liveness only. It must not reset the meaningful-progress clock or make a stalled/looping worker look productive.
+
+The hourly supervisory loop should use this state to make a useful decision rather than only ask whether a process exists:
+- progressing + no spare safe work → observe, do not interrupt;
+- progressing/waiting + spare eligible worker capacity → schedule unrelated eligible work around it;
+- alive but no meaningful progress → investigate evidence/logs without duplicating the attempt;
+- stale liveness → reconcile process/worktree/result identity before retry;
+- blocked/owner-gated → park that stream while others continue;
+- completed → evaluate the already-authorised `next_action` immediately rather than waiting for another poll.
+
+Progress streams should be append-only, ordered, exact-attempt-bound and survive controller restart. Generated `ACTIVE_STATE` should project the current useful summary so supervisors do not have to parse raw logs.
+
+A compact operator table should make ongoing work visible, for example:
+
+| Stream | Task | Worker | Health | Current activity | Done | Evidence | Waiting / next | Last progress |
+| --- | --- | --- | --- | --- | ---: | ---: | --- | --- |
+| freeze | exact-SHA review | reviewer-2 | progressing | mutation-testing evaluator | 3 | 5 | recompute verdict | 2m ago |
+| live-v0.5 | home lifecycle | builder-1 | waiting | device evidence captured | 4 | 7 | physical mic check | 6m ago |
+
+Do not invent percentage-complete estimates where the task has no trustworthy bounded denominator. Prefer concrete completed milestones and evidence over cosmetic progress bars.
+
 ## 6. Reviewer independence becomes a scheduler invariant
 
 Candidate/result records must identify the worker that authored them.
@@ -243,9 +285,10 @@ This is not fake concurrency. It is starvation prevention while running a single
 - keep hard runtime boundaries unchanged.
 
 ### Phase 1 — repository implementation
-- define task/result JSON schemas;
+- define task/result/progress-event JSON schemas;
 - implement queue/state library and tests;
-- implement generated ACTIVE_STATE;
+- implement generated ACTIVE_STATE with current progress projection;
+- add a compact Termius/operator progress view;
 - add reviewer-eligibility checks;
 - add deterministic/transient/owner/obsolete blocker classification;
 - test with simulated dual streams.
