@@ -11,6 +11,11 @@ from .contracts import (
     EngineeringTask,
     NextAction,
     NextActionKind,
+    ProgressEvent,
+    ProgressEventKind,
+    ProgressHealth,
+    ProgressSnapshot,
+    ProgressState,
     StreamState,
     TaskKind,
     TaskRuntimeState,
@@ -18,9 +23,16 @@ from .contracts import (
     WorkerProfile,
 )
 from .policy import ContinuationDecision, evaluate_obvious_continuation
+from .progress import assess_progress, project_progress, render_progress_table
+from .supervision import SupervisorAction, SupervisorHint, choose_supervisor_hint
 from .scheduler import ContinuationCandidate, DispatchDecision, select_obvious_dispatch
 from .state import build_active_state
-from .store import JsonRecordStore, RecordConflictError, StateConflictError
+from .store import (
+    JsonRecordStore,
+    ProgressSequenceError,
+    RecordConflictError,
+    StateConflictError,
+)
 
 __all__ = [
     "ActiveState",
@@ -32,15 +44,27 @@ __all__ = [
     "EngineeringTask",
     "NextAction",
     "NextActionKind",
+    "ProgressEvent",
+    "ProgressEventKind",
+    "ProgressHealth",
+    "ProgressSnapshot",
+    "ProgressState",
     "JsonRecordStore",
+    "ProgressSequenceError",
     "RecordConflictError",
     "StateConflictError",
     "StreamState",
+    "SupervisorAction",
+    "SupervisorHint",
     "TaskKind",
     "TaskRuntimeState",
     "TaskStatus",
     "WorkerProfile",
+    "assess_progress",
     "build_active_state",
+    "choose_supervisor_hint",
     "evaluate_obvious_continuation",
+    "project_progress",
+    "render_progress_table",
     "select_obvious_dispatch",
 ]
