@@ -1,12 +1,12 @@
-# CROOKS OS Product Memory
+# CLIVE Product Memory
 
-This directory is the canonical durable product memory for CROOKS OS.
+This directory is the canonical durable product memory for CLIVE. Historical documents may still use the earlier CROOKS OS name where that context matters.
 
 Current repository: `crooksldn-pixel/clive`. Read these files from `claude/product-memory-foundation` by explicit ref; they are not assumed to exist on the repository's default theme branch or on the application baseline.
 
 The rule is simple:
 
-> If an idea, product principle, architecture decision, roadmap item, or self-improvement concept matters to CROOKS OS, it must not live only in an AI conversation.
+> If an idea, product principle, architecture decision, roadmap item, or self-improvement concept matters to CLIVE, it must not live only in an AI conversation.
 
 ChatGPT, Claude, future model workers, and human contributors should treat these documents as the durable source of truth for product intent.
 
@@ -19,6 +19,8 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [DECISIONS.md](./DECISIONS.md) — important decisions and the reasoning behind them.
 - [SELF_IMPROVEMENT.md](./SELF_IMPROVEMENT.md) — controlled self-improvement, multi-agent development hierarchy, reviewers, replay, and deployment gates.
 - [CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md](./CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md) — active 2026-09-20 direction for the continuous voice/work loop, retirement of Split, simultaneous jobs, liquid-glass UI, scene compilation, per-session evaluation, adversarial/mutation/device testing, and evaluation-drift controls.
+- [CLIVE_IDENTITY_AND_HOME_SURFACE.md](./CLIVE_IDENTITY_AND_HOME_SURFACE.md) — active 2026-09-21 identity/home doctrine: CLIVE branding and acronym, persistent-world-state home surface, orb-as-presence, contextual health, response-driven scenes and startup identity.
+- [ENGINEERING_CONTROL_PLANE_VNEXT.md](./ENGINEERING_CONTROL_PLANE_VNEXT.md) — active control-plane upgrade plan: persistent Termius/tmux workers, queued task/result records, event-driven continuation, reviewer independence, active-state generation and starvation prevention.
 - [CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md](./CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md) — owner-approved north-star doctrine: CLIVE as a persistent operational layer from intention to execution, with contextual investigation, world state, persistent objectives, people/workspaces, relevant memory, capability-gap learning and operational-value evaluation.\n- [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md) — owner-approved long-horizon doctrine: distributed organisational intelligence, coordination cost, a moving capability frontier, stable semantic purpose with replaceable mechanisms, and future-disposable architecture.
 - [CURRENT_TRUTH.md](./CURRENT_TRUTH.md) — compact active state; the first context file future directors/workers should read.
 - [EVOLUTION_POLICY.md](./EVOLUTION_POLICY.md) — release doctrine: preserve value and lessons without fossilising obsolete implementation or design.
