@@ -1,17 +1,36 @@
 # CHATGPT INBOX
 
-## Fresh independent adversarial review — Orchestrator V1 freeze candidate
+## Bounded repair — M-06 quantified adjective false-green
 
-Perform exactly one **read-only independent adversarial review** of exact candidate `7f92215f0fc1a44f0865af316ce0f02780345417` on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`.
+Repair exactly one bounded evaluator defect on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`, currently exact HEAD `7f92215f0fc1a44f0865af316ce0f02780345417`. Resolve the remote branch identity yourself and STOP without changes if HEAD differs.
 
-Fresh controller identity: remote branch HEAD has been independently resolved at `7f92215f0fc1a44f0865af316ce0f02780345417`, parent `2ee1836c976ba9a9cefbf188763d1de0da0cc44e`. Canonical product-memory HEAD is `654a9ed7d790e38597a3c5852d9b3e0a42902a1a`. Resolve all identities yourself and STOP if the candidate HEAD differs.
+### Independent review finding M-06
 
-The immediately preceding M-05 repair was authored by Claude and explicitly did **not** self-certify. This review counts only if the reviewer did not author or materially direct the `7f92215` repair or the immediately preceding repair chain. If this execution context cannot provide that independence, do not pretend otherwise: return an explicit independence/routing blocker and make no changes.
+The M-05 semantic-cardinality repair still has a reproducible false-green family in `_asserted_group_count`.
 
-If independent, attack the evaluator rather than accepting its 203 green tests. Recompute the freeze invariants from source and normative documents. Invent adjacent semantic mutations and plausible paraphrases/counterexamples, especially around M-05 semantic cardinality, quantified/plural group creation, repeated writes, ambiguous cardinality, negation/government boundaries, co-reference/pronouns, multiple writes or creations within one row/transition, and fail-closed unknown semantics. Verify prior M-01/M-02/M-03/M-04, L-01, K-01, J-01, H-03/H-04, R-02 and earlier invariants remain protected. Attempt to produce false greens and false reds; do not treat raw test count as quality proof.
+`_SINGULAR_QUANTIFIERS` contains ordinary noun modifiers including `new` and `existing`, and `_asserted_group_count` walks leftward from the group noun and immediately returns `1` when it encounters one of them. This can hide an explicit cardinal that appears immediately before the modifier.
 
-Also verify exact Git identity, candidate-vs-parent changed scope, normative freeze/product-memory document immutability across this repair, clean worktree, relevant pytest/static evidence, secret-scan evidence, and any claimed full-suite baseline. Distinguish known unrelated timing flakes from candidate-caused failures only when evidence supports that distinction.
+Concrete mutation to reproduce against the normative one-group §3A row:
 
-Return one precise verdict bound only to exact SHA `7f92215f0fc1a44f0865af316ce0f02780345417`: either `ACCEPT FOR NEXT GATE` or `REJECT — REPAIR REQUIRED`, with reproducible evidence. Engineering acceptance is not owner adoption, merge, deployment, sequencing amendment, or Phase0 implementation authority.
+- `two new process groups are created`
 
-Read-only review only. Do not modify candidate files, production/runtime/systemd/watcher state, secrets, connectors/MCP, permissions, business state, deployment state, canonical sequencing, or owner-only decisions.
+For the `process groups` noun, the reverse walk sees `new` before `two` and returns `1`; the explicit `two` is never read. The declared group cardinality remains one, so this contradictory second-group semantics can be accepted. Adjacent forms to test include `three existing process groups are created`, `two new groups are provisioned`, and combinations where a true singular determiner/ordinal must still remain singular.
+
+This is a material false green, not a stylistic concern. Call it **M-06**.
+
+### Repair scope
+
+Make the smallest test/evaluator-module-only repair needed so explicit cardinals governing the same noun phrase outrank non-cardinal modifiers such as `new`/`existing`, without causing quantifiers from neighbouring phrases to leak across constituent boundaries. Preserve fail-closed behavior for genuinely ambiguous plurality. Do not modify normative freeze/product-memory documents.
+
+Add adversarial regression/mutation evidence proving at minimum:
+- `two new process groups are created` fails the one-group invariant;
+- `three existing process groups are created` fails;
+- ordinary singular forms that genuinely assert one still pass;
+- neighbouring-clause/phrase numbers do not get stolen;
+- prior M-01..M-05, L-01, K-01, J-01, H-03/H-04 and R-02 protections remain intact.
+
+Attack the repair yourself for adjacent adjective/quantifier ordering before handoff. Run the relevant freeze suite, static checks and secret scan available in the isolated repository context. Require clean worktree and exact resulting SHA evidence.
+
+Do not self-certify the resulting candidate. Return a repair handoff only. A fresh independent reviewer that did not author the repair must review the resulting exact SHA before any acceptance can count.
+
+Hard boundaries remain: repository-only isolated repair; no production/runtime/systemd/watcher changes, no secrets/credential reads, no connectors/MCP changes, no privilege expansion, no business writes, no deployment, no sequencing amendment, no owner-only adoption/merge/Phase0 authority.
