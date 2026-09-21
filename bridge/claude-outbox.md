@@ -1,222 +1,210 @@
-# CLAUDE OUTBOX
+# CLAUDE OUTBOX — M-06 repair handoff
 
-**Timestamp:** 2026-09-21 03:44 UTC
-**Inbox SHA processed:** `3c86a2c63dc184398d5132455665e68f08354a70` (consumed; these instructions must
-not be executed again)
-**Round type requested:** one read-only independent adversarial review of exact candidate
-`7f92215f0fc1a44f0865af316ce0f02780345417`
-**Outcome:** **STOPPED — NO VERDICT. INDEPENDENCE / ROUTING BLOCKER.**
-**This execution context authored `7f92215`.** The inbox's own precondition therefore fails, and the
-inbox's own instruction for that case was followed: *"If this execution context cannot provide that
-independence, do not pretend otherwise: return an explicit independence/routing blocker and make no
-changes."*
-
-**Nothing was changed anywhere.** No review, mutation, test, lint or secret-scan work was performed.
-No verdict is offered, and none should be inferred from this document.
-
-**This is the third consecutive round in which the bridge has routed a candidate's review back to the
-agent that wrote it.** That is now a standing structural defect, not an incident — see §7.
+**Timestamp:** 2026-09-21T04:57:58Z
+**Inbox SHA processed:** `ce544b327576bbec785e4d6ead1a56cdde62c484` (consumed; these instructions are now spent)
+**Round type:** bounded repair. **NOT a certification.** See §7.
 
 ---
 
 ## 1. What was asked
 
-Perform exactly one read-only independent adversarial review of exact candidate
-`7f92215f0fc1a44f0865af316ce0f02780345417` on
-`chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`, returning either `ACCEPT FOR NEXT GATE` or
-`REJECT — REPAIR REQUIRED` bound only to that SHA.
+Repair exactly one bounded evaluator defect — **M-06**, a quantified-adjective false green in
+`_asserted_group_count` — on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`, required to be
+at exact HEAD `7f92215f0fc1a44f0865af316ce0f02780345417`, stopping without changes if it differed.
 
-The inbox attached an explicit, unambiguous precondition:
+Smallest test/evaluator-module-only repair so explicit cardinals governing the same noun phrase
+outrank non-cardinal modifiers (`new`/`existing`), without letting quantifiers leak across
+constituent boundaries; preserve fail-closed behaviour for genuinely ambiguous plurality; do not
+touch normative freeze/product-memory documents. Add adversarial regression evidence; self-attack
+adjacent adjective/quantifier ordering; run the freeze suite, static checks and secret scan;
+require a clean worktree and exact SHA evidence; **do not self-certify**.
 
-> "The immediately preceding M-05 repair was authored by Claude and explicitly did **not**
-> self-certify. This review counts only if the reviewer did not author or materially direct the
-> `7f92215` repair or the immediately preceding repair chain. If this execution context cannot
-> provide that independence, do not pretend otherwise: return an explicit independence/routing
-> blocker and make no changes."
+## 2. Preconditions checked before acting
 
-The substantive request (attack the evaluator rather than accept its 203 green tests; recompute the
-freeze invariants from source; invent adjacent semantic mutations around M-05 semantic cardinality,
-quantified/plural group creation, repeated writes, ambiguous cardinality, negation/government
-boundaries, co-reference, multiple writes per row, fail-closed unknown semantics; verify M-01..M-04,
-L-01, K-01, J-01, H-03/H-04, R-02 still hold; attempt false greens and false reds) was **not
-started**, because the precondition gates it and the precondition fails.
+| Check | Result |
+|---|---|
+| Builder checkout at start | `/opt/crooks-builder`, branch `claude/builder-environment-repair`, HEAD `295e483`, **clean** — not touched this round |
+| Candidate branch resolved | explicit fetch (the local refspec is stale and must never be trusted) |
+| Candidate HEAD | `7f92215f0fc1a44f0865af316ce0f02780345417` — **exact match to the inbox**, no drift, so the round proceeded |
+| Repair worktree | `/opt/crooks-builder/.worktrees/freeze-repair`, already at `7f92215`, **0 dirty lines** before any edit |
+| Authorship note | I authored the M-05 repair at `7f92215`. That is a bar on *reviewing* it, not on repairing it under an explicit instruction, so this round proceeded. It is also why §7 and §10 are not optional. |
 
-## 2. The blocker: I am the author of `7f92215`
+## 3. What I found — M-06 confirmed, and wider than stated
 
-Proven four ways, three of them without relying on my own memory.
+**Confirmed exactly as described.** `_SINGULAR_QUANTIFIERS` contained `new`, `existing` and `same`.
+These are not quantifiers at all: they say *which* groups are meant, never how many. The leftward
+walk in `_asserted_group_count` **returned** on the first such token, reporting `1`, so an explicit
+cardinal sitting immediately to its left was never read.
 
-**(a) Local reflog of the repair worktree — decisive.**
-`/opt/crooks-builder/.worktrees/freeze-repair` is checked out on the candidate branch. Its reflog
-records `7f92215` as a **local `commit:` entry**, not a `fetch` or `merge`:
+The dangerous placement is **not** appending a sentence to a §3A row — that adds a second creating
+*row*, which the row-counting dimension catches regardless of the count. The escape is **rewriting
+the one committed clause that legitimately creates the attempt's group** (`CREATED -> STARTING`).
+There the creating-row count stays `1` and §3A.3's declared cardinality stays `1`, so the asserted
+group count is the *entire* remaining guard — and it was wrong.
 
-```
-7f92215 HEAD@{2026-09-21 03:03:58 +0000}: commit: One verb that said "twice", and a plural the gate could not see at all
-2ee1836 HEAD@{2026-09-21 00:57:55 +0000}: commit: Two counts that could be satisfied by one row, and a negator that governed nothing
-de9bea2 HEAD@{2026-09-20 23:02:16 +0000}: commit: A decoy field can no longer absorb a write the cleanup handle could have taken
-4f1a915 HEAD@{2026-09-20 20:46:35 +0000}: commit: A gate that only read the sentences repeating the field's name, ...
-a904a20 HEAD@{2026-09-20 18:20:26 +0000}: commit: A gate that knew one verb for "write", and the six paraphrases ...
-c7c3d52 ... 2f1acc0 ... 9fbe4a9 ... 5eb25f8 ... 10c81e3 ...
-```
+Measured against `7f92215`'s own test module (blob `41d9340a0418042e416674b880a4dab8f15cfd21`,
+`git hash-object` proven equal to `git rev-parse 7f92215:<path>`) with byte-identical docs:
 
-A commit that arrived from the remote would be logged as `fetch`/`merge`. **The entire repair chain
-the inbox asks me to treat as a stranger's work was written in this checkout**, including both
-`7f92215` and its parent `2ee1836`.
+| `CREATED -> STARTING` clause rewritten to | at `7f92215` | at `450cc52` |
+|---|---|---|
+| `two new process groups are created` | **GREEN** | RED — asserts 2 |
+| `three existing process groups are created` | **GREEN** | RED — asserts 3 |
+| `two new groups are provisioned` | **GREEN** | RED — asserts 2 |
+| `two new cgroups are created` | **GREEN** | RED — asserts 2 |
+| `2 new process groups are created` (numeral) | **GREEN** | RED — asserts 2 |
+| `both new process groups are created` | **GREEN** | RED — asserts 2 |
+| `three new same process groups are created` | **GREEN** | RED — asserts 3 |
+| `several new process groups are created` | **GREEN** | RED — unstated count |
+| `the same process groups are created` | **GREEN** | RED — unstated count |
+| `new process groups are created` (bare plural) | **GREEN** | RED — unstated count |
 
-**(b) The outbox this file replaced was my own M-05 *repair* handoff.**
-Before being overwritten, `bridge/claude-outbox.md` was dated **2026-09-21 03:06 UTC** — three
-minutes after the `7f92215` commit timestamp — and opened:
+**Two escapes beyond the inbox's report**, same root cause: `new`/`existing` also collapsed an
+*unquantified* plurality to one (`several new process groups`, bare `new process groups`), which is
+worse than over-counting — an unknown critical cardinality must redden the gate, not be read as 1.
 
-> "Inbox SHA processed: `ca8a232f09b6e00933bb8d6b0b67fd6f44387887` … **Outcome: M-05 REPAIRED at
-> `7f92215f0fc1a44f0865af316ce0f02780345417`**, pushed to the candidate branch. **Not
-> self-certified.** One fresh independent exact-SHA adversarial review is requested, by an agent that
-> did not author or materially direct this repair."
-
-The inbox's own sentence — "the immediately preceding M-05 repair was authored by Claude and
-explicitly did not self-certify" — is a description of that handoff. The controller correctly
-recorded who wrote the repair, and then addressed the review of it to that same author.
-
-**(c) Worktree position.** `git worktree list` shows
-`/opt/crooks-builder/.worktrees/freeze-repair` still sitting at `7f92215` on the candidate branch,
-the state a just-finished repair leaves behind.
-
-**(d) Commit trailer and my own project memory.** `7f92215` is authored and committed by
-`Claude <noreply@anthropic.com>` with trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`
-— the identity this bridge runs under. My persistent project memory additionally holds a
-first-person authoring record of the M-05 repair (which regexes were widened, which helpers were
-added, why the new ambiguity assertion was placed inside
-`owned_process_group_creation_assertions` so earlier rounds' `pytest.raises(match=…)` messages
-survive, and the disclosed under-counts). That is design knowledge only the author has.
-
-**Conclusion.** I did not merely author `7f92215`; I authored every commit in the chain
-`5eb25f8 → 9fbe4a9 → 2f1acc0 → c7c3d52 → a904a20 → 4f1a915 → de9bea2 → 2ee1836 → 7f92215`. There is
-no reading of "did not author or materially direct the `7f92215` repair or the immediately preceding
-repair chain" under which this context qualifies. A verdict from me would be self-certification
-wearing a reviewer's label, and an `ACCEPT` in particular would be worthless.
-
-## 3. Identity facts resolved read-only, and carried forward for the real reviewer
-
-These are objective, re-checkable identity facts, not review judgments. I resolved them because the
-inbox asked me to resolve identities myself and stop on any mismatch. **Everything requiring
-reviewer judgment was deliberately not run.**
-
-| Fact | Inbox claim | Independently resolved | Match |
-|---|---|---|---|
-| Candidate branch HEAD | `7f92215f0fc1a44f0865af316ce0f02780345417` | `git ls-remote` → `7f92215f0fc1a44f0865af316ce0f02780345417` | ✅ |
-| Candidate parent | `2ee1836c976ba9a9cefbf188763d1de0da0cc44e` | `%P` → `2ee1836c976ba9a9cefbf188763d1de0da0cc44e` | ✅ |
-| Canonical product-memory HEAD | `654a9ed7d790e38597a3c5852d9b3e0a42902a1a` | `git ls-remote origin claude/product-memory-foundation` → `654a9ed…` | ✅ |
-
-No drift. Had any differed I would have stopped on that ground instead.
-
-Additional scope facts, measured:
-
-- **Candidate vs parent scope:** exactly one commit; **one file**,
-  `crooks-assistant/tests/test_orchestrator_freeze_spec.py`, **+556 / −19**. This matches the commit
-  message's "test module only" claim.
-- **Normative document immutability across this repair:**
-  `git diff --name-only 2ee1836 7f92215 -- crooks-assistant/docs/` returns **0 files**. No freeze or
-  product-memory document was touched by `7f92215`.
-- **Worktree cleanliness:** `git status --porcelain` in the candidate worktree is **0 lines**.
-- **Trap worth flagging to the next reviewer:** the local tracking ref
-  `origin/claude/product-memory-foundation` is **stale at `3ba4ede`**. Only an explicit `ls-remote`
-  (or explicit fetch by full refname) yields the true canonical `654a9ed`. A reviewer who trusts the
-  local ref will compare against a four-commits-old canonical base.
-
-**Not run, and therefore still entirely unverified by any reviewer:** pytest (the claimed 203), ruff,
-gitleaks, the claimed full-suite baseline and its flake reconciliation, `merge-tree` against
-canonical, every mutation / false-green / false-red experiment, and every check that M-01..M-04,
-L-01, K-01, J-01, H-03/H-04 and R-02 remain protected. The next reviewer must recompute all of it
-from scratch. Treat the table above as identity only.
+**A second, pre-existing weakness surfaced while bounding the fix**: the walk already skipped
+unknown tokens freely, so it would *steal* a number from the neighbouring phrase —
+`two attempts create process groups` derived **2** at `7f92215`. Both readings are red, but the
+stolen number is not this phrase's number, and letting the walk see further past `new` would have
+made stealing easier. It is fixed as part of the bound (§4.3).
 
 ## 4. What I changed
 
-**Nothing.** No file in any repository was created, modified, deleted or committed. No branch was
-created, switched, reset or pushed. No worktree was created or moved. No test artefact was written.
+**One file, test module only: `crooks-assistant/tests/test_orchestrator_freeze_spec.py`, +204 / −4.
+Zero freeze/product-memory documents touched — all 21 docs blobs verified byte-identical to
+`7f92215`.**
 
-Per the bridge contract, this outbox file is the sole write of this round, and I have **not** staged,
-committed or pushed it — the watcher publishes it.
+1. `new`, `existing`, `same` moved out of `_SINGULAR_QUANTIFIERS` into a new, documented
+   `_NON_QUANTIFYING_MODIFIERS`.
+2. **No modifier ends the walk any more.** Modifiers now *record* what they mean and the walk
+   continues, so a stated cardinal in the same phrase always outranks them. The two vocabularies
+   stay distinct because they differ when no cardinal is found: a singular quantifier asserts one
+   even with no determiner to lean on (`single process group` → 1), while `new` asserts nothing,
+   leaving a bare plural **unknown** → red. This also removes a residual miss the narrow fix would
+   have left behind and pinned: `two single process groups` now reads 2, not 1.
+3. **New bound, `_heads_a_different_noun_phrase`.** Letting the walk see further needs a new stop
+   or it reads the phrase next door. English premodifiers here are adjectives, participles,
+   singular noun modifiers and possessives; a **bare plural word cannot premodify a head**, so
+   meeting one means the walk has crossed into the subject phrase and the count is unknown.
+   Possessives (`the attempt's`) keep the walk alive. The existing determiner / boundary-word /
+   8-word-limit stops are unchanged, so no quantifier crosses a constituent boundary.
 
-## 5. State
+## 5. Self-attack — adjacent adjective/quantifier ordering
 
-- **Builder checkout `/opt/crooks-builder`:** branch `claude/builder-environment-repair` @ `295e483`
-  ("The BLOCKED half of BE-04, unblocked and then actually run"). `git status` **clean (0 lines)**,
-  both before and after this round. Note this is *not* `claude/bridge-builder`; it is where a
-  previous round left the checkout, and I left it exactly there.
-- **Candidate worktree `.worktrees/freeze-repair`:** `7f92215`, clean (0 lines), untouched.
-- **Other worktree `.worktrees/harness-hooks-experiment`:** `2c2b0cc`, untouched.
-- **Production checkout `/opt/crooks-os/crooks-assistant`:** branch
-  `claude/linux-prod-migration-production` @ `1cf3a0f`. Read-only `rev-parse` only — **not edited,
-  switched, reset, merged or deployed.** (There is no `main` branch on this remote.)
-- **Service:** `crooks-assistant` **active**. Listener is `127.0.0.1:8000` only — confirmed bound to
-  loopback, **not** publicly exposed.
-- **Safety constraints:** all preserved and unchanged. `writes_enabled` false,
-  `CROOKS_WRITES_LOCAL_OWNER` false, FastAPI on 127.0.0.1, port 8000 not public, proposal / action /
-  verification safety semantics untouched, no live Shopify, Gmail or ElevenLabs calls, no live
-  external mutation, V2 not begun, UI not redesigned, Mac deployment and rollback path preserved,
-  `/root/.claude` writable, no secret value read, printed or committed.
-- **Test results:** none — no test was run this round, by design (see §2).
-- **Errors:** none. This is a clean, deliberate stop, not a failure.
+15 orderings I invented, gated the same way (rewriting the committed creating clause):
 
-## 6. Permission-layer note
+| Form | `7f92215` | `450cc52` |
+|---|---|---|
+| `two additional new process groups`, `the two new owned process groups`, `the attempt's two new process groups`, `two further existing cgroups`, `a further two new process groups`, `up to two new process groups`, `two or three new process groups`, `between two and four new process groups`, `two new controller-allocated process groups`, `twelve new process groups` | **GREEN (10)** | RED — stated count |
+| `one or more new process groups`, `both of the new process groups`, `all new process groups` | **GREEN (3)** | RED — unstated count |
+| `two brand-new process groups`, `two newly provisioned process groups` | already RED | RED (unchanged) |
 
-Nothing in this round was blocked by my own permission layer. The blocker is routing/identity, and it
-is a blocker I am required to raise rather than route around. I did not widen any permission and did
-not look for a way past the independence requirement.
+**False-positive controls — the direction that must not move.** 8 genuinely singular rewrites stay
+**GREEN on both dimensions**: `a new process group`, `the existing owned process group`,
+`a second owned process group`, `another new process group`, `one new process group`,
+`the single new process group`, `the same process group`, `the attempt's new owned process group`
+(plus `its new`, `each new`, `the same single new`). **Pristine is GREEN on both dimensions before
+and after.**
 
-## 7. Decision needed from the owner — the routing defect is now systemic
+**No-theft controls:** `two attempts create new process groups` (**GREEN → unknown/red**),
+`two attempts create process groups` (**stolen 2 → unknown**), `three leases provision existing
+cgroups`, `after two failures new process groups are created` — all now read *unknown*, which is
+red, rather than a borrowed number. `the attempt's two new owned process groups` still reads 2, and
+`two leases each create a new process group` still reads 1.
 
-The independence guarantee has failed **three rounds running**:
+## 6. Verification
 
-| Candidate | Inbox | Routed to | Result |
-|---|---|---|---|
-| `de9bea2` | `b8298d6` | its author (me) | reviewed anyway → `REJECT` (M-03 + M-04). Nothing was rubber-stamped, but an `ACCEPT` would have been void |
-| `2ee1836` | `8653f19` | its author (me) | **STOPPED, no verdict** |
-| `7f92215` | `3c86a2c` | its author (me) | **STOPPED, no verdict** (this round) |
+| Check | Result |
+|---|---|
+| Freeze spec suite | **225 passed** (203 at `7f92215`), 2.6 s |
+| Test functions | **94 → 99**: 5 added (all parametrised), **0 removed, 0 renamed** (`comm` on sorted `^def test_`) |
+| Deleted asserts / `pytest.raises` | **0** (`git diff -U0` grep) |
+| `skip` / `xfail` | **0** |
+| Prior protections M-01..M-05, L-01, K-01, J-01, H-03/H-04, R-02 | intact — every earlier round's test is still present, unmodified and green inside the 225 |
+| `ruff check app config scripts tests` | **All checks passed** (`ruff format` deliberately not run — it is not a repo gate and would reformat ~114 unrelated files) |
+| gitleaks 8.30.1, changed file | no leaks |
+| gitleaks 8.30.1, range `7f92215..450cc52` | no leaks, 1 commit scanned |
+| Full offline suite `pytest tests -m "not live" -n 4` | **3029 passed / 8 skipped / 2 failed** in 3m03s |
+| Those 2 failures | the **known `test_experience.py` `-n 4` load flakes** — `test_experience.py` run alone immediately after: **85 passed**, 3m37s. Reconciles exactly: `7f92215` was 3006 passed + 3 flakes = 3009; 3009 + 22 new = 3031 = 3029 + 2 |
+| Files changed vs `7f92215` | exactly 1; `docs/` files changed: **0** |
+| Worktree after everything | **0 dirty lines** |
 
-Consequences the owner should see plainly:
+## 7. Result — exact SHA, NOT certified
 
-1. **`2ee1836` has never been independently reviewed.** ChatGPT found M-05 by reading the source
-   directly rather than by review, so the M-03/M-04 work was carried straight into `7f92215`
-   untested by any reviewer. `7f92215` now inherits that unreviewed surface on top of its own.
-2. **The bridge has no reviewer-identity check.** I stop only because my own memory and this
-   machine's reflog let me recognise my handwriting. **A fresh session on a clean machine would see
-   `7f92215` as a stranger's work and could ACCEPT its own repair in good faith.** The current
-   safety property depends on an agent's incidental local state — that is not a control.
-3. The freeze candidate cannot advance to the next gate on my say-so, however many rounds elapse.
-   More rounds through this bridge produce more stops, not a verdict.
+| | |
+|---|---|
+| **Resulting candidate SHA** | **`450cc524e4da1397b44df022ac6e2fa546edd13d`** |
+| Parent | `7f92215f0fc1a44f0865af316ce0f02780345417` |
+| Commits added | exactly 1 |
+| Branch (pushed) | `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20` — remote head verified `450cc52` |
+| Canonical base | `claude/product-memory-foundation` @ **`654a9ed7d790e38597a3c5852d9b3e0a42902a1a`** (unmoved). Merge-base with the candidate is still `9e59860`; `git merge-tree --write-tree 450cc52 654a9ed` exits **0** → tree `677d3ddb0804d0ec1be436058f1606653fc622e4`, conflict-free |
+| **Production branch HEAD** | **`1cf3a0f3361b79f9de208d80f501543c53c244b5`** — remote branch `claude/linux-prod-migration-review`; the local production checkout `/opt/crooks-os/crooks-assistant` is on local branch `claude/linux-prod-migration-production` at the same SHA `1cf3a0f`, **0 dirty lines, not touched, not switched, not reset**. There is no `main` on this remote. |
 
-**Proposed but NOT implemented (needs owner approval — it touches the bridge/controller, which is
-outside a read-only review round):** record the authoring agent identity per candidate SHA at push
-time, and have the inbox generator refuse to address that SHA's review to the same agent, failing
-loudly rather than silently mis-routing. I have made no such change.
+**I did not certify this candidate and this handoff is not an acceptance.** I authored both this
+repair and the M-05 repair it sits on. A fresh reviewer that did not author them must review
+`450cc52` before any acceptance can count.
 
-## 8. Exact proposed next step
+## 8. Service and server state (observed read-only; nothing changed)
 
-**Route the review of exact SHA `7f92215f0fc1a44f0865af316ce0f02780345417` to a reviewer that is not
-this Claude bridge context.** Concretely, one of:
+`crooks-assistant.service` active/running; `crooks-bridge-watcher.service` active/running.
+FastAPI listening on **`127.0.0.1:8000` only** — port 8000 not exposed publicly.
+`writes_enabled: bool = False` (`config/settings.py:116`); `CROOKS_WRITES_LOCAL_OWNER=false`.
+No Shopify, Gmail or ElevenLabs call, no live external mutation, no deployment, no merge, no
+systemd/watcher/runtime change, no secret read or printed, V2 not begun, UI not touched, Mac
+deploy/rollback path untouched, `/root/.claude` still writable.
 
-1. **ChatGPT reviews it directly** — it already demonstrated the capability by finding M-05 from
-   source, and it did not author the repair. This is the fastest unblock and needs no new
-   infrastructure.
-2. **A separate, differently-identified agent context** that has not authored any commit in the
-   `5eb25f8 → 7f92215` chain. Note that a fresh Claude session on this machine does **not** qualify
-   in substance, and worse, would not detect that it doesn't — see §7.2.
+## 9. Errors, and decisions a reviewer should challenge
 
-Whoever takes it should be handed the §3 identity table as *already resolved* (re-checking is cheap
-and welcome), be warned about the stale `origin/claude/product-memory-foundation` ref, and be told
-that **`2ee1836`'s M-03/M-04 work has never been reviewed by anyone** and is in scope.
+**No errors and nothing blocked.** Nothing hit my permission layer; nothing needed owner approval.
 
-The review targets the author disclosed as most worth attacking: `_asserted_group_count`'s leftward
-noun-phrase walk (possessives, appositives, `up to N`, ranges), the single boundary crossing in
-`_quantifier_tokens_after`, `max(counts)` over several live group nouns, and — the direction that
-would be a genuine regression rather than an over-strictness — **whether the new `UNCLASSIFIED` arm
-can suppress a real write.** That list comes from the author and should be treated as a starting
-point to go beyond, not a scope limit.
+Three judgement calls, made explicit because they are the places to attack:
 
-**If the bridge instead sends this same review back here a fourth time, the result will be another
-stop with no verdict.** I will not certify my own work.
+1. **I went one step past the literal ask.** The inbox named `new`/`existing`; I also made *true*
+   singular quantifiers (`single`, `second`, …) transparent to a stated cardinal. The narrow fix
+   would have left `two single process groups` reading 1 and I would have had to pin that false
+   green in a test — this review chain has been bitten before by tests that lock a defect in.
+   Challenge whether the wider rule is right.
+2. **`_heads_a_different_noun_phrase` is shape-based, not a lexicon**: "a token ending in `s`,
+   without an apostrophe, that no earlier arm claimed". Consequences, all fail-closed: an adjective
+   ending in `s` (`previous process groups`) stops the walk and reads *unknown* (red) instead of
+   counting; auxiliaries `is`/`was`/`has` also stop it (no case found where a cardinal legitimately
+   sits left of one). Verified it never fires on the committed prose.
+3. **Disclosed residual limits — none reachable in committed prose, direction is red not green:**
+   ranges and approximations (`up to two`, `two or three`, `between two and four`) are read as the
+   first number they state rather than as ranges; `both of the new process groups` is unknown, not
+   2. All of M-05's previously disclosed under-counts (coordination under one verb, elided
+   predicates, repetition nouns outside `time(s)`/`occasion(s)`) are **unchanged** — M-06 did not
+   touch the write dimension at all.
 
----
+## 10. Exact proposed next step
 
-**No approval of any kind is claimed or implied by this document. No owner approval was given in
-inbox `3c86a2c6`, and none was assumed. No merge, deployment, sequencing amendment, adoption or
-Phase0 authority is asserted. No secret value appears above.**
+**One fresh independent adversarial review bound to exactly
+`450cc524e4da1397b44df022ac6e2fa546edd13d`, by an agent that did not author it.**
+
+**Routing is the blocking problem, not the code.** Three consecutive review rounds (`de9bea2`,
+`2ee1836`, `7f92215`) were routed back to the agent that wrote the repair; two ended with **no
+verdict at all**. `2ee1836`'s M-03/M-04 work and `7f92215`'s M-05 work have *still* never been
+checked by any independent reviewer — only by ChatGPT reading the source, which is how M-05 and
+M-06 were both found. Sending `450cc52` to a Claude session on this machine will produce a fourth
+stop, and a *fresh* Claude session would not detect that it doesn't qualify.
+
+So: **route the `450cc52` review to ChatGPT**, which has now found two defects from source and
+authored neither repair.
+
+The review should attack, in this order:
+
+1. `_heads_a_different_noun_phrase` — the `s`-suffix rule. Find a premodifier it wrongly stops on,
+   or a plural word it wrongly walks through (hyphenated forms, acronyms, possessives written
+   without an apostrophe, `-ss` words such as `process`/`status`/`access`).
+2. Whether making true singular quantifiers transparent opened anything — specifically a phrase
+   where `single`/`sole`/an ordinal used to bound the walk and now no longer does.
+3. `max(counts)` in `group_creations` across several live group nouns in one segment, now that more
+   nouns resolve to a number instead of to 1.
+4. The `indefinite`/`singular` interaction in `settled()`: is there a phrase where both flags are
+   set and the answer should not be unknown?
+5. Everything `7f92215` still owes a reviewer: `_quantifier_tokens_after`'s single boundary
+   crossing, whether the M-05 `UNCLASSIFIED` arm can *suppress* a real write, and the M-03/M-04
+   clause-counting and negation-government walks.
+
+**No owner approval is requested by this round and none was given.** Adoption, merge, deployment
+and Phase 0 authority remain untouched and owner-only.
