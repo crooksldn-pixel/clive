@@ -1,20 +1,80 @@
 # CHATGPT INBOX
 
-## Fresh independent adversarial review — exact freeze candidate 70d0fa1
+## Independent adversarial review — Engineering Control Plane VNext Phase 1
 
-Review **exactly** `70d0fa174a42a87dba5ae7ee10df8d01255cf40f` on `chatgpt/orchestrator-v1-freeze-candidate-2026-09-20`. Resolve the remote branch identity first and STOP without verdict if HEAD differs.
+Review **exactly** `8588776455a1832da763810064cacb47d7192ef4` on `chatgpt/control-plane-vnext-phase1`.
 
-This is an **independent review**, not a repair round. The M-08 author must not certify their own work. If the available worker/session is the author of `70d0fa1`, report a reviewer-independence routing block rather than pretending independence.
+Resolve the remote branch HEAD first. STOP without verdict if it is not exactly that SHA.
 
-Recompute the engineering verdict from source and adversarial evidence. Do not accept green regression counts as proof. Attack the evaluator itself with plausible semantic mutations and counterexamples, especially whether operative extra writes/process groups can still be hidden while the declared invariants remain green. Preserve and re-check J-01, H-03/H-04, R-02, L-01, K-01 and M-01..M-08.
+This is **review-only**. Do not patch the branch. This bridge Claude did not author the Phase 1 candidate, so it is eligible to review it; independently verify authorship rather than trusting this sentence.
 
-The M-08 handoff explicitly disclosed two potentially material residual false-greens that must be independently verified, not waved through as documented limitations:
+### Purpose of the candidate
 
-1. **Candidate M-09 — segmentation:** two-group comma/semicolon shapes such as `a process group, and a group for the reviewer are created` were reported to derive exactly 1 and leave the gate green.
-2. **Candidate M-10 — elided heads:** shapes such as `a process group for the attempt and another for the reviewer are created` were reported to derive exactly 1 and leave the gate green.
+Repository-only Phase 1 foundation for replacing the single-slot/hourly bridge workflow with typed machine-readable control-plane records and policy-validated obvious continuation. It must **not** be treated as a deployed Orchestrator or watcher.
 
-Determine whether either is a plausible material bypass of the active freeze contract. Also attack M-08's new bounded-postmodifier logic for new false greens, unsafe semantic assumptions, or material regressions. Use fresh paraphrases, active/passive variants, coordination, punctuation, elision, co-reference/pronouns, negation and unknown semantics. Fail closed where semantics cannot be established safely.
+The candidate adds:
+- strict task/result/next-action/runtime-state contracts;
+- immutable JSON task/result publication for offline simulation;
+- guarded mutable task-state transitions;
+- generated active engineering state;
+- deterministic obvious-continuation policy;
+- reviewer-independence and fresh-branch-HEAD binding;
+- a deterministic scheduler simulation that can route the obvious next eligible stage immediately, skip an unroutable stream, and provide explicit priority/fairness;
+- adversarial tests.
 
-Return one exact-SHA verdict: `ACCEPT`, `REJECT — REPAIR REQUIRED`, or `BLOCKED`, with evidence. If rejected, identify the smallest bounded defect(s) that materially prevent engineering acceptance and recommend repair order. Do **not** patch in this review round.
+### Review standard
 
-Hard boundaries: repository-only read/test/review; no production/runtime/systemd/watcher changes, no secrets/credential reads, no connector/MCP changes, no privilege expansion, no business writes, no deployment, no merge/adoption, no DEC-046/047 sequencing amendment.
+Do not accept ordinary green counts as proof. Re-derive the properties from source and attack them.
+
+At minimum:
+
+1. **Identity / path safety**
+   - attempt path traversal in task/result/runtime IDs;
+   - malformed SHA, task revision mismatch, stale subject SHA;
+   - branch movement after a result;
+   - late result from an old task revision.
+
+2. **Obvious continuation authority**
+   - a model's `next_action` is suggestion/data, not authority;
+   - invalid stage transitions fail closed;
+   - owner gates, deterministic blockers, missing evidence, dirty result or out-of-scope edits cannot auto-continue;
+   - no new scope/permission/deployment authority is created.
+
+3. **Independent review**
+   - repair/build author cannot satisfy an independent review;
+   - role routing cannot accidentally select the author when another reviewer is required;
+   - identify any gap between a string `worker_id` and a trustworthy controller-issued identity, and judge whether it is acceptable for this *repository simulation* or a material Phase 1 defect.
+
+4. **State / publication**
+   - immutable record replay is idempotent and conflicting identity reuse fails;
+   - task contract is distinct from mutable runtime state;
+   - stale state writers cannot overwrite newer state in the simulated store;
+   - current branch truth and obsolete results are represented correctly;
+   - inspect whether the JSON compare-and-swap has any misleading concurrency claim. The code should clearly remain an offline/single-process simulation, not claim production multi-process safety.
+
+5. **Scheduler / starvation**
+   - an eligible obvious continuation can route without hourly polling;
+   - an unroutable/blocked stream does not prevent another eligible stream;
+   - least-recently-dispatched fairness works at equal priority;
+   - explicit priority behavior is deterministic;
+   - no owner-gated or stale task becomes dispatchable through scheduler composition.
+
+6. **Test quality**
+   - run the exact targeted test module;
+   - run static/lint checks available in the accepted repository environment for these files;
+   - mutate or otherwise adversarially invalidate at least reviewer independence, branch-head binding, filesystem identity safety, stale state/CAS, and starvation/fairness, and prove the tests catch the break;
+   - invent additional counterexamples beyond the committed test table.
+
+### Known local Director evidence — do not trust without recomputation
+
+A separate local reproduction reported passing behavioral tests and killed mutations for reviewer-self-certification, branch-head drift, scope escape, filesystem identity, stale active state, CAS and fairness. Treat this only as a claim to challenge.
+
+### Verdict
+
+Return exactly one candidate-bound engineering verdict:
+
+- `ACCEPT FOR PHASE 1 REPOSITORY FOUNDATION` if no material repository-only defect remains; or
+- `REJECT — REPAIR REQUIRED` with bounded reproducing defects; or
+- `BLOCKED` only for a genuine inability to perform the review.
+
+Acceptance means only that this repository-only Phase 1 foundation is sound enough for the next isolated phase. It does **not** authorise watcher/systemd/runtime installation, production deployment, new credentials/secrets, connector/MCP permission changes, privilege expansion, CROOKS/CLIVE business writes, destructive owner-work cleanup, external spend, production merge, freeze adoption, or DEC-046/047 sequencing amendment.
