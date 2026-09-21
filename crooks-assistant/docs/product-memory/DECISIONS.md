@@ -825,3 +825,26 @@ Earned autonomy must be falsifiable. A statement such as “31/31 approved” is
 **Reason:** The current action lifecycle records successful/failed execution, expiry and revocation, but lacks a semantic state for “the owner saw this specific proposal and said no.” The observability layer can detect generic corrections and owner feedback, but that does not recover the exact proposal → judgment → preferred alternative relationship. This loses some of the highest-value business-specific evidence and makes approval-only autonomy metrics structurally biased.
 
 **Consequences:** Future action/judgment work should add explicit decline/edit/defer affordances and durable redacted judgment events before relying on approval-frequency metrics for autonomy. §22-style success criteria should incorporate usefulness/correction evidence as well as conformance. This decision does not enable production writes, alter action-authorisation semantics, weaken TTL/precondition/verification safety, or authorise collection of unredacted customer data.
+
+
+---
+
+## DEC-057 — Verification must reduce subject uncertainty, not justify itself
+
+**Date:** 2026-09-21
+**Status:** ACTIVE ENGINEERING DIRECTION
+**Source:** observed 30-round Orchestrator freeze loop plus owner direction to optimise unattended engineering for useful product progress
+
+**Decision:** Adversarial review remains required where appropriate, but a verifier does not gain unlimited authority to block a subject merely by finding further defects in the verifier itself.
+
+A review finding blocks the subject only when it demonstrates a material defect in subject behaviour, safety, authority, state semantics or required evidence. A defect confined to the verification apparatus becomes its own bounded verifier task.
+
+Two consecutive verifier-only rounds are a convergence signal to park that verification path and continue with a more appropriate verification mechanism unless the verifier defect invalidates prior subject evidence.
+
+Reviewers are explicitly allowed to return READY/ACCEPT when no material subject defect remains.
+
+The unrestricted-English prose-freeze parser experiment is therefore parked as historical engineering evidence. Preserve the real state-machine and safety lessons it discovered, but do not continue M-series/parser expansion as the active Orchestrator path. The typed Engineering Control Plane VNext implementation is the active path.
+
+**Reason:** The freeze loop grew a 5k-line natural-language parser because each adversarial round could generate new English constructions for the parser to fail on. That process improved its own verifier rather than the Orchestrator subject and starved product-facing work. CLIVE's own evolution doctrine says mechanisms are expendable and null is a valid end state when a mechanism no longer earns its responsibility.
+
+**Consequences:** Hourly supervision and future schedulers should favour actual product/control-plane progress, direct behavioural evidence and structured invariants. Verifier maintenance remains legitimate when it protects a real property, but it must not silently become the dominant product. This does not weaken independent review, safety gates or owner-only authority.
