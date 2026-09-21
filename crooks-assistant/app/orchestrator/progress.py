@@ -51,6 +51,8 @@ def project_progress(
     )
 
     expected_sequence = 0
+    previous_time: datetime | None = None
+    completed_seen = False
     for event in ordered:
         if (
             event.task_id,
@@ -63,6 +65,13 @@ def project_progress(
             raise ValueError(
                 f"progress sequence gap: expected {expected_sequence}, got {event.sequence}"
             )
+        if previous_time is not None and event.occurred_at < previous_time:
+            raise ValueError("progress event time cannot move backwards")
+        if completed_seen:
+            raise ValueError("progress stream contains events after attempt completion")
+        if event.kind is ProgressEventKind.ATTEMPT_COMPLETED:
+            completed_seen = True
+        previous_time = event.occurred_at
         expected_sequence += 1
 
     if first.task_id != task.task_id or first.task_revision != task.revision:
