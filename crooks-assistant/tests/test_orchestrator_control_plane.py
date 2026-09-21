@@ -251,12 +251,46 @@ def test_done_is_terminal_not_an_excuse_to_invent_more_work() -> None:
 
 
 
-def test_result_identity_rejects_path_traversal_attempt_id() -> None:
-    with pytest.raises(ValidationError):
-        make_result(attempt_id="../escape")
+def test_record_identities_reject_path_traversal_components() -> None:
+    for bad in ("..", ".", "../escape", "nested/attempt"):
+        with pytest.raises(ValidationError):
+            make_result(attempt_id=bad)
+
+    for bad in ("..", "."):
+        with pytest.raises(ValidationError):
+            make_result(task_id=bad)
+        with pytest.raises(ValidationError):
+            make_task(task_id=bad)
+        with pytest.raises(ValidationError):
+            TaskRuntimeState(
+                task_id=bad,
+                task_revision=1,
+                status=TaskStatus.READY,
+                transition_seq=0,
+                updated_at=NOW,
+            )
+
+
+def test_changed_paths_reject_traversal_and_require_result_sha() -> None:
+    for bad in (
+        "crooks-assistant/tests/../app/main.py",
+        "crooks-assistant/tests/../../../../etc/passwd",
+        "/absolute/path.py",
+        "crooks-assistant\\tests\\file.py",
+    ):
+        with pytest.raises(ValidationError):
+            make_result(changed_paths=(bad,))
 
     with pytest.raises(ValidationError):
-        make_result(attempt_id="nested/attempt")
+        make_result(
+            result_sha=None,
+            changed_paths=("crooks-assistant/tests/test_safe.py",),
+            next_action=NextAction(
+                kind=NextActionKind.CONTINUE,
+                reason="continue after edit",
+                mechanically_authorised=True,
+            ),
+        )
 
 
 def test_fresh_remote_head_is_required_before_candidate_continuation() -> None:
@@ -267,6 +301,15 @@ def test_fresh_remote_head_is_required_before_candidate_continuation() -> None:
     )
     assert unresolved.allowed is False
     assert "fresh branch HEAD" in unresolved.reason
+
+    malformed = evaluate_obvious_continuation(
+        make_task(),
+        make_result(),
+        candidate_worker_id="fresh-review-session",
+        current_branch_head="not-a-sha",
+    )
+    assert malformed.allowed is False
+    assert "not an exact Git SHA" in malformed.reason
 
     moved = evaluate_obvious_continuation(
         make_task(),
@@ -358,17 +401,19 @@ def test_runtime_state_compare_and_swap_rejects_stale_writer(tmp_path) -> None:
     store.write_task_state(running, expected_previous_seq=0)
     assert store.read_task_states() == (running,)
 
-    stale = TaskRuntimeState(
+    # transition_seq=2 is a valid increment. Only the stale expected_previous_seq
+    # should reject this write; deleting the CAS comparison must make this test fail.
+    stale_but_well_formed = TaskRuntimeState(
         task_id="freeze-repair-008",
         task_revision=1,
         status=TaskStatus.BLOCKED,
-        transition_seq=1,
+        transition_seq=2,
         blocker_class=BlockerClass.DETERMINISTIC,
         blocker_reason="stale writer should not win",
         updated_at=NOW + timedelta(seconds=2),
     )
-    with pytest.raises(StateConflictError):
-        store.write_task_state(stale, expected_previous_seq=0)
+    with pytest.raises(StateConflictError, match="stale task state"):
+        store.write_task_state(stale_but_well_formed, expected_previous_seq=0)
 
 
 def test_runtime_state_initial_sequence_must_start_at_zero(tmp_path) -> None:
@@ -404,14 +449,30 @@ def test_scheduler_dispatches_obvious_review_without_hourly_poll() -> None:
     assert dispatch.subject_sha == SHA_B
 
 
-def test_scheduler_skips_unroutable_stream_instead_of_starving_other_stream() -> None:
-    blocked_review = ContinuationCandidate(
-        task=make_task(task_id="a-review", stream_id="stream-a"),
-        result=make_result(task_id="a-review"),
+def test_scheduler_skips_policy_denied_stream_instead_of_starving_other_stream() -> None:
+    denied_first = ContinuationCandidate(
+        task=make_task(
+            task_id="a-denied",
+            stream_id="stream-a",
+            kind=TaskKind.EVIDENCE,
+            priority=10,
+            required_evidence=("pytest",),
+        ),
+        result=make_result(
+            task_id="a-denied",
+            clean_worktree=False,
+            evidence_satisfied=("pytest",),
+            next_action=NextAction(
+                kind=NextActionKind.CONTINUE,
+                reason="would continue if policy allowed it",
+                mechanically_authorised=True,
+                required_role="builder",
+            ),
+        ),
         current_branch_head=SHA_B,
         stream_last_dispatched_at=None,
     )
-    useful_evidence = ContinuationCandidate(
+    useful_second = ContinuationCandidate(
         task=make_task(
             task_id="b-evidence",
             stream_id="stream-b",
@@ -435,13 +496,54 @@ def test_scheduler_skips_unroutable_stream_instead_of_starving_other_stream() ->
     )
     workers = [WorkerProfile(worker_id="builder-2", roles=("builder",))]
     dispatch = select_obvious_dispatch(
-        candidates=[blocked_review, useful_evidence],
+        candidates=[denied_first, useful_second],
         workers=workers,
     )
     assert dispatch is not None
     assert dispatch.stream_id == "stream-b"
     assert dispatch.task_id == "b-evidence"
 
+
+
+def test_scheduler_respects_controller_owned_owner_gate() -> None:
+    task = make_task(task_id="owner-gated", stream_id="stream-a")
+    runtime = TaskRuntimeState(
+        task_id=task.task_id,
+        task_revision=task.revision,
+        status=TaskStatus.OWNER_GATE,
+        transition_seq=3,
+        blocker_class=BlockerClass.OWNER_ONLY,
+        blocker_reason="owner paused this stream",
+        owner_gate=True,
+        updated_at=NOW + timedelta(minutes=11),
+    )
+    candidate = ContinuationCandidate(
+        task=task,
+        result=make_result(task_id=task.task_id),
+        current_branch_head=SHA_B,
+        runtime_state=runtime,
+        latest_task_revision=task.revision,
+    )
+    dispatch = select_obvious_dispatch(
+        candidates=[candidate],
+        workers=[WorkerProfile(worker_id="reviewer-1", roles=("independent-reviewer",))],
+    )
+    assert dispatch is None
+
+
+def test_scheduler_rejects_superseded_task_revision() -> None:
+    task = make_task(task_id="old-revision", revision=1)
+    candidate = ContinuationCandidate(
+        task=task,
+        result=make_result(task_id=task.task_id, task_revision=1),
+        current_branch_head=SHA_B,
+        latest_task_revision=2,
+    )
+    dispatch = select_obvious_dispatch(
+        candidates=[candidate],
+        workers=[WorkerProfile(worker_id="reviewer-1", roles=("independent-reviewer",))],
+    )
+    assert dispatch is None
 
 def test_scheduler_fairness_prefers_least_recently_dispatched_equal_priority_stream() -> None:
     worker = WorkerProfile(worker_id="reviewer", roles=("independent-reviewer",))
