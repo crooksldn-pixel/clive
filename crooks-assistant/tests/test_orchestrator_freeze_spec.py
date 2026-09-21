@@ -2318,13 +2318,128 @@ def _asserted_write_repetitions(segment: str, verb_start: int, verb_stop: int) -
     return count
 
 
+# M-07 — `max` over the live group nouns of a segment is fail-closed only while those nouns are
+# alternate descriptions of the same created object. One creation predicate can govern *coordinated*
+# noun phrases, and those are additive: `one process group and another group are created` creates
+# two, while `max([1, 1])` reported one and left §3A.3's declared `1` satisfied.
+#
+# `sum` is not the answer either — it would read the appositive in `a process group (the attempt's
+# owned group) is created` as two, and any later back-reference to the same group as another one.
+# What distinguishes the two is structural, and it is visible in the text *between* the two nouns:
+#
+#   * additive coordination puts a coordinator immediately after the first conjunct's head noun and
+#     then nothing but the premodifier run of the next conjunct — `group **and another** group`;
+#   * every other relation puts something else there first — a determiner opening an appositive, a
+#     preposition, or the verb of a new predication (`a group **is created and the** group is
+#     recorded`, which is one group mentioned twice).
+#
+# Only the first is summed. A coordinator that *does* open the run but is followed by material the
+# rule cannot place is neither summed nor collapsed: the cardinality is unreadable, and an unreadable
+# critical cardinality is the `None` this gate already fails closed on, exactly as M-05 established.
+#
+# Disjunction stays on `max` deliberately. `a process group or a cgroup is created` creates one of
+# them, so summing would be an over-count with no semantic warrant, while `max` over the alternatives
+# is the largest number the prose can mean — still the fail-closed direction.
+#
+# The coordinator vocabulary is closed and additive-only, written as token sequences because the
+# useful ones are not all single words. `or`, `nor` and `and/or` are deliberately absent: they are
+# alternatives, not additions, and `max` is already the right reading for them.
+_ADDITIVE_COORDINATORS = (
+    ("and",), ("plus",), ("as", "well", "as"), ("along", "with"), ("together", "with"),
+)  # fmt: skip
+# The subset that may also appear *inside* a run, joining a conjunct that is not itself a group.
+_ADDITIVE_COORDINATOR_WORDS = frozenset({"and", "plus"})
+
+
+def _may_stand_inside_a_coordinated_run(token: str) -> bool:
+    """May this token sit between two coordinated group nouns without ending the coordination?
+
+    The run between the coordinator and the next head noun is that head's own premodifier
+    material: its determiner, its quantifier, its adjectives and possessives, plus any further
+    coordinator joining a conjunct that is not itself a group (`a group and a lease and a group`).
+    Anything that can only belong to a *different* constituent ends it — a boundary word, an
+    auxiliary or modal (which means a new predication has started), a negator, or a bare plural
+    word, which `_heads_a_different_noun_phrase` already establishes cannot premodify a head in
+    this prose and is therefore how an active-voice verb ("and records the group") is refused.
+    """
+    if token in _ADDITIVE_COORDINATOR_WORDS:
+        return True
+    if (
+        token in _NP_DETERMINERS
+        or token in _SINGULAR_QUANTIFIERS
+        or token in _INDEFINITE_PLURAL_QUANTIFIERS
+        or token in _NON_QUANTIFYING_MODIFIERS
+        or _as_cardinal(token) is not None
+    ):
+        return True
+    if (
+        token in _CONSTITUENT_BOUNDARIES
+        or token in _PREDICATION_AUXILIARIES
+        or token in _CREATION_NEGATORS
+        or token in _NEGATING_PREPOSITIONS
+        or token in _INDEFINITE_REPETITION
+        or token in _REPETITION_ADVERBS
+    ):
+        return False
+    return not _heads_a_different_noun_phrase(token)
+
+
+def _coordination_between(between: str) -> bool | None:
+    """Do the two group nouns flanking `between` name different created objects?
+
+    `True` when they are coordinated conjuncts of one predicate and therefore add; `False` when
+    the relation is anything else, which is the alias/appositive/back-reference case `max` already
+    handles correctly; `None` when a coordinator opens the run but the rest of it cannot be read
+    as a noun phrase's premodifiers, where the honest answer is that the number is unknown.
+    """
+    tokens = [found.group().lower() for found in _QUANTIFIER_TOKEN_RE.finditer(between)]
+    for coordinator in _ADDITIVE_COORDINATORS:
+        if tuple(tokens[: len(coordinator)]) == coordinator:
+            rest = tokens[len(coordinator) :]
+            break
+    else:
+        return False
+    if all(_may_stand_inside_a_coordinated_run(token) for token in rest):
+        return True
+    return None
+
+
+def _coordinated_group_count(
+    segment: str, nouns: list[re.Match[str]], counts: list[int | None]
+) -> int | None:
+    """How many groups the live nouns of one creation segment assert between them.
+
+    Coordinated conjuncts accumulate; a noun that is not coordinated with the one before it starts
+    a fresh reading, because it is either a new description of the same object or a mention that
+    does not belong to this predicate's argument at all. The answer is the largest reading found,
+    which keeps `max`'s fail-closed property for everything coordination does not explain.
+
+    One noun that will not say how many makes the whole segment unreadable, whatever the others
+    say: an unknown summand and an unknown alternative are both unknown.
+    """
+    if any(count is None for count in counts):
+        return None
+    largest = running = counts[0]
+    for index in range(1, len(nouns)):
+        link = _coordination_between(segment[nouns[index - 1].end() : nouns[index].start()])
+        if link is None:
+            return None
+        running = running + counts[index] if link else counts[index]
+        largest = max(largest, running)
+    return largest
+
+
 def group_creations(clause: str) -> list[tuple[re.Match[str], int | None]]:
     """`group_creation_assertions` with each verb's asserted group count beside it.
 
     `None` is "this clause asserts a creation but does not say how many groups", which
-    `owned_process_group_creation_assertions` turns into a gate failure. When a segment holds
-    several live group nouns the largest count wins: over-counting turns the gate red, and red is
-    the direction a cardinality invariant is allowed to be wrong in.
+    `owned_process_group_creation_assertions` turns into a gate failure.
+
+    When a segment holds several live group nouns, M-07's question is whether they describe one
+    created object or several. Coordinated conjuncts of the one creation predicate are summed;
+    everything else is read as alternate descriptions and the largest count wins, because
+    over-counting turns the gate red and red is the direction a cardinality invariant is allowed
+    to be wrong in.
     """
     creations: list[tuple[re.Match[str], int | None]] = []
     for verb in GROUP_CREATION_RE.finditer(clause):
@@ -2332,14 +2447,15 @@ def group_creations(clause: str) -> list[tuple[re.Match[str], int | None]]:
         segment = clause[start:stop]
         if _negation_governs_the_predication(segment, verb.start() - start):
             continue
-        counts = [
-            _asserted_group_count(segment, noun)
+        nouns = [
+            noun
             for noun in GROUP_NOUN_RE.finditer(segment)
             if not _negation_governs_the_noun_phrase(segment, noun.start())
         ]
-        if not counts:
+        if not nouns:
             continue
-        creations.append((verb, None if None in counts else max(counts)))
+        counts = [_asserted_group_count(segment, noun) for noun in nouns]
+        creations.append((verb, _coordinated_group_count(segment, nouns, counts)))
     return creations
 
 
@@ -4033,8 +4149,9 @@ def test_the_cardinality_blind_spots_are_stated_rather_than_assumed_closed() -> 
     prose. It does not parse arithmetic, coordination or elision, and those limits are recorded
     here rather than left for a reviewer to rediscover.
     """
-    # Coordination of two noun phrases under one verb is counted once, from the larger phrase.
-    assert group_creations("a preflight group and a model group are created")[0][1] == 1
+    # Coordination of two noun phrases under one verb was counted once, from the larger phrase.
+    # That was M-07 and it is now closed; the entry stays as the record of what the limit was.
+    assert group_creations("a preflight group and a model group are created")[0][1] == 2
     # An elided second predicate ("as is ...") carries no verb of its own and is not counted.
     assert len(group_creations("the attempt's single owned process group is created, as is a"
                                " second process group")) == 1
@@ -4042,8 +4159,186 @@ def test_the_cardinality_blind_spots_are_stated_rather_than_assumed_closed() -> 
     assert _classify_handle_clause(
         f"`{CLEANUP_HANDLE}` is written in two batches", established=True
     ) == (WRITES, 1)
-    # All three are under-counts, so each is a way for a future edit to be missed — not a way for
-    # one to be wrongly rejected. None of them is reachable in the committed prose.
+    # Both remaining entries are under-counts, so each is a way for a future edit to be missed —
+    # not a way for one to be wrongly rejected. Neither is reachable in the committed prose.
+
+
+# --------------------------------------------------------------------------------------------
+# M-07 — one creation predicate can govern more than one created noun phrase.
+#
+# M-05 taught the gate to read the number a noun phrase states. It then reduced a segment holding
+# several live group nouns with `max`, on the reasoning that several nouns must be several
+# descriptions of the same created object and the largest description is the fail-closed reading.
+# That reasoning only holds for *alternate* descriptions. English also coordinates noun phrases
+# under a single predicate, and coordinated conjuncts are additive:
+#
+#     one process group and another group are created
+#
+# One creation verb; the first conjunct asserts one and the second asserts one; `max([1, 1])` is
+# one, which is exactly what §3A.3 declares — so the sentence could be written over the one clause
+# that legitimately creates the attempt's group, create a second group, and leave the gate green.
+# `two process groups and another group are created` was worse: semantically three, reported two.
+#
+# The repair is `_coordination_between`, which reads the text between two live group nouns and
+# decides whether they are conjuncts (add), some other relation (the alias case, still `max`), or
+# a coordination it cannot parse (unknown, and unknown is red). The mutations below rewrite the
+# committed `CREATED -> STARTING` creation clause, so the number of creating rows stays at one and
+# §3A.3's declared `1` stays as committed: the asserted count is the only thing that can object.
+#
+# Eight of the ten mutations below were GREEN at `450cc52`. The two that were already red — the
+# ones whose first conjunct states a number — were red at the *wrong* number, `max` reporting the
+# larger conjunct instead of the total, so each is pinned here to its semantic count rather than
+# merely to redness. An under-counted red is a defect too: it is what a subsequent edit that
+# removes one conjunct would silently turn green.
+# --------------------------------------------------------------------------------------------
+COORDINATED_GROUP_CREATIONS = (
+    ("two singular conjuncts", "one process group and another group are created", 2),
+    ("quantified first conjunct", "two process groups and another group are created", 3),
+    ("both conjuncts quantified", "two process groups and three cgroups are created", 5),
+    ("three conjuncts", "a process group and another group and a third group are created", 3),
+    ("a non-group conjunct between two group conjuncts",
+     "a process group and a lease and another group are created", 2),
+    ("active voice, coordinated objects",
+     "the controller creates one process group and another group", 2),
+    ("possessive conjuncts", "the attempt's process group and the reviewer's group are created", 2),
+    ("non-quantifying modifiers in both conjuncts",
+     "a new process group and another new cgroup are created", 2),
+    ("`plus` as the coordinator", "a process group plus another group are created", 2),
+    ("`as well as` as the coordinator", "a process group as well as another group are created", 2),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement,count",
+    COORDINATED_GROUP_CREATIONS,
+    ids=lambda value: str(value).replace(" ", "-")[:44],
+)
+def test_coordinated_created_noun_phrases_are_added_not_maximised(
+    device: str, replacement: str, count: int
+) -> None:
+    """M-07. Two created groups in one predicate are two, not one.
+
+    The row dimension is asserted unchanged first, because it is: one §3A edge still creates and
+    §3A.3 still declares one. Nothing but the derived count can catch these, which is the whole
+    reason the false green was reachable.
+    """
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    assert [
+        f"{row[0]} -> {row[2]}" for row in attempt_rows_creating_an_owned_process_group(mutated)
+    ] == ["CREATED -> STARTING"], f"{device}: the mutation was not confined to one row"
+    assert len(owned_process_group_creation_assertions(mutated)) == count, device
+
+    with pytest.raises(AssertionError, match=f"asserts {count} owned process group creations"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# Coordination whose total cannot be read. A conjunct that asserts a plurality without naming it,
+# and a coordinator whose run holds material the rule cannot place, are both unknown — and an
+# unknown critical cardinality is a red gate, never an assumed one. This is the fail-closed answer
+# the repair gives instead of guessing, and it is what keeps the `max` fallback from being a way
+# back into M-07 for any coordination the parser does not recognise.
+UNQUANTIFIED_COORDINATED_CREATIONS = (
+    ("indefinite singular conjunct", "a process group and a further group are created"),
+    ("indefinite plural conjunct", "a process group and several other groups are created"),
+    ("bare plural conjunct", "a process group and new groups are created"),
+    ("`and/or`", "a process group and/or another group are created"),
+    ("a coordinated run the rule cannot place",
+     "the controller creates a process group and records the group"),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement",
+    UNQUANTIFIED_COORDINATED_CREATIONS,
+    ids=lambda value: str(value).replace(" ", "-")[:44],
+)
+def test_a_coordination_that_cannot_be_counted_fails_closed(device: str, replacement: str) -> None:
+    """The fail-closed half of M-07, on the same clause and the same row."""
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    with pytest.raises(AssertionError, match="without saying how many"):
+        owned_process_group_creation_assertions(mutated)
+    with pytest.raises(AssertionError, match="without saying how many"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# The direction that must not move. Each of these mentions a group twice while creating one, which
+# is precisely what `sum` would have got wrong — and is why the repair is a coordination test
+# rather than a change of reducer.
+SAME_GROUP_MENTIONED_TWICE = (
+    ("parenthetical appositive", "a process group (the attempt's owned group) is created"),
+    ("disjunction of two descriptions", "a process group or another group is created"),
+    ("relative clause naming the group",
+     "a process group which the group handle names is created"),
+    ("back-reference in a following predication",
+     "a process group is created and the group runs preflight"),
+    ("back-reference behind a preposition",
+     "a new process group is created and preflight runs inside that group"),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement", SAME_GROUP_MENTIONED_TWICE, ids=lambda value: value.replace(" ", "-")[:44]
+)
+def test_a_group_named_twice_is_still_one_group(device: str, replacement: str) -> None:
+    """The false-positive control for M-07, and the proof that the repair is not `sum`.
+
+    Every clause here holds two live group nouns and creates exactly one group. A reducer that
+    added them would redden ordinary prose and the repair would have been traded straight back at
+    the next freeze-doc edit — the same standard M-06's control applies.
+    """
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    assert len(owned_process_group_creation_assertions(mutated)) == 1, device
+    assert_declared_group_count_matches_the_matrix(mutated)
+    assert_declared_write_point_matches_the_matrix(mutated)
+
+
+def test_coordination_is_decided_structurally_not_by_the_presence_of_a_conjunction() -> None:
+    """M-07 stated as a property of `_coordination_between`, so an edit cannot regress it.
+
+    The three answers are the whole repair. `True` is additive coordination — a coordinator
+    directly after the first conjunct's head, then nothing but the next conjunct's premodifiers.
+    `False` is every other relation between two group nouns, where `max` is already right.
+    `None` is a coordinator the rule cannot finish reading, which is unknown and therefore red.
+    """
+    assert _coordination_between(" and another ") is True
+    assert _coordination_between(" as well as a second ") is True
+    assert _coordination_between(" and a lease and a new ") is True
+
+    assert _coordination_between(" or another ") is False
+    assert _coordination_between(" is created and the ") is False
+    assert _coordination_between(" (the attempt's owned ") is False
+    assert _coordination_between(" for the attempt, inside the ") is False
+
+    assert _coordination_between(" and records the ") is None
+    assert _coordination_between(" and the lease is created for the ") is None
+
+    # `or` and `nor` are alternatives, never additions; the additive list stays closed.
+    assert "or" not in _ADDITIVE_COORDINATOR_WORDS and "nor" not in _ADDITIVE_COORDINATOR_WORDS
+    assert all(words[0] not in {"or", "nor"} for words in _ADDITIVE_COORDINATORS)
+
+
+def test_the_coordination_blind_spots_are_stated_rather_than_assumed_closed() -> None:
+    """Honest scope for M-07, carried forward for the next review, exactly as M-05 did.
+
+    The repair reads coordination that is adjacent to the head noun it coordinates. It does not
+    parse a postmodified first conjunct, and a comma still ends the segment before the coordinator
+    is reached. Both are under-counts, so both are ways a future edit could be missed — neither is
+    a way for legitimate prose to be wrongly rejected, and neither is reachable in the committed
+    text, which holds exactly one group noun in exactly one creation segment.
+    """
+    # A prepositional postmodifier on the first conjunct puts the coordinator out of reach.
+    assert group_creations(
+        "a process group for the attempt and a group for the reviewer are created"
+    )[0][1] == 1
+    # A comma-separated list is split into segments before the coordination is ever seen, so the
+    # verb's own segment holds only the conjuncts that follow the last comma.
+    assert group_creations("a process group, another group and a third group are created")[0][1] == 2
+
+    # Neither shape exists in §3A: the one creation segment there has one group noun.
+    assert [count for _verb, count in group_creations(COMMITTED_CREATION_PROSE)] == [1]
 
 
 # --------------------------------------------------------------------------------------------
