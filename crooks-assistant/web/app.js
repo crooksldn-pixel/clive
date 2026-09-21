@@ -178,7 +178,7 @@ REDUCED.addEventListener('change', (event) => { if (orb) orb.setReducedMotion(ev
 // What the orb says beneath itself. The first line is the state; the second is what is
 // happening in plain words, so the screen reads before the voice does.
 const LABELS = {
-  READY: ['System ready.', 'What do you need?'],
+  READY: ['CLIVE ready', 'Ask, interrupt, or continue'],
   LISTENING: ['Listening', 'Release to send'],
   TRANSCRIBING: ['Heard', 'Working out what you said'],
   THINKING: ['Thinking', 'Working it out'],
@@ -2014,34 +2014,20 @@ function drawBranchBar() {
     if (other && other !== host) { clear(other); other.hidden = true; }
   }
   clear(host);
-  host.hidden = false;
+
+  // V0.5 retires user-facing Split. Concurrency remains an internal capability, but the
+  // owner no longer has to allocate CLIVE's attention by manufacturing "halves". Existing
+  // two-branch sessions are still rendered below so an in-flight legacy session is not
+  // stranded; a single normal session exposes no Split invitation or branch chrome.
   if (branches.length < 2) {
-    const split = document.createElement('button');
-    split.type = 'button';
-    split.className = inRail ? 'chip chip-split' : 'branch-act branch-split';
-    split.dataset.action = 'split';
-    split.textContent = 'Split';
-    split.setAttribute('aria-label', 'Divide the orb into two halves');
-    split.addEventListener('click', () => splitOrb('button'));
-    host.appendChild(split);
-    // What it is FOR. "What does the split button do?" was asked out loud in the live session
-    // and answered "I don't know what that button is"; a control whose only explanation is a
-    // gesture nobody was told about is not discoverable. The band has room for the sentence;
-    // the rail, beside Back and Next, does not, and the chip stands alone there.
-    if (!inRail) {
-      const why = document.createElement('span');
-      why.className = 'branch-why';
-      why.textContent = 'Work on two things at once';
-      host.appendChild(why);
-    }
-    // And the header band goes with them. It used to be left standing: a merge or a close
-    // came back through `applyBranches`, which redraws the bar, and the bar returned here
-    // before the band was touched — so the screen went on saying "half 1 of 2" over a
-    // conversation that had one half. `drawBranchHead` hides itself when there is nothing to
-    // tell apart; it just has to be asked.
+    host.hidden = true;
+    if (el.branchZone) el.branchZone.hidden = true;
     drawBranchHead();
     return;
   }
+
+  host.hidden = false;
+  if (el.branchZone) el.branchZone.hidden = false;
   // Two halves, divided visibly: a column each, a rule between them, and neither column able
   // to push the other off the screen (`minmax(0,1fr)` in the stylesheet).
   const halves = document.createElement('div');
@@ -3342,13 +3328,13 @@ function cancelTurnAndListen() {
   setTimeout(() => { if (holding && !busy && !recording) { setState('LISTENING'); startRecording(); } }, 60);
 }
 
-// The fingers moving. The machine measures a pair and reports the INTENT as a word; what a
-// spread or a pinch means depends on how many halves there are, which is the page's business.
+// V0.5 no longer lets a spread create user-visible Split state. Multi-touch still belongs to
+// the gesture machine (so it never becomes accidental speech), and a pinch can collapse an
+// already-existing legacy two-branch session. New concurrency is owned by CLIVE internally.
 function onHoldMove(event) {
   const moved = pointers.move({ pointerId: event.pointerId, x: event.clientX, y: event.clientY });
   if (!moved) return;
-  if (moved.gesture === 'spread' && branches.length < 2) splitOrb('gesture');
-  else if (moved.gesture === 'pinch' && branches.length > 1) mergeOrb('gesture');
+  if (moved.gesture === 'pinch' && branches.length > 1) mergeOrb('gesture');
 }
 
 function onHoldEnd(event) {
