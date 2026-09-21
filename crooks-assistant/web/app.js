@@ -3780,7 +3780,7 @@ function wentOffline() {
   // Never over a question in flight, a recording, or the voice mid-sentence: the turn's own
   // error copy covers those, and the layer takes over once the screen is quiet.
   if (quiet()) {
-    setSystem('offline', 'System offline', 'Waiting for CROOKS Assistant…', 'Checking quietly · tap to check now');
+    setSystem('offline', 'System offline', 'Waiting for CLIVE…', 'Checking quietly · tap to check now');
   }
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(checkReachable, reconnectDelay);

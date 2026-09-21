@@ -54,12 +54,12 @@ let awayUntil = 0;
 // nothing from any session.
 const OFFLINE_HTML = '<!doctype html><html lang="en-GB"><head><meta charset="utf-8">'
   + '<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07070a">'
-  + '<title>CROOKS OS</title><style>html,body{height:100%;margin:0;background:#07070a;color:#ebe8e0;'
+  + '<title>CLIVE</title><style>html,body{height:100%;margin:0;background:#07070a;color:#ebe8e0;'
   + 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}body{display:grid;place-items:center;text-align:center}'
   + 'small{display:block;letter-spacing:.32em;color:#83827c;font-weight:800;font-size:12px;margin-bottom:28px}'
   + 'h1{margin:0 0 10px;font-size:20px;letter-spacing:.26em;text-transform:uppercase}p{margin:0;color:#b9b6ae}</style>'
-  + '<meta http-equiv="refresh" content="8"></head><body><div><small>CROOKS OS</small>'
-  + '<h1>System offline</h1><p>Waiting for CROOKS Assistant…</p></div></body></html>';
+  + '<meta http-equiv="refresh" content="8"></head><body><div><small>CLIVE</small>'
+  + '<h1>System offline</h1><p>Waiting for CLIVE…</p></div></body></html>';
 
 self.addEventListener('install', (event) => {
   // Nothing hurries this along: a new build installs quietly and takes over only when the

@@ -171,7 +171,7 @@ test('with no shell cached at all, a navigation still gets a CROOKS page, not a 
   w.network.mode = 'fail';
   const response = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
   const html = await response.text();
-  assert.ok(html.includes('CROOKS OS') && html.includes('System offline') && html.includes('Waiting for CROOKS Assistant'));
+  assert.ok(html.includes('CLIVE') && html.includes('System offline') && html.includes('Waiting for CLIVE'));
   assert.ok(!/order|customer|email|@/.test(html), 'the fallback page carries nothing from any session');
 });
 
