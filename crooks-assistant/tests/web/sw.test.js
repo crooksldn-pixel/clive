@@ -66,7 +66,7 @@ function boot() {
   return { handlers, fetched, network, cacheStore, calls, fire, sandbox };
 }
 
-const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/static/action-state.js', '/static/telemetry.js', '/static/collide.js', '/static/touch.js', '/static/notify.js', '/static/orb.js', '/static/audio-viz.js',
+const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/static/action-state.js', '/static/live-state.js', '/static/telemetry.js', '/static/collide.js', '/static/touch.js', '/static/notify.js', '/static/orb.js', '/static/audio-viz.js',
   '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/icon-maskable-192.png', '/static/icon-maskable-512.png'];
 
 async function installed() {

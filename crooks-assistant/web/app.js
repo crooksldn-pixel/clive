@@ -173,6 +173,33 @@ const orb = window.CrooksOrb
   : null;
 REDUCED.addEventListener('change', (event) => { if (orb) orb.setReducedMotion(event.matches); });
 
+/* ------------------------------------------------- the one interaction state */
+
+// V0.5 invariant 2. `live` decides what CLIVE is doing; setState below only paints it, and
+// it paints what `live` was told. Every call into it is an EVENT — a thumb went down, the
+// words settled, a job started — never an assignment, and never a reading of the DOM.
+// web/live-state.js holds the table of what may follow what.
+const live = window.CrooksLiveState ? window.CrooksLiveState.create() : null;
+
+// Partial speech while the owner is still speaking, on a tablet whose transcription happens
+// on the Mac after the release. There are no interim words to show, so the honest signal is
+// the microphone's own energy: above the room's floor, CLIVE is hearing something. Invariant
+// 4 forbids an unexplained dead interval more strongly than it demands words.
+const HEARING_FLOOR = 0.14;
+const HEARING_POLL_MS = 120;
+let hearingPoll = null;
+function watchForSpeech() {
+  stopWatchingForSpeech();
+  if (!live || !audio) return;
+  hearingPoll = setInterval(() => {
+    // Only the FIRST crossing matters here: HEARING is entered once per hold, so a loud room
+    // cannot fill the evidence history with four hundred identical transitions.
+    if (!recording || live.state !== 'LISTENING') return;
+    if (audio.hasMic && audio.micLevel() >= HEARING_FLOOR) live.partial(0);
+  }, HEARING_POLL_MS);
+}
+function stopWatchingForSpeech() { if (hearingPoll) { clearInterval(hearingPoll); hearingPoll = null; } }
+
 /* ------------------------------------------------------------------ state */
 
 // What the orb says beneath itself. The first line is the state; the second is what is
@@ -190,6 +217,11 @@ const LABELS = {
 };
 
 function setState(state, label, sub) {
+  // The machine first: the word being painted is translated into the one canonical state
+  // (live-state.js's FROM_PRESENTATION). A word it refuses is still painted — a missed
+  // mapping should show up in live.refusals(), not take the screen down — but it is the
+  // machine, never this line, that anything else asks what CLIVE is doing.
+  if (live) live.fromPresentation(state);
   el.stage.dataset.state = state;
   const [title, defaultSub] = LABELS[state] || [state, ''];
   el.state.textContent = label || title;
@@ -994,6 +1026,7 @@ async function startRecording() {
     el.talk.dataset.recording = 'true';
     el.talkLabel.textContent = 'Release to send';
     setState('LISTENING');
+    watchForSpeech();
     if (orb) orb.pulse();
     haptic(HAPTIC.start);
   } catch (error) {
@@ -1017,6 +1050,10 @@ function stopRecording(discard = false) {
   // the orb must not keep listening to the room while it does.
   lastRecordingMs = recordingStartedAt ? Date.now() - recordingStartedAt : 0;
   T.record('hold', { phase: 'release', ms: lastRecordingMs, outcome: discard ? 'discarded' : 'sent' });
+  stopWatchingForSpeech();
+  // The instant the owner starts waiting. Everything after it is measured from here, so it
+  // is marked here rather than backdated from whatever happens to land first.
+  if (live && !discard) live.released();
   if (discard) setState('READY');
   else { setState('TRANSCRIBING'); haptic(HAPTIC.release); }
   try { mediaRecorder.stop(); } catch { /* already stopped */ }
@@ -1152,6 +1189,13 @@ function settleGlass(why) {
 }
 
 // Apply what the Mac has staged. Returns true when anything was drawn.
+// Something the owner can actually read has landed — a section of the workspace patched in
+// while the turn is still running. Not a spinner and not a state word: this is the
+// measurement the whole slice exists to move.
+function noteUseful(why) {
+  if (live && live.state !== 'IDLE') live.usefulResult(why);
+}
+
 function applyWorkspace(payload) {
   if (!payload || typeof payload !== 'object') return false;
   if (!window.CrooksUI || typeof window.CrooksUI.applyPatches !== 'function') return false;
@@ -1175,6 +1219,7 @@ function applyWorkspace(payload) {
   const drawn = out.added + out.changed + out.visual + out.removed;
   if (!drawn) return false;
   glass.applied += drawn;
+  noteUseful('workspace patch');
   // A working screen, from the first patch: the deck comes up rather than the orb sitting
   // there until the whole read graph has resolved.
   if (el.body.dataset.mode !== 'context') setMode('context');
@@ -2987,7 +3032,12 @@ function startStatePolling() {
       else if (busy && Date.now() - turnStartedAt > LONG_THINK_MS) el.sub.textContent = `Still working · ${Math.round((Date.now() - turnStartedAt) / 1000)} s`;
       // The transcript, the moment the Mac has it: a mis-heard question shows before the
       // answer to it is paid for.
-      if (data.heard && !el.heard.textContent) el.heard.textContent = `“${data.heard}”`;
+      if (data.heard && !el.heard.textContent) {
+        el.heard.textContent = `“${data.heard}”`;
+        // The words are on the glass: that, and not the release, is UNDERSTOOD. The machine
+        // is handed the LENGTH — it is never told what was said (invariant 11).
+        if (live) live.final(String(data.heard).length);
+      }
     } catch { /* the turn response will carry the outcome */ } finally {
       clearTimeout(timer);
       inFlight = false;
@@ -3042,6 +3092,10 @@ async function submit(body, isAudio) {
     audio_ms: isAudio ? lastRecordingMs : undefined, turns, before: liveActionSurface() ? 'live_card' : undefined,
     branch: askedBranch || undefined, concurrent: inflight.size || undefined,
   });
+  // A dock shortcut or a typed ask was never held, so there is no acknowledgement and
+  // nothing to transcribe — but the owner starts waiting here just the same, and the turn
+  // is measured from it exactly as a spoken one is.
+  if (live && !isAudio) live.asked(0);
   setState(isAudio ? 'TRANSCRIBING' : 'THINKING');
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -3116,6 +3170,7 @@ async function submit(body, isAudio) {
       return;
     }
     renderTurn(data);
+    if (!lastWasError) noteUseful('answer');
     setState(lastWasError ? 'ERROR' : 'READY', lastWasError ? lastErrorTitle : '');
     speakAnswer(data.answer, { isError: lastWasError });   // deliberately not awaited
     renderTimings(data.timings_ms, data.transcript);
@@ -3147,6 +3202,21 @@ async function submit(body, isAudio) {
   } finally {
     clearTimeout(timeout);
     inflight.delete(key);
+    // Invariant 11: what this turn FELT like, in milliseconds and counts only. No transcript,
+    // no answer, no entity — the machine was never given any of them to leak.
+    if (live) {
+      const marks = live.marks();
+      T.record('live_marks', {
+        ack_ms: marks.acknowledgedMs === null ? undefined : marks.acknowledgedMs,
+        transcript_ms: marks.transcriptMs === null ? undefined : marks.transcriptMs,
+        progress_ms: marks.progressMs === null ? undefined : marks.progressMs,
+        useful_ms: marks.usefulMs === null ? undefined : marks.usefulMs,
+        responding_ms: marks.respondingMs === null ? undefined : marks.respondingMs,
+        partials: marks.partials || undefined, heard_chars: marks.heardChars || undefined,
+        interruptions: marks.interruptions || undefined, faults: marks.faults || undefined,
+        state: live.state,
+      });
+    }
     syncBusy();
     if (!inflight.size) applyUpdateWhenIdle();
     // If speech is off there is no onend to settle the state, so do it here.
@@ -3296,6 +3366,9 @@ function onHoldStart(event) {
     cancelHoldTimer = setTimeout(cancelTurnAndListen, CANCEL_HOLD_MS);
     return;
   }
+  // Synchronously, inside the gesture: the acknowledgement the owner is waiting for is
+  // this, not the recorder starting, and the machine measures it from here.
+  if (live) live.pointerDown();
   setState('LISTENING');   // the orb wakes on the touch itself, not on the recorder
   startRecording();        // start before any other UI work, or the first word is clipped
 }
@@ -3317,6 +3390,7 @@ function cancelTurnAndListen() {
   cancelHoldTimer = null;
   if (!busy || !turnAbort) return;
   T.record('turn_cancelled', { ms: Date.now() - turnStartedAt });
+  if (live) live.interrupt('held through the turn');
   turnAbort.cancelled = true;
   turnAbort.abort();
   // This half's turn, and only this half's: the other half may be mid-thought about

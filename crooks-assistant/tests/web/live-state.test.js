@@ -22,12 +22,14 @@ function machine() {
   return { m, seen, tick: (ms) => { t += ms; }, at: () => t };
 }
 
-// The whole turn the acceptance scenario describes, with nothing skipped.
+// The whole turn the acceptance scenario describes, with nothing skipped. The thumb lifts
+// before the words settle, because on this tablet the Mac does the transcribing.
 function fullTurn(h) {
   h.m.pointerDown();
   h.tick(300); h.m.partial(6);
   h.tick(900); h.m.partial(48);
-  h.tick(200); h.m.final(52);
+  h.tick(200); h.m.released();
+  h.tick(400); h.m.final(52);
   h.tick(150); h.m.thinking();
   h.tick(400); h.m.working('orders');
   h.tick(600); h.m.usefulResult('orders done');
@@ -60,16 +62,16 @@ test('the four latencies the evidence gate asks for are measured from the right 
   fullTurn(h);
   const marks = h.m.marks();
   assert.equal(marks.acknowledgedMs, 0);          // pointer-down -> visual acknowledgement
-  assert.equal(marks.transcriptMs, 0);            // release -> final transcript
-  assert.equal(marks.progressMs, 150);            // release -> first progress indication
-  assert.equal(marks.usefulMs, 1150);             // release -> first useful result
-  assert.equal(marks.respondingMs, 1450);         // release -> speech
+  assert.equal(marks.transcriptMs, 400);          // release -> final transcript
+  assert.equal(marks.progressMs, 550);            // release -> first progress indication
+  assert.equal(marks.usefulMs, 1550);             // release -> first useful result
+  assert.equal(marks.respondingMs, 1850);         // release -> speech
   assert.equal(marks.partials, 2);
 });
 
 test('a useful result lands before speech, and is not a state of its own', () => {
   const h = machine();
-  h.m.pointerDown(); h.m.final(10); h.m.thinking(); h.m.working('orders');
+  h.m.pointerDown(); h.m.released(); h.m.final(10); h.m.thinking(); h.m.working('orders');
   h.tick(700);
   h.m.usefulResult('first order card');
   assert.equal(h.m.state, 'WORKING', 'a card arriving does not move the turn on by itself');
@@ -81,7 +83,7 @@ test('a useful result lands before speech, and is not a state of its own', () =>
 
 test('speech never waits for every job: WORKING may follow RESPONDING and back again', () => {
   const h = machine();
-  h.m.pointerDown(); h.m.final(10); h.m.thinking(); h.m.working('orders'); h.m.responding();
+  h.m.pointerDown(); h.m.released(); h.m.final(10); h.m.thinking(); h.m.working('orders'); h.m.responding();
   assert.ok(h.m.working('email'), 'a slow job finishing while CLIVE speaks is normal');
   assert.equal(h.m.state, 'WORKING');
   assert.ok(h.m.responding('final summary'));
@@ -90,14 +92,14 @@ test('speech never waits for every job: WORKING may follow RESPONDING and back a
 
 test('a fast path answers without ever naming a tool', () => {
   const h = machine();
-  h.m.pointerDown(); h.m.final(10); h.m.thinking();
+  h.m.pointerDown(); h.m.released(); h.m.final(10); h.m.thinking();
   assert.ok(h.m.responding(), 'THINKING -> RESPONDING is a real turn, not a skipped step');
   assert.deepEqual(h.m.refusals(), []);
 });
 
 test('holding through an answer is an interruption, and it starts a new turn', () => {
   const h = machine();
-  h.m.pointerDown(); h.m.final(10); h.m.thinking(); h.m.responding();
+  h.m.pointerDown(); h.m.released(); h.m.final(10); h.m.thinking(); h.m.responding();
   const interrupted = h.m.marks();
   h.m.pointerDown();
   assert.equal(h.m.state, 'LISTENING');
@@ -121,7 +123,7 @@ test('a second pointer-down while listening is refused and keeps the hold it int
 
 test('a fault is explicit, and leaving one is explicit too', () => {
   const h = machine();
-  h.m.pointerDown(); h.m.final(10); h.m.thinking();
+  h.m.pointerDown(); h.m.released(); h.m.final(10); h.m.thinking();
   assert.ok(h.m.fault('the Mac cannot be reached'));
   assert.equal(h.m.state, 'FAULT');
   assert.equal(h.m.marks().faults, 1);
@@ -168,7 +170,7 @@ test('an illegal transition does not happen, is counted, and leaves the state al
 
 test('a partial outside capture is refused: HEARING cannot be reached from a turn in flight', () => {
   const h = machine();
-  h.m.pointerDown(); h.m.final(10); h.m.thinking();
+  h.m.pointerDown(); h.m.released(); h.m.final(10); h.m.thinking();
   assert.equal(h.m.partial(30), false);
   assert.equal(h.m.state, 'THINKING');
   assert.equal(h.m.refusals()[0].reason, 'partial outside capture');
@@ -186,7 +188,10 @@ test('the machine is given lengths, never words', () => {
 
 test('the old presentation words each mean exactly one state', () => {
   const h = machine();
-  h.m.pointerDown(); h.m.final(10);
+  h.m.pointerDown();
+  assert.ok(h.m.fromPresentation('TRANSCRIBING'), 'still working the words out is still hearing');
+  assert.equal(h.m.state, 'HEARING');
+  h.m.released(); h.m.final(10);
   assert.ok(h.m.fromPresentation('THINKING'));
   assert.equal(h.m.state, 'THINKING');
   assert.ok(h.m.fromPresentation('CHECKING SHOPIFY'));
@@ -210,7 +215,7 @@ test('an unknown presentation word is refused rather than guessed', () => {
 
 test('a presentation ERROR is a fault, and is counted as one', () => {
   const h = machine();
-  h.m.pointerDown(); h.m.final(10);
+  h.m.pointerDown(); h.m.released(); h.m.final(10);
   assert.ok(h.m.fromPresentation('ERROR'));
   assert.equal(h.m.state, 'FAULT');
   assert.equal(h.m.marks().faults, 1);
@@ -257,4 +262,47 @@ test('the history is bounded, so a long session cannot grow the page without end
   for (let i = 0; i < 400; i += 1) { m.pointerDown(); m.heardNothing(); }
   assert.ok(m.history().length <= 200);
   assert.equal(m.turn, 400, 'bounding the history never loses count of the turns');
+});
+
+
+test('release is marked where it happens, not backdated from whatever lands next', () => {
+  const h = machine();
+  h.m.pointerDown();
+  h.tick(1200);
+  h.m.released();
+  assert.equal(h.m.state, 'LISTENING', 'lifting the thumb changes who is waiting, not what CLIVE knows');
+  h.tick(800);
+  h.m.final(30);
+  assert.equal(h.m.state, 'UNDERSTOOD');
+  assert.equal(h.m.marks().transcriptMs, 800, 'the wait for the words is 800ms, not 0 and not 2000');
+});
+
+test('the transcript settles on screen before reasoning is claimed', () => {
+  const h = machine();
+  h.m.pointerDown(); h.m.released();
+  assert.equal(h.m.thinking(), false, 'THINKING cannot precede the words it is about');
+  assert.equal(h.m.refusals().length, 1);
+  h.m.final(30);
+  assert.ok(h.m.thinking());
+});
+
+test('a question nobody spoke still has a turn, and is still measured', () => {
+  const h = machine();
+  assert.ok(h.m.asked(24), 'a dock shortcut is a question');
+  assert.equal(h.m.state, 'UNDERSTOOD');
+  assert.equal(h.m.turn, 1);
+  assert.equal(h.m.marks().acknowledgedMs, null, 'there was no hold to acknowledge');
+  assert.equal(h.m.marks().transcriptMs, 0, 'and nothing to transcribe');
+  h.tick(250); h.m.working('orders');
+  h.tick(400); h.m.usefulResult('order card');
+  assert.equal(h.m.marks().progressMs, 250);
+  assert.equal(h.m.marks().usefulMs, 650);
+});
+
+test('tapping a shortcut over an answer interrupts it, exactly as holding does', () => {
+  const h = machine();
+  h.m.pointerDown(); h.m.released(); h.m.final(10); h.m.thinking(); h.m.responding();
+  assert.ok(h.m.asked(12));
+  assert.ok(h.seen.some((line) => line === 'RESPONDING->INTERRUPTED:new question'));
+  assert.equal(h.m.turn, 2);
 });

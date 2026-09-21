@@ -58,16 +58,16 @@
   // is already speaking (RESPONDING → WORKING), and the owner may start talking at any point
   // that is not already listening.
   const ALLOWED = {
-    IDLE: ['LISTENING', 'FAULT'],
+    IDLE: ['LISTENING', 'UNDERSTOOD', 'FAULT'],
     LISTENING: ['HEARING', 'UNDERSTOOD', 'IDLE', 'FAULT'],
     HEARING: ['HEARING', 'UNDERSTOOD', 'IDLE', 'FAULT'],
     UNDERSTOOD: ['THINKING', 'WORKING', 'RESPONDING', 'INTERRUPTED', 'IDLE', 'FAULT'],
     THINKING: ['WORKING', 'RESPONDING', 'INTERRUPTED', 'IDLE', 'FAULT'],
     WORKING: ['WORKING', 'THINKING', 'RESPONDING', 'INTERRUPTED', 'IDLE', 'FAULT'],
     RESPONDING: ['WORKING', 'THINKING', 'INTERRUPTED', 'IDLE', 'FAULT'],
-    INTERRUPTED: ['LISTENING', 'THINKING', 'WORKING', 'RESPONDING', 'IDLE', 'FAULT'],
+    INTERRUPTED: ['LISTENING', 'UNDERSTOOD', 'THINKING', 'WORKING', 'RESPONDING', 'IDLE', 'FAULT'],
     FAULT: ['RECOVERING', 'LISTENING', 'IDLE'],
-    RECOVERING: ['IDLE', 'LISTENING', 'THINKING', 'WORKING', 'FAULT'],
+    RECOVERING: ['IDLE', 'LISTENING', 'UNDERSTOOD', 'THINKING', 'WORKING', 'FAULT'],
   };
 
   // The words the rest of the system still speaks — the page's own `stage.dataset.state`, and
@@ -77,7 +77,10 @@
     READY: 'IDLE', IDLE: 'IDLE',
     LISTENING: 'LISTENING',
     HEARING: 'HEARING',
-    TRANSCRIBING: 'UNDERSTOOD',   // the hold is over; the Mac is settling what it heard
+    // The hold is over and the Mac is still settling the words. That is not UNDERSTOOD —
+    // nothing is understood until the transcript is on screen — and the caption has always
+    // said so out loud: "Heard / Working out what you said".
+    TRANSCRIBING: 'HEARING',
     UNDERSTOOD: 'UNDERSTOOD',
     THINKING: 'THINKING',
     'CHECKING SHOPIFY': 'WORKING',
@@ -181,8 +184,18 @@
       return go('HEARING', 'partial speech');
     }
 
-    // The pointer is up and the transcript has settled. Release is the instant the owner
-    // starts waiting, so every remaining mark is measured from it.
+    // The thumb lifted. Deliberately NOT a transition: what CLIVE knows has not changed,
+    // only who is waiting. It is the instant the owner starts waiting, though, so it is the
+    // origin of every remaining measurement and it is marked the moment it happens rather
+    // than backdated from whatever lands next.
+    function released() {
+      if (!marks.releasedAt) marks.releasedAt = now();
+      return marks.releasedAt;
+    }
+
+    // The transcript has settled on screen. On this tablet that is the Mac's answer arriving,
+    // not the pointer going up — invariant 4 asks for the words to be VISIBLE, and a state
+    // that claims understanding before them would be the screen guessing again.
     function final(chars) {
       const at = now();
       if (!marks.releasedAt) marks.releasedAt = at;
@@ -197,6 +210,26 @@
     function heardNothing(why) {
       if (!marks.releasedAt) marks.releasedAt = now();
       return go('IDLE', why || 'nothing heard');
+    }
+
+    // A question that was not spoken: a dock shortcut, a tapped suggestion, a typed ask.
+    // There was no hold, so there is nothing to acknowledge and nothing was transcribed — but
+    // the owner starts waiting here just the same, so this is the origin for its turn.
+    function asked(chars) {
+      const at = now();
+      if (IN_TURN.indexOf(state) >= 0 || state === 'UNDERSTOOD') { marks.interruptions += 1; go('INTERRUPTED', 'new question'); }
+      if (state === 'FAULT') go('RECOVERING', 'asked after fault');
+      if ((ALLOWED[state] || []).indexOf('UNDERSTOOD') < 0) {
+        refused.push({ from: state, to: 'UNDERSTOOD', reason: 'cannot ask from here' });
+        return false;
+      }
+      turn += 1;
+      marks = emptyMarks();
+      marks.releasedAt = at;
+      marks.heardChars = Number(chars) || 0;
+      go('UNDERSTOOD', 'asked without speaking');
+      marks.transcriptMs = 0;
+      return true;
     }
 
     function thinking(reason) {
@@ -279,7 +312,7 @@
       capturing: () => CAPTURING.indexOf(state) >= 0,
       heldFor: () => now() - since,
       subscribe(fn) { listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
-      pointerDown, partial, final, heardNothing,
+      pointerDown, partial, released, final, heardNothing, asked,
       thinking, working, usefulResult, responding,
       interrupt, fault, recover, idle,
       fromPresentation,
