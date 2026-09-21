@@ -21,7 +21,6 @@ from .contracts import (
 )
 from .policy import evaluate_obvious_continuation
 
-
 _EPOCH = datetime.min.replace(tzinfo=UTC)
 
 

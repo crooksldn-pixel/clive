@@ -21,7 +21,6 @@ from .contracts import (
     validate_exact_sha,
 )
 
-
 _AUTO_CONTINUE_KINDS = frozenset(
     {
         NextActionKind.CONTINUE,

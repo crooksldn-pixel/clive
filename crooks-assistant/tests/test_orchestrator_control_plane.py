@@ -26,7 +26,6 @@ from app.orchestrator.store import (
     latest_result_by_task_revision,
 )
 
-
 SHA_A = "a" * 40
 SHA_B = "b" * 40
 SHA_C = "c" * 40
@@ -183,6 +182,37 @@ def test_out_of_scope_changed_path_fails_closed() -> None:
     )
     assert decision.allowed is False
     assert "outside task scope" in decision.reason
+
+
+def test_scope_match_is_a_path_boundary_not_a_string_prefix() -> None:
+    """A sibling directory sharing a scope's name prefix is out of scope.
+
+    ``crooks-assistant/application`` merely *starts with* ``crooks-assistant/app``.
+    Matching on the raw string prefix would let it through; the boundary-aware
+    match requires the allowed path to be the whole path or a real parent of it.
+    """
+
+    task = make_task(allowed_paths=("crooks-assistant/app",))
+
+    sibling = evaluate_obvious_continuation(
+        task,
+        make_result(changed_paths=("crooks-assistant/application/secrets.py",)),
+        candidate_worker_id="fresh-review-session",
+        current_branch_head=SHA_B,
+    )
+    assert sibling.allowed is False
+    assert "outside task scope" in sibling.reason
+    assert "crooks-assistant/application/secrets.py" in sibling.reason
+
+    # Load-bearing control: the scope itself, and paths genuinely inside it,
+    # still pass — so the denial above is the boundary rule, not a broken scope.
+    inside = evaluate_obvious_continuation(
+        task,
+        make_result(changed_paths=("crooks-assistant/app", "crooks-assistant/app/main.py")),
+        candidate_worker_id="fresh-review-session",
+        current_branch_head=SHA_B,
+    )
+    assert inside.allowed is True
 
 
 def test_missing_required_evidence_blocks_review_but_allows_evidence_stage() -> None:
@@ -529,6 +559,70 @@ def test_scheduler_respects_controller_owned_owner_gate() -> None:
         workers=[WorkerProfile(worker_id="reviewer-1", roles=("independent-reviewer",))],
     )
     assert dispatch is None
+
+
+def _controller_dispatch(runtime: TaskRuntimeState, task: EngineeringTask):
+    candidate = ContinuationCandidate(
+        task=task,
+        result=make_result(task_id=task.task_id),
+        current_branch_head=SHA_B,
+        runtime_state=runtime,
+        latest_task_revision=task.revision,
+    )
+    return select_obvious_dispatch(
+        candidates=[candidate],
+        workers=[WorkerProfile(worker_id="reviewer-1", roles=("independent-reviewer",))],
+    )
+
+
+def test_owner_gate_alone_stops_an_otherwise_dispatchable_task() -> None:
+    """``owner_gate`` must block on its own, with no other hostile signal.
+
+    Status is dispatchable and the blocker class is NONE, so the only thing
+    standing between this task and a worker is the owner's gate.
+    """
+
+    task = make_task(task_id="owner-gate-only", stream_id="stream-a")
+    gated = TaskRuntimeState(
+        task_id=task.task_id,
+        task_revision=task.revision,
+        status=TaskStatus.EVIDENCE_READY,
+        transition_seq=3,
+        blocker_class=BlockerClass.NONE,
+        owner_gate=True,
+        updated_at=NOW + timedelta(minutes=11),
+    )
+    assert _controller_dispatch(gated, task) is None
+
+    # Load-bearing control: lower the gate and nothing else, and the very same
+    # task dispatches — so the refusal above is the owner_gate guard alone.
+    ungated = gated.model_copy(update={"owner_gate": False})
+    assert _controller_dispatch(ungated, task) is not None
+
+
+def test_deterministic_blocker_alone_stops_an_otherwise_dispatchable_task() -> None:
+    """``blocker_class`` must block on its own, with no owner gate and no
+    undispatchable status to hide behind."""
+
+    task = make_task(task_id="blocker-only", stream_id="stream-a")
+    blocked = TaskRuntimeState(
+        task_id=task.task_id,
+        task_revision=task.revision,
+        status=TaskStatus.EVIDENCE_READY,
+        transition_seq=3,
+        blocker_class=BlockerClass.DETERMINISTIC,
+        blocker_reason="controller recorded a reproducible failure",
+        owner_gate=False,
+        updated_at=NOW + timedelta(minutes=11),
+    )
+    assert _controller_dispatch(blocked, task) is None
+
+    # Load-bearing control: clear the blocker and nothing else, and the very
+    # same task dispatches — so the refusal above is the blocker_class guard.
+    cleared = blocked.model_copy(
+        update={"blocker_class": BlockerClass.NONE, "blocker_reason": None}
+    )
+    assert _controller_dispatch(cleared, task) is not None
 
 
 def test_scheduler_rejects_superseded_task_revision() -> None:

@@ -16,7 +16,6 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _SAFE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
 
