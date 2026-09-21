@@ -20,7 +20,7 @@ from .store import latest_result_by_task_revision
 
 def _stage_from_result(task: EngineeringTask, result: EngineeringResult | None) -> TaskStatus:
     if result is None:
-        return task.status
+        return TaskStatus.READY
 
     if result.owner_decision_required or result.next_action.kind is NextActionKind.OWNER_GATE:
         return TaskStatus.OWNER_GATE
