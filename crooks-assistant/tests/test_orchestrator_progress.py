@@ -12,8 +12,11 @@ from app.orchestrator.contracts import (
     ProgressHealth,
     ProgressState,
     TaskKind,
+    TaskRuntimeState,
+    TaskStatus,
 )
 from app.orchestrator.progress import assess_progress, project_progress, render_progress_table
+from app.orchestrator.state import build_active_state
 from app.orchestrator.store import JsonRecordStore, ProgressSequenceError, RecordConflictError
 from app.orchestrator.supervision import SupervisorAction, choose_supervisor_hint
 
@@ -212,6 +215,28 @@ def test_projection_exposes_current_work_completed_steps_evidence_and_next() -> 
     assert snapshot.last_heartbeat_at == NOW + timedelta(minutes=5)
 
 
+
+def test_projector_rejects_time_reversal_and_events_after_completion() -> None:
+    backwards = [
+        event(0, ProgressEventKind.ATTEMPT_STARTED, "Start"),
+        event(
+            1,
+            ProgressEventKind.HEARTBEAT,
+            "Earlier heartbeat",
+            occurred_at=NOW - timedelta(seconds=1),
+        ),
+    ]
+    with pytest.raises(ValueError, match="time cannot move backwards"):
+        project_progress(task=make_task(), events=backwards)
+
+    after_done = [
+        event(0, ProgressEventKind.ATTEMPT_STARTED, "Start"),
+        event(1, ProgressEventKind.ATTEMPT_COMPLETED, "Done"),
+        event(2, ProgressEventKind.HEARTBEAT, "Late heartbeat"),
+    ]
+    with pytest.raises(ValueError, match="after attempt completion"):
+        project_progress(task=make_task(), events=after_done)
+
 def test_heartbeat_proves_liveness_but_does_not_fake_meaningful_progress() -> None:
     events = [
         event(0, ProgressEventKind.ATTEMPT_STARTED, "Start"),
@@ -322,6 +347,92 @@ def test_progress_table_shows_useful_operational_context() -> None:
     assert "control-plane" in table
     assert "| 1 | 0 |" in table
 
+
+
+def test_active_state_carries_current_attempt_progress_for_hourly_controller() -> None:
+    task = make_task()
+    events = [
+        event(0, ProgressEventKind.ATTEMPT_STARTED, "Resolving Git truth"),
+        event(
+            1,
+            ProgressEventKind.STEP_COMPLETED,
+            "Git truth resolved",
+            step_id="git",
+            step_label="Resolve Git truth",
+        ),
+        event(
+            2,
+            ProgressEventKind.EVIDENCE_RECORDED,
+            "Recorded branch evidence",
+            evidence_ref="git:exact-head",
+        ),
+        event(
+            3,
+            ProgressEventKind.STEP_STARTED,
+            "Running adversarial tests",
+            step_id="tests",
+            step_label="Run adversarial tests",
+            next_known_action="Independent review",
+        ),
+    ]
+    snapshot = project_progress(task=task, events=events)
+    runtime = TaskRuntimeState(
+        task_id=task.task_id,
+        task_revision=task.revision,
+        status=TaskStatus.RUNNING,
+        transition_seq=1,
+        attempt_id="attempt-1",
+        worker_id="worker-1",
+        updated_at=NOW + timedelta(minutes=3),
+    )
+
+    active = build_active_state(
+        tasks=[task],
+        results=[],
+        task_states=[runtime],
+        progress_snapshots=[snapshot],
+        branch_heads={task.target_branch: SHA_A},
+        generated_at=NOW + timedelta(minutes=4),
+    )
+
+    stream = active.streams[0]
+    assert stream.progress_health is ProgressHealth.PROGRESSING
+    assert stream.current_activity == "Running adversarial tests"
+    assert stream.completed_step_count == 1
+    assert stream.evidence_count == 1
+    assert stream.next_known_action == "Independent review"
+    assert stream.last_progress_at == NOW + timedelta(minutes=2)
+
+
+def test_active_state_does_not_attach_progress_from_wrong_attempt() -> None:
+    task = make_task()
+    snapshot = project_progress(
+        task=task,
+        events=[event(0, ProgressEventKind.ATTEMPT_STARTED, "Old attempt")],
+    )
+    runtime = TaskRuntimeState(
+        task_id=task.task_id,
+        task_revision=task.revision,
+        status=TaskStatus.RUNNING,
+        transition_seq=1,
+        attempt_id="attempt-2",
+        worker_id="worker-2",
+        updated_at=NOW + timedelta(minutes=1),
+    )
+
+    active = build_active_state(
+        tasks=[task],
+        results=[],
+        task_states=[runtime],
+        progress_snapshots=[snapshot],
+        branch_heads={task.target_branch: SHA_A},
+        generated_at=NOW + timedelta(minutes=2),
+    )
+
+    stream = active.streams[0]
+    assert stream.current_activity is None
+    assert stream.progress_health is None
+    assert stream.completed_step_count == 0
 
 def test_supervisor_uses_hourly_window_to_schedule_around_progress() -> None:
     snapshot = project_progress(
