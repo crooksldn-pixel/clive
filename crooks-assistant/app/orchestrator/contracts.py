@@ -18,6 +18,26 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_SAFE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
+
+
+def _validate_component(value: str) -> str:
+    if not _SAFE_COMPONENT_RE.fullmatch(value) or value in {".", ".."}:
+        raise ValueError("must be a safe single record identifier component")
+    return value
+
+
+def _validate_repo_path(value: str) -> str:
+    if not value or value.startswith("/") or "\\" in value:
+        raise ValueError("must be a repository-relative POSIX path")
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("repository path must not contain empty, '.' or '..' segments")
+    return "/".join(parts)
+
+
+def validate_exact_sha(value: str) -> str:
+    return _validate_sha(value)
 
 
 def _validate_sha(value: str) -> str:
@@ -97,6 +117,11 @@ class EngineeringTask(StrictRecord):
     priority: int = Field(default=0, ge=-100, le=100)
     created_at: datetime
 
+    @field_validator("task_id")
+    @classmethod
+    def validate_task_id(cls, value: str) -> str:
+        return _validate_component(value)
+
     @field_validator("base_sha", "product_memory_sha")
     @classmethod
     def validate_sha(cls, value: str) -> str:
@@ -109,7 +134,12 @@ class EngineeringTask(StrictRecord):
             raise ValueError("timestamp must be timezone-aware")
         return value
 
-    @field_validator("allowed_paths", "prohibited_actions", "required_evidence")
+    @field_validator("allowed_paths")
+    @classmethod
+    def validate_allowed_paths(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(_validate_repo_path(item) for item in value)
+
+    @field_validator("prohibited_actions", "required_evidence")
     @classmethod
     def no_empty_entries(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(not item.strip() for item in value):
@@ -134,6 +164,16 @@ class TaskRuntimeState(StrictRecord):
     owner_gate: bool = False
     updated_at: datetime
 
+    @field_validator("task_id")
+    @classmethod
+    def validate_task_id(cls, value: str) -> str:
+        return _validate_component(value)
+
+    @field_validator("attempt_id")
+    @classmethod
+    def validate_attempt_id(cls, value: str | None) -> str | None:
+        return None if value is None else _validate_component(value)
+
     @field_validator("updated_at")
     @classmethod
     def timezone_required(cls, value: datetime) -> datetime:
@@ -142,7 +182,7 @@ class TaskRuntimeState(StrictRecord):
         return value
 
     @model_validator(mode="after")
-    def blocker_fields_are_consistent(self) -> "TaskRuntimeState":
+    def blocker_fields_are_consistent(self) -> TaskRuntimeState:
         if self.blocker_class is BlockerClass.NONE and self.blocker_reason is not None:
             raise ValueError("blocker_reason requires a non-none blocker_class")
         if self.blocker_class is not BlockerClass.NONE and not self.blocker_reason:
@@ -180,7 +220,7 @@ class NextAction(StrictRecord):
         return None if value is None else _validate_sha(value)
 
     @model_validator(mode="after")
-    def subject_required_for_candidate_actions(self) -> "NextAction":
+    def subject_required_for_candidate_actions(self) -> NextAction:
         if self.kind in {
             NextActionKind.REVIEW,
             NextActionKind.REPAIR,
@@ -209,6 +249,16 @@ class EngineeringResult(StrictRecord):
     next_action: NextAction
     completed_at: datetime
 
+    @field_validator("task_id", "attempt_id")
+    @classmethod
+    def validate_record_component(cls, value: str) -> str:
+        return _validate_component(value)
+
+    @field_validator("changed_paths")
+    @classmethod
+    def validate_changed_paths(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(_validate_repo_path(item) for item in value)
+
     @field_validator("base_sha", "result_sha")
     @classmethod
     def validate_result_sha(cls, value: str | None) -> str | None:
@@ -222,7 +272,9 @@ class EngineeringResult(StrictRecord):
         return value
 
     @model_validator(mode="after")
-    def blocker_fields_are_consistent(self) -> "EngineeringResult":
+    def blocker_fields_are_consistent(self) -> EngineeringResult:
+        if self.changed_paths and self.result_sha is None:
+            raise ValueError("changed_paths require an exact result_sha")
         if self.blocker_class is BlockerClass.NONE and self.blocker_reason is not None:
             raise ValueError("blocker_reason requires a non-none blocker_class")
         if self.blocker_class is not BlockerClass.NONE and not self.blocker_reason:
