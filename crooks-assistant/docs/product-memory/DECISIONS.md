@@ -675,7 +675,31 @@ Detailed doctrine: [CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md](./CLIVE_INTENT_TO_E
 
 **Reason:** The intended product removes human glue work — remembering, checking, translating, routing, coordinating, chasing and reconstructing context — rather than merely aggregating applications. The existing multi-API, dynamic-UI, persistent-memory, staff-workspace and self-improvement directions become coherent under this model.
 
-**Consequences:** Future features should be challenged against whether they reduce human coordination/attention while preserving actual intention, authority and evidence. Deterministic fast paths remain valuable for genuinely explicit objectives, but keyword-triggered fixed outcomes must not substitute for contextual understanding. This decision does **not** alter DEC-046/047 sequencing, adopt any freeze candidate, authorise deployment, grant credentials/connectors, expand privileges or weaken action safety.\n---\n\n## DEC-052 — Preserve CLIVE's mission while making its mechanisms replaceable\n\n**Date:** 2026-09-21  \n**Status:** ACTIVE PRODUCT / ARCHITECTURE DIRECTION  \n**Source:** explicit owner direction after long-horizon product-philosophy discussion\n\n**Decision:** CLIVE must be designed for a permanently moving technological and organisational frontier. Its identity is attached to the durable problem — preserving human intention through distributed execution — rather than to today's models, APIs, UI, databases, orchestration or connectors.\n\nLarge organisations already exhibit distributed organisational agency across people, software, policies, records, incentives and delegated authority. CLIVE should progressively make relevant organisational cognition more explicit: objectives, evidence, unresolved state, dependencies, authority, capabilities, consequences and verified outcomes. The aim is not centralised machine control; it is reducing the human coordination tax while preserving human judgement and consequential authority.\n\nThere is no meaningful final \"100% complete\" CLIVE. Capability is a moving frontier. The architecture should preserve durable semantics such as objectives, identity/relationships, evidence/provenance, authority, time, uncertainty, commitments/dependencies, capabilities, outcomes and verification while allowing implementation mechanisms to be replaced or deleted.\n\nCore architectural rule: **preserve accumulated understanding; make accumulated implementation expendable.** A technology that makes part of CLIVE obsolete should normally be treated as an opportunity to simplify or move the product's differentiation upward, not as something the old implementation must resist.\n\nAdaptability remains controlled, not arbitrary self-modification: observed limitation → candidate change → isolated implementation/experiment → adversarial evaluation → independent review → controlled adoption. Tests protect active desired properties, not historical mechanisms. Components survive only while they retain a unique responsibility.\n\nMaturity principle: **no reasonable objective should leave CLIVE without a useful next move.** When completion is impossible, the next move may be investigation, composition, delegation, missing-evidence request, human decision, capability proposal, physical-world step or explicit authority/safety boundary.\n\nDetailed doctrine: [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md).\n\n**Reason:** The owner explicitly identified technological obsolescence and organisational inertia as central risks. A system intended to mediate intention and execution over a long horizon must be capable of incorporating discontinuous technological change without fossilising the mechanisms that happened to work in 2026.\n\n**Consequences:** Major architecture choices should identify the durable semantic contract separately from the replaceable mechanism and should state deletion/replacement conditions where useful. This strengthens EVOLUTION_POLICY and DEC-051; it does not waive DEC-046/047, adopt a freeze candidate, authorise deployment, credentials/connectors, privileges, business writes, or weaken action-safety/evidence gates.\n\n
+**Consequences:** Future features should be challenged against whether they reduce human coordination/attention while preserving actual intention, authority and evidence. Deterministic fast paths remain valuable for genuinely explicit objectives, but keyword-triggered fixed outcomes must not substitute for contextual understanding. This decision does **not** alter DEC-046/047 sequencing, adopt any freeze candidate, authorise deployment, grant credentials/connectors, expand privileges or weaken action safety.\n---\n\n## DEC-052 — Preserve CLIVE's mission while making its mechanisms replaceable
+
+**Date:** 2026-09-21  
+**Status:** ACTIVE PRODUCT / ARCHITECTURE DIRECTION  
+**Source:** explicit owner direction after long-horizon product-philosophy discussion
+
+**Decision:** CLIVE must be designed for a permanently moving technological and organisational frontier. Its identity is attached to the durable problem — preserving human intention through distributed execution — rather than to today's models, APIs, UI, databases, orchestration or connectors.
+
+Large organisations already exhibit distributed organisational agency across people, software, policies, records, incentives and delegated authority. CLIVE should progressively make relevant organisational cognition more explicit: objectives, evidence, unresolved state, dependencies, authority, capabilities, consequences and verified outcomes. The aim is not centralised machine control; it is reducing the human coordination tax while preserving human judgement and consequential authority.
+
+There is no meaningful final "100% complete" CLIVE. Capability is a moving frontier. The architecture should preserve durable semantics such as objectives, identity/relationships, evidence/provenance, authority, time, uncertainty, commitments/dependencies, capabilities, outcomes and verification while allowing implementation mechanisms to be replaced or deleted.
+
+Core architectural rule: **preserve accumulated understanding; make accumulated implementation expendable.** A technology that makes part of CLIVE obsolete should normally be treated as an opportunity to simplify or move the product's differentiation upward, not as something the old implementation must resist.
+
+Adaptability remains controlled, not arbitrary self-modification: observed limitation → candidate change → isolated implementation/experiment → adversarial evaluation → independent review → controlled adoption. Tests protect active desired properties, not historical mechanisms. Components survive only while they retain a unique responsibility.
+
+Maturity principle: **no reasonable objective should leave CLIVE without a useful next move.** When completion is impossible, the next move may be investigation, composition, delegation, missing-evidence request, human decision, capability proposal, physical-world step or explicit authority/safety boundary.
+
+Detailed doctrine: [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md).
+
+**Reason:** The owner explicitly identified technological obsolescence and organisational inertia as central risks. A system intended to mediate intention and execution over a long horizon must be capable of incorporating discontinuous technological change without fossilising the mechanisms that happened to work in 2026.
+
+**Consequences:** Major architecture choices should identify the durable semantic contract separately from the replaceable mechanism and should state deletion/replacement conditions where useful. This strengthens EVOLUTION_POLICY and DEC-051; it does not waive DEC-046/047, adopt a freeze candidate, authorise deployment, credentials/connectors, privileges, business writes, or weaken action-safety/evidence gates.
+
+
 
 ---
 
@@ -757,3 +781,47 @@ Do not invent percentage completion where no reliable bounded denominator exists
 **Reason:** Binary liveness wastes supervisory windows and hides whether useful work is advancing. The Orchestrator's purpose is not merely to know whether a worker process exists, but to understand enough verified operational state to coordinate useful work around it without interruption or duplication.
 
 **Consequences:** Phase 1 control-plane work should include append-only progress events, progress projection into ACTIVE_STATE, supervisor interpretation and a human-readable progress view. This decision does not authorise live watcher/systemd/runtime changes, production deployment, additional worker concurrency, new privileges, credentials, connectors, business writes or owner-only release/adoption decisions.
+
+
+---
+
+## DEC-056 — Explicit owner disagreement is durable operational evidence
+
+**Date:** 2026-09-21
+**Status:** ACTIVE PRODUCT / LEARNING DIRECTION
+**Source:** repository review of the action lifecycle plus explicit owner instruction to preserve the finding
+
+**Decision:** CLIVE must represent an owner explicitly considering and rejecting, editing or deferring a concrete proposal as first-class durable evidence.
+
+Absence is not disagreement:
+- proposal expiry means no decision was captured;
+- revocation/moving-on means the proposal was withdrawn by context;
+- neither may be counted as a decline.
+
+For consequential proposals, the learning model should distinguish at least:
+- **APPROVED** — the proposed action was accepted as presented;
+- **DECLINED** — the owner explicitly decided the proposed action should not happen;
+- **EDITED** — the action class was useful, but material execution details were changed by the owner;
+- **DEFERRED** — the action may be appropriate, but not now.
+
+This evidence should support earned autonomy, usefulness measurement, correction-burden analysis and future policy/world-model learning.
+
+The existing action audit ledger remains deliberately content-minimised. Do not weaken that safety boundary by placing free-text proposal content or customer-sensitive deltas directly into `actions.jsonl`. Instead, design a separate redacted **Judgment Ledger / Judgment Event** layer that can reference the proposal/action identity while storing only the minimum useful learning context under the existing privacy/redaction seams.
+
+A judgment event should be capable of carrying:
+- proposal/action identity and action class;
+- explicit decision outcome;
+- bounded reason code;
+- optional redacted owner explanation;
+- proposal representation or fingerprint sufficient for learning;
+- an edited replacement/delta where applicable;
+- contextual/provenance references;
+- timestamp and owner identity/authority evidence.
+
+Unknown/expired proposals are excluded from approval-rate denominators.
+
+Earned autonomy must be falsifiable. A statement such as “31/31 approved” is only valid when the denominator is defined over explicit considered decisions, not merely the subset that produced approval events.
+
+**Reason:** The current action lifecycle records successful/failed execution, expiry and revocation, but lacks a semantic state for “the owner saw this specific proposal and said no.” The observability layer can detect generic corrections and owner feedback, but that does not recover the exact proposal → judgment → preferred alternative relationship. This loses some of the highest-value business-specific evidence and makes approval-only autonomy metrics structurally biased.
+
+**Consequences:** Future action/judgment work should add explicit decline/edit/defer affordances and durable redacted judgment events before relying on approval-frequency metrics for autonomy. §22-style success criteria should incorporate usefulness/correction evidence as well as conformance. This decision does not enable production writes, alter action-authorisation semantics, weaken TTL/precondition/verification safety, or authorise collection of unredacted customer data.
