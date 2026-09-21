@@ -207,12 +207,6 @@
       <span id="recent-label" class="recent-label"></span>
       <span class="arrow" aria-hidden="true">›</span>
     </button>
-    <div class="services" id="services" aria-label="Service status" hidden>
-      <span class="service" id="svc-shopify" data-ok="unknown"><span>Shopify</span><span class="service-dot" aria-hidden="true"></span></span>
-      <span class="service" id="svc-gmail" data-ok="unknown"><span>Gmail</span><span class="service-dot" aria-hidden="true"></span></span>
-      <span class="service" id="svc-voice" data-ok="unknown"><span>Voice</span><span class="service-dot" aria-hidden="true"></span></span>
-      <span class="service" id="svc-changes" data-ok="unknown"><span>Changes</span><span class="service-dot" aria-hidden="true"></span></span>
-    </div>
   </footer>
 
 </div>
@@ -244,6 +238,18 @@
     <div id="families" class="health" role="list"></div>
 
     <h3>Diagnostics</h3>
+    <!-- The four services, at a glance. They used to sit in the idle footer, under the orb,
+         in permanent 10px capitals: four facts that are true nearly all of the time, on the
+         one screen whose whole job is to invite a question. Invariant 8 — connection and
+         service health is CONTEXTUAL; it belongs in the primary flow only when it affects
+         what the owner is trying to do, and a fault still says so there (#conn, and the
+         notification band above the wordmark). This is where the owner comes to ASK. -->
+    <div class="services" id="services" aria-label="Service status">
+      <span class="service" id="svc-shopify" data-ok="unknown"><span>Shopify</span><span class="service-dot" aria-hidden="true"></span></span>
+      <span class="service" id="svc-gmail" data-ok="unknown"><span>Gmail</span><span class="service-dot" aria-hidden="true"></span></span>
+      <span class="service" id="svc-voice" data-ok="unknown"><span>Voice</span><span class="service-dot" aria-hidden="true"></span></span>
+      <span class="service" id="svc-changes" data-ok="unknown"><span>Changes</span><span class="service-dot" aria-hidden="true"></span></span>
+    </div>
     <label class="check"><input type="checkbox" id="timing-toggle"> Show timings</label>
     <div id="health-detail" class="health" role="list"></div>
 

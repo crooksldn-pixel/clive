@@ -622,7 +622,11 @@ body[data-mode="context"] .bottom{opacity:0;pointer-events:none;transform:transl
 .recent-kicker{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-3);flex:none}
 .recent-label{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;font-style:italic}
 .recent .arrow{color:var(--ink-3);flex:none}
-.services{display:flex;justify-content:center;gap:26px;min-height:24px}
+/* In the Diagnostics section of the settings sheet now, not the idle footer: four facts
+   that are true nearly all of the time do not belong on the screen whose job is to
+   invite a question (V0.5 invariant 8). Wrapping, because the sheet is narrower than
+   the footer was and four pills at 26px apart would overflow it on a phone. */
+.services{display:flex;flex-wrap:wrap;gap:12px 26px;min-height:24px;margin:0 0 var(--sp-3)}
 .service{display:inline-flex;align-items:center;gap:8px;font-size:10px;letter-spacing:.22em;color:var(--ink-4);text-transform:uppercase}
 /* Shape as well as colour: a disc is running, a square is down, a diamond is switched off,
    a ring is not known yet. */

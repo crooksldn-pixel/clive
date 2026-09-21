@@ -192,3 +192,25 @@ def test_v05_offers_no_retry_it_cannot_honour() -> None:
     assert "window.CrooksJobs.render(el.jobZone, list);" in source
     assert "onRetry" not in source
     assert "onRetry" in JOBS.read_text(encoding="utf-8"), "the affordance exists for when it can be honoured"
+
+
+def test_v05_moves_persistent_service_status_out_of_the_idle_surface() -> None:
+    """Slice D / invariant 8: connection and service health is contextual. The four service
+    pills leave the idle footer for Diagnostics; a fault still reaches the primary flow."""
+    index = INDEX.read_text(encoding="utf-8")
+
+    footer = index[index.index("<footer class=\"bottom\">"):index.index("</footer>")]
+    assert 'id="services"' not in footer
+    for name in ("svc-shopify", "svc-gmail", "svc-voice", "svc-changes"):
+        assert name not in footer, f"{name} is still on the idle surface"
+        assert name in index, f"{name} was deleted rather than moved"
+
+    # In the settings sheet, under Diagnostics, and no longer hidden — the owner opened it.
+    sheet = index[index.index('<dialog id="settings"'):]
+    diagnostics = sheet[sheet.index("<h3>Diagnostics</h3>"):sheet.index("<h3>Conversation</h3>")]
+    assert '<div class="services" id="services" aria-label="Service status">' in diagnostics
+    assert "svc-shopify" in diagnostics and "svc-changes" in diagnostics
+
+    # A fault in the current objective still has somewhere to appear in the main flow.
+    assert 'id="conn"' in index[:index.index("<main")]
+    assert 'id="notes-global"' in index
