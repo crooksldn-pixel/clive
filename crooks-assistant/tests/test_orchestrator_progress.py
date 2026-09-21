@@ -490,8 +490,11 @@ def test_active_state_carries_current_attempt_progress_for_hourly_controller() -
     stream = active.streams[0]
     assert stream.progress_health is ProgressHealth.PROGRESSING
     assert stream.current_activity == "Running adversarial tests"
+    assert stream.active_step_label == "Run adversarial tests"
     assert stream.completed_step_count == 1
+    assert stream.completed_step_labels == ("Resolve Git truth",)
     assert stream.evidence_count == 1
+    assert stream.evidence_refs == ("git:exact-head",)
     assert stream.next_known_action == "Independent review"
     assert stream.last_progress_at == NOW + timedelta(minutes=2)
 
