@@ -717,6 +717,7 @@ The next repository implementation should move toward:
 - scheduler-enforced reviewer independence;
 - one task = one isolated worktree = one persistent worker session = one candidate;
 - event-driven continuation immediately after completion;
+- policy-validated obvious continuation: if the next stage is mechanically implied by the same authorised bounded objective, continue without waiting for owner/hourly approval; stop when scope, authority, safety, product direction or deployment changes;
 - hourly GPT supervision as reconciliation/stall recovery rather than the normal continuation clock;
 - generated active engineering state separate from curated product memory;
 - explicit deterministic/transient/obsolete/owner-only blocker classes;
