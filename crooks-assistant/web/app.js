@@ -222,7 +222,7 @@ function noteRunningTool(name) {
   if (runningJob === name) return;
   if (runningJob) jobs.done(runningJob);
   runningJob = String(name);
-  jobs.start(runningJob, words[0], words[1]);
+  jobs.note(runningJob, { verb: words[0], object: words[1], state: 'WORKING', writes: words[2] === true });
 }
 
 // The turn is over. Whatever was still named as running has finished with it, and the strip
@@ -266,16 +266,56 @@ function setState(state, label, sub) {
 
 // What the Mac is doing, in the owner's words. The /state poll carries the running tool's
 // name; the screen never shows a tool name.
-// A verb and an object, never a tool name (invariant 7). One table, read by two surfaces:
-// the sub-line under the orb joins the pair into a sentence, and the job strip keeps them
+// What the Mac is doing, in the owner's words. A verb, an object, and whether it CHANGES
+// something — never a tool name (invariant 7). One table, read by two surfaces: the sub-line
+// under the orb joins the verb and the object into a sentence, and the job strip keeps them
 // apart so a long object can ellipse without taking the verb with it.
+//
+// Every tool the Mac can run has a row, and nothing here names a tool it cannot. That is a
+// gate, not an aspiration: tests/test_live_experience_v05_contract.py reads this table against
+// the live registry and fails on either side of the mismatch. It found two rows for tools that
+// had been gone for some time (`shopify_customer_orders`, `gmail_recent`) and thirty-nine
+// tools with nothing to say — which on the job strip meant most of a turn's work showing as
+// no work at all.
+//
+// The third element is the write flag. Nothing reads it yet; the moment a retry is offered it
+// is what stops the tablet from offering to re-run a refund (web/jobs.js, invariant 9).
 const DETAIL_WORDS = {
+  // Reading the shop
   shopify_find_order: ['Finding', 'the order'], shopify_order_detail: ['Reading', 'the order'], shopify_list_orders: ['Listing', 'orders'],
-  shopify_find_customer: ['Finding', 'the customer'], shopify_customer_orders: ['Reading', 'their orders'], shopify_sales_summary: ['Adding up', 'sales'],
-  shopify_inventory: ['Checking', 'stock'], shopify_order_note_append: ['Preparing', 'the note'], shopify_customer_history: ['Reading', 'their history'],
-  gmail_search: ['Searching', 'the inbox'], gmail_read_thread: ['Reading', 'the thread'], gmail_recent: ['Reading', 'recent mail'],
+  shopify_order_open: ['Opening', 'the order'], shopify_order_address: ['Reading', "the order's address"],
+  shopify_find_customer: ['Finding', 'the customer'], shopify_customer_history: ['Reading', 'their history'],
+  shopify_sales_summary: ['Adding up', 'sales'], shopify_inventory: ['Checking', 'stock'],
+  shopify_product_info: ['Reading', 'the product'], shopify_variant_search: ['Finding', 'the size'],
+  shopify_abandoned_checkouts: ['Checking', 'abandoned baskets'], shopify_store_credit: ['Checking', 'store credit'],
+  shopify_discount_check: ['Checking', 'the discount'], shopify_discount_open: ['Opening', 'the discount'],
+  // Changing the shop
+  shopify_order_note_append: ['Preparing', 'the note', true], shopify_order_tags_add: ['Tagging', 'the order', true],
+  shopify_order_tags_remove: ['Removing', "the order's tag", true], shopify_order_add_item: ['Adding', 'the item', true],
+  shopify_order_cancel: ['Cancelling', 'the order', true], shopify_order_create: ['Creating', 'the order', true],
+  shopify_order_fulfil: ['Fulfilling', 'the order', true], shopify_refund_create: ['Refunding', 'the order', true],
+  shopify_order_shipping_address_set: ['Changing', 'the delivery address', true],
+  shopify_fulfillment_tracking_set: ['Adding', 'the tracking number', true],
+  shopify_inventory_adjust: ['Changing', 'the stock count', true], shopify_store_credit_add: ['Adding', 'store credit', true],
+  shopify_discount_create: ['Creating', 'the discount', true],
+  // Reading the inbox
+  gmail_search: ['Searching', 'the inbox'], gmail_read_thread: ['Reading', 'the thread'],
+  gmail_find_in_email: ['Searching', 'the message'], gmail_compose_open: ['Opening', 'the reply'],
+  gmail_compose_fill: ['Writing', 'the reply'],
+  // Changing the inbox
+  gmail_draft_reply: ['Drafting', 'the reply', true], gmail_draft_new: ['Drafting', 'a new message', true],
+  gmail_send_reply: ['Sending', 'the reply', true], gmail_send_new: ['Sending', 'the message', true],
+  gmail_thread_archive: ['Archiving', 'the thread', true],
+  // Several at once
+  batch_email_drafts: ['Drafting', 'the replies', true], batch_email_send: ['Sending', 'the replies', true],
+  batch_email_archive: ['Archiving', 'the messages', true], batch_order_tags_add: ['Tagging', 'the orders', true],
+  batch_order_tags_remove: ['Removing', "the orders' tags", true],
+  // The query layer, which answers without naming one shop read
+  commerce_query: ['Reading', 'the shop'], commerce_summary: ['Summarising', 'the shop'],
+  commerce_aggregate: ['Adding up', 'the numbers'], commerce_capabilities: ['Checking', 'what the shop allows'],
+  email_query: ['Reading', 'the inbox'], inventory_query: ['Checking', 'stock'],
 };
-const detailSentence = (name) => (DETAIL_WORDS[name] ? DETAIL_WORDS[name].join(' ') : undefined);
+const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
 let turnStartedAt = 0;
 // "2 of 3 read" — the Mac's own count of the reads it is making for this answer

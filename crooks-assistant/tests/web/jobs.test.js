@@ -150,6 +150,23 @@ test('a retry is offered for a read, and refused for anything that changes the s
   assert.equal(b.j.get('reply').retryable, false, 'this file has no authority to re-run a write');
 });
 
+test('a job remembers that it writes, so a later failure cannot make a refund re-runnable', () => {
+  const b = board();
+  // Declared once, where the work starts — which is where the page actually knows it.
+  b.j.note('refund', { verb: 'Refunding', object: 'the order', state: 'WORKING', writes: true });
+  assert.equal(b.j.get('refund').writes, true);
+  // And the failure, reported later by something that has long forgotten, says only "retry".
+  b.j.fail('refund', 'Shopify refused', true);
+  assert.equal(b.j.get('refund').retryable, false);
+});
+
+test('a read stays a read: a later report cannot turn one into a write', () => {
+  const b = board();
+  b.j.note('orders', { verb: 'Checking', object: "today's orders", state: 'WORKING', writes: false });
+  b.j.fail('orders', 'Shopify timed out', true);
+  assert.equal(b.j.get('orders').retryable, true);
+});
+
 test('a label that will not fit one line is cut, never wrapped into a paragraph', () => {
   const b = board();
   b.j.start('long', 'Checking', 'every order placed by every customer since the shop opened');

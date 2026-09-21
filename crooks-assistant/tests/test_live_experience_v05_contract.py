@@ -167,22 +167,75 @@ def test_v05_job_surface_keeps_the_liquid_glass_rules() -> None:
     assert "html[data-lite] .job-list{-webkit-backdrop-filter:none;backdrop-filter:none}" in style
 
 
-def test_v05_job_labels_never_carry_a_tool_name() -> None:
-    """Invariant 7: architecture must not leak into interaction language."""
+def _detail_words() -> dict[str, tuple[str, str, bool]]:
+    """The tablet's table of what the Mac is doing, read out of web/app.js."""
     source = APP.read_text(encoding="utf-8")
     table = source[source.index("const DETAIL_WORDS = {"):]
-    table = table[:table.index("};")]
-    # Every entry is a tool name mapped to a verb and an object — the pair the strip draws.
-    pairs = re.findall(r"(\w+): \[('[^']+'), ('[^']+')\]", table)
-    assert len(pairs) >= 12
-    for name, verb, obj in pairs:
-        assert "_" not in verb and "_" not in obj, f"{name} leaks its tool name onto the glass"
+    table = table[:table.index("\n};")]
+    out: dict[str, tuple[str, str, bool]] = {}
+    for name, verb, obj, writes in re.findall(
+        r"(\w+): \[('[^']+'|\"[^\"]+\"), ('[^']+'|\"[^\"]+\")(, true)?\]", table
+    ):
+        out[name] = (verb.strip("'\""), obj.strip("'\""), bool(writes))
+    return out
 
-    # The strip is fed from the tool the Mac says is running, and the previous one is finished
-    # by that fact rather than by a guess.
-    assert "if (runningJob) jobs.done(runningJob);" in source
+
+def test_v05_job_labels_never_carry_a_tool_name() -> None:
+    """Invariant 7: architecture must not leak into interaction language."""
+    words = _detail_words()
+    assert len(words) >= 40
+    for name, (verb, obj, _writes) in words.items():
+        for part in (verb, obj):
+            assert "_" not in part, f"{name} leaks its tool name onto the glass"
+            assert not part.lower().startswith(("shopify", "gmail", "commerce", "batch")), \
+                f"{name} names the vendor on the glass: {part!r}"
+        assert verb[:1].isupper() and verb[:1].isalpha(), f"{name} has no verb"
+        assert obj.strip(), f"{name} has no object"
+
+
+def test_v05_every_tool_the_mac_can_run_has_words_and_no_others() -> None:
+    """The job strip is only as honest as this table. A tool with no row shows as no work at
+    all, which on a turn of four reads means most of it invisible — and a row for a tool the
+    Mac no longer has is a promise about something that cannot happen.
+
+    Both were true when this was first run: two rows named tools that had been gone for some
+    time, and thirty-nine tools had nothing to say."""
+    from experience import tool_matrix
+
+    tool_matrix.load()
+    from app.tools import registry
+
+    registered = set(registry.names())
+    described = set(_detail_words())
+    assert not (registered - described), \
+        "the Mac can run these and the tablet has no words for them: " + ", ".join(sorted(registered - described))
+    assert not (described - registered), \
+        "the tablet has words for tools the Mac does not have: " + ", ".join(sorted(described - registered))
+
+
+def test_v05_every_tool_that_changes_the_shop_is_marked_as_one() -> None:
+    """Invariant 9. Nothing reads the write flag yet; the moment a retry is offered it is what
+    stops the tablet offering to re-run a refund, so it has to be right before then."""
+    words = _detail_words()
+    # The unambiguous ones, by the verb the table itself uses.
+    for name, (verb, _obj, writes) in words.items():
+        if verb in ("Sending", "Refunding", "Cancelling", "Fulfilling", "Tagging", "Archiving", "Drafting"):
+            assert writes, f"{name} says {verb!r} and is not marked as changing anything"
+        if verb in ("Reading", "Listing", "Finding", "Searching", "Summarising", "Adding up"):
+            assert not writes, f"{name} says {verb!r} and is marked as changing something"
+
+
+def test_v05_jobs_are_derived_from_what_the_mac_says_is_running() -> None:
+    """/state names one running tool at a time, so a tool that was running and is not any more
+    has finished. That is the whole derivation, and it is what makes two reads show as two
+    jobs completing in the order they really completed."""
+    source = APP.read_text(encoding="utf-8")
     assert "noteRunningTool(data.detail);" in source
+    assert "if (runningJob) jobs.done(runningJob);" in source
     assert "endJobs();" in source
+    # And the work's own nature travels with it, so a failure reported later cannot make a
+    # refund look re-runnable.
+    assert "writes: words[2] === true" in source
 
 
 def test_v05_offers_no_retry_it_cannot_honour() -> None:

@@ -66,7 +66,7 @@
         if (jobs.size >= MAX_JOBS) return null;
         job = {
           id: key, verb: '', object: '', state: 'QUEUED', summary: '', reason: '',
-          retryable: false, represented: false, startedAt: now(), endedAt: 0,
+          writes: false, retryable: false, represented: false, startedAt: now(), endedAt: 0,
         };
         jobs.set(key, job);
       }
@@ -74,10 +74,15 @@
       if (patch.object !== undefined) job.object = String(patch.object);
       if (patch.summary !== undefined) job.summary = String(patch.summary);
       if (patch.reason !== undefined) job.reason = String(patch.reason);
+      // Whether this job CHANGES something is a property of the work, known when the work
+      // starts — not something the caller has to remember to repeat at the moment it fails.
+      // It was a parameter of the retryable line once, and a failure reported without it
+      // would have quietly made a refund re-runnable.
+      if (patch.writes !== undefined) job.writes = Boolean(patch.writes) || job.writes;
       // Only a READ may be retried from here. A job that changes the shop goes back through
       // the proposal and confirmation path or not at all — this file has no authority to
       // re-run a write, and offering a button that looks like it does would be a lie.
-      if (patch.retryable !== undefined) job.retryable = Boolean(patch.retryable) && patch.writes !== true;
+      if (patch.retryable !== undefined) job.retryable = Boolean(patch.retryable) && !job.writes;
       if (patch.state !== undefined && STATES.indexOf(patch.state) >= 0) {
         // A finished job is finished. A late "still working" from a poll that was already in
         // flight when the answer landed must not reopen it.
