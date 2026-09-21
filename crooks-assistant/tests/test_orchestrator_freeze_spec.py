@@ -1540,7 +1540,14 @@ NON_HANDLE_WRITE_SUBJECTS = (
 # its lifetime; that number is derivable from §3A independently of any wording about the handle,
 # by counting the edges that assert a group is created. An unsafe second controller-created group
 # therefore fails on a second, disjoint dimension even if the handle prose is rephrased.
-GROUP_NOUN_RE = re.compile(r"(?<![\w-])(?:process[\s-]group|cgroup|group)(?![\w-])", re.IGNORECASE)
+# M-05 — the noun must be recognised in the plural too. `process groups`, `cgroups` and `groups`
+# matched *nothing* here, so a creation phrased in the plural ("two further process groups are
+# created") produced no group noun in the verb's segment and was therefore not a creation at all:
+# a second group could be added to any §3A row and the derived count never moved. Plurality is also
+# the signal `_asserted_group_count` needs, so the `s` is captured rather than merely tolerated.
+GROUP_NOUN_RE = re.compile(
+    r"(?<![\w-])(?:process[\s-]groups?|cgroups?|groups?)(?![\w-])", re.IGNORECASE
+)
 # M-02 — the derivation was past-participle-only and noun-before-verb-only, so present-tense
 # "the controller creates a second process group", ordinary creation synonyms (`instantiated`,
 # `provisioned`, `opened`) and object-after-verb phrasing ("placed into a newly created group")
@@ -1858,6 +1865,11 @@ def _classify_handle_clause(clause: str, established: bool) -> tuple[str, int]:
     The count is zero unless the verdict is `WRITES`, and never less than one when it is: a clause
     the classifier calls a write asserts at least one write even if every verb in it is discounted
     by `_is_an_independent_write_assertion`.
+
+    M-05: each surviving verb contributes the number of write events it actually asserts, not one.
+    A verb that asserts repetition without naming a number leaves the count unknown, and an
+    unknown write count is `UNCLASSIFIED` — the same answer this classifier already gives to any
+    other handle wording it cannot resolve.
     """
     marks = _referents(clause, established)
     negated = _negated_spans(clause)
@@ -1867,7 +1879,7 @@ def _classify_handle_clause(clause: str, established: bool) -> tuple[str, int]:
 
     prohibited = deferred_retirement = other_field = unattributable = False
     contested = False
-    operative: list[int] = []
+    operative: list[re.Match[str]] = []
     for verb in WRITE_VERB_RE.finditer(clause):
         if any(start <= verb.start() < stop for start, stop in negated):
             prohibited = True
@@ -1892,10 +1904,21 @@ def _classify_handle_clause(clause: str, established: bool) -> tuple[str, int]:
         ):
             deferred_retirement = True
         else:
-            operative.append(verb.start())
+            operative.append(verb)
 
     if operative:
-        asserted = sum(1 for start in operative if _is_an_independent_write_assertion(clause, start))
+        asserted = 0
+        for verb in operative:
+            if not _is_an_independent_write_assertion(clause, verb.start()):
+                continue
+            start, stop = _segment_bounds(clause, verb.start(), verb.end())
+            repetitions = _asserted_write_repetitions(
+                clause[start:stop], verb.start() - start, verb.end() - start
+            )
+            if repetitions is None:
+                # The clause says the handle is written more than once but not how many times.
+                return UNCLASSIFIED, 0
+            asserted += repetitions
         return WRITES, max(1, asserted)
     if unattributable or contested:
         return UNCLASSIFIED, 0
@@ -2097,6 +2120,183 @@ def _negation_governs_the_noun_phrase(segment: str, noun_offset: int) -> bool:
     return False
 
 
+# --------------------------------------------------------------------------------------------
+# M-05 — semantic cardinality is not verb cardinality.
+#
+# The M-03 repair counted one write assertion per operative write verb and one group creation per
+# creation verb. That is a count of *predicates*, and the freeze set declares a count of *events*
+# and of *entities*. One predication can explicitly assert more than one of either:
+#
+#   * "two process groups are created" / "creates two process groups" — one verb, two groups;
+#   * "`lease.owned_process_group_handle` is written twice" / "is committed two times" — one verb,
+#     two writes.
+#
+# Both left §3A.3's declared `1` satisfied. The repair reads the number the prose actually states:
+# a quantifier heading the created noun phrase, and a repetition adverbial governing the write
+# verb. Where the prose asserts more than one without saying how many — a bare plural, "written
+# repeatedly", "more than once" — the count is unknown, and an unknown count on a critical
+# cardinality is a red gate rather than an assumed 1.
+# --------------------------------------------------------------------------------------------
+
+_CARDINAL_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "both": 2,
+}  # fmt: skip
+# Quantifiers that pin a noun phrase at exactly one. Ordinals are here because "a second process
+# group" is one group, not two — the ordinal says *which*, the cardinality is still singular.
+_SINGULAR_QUANTIFIERS = frozenset({
+    "single", "sole", "lone", "only", "first", "second", "third", "fourth", "fifth", "sixth",
+    "next", "last", "same", "another", "new", "existing",
+})  # fmt: skip
+# Quantifiers that assert *more than one* without naming a number. Unknown critical cardinality.
+_INDEFINITE_PLURAL_QUANTIFIERS = frozenset({
+    "several", "many", "multiple", "various", "numerous", "additional", "further", "more",
+    "other", "few", "fewer", "most",
+})  # fmt: skip
+# Repetition adverbials on the write dimension: how many times one verb happens.
+_REPETITION_ADVERBS = {"once": 1, "twice": 2, "thrice": 3}
+_REPETITION_NOUNS = frozenset({"time", "times", "occasion", "occasions"})
+_INDEFINITE_REPETITION = frozenset({
+    "repeatedly", "again", "anew", "afresh", "multiple", "several", "many", "numerous",
+    "various", "additional", "further", "more",
+})  # fmt: skip
+# A repetition adverbial belongs to its verb's own predication, not to anything else in the
+# segment — M-04's lesson applied to counting. The walk is bounded and stops at a boundary word.
+_REPETITION_WORD_LIMIT = 6
+# Digits count as quantifiers: `2 process groups`, `committed 2 times`. `_WORD_RE` is letters only.
+_QUANTIFIER_TOKEN_RE = re.compile(r"\d+|[A-Za-z][A-Za-z'’-]*")
+
+
+def _quantifier_tokens_before(text: str, index: int) -> list[str]:
+    """The lower-cased words *and numerals* of `text` ending at or before `index`, in order."""
+    return [found.group().lower() for found in _QUANTIFIER_TOKEN_RE.finditer(text[:index])]
+
+
+def _quantifier_tokens_after(text: str, index: int) -> list[str]:
+    """Tokens from `index` onward, stopping at the first boundary word or the walk limit.
+
+    One boundary word is crossed rather than obeyed: a preposition immediately followed by a bare
+    repetition phrase — "committed **on two occasions**" — heads an adverbial of the verb rather
+    than ending its predication. The lookahead is deliberately exact (a number, then a repetition
+    noun) so the committed `is committed **before** the attempt's single owned process group` still
+    stops dead on `before`, where what follows is a determiner and a noun phrase.
+    """
+    pending = [found.group().lower() for found in _QUANTIFIER_TOKEN_RE.finditer(text, index)]
+    tokens: list[str] = []
+    for position, token in enumerate(pending):
+        if token in _CONSTITUENT_BOUNDARIES:
+            follows = pending[position + 1 : position + 3]
+            if not (
+                len(follows) == 2
+                and _as_cardinal(follows[0]) is not None
+                and follows[1] in _REPETITION_NOUNS
+            ):
+                break
+            continue
+        tokens.append(token)
+        if len(tokens) >= _REPETITION_WORD_LIMIT:
+            break
+    return tokens
+
+
+def _as_cardinal(token: str) -> int | None:
+    """The number this token states, if it states one."""
+    if token.isdigit():
+        return int(token)
+    return _CARDINAL_WORDS.get(token)
+
+
+def _asserted_group_count(segment: str, noun: re.Match[str]) -> int | None:
+    """How many groups the noun phrase headed at `noun` asserts, or `None` if it does not say.
+
+    The walk is the one `_negation_governs_the_noun_phrase` already uses: leftward from the noun
+    head through its own modifiers to its determiner, bounded by the same word limit and stopped
+    by the same boundary words, so a quantifier belonging to a neighbouring phrase is never read
+    as this phrase's. A cardinal or numeral is the count; a singular quantifier or a determiner is
+    one, *unless the noun is plural*, in which case the determiner says nothing about how many and
+    the count is unknown.
+    """
+    plural = noun.group().lower().endswith("s")
+    indefinite = False
+    tokens = _quantifier_tokens_before(segment, noun.start())[-_GOVERNMENT_WORD_LIMIT:]
+    for token in reversed(tokens):
+        number = _as_cardinal(token)
+        if number is not None:
+            # A stated number outranks a vague one in the same phrase: "two further process
+            # groups" says two. The walk still stops at the phrase's edge, so "more **than** two
+            # process groups" breaks on the boundary word and stays unquantified.
+            return number
+        if token in _INDEFINITE_PLURAL_QUANTIFIERS:
+            indefinite = True
+            continue
+        if token in _SINGULAR_QUANTIFIERS:
+            return None if indefinite else 1
+        if token in _NP_DETERMINERS:
+            return None if plural or indefinite else 1
+        if token in _CONSTITUENT_BOUNDARIES:
+            break
+    return None if plural or indefinite else 1
+
+
+def _asserted_write_repetitions(segment: str, verb_start: int, verb_stop: int) -> int | None:
+    """How many write events the verb at `[verb_start, verb_stop)` explicitly asserts.
+
+    One unless the verb carries a repetition adverbial of its own — "written **twice**",
+    "committed **two times**" — and `None` when the prose asserts repetition without naming a
+    number. Government, not presence: the rightward walk stops at the first boundary word, so the
+    committed `is committed **before** the attempt's single owned process group is created` sees
+    `before`, stops, and counts one. The leftward look covers only the verb's auxiliary chain,
+    which is where a preposed adverbial ("is twice committed") can sit.
+    """
+    following = _quantifier_tokens_after(segment, verb_stop)
+    preceding = []
+    for token in reversed(_quantifier_tokens_before(segment, verb_start)[-3:]):
+        preceding.append(token)
+        if not (_is_transparent_to_government(token) or token in _REPETITION_ADVERBS):
+            break
+
+    count = 1
+    for tokens in (following, preceding):
+        for index, token in enumerate(tokens):
+            if token in _INDEFINITE_REPETITION:
+                return None
+            if token in _REPETITION_ADVERBS:
+                count = max(count, _REPETITION_ADVERBS[token])
+            number = _as_cardinal(token)
+            if (
+                number is not None
+                and index + 1 < len(tokens)
+                and tokens[index + 1] in _REPETITION_NOUNS
+            ):
+                count = max(count, number)
+    return count
+
+
+def group_creations(clause: str) -> list[tuple[re.Match[str], int | None]]:
+    """`group_creation_assertions` with each verb's asserted group count beside it.
+
+    `None` is "this clause asserts a creation but does not say how many groups", which
+    `owned_process_group_creation_assertions` turns into a gate failure. When a segment holds
+    several live group nouns the largest count wins: over-counting turns the gate red, and red is
+    the direction a cardinality invariant is allowed to be wrong in.
+    """
+    creations: list[tuple[re.Match[str], int | None]] = []
+    for verb in GROUP_CREATION_RE.finditer(clause):
+        start, stop = _segment_bounds(clause, verb.start(), verb.end())
+        segment = clause[start:stop]
+        if _negation_governs_the_predication(segment, verb.start() - start):
+            continue
+        counts = [
+            _asserted_group_count(segment, noun)
+            for noun in GROUP_NOUN_RE.finditer(segment)
+            if not _negation_governs_the_noun_phrase(segment, noun.start())
+        ]
+        if not counts:
+            continue
+        creations.append((verb, None if None in counts else max(counts)))
+    return creations
+
+
 def group_creation_assertions(clause: str) -> list[re.Match[str]]:
     """Every un-negated assertion in this clause that a process group comes into existence.
 
@@ -2113,20 +2313,12 @@ def group_creation_assertions(clause: str) -> list[re.Match[str]]:
     workspace, an established lease) is not a group.
 
     One entry per verb, not per clause: M-03's lesson is that the declared cardinality is a count
-    of creations, so two creations in one sentence must count as two.
+    of creations, so two creations in one sentence must count as two. How many groups each verb
+    creates is M-05's question and is answered separately, by `group_creations`; this function
+    stays a list of verbs because that is what the row-level derivation and the `_asserts_a_group
+    _creation` predicate need, and an unquantifiable creation is still a creation.
     """
-    assertions: list[re.Match[str]] = []
-    for verb in GROUP_CREATION_RE.finditer(clause):
-        start, stop = _segment_bounds(clause, verb.start(), verb.end())
-        segment = clause[start:stop]
-        if _negation_governs_the_predication(segment, verb.start() - start):
-            continue
-        if any(
-            not _negation_governs_the_noun_phrase(segment, noun.start())
-            for noun in GROUP_NOUN_RE.finditer(segment)
-        ):
-            assertions.append(verb)
-    return assertions
+    return [verb for verb, _count in group_creations(clause)]
 
 
 def _asserts_a_group_creation(clause: str) -> bool:
@@ -2152,13 +2344,28 @@ def owned_process_group_creation_assertions(api_text: str) -> list[str]:
     one row that legitimately creates the attempt's group could absorb a second creation and
     still be counted once. §3A.3 declares a number of *groups*, not a number of rows, so the
     authoritative comparison has to be against the assertions themselves.
+
+    M-05: and a number of groups is not a number of verbs. A creation that explicitly quantifies
+    what it creates contributes that many entries, and one that asserts a plurality without
+    naming it contributes a gate failure — the same fail-closed rule the handle classifier uses
+    for wording it cannot place.
     """
     assertions: list[str] = []
+    unquantified: list[str] = []
     for row in attempt_transition_rows(api_text):
         for cell in row:
             for clause in _CLAUSE_BOUNDARY_RE.split(cell):
-                for verb in group_creation_assertions(clause):
-                    assertions.append(f"{row[0]} -> {row[2]}: {verb.group()!r} in {clause.strip()}")
+                for verb, count in group_creations(clause):
+                    entry = f"{row[0]} -> {row[2]}: {verb.group()!r} in {clause.strip()}"
+                    if count is None:
+                        unquantified.append(entry)
+                    else:
+                        assertions.extend([entry] * count)
+    assert not unquantified, (
+        "§3A asserts that process groups are created without saying how many; a declared "
+        "cardinality cannot be checked against an unstated one, so the freeze gate fails closed "
+        "rather than reading it as one:\n  " + "\n  ".join(unquantified)
+    )
     return assertions
 
 
@@ -3307,6 +3514,336 @@ def test_ambiguous_creation_semantics_fail_closed_rather_than_silent() -> None:
     assert _asserts_a_group_creation(
         "the handle is not read here and a second process group is created"
     )
+
+
+# --------------------------------------------------------------------------------------------
+# M-05 — one predication can assert more than one event.
+#
+# The M-03 repair made both dimensions count assertions instead of rows, but it counted one write
+# per operative write verb and one group per creation verb. English does not oblige a second verb
+# for a second event: "two process groups are created" and "the handle is written twice" each say
+# two while offering one verb, so both declared `1`s stayed satisfied and the gate stayed green.
+#
+# The mutations below are the two families, at their most dangerous placement — *rewriting* the
+# legitimate prose of the real `CREATED -> STARTING` edge rather than appending to it, so §3A.3's
+# declared count, §3A's prohibition sentence, the write-point identity and the number of rows are
+# all left exactly as committed and the assertion count is the only thing that can object.
+# --------------------------------------------------------------------------------------------
+
+# The committed creation and the committed write, verbatim, as the substitution anchors.
+COMMITTED_CREATION_PROSE = "the attempt's single owned process group is created"
+COMMITTED_WRITE_PROSE = f"`{CLEANUP_HANDLE}` is committed"
+
+
+def state_api_with_rewritten_prose(original: str, replacement: str) -> str:
+    """The committed state API with one phrase of the `CREATED -> STARTING` cell rewritten.
+
+    Rewriting rather than appending is what makes these mutations sharp: nothing is added for a
+    row count or a clause count to notice, and the document still contains exactly one creation
+    predicate and exactly one write predicate. Only the *number they assert* has changed.
+
+    The substitution is confined to the §3A transition row, which is the only text either
+    derivation reads; §3A.3's durable-fact table restates the same phrase and is deliberately left
+    as committed, so the mutation cannot be credited to a disagreement between the two.
+    """
+    api = read(STATE_API)
+    edge_lines = [
+        line for line in api.splitlines()
+        if line.startswith("| CREATED |") and CREATING_EDGE_MARKER in line
+    ]
+    assert len(edge_lines) == 1, edge_lines
+    assert edge_lines[0].count(original) == 1, original
+    mutated = api.replace(edge_lines[0], edge_lines[0].replace(original, replacement))
+    assert mutated != api
+
+    # Every other dimension of the gate must survive the rewrite, or the mutation proves nothing.
+    assert "MUST NOT update, replace or clear `lease.owned_process_group_handle`" in mutated
+    assert "| `attempt` (TASK or INTEGRATION) | 1 | `CREATED -> STARTING` |" in mutated
+    return mutated
+
+
+# Explicitly quantified creations. Each states a number the committed table does not declare.
+QUANTIFIED_GROUP_CREATIONS = (
+    ("cardinal word, plural noun, passive", "two process groups are created", 2),
+    ("cardinal word, plural noun, active", "the controller creates two process groups", 2),
+    ("numeral, plural noun", "2 process groups are created", 2),
+    ("possessive, cardinal, plural noun", "the attempt's two owned process groups are created", 2),
+    ("cardinal with a singular head noun", "the attempt's two owned process group records are"
+     " created", 2),
+    ("`both`, plural noun", "both owned process groups are created", 2),
+    ("numeral, plural `cgroups`", "3 owned cgroups are created", 3),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement,count",
+    QUANTIFIED_GROUP_CREATIONS,
+    ids=lambda value: str(value).replace(" ", "-")[:44],
+)
+def test_an_explicitly_quantified_creation_is_counted_as_the_number_it_states(
+    device: str, replacement: str, count: int
+) -> None:
+    """M-05's first family: one creation verb, more than one group.
+
+    The row-level derivation is asserted unchanged on purpose — one creating row, still the edge
+    §3A.3 names — because that is precisely what these mutations leave intact. Only the count of
+    groups moves, and that is the number §3A.3 actually declares.
+    """
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    assert [
+        f"{row[0]} -> {row[2]}" for row in attempt_rows_creating_an_owned_process_group(mutated)
+    ] == ["CREATED -> STARTING"], f"{device}: the mutation was not confined to one row"
+    assert len(owned_process_group_creation_assertions(mutated)) == count, device
+
+    with pytest.raises(AssertionError, match="owned process group creations"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# Creations that assert a plurality without naming a number. The count is not derivable, so the
+# gate must say so rather than read the prose as one.
+UNQUANTIFIED_GROUP_CREATIONS = (
+    ("bare plural, no quantifier at all", "process groups are created"),
+    ("indefinite plural quantifier", "several owned process groups are created"),
+    ("definite article with a plural noun", "the attempt's owned process groups are created"),
+    ("indefinite quantifier, active voice", "the controller creates additional process groups"),
+    # A partitive puts the number outside the noun phrase's own determiner, where the walk stops.
+    # The count is therefore unknown rather than two — red either way, by the honest route.
+    ("partitive, number outside the determiner",
+     "both of the attempt's owned process groups are created"),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement", UNQUANTIFIED_GROUP_CREATIONS, ids=lambda value: value.replace(" ", "-")[:44]
+)
+def test_a_creation_that_will_not_say_how_many_fails_closed(device: str, replacement: str) -> None:
+    """The fail-closed half of M-05's first family.
+
+    A plural creation whose number is unstated is not evidence of one group; it is evidence the
+    gate cannot count. Reading it as one is exactly the collapse M-05 is about, so the derivation
+    refuses to produce a number and the freeze stops.
+    """
+    mutated = state_api_with_rewritten_prose(COMMITTED_CREATION_PROSE, replacement)
+
+    with pytest.raises(AssertionError, match="without saying how many"):
+        owned_process_group_creation_assertions(mutated)
+    with pytest.raises(AssertionError, match="without saying how many"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+# The same defect at the other placement: a *second* creation phrased in the plural. Before the
+# repair `GROUP_NOUN_RE` matched no plural at all, so these added no creation whatever — the
+# group dimension was blind to every plural second group, on every row.
+PLURAL_SECOND_CREATIONS = (
+    ("cardinal, plural noun", ". Two further controller-allocated process groups are created", 3),
+    ("cardinal, plural noun, active", ". The controller creates two further process groups here", 3),
+    ("cardinal, plural `cgroups`", ". Two further controller-allocated cgroups are created here", 3),
+)
+
+
+@pytest.mark.parametrize(
+    "device,tail,count", PLURAL_SECOND_CREATIONS, ids=lambda value: str(value).replace(" ", "-")[:44]
+)
+def test_a_plural_second_creation_is_visible_to_the_group_dimension(
+    device: str, tail: str, count: int
+) -> None:
+    """Placed on `RUNNING -> CANDIDATE_READY`, which names the handle nowhere.
+
+    The write dimension is therefore silent by construction and the group cardinality is provably
+    the only guard — the same division of labour M-04's mutations rely on.
+    """
+    mutated = state_api_with_appended_prose("| RUNNING |", CANDIDATE_READY_EDGE_MARKER, tail)
+
+    assert_declared_write_point_matches_the_matrix(mutated)  # silent, by construction
+    assert len(owned_process_group_creation_assertions(mutated)) == count, device
+    with pytest.raises(AssertionError, match="create an owned process group"):
+        assert_declared_group_count_matches_the_matrix(mutated)
+
+
+def test_a_plural_group_noun_is_recognised_at_all() -> None:
+    """The root of the blind spot, pinned directly so it cannot silently return.
+
+    `process groups`, `cgroups` and `groups` matched nothing, which is why a plural creation was
+    not merely miscounted — it was not a creation. Singular forms must keep matching unchanged.
+    """
+    for plural in ("process groups", "process-groups", "cgroups", "groups"):
+        assert GROUP_NOUN_RE.findall(plural) == [plural], plural
+    for singular in ("process group", "cgroup", "group"):
+        assert GROUP_NOUN_RE.findall(singular) == [singular], singular
+
+    assert _asserts_a_group_creation("two process groups are created")
+    assert not _asserts_a_group_creation("no further process groups are created")
+
+
+# Explicitly repeated writes. One operative verb, more than one write event.
+REPEATED_HANDLE_WRITES = (
+    ("adverb `twice`", f"`{CLEANUP_HANDLE}` is written twice", 2),
+    ("cardinal word plus `times`", f"`{CLEANUP_HANDLE}` is committed two times", 2),
+    ("three times", f"`{CLEANUP_HANDLE}` is written three times", 3),
+    ("numeral plus `times`", f"`{CLEANUP_HANDLE}` is committed 2 times", 2),
+    ("preposed adverb", f"`{CLEANUP_HANDLE}` is twice committed", 2),
+    ("prepositional repetition phrase", f"`{CLEANUP_HANDLE}` is committed on two occasions", 2),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement,count",
+    REPEATED_HANDLE_WRITES,
+    ids=lambda value: str(value).replace(" ", "-")[:44],
+)
+def test_an_explicitly_repeated_write_is_counted_as_the_number_it_states(
+    device: str, replacement: str, count: int
+) -> None:
+    """M-05's second family: one write verb, more than one write point.
+
+    §3A.3 declares a number of write *points*. A verb carrying its own repetition adverbial
+    asserts that many, and the row, the clause and the verb all stay at one — which is why every
+    earlier dimension of the gate is asserted here to still be satisfied.
+    """
+    mutated = state_api_with_rewritten_prose(COMMITTED_WRITE_PROSE, replacement)
+
+    assert [
+        f"{row[0]} -> {row[2]}" for row in attempt_rows_writing_the_cleanup_handle(mutated)
+    ] == ["CREATED -> STARTING"], f"{device}: the mutation was not confined to one row"
+    assert len(cleanup_handle_write_assertions(mutated)) == count, device
+
+    with pytest.raises(AssertionError, match=f"asserts {count} writes of the cleanup handle"):
+        assert_declared_write_point_matches_the_matrix(mutated)
+
+
+# Repetition asserted without a number. Unknown cardinality on the write point is a red gate.
+UNQUANTIFIED_HANDLE_WRITES = (
+    ("bare `repeatedly`", f"`{CLEANUP_HANDLE}` is written repeatedly"),
+    ("`more than once`", f"`{CLEANUP_HANDLE}` is written more than once"),
+    ("`again` after the verb", f"`{CLEANUP_HANDLE}` is committed and then written again"),
+    ("`several times`", f"`{CLEANUP_HANDLE}` is written several times"),
+)
+
+
+@pytest.mark.parametrize(
+    "device,replacement", UNQUANTIFIED_HANDLE_WRITES, ids=lambda value: value.replace(" ", "-")[:44]
+)
+def test_a_repeated_write_that_will_not_say_how_many_fails_closed(
+    device: str, replacement: str
+) -> None:
+    """The fail-closed half of M-05's second family.
+
+    An unknown write count is handled the way this classifier already handles every other handle
+    wording it cannot resolve: `UNCLASSIFIED`, and the gate stops rather than guessing one.
+    """
+    mutated = state_api_with_rewritten_prose(COMMITTED_WRITE_PROSE, replacement)
+
+    with pytest.raises(AssertionError, match="cannot classify"):
+        assert_declared_write_point_matches_the_matrix(mutated)
+
+
+def test_semantic_cardinality_is_read_from_the_prose_not_from_the_verb_count() -> None:
+    """M-05 stated as a property, so a later edit cannot regress it into a phrase list.
+
+    Each pair holds the number of verbs constant and changes only the number the prose states.
+    If a future gate went back to counting predicates, both halves of every pair would agree
+    again — which is the failure this test exists to make loud.
+    """
+    # One creation verb, one group versus two.
+    assert group_creations("the attempt's single owned process group is created")[0][1] == 1
+    assert group_creations("two owned process groups are created")[0][1] == 2
+
+    # One write verb, one write versus two.
+    assert _classify_handle_clause(
+        f"`{CLEANUP_HANDLE}` is committed here", established=True
+    ) == (WRITES, 1)
+    assert _classify_handle_clause(
+        f"`{CLEANUP_HANDLE}` is committed twice here", established=True
+    ) == (WRITES, 2)
+
+    # Unknown is neither: it is a refusal, on both dimensions.
+    assert group_creations("owned process groups are created")[0][1] is None
+    assert _classify_handle_clause(
+        f"`{CLEANUP_HANDLE}` is written repeatedly", established=True
+    ) == (UNCLASSIFIED, 0)
+
+
+# Prose that legitimately contains numbers, plurals or repetition words near the machinery M-05
+# added. If any of these moved a count, the repair would have turned quantity into a tripwire.
+LEGITIMATE_QUANTIFIED_PROSE = (
+    (
+        "plural creations of things that are not process groups",
+        ". Two further fencing tokens are created and several leases are established",
+    ),
+    (
+        "a plurality of groups explicitly denied",
+        ". No further process groups are created on this edge",
+    ),
+    (
+        "a back-reference to the one committed group",
+        ". Preflight runs inside the attempt's single owned process group throughout",
+    ),
+    (
+        "a number that counts commits rather than writes",
+        ". `attempt.workspace_epoch` is written in this same commit as the workspace"
+        " discriminator alone, and MUST NOT be used as the cleanup handle",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "device,tail", LEGITIMATE_QUANTIFIED_PROSE, ids=lambda value: value.replace(" ", "-")[:44]
+)
+def test_counting_semantic_cardinality_leaves_legitimate_quantified_prose_green(
+    device: str, tail: str
+) -> None:
+    """The false-positive controls for M-05, through both dimensions of the gate."""
+    mutated = state_api_with_appended_prose("| RUNNING |", CANDIDATE_READY_EDGE_MARKER, tail)
+    assert_declared_write_point_matches_the_matrix(mutated)
+    assert_declared_group_count_matches_the_matrix(mutated)
+
+
+def test_a_single_write_and_a_single_creation_still_read_as_one() -> None:
+    """The pristine calibration for M-05, restated at clause level.
+
+    The committed write clause is the case the repair had to leave alone: `is committed` is
+    followed by `**before**`, which begins a *different* constituent, and the `single` two words
+    later belongs to the group's noun phrase, not to the verb. A repetition rule based on presence
+    in the segment rather than government would have read one of them and counted two.
+    """
+    api = read(STATE_API)
+    assert len(cleanup_handle_write_assertions(api)) == 1
+    assert len(owned_process_group_creation_assertions(api)) == 1
+
+    write_clause = (
+        "This is the only edge that may write the cleanup handle:"
+        f" `{CLEANUP_HANDLE}` is committed **before** the attempt's single owned"
+        " process group is created (§3A.3), and preflight runs inside that group"
+    )
+    assert write_clause in api
+    assert _classify_handle_clause(write_clause, established=True) == (WRITES, 1)
+    assert [count for _verb, count in group_creations(write_clause)] == [1]
+
+    # `once` is a repetition adverbial too, and it states one.
+    assert _classify_handle_clause(
+        f"`{CLEANUP_HANDLE}` is committed once", established=True
+    ) == (WRITES, 1)
+
+
+def test_the_cardinality_blind_spots_are_stated_rather_than_assumed_closed() -> None:
+    """Honest scope for M-05, carried forward for the next review.
+
+    The repair reads the quantifiers and repetition adverbials English actually uses in this
+    prose. It does not parse arithmetic, coordination or elision, and those limits are recorded
+    here rather than left for a reviewer to rediscover.
+    """
+    # Coordination of two noun phrases under one verb is counted once, from the larger phrase.
+    assert group_creations("a preflight group and a model group are created")[0][1] == 1
+    # An elided second predicate ("as is ...") carries no verb of its own and is not counted.
+    assert len(group_creations("the attempt's single owned process group is created, as is a"
+                               " second process group")) == 1
+    # Repetition nouns other than time/occasion are not read as repetition.
+    assert _classify_handle_clause(
+        f"`{CLEANUP_HANDLE}` is written in two batches", established=True
+    ) == (WRITES, 1)
+    # All three are under-counts, so each is a way for a future edit to be missed — not a way for
+    # one to be wrongly rejected. None of them is reachable in the committed prose.
 
 
 # --------------------------------------------------------------------------------------------
