@@ -587,6 +587,18 @@ def test_active_state_ignores_late_result_from_old_task_revision() -> None:
     assert state.streams[0].attempt_id == "current"
     assert state.streams[0].stage is TaskStatus.REVIEWING
 
+
+def test_active_state_defaults_contract_only_task_to_ready() -> None:
+    task = make_task()
+    state = build_active_state(
+        tasks=[task],
+        results=[],
+        branch_heads={task.target_branch: SHA_A},
+        generated_at=NOW,
+    )
+    assert state.streams[0].stage is TaskStatus.READY
+    assert state.queue_depth == 1
+
 def test_active_state_refuses_to_invent_missing_branch_truth() -> None:
     with pytest.raises(ValueError, match="missing branch head"):
         build_active_state(
