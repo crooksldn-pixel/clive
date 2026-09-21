@@ -211,7 +211,21 @@ If prose itself must be normative, define a constrained semantic grammar and fai
 
 Do not indefinitely grow an accidental natural-language parser for authority/safety invariants.
 
-## 8.1 Obvious continuation should not wait for the owner or hourly controller
+## 8.1 Verification must have a stopping rule
+
+Adversarial review exists to reduce uncertainty about the **subject**. It must not become a self-expanding product that indefinitely blocks the subject because the verifier can always invent another weakness in its own machinery.
+
+Operating rule:
+- a finding may block the subject only when it demonstrates a material defect in subject behaviour, authority, safety, state semantics or required evidence;
+- a defect confined to the verification apparatus becomes a separate verifier task;
+- verifier-only repair loops do not reset the subject's acceptance evidence unless the verifier defect invalidates that evidence;
+- two consecutive rounds producing only verifier-apparatus defects are a convergence signal: park that verifier path, preserve the evidence and continue through a more suitable verification mechanism;
+- reviewers are explicitly allowed to return READY/ACCEPT when no material subject defect remains;
+- prefer structured contracts and direct behavioural evidence over adding grammar to parse unrestricted prose.
+
+The practical objective is **uncertainty reduction and useful product progress**, not the number of adversarial rounds.
+
+## 8.2 Obvious continuation should not wait for the owner or hourly controller
 
 A worker/controller should continue automatically when the next action is a mechanically implied stage of the **same already-authorised objective** and does not widen authority, scope, risk or side effects.
 
