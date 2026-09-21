@@ -110,17 +110,18 @@ class JsonRecordStore:
                 temp_path.unlink()
 
 
-def latest_result_by_task(
+def latest_result_by_task_revision(
     results: Iterable[EngineeringResult],
-) -> dict[str, EngineeringResult]:
-    """Return latest completed result per task using timestamp then attempt ID as tie-break."""
+) -> dict[tuple[str, int], EngineeringResult]:
+    """Return latest completed result per immutable task revision."""
 
-    latest: dict[str, EngineeringResult] = {}
+    latest: dict[tuple[str, int], EngineeringResult] = {}
     for result in results:
-        current = latest.get(result.task_id)
+        key = (result.task_id, result.task_revision)
+        current = latest.get(key)
         if current is None or (result.completed_at, result.attempt_id) > (
             current.completed_at,
             current.attempt_id,
         ):
-            latest[result.task_id] = result
+            latest[key] = result
     return latest
