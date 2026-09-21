@@ -8,11 +8,17 @@ hourly supervisor.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Sequence
 
-from .contracts import EngineeringResult, EngineeringTask, NextActionKind, WorkerProfile
+from .contracts import (
+    EngineeringResult,
+    EngineeringTask,
+    NextActionKind,
+    TaskRuntimeState,
+    WorkerProfile,
+)
 from .policy import evaluate_obvious_continuation
 
 
@@ -24,6 +30,8 @@ class ContinuationCandidate:
     task: EngineeringTask
     result: EngineeringResult
     current_branch_head: str
+    runtime_state: TaskRuntimeState | None = None
+    latest_task_revision: int | None = None
     stream_last_dispatched_at: datetime | None = None
 
 
@@ -90,6 +98,8 @@ def select_obvious_dispatch(
                 candidate.result,
                 candidate_worker_id=worker.worker_id,
                 current_branch_head=candidate.current_branch_head,
+                runtime_state=candidate.runtime_state,
+                latest_task_revision=candidate.latest_task_revision,
             )
             if not decision.allowed:
                 continue
