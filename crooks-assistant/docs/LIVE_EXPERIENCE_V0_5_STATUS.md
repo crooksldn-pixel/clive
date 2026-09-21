@@ -48,6 +48,13 @@ Jobs are derived from the one running tool `/state` reports: a tool that was run
 not any more has finished. That is the whole rule, and it is what makes two reads read as two
 jobs completing in the order they really completed.
 
+The table that turns a tool into words covered twelve of the Mac's forty-nine tools, two of
+which no longer existed — so on a turn of four reads, three showed as no work at all. Every
+shipped tool now has a verb and an object, and whether it changes anything is **copied** from
+the Mac's own `ToolSpec.write` rather than judged on the tablet; a test compares both
+directions and found five rows wrong on the first attempt. The table is gated against the live
+registry, so the next tool added on the Mac cannot land silently mute here.
+
 **No retry is drawn.** `jobs.js` can draw one and is tested doing so; the page does not ask it
 to, because the Mac has no endpoint that re-runs a single read. See the open item below.
 
@@ -79,6 +86,7 @@ from the `live_marks` the page posts.
 | Gate | State |
 | --- | --- |
 | Existing relevant tests green, or intentionally replaced | done — the four that encoded the retired shell were replaced, with the reason in each |
+| The suite is stable enough to be evidence | done — a full `-n 4` run is now clean apart from item 5; the intermittent "ERROR at setup" was a real startup race, fixed |
 | Deterministic tests: state transitions, interruption, out-of-order completion, one job failing, no Split | done — 27 + 23 + 11 Node tests, run from pytest |
 | Browser/device evidence at 390x844 and the tablet target | **not taken** — see open item 4 |
 | pointer-down → acknowledgement, release → transcript / first progress / first useful result | measured by the machine and posted as `live_marks`; the allow-list in `app/routes/observe.py` was stripping all five until it was fixed |
@@ -158,11 +166,16 @@ cannot repair.
 From `crooks-assistant/`, with the builder's venv:
 
     .venv/bin/ruff check app config scripts tests          # clean
-    .venv/bin/pytest tests -m "not live" -q -n 4           # 2973 passed, 8 skipped
+    .venv/bin/pytest tests -m "not live" -q -n 4           # 2979 passed, 8 skipped, 3 failed
     node --test tests/web/live-state.test.js               # 27
-    node --test tests/web/jobs.test.js                     # 23
+    node --test tests/web/jobs.test.js                     # 25
     node --test tests/web/acceptance-v05.test.js           # 11
 
-The three `test_no_terminal` failures above are the only red, and they are red at the branch
-point too. `tests/test_branches.py` and `tests/test_experience.py` are known to be flaky under
-`-n 4` on a loaded box; they pass alone.
+The three `test_no_terminal` failures are the only red, and they are red at the branch point
+too (item 5).
+
+`tests/test_branches.py`, `tests/test_experience.py` and an arbitrary one test per run used to
+fail or ERROR under `-n 4`. That was one bug, not flakiness: `app/capabilities/delta.py` wrote
+every capability record through one shared `capabilities.tmp`, so two starts against the same
+log directory raced and the loser's `os.replace` raised FileNotFoundError out of the lifespan.
+Each writer now names its own scratch file, and the run above is clean.
