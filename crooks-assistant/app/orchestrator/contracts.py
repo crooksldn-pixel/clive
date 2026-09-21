@@ -233,8 +233,13 @@ class ProgressEvent(StrictRecord):
                 raise ValueError("step events require step_id and step_label")
         if self.kind is ProgressEventKind.EVIDENCE_RECORDED and not self.evidence_ref:
             raise ValueError("evidence_recorded requires evidence_ref")
-        if self.kind is ProgressEventKind.WAITING and not self.waiting_on:
-            raise ValueError("waiting requires waiting_on")
+        if self.sequence == 0 and self.kind is not ProgressEventKind.ATTEMPT_STARTED:
+            raise ValueError("sequence 0 must be attempt_started")
+        if self.sequence > 0 and self.kind is ProgressEventKind.ATTEMPT_STARTED:
+            raise ValueError("attempt_started is only valid at sequence 0")
+        if self.kind in {ProgressEventKind.WAITING, ProgressEventKind.BLOCKED}:
+            if not self.waiting_on:
+                raise ValueError(f"{self.kind.value} requires waiting_on")
         return self
 
 
