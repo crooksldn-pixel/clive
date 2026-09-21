@@ -12,16 +12,13 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import tempfile
-from typing import Iterable, TypeVar
+from pathlib import Path
+from typing import Iterable
 
 from pydantic import BaseModel
 
 from .contracts import ActiveState, EngineeringResult, EngineeringTask, TaskRuntimeState
-
-
-ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 class RecordConflictError(RuntimeError):
@@ -54,8 +51,6 @@ class JsonRecordStore:
         path = self.results_dir / result.task_id / f"{result.attempt_id}.json"
         self._put_immutable(path, result)
         return path
-
-
 
     def write_task_state(
         self,
