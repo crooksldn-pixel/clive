@@ -12,6 +12,7 @@ from .contracts import (
     EngineeringTask,
     NextActionKind,
     StreamState,
+    TaskRuntimeState,
     TaskStatus,
 )
 from .store import latest_result_by_task_revision
@@ -44,10 +45,18 @@ def build_active_state(
     *,
     tasks: Sequence[EngineeringTask],
     results: Sequence[EngineeringResult],
+    task_states: Sequence[TaskRuntimeState] = (),
     branch_heads: Mapping[str, str],
     generated_at: datetime,
 ) -> ActiveState:
     latest = latest_result_by_task_revision(results)
+    runtime: dict[tuple[str, int], TaskRuntimeState] = {}
+    for state in task_states:
+        key = (state.task_id, state.task_revision)
+        current = runtime.get(key)
+        if current is None or state.transition_seq > current.transition_seq:
+            runtime[key] = state
+
     streams: list[StreamState] = []
 
     for task in sorted(tasks, key=lambda item: (item.stream_id, item.task_id, item.revision)):
@@ -56,9 +65,13 @@ def build_active_state(
             raise ValueError(f"missing branch head for {task.target_branch}")
 
         result = latest.get((task.task_id, task.revision))
+        task_state = runtime.get((task.task_id, task.revision))
         if result is not None and result.result_sha is not None and result.result_sha != head:
             stage = TaskStatus.OBSOLETE
             blocker_class = BlockerClass.OBSOLETE
+        elif task_state is not None:
+            stage = task_state.status
+            blocker_class = task_state.blocker_class
         else:
             stage = _stage_from_result(task, result)
             blocker_class = result.blocker_class if result else BlockerClass.NONE
@@ -71,11 +84,26 @@ def build_active_state(
                 head_sha=head,
                 stage=stage,
                 task_id=task.task_id,
-                attempt_id=result.attempt_id if result else None,
-                worker_id=result.worker_id if result else None,
+                attempt_id=(
+                    task_state.attempt_id
+                    if task_state and task_state.attempt_id
+                    else result.attempt_id if result else None
+                ),
+                worker_id=(
+                    task_state.worker_id
+                    if task_state and task_state.worker_id
+                    else result.worker_id if result else None
+                ),
                 blocker_class=blocker_class,
-                owner_gate=bool(result and result.owner_decision_required),
-                last_transition_at=result.completed_at if result else task.created_at,
+                owner_gate=bool(
+                    (task_state and task_state.owner_gate)
+                    or (result and result.owner_decision_required)
+                ),
+                last_transition_at=(
+                    task_state.updated_at
+                    if task_state
+                    else result.completed_at if result else task.created_at
+                ),
             )
         )
 
