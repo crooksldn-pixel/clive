@@ -263,7 +263,7 @@ Owner explicitly likes the liquid-glass direction.
 Use it as a coherent material system, not decoration.
 
 Principles:
-- dark CROOKS identity remains primary;
+- dark CLIVE identity remains primary; CROOKS may appear as the active business/environment context rather than defining the assistant identity;
 - translucent surfaces communicate grouping, layering or transient work;
 - restrained blur;
 - thin highlights and borders;
@@ -276,13 +276,21 @@ Principles:
 - useful content gets the space when it exists.
 
 Idle hierarchy should trend toward:
-1. CROOKS / contextual status / settings;
+1. CLIVE / contextual status / settings;
 2. orb;
 3. prompt or live transcript;
 4. hold-to-speak affordance;
 5. minimal contextual shortcuts.
 
 Remove the central Split CTA and explanatory copy.
+
+### 6.1 Home is persistent world-state projection
+
+The idle/home surface must not imply CLIVE has forgotten everything and is waiting to be given a first objective. When relevant state exists, home should project the smallest useful view of active objectives, changes, commitments, exceptions and unfinished work. When nothing deserves attention, almost nothing is the correct scene.
+
+The orb communicates CLIVE's presence and lifecycle, not merely microphone affordance. It may contract/reposition when useful evidence needs the space. Permanent service plumbing belongs in diagnostics unless it affects the current objective.
+
+Detailed identity/home doctrine: [CLIVE_IDENTITY_AND_HOME_SURFACE.md](./CLIVE_IDENTITY_AND_HOME_SURFACE.md).
 
 ---
 
