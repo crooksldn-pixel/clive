@@ -441,6 +441,58 @@ def test_progress_view_fails_closed_if_events_have_no_task_contract(tmp_path) ->
     with pytest.raises(ValueError, match="without immutable task contract"):
         build_snapshots(store)
 
+
+def test_progress_view_prefers_runtime_current_attempt_over_newer_historical_event(tmp_path) -> None:
+    store = JsonRecordStore(tmp_path)
+    task = make_task()
+    store.put_task(task)
+
+    current = ProgressEvent(
+        task_id=task.task_id,
+        task_revision=task.revision,
+        attempt_id="attempt-current",
+        worker_id="worker-current",
+        sequence=0,
+        kind=ProgressEventKind.ATTEMPT_STARTED,
+        occurred_at=NOW,
+        activity="Current attempt",
+    )
+    historical_but_later = ProgressEvent(
+        task_id=task.task_id,
+        task_revision=task.revision,
+        attempt_id="attempt-old",
+        worker_id="worker-old",
+        sequence=0,
+        kind=ProgressEventKind.ATTEMPT_STARTED,
+        occurred_at=NOW + timedelta(minutes=10),
+        activity="Late historical event",
+    )
+    store.put_progress_event(current)
+    store.put_progress_event(historical_but_later)
+    store.write_task_state(
+        TaskRuntimeState(
+            task_id=task.task_id,
+            task_revision=task.revision,
+            status=TaskStatus.RUNNING,
+            transition_seq=0,
+            attempt_id="attempt-current",
+            worker_id="worker-current",
+            updated_at=NOW,
+        ),
+        expected_previous_seq=None,
+    )
+
+    snapshots = build_snapshots(store)
+    assert len(snapshots) == 1
+    assert snapshots[0].attempt_id == "attempt-current"
+    assert snapshots[0].current_activity == "Current attempt"
+
+    history = build_snapshots(store, include_history=True)
+    assert {snapshot.attempt_id for snapshot in history} == {
+        "attempt-current",
+        "attempt-old",
+    }
+
 def test_active_state_carries_current_attempt_progress_for_hourly_controller() -> None:
     task = make_task()
     events = [
