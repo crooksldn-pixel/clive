@@ -6,9 +6,9 @@
 <meta name="theme-color" content="#07070a">
 <meta name="crooks-build" content="__BUILD__">
 <meta name="color-scheme" content="dark">
-<meta name="application-name" content="CROOKS OS">
+<meta name="application-name" content="CLIVE">
 <meta name="mobile-web-app-capable" content="yes">
-<title>CROOKS OS</title>
+<title>CLIVE</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
@@ -21,10 +21,10 @@
      the only thing on screen while the Mac cannot be reached. Hidden the moment it answers. -->
 <div id="system" class="system" data-phase="boot" role="status" aria-live="polite">
   <div class="system-inner">
-    <span class="system-wordmark">CROOKS OS</span>
+    <span class="system-wordmark">CLIVE</span>
     <span class="system-pulse" aria-hidden="true"></span>
     <h1 id="system-title" class="system-title">Starting</h1>
-    <p id="system-sub" class="system-sub">Connecting to CROOKS Assistant…</p>
+    <p id="system-sub" class="system-sub">Connecting to CLIVE…</p>
     <p id="system-note" class="system-note"></p>
   </div>
 </div>
@@ -38,7 +38,7 @@
   <div id="notes-global" class="notes notes-global" role="status" aria-live="polite" aria-label="System messages" hidden></div>
 
   <header class="top">
-    <span class="wordmark">CROOKS</span>
+    <span class="wordmark">CLIVE</span>
     <span id="conn" class="conn" data-state="connecting" role="status">
       <span class="conn-dot" aria-hidden="true"></span><span id="conn-text">Connecting</span>
     </span>
@@ -89,7 +89,7 @@
              first viewport 54px, which took three of the density fixtures past the
              screen-and-a-quarter ceiling (tests/test_density.py). One chip fits this row with
              35px to spare; the two-half chrome does not, and does not belong here. -->
-        <span id="branch-rail" class="branch-rail" aria-label="Divide"></span>
+        <span id="branch-rail" class="branch-rail" aria-label="Internal concurrency" hidden></span>
         <div id="stack" class="stack" aria-label="Active context"></div>
       </nav>
       <!-- What the next sentence will be applied to, while the Mac is listening for it. It
@@ -180,7 +180,7 @@
        recordings. Out here there is no cap to escape and nothing above it: #talk is positioned
        inside the stage and cannot reach this band at all. Same precedent as `.bottom`
        (web/style.css) — "why can't I click orders unless you're already thinking". -->
-  <section id="branch-zone" class="branch-zone" aria-label="Halves">
+  <section id="branch-zone" class="branch-zone" aria-label="Internal concurrency" hidden>
     <div id="branch-bar" class="branch-bar" hidden></div>
   </section>
 
@@ -195,7 +195,7 @@
       <span id="recent-label" class="recent-label"></span>
       <span class="arrow" aria-hidden="true">›</span>
     </button>
-    <div class="services" id="services" aria-label="Service status">
+    <div class="services" id="services" aria-label="Service status" hidden>
       <span class="service" id="svc-shopify" data-ok="unknown"><span>Shopify</span><span class="service-dot" aria-hidden="true"></span></span>
       <span class="service" id="svc-gmail" data-ok="unknown"><span>Gmail</span><span class="service-dot" aria-hidden="true"></span></span>
       <span class="service" id="svc-voice" data-ok="unknown"><span>Voice</span><span class="service-dot" aria-hidden="true"></span></span>
