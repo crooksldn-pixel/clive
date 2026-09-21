@@ -129,6 +129,14 @@ class JsonRecordStore:
             for path in sorted(attempt_dir.glob("*.json"))
         )
 
+    def read_all_progress_events(self) -> tuple[ProgressEvent, ...]:
+        if not self.progress_dir.exists():
+            return ()
+        return tuple(
+            ProgressEvent.model_validate_json(path.read_text(encoding="utf-8"))
+            for path in sorted(self.progress_dir.glob("*/*/*.json"))
+        )
+
     def write_task_state(
         self,
         state: TaskRuntimeState,
