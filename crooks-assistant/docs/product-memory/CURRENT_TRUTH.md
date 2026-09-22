@@ -22,7 +22,6 @@ Core product principles remain:
 - models/providers are replaceable,
 - self-improvement is isolated, evidence-driven and reversible.
 
-
 ### North-star operational philosophy
 
 The owner has approved CLIVE's broader product identity as a **persistent intent-to-execution operational layer**, not an AI dashboard or phrase-to-screen router.
@@ -53,7 +52,19 @@ Startup identity direction: point of light → abstract world/intelligence orb �
 
 Full direction: [CLIVE_IDENTITY_AND_HOME_SURFACE.md](./CLIVE_IDENTITY_AND_HOME_SURFACE.md).
 
-\n### Long-horizon adaptation doctrine\n\nCLIVE must preserve its **mission and accumulated operational understanding without treating its current mechanisms as permanent**. Large organisations already exhibit distributed agency across people, software, rules, records and incentives; CLIVE's opportunity is to make more of that implicit organisational cognition explicit while reducing coordination cost and preserving human authority.\n\nThe capability frontier is permanently moving. There is no meaningful final 100% state. Models, APIs, interfaces, organisations and working patterns will change, so components should be expected to be replaced or deleted when superior mechanisms appear. Preserve durable semantics — objectives, identity, evidence/provenance, authority, time, commitments, capabilities, uncertainty, outcomes and verification — while keeping providers, frameworks, databases, orchestration, UI and connectors replaceable.\n\nCore rule: **preserve accumulated understanding; make accumulated implementation expendable.** CLIVE should be able to consume technology that would otherwise obsolete its current implementation. Adaptability remains controlled: observed limitation → candidate change → isolated experiment → adversarial evaluation → independent review → controlled adoption.\n\nMaturity principle: **no reasonable objective should leave CLIVE without a useful next move**, even when autonomous completion is impossible.\n\nFull doctrine: [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md).\n\n## Active Live Experience / evaluation direction — 2026-09-20
+### Long-horizon adaptation doctrine
+
+CLIVE must preserve its **mission and accumulated operational understanding without treating its current mechanisms as permanent**. Large organisations already exhibit distributed agency across people, software, rules, records and incentives; CLIVE's opportunity is to make more of that implicit organisational cognition explicit while reducing coordination cost and preserving human authority.
+
+The capability frontier is permanently moving. There is no meaningful final 100% state. Models, APIs, interfaces, organisations and working patterns will change, so components should be expected to be replaced or deleted when superior mechanisms appear. Preserve durable semantics — objectives, identity, evidence/provenance, authority, time, commitments, capabilities, uncertainty, outcomes and verification — while keeping providers, frameworks, databases, orchestration, UI and connectors replaceable.
+
+Core rule: **preserve accumulated understanding; make accumulated implementation expendable.** CLIVE should be able to consume technology that would otherwise obsolete its current implementation. Adaptability remains controlled: observed limitation → candidate change → isolated experiment → adversarial evaluation → independent review → controlled adoption.
+
+Maturity principle: **no reasonable objective should leave CLIVE without a useful next move**, even when autonomous completion is impossible.
+
+Full doctrine: [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md).
+
+## Active Live Experience / evaluation direction — 2026-09-20
 
 The owner has explicitly retired **user-facing Split** as the future interaction model. Preserve useful concurrency primitives internally where they still earn their place, but simultaneous work should appear as independently progressing jobs inside one CLIVE session rather than Half 1 / Half 2 / Merge / Close.
 
@@ -177,6 +188,5 @@ Every substantial release should operate from a curated Active Context Pack rath
 Dev Team specification planning may proceed while earlier operational work continues. Planning does not advance its implementation gate. DEC-046 records this ordering and resolves the older conflicting roadmap footer.
 
 Do not skip safety/deployment gates merely because later architecture is more exciting.
-
 
 - **Harness repair candidate published:** `claude/harness-hooks-experiment` now points to exact candidate `d7911b24979be2306749b7333ec60edc28cba857`, one commit on top of rejected `dd50ebbca6eca9c4e2ee1e85ad17d2c7e5afd25e`. Implementer evidence reports 181 new repair tests passing, targeted 568 passed/2 skipped, full offline 3374 passed/10 skipped, Ruff clean, range gitleaks 0, clean worktree, and no production/account/connector/service mutation. This is **not accepted**: it now requires a fresh independent adversarial review bound to `d7911b2…`. A stale Builder fetch refspec for deleted `claude/bridge-builder` still makes `git fetch --all` fail; the implementer worked around it with explicit branch fetches. Do not treat that local refspec problem as fixed.
