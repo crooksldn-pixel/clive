@@ -1,0 +1,5 @@
+GPT independent review of exact SHA 1ec236a1d2a96ec9c39f69cdac4937db31e2bd85: CHANGES REQUIRED — one narrow contract finding.
+
+FINDING J-01: JUDGMENT_LEDGER_CONTRACT.md states that corrections are new entries referencing the prior judgment, but JudgmentRecord exposes no prior/corrected-judgment reference and JudgmentLedger.append() permits only one judgment per proposal_id.
+
+Relayed by the owner on 2026-09-22 (session message 2). Resolution requested: determine whether V1 requires append-only correction records; if yes implement a bounded immutable correction reference, preserve the original, fail closed on invalid/missing/self-referential/ambiguous/inconsistent relationships, no mutation or silent replacement, adversarial tests; then a new exact candidate SHA, full acceptance suite at that SHA, previous candidate and evidence preserved, fresh EXACT-SHA GPT REVIEW PACKET, stop at the review boundary.
