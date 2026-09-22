@@ -835,10 +835,12 @@ class Kernel:
             )
         opened_at, recorded_at = self._when(at, backfilled, evidence_ref)
         token = max((a.fencing_token for a in self.store.read_attempts(task_id)), default=0) + 1
+        # Attempt ids are unique across the whole store, not just within a task: every
+        # later verb names an attempt by id alone, so two tasks must never share one.
         attempt = Attempt(
             task_id=task_id,
             task_revision=revision,
-            attempt_id=attempt_id or f"attempt-{token}",
+            attempt_id=attempt_id or f"{task_id}-a{token}",
             fencing_token=token,
             worker_id=worker_id,
             worker=worker,
@@ -849,8 +851,8 @@ class Kernel:
             backfilled=backfilled,
             evidence_ref=evidence_ref,
         )
-        if any(a.attempt_id == attempt.attempt_id for a in self.store.read_attempts(task_id)):
-            raise LifecycleError(f"attempt id {attempt.attempt_id} already exists for {task_id}")
+        if any(a.attempt_id == attempt.attempt_id for a in self.store.read_attempts()):
+            raise LifecycleError(f"attempt id {attempt.attempt_id} already exists in this store")
         self.store.put_attempt(attempt)
         self._event(attempt, EventKind.OPENED, opened_at, recorded_at,
                     note=f"assigned to {worker_id} ({worker.principal.principal_id}) with lease "

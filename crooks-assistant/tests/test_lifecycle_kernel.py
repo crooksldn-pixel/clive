@@ -185,12 +185,12 @@ def test_a_new_revision_needs_its_predecessor_and_obsoletes_it(kernel, clock, gi
 def test_assign_records_attempt_lease_token_and_dispatch_identity(kernel):
     kernel.create_task(task())
     attempt = kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR, lease_duration_s=300)
-    assert attempt.fencing_token == 1 and attempt.attempt_id == "attempt-1"
+    assert attempt.fencing_token == 1 and attempt.attempt_id == "t-1-a1"
     assert attempt.worker == AUTHOR and attempt.worker_id == "w1"
     assert state(kernel) is TaskStatus.ASSIGNED
     runtime = kernel.store.read_task_state("t-1", 1)
-    assert (runtime.attempt_id, runtime.worker_id) == ("attempt-1", "w1")
-    events = kernel.store.read_events("t-1", "attempt-1")
+    assert (runtime.attempt_id, runtime.worker_id) == ("t-1-a1", "w1")
+    events = kernel.store.read_events("t-1", "t-1-a1")
     assert [e.kind for e in events] == [EventKind.OPENED]
     assert kernel.lease(attempt)["expires_at"] == T0 + timedelta(seconds=300)
 
@@ -283,7 +283,7 @@ def test_candidate_publication_is_verified_against_the_remote(kernel, git):
     git.remote[("origin", "work")] = CAND
     result = kernel.record_candidate(attempt.attempt_id, token=1, sha=CAND, changed_paths=(), evidence_satisfied=("pytest",), clean_worktree=True, remote="origin")
     assert result.result_sha == CAND
-    assert kernel.store.read_events("t-1", "attempt-1")[-1].note == "published at origin"
+    assert kernel.store.read_events("t-1", "t-1-a1")[-1].note == "published at origin"
 
 
 # ------------------------------------------------------------ dispatch
@@ -396,7 +396,7 @@ def test_the_repair_cycle_is_a_new_attempt_with_a_higher_token(kernel, clock, gi
                          observed_candidate_sha=CAND, current_head=CAND)
     git.heads["work"] = BASE
     repair = kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR)
-    assert repair.fencing_token == 2 and repair.attempt_id == "attempt-2"
+    assert repair.fencing_token == 2 and repair.attempt_id == "t-1-a2"
     with pytest.raises(LifecycleError, match="not the current attempt"):
         kernel.heartbeat(attempt.attempt_id, token=1)
     kernel.acknowledge(repair.attempt_id, token=2, base_sha=BASE)
@@ -408,7 +408,7 @@ def test_the_repair_cycle_is_a_new_attempt_with_a_higher_token(kernel, clock, gi
                                      verdict=ReviewVerdict.READY, payload=b"READY", observed_candidate_sha=CAND2, current_head=CAND2)
     assert admission.outcome is VerdictOutcome.ACCEPTED
     projected = lifecycle_view(kernel.store, now=clock())["tasks"][0]
-    assert projected["attempt_id"] == "attempt-2" and projected["fencing_token"] == 2
+    assert projected["attempt_id"] == "t-1-a2" and projected["fencing_token"] == 2
     assert projected["acceptance"]["sha"] == CAND2
 
 
@@ -498,7 +498,7 @@ def test_the_journal_commits_every_write_when_the_store_is_a_checkout(tmp_path, 
     kernel.acknowledge(attempt.attempt_id, token=1, base_sha=BASE)
     log = subprocess.run(["git", "log", "--format=%an|%s"], cwd=repo, capture_output=True, text=True, check=True).stdout.splitlines()
     assert len(log) == 4  # init + three verbs
-    assert log[0].startswith("CLIVE kernel|kernel: t-1 attempt-1 acknowledged")
+    assert log[0].startswith("CLIVE kernel|kernel: t-1 t-1-a1 acknowledged")
     assert "operator: tests" in log[0]
     dirty = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True, check=True).stdout
     assert dirty == ""
@@ -546,7 +546,7 @@ def test_records_place_a_worker_and_the_probe_only_reconciles(kernel, clock, git
     built = view.build_view(r)
     w1 = by_id(built, "w1")
     assert w1["status"] == view.ASSIGNED and w1["status_source"] == "records+probe"
-    assert w1["task_id"] == "t-1" and w1["attempt_id"] == "attempt-1"
+    assert w1["task_id"] == "t-1" and w1["attempt_id"] == "t-1-a1"
     assert w1["reconciliation"]["consistent"] is False
     assert "found no agent process" in w1["status_reason"]
     assert built["totals"]["assigned"] == 1 and built["totals"]["online"] == 0
@@ -615,3 +615,16 @@ def test_a_missing_or_broken_store_is_a_named_problem_not_an_empty_campus(tmp_pa
     (broken / "tasks" / "t.r1.json").write_text("{not json")
     built = view.build_view(roster(broken, tmp_path))
     assert built["engineering"]["problem"].startswith("engineering store unreadable")
+
+
+def test_attempt_ids_are_unique_across_tasks_not_just_within_one(kernel):
+    kernel.create_task(task())
+    kernel.create_task(task(task_id="t-2"))
+    first = kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR)
+    second = kernel.assign("t-2", 1, worker_id="w2", worker=party("claude", "s2", "/w2", BASE))
+    assert first.attempt_id == "t-1-a1" and second.attempt_id == "t-2-a1"
+    kernel.acknowledge(second.attempt_id, token=1, base_sha=BASE)  # names the attempt by id alone
+    assert kernel.store.read_task_state("t-2", 1).status is TaskStatus.RUNNING
+    assert kernel.store.read_task_state("t-1", 1).status is TaskStatus.ASSIGNED
+    with pytest.raises(LifecycleError, match="already exists in this store"):
+        kernel.cancel_attempt(first.attempt_id, reason="x") and kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR, attempt_id="t-2-a1")
