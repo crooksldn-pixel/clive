@@ -1,0 +1,36 @@
+# Secret-scan configuration for the acceptance gate.
+#
+# This extends gitleaks' default rule set rather than replacing it: no rule is
+# relaxed, no rule is removed. The only thing added is an allowlist of paths
+# that are not repository content at all — build output, caches, vendored
+# tooling and downloaded browsers, which a candidate does not author and which
+# appear in the tree only because the gate runs after the test suite.
+#
+# Findings that ARE repository content and are nonetheless expected live in
+# .gitleaks-baseline.json, by fingerprint, so each one is listed individually
+# and a new finding in the same file still fails.
+
+title = "CLIVE acceptance secret scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated artifacts and vendored tooling, which are not candidate content"
+paths = [
+  '''(^|/)__pycache__/''',
+  '''(^|/)\.pytest_cache/''',
+  '''(^|/)\.ruff_cache/''',
+  '''(^|/)\.mypy_cache/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)\.tooling/''',
+  '''(^|/)\.worktrees/''',
+  '''(^|/)[^/]+\.egg-info/''',
+  '''(^|/)logs/''',
+  '''\.pyc$''',
+  '''\.so$''',
+  # The baseline records findings that were already reviewed; scanning it
+  # would report each of them a second time under a different file name.
+  '''^\.gitleaks-baseline\.json$''',
+]

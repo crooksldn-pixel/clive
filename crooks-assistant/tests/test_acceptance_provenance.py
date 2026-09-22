@@ -286,6 +286,76 @@ def test_the_artifact_discloses_how_much_the_baseline_suppressed(
     assert real.data["baseline_path"] == ".gitleaks-baseline.json"
 
 
+def test_the_scan_command_uses_only_relative_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The invariant whose loss is silent, and therefore the dangerous one.
+
+    Given an absolute ``--source``, gitleaks reports absolute ``File`` paths.
+    The baseline's fingerprints are relative, so nothing matches, every
+    already-accounted-for finding comes back, and the gate goes red for
+    reasons that look like a real leak. It cost a full acceptance run to
+    notice; it costs one assertion to never repeat.
+    """
+
+    captured: list[list[str]] = []
+
+    def fake_run_gate(name, command, **kwargs):
+        captured.append(command)
+        assert kwargs.get("cwd") == provenance.REPO, "the scan must run from the repository root"
+        return provenance.GateResult(name, True, provenance.PASS, 0)
+
+    monkeypatch.setattr(provenance, "_run_gate", fake_run_gate)
+    provenance.gate_secret_scan(None)
+
+    # The executable itself may be an absolute path; its arguments may not.
+    for argument in captured[0][1:]:
+        assert not argument.startswith("/"), argument
+
+
+def test_the_scan_extends_the_default_rules_rather_than_replacing_them() -> None:
+    config = provenance.CONFIG.read_text(encoding="utf-8")
+    assert "useDefault = true" in config
+    # No rule may be redefined or weakened here; only paths allowlisted.
+    assert "[[rules]]" not in config
+
+
+def test_the_allowlist_covers_only_generated_paths() -> None:
+    """Allowlisting a source directory would hide a real leak forever."""
+
+    config = provenance.CONFIG.read_text(encoding="utf-8")
+    for source_dir in ("crooks-assistant/app", "crooks-assistant/config",
+                       "crooks-assistant/scripts", "snippets", "sections", "templates"):
+        assert source_dir not in config
+    # tests/ in particular must stay in scope — the baseline handles the five
+    # known fixtures individually, one fingerprint at a time.
+    assert "'''(^|/)tests/'''" not in config
+
+
+def test_a_new_secret_still_fails_the_gate(tmp_path: Path, monkeypatch) -> None:
+    """The baseline suppresses five fingerprints, not the rule that found them."""
+
+    if not (provenance._VENDORED_GITLEAKS.is_file() or _on_path("gitleaks")):
+        pytest.skip("the pinned scanner is not available on this host")
+
+    probe = provenance.REPO / "scratch-leak-probe-test.txt"
+    probe.write_text(
+        'aws_secret_access_key = "' + "AKIA" + "J" * 12 + "wJalrXUtnFEMIK7MDENGbPxRfiCY" + '"\n',
+        encoding="utf-8",
+    )
+    try:
+        assert provenance.gate_secret_scan(None).satisfied is False
+    finally:
+        probe.unlink()
+
+    # Load-bearing control: with the probe gone the same gate passes.
+    assert provenance.gate_secret_scan(None).satisfied is True
+
+
+def _on_path(name: str) -> bool:
+    from shutil import which
+
+    return which(name) is not None
+
+
 def test_a_commit_range_scan_does_not_use_the_baseline(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

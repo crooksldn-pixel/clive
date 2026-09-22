@@ -49,6 +49,9 @@ _VENDORED_GITLEAKS = REPO / ".tooling" / "bin" / "gitleaks"
 # redacted. See ``read_baseline``.
 SECRET_BASELINE = REPO / ".gitleaks-baseline.json"
 
+# Extends the scanner's default rules; relaxes none of them.
+CONFIG = REPO / ".gitleaks.toml"
+
 PASS = "pass"
 FAIL = "fail"
 ERROR = "error"
@@ -331,14 +334,19 @@ def gate_secret_scan(base_sha: str | None) -> GateResult:
     if _VENDORED_GITLEAKS.is_file():
         executable = str(_VENDORED_GITLEAKS)
 
+    # Every path below is relative, and the scan runs with cwd=REPO. That is
+    # load-bearing: given an absolute --source, gitleaks reports absolute File
+    # paths, the fingerprints stop matching the baseline's relative ones, and
+    # suppression fails silently — the gate goes red for findings it was
+    # supposed to have already accounted for.
+    common = ["--no-banner", "--redact", "--exit-code", "1", "--config", CONFIG.name]
+
     if base_sha:
         mode = "range"
-        command = [executable, "git", "--no-banner", "--redact", "--exit-code", "1",
-                   f"--log-opts={base_sha}..HEAD", str(REPO)]
+        command = [executable, "git", *common, f"--log-opts={base_sha}..HEAD", "."]
     else:
         mode = "tree"
-        command = [executable, "detect", "--no-banner", "--redact", "--exit-code", "1",
-                   "--no-git", "--source", str(REPO)]
+        command = [executable, "detect", *common, "--no-git", "--source", "."]
 
     try:
         baseline = read_baseline()
@@ -346,7 +354,7 @@ def gate_secret_scan(base_sha: str | None) -> GateResult:
         return GateResult("secret_scan", True, ERROR, None, 0.0, str(exc), command=command)
 
     if baseline and mode == "tree":
-        command += ["--baseline-path", str(SECRET_BASELINE)]
+        command += ["--baseline-path", SECRET_BASELINE.name]
 
     result = _run_gate("secret_scan", command, cwd=REPO)
     result.data = {
