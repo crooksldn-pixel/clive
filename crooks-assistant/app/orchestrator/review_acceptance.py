@@ -68,7 +68,7 @@ class AcceptanceDecision(StrictRecord):
     accepted_sha: ExactSha | None = None
 
     @model_validator(mode="after")
-    def accepted_sha_matches_state(self) -> "AcceptanceDecision":
+    def accepted_sha_matches_state(self) -> AcceptanceDecision:
         if self.accepted != (self.accepted_sha is not None):
             raise ValueError("accepted_sha must exist iff accepted=true")
         return self
