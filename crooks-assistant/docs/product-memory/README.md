@@ -32,6 +32,8 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 
 - [DEV_TEAM_V1_PILOT.md](./DEV_TEAM_V1_PILOT.md) — proposed task/review/recovery records and first end-to-end acceptance trial; no dispatch approval.
 - [BUILDER_ENVIRONMENT_REVIEW.md](./BUILDER_ENVIRONMENT_REVIEW.md) — independent review of candidate 9a27bc4 with reproduced defects and current bridge status.
+- [ENGINEERING_STACK_REUSE_PLAN.md](./ENGINEERING_STACK_REUSE_PLAN.md) — research/proposed plan for reusing mature public agent infrastructure while owning CROOKS-specific policy and evidence semantics; no approval to install, spend or widen privileges.
+- [HARNESS_ACCEPTANCE_2C2B0CC.md](./HARNESS_ACCEPTANCE_2C2B0CC.md) — the sixth independent adversarial review's ACCEPT FOR NEXT GATE verdict on harness candidate 2c2b0cc, with the limits it recorded.
 
 ## Status model
 
