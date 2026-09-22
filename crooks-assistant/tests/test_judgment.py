@@ -1,5 +1,7 @@
 """Adversarial tests for OwnerDecision/Judgment Ledger records."""
 
+from datetime import UTC, datetime
+
 import pytest
 
 from app.actions.judgment import (
@@ -21,6 +23,7 @@ def _record(**overrides):
         decision=OwnerDecision.APPROVED,
         reason_code=ReasonCode.ACCEPTED_AS_PROPOSED,
         provenance=OwnerProvenance(principal_id="owner", session_id="session-1"),
+        decided_at=datetime(2026, 9, 22, 18, 0, tzinfo=UTC),
         redaction_version=1,
         schema_version=1,
     )

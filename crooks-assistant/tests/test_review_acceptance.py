@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -12,20 +11,34 @@ from app.orchestrator.review_acceptance import (
     evaluate_review_acceptance,
     evidence_fingerprint,
 )
-from app.orchestrator.routing import Party
+from app.orchestrator.routing import Party, Principal, PrincipalKind, SessionContext, Workspace
 
 SHA = "a" * 40
 OTHER_SHA = "b" * 40
 PAYLOAD = b"independent-review-evidence"
+STARTED_AT = datetime(2026, 9, 22, 8, 0, tzinfo=UTC)
 
 
 def party(*, principal: str, session: str, workspace: str, writable: bool = False) -> Party:
+    """A principal in a session in a workspace: the three that routing keeps apart.
+
+    ``writable`` is the author's side of things, since an author's workspace can
+    mutate the candidate. A reviewer's must not, and the test that hands a
+    reviewer ``writable=True`` expects to be refused for exactly that.
+    """
+
     return Party(
-        principal_id=principal,
-        session_id=session,
-        workspace_id=workspace,
-        candidate_mutation_capable=writable,
-        model_family="test-model",
+        principal=Principal(
+            principal_id=principal, kind=PrincipalKind.MODEL, model_family="test-model"
+        ),
+        session=SessionContext(session_id=session, context_is_fresh=True, started_at=STARTED_AT),
+        workspace=Workspace(
+            workspace_id=workspace,
+            branch="claude/candidate",
+            head_sha=SHA,
+            read_only=not writable,
+            clean=True,
+        ),
     )
 
 
