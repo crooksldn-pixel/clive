@@ -1,0 +1,46 @@
+{
+  "schema": "clive.agent_roster.v1",
+  "comment": [
+    "The declared roster. Being listed here is NOT evidence that a worker exists.",
+    "Every entry is probed against the live system on each read; an entry whose",
+    "probe finds nothing is reported OFFLINE, which is the point of the file."
+  ],
+  "fresh_window_s": 900,
+  "stale_window_s": 3600,
+  "workers": [
+    {
+      "worker_id": "clive-bridge-worker",
+      "display_name": "Bridge Worker",
+      "role": "builder",
+      "project": "clive",
+      "probe": {
+        "kind": "systemd_bridge",
+        "unit": "crooks-bridge-watcher.service",
+        "state_dir": "/var/lib/crooks-bridge",
+        "workdir": "/opt/crooks-builder"
+      }
+    },
+    {
+      "worker_id": "clive-v05-worker",
+      "display_name": "V0.5 Live Experience",
+      "role": "builder",
+      "project": "clive",
+      "probe": {
+        "kind": "worktree_process",
+        "worktree": "/opt/crooks-workers/v05",
+        "declared_branch": "claude/v05-parallel-worker-20260921"
+      }
+    },
+    {
+      "worker_id": "clive-cp-reviewer",
+      "display_name": "Control Plane Reviewer",
+      "role": "reviewer",
+      "project": "clive",
+      "probe": {
+        "kind": "worktree_process",
+        "worktree": "/opt/crooks-workers/cp-review",
+        "declared_branch": "claude/independent-review-e8830c44"
+      }
+    }
+  ]
+}
