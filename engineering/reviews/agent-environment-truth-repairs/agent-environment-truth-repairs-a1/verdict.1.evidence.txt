@@ -1,0 +1,15 @@
+Owner-relayed GPT exact-SHA review verdict (session message 4, received 2026-09-22 between 22:33Z and 23:37Z).
+Reviewer session and workspace facts are declared by the relay. The verdict names two repositories; this store records the CLIVE candidate (the kernel is bound to one repository per store); the Agent Environment candidate 119bb9bff5a09aa7f1f04799396bcb68cf34a10a is named in the text below.
+
+PACKET 6
+CLIVE:
+84e12e77e712ed454f12a6300f6e5f5b54391252
+
+Agent Environment:
+119bb9bff5a09aa7f1f04799396bcb68cf34a10a
+
+VERDICT: READY.
+
+The two truth defects are correctly repaired. UNKNOWN no longer contributes to online presence, process start time is separate presence evidence, and last_heartbeat remains null until an authoritative heartbeat exists. The Agent Environment preserves that distinction rather than reconstructing liveness.
+
+Admit this READY verdict through the kernel where applicable.
