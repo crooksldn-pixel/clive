@@ -1,0 +1,11 @@
+GPT follow-up review, relayed by the owner on 2026-09-22 (session message 3).
+
+J-02 — Judgment correction provenance
+
+Candidate 2a08f456847bc71061483448aaa45859cde29f3d correctly resolves J-01, but one narrow defect remains.
+
+JudgmentRecord carries task_revision and attempt_id, while _check_correction() currently binds a correction only to proposal_id, proposal_fingerprint, action_id and task_id.
+
+A correction must not silently move owner judgment between task revisions or attempts.
+
+Resolve this fail-closed. Where the corrected judgment carries task_revision and/or attempt_id, the correction must preserve the appropriate identity unless canonical doctrine explicitly defines a different correction model. Add adversarial tests. Produce a new exact SHA and full acceptance evidence. Previous GPT review does not transfer.
