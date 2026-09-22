@@ -1,8 +1,15 @@
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 
-from app.actions.judgment import JudgmentRecord, OwnerDecision, OwnerProvenance, proposal_fingerprint
+from app.actions.judgment import (
+    JudgmentRecord,
+    OwnerDecision,
+    OwnerProvenance,
+    ReasonCode,
+    proposal_fingerprint,
+)
 from app.actions.judgment_chain import JudgmentChainAnchor, chain_anchor, chain_ledger, verify_chain
 from app.actions.judgment_ledger import JudgmentLedger, JudgmentLedgerError
 
@@ -11,9 +18,9 @@ def _record(n: int) -> JudgmentRecord:
     return JudgmentRecord(
         judgment_id=f"j-{n}", task_id="task-1", action_id=f"action-{n}",
         proposal_id=f"proposal-{n}", proposal_fingerprint=proposal_fingerprint({"n": n}),
-        decision=OwnerDecision.APPROVED, reason_code="ACCEPT_AS_PROPOSED",
-        provenance=OwnerProvenance(principal_id="owner-1", source="owner-ui"),
-        decided_at=f"2026-09-22T20:4{n}:00Z",
+        decision=OwnerDecision.APPROVED, reason_code=ReasonCode.ACCEPTED_AS_PROPOSED,
+        provenance=OwnerProvenance(principal_id="owner-1", session_id="session-1", source="owner-ui"),
+        decided_at=datetime(2026, 9, 22, 20, 40 + n, tzinfo=UTC),
     )
 
 
