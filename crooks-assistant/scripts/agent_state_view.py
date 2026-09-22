@@ -62,7 +62,8 @@ class Probe:
     current_task: str | None = None
     branch: str | None = None
     head_sha: str | None = None
-    last_heartbeat: str | None = None
+    last_heartbeat: str | None = None  # only an authoritative heartbeat; never a start time
+    process_started_at: str | None = None  # presence evidence, reported under its own name
     last_event: str | None = None
     last_event_at: str | None = None
     blocker: str | None = None
@@ -223,7 +224,10 @@ def probe_worktree_process(cfg: dict, fresh_s: int, stale_s: int) -> Probe:
         return p
 
     agent = agents[0]
-    p.last_heartbeat = agent["started_at"]
+    # A process start time is presence evidence, not a heartbeat: nothing here
+    # beats. No producer writes liveness for this worker yet, so last_heartbeat
+    # stays None and the start time is reported under its own name.
+    p.process_started_at = agent["started_at"]
     p.notes.append(f"pid={agent['pid']} cpu_s={agent['cpu_seconds']}")
 
     ts, path = newest_write(worktree)
@@ -313,8 +317,8 @@ def probe_systemd_bridge(cfg: dict, fresh_s: int, stale_s: int) -> Probe:
         p.last_event = raw
         parts = raw.split()
         if len(parts) >= 2:
+            # When the last run completed: an event, not a heartbeat.
             p.last_event_at = parts[1]
-            p.last_heartbeat = parts[1]
         try:
             age = time.time() - last_run.stat().st_mtime
         except OSError:
@@ -380,6 +384,7 @@ def build_view(roster: dict) -> dict:
                 "branch": p.branch,
                 "head_sha": p.head_sha,
                 "last_heartbeat": p.last_heartbeat,
+                "process_started_at": p.process_started_at,
                 "last_event": p.last_event,
                 "last_event_at": p.last_event_at,
                 "blocker": p.blocker,
@@ -398,7 +403,9 @@ def build_view(roster: dict) -> dict:
         "workers": records,
         "totals": {
             "declared": len(records),
-            "online": sum(1 for r in records if r["status"] != OFFLINE),
+            # Presence established. UNKNOWN means CLIVE could not establish
+            # presence, so it is counted under `unknown` and never as online.
+            "online": sum(1 for r in records if r["status"] not in (OFFLINE, UNKNOWN)),
             "working": sum(1 for r in records if r["status"] in working),
             "idle": sum(1 for r in records if r["status"] == IDLE),
             "stale": sum(1 for r in records if r["status"] == STALE),

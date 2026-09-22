@@ -39,6 +39,17 @@ Each worker carries exactly the fields the owner asked for — `worker_id`,
 - `evidence[]` — the raw observations (PIDs, CPU seconds, write ages, unit
   state). Render it behind a disclosure; it is what makes a wrong status
   arguable rather than mysterious.
+- `process_started_at` — when the worker's process started, if one was found.
+  This is presence evidence and is reported under its own name on purpose.
+
+`last_heartbeat` is `null` until an authoritative heartbeat exists for the
+worker. A process start time is not a heartbeat (nothing beats), and the
+watcher's last-run timestamp is when a run completed (`last_event_at`), not
+liveness; neither is ever reported as one.
+
+`totals.online` counts the workers whose presence was established: every
+status except `OFFLINE` and `UNKNOWN`. An `UNKNOWN` worker is one CLIVE could
+not observe; it is counted in `totals.unknown` only, never as online.
 
 ## Status vocabulary
 

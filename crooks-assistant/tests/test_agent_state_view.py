@@ -10,6 +10,7 @@ what the view must *not* say.
 from __future__ import annotations
 
 import json
+import os
 import time
 
 import pytest
@@ -232,8 +233,62 @@ def test_every_record_carries_the_owner_requested_fields(tmp_path, monkeypatch):
     for key in (
         "worker_id", "display_name", "role", "status", "current_task", "project", "branch",
         "head_sha", "last_heartbeat", "last_event", "last_event_at", "blocker", "owner_gate",
+        "process_started_at",
     ):
         assert key in record, key
 
 
 build = view.build_view
+
+
+# ------------------------------------------------- presence, heartbeat, online
+
+
+def test_a_process_start_time_is_reported_as_such_and_never_as_a_heartbeat(tmp_path, monkeypatch):
+    """Presence and liveness are different evidence. Nothing here beats, so nothing is a heartbeat."""
+    (tmp_path / "f.py").write_text("x = 1")
+    monkeypatch.setattr(view, "processes_with_cwd", lambda _p: agent_proc())
+    record = only(build(roster({"kind": "worktree_process", "worktree": str(tmp_path)})))
+    assert record["status"] == view.BUILDING
+    assert record["last_heartbeat"] is None
+    assert record["process_started_at"] == "2026-09-21T11:35:35Z"
+
+
+def test_the_bridge_last_run_timestamp_is_an_event_not_a_heartbeat(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "last-run").write_text("ok 2026-09-22T07:58:53Z 7f4aa77a")
+    monkeypatch.setattr(
+        view, "_run", lambda *a, **k: (0, "ActiveState=active\nSubState=running\nMainPID=1049547")
+    )
+    record = only(
+        build(roster({"kind": "systemd_bridge", "unit": "u.service", "state_dir": str(state)}))
+    )
+    assert record["last_event_at"] == "2026-09-22T07:58:53Z"
+    assert record["last_heartbeat"] is None
+    assert record["process_started_at"] is None
+
+
+def test_unknown_is_not_online(monkeypatch):
+    """UNKNOWN means presence could not be established; it must never read as present."""
+    monkeypatch.setattr(view, "_run", lambda *a, **k: (127, "no systemctl"))
+    built = build(roster({"kind": "systemd_bridge", "unit": "u.service"}))
+    assert only(built)["status"] == view.UNKNOWN
+    assert built["totals"]["unknown"] == 1
+    assert built["totals"]["online"] == 0
+
+
+def test_online_counts_only_established_presence(tmp_path, monkeypatch):
+    """A live process that is idle is present; an absent or unobservable worker is not."""
+    written = tmp_path / "f.py"
+    written.write_text("x = 1")
+    old = time.time() - 2000
+    os.utime(written, (old, old))
+    monkeypatch.setattr(view, "processes_with_cwd", lambda _p: agent_proc())
+    present = build(roster({"kind": "worktree_process", "worktree": str(tmp_path)}))
+    assert only(present)["status"] == view.IDLE
+    assert present["totals"]["online"] == 1
+    monkeypatch.setattr(view, "processes_with_cwd", lambda _p: [])
+    absent = build(roster({"kind": "worktree_process", "worktree": str(tmp_path)}))
+    assert only(absent)["status"] == view.OFFLINE
+    assert absent["totals"]["online"] == 0

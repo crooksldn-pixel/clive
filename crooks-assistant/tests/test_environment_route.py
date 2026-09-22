@@ -22,6 +22,7 @@ from app.routes import environment
 OWNER_REQUESTED = (
     "worker_id", "display_name", "role", "status", "current_task", "project", "branch",
     "head_sha", "last_heartbeat", "last_event", "last_event_at", "blocker", "owner_gate",
+    "process_started_at",
 )
 VOCABULARY = {"OFFLINE", "IDLE", "BUILDING", "REVIEWING", "BLOCKED", "OWNER_GATE", "STALE", "UNKNOWN"}
 
