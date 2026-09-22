@@ -22,7 +22,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7"]
+# pyyaml is test-only: the CI workflow is now part of the repository's tested
+# surface, and tests/test_ci_workflow.py parses it rather than grepping it.
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7", "pyyaml>=6.0"]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -1,0 +1,139 @@
+name: acceptance
+
+# Every run is about one commit. The checkout is pinned to the exact SHA that
+# triggered it, that SHA is handed to the provenance script, and the script
+# refuses to produce evidence if the repository disagrees with it — so a green
+# badge can always be traced back to a commit, never to "whatever was on the
+# branch at the time".
+#
+# What this produces is evidence, not permission. Nothing here accepts a
+# candidate; acceptance is an independent principal's decision, recorded
+# elsewhere.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "offline pytest scope"
+        required: false
+        default: full
+        type: choice
+        options: [bounded, full]
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per ref; a superseded commit's run is not worth finishing.
+  group: acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GITLEAKS_VERSION: "8.30.1"
+  GITLEAKS_SHA256: ""
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the exact candidate commit
+        uses: actions/checkout@v4
+        with:
+          # Not the branch tip — the commit this run was triggered for.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # gitleaks needs history to scan a range rather than a snapshot.
+          fetch-depth: 0
+
+      - name: Resolve and verify the candidate SHA
+        id: candidate
+        run: |
+          set -euo pipefail
+          expected="${{ github.event.pull_request.head.sha || github.sha }}"
+          actual="$(git rev-parse HEAD)"
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::checkout is $actual but this run is for $expected"
+            exit 1
+          fi
+          echo "sha=$actual" >> "$GITHUB_OUTPUT"
+          echo "Candidate SHA: $actual"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: crooks-assistant/pyproject.toml
+
+      - name: Install the assistant and its dev tooling
+        working-directory: crooks-assistant
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Install the pinned secret scanner
+        run: |
+          set -euo pipefail
+          version="${GITLEAKS_VERSION}"
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz"
+          curl --fail --silent --show-error --location "$url" -o /tmp/gitleaks.tar.gz
+          if [ -n "${GITLEAKS_SHA256}" ]; then
+            echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum --check --strict
+          else
+            echo "::warning::GITLEAKS_SHA256 is unset; the download is pinned by version only. \
+          Set it in the workflow env to pin by digest."
+          fi
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Run the acceptance gates and record provenance
+        id: gates
+        working-directory: crooks-assistant
+        run: |
+          set -euo pipefail
+          python scripts/acceptance_provenance.py \
+            --candidate-sha "${{ steps.candidate.outputs.sha }}" \
+            --suite "${{ inputs.suite || 'full' }}" \
+            --out "${{ runner.temp }}/acceptance-${{ steps.candidate.outputs.sha }}.json"
+
+      - name: Publish the provenance artifact
+        # Even a failed run's evidence is worth keeping — it says which gate
+        # refused, about which commit.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-${{ steps.candidate.outputs.sha }}
+          path: ${{ runner.temp }}/acceptance-${{ steps.candidate.outputs.sha }}.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Summarise
+        if: always()
+        run: |
+          set -euo pipefail
+          artifact="${{ runner.temp }}/acceptance-${{ steps.candidate.outputs.sha }}.json"
+          {
+            echo "## Acceptance evidence"
+            echo
+            echo "Candidate SHA: \`${{ steps.candidate.outputs.sha }}\`"
+            echo
+            if [ -f "$artifact" ]; then
+              echo '```json'
+              python -c "import json,sys;d=json.load(open(sys.argv[1]));print(json.dumps(d['acceptance'],indent=2,sort_keys=True))" "$artifact"
+              echo '```'
+            else
+              echo "No artifact was produced: the run could not be bound to a commit."
+            fi
+            echo
+            echo "Mechanical gates produce evidence, not permission. This candidate is **not accepted**;"
+            echo "acceptance requires an independent principal's review of this exact SHA."
+          } >> "$GITHUB_STEP_SUMMARY"
