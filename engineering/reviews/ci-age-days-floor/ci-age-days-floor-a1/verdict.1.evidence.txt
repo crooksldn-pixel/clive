@@ -1,0 +1,10 @@
+Owner-relayed GPT exact-SHA review verdict (session message 4, received 2026-09-22 between 22:33Z and 23:37Z).
+Reviewer session and workspace facts are declared by the relay.
+
+PACKET 8
+Candidate:
+ef3d08ff9fc58d33ba96994bb2e3256010bda1f4
+
+VERDICT: READY.
+
+The age-days failure is a genuine time-window bug caused by rounding before flooring. The narrow truncation helper and regression coverage address the defect without broad behavioural change.
