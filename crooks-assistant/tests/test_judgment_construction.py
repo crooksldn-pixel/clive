@@ -152,3 +152,17 @@ def test_records_are_immutable() -> None:
     built = record()
     with pytest.raises((AttributeError, TypeError)):
         built.decision = OwnerDecision.DECLINED  # type: ignore[misc]
+
+
+def test_a_judgment_cannot_correct_itself() -> None:
+    with pytest.raises(JudgmentValidationError, match="correct itself"):
+        record(corrects_judgment_id="judgment-1")
+
+
+def test_a_blank_correction_reference_fails_closed() -> None:
+    with pytest.raises(JudgmentValidationError):
+        record(corrects_judgment_id="  ")
+
+
+def test_a_well_formed_correction_reference_is_carried() -> None:
+    assert record(judgment_id="judgment-2", corrects_judgment_id="judgment-1").corrects_judgment_id == "judgment-1"

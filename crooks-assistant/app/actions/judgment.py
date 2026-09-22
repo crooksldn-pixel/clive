@@ -147,6 +147,10 @@ class JudgmentRecord:
     superseding_proposal_id: str | None = None
     replacement_fingerprint: str | None = None
     redacted_explanation: str | None = None
+    # A correction is a later judgment about the SAME proposal, referencing the
+    # judgment it corrects. The corrected entry is never rewritten; whether the
+    # reference is admissible (exists, is current, matches) is the ledger's call.
+    corrects_judgment_id: str | None = None
 
     def __post_init__(self) -> None:
         # Coerce the two vocabularies so a record rebuilt from storage carries
@@ -191,6 +195,10 @@ def validate_judgment(record: JudgmentRecord) -> None:
         raise JudgmentValidationError("task_revision, when given, must be a positive integer")
     if record.attempt_id is not None:
         _require_text("attempt_id", record.attempt_id)
+    if record.corrects_judgment_id is not None:
+        _require_text("corrects_judgment_id", record.corrects_judgment_id)
+        if record.corrects_judgment_id == record.judgment_id:
+            raise JudgmentValidationError("a judgment cannot correct itself")
 
     if not isinstance(record.provenance, OwnerProvenance):
         raise JudgmentValidationError("provenance must be an OwnerProvenance")
