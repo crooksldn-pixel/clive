@@ -214,11 +214,97 @@ def test_an_absent_secret_scanner_is_an_error_not_a_pass(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(provenance, "_VENDORED_GITLEAKS", repo / "nothing-here")
+    monkeypatch.setattr(provenance, "SECRET_BASELINE", repo / "no-baseline.json")
     monkeypatch.setenv("PATH", str(repo))  # no gitleaks on it
 
     result = provenance.gate_secret_scan(None)
     assert result.status == provenance.ERROR
     assert result.satisfied is False
+
+
+# --- the secret-scan baseline ----------------------------------------------
+
+
+def test_the_committed_baseline_holds_no_secret_value() -> None:
+    """The baseline is committed, so it must be readable by anyone without
+    handing them anything. Every value in it is the literal 'REDACTED'."""
+
+    findings = provenance.read_baseline()
+    assert findings, "the baseline should record the known pre-existing findings"
+
+    for finding in findings:
+        assert finding["Secret"] == "REDACTED"
+        assert "REDACTED" in finding["Match"]
+        assert finding["Fingerprint"]
+
+
+def test_every_baselined_finding_is_a_test_fixture() -> None:
+    """Nothing outside the test suite may be excused by the baseline.
+
+    A baseline is a promise that these findings are not secrets. That promise
+    is only defensible for strings that exist to be redacted in a test; the
+    moment application code appears here, the promise is doing work it should
+    not be doing.
+    """
+
+    for finding in provenance.read_baseline():
+        assert "/tests/" in finding["File"], finding["File"]
+
+
+def test_a_corrupt_baseline_fails_closed(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    corrupt = repo / "baseline.json"
+    corrupt.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(provenance, "SECRET_BASELINE", corrupt)
+
+    result = provenance.gate_secret_scan(None)
+    assert result.status == provenance.ERROR
+    assert "baseline" in result.detail
+
+
+def test_a_baseline_that_is_not_a_list_fails_closed(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wrong = repo / "baseline.json"
+    wrong.write_text('{"findings": []}', encoding="utf-8")
+    monkeypatch.setattr(provenance, "SECRET_BASELINE", wrong)
+
+    with pytest.raises(provenance.EvidenceError, match="JSON array"):
+        provenance.read_baseline()
+
+
+def test_the_artifact_discloses_how_much_the_baseline_suppressed(
+    repo: Path, all_gates_pass: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """"No leaks found" must not be able to hide how it got there."""
+
+    monkeypatch.undo()  # restore the real gate_secret_scan
+    real = provenance.gate_secret_scan(None)
+
+    assert real.data is not None
+    assert real.data["mode"] == "tree"
+    assert real.data["baseline_suppressed_findings"] == len(provenance.read_baseline())
+    assert real.data["baseline_path"] == ".gitleaks-baseline.json"
+
+
+def test_a_commit_range_scan_does_not_use_the_baseline(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A range scan only sees what the candidate introduced, so there is
+    nothing pre-existing for a baseline to excuse."""
+
+    captured: list[list[str]] = []
+
+    def fake_run_gate(name, command, **kwargs):
+        captured.append(command)
+        return provenance.GateResult(name, True, provenance.PASS, 0)
+
+    monkeypatch.setattr(provenance, "_run_gate", fake_run_gate)
+    result = provenance.gate_secret_scan("a" * 40)
+
+    assert result.data["mode"] == "range"
+    assert result.data["baseline_suppressed_findings"] == 0
+    assert "--baseline-path" not in captured[0]
+    assert f"--log-opts={'a' * 40}..HEAD" in captured[0]
 
 
 # --- the boundary the inbox names ------------------------------------------

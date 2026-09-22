@@ -45,6 +45,10 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 # workflow installs the same pinned version onto PATH instead.
 _VENDORED_GITLEAKS = REPO / ".tooling" / "bin" / "gitleaks"
 
+# Findings that predate this gate, recorded by fingerprint with every value
+# redacted. See ``read_baseline``.
+SECRET_BASELINE = REPO / ".gitleaks-baseline.json"
+
 PASS = "pass"
 FAIL = "fail"
 ERROR = "error"
@@ -277,24 +281,81 @@ def gate_offline_suite(scope: str) -> GateResult:
     )
 
 
+def _display_path(path: Path) -> str:
+    """Repository-relative when it can be, absolute when it cannot.
+
+    Never an exception: a path that happens to sit outside the repository is a
+    thing to report, not a reason for the gate to crash instead of returning a
+    verdict.
+    """
+
+    try:
+        return str(path.relative_to(REPO))
+    except ValueError:
+        return str(path)
+
+
+def read_baseline() -> list[dict]:
+    """The pre-existing findings this repository has already accounted for.
+
+    They are all redaction fixtures in test files — strings that exist
+    precisely so the observability tests can prove a secret gets masked. The
+    baseline records them by fingerprint, never by value, so the scanner stops
+    reporting them without anybody having to weaken a rule or exclude a path.
+    """
+
+    if not SECRET_BASELINE.is_file():
+        return []
+    try:
+        loaded = json.loads(SECRET_BASELINE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise EvidenceError(f"secret-scan baseline is not readable JSON: {exc}") from exc
+    if not isinstance(loaded, list):
+        raise EvidenceError("secret-scan baseline must be a JSON array of findings")
+    return loaded
+
+
 def gate_secret_scan(base_sha: str | None) -> GateResult:
-    """The pinned secret scanner, over the working tree or a commit range.
+    """The pinned secret scanner, over the candidate's tree or a commit range.
 
     An absent scanner is not a pass. It is recorded as an error, the gate is
     required, and the run therefore fails closed — a candidate nobody scanned
     is not a candidate that is clean.
+
+    Whatever the baseline suppresses is reported in the artifact, so a reader
+    can see how much was excused rather than having to take "no leaks found"
+    on trust.
     """
 
     executable = "gitleaks"
     if _VENDORED_GITLEAKS.is_file():
         executable = str(_VENDORED_GITLEAKS)
 
-    command = [executable, "detect", "--no-banner", "--redact", "--exit-code", "1",
-               "--source", str(REPO)]
     if base_sha:
+        mode = "range"
         command = [executable, "git", "--no-banner", "--redact", "--exit-code", "1",
                    f"--log-opts={base_sha}..HEAD", str(REPO)]
-    return _run_gate("secret_scan", command, cwd=REPO)
+    else:
+        mode = "tree"
+        command = [executable, "detect", "--no-banner", "--redact", "--exit-code", "1",
+                   "--no-git", "--source", str(REPO)]
+
+    try:
+        baseline = read_baseline()
+    except EvidenceError as exc:
+        return GateResult("secret_scan", True, ERROR, None, 0.0, str(exc), command=command)
+
+    if baseline and mode == "tree":
+        command += ["--baseline-path", str(SECRET_BASELINE)]
+
+    result = _run_gate("secret_scan", command, cwd=REPO)
+    result.data = {
+        "mode": mode,
+        "scanner": Path(executable).name,
+        "baseline_path": _display_path(SECRET_BASELINE) if baseline else None,
+        "baseline_suppressed_findings": len(baseline) if baseline and mode == "tree" else 0,
+    }
+    return result
 
 
 def build_artifact(
