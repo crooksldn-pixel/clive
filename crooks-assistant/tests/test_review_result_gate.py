@@ -1,16 +1,52 @@
+"""The gate in front of acceptance: stale and late results are refused before a verdict counts."""
+
 from __future__ import annotations
 
-from dataclasses import replace
-import hashlib
+from datetime import UTC, datetime
 
 import pytest
 
-from app.orchestrator.review_acceptance import AcceptanceTarget, ReviewEvidence
+from app.orchestrator.review_acceptance import (
+    AcceptanceTarget,
+    ReviewEvidence,
+    ReviewVerdict,
+    evidence_fingerprint,
+)
 from app.orchestrator.review_result_gate import ReviewResultEnvelope, gate_review_result
-from app.orchestrator.reviewer_routing import ReviewerProvenance
-
+from app.orchestrator.routing import Party, Principal, PrincipalKind, SessionContext, Workspace
 
 SHA = "a" * 40
+STARTED_AT = datetime(2026, 9, 22, 8, 0, tzinfo=UTC)
+COMPLETED_AT = datetime(2026, 9, 22, 9, 0, tzinfo=UTC)
+PAYLOAD = b"independent review evidence"
+
+
+def _party(principal: str, session: str, workspace: str, *, read_only: bool) -> Party:
+    return Party(
+        principal=Principal(
+            principal_id=principal, kind=PrincipalKind.MODEL, model_family="independent-model"
+        ),
+        session=SessionContext(session_id=session, context_is_fresh=True, started_at=STARTED_AT),
+        workspace=Workspace(
+            workspace_id=workspace,
+            branch="claude/candidate",
+            head_sha=SHA,
+            read_only=read_only,
+            clean=True,
+        ),
+    )
+
+
+def _author() -> Party:
+    return _party("builder-principal", "build-session", "build-workspace", read_only=False)
+
+
+def _other_author() -> Party:
+    return _party("other-author", "build-session", "build-workspace", read_only=False)
+
+
+def _reviewer() -> Party:
+    return _party("reviewer-principal", "review-session", "review-workspace", read_only=True)
 
 
 def _target() -> AcceptanceTarget:
@@ -19,24 +55,12 @@ def _target() -> AcceptanceTarget:
         task_revision=3,
         attempt_id="attempt-7",
         candidate_sha=SHA,
-        author="builder-principal",
-    )
-
-
-def _reviewer() -> ReviewerProvenance:
-    return ReviewerProvenance(
-        principal_id="reviewer-principal",
-        session_id="review-session",
-        workspace_id="review-workspace",
-        workspace_read_only=True,
-        can_mutate_candidate=False,
-        model_family="independent-model",
+        author=_author(),
     )
 
 
 def _envelope(target: AcceptanceTarget | None = None) -> ReviewResultEnvelope:
     target = target or _target()
-    payload = b"independent review evidence"
     evidence = ReviewEvidence(
         task_id=target.task_id,
         task_revision=target.task_revision,
@@ -44,10 +68,12 @@ def _envelope(target: AcceptanceTarget | None = None) -> ReviewResultEnvelope:
         candidate_sha=target.candidate_sha,
         author=target.author,
         reviewer=_reviewer(),
-        verdict="READY",
-        evidence_sha256=hashlib.sha256(payload).hexdigest(),
+        verdict=ReviewVerdict.READY,
+        evidence_sha256=evidence_fingerprint(PAYLOAD),
+        observed_candidate_sha=target.candidate_sha,
+        completed_at=COMPLETED_AT,
     )
-    return ReviewResultEnvelope(target=target, evidence=evidence, evidence_payload=payload)
+    return ReviewResultEnvelope(target=target, evidence=evidence, evidence_payload=PAYLOAD)
 
 
 @pytest.mark.parametrize(
@@ -57,12 +83,14 @@ def _envelope(target: AcceptanceTarget | None = None) -> ReviewResultEnvelope:
         ("task_revision", 2, "stale_task_revision"),
         ("attempt_id", "attempt-old", "stale_attempt_id"),
         ("candidate_sha", "b" * 40, "stale_candidate_sha"),
-        ("author", "other-author", "stale_author_provenance"),
+        ("author", _other_author(), "stale_author_provenance"),
     ],
 )
-def test_gate_rejects_stale_envelope_before_acceptance(field: str, value: object, reason: str) -> None:
+def test_gate_rejects_stale_envelope_before_acceptance(
+    field: str, value: object, reason: str
+) -> None:
     current = _target()
-    stale = replace(current, **{field: value})
+    stale = current.model_copy(update={field: value})
 
     decision = gate_review_result(
         envelope=_envelope(stale),
@@ -100,4 +128,4 @@ def test_gate_rejects_late_result_when_branch_has_moved() -> None:
 
     assert decision.accepted is False
     assert decision.accepted_sha is None
-    assert "candidate_sha_drift" in decision.reasons
+    assert "current_candidate_sha_drift" in decision.reasons
