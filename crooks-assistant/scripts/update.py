@@ -236,23 +236,21 @@ def stage_tests(*, check_only: bool, enabled: bool) -> bool:
 
 
 def stage_restart(*, check_only: bool, port: int) -> None:
-    if check_only:
-        say(SKIP, "restart", "would restart the assistant and whisper-server")
-        return
+    """Stage 7, and the only stage that is not the same code on both platforms: `launchctl
+    kickstart` for the Mac's two agents, `systemctl restart` for the server's one unit. Which
+    it is, and what it is called, comes from launch_common so that nothing here has to know."""
     import launch_common as lc
 
-    domain = f"gui/{lc.uid()}"
-    failed = []
-    for label in lc.AGENTS:
-        out = subprocess.run(["launchctl", "kickstart", "-k", f"{domain}/{label}"], capture_output=True, text=True, timeout=60)
-        if out.returncode != 0:
-            failed.append(f"{label}: {(out.stderr or '').strip() or 'launchctl refused'}")
+    what = " and ".join(lc.service_labels())
+    if check_only:
+        say(SKIP, "restart", f"would restart {what}")
+        return
+    failed = lc.restart_services()
     if failed:
         raise Stopped(
-            "The services would not restart:\n  " + "\n  ".join(failed)
-            + "\nIf they were never installed, run `make install` once. Your code IS updated; only the restart failed."
+            "The services would not restart:\n  " + "\n  ".join(failed) + "\n" + lc.restart_hint()
         )
-    say(OK, "restart", "assistant and whisper-server kicked")
+    say(OK, "restart", f"{what} restarted")
 
 
 def stage_verify(*, check_only: bool, port: int) -> dict | None:

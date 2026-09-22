@@ -15,6 +15,11 @@ os.environ.setdefault("CROOKS_BENCH_AUDIO_DIR", os.path.join(_TEST_STATE, "bench
 os.environ.setdefault("CROOKS_SAVE_CAPTURES", "false")
 # The read layer's cache is not warmed at boot under test: each test binds the store it wants.
 os.environ.setdefault("CROOKS_ANALYTICS_WARM_DAYS", "0")
+# The Linux secret store, pointed away from the real one. app/media.py loads its signing key
+# at import — before any fixture has run — and on Linux that would otherwise create and write
+# /etc/crooks-os/secrets as a side effect of collecting the suite. Set here, with the three
+# above, because "before any Settings() is built" is also before any app module is imported.
+os.environ.setdefault("CROOKS_SECRET_DIR", os.path.join(_TEST_STATE, "secrets"))
 
 # The environment every offline test is given, whatever the Mac it runs on has in its own.
 # Built from the four above so a deliberate override on the command line still works, and
@@ -23,7 +28,7 @@ _TEST_ENV = {
     name: os.environ[name]
     for name in (
         "CROOKS_LOG_DIR", "CROOKS_BENCH_AUDIO_DIR", "CROOKS_SAVE_CAPTURES",
-        "CROOKS_ANALYTICS_WARM_DAYS",
+        "CROOKS_ANALYTICS_WARM_DAYS", "CROOKS_SECRET_DIR",
     )
 }
 # No .env. This is the one that matters: `.env` is the owner's own configuration and

@@ -85,6 +85,17 @@ class Settings(BaseSettings):
     tts_max_chars: int = 1200
     tts_cooldown_s: float = 300.0
 
+    # Whether local speech recognition is deployed on this host at all. True everywhere the
+    # Mac runs: whisper.cpp is its automatic fallback and nothing about that changes. False on
+    # the Linux server, which has no Core ML, no model and no build toolchain, and where a
+    # permanently red whisper check would be a check nobody reads.
+    #
+    # False does four things and no more: /health reports whisper as DISABLED rather than
+    # FAILED, the Core ML probe is skipped, the absence does not make the host degraded, and
+    # the transcriber stops offering a fallback it does not have. It never hides a real
+    # failure — with no fallback behind it, Scribe going down makes speech UNHEALTHY here,
+    # where on the Mac the same outage is only slower.
+    whisper_enabled: bool = True
     whisper_url: str = "http://127.0.0.1:8910"
     whisper_model: str = "small.en"
     whisper_bin_dir: Path = Path.home() / "tools" / "whisper.cpp"

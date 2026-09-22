@@ -104,6 +104,7 @@ class Transcriber:
         *,
         scribe: ScribeClient | None = None,
         primary: str = "whisper",
+        whisper_enabled: bool = True,
         keyterms: bool = True,
         save_dir: Path | None = None,
         max_saved: int = 200,
@@ -113,6 +114,11 @@ class Transcriber:
         # No Scribe client, or primary set to "whisper", means the local path exactly as it was.
         self._scribe = scribe
         self._primary = "scribe" if (primary == "scribe" and scribe is not None) else "whisper"
+        # False on a host where whisper.cpp was never deployed. Rather than let every Scribe
+        # failure spend a connect-and-timeout on a port with nothing behind it, the fallback
+        # refuses immediately and says why — the caller sees WhisperUnavailable either way,
+        # so nothing downstream learns a new shape, it just stops waiting to be told.
+        self._whisper_enabled = whisper_enabled
         self._keyterms = keyterms
         self._save_dir = save_dir
         self._max_saved = max_saved
@@ -122,6 +128,11 @@ class Transcriber:
         return self._primary
 
     async def _whisper(self, wav: bytes) -> Transcript:
+        if not self._whisper_enabled:
+            raise WhisperUnavailable(
+                "local speech recognition is not deployed on this host "
+                "(CROOKS_WHISPER_ENABLED=false); there is no fallback behind Scribe here."
+            )
         return await self._client.transcribe(
             wav, prompt=build_prompt(self._normaliser.catalogue.prompt_terms())
         )

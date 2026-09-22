@@ -76,8 +76,13 @@ async def test_health_names_each_subsystem(client):
         "claude", "scribe", "whisper", "speech", "tts", "shopify", "gmail", "knowledge_base",
         "terminology",
     } <= body["checks"].keys()
-    for check in body["checks"].values():
-        assert set(check) == {"ok", "detail"}
+    for name, check in body["checks"].items():
+        # ok and detail are the contract every check keeps, and the tablet reads nothing else.
+        # Two checks add one optional field apiece: `whisper` says disabled=True where the host
+        # was never given a local recogniser, and `speech` says which redundancy world the
+        # reader is in. Anything beyond these is a check inventing its own shape.
+        assert {"ok", "detail"} <= set(check), name
+        assert set(check) <= {"ok", "detail", "disabled", "redundancy"}, name
     assert "version" in body and "uptime_s" in body
 
 

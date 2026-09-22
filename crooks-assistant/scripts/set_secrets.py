@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Store a secret in the macOS Keychain.
+"""Store a secret in the macOS Keychain. The Mac's command; on Linux see provision_secrets.py.
 
 The value is typed at this prompt, never echoed, never written to a file, never passed as an
 argument (which would put it in your shell history and in `ps`), and never printed back.
@@ -59,6 +59,19 @@ def store_one(key: str) -> int:
 
 
 def main() -> int:
+    # On Linux this would quietly work and do the wrong thing: keychain.set_secret writes to
+    # the writable tier, so a static secret meant to be an encrypted, host-bound systemd
+    # credential would land as a plain 0600 file instead — no error, no encryption at rest,
+    # and nobody would know until a disk image walked. provision_secrets.py is the command
+    # that knows which tier a secret belongs in, so send the operator there.
+    if sys.platform.startswith("linux"):
+        print("This is the macOS command. On this host use:\n")
+        print("    python scripts/provision_secrets.py            what is stored, and where")
+        print("    python scripts/provision_secrets.py --all      store what production needs\n")
+        print("It picks the right tier per secret (encrypted credential vs writable file);")
+        print("this one would store every secret as a plain file. See docs/DEPLOY_LINUX.md.")
+        return 1
+
     if len(sys.argv) < 2 or sys.argv[1] in {"-h", "--help"}:
         print("usage: python scripts/set_secrets.py --all | <key> [--delete]\n\nKeys:")
         for key in keychain.KNOWN_KEYS:

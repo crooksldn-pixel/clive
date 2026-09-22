@@ -456,6 +456,7 @@ def build(settings: Settings | None = None) -> Runtime:
         normaliser,
         scribe=scribe,
         primary=settings.stt_primary,
+        whisper_enabled=settings.whisper_enabled,
         keyterms=settings.scribe_keyterms,
         save_dir=settings.bench_audio_dir if settings.save_captures else None,
         max_saved=settings.max_saved_captures,

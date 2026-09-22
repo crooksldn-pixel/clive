@@ -1,0 +1,79 @@
+# Template. `make install` (scripts/install_systemd.py) fills the placeholders from the
+# current checkout and installs the result; do not copy this by hand.
+#
+# The Linux counterpart of launchd/com.crooks.assistant.plist. A restart loop here is almost
+# always a wrong WorkingDirectory or a PATH without the `claude` binary — systemd does not
+# read a shell profile, which is why PATH is spelled out and the CLI's absolute path is
+# passed as CROOKS_CLAUDE_CLI_PATH.
+#
+# The service runs as root TEMPORARILY, because the Claude Max login this machine already
+# holds lives in /root/.claude and moving it is a second migration. That is why HOME is set,
+# why ProtectHome is off, and why HOME is writable: the CLI rewrites its own credential when
+# the OAuth token refreshes, and a read-only home turns that into an authentication failure
+# days later. See docs/DEPLOY_LINUX.md — migrating to a dedicated service user is the first
+# hardening item once production is proven.
+
+[Unit]
+Description=CROOKS Assistant (FastAPI backend)
+Documentation=file://{{ROOT}}/docs/DEPLOY_LINUX.md
+# Tailscale supplies the HTTPS origin the tablet and the phone reach this through, so there
+# is no point being up before it is.
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+# A crash loop restarts as fast as the CPU allows without this. Five in five minutes and
+# systemd gives up, which is a state `make status` can report rather than a hidden spin.
+#
+# In [Unit], where systemd reads them. Under [Service] StartLimitIntervalSec is an unknown key
+# and is dropped with a warning nobody sees, leaving the 10s default window — which, with
+# RestartSec=10 below, a failing service can never fill. The guard would look present and
+# never once engage.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=exec
+WorkingDirectory={{ROOT}}
+ExecStart={{PYTHON}} -m uvicorn app.main:app --host {{HOST}} --port {{PORT}}
+
+Environment=HOME={{HOME}}
+Environment=PATH={{PATH}}
+Environment=PYTHONUNBUFFERED=1
+Environment=CROOKS_CLAUDE_CLI_PATH={{CLAUDE}}
+
+# Static secrets, encrypted at rest by `systemd-creds encrypt` and bound to this host.
+# systemd decrypts them into a private tmpfs for this service alone; nothing else on the
+# machine can read them, and a copy taken off the disk is inert. Written by
+# scripts/provision_secrets.py, and this block is regenerated from what it has stored.
+{{CREDENTIALS}}
+# uvicorn shuts down cleanly on SIGINT; SIGTERM leaves the lifespan's aclose() unrun.
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=crooks-assistant
+
+# Hardening. Modest, because the service is root today; these are what still bites at root.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# ProtectSystem=strict makes the whole hierarchy read-only, so everything this service must
+# write is named here and nothing else is writable:
+#   the checkout   logs/, .cache/media/, kb/.catalogue-cache.txt
+#   HOME           /root/.claude — the Claude CLI's own credential, refreshed in place
+#   the secrets    the Gmail token, rewritten after every OAuth refresh
+ProtectHome=no
+ReadWritePaths={{ROOT}}
+ReadWritePaths={{HOME}}
+ReadWritePaths=-{{SECRET_DIR}}
+
+[Install]
+WantedBy=multi-user.target

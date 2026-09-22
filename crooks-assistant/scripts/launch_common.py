@@ -28,6 +28,14 @@ AGENTS = {
     "com.crooks.whisper": "com.crooks.whisper.plist",
 }
 
+# The Linux half. One unit, not two: whisper.cpp is not deployed on the server (no Core ML,
+# no model, no build toolchain), so there is nothing for a second service to supervise.
+# docs/DEPLOY_LINUX.md says what that costs and why it is deliberate.
+SERVICE_UNIT = "crooks-assistant.service"
+SYSTEMD_DIR = Path("/etc/systemd/system")
+SYSTEMD_UNIT_PATH = SYSTEMD_DIR / SERVICE_UNIT
+SYSTEMD_TEMPLATE = ROOT / "deploy" / "systemd" / "crooks-assistant.service"
+
 # The Mac App Store / standalone Tailscale app keeps its CLI inside the bundle.
 TAILSCALE_APP = Path("/Applications/Tailscale.app/Contents/MacOS/Tailscale")
 
@@ -59,10 +67,10 @@ def find_claude() -> str | None:
     return None
 
 
-def launchd_path(extra: list[str | None] = ()) -> str:
-    """A PATH for a launchd agent: the directories of every binary the backend spawns, then
-    the usual places. launchd starts with almost nothing, and `claude` is a node script that
-    needs `node` beside it."""
+def service_path(extra: list[str | None] = ()) -> str:
+    """A PATH for a supervised service: the directories of every binary the backend spawns,
+    then the usual places. Neither launchd nor systemd reads a shell profile — both start with
+    almost nothing — and `claude` is a node script that needs `node` beside it."""
     dirs: list[str] = []
     for binary in [find_claude(), shutil.which("node"), find_tailscale(), sys.executable, *extra]:
         if binary:
@@ -74,6 +82,68 @@ def launchd_path(extra: list[str | None] = ()) -> str:
         if directory not in dirs:
             dirs.append(directory)
     return ":".join(dirs)
+
+
+# The name the Mac has always called it. Same construction on both platforms; the extra
+# /opt/homebrew entries are simply absent on Linux and cost nothing.
+launchd_path = service_path
+
+
+# --------------------------------------------------------------------------- supervision
+
+
+def service_labels() -> tuple[str, ...]:
+    """What supervises the assistant here, named as the platform names it. One definition, so
+    `crooks-update`, CROOKS Control and the installers cannot disagree about what to restart."""
+    return (SERVICE_UNIT,) if is_linux() else tuple(AGENTS)
+
+
+def restart_services(timeout_s: float = 120.0) -> list[str]:
+    """Restart the assistant through whatever supervises it. Returns the failures, empty when
+    all is well — the caller decides whether a failure stops a run.
+
+    This is the one place the two platforms differ in the update path: `launchctl kickstart`
+    on the Mac, `systemctl restart` on the server. Everything either side of it — the
+    fast-forward, the dependency install, the offline suite, the health read — is the same
+    code doing the same thing.
+    """
+    if is_linux():
+        out = subprocess.run(
+            ["systemctl", "restart", SERVICE_UNIT], capture_output=True, text=True, timeout=timeout_s
+        )
+        if out.returncode == 0:
+            return []
+        return [f"{SERVICE_UNIT}: {(out.stderr or out.stdout).strip() or 'systemctl refused'}"]
+
+    domain = f"gui/{uid()}"
+    failed = []
+    for label in AGENTS:
+        out = subprocess.run(
+            ["launchctl", "kickstart", "-k", f"{domain}/{label}"],
+            capture_output=True, text=True, timeout=timeout_s,
+        )
+        if out.returncode != 0:
+            failed.append(f"{label}: {(out.stderr or '').strip() or 'launchctl refused'}")
+    return failed
+
+
+def installer_script() -> Path:
+    """The install/status/restart command for this platform, for the Makefile and for the
+    buttons CROOKS Control draws."""
+    return Path(__file__).resolve().parent / ("install_systemd.py" if is_linux() else "install_launchd.py")
+
+
+def restart_hint() -> str:
+    """What to try when a restart fails, named for the platform the operator is standing on."""
+    if is_linux():
+        return (
+            "If the unit was never installed, run `make install` once. Your code IS updated; "
+            f"only the restart failed. Look in: journalctl -u {SERVICE_UNIT} -n 50"
+        )
+    return (
+        "If they were never installed, run `make install` once. Your code IS updated; only "
+        "the restart failed."
+    )
 
 
 # --------------------------------------------------------------------------- tailscale serve
@@ -238,6 +308,10 @@ def env_line(key: str, value: str | int) -> str:
 
 def is_macos() -> bool:
     return sys.platform == "darwin"
+
+
+def is_linux() -> bool:
+    return sys.platform.startswith("linux")
 
 
 def uid() -> int:

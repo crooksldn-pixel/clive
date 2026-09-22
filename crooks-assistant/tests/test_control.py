@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from scripts import control, update
+from scripts import launch_common as lc
 
 # The checkout these tests are part of, whatever directory pytest was started from.
 PROJECT = Path(__file__).resolve().parent.parent
@@ -982,16 +983,30 @@ def test_a_quiet_run_does_not_silence_the_next_one(here, capsys):
 
 
 def test_the_restart_button_is_the_line_make_restart_runs(buttons):
-    """Not launchctl, and not an uninstall-and-install: the same script `make restart` runs,
-    which kickstarts the agents that were installed at login and leaves them installed. That
-    is how the backend and whisper-server keep starting when the Mac starts."""
+    """Not the supervisor's command directly, and not an uninstall-and-install: the same script
+    `make restart` runs, which restarts what was installed and leaves it installed. That is how
+    the backend keeps starting when the machine starts.
+
+    The installer is chosen by platform now — install_launchd.py on the Mac, install_systemd.py
+    on the server — so what is checked here is the PAIRING rather than either name: whatever
+    `make restart` runs is what the button runs. Hard-coding one of the two names is what this
+    test used to do, and it would now pass on one machine and fail on the other while the thing
+    it cares about was true on both.
+    """
     restart = next(action for action in buttons if action["id"] == "restart")
     makefile = (PROJECT / "Makefile").read_text(encoding="utf-8")
-    assert "scripts/install_launchd.py --restart" in makefile
-    assert restart["command"][1].endswith("scripts/install_launchd.py")
+    assert "$(INSTALLER) --restart" in makefile
+    assert "INSTALLER := scripts/install_launchd.py" in makefile
+    assert "INSTALLER := scripts/install_systemd.py" in makefile
+
+    installer_name = lc.installer_script().name
+    assert restart["command"][1].endswith(f"scripts/{installer_name}")
     assert restart["command"][2:] == ["--restart"]
-    installer = (PROJECT / "scripts" / "install_launchd.py").read_text(encoding="utf-8")
-    assert "kickstart" in installer and "def restart" in installer
+
+    installer = (PROJECT / "scripts" / installer_name).read_text(encoding="utf-8")
+    assert "def restart" in installer
+    # It restarts what is already installed; it does not reinstall it.
+    assert ("kickstart" if installer_name == "install_launchd.py" else "systemctl") in installer
 
 
 def test_the_run_tests_button_is_the_offline_suite_make_test_runs(buttons):

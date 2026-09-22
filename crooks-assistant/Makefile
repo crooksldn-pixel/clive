@@ -4,7 +4,21 @@ PY   := $(VENV)/bin/python
 PYTHON ?= $(shell command -v python3.12 || command -v python3.11 || command -v python3)
 PIP  := $(VENV)/bin/pip
 
-.PHONY: help doctor venv up install uninstall status restart logs dev bench test test-live experience experience-ui experience-live experience-list screens matrix tool-matrix lint chat acceptance accept write-check whisper-server secrets shopify gmail gmail-verify voice check test-session-start test-session-status test-session-stop test-session-report test-session-proposals record-start record-status record-stop record-list record-save-test bench-intelligence bench-lanes commands commands-remove update watch control control-app
+# Which supervisor this machine has. The targets below are the same words on both — `make
+# install`, `make status`, `make restart` — and only what sits behind them differs, so the
+# steps written down in the README and in docs/DEPLOY_LINUX.md are one set of steps.
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+INSTALLER := scripts/install_systemd.py
+LOGS      := journalctl -u crooks-assistant -f -n 40
+SECRETS   := scripts/provision_secrets.py --all
+else
+INSTALLER := scripts/install_launchd.py
+LOGS      := tail -n 40 -F logs/assistant.out.log logs/assistant.err.log logs/whisper.out.log logs/whisper.err.log
+SECRETS   := scripts/set_secrets.py --all
+endif
+
+.PHONY: help doctor venv up install uninstall status restart logs health dev bench test test-live experience experience-ui experience-live experience-list screens matrix tool-matrix lint chat acceptance accept write-check whisper-server secrets shopify gmail gmail-verify voice check test-session-start test-session-status test-session-stop test-session-report test-session-proposals record-start record-status record-stop record-list record-save-test bench-intelligence bench-lanes commands commands-remove update watch control control-app
 
 help:
 	@echo "The steps you take, in order. Every one is: open Terminal, cd into this folder, type the line."
@@ -27,6 +41,7 @@ help:
 	@echo "  make logs            follow the login-time services' output"
 	@echo ""
 	@echo "When something needs looking at:"
+	@echo "  make health          is it well: one line and an exit code (V=1 every check)"
 	@echo "  make check           doctor + shopify + gmail-verify in one go"
 	@echo "  make gmail-verify    prove Gmail refreshes without a browser"
 	@echo "  make write-check     rehearse one change through the engine: TOOL=… ARGS='{json}' [COMMIT=1]"
@@ -91,19 +106,22 @@ up:
 	$(PY) scripts/up.py
 
 install:
-	$(PY) scripts/install_launchd.py
+	$(PY) $(INSTALLER)
 
 uninstall:
-	$(PY) scripts/install_launchd.py --uninstall
+	$(PY) $(INSTALLER) --uninstall
 
 status:
-	$(PY) scripts/install_launchd.py --status
+	$(PY) $(INSTALLER) --status
 
 restart:
-	$(PY) scripts/install_launchd.py --restart
+	$(PY) $(INSTALLER) --restart
 
 logs:
-	tail -n 40 -F logs/assistant.out.log logs/assistant.err.log logs/whisper.out.log logs/whisper.err.log
+	$(LOGS)
+
+health:
+	@$(PY) scripts/healthcheck.py $(if $(V),-v,) $(if $(JSON),--json,)
 
 dev:
 	$(PY) -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
@@ -214,7 +232,7 @@ tool-matrix:
 	@$(PY) -c "import sys; sys.path.insert(0,'.'); from experience import tool_matrix; print(tool_matrix.write())"
 
 secrets:
-	$(PY) scripts/set_secrets.py --all
+	$(PY) $(SECRETS)
 
 shopify:
 	$(PY) scripts/shopify_check.py

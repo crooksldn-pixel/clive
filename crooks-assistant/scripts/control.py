@@ -648,7 +648,10 @@ def rollback_document(*, yes: bool) -> dict:
     try:
         upd = update_module()
         upd.stage_restart(check_only=False, port=the_port)
-        stages.append({"stage": "restart", "state": "ok", "detail": "assistant and whisper-server kicked"})
+        import launch_common as lc
+
+        stages.append({"stage": "restart", "state": "ok",
+                       "detail": f"{' and '.join(lc.service_labels())} restarted"})
     except Exception as exc:  # noqa: BLE001 — a refused launchctl is a state, not a crash
         stages.append({"stage": "restart", "state": "fail", "detail": str(exc)[:300]})
         return envelope("rollback", ok=False, rollback=decision, build={"current": current_build(None), "last_known_good": good},
@@ -673,18 +676,24 @@ def actions_document() -> dict:
            "open_url" hand it to the browser
            "open_path" reveal it in the Finder
     """
+    import launch_common as lc
+
     the_port = port()
     host, _note = tablet_route(the_port)
     py = str(ROOT / ".venv" / "bin" / "python")
     control_py = str(HERE / "control.py")
+    # launchd on the Mac, systemd on the server. The button is the same button; only the
+    # command behind it and the words on the confirmation differ.
+    installer = str(lc.installer_script())
+    supervised = " and ".join(lc.service_labels())
     return envelope("actions", actions=[
         {"id": "open", "label": "Open CROOKS OS", "kind": "open_url", "group": "use",
          "url": f"https://{host}/" if host else f"http://127.0.0.1:{the_port}/", "confirm": False,
          "why": "the tablet's own page, on this Mac's browser"},
         {"id": "restart", "label": "Restart", "kind": "shell", "group": "use",
-         "command": [py, str(HERE / "install_launchd.py"), "--restart"], "cwd": str(ROOT), "confirm": True,
-         "confirm_text": "Restart the assistant and whisper-server? Anything mid-sentence on the tablet will stop.",
-         "why": "the launchd agents, kicked — the same as `make restart`"},
+         "command": [py, installer, "--restart"], "cwd": str(ROOT), "confirm": True,
+         "confirm_text": f"Restart {supervised}? Anything mid-sentence on the tablet will stop.",
+         "why": f"{supervised}, restarted — the same as `make restart`"},
         {"id": "check", "label": "Check for update", "kind": "control", "group": "update",
          "command": [py, control_py, "plan"], "cwd": str(ROOT), "confirm": False,
          "why": "fetches, shows both SHAs, changes nothing"},

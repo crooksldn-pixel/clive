@@ -29,9 +29,14 @@ PATH_PREFIX = "/media/shopify/"
 
 
 def _load_key() -> bytes:
-    """The signing key: kept in the Keychain so image paths stay valid across a restart and
-    the tablet's own image cache keeps its thumbnails. Without a Keychain (tests, Linux)
-    a key for this process only, which is still safe — a restart just means fresh paths."""
+    """The signing key: stored so image paths stay valid across a restart and the tablet's own
+    image cache keeps its thumbnails. The Mac keeps it in the login Keychain, the server in its
+    root-only secret directory; both persist it, so a restart no longer silently invalidates
+    every thumbnail the tablet holds.
+
+    Where there is no store at all — the test suite, or a process outside the login session —
+    this falls back to a key for this process only. That is still safe: the paths it signs are
+    valid while it runs, and a restart simply means fresh ones."""
     try:
         from app.secrets import keychain
 

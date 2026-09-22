@@ -69,12 +69,26 @@ async def _health(runtime) -> dict:
         checks[name] = {"ok": ok, "detail": detail}
 
     primary = runtime.transcriber.primary
+    whisper_enabled = runtime.settings.whisper_enabled
     running = [
         check("claude", runtime.provider.health()),
-        check("whisper", runtime.whisper.health()),
         check("shopify", runtime.shopify.health()),
         check("gmail", asyncio.to_thread(runtime.gmail.health)),
     ]
+    if whisper_enabled:
+        running.append(check("whisper", runtime.whisper.health()))
+    else:
+        # Not deployed here, and that is a decision rather than a failure. ok=True, so an
+        # absence nobody intends to fix cannot make the whole host read as degraded — a check
+        # that is permanently red is a check people stop reading, and then they stop reading
+        # the one beside it too. `disabled` is what anything branching on this should use.
+        # Nothing is being hidden: checks["speech"] below goes UNHEALTHY the moment the one
+        # remaining recogniser stops answering, which on this host is the whole of speech.
+        checks["whisper"] = {
+            "ok": True,
+            "disabled": True,
+            "detail": "disabled (CROOKS_WHISPER_ENABLED=false) — no local recogniser on this host",
+        }
     if primary == "scribe":
         running.append(check("scribe", runtime.scribe.health()))
     else:
@@ -98,9 +112,9 @@ async def _health(runtime) -> dict:
 
     # The plan's M3 failure check: Core ML build succeeds but the .mlmodelc is missing, and
     # everything runs twice as slowly with no error. Say so here so it cannot go unnoticed.
-    bin_dir = settings.whisper_bin_dir
-    coreml = bin_dir / "models" / f"ggml-{settings.whisper_model}-encoder.mlmodelc"
-    if checks["whisper"]["ok"]:
+    if whisper_enabled and checks["whisper"]["ok"]:
+        bin_dir = settings.whisper_bin_dir
+        coreml = bin_dir / "models" / f"ggml-{settings.whisper_model}-encoder.mlmodelc"
         checks["whisper"]["detail"] += (
             " · Core ML encoder present" if coreml.exists()
             else " · no Core ML encoder (fine for a Metal-only build; ~2x slower if built with Core ML)"
@@ -109,18 +123,44 @@ async def _health(runtime) -> dict:
     # Speech recognition is two engines behind one job, so it gets a verdict of its own:
     # Scribe down while Whisper is up is a slower assistant, not a deaf one, and the tablet's
     # page should not read "degraded" as "cannot hear you".
+    #
+    # Where there is no second engine, that reasoning inverts and this is the one place that
+    # matters. On the Mac, Scribe going down is a slower assistant. On a host with whisper
+    # disabled it is a deaf one, and `speech` says UNHEALTHY rather than borrowing the Mac's
+    # answer. `redundancy` publishes which of the two worlds the reader is in, so the absence
+    # of a fallback is a visible fact rather than something you have to already know.
     primary_check = "scribe" if primary == "scribe" else "whisper"
-    if checks[primary_check]["ok"]:
+    # Whether whisper could actually take a turn: deployed here AND answering. On the Mac this
+    # is exactly checks["whisper"]["ok"], which is why nothing there changes.
+    whisper_usable = whisper_enabled and checks["whisper"]["ok"]
+    redundancy = "whisper" if whisper_enabled else "none"
+
+    if primary == "whisper" and not whisper_enabled:
+        # Configured to hear through an engine this host was never given. Neither setting is
+        # wrong by itself, so neither check catches it alone; the pair is the fault, and it is
+        # named rather than left to look like an ordinary whisper outage.
+        speech_ok, speech_effective = False, "none"
+        speech_detail = (
+            "MISCONFIGURED — CROOKS_STT_PRIMARY=whisper but CROOKS_WHISPER_ENABLED=false: "
+            "this host has no recogniser at all"
+        )
+    elif checks[primary_check]["ok"]:
         expect = settings.scribe_model if primary == "scribe" else "whisper"
+        speech_ok, speech_effective = True, expect
         speech_detail = f"{expect} (primary)"
-    elif checks["whisper"]["ok"]:
+        if not whisper_enabled:
+            speech_detail += " · no local fallback on this host (by design)"
+    elif whisper_usable:
+        speech_ok, speech_effective = True, "whisper_fallback"
         speech_detail = f"whisper_fallback — {primary_check} is unavailable, answers still work"
     else:
-        speech_detail = "NO recogniser available — the tablet cannot be heard"
-    checks["speech"] = {
-        "ok": checks[primary_check]["ok"] or checks["whisper"]["ok"],
-        "detail": speech_detail,
-    }
+        speech_ok, speech_effective = False, "none"
+        speech_detail = (
+            "NO recogniser available — the tablet cannot be heard"
+            if whisper_enabled
+            else f"NOT working: {primary_check} is down and this host has no local fallback"
+        )
+    checks["speech"] = {"ok": speech_ok, "detail": speech_detail, "redundancy": redundancy}
 
     checks["knowledge_base"] = {
         "ok": not runtime.kb.empty,
@@ -162,12 +202,13 @@ async def _health(runtime) -> dict:
             "primary": primary,
             "scribe_model": settings.scribe_model,
             "scribe_ok": checks["scribe"]["ok"],
-            "whisper_ok": checks["whisper"]["ok"],
-            "effective": (
-                (settings.scribe_model if primary == "scribe" else "whisper")
-                if checks[primary_check]["ok"]
-                else ("whisper_fallback" if checks["whisper"]["ok"] else "none")
-            ),
+            # Usable, not merely "the probe passed": a disabled whisper reports its check as
+            # ok so the host is not degraded, and reporting that as whisper_ok here would be
+            # the one place that turns into a lie about what can hear you.
+            "whisper_ok": whisper_usable,
+            "whisper_enabled": whisper_enabled,
+            "redundancy": redundancy,
+            "effective": speech_effective,
             "scribe_attempts": runtime.scribe.attempts,
             "scribe_successes": runtime.scribe.successes,
             "scribe_failures": runtime.scribe.failures,
