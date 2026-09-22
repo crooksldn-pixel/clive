@@ -103,3 +103,48 @@ def test_the_service_worker_under_node():
     )
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
     assert "# fail 0" in result.stdout
+
+
+@needs_node
+def test_the_one_interaction_state_under_node():
+    """V0.5 invariant 2: IDLE → LISTENING → HEARING → UNDERSTOOD → THINKING → WORKING →
+    RESPONDING → IDLE, with error, interruption and recovery explicit — and the four
+    latencies the evidence gate asks for, measured from pointer-down and from release
+    (web/live-state.js)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / "live-state.test.js")],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout
+
+
+@needs_node
+def test_the_work_in_flight_under_node():
+    """V0.5 slice C: independent jobs inside one session — out-of-order completion, one job
+    failing while the others carry on, a retry only where re-running is safe, and a strip
+    that disappears rather than becoming a dashboard (web/jobs.js)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / "jobs.test.js")],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout
+
+
+@needs_node
+def test_the_v05_acceptance_scenario_under_node():
+    """§E of the V0.5 contract, driven end to end against an honestly-labelled fixture: the
+    acknowledgement on the touch, the words settling before reasoning, two jobs progressing
+    independently, the first useful result before the slowest job, speech beginning while
+    work continues, a barge-in that keeps the work in flight, a second question that adds a
+    background job rather than a Split, and one job failing while the others carry on.
+
+    The timings in it are invented by the harness and prove nothing about how fast the Mac
+    is; real device numbers come from the live_marks the page posts."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / "acceptance-v05.test.js")],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout

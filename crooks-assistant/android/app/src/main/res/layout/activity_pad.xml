@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CROOKS Pad — the whole screen.
+     ==================================================================================
+     §7. READ THIS BEFORE ADDING A VIEW TO THIS FILE.
+
+     In Phase 4, sixty-three ordinary control taps became voice recordings because a
+     transparent full-viewport surface sat over the controls. In this file the same mistake
+     would be worse: a view here sits above the WebView, so it would swallow every control in
+     the entire product, and the pad would simply look frozen with nothing in any log to say
+     why.
+
+     THE RULE, and PadLayoutTest enforces it against this file on every build:
+
+       1. `web_host` is the FIRST child. Everything after it is above it.
+       2. EVERY sibling declared after `web_host` must carry android:visibility="gone".
+       3. No view in this file may be transparent and full-size. An overlay is opaque and
+          present, or it is gone. There is no third option and no alpha animation to a state
+          that still takes touches.
+
+     A new overlay that ships visible, or without a declared visibility at all, fails the
+     build. That is deliberate: the defect this guards against cost a Phase, produced a false
+     engineering priority, and was invisible in every log the system had.
+     ================================================================================== -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/pad_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/crooks_bg_0"
+    android:fitsSystemWindows="false">
+
+    <!-- The web layer lives here. It is a container rather than a <WebView> tag because a
+         renderer crash (§11, onRenderProcessGone) can only be recovered by DESTROYING the
+         WebView and building another — a WebView whose renderer has gone is permanently dead
+         and every method on it throws. A tag would have to be found, removed and replaced;
+         a host means the shell adds and removes one child and nothing else moves.
+
+         The WebView added here is INVISIBLE, not GONE, while it loads: it must keep its real
+         bounds so the page lays out at 601×889 rather than at nothing. See ShellLayer. -->
+    <FrameLayout
+        android:id="@+id/web_host"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- §6.3, the launch path. Opaque, and gone the moment the workspace arrives. -->
+    <LinearLayout
+        android:id="@+id/layer_launch"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/crooks_bg_0"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/launch_wordmark"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/launch_wordmark"
+            android:textColor="@color/crooks_ink"
+            android:textSize="44sp"
+            android:letterSpacing="0.22"
+            android:fontFamily="sans-serif-light" />
+
+        <TextView
+            android:id="@+id/launch_line"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="@string/launch_starting"
+            android:textColor="@color/crooks_ink_3"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+    <!-- §17, the recovery card. One title, one sentence, a countdown, at most two controls.
+         Centred in a 601dp-wide portrait screen with generous tap targets: every control in
+         here is at least 48dp tall because it is pressed by someone who is already annoyed. -->
+    <LinearLayout
+        android:id="@+id/layer_recovery"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/crooks_bg_0"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:paddingLeft="32dp"
+        android:paddingRight="32dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/recovery_mark"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="40dp"
+            android:text="@string/launch_wordmark"
+            android:textColor="@color/crooks_ink_3"
+            android:textSize="18sp"
+            android:letterSpacing="0.22" />
+
+        <TextView
+            android:id="@+id/recovery_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textColor="@color/crooks_ink"
+            android:textSize="26sp"
+            android:fontFamily="sans-serif-light" />
+
+        <TextView
+            android:id="@+id/recovery_detail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center"
+            android:lineSpacingMultiplier="1.35"
+            android:textColor="@color/crooks_ink_2"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/recovery_last_seen"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:gravity="center"
+            android:textColor="@color/crooks_ink_3"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/recovery_countdown"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:textColor="@color/crooks_ink_3"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:id="@+id/recovery_actions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="34dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/recovery_retry"
+                android:layout_width="wrap_content"
+                android:layout_height="56dp"
+                android:minWidth="150dp"
+                android:background="@drawable/bg_control"
+                android:text="@string/action_retry"
+                android:textAllCaps="false"
+                android:textColor="@color/crooks_ink"
+                android:textSize="16sp" />
+
+            <Button
+                android:id="@+id/recovery_diagnostics"
+                android:layout_width="wrap_content"
+                android:layout_height="56dp"
+                android:layout_marginStart="12dp"
+                android:minWidth="150dp"
+                android:background="@drawable/bg_control"
+                android:text="@string/action_diagnostics"
+                android:textAllCaps="false"
+                android:textColor="@color/crooks_ink_2"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/recovery_microphone"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:layout_marginTop="12dp"
+            android:minWidth="220dp"
+            android:background="@drawable/bg_control"
+            android:text="@string/action_allow_microphone"
+            android:textAllCaps="false"
+            android:textColor="@color/crooks_ink"
+            android:textSize="16sp"
+            android:visibility="gone" />
+
+        <!-- The microphone card is the one thing the shell puts over a working workspace
+             uninvited, so it must be dismissible in one tap. Without this the owner would be
+             locked out of a perfectly healthy CROOKS by a permission they may be content to
+             live without for the afternoon. -->
+        <Button
+            android:id="@+id/recovery_dismiss"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:layout_marginTop="12dp"
+            android:minWidth="220dp"
+            android:background="@drawable/bg_control"
+            android:text="@string/action_close"
+            android:textAllCaps="false"
+            android:textColor="@color/crooks_ink_2"
+            android:textSize="16sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- §12, admin. Reached only by six alternating volume presses and a PIN. -->
+    <ScrollView
+        android:id="@+id/layer_admin"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/crooks_bg_1"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="28dp">
+
+            <TextView
+                android:id="@+id/admin_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/admin_title"
+                android:textColor="@color/crooks_ink"
+                android:textSize="22sp"
+                android:letterSpacing="0.08" />
+
+            <TextView
+                android:id="@+id/admin_prompt"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:textColor="@color/crooks_ink_2"
+                android:textSize="15sp"
+                android:lineSpacingMultiplier="1.3" />
+
+            <EditText
+                android:id="@+id/admin_pin"
+                android:layout_width="match_parent"
+                android:layout_height="60dp"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/bg_control"
+                android:inputType="numberPassword"
+                android:maxLength="12"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:textColor="@color/crooks_ink"
+                android:textSize="22sp"
+                android:letterSpacing="0.3"
+                android:importantForAutofill="no"
+                android:hint="@string/admin_enter_pin"
+                android:textColorHint="@color/crooks_ink_3" />
+
+            <TextView
+                android:id="@+id/admin_error"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:textColor="@color/crooks_bad"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/admin_submit"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:layout_marginTop="14dp"
+                android:background="@drawable/bg_control"
+                android:text="@string/admin_done"
+                android:textAllCaps="false"
+                android:textColor="@color/crooks_ink"
+                android:textSize="16sp" />
+
+            <LinearLayout
+                android:id="@+id/admin_tools"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <Button android:id="@+id/admin_reconnect" style="@style/AdminButton" android:text="@string/admin_reconnect" />
+                <Button android:id="@+id/admin_reload" style="@style/AdminButton" android:text="@string/admin_reload" />
+                <Button android:id="@+id/admin_clear_cache" style="@style/AdminButton" android:text="@string/admin_clear_cache" />
+                <Button android:id="@+id/admin_home_role" style="@style/AdminButton" android:text="@string/admin_home_role_on" />
+                <Button android:id="@+id/admin_exit" style="@style/AdminButton" android:text="@string/admin_exit_kiosk" />
+
+                <TextView
+                    android:id="@+id/admin_diagnostics_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/crooks_ink_3"
+                    android:textIsSelectable="false"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/admin_close"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:layout_marginTop="24dp"
+                android:background="@drawable/bg_control"
+                android:text="@string/action_close"
+                android:textAllCaps="false"
+                android:textColor="@color/crooks_ink_2"
+                android:textSize="16sp" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- §17 read-only diagnostics, reachable from every recovery card without a PIN. The one
+         screen that explains why nothing works must not be behind the thing that is not
+         working. It shows no secret — see DiagnosticsReport for the list of what it may say. -->
+    <ScrollView
+        android:id="@+id/layer_diagnostics"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/crooks_bg_1"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="28dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diag_title"
+                android:textColor="@color/crooks_ink"
+                android:textSize="22sp"
+                android:letterSpacing="0.08" />
+
+            <TextView
+                android:id="@+id/diagnostics_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:fontFamily="monospace"
+                android:textColor="@color/crooks_ink_2"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/diagnostics_close"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:layout_marginTop="24dp"
+                android:background="@drawable/bg_control"
+                android:text="@string/action_close"
+                android:textAllCaps="false"
+                android:textColor="@color/crooks_ink"
+                android:textSize="16sp" />
+        </LinearLayout>
+    </ScrollView>
+
+</FrameLayout>

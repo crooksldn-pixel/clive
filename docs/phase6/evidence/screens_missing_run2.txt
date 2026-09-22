@@ -1,0 +1,5 @@
+46 shots written, 4 surface(s) missing
+  MISSING 17 progressive-stage-1: nothing on the glass is a promised-but-unread card, so there is no progressive stage to photograph [workstream D — progressive hydration (§6)]
+  MISSING 18 progressive-stage-2: nothing on the glass is a promised-but-unread card, so there is no progressive stage to photograph [workstream D — progressive hydration (§6)]
+  MISSING 19 progressive-complete: 0 cards [workstream D — progressive hydration (§6)]
+  MISSING 22 split-branch-ready: no half is showing as READY — the chips say ["HALF 1ORDER#1927 Fionn Doh","HALF 2ORDER#1940"] [workstream A/D — the half that finished while he was elsewhere (§10/§16)]

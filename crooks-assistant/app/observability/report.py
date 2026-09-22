@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from app.observability import claims, visible
+from app.observability.pad import APPLIANCE_KINDS
 from app.observability.timeline import read_events
 
 # The classes this file tests on the speech, tool and contract paths, named once so the
@@ -449,6 +450,11 @@ class Reconstruction:
     proposals: dict[str, ProposalRecord]
     orphans: list[dict[str, Any]]           # tablet and Mac events outside any turn
     unknown_kinds: Counter = field(default_factory=Counter)
+    # The appliance layer's own events (§18): `pad_*`, from the native shell around the page.
+    # They belong to no turn BY CONSTRUCTION — an app being backgrounded is not part of a
+    # question — so they are filed here rather than counted as kinds the report cannot read.
+    # Section 17 reads them; every other section is unchanged by their presence.
+    appliance: list[dict[str, Any]] = field(default_factory=list)
     # Commands, row actions and branch moves that belong to no turn — a tap is not a turn, and
     # most of them happen between two. Kept so section 14 can count them.
     controls: list[dict[str, Any]] = field(default_factory=list)
@@ -483,6 +489,7 @@ def reconstruct(events: list[dict[str, Any]], *, capability_states: dict[str, di
     proposals: dict[str, ProposalRecord] = {}
     tools: dict[str, ToolRecord] = {}
     orphans: list[dict[str, Any]] = []
+    appliance: list[dict[str, Any]] = []
     unknown: Counter = Counter()
     controls: list[dict[str, Any]] = []
     pending_submits: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -689,6 +696,12 @@ def reconstruct(events: list[dict[str, Any]], *, capability_states: dict[str, di
                             proposal_for({"proposal_id": str(c["proposal_id"])}).tablet.append(event)
             else:
                 orphans.append(event)
+        elif kind.startswith("pad_"):
+            # The appliance: `app/observability/pad.py`. Matched by PREFIX rather than against
+            # the known set, so a timeline written by a newer backend — one that has learned a
+            # `pad_` kind this one has not — is still read, and the unrecognised kind shows up
+            # in section 17's counts instead of as "event kinds this report does not read".
+            appliance.append(event)
         else:
             unknown[kind] += 1
             orphans.append(event)
@@ -708,7 +721,7 @@ def reconstruct(events: list[dict[str, Any]], *, capability_states: dict[str, di
         turn.cluster = _cluster(turn)
     _mark_repeats(result)
     rec = Reconstruction(session=session, events=events, turns=result, proposals=proposals, orphans=orphans,
-                         unknown_kinds=unknown, controls=controls, collisions=collisions)
+                         unknown_kinds=unknown, controls=controls, collisions=collisions, appliance=appliance)
     # The second reading: what the owner could SEE. It runs over the whole reconstruction
     # because most of what it reads spans turns — six reconciles across six turns, a burst of
     # Home in twenty seconds, a half focused and never redrawn — and it puts its classes on
@@ -2217,9 +2230,74 @@ def render(rec: Reconstruction, *, tools_registered: list[str] | None = None,
         "spent reporting four defects was scored eleven successful of fourteen.")
     add("")
     lines.extend(_two_outcomes(rec))
+
+    # 17 ------------------------------------------------------------------------------
+    # Only when there is one. Every session recorded before the appliance existed, and every
+    # session driven from a browser rather than from the pad, has no appliance events at all —
+    # and a section that said "none" at the bottom of each of those would be noise in every
+    # report ever written. So the report of a browser session is unchanged, to the byte.
+    if rec.appliance:
+        add("## 17. The appliance")
+        add("")
+        lines.extend(_appliance(rec))
+
     add("---")
-    add(f"Timeline: `logs/test-sessions/{session.get('test_session_id')}.jsonl` · {len(rec.events)} events · {len(rec.orphans)} outside any turn · {len(rec.controls)} command / branch event(s).")
+    appliance_note = f" · {len(rec.appliance)} appliance event(s)" if rec.appliance else ""
+    add(f"Timeline: `logs/test-sessions/{session.get('test_session_id')}.jsonl` · {len(rec.events)} events · {len(rec.orphans)} outside any turn · {len(rec.controls)} command / branch event(s){appliance_note}.")
     return "\n".join(lines) + "\n"
+
+
+def _appliance(rec: Reconstruction) -> list[str]:
+    """Section 17: the native shell around the page, from its own `pad_*` events (§18).
+
+    Every line is a count or the difference of two timestamps. It exists because an appliance's
+    failure modes are invisible to every other section of this report: the app was never brought
+    to the foreground, the WebView never loaded, the renderer was killed and Android rebuilt the
+    page underneath the owner, the pad could not reach this Mac for four minutes. A session in
+    which the owner says "I got no answer" reads identically in sections 1 to 16 whether the Mac
+    was slow or the tablet was asleep in a drawer, and that is the ambiguity this removes.
+    """
+    out: list[str] = []
+    events = rec.appliance
+    counts = Counter(str(e.get("kind") or "") for e in events)
+    beats = [e for e in events if e.get("kind") == "pad_heartbeat"]
+    identity = next((e for e in reversed(beats) if e.get("device_model") or e.get("app_version")), None)
+    if identity is not None:
+        out.append(f"- Pad: **{identity.get('device_model') or '?'}** · app **{identity.get('app_version') or '?'}** · OS {identity.get('os_version') or '?'}.")
+    out.append(f"- Appliance events: {len(events)} — {dict(counts)}.")
+    folded = sum(int(e["repeats"]) for e in events if isinstance(e.get("repeats"), (int, float)) and not isinstance(e.get("repeats"), bool))
+    if folded:
+        out.append(f"- {folded} identical repeat(s) were folded away before anything was written (`app/observability/pad.py`); "
+                   "each surviving event carries `repeats` — the number of reports of the state it replaced.")
+    returned = [e for e in beats if str(e.get("state") or "") == "returned"]
+    if returned:
+        gaps = ", ".join(_fmt_s(float(e.get("gap_s") or 0.0)) for e in returned)
+        out.append(f"- **The pad went quiet and came back {len(returned)} time(s)**: {gaps}. Each gap is a stretch in which "
+                   "nothing on this Mac could have known whether the tablet was alive.")
+    unreachable = [e for e in events if e.get("kind") == "pad_backend_unreachable"]
+    if unreachable:
+        out.append(f"- The pad could not reach this Mac **{len(unreachable)}** time(s): {dict(Counter(str(e.get('code') or '?') for e in unreachable))}. "
+                   "From the pad's side, not from ours — this is the half of the connection /health cannot see.")
+    errors = [e for e in events if e.get("kind") == "pad_webview_error"]
+    if errors:
+        out.append(f"- The WebView failed to load **{len(errors)}** time(s): {dict(Counter(str(e.get('code') or '?') for e in errors))}. "
+                   "The app was running and CROOKS was not on the screen.")
+    crashes = [e for e in events if e.get("kind") == "pad_renderer_crash"]
+    if crashes:
+        out.append(f"- **The renderer died {len(crashes)} time(s)** — {dict(Counter(str(e.get('reason') or '?') for e in crashes))}. "
+                   "Whatever was on screen went with it, and anything done next was done on a page that had just been rebuilt.")
+    mic = [e for e in events if e.get("kind") == "pad_mic_permission"]
+    if mic:
+        out.append(f"- Microphone permission: {dict(Counter(str(e.get('state') or '?') for e in mic))}. Denied means the orb could not have heard anything.")
+    admin = [e for e in events if e.get("kind") == "pad_admin_entered"]
+    if admin:
+        out.append(f"- Admin was entered {len(admin)} time(s), left {counts.get('pad_admin_exited', 0)} time(s).")
+    unread = sorted(k for k in counts if k not in APPLIANCE_KINDS)
+    if unread:
+        out.append(f"- Appliance kinds this report does not read line by line: {unread}. They are in the counts above, "
+                   "and they are there because the timeline was written by a backend that knows a kind this one does not.")
+    out.append("")
+    return out
 
 
 def _owner_defects(rec: Reconstruction) -> list[str]:

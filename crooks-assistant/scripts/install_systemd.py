@@ -148,12 +148,30 @@ def uninstall() -> int:
     return 0
 
 
+def _print_stages(out: dict) -> None:
+    marks = {"ok": "  ok    ", "skip": "  --    ", "warn": "  note  ", "fail": "  FAIL  "}
+    for stage in out["stages"]:
+        print(f"{marks.get(stage['state'], '  ?     ')}{stage['stage']:<8} {stage['detail']}")
+    print(f"\n  {out['human']}")
+    if out.get("problem"):
+        problem = out["problem"]
+        print(f"  {problem['fix']}")
+        print(f"  detail: {problem['developer']}")
+    if out.get("note"):
+        print(f"  {out['note']}")
+
+
 def restart(port: int) -> int:
-    out = systemctl("restart", lc.SERVICE_UNIT)
-    print(f"  {'ok    ' if out.returncode == 0 else 'FAIL  '} {lc.SERVICE_UNIT} {(out.stderr or '').strip()}")
-    health = lc.wait_for_health(f"http://127.0.0.1:{port}/health", timeout_s=90)
-    print(f"  health {lc.summarise_health(health)}")
-    return 0 if health else 1
+    """The same restart CROOKS Control's button and crooks-update run on this platform:
+    scripts/service_linux.restart(), which restarts the service and then READS /HEALTH BACK.
+    A `systemctl restart` that exits 0 for a service that dies on its first import is exactly
+    the lie §26 is about, and it is what this used to print and call done."""
+    from scripts import service_linux as svc
+
+    machine = svc.Machine.real(port)
+    out = svc.restart(machine, svc.Systemd(machine), port=port)
+    _print_stages(out)
+    return 0 if out["ok"] else 1
 
 
 def status(port: int) -> int:

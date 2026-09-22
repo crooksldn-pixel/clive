@@ -13,14 +13,18 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>0.2.0</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>2</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
-  <!-- A menu-bar app: no Dock icon, no window at launch. -->
-  <key>LSUIElement</key>
-  <true/>
+  <!--
+    No LSUIElement. Phase 5's app was a menu-bar accessory with no window, which suited a
+    status dot and suits a control centre badly: the first viewport has to answer five
+    questions at a glance, and a panel hanging off the menu bar has neither the room nor the
+    permanence for it. This is now a window that opens at login and stays open, with a line in
+    the menu bar for the glance when something else is in front of it.
+  -->
   <key>NSHighResolutionCapable</key>
   <true/>
 </dict>

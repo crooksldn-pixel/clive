@@ -6,9 +6,9 @@
 <meta name="theme-color" content="#07070a">
 <meta name="crooks-build" content="__BUILD__">
 <meta name="color-scheme" content="dark">
-<meta name="application-name" content="CROOKS OS">
+<meta name="application-name" content="CLIVE">
 <meta name="mobile-web-app-capable" content="yes">
-<title>CROOKS OS</title>
+<title>CLIVE</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
@@ -21,10 +21,10 @@
      the only thing on screen while the Mac cannot be reached. Hidden the moment it answers. -->
 <div id="system" class="system" data-phase="boot" role="status" aria-live="polite">
   <div class="system-inner">
-    <span class="system-wordmark">CROOKS OS</span>
+    <span class="system-wordmark">CLIVE</span>
     <span class="system-pulse" aria-hidden="true"></span>
     <h1 id="system-title" class="system-title">Starting</h1>
-    <p id="system-sub" class="system-sub">Connecting to CROOKS Assistant…</p>
+    <p id="system-sub" class="system-sub">Connecting to CLIVE…</p>
     <p id="system-note" class="system-note"></p>
   </div>
 </div>
@@ -38,7 +38,7 @@
   <div id="notes-global" class="notes notes-global" role="status" aria-live="polite" aria-label="System messages" hidden></div>
 
   <header class="top">
-    <span class="wordmark">CROOKS</span>
+    <span class="wordmark">CLIVE</span>
     <span id="conn" class="conn" data-state="connecting" role="status">
       <span class="conn-dot" aria-hidden="true"></span><span id="conn-text">Connecting</span>
     </span>
@@ -54,8 +54,8 @@
         <canvas id="orb" class="orb" width="340" height="340" aria-hidden="true"></canvas>
       </div>
       <div class="orb-caption">
-        <p id="state-label" class="state-label" role="status" aria-live="polite">System ready.</p>
-        <p id="state-sub" class="state-sub">What do you need?</p>
+        <p id="state-label" class="state-label" role="status" aria-live="polite">CLIVE ready</p>
+        <p id="state-sub" class="state-sub">Ask, interrupt, or continue</p>
         <p id="heard" class="heard"></p>
         <p id="answer" class="answer" aria-live="polite"></p>
         <p id="errline" class="errline"></p>
@@ -64,8 +64,8 @@
 
     <section id="context" class="context" aria-label="Context">
       <nav id="context-nav" class="context-nav" aria-label="Context navigation">
-        <button id="home-btn" class="chip chip-home" type="button" aria-label="Back to the assistant">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Assistant</span>
+        <button id="home-btn" class="chip chip-home" type="button" aria-label="Back to CLIVE">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>CLIVE</span>
         </button>
         <button id="back-btn" class="chip" type="button" hidden>Back</button>
         <!-- Shown only while a list is open, and both of them together: the pair walks the
@@ -89,7 +89,7 @@
              first viewport 54px, which took three of the density fixtures past the
              screen-and-a-quarter ceiling (tests/test_density.py). One chip fits this row with
              35px to spare; the two-half chrome does not, and does not belong here. -->
-        <span id="branch-rail" class="branch-rail" aria-label="Divide"></span>
+        <span id="branch-rail" class="branch-rail" aria-label="Internal concurrency" hidden></span>
         <div id="stack" class="stack" aria-label="Active context"></div>
       </nav>
       <!-- What the next sentence will be applied to, while the Mac is listening for it. It
@@ -166,7 +166,19 @@
        orb zone that button sat under the voice target with the branch chips. -->
   <div id="notes-orb" class="notes notes-workspace" role="status" aria-live="polite" hidden></div>
 
-  <!-- ZONE 5 · BRANCH CHROME. The two halves, named, when there are two; Split when there is
+  <!-- ZONE 5 · THE WORK IN FLIGHT. One line per job — "Checking today's orders · done",
+       "Preparing packing list · queued" — and nothing at all when there is no work, which is
+       most of the time. It is how invariant 5 and 6 are SEEN: independent jobs finishing in
+       any order, inside one CLIVE session, instead of a single "Thinking" covering a fast
+       lane and an eleven-second read graph alike.
+
+       A band of the APP, for the same reason as the branch chrome below it and `.bottom`
+       before that: in orb mode `#talk` is `inset:0` on `.stage`, so a retry button inside the
+       stage would be painted and hit-tested under the voice target and could never be
+       pressed. Out here there is nothing above it. (D-1, web/jobs.js.) -->
+  <section id="job-zone" class="job-zone" aria-label="Work in progress" role="status" aria-live="polite" hidden></section>
+
+  <!-- ZONE 6 · BRANCH CHROME. The two halves, named, when there are two; Split when there is
        one. The gestures are the quick way; this is the way that always works, and the way a
        half working in the background says so.
 
@@ -180,7 +192,7 @@
        recordings. Out here there is no cap to escape and nothing above it: #talk is positioned
        inside the stage and cannot reach this band at all. Same precedent as `.bottom`
        (web/style.css) — "why can't I click orders unless you're already thinking". -->
-  <section id="branch-zone" class="branch-zone" aria-label="Halves">
+  <section id="branch-zone" class="branch-zone" aria-label="Internal concurrency" hidden>
     <div id="branch-bar" class="branch-bar" hidden></div>
   </section>
 
@@ -195,12 +207,6 @@
       <span id="recent-label" class="recent-label"></span>
       <span class="arrow" aria-hidden="true">›</span>
     </button>
-    <div class="services" id="services" aria-label="Service status">
-      <span class="service" id="svc-shopify" data-ok="unknown"><span>Shopify</span><span class="service-dot" aria-hidden="true"></span></span>
-      <span class="service" id="svc-gmail" data-ok="unknown"><span>Gmail</span><span class="service-dot" aria-hidden="true"></span></span>
-      <span class="service" id="svc-voice" data-ok="unknown"><span>Voice</span><span class="service-dot" aria-hidden="true"></span></span>
-      <span class="service" id="svc-changes" data-ok="unknown"><span>Changes</span><span class="service-dot" aria-hidden="true"></span></span>
-    </div>
   </footer>
 
 </div>
@@ -232,6 +238,18 @@
     <div id="families" class="health" role="list"></div>
 
     <h3>Diagnostics</h3>
+    <!-- The four services, at a glance. They used to sit in the idle footer, under the orb,
+         in permanent 10px capitals: four facts that are true nearly all of the time, on the
+         one screen whose whole job is to invite a question. Invariant 8 — connection and
+         service health is CONTEXTUAL; it belongs in the primary flow only when it affects
+         what the owner is trying to do, and a fault still says so there (#conn, and the
+         notification band above the wordmark). This is where the owner comes to ASK. -->
+    <div class="services" id="services" aria-label="Service status">
+      <span class="service" id="svc-shopify" data-ok="unknown"><span>Shopify</span><span class="service-dot" aria-hidden="true"></span></span>
+      <span class="service" id="svc-gmail" data-ok="unknown"><span>Gmail</span><span class="service-dot" aria-hidden="true"></span></span>
+      <span class="service" id="svc-voice" data-ok="unknown"><span>Voice</span><span class="service-dot" aria-hidden="true"></span></span>
+      <span class="service" id="svc-changes" data-ok="unknown"><span>Changes</span><span class="service-dot" aria-hidden="true"></span></span>
+    </div>
     <label class="check"><input type="checkbox" id="timing-toggle"> Show timings</label>
     <div id="health-detail" class="health" role="list"></div>
 
@@ -256,6 +274,8 @@
 <script src="/static/telemetry.js"></script>
 <script src="/static/notify.js"></script>
 <script src="/static/action-state.js"></script>
+<script src="/static/live-state.js"></script>
+<script src="/static/jobs.js"></script>
 <script src="/static/ui.js"></script>
 <script src="/static/app.js"></script>
 </body>

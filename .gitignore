@@ -7,4 +7,15 @@ node_modules/
 # Claude Code's own scaffolding: the agent worktrees it creates while working are checkouts of
 # THIS repository living inside it. Committing them would put a second copy of the tree into
 # the branch; they are removed when the work that made them is done.
-.claude/
+.claude/*
+
+# ...except the project's own vendored skills, which are SOURCE, not scaffolding.
+#
+# These are pinned copies of upstream design skills (see .claude/skills/README.md for the
+# repositories and commits). They live in the repository deliberately: this project is built in
+# throwaway containers, and an account-level or machine-level skill install does not survive one.
+# A skill the build cannot see is a skill the build does not have, and the whole point of
+# vendoring is that checking the repository out is enough.
+# (The rule above must be `.claude/*` and not `.claude/`: git cannot re-include anything
+# beneath a directory it has excluded outright, so the negation would silently do nothing.)
+!.claude/skills/

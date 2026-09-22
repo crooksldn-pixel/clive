@@ -193,3 +193,72 @@ def test_the_makefile_has_the_targets_the_readme_promises():
     for target in ("up:", "install:", "uninstall:", "status:", "restart:", "logs:"):
         assert f"\n{target}" in makefile
     assert "scripts/up.py" in makefile and "scripts/install_launchd.py" in makefile
+
+
+# ------------------------------------------- `make status`: answering is not supervised
+
+
+LABELS = ("com.crooks.assistant", "com.crooks.whisper")
+HEALTHY = {"status": "ok", "build": "b-1", "checks": {"claude": {"ok": True}}}
+
+
+def _installed_mac(monkeypatch, tmp_path, *, health, loaded=True, pid=True):
+    """`make status` pointed at a Mac that is not one: a launchd that holds the two facts real
+    launchd holds, and a /health under the test's control."""
+    from tests.fake_launchd import LaunchdDouble
+
+    svc = installer.svc
+    agent_dir = tmp_path / "LaunchAgents"
+    agent_dir.mkdir(exist_ok=True)
+    for label in LABELS:
+        (agent_dir / f"{label}.plist").write_text("<plist/>", encoding="utf-8")
+    double = LaunchdDouble(loaded=LABELS if loaded else (),
+                           running=LABELS if (loaded and pid) else ())
+    machine = svc.Machine(
+        runner=double, read_health=lambda fresh=False: health,
+        port_open=lambda: health is not None, ensure_route=lambda: ("crooks.ts.net", ""),
+        is_macos=lambda: True, sleep=lambda _s: None, now=lambda: 0.0, log_dir=tmp_path / "logs",
+    )
+    monkeypatch.setattr(installer, "_machine", lambda _port: machine)
+    monkeypatch.setattr(installer, "AGENT_DIR", agent_dir)
+    monkeypatch.setattr(installer.lc, "serve_status", lambda _port: ("crooks.ts.net", ""))
+    return double
+
+
+def test_make_status_exits_zero_only_for_a_mac_under_launchd_supervision(tmp_path, monkeypatch, capsys):
+    """A4. /health ANSWERING and the service being SUPERVISED are two different facts, and an
+    exit code that conflates them is read by everything downstream.
+
+    `make up` runs the backend as a child of somebody's Terminal. It answers /health perfectly
+    — and it dies the moment that window is closed. Exiting 0 on that tells a setup script, a
+    monitor, or the next person that this Mac is installed and supervised. It is neither.
+    """
+    _installed_mac(monkeypatch, tmp_path, health=HEALTHY, pid=False)
+    code = installer.status(8000)
+    printed = capsys.readouterr().out
+    assert "Terminal window" in printed, "and it does say which it found"
+    assert code != 0, "answering is not being supervised, and the exit code must not say it is"
+
+
+def test_make_status_exits_zero_for_a_login_service_that_is_answering(tmp_path, monkeypatch, capsys):
+    """The other half: the ordinary installed Mac still passes, or the check above would be a
+    status command that never succeeds."""
+    _installed_mac(monkeypatch, tmp_path, health=HEALTHY, pid=True)
+    assert installer.status(8000) == 0
+    assert "login service" in capsys.readouterr().out
+
+
+def test_make_status_exits_non_zero_when_nothing_answers(tmp_path, monkeypatch, capsys):
+    _installed_mac(monkeypatch, tmp_path, health=None, pid=False)
+    assert installer.status(8000) != 0
+    assert "not answering" in capsys.readouterr().out
+
+
+def test_the_installer_keeps_no_second_way_to_run_launchctl(tmp_path):
+    """A7. `launchctl(*args)` here was the installer's own wrapper, from before the verbs
+    moved into scripts/service.py. Nothing has called it since. A second, unused path to the
+    one external command this appliance runs is exactly what a security scan has to rule out
+    by reading, so it is gone rather than explained."""
+    source = (SCRIPTS / "install_launchd.py").read_text(encoding="utf-8")
+    assert "def launchctl(" not in source
+    assert "subprocess.run(" not in source, "every external command goes through service.Runner"

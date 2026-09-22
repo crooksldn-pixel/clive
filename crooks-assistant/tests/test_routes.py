@@ -255,7 +255,7 @@ async def test_the_favicon_is_the_page_icon(client):
 
 async def test_index_serves_the_tablet_page(client):
     r = await client.get("/")
-    assert r.status_code == 200 and "CROOKS" in r.text
+    assert r.status_code == 200 and "CLIVE" in r.text
 
 
 async def test_reload_kb_resets_the_provider_prompt(client):
@@ -664,7 +664,7 @@ async def test_the_installed_app_is_served_from_the_root(client):
     manifest = await client.get("/manifest.webmanifest")
     assert manifest.status_code == 200
     assert manifest.headers["content-type"].startswith("application/manifest+json")
-    assert manifest.json()["name"] == "CROOKS OS"
+    assert manifest.json()["name"] == "CLIVE"
     assert manifest.headers.get("cache-control") == "no-cache"
 
     worker = await client.get("/sw.js")

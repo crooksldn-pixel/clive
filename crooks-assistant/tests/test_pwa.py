@@ -48,8 +48,10 @@ def css_token(name: str) -> str:
 
 
 def test_the_manifest_names_the_installed_app():
-    assert MANIFEST["name"] == "CROOKS OS"
-    assert MANIFEST["short_name"] == "CROOKS"
+    # V0.5: one name on the home screen, the launcher and the header — the one the owner
+    # says. A short_name that differs from the wordmark is a second name for the same app.
+    assert MANIFEST["name"] == "CLIVE"
+    assert MANIFEST["short_name"] == "CLIVE"
     assert MANIFEST["display"] == "standalone"
     assert MANIFEST["orientation"] == "portrait-primary"
     assert MANIFEST["start_url"] == "/" and MANIFEST["scope"] == "/" and MANIFEST["id"] == "/"
@@ -78,8 +80,11 @@ def test_every_icon_exists_at_the_size_it_claims(purpose, size):
 
 def test_the_page_carries_what_chrome_needs_and_nothing_stale():
     assert '<link rel="manifest" href="/manifest.webmanifest">' in INDEX
-    assert "<title>CROOKS OS</title>" in INDEX
-    assert '<meta name="application-name" content="CROOKS OS">' in INDEX
+    # V0.5: the shell is CLIVE. The installed name on the home screen is the name the
+    # owner says out loud, and "CROOKS OS" was neither.
+    assert "<title>CLIVE</title>" in INDEX
+    assert '<meta name="application-name" content="CLIVE">' in INDEX
+    assert "CROOKS OS" not in INDEX
     assert '<meta name="mobile-web-app-capable" content="yes">' in INDEX
     assert 'rel="icon" type="image/png" sizes="192x192"' in INDEX
     assert "viewport-fit=cover" in INDEX
@@ -138,7 +143,8 @@ def test_the_worker_takes_over_only_when_told():
 
 def test_the_fallback_page_carries_no_data():
     html = SW_JS[SW_JS.index("const OFFLINE_HTML") : SW_JS.index("self.addEventListener('install'")]
-    assert "CROOKS OS" in html and "System offline" in html
+    assert "CLIVE" in html and "System offline" in html
+    assert "CROOKS OS" not in html
     assert not re.search(r"order|customer|@|shopify|gmail", html, re.IGNORECASE)
 
 
@@ -155,7 +161,7 @@ def test_the_page_asks_the_mac_whether_it_is_there_and_never_hangs_on_it():
 def test_offline_is_shown_only_over_a_quiet_screen_and_retries_quietly():
     body = function_body(APP_JS, "function wentOffline()")
     assert "if (quiet()) {" in body
-    assert "'System offline', 'Waiting for CROOKS Assistant…'" in body
+    assert "'System offline', 'Waiting for CLIVE…'" in body
     assert "reconnectTimer = setTimeout(checkReachable, reconnectDelay);" in body
     quiet = function_body(APP_JS, "function quiet()")
     assert "!busy && !recording && !speakingVia" in quiet

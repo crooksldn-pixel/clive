@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- §6.4: HTTPS only, enforced by the platform and not merely by our own URL checks, so that
+     an http:// address that somehow got past the allow-list still could not leave the device
+     in clear. cleartextTrafficPermitted="false" applies to the WebView and to the shell's own
+     probe alike.
+
+     No certificate pinning. That is a decision, not an omission: the CROOKS origin is served
+     by `tailscale serve`, whose certificate is issued and rotated by Tailscale, and a pin
+     would turn a routine certificate rotation into a dead tablet in a workroom with no
+     laptop. The tailnet is the trust boundary; the pin would buy nothing against an attacker
+     who is already inside it and would cost an outage against nobody. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

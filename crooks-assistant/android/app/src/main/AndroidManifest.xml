@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The microphone. Requested at runtime and granted to the CROOKS origin and nothing
+         else; see MicPermissionPolicy in :core and PadWebChromeClient. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Wi-Fi state, read-only, for the diagnostics screen and the device bridge. NOT
+         ACCESS_FINE_LOCATION: the SSID is deliberately never read, because reading it would
+         require a location permission and would put a place-identifying string into
+         telemetry. Signal strength and transport type answer every question the pad
+         actually has. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Keeping the screen on while the pad is showing CROOKS. A fixture that goes black is
+         a fixture the owner has to wake before they can ask anything. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
+
+    <application
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.CrooksPad"
+        android:hardwareAccelerated="true"
+        android:largeHeap="false"
+        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <activity
+            android:name=".PadActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.CrooksPad"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="keyboardHidden|screenSize|smallestScreenSize|screenLayout|orientation|uiMode|density|fontScale|navigation|keyboard">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- §14 STAGE-2 PATHWAY, DISABLED. Taking the HOME role is what makes a tablet boot
+             straight into CROOKS with no launcher in between, and it is also what makes a
+             tablet hard to get out of. It is therefore an alias that ships DISABLED and is
+             switched on from the admin screen by someone who has typed the PIN, and can be
+             switched off again from the same screen. Nothing in the shell enables it by
+             itself. See KioskCapability in :core for the staging and the reasoning. -->
+        <activity-alias
+            android:name=".PadHomeAlias"
+            android:targetActivity=".PadActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nothing about this app leaves the device in a backup. The only thing in app-private
+     storage worth protecting is the admin PIN's hash, and a hash that has been copied to a
+     cloud backup is a hash that can be attacked offline by someone who never touched the
+     tablet. allowBackup is false in the manifest as well; this file says the same thing in
+     the API 31+ vocabulary so the answer does not change when the fleet gains a newer
+     tablet. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>

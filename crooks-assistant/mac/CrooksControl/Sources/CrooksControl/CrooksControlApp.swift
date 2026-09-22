@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
+import CrooksControlCore
 
-// The app. A dot and a line in the menu bar, a panel under it, and one window for the output
-// of anything that takes longer than a moment.
+// The app. A window that IS the control centre, and a line in the menu bar for the glance.
 //
-// It does not need extravagant visuals. It needs to remove Terminal from normal ownership.
+// It does not need extravagant visuals. It needs to remove Terminal from normal ownership:
+// turn the Mac on, and this is open, and everything that has to be done to CROOKS OS is a
+// button on it.
 
 @main
 struct CrooksControlApp: App {
@@ -12,165 +14,171 @@ struct CrooksControlApp: App {
     @StateObject private var centre = Centre()
 
     var body: some Scene {
-        MenuBarExtra {
-            RootView(centre: centre)
-                .frame(width: 380)
-        } label: {
-            // The glance: "CROOKS — Online", and a dot in the colour of the state.
-            HStack(spacing: 4) {
-                Image(systemName: centre.state.symbol)
-                Text(centre.short)
-            }
-            .foregroundStyle(centre.tint)
+        Window("CROOKS Control", id: Windows.control) {
+            ControlCentreView(centre: centre)
         }
-        .menuBarExtraStyle(.window)
+        .defaultSize(width: 720, height: 760)
+        .windowResizability(.contentMinSize)
 
-        Window("CROOKS Control", id: Windows.output) {
+        Window("CROOKS Output", id: Windows.output) {
             OutputView(log: centre.log)
         }
-        .defaultSize(width: 720, height: 460)
+        .defaultSize(width: 760, height: 480)
+
+        // The glance, for when the window is behind something. One word and a dot; everything
+        // else is a click away in the window, where there is room to read it.
+        MenuBarExtra {
+            GlanceView(centre: centre)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: symbol(centre.dashboard.lifecycle))
+                Text(centre.dashboard.lifecycle.word.capitalized)
+            }
+        }
+        .menuBarExtraStyle(.window)
+    }
+
+    private func symbol(_ phase: Lifecycle) -> String {
+        switch phase {
+        case .online: return "checkmark.circle.fill"
+        case .offline: return "moon.circle.fill"
+        case .starting, .stopping: return "arrow.triangle.2.circlepath.circle.fill"
+        case .error: return "exclamationmark.octagon.fill"
+        case .unknown: return "questionmark.circle"
+        }
     }
 }
 
 enum Windows {
+    static let control = "control"
     static let output = "output"
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // A menu-bar app has no Dock icon and no window at launch. The bundle says so too
-        // (LSUIElement in Info.plist); this is here for a build run straight from the binary.
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Closing the window is not quitting. The whole product promise is that CROOKS Control is
+    /// simply THERE — closing the window and finding the app gone would make the owner reopen
+    /// it from the Dock every time, which is one more thing to know.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+}
+
+// MARK: - The control centre
+
+struct ControlCentreView: View {
+    @ObservedObject var centre: Centre
+    @Environment(\.openWindow) private var openWindow
+    @State private var showingDeveloper = false
+
+    /// One second, and it does nothing but let the core's own patience expire. Without it a
+    /// START that never comes back would sit on "Starting…" until the next poll, or forever if
+    /// the script had stopped answering entirely.
+    private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                DashboardView(dashboard: centre.dashboard) {
+                    Task { await centre.refresh(fresh: true) }
+                }
+                ActionsView(
+                    groups: centre.dashboard.groups,
+                    missing: centre.dashboard.missingControls
+                ) { button in
+                    centre.perform(button) { openWindow(id: Windows.output) }
+                }
+                UpdateView(panel: centre.dashboard.update)
+                Footer(centre: centre, showingDeveloper: $showingDeveloper)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(minWidth: 620, minHeight: 560)
+        .background(
+            // The ground, warmed at the top by whatever the state is. This is the only place
+            // the accent is allowed to touch the whole window, and it is at four per cent.
+            ZStack(alignment: .top) {
+                Ground.base
+                LinearGradient(
+                    colors: [centre.accent.opacity(0.10), .clear],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .frame(height: 260)
+            }
+            .ignoresSafeArea()
+        )
+        .animation(Motion.settle, value: centre.dashboard.accent)
+        .task { centre.begin() }
+        .onReceive(clock) { _ in centre.tick() }
+        .sheet(isPresented: $showingDeveloper) {
+            if let panel = centre.dashboard.developer {
+                DeveloperView(panel: panel) { showingDeveloper = false }
+            }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 
-/// Everything the panel draws, and the only place that asks for it. One poll every fifteen
-/// seconds, which is what /health's own cache is built for; a manual refresh skips the cache.
-@MainActor
-final class Centre: ObservableObject {
-    @Published var status: StatusDocument?
-    @Published var actions: [ActionsDocument.Action] = []
-    @Published var plan: UpdateDocument?
-    @Published var applied: UpdateDocument?
-    @Published var problem: String?
-    @Published var busy: String?
-    @Published var log = CommandLog()
+struct Footer: View {
+    @ObservedObject var centre: Centre
+    @Binding var showingDeveloper: Bool
+    @Environment(\.openWindow) private var openWindow
 
-    private var poller: Task<Void, Never>?
-
-    var state: Overall { status?.state ?? .red }
-    var tint: Color { state.colour }
-    /// The menu bar is narrow. "CROOKS — Online" fits; a sentence does not.
-    var short: String { status?.headline ?? "CROOKS — ?" }
-
-    func begin() {
-        guard poller == nil else { return }
-        poller = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.refresh()
-                try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+    var body: some View {
+        HStack(spacing: 14) {
+            Toggle("Developer Mode", isOn: $centre.developerMode)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .font(.system(size: 11))
+                .foregroundStyle(Ink.tertiary)
+            if centre.developerMode {
+                Button("Open Developer Mode") { showingDeveloper = true }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11)).foregroundStyle(Ink.secondary)
             }
+            Spacer()
+            Button("Output window") { openWindow(id: Windows.output) }
+                .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Ink.tertiary)
+            Button("CROOKS OS folder…") { centre.chooseFolder() }
+                .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Ink.tertiary)
+            Button("Quit") { NSApp.terminate(nil) }
+                .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Ink.tertiary)
         }
+        .padding(.top, 4)
     }
+}
 
-    func refresh() async {
-        do {
-            let control = try Control.here()
-            let document = try await control.status()
-            status = document
-            if actions.isEmpty {
-                actions = try await control.actions().actions
+// MARK: - The glance
+
+struct GlanceView: View {
+    @ObservedObject var centre: Centre
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Circle().fill(centre.accent).frame(width: 10, height: 10)
+                Text(centre.dashboard.headline)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Ink.primary)
             }
-            problem = nil
-        } catch {
-            problem = error.localizedDescription
-            status = nil
-        }
-    }
-
-    func check() async {
-        busy = "Checking for an update…"
-        defer { busy = nil }
-        do {
-            plan = try await Control.here().plan()
-            applied = nil
-        } catch {
-            problem = error.localizedDescription
-        }
-    }
-
-    func update() async {
-        busy = "Updating: fast-forward, tests, restart, verify…"
-        defer { busy = nil }
-        do {
-            applied = try await Control.here().apply()
-            await refresh()
-        } catch {
-            problem = error.localizedDescription
-        }
-    }
-
-    func rollBack() async {
-        busy = "Going back to the last known-good build…"
-        defer { busy = nil }
-        do {
-            applied = try await Control.here().rollback()
-            await refresh()
-        } catch {
-            problem = error.localizedDescription
-        }
-    }
-
-    /// A button. The document said what it is and what to run; this only obeys it.
-    func perform(_ action: ActionsDocument.Action, openOutput: () -> Void) {
-        switch action.kind {
-        case "open_url":
-            if let url = action.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
-        case "open_path":
-            if let path = action.path { revealNewest(in: path) }
-        case "control":
-            switch action.id {
-            case "check": Task { await check() }
-            case "update": Task { await update() }
-            case "rollback": Task { await rollBack() }
-            default: log.start(action); openOutput()
+            Text(centre.dashboard.explanation)
+                .font(.system(size: 11.5)).foregroundStyle(Ink.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                Pip(health: centre.dashboard.pad.health)
+                Text("CROOKS Pad — " + centre.dashboard.pad.word.lowercased())
+                    .font(.system(size: 11)).foregroundStyle(Ink.tertiary)
             }
-        default:
-            log.start(action)
-            openOutput()
+            Divider().overlay(Glass.lineSubtle)
+            Button("Open CROOKS Control") { openWindow(id: Windows.control) }
+                .keyboardShortcut(.defaultAction)
         }
-    }
-
-    /// "Open latest report" is the newest file in the folder the document named, or the folder
-    /// itself when there is nothing in it yet.
-    private func revealNewest(in path: String) {
-        let url = URL(fileURLWithPath: path, isDirectory: true)
-        let manager = FileManager.default
-        let contents = (try? manager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        let newest = contents
-            .filter { $0.pathExtension == "md" || $0.pathExtension == "html" }
-            .max { left, right in
-                let leftDate = (try? left.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let rightDate = (try? right.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return leftDate < rightDate
-            }
-        if let newest {
-            NSWorkspace.shared.open(newest)
-        } else {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.prompt = "Use this folder"
-        panel.message = "The CROOKS OS project folder — the one holding scripts/control.py."
-        if panel.runModal() == .OK, let url = panel.url {
-            Checkout.remember(url)
-            actions = []
-            Task { await refresh() }
-        }
+        .padding(14)
+        .frame(width: 300)
+        .background(Ground.one)
     }
 }

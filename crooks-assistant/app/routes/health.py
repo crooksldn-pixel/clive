@@ -33,7 +33,7 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
     state = request.app.state
     cached = getattr(state, "health_cache", None)
     if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-        return {**cached[1], "observability": _observability(runtime), "cached": True, "age_s": round(time.time() - cached[0], 1)}
+        return {**cached[1], "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)}
     lock = getattr(state, "health_lock", None)
     if lock is None:
         lock = state.health_lock = asyncio.Lock()
@@ -42,10 +42,28 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
         # doubling the work.
         cached = getattr(state, "health_cache", None)
         if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-            return {**cached[1], "observability": _observability(runtime), "cached": True, "age_s": round(time.time() - cached[0], 1)}
+            return {**cached[1], "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)}
         result = await _health(runtime)
         state.health_cache = (time.time(), result)
-        return {**result, "observability": _observability(runtime), "cached": False, "age_s": 0.0}
+        return {**result, "observability": _observability(runtime), "pad": _pad(), "cached": False, "age_s": 0.0}
+
+
+def _pad(now: float | None = None) -> dict:
+    """Whether the CROOKS PAD is alive, read at ANSWER time and never from the cache.
+
+    It has to be outside the cached block for the same reason `observability` is, and for a
+    sharper one: `connected` is `now - last_seen < STALE_AFTER_S`, so a pad block frozen into a
+    ninety-second cache would keep saying connected for a minute and a half after the tablet
+    died — which is longer than the staleness window it is meant to enforce, and would make the
+    whole check a lie exactly when it matters. Computing it here costs a subtraction.
+
+    Reachability is NOT an input. This block says disconnected on a perfectly healthy Mac with a
+    perfectly good Tailscale route if no pad has posted a heartbeat recently, which is the point:
+    the control layer already knew about the route, and knew nothing whatever about the tablet.
+    """
+    from app.observability import pad as pad_module
+
+    return pad_module.current().status(now=now)
 
 
 def _observability(runtime) -> dict:

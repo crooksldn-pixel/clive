@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A platform theme, not an AppCompat one. The shell has no action bar, no toolbar, no
+         menu and no dialogs it did not draw itself, so AppCompat would be a dependency
+         earning nothing — and one less dependency is one less thing that can fail to resolve
+         on a build machine with no Play Services and no Android Studio.
+
+         windowBackground is the CROOKS ground colour so that the very first frame Android
+         paints, before any of our code runs, is already CROOKS black. A white flash at
+         launch would be the single most browser-like thing the shell could do. -->
+    <style name="Theme.CrooksPad" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/crooks_bg_0</item>
+        <item name="android:colorBackground">@color/crooks_bg_0</item>
+        <item name="android:textColorPrimary">@color/crooks_ink</item>
+        <item name="android:textColorSecondary">@color/crooks_ink_2</item>
+        <item name="android:statusBarColor">@color/crooks_bg_0</item>
+        <item name="android:navigationBarColor">@color/crooks_bg_0</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowDisablePreview">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+</resources>

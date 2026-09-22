@@ -151,7 +151,10 @@ def test_the_branch_chrome_is_not_inside_the_orbs_stacking_context():
     assert "<button" not in zone and 'role="button"' not in zone
 
     # It is a band of the app, a sibling of the stage and the footer.
-    assert '<section id="branch-zone" class="branch-zone" aria-label="Halves">' in INDEX
+    # V0.5 invariant 1: the band still exists so the runtime can represent concurrency,
+    # but it is no longer a user-facing pair of halves — it is hidden and named for what
+    # it is internally.
+    assert '<section id="branch-zone" class="branch-zone" aria-label="Internal concurrency" hidden>' in INDEX
     main = INDEX[INDEX.index("<main id=\"stage\""):INDEX.index("</main>")]
     assert 'id="branch-zone"' not in main, "the branch band is inside the stage, which #talk fills"
 
@@ -194,7 +197,10 @@ def test_the_dock_is_navigation_and_the_bands_are_placed_by_name():
     was hidden — which is its normal state. The stage could then not shrink below the orb's
     340px, and the branch band came out 310px tall on the idle screen and 0px beside the cards.
     """
-    assert 'grid-template-areas:"notes" "top" "stage" "message" "halves" "foot";' in STYLE
+    # V0.5 adds a seventh band between the workspace messages and the branch chrome: the
+    # work in flight (#job-zone). A band, not a layer, for exactly the reason this test
+    # exists — it carries a retry button, and `#talk` is inset:0 over the stage.
+    assert 'grid-template-areas:"notes" "top" "stage" "message" "work" "halves" "foot";' in STYLE
     for place in ("#notes-global{grid-area:notes}", ".top{grid-area:top}", ".stage{grid-area:stage}",
                   "#notes-orb{grid-area:message}", ".branch-zone{grid-area:halves}", ".bottom{grid-area:foot}"):
         assert place in STYLE, f"missing placement: {place}"

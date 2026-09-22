@@ -138,16 +138,38 @@ def blocking_changes(dirty: list[str]) -> list[str]:
 
 
 def stage_branch(wanted: str, dirty: list[str] | None = None) -> str:
+    """The branch this update moves, and the one recovery this stage performs itself.
+
+    A rollback checks out an older build and leaves the checkout with no branch attached.
+    That used to be a dead end: Update refused ("`git checkout <branch>` first"), Mark good
+    refused, and the only way forward was a Terminal — at exactly the moment the owner had
+    just recovered from a bad build by pressing a button. So when the checkout is detached
+    on a build that is part of the wanted branch's history, which is what a rollback leaves,
+    this stage comes forward onto the branch itself. It is a fast-forward of HEAD to a
+    branch that already contains it; no work exists here to lose, because the dirty-tree
+    check below runs first and a detached checkout with local changes is still refused.
+    """
     branch = git("rev-parse", "--abbrev-ref", "HEAD")
-    if branch == "HEAD":
-        raise Stopped("This checkout is not on a branch (detached HEAD). `git checkout <branch>` first.")
-    if wanted and branch != wanted:
-        raise Stopped(f"On {branch}, not {wanted}. `git checkout {wanted}` first — this command does not switch branches for you.")
     dirty = dirty_paths() if dirty is None else dirty
     blocking = blocking_changes(dirty)
     if blocking:
         listed = ", ".join(blocking[:5])
         raise Stopped(f"There are local changes here ({listed}{'…' if len(blocking) > 5 else ''}). Commit or stash them; this command will not throw work away.")
+    if branch == "HEAD":
+        if not wanted:
+            raise Stopped("This checkout is on a build with no branch attached (a rollback leaves it that way), and no branch was named to come forward onto. Press Update in CROOKS Control, which names it.")
+        head = git("rev-parse", "HEAD")
+        on_branch = subprocess.run(["git", "merge-base", "--is-ancestor", head, wanted], cwd=ROOT,
+                                   capture_output=True, text=True).returncode == 0
+        if not on_branch:
+            raise Stopped(f"This checkout is on a build that is not part of {wanted}, so nothing was moved. Press Roll back to return to the last known-good build, then Update.")
+        moved = subprocess.run(["git", "checkout", "-q", wanted, "--"], cwd=ROOT, capture_output=True, text=True)
+        if moved.returncode != 0:
+            raise Stopped(f"This checkout could not be put back on {wanted}, so nothing was moved: {(moved.stderr or moved.stdout).strip()[:200]}")
+        say(OK, "branch", f"came forward onto {wanted} from a build with no branch attached (a rollback leaves it that way)")
+        branch = wanted
+    if wanted and branch != wanted:
+        raise Stopped(f"This checkout is on {branch}, not {wanted}, so nothing was moved: this command does not switch branches.")
     say(OK, "branch", branch + (f"  ({len(dirty)} untracked/ignored file(s) left alone)" if dirty else ""))
     return branch
 
@@ -197,7 +219,7 @@ def stage_deps(changed: list[str], *, check_only: bool) -> bool:
         return False
     pip = ROOT / ".venv" / "bin" / "pip"
     if not pip.exists():
-        raise Stopped("There is no .venv here. Run `make venv` once, then try again.")
+        raise Stopped("There is no .venv here, so the suite cannot be run and nothing was restarted. This machine's Python side needs setting up again before an update can be tested.")
     out = subprocess.run([str(pip), "install", "-q", "-e", ".[dev]"], cwd=ROOT, capture_output=True, text=True, timeout=900)
     if out.returncode != 0:
         raise Stopped("Installing the dependencies failed:\n" + (out.stderr or out.stdout)[-600:])
@@ -222,7 +244,7 @@ def stage_tests(*, check_only: bool, enabled: bool) -> bool:
         return False
     pytest_bin = ROOT / TEST_COMMAND[0]
     if not pytest_bin.exists():
-        raise Stopped(f"There is no {TEST_COMMAND[0]} here, so the suite cannot be run. `make venv` once, then try again.")
+        raise Stopped(f"There is no {TEST_COMMAND[0]} here, so the suite cannot be run and nothing was restarted. This machine's Python side needs setting up again before an update can be tested.")
     out = subprocess.run([str(pytest_bin), *TEST_COMMAND[1:]], cwd=ROOT, capture_output=True, text=True, timeout=TEST_TIMEOUT_S)
     tail = (out.stdout or out.stderr or "").strip().splitlines()
     if out.returncode != 0:
@@ -235,22 +257,81 @@ def stage_tests(*, check_only: bool, enabled: bool) -> bool:
     return True
 
 
+def mac_for(port: int):
+    """The machine this stage acts on, as (machine, supervisor): the Mac and its launchd, or
+    the server and its systemd. One function, so a test can hand the restart stage a machine
+    that is not one without also replacing the decision under test. The name is the Mac's,
+    from when it was the only one, and stays because tests replace it by name."""
+    import launch_common as lc
+
+    from scripts import service as svc
+
+    machine = svc.Machine.real(port)
+    if lc.is_macos():
+        return machine, svc.supervisor(machine, root=ROOT)
+    from scripts import service_linux as linux
+
+    return machine, linux.supervisor(machine, root=ROOT)
+
+
+def lifecycle_module_for(supervisor):
+    """The module whose start/stop/restart know this supervisor. Decided by the supervisor
+    handed in, not by the host: a test that hands the Mac's launchd in on a Linux runner gets
+    the Mac's layer and the Mac's sentences."""
+    from scripts import service, service_linux
+
+    return service_linux if isinstance(supervisor, service_linux.Systemd) else service
+
+
+def _mac_module():
+    from scripts import service
+
+    return service
+
+
+# What the owner is told to do when the restart is the thing that failed. §5.2: the recovery
+# from a stopped appliance is a BUTTON. This stage used to end by telling him to open a
+# Terminal and run the installer once — printed at exactly the moment an owner has had his
+# code moved and his Mac left down, and carried verbatim into the `stop.reason` the app
+# draws. Since scripts/service.py can register and start the agents itself, there is nothing
+# left for a Terminal to do here, and nothing in this file names a shell command for it.
+PRESS_INSTEAD = (
+    "Your code IS updated; only the restart failed. In CROOKS Control, press Start; "
+    "if that does not bring it back, press Roll back."
+)
+# The server has no Control app window, but it has the same commands, and naming them is
+# what the no-terminal rule allows: the remedy is CROOKS OS's own command, not a shell recipe.
+START_INSTEAD = (
+    "Your code IS updated; only the restart failed. `crooks-control start` brings it back; "
+    "if that does not, `crooks-control rollback` puts the previous build back."
+)
+
+
 def stage_restart(*, check_only: bool, port: int) -> None:
-    """Stage 7, and the only stage that is not the same code on both platforms: `launchctl
-    kickstart` for the Mac's two agents, `systemctl restart` for the server's one unit. Which
-    it is, and what it is called, comes from launch_common so that nothing here has to know."""
+    """Stage 7, and the only stage that is not the same code on both platforms — but the same
+    RULE on both. service.restart() through launchd on the Mac, service_linux.restart() through
+    systemd on the server: each registers the service first where the supervisor does not have
+    it, each is the very code the Control app's Restart button runs, so the typed command and
+    the button cannot leave the machine in two different states, and each succeeds only when
+    /health answers — never because launchctl or systemctl exited 0.
+    """
     import launch_common as lc
 
     what = " and ".join(lc.service_labels())
     if check_only:
         say(SKIP, "restart", f"would restart {what}")
         return
-    failed = lc.restart_services()
-    if failed:
+    machine, supervisor = mac_for(port)
+    out = lifecycle_module_for(supervisor).restart(machine, supervisor, port=port)
+    if not out["ok"]:
+        problem = out.get("problem") or {}
+        detail = str(problem.get("developer") or "")[:300]
         raise Stopped(
-            "The services would not restart:\n  " + "\n  ".join(failed) + "\n" + lc.restart_hint()
+            (problem.get("human") or out.get("human") or "The services would not restart.")
+            + (f"\n  {detail}" if detail else "")
+            + "\n" + (START_INSTEAD if lifecycle_module_for(supervisor) is not _mac_module() else PRESS_INSTEAD)
         )
-    say(OK, "restart", f"{what} restarted")
+    say(OK, "restart", out["human"])
 
 
 def stage_verify(*, check_only: bool, port: int) -> dict | None:
@@ -261,7 +342,7 @@ def stage_verify(*, check_only: bool, port: int) -> dict | None:
         return None
     health = lc.wait_for_health(f"http://127.0.0.1:{port}/health", timeout_s=90)
     if not health:
-        raise Stopped("The backend did not come back healthy within 90 seconds. `make logs` shows why; nothing was undone.")
+        raise Stopped("The backend did not come back healthy within 90 seconds. Nothing was undone: the new code is in place and the service is still trying. Roll back returns to the last known-good build if it does not recover on its own.")
     say(OK, "verify", lc.summarise_health(health))
     return health
 

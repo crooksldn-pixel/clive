@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- minSdk is 26, so every device that can install this app understands adaptive icons and
+     this one file covers every density. Samsung's launcher masks it into the same squircle as
+     everything else, which is the point: the pad should look like a fixture of the device,
+     not like a shortcut someone added. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

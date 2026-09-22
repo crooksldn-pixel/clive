@@ -31,6 +31,7 @@ from app.routes import (
     health,
     media,
     observe,
+    pad,
     speak,
     turn,
 )
@@ -168,6 +169,7 @@ app.include_router(command.router)
 app.include_router(context.router)
 app.include_router(media.router)
 app.include_router(observe.router)
+app.include_router(pad.router)
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")

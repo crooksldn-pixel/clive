@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The same palette as web/style.css, copied by value rather than shared, because the native
+     shell must be able to paint CROOKS before a single byte of the web layer has loaded —
+     that is the whole point of §6.3. If the web tokens change, these change with them; they
+     are checked against each other by ThemeTokensTest. -->
+<resources>
+    <color name="crooks_bg_0">#FF07070A</color>
+    <color name="crooks_bg_1">#FF0D0D10</color>
+    <color name="crooks_bg_2">#FF131317</color>
+    <color name="crooks_ink">#FFEBE8E0</color>
+    <color name="crooks_ink_2">#FFB9B6AE</color>
+    <color name="crooks_ink_3">#FF83827C</color>
+    <color name="crooks_ok">#FF79C996</color>
+    <color name="crooks_warn">#FFDCB266</color>
+    <color name="crooks_bad">#FFDC7F6C</color>
+    <color name="crooks_line">#1AFFFFFF</color>
+    <color name="crooks_line_2">#2EFFFFFF</color>
+    <color name="crooks_control">#0DFFFFFF</color>
+</resources>

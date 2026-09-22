@@ -31,7 +31,7 @@
   --border-subtle:var(--line);               /* dividers, rows                                   */
   --border-rest:var(--line-2);               /* a control at rest                                */
   --border-active:var(--line-3);             /* selected                                         */
-  --blur-surface:12px;                       /* the nav glass and the dock pill — and nothing else */
+  --blur-surface:12px;                       /* the nav glass, the dock pill, the work strip — and nothing else */
   --blur-overlay:16px;                       /* the sheet                                        */
   --radius-panel:20px;                       /* cards, the nav container, the dock               */
   --radius-control:14px;                     /* chips, tabs, rail chips, nested tiles            */
@@ -90,9 +90,15 @@
    *   1  content        the orb, the deck, the cards            .orb-zone (no z-index), .deck
    *   2  actions        workspace-local actions                 .context, .context-nav, .armed
    *   3  navigation     the chrome that moves between places    .top, .bottom, .dock (3 + 1)
-   *   4  branch         Split / the two halves / Merge / Close  .branch-zone
+   *   4  branch         the work in flight, and what is left of   .job-zone, .branch-zone
+   *                    the branch chrome (internal in V0.5)
    *   5  voice          the hold-to-speak target                .talk
    *   20 emergency      the sheet, the system layer, the banner .sheet, .system, .dev-banner
+   *
+   * Layer 4 holds two bands rather than one, which is safe for the reason the ladder exists
+   * to make checkable: they are separate ROWS of the app grid and cannot overlap each other,
+   * so neither needs to win a comparison with the other. Both are out here for the same
+   * reason — each carries a control, and `.talk` covers the stage.
    *
    * Two of those entries carry a note, and both are deliberate. `.orb-zone` has NO z-index at
    * all: it is the content layer by position in the document, and giving it a number is what
@@ -106,10 +112,10 @@
    * overlaps nothing. That is bought with GEOMETRY, not z-index:
    *
    *   orb mode      `.talk` is `inset:0` on `.stage` — which is one grid row of `.app`, and
-   *                 the branch band, the workspace messages and the footer are the rows below
-   *                 it. In that row there is the orb (itself a voice target) and five lines of
-   *                 text, and nothing a finger presses. The line that caused D-1 is the same
-   *                 line; what changed is what is inside the box it describes.
+   *                 the work band, the branch band, the workspace messages and the footer are
+   *                 the rows below it. In that row there is the orb (itself a voice target)
+   *                 and five lines of text, and nothing a finger presses. The line that caused
+   *                 D-1 is the same line; what changed is what is inside the box it describes.
    *   context mode  `.talk` is the hold pill's `--hold-w` slot in the middle of the dock band,
    *                 not the full width of it. The dock's four icons sit either side.
    *
@@ -152,8 +158,9 @@ a:focus-visible,[role="button"]:focus-visible,[role="tab"]:focus-visible,[tabind
 [hidden]{display:none!important}
 
 .app{
-  /* Six bands now, top to bottom: the global notification region, the wordmark, the stage,
-     the workspace messages, the branch chrome, the footer. Every one of them is a ROW rather
+  /* Seven bands now, top to bottom: the global notification region, the wordmark, the stage,
+     the workspace messages, the work in flight, the branch chrome, the footer. Every one of
+     them is a ROW rather
      than a layer, which is the point: a row cannot be covered by the thing above it. The
      notification region was already a row for that reason; D-1 made the branch chrome one
      too — it was a child of the orb zone, under a voice target the size of the stage, and the
@@ -170,8 +177,8 @@ a:focus-visible,[role="button"]:focus-visible,[role="tab"]:focus-visible,[tabind
      band leaves an empty row of zero height and nothing else moves.
      `minmax(0,1fr)` on the stage, not `1fr`, so it may also shrink BELOW its own min-content
      rather than pushing a band off the screen. */
-  grid-template-areas:"notes" "top" "stage" "message" "halves" "foot";
-  grid-template-rows:auto auto minmax(0,1fr) auto auto auto;grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"notes" "top" "stage" "message" "work" "halves" "foot";
+  grid-template-rows:auto auto minmax(0,1fr) auto auto auto auto;grid-template-columns:minmax(0,1fr);
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   /* The atmosphere the glass sits on. Not black: a dark diagonal with two large, static,
      very faint glows — one warm at the top-left where the light in the cards comes from, one
@@ -185,12 +192,13 @@ a:focus-visible,[role="button"]:focus-visible,[role="tab"]:focus-visible,[tabind
     linear-gradient(160deg, #0b0b10 0%, var(--bg-0) 55%, #050507 100%);
 }
 
-/* The six bands, by name. This is the whole vertical architecture of the tablet in six lines,
-   and it is the order the layer block above documents from the side. */
+/* The seven bands, by name. This is the whole vertical architecture of the tablet in seven
+   lines, and it is the order the layer block above documents from the side. */
 #notes-global{grid-area:notes}
 .top{grid-area:top}
 .stage{grid-area:stage}
 #notes-orb{grid-area:message}
+.job-zone{grid-area:work}
 .branch-zone{grid-area:halves}
 .bottom{grid-area:foot}
 
@@ -620,7 +628,11 @@ body[data-mode="context"] .bottom{opacity:0;pointer-events:none;transform:transl
 .recent-kicker{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-3);flex:none}
 .recent-label{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;font-style:italic}
 .recent .arrow{color:var(--ink-3);flex:none}
-.services{display:flex;justify-content:center;gap:26px;min-height:24px}
+/* In the Diagnostics section of the settings sheet now, not the idle footer: four facts
+   that are true nearly all of the time do not belong on the screen whose job is to
+   invite a question (V0.5 invariant 8). Wrapping, because the sheet is narrower than
+   the footer was and four pills at 26px apart would overflow it on a phone. */
+.services{display:flex;flex-wrap:wrap;gap:12px 26px;min-height:24px;margin:0 0 var(--sp-3)}
 .service{display:inline-flex;align-items:center;gap:8px;font-size:10px;letter-spacing:.22em;color:var(--ink-4);text-transform:uppercase}
 /* Shape as well as colour: a disc is running, a square is down, a diamond is switched off,
    a ring is not known yet. */
@@ -1394,6 +1406,73 @@ html[data-lite] .rail-chip,html[data-lite] .variant-row,html[data-lite] .ws-opt,
  * horizontal flex row, which at 601 CSS px ran off the right edge and cut the second half's
  * chip in half. One home, one place a thumb learns, and no row to overflow.
  */
+/* ------------------------------------------------------------ work in flight */
+/* §C of the V0.5 contract. A compact liquid-glass surface that exists only while there is
+ * work worth naming, and collapses to nothing the moment there is not — `hidden` on the band
+ * takes its row to 0px, so the idle screen is exactly the screen it was.
+ *
+ * The glass rules the contract sets, applied and not exceeded: ONE translucent surface here
+ * (the strip groups the jobs; the rows inside it do not each need their own pane), the
+ * same restrained --blur-surface the nav glass and the dock pill use, a thin highlight
+ * along the top edge, and depth from opacity, border and
+ * shadow rather than from anything that moves. Nothing on this band animates at rest. The
+ * only motion is a state changing, and it is a 240ms colour change.
+ *
+ * It sits in the branch band's layer, one row above it: the same argument as #branch-zone —
+ * `#talk` is `inset:0` on the stage in orb mode, so the retry button lives out here where
+ * nothing is painted over it, and its reachability does not depend on winning a z-index
+ * comparison (D-1).
+ */
+.job-zone{
+  position:relative;z-index:var(--z-branch);
+  display:flex;justify-content:center;
+  padding:0 14px 6px;min-width:0;
+}
+.job-zone[hidden]{display:none}
+.job-list{
+  margin:0;padding:6px;list-style:none;
+  width:100%;max-width:560px;
+  display:flex;flex-direction:column;gap:2px;
+  border-radius:var(--radius-panel);
+  border:1px solid var(--border-subtle);
+  background:var(--glass-surface);
+  -webkit-backdrop-filter:blur(var(--blur-surface));backdrop-filter:blur(var(--blur-surface));
+  box-shadow:var(--shadow-floating),inset 0 1px 0 rgba(255,255,255,.07);
+}
+.job{
+  display:flex;align-items:center;gap:var(--sp-2);
+  min-height:32px;padding:4px 10px;border-radius:var(--radius-control);
+  font-size:13px;color:var(--ink-2);min-width:0;
+}
+/* The state, as one dot. A word for it as well would be three vocabularies on one line —
+ * the verb, the result and the state — and the result is the part worth reading. */
+.job-dot{
+  flex:none;width:7px;height:7px;border-radius:50%;
+  background:transparent;box-shadow:inset 0 0 0 1px var(--ink-4);
+  transition:background var(--t-2),box-shadow var(--t-2);
+}
+.job[data-state="working"] .job-dot{background:var(--ink-2);box-shadow:inset 0 0 0 1px var(--ink-2)}
+.job[data-state="done"] .job-dot{background:var(--ok);box-shadow:inset 0 0 0 1px var(--ok)}
+.job[data-state="failed"] .job-dot{background:var(--bad);box-shadow:inset 0 0 0 1px var(--bad)}
+/* The verb and its object take the room; the result gives way first, because a truncated
+ * "14 today" is still readable and a truncated "Checking today's ord…" is not. */
+.job-what{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.job-tail{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-3);font-size:12px}
+.job[data-state="working"] .job-what{color:var(--ink)}
+.job[data-state="done"] .job-what,.job[data-state="queued"] .job-what{color:var(--ink-2)}
+.job[data-state="failed"] .job-tail{color:var(--bad)}
+.job-retry{
+  flex:none;-webkit-appearance:none;appearance:none;cursor:pointer;
+  min-height:32px;padding:0 12px;border-radius:var(--radius-control);
+  border:1px solid var(--border-rest);background:var(--glass-control);
+  color:var(--ink);font:inherit;font-size:12px;letter-spacing:.02em;
+  transition:background var(--t-1),border-color var(--t-1),transform var(--t-1);
+}
+.job-retry:active{background:var(--glass-control-active);border-color:var(--border-active);transform:scale(.96)}
+/* A 2019 tablet in lite mode pays for no blur it did not ask for; the border, the fill and
+ * the shadow already say "one surface, lifted". */
+html[data-lite] .job-list{-webkit-backdrop-filter:none;backdrop-filter:none}
+
 .branch-zone{
   position:relative;z-index:var(--z-branch);
   display:flex;align-items:center;justify-content:center;

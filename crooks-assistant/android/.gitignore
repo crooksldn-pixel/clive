@@ -1,0 +1,17 @@
+# Build output and machine-local configuration. local.properties in particular names an SDK
+# path that is right on exactly one machine, which is why the build reads ANDROID_HOME instead
+# and why this file must never be committed.
+build/
+.gradle/
+local.properties
+*.apk
+*.aab
+.idea/
+*.iml
+captures/
+.cxx/
+
+# No signing material in this repository, ever. §28.
+*.jks
+*.keystore
+keystore.properties

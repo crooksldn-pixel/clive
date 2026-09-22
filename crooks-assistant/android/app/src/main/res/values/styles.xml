@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Every admin control is the same size and the same shape, because an admin screen whose
+         buttons vary is an admin screen somebody mis-taps while a customer waits. 56dp, which
+         is comfortably above the 48dp minimum and matches the tap-lg token in web/style.css. -->
+    <style name="AdminButton">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">56dp</item>
+        <item name="android:layout_marginBottom">10dp</item>
+        <item name="android:background">@drawable/bg_control</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/crooks_ink</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+</resources>

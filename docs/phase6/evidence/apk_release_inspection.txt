@@ -1,0 +1,26 @@
+# app-release-unsigned.apk — inspected with aapt2 34.0.0, 2026-09-13 02:36 UTC
+# size: 1706449 bytes
+
+## manifest attributes that carry a §28/§34 claim
+    A: package="com.crooks.pad" (Raw: "com.crooks.pad")
+        A: http://schemas.android.com/apk/res/android:minSdkVersion(0x0101020c)=26
+        A: http://schemas.android.com/apk/res/android:targetSdkVersion(0x01010270)=30
+        A: http://schemas.android.com/apk/res/android:allowBackup(0x01010280)=false
+        A: http://schemas.android.com/apk/res/android:usesCleartextTraffic(0x010104ec)=false
+
+## the HOME alias (§34 / kiosk stage 2 pathway)
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="com.crooks.pad.PadHomeAlias" (Raw: "com.crooks.pad.PadHomeAlias")
+            A: http://schemas.android.com/apk/res/android:enabled(0x0101000e)=false
+            A: http://schemas.android.com/apk/res/android:exported(0x01010010)=true
+            A: http://schemas.android.com/apk/res/android:targetActivity(0x01010202)="com.crooks.pad.PadActivity" (Raw: "com.crooks.pad.PadActivity")
+
+## every permission the shipped package declares
+package: com.crooks.pad
+uses-permission: name='android.permission.RECORD_AUDIO'
+uses-permission: name='android.permission.INTERNET'
+uses-permission: name='android.permission.ACCESS_NETWORK_STATE'
+uses-permission: name='android.permission.ACCESS_WIFI_STATE'
+uses-permission: name='android.permission.RECEIVE_BOOT_COMPLETED'
+uses-permission: name='android.permission.WAKE_LOCK'
+permission: com.crooks.pad.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+uses-permission: name='com.crooks.pad.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION'

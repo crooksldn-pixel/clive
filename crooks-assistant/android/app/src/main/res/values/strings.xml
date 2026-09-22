@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Every word the native shell can put on the screen. It is a short list on purpose: §19
+     says the shell earns visibility only when launching, disconnected, updating, recovering
+     or being administered, and a shell with a lot of strings is a shell that talks too much.
+
+     British English throughout, and never the word "browser", "page", "URL", "reload" or
+     "server" in anything the owner sees — §6.2. The owner is looking at CROOKS, not at a
+     WebView, and nothing here may give that away. -->
+<resources>
+    <string name="app_name">CROOKS</string>
+
+    <!-- §6.3 the launch path -->
+    <string name="launch_wordmark">CROOKS</string>
+    <string name="launch_starting">Starting CROOKS OS…</string>
+    <string name="launch_connecting">Connecting to CROOKS Mac…</string>
+    <string name="launch_loading">Loading your workspace…</string>
+
+    <!-- §17 the states. Each names the thing that is wrong, in the owner\'s terms. -->
+    <string name="state_mac_offline_title">CROOKS Mac is off</string>
+    <string name="state_mac_offline_detail">The Mac that runs CROOKS is not answering. Turn it on and this will connect by itself.</string>
+
+    <string name="state_network_offline_title">No network</string>
+    <string name="state_network_offline_detail">This tablet is not on Wi-Fi. Reconnect it and CROOKS will come back by itself.</string>
+
+    <string name="state_starting_title">CROOKS OS is starting</string>
+    <string name="state_starting_detail">The Mac is awake and CROOKS is coming up. This takes a few seconds.</string>
+
+    <string name="state_unhealthy_title">CROOKS OS is not answering</string>
+    <string name="state_unhealthy_detail">The Mac is reachable but CROOKS is not serving. It is being retried.</string>
+
+    <string name="state_update_title">A new CROOKS is required</string>
+    <string name="state_update_detail">This tablet is running a version the Mac no longer supports.</string>
+
+    <string name="state_app_error_title">CROOKS cannot start</string>
+    <string name="state_app_error_detail">Something in this tablet\'s own setup is wrong. Diagnostics will say what.</string>
+
+    <string name="state_mic_denied_title">CROOKS cannot hear you</string>
+    <string name="state_mic_denied_detail">The microphone is switched off for CROOKS. Everything else works; you can still use touch. Tap below to allow it.</string>
+    <string name="state_mic_denied_permanent_detail">The microphone has been refused for good. Open Android Settings → Apps → CROOKS → Permissions to allow it. Touch still works.</string>
+
+    <string name="last_connected_never">Never connected on this tablet</string>
+    <string name="last_connected_fmt">Last connected %1$s</string>
+    <string name="retrying_now">Retrying…</string>
+    <string name="retrying_in_fmt">Retrying in %1$ds</string>
+
+    <string name="action_retry">Retry</string>
+    <string name="action_diagnostics">Diagnostics</string>
+    <string name="action_allow_microphone">Allow microphone</string>
+    <string name="action_close">Close</string>
+
+    <!-- §12 admin -->
+    <string name="admin_title">CROOKS admin</string>
+    <string name="admin_enter_pin">Enter the admin PIN</string>
+    <string name="admin_set_pin">Set an admin PIN for this tablet</string>
+    <string name="admin_set_pin_detail">Six digits or more. It is stored on this tablet only, as a hash, and there is no way to recover it — clearing the app\'s data is the only reset.</string>
+    <string name="admin_pin_wrong">That is not the PIN</string>
+    <string name="admin_pin_locked_fmt">Too many attempts. Try again in %1$ds.</string>
+    <string name="admin_pin_too_simple">Too easy to guess. Choose another.</string>
+    <string name="admin_pin_too_short">At least six digits.</string>
+
+    <string name="admin_reconnect">Reconnect</string>
+    <string name="admin_reload">Reload CROOKS</string>
+    <string name="admin_clear_cache">Clear cache</string>
+    <string name="admin_exit_kiosk">Leave CROOKS</string>
+    <string name="admin_diagnostics">Diagnostics</string>
+    <string name="admin_home_role_on">Make CROOKS this tablet\'s home screen</string>
+    <string name="admin_home_role_off">Stop being the home screen</string>
+    <string name="admin_done">Done</string>
+
+    <string name="diag_title">Diagnostics</string>
+</resources>

@@ -1,0 +1,6 @@
+# SwiftPM's build directory, and the .app that build.sh assembles beside it. Both are output:
+# everything needed to make them again is in this folder, and a committed binary is a thing
+# nobody can review.
+.build/
+*.app/
+.swiftpm/

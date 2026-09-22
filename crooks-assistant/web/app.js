@@ -59,7 +59,7 @@ const el = {
   deck: $('deck'), cards: $('cards'),
   attention: $('attention'), attentionCount: $('attention-count'), attentionText: $('attention-text'),
   recent: $('recent'), recentLabel: $('recent-label'), branchBar: $('branch-bar'), orbZone: $('orb-zone'),
-  branchZone: $('branch-zone'),
+  branchZone: $('branch-zone'), jobZone: $('job-zone'),
   branchHead: $('branch-head'),
   svc: { shopify: $('svc-shopify'), gmail: $('svc-gmail'), voice: $('svc-voice'), changes: $('svc-changes') },
   talk: $('talk'), talkLabel: $('talk-label'),
@@ -173,12 +173,72 @@ const orb = window.CrooksOrb
   : null;
 REDUCED.addEventListener('change', (event) => { if (orb) orb.setReducedMotion(event.matches); });
 
+/* ------------------------------------------------- the one interaction state */
+
+// V0.5 invariant 2. `live` decides what CLIVE is doing; setState below only paints it, and
+// it paints what `live` was told. Every call into it is an EVENT — a thumb went down, the
+// words settled, a job started — never an assignment, and never a reading of the DOM.
+// web/live-state.js holds the table of what may follow what.
+const live = window.CrooksLiveState ? window.CrooksLiveState.create() : null;
+
+// Partial speech while the owner is still speaking, on a tablet whose transcription happens
+// on the Mac after the release. There are no interim words to show, so the honest signal is
+// the microphone's own energy: above the room's floor, CLIVE is hearing something. Invariant
+// 4 forbids an unexplained dead interval more strongly than it demands words.
+const HEARING_FLOOR = 0.14;
+const HEARING_POLL_MS = 120;
+let hearingPoll = null;
+function watchForSpeech() {
+  stopWatchingForSpeech();
+  if (!live || !audio) return;
+  hearingPoll = setInterval(() => {
+    // Only the FIRST crossing matters here: HEARING is entered once per hold, so a loud room
+    // cannot fill the evidence history with four hundred identical transitions.
+    if (!recording || live.state !== 'LISTENING') return;
+    if (audio.hasMic && audio.micLevel() >= HEARING_FLOOR) live.partial(0);
+  }, HEARING_POLL_MS);
+}
+function stopWatchingForSpeech() { if (hearingPoll) { clearInterval(hearingPoll); hearingPoll = null; } }
+
+/* --------------------------------------------------------- the work in flight */
+
+// Slice C. The jobs of one turn, as objects with names, drawn on the band below the stage.
+// No retry is offered from here: the Mac has no endpoint that re-runs a single read, and a
+// button that cannot do what it says is worse than no button. web/jobs.js draws one the
+// moment there is somewhere safe for it to go.
+const jobs = window.CrooksJobs ? window.CrooksJobs.create({ onChange: drawJobs }) : null;
+function drawJobs(list) {
+  if (window.CrooksJobs) window.CrooksJobs.render(el.jobZone, list);
+}
+
+// The Mac reports ONE running tool at a time on /state. A tool that was running and is not
+// any more has finished — that is the whole derivation, and it is what makes two reads show
+// as two jobs finishing in the order they actually finished rather than as one word.
+let runningJob = '';
+function noteRunningTool(name) {
+  if (!jobs) return;
+  const words = DETAIL_WORDS[String(name || '')];
+  if (!words) return;                       // a tool with no words of its own is not a job
+  if (runningJob === name) return;
+  if (runningJob) jobs.done(runningJob);
+  runningJob = String(name);
+  jobs.note(runningJob, { verb: words[0], object: words[1], state: 'WORKING', writes: words[2] === true });
+}
+
+// The turn is over. Whatever was still named as running has finished with it, and the strip
+// keeps only work that is unfinished or a failure nobody has read (web/jobs.js endTurn).
+function endJobs() {
+  if (!jobs) return;
+  if (runningJob) { jobs.done(runningJob); runningJob = ''; }
+  jobs.endTurn();
+}
+
 /* ------------------------------------------------------------------ state */
 
 // What the orb says beneath itself. The first line is the state; the second is what is
 // happening in plain words, so the screen reads before the voice does.
 const LABELS = {
-  READY: ['System ready.', 'What do you need?'],
+  READY: ['CLIVE ready', 'Ask, interrupt, or continue'],
   LISTENING: ['Listening', 'Release to send'],
   TRANSCRIBING: ['Heard', 'Working out what you said'],
   THINKING: ['Thinking', 'Working it out'],
@@ -190,6 +250,11 @@ const LABELS = {
 };
 
 function setState(state, label, sub) {
+  // The machine first: the word being painted is translated into the one canonical state
+  // (live-state.js's FROM_PRESENTATION). A word it refuses is still painted — a missed
+  // mapping should show up in live.refusals(), not take the screen down — but it is the
+  // machine, never this line, that anything else asks what CLIVE is doing.
+  if (live) live.fromPresentation(state);
   el.stage.dataset.state = state;
   const [title, defaultSub] = LABELS[state] || [state, ''];
   el.state.textContent = label || title;
@@ -201,12 +266,59 @@ function setState(state, label, sub) {
 
 // What the Mac is doing, in the owner's words. The /state poll carries the running tool's
 // name; the screen never shows a tool name.
+// What the Mac is doing, in the owner's words. A verb, an object, and whether it CHANGES
+// something — never a tool name (invariant 7). One table, read by two surfaces: the sub-line
+// under the orb joins the verb and the object into a sentence, and the job strip keeps them
+// apart so a long object can ellipse without taking the verb with it.
+//
+// Every tool the Mac can run has a row, and nothing here names a tool it cannot. That is a
+// gate, not an aspiration: tests/test_live_experience_v05_contract.py reads this table against
+// the live registry and fails on either side of the mismatch. It found two rows for tools that
+// had been gone for some time (`shopify_customer_orders`, `gmail_recent`) and thirty-nine
+// tools with nothing to say — which on the job strip meant most of a turn's work showing as
+// no work at all.
+//
+// The third element is the write flag, and it is the Mac's own `ToolSpec.write` rather than a
+// judgement made here — a test compares every row against it. Nothing reads it yet; the moment
+// a retry is offered it is what stops the tablet offering to re-run a refund (web/jobs.js,
+// invariant 9).
 const DETAIL_WORDS = {
-  shopify_find_order: 'Finding the order', shopify_order_detail: 'Reading the order', shopify_list_orders: 'Listing orders',
-  shopify_find_customer: 'Finding the customer', shopify_customer_orders: 'Reading their orders', shopify_sales_summary: 'Adding up sales',
-  shopify_inventory: 'Checking stock', shopify_order_note_append: 'Preparing the note', shopify_customer_history: 'Reading their history',
-  gmail_search: 'Searching the inbox', gmail_read_thread: 'Reading the thread', gmail_recent: 'Reading recent mail',
+  // Reading the shop
+  shopify_find_order: ['Finding', 'the order'], shopify_order_detail: ['Reading', 'the order'], shopify_list_orders: ['Listing', 'orders'],
+  shopify_order_open: ['Opening', 'the order'], shopify_order_address: ['Reading', "the order's address"],
+  shopify_find_customer: ['Finding', 'the customer'], shopify_customer_history: ['Reading', 'their history'],
+  shopify_sales_summary: ['Adding up', 'sales'], shopify_inventory: ['Checking', 'stock'],
+  shopify_product_info: ['Reading', 'the product'], shopify_variant_search: ['Finding', 'the size'],
+  shopify_abandoned_checkouts: ['Checking', 'abandoned baskets'], shopify_store_credit: ['Checking', 'store credit'],
+  shopify_discount_check: ['Checking', 'the discount'], shopify_discount_open: ['Opening', 'the discount'],
+  // Changing the shop
+  shopify_order_note_append: ['Preparing', 'the note', true], shopify_order_tags_add: ['Tagging', 'the order', true],
+  shopify_order_tags_remove: ['Removing', "the order's tag", true], shopify_order_add_item: ['Adding', 'the item', true],
+  shopify_order_cancel: ['Cancelling', 'the order', true], shopify_order_create: ['Creating', 'the order', true],
+  shopify_order_fulfil: ['Fulfilling', 'the order', true], shopify_refund_create: ['Refunding', 'the order', true],
+  shopify_order_shipping_address_set: ['Changing', 'the delivery address', true],
+  shopify_fulfillment_tracking_set: ['Adding', 'the tracking number', true],
+  shopify_inventory_adjust: ['Changing', 'the stock count', true], shopify_store_credit_add: ['Adding', 'store credit', true],
+  shopify_discount_create: ['Creating', 'the discount', true],
+  // Reading the inbox
+  gmail_search: ['Searching', 'the inbox'], gmail_read_thread: ['Reading', 'the thread'],
+  gmail_find_in_email: ['Searching', 'the message'], gmail_compose_open: ['Opening', 'the reply'],
+  gmail_compose_fill: ['Writing', 'the reply'],
+  // Changing the inbox
+  gmail_draft_reply: ['Drafting', 'the reply', true], gmail_draft_new: ['Drafting', 'a new message', true],
+  gmail_send_reply: ['Sending', 'the reply', true], gmail_send_new: ['Sending', 'the message', true],
+  gmail_thread_archive: ['Archiving', 'the thread', true],
+  // Several at once. These STAGE a batch; the change itself goes through the confirmation
+  // path afterwards, so the Mac does not call them writes and neither does this.
+  batch_email_drafts: ['Drafting', 'the replies'], batch_email_send: ['Preparing', 'the replies'],
+  batch_email_archive: ['Preparing', 'the messages'], batch_order_tags_add: ['Preparing', "the orders' tags"],
+  batch_order_tags_remove: ['Preparing', "the orders' tags"],
+  // The query layer, which answers without naming one shop read
+  commerce_query: ['Reading', 'the shop'], commerce_summary: ['Summarising', 'the shop'],
+  commerce_aggregate: ['Adding up', 'the numbers'], commerce_capabilities: ['Checking', 'what the shop allows'],
+  email_query: ['Reading', 'the inbox'], inventory_query: ['Checking', 'stock'],
 };
+const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
 let turnStartedAt = 0;
 // "2 of 3 read" — the Mac's own count of the reads it is making for this answer
@@ -215,7 +327,7 @@ const COUNTED = /^(\d+) of (\d+) read$/;
 
 function detailWords(detail, state) {
   const name = String(detail || '');
-  if (DETAIL_WORDS[name]) return DETAIL_WORDS[name];
+  if (DETAIL_WORDS[name]) return detailSentence(name);
   const counted = COUNTED.exec(name);
   if (counted) return `${counted[1]} of ${counted[2]} checked`;
   if (name.indexOf('refused ') === 0) return 'Trying another way';
@@ -994,6 +1106,7 @@ async function startRecording() {
     el.talk.dataset.recording = 'true';
     el.talkLabel.textContent = 'Release to send';
     setState('LISTENING');
+    watchForSpeech();
     if (orb) orb.pulse();
     haptic(HAPTIC.start);
   } catch (error) {
@@ -1017,6 +1130,10 @@ function stopRecording(discard = false) {
   // the orb must not keep listening to the room while it does.
   lastRecordingMs = recordingStartedAt ? Date.now() - recordingStartedAt : 0;
   T.record('hold', { phase: 'release', ms: lastRecordingMs, outcome: discard ? 'discarded' : 'sent' });
+  stopWatchingForSpeech();
+  // The instant the owner starts waiting. Everything after it is measured from here, so it
+  // is marked here rather than backdated from whatever happens to land first.
+  if (live && !discard) live.released();
   if (discard) setState('READY');
   else { setState('TRANSCRIBING'); haptic(HAPTIC.release); }
   try { mediaRecorder.stop(); } catch { /* already stopped */ }
@@ -1152,6 +1269,13 @@ function settleGlass(why) {
 }
 
 // Apply what the Mac has staged. Returns true when anything was drawn.
+// Something the owner can actually read has landed — a section of the workspace patched in
+// while the turn is still running. Not a spinner and not a state word: this is the
+// measurement the whole slice exists to move.
+function noteUseful(why) {
+  if (live && live.state !== 'IDLE') live.usefulResult(why);
+}
+
 function applyWorkspace(payload) {
   if (!payload || typeof payload !== 'object') return false;
   if (!window.CrooksUI || typeof window.CrooksUI.applyPatches !== 'function') return false;
@@ -1175,6 +1299,7 @@ function applyWorkspace(payload) {
   const drawn = out.added + out.changed + out.visual + out.removed;
   if (!drawn) return false;
   glass.applied += drawn;
+  noteUseful('workspace patch');
   // A working screen, from the first patch: the deck comes up rather than the orb sitting
   // there until the whole read graph has resolved.
   if (el.body.dataset.mode !== 'context') setMode('context');
@@ -2014,34 +2139,20 @@ function drawBranchBar() {
     if (other && other !== host) { clear(other); other.hidden = true; }
   }
   clear(host);
-  host.hidden = false;
+
+  // V0.5 retires user-facing Split. Concurrency remains an internal capability, but the
+  // owner no longer has to allocate CLIVE's attention by manufacturing "halves". Existing
+  // two-branch sessions are still rendered below so an in-flight legacy session is not
+  // stranded; a single normal session exposes no Split invitation or branch chrome.
   if (branches.length < 2) {
-    const split = document.createElement('button');
-    split.type = 'button';
-    split.className = inRail ? 'chip chip-split' : 'branch-act branch-split';
-    split.dataset.action = 'split';
-    split.textContent = 'Split';
-    split.setAttribute('aria-label', 'Divide the orb into two halves');
-    split.addEventListener('click', () => splitOrb('button'));
-    host.appendChild(split);
-    // What it is FOR. "What does the split button do?" was asked out loud in the live session
-    // and answered "I don't know what that button is"; a control whose only explanation is a
-    // gesture nobody was told about is not discoverable. The band has room for the sentence;
-    // the rail, beside Back and Next, does not, and the chip stands alone there.
-    if (!inRail) {
-      const why = document.createElement('span');
-      why.className = 'branch-why';
-      why.textContent = 'Work on two things at once';
-      host.appendChild(why);
-    }
-    // And the header band goes with them. It used to be left standing: a merge or a close
-    // came back through `applyBranches`, which redraws the bar, and the bar returned here
-    // before the band was touched — so the screen went on saying "half 1 of 2" over a
-    // conversation that had one half. `drawBranchHead` hides itself when there is nothing to
-    // tell apart; it just has to be asked.
+    host.hidden = true;
+    if (el.branchZone) el.branchZone.hidden = true;
     drawBranchHead();
     return;
   }
+
+  host.hidden = false;
+  if (el.branchZone) el.branchZone.hidden = false;
   // Two halves, divided visibly: a column each, a rule between them, and neither column able
   // to push the other off the screen (`minmax(0,1fr)` in the stylesheet).
   const halves = document.createElement('div');
@@ -2997,11 +3108,17 @@ function startStatePolling() {
       // The workspace as it stands, patched in place. A card the reads have already produced
       // is readable NOW; the turn's own answer reconciles against it when it comes.
       if (data.workspace) applyWorkspace(data.workspace);
+      noteRunningTool(data.detail);
       if (data.state && data.state !== 'READY' && data.state !== 'ERROR') setState(data.state, undefined, detailWords(data.detail, data.state));
       else if (busy && Date.now() - turnStartedAt > LONG_THINK_MS) el.sub.textContent = `Still working · ${Math.round((Date.now() - turnStartedAt) / 1000)} s`;
       // The transcript, the moment the Mac has it: a mis-heard question shows before the
       // answer to it is paid for.
-      if (data.heard && !el.heard.textContent) el.heard.textContent = `“${data.heard}”`;
+      if (data.heard && !el.heard.textContent) {
+        el.heard.textContent = `“${data.heard}”`;
+        // The words are on the glass: that, and not the release, is UNDERSTOOD. The machine
+        // is handed the LENGTH — it is never told what was said (invariant 11).
+        if (live) live.final(String(data.heard).length);
+      }
     } catch { /* the turn response will carry the outcome */ } finally {
       clearTimeout(timer);
       inFlight = false;
@@ -3056,6 +3173,10 @@ async function submit(body, isAudio) {
     audio_ms: isAudio ? lastRecordingMs : undefined, turns, before: liveActionSurface() ? 'live_card' : undefined,
     branch: askedBranch || undefined, concurrent: inflight.size || undefined,
   });
+  // A dock shortcut or a typed ask was never held, so there is no acknowledgement and
+  // nothing to transcribe — but the owner starts waiting here just the same, and the turn
+  // is measured from it exactly as a spoken one is.
+  if (live && !isAudio) live.asked(0);
   setState(isAudio ? 'TRANSCRIBING' : 'THINKING');
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -3130,6 +3251,7 @@ async function submit(body, isAudio) {
       return;
     }
     renderTurn(data);
+    if (!lastWasError) noteUseful('answer');
     setState(lastWasError ? 'ERROR' : 'READY', lastWasError ? lastErrorTitle : '');
     speakAnswer(data.answer, { isError: lastWasError });   // deliberately not awaited
     renderTimings(data.timings_ms, data.transcript);
@@ -3161,6 +3283,22 @@ async function submit(body, isAudio) {
   } finally {
     clearTimeout(timeout);
     inflight.delete(key);
+    endJobs();
+    // Invariant 11: what this turn FELT like, in milliseconds and counts only. No transcript,
+    // no answer, no entity — the machine was never given any of them to leak.
+    if (live) {
+      const marks = live.marks();
+      T.record('live_marks', {
+        ack_ms: marks.acknowledgedMs === null ? undefined : marks.acknowledgedMs,
+        transcript_ms: marks.transcriptMs === null ? undefined : marks.transcriptMs,
+        progress_ms: marks.progressMs === null ? undefined : marks.progressMs,
+        useful_ms: marks.usefulMs === null ? undefined : marks.usefulMs,
+        responding_ms: marks.respondingMs === null ? undefined : marks.respondingMs,
+        partials: marks.partials || undefined, heard_chars: marks.heardChars || undefined,
+        interruptions: marks.interruptions || undefined, faults: marks.faults || undefined,
+        state: live.state,
+      });
+    }
     syncBusy();
     if (!inflight.size) applyUpdateWhenIdle();
     // If speech is off there is no onend to settle the state, so do it here.
@@ -3310,6 +3448,9 @@ function onHoldStart(event) {
     cancelHoldTimer = setTimeout(cancelTurnAndListen, CANCEL_HOLD_MS);
     return;
   }
+  // Synchronously, inside the gesture: the acknowledgement the owner is waiting for is
+  // this, not the recorder starting, and the machine measures it from here.
+  if (live) live.pointerDown();
   setState('LISTENING');   // the orb wakes on the touch itself, not on the recorder
   startRecording();        // start before any other UI work, or the first word is clipped
 }
@@ -3331,6 +3472,7 @@ function cancelTurnAndListen() {
   cancelHoldTimer = null;
   if (!busy || !turnAbort) return;
   T.record('turn_cancelled', { ms: Date.now() - turnStartedAt });
+  if (live) live.interrupt('held through the turn');
   turnAbort.cancelled = true;
   turnAbort.abort();
   // This half's turn, and only this half's: the other half may be mid-thought about
@@ -3342,13 +3484,13 @@ function cancelTurnAndListen() {
   setTimeout(() => { if (holding && !busy && !recording) { setState('LISTENING'); startRecording(); } }, 60);
 }
 
-// The fingers moving. The machine measures a pair and reports the INTENT as a word; what a
-// spread or a pinch means depends on how many halves there are, which is the page's business.
+// V0.5 no longer lets a spread create user-visible Split state. Multi-touch still belongs to
+// the gesture machine (so it never becomes accidental speech), and a pinch can collapse an
+// already-existing legacy two-branch session. New concurrency is owned by CLIVE internally.
 function onHoldMove(event) {
   const moved = pointers.move({ pointerId: event.pointerId, x: event.clientX, y: event.clientY });
   if (!moved) return;
-  if (moved.gesture === 'spread' && branches.length < 2) splitOrb('gesture');
-  else if (moved.gesture === 'pinch' && branches.length > 1) mergeOrb('gesture');
+  if (moved.gesture === 'pinch' && branches.length > 1) mergeOrb('gesture');
 }
 
 function onHoldEnd(event) {
@@ -3794,7 +3936,7 @@ function wentOffline() {
   // Never over a question in flight, a recording, or the voice mid-sentence: the turn's own
   // error copy covers those, and the layer takes over once the screen is quiet.
   if (quiet()) {
-    setSystem('offline', 'System offline', 'Waiting for CROOKS Assistant…', 'Checking quietly · tap to check now');
+    setSystem('offline', 'System offline', 'Waiting for CLIVE…', 'Checking quietly · tap to check now');
   }
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(checkReachable, reconnectDelay);
