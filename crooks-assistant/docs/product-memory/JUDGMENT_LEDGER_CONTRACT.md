@@ -31,7 +31,7 @@ Each ledger entry MUST contain only bounded/redacted fields:
 - `task_id` and, where applicable, task revision / attempt identity
 - stable `action_id` and `proposal_id`
 - `proposal_fingerprint` (cryptographic digest of the judged immutable proposal)
-- optional `supersedes_proposal_id` and replacement/delta fingerprint for `EDITED`
+- for `EDITED` only: `superseding_proposal_id`, the distinct identity of the new proposal that replaces the judged one, and `replacement_fingerprint`, the digest of that replacement
 - `decision`: one of the four OwnerDecision values above
 - bounded `reason_code` from a versioned allow-list
 - optional redacted explanation or minimal redacted delta/snapshot; never raw secrets, credentials, hidden prompts, chain-of-thought, or unrestricted business content
