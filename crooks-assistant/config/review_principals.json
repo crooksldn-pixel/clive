@@ -1,0 +1,57 @@
+{
+  "schema": "clive.review_principals.v1",
+  "recorded_at": "2026-09-22T18:35:00Z",
+  "recorded_by": "owner instruction, 2026-09-22",
+  "origin": "claude/recovery-handoff-2026-09-22 at 3df126c287a4264f48afd36fe662f7824eaaa638; the stale review_queue was dropped, the principals are verbatim",
+  "comment": [
+    "Who may review whose work. This file records identities; it grants no exemptions.",
+    "Eligibility is still decided by evaluate_review_eligibility() in",
+    "app/orchestrator/routing.py, and nothing here removes, relaxes or bypasses any",
+    "member of the Ineligibility enum. A principal listed here can still be refused",
+    "a specific review, and routinely will be.",
+    "",
+    "The engineering kernel (app/orchestrator/lifecycle.py) reads only `principals`: a review",
+    "dispatch names a principal listed here with may_review true and different from the",
+    "attempt's author principal. Eligibility at verdict time is still decided per review by",
+    "evaluate_review_eligibility(); this file cannot make an ineligible review count."
+  ],
+  "principals": [
+    {
+      "principal_id": "claude",
+      "kind": "model",
+      "model_family": "claude",
+      "roles": [
+        "author"
+      ],
+      "may_review": false,
+      "reason": "Author of e8830c44, 3640c54a, a8005721 and 33968c92. Every Claude session on this host resolves to this one principal, so a fresh session is SAME_PRINCIPAL, not a second opinion."
+    },
+    {
+      "principal_id": "gpt",
+      "kind": "model",
+      "model_family": "gpt",
+      "roles": [
+        "author",
+        "reviewer"
+      ],
+      "may_review": true,
+      "reason": "A genuinely distinct principal, so SAME_PRINCIPAL and SAME_SESSION are satisfied by fact rather than by exemption.",
+      "conditions": [
+        "candidate_sha must be an exact 40-character SHA, never a branch name",
+        "the SHA must be re-resolved at decision time; CANDIDATE_SHA_DRIFT voids the review",
+        "the reviewer workspace must be checked out at the candidate SHA (REVIEWER_NOT_AT_CANDIDATE)",
+        "the reviewer workspace must be read-only and clean (REVIEWER_WORKSPACE_IS_WRITABLE, REVIEWER_WORKSPACE_IS_DIRTY)",
+        "must not review a candidate the gpt principal authored"
+      ]
+    },
+    {
+      "principal_id": "owner",
+      "kind": "human",
+      "roles": [
+        "owner"
+      ],
+      "may_review": true,
+      "reason": "Final authority. Owner approval is a separate act from independent review and must never be encoded as an ActionStatus."
+    }
+  ]
+}

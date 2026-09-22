@@ -36,6 +36,7 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [HARNESS_ACCEPTANCE_2C2B0CC.md](./HARNESS_ACCEPTANCE_2C2B0CC.md) — the sixth independent adversarial review's ACCEPT FOR NEXT GATE verdict on harness candidate 2c2b0cc, with the limits it recorded.
 - [REVIEW_ACCEPTANCE_CONTRACT.md](./REVIEW_ACCEPTANCE_CONTRACT.md) — repository-only contract binding final engineering acceptance to an exact candidate SHA and an operationally independent reviewer, with the fencing rules for stale and late verdicts.
 - [JUDGMENT_LEDGER_CONTRACT.md](./JUDGMENT_LEDGER_CONTRACT.md) — OwnerDecision as a decision record separate from ActionStatus, and the append-only, redacted Judgment Ledger with its fail-closed invariants.
+- [ENGINEERING_LIFECYCLE_PRODUCERS.md](./ENGINEERING_LIFECYCLE_PRODUCERS.md) — the write side of the control plane: attempts with leases and fencing tokens, an append-only journal, review dispatch, verdict admission, acceptance and verified integration, so stages are recorded rather than inferred; repository-only.
 
 ## Status model
 

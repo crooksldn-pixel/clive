@@ -63,6 +63,8 @@ not observe; it is counted in `totals.unknown` only, never as online.
 | `OWNER_GATE` | a genuine owner decision is required | an explicit gate record |
 | `STALE` | a task is held open but nothing has moved | process alive, last write older than `stale_window_s` |
 | `UNKNOWN` | the probe could not settle it | always accompanied by a reason |
+| `ASSIGNED` | the kernel recorded an assignment the worker has not acknowledged | an attempt record, no `acknowledged` event |
+| `COMPLETE` | the task reached DONE with every record present | acceptance and verified integration records that agree, within one stale window |
 
 There is deliberately no value meaning "probably fine".
 
@@ -75,6 +77,33 @@ same live process degrades through `IDLE` to `STALE` as its evidence ages.
 
 `UNKNOWN` and `OFFLINE` are kept apart on purpose: "I looked and there is
 nothing" and "I could not look" are different claims and should not collapse.
+
+## Records first, probes reconcile
+
+When the roster declares `engineering_store` (the kernel's `engineering/`
+directory, see ENGINEERING_LIFECYCLE_PRODUCERS.md in product memory), the
+records decide a worker's status before any probe does: a current assignment
+reads ASSIGNED, BUILDING while its lease is alive, STALE once the lease has
+expired without a heartbeat, IDLE while its candidate is under review, accepted
+or rejected, and BLOCKED or OWNER_GATE from the record; a principal with an open
+review dispatch reads REVIEWING; a worker whose task reached COMPLETE reads
+COMPLETE for one stale window. `last_heartbeat` is then the last heartbeat the
+kernel journaled, never anything inferred.
+
+The probes still run. Where they disagree with the record the disagreement is
+reported in `reconciliation` and appended to `status_reason`; the status itself
+is not changed, because a process table is evidence about a machine and the
+record is the claim being reconciled, not the other way round. `status_source`
+says which decided: `records`, `records+probe` (a disagreement was noted) or
+`probe`. A roster entry may declare `probe.kind: records_only` for a worker
+nothing on the host can observe; it is UNKNOWN unless a record places it.
+
+The document also carries `tasks[]`, one entry per task revision the kernel
+holds, with its stage, stage reason, attempt, lease, candidate, review
+dispatch and verdicts, acceptance, integration and history, and `engineering`
+(the store root, a `problem` string when it could not be read, and the task
+count). A store that is declared but missing or unreadable is a named problem,
+never an empty campus.
 
 ## For the environment's authors
 
@@ -90,7 +119,7 @@ nothing" and "I could not look" are different claims and should not collapse.
 
 ## What it does not do
 
-No task queue, no dispatch, no history, no aggregation across hosts, and no
-write path. It answers one question — what is true on this machine right now —
-and stops there. Anything more belongs in the control plane, which is library
-code today and runs nowhere.
+No dispatch, no scheduling, no aggregation across hosts, and no write path. It
+answers one question — what is true on this machine right now, and what the
+kernel's records say — and stops there. Writing the records is the kernel's
+job (`scripts/engineering_kernel.py`), which runs only when invoked.

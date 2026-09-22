@@ -24,7 +24,10 @@ OWNER_REQUESTED = (
     "head_sha", "last_heartbeat", "last_event", "last_event_at", "blocker", "owner_gate",
     "process_started_at",
 )
-VOCABULARY = {"OFFLINE", "IDLE", "BUILDING", "REVIEWING", "BLOCKED", "OWNER_GATE", "STALE", "UNKNOWN"}
+VOCABULARY = {
+    "OFFLINE", "IDLE", "ASSIGNED", "BUILDING", "REVIEWING", "BLOCKED", "OWNER_GATE", "STALE",
+    "COMPLETE", "UNKNOWN",
+}
 
 
 def roster_with(tmp_path: Path, workers: list[dict]) -> Path:
