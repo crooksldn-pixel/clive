@@ -1318,6 +1318,7 @@ def lifecycle_view(store: LifecycleStore, *, now: datetime) -> dict:
     """
     tasks_out: list[dict] = []
     by_worker: dict[str, dict] = {}
+    all_by_worker: dict[str, list[tuple[TaskStatus, dict]]] = {}
     reviewing_principals: dict[str, dict] = {}
     completed_by_worker: dict[str, dict] = {}
     acceptances = store.read_acceptances()
@@ -1433,7 +1434,9 @@ def lifecycle_view(store: LifecycleStore, *, now: datetime) -> dict:
         tasks_out.append(record)
 
         if state.worker_id and state.status in LIVE_STATUSES | {TaskStatus.REJECTED}:
-            by_worker[state.worker_id] = record
+            # A worker may hold several live assignments. The one that says most about
+            # what the worker is doing now wins; the rest are listed, not hidden.
+            all_by_worker.setdefault(state.worker_id, []).append((state.status, record))
         if complete and state.worker_id and integration is not None:
             prev = completed_by_worker.get(state.worker_id)
             if prev is None or integration.integrated_at > datetime.fromisoformat(prev["integration"]["at"]):
@@ -1441,6 +1444,12 @@ def lifecycle_view(store: LifecycleStore, *, now: datetime) -> dict:
         if state.status is TaskStatus.REVIEWING and dispatches:
             reviewing_principals[dispatches[-1].reviewer_principal_id] = record
 
+    for worker_id, held in all_by_worker.items():
+        held.sort(key=lambda item: _ACTIVITY_RANK[item[0]], reverse=True)
+        by_worker[worker_id] = held[0][1]
+        by_worker[worker_id]["also_assigned"] = [
+            f"{r['task_id']} r{r['revision']} ({r['stage']})" for _, r in held[1:]
+        ]
     return {
         "store_root": str(store.root),
         "tasks": tasks_out,
@@ -1448,6 +1457,20 @@ def lifecycle_view(store: LifecycleStore, *, now: datetime) -> dict:
         "completed_by_worker": completed_by_worker,
         "reviewing_by_principal": reviewing_principals,
     }
+
+
+# When one worker holds several live assignments, the one it is most actively in wins
+# the worker's status; the others are listed as also_assigned.
+_ACTIVITY_RANK = {
+    TaskStatus.RUNNING: 7,
+    TaskStatus.ASSIGNED: 6,
+    TaskStatus.BLOCKED: 5,
+    TaskStatus.OWNER_GATE: 5,
+    TaskStatus.EVIDENCE_READY: 4,
+    TaskStatus.REVIEWING: 3,
+    TaskStatus.REJECTED: 2,
+    TaskStatus.ACCEPTED: 1,
+}
 
 
 def _stage_reason(state, attempt, result, dispatches, admissions, acceptance, integration, lease, complete) -> str:

@@ -513,6 +513,7 @@ def build_view(roster: dict) -> dict:
                 "attempt_id": task_ref["attempt_id"] if task_ref else None,
                 "candidate_sha": task_ref["candidate_sha"] if task_ref else None,
                 "review_state": review_state,
+                "also_assigned": list(task_ref.get("also_assigned", [])) if task_ref else [],
                 "project": worker.get("project", "clive"),
                 "branch": p.branch,
                 "head_sha": p.head_sha,

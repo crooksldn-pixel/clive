@@ -628,3 +628,15 @@ def test_attempt_ids_are_unique_across_tasks_not_just_within_one(kernel):
     assert kernel.store.read_task_state("t-1", 1).status is TaskStatus.ASSIGNED
     with pytest.raises(LifecycleError, match="already exists in this store"):
         kernel.cancel_attempt(first.attempt_id, reason="x") and kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR, attempt_id="t-2-a1")
+
+
+def test_a_worker_holding_two_live_assignments_is_placed_by_the_more_active_one(kernel, clock, git):
+    attempt = to_review(kernel, clock, git)  # t-1 under review: the author waits
+    kernel.create_task(task(task_id="t-2", stream_id="other"))
+    second = kernel.assign("t-2", 1, worker_id="w1", worker=AUTHOR)
+    kernel.acknowledge(second.attempt_id, token=1, base_sha=BASE)
+    projected = lifecycle_view(kernel.store, now=clock())
+    placed = projected["assignments_by_worker"]["w1"]
+    assert placed["task_id"] == "t-2" and placed["stage"] == "RUNNING"
+    assert placed["also_assigned"] == ["t-1 r1 (REVIEWING)"]
+    assert projected["reviewing_by_principal"]["gpt"]["attempt_id"] == attempt.attempt_id
