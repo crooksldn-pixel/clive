@@ -177,6 +177,9 @@ def test_a_new_revision_needs_its_predecessor_and_obsoletes_it(kernel, clock, gi
     kernel.create_task(task(revision=2, base_sha=CAND))
     assert kernel.store.read_task_state("t-1", 1).status is TaskStatus.OBSOLETE
     assert kernel.store.read_task_state("t-1", 2).status is TaskStatus.READY
+    superseded = lifecycle_view(kernel.store, now=clock())["tasks"][0]
+    assert superseded["stage"] == "OBSOLETE" and superseded["candidate_sha"] == CAND
+    assert [e["kind"] for e in superseded["history"]][-2:] == ["candidate", "cancelled"]
 
 
 # ----------------------------------------------------------- assignment

@@ -1329,9 +1329,15 @@ def lifecycle_view(store: LifecycleStore, *, now: datetime) -> dict:
         state = store.read_task_state(task.task_id, task.revision)
         if state is None:
             continue
+        # The current attempt places the task; a revision with none (superseded,
+        # cancelled, done) is still described by its last attempt, so a repair
+        # cycle's earlier candidates and verdicts stay visible in the history.
+        attempts = [a for a in store.read_attempts(task.task_id) if a.task_revision == task.revision]
         attempt = None
         if state.attempt_id:
-            attempt = next((a for a in store.read_attempts(task.task_id) if a.attempt_id == state.attempt_id), None)
+            attempt = next((a for a in attempts if a.attempt_id == state.attempt_id), None)
+        if attempt is None and attempts:
+            attempt = max(attempts, key=lambda a: a.fencing_token)
         events = store.read_events(task.task_id, attempt.attempt_id) if attempt else ()
         result = results.get((task.task_id, attempt.attempt_id)) if attempt else None
         dispatches = store.read_dispatches(task.task_id, attempt.attempt_id) if attempt else ()

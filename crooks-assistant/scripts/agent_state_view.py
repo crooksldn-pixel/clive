@@ -494,7 +494,7 @@ def build_view(roster: dict) -> dict:
             if task_ref is not None:
                 current_task = _task_label(task_ref)
                 reconciliation = _reconcile(p, cfg, status)
-                if reconciliation["notes"]:
+                if not reconciliation["consistent"]:
                     reason = reason + " | reconciliation: " + "; ".join(reconciliation["notes"])
                     source = "records+probe"
 
