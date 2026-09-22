@@ -625,6 +625,68 @@ def test_deterministic_blocker_alone_stops_an_otherwise_dispatchable_task() -> N
     assert _controller_dispatch(cleared, task) is not None
 
 
+UNDISPATCHABLE_STATUSES = (
+    TaskStatus.OWNER_GATE,
+    TaskStatus.BLOCKED,
+    TaskStatus.OBSOLETE,
+    TaskStatus.CANCELLED,
+    TaskStatus.DONE,
+    TaskStatus.ASSIGNED,
+    TaskStatus.RUNNING,
+    TaskStatus.REVIEWING,
+)
+
+
+@pytest.mark.parametrize("status", UNDISPATCHABLE_STATUSES, ids=lambda s: s.value)
+def test_undispatchable_status_alone_stops_an_otherwise_dispatchable_task(
+    status: TaskStatus,
+) -> None:
+    """``status`` must block on its own, the way ``owner_gate`` and
+    ``blocker_class`` already do.
+
+    Until this test existed the status guard was the one signal nothing stood
+    on: every case that reached it had an owner gate or a blocker to be refused
+    for first, so deleting the guard outright left the suite green. Here the
+    gate is down, the blocker class is NONE, and the controller's recorded
+    status is the only thing in the way.
+
+    ``OWNER_GATE`` is included deliberately: the contract lets that status sit
+    on a state whose ``owner_gate`` flag is false — only an ``OWNER_ONLY``
+    blocker forces the flag — so the status alone has to be enough.
+    """
+
+    task = make_task(task_id="status-only", stream_id="stream-a")
+    runtime = TaskRuntimeState(
+        task_id=task.task_id,
+        task_revision=task.revision,
+        status=status,
+        transition_seq=3,
+        blocker_class=BlockerClass.NONE,
+        blocker_reason=None,
+        owner_gate=False,
+        updated_at=NOW + timedelta(minutes=11),
+    )
+    assert _controller_dispatch(runtime, task) is None
+
+    # The policy must refuse for the status itself, not incidentally.
+    decision = evaluate_obvious_continuation(
+        task,
+        make_result(task_id=task.task_id),
+        candidate_worker_id="reviewer-1",
+        current_branch_head=SHA_B,
+        runtime_state=runtime,
+        latest_task_revision=task.revision,
+    )
+    assert not decision.allowed
+    assert status.value in decision.reason
+
+    # Load-bearing control: move the status to a dispatchable one and change
+    # nothing else, and the very same task dispatches — so the refusal above
+    # is the status guard alone.
+    dispatchable = runtime.model_copy(update={"status": TaskStatus.EVIDENCE_READY})
+    assert _controller_dispatch(dispatchable, task) is not None
+
+
 def test_scheduler_rejects_superseded_task_revision() -> None:
     task = make_task(task_id="old-revision", revision=1)
     candidate = ContinuationCandidate(
