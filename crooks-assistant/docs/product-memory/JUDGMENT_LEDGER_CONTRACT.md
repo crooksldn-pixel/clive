@@ -41,7 +41,7 @@ Each ledger entry MUST contain only bounded/redacted fields:
 - `redaction_version`
 - ledger schema version
 
-Entries are append-only. A correction is a new entry that carries `corrects_judgment_id`, judges the same proposal (same `proposal_id`, `proposal_fingerprint`, `action_id` and `task_id`), references the *current* judgment for that proposal (an entry that is already corrected cannot be corrected again; corrections chain through the latest one), does not predate it, and changes at least one of the decision, the reason code, the supersession fields or the redacted explanation. The corrected entry is never mutated or deleted; it simply stops being the effective judgment for its proposal, and at every point there is exactly one effective judgment per judged proposal. Existing entries are never silently mutated or deleted by normal application logic.
+Entries are append-only. A correction is a new entry that carries `corrects_judgment_id`, judges the same proposal (same `proposal_id`, `proposal_fingerprint`, `action_id` and `task_id`), carries the same `task_revision` and `attempt_id` as the corrected entry (each present or absent exactly as there, so a correction never moves an owner judgment to another task revision or attempt), references the *current* judgment for that proposal (an entry that is already corrected cannot be corrected again; corrections chain through the latest one), does not predate it, and changes at least one of the decision, the reason code, the supersession fields or the redacted explanation. The corrected entry is never mutated or deleted; it simply stops being the effective judgment for its proposal, and at every point there is exactly one effective judgment per judged proposal. Existing entries are never silently mutated or deleted by normal application logic.
 
 ## Fail-closed invariants
 
@@ -57,7 +57,7 @@ A judgment entry MUST be rejected when:
 8. the reason code is outside the bounded versioned vocabulary;
 9. the redaction/schema version is unsupported;
 10. an expired/no-response state is presented as `DECLINED`.
-11. a correction references a judgment that is missing, is itself, is already corrected, or judges a different proposal; or it predates the judgment it corrects; or it changes nothing.
+11. a correction references a judgment that is missing, is itself, is already corrected, or judges a different proposal, task revision or attempt (a `task_revision` or `attempt_id` changed, added or dropped); or it predates the judgment it corrects; or it changes nothing.
 
 ## Required adversarial tests
 
@@ -71,6 +71,7 @@ Implementation acceptance requires tests proving at minimum:
 - unbounded reason codes fail closed;
 - ledger append cannot mutate a previous entry;
 - a correction preserves the corrected entry byte for byte, becomes the effective judgment, and an entry already corrected cannot be corrected a second time;
+- a correction that changes, adds or drops the corrected entry's `task_revision` or `attempt_id` is refused, so a judgment is never moved between task revisions or attempts;
 - duplicate judgment IDs are rejected or idempotently resolve to the byte-identical existing entry, never create divergent history;
 - redaction forbids secrets/credentials/hidden prompts/chain-of-thought fields;
 - collection of negative evidence does not itself execute or authorise the underlying action.

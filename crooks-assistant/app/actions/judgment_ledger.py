@@ -9,8 +9,12 @@ Two kinds of second entry about one proposal are told apart on purpose:
   the judgment on the replacement is a first judgment about a different
   ``proposal_id``;
 - a CORRECTION is a new *judgment* about the same proposal, referencing the entry it
-  corrects through ``corrects_judgment_id``. The corrected entry stays in the ledger
-  byte for byte; it simply stops being the effective judgment for that proposal.
+  corrects through ``corrects_judgment_id``. It judges exactly what the corrected
+  entry judged: the same proposal, fingerprint, action and task, at the same task
+  revision and attempt (each present or absent exactly as there), so a correction
+  can never move an owner's judgment to another revision or attempt. The corrected
+  entry stays in the ledger byte for byte; it simply stops being the effective
+  judgment for that proposal.
 
 Anything else that looks like a second judgment on one proposal is refused, so at
 every point there is exactly one effective judgment per judged proposal.
@@ -116,7 +120,8 @@ class JudgmentLedger:
         return JudgmentLedger(records=(*self.records, record))
 
     def _check_correction(self, record: JudgmentRecord) -> None:
-        """A correction points at exactly one existing, current, same-proposal judgment."""
+        """A correction points at exactly one existing, current judgment of the same
+        proposal at the same task revision and attempt."""
         target = self.by_id(record.corrects_judgment_id or "")
         if target is None:
             raise JudgmentLedgerError(
@@ -131,6 +136,17 @@ class JudgmentLedger:
             raise JudgmentLedgerError(
                 "a correction must judge the same proposal, action and task as the "
                 "judgment it corrects"
+            )
+        # J-02: task_revision and attempt_id are part of what was judged. A
+        # correction that changes, adds or drops either would move the owner's
+        # judgment to a different revision or attempt under the same proposal id,
+        # so both must match the corrected entry exactly, None included.
+        if target.task_revision != record.task_revision or target.attempt_id != record.attempt_id:
+            raise JudgmentLedgerError(
+                "a correction must judge the same task revision and attempt as the "
+                f"judgment it corrects (corrected entry: revision {target.task_revision!r}, "
+                f"attempt {target.attempt_id!r}; correction: revision "
+                f"{record.task_revision!r}, attempt {record.attempt_id!r})"
             )
         already = self.correction_of(target.judgment_id)
         if already is not None:
