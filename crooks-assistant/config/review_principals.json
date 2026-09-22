@@ -1,0 +1,86 @@
+{
+  "schema": "clive.review_principals.v1",
+  "recorded_at": "2026-09-22T18:35:00Z",
+  "recorded_by": "owner instruction, 2026-09-22",
+  "comment": [
+    "Who may review whose work. This file records identities; it grants no exemptions.",
+    "Eligibility is still decided by evaluate_review_eligibility() in",
+    "app/orchestrator/routing.py, and nothing here removes, relaxes or bypasses any",
+    "member of the Ineligibility enum. A principal listed here can still be refused",
+    "a specific review, and routinely will be.",
+    "",
+    "The rule is symmetric. GPT being the independent reviewer does not make GPT",
+    "eligible to review GPT's own commits — which is live today, since the nine",
+    "commits on claude/ci-provenance-acceptance-2026-09-22 dated 2026-09-22 were",
+    "authored by the gpt principal despite the branch's claude/ prefix."
+  ],
+  "principals": [
+    {
+      "principal_id": "claude",
+      "kind": "model",
+      "model_family": "claude",
+      "roles": ["author"],
+      "may_review": false,
+      "reason": "Author of e8830c44, 3640c54a, a8005721 and 33968c92. Every Claude session on this host resolves to this one principal, so a fresh session is SAME_PRINCIPAL, not a second opinion."
+    },
+    {
+      "principal_id": "gpt",
+      "kind": "model",
+      "model_family": "gpt",
+      "roles": ["author", "reviewer"],
+      "may_review": true,
+      "reason": "A genuinely distinct principal, so SAME_PRINCIPAL and SAME_SESSION are satisfied by fact rather than by exemption.",
+      "conditions": [
+        "candidate_sha must be an exact 40-character SHA, never a branch name",
+        "the SHA must be re-resolved at decision time; CANDIDATE_SHA_DRIFT voids the review",
+        "the reviewer workspace must be checked out at the candidate SHA (REVIEWER_NOT_AT_CANDIDATE)",
+        "the reviewer workspace must be read-only and clean (REVIEWER_WORKSPACE_IS_WRITABLE, REVIEWER_WORKSPACE_IS_DIRTY)",
+        "must not review a candidate the gpt principal authored"
+      ]
+    },
+    {
+      "principal_id": "owner",
+      "kind": "human",
+      "roles": ["owner"],
+      "may_review": true,
+      "reason": "Final authority. Owner approval is a separate act from independent review and must never be encoded as an ActionStatus."
+    }
+  ],
+  "review_queue": [
+    {
+      "candidate_sha": "e8830c44bcae917b7c711b081a8adf003832bc9d",
+      "author_principal": "claude",
+      "assigned_reviewer": "gpt",
+      "priority": 1,
+      "note": "Blocks chatgpt/control-plane-progress-v1 (22b8afe3) from reconciliation."
+    },
+    {
+      "candidate_sha": "3640c54a669b3247fa94d71c8ea6f6bcfdbbee34",
+      "author_principal": "claude",
+      "assigned_reviewer": "gpt",
+      "priority": 2,
+      "note": "Review this SHA as a pinned commit. The branch head has since moved to 100b8998."
+    },
+    {
+      "candidate_sha": "33968c92660032104ed75a49dd96df8e63b29a07",
+      "author_principal": "claude",
+      "assigned_reviewer": "gpt",
+      "priority": 3,
+      "note": "V0.5. Has never been run against CI; a baseline run should precede review."
+    },
+    {
+      "candidate_sha": "a8005721d22299745dbf2cc0d45b0f42f4c04247",
+      "author_principal": "claude",
+      "assigned_reviewer": "gpt",
+      "priority": 4,
+      "note": "Agent Environment state view. Held unchanged pending this review."
+    },
+    {
+      "candidate_sha": "100b89981ab14bb17825d70a95ed0e61108d1dcc",
+      "author_principal": "gpt",
+      "assigned_reviewer": null,
+      "priority": null,
+      "note": "NOT QUEUED. Authored by gpt, so gpt is ineligible; and CI is red, so it is not reviewable yet. No eligible reviewer currently exists for this candidate."
+    }
+  ]
+}
