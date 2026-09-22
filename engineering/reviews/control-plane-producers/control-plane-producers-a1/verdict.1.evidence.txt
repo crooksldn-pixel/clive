@@ -1,0 +1,80 @@
+Owner-relayed GPT exact-SHA review verdict (session message 4, received 2026-09-22 between 22:33Z and 23:37Z).
+Reviewer session and workspace facts are declared by the relay.
+
+PACKET 7
+CLIVE candidate:
+6ffb2c6626e020c8313910adf76dd6e6be2c6848
+
+VERDICT: CHANGES REQUIRED.
+
+The producer architecture is directionally correct and materially closes the missing write-side identified by Objective E. However, five substantive kernel defects must be resolved together in one bounded repair.
+
+K-01 — changed-path scope is worker-declared, not Git-derived.
+
+record_candidate() accepts changed_paths from the caller. evaluate_obvious_continuation() later enforces task.allowed_paths against that declared tuple.
+
+A worker can modify an out-of-scope file in the candidate commit and omit it from changed_paths, allowing the mechanical scope gate to inspect the worker's claim rather than the actual candidate diff.
+
+Derive changed paths deterministically from Git between the authoritative task/attempt base and candidate SHA. Either remove caller-supplied changed_paths or require the supplied set to exactly equal the Git-derived set. Add adversarial tests proving omitted/out-of-scope changes cannot pass review dispatch.
+
+K-02 — a new revision can bypass an OWNER_GATE/BLOCKED predecessor.
+
+create_task() currently excludes BLOCKED and OWNER_GATE from the previous-revision live-state refusal and then marks that predecessor OBSOLETE.
+
+Therefore an unresolved owner gate can be bypassed by creating revision N+1.
+
+The kernel must not mechanically supersede a revision whose state is OWNER_GATE or whose blocker is OWNER_ONLY. Require explicit owner-resolution evidence/authority or refuse the revision. Preserve the invariant that the kernel records owner authority but cannot manufacture or route around it.
+
+Add an adversarial test:
+OWNER_GATE r1 → attempt to create r2 → refused, r1 remains unchanged.
+
+K-03 — mutating verbs are not atomic enough for the stated refusal/fencing contract.
+
+For example assign() writes Attempt and OPENED event before the TaskRuntimeState CAS. Two concurrent kernels can both calculate the same next fencing token, both persist attempt/event records, then one loses the CAS and returns REFUSED with partial authoritative records left behind.
+
+Similar multi-record-before-transition patterns exist in dispatch/verdict/integration.
+
+The documentation currently says a refusal writes nothing and describes the store as single-writer per host, but no exclusive writer mechanism enforces that assumption.
+
+Resolve this at the smallest coherent level. At minimum mechanically enforce one mutating kernel writer for a store and ensure application-level validation/CAS refusal cannot leave partial authoritative lifecycle records. Add a deterministic concurrency/race test demonstrating that two competing assignments cannot leave two attempts/events or duplicate fencing tokens.
+
+Do not solve this by weakening the documented invariant without showing why the weaker contract is sufficient.
+
+K-04 — MERGE integration can mark COMPLETE with unreviewed additional content.
+
+integrate() proves accepted_sha is an ancestor of integration_sha, but for IntegrationMethod.MERGE the integration SHA may contain arbitrary additional commits that were never part of the accepted candidate. target_base_sha is recorded but not used as a meaningful fence, and gates_evidence is optional.
+
+This allows:
+accepted candidate A
+→ merge commit M containing A + unrelated unreviewed change X
+→ M recorded
+→ task DONE / COMPLETE.
+
+For V1, prefer the smallest fail-closed rule:
+- a FAST_FORWARD integration may complete when integration_sha == accepted_sha and the target ref is verified;
+- a non-trivial merge/integration result must itself be represented as an immutable integration candidate with independent exact-SHA review before it can produce COMPLETE.
+
+If an existing canonical integration contract already defines an equally strong mechanism, implement that instead and cite it.
+
+K-05 — resume() can resurrect a rejected candidate as REVIEWING.
+
+After an admitted REPAIR_REQUIRED verdict, state is REJECTED. If the task is then blocked and resumed, resume() checks for an existing dispatch before considering the admitted rejection and reconstructs REVIEWING.
+
+A candidate already rejected must remain REJECTED after block/resume unless a new fenced attempt/revision exists.
+
+Recompute from the latest authoritative admitted verdict, not merely dispatch existence. Add a regression test:
+REVIEWING → admitted REPAIR_REQUIRED → BLOCKED → resume → REJECTED.
+
+Repair all five findings in one coherent kernel round.
+
+Do not redesign the architecture. Preserve the existing task/attempt/lease/event/review/acceptance/integration model.
+
+Produce:
+- new exact CLIVE candidate SHA,
+- updated Agent Environment SHA only if required by schema changes,
+- full acceptance evidence,
+- exact base,
+- precise diff scope,
+- fresh GPT review packet.
+
+The READY verdicts above do not transfer to any modified SHAs.
