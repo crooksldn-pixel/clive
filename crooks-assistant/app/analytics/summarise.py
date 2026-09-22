@@ -32,6 +32,8 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.analytics.engine import age_days_tenths
+
 # How many rows a summary carries. A summary that needs a fortieth row is a listing, and a
 # listing has its own surface with its own cursor.
 MAX_ROWS = 25
@@ -236,7 +238,7 @@ def orders_needing_attention(
             "headline": headline,
             "detail": detail,
             "placed_at": _day(row.get("ts") or 0, zone).isoformat(),
-            "age_days": round(max(0.0, (now - float(row.get("ts") or now)) / 86400.0), 1),
+            "age_days": age_days_tenths(max(0.0, now - float(row.get("ts") or now))),
             "total": round(float(row.get("total") or 0.0), 2),
             "currency": str(row.get("currency") or "GBP"),
             "customer_id": str(customer.get("customer_id") or ""),
@@ -280,7 +282,7 @@ def order_rows(
             "order_id": str(row.get("order_id") or ""),
             "order_number": str(row.get("order_number") or ""),
             "placed_at": _day(row.get("ts") or 0, zone).isoformat(),
-            "age_days": round(max(0.0, (now - float(row.get("ts") or now)) / 86400.0), 1),
+            "age_days": age_days_tenths(max(0.0, now - float(row.get("ts") or now))),
             "total": round(float(row.get("total") or 0.0), 2),
             "currency": str(row.get("currency") or "GBP"),
             "fulfillment": str(row.get("fulfillment") or ""),
