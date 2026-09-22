@@ -1,0 +1,12 @@
+Owner-relayed GPT exact-SHA review verdict (session message 4, received 2026-09-22 between 22:33Z and 23:37Z).
+Reviewer session and workspace facts are declared by the relay; GPT states it independently inspected the exact diff.
+
+PACKET 5
+Candidate:
+1958b3272e42a2608dfbd957ccf249c720af8332
+
+VERDICT: READY.
+
+I independently inspected the exact diff. J-02 is correctly resolved: judgment corrections now preserve task_revision and attempt_id exactly, including presence/absence, with adversarial coverage for change/add/drop and chain drift. No further finding.
+
+Admit this READY verdict through the kernel using the existing exact-SHA review dispatch/evidence path.
