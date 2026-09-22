@@ -22,15 +22,23 @@ What it refuses to be: a scheduler, a watcher, a service or a deployer. It runs
 when a verb is invoked, writes files under one store root, optionally journals
 each write as a git commit, and stops. Process and git probes are reconciliation
 evidence for the projection; they are never consulted here to *decide* a stage.
+
+One writer, whole records: every verb holds the store's exclusive writer lock for
+its whole duration and keeps an undo log of what it writes, so a refusal at any
+point, including a compare-and-swap refusal, leaves no partial record behind.
 """
 
 from __future__ import annotations
 
+import fcntl
+import functools
 import hashlib
 import json
 import os
 import subprocess
+import time
 from collections.abc import Callable, Iterable
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -70,12 +78,15 @@ __all__ = [
     "EventKind",
     "GitFacts",
     "Integration",
+    "IntegrationCandidateRef",
     "IntegrationMethod",
     "Kernel",
     "LifecycleError",
     "LifecycleStore",
+    "OwnerResolution",
     "PrincipalRegistry",
     "ReviewDispatch",
+    "StoreBusyError",
     "VerdictAdmission",
     "VerdictOutcome",
     "lifecycle_view",
@@ -98,6 +109,10 @@ TERMINAL_STATUSES = frozenset({TaskStatus.DONE, TaskStatus.OBSOLETE, TaskStatus.
 
 class LifecycleError(ValueError):
     """A verb was refused. Nothing was written."""
+
+
+class StoreBusyError(LifecycleError):
+    """Another kernel holds the store's writer lock. Nothing was written."""
 
 
 def _aware(value: datetime) -> datetime:
@@ -312,9 +327,53 @@ class Acceptance(StrictRecord):
         return _aware(value)
 
 
+class OwnerResolution(StrictRecord):
+    """The owner's resolution of an owner gate: recorded from an owner principal, never made up.
+
+    A gate is lifted only by this record. The kernel writes it when an owner
+    principal resolves the gate and refuses every other way round it, including a
+    new revision of the gated task.
+    """
+
+    schema_version: Literal["clive.owner_resolution.v1"] = "clive.owner_resolution.v1"
+    task_id: str = Field(min_length=1, max_length=120)
+    task_revision: int = Field(ge=1)
+    resolution_seq: int = Field(ge=1)
+    gate_reason: str | None = Field(default=None, max_length=1000)
+    resolved_by: str = Field(min_length=1, max_length=200)
+    resolution: str = Field(min_length=1, max_length=2000)
+    resolved_at: datetime
+    recorded_at: datetime
+
+    @field_validator("resolved_at", "recorded_at")
+    @classmethod
+    def timezone_required(cls, value: datetime) -> datetime:
+        return _aware(value)
+
+
 class IntegrationMethod(StrEnum):
     FAST_FORWARD = "fast_forward"
     MERGE = "merge"
+
+
+class IntegrationCandidateRef(StrictRecord):
+    """The accepted candidate that a merge result *is*.
+
+    A merge lands more than the accepted SHA. What it lands is reviewable only as
+    a candidate of its own, at an exact SHA, by an independent reviewer; this is
+    the record of that acceptance, named by the integration that relies on it.
+    """
+
+    task_id: str = Field(min_length=1, max_length=120)
+    task_revision: int = Field(ge=1)
+    attempt_id: str = Field(min_length=1, max_length=120)
+    accepted_sha: ExactSha
+    reviewer_principal_id: str = Field(min_length=1, max_length=200)
+
+    @field_validator("accepted_sha")
+    @classmethod
+    def exact_sha(cls, value: str) -> str:
+        return validate_exact_sha(value)
 
 
 class Integration(StrictRecord):
@@ -329,6 +388,8 @@ class Integration(StrictRecord):
     method: IntegrationMethod
     ancestry_verified: bool
     remote_head_sha: ExactSha | None = None
+    local_head_sha: ExactSha | None = None
+    integration_candidate: IntegrationCandidateRef | None = None
     gates_evidence_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     integrated_by: str = Field(min_length=1, max_length=200)
     integrated_at: datetime
@@ -339,7 +400,7 @@ class Integration(StrictRecord):
     def exact_sha(cls, value: str) -> str:
         return validate_exact_sha(value)
 
-    @field_validator("remote_head_sha")
+    @field_validator("remote_head_sha", "local_head_sha")
     @classmethod
     def optional_exact_sha(cls, value: str | None) -> str | None:
         return None if value is None else validate_exact_sha(value)
@@ -353,6 +414,17 @@ class Integration(StrictRecord):
     def integration_must_be_verified(self) -> Integration:
         if not self.ancestry_verified:
             raise ValueError("an integration is recorded only once ancestry is verified")
+        if self.remote_head_sha is None and self.local_head_sha is None:
+            raise ValueError("an integration is recorded only once the target ref is verified")
+        if self.method is IntegrationMethod.FAST_FORWARD and self.integration_sha != self.accepted_sha:
+            raise ValueError("a fast-forward integration lands exactly the accepted SHA")
+        if self.integration_sha != self.accepted_sha and self.integration_candidate is None:
+            raise ValueError(
+                "an integration that lands more than the accepted SHA must name the accepted "
+                "integration candidate it is"
+            )
+        if self.integration_candidate is not None and self.integration_candidate.accepted_sha != self.integration_sha:
+            raise ValueError("the named integration candidate is not the integration SHA")
         return self
 
 
@@ -378,12 +450,16 @@ class PrincipalRegistry:
     def known(self, principal_id: str) -> bool:
         return principal_id in self.principals
 
+    def is_owner(self, principal_id: str) -> bool:
+        """Only a principal registered with the owner role can resolve an owner gate."""
+        return "owner" in tuple(self.principals.get(principal_id, {}).get("roles", ()))
+
 
 # -------------------------------------------------------------- git facts
 
 
 class GitFacts:
-    """The four git questions the kernel asks. Shell-free doubles replace it in tests."""
+    """The five git questions the kernel asks. Shell-free doubles replace it in tests."""
 
     def __init__(self, repo: Path) -> None:
         self.repo = Path(repo)
@@ -413,6 +489,16 @@ class GitFacts:
         sha = out.split()[0]
         return sha if len(sha) == 40 else None
 
+    def changed_paths(self, base: str, head: str) -> tuple[str, ...] | None:
+        """Every path that differs between two commits, from the repository itself."""
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", base, head],
+            cwd=str(self.repo), capture_output=True, text=True, timeout=60,
+        )
+        if proc.returncode != 0:
+            return None
+        return tuple(sorted(line for line in proc.stdout.splitlines() if line.strip()))
+
 
 # ------------------------------------------------------------- the store
 
@@ -427,6 +513,9 @@ class LifecycleStore(JsonRecordStore):
         self.reviews_dir = self.root / "reviews"
         self.acceptances_dir = self.root / "acceptances"
         self.integrations_dir = self.root / "integrations"
+        self.owner_resolutions_dir = self.root / "owner-resolutions"
+        self.lock_path = self.root / ".kernel.lock"
+        self._undo: list[tuple[Path, bytes | None]] | None = None
 
     def ensure_layout(self) -> None:
         super().ensure_layout()
@@ -436,8 +525,73 @@ class LifecycleStore(JsonRecordStore):
             self.reviews_dir,
             self.acceptances_dir,
             self.integrations_dir,
+            self.owner_resolutions_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
+        self.lock_path.touch(exist_ok=True)
+
+    # one writer ---------------------------------------------------------------
+    @contextmanager
+    def exclusive_writer(self, timeout_s: float = 10.0):
+        """Hold the store's writer lock. Two kernels cannot write the same store at once.
+
+        The lock is an advisory exclusive lock on ``.kernel.lock`` under the store
+        root: every kernel on the same filesystem contends for it, whatever process
+        it runs in. A kernel that cannot take it within ``timeout_s`` is refused with
+        ``StoreBusyError`` and has written nothing.
+        """
+        self.ensure_layout()
+        handle = open(self.lock_path, "a+b")  # noqa: SIM115 - held across the verb, closed below
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        try:
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise StoreBusyError(
+                            f"another kernel holds the writer lock of {self.root}; refused after "
+                            f"{timeout_s:g}s; nothing was written"
+                        ) from None
+                    time.sleep(0.02)
+            yield
+        finally:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
+
+    # whole records ------------------------------------------------------------
+    def begin_undo(self) -> None:
+        """Start remembering what a verb writes so a refusal can put it all back."""
+        self._undo = []
+
+    def end_undo(self) -> None:
+        self._undo = None
+
+    def roll_back(self) -> None:
+        """Restore every path the current verb touched to what it was before the verb."""
+        if self._undo is None:
+            return
+        for path, previous in reversed(self._undo):
+            if previous is None:
+                if path.exists():
+                    path.unlink()
+            else:
+                JsonRecordStore._atomic_write(path, previous)
+        self._undo = []
+
+    def _remember(self, path: Path) -> None:
+        if self._undo is None:
+            return
+        if any(seen == path for seen, _ in self._undo):
+            return  # the earliest state of a path is the one to restore
+        self._undo.append((path, path.read_bytes() if path.exists() else None))
+
+    def _atomic_write(self, path: Path, payload: bytes) -> None:  # type: ignore[override]
+        self._remember(path)
+        JsonRecordStore._atomic_write(path, payload)
 
     # attempts ---------------------------------------------------------------
     def put_attempt(self, attempt: Attempt) -> Path:
@@ -474,6 +628,7 @@ class LifecycleStore(JsonRecordStore):
         if event.seq != expected:
             raise StateConflictError(f"event seq must be {expected}, got {event.seq}")
         path.parent.mkdir(parents=True, exist_ok=True)
+        self._remember(path)
         line = json.dumps(
             event.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )
@@ -557,6 +712,24 @@ class LifecycleStore(JsonRecordStore):
             for path in sorted(self.integrations_dir.glob("*.json"))
         )
 
+    # owner resolutions --------------------------------------------------------
+    def put_owner_resolution(self, resolution: OwnerResolution) -> Path:
+        path = (
+            self.owner_resolutions_dir
+            / f"{resolution.task_id}.r{resolution.task_revision}.{resolution.resolution_seq}.json"
+        )
+        self._put_immutable(path, resolution)
+        return path
+
+    def read_owner_resolutions(self, task_id: str, revision: int) -> tuple[OwnerResolution, ...]:
+        if not self.owner_resolutions_dir.exists():
+            return ()
+        paths = sorted(
+            self.owner_resolutions_dir.glob(f"{task_id}.r{revision}.*.json"),
+            key=lambda p: int(p.name.rsplit(".", 2)[1]),
+        )
+        return tuple(OwnerResolution.model_validate_json(p.read_text(encoding="utf-8")) for p in paths)
+
     # task state helpers -----------------------------------------------------
     def read_task_state(self, task_id: str, revision: int) -> TaskRuntimeState | None:
         path = self.task_states_dir / f"{task_id}.r{revision}.json"
@@ -614,13 +787,41 @@ def git_journal(root: Path, message: str) -> str | None:
 # ---------------------------------------------------------------- kernel
 
 
+def _verb(fn: Callable) -> Callable:
+    """Run a kernel verb as one guarded unit.
+
+    The store's writer lock is held for the verb's whole duration, so two kernels
+    cannot interleave on one store, and an undo log remembers every write, so a
+    refusal at any point (validation, the compare-and-swap, the journal) puts the
+    store back exactly as the verb found it. "A refusal writes nothing" is enforced
+    here rather than promised.
+    """
+
+    @functools.wraps(fn)
+    def guarded(self: Kernel, *args, **kwargs):
+        with self.store.exclusive_writer(self.lock_timeout_s):
+            self.store.begin_undo()
+            try:
+                return fn(self, *args, **kwargs)
+            except BaseException:
+                self.store.roll_back()
+                raise
+            finally:
+                self.store.end_undo()
+
+    return guarded
+
+
 @dataclass
 class Kernel:
     """The verbs. Each validates everything, then writes; a refusal writes nothing.
 
-    ``git`` answers the four repository questions (commit exists, ancestry, a
-    ref's SHA, a remote branch head). ``clock`` is injectable so tests own time.
-    ``operator`` names who is running the verb; it goes into every journal line.
+    ``git`` answers the five repository questions (commit exists, ancestry, a
+    ref's SHA, a remote branch head, the paths a diff touches). ``clock`` is
+    injectable so tests own time. ``operator`` names who is running the verb; it
+    goes into every journal line. ``lock_timeout_s`` is how long a verb waits for
+    the store's writer lock before it is refused. ``on_validated`` is a test seam:
+    called with the verb's name after its checks and before its first write.
     """
 
     store: LifecycleStore
@@ -630,10 +831,17 @@ class Kernel:
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
     journal: bool = True
     journal_shas: list[str] = field(default_factory=list)
+    lock_timeout_s: float = 10.0
+    on_validated: Callable[[str], None] | None = None
 
     # ---- helpers -------------------------------------------------------
     def _now(self) -> datetime:
         return self.clock()
+
+    def _checkpoint(self, verb: str) -> None:
+        """Every check of ``verb`` has passed; the first write follows."""
+        if self.on_validated is not None:
+            self.on_validated(verb)
 
     def _when(self, at: datetime | None, backfilled: bool, evidence_ref: str | None) -> tuple[datetime, datetime]:
         now = self._now()
@@ -770,8 +978,16 @@ class Kernel:
         self.store.write_active_state(active)
 
     # ---- verbs ---------------------------------------------------------
+    @_verb
     def create_task(self, task: EngineeringTask) -> TaskRuntimeState:
-        """Record an authorised task revision. Revision N supersedes N-1."""
+        """Record an authorised task revision. Revision N supersedes N-1.
+
+        Never an owner gate: a revision whose predecessor is owner-gated is refused
+        until the owner's resolution is recorded (``resume --owner-resolution``),
+        because a new revision must not be a way round the owner. A predecessor
+        blocked on a transient or deterministic blocker may be superseded: a new
+        revision at a new base is exactly how such a blocker is repaired.
+        """
         if not self.git.commit_exists(task.base_sha):
             raise LifecycleError(f"base SHA {task.base_sha} is not a commit in the repository")
         previous_state = None
@@ -781,12 +997,19 @@ class Kernel:
                     f"revision {task.revision} needs revision {task.revision - 1} to exist first"
                 )
             previous_state = self._state(task.task_id, task.revision - 1)
-            if previous_state.status in LIVE_STATUSES - {TaskStatus.BLOCKED, TaskStatus.OWNER_GATE}:
+            if _owner_gated(previous_state):
+                raise LifecycleError(
+                    f"revision {task.revision - 1} is owner-gated ({previous_state.blocker_reason}); "
+                    "the kernel cannot supersede an owner gate: record the owner's resolution first "
+                    "(resume --owner-resolution ... --resolved-by <owner principal>)"
+                )
+            if previous_state.status in LIVE_STATUSES - {TaskStatus.BLOCKED}:
                 raise LifecycleError(
                     f"revision {task.revision - 1} still has a live attempt "
                     f"({previous_state.status.value}); cancel or finish it first"
                 )
         existing = self.store.read_task_state(task.task_id, task.revision)
+        self._checkpoint("task")
         self.store.put_task(task)  # idempotent for identical bytes, refuses divergence
         if existing is not None:
             return existing
@@ -807,6 +1030,7 @@ class Kernel:
         self._commit(f"task {task.task_id} r{task.revision} created: {task.objective[:60]}")
         return state
 
+    @_verb
     def assign(
         self,
         task_id: str,
@@ -853,6 +1077,7 @@ class Kernel:
         )
         if any(a.attempt_id == attempt.attempt_id for a in self.store.read_attempts()):
             raise LifecycleError(f"attempt id {attempt.attempt_id} already exists in this store")
+        self._checkpoint("assign")
         self.store.put_attempt(attempt)
         self._event(attempt, EventKind.OPENED, opened_at, recorded_at,
                     note=f"assigned to {worker_id} ({worker.principal.principal_id}) with lease "
@@ -865,6 +1090,7 @@ class Kernel:
         self._commit(f"{task_id} r{revision} assigned to {worker_id} as {attempt.attempt_id} token {token}")
         return attempt
 
+    @_verb
     def acknowledge(self, attempt_id: str, *, token: int, base_sha: str, at: datetime | None = None,
                     backfilled: bool = False, evidence_ref: str | None = None) -> AttemptEvent:
         """The worker acknowledges revision, base SHA and token: BUILDING begins."""
@@ -876,6 +1102,7 @@ class Kernel:
             raise LifecycleError(
                 f"acknowledged base {base_sha} is not the attempt's base {attempt.base_sha}"
             )
+        self._checkpoint("ack")
         event = self._event(attempt, EventKind.ACKNOWLEDGED, when, recorded, sha=attempt.base_sha,
                             note="worker acknowledged task revision, base SHA and fencing token",
                             backfilled=backfilled, evidence_ref=evidence_ref)
@@ -884,6 +1111,7 @@ class Kernel:
         self._commit(f"{attempt.task_id} {attempt_id} acknowledged; building")
         return event
 
+    @_verb
     def heartbeat(self, attempt_id: str, *, token: int, note: str | None = None,
                   at: datetime | None = None, backfilled: bool = False,
                   evidence_ref: str | None = None, progress: bool = False) -> AttemptEvent:
@@ -893,11 +1121,13 @@ class Kernel:
         when, recorded = self._when(at, backfilled, evidence_ref)
         self._fence(attempt, token, when)
         kind = EventKind.PROGRESS if progress else EventKind.HEARTBEAT
+        self._checkpoint("heartbeat")
         event = self._event(attempt, kind, when, recorded, note=note,
                             backfilled=backfilled, evidence_ref=evidence_ref)
         self._commit(f"{attempt.task_id} {attempt_id} {kind.value}")
         return event
 
+    @_verb
     def record_evidence(self, attempt_id: str, *, token: int, name: str, payload: bytes,
                         path: str | None = None, at: datetime | None = None,
                         backfilled: bool = False, evidence_ref: str | None = None) -> AttemptEvent:
@@ -906,27 +1136,35 @@ class Kernel:
         self._current(attempt, {TaskStatus.RUNNING})
         when, recorded = self._when(at, backfilled, evidence_ref)
         self._fence(attempt, token, when)
+        self._checkpoint("evidence")
         event = self._event(attempt, EventKind.EVIDENCE, when, recorded, evidence_name=name,
                             evidence_sha256=sha256_of(payload), evidence_path=path,
                             backfilled=backfilled, evidence_ref=evidence_ref)
         self._commit(f"{attempt.task_id} {attempt_id} evidence {name}")
         return event
 
+    @_verb
     def record_candidate(
         self,
         attempt_id: str,
         *,
         token: int,
         sha: str,
-        changed_paths: tuple[str, ...],
         evidence_satisfied: tuple[str, ...],
         clean_worktree: bool,
+        changed_paths: tuple[str, ...] | None = None,
         remote: str | None = None,
         at: datetime | None = None,
         backfilled: bool = False,
         evidence_ref: str | None = None,
     ) -> EngineeringResult:
-        """The immutable candidate: one per attempt, an existing commit, claims backed by records."""
+        """The immutable candidate: one per attempt, an existing commit, claims backed by records.
+
+        The candidate's changed paths are what the repository says changed between
+        the attempt base and the candidate, never what the worker declares. A
+        declared set, when given, must equal the repository's exactly; a path left
+        out of the declaration is a refusal, not a narrower scope.
+        """
         attempt = self._find_attempt(attempt_id)
         if self._result(attempt) is not None:
             raise LifecycleError(
@@ -963,6 +1201,21 @@ class Kernel:
                     "publish first"
                 )
             published = head
+        derived = self.git.changed_paths(attempt.base_sha, sha)
+        if derived is None:
+            raise LifecycleError(
+                f"the repository cannot list the paths changed between {attempt.base_sha} and {sha}; "
+                "the candidate's scope is a repository fact and was not established"
+            )
+        if changed_paths is not None and set(changed_paths) != set(derived):
+            omitted = sorted(set(derived) - set(changed_paths))
+            extra = sorted(set(changed_paths) - set(derived))
+            raise LifecycleError(
+                "declared changed paths differ from the repository diff between the base and the "
+                f"candidate (omitted: {', '.join(omitted) or 'none'}; not in the diff: "
+                f"{', '.join(extra) or 'none'}); the scope is what git says, declare it exactly or not at all"
+            )
+        self._checkpoint("candidate")
         result = EngineeringResult(
             task_id=attempt.task_id,
             task_revision=attempt.task_revision,
@@ -970,7 +1223,7 @@ class Kernel:
             worker_id=attempt.worker_id,
             base_sha=attempt.base_sha,
             result_sha=sha,
-            changed_paths=changed_paths,
+            changed_paths=derived,
             evidence_satisfied=evidence_satisfied,
             clean_worktree=clean_worktree,
             next_action=NextAction(
@@ -992,6 +1245,7 @@ class Kernel:
         self._commit(f"{attempt.task_id} {attempt_id} candidate {sha[:12]}")
         return result
 
+    @_verb
     def dispatch_review(
         self,
         attempt_id: str,
@@ -1047,6 +1301,7 @@ class Kernel:
             backfilled=backfilled,
             evidence_ref=evidence_ref,
         )
+        self._checkpoint("dispatch")
         self.store.put_dispatch(dispatch, packet)
         self._event(attempt, EventKind.REVIEW_DISPATCHED, when, recorded, sha=result.result_sha,
                     note=f"review of {result.result_sha[:12]} dispatched to {reviewer_principal_id}",
@@ -1059,6 +1314,7 @@ class Kernel:
     def _latest_revision(self, task_id: str) -> int:
         return max(t.revision for t in self.store.read_tasks() if t.task_id == task_id)
 
+    @_verb
     def admit_verdict(
         self,
         attempt_id: str,
@@ -1149,6 +1405,7 @@ class Kernel:
             backfilled=backfilled,
             evidence_ref=evidence_ref,
         )
+        self._checkpoint("verdict")
         self.store.put_admission(admission, payload)
         if outcome is VerdictOutcome.ACCEPTED:
             acceptance = Acceptance(
@@ -1183,6 +1440,7 @@ class Kernel:
         self._commit(f"{attempt.task_id} {attempt_id} verdict {verdict.value}: {outcome.value}")
         return admission
 
+    @_verb
     def integrate(
         self,
         task_id: str,
@@ -1196,7 +1454,17 @@ class Kernel:
         gates_evidence: bytes | None = None,
         at: datetime | None = None,
     ) -> Integration:
-        """Integration of the accepted SHA, verified in git, then DONE."""
+        """Integration of the accepted SHA, verified in git, then DONE.
+
+        Two ways to complete, both fail-closed. A fast-forward lands exactly the
+        accepted SHA on the target ref. Anything else (a merge, a rebase, a squash)
+        lands bytes nobody reviewed under the accepted SHA, so it completes a task
+        only when the integration result was itself recorded, reviewed at its exact
+        SHA and accepted as a candidate of its own, built on the target base named
+        here; that acceptance is named in the integration record. In both cases the
+        target ref must resolve to the integration SHA (the remote's, when asked;
+        otherwise the local ref), and the target base must be its ancestor.
+        """
         task = self._task(task_id, revision)
         state = self._state(task_id, revision)
         if state.status is not TaskStatus.ACCEPTED or state.attempt_id is None:
@@ -1217,13 +1485,32 @@ class Kernel:
             )
         if method is IntegrationMethod.FAST_FORWARD and integration_sha != accepted_sha:
             raise LifecycleError("a fast-forward integration must land exactly the accepted SHA")
+        if not self.git.commit_exists(target_base_sha) or not self.git.is_ancestor(target_base_sha, integration_sha):
+            raise LifecycleError(
+                f"target base {target_base_sha} is not an ancestor of {integration_sha}; "
+                "the integration was not built on the target head it names"
+            )
         remote_head = None
+        local_head = None
         if remote is not None:
             remote_head = self.git.remote_head(remote, task.target_branch)
             if remote_head != integration_sha:
                 raise LifecycleError(
                     f"{remote}/{task.target_branch} is at {remote_head}, not {integration_sha}"
                 )
+        else:
+            local_head = self.git.rev_parse(task.target_branch)
+            if local_head != integration_sha:
+                raise LifecycleError(
+                    f"the target ref {task.target_branch} resolves to {local_head}, not {integration_sha}; "
+                    "an integration is recorded only once the target ref is verified"
+                )
+        candidate_ref = None
+        if integration_sha != accepted_sha:
+            candidate_ref = self._accepted_integration_candidate(
+                integration_sha, accepted_sha=accepted_sha, target_base_sha=target_base_sha
+            )
+        self._checkpoint("integrate")
         integration = Integration(
             task_id=task_id,
             task_revision=revision,
@@ -1235,6 +1522,8 @@ class Kernel:
             method=method,
             ancestry_verified=True,
             remote_head_sha=remote_head,
+            local_head_sha=local_head,
+            integration_candidate=candidate_ref,
             gates_evidence_sha256=sha256_of(gates_evidence) if gates_evidence else None,
             integrated_by=integrated_by,
             integrated_at=when,
@@ -1249,11 +1538,42 @@ class Kernel:
         self._commit(f"{task_id} r{revision} integrated at {integration_sha[:12]}; done")
         return integration
 
+    def _accepted_integration_candidate(
+        self, integration_sha: str, *, accepted_sha: str, target_base_sha: str
+    ) -> IntegrationCandidateRef:
+        """The acceptance that makes a merge result reviewed, or a refusal naming what is missing."""
+        for acceptance in self.store.read_acceptances():
+            if acceptance.accepted_sha != integration_sha:
+                continue
+            candidate_task = self.store.read_task(acceptance.task_id, acceptance.task_revision)
+            if candidate_task is None:
+                continue
+            if candidate_task.base_sha != target_base_sha:
+                raise LifecycleError(
+                    f"the accepted integration candidate {acceptance.task_id} r{acceptance.task_revision} "
+                    f"was built on {candidate_task.base_sha}, not on the target base {target_base_sha}"
+                )
+            return IntegrationCandidateRef(
+                task_id=acceptance.task_id,
+                task_revision=acceptance.task_revision,
+                attempt_id=acceptance.attempt_id,
+                accepted_sha=acceptance.accepted_sha,
+                reviewer_principal_id=acceptance.reviewer_principal_id,
+            )
+        raise LifecycleError(
+            f"integration {integration_sha[:12]} lands more than the accepted candidate {accepted_sha[:12]}; "
+            "a merge result completes a task only as an accepted integration candidate of its own (a task "
+            f"at base {target_base_sha[:12]} whose candidate {integration_sha[:12]} was reviewed at that "
+            "exact SHA), and none is recorded"
+        )
+
+    @_verb
     def cancel_attempt(self, attempt_id: str, *, reason: str, at: datetime | None = None) -> AttemptEvent:
         """Fence an attempt for good. Its token is dead; the task returns to READY."""
         attempt = self._find_attempt(attempt_id)
         state = self._current(attempt, LIVE_STATUSES - {TaskStatus.ACCEPTED})
         when, recorded = self._when(at, False, None)
+        self._checkpoint("cancel")
         event = self._event(attempt, EventKind.CANCELLED, when, recorded, note=reason)
         self._transition(state, status=TaskStatus.READY, attempt_id=None, worker_id=None,
                          blocker_class=BlockerClass.NONE, blocker_reason=None, owner_gate=False)
@@ -1261,6 +1581,7 @@ class Kernel:
         self._commit(f"{attempt.task_id} {attempt_id} cancelled: {reason[:60]}")
         return event
 
+    @_verb
     def block(self, task_id: str, revision: int, *, blocker_class: BlockerClass, reason: str,
               owner_gate: bool = False, at: datetime | None = None) -> TaskRuntimeState:
         """Record a blocker or an owner gate on the current stage. Nothing is retried."""
@@ -1271,6 +1592,7 @@ class Kernel:
             raise LifecycleError("a block needs a blocker class")
         when, recorded = self._when(at, False, None)
         status = TaskStatus.OWNER_GATE if owner_gate or blocker_class is BlockerClass.OWNER_ONLY else TaskStatus.BLOCKED
+        self._checkpoint("block")
         nxt = self._transition(state, status=status, blocker_class=blocker_class, blocker_reason=reason,
                                owner_gate=owner_gate or blocker_class is BlockerClass.OWNER_ONLY)
         if state.attempt_id:
@@ -1279,32 +1601,97 @@ class Kernel:
         self._commit(f"{task_id} r{revision} {status.value}: {reason[:60]}")
         return nxt
 
-    def resume(self, task_id: str, revision: int, *, note: str, at: datetime | None = None) -> TaskRuntimeState:
-        """Lift a block or gate; the stage is recomputed from the records, not remembered."""
+    @_verb
+    def resume(self, task_id: str, revision: int, *, note: str, owner_resolution: str | None = None,
+               resolved_by: str | None = None, at: datetime | None = None) -> TaskRuntimeState:
+        """Lift a block or gate; the stage is recomputed from the records, not remembered.
+
+        An owner gate is lifted only by the owner's recorded resolution: ``resolved_by``
+        must be a principal registered with the owner role, ``owner_resolution`` says
+        what was decided or where that decision lives, and both go into an immutable
+        ``OwnerResolution`` record before the stage moves. The kernel writes that
+        record; it cannot produce it.
+        """
         state = self._state(task_id, revision)
         if state.status not in {TaskStatus.BLOCKED, TaskStatus.OWNER_GATE}:
             raise LifecycleError(f"task {task_id} r{revision} is not blocked or gated")
         when, recorded = self._when(at, False, None)
+        gated = _owner_gated(state)
+        if gated:
+            if not owner_resolution or not resolved_by:
+                raise LifecycleError(
+                    f"task {task_id} r{revision} is owner-gated ({state.blocker_reason}); the gate is lifted "
+                    "only by the owner's recorded resolution: pass --owner-resolution and --resolved-by"
+                )
+            if not self.registry.is_owner(resolved_by):
+                raise LifecycleError(
+                    f"{resolved_by!r} is not a registered owner principal; the kernel records owner "
+                    "authority, it cannot manufacture it"
+                )
         status = TaskStatus.READY
+        attempt = None
         if state.attempt_id:
             attempt = self._attempt(task_id, state.attempt_id)
-            kinds = {e.kind for e in self.store.read_events(task_id, attempt.attempt_id)}
-            if self.store.read_acceptances(task_id) and any(a.attempt_id == attempt.attempt_id for a in self.store.read_acceptances(task_id)):
-                status = TaskStatus.ACCEPTED
-            elif self.store.read_dispatches(task_id, attempt.attempt_id):
-                status = TaskStatus.REVIEWING
-            elif self._result(attempt) is not None:
-                status = TaskStatus.EVIDENCE_READY
-            elif EventKind.ACKNOWLEDGED in kinds:
-                status = TaskStatus.RUNNING
-            else:
-                status = TaskStatus.ASSIGNED
-            self._event(attempt, EventKind.RESUMED, when, recorded, note=note)
+            status = self._stage_from_records(attempt)
+        self._checkpoint("resume")
+        if gated:
+            existing = self.store.read_owner_resolutions(task_id, revision)
+            self.store.put_owner_resolution(
+                OwnerResolution(
+                    task_id=task_id,
+                    task_revision=revision,
+                    resolution_seq=len(existing) + 1,
+                    gate_reason=state.blocker_reason,
+                    resolved_by=resolved_by,
+                    resolution=owner_resolution,
+                    resolved_at=when,
+                    recorded_at=recorded,
+                )
+            )
+        if attempt is not None:
+            text = note if not gated else f"owner gate resolved by {resolved_by}: {owner_resolution} | {note}"
+            self._event(attempt, EventKind.RESUMED, when, recorded, note=text[:1000])
         nxt = self._transition(state, status=status, blocker_class=BlockerClass.NONE,
                                blocker_reason=None, owner_gate=False)
         self._regenerate_active_state()
         self._commit(f"{task_id} r{revision} resumed as {status.value}")
         return nxt
+
+    def _stage_from_records(self, attempt: Attempt) -> TaskStatus:
+        """The stage an attempt is in, from its records; the latest admitted verdict decides first.
+
+        A refused verdict decides nothing. An admitted READY is ACCEPTED; an admitted
+        REPAIR_REQUIRED is REJECTED and stays so: a rejected candidate never comes back
+        to review by way of a block, only a new fenced attempt or revision can.
+        """
+        admitted = [
+            a for a in self.store.read_admissions(attempt.task_id, attempt.attempt_id)
+            if a.outcome is not VerdictOutcome.REFUSED
+        ]
+        if admitted:
+            last = admitted[-1]
+            accepted = any(a.attempt_id == attempt.attempt_id for a in self.store.read_acceptances(attempt.task_id))
+            if last.outcome is VerdictOutcome.ACCEPTED and accepted:
+                return TaskStatus.ACCEPTED
+            if last.outcome is VerdictOutcome.REJECTED_BY_VERDICT:
+                return TaskStatus.REJECTED
+        if self.store.read_dispatches(attempt.task_id, attempt.attempt_id):
+            return TaskStatus.REVIEWING
+        if self._result(attempt) is not None:
+            return TaskStatus.EVIDENCE_READY
+        kinds = {e.kind for e in self.store.read_events(attempt.task_id, attempt.attempt_id)}
+        if EventKind.ACKNOWLEDGED in kinds:
+            return TaskStatus.RUNNING
+        return TaskStatus.ASSIGNED
+
+
+def _owner_gated(state: TaskRuntimeState) -> bool:
+    """An owner gate by status, by flag or by blocker class: any one of them is the owner's."""
+    return (
+        state.status is TaskStatus.OWNER_GATE
+        or state.owner_gate
+        or state.blocker_class is BlockerClass.OWNER_ONLY
+    )
 
 
 # ------------------------------------------------------------ projection
@@ -1423,13 +1810,24 @@ def lifecycle_view(store: LifecycleStore, *, now: datetime) -> dict:
             "integration": (
                 {"sha": integration.integration_sha, "target_branch": integration.target_branch,
                  "method": integration.method.value, "at": _iso(integration.integrated_at),
-                 "remote_head_sha": integration.remote_head_sha}
+                 "remote_head_sha": integration.remote_head_sha,
+                 "local_head_sha": integration.local_head_sha,
+                 "integration_candidate": (
+                     integration.integration_candidate.model_dump(mode="json")
+                     if integration.integration_candidate
+                     else None
+                 )}
                 if integration
                 else None
             ),
             "blocker": state.blocker_reason,
             "blocker_class": state.blocker_class.value,
             "owner_gate": state.owner_gate,
+            "owner_resolutions": [
+                {"seq": r.resolution_seq, "by": r.resolved_by, "resolution": r.resolution,
+                 "gate_reason": r.gate_reason, "at": _iso(r.resolved_at)}
+                for r in store.read_owner_resolutions(task.task_id, task.revision)
+            ],
             "last_transition_at": _iso(state.updated_at),
             "backfilled": bool(attempt and attempt.backfilled) or any(e.backfilled for e in events),
             "history": [

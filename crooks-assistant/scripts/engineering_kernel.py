@@ -4,10 +4,12 @@
     engineering_kernel.py --store <root> --repo <checkout> [--registry F] [--operator NAME] VERB ...
 
 Verbs, in lifecycle order: task, assign, ack, heartbeat, evidence, candidate, dispatch,
-verdict, integrate; and cancel, block, resume, view. Each validates everything before it
-writes anything, writes immutable records plus one compare-and-swap state transition,
-regenerates ACTIVE_STATE.json, and journals the change as a git commit when the store
-lives in a checkout. A refusal prints the reason and exits 2; nothing is written.
+verdict, integrate; and cancel, block, resume, view. Each holds the store's writer lock
+for its whole duration, validates everything before it writes anything, writes immutable
+records plus one compare-and-swap state transition, regenerates ACTIVE_STATE.json, and
+journals the change as a git commit when the store lives in a checkout. A refusal prints
+the reason and exits 2; nothing is written, and anything written before a late refusal is
+rolled back.
 
 Nothing here runs a worker, a watcher, a service or a deployment. The store is the
 authoritative record of the lifecycle; processes and branches are what the projection
@@ -118,6 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
     parser.add_argument("--operator", default="unnamed operator")
     parser.add_argument("--no-journal", action="store_true", help="do not git-commit the store")
+    parser.add_argument("--lock-timeout", type=float, default=10.0,
+                        help="seconds to wait for the store's writer lock before refusing")
     sub = parser.add_subparsers(dest="verb", required=True)
 
     t = sub.add_parser("task", help="record an authorised task revision")
@@ -172,7 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--attempt-id", required=True)
     c.add_argument("--token", type=int, required=True)
     c.add_argument("--sha", required=True)
-    c.add_argument("--changed-path", action="append", default=[])
+    c.add_argument("--changed-path", action="append", default=[],
+                   help="optional declaration; must equal the git diff exactly (the record uses git)")
     c.add_argument("--evidence-satisfied", action="append", default=[])
     c.add_argument("--dirty", action="store_true", help="the worktree was not clean (refused later by policy)")
     c.add_argument("--verify-remote", default=None, help="remote whose target branch must equal the SHA")
@@ -201,7 +206,8 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--target-base-sha", required=True)
     i.add_argument("--method", required=True, choices=[m.value for m in IntegrationMethod])
     i.add_argument("--integrated-by", required=True)
-    i.add_argument("--verify-remote", default=None)
+    i.add_argument("--verify-remote", default=None,
+                   help="remote whose target branch must resolve to the SHA; without it the local ref must")
     i.add_argument("--gates-evidence", default=None)
 
     x = sub.add_parser("cancel", help="fence an attempt for good")
@@ -219,6 +225,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--task-id", required=True)
     r.add_argument("--revision", type=int, required=True)
     r.add_argument("--note", required=True)
+    r.add_argument("--owner-resolution", default=None,
+                   help="an owner gate needs the owner's decision, or where it is recorded")
+    r.add_argument("--resolved-by", default=None, help="the owner principal who resolved the gate")
 
     w = sub.add_parser("view", help="print what the records say")
     w.add_argument("--json", action="store_true")
@@ -234,6 +243,7 @@ def run(argv: list[str] | None = None) -> int:
         git=GitFacts(Path(args.repo)),
         operator=args.operator,
         journal=not args.no_journal,
+        lock_timeout_s=args.lock_timeout,
     )
     when = dict(at=_iso(getattr(args, "at", None)), backfilled=getattr(args, "backfilled", False),
                 evidence_ref=getattr(args, "evidence_ref", None))
@@ -265,7 +275,8 @@ def run(argv: list[str] | None = None) -> int:
                                          payload=Path(args.file).read_bytes(), path=args.file, **when).model_dump(mode="json")
         elif args.verb == "candidate":
             out = kernel.record_candidate(
-                args.attempt_id, token=args.token, sha=args.sha, changed_paths=tuple(args.changed_path),
+                args.attempt_id, token=args.token, sha=args.sha,
+                changed_paths=tuple(args.changed_path) or None,
                 evidence_satisfied=tuple(args.evidence_satisfied), clean_worktree=not args.dirty,
                 remote=args.verify_remote, **when,
             ).model_dump(mode="json")
@@ -297,7 +308,9 @@ def run(argv: list[str] | None = None) -> int:
             out = kernel.block(args.task_id, args.revision, blocker_class=BlockerClass(args.blocker_class),
                                reason=args.reason, owner_gate=args.owner_gate).model_dump(mode="json")
         elif args.verb == "resume":
-            out = kernel.resume(args.task_id, args.revision, note=args.note).model_dump(mode="json")
+            out = kernel.resume(args.task_id, args.revision, note=args.note,
+                                owner_resolution=args.owner_resolution,
+                                resolved_by=args.resolved_by).model_dump(mode="json")
         elif args.verb == "view":
             view = lifecycle_view(store, now=datetime.now(UTC))
             if args.json:
@@ -311,6 +324,8 @@ def run(argv: list[str] | None = None) -> int:
                         print(f"    accepted  {task['acceptance']['sha']} by {task['acceptance']['by']} at {task['acceptance']['at']}")
                     if task["integration"]:
                         print(f"    integrated {task['integration']['sha']} into {task['integration']['target_branch']} at {task['integration']['at']}")
+                    for r in task.get("owner_resolutions", []):
+                        print(f"    owner gate resolved by {r['by']} at {r['at']}: {r['resolution']}")
             return 0
         else:  # pragma: no cover
             raise SystemExit(f"unknown verb {args.verb}")
