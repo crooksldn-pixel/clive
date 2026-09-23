@@ -21,7 +21,8 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md](./CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md) — active 2026-09-20 direction for the continuous voice/work loop, retirement of Split, simultaneous jobs, liquid-glass UI, scene compilation, per-session evaluation, adversarial/mutation/device testing, and evaluation-drift controls.
 - [CLIVE_IDENTITY_AND_HOME_SURFACE.md](./CLIVE_IDENTITY_AND_HOME_SURFACE.md) — active 2026-09-21 identity/home doctrine: CLIVE branding and acronym, persistent-world-state home surface, orb-as-presence, contextual health, response-driven scenes and startup identity.
 - [ENGINEERING_CONTROL_PLANE_VNEXT.md](./ENGINEERING_CONTROL_PLANE_VNEXT.md) — active control-plane upgrade plan: persistent Termius/tmux workers, queued task/result records, event-driven continuation, reviewer independence, active-state generation and starvation prevention.
-- [CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md](./CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md) — owner-approved north-star doctrine: CLIVE as a persistent operational layer from intention to execution, with contextual investigation, world state, persistent objectives, people/workspaces, relevant memory, capability-gap learning and operational-value evaluation.\n- [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md) — owner-approved long-horizon doctrine: distributed organisational intelligence, coordination cost, a moving capability frontier, stable semantic purpose with replaceable mechanisms, and future-disposable architecture.
+- [CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md](./CLIVE_INTENT_TO_EXECUTION_PHILOSOPHY.md) — owner-approved north-star doctrine: CLIVE as a persistent operational layer from intention to execution, with contextual investigation, world state, persistent objectives, people/workspaces, relevant memory, capability-gap learning and operational-value evaluation.
+- [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md) — owner-approved long-horizon doctrine: distributed organisational intelligence, coordination cost, a moving capability frontier, stable semantic purpose with replaceable mechanisms, and future-disposable architecture.
 - [CURRENT_TRUTH.md](./CURRENT_TRUTH.md) — compact active state; the first context file future directors/workers should read.
 - [EVOLUTION_POLICY.md](./EVOLUTION_POLICY.md) — release doctrine: preserve value and lessons without fossilising obsolete implementation or design.
 - [DIRECTOR_PROTOCOL.md](./DIRECTOR_PROTOCOL.md) — named memory/continuity procedures for bootstrap, release context, supersession, pruning, handoff, and audits.
@@ -32,6 +33,9 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 
 - [DEV_TEAM_V1_PILOT.md](./DEV_TEAM_V1_PILOT.md) — proposed task/review/recovery records and first end-to-end acceptance trial; no dispatch approval.
 - [BUILDER_ENVIRONMENT_REVIEW.md](./BUILDER_ENVIRONMENT_REVIEW.md) — independent review of candidate 9a27bc4 with reproduced defects and current bridge status.
+- [ENGINEERING_STACK_REUSE_PLAN.md](./ENGINEERING_STACK_REUSE_PLAN.md) — research/proposed plan for reusing mature public agent infrastructure while owning CROOKS-specific policy and evidence semantics; no approval to install, spend or widen privileges.
+- [HARNESS_ACCEPTANCE_2C2B0CC.md](./HARNESS_ACCEPTANCE_2C2B0CC.md) — the sixth independent adversarial review's ACCEPT FOR NEXT GATE verdict on harness candidate 2c2b0cc, with the limits it recorded.
+- [OWNER_DECISION_PACKET_2026-09-21.md](./OWNER_DECISION_PACKET_2026-09-21.md) — the owner-only choices kept explicit while repository-only engineering continued unattended (2026-09-21).
 
 ## Status model
 
