@@ -71,7 +71,15 @@ from .lifecycle import (
 from .objectives import Objective, ObjectiveStore
 from .reviewers.base import ReviewContext, ReviewerDriver, ReviewResult
 from .routing import Party, Principal, PrincipalKind, SessionContext, Workspace
-from .workers.base import Activity, Finished, LaunchSpec, Started, WorkerDriver, WorkerLaunchError
+from .workers.base import (
+    Activity,
+    Finished,
+    LaunchSpec,
+    Started,
+    WorkerDriver,
+    WorkerLaunchError,
+    worker_marker,
+)
 from .workspaces import WorkspaceError, WorkspaceManager, git
 
 __all__ = ["Dispatcher", "DispatcherBusy", "DispatcherConfig", "NEXT_ACTION"]
@@ -331,7 +339,7 @@ class Dispatcher:
         rt = self._runtime(attempt.attempt_id)
         paths = self._paths(attempt)
         observations, _ = self.worker.read(paths["log"], 0)
-        live = self.worker.live_pids(attempt.attempt_id)
+        live = self.worker.live_pids(_marker(attempt))
         now = self.now()
         launched_at = _parse(rt.get("launched_at"))
 
@@ -340,7 +348,7 @@ class Dispatcher:
             if started is None:
                 if live:
                     if launched_at and now - launched_at > timedelta(seconds=self.config.init_timeout_s):
-                        self.worker.kill(attempt.attempt_id)
+                        self.worker.kill(_marker(attempt))
                         return self._cancel(obj, attempt, f"{TRANSIENT} no init event within "
                                                           f"{self.config.init_timeout_s}s"), True
                     return self._note(obj.objective_id, f"{attempt.attempt_id}: process alive, no init event yet"), False
@@ -361,7 +369,7 @@ class Dispatcher:
                             "api_key_source": started.api_key_source, "problems": problems}
             self._save_runtime(attempt.attempt_id, rt)
             if problems:
-                self.worker.kill(attempt.attempt_id)
+                self.worker.kill(_marker(attempt))
                 return self._block(obj, task, "worker launch surface refused: " + "; ".join(problems)), True
             self.kernel.acknowledge(attempt.attempt_id, token=attempt.fencing_token, base_sha=attempt.base_sha)
             return self._note(obj.objective_id, f"{attempt.attempt_id} acknowledged from the worker's init event "
@@ -371,7 +379,7 @@ class Dispatcher:
         if now > self.kernel.lease(attempt)["expires_at"]:
             # Nothing renewed the lease in time (the dispatcher was not observing): the kernel would fence
             # every submission of this attempt, so it is cancelled rather than left to fail late.
-            self.worker.kill(attempt.attempt_id)
+            self.worker.kill(_marker(attempt))
             return self._cancel(obj, attempt, f"{TRANSIENT} the attempt's lease expired before its result "
                                               "was ingested"), True
         consumed = int(rt.get("consumed", 0))
@@ -401,10 +409,10 @@ class Dispatcher:
             return self._block(obj, task, reason), True
         last_activity = _parse(rt.get("last_activity_at")) or launched_at or now
         if now - last_activity > timedelta(seconds=self.config.stall_s):
-            self.worker.kill(attempt.attempt_id)
+            self.worker.kill(_marker(attempt))
             return self._cancel(obj, attempt, f"{TRANSIENT} worker stalled: no event for {self.config.stall_s}s"), True
         if launched_at and now - launched_at > timedelta(seconds=self.config.attempt_timeout_s):
-            self.worker.kill(attempt.attempt_id)
+            self.worker.kill(_marker(attempt))
             return self._block(obj, task, f"worker exceeded the attempt time limit of {self.config.attempt_timeout_s}s"), True
         return None, False
 
@@ -429,7 +437,7 @@ class Dispatcher:
         self._save_runtime(attempt.attempt_id, rt)
 
     def _finished(self, obj: Objective, task: EngineeringTask, attempt: Attempt, fin: Finished) -> str:
-        self.worker.kill(attempt.attempt_id)  # a result is final; nothing of this attempt keeps running
+        self.worker.kill(_marker(attempt))  # a result is final; nothing of this attempt keeps running
         if fin.status == "blocked":
             return self._block(obj, task, f"worker reported blocked: {fin.reason or fin.summary}")
         if fin.status == "owner_decision_required":
@@ -669,7 +677,7 @@ class Dispatcher:
         return self._note(obj.objective_id, f"{'OWNER_GATE' if owner else 'BLOCKED'}: {reason}")
 
     def _cancel(self, obj: Objective, attempt: Attempt, reason: str) -> str:
-        self.worker.kill(attempt.attempt_id)
+        self.worker.kill(_marker(attempt))
         self.kernel.cancel_attempt(attempt.attempt_id, reason=reason[:990])
         return self._note(obj.objective_id, f"{attempt.attempt_id} cancelled: {reason}")
 
@@ -812,13 +820,17 @@ class Dispatcher:
             }
             if state.attempt_id:
                 rt = self._runtime(state.attempt_id)
-                pids = self.worker.live_pids(state.attempt_id)
+                pids = self.worker.live_pids(_marker(self._current_attempt(task, state)))
                 item["process"] = {"alive": bool(pids), "pids": pids, "launched_at": rt.get("launched_at"),
                                    "last_observed_event_at": rt.get("last_activity_at"),
                                    "observed_roster": rt.get("roster"), "permission_denials": rt.get("denials", 0)}
                 item["review_mechanism"] = rt.get("review")
             out.append(item)
         return out
+
+
+def _marker(attempt: Attempt) -> str:
+    return worker_marker(attempt.attempt_id, attempt.worker.session.session_id)
 
 
 def _parse(value: str | None) -> datetime | None:

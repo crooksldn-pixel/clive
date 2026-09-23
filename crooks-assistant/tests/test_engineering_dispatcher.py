@@ -34,6 +34,7 @@ from app.orchestrator.lifecycle import (
 from app.orchestrator.objectives import Check, Objective, ObjectiveStore, OwnerEntry, intake
 from app.orchestrator.reviewers import GPT_GAP, GptUnavailable, RelayReviewer, ReviewContext
 from app.orchestrator.workers import ClaudeCodeWorker
+from app.orchestrator.workers.base import worker_marker
 
 REGISTRY = Path(__file__).resolve().parent.parent / "config" / "review_principals.json"
 OBJ = "demo-objective"
@@ -311,9 +312,9 @@ def test_a_candidate_finished_while_the_dispatcher_was_down_is_not_lost(tmp_path
     attempt = w.store.read_attempts(OBJ)[0]
     worker = ClaudeCodeWorker(cli=str(w.cli))
     deadline = time.monotonic() + 10
-    while worker.live_pids(attempt.attempt_id) and time.monotonic() < deadline:
+    while worker.live_pids(worker_marker(attempt.attempt_id, attempt.worker.session.session_id)) and time.monotonic() < deadline:
         time.sleep(0.05)
-    assert not worker.live_pids(attempt.attempt_id)
+    assert not worker.live_pids(worker_marker(attempt.attempt_id, attempt.worker.session.session_id))
     w.dispatcher().tick()  # a new dispatcher: ack from the log, then the candidate from the workspace
     assert w.state_of().status in (TaskStatus.REVIEWING, TaskStatus.EVIDENCE_READY)
     assert w.store.read_results()[0].result_sha == _git(w.repo, "rev-parse", "clive/objective/demo")
@@ -335,6 +336,25 @@ def test_a_dispatcher_that_dies_while_ingesting_a_result_recovers_the_candidate(
     w.run_until(w.status_is(TaskStatus.REVIEWING))  # a fresh dispatcher finds the same result
     assert len(w.store.read_attempts(OBJ)) == 1 and w.invocations() == 1
     assert w.store.read_results()[0].result_sha == _git(w.repo, "rev-parse", "clive/objective/demo")
+
+
+def test_a_worker_of_another_store_with_the_same_attempt_id_is_never_taken_for_ours(tmp_path):
+    (tmp_path / "other").mkdir()
+    (tmp_path / "ours").mkdir()
+    other = World(tmp_path / "other")
+    other.scenarios({**EDIT_HELLO, "hang": True})
+    other.objective()
+    other.run_until(other.status_is(TaskStatus.RUNNING))  # a live worker named demo-objective-a1 elsewhere
+    theirs = other.store.read_attempts(OBJ)[0]
+    w = World(tmp_path / "ours")
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.reviewer.answers.append(lambda ctx: review(ctx))
+    w.run_until(lambda: w.stage() == "COMPLETE")  # launched its own worker despite the same attempt id
+    assert w.invocations() == 1
+    worker = ClaudeCodeWorker(cli=str(other.cli))
+    assert worker.live_pids(worker_marker(theirs.attempt_id, theirs.worker.session.session_id))  # and never killed it
+    worker.kill(worker_marker(theirs.attempt_id, theirs.worker.session.session_id))
 
 
 def test_two_dispatchers_cannot_tick_at_once(tmp_path):
@@ -396,7 +416,7 @@ def test_a_stalled_worker_is_killed_and_cancelled(tmp_path):
     w.clock.offset = timedelta(seconds=31)
     w.run_until(lambda: len(w.store.read_attempts(OBJ)) == 2)
     first = w.store.read_attempts(OBJ)[0]
-    assert not ClaudeCodeWorker(cli=str(w.cli)).live_pids(first.attempt_id)
+    assert not ClaudeCodeWorker(cli=str(w.cli)).live_pids(worker_marker(first.attempt_id, first.worker.session.session_id))
     notes = [e.note for e in w.store.read_events(OBJ, first.attempt_id) if e.kind is EventKind.CANCELLED]
     assert "stalled" in notes[0]
 
@@ -426,7 +446,7 @@ def test_a_worker_reporting_an_mcp_server_is_killed_and_blocked_before_acknowled
     assert "MCP servers present" in state.blocker_reason and "Shopify" in state.blocker_reason
     attempt = w.store.read_attempts(OBJ)[0]
     assert EventKind.ACKNOWLEDGED not in {e.kind for e in w.store.read_events(OBJ, attempt.attempt_id)}
-    assert not ClaudeCodeWorker(cli=str(w.cli)).live_pids(attempt.attempt_id)
+    assert not ClaudeCodeWorker(cli=str(w.cli)).live_pids(worker_marker(attempt.attempt_id, attempt.worker.session.session_id))
 
 
 def test_a_worker_reporting_extra_tools_or_another_session_is_refused(tmp_path):

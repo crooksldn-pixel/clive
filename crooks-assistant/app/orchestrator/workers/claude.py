@@ -145,7 +145,7 @@ class ClaudeCodeWorker:
             "HOME": str(spec.home),
             "LANG": "C.UTF-8",
             "TMPDIR": str(tmp),
-            MARKER: spec.attempt_id,
+            MARKER: spec.marker,
         }
         if self.oauth_token_file is not None:
             try:
@@ -161,7 +161,7 @@ class ClaudeCodeWorker:
         cli_path = shutil.which(self.cli) if not os.path.isabs(self.cli) else self.cli
         if not cli_path or not os.access(cli_path, os.X_OK):
             raise WorkerLaunchError(f"worker CLI {self.cli!r} is not installed or not executable", transient=False)
-        if self.live_pids(spec.attempt_id):
+        if self.live_pids(spec.marker):
             raise WorkerLaunchError(f"a worker for {spec.attempt_id} is already running; not launching a second",
                                     transient=False)
         spec.home.mkdir(parents=True, exist_ok=True)
@@ -229,11 +229,11 @@ class ClaudeCodeWorker:
         return (f"worker process exited without a result: {text.strip()[-300:]}" if text.strip()
                 else "worker process exited without a result and wrote nothing to stderr"), True
 
-    def live_pids(self, attempt_id: str) -> list[int]:
-        return processes_with_marker(MARKER, attempt_id)
+    def live_pids(self, marker: str) -> list[int]:
+        return processes_with_marker(MARKER, marker)
 
-    def kill(self, attempt_id: str) -> None:
-        for pid in self.live_pids(attempt_id):
+    def kill(self, marker: str) -> None:
+        for pid in self.live_pids(marker):
             try:
                 os.killpg(pid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):

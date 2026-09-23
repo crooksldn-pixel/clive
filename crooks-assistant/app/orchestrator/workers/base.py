@@ -30,6 +30,7 @@ __all__ = [
     "pid_alive",
     "pid_start_ticks",
     "processes_with_marker",
+    "worker_marker",
 ]
 
 FinishedStatus = Literal["completed", "blocked", "owner_decision_required", "error"]
@@ -56,6 +57,20 @@ class LaunchSpec:
     log_path: Path
     stderr_path: Path
     prompt: str
+
+    @property
+    def marker(self) -> str:
+        return worker_marker(self.attempt_id, self.session_id)
+
+
+def worker_marker(attempt_id: str, session_id: str) -> str:
+    """The value that names one attempt's processes on the host.
+
+    Attempt ids are unique only within one store; the session id is the UUID CLIVE chose for the attempt
+    and the kernel recorded at assignment, so two dispatchers or stores on one host never mistake, reuse
+    or kill each other's workers.
+    """
+    return f"{attempt_id}/{session_id}"
 
 
 @dataclass(frozen=True)
@@ -119,9 +134,9 @@ class WorkerDriver(Protocol):
 
     def diagnose_exit(self, stderr_path: Path) -> tuple[str, bool]: ...
 
-    def live_pids(self, attempt_id: str) -> list[int]: ...
+    def live_pids(self, marker: str) -> list[int]: ...
 
-    def kill(self, attempt_id: str) -> None: ...
+    def kill(self, marker: str) -> None: ...
 
 
 # ---- host process facts (Linux /proc), shared by drivers --------------------
