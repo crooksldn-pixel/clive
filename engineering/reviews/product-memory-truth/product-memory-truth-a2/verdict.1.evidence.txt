@@ -1,0 +1,120 @@
+Owner-relayed GPT exact-SHA review verdict (session message 16, received 2026-09-23 after 11:58Z).
+Reviewer session and workspace facts are declared by the relay. One message, two candidates: A (repository-readme r1) READY; B (product-memory-truth r2) CHANGES REQUIRED (PM-01, PM-02).
+
+GPT EXACT-SHA REVIEW — PACKET 19
+
+CANDIDATE A
+repository-readme r1
+SHA:
+40e6bc6d0fa8328067e60e3a805f001d946e04fb
+
+VERDICT: READY
+
+The README-only candidate is correctly bounded to README.md and materially
+improves the repository's front door.
+
+It correctly distinguishes:
+- the Shopify-theme default branch
+- CLIVE/application lineages
+- product-memory truth
+- engineering lifecycle state
+- accepted work from deployed work
+
+It does not change code, runtime, workflows, branch settings, deployment,
+permissions, credentials or business-write authority.
+
+The historical Shopify-theme instructions are preserved underneath the new
+CLIVE/repository overview.
+
+Admit READY for repository-readme r1 and integrate the exact candidate through
+its existing kernel task. Any fast-forward of the actual GitHub default branch
+remains the owner's separate decision.
+
+
+CANDIDATE B
+product-memory-truth r2
+SHA:
+5d12aa5e9ef92e5aee5a7ba40242557e7587deb7
+
+VERDICT: CHANGES REQUIRED
+
+The current-truth/status update is directionally correct and the inherited
+literal-\n structure repairs are valid, but two documentation defects remain.
+
+PM-01 — FEATURE IDENTITIES ARE DUPLICATED
+
+FEATURES.md adds five new rows using FEAT-033 through FEAT-037.
+
+Those identifiers already existed on the base 3ed0fd1e:
+
+FEAT-033 — Anticipation engine
+FEAT-034 — Scene compiler
+FEAT-035 — Multi-user/staff roles
+FEAT-036 — Nightly Observer
+FEAT-037 — Historical replay framework
+
+The candidate therefore gives each of those durable feature IDs two unrelated
+meanings.
+
+This is a material product-memory defect because references to FEAT-033…037
+become ambiguous.
+
+Repair:
+renumber the five newly added rows using the next unused IDs:
+
+FEAT-055 — Repository-only lifecycle kernel
+FEAT-056 — Judgment ledger / exact-SHA review / CI provenance
+FEAT-057 — Agent Environment authoritative state
+FEAT-058 — Customer Support Investigator V1
+FEAT-059 — CLIVE Live Experience V0.5
+
+Do not renumber or rewrite the pre-existing FEAT-033…054 history.
+
+Add/check a uniqueness assertion for feature IDs if the existing structure
+checker can do so without widening this into a new infrastructure task.
+Otherwise repair the document and record the checker limitation as backlog.
+
+
+PM-02 — CURRENT_TRUTH OVERSTATES README PROPAGATION
+
+CURRENT_TRUTH currently says:
+
+    "The root README on every branch carries the branch map."
+
+That is false.
+
+The README update exists on the documentation candidates; historical/current
+CI, kernel, support and other application branches do not thereby all acquire
+that README.
+
+Replace this with bounded wording, for example:
+
+    "The updated repository README carries the branch map on the branches
+     where this documentation update has landed; historical branches may
+     retain older README content."
+
+or equivalent factual wording.
+
+SCOPE
+
+This is a documentation-only repair.
+
+Do not modify:
+- code
+- workflows
+- kernel/lifecycle behaviour
+- runtime
+- branch/default-branch settings
+- DECISION wording
+- deployment
+- credentials/permissions
+
+Preserve the valid mechanical newline/index repairs already made.
+
+After those two changes:
+- rerun product_memory_check
+- verify feature IDs are unique
+- rescan literal \n corruption
+- dispatch the exact successor SHA
+
+No additional speculative documentation cleanup is requested.
