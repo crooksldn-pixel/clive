@@ -1,0 +1,19 @@
+Owner-relayed GPT exact-SHA review verdict (session message 5, received 2026-09-23 after 00:05Z).
+Reviewer session and workspace facts are declared by the relay; GPT states it re-resolved both refs from fresh git truth.
+
+PACKET 10
+Candidate:
+b68e6e827afbeba3364c8239a2d814a60372f498
+
+Base:
+6b7c43d29f5deb0317517eb1577e98b4b693eaf7
+
+VERDICT: READY.
+
+Fresh Git truth confirms the target stream remains exactly at 6b7c43d29f5deb0317517eb1577e98b4b693eaf7 and the holding branch remains exactly at b68e6e827afbeba3364c8239a2d814a60372f498.
+
+The integration delta is coherent. The accepted judgment-ledger work is reconciled onto the stream, and the test fixture adaptation correctly supplies the now-required OwnerProvenance session_id, bounded ReasonCode enum and aware datetime. No subject defect found.
+
+Important scope qualification: this accepts the integration delta relative to 6b7c43d. It does not launder or independently accept GPT-authored content already present in that base.
+
+Record READY for packet 10. Do not land it by relying on packet-9 kernel semantics until packet 9's successor has itself received fresh exact-SHA acceptance.
