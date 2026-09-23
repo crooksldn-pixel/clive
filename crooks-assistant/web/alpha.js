@@ -97,7 +97,7 @@
       else if (o.next.length) lines.push(h('p', { class: 'alpha-line', text: `Next: ${o.next[0]}` }));
       const when = o.days_left == null ? null : (o.days_left < 0 ? 'past the date' : o.days_left === 0 ? 'today' : `${o.days_left} day${o.days_left === 1 ? '' : 's'} left`);
       return h('button', { class: 'alpha-card', type: 'button', onclick: () => openObjective(o.id) },
-        h('span', { class: 'alpha-kicker', text: [labelFor(o.status), when].filter(Boolean).join(' · ') }),
+        h('span', { class: 'alpha-kicker', text: [labelFor(o.attention), when].filter(Boolean).join(' · ') }),
         h('span', { class: 'alpha-title', text: o.title }),
         ...lines);
     });
@@ -115,8 +115,8 @@
     ].filter(Boolean));
   }
 
-  function labelFor(status) {
-    return { active: 'Active', waiting: 'Waiting on you', blocked: 'Blocked', done: 'Done', dropped: 'Dropped' }[status] || status;
+  function labelFor(attention) {
+    return { needs_you: 'Needs you', blocked: 'Blocked', doing: 'Doing', idle: 'Idle', done: 'Done', dropped: 'Dropped' }[attention] || attention;
   }
 
   // ------------------------------------------------------------------ one objective
@@ -126,7 +126,7 @@
     let o;
     try { o = await api(`/objectives/${encodeURIComponent(id)}`); } catch (err) { flash(String(err.message || err)); return; }
     const open = (list) => list.filter((x) => !x.resolved_at);
-    const blocks = [head(o.title, o.deadline ? `By ${o.deadline} · ${labelFor(o.status)}` : labelFor(o.status))];
+    const blocks = [head(o.title, o.deadline ? `By ${o.deadline} · ${labelFor(o.summary.attention)}` : labelFor(o.summary.attention))];
 
     const asks = open(o.attention);
     if (asks.length) {

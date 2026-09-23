@@ -58,6 +58,72 @@ def test_blockers_and_questions_open_and_resolve(s):
     assert s.get(obj.id).open_("attention") == [] and s.get(obj.id).summary()["needs_you"] == []
 
 
+def test_regression_resolved_questions_and_open_blocker_show_blocked_not_needs_you(s):
+    """George's dogfood defect: every question answered, a capability blocker still open, but the
+    stored status was stale at 'waiting' — the headline must read 'blocked', never 'needs_you'."""
+    obj = s.create(title="t", request="r")
+    s.ask_owner(obj.id, "Which date can he leave?")
+    question = s.get(obj.id).open_("attention")[0]
+    s.resolve(obj.id, question["id"], note="The 5th", by="owner")
+    s.add_blocker(obj.id, "No flight-booking capability", kind="missing_capability")
+    s.set_status(obj.id, "waiting", by="owner")
+    summary = s.get(obj.id).summary()
+    assert summary["status"] == "waiting"
+    assert summary["attention"] == "blocked"
+    assert "flight-booking" in summary["attention_reason"]
+
+
+def test_attention_precedence_idle_doing_blocked(s):
+    idle = s.create(title="idle", request="r")
+    assert idle.summary()["attention"] == "idle"
+
+    doing = s.create(title="doing", request="r")
+    s.propose(doing.id, "Draft the itinerary", needs_owner=False)
+    item = s.get(doing.id).items[0]
+    s.advance(doing.id, item["id"], "started")
+    summary = s.get(doing.id).summary()
+    assert summary["attention"] == "doing"
+    assert "Draft the itinerary" in summary["attention_reason"]
+
+    blocked = s.create(title="blocked", request="r")
+    s.add_blocker(blocked.id, "No flight-booking capability", kind="missing_capability")
+    summary = s.get(blocked.id).summary()
+    assert summary["attention"] == "blocked"
+    assert "flight-booking" in summary["attention_reason"]
+
+
+def test_attention_needs_you_from_a_question_or_an_awaiting_approval(s):
+    question = s.create(title="question", request="r")
+    s.ask_owner(question.id, "Which date can he leave?")
+    summary = s.get(question.id).summary()
+    assert summary["attention"] == "needs_you"
+    assert "Which date" in summary["attention_reason"]
+
+    approval = s.create(title="approval", request="r")
+    s.propose(approval.id, "Book a flight", needs_owner=True)
+    summary = s.get(approval.id).summary()
+    assert summary["attention"] == "needs_you"
+    assert "Book a flight" in summary["attention_reason"]
+
+    # needs_you outranks an open blocker
+    both = s.create(title="both", request="r")
+    s.add_blocker(both.id, "No flight-booking capability", kind="missing_capability")
+    s.ask_owner(both.id, "Which date can he leave?")
+    assert s.get(both.id).summary()["attention"] == "needs_you"
+
+
+def test_owner_set_done_and_dropped_stay_as_set(s):
+    obj = s.create(title="t", request="r")
+    s.propose(obj.id, "Book a flight", needs_owner=True)  # would otherwise be needs_you
+    s.set_status(obj.id, "done", by="owner")
+    assert s.get(obj.id).summary()["attention"] == "done"
+
+    obj2 = s.create(title="t2", request="r")
+    s.add_blocker(obj2.id, "No flight-booking capability", kind="missing_capability")  # would be blocked
+    s.set_status(obj2.id, "dropped", by="owner")
+    assert s.get(obj2.id).summary()["attention"] == "dropped"
+
+
 def test_the_tools_are_local_reads_to_the_gate():
     for name in ("objective_open", "objective_list", "objective_show", "objective_note"):
         decision = gate.classify(name, {})

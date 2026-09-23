@@ -87,14 +87,37 @@ class Objective:
     def open_(self, key: str) -> list[dict]:
         return [x for x in getattr(self, key) if not x.get("resolved_at")]
 
+    def attention_(self) -> tuple[str, str]:
+        """The one rule for the headline everywhere, derived from open records, not the stored
+        status: needs_you (an open question, or a proposed item needing the owner) beats blocked
+        (an open blocker) beats doing (an item started) beats idle. Owner-set done/dropped stand."""
+        if self.status in ("done", "dropped"):
+            return self.status, f"the owner set this objective to {self.status}"
+        question = next(iter(self.open_("attention")), None)
+        if question:
+            return "needs_you", f"open question: {question['text']}"
+        awaiting = next((i for i in self.items if i["state"] == "proposed" and i.get("needs_owner")), None)
+        if awaiting:
+            return "needs_you", f"awaiting your approval: {awaiting['text']}"
+        blocker = next(iter(self.open_("blockers")), None)
+        if blocker:
+            return "blocked", f"blocked by: {blocker['text']}"
+        doing = next((i for i in self.items if i["state"] == "started"), None)
+        if doing:
+            return "doing", f"in progress: {doing['text']}"
+        return "idle", "nothing open"
+
     def summary(self) -> dict[str, Any]:
         """What the home screen and the model's list need: short, current, no history."""
         items = [i for i in self.items if i["state"] not in ("completed", "verified")]
         now_doing = next((i["text"] for i in items if i["state"] == "started"), None)
+        attention, attention_reason = self.attention_()
         return {
             "id": self.id,
             "title": self.title,
             "status": self.status,
+            "attention": attention,
+            "attention_reason": attention_reason,
             "deadline": self.deadline,
             "days_left": _days_left(self.deadline),
             "doing": now_doing,
