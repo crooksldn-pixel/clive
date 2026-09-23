@@ -188,6 +188,8 @@ def run(argv: list[str] | None = None) -> int:
             else:
                 _print_status(status)
         elif args.verb == "run":
+            if args.status_branch == args.branch:
+                raise InboxError("status branch must be separate from the owner inbox branch")
             controller = _controller(args, kernel, objectives, receipts)
             dispatcher = _dispatcher(args, kernel, objectives)
             loop = RemoteEngineeringLoop(
