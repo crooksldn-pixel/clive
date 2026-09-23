@@ -1,0 +1,21 @@
+GPT EXACT-SHA REVIEW (relayed by the owner, 2026-09-23)
+Task: objective-intake-engineering-dispatcher-v1  Revision: r2  Attempt: objective-intake-engineering-dispatcher-v1-a2
+Candidate: da15c629e95ad7ff27903d417f63f16b78f467bb  Base: 18c3153a2eec10c6343153b550776afed3bec2ba
+VERDICT: CHANGES REQUIRED
+
+D-01 — WORKER-AUTHORED CODE IS EXECUTED UNSANDBOXED ON THE DISPATCHER HOST
+Evidence: crooks-assistant/app/orchestrator/dispatcher.py:495 def _run_check(...); :504 subprocess.run(list(check.argv), cwd=str(cwd), env=env, ...)
+Checks such as pytest execute worker-authored candidate code with the dispatcher's OS/filesystem/network privileges.
+REQUIRED BOUNDED REPAIR: a replaceable check-execution boundary (CheckRunner seam) providing no host secrets/credentials,
+no production/business state, no network by default, no writes outside the attempt workspace and isolated tmp, a
+non-privileged identity, bounded resources/timeouts, fail closed when the sandbox cannot be established (container,
+bubblewrap/user-namespace sandbox or equivalent). Adversarial regression: candidate test code cannot (1) read a sentinel
+host file, (2) write a sentinel outside workspace/tmp, (3) make an outbound network connection. If the sandbox cannot
+provide those on the target host, report the exact blocker; never fall back to unsandboxed execution.
+Same repair: demonstrate the worker cannot mutate trusted .git control metadata that influences CLIVE's later git
+operations; otherwise make .git inaccessible/read-only to the worker or move trusted git metadata outside the
+worker-writable filesystem.
+DO NOT CHANGE: kernel, reviewer registry, runtime/systemd/watcher, owner authority, business integrations, deployment,
+secrets, current no-programmatic-GPT truth. Absence of programmatic GPT is not a defect.
+After repair: rerun dispatcher tests, kernel regression, real-worker smoke, adversarial sandbox tests; one exact successor SHA.
+CONVERGENCE: one concrete subject defect; if D-01 is closed without material regression, converge.
