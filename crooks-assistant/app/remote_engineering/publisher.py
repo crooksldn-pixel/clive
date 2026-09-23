@@ -39,6 +39,7 @@ def _validate_status_path(value: str) -> str:
         or value.startswith(".")
         or "\\" in value
         or any(part in {"", ".", ".."} for part in value.split("/"))
+        or "/" in value
         or not value.endswith(".json")
     ):
         raise InboxError(f"status path {value!r} is not a bounded repository-relative JSON path")
