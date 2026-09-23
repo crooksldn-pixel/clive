@@ -489,3 +489,122 @@ Examples:
 - “email prepared” is not “email sent.”
 
 This is the same semantic spine appearing in both business operations and engineering. That convergence is evidence that the architecture is moving toward a general intent-to-execution system rather than two unrelated products.
+
+## 18. Late-day convergence: dispatcher, parallel team proof, mobile dogfood and Director gap
+
+This section is the same-day current checkpoint. Earlier sections remain rationale/history where they describe states that have since advanced.
+
+### What actually became real today
+
+- Support Investigator V1 converged at `2dbb97bc6c88d3ee3cf5cdf6a980df4f3405104a`.
+- Mobile alpha `ca388ceeedb54cfd495fb2b5205ec2184db9ccae` put Support Investigator + durable Objective V0 records + the phone surface together on the V0.5 lineage.
+- `mobile-dogfood-voice-v1` completed through the new dispatcher at `2bd139577a3d5505c4ef221184636dfe27647e31`, including programmatic GPT review. This is the first live no-courier proof that the dispatcher can close a bounded objective.
+- The dispatcher line `c566a955903a3a02e4a9ec97f0bab5a62e703fcd` now provides real Objective Intake, isolated Claude builder execution, safe candidate ingestion, sandboxed candidate checks, programmatic GPT review, bounded repair, deterministic integration and configurable parallel builder capacity.
+- Live host execution exposed and then resolved a genuine deployment fact: a normal root Claude login did not authenticate a fresh isolated worker HOME. A host-side long-lived Claude Code token file was provisioned and the isolated invocation was verified before the dispatcher resumed work.
+- The first resume after fixing authentication re-blocked immediately because the old transient cancellations still counted against the revision retry budget. A local owner-side ceiling increase from 3 to 6 is being used only to let the already-authorised streams finish. This is technical debt and must not be mistaken for the canonical retry design.
+- Two engineering objectives then ran simultaneously under separate isolated processes. Latest observed state: `derived-truth-attention-v1` r2 candidate `cf90d0de2d99f013c2af05c3a5877b849ca9d9f0` in GPT review; `engineering-team-activation-v1` r2 still building; `mobile-dogfood-voice-v1` COMPLETE.
+
+### Freeze versus what exists now
+
+The 2026-09-20 Orchestrator freeze candidate was a normative contract and acceptance specification. It established the target authority model, identity rules, lifecycle meanings and non-goals. It was not itself the running multi-agent system.
+
+The current architecture is now clearer:
+
+```
+Owner intent / CLIVE objective
+        ↓
+future GPT Director Runtime          ← still missing
+        ↓
+Objective Intake + Dispatcher        ← running/proven
+        ↓
+Frozen lifecycle kernel              ← authoritative/frozen
+        ↓
+isolated Claude builders (parallel)  ← running/proven
+        ↓
+sandboxed checks / evidence          ← running/proven
+        ↓
+programmatic GPT exact-SHA reviewer  ← running/proven
+        ↓
+bounded repair / deterministic integration
+        ↓
+COMPLETE / BLOCKED / OWNER_GATE
+```
+
+The dispatcher is therefore a substantial implementation of the Orchestrator objective, but it is not yet the full target organisation. In particular, it does not yet contain a top-level Director that receives a broad objective and dynamically decides the coherent task graph/team.
+
+### Director V1 status
+
+The Director has been **designed, not yet implemented as an executable runtime role**.
+
+The product memory already defines the Director's responsibilities: read actual diffs/tests/replay/product memory, preserve continuity, challenge decomposition, reconcile cross-worker evidence, make independent final engineering judgments and escalate product/taste/authority decisions. The current programmatic GPT reviewer is one narrow Director-adjacent capability: it judges one candidate at an exact SHA. It does not presently:
+
+- receive the owner's broad engineering objective before task creation;
+- decide whether the objective should remain one coherent task or be decomposed;
+- create a dependency graph;
+- select/assemble specialist workers and reviewers by capability/risk;
+- reconcile several accepted candidates into one product-level decision;
+- keep the engineering programme moving after one objective closes;
+- own the final cross-task “is this release objective actually satisfied?” decision.
+
+No current runtime `director.py`/Director service or Director branch establishes those behaviours. The next control-plane build should therefore implement the Director **above** the working dispatcher, not redesign the kernel below it.
+
+### Full-team status
+
+Current reality is smaller than the long-term org chart but materially further along than the old bridge:
+
+- real parallel isolated Claude workers: yes;
+- one deterministic dispatcher supervising several objectives: yes;
+- programmatic independent GPT reviewer: yes;
+- deterministic integrator path: yes;
+- bounded repair routing: yes;
+- read-only whole-team observability: candidate exists but r1 was rejected and r2 is under repair;
+- dynamic manager/decomposer: no;
+- first-class Opus/Sonnet role routing by task complexity: not yet a live dispatcher policy;
+- Fable adapter/Experience Director in this dispatcher: no;
+- specialist QA/performance/security workers selected dynamically: no;
+- Director final cross-task decision: no;
+- unattended self-hosting broad-objective loop: not yet proven.
+
+So “full team” is not a distant rewrite. The hard control substrate now exists. The remaining work is primarily **team formation/routing/director semantics and proof**, plus production hardening around retries/auth/service operation.
+
+### Product convergence
+
+The engineering work and product work are now converging around the same durable semantics:
+
+`evidence → findings/provenance → current derived truth → objective/attention → projection/action`.
+
+The order-support dogfood proved why this matters. A stale missing-house-number finding and context such as “first order” or a 60-day email horizon must not become current owner work. The intended minimum semantic classes are ACTION_REQUIRED, DECISION_REQUIRED, RISK, UNCERTAINTY, LIMITATION and CONTEXT; only genuine owner-action classes feed “Needs you”. Contradicted/superseded/resolved findings must stop driving current projections while remaining historical evidence.
+
+This same model is what the orb/world experience is trying to visualise. The Agent Environment world-orb branch `26632e958efa49e0aaf4761c0f1578c1e4aa8529` is a synthetic read-only projection prototype; the state-adapter branch `c20f5397197652a65814bfc2972c19a4e4ec65f4` proves the environment can render authoritative engineering lifecycle records. The correct next step is to bind those projections to CLIVE truth, not create a second world database inside the environment.
+
+### What the next production candidate should be
+
+Do not promote every experiment independently. After the active engineering streams close:
+
+1. accept one engineering-control-plane candidate (kernel + dispatcher + accepted team activation, with the temporary retry recovery removed/reconciled);
+2. use that control plane to build Director Runtime V1 and prove one broad self-hosted engineering objective;
+3. construct one unified **CLIVE operational alpha release candidate** from the V0.5/mobile line containing accepted Support Investigator, durable Objective semantics, accepted Derived Truth + Attention and the current phone experience;
+4. bind the Agent Environment/orb to the authoritative projection endpoint as an optional read-only inspection surface;
+5. run a defined real-world Crooks dogfood gate before production promotion;
+6. only then perform an owner-authorised production release.
+
+The first production use remains deliberately operational and read-heavy: support triage, order exceptions, persistent objectives and evidence-backed “what needs you?”. Business writes remain a later, separately gated capability class.
+
+### Dogfood gate for the CLIVE environment
+
+The environment should now be tested for semantics, continuity and attention — not just visual polish:
+
+- **Persistence:** create a multi-step objective, leave/restart/reload, and confirm the objective, facts, unknowns, blockers and history survive without restating them.
+- **Truth correction:** give CLIVE evidence that contradicts an old finding and verify the old finding stops driving current UI/attention while remaining in history.
+- **Attention discipline:** confirm CONTEXT/LIMITATION/RISK/UNCERTAINTY do not become “Needs you” unless they create a genuine owner decision/action.
+- **Cross-projection consistency:** ask about the same order/objective in conversation, objective card/support sheet and world/orb projection; current truth must agree.
+- **Evidence drill-down:** in the orb/world view, known/inferred/unknown must be visibly backed by the correct evidence/provenance and resolved gaps must no longer appear open.
+- **Parallel objectives:** keep two unrelated objectives alive at once; both should progress independently without exposing the retired Split interaction model.
+- **Physical voice path:** use the real voice flow to open/update an objective; visible objective records should address the owner directly (“you/your”), not narrate about “the owner” or leak machine/runtime wording.
+- **Capability gap honesty:** ask CLIVE to do something it cannot currently execute; it should identify the missing capability and useful next move without claiming the action started.
+- **Support semantics:** label-created/fulfilment-created must not be presented as courier movement; delivered/in-transit/unknown movement must remain distinct.
+- **Restart/recovery:** while objectives exist, restart the client/backend through the supported control path and verify no duplicate objective, duplicate work item or lost verified evidence appears.
+- **Quiet state:** when nothing genuinely needs attention, the home/orb should be allowed to become sparse rather than manufacture work.
+
+Passing that gate is more meaningful than adding more permanent dashboard panels.
+
