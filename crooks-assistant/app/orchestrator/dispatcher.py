@@ -9,7 +9,8 @@ the execution behind it, and submits what actually happened to the kernel:
                         policy, is the acknowledgement (``ack``); a bad roster blocks
     RUNNING          -> stream events renew the lease (``heartbeat``); a successful
                         file edit is ``progress``; the worker's result is committed by
-                        CLIVE, scoped, checked, recorded as ``evidence`` and the exact
+                        CLIVE, scoped, checked in the sandbox (``checks.py``), recorded as
+                        ``evidence`` and the exact
                         git SHA as the ``candidate``
     EVIDENCE_READY   -> an independent, available reviewer gets the exact-SHA packet
                         (``dispatch``); if none is available, the task is BLOCKED with
@@ -55,6 +56,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from .checks import CheckRunner, NamespaceSandbox
 from .contracts import BlockerClass, EngineeringTask, TaskKind, TaskStatus
 from .lifecycle import (
     Attempt,
@@ -115,7 +117,6 @@ class DispatcherConfig:
     max_result_refusals: int = 2
     max_concurrent: int = 1
     packet_diff_limit: int = 200_000
-    check_env_path: str = "/usr/local/bin:/usr/bin:/bin"
 
 
 @dataclass
@@ -125,6 +126,7 @@ class Dispatcher:
     worker: WorkerDriver
     reviewers: Sequence[ReviewerDriver]
     config: DispatcherConfig
+    checks: CheckRunner = field(default_factory=NamespaceSandbox)
     log: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -175,6 +177,7 @@ class Dispatcher:
             "log": base / "logs" / f"{attempt.attempt_id}.stream.jsonl",
             "stderr": base / "logs" / f"{attempt.attempt_id}.stderr.txt",
             "evidence": base / "evidence" / attempt.attempt_id,
+            "checks": base / "checks" / attempt.attempt_id,
         }
 
     def _latest(self, task_id: str) -> tuple[EngineeringTask | None, object]:
@@ -461,9 +464,15 @@ class Dispatcher:
                                               f"scope: {', '.join(sorted(escaped)[:10])}")
         evidence_dir = paths["evidence"]
         evidence_dir.mkdir(parents=True, exist_ok=True)
+        if obj.checks:
+            ok, why = self.checks.availability()
+            if not ok:
+                return self._block(obj, task, f"check sandbox unavailable ({self.checks.kind}): {why}; the "
+                                              f"objective's checks run worker-authored code and are never run "
+                                              f"unsandboxed; candidate {head} is kept as history")
         failed = []
         for check in obj.checks:
-            outcome = self._run_check(check, ws, paths["home"])
+            outcome = self._run_check(check, ws=ws, head=head, attempt=attempt)
             payload = json.dumps(outcome, indent=2, sort_keys=True).encode()
             file = evidence_dir / f"check-{check.name}.json"
             file.write_bytes(payload)
@@ -492,25 +501,13 @@ class Dispatcher:
         return self._note(obj.objective_id, f"candidate {head} recorded for {attempt.attempt_id} "
                                             f"({len(changed)} paths; checks passed: {len(obj.checks)})")
 
-    def _run_check(self, check, workspace: Path, home: Path) -> dict:
-        cwd = (workspace / check.cwd).resolve()
-        if workspace.resolve() not in (cwd, *cwd.parents):
-            return {"argv": list(check.argv), "exit_code": 126, "error": "cwd escapes the workspace"}
-        env = {"PATH": self.config.check_env_path, "HOME": str(home), "LANG": "C.UTF-8",
-               "TMPDIR": str(home / "tmp"), "PYTHONDONTWRITEBYTECODE": "1"}
-        (home / "tmp").mkdir(parents=True, exist_ok=True)
+    def _run_check(self, check, *, ws: Path, head: str, attempt: Attempt) -> dict:
+        """One check, on a fresh export of exactly the candidate, inside the sandbox. Never on the host."""
+        tree = self.workspaces.export(ws, head, self._paths(attempt)["checks"] / check.name)
         started = self.now()
-        try:
-            proc = subprocess.run(list(check.argv), cwd=str(cwd), env=env, capture_output=True, text=True,
-                                  timeout=check.timeout_s)
-            code, out, err = proc.returncode, proc.stdout, proc.stderr
-        except subprocess.TimeoutExpired as exc:
-            code, out, err = 124, (exc.stdout or "") if isinstance(exc.stdout, str) else "", f"timed out after {check.timeout_s}s"
-        except OSError as exc:
-            code, out, err = 127, "", str(exc)
-        return {"name": check.name, "argv": list(check.argv), "cwd": check.cwd, "exit_code": code,
-                "stdout_tail": out[-6000:], "stderr_tail": err[-3000:],
-                "started_at": started.isoformat(), "head": self.workspaces.head(workspace)}
+        outcome = self.checks.run(tuple(check.argv), tree=tree, cwd=check.cwd, timeout_s=check.timeout_s)
+        return {"name": check.name, "argv": list(check.argv), "cwd": check.cwd, "head": head,
+                "started_at": started.isoformat(), **outcome}
 
     def _publish(self, task: EngineeringTask, sha: str) -> str | None:
         """Move the target branch forward to the candidate. Returns a blocker reason, or None."""

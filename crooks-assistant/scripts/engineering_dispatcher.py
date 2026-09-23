@@ -41,6 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from app.orchestrator.checks import NamespaceSandbox  # noqa: E402
 from app.orchestrator.contracts import TaskStatus  # noqa: E402
 from app.orchestrator.dispatcher import Dispatcher, DispatcherBusy, DispatcherConfig  # noqa: E402
 from app.orchestrator.lifecycle import (  # noqa: E402
@@ -93,6 +94,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--worker-token-file", default=None, help="host-side file holding CLAUDE_CODE_OAUTH_TOKEN")
     p.add_argument("--worker-bash-prefix", action="append", default=[],
                    help="allow Bash commands with this prefix (off by default; a prefix is not a sandbox)")
+    p.add_argument("--check-ro-path", action="append", default=[],
+                   help="a host directory the check sandbox binds read-only (e.g. the interpreter's virtualenv); "
+                        "nothing else of the host is visible to a check")
     p.add_argument("--lease-s", type=int, default=1800)
     p.add_argument("--stall-s", type=int, default=1200)
     p.add_argument("--init-timeout-s", type=int, default=180)
@@ -138,7 +142,8 @@ def _parts(args):
     config = DispatcherConfig(runtime_root=runtime, workspace_root=Path(args.workspace_root), repo=Path(args.repo),
                               publish_remote=args.publish_remote, lease_s=args.lease_s, stall_s=args.stall_s,
                               init_timeout_s=args.init_timeout_s, max_concurrent=args.max_concurrent)
-    return kernel, objectives, Dispatcher(kernel, objectives, worker, reviewers, config)
+    sandbox = NamespaceSandbox(ro_paths=tuple(args.check_ro_path))
+    return kernel, objectives, Dispatcher(kernel, objectives, worker, reviewers, config, checks=sandbox)
 
 
 def _objective(args, kernel: Kernel) -> Objective:

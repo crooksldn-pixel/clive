@@ -2,7 +2,7 @@
 
 Status: repository-only implementation, awaiting independent exact-SHA review. It authorises no deployment, no runtime, service, watcher or systemd change, no secret, no permission or connector change, no business write and no spend. It does not by itself prove the no-courier milestone. That milestone is met only when a separate, real, bounded product objective enters through this intake and reaches independently reviewed COMPLETE, BLOCKED or OWNER_GATE without anyone relaying messages between workers.
 
-Code: `app/orchestrator/objectives.py` (intake), `app/orchestrator/dispatcher.py` (controller), `app/orchestrator/workspaces.py`, `app/orchestrator/workers/` (builder drivers), `app/orchestrator/reviewers/` (typed review result and reviewer drivers), `scripts/engineering_dispatcher.py` (the CLI). The kernel is used, unchanged, at `18c3153a2eec10c6343153b550776afed3bec2ba`: `Kernel`, `LifecycleStore`, `PrincipalRegistry`, `GitFacts`, `lifecycle_view`, `journal_preconditions`, `git_journal`.
+Code: `app/orchestrator/objectives.py` (intake), `app/orchestrator/dispatcher.py` (controller), `app/orchestrator/workspaces.py`, `app/orchestrator/checks.py` (the check sandbox), `app/orchestrator/workers/` (builder drivers), `app/orchestrator/reviewers/` (typed review result and reviewer drivers), `scripts/engineering_dispatcher.py` (the CLI). The kernel is used, unchanged, at `18c3153a2eec10c6343153b550776afed3bec2ba`: `Kernel`, `LifecycleStore`, `PrincipalRegistry`, `GitFacts`, `lifecycle_view`, `journal_preconditions`, `git_journal`.
 
 ## Division of responsibility
 
@@ -55,7 +55,7 @@ When a worker result arrives (`completed`), these steps run in order, and nothin
 2. The candidate is `git rev-parse HEAD`. If the tree is unchanged, the result is refused.
 3. The candidate is fetched into the dispatcher's repository as `refs/clive/candidates/<attempt>` and verified to be exactly that SHA.
 4. The changed paths are read from `git diff --no-renames` and must fall inside scope.
-5. Each check runs in the workspace, and its output is evidence.
+5. Each check runs in the check sandbox (see "Check sandbox") on a fresh export of exactly the committed candidate, never on the live workspace, and its output is evidence. If the sandbox cannot be established, the task blocks and no check runs.
 6. The transcript and report are recorded as evidence.
 7. The target branch moves fast-forward only (and is pushed, with `--publish-remote`).
 8. `candidate` records the exact SHA with every required evidence name.
@@ -118,12 +118,34 @@ State of the reviewer side, as found:
 
 ## Workspaces, restart and failure classes
 
-Each attempt gets its own workspace at `<workspace-root>/<task>/<attempt>/`. Both components are validated, and the resolved path must stay under the root. The workspace is:
+Each attempt gets its own workspace at `<workspace-root>/<task>/<attempt>/`. Both components are validated, and the resolved path must stay under the root. The workspace is a plain tree with no git metadata of CLIVE's inside it. The attempt's git directory is its sibling, `<workspace-root>/<task>/<attempt>.git/`:
 
-- a `git clone --local` of the dispatcher's repository;
-- detached at the base, on branch `clive/attempt/<attempt>`;
+- a bare `git clone --local` of the dispatcher's repository, used with an explicit `--work-tree`;
+- the tree checked out at the base, on branch `clive/attempt/<attempt>`;
 - with its remote removed;
-- with a metadata file in `.git` binding it to its task, attempt and base. A directory without matching metadata is refused, never reused.
+- with a metadata file in the git directory binding it to its task, attempt and base. A directory without matching metadata is refused, never reused.
+
+Why the git directory is outside the tree: the worker's file tools are confined to its cwd (`--restricted`), so the metadata CLIVE later trusts is out of its reach. Whatever the worker does write in its tree is inert. That covers a `.git` directory or gitlink file, a config naming an fsmonitor command, hooks, or a `.gitattributes` naming a filter driver. Every CLIVE git command on an attempt names `--git-dir` and `--work-tree`, ignores system and global config, and forces `core.hooksPath=/dev/null` and `core.fsmonitor=false`. Git never adds a path named `.git`. `tests/test_engineering_dispatcher.py::test_nothing_the_worker_writes_in_its_tree_can_steer_clives_git` plants all of these (hooks armed executable) and shows none runs. The same test fails against r2's layout, where the git directory lived inside the tree.
+
+## Check sandbox
+
+An objective's checks run worker-authored code, so they run only through a `CheckRunner` (`app/orchestrator/checks.py`). The one that exists, `NamespaceSandbox`, uses util-linux `unshare` with private mount, network, PID, IPC and UTS namespaces, then `chroot` and `setpriv`:
+
+- **Filesystem.** The root is a tmpfs holding only `/usr`, `/bin`, `/sbin` and `/lib*` (bound read-only), a curated `/etc` (passwd, group, hosts, nsswitch.conf, ld.so.cache, localtime), a private `/proc` and four `/dev` nodes. It also holds any read-only directories the operator names with `--check-ro-path`, such as the interpreter's virtualenv. The only writable places are the check's own export of the candidate and a 512 MB private `/tmp`. `/root`, `/home`, `/opt`, the runtime, the store, the repository and the live workspace do not exist inside.
+- **Network.** None: an empty network namespace, so neither the internet nor services on the host's loopback are reachable.
+- **Identity.** When the dispatcher runs as root, the check runs as uid/gid 65534. Otherwise it runs in a user namespace over the dispatcher's own unprivileged uid. Either way it has no capabilities and `no_new_privs`.
+- **Resources.** A wall-clock timeout, on which the check's PID-namespace init is SIGKILLed, taking every process in the namespace with it. Also CPU, address-space, file-size and open-file limits, and a process-count limit when the check has its own uid. `unshare --kill-child` alone is not enough, because the kernel clears the parent-death signal when `setpriv` changes the uid. The first version of the adversarial test caught background loops surviving the timeout that way.
+- **Fail closed.** Before the first check, a canary runs inside. It must fail to read a world-readable host sentinel, fail to leave a file at a host path, fail to reach a listener on the host loopback, and run as the expected uid with no effective capabilities. The host side is what is checked, not the canary's own report. If any property fails, or `unshare` is missing, the runner is unavailable and the task blocks with the exact reason. There is no unsandboxed fallback.
+
+`tests/test_check_sandbox.py` runs hostile candidate test code through the real `pytest` inside the sandbox. From the host's side, it shows the code:
+
+- cannot read a sentinel, `/etc/shadow` or `/root`;
+- cannot write outside its tree and private `/tmp`;
+- cannot connect to a host-loopback listener or an external address;
+- runs as 65534 with no capabilities;
+- is killed, together with a `setsid`-escaped background loop, on timeout.
+
+Both root and non-root modes were exercised on this host. On a host where neither the dispatcher is root nor unprivileged user namespaces are allowed (Ubuntu's AppArmor `kernel.apparmor_restrict_unprivileged_userns=1`, for example), the canary fails, and objectives with checks block with that reason until the owner decides how the dispatcher should run.
 
 A repair attempt fast-forwards its fresh workspace to the rejected candidate after assignment, so the kernel's "workspace at the base" fact stays true at assign time.
 
@@ -168,8 +190,9 @@ Failure classes:
 - A reviewer's session and workspace facts (the kernel's existing limit).
 - Worker identity is the session CLIVE chose and observed in the init event. It is not bound cryptographically (ENGINEERING_CONTROL_PLANE_VNEXT §6).
 - The worker process itself reaches the model provider over the network. What it cannot use are Bash, web tools, MCP and connectors, because those are cut and checked at launch. That is a surface reduction, not a network sandbox.
-- Checks execute repository code (possibly worker-written) on the dispatcher host, under the sanitised environment and the check's timeout. That is the same exposure as CI.
+- The check sandbox shares the host kernel: it is namespace isolation, not a virtual machine. A kernel vulnerability reachable from an unprivileged process is outside what it defends against.
 - Process discovery reads Linux `/proc`: single host, single dispatcher.
+- The worker's confinement to its cwd, which keeps it away from the attempt's git directory, is Claude Code's `--restricted` file-tool boundary. The real-worker smoke asks a worker to write into the sibling git directory and to an absolute host path, and records the result.
 
 ## Before the no-courier dogfood
 

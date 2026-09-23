@@ -82,6 +82,7 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/orchestrator/objectives.py",
     "crooks-assistant/app/orchestrator/dispatcher.py",
     "crooks-assistant/app/orchestrator/workspaces.py",
+    "crooks-assistant/app/orchestrator/checks.py",
     "crooks-assistant/app/orchestrator/workers",
     "crooks-assistant/app/orchestrator/reviewers",
     "crooks-assistant/scripts/engineering_kernel.py",

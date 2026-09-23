@@ -72,6 +72,8 @@ for i, (path, content) in enumerate(sc.get("edits", [])):
     emit({{"type": "assistant", "message": {{"content": [{{"type": "tool_use", "id": f"t{{i}}", "name": "Write",
           "input": {{"file_path": os.path.join(os.getcwd(), path)}}}}]}}}})
     emit({{"type": "user", "message": {{"content": [{{"type": "tool_result", "tool_use_id": f"t{{i}}"}}]}}}})
+for path in sc.get("exec", []):
+    os.chmod(path, 0o755)
 if sc.get("hang"):
     time.sleep(3600)
 if sc.get("die"):
@@ -242,10 +244,11 @@ def test_one_objective_reaches_complete_through_the_real_records(tmp_path):
     assert _git(w.repo, "rev-parse", "clive/objective/demo") == result.result_sha
     assert _git(w.repo, "show", f"{result.result_sha}:pkg/hello.txt") == "hello"
     assert result.changed_paths == ("pkg/hello.txt",)
-    # one workspace per attempt, under the root, with no remote and at the attempt branch
+    # one workspace per attempt, under the root: a plain tree, its git metadata beside it with no remote
     ws = tmp_path / "workers" / OBJ / attempt.attempt_id
     assert attempt.worker.workspace.workspace_id == str(ws)
-    assert _git(ws, "remote") == ""
+    assert not (ws / ".git").exists() and (ws.parent / f"{attempt.attempt_id}.git" / "HEAD").is_file()
+    assert _git(ws.parent / f"{attempt.attempt_id}.git", "remote") == ""
     # the kernel session is the session the worker ran as
     argv = json.loads((w.state / "argv.0.json").read_text())
     assert argv[argv.index("--session-id") + 1] == attempt.worker.session.session_id
@@ -452,6 +455,75 @@ def test_a_worker_that_changes_nothing_has_no_candidate(tmp_path):
     w.objective()
     w.run_until(w.status_is(TaskStatus.BLOCKED))
     assert not w.store.read_results() and "changed nothing" in w.state_of().blocker_reason
+
+
+def test_nothing_the_worker_writes_in_its_tree_can_steer_clives_git(tmp_path):
+    sentinel = tmp_path / "git-was-steered"
+    hostile = {"edits": [
+        ["pkg/hello.txt", "hello\n"],
+        [".git/config", f"[core]\n\tfsmonitor = touch {sentinel}\n\thooksPath = .git/hooks\n"
+                        f"[filter \"evil\"]\n\tclean = touch {sentinel}\n"],
+        [".git/hooks/post-commit", f"#!/bin/sh\ntouch {sentinel}\n"],
+        [".git/hooks/pre-commit", f"#!/bin/sh\ntouch {sentinel}\n"],
+        ["pkg/.gitattributes", "* filter=evil\n"],
+        ["pkg/.git", "gitdir: /tmp/elsewhere\n"],
+    ], "exec": [".git/hooks/post-commit", ".git/hooks/pre-commit"]}
+    w = World(tmp_path)
+    w.scenarios(hostile)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.REVIEWING))
+    result = w.store.read_results()[0]
+    ws = tmp_path / "workers" / OBJ / result.attempt_id
+    assert os.access(ws / ".git" / "hooks" / "post-commit", os.X_OK)  # the planted hooks were armed
+    assert not sentinel.exists()  # no fsmonitor, hook or filter the worker planted ran
+    tree = _git(w.repo, "ls-tree", "-r", "--name-only", result.result_sha).splitlines()
+    assert not any(p == ".git" or p.startswith(".git/") or p.endswith("/.git") for p in tree)
+    assert set(result.changed_paths) == {"pkg/hello.txt", "pkg/.gitattributes"}
+    # the trusted metadata is the one CLIVE created, beside the tree, untouched
+    gd = tmp_path / "workers" / OBJ / f"{result.attempt_id}.git"
+    assert "evil" not in (gd / "config").read_text() and "fsmonitor" not in (gd / "config").read_text()
+
+
+def test_checks_run_in_the_sandbox_on_a_copy_and_cannot_touch_the_candidate_tree(tmp_path):
+    probe = Check(name="probe", argv=("/bin/sh", "-c", "id -u > uid.txt; echo tampered > pkg/hello.txt; cat uid.txt"))
+    w = World(tmp_path, checks=(probe,))
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.REVIEWING))
+    attempt = w.store.read_attempts(OBJ)[0]
+    ws = tmp_path / "workers" / OBJ / attempt.attempt_id
+    assert (ws / "pkg" / "hello.txt").read_text() == "hello\n" and not (ws / "uid.txt").exists()
+    evidence = json.loads((tmp_path / "runtime" / "evidence" / attempt.attempt_id / "check-probe.json").read_text())
+    assert evidence["runner"] == "linux-namespaces" and "canary held" in evidence["sandbox"]
+    expected = "65534" if os.geteuid() == 0 else "0"
+    assert evidence["stdout_tail"].strip() == expected
+    assert w.store.read_results()[0].clean_worktree
+
+
+class NoSandbox:
+    kind = "unavailable-for-test"
+
+    def __init__(self):
+        self.ran = []
+
+    def availability(self):
+        return False, "unshare is not permitted on this host"
+
+    def run(self, argv, **kw):  # pragma: no cover - must never be reached
+        self.ran.append(argv)
+        raise AssertionError("a check ran without a sandbox")
+
+
+def test_without_a_sandbox_checks_never_run_and_the_task_blocks(tmp_path):
+    w = World(tmp_path, checks=(Check(name="says-hello", argv=("grep", "-q", "hello", "pkg/hello.txt")),))
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    runner = NoSandbox()
+    d = Dispatcher(w.kernel, w.objectives, ClaudeCodeWorker(cli=str(w.cli)), w.reviewers, w.config, checks=runner)
+    w.run_until(w.status_is(TaskStatus.BLOCKED), dispatcher=d)
+    reason = w.state_of().blocker_reason
+    assert "check sandbox unavailable" in reason and "never run unsandboxed" in reason
+    assert runner.ran == [] and not w.store.read_results()
 
 
 def test_failed_checks_are_evidence_and_never_a_candidate(tmp_path):
