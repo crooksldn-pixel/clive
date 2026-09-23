@@ -2,11 +2,29 @@
 
 **Purpose:** compact active context for GPT/Claude/Fable/engineering workers  
 **Status:** ACTIVE — update whenever a material product/architecture state changes  
-**As of:** 2026-09-21
+**As of:** 2026-09-23
 
 This file is intentionally not a historical transcript. It answers: **what is true and important now?**
 
 For historical rationale, use Git and DECISIONS.md. For release evolution rules, use EVOLUTION_POLICY.md.
+
+## 2026-09-23 reconciliation checkpoint
+
+Read [RECONCILIATION_2026-09-23.md](./RECONCILIATION_2026-09-23.md) before making substantial engineering/control-plane changes.
+
+The active reconciliation establishes these points without weakening older safety invariants:
+
+- precedent is evidence and a presumption, not permanent implementation law; an old mechanism may be explicitly SUPERSEDED/RETIRED when its durable outcome, authority and safety responsibility are preserved or strengthened;
+- CLIVE is one product: self-engineering is an internal capability/domain of the same persistent intent-to-execution system, not a separate end product;
+- the authoritative engineering lifecycle write-side now exists and has processed real accept/reject/repair/complete records; the current hardening target is the successor to `acef3479`, including K-06..K-09;
+- Agent Environment is a projection/client of CLIVE records, never a second source of truth;
+- direct objective ingress should write to CLIVE's persistent control plane; GPT/models sit beneath CLIVE as workers/directors, not as the permanent doorway;
+- preserve engineering invariants, not a fixed provider/agent org chart; model names, worker roles, bridges, polling and UI mechanisms remain replaceable;
+- the old hourly supervisor is disabled and the unrestricted prose-freeze/parser loop remains parked;
+- after the kernel survives exact-SHA review, the next proof is a genuinely CLIVE-managed engineering objective with no owner courier, followed by a narrow real Crooks operational trial measured by owner attention removed.
+
+This checkpoint supersedes stale active-state claims in the 2026-09-19 migration handoff. Git retains that handoff as history.
+
 
 ## Product
 
