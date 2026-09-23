@@ -13,13 +13,17 @@ from __future__ import annotations
 from .controller import RemoteController, RemoteControllerConfig, objective_from_request
 from .errors import InboxError, RequestSchemaError
 from .inbox import DEFAULT_INBOX_BRANCH, DEFAULT_INBOX_DIRECTORY, discover_requests, fetch_inbox
+from .publisher import DEFAULT_STATUS_BRANCH, DEFAULT_STATUS_PATH, publish_status
 from .receipts import Receipt, ReceiptLog
+from .runner import RemoteEngineeringLoop
 from .requests import REQUEST_SCHEMA, RemoteObjectiveRequest, parse_request
 from .status import STATUS_SCHEMA, build_status
 
 __all__ = [
     "DEFAULT_INBOX_BRANCH",
     "DEFAULT_INBOX_DIRECTORY",
+    "DEFAULT_STATUS_BRANCH",
+    "DEFAULT_STATUS_PATH",
     "REQUEST_SCHEMA",
     "STATUS_SCHEMA",
     "InboxError",
@@ -27,6 +31,7 @@ __all__ = [
     "ReceiptLog",
     "RemoteController",
     "RemoteControllerConfig",
+    "RemoteEngineeringLoop",
     "RemoteObjectiveRequest",
     "RequestSchemaError",
     "build_status",
@@ -34,4 +39,5 @@ __all__ = [
     "fetch_inbox",
     "objective_from_request",
     "parse_request",
+    "publish_status",
 ]
