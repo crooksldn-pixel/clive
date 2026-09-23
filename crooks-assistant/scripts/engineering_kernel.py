@@ -4,7 +4,7 @@
     engineering_kernel.py --store <root> --repo <checkout> [--registry F] [--operator NAME] VERB ...
 
 Verbs, in lifecycle order: task, assign, ack, heartbeat, evidence, candidate, dispatch,
-verdict, integrate; and cancel, block, resume, view. Each holds the store's writer lock
+verdict, integrate; and cancel, block, resume, gate, view. Each holds the store's writer lock
 for its whole duration, validates everything before it writes anything, writes immutable
 records plus one compare-and-swap state transition, regenerates ACTIVE_STATE.json, and
 journals the change as a git commit when the store lives in a checkout. A refusal prints
@@ -35,6 +35,7 @@ from app.orchestrator.contracts import (  # noqa: E402
 from app.orchestrator.lifecycle import (  # noqa: E402
     GitFacts,
     IntegrationMethod,
+    JournalError,
     Kernel,
     LifecycleError,
     LifecycleStore,
@@ -225,9 +226,14 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--task-id", required=True)
     r.add_argument("--revision", type=int, required=True)
     r.add_argument("--note", required=True)
-    r.add_argument("--owner-resolution", default=None,
-                   help="an owner gate needs the owner's decision, or where it is recorded")
-    r.add_argument("--resolved-by", default=None, help="the owner principal who resolved the gate")
+    r.add_argument("--owner-judgment", default=None,
+                   help="an owner gate is lifted only by this judgment id from the owner's ledger")
+    r.add_argument("--owner-ledger", default=None,
+                   help="the owner's ledger (JSON lines of judgments); read, never written, by the kernel")
+
+    g = sub.add_parser("gate", help="print the owner gate as the proposal an owner judgment must be about")
+    g.add_argument("--task-id", required=True)
+    g.add_argument("--revision", type=int, required=True)
 
     w = sub.add_parser("view", help="print what the records say")
     w.add_argument("--json", action="store_true")
@@ -309,8 +315,11 @@ def run(argv: list[str] | None = None) -> int:
                                reason=args.reason, owner_gate=args.owner_gate).model_dump(mode="json")
         elif args.verb == "resume":
             out = kernel.resume(args.task_id, args.revision, note=args.note,
-                                owner_resolution=args.owner_resolution,
-                                resolved_by=args.resolved_by).model_dump(mode="json")
+                                owner_judgment_id=args.owner_judgment,
+                                owner_ledger_path=args.owner_ledger).model_dump(mode="json")
+        elif args.verb == "gate":
+            print(json.dumps(kernel.gate_proposal(args.task_id, args.revision), indent=2, sort_keys=True))
+            return 0
         elif args.verb == "view":
             view = lifecycle_view(store, now=datetime.now(UTC))
             if args.json:
@@ -325,13 +334,16 @@ def run(argv: list[str] | None = None) -> int:
                     if task["integration"]:
                         print(f"    integrated {task['integration']['sha']} into {task['integration']['target_branch']} at {task['integration']['at']}")
                     for r in task.get("owner_resolutions", []):
-                        print(f"    owner gate resolved by {r['by']} at {r['at']}: {r['resolution']}")
+                        print(f"    owner gate lifted by judgment {r['judgment_id']} of {r['by']} at {r['at']}: {r['resolution']}")
             return 0
         else:  # pragma: no cover
             raise SystemExit(f"unknown verb {args.verb}")
     except (LifecycleError, RecordConflictError, StateConflictError, ValueError) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2
+    except JournalError as exc:
+        print(f"JOURNAL FAILED: {exc}; the verb's writes were rolled back, files and index", file=sys.stderr)
+        return 3
     summary = {"verb": args.verb, "record": out}
     if kernel.journal_shas:
         summary["journal_commit"] = kernel.journal_shas[-1]

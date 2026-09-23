@@ -6,6 +6,7 @@ clock, so the only things under test are the records, the fences and the order.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ from pathlib import Path
 import pytest
 
 import app.orchestrator.lifecycle as lifecycle_module
+from app.actions.judgment import JudgmentRecord, OwnerDecision, OwnerProvenance, ReasonCode
 from app.orchestrator.contracts import (
     BlockerClass,
     EngineeringTask,
@@ -24,13 +26,16 @@ from app.orchestrator.contracts import (
 from app.orchestrator.lifecycle import (
     Attempt,
     EventKind,
+    GitFacts,
     IntegrationMethod,
+    JournalError,
     Kernel,
     LifecycleError,
     LifecycleStore,
     PrincipalRegistry,
     StoreBusyError,
     VerdictOutcome,
+    judgment_to_dict,
     lifecycle_view,
 )
 from app.orchestrator.review_acceptance import ReviewVerdict
@@ -152,6 +157,41 @@ def to_review(kernel, clock, git, *, task_id: str = "t-1"):
 
 def state(kernel: Kernel) -> TaskStatus:
     return kernel.store.read_task_state("t-1", 1).status
+
+
+def owner_judgment(kernel: Kernel, task_id: str, revision: int, *, judgment_id="j-gate-1", principal="owner",
+                   session="owner-session-1", decision=OwnerDecision.APPROVED,
+                   reason=ReasonCode.ACCEPTED_AS_PROPOSED, proposal=None, task_revision=None,
+                   attempt_id="__the_gate__", explanation=None, corrects=None) -> JudgmentRecord:
+    """A judgment about the gate of (task_id, revision), or about whatever a test says instead."""
+    gate = proposal or kernel.gate_proposal(task_id, revision)
+    current = kernel.store.read_task_state(task_id, revision)
+    return JudgmentRecord(
+        judgment_id=judgment_id, task_id=task_id, action_id=f"resume:{task_id}:r{revision}",
+        proposal_id=gate["proposal_id"], proposal_fingerprint=gate["proposal_fingerprint"],
+        decision=decision, reason_code=reason,
+        provenance=OwnerProvenance(principal_id=principal, session_id=session, source="owner-ui"),
+        decided_at=T0, task_revision=revision if task_revision is None else task_revision,
+        attempt_id=current.attempt_id if attempt_id == "__the_gate__" else attempt_id,
+        redacted_explanation=explanation, corrects_judgment_id=corrects,
+    )
+
+
+def owner_ledger(path: Path, *records: JudgmentRecord) -> str:
+    """Write the owner's ledger file (JSON lines) and return the path as the kernel takes it."""
+    path.write_text("".join(json.dumps(judgment_to_dict(r)) + "\n" for r in records), encoding="utf-8")
+    return str(path)
+
+
+def git_repo(path: Path) -> Path:
+    subprocess.run(["git", "init", "-q", "--initial-branch=main", str(path)], check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=path, check=True)
+    return path
+
+
+def git_out(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True).stdout.strip()
 
 
 # ----------------------------------------------------------------- tasks
@@ -551,20 +591,23 @@ def test_complete_needs_every_record_and_a_bare_done_state_is_unknown(kernel, cl
 # ------------------------------------------------------- block/resume
 
 
-def test_block_and_resume_recompute_the_stage_from_the_records(kernel, clock, git):
+def test_block_and_resume_recompute_the_stage_from_the_records(kernel, clock, git, tmp_path):
     attempt = to_candidate(kernel, clock, git)
     kernel.block("t-1", 1, blocker_class=BlockerClass.OWNER_ONLY, reason="needs the owner", owner_gate=True)
     runtime = kernel.store.read_task_state("t-1", 1)
     assert runtime.status is TaskStatus.OWNER_GATE and runtime.owner_gate and runtime.attempt_id == attempt.attempt_id
     with pytest.raises(LifecycleError, match="needs one of"):
         kernel.dispatch_review(attempt.attempt_id, reviewer_principal_id="gpt", packet=b"p", current_head=CAND)
-    kernel.resume("t-1", 1, note="owner answered", owner_resolution="owner message 5: proceed with the fixture", resolved_by="owner")
+    ledger = owner_ledger(tmp_path / "owner-judgments.jsonl",
+                          owner_judgment(kernel, "t-1", 1, explanation="owner message 5: proceed with the fixture"))
+    kernel.resume("t-1", 1, note="owner answered", owner_judgment_id="j-gate-1", owner_ledger_path=ledger)
     assert state(kernel) is TaskStatus.EVIDENCE_READY  # a candidate exists, no dispatch yet
     resolution = kernel.store.read_owner_resolutions("t-1", 1)[0]
     assert (resolution.resolved_by, resolution.gate_reason) == ("owner", "needs the owner")
     projected = lifecycle_view(kernel.store, now=clock())["tasks"][0]
     assert projected["owner_resolutions"][0]["resolution"] == "owner message 5: proceed with the fixture"
-    assert projected["history"][-1]["note"].startswith("owner gate resolved by owner")
+    assert projected["owner_resolutions"][0]["judgment_id"] == "j-gate-1"
+    assert projected["history"][-1]["note"].startswith("owner gate lifted by judgment j-gate-1 of owner")
     with pytest.raises(LifecycleError, match="needs a blocker class"):
         kernel.block("t-1", 1, blocker_class=BlockerClass.NONE, reason="x")
 
@@ -597,7 +640,7 @@ def test_a_rejected_candidate_stays_rejected_across_block_and_resume(kernel, clo
     assert kernel.store.read_task_state("t-2", 1).status is TaskStatus.ACCEPTED
 
 
-def test_a_revision_cannot_supersede_an_owner_gate_without_the_owners_recorded_resolution(kernel, clock, git):
+def test_a_revision_cannot_supersede_an_owner_gate_without_the_owners_recorded_resolution(kernel, clock, git, tmp_path):
     """K-02. OWNER_GATE r1 -> create r2 -> refused, r1 unchanged. Only the owner's recorded
     resolution lifts the gate; then the live attempt is cancelled; only then does r2 supersede r1."""
     attempt = to_candidate(kernel, clock, git)
@@ -608,12 +651,14 @@ def test_a_revision_cannot_supersede_an_owner_gate_without_the_owners_recorded_r
         kernel.create_task(task(revision=2, base_sha=CAND))
     assert state_path.read_bytes() == before
     assert kernel.store.read_task("t-1", 2) is None and kernel.store.read_task_state("t-1", 2) is None
-    with pytest.raises(LifecycleError, match="owner's recorded resolution"):
+    with pytest.raises(LifecycleError, match="owner judgment the kernel can verify"):
         kernel.resume("t-1", 1, note="lifting")
+    ledger = owner_ledger(tmp_path / "l.jsonl", owner_judgment(kernel, "t-1", 1, principal="gpt", session="gpt-s"))
     with pytest.raises(LifecycleError, match="not a registered owner principal"):
-        kernel.resume("t-1", 1, note="lifting", owner_resolution="I decided", resolved_by="gpt")
+        kernel.resume("t-1", 1, note="lifting", owner_judgment_id="j-gate-1", owner_ledger_path=ledger)
     assert state_path.read_bytes() == before and kernel.store.read_owner_resolutions("t-1", 1) == ()
-    kernel.resume("t-1", 1, note="lifting", owner_resolution="owner message 5: use the fixture", resolved_by="owner")
+    ledger = owner_ledger(tmp_path / "l.jsonl", owner_judgment(kernel, "t-1", 1, explanation="owner message 5: use the fixture"))
+    kernel.resume("t-1", 1, note="lifting", owner_judgment_id="j-gate-1", owner_ledger_path=ledger)
     assert kernel.store.read_owner_resolutions("t-1", 1)[0].resolution == "owner message 5: use the fixture"
     assert state(kernel) is TaskStatus.EVIDENCE_READY
     with pytest.raises(LifecycleError, match="live attempt"):
@@ -626,6 +671,147 @@ def test_a_revision_cannot_supersede_an_owner_gate_without_the_owners_recorded_r
     kernel.block("t-3", 1, blocker_class=BlockerClass.DETERMINISTIC, reason="base has the age-days defect")
     kernel.create_task(task(task_id="t-3", revision=2, base_sha=CAND))
     assert kernel.store.read_task_state("t-3", 1).status is TaskStatus.OBSOLETE
+
+
+def test_an_owner_gate_is_lifted_only_by_an_owner_judgment_bound_to_the_gate(kernel, clock, git, tmp_path):
+    """K-07. Naming the owner is not the owner. The gate lifts only for an effective APPROVED
+    judgment, in the owner's ledger, by an owner-role principal in a named session, about
+    exactly this gate (proposal id and fingerprint), for this task, revision and attempt."""
+    to_candidate(kernel, clock, git)
+    kernel.block("t-1", 1, blocker_class=BlockerClass.OWNER_ONLY, reason="the owner must decide the fixture", owner_gate=True)
+    gate = kernel.gate_proposal("t-1", 1)
+    assert gate["proposal_id"] == "owner-gate:t-1:r1:t4" and gate["payload"]["blocker_reason"] == "the owner must decide the fixture"
+    state_path = kernel.store.task_states_dir / "t-1.r1.json"
+    before = state_path.read_bytes()
+    ledger_path = tmp_path / "owner-judgments.jsonl"
+
+    def refused(match: str, judgment_id: str = "j-gate-1", *records: JudgmentRecord) -> None:
+        ledger = owner_ledger(ledger_path, *records) if records else str(ledger_path)
+        with pytest.raises(LifecycleError, match=match):
+            kernel.resume("t-1", 1, note="lifting", owner_judgment_id=judgment_id, owner_ledger_path=ledger)
+        assert state_path.read_bytes() == before
+        assert kernel.store.read_owner_resolutions("t-1", 1) == ()
+
+    with pytest.raises(LifecycleError, match="owner judgment the kernel can verify"):
+        kernel.resume("t-1", 1, note="lifting")
+    refused("cannot be read")  # no ledger file at all
+    refused("not a registered owner principal", "j-gate-1", owner_judgment(kernel, "t-1", 1, principal="claude", session="claude-s"))
+    refused("is not in the owner ledger", "j-someone-elses", owner_judgment(kernel, "t-1", 1))
+    refused("not this gate", "j-gate-1", owner_judgment(kernel, "t-1", 1, task_revision=2))
+    refused("not this gate", "j-gate-1", owner_judgment(kernel, "t-1", 1, attempt_id="t-1-a9"))
+    refused("not this gate", "j-gate-1", owner_judgment(kernel, "t-1", 1, proposal={**gate, "proposal_fingerprint": "0" * 64}))
+    refused("not this gate", "j-gate-1", owner_judgment(kernel, "t-1", 1, proposal={**gate, "proposal_id": "owner-gate:t-1:r1:t3"}))
+    refused("the gate stays", "j-gate-1", owner_judgment(kernel, "t-1", 1, decision=OwnerDecision.DECLINED, reason=ReasonCode.NOT_NOW))
+    approved = owner_judgment(kernel, "t-1", 1, judgment_id="j-first")
+    withdrawn = owner_judgment(kernel, "t-1", 1, judgment_id="j-second", decision=OwnerDecision.DECLINED,
+                               reason=ReasonCode.RISK_TOO_HIGH, corrects="j-first")
+    refused("was corrected by 'j-second'", "j-first", approved, withdrawn)
+    refused("the gate stays", "j-second", approved, withdrawn)
+    (tmp_path / "bad.jsonl").write_text('{"judgment_id": "x"}\n')
+    with pytest.raises(LifecycleError, match="not a valid judgment"):
+        kernel.resume("t-1", 1, note="lifting", owner_judgment_id="x", owner_ledger_path=str(tmp_path / "bad.jsonl"))
+
+    ledger = owner_ledger(ledger_path, owner_judgment(kernel, "t-1", 1, explanation="proceed with the fixture"))
+    kernel.resume("t-1", 1, note="lifting", owner_judgment_id="j-gate-1", owner_ledger_path=ledger)
+    resolution = kernel.store.read_owner_resolutions("t-1", 1)[0]
+    assert (resolution.judgment_id, resolution.resolved_by, resolution.owner_session_id) == ("j-gate-1", "owner", "owner-session-1")
+    assert resolution.ledger_sha256 == hashlib.sha256(ledger_path.read_bytes()).hexdigest()
+    assert (resolution.proposal_id, resolution.proposal_fingerprint) == (gate["proposal_id"], gate["proposal_fingerprint"])
+    assert resolution.decision == "APPROVED" and resolution.resolution == "proceed with the fixture"
+    assert state(kernel) is TaskStatus.EVIDENCE_READY
+    with pytest.raises(LifecycleError, match="not owner-gated"):
+        kernel.gate_proposal("t-1", 1)
+
+
+def test_a_move_out_of_scope_is_seen_in_a_real_repository(tmp_path, clock):
+    """K-06. A candidate that moves forbidden/secret.txt to allowed/secret.txt: git's rename
+    detection would report only the destination; the kernel records both paths, and the scope
+    gate refuses the dispatch because forbidden/ was touched."""
+    repo = git_repo(tmp_path / "code")
+    (repo / "forbidden").mkdir()
+    (repo / "forbidden" / "secret.txt").write_text("the same bytes before and after\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
+    base = git_out(repo, "rev-parse", "HEAD")
+    (repo / "allowed").mkdir()
+    subprocess.run(["git", "mv", "forbidden/secret.txt", "allowed/secret.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "move"], cwd=repo, check=True)
+    candidate = git_out(repo, "rev-parse", "HEAD")
+    collapsed = git_out(repo, "diff", "--name-only", base, candidate).splitlines()
+    assert "allowed/secret.txt" in collapsed  # what the old derivation saw; with rename detection it is all it saw
+    facts = GitFacts(repo)
+    assert facts.changed_paths(base, candidate) == ("allowed/secret.txt", "forbidden/secret.txt")
+
+    kernel = Kernel(LifecycleStore(tmp_path / "engineering"), REGISTRY, facts, clock=clock, journal=False)
+    kernel.create_task(task(base_sha=base, product_memory_sha=base, target_branch="main", allowed_paths=("allowed",)))
+    attempt = kernel.assign("t-1", 1, worker_id="w1", worker=party("claude", "s", "/w", base))
+    kernel.acknowledge(attempt.attempt_id, token=1, base_sha=base)
+    kernel.record_evidence(attempt.attempt_id, token=1, name="pytest", payload=b"ok")
+    with pytest.raises(LifecycleError, match="omitted: forbidden/secret.txt"):
+        kernel.record_candidate(attempt.attempt_id, token=1, sha=candidate, changed_paths=("allowed/secret.txt",),
+                                evidence_satisfied=("pytest",), clean_worktree=True)
+    result = kernel.record_candidate(attempt.attempt_id, token=1, sha=candidate, evidence_satisfied=("pytest",), clean_worktree=True)
+    assert result.changed_paths == ("allowed/secret.txt", "forbidden/secret.txt")
+    with pytest.raises(LifecycleError, match="outside task scope: forbidden/secret.txt"):
+        kernel.dispatch_review(attempt.attempt_id, reviewer_principal_id="gpt", packet=b"p", current_head=candidate)
+    assert kernel.store.read_task_state("t-1", 1).status is TaskStatus.EVIDENCE_READY
+    assert kernel.store.read_dispatches("t-1", attempt.attempt_id) == ()
+
+
+def test_a_journal_commit_failure_after_staging_leaves_tree_index_and_head_as_before(tmp_path, clock, git):
+    """K-08. The commit fails after git add (a pre-commit hook refuses). The verb is refused, and
+    the working tree, the index and HEAD are exactly what they were before it: nothing attempted
+    is on disk and nothing attempted is staged."""
+    repo = git_repo(tmp_path / "state")
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=repo, check=True)
+    kernel = Kernel(LifecycleStore(repo / "engineering"), REGISTRY, git, operator="tests", clock=clock, journal=True)
+    kernel.create_task(task())
+    attempt = kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR)
+    head_before = git_out(repo, "rev-parse", "HEAD")
+    assert git_out(repo, "status", "--porcelain") == ""
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    with pytest.raises(JournalError, match="git commit failed"):
+        kernel.acknowledge(attempt.attempt_id, token=1, base_sha=BASE)
+    assert git_out(repo, "status", "--porcelain") == ""  # working tree as before
+    assert git_out(repo, "diff", "--cached", "--name-only") == ""  # index as before: nothing staged
+    assert git_out(repo, "rev-parse", "HEAD") == head_before
+    assert kernel.store.read_task_state("t-1", 1).status is TaskStatus.ASSIGNED
+    assert [e.kind for e in kernel.store.read_events("t-1", attempt.attempt_id)] == [EventKind.OPENED]
+    hook.unlink()
+    kernel.acknowledge(attempt.attempt_id, token=1, base_sha=BASE)
+    assert git_out(repo, "rev-parse", "HEAD") != head_before and git_out(repo, "status", "--porcelain") == ""
+    assert kernel.store.read_task_state("t-1", 1).status is TaskStatus.RUNNING
+
+
+def test_a_superseded_or_withdrawn_integration_candidate_acceptance_cannot_complete_a_merge(kernel, clock, git):
+    """K-09. The integration candidate's acceptance is history once its revision is withdrawn
+    (blocked) or superseded (r2); history authorises nothing."""
+    attempt = to_review(kernel, clock, git)
+    kernel.admit_verdict(attempt.attempt_id, reviewer=REVIEWER, verdict=ReviewVerdict.READY, payload=b"READY",
+                         observed_candidate_sha=CAND, current_head=CAND)
+    git.heads["work"] = MERGED
+    kernel.create_task(task(task_id="t-1-integration", kind=TaskKind.INTEGRATION, objective="land t-1 on work", base_sha=BASE))
+    merge = kernel.assign("t-1-integration", 1, worker_id="w1", worker=AUTHOR)
+    kernel.acknowledge(merge.attempt_id, token=1, base_sha=BASE)
+    kernel.record_evidence(merge.attempt_id, token=1, name="pytest", payload=b"ok")
+    kernel.record_candidate(merge.attempt_id, token=1, sha=MERGED, evidence_satisfied=("pytest",), clean_worktree=True)
+    kernel.dispatch_review(merge.attempt_id, reviewer_principal_id="gpt", packet=b"packet", current_head=MERGED)
+    kernel.admit_verdict(merge.attempt_id, reviewer=party("gpt", "s-m", "/w/m", MERGED, read_only=True), verdict=ReviewVerdict.READY,
+                         payload=b"READY at M", observed_candidate_sha=MERGED, current_head=MERGED)
+    assert len(kernel.store.read_acceptances("t-1-integration")) == 1
+    # withdrawn: a defect is found in the merge and its revision is blocked
+    kernel.block("t-1-integration", 1, blocker_class=BlockerClass.DETERMINISTIC, reason="defect found in the merge result")
+    with pytest.raises(LifecycleError, match="is blocked, not accepted or done"):
+        kernel.integrate("t-1", 1, integration_sha=MERGED, target_base_sha=BASE, method=IntegrationMethod.MERGE, integrated_by="tests")
+    # superseded: revision 2 replaces it; the r1 acceptance stays on disk, and is history
+    kernel.create_task(task(task_id="t-1-integration", revision=2, kind=TaskKind.INTEGRATION, objective="land t-1 on work, again", base_sha=BASE))
+    assert kernel.store.read_task_state("t-1-integration", 1).status is TaskStatus.OBSOLETE
+    assert len(kernel.store.read_acceptances("t-1-integration")) == 1
+    with pytest.raises(LifecycleError, match="superseded by revision 2; its acceptance is history"):
+        kernel.integrate("t-1", 1, integration_sha=MERGED, target_base_sha=BASE, method=IntegrationMethod.MERGE, integrated_by="tests")
+    assert state(kernel) is TaskStatus.ACCEPTED and kernel.store.read_integrations() == ()
 
 
 # ---------------------------------------------------- one writer, whole records

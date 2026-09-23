@@ -47,6 +47,14 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
+from ..actions.judgment import (
+    JudgmentRecord,
+    JudgmentValidationError,
+    OwnerDecision,
+    OwnerProvenance,
+    proposal_fingerprint,
+)
+from ..actions.judgment_ledger import JudgmentLedger, JudgmentLedgerError
 from .contracts import (
     BlockerClass,
     EngineeringResult,
@@ -80,6 +88,7 @@ __all__ = [
     "Integration",
     "IntegrationCandidateRef",
     "IntegrationMethod",
+    "JournalError",
     "Kernel",
     "LifecycleError",
     "LifecycleStore",
@@ -89,7 +98,9 @@ __all__ = [
     "StoreBusyError",
     "VerdictAdmission",
     "VerdictOutcome",
+    "judgment_to_dict",
     "lifecycle_view",
+    "load_judgment_ledger",
     "sha256_of",
 ]
 
@@ -113,6 +124,10 @@ class LifecycleError(ValueError):
 
 class StoreBusyError(LifecycleError):
     """Another kernel holds the store's writer lock. Nothing was written."""
+
+
+class JournalError(RuntimeError):
+    """The store's git journal could not commit. The verb's files and index were put back."""
 
 
 def _aware(value: datetime) -> datetime:
@@ -328,11 +343,14 @@ class Acceptance(StrictRecord):
 
 
 class OwnerResolution(StrictRecord):
-    """The owner's resolution of an owner gate: recorded from an owner principal, never made up.
+    """The owner's resolution of an owner gate, as the kernel verified it.
 
-    A gate is lifted only by this record. The kernel writes it when an owner
-    principal resolves the gate and refuses every other way round it, including a
-    new revision of the gated task.
+    A gate is lifted only by an owner judgment: a ``JudgmentRecord`` in the owner's
+    ledger, made by a principal registered with the owner role, in a named owner
+    session, about exactly this gate (the gate's proposal id and fingerprint), for
+    exactly this task, revision and attempt, with the decision APPROVED and not
+    corrected by a later entry. This record names that judgment and the ledger
+    bytes it was read from. Nothing typed at a prompt is authority here.
     """
 
     schema_version: Literal["clive.owner_resolution.v1"] = "clive.owner_resolution.v1"
@@ -340,7 +358,16 @@ class OwnerResolution(StrictRecord):
     task_revision: int = Field(ge=1)
     resolution_seq: int = Field(ge=1)
     gate_reason: str | None = Field(default=None, max_length=1000)
+    proposal_id: str = Field(min_length=1, max_length=300)
+    proposal_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    judgment_id: str = Field(min_length=1, max_length=200)
+    ledger_path: str = Field(min_length=1, max_length=500)
+    ledger_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     resolved_by: str = Field(min_length=1, max_length=200)
+    owner_session_id: str = Field(min_length=1, max_length=200)
+    owner_source: str | None = Field(default=None, max_length=200)
+    decision: str = Field(min_length=1, max_length=40)
+    reason_code: str = Field(min_length=1, max_length=60)
     resolution: str = Field(min_length=1, max_length=2000)
     resolved_at: datetime
     recorded_at: datetime
@@ -349,6 +376,73 @@ class OwnerResolution(StrictRecord):
     @classmethod
     def timezone_required(cls, value: datetime) -> datetime:
         return _aware(value)
+
+
+def judgment_to_dict(record: JudgmentRecord) -> dict:
+    """One ledger line: the owner layer's persisted form of a ``JudgmentRecord``."""
+    data = {
+        "judgment_id": record.judgment_id,
+        "task_id": record.task_id,
+        "action_id": record.action_id,
+        "proposal_id": record.proposal_id,
+        "proposal_fingerprint": record.proposal_fingerprint,
+        "decision": record.decision.value,
+        "reason_code": record.reason_code.value,
+        "provenance": {
+            "principal_id": record.provenance.principal_id,
+            "session_id": record.provenance.session_id,
+            "source": record.provenance.source,
+        },
+        "decided_at": record.decided_at.isoformat(),
+        "redaction_version": record.redaction_version,
+        "schema_version": record.schema_version,
+        "task_revision": record.task_revision,
+        "attempt_id": record.attempt_id,
+        "superseding_proposal_id": record.superseding_proposal_id,
+        "replacement_fingerprint": record.replacement_fingerprint,
+        "redacted_explanation": record.redacted_explanation,
+        "corrects_judgment_id": record.corrects_judgment_id,
+    }
+    return data
+
+
+def _judgment_from_dict(data: dict) -> JudgmentRecord:
+    fields = dict(data)
+    provenance = fields.pop("provenance")
+    fields["provenance"] = OwnerProvenance(
+        principal_id=provenance["principal_id"],
+        session_id=provenance["session_id"],
+        source=provenance.get("source"),
+    )
+    fields["decided_at"] = datetime.fromisoformat(str(fields["decided_at"]).replace("Z", "+00:00"))
+    return JudgmentRecord(**fields)
+
+
+def load_judgment_ledger(path: Path) -> tuple[JudgmentLedger, str]:
+    """Read the owner's ledger (JSON lines of judgments) and its digest; the kernel never writes it.
+
+    Every line is rebuilt as a ``JudgmentRecord`` (which validates itself) and
+    appended through ``JudgmentLedger.append`` (which enforces the ledger's own
+    invariants), so a ledger that would not have been accepted line by line is
+    refused whole.
+    """
+    try:
+        raw = Path(path).read_bytes()
+    except OSError as exc:
+        raise LifecycleError(f"owner ledger {path} cannot be read: {exc}") from exc
+    records: list[JudgmentRecord] = []
+    for number, line in enumerate(raw.decode("utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            records.append(_judgment_from_dict(json.loads(line)))
+        except (ValueError, KeyError, TypeError, JudgmentValidationError) as exc:
+            raise LifecycleError(f"owner ledger {path} line {number} is not a valid judgment: {exc}") from exc
+    try:
+        ledger = JudgmentLedger.from_records(records)
+    except (JudgmentLedgerError, JudgmentValidationError) as exc:
+        raise LifecycleError(f"owner ledger {path} violates the ledger's invariants: {exc}") from exc
+    return ledger, sha256_of(raw)
 
 
 class IntegrationMethod(StrEnum):
@@ -490,14 +584,40 @@ class GitFacts:
         return sha if len(sha) == 40 else None
 
     def changed_paths(self, base: str, head: str) -> tuple[str, ...] | None:
-        """Every path that differs between two commits, from the repository itself."""
+        """Every path that differs between two commits, from the repository itself.
+
+        Rename and copy detection is switched off, so a moved file is a deletion
+        of its source and an addition of its destination and both paths are in
+        the set; should git still report a rename or copy, both of its paths are
+        taken. A path that left the tree is as much a change as one that entered.
+        """
         proc = subprocess.run(
-            ["git", "diff", "--name-only", base, head],
+            ["git", "diff", "--name-status", "--no-renames", "-z", base, head],
             cwd=str(self.repo), capture_output=True, text=True, timeout=60,
         )
         if proc.returncode != 0:
             return None
-        return tuple(sorted(line for line in proc.stdout.splitlines() if line.strip()))
+        return tuple(sorted(_paths_from_name_status(proc.stdout)))
+
+
+def _paths_from_name_status(output: str) -> set[str]:
+    """Parse ``git diff --name-status -z``: a status then one path, or two for a rename or copy."""
+    tokens = output.split("\0")
+    paths: set[str] = set()
+    index = 0
+    while index < len(tokens):
+        status = tokens[index]
+        if not status:
+            index += 1
+            continue
+        if status[0] in "RC":
+            paths.update(t for t in tokens[index + 1 : index + 3] if t)
+            index += 3
+        else:
+            if index + 1 < len(tokens) and tokens[index + 1]:
+                paths.add(tokens[index + 1])
+            index += 2
+    return paths
 
 
 # ------------------------------------------------------------- the store
@@ -766,20 +886,33 @@ def git_journal(root: Path, message: str) -> str | None:
     if proc.returncode != 0:
         return None
     toplevel = proc.stdout.strip()
-    subprocess.run(["git", "add", "-A", "--", str(root)], cwd=toplevel, check=True)
-    staged = subprocess.run(
-        ["git", "diff", "--cached", "--quiet", "--", str(root)], cwd=toplevel
-    )
-    if staged.returncode == 0:
-        return None  # nothing changed; identical bytes were written
-    subprocess.run(
-        [
-            "git", "-c", "user.name=CLIVE kernel", "-c", "user.email=kernel@clive.invalid",
-            "commit", "-q", "-m", message,
-        ],
-        cwd=toplevel,
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["git", "add", "-A", "--", str(root)], cwd=toplevel, check=True, capture_output=True, text=True
+        )
+        staged = subprocess.run(
+            ["git", "diff", "--cached", "--quiet", "--", str(root)], cwd=toplevel
+        )
+        if staged.returncode == 0:
+            return None  # nothing changed; identical bytes were written
+        subprocess.run(
+            [
+                "git", "-c", "user.name=CLIVE kernel", "-c", "user.email=kernel@clive.invalid",
+                "commit", "-q", "-m", message,
+            ],
+            cwd=toplevel,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        # The index is inside the verb's rollback boundary: every entry under the
+        # store goes back to HEAD's before the caller restores the files, so an
+        # attempted record is neither on disk nor staged once the verb has failed.
+        subprocess.run(["git", "reset", "-q", "HEAD", "--", str(root)], cwd=toplevel, capture_output=True)
+        step = "add" if "add" in exc.cmd else "commit"
+        detail = (exc.stderr or exc.stdout or "").strip()[:300]
+        raise JournalError(f"git {step} failed in the store's journal: {detail or exc}") from exc
     out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=toplevel, capture_output=True, text=True)
     return out.stdout.strip()
 
@@ -1541,7 +1674,14 @@ class Kernel:
     def _accepted_integration_candidate(
         self, integration_sha: str, *, accepted_sha: str, target_base_sha: str
     ) -> IntegrationCandidateRef:
-        """The acceptance that makes a merge result reviewed, or a refusal naming what is missing."""
+        """The acceptance that makes a merge result reviewed, or a refusal naming what is missing.
+
+        The acceptance must still be authoritative: its revision the latest of its
+        task, its task ACCEPTED or DONE (not blocked, gated, obsolete or cancelled)
+        and its attempt the task's current one. A superseded or withdrawn candidate
+        keeps its acceptance record on disk as history, and history authorises
+        nothing, the same stale-revision rule the continuation policy applies.
+        """
         for acceptance in self.store.read_acceptances():
             if acceptance.accepted_sha != integration_sha:
                 continue
@@ -1552,6 +1692,24 @@ class Kernel:
                 raise LifecycleError(
                     f"the accepted integration candidate {acceptance.task_id} r{acceptance.task_revision} "
                     f"was built on {candidate_task.base_sha}, not on the target base {target_base_sha}"
+                )
+            who = f"integration candidate {acceptance.task_id} r{acceptance.task_revision}"
+            latest = self._latest_revision(acceptance.task_id)
+            if acceptance.task_revision != latest:
+                raise LifecycleError(
+                    f"{who} is superseded by revision {latest}; its acceptance is history and "
+                    "authorises nothing"
+                )
+            candidate_state = self.store.read_task_state(acceptance.task_id, acceptance.task_revision)
+            if candidate_state is None or candidate_state.status not in {TaskStatus.ACCEPTED, TaskStatus.DONE}:
+                status = candidate_state.status.value if candidate_state else "no state"
+                raise LifecycleError(
+                    f"{who} is {status}, not accepted or done; its acceptance is not currently authoritative"
+                )
+            if candidate_state.attempt_id != acceptance.attempt_id:
+                raise LifecycleError(
+                    f"{who} accepted attempt {acceptance.attempt_id} is not its current attempt "
+                    f"({candidate_state.attempt_id})"
                 )
             return IntegrationCandidateRef(
                 task_id=acceptance.task_id,
@@ -1601,33 +1759,99 @@ class Kernel:
         self._commit(f"{task_id} r{revision} {status.value}: {reason[:60]}")
         return nxt
 
+    def gate_proposal(self, task_id: str, revision: int) -> dict:
+        """The owner gate as a proposal: what an owner judgment must be about to lift it.
+
+        Read-only. The payload is the gated state itself (task, revision, attempt,
+        blocker class and reason, the transition that gated it and when), so a
+        judgment binds to this gate and to nothing else; the proposal id names the
+        gating transition and the fingerprint is the canonical digest of the payload.
+        """
+        state = self._state(task_id, revision)
+        if not _owner_gated(state):
+            raise LifecycleError(f"task {task_id} r{revision} is not owner-gated")
+        payload = {
+            "kind": "owner_gate",
+            "task_id": task_id,
+            "task_revision": revision,
+            "attempt_id": state.attempt_id,
+            "blocker_class": state.blocker_class.value,
+            "blocker_reason": state.blocker_reason,
+            "gated_transition_seq": state.transition_seq,
+            "gated_at": _iso(state.updated_at),
+        }
+        return {
+            "proposal_id": f"owner-gate:{task_id}:r{revision}:t{state.transition_seq}",
+            "proposal_fingerprint": proposal_fingerprint(payload),
+            "payload": payload,
+        }
+
+    def _verified_owner_judgment(
+        self, state: TaskRuntimeState, task_id: str, revision: int, judgment_id: str | None, ledger_path: str | None
+    ) -> tuple[JudgmentRecord, str, dict]:
+        """The owner judgment that lifts this gate, or the refusal that says why none does."""
+        if not judgment_id or not ledger_path:
+            raise LifecycleError(
+                f"task {task_id} r{revision} is owner-gated ({state.blocker_reason}); the gate is lifted only "
+                "by an owner judgment the kernel can verify: pass --owner-judgment <id> --owner-ledger <path>"
+            )
+        ledger, digest = load_judgment_ledger(Path(ledger_path))
+        judgment = ledger.by_id(judgment_id)
+        if judgment is None:
+            raise LifecycleError(f"judgment {judgment_id!r} is not in the owner ledger {ledger_path}")
+        correction = ledger.correction_of(judgment_id)
+        if correction is not None:
+            raise LifecycleError(
+                f"judgment {judgment_id!r} was corrected by {correction.judgment_id!r}; only the effective "
+                "judgment can lift the gate"
+            )
+        principal = judgment.provenance.principal_id
+        if not self.registry.is_owner(principal):
+            raise LifecycleError(
+                f"judgment {judgment_id!r} was made by {principal!r}, which is not a registered owner "
+                "principal; naming the owner is not the owner"
+            )
+        proposal = self.gate_proposal(task_id, revision)
+        if (judgment.task_id, judgment.task_revision, judgment.attempt_id) != (task_id, revision, state.attempt_id):
+            raise LifecycleError(
+                f"judgment {judgment_id!r} judges task {judgment.task_id!r} r{judgment.task_revision} attempt "
+                f"{judgment.attempt_id!r}, not this gate ({task_id} r{revision} attempt {state.attempt_id!r})"
+            )
+        if judgment.proposal_id != proposal["proposal_id"] or judgment.proposal_fingerprint != proposal["proposal_fingerprint"]:
+            raise LifecycleError(
+                f"judgment {judgment_id!r} judges proposal {judgment.proposal_id!r} "
+                f"({judgment.proposal_fingerprint[:12]}), not this gate ({proposal['proposal_id']}, "
+                f"{proposal['proposal_fingerprint'][:12]})"
+            )
+        if judgment.decision is not OwnerDecision.APPROVED:
+            raise LifecycleError(
+                f"the owner's judgment {judgment_id!r} is {judgment.decision.value} "
+                f"({judgment.reason_code.value}); the gate stays"
+            )
+        return judgment, digest, proposal
+
     @_verb
-    def resume(self, task_id: str, revision: int, *, note: str, owner_resolution: str | None = None,
-               resolved_by: str | None = None, at: datetime | None = None) -> TaskRuntimeState:
+    def resume(self, task_id: str, revision: int, *, note: str, owner_judgment_id: str | None = None,
+               owner_ledger_path: str | None = None, at: datetime | None = None) -> TaskRuntimeState:
         """Lift a block or gate; the stage is recomputed from the records, not remembered.
 
-        An owner gate is lifted only by the owner's recorded resolution: ``resolved_by``
-        must be a principal registered with the owner role, ``owner_resolution`` says
-        what was decided or where that decision lives, and both go into an immutable
-        ``OwnerResolution`` record before the stage moves. The kernel writes that
-        record; it cannot produce it.
+        An owner gate is lifted only by an owner judgment: an entry of the owner's
+        ledger that an owner-role principal made in a named session about exactly
+        this gate (``gate_proposal``), for this task, revision and attempt, APPROVED
+        and uncorrected. The kernel verifies that binding and records it as an
+        ``OwnerResolution`` before the stage moves. It reads the ledger; it never
+        writes it, and nothing passed on the command line is authority by itself.
         """
         state = self._state(task_id, revision)
         if state.status not in {TaskStatus.BLOCKED, TaskStatus.OWNER_GATE}:
             raise LifecycleError(f"task {task_id} r{revision} is not blocked or gated")
         when, recorded = self._when(at, False, None)
         gated = _owner_gated(state)
+        judgment = digest = proposal = None
         if gated:
-            if not owner_resolution or not resolved_by:
-                raise LifecycleError(
-                    f"task {task_id} r{revision} is owner-gated ({state.blocker_reason}); the gate is lifted "
-                    "only by the owner's recorded resolution: pass --owner-resolution and --resolved-by"
-                )
-            if not self.registry.is_owner(resolved_by):
-                raise LifecycleError(
-                    f"{resolved_by!r} is not a registered owner principal; the kernel records owner "
-                    "authority, it cannot manufacture it"
-                )
+            judgment, digest, proposal = self._verified_owner_judgment(
+                state, task_id, revision, owner_judgment_id, owner_ledger_path
+            )
         status = TaskStatus.READY
         attempt = None
         if state.attempt_id:
@@ -1642,14 +1866,26 @@ class Kernel:
                     task_revision=revision,
                     resolution_seq=len(existing) + 1,
                     gate_reason=state.blocker_reason,
-                    resolved_by=resolved_by,
-                    resolution=owner_resolution,
-                    resolved_at=when,
+                    proposal_id=proposal["proposal_id"],
+                    proposal_fingerprint=proposal["proposal_fingerprint"],
+                    judgment_id=judgment.judgment_id,
+                    ledger_path=str(owner_ledger_path),
+                    ledger_sha256=digest,
+                    resolved_by=judgment.provenance.principal_id,
+                    owner_session_id=judgment.provenance.session_id,
+                    owner_source=judgment.provenance.source,
+                    decision=judgment.decision.value,
+                    reason_code=judgment.reason_code.value,
+                    resolution=judgment.redacted_explanation or f"{judgment.decision.value} ({judgment.reason_code.value})",
+                    resolved_at=_aware(judgment.decided_at),
                     recorded_at=recorded,
                 )
             )
         if attempt is not None:
-            text = note if not gated else f"owner gate resolved by {resolved_by}: {owner_resolution} | {note}"
+            text = note if not gated else (
+                f"owner gate lifted by judgment {judgment.judgment_id} of {judgment.provenance.principal_id} "
+                f"(session {judgment.provenance.session_id}): {judgment.decision.value} | {note}"
+            )
             self._event(attempt, EventKind.RESUMED, when, recorded, note=text[:1000])
         nxt = self._transition(state, status=status, blocker_class=BlockerClass.NONE,
                                blocker_reason=None, owner_gate=False)
@@ -1825,7 +2061,8 @@ def lifecycle_view(store: LifecycleStore, *, now: datetime) -> dict:
             "owner_gate": state.owner_gate,
             "owner_resolutions": [
                 {"seq": r.resolution_seq, "by": r.resolved_by, "resolution": r.resolution,
-                 "gate_reason": r.gate_reason, "at": _iso(r.resolved_at)}
+                 "gate_reason": r.gate_reason, "at": _iso(r.resolved_at), "judgment_id": r.judgment_id,
+                 "owner_session_id": r.owner_session_id, "decision": r.decision, "proposal_id": r.proposal_id}
                 for r in store.read_owner_resolutions(task.task_id, task.revision)
             ],
             "last_transition_at": _iso(state.updated_at),
