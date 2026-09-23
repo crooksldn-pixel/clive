@@ -355,3 +355,24 @@ def test_cli_exposes_long_lived_run_without_any_deploy_verb():
     assert parsed.verb == "run"
     with pytest.raises(SystemExit):
         parser.parse_args(["--store", "x", "--repo", "y", "deploy"])
+
+
+def test_run_refuses_to_publish_status_over_owner_inbox(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_kernel_parts", lambda args: (
+        LifecycleStore(Path(args.store)),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        ReceiptLog(Path(args.store) / "remote_engineering"),
+    ))
+    rc = cli.run([
+        "--store", "/tmp/remote-engineering-test-store",
+        "--repo", "/tmp/remote-engineering-test-repo",
+        "run",
+        "--repository", "crooksldn-pixel/clive",
+        "--product-memory-ref", "main",
+        "--branch", DEFAULT_INBOX_BRANCH,
+        "--status-branch", DEFAULT_INBOX_BRANCH,
+        "--max-cycles", "1",
+    ])
+    assert rc == 2
+    assert "status branch must be separate" in capsys.readouterr().err
