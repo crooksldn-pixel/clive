@@ -119,7 +119,7 @@ def test_valid_request_becomes_exactly_one_objective_and_task(env, tmp_path):
 
 
 def test_replay_is_idempotent(env, tmp_path):
-    commit_request(env.origin, "r1", valid_request(env, request_id="r1"))
+    commit_request(env.origin, "r1a", valid_request(env, request_id="r1a"))
     kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
     first = controller.poll_once()
     second = controller.poll_once()
@@ -128,25 +128,25 @@ def test_replay_is_idempotent(env, tmp_path):
 
 
 def test_same_id_different_content_is_refused(env, tmp_path):
-    commit_request(env.origin, "r2", valid_request(env, request_id="r2"))
+    commit_request(env.origin, "r2a", valid_request(env, request_id="r2a"))
     _kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
     controller.poll_once()
-    commit_request(env.origin, "r2", valid_request(env, request_id="r2", requested_outcome="Something else."))
+    commit_request(env.origin, "r2a", valid_request(env, request_id="r2a", requested_outcome="Something else."))
     with pytest.raises(InboxError):
         controller.poll_once()
-    assert objectives.read("r2").requested_outcome.startswith("Show unanswered")
+    assert objectives.read("r2a").requested_outcome.startswith("Show unanswered")
 
 
 def test_protected_scope_is_refused_by_canonical_validation(env, tmp_path):
-    commit_request(env.origin, "r3", valid_request(
-        env, request_id="r3", allowed_paths=["crooks-assistant/app/orchestrator/lifecycle.py"]
+    commit_request(env.origin, "r3a", valid_request(
+        env, request_id="r3a", allowed_paths=["crooks-assistant/app/orchestrator/lifecycle.py"]
     ))
     kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
     assert outcomes[0]["outcome"] == "refused"
     assert "no objective may put in scope" in outcomes[0]["reason"]
-    assert objectives.read("r3") is None
-    assert kernel.store.read_task("r3", 1) is None
+    assert objectives.read("r3a") is None
+    assert kernel.store.read_task("r3a", 1) is None
 
 
 def test_malformed_schema_fails_closed(env, tmp_path):
@@ -158,13 +158,13 @@ def test_malformed_schema_fails_closed(env, tmp_path):
 
 
 def test_unknown_field_is_refused_not_executed(env, tmp_path):
-    payload = valid_request(env, request_id="r4")
+    payload = valid_request(env, request_id="r4a")
     payload["shell"] = "rm -rf /"
-    commit_request(env.origin, "r4", payload)
+    commit_request(env.origin, "r4a", payload)
     _kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
     assert outcomes[0]["outcome"] == "refused"
-    assert objectives.read("r4") is None
+    assert objectives.read("r4a") is None
 
 
 def test_check_argv_is_never_shell_parsed(env, tmp_path):
@@ -176,12 +176,12 @@ def test_check_argv_is_never_shell_parsed(env, tmp_path):
 
 
 def test_owner_gate_cannot_be_lifted_by_replay(env, tmp_path):
-    commit_request(env.origin, "r5", valid_request(env, request_id="r5"))
+    commit_request(env.origin, "r5a", valid_request(env, request_id="r5a"))
     kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
     controller.poll_once()
-    kernel.block("r5", 1, blocker_class=BlockerClass.OWNER_ONLY, reason="needs owner", owner_gate=True)
+    kernel.block("r5a", 1, blocker_class=BlockerClass.OWNER_ONLY, reason="needs owner", owner_gate=True)
     controller.poll_once()
-    assert kernel.store.read_task_state("r5", 1).status is TaskStatus.OWNER_GATE
+    assert kernel.store.read_task_state("r5a", 1).status is TaskStatus.OWNER_GATE
 
 
 def test_owner_gate_cannot_be_lifted_even_if_the_receipt_is_lost(env, tmp_path):
@@ -200,7 +200,7 @@ def test_controller_exposes_no_verb_that_could_advance_or_resolve_lifecycle(env)
 
 
 def test_restart_and_repoll_do_not_duplicate(env, tmp_path):
-    commit_request(env.origin, "r6", valid_request(env, request_id="r6"))
+    commit_request(env.origin, "r6a", valid_request(env, request_id="r6a"))
     _kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
     controller.poll_once()
     kernel2, _objectives2, _receipts2, controller2 = make_controller(env, tmp_path)
@@ -210,21 +210,21 @@ def test_restart_and_repoll_do_not_duplicate(env, tmp_path):
 
 
 def test_status_is_a_projection_of_existing_records(env, tmp_path):
-    commit_request(env.origin, "r7", valid_request(env, request_id="r7"))
+    commit_request(env.origin, "r7a", valid_request(env, request_id="r7a"))
     kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
     controller.poll_once()
     status = build_status(store=kernel.store, receipts=receipts, now=NOW)
     item = status["requests"][0]
-    assert item["objective_id"] == "r7" and item["task_id"] == "r7"
+    assert item["objective_id"] == "r7a" and item["task_id"] == "r7a"
     assert item["stage"] == "READY"
     assert item["owner_gate"] is False
 
 
 def test_credential_like_extra_field_never_enters_output(env, tmp_path):
     secret = "sk-supersecrettoken1234567890"
-    payload = valid_request(env, request_id="r8")
+    payload = valid_request(env, request_id="r8a")
     payload["api_key"] = secret
-    commit_request(env.origin, "r8", payload)
+    commit_request(env.origin, "r8a", payload)
     kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
     assert secret not in json.dumps(outcomes)
