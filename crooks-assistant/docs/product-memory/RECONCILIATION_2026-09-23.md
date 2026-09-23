@@ -504,7 +504,8 @@ This section is the same-day current checkpoint. Earlier sections remain rationa
 - The first resume after fixing authentication re-blocked immediately because the old transient cancellations still counted against the revision retry budget. A local owner-side ceiling increase from 3 to 6 is being used only to let the already-authorised streams finish. This is technical debt and must not be mistaken for the canonical retry design.
 - Two engineering objectives then ran simultaneously under separate isolated processes. Both subsequently completed after GPT-requested repair revision 3: `derived-truth-attention-v1` accepted `cc5b6751fcff91f7ae34252c05da38560fc066e2`; `engineering-team-activation-v1` accepted `e41e80b4153c5bca7e245b50e6ab7f899d6dd1ad`; `mobile-dogfood-voice-v1` remains COMPLETE at `2bd139577a3d5505c4ef221184636dfe27647e31`.
 - The dispatcher then exited because all tracked objectives were terminal; this is expected for the current controller loop.
-- Those A/B accepted SHAs are presently host-local integrations. GitHub still reports older remote heads for the two objective branches, so publication of the accepted A/B refs remains a distinct next step before a GitHub-backed release candidate can consume them. They are not deployed.
+- The accepted A/B refs were subsequently published exact-SHA to GitHub, and the temporary host retry-ceiling override was restored from 6 to the canonical 3.
+- Release reconciliation must preserve two lineages instead of forcing a premature mega-merge: product alpha = `ca388ce...` + Mobile Dogfood Voice `2bd13957...` + Derived Truth + Attention `cc5b6751...`; engineering control plane = dispatcher `c566a955...` + Engineering Team Activation `e41e80b4...`. The latter diverges from the mobile-alpha line and should be integrated/tested independently before any combined deployment package is considered.
 
 ### Freeze versus what exists now
 
