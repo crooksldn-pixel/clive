@@ -155,6 +155,18 @@ class Objective(StrictRecord):
     max_repair_rounds: int = Field(default=2, ge=0, le=5)
     owner: OwnerEntry
     created_at: datetime
+    # Who builds it: a Claude builder, or CLIVE's deterministic integrator merging the exact
+    # accepted SHAs in ``integrates`` (workers/integrator.py). Both go through the same review.
+    builder: Literal["claude", "integrator"] = "claude"
+    integrates: tuple[ExactSha, ...] = ()
+
+    @model_validator(mode="after")
+    def integration_names_its_inputs(self) -> Objective:
+        if (self.builder == "integrator") != bool(self.integrates):
+            raise ValueError("an integrator objective, and only one, names the exact SHAs it integrates")
+        for sha in self.integrates:
+            validate_exact_sha(sha)
+        return self
 
     @field_validator("base_sha", "product_memory_sha")
     @classmethod
@@ -308,6 +320,30 @@ class ObjectiveStore:
                 path.unlink(missing_ok=True)
                 raise
         return sha256_of(payload)
+
+
+def accepted_candidates(kernel: Kernel, objective_ids: tuple[str, ...]) -> tuple[str, ...]:
+    """The exact SHA each objective's latest integration verified; refused unless every one has one."""
+    out = []
+    for objective_id in objective_ids:
+        done = [i for i in kernel.store.read_integrations() if i.task_id == objective_id]
+        if not done:
+            raise LifecycleError(f"{objective_id} has no verified integration of an accepted candidate to integrate")
+        out.append(max(done, key=lambda i: i.task_revision).accepted_sha)
+    return tuple(out)
+
+
+def integration_scope(kernel: Kernel, base_sha: str, shas: tuple[str, ...]) -> tuple[str, ...]:
+    """Every path any of the candidates changed relative to the integration base: the integrator's scope."""
+    paths: set[str] = set()
+    for sha in shas:
+        changed = kernel.git.changed_paths(base_sha, sha)
+        if changed is None:
+            raise LifecycleError(f"the repository cannot list the paths changed between {base_sha} and {sha}")
+        paths.update(changed)
+    if not paths:
+        raise LifecycleError("the candidates change nothing relative to the integration base")
+    return tuple(sorted(paths))
 
 
 def intake(objective: Objective, *, kernel: Kernel, objectives: ObjectiveStore) -> dict:

@@ -1,9 +1,8 @@
 """Reviewer drivers that exist today, and the one that does not.
 
-``GptUnavailable`` is the programmatic GPT reviewer as it actually stands: there
-is none. No OpenAI credential is provisioned for CLIVE, no supported programmatic
-ChatGPT review mechanism has been verified, and calling the OpenAI API would be a
-new secret and new pay-as-you-go spend, both owner decisions. It reports that gap
+``GptUnavailable`` stands in when the dispatcher has no OpenAI key file: the
+programmatic reviewer (``gpt.GptResponsesReviewer``) exists, but without its
+host-side credential it cannot run. It reports that gap
 through ``availability`` so the dispatcher blocks truthfully instead of dispatching
 a review nobody will perform. It never falls back to a Claude process: the
 principal registry records ``claude`` with ``may_review: false`` because every
@@ -27,10 +26,9 @@ from .base import ReviewContext
 __all__ = ["GptUnavailable", "RelayReviewer", "GPT_GAP"]
 
 GPT_GAP = (
-    "no programmatic GPT reviewer exists for CLIVE: no OpenAI credential is provisioned, no supported "
-    "programmatic ChatGPT review mechanism has been verified, and the OpenAI API would be a new secret and "
-    "new pay-as-you-go spend (owner decisions); claude may not review (registry may_review false: one "
-    "principal for every Claude session); owner decision required: provision a GPT reviewer mechanism, "
+    "no programmatic GPT reviewer is configured for this dispatcher: it was started without "
+    "--gpt-api-key-file (the OpenAI Responses API reviewer, reviewers/gpt.py); claude may not review "
+    "(registry may_review false: one principal for every Claude session); provide the host-side key file, "
     "register another independent reviewer principal, or run this objective with --reviewer relay (courier)"
 )
 
@@ -43,11 +41,15 @@ class GptUnavailable:
     def availability(self) -> tuple[bool, str]:
         return False, GPT_GAP
 
-    def start(self, ctx: ReviewContext) -> None:  # pragma: no cover - never available
-        raise RuntimeError(GPT_GAP)
+    def start(self, ctx: ReviewContext) -> None:
+        """Nothing to launch. Reached only for a review already dispatched to gpt before this dispatcher
+        lost its key file (a restart without it); the task waits, and a dispatcher with the key picks it up."""
 
-    def poll(self, ctx: ReviewContext) -> list[bytes]:  # pragma: no cover - never available
+    def poll(self, ctx: ReviewContext) -> list[bytes]:
         return []
+
+    def problem(self, ctx: ReviewContext) -> str:
+        return GPT_GAP
 
 
 class RelayReviewer:

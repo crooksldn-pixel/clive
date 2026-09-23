@@ -135,11 +135,18 @@ class Dispatcher:
     reviewers: Sequence[ReviewerDriver]
     config: DispatcherConfig
     checks: CheckRunner = field(default_factory=NamespaceSandbox)
+    integrator: WorkerDriver | None = None
     log: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.workspaces = WorkspaceManager(self.config.workspace_root)
         self.store = self.kernel.store
+        if self.integrator is None:
+            from .workers.integrator import IntegratorWorker
+            self.integrator = IntegratorWorker(self.config.repo)
+
+    def _worker_for(self, obj: Objective) -> WorkerDriver:
+        return self.integrator if obj.builder == "integrator" else self.worker
 
     # ------------------------------------------------------------ plumbing
     def now(self) -> datetime:
@@ -287,7 +294,8 @@ class Dispatcher:
         session_id = str(uuid.uuid4())
         now = self.now()
         worker = Party(
-            principal=Principal(principal_id=self.worker.principal_id, kind=PrincipalKind.MODEL),
+            principal=Principal(principal_id=self._worker_for(obj).principal_id,
+                                kind=PrincipalKind.AUTOMATION if obj.builder == "integrator" else PrincipalKind.MODEL),
             session=SessionContext(session_id=session_id, context_is_fresh=True, started_at=now),
             workspace=Workspace(workspace_id=str(info.path), branch=info.branch, head_sha=task.base_sha,
                                 read_only=False, clean=True),
@@ -321,7 +329,7 @@ class Dispatcher:
             stderr_path=paths["stderr"], prompt=self.worker_prompt(obj, task, attempt, rt.get("start_sha")),
         )
         try:
-            record = self.worker.launch(spec)
+            record = self._worker_for(obj).launch(spec)
         except WorkerLaunchError as exc:
             if exc.transient:
                 return self._cancel(obj, attempt, f"{TRANSIENT} launch failed: {exc}")
@@ -330,7 +338,7 @@ class Dispatcher:
                   argv=list(record.argv), env_names=list(record.env_names),
                   launched_at=self.now().isoformat(), last_activity_at=self.now().isoformat())
         self._save_runtime(attempt.attempt_id, rt)
-        return self._note(obj.objective_id, f"launched {self.worker.kind} pid {record.pid} for {attempt.attempt_id} "
+        return self._note(obj.objective_id, f"launched {self._worker_for(obj).kind} pid {record.pid} for {attempt.attempt_id} "
                                             f"(session {spec.session_id}); env: {', '.join(record.env_names)}")
 
     # ------------------------------------------------------------ ASSIGNED / RUNNING
@@ -338,8 +346,8 @@ class Dispatcher:
         attempt = self._current_attempt(task, state)
         rt = self._runtime(attempt.attempt_id)
         paths = self._paths(attempt)
-        observations, _ = self.worker.read(paths["log"], 0)
-        live = self.worker.live_pids(_marker(attempt))
+        observations, _ = self._worker_for(obj).read(paths["log"], 0)
+        live = self._worker_for(obj).live_pids(_marker(attempt))
         now = self.now()
         launched_at = _parse(rt.get("launched_at"))
 
@@ -348,20 +356,20 @@ class Dispatcher:
             if started is None:
                 if live:
                     if launched_at and now - launched_at > timedelta(seconds=self.config.init_timeout_s):
-                        self.worker.kill(_marker(attempt))
+                        self._worker_for(obj).kill(_marker(attempt))
                         return self._cancel(obj, attempt, f"{TRANSIENT} no init event within "
                                                           f"{self.config.init_timeout_s}s"), True
                     return self._note(obj.objective_id, f"{attempt.attempt_id}: process alive, no init event yet"), False
                 if rt.get("phase") != "launched":
                     return self._launch(obj, task, attempt), True  # assigned, never launched: launch once
-                reason, transient = self.worker.diagnose_exit(paths["stderr"])
+                reason, transient = self._worker_for(obj).diagnose_exit(paths["stderr"])
                 if transient:
                     return self._cancel(obj, attempt, f"{TRANSIENT} {reason}"), True
                 return self._block(obj, task, reason), True
             spec_like = LaunchSpec(task.task_id, task.revision, attempt.attempt_id, attempt.fencing_token,
                                    attempt.worker.session.session_id, paths["workspace"], paths["home"],
                                    paths["log"], paths["stderr"], "")
-            problems = self.worker.verify_started(started, spec_like)
+            problems = self._worker_for(obj).verify_started(started, spec_like)
             rt["roster"] = {"session_id": started.session_id, "cwd": started.cwd, "model": started.model,
                             "tools": list(started.tools), "mcp_servers": list(started.mcp_servers),
                             "plugins": list(started.plugins), "skills": started.skills,
@@ -369,7 +377,7 @@ class Dispatcher:
                             "api_key_source": started.api_key_source, "problems": problems}
             self._save_runtime(attempt.attempt_id, rt)
             if problems:
-                self.worker.kill(_marker(attempt))
+                self._worker_for(obj).kill(_marker(attempt))
                 return self._block(obj, task, "worker launch surface refused: " + "; ".join(problems)), True
             self.kernel.acknowledge(attempt.attempt_id, token=attempt.fencing_token, base_sha=attempt.base_sha)
             return self._note(obj.objective_id, f"{attempt.attempt_id} acknowledged from the worker's init event "
@@ -379,7 +387,7 @@ class Dispatcher:
         if now > self.kernel.lease(attempt)["expires_at"]:
             # Nothing renewed the lease in time (the dispatcher was not observing): the kernel would fence
             # every submission of this attempt, so it is cancelled rather than left to fail late.
-            self.worker.kill(_marker(attempt))
+            self._worker_for(obj).kill(_marker(attempt))
             return self._cancel(obj, attempt, f"{TRANSIENT} the attempt's lease expired before its result "
                                               "was ingested"), True
         consumed = int(rt.get("consumed", 0))
@@ -403,16 +411,16 @@ class Dispatcher:
         if finished is not None:
             return self._finished(obj, task, attempt, finished), True
         if not live:
-            reason, transient = self.worker.diagnose_exit(paths["stderr"])
+            reason, transient = self._worker_for(obj).diagnose_exit(paths["stderr"])
             if transient:
                 return self._cancel(obj, attempt, f"{TRANSIENT} {reason}"), True
             return self._block(obj, task, reason), True
         last_activity = _parse(rt.get("last_activity_at")) or launched_at or now
         if now - last_activity > timedelta(seconds=self.config.stall_s):
-            self.worker.kill(_marker(attempt))
+            self._worker_for(obj).kill(_marker(attempt))
             return self._cancel(obj, attempt, f"{TRANSIENT} worker stalled: no event for {self.config.stall_s}s"), True
         if launched_at and now - launched_at > timedelta(seconds=self.config.attempt_timeout_s):
-            self.worker.kill(_marker(attempt))
+            self._worker_for(obj).kill(_marker(attempt))
             return self._block(obj, task, f"worker exceeded the attempt time limit of {self.config.attempt_timeout_s}s"), True
         return None, False
 
@@ -437,7 +445,7 @@ class Dispatcher:
         self._save_runtime(attempt.attempt_id, rt)
 
     def _finished(self, obj: Objective, task: EngineeringTask, attempt: Attempt, fin: Finished) -> str:
-        self.worker.kill(_marker(attempt))  # a result is final; nothing of this attempt keeps running
+        self._worker_for(obj).kill(_marker(attempt))  # a result is final; nothing of this attempt keeps running
         if fin.status == "blocked":
             return self._block(obj, task, f"worker reported blocked: {fin.reason or fin.summary}")
         if fin.status == "owner_decision_required":
@@ -582,6 +590,16 @@ class Dispatcher:
         return ReviewContext(task_id=task.task_id, task_revision=task.revision, attempt_id=attempt.attempt_id,
                              dispatch_seq=seq, candidate_sha=sha, packet_path=self.store.root / packet_path)
 
+    def _review_problem(self, task: EngineeringTask, state) -> str | None:
+        attempt = self._current_attempt(task, state)
+        dispatches = self.store.read_dispatches(task.task_id, attempt.attempt_id)
+        if not dispatches:
+            return None
+        dispatch = dispatches[-1]
+        driver = next((r for r in self.reviewers if r.principal_id == dispatch.reviewer_principal_id), None)
+        ctx = self._review_ctx(task, attempt, dispatch.dispatch_seq, dispatch.candidate_sha, dispatch.packet_path)
+        return _review_problem_of(driver, ctx)
+
     def _collect_review(self, obj: Objective, task: EngineeringTask, state) -> tuple[str | None, bool]:
         attempt = self._current_attempt(task, state)
         dispatch = self.store.read_dispatches(task.task_id, attempt.attempt_id)[-1]
@@ -596,8 +614,12 @@ class Dispatcher:
         consumed = set(review.get("consumed", []))
         payload = next((p for p in driver.poll(ctx) if sha256_of(p) not in consumed), None)
         if payload is None:
+            problem = driver.problem(ctx) if hasattr(driver, "problem") else None
+            if problem and hasattr(driver, "exhausted") and driver.exhausted(ctx):
+                return self._block(obj, task, f"review of {dispatch.candidate_sha} could not be obtained: {problem}"), True
+            last = f" (last run: {problem})" if problem else ""
             return self._note(obj.objective_id, f"awaiting the typed review of {dispatch.candidate_sha} from "
-                                                f"{dispatch.reviewer_principal_id} via {driver.mechanism}"), False
+                                                f"{dispatch.reviewer_principal_id} via {driver.mechanism}{last}"), False
         review.setdefault("consumed", []).append(sha256_of(payload))
         self._save_runtime(attempt.attempt_id, rt)
         try:
@@ -677,12 +699,14 @@ class Dispatcher:
         return self._note(obj.objective_id, f"{'OWNER_GATE' if owner else 'BLOCKED'}: {reason}")
 
     def _cancel(self, obj: Objective, attempt: Attempt, reason: str) -> str:
-        self.worker.kill(_marker(attempt))
+        self._worker_for(obj).kill(_marker(attempt))
         self.kernel.cancel_attempt(attempt.attempt_id, reason=reason[:990])
         return self._note(obj.objective_id, f"{attempt.attempt_id} cancelled: {reason}")
 
     # ------------------------------------------------------------ texts
     def worker_prompt(self, obj: Objective, task: EngineeringTask, attempt: Attempt, start_sha: str | None) -> str:
+        if obj.builder == "integrator":
+            return json.dumps({"base": start_sha or task.base_sha, "integrate": list(obj.integrates)})
         lines = [
             "You are an isolated CLIVE engineering builder. CLIVE owns the task, its lifecycle, its evidence and its",
             "acceptance; you produce a change in this workspace and a structured report, nothing else.",
@@ -820,13 +844,19 @@ class Dispatcher:
             }
             if state.attempt_id:
                 rt = self._runtime(state.attempt_id)
-                pids = self.worker.live_pids(_marker(self._current_attempt(task, state)))
+                pids = self._worker_for(obj).live_pids(_marker(self._current_attempt(task, state)))
                 item["process"] = {"alive": bool(pids), "pids": pids, "launched_at": rt.get("launched_at"),
                                    "last_observed_event_at": rt.get("last_activity_at"),
                                    "observed_roster": rt.get("roster"), "permission_denials": rt.get("denials", 0)}
                 item["review_mechanism"] = rt.get("review")
+                if state.status is TaskStatus.REVIEWING:
+                    item["review_problem"] = self._review_problem(task, state)
             out.append(item)
         return out
+
+
+def _review_problem_of(driver, ctx) -> str | None:
+    return driver.problem(ctx) if driver is not None and hasattr(driver, "problem") else None
 
 
 def _marker(attempt: Attempt) -> str:

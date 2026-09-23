@@ -57,11 +57,15 @@ from app.orchestrator.objectives import (  # noqa: E402
     Check,
     Objective,
     ObjectiveStore,
+    accepted_candidates,
     intake,
+    integration_scope,
     owner_entry_from_host,
     slug,
 )
 from app.orchestrator.reviewers import (  # noqa: E402
+    GPT_DEFAULT_MODEL,
+    GptResponsesReviewer,
     GptUnavailable,
     RelayReviewer,
     ReviewContext,
@@ -85,8 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-journal", action="store_true")
     p.add_argument("--publish-remote", default=None, help="push candidates to this remote's target branch")
     p.add_argument("--reviewer", choices=["gpt", "relay"], default="gpt",
-                   help="gpt: programmatic GPT only (none exists today: the task blocks with the gap); "
+                   help="gpt: the programmatic GPT reviewer (needs --gpt-api-key-file, else the task blocks with the gap); "
                         "relay: a person carries packet and typed result (courier)")
+    p.add_argument("--gpt-api-key-file", default=None,
+                   help="host-side file (mode 600, outside git and every workspace) holding the OpenAI API key "
+                        "for the programmatic GPT reviewer; read only by the reviewer process")
+    p.add_argument("--gpt-model", default=GPT_DEFAULT_MODEL)
+    p.add_argument("--gpt-effort", default="high")
     p.add_argument("--worker-cli", default="claude")
     p.add_argument("--worker-model", default=None)
     p.add_argument("--worker-effort", default=None)
@@ -118,6 +127,20 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--repository", default="crooksldn-pixel/clive")
     o.add_argument("--product-memory-ref", default="origin/claude/product-memory-truth-2026-09-23")
 
+    g = sub.add_parser("integrate", help="an integration objective: CLIVE merges the accepted candidates of "
+                                         "several objectives, runs whole-product checks, and GPT reviews the result")
+    g.add_argument("--title", required=True)
+    g.add_argument("--id", default=None)
+    g.add_argument("--from", dest="sources", action="append", required=True,
+                   help="an objective id whose verified, accepted candidate is integrated (repeat)")
+    g.add_argument("--base-ref", required=True, help="the line the candidates are integrated onto")
+    g.add_argument("--target-branch", default=None)
+    g.add_argument("--acceptance", action="append", default=[])
+    g.add_argument("--check", action="append", default=[], help="NAME=COMMAND (no shell): whole-product checks")
+    g.add_argument("--check-cwd", action="append", default=[])
+    g.add_argument("--repository", default="crooksldn-pixel/clive")
+    g.add_argument("--product-memory-ref", default="origin/claude/product-memory-truth-2026-09-23")
+
     sub.add_parser("tick", help="one deterministic pass")
     r = sub.add_parser("run", help="tick until every objective is terminal")
     r.add_argument("--interval", type=float, default=15.0)
@@ -135,7 +158,13 @@ def _parts(args):
                     operator=args.operator, journal=not args.no_journal)
     objectives = ObjectiveStore(store, journal=not args.no_journal)
     runtime = Path(args.runtime_root)
-    reviewers = [RelayReviewer(runtime / "relay")] if args.reviewer == "relay" else [GptUnavailable()]
+    if args.reviewer == "relay":
+        reviewers = [RelayReviewer(runtime / "relay")]
+    elif args.gpt_api_key_file:
+        reviewers = [GptResponsesReviewer(runtime / "gpt", repo=Path(args.repo), key_file=Path(args.gpt_api_key_file),
+                                          model=args.gpt_model, effort=args.gpt_effort)]
+    else:
+        reviewers = [GptUnavailable()]
     worker = ClaudeCodeWorker(cli=args.worker_cli, model=args.worker_model, effort=args.worker_effort,
                               max_turns=args.worker_max_turns, bash_prefixes=tuple(args.worker_bash_prefix),
                               oauth_token_file=Path(args.worker_token_file) if args.worker_token_file else None)
@@ -171,6 +200,24 @@ def _objective(args, kernel: Kernel) -> Objective:
     )
 
 
+def _integration(args, kernel: Kernel) -> Objective:
+    sources = tuple(args.sources)
+    shas = accepted_candidates(kernel, sources)
+    base = kernel.git.rev_parse(args.base_ref)
+    if base is None:
+        raise LifecycleError(f"base ref {args.base_ref!r} does not resolve to a commit in {args.repo}")
+    args.allowed_path = list(integration_scope(kernel, base, shas))
+    args.objective = (f"Integrate the accepted candidates of {', '.join(sources)} "
+                      f"({', '.join(shas)}) onto {args.base_ref} ({base}); the integrated SHA must pass the "
+                      "whole-product checks and an independent review.")
+    args.prohibited, args.max_repair_rounds = [], 0
+    args.acceptance = [*args.acceptance, "every integrated candidate's change is present, unaltered, at the integrated SHA",
+                       "the whole-product checks pass at the integrated SHA"]
+    fields = _objective(args, kernel).model_dump()
+    fields.update(builder="integrator", integrates=shas)
+    return Objective.model_validate(fields)
+
+
 def _print_status(items: list[dict]) -> None:
     for s in items:
         print(f"{s['objective_id']}  {s.get('stage')}  r{s.get('revision')} {s.get('attempt_id') or '-'}")
@@ -197,6 +244,8 @@ def run(argv: list[str] | None = None) -> int:
     try:
         if args.verb == "objective":
             print(json.dumps(intake(_objective(args, kernel), kernel=kernel, objectives=objectives), indent=2))
+        elif args.verb == "integrate":
+            print(json.dumps(intake(_integration(args, kernel), kernel=kernel, objectives=objectives), indent=2))
         elif args.verb == "tick":
             for line in dispatcher.tick():
                 print(line)
