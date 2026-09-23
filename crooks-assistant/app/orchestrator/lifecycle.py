@@ -916,9 +916,14 @@ def journal_preconditions(root: Path) -> None:
     refuses to work around it). Nothing under the store may be modified or
     untracked: it would be swept into the commit as if the verb had written it.
     With both true, the pre-verb index equals HEAD for the store and a rollback
-    restores exactly it. The one file exempt is the layout's own lock file at
-    exactly ``<store>/.kernel.lock``; nothing else under the store is, whatever it
-    is called. A store outside any checkout has no journal and no preconditions.
+    restores exactly it. The one exemption is the layout's own lock file at
+    exactly ``<store>/.kernel.lock``, and only in the one state the layout creates
+    it in: untracked and empty, on the first journaled verb, which commits it.
+    Once tracked, a clean lock produces no entry at all; a lock that is modified,
+    replaced, deleted-and-recreated with content, or non-empty before its first
+    use is refused like any other unexpected store state, because the writer
+    lock never needs the file's content to change. A store outside any checkout
+    has no journal and no preconditions.
     """
     toplevel = _git_toplevel(root)
     if toplevel is None:
@@ -941,8 +946,22 @@ def journal_preconditions(root: Path) -> None:
     )
     if status.returncode != 0:
         raise LifecycleError(f"cannot inspect the working tree of {toplevel}: {status.stderr.strip()}")
-    lock_path = os.path.relpath((Path(root) / ".kernel.lock").resolve(), Path(toplevel).resolve())
-    dirty = [entry_path for _, entry_path in _porcelain_entries(status.stdout) if entry_path != lock_path]
+    lock_file = Path(root) / ".kernel.lock"
+    lock_path = os.path.relpath(lock_file.resolve(), Path(toplevel).resolve())
+    dirty: list[str] = []
+    for entry_status, entry_path in _porcelain_entries(status.stdout):
+        if entry_path != lock_path:
+            dirty.append(entry_path)
+            continue
+        size = lock_file.stat().st_size if lock_file.is_file() else -1
+        if entry_status == "??" and size == 0:
+            continue  # the layout's own empty lock, seen once: this verb's journal commits it
+        raise LifecycleError(
+            f"the store's lock file {lock_path} is not in the state the layout creates it in "
+            f"(git status {entry_status.strip() or 'clean'!r}, {size} bytes; expected untracked and empty "
+            "on first use, then tracked and unchanged): a modified, replaced or non-empty lock is "
+            "refused; restore it first; nothing was written"
+        )
     if dirty:
         shown = ", ".join(dirty[:5]) + (", …" if len(dirty) > 5 else "")
         raise LifecycleError(

@@ -855,6 +855,53 @@ def test_a_stray_file_named_like_the_lock_is_not_exempt_from_the_journal_precond
     assert git_out(repo, "rev-parse", "HEAD") != head and git_out(repo, "status", "--porcelain") == ""
 
 
+def test_the_lock_file_is_exempt_only_while_untracked_and_empty(tmp_path, clock, git):
+    """K-14. The layout creates <store>/.kernel.lock empty and the first journaled verb commits it.
+    Any other lock state is unexpected store state: a tracked lock with modified contents, a
+    staged lock, or a non-empty untracked lock on first use are each refused before any write,
+    with the lock's contents, HEAD, the index and the task state left exactly as found."""
+    repo = git_repo(tmp_path / "state")
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=repo, check=True)
+    store = LifecycleStore(repo / "engineering")
+    kernel = Kernel(store, REGISTRY, git, operator="tests", clock=clock, journal=True)
+    # 1. a fresh store: the exact empty lock is created and the first journaled verb succeeds and commits it
+    kernel.create_task(task())
+    assert store.lock_path.is_file() and store.lock_path.stat().st_size == 0
+    assert git_out(repo, "ls-files", "engineering/.kernel.lock") == "engineering/.kernel.lock"
+    assert git_out(repo, "status", "--porcelain", "--untracked-files=all") == ""
+    head = git_out(repo, "rev-parse", "HEAD")
+    # 2-4. the tracked lock is modified from outside: the next verb refuses before writing
+    store.lock_path.write_text("unexpected\n")
+    with pytest.raises(LifecycleError, match="lock file engineering/.kernel.lock is not in the state the layout creates"):
+        kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR)
+    assert store.lock_path.read_text() == "unexpected\n"
+    assert git_out(repo, "status", "--porcelain") == "M engineering/.kernel.lock"  # " M": modified in the tree (git_out strips)
+    assert git_out(repo, "diff", "--cached", "--name-only") == "" and git_out(repo, "rev-parse", "HEAD") == head
+    assert kernel.store.read_attempts() == () and kernel.store.read_task_state("t-1", 1).status is TaskStatus.READY
+    # a staged lock is caught by the staged-anywhere check, before the working-tree rule
+    subprocess.run(["git", "add", "engineering/.kernel.lock"], cwd=repo, check=True)
+    with pytest.raises(LifecycleError, match="staged changes \\(engineering/.kernel.lock\\)"):
+        kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR)
+    subprocess.run(["git", "reset", "-q", "HEAD", "--", "engineering/.kernel.lock"], cwd=repo, check=True)
+    subprocess.run(["git", "checkout", "-q", "--", "engineering/.kernel.lock"], cwd=repo, check=True)
+    assert store.lock_path.stat().st_size == 0 and git_out(repo, "status", "--porcelain") == ""
+    kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR)  # restored: the verb runs and commits
+    assert git_out(repo, "rev-parse", "HEAD") != head and git_out(repo, "status", "--porcelain") == ""
+    # 5. a pre-existing non-empty untracked lock on first use is refused, not blessed as layout state
+    other = git_repo(tmp_path / "other")
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=other, check=True)
+    (other / "engineering").mkdir()
+    (other / "engineering" / ".kernel.lock").write_text("planted\n")
+    fresh = Kernel(LifecycleStore(other / "engineering"), REGISTRY, git, operator="tests", clock=clock, journal=True)
+    with pytest.raises(LifecycleError, match="is not in the state the layout creates .*'\\?\\?', 8 bytes"):
+        fresh.create_task(task())
+    assert (other / "engineering" / ".kernel.lock").read_text() == "planted\n"
+    assert git_out(other, "ls-files") == "" and fresh.store.read_tasks() == ()
+    (other / "engineering" / ".kernel.lock").write_text("")
+    fresh.create_task(task())
+    assert git_out(other, "ls-files", "engineering/.kernel.lock") == "engineering/.kernel.lock"
+
+
 def test_the_journal_commit_is_scoped_to_the_store_so_a_change_staged_mid_verb_is_neither_committed_nor_consumed(tmp_path, clock, git):
     """K-13. Between the precondition and the commit, another process stages an unrelated path.
     The kernel's commit records the store and nothing else; the unrelated entry stays staged
