@@ -343,14 +343,18 @@ class Acceptance(StrictRecord):
 
 
 class OwnerResolution(StrictRecord):
-    """The owner's resolution of an owner gate, as the kernel verified it.
+    """The owner's resolution of an owner gate, as a trusted owner authority adapter verified it.
 
-    A gate is lifted only by an owner judgment: a ``JudgmentRecord`` in the owner's
-    ledger, made by a principal registered with the owner role, in a named owner
-    session, about exactly this gate (the gate's proposal id and fingerprint), for
-    exactly this task, revision and attempt, with the decision APPROVED and not
-    corrected by a later entry. This record names that judgment and the ledger
-    bytes it was read from. Nothing typed at a prompt is authority here.
+    No verb of this kernel writes this record. A gate would be lifted only by an
+    owner judgment: a ``JudgmentRecord`` in the owner's ledger, made by a principal
+    registered with the owner role, in a named owner session, about exactly this
+    gate (the gate's proposal id and fingerprint), for exactly this task, revision
+    and attempt, with the decision APPROVED and not corrected by a later entry, and
+    whose *origin* an adapter the kernel can trust has established. The
+    repository-only kernel verifies the binding (``verify_owner_judgment_binding``)
+    and has no such adapter, so it never lifts an owner gate; this record is the
+    contract for the adapter that will. Nothing typed at a prompt, and nothing in a
+    file anyone can write, is authority here.
     """
 
     schema_version: Literal["clive.owner_resolution.v1"] = "clive.owner_resolution.v1"
@@ -874,18 +878,71 @@ def _numbered(path: Path) -> int:
 # ---------------------------------------------------------------- journal
 
 
+def _git_toplevel(root: Path) -> str | None:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=str(root), capture_output=True, text=True
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def journal_preconditions(root: Path) -> None:
+    """Refuse a verb, before its first write, unless the journal could commit only that verb's writes.
+
+    The journal stages the store and commits the index, so two things must hold
+    before a verb starts. Nothing may be staged anywhere in the checkout: a staged
+    change outside the store would ride along in the kernel's commit, and a staged
+    change inside it would be lost to a rollback, which restores the index to HEAD.
+    Nothing under the store may be modified or untracked: it would be swept into
+    the commit as if the verb had written it. With both true, the pre-verb index
+    equals HEAD for the store and a rollback restores exactly it. The layout's own
+    lock file is ignored. A store outside any checkout has no journal and no
+    preconditions.
+    """
+    toplevel = _git_toplevel(root)
+    if toplevel is None:
+        return
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"], cwd=toplevel, capture_output=True, text=True
+    )
+    if staged.returncode != 0:
+        raise LifecycleError(f"cannot inspect the index of {toplevel}: {staged.stderr.strip()}")
+    names = [name for name in staged.stdout.splitlines() if name.strip()]
+    if names:
+        shown = ", ".join(names[:5]) + (", …" if len(names) > 5 else "")
+        raise LifecycleError(
+            f"the store's checkout has staged changes ({shown}); the journal commits only the kernel's "
+            "own writes: commit or unstage them first; nothing was written"
+        )
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all", "--", str(root)],
+        cwd=toplevel, capture_output=True, text=True,
+    )
+    if status.returncode != 0:
+        raise LifecycleError(f"cannot inspect the working tree of {toplevel}: {status.stderr.strip()}")
+    dirty = [
+        line[3:] for line in status.stdout.splitlines()
+        if line.strip() and not line.rstrip().endswith(".kernel.lock")
+    ]
+    if dirty:
+        shown = ", ".join(dirty[:5]) + (", …" if len(dirty) > 5 else "")
+        raise LifecycleError(
+            f"the store has uncommitted changes ({shown}); a verb would sweep them into its journal commit "
+            "as its own: commit or discard them first; nothing was written"
+        )
+
+
 def git_journal(root: Path, message: str) -> str | None:
     """Commit the store root if it lives in a git worktree. Returns the commit SHA.
 
     The kernel is the author; the operator is named in the message. A store
-    outside any repository journals nothing and returns None.
+    outside any repository journals nothing and returns None. Runs only after
+    ``journal_preconditions`` held at the start of the verb, so the commit can
+    contain nothing but the verb's own writes and a rollback to HEAD restores the
+    pre-verb index exactly.
     """
-    proc = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], cwd=str(root), capture_output=True, text=True
-    )
-    if proc.returncode != 0:
+    toplevel = _git_toplevel(root)
+    if toplevel is None:
         return None
-    toplevel = proc.stdout.strip()
     try:
         subprocess.run(
             ["git", "add", "-A", "--", str(root)], cwd=toplevel, check=True, capture_output=True, text=True
@@ -933,6 +990,8 @@ def _verb(fn: Callable) -> Callable:
     @functools.wraps(fn)
     def guarded(self: Kernel, *args, **kwargs):
         with self.store.exclusive_writer(self.lock_timeout_s):
+            if self.journal:
+                journal_preconditions(self.store.root)
             self.store.begin_undo()
             try:
                 return fn(self, *args, **kwargs)
@@ -1727,9 +1786,11 @@ class Kernel:
 
     @_verb
     def cancel_attempt(self, attempt_id: str, *, reason: str, at: datetime | None = None) -> AttemptEvent:
-        """Fence an attempt for good. Its token is dead; the task returns to READY."""
+        """Fence an attempt for good. Its token is dead; the task returns to READY. Never an owner gate."""
         attempt = self._find_attempt(attempt_id)
         state = self._current(attempt, LIVE_STATUSES - {TaskStatus.ACCEPTED})
+        if _owner_gated(state):
+            raise LifecycleError(_owner_gate_stays(attempt.task_id, attempt.task_revision, state))
         when, recorded = self._when(at, False, None)
         self._checkpoint("cancel")
         event = self._event(attempt, EventKind.CANCELLED, when, recorded, note=reason)
@@ -1748,6 +1809,8 @@ class Kernel:
             raise LifecycleError(f"task {task_id} r{revision} is {state.status.value}; nothing to block")
         if blocker_class is BlockerClass.NONE:
             raise LifecycleError("a block needs a blocker class")
+        if _owner_gated(state):
+            raise LifecycleError(_owner_gate_stays(task_id, revision, state))
         when, recorded = self._when(at, False, None)
         status = TaskStatus.OWNER_GATE if owner_gate or blocker_class is BlockerClass.OWNER_ONLY else TaskStatus.BLOCKED
         self._checkpoint("block")
@@ -1786,14 +1849,45 @@ class Kernel:
             "payload": payload,
         }
 
+    def verify_owner_judgment_binding(
+        self, task_id: str, revision: int, judgment_id: str | None, ledger_path: str | None
+    ) -> dict:
+        """Whether an owner judgment binds to this gate. Read-only; it lifts nothing.
+
+        This is the binding contract a trusted owner authority adapter will build on:
+        the judgment is in the ledger and uncorrected, its principal carries the owner
+        role, it judges exactly this gate for this task, revision and attempt, and it
+        is APPROVED. What it cannot establish, and says so, is origin: a file anyone
+        can write proves content, not that the owner wrote it.
+        """
+        state = self._state(task_id, revision)
+        if not _owner_gated(state):
+            raise LifecycleError(f"task {task_id} r{revision} is not owner-gated")
+        judgment, digest, proposal = self._verified_owner_judgment(state, task_id, revision, judgment_id, ledger_path)
+        return {
+            "bound": True,
+            "origin_trusted": False,
+            "lifts_the_gate": False,
+            "origin": "unverifiable: the repository-only kernel has no trusted owner authority adapter; "
+                      "a ledger anyone can write proves content, not origin",
+            "judgment_id": judgment.judgment_id,
+            "principal_id": judgment.provenance.principal_id,
+            "session_id": judgment.provenance.session_id,
+            "decision": judgment.decision.value,
+            "reason_code": judgment.reason_code.value,
+            "proposal_id": proposal["proposal_id"],
+            "proposal_fingerprint": proposal["proposal_fingerprint"],
+            "ledger_sha256": digest,
+        }
+
     def _verified_owner_judgment(
         self, state: TaskRuntimeState, task_id: str, revision: int, judgment_id: str | None, ledger_path: str | None
     ) -> tuple[JudgmentRecord, str, dict]:
-        """The owner judgment that lifts this gate, or the refusal that says why none does."""
+        """The owner judgment bound to this gate, or the refusal that says why none is."""
         if not judgment_id or not ledger_path:
             raise LifecycleError(
-                f"task {task_id} r{revision} is owner-gated ({state.blocker_reason}); the gate is lifted only "
-                "by an owner judgment the kernel can verify: pass --owner-judgment <id> --owner-ledger <path>"
+                f"task {task_id} r{revision} is owner-gated ({state.blocker_reason}); verify-judgment needs "
+                "--owner-judgment <id> and --owner-ledger <path>"
             )
         ledger, digest = load_judgment_ledger(Path(ledger_path))
         judgment = ledger.by_id(judgment_id)
@@ -1831,62 +1925,31 @@ class Kernel:
         return judgment, digest, proposal
 
     @_verb
-    def resume(self, task_id: str, revision: int, *, note: str, owner_judgment_id: str | None = None,
-               owner_ledger_path: str | None = None, at: datetime | None = None) -> TaskRuntimeState:
-        """Lift a block or gate; the stage is recomputed from the records, not remembered.
+    def resume(self, task_id: str, revision: int, *, note: str, at: datetime | None = None) -> TaskRuntimeState:
+        """Lift a blocker; the stage is recomputed from the records, not remembered.
 
-        An owner gate is lifted only by an owner judgment: an entry of the owner's
-        ledger that an owner-role principal made in a named session about exactly
-        this gate (``gate_proposal``), for this task, revision and attempt, APPROVED
-        and uncorrected. The kernel verifies that binding and records it as an
-        ``OwnerResolution`` before the stage moves. It reads the ledger; it never
-        writes it, and nothing passed on the command line is authority by itself.
+        Never an owner gate. The repository-only kernel cannot verify that an owner
+        judgment came from the owner: a ledger file anyone can write proves content,
+        not origin, and no owner-ingress artifact exists whose origin the kernel
+        could check. So an owner gate stays an owner gate here, which the product
+        doctrine allows, until a trusted owner authority adapter exists. What such
+        a judgment must be about is ``gate_proposal``; whether a given judgment
+        binds to the gate is ``verify_owner_judgment_binding``; both are read-only.
         """
         state = self._state(task_id, revision)
         if state.status not in {TaskStatus.BLOCKED, TaskStatus.OWNER_GATE}:
             raise LifecycleError(f"task {task_id} r{revision} is not blocked or gated")
+        if _owner_gated(state):
+            raise LifecycleError(_owner_gate_stays(task_id, revision, state))
         when, recorded = self._when(at, False, None)
-        gated = _owner_gated(state)
-        judgment = digest = proposal = None
-        if gated:
-            judgment, digest, proposal = self._verified_owner_judgment(
-                state, task_id, revision, owner_judgment_id, owner_ledger_path
-            )
         status = TaskStatus.READY
         attempt = None
         if state.attempt_id:
             attempt = self._attempt(task_id, state.attempt_id)
             status = self._stage_from_records(attempt)
         self._checkpoint("resume")
-        if gated:
-            existing = self.store.read_owner_resolutions(task_id, revision)
-            self.store.put_owner_resolution(
-                OwnerResolution(
-                    task_id=task_id,
-                    task_revision=revision,
-                    resolution_seq=len(existing) + 1,
-                    gate_reason=state.blocker_reason,
-                    proposal_id=proposal["proposal_id"],
-                    proposal_fingerprint=proposal["proposal_fingerprint"],
-                    judgment_id=judgment.judgment_id,
-                    ledger_path=str(owner_ledger_path),
-                    ledger_sha256=digest,
-                    resolved_by=judgment.provenance.principal_id,
-                    owner_session_id=judgment.provenance.session_id,
-                    owner_source=judgment.provenance.source,
-                    decision=judgment.decision.value,
-                    reason_code=judgment.reason_code.value,
-                    resolution=judgment.redacted_explanation or f"{judgment.decision.value} ({judgment.reason_code.value})",
-                    resolved_at=_aware(judgment.decided_at),
-                    recorded_at=recorded,
-                )
-            )
         if attempt is not None:
-            text = note if not gated else (
-                f"owner gate lifted by judgment {judgment.judgment_id} of {judgment.provenance.principal_id} "
-                f"(session {judgment.provenance.session_id}): {judgment.decision.value} | {note}"
-            )
-            self._event(attempt, EventKind.RESUMED, when, recorded, note=text[:1000])
+            self._event(attempt, EventKind.RESUMED, when, recorded, note=note[:1000])
         nxt = self._transition(state, status=status, blocker_class=BlockerClass.NONE,
                                blocker_reason=None, owner_gate=False)
         self._regenerate_active_state()
@@ -1927,6 +1990,15 @@ def _owner_gated(state: TaskRuntimeState) -> bool:
         state.status is TaskStatus.OWNER_GATE
         or state.owner_gate
         or state.blocker_class is BlockerClass.OWNER_ONLY
+    )
+
+
+def _owner_gate_stays(task_id: str, revision: int, state: TaskRuntimeState) -> str:
+    return (
+        f"task {task_id} r{revision} is owner-gated ({state.blocker_reason}); the repository-only kernel "
+        "cannot verify owner origin, so it cannot lift, cancel, re-block or supersede an owner gate: the "
+        "gate stays until a trusted owner authority adapter exists (gate prints what an owner judgment "
+        "must be about; verify-judgment checks a judgment's binding without lifting anything)"
     )
 
 

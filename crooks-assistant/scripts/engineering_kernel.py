@@ -4,7 +4,8 @@
     engineering_kernel.py --store <root> --repo <checkout> [--registry F] [--operator NAME] VERB ...
 
 Verbs, in lifecycle order: task, assign, ack, heartbeat, evidence, candidate, dispatch,
-verdict, integrate; and cancel, block, resume, gate, view. Each holds the store's writer lock
+verdict, integrate; and cancel, block, resume, gate, verify-judgment, view. Each holds the
+store's writer lock
 for its whole duration, validates everything before it writes anything, writes immutable
 records plus one compare-and-swap state transition, regenerates ACTIVE_STATE.json, and
 journals the change as a git commit when the store lives in a checkout. A refusal prints
@@ -222,18 +223,20 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--reason", required=True)
     b.add_argument("--owner-gate", action="store_true")
 
-    r = sub.add_parser("resume", help="lift a block; the stage is recomputed from the records")
+    r = sub.add_parser("resume", help="lift a blocker (never an owner gate); the stage is recomputed from the records")
     r.add_argument("--task-id", required=True)
     r.add_argument("--revision", type=int, required=True)
     r.add_argument("--note", required=True)
-    r.add_argument("--owner-judgment", default=None,
-                   help="an owner gate is lifted only by this judgment id from the owner's ledger")
-    r.add_argument("--owner-ledger", default=None,
-                   help="the owner's ledger (JSON lines of judgments); read, never written, by the kernel")
 
     g = sub.add_parser("gate", help="print the owner gate as the proposal an owner judgment must be about")
     g.add_argument("--task-id", required=True)
     g.add_argument("--revision", type=int, required=True)
+
+    j = sub.add_parser("verify-judgment", help="check whether an owner judgment binds to a gate; lifts nothing")
+    j.add_argument("--task-id", required=True)
+    j.add_argument("--revision", type=int, required=True)
+    j.add_argument("--owner-judgment", required=True, help="a judgment id from the owner's ledger")
+    j.add_argument("--owner-ledger", required=True, help="the owner's ledger (JSON lines of judgments); read only")
 
     w = sub.add_parser("view", help="print what the records say")
     w.add_argument("--json", action="store_true")
@@ -314,11 +317,15 @@ def run(argv: list[str] | None = None) -> int:
             out = kernel.block(args.task_id, args.revision, blocker_class=BlockerClass(args.blocker_class),
                                reason=args.reason, owner_gate=args.owner_gate).model_dump(mode="json")
         elif args.verb == "resume":
-            out = kernel.resume(args.task_id, args.revision, note=args.note,
-                                owner_judgment_id=args.owner_judgment,
-                                owner_ledger_path=args.owner_ledger).model_dump(mode="json")
+            out = kernel.resume(args.task_id, args.revision, note=args.note).model_dump(mode="json")
         elif args.verb == "gate":
             print(json.dumps(kernel.gate_proposal(args.task_id, args.revision), indent=2, sort_keys=True))
+            return 0
+        elif args.verb == "verify-judgment":
+            binding = kernel.verify_owner_judgment_binding(
+                args.task_id, args.revision, args.owner_judgment, args.owner_ledger
+            )
+            print(json.dumps(binding, indent=2, sort_keys=True))
             return 0
         elif args.verb == "view":
             view = lifecycle_view(store, now=datetime.now(UTC))
