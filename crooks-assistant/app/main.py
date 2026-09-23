@@ -30,9 +30,11 @@ from app.routes import (
     context,
     health,
     media,
+    objectives,
     observe,
     pad,
     speak,
+    support,
     turn,
 )
 from config.settings import get_settings
@@ -170,6 +172,8 @@ app.include_router(context.router)
 app.include_router(media.router)
 app.include_router(observe.router)
 app.include_router(pad.router)
+app.include_router(support.router)
+app.include_router(objectives.router)
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")

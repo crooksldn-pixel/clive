@@ -120,6 +120,12 @@ _KNOWN_TOOLS = frozenset({
     # the Mac: it reads no record individually, stages nothing, and returns a count with a
     # few rows. Named here one by one like every other, because this is an allow-list.
     "commerce_summary",
+    # The owner's objectives (app/objectives/tools.py). They read and change only CLIVE's own
+    # objective records on this machine: no store, inbox, booking, payment or message is reachable
+    # from them, exactly like the composer's two reads above. What they cannot do is the owner's:
+    # the store refuses to authorise a work item or close an objective unless the owner's own
+    # screen asks (app/routes/objectives.py). Named here one by one, because this is an allow-list.
+    "objective_open", "objective_list", "objective_show", "objective_note",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

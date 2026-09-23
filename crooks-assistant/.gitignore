@@ -19,6 +19,7 @@ venv/
 *.egg-info/
 
 # Runtime state
+.state/
 logs/
 .cache/
 kb/.catalogue-cache.txt

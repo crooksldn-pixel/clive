@@ -473,6 +473,10 @@ def build(settings: Settings | None = None) -> Runtime:
     # The Phase 3 capability families, one module each (app/families/*): their tools, commands,
     # recipes, intent families and capability states register on import, after the core tools.
     from app.families import load_all as load_families
+    from app.objectives import (
+        tools as _objective_tools,  # noqa: F401 — registers the objective tools
+    )
+    from app.objectives.store import install as install_objectives
     from app.tools import (  # noqa: F401
         analytics_tools,
         batch_tools,
@@ -482,6 +486,8 @@ def build(settings: Settings | None = None) -> Runtime:
         shopify_tools,
         shopify_writes,
     )
+
+    install_objectives(settings.objectives_dir)
 
     load_families()
 

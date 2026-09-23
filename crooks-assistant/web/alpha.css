@@ -1,0 +1,59 @@
+/* CLIVE mobile alpha. Mobile is the design target; tablet and desktop keep working. Two new
+   bands of the app grid, placed by name like every other: the attention home under the orb,
+   and the composer at the very bottom. The split chrome is not part of the phone product. */
+body.alpha .app{
+  grid-template-areas:"notes" "top" "stage" "alpha" "message" "work" "halves" "foot" "composer";
+  grid-template-rows:auto auto auto minmax(0,1fr) auto auto auto auto auto;
+}
+body.alpha[data-mode="context"] .app{grid-template-rows:auto auto minmax(0,1fr) auto auto auto auto auto auto}
+body.alpha[data-mode="context"] .alpha-home{display:none}
+body.alpha .branch-zone, body.alpha .branch-rail{display:none !important}
+body.alpha[data-mode="orb"] .orb-zone{flex:0 0 auto;padding:4px 0 0}
+body.alpha[data-mode="orb"] .orb-caption .state-sub{display:none}
+@media (max-width:640px){ body.alpha{--orb:132px} body.alpha .dock{display:none} }
+
+.alpha-home{grid-area:alpha;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;
+  padding:6px 16px 12px;display:flex;flex-direction:column;gap:10px}
+.alpha-section{margin:4px 2px 0;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.62)}
+.alpha-card{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;width:100%;
+  padding:14px 16px;border-radius:var(--radius-panel);background:var(--glass-surface);border:1px solid var(--border-subtle);
+  cursor:pointer;-webkit-tap-highlight-color:transparent;min-height:64px;flex-shrink:0}
+.alpha-card:active{background:var(--glass-surface-strong)}
+.alpha-kicker{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:rgba(255,255,255,.55)}
+.alpha-title{font-size:18px;font-weight:600;color:#fff}
+.alpha-line{margin:0;font-size:15px;line-height:1.35;color:rgba(255,255,255,.82)}
+.alpha-needs{margin:0;font-size:15px;line-height:1.35;color:#ffd48a}
+.alpha-blocked{margin:0;font-size:15px;line-height:1.35;color:#ff9f9f}
+.alpha-muted{margin:2px 0 0;font-size:13px;color:rgba(255,255,255,.55)}
+.alpha-src{color:rgba(255,255,255,.45);font-size:13px}
+.alpha-link{all:unset;cursor:pointer;padding:10px 4px;font-size:15px;color:rgba(255,255,255,.7)}
+.alpha-flash{margin:0;padding:10px 14px;border-radius:12px;background:var(--glass-3);font-size:14px}
+
+.alpha-composer{grid-area:composer;display:flex;gap:8px;padding:8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  background:var(--glass-overlay);border-top:1px solid var(--border-subtle);position:relative;z-index:5}
+.alpha-input{flex:1;min-width:0;height:46px;border-radius:23px;border:1px solid var(--border-rest);background:var(--glass);
+  color:#fff;padding:0 18px;font-size:16px}  /* 16px: iOS zooms into anything smaller */
+.alpha-send{flex:0 0 46px;height:46px;border-radius:23px;border:0;background:#fff;color:#000;font-size:20px;font-weight:700}
+
+.alpha-sheet{max-height:92vh;width:min(640px,100vw)}
+/* a solid sheet: the blurred home behind it read as ghost text on a phone */
+body.alpha .sheet.alpha-sheet{background:#111114;-webkit-backdrop-filter:none;backdrop-filter:none}
+.alpha-scroll{padding:6px 16px 28px}
+.alpha-sheet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px}
+.alpha-sheet .alpha-sheet-head h2{margin:0;font-size:22px;line-height:1.25;letter-spacing:0;text-transform:none;color:var(--ink)}
+.alpha-sheet h3{margin:18px 0 6px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.6)}
+.alpha-item,.alpha-ask{padding:10px 12px;border-radius:14px;background:var(--glass);border:1px solid var(--border-subtle);margin-bottom:8px}
+.alpha-item p,.alpha-ask p{margin:0 0 4px}
+.alpha-item .btn{margin-top:6px}
+.alpha-row{display:flex;gap:8px;margin-top:6px}
+.alpha-field,.alpha-text{width:100%;box-sizing:border-box;border-radius:14px;border:1px solid var(--border-rest);
+  background:var(--glass);color:#fff;padding:12px 14px;font-size:16px;font-family:inherit}
+.alpha-text{display:block;margin:8px 0;resize:vertical}
+.alpha-draft{font-size:15px;line-height:1.4}
+.alpha-wide{width:100%;min-height:48px;margin-top:4px}
+.alpha-event{margin:0 0 6px;font-size:14px;color:rgba(255,255,255,.75)}
+.alpha-evidence summary{cursor:pointer;margin:14px 0 6px;color:rgba(255,255,255,.7)}
+.alpha-home > *{flex-shrink:0}
+
+/* a card is a glance: the sheet holds the full text */
+.alpha-card .alpha-needs,.alpha-card .alpha-blocked,.alpha-card .alpha-line{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}

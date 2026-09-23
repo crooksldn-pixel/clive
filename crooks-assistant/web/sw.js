@@ -26,6 +26,8 @@ const SHELL = [
   '/',
   '/static/style.css',
   '/static/app.js',
+  '/static/alpha.js',
+  '/static/alpha.css',
   '/static/ui.js',
   '/static/action-state.js',
   '/static/live-state.js',

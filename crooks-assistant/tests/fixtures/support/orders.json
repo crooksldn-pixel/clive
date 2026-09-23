@@ -1,0 +1,594 @@
+{
+  "_comment": "Synthetic orders in the shape of app.context.order.shape_order. No real customer: names, addresses and emails are invented, and the .invalid domain cannot receive mail.",
+  "late_uk": {
+    "order_id": "gid://shopify/Order/2101",
+    "order_number": "CROOKS-2101",
+    "placed_at": "2026-09-10T09:00:00Z",
+    "fulfillment": "FULFILLED",
+    "payment": "PAID",
+    "total": "£60.00",
+    "customer_name": "Sam Fixture",
+    "customer_id": "gid://shopify/Customer/901",
+    "customer_email": "sam@fixture.invalid",
+    "customer": {
+      "customer_id": "gid://shopify/Customer/901",
+      "name": "Sam Fixture",
+      "email": "sam@fixture.invalid",
+      "orders": 2,
+      "spent": "£150.00",
+      "since": "2025-03-01T00:00:00Z"
+    },
+    "items": [
+      {
+        "title": "Yard Jeans",
+        "variant": "Blue Wash / M",
+        "sku": "YJ-M",
+        "quantity": 1
+      }
+    ],
+    "fulfillments": [
+      {
+        "fulfillment_id": "gid://shopify/Fulfillment/1",
+        "status": "SUCCESS",
+        "display_status": "IN_TRANSIT",
+        "shipped_at": "2026-09-11T14:00:00Z",
+        "carrier": "Royal Mail",
+        "number": "RM123456789GB",
+        "url": "https://track.example.invalid/RM123456789GB"
+      }
+    ],
+    "cancelled_at": null,
+    "cancel_reason": null,
+    "closed_at": null,
+    "return_status": null,
+    "note": null,
+    "tags": [],
+    "money": {
+      "subtotal": "£55.00",
+      "shipping": "£5.00",
+      "tax": "£9.17",
+      "discounts": "£0.00",
+      "refunded": "£0.00",
+      "outstanding": "£0.00",
+      "total": "£60.00",
+      "currency": "GBP"
+    },
+    "refunds": [],
+    "shipping_method": "Royal Mail Tracked 24",
+    "ships_to": "Leeds, United Kingdom",
+    "shipping_address": {
+      "name": "Sam Fixture",
+      "lines": [
+        "1 Fixture Street"
+      ],
+      "city": "Leeds",
+      "zip": "LS1 1AA",
+      "country": "United Kingdom"
+    },
+    "events": [
+      {
+        "at": "2026-09-10T09:00:05Z",
+        "message": "Confirmation email was sent to the customer."
+      }
+    ]
+  },
+  "older_same_customer": {
+    "order_id": "gid://shopify/Order/2090",
+    "order_number": "CROOKS-2090",
+    "placed_at": "2026-08-20T09:00:00Z",
+    "fulfillment": "FULFILLED",
+    "payment": "PAID",
+    "total": "£90.00",
+    "customer_name": "Sam Fixture",
+    "customer_id": "gid://shopify/Customer/901",
+    "customer_email": "sam@fixture.invalid",
+    "customer": {
+      "customer_id": "gid://shopify/Customer/901",
+      "name": "Sam Fixture",
+      "email": "sam@fixture.invalid",
+      "orders": 2,
+      "spent": "£150.00",
+      "since": "2025-03-01T00:00:00Z"
+    },
+    "items": [
+      {
+        "title": "Convict Hoodie",
+        "variant": "Black / L",
+        "sku": "CH-L",
+        "quantity": 1
+      }
+    ],
+    "fulfillments": [
+      {
+        "fulfillment_id": "gid://shopify/Fulfillment/0",
+        "status": "SUCCESS",
+        "display_status": "DELIVERED",
+        "shipped_at": "2026-08-21T14:00:00Z",
+        "carrier": "Royal Mail",
+        "number": "RM000000001GB",
+        "url": null
+      }
+    ],
+    "cancelled_at": null,
+    "cancel_reason": null,
+    "closed_at": "2026-08-25T00:00:00Z",
+    "return_status": null,
+    "note": null,
+    "tags": [],
+    "money": {
+      "total": "£90.00",
+      "refunded": "£0.00",
+      "currency": "GBP"
+    },
+    "refunds": [],
+    "shipping_method": "Royal Mail Tracked 24",
+    "ships_to": "Leeds, United Kingdom",
+    "shipping_address": {
+      "name": "Sam Fixture",
+      "lines": [
+        "1 Fixture Street"
+      ],
+      "city": "Leeds",
+      "zip": "LS1 1AA",
+      "country": "United Kingdom"
+    },
+    "events": []
+  },
+  "unfulfilled_held": {
+    "order_id": "gid://shopify/Order/2102",
+    "order_number": "CROOKS-2102",
+    "placed_at": "2026-09-12T10:00:00Z",
+    "fulfillment": "UNFULFILLED",
+    "payment": "PAID",
+    "total": "£45.00",
+    "customer_name": "Alex Fixture",
+    "customer_id": "gid://shopify/Customer/902",
+    "customer_email": "alex@fixture.invalid",
+    "customer": {
+      "customer_id": "gid://shopify/Customer/902",
+      "name": "Alex Fixture",
+      "email": "alex@fixture.invalid",
+      "orders": 1,
+      "spent": "£45.00",
+      "since": "2026-09-12T00:00:00Z"
+    },
+    "items": [
+      {
+        "title": "Convict Hoodie",
+        "variant": "Black / M",
+        "sku": "CH-M",
+        "quantity": 1
+      }
+    ],
+    "fulfillments": [],
+    "cancelled_at": null,
+    "cancel_reason": null,
+    "closed_at": null,
+    "return_status": null,
+    "note": "Customer phoned: leave with the neighbour at number 3",
+    "tags": [
+      "vip"
+    ],
+    "money": {
+      "total": "£45.00",
+      "refunded": "£0.00",
+      "currency": "GBP"
+    },
+    "refunds": [],
+    "shipping_method": "Royal Mail Tracked 24",
+    "ships_to": "Bristol, United Kingdom",
+    "shipping_address": {
+      "name": "Alex Fixture",
+      "lines": [
+        "3 Fixture Road"
+      ],
+      "city": "Bristol",
+      "zip": "BS1 1AA",
+      "country": "United Kingdom"
+    },
+    "events": []
+  },
+  "cancelled": {
+    "order_id": "gid://shopify/Order/2103",
+    "order_number": "CROOKS-2103",
+    "placed_at": "2026-09-12T11:00:00Z",
+    "fulfillment": "UNFULFILLED",
+    "payment": "REFUNDED",
+    "total": "£45.00",
+    "customer_name": "Jo Fixture",
+    "customer_id": "gid://shopify/Customer/903",
+    "customer_email": "jo@fixture.invalid",
+    "customer": {
+      "customer_id": "gid://shopify/Customer/903",
+      "name": "Jo Fixture",
+      "email": "jo@fixture.invalid",
+      "orders": 1,
+      "spent": "£0.00",
+      "since": "2026-09-12T00:00:00Z"
+    },
+    "items": [
+      {
+        "title": "Yard Jeans",
+        "variant": "Black / S",
+        "sku": "YJ-S",
+        "quantity": 1
+      }
+    ],
+    "fulfillments": [],
+    "cancelled_at": "2026-09-13T09:00:00Z",
+    "cancel_reason": "CUSTOMER",
+    "closed_at": "2026-09-13T09:00:00Z",
+    "return_status": null,
+    "note": null,
+    "tags": [],
+    "money": {
+      "total": "£45.00",
+      "refunded": "£45.00",
+      "currency": "GBP"
+    },
+    "refunds": [
+      {
+        "refund_id": "gid://shopify/Refund/1",
+        "created_at": "2026-09-13T09:01:00Z",
+        "amount": "£45.00",
+        "note": null
+      }
+    ],
+    "shipping_method": "Royal Mail Tracked 24",
+    "ships_to": "York, United Kingdom",
+    "shipping_address": {
+      "name": "Jo Fixture",
+      "lines": [
+        "9 Fixture Lane"
+      ],
+      "city": "York",
+      "zip": "YO1 1AA",
+      "country": "United Kingdom"
+    },
+    "events": []
+  },
+  "international": {
+    "order_id": "gid://shopify/Order/2104",
+    "order_number": "CROOKS-2104",
+    "placed_at": "2026-08-31T15:00:00Z",
+    "fulfillment": "FULFILLED",
+    "payment": "PAID",
+    "total": "£120.00",
+    "customer_name": "Kim Fixture",
+    "customer_id": "gid://shopify/Customer/904",
+    "customer_email": "kim@fixture.invalid",
+    "customer": {
+      "customer_id": "gid://shopify/Customer/904",
+      "name": "Kim Fixture",
+      "email": "kim@fixture.invalid",
+      "orders": 3,
+      "spent": "£400.00",
+      "since": "2024-01-01T00:00:00Z"
+    },
+    "items": [
+      {
+        "title": "Yard Jeans",
+        "variant": "Blue Wash / L",
+        "sku": "YJ-L",
+        "quantity": 2
+      }
+    ],
+    "fulfillments": [
+      {
+        "fulfillment_id": "gid://shopify/Fulfillment/4",
+        "status": "SUCCESS",
+        "display_status": "IN_TRANSIT",
+        "shipped_at": "2026-09-01T10:00:00Z",
+        "carrier": "DHL",
+        "number": "CP123456789DE",
+        "url": "https://track.example.invalid/CP123456789DE"
+      }
+    ],
+    "cancelled_at": null,
+    "cancel_reason": null,
+    "closed_at": null,
+    "return_status": null,
+    "note": null,
+    "tags": [],
+    "money": {
+      "total": "£120.00",
+      "refunded": "£0.00",
+      "currency": "GBP"
+    },
+    "refunds": [],
+    "shipping_method": "International Tracked",
+    "ships_to": "Berlin, Germany",
+    "shipping_address": {
+      "name": "Kim Fixture",
+      "lines": [
+        "Fixturestraße 1"
+      ],
+      "city": "Berlin",
+      "zip": "10115",
+      "country": "Germany"
+    },
+    "events": []
+  },
+  "untracked": {
+    "order_id": "gid://shopify/Order/2105",
+    "order_number": "CROOKS-2105",
+    "placed_at": "2026-09-14T09:00:00Z",
+    "fulfillment": "FULFILLED",
+    "payment": "PAID",
+    "total": "£30.00",
+    "customer_name": "Ash Fixture",
+    "customer_id": "gid://shopify/Customer/905",
+    "customer_email": "ash@fixture.invalid",
+    "customer": {
+      "customer_id": "gid://shopify/Customer/905",
+      "name": "Ash Fixture",
+      "email": "ash@fixture.invalid",
+      "orders": 1,
+      "spent": "£30.00",
+      "since": "2026-09-14T00:00:00Z"
+    },
+    "items": [
+      {
+        "title": "Logo Tee",
+        "variant": "White / M",
+        "sku": "LT-M",
+        "quantity": 1
+      }
+    ],
+    "fulfillments": [
+      {
+        "fulfillment_id": "gid://shopify/Fulfillment/5",
+        "status": "SUCCESS",
+        "display_status": "FULFILLED",
+        "shipped_at": "2026-09-15T12:00:00Z",
+        "carrier": null,
+        "number": null,
+        "url": null
+      }
+    ],
+    "cancelled_at": null,
+    "cancel_reason": null,
+    "closed_at": null,
+    "return_status": null,
+    "note": null,
+    "tags": [],
+    "money": {
+      "total": "£30.00",
+      "refunded": "£0.00",
+      "currency": "GBP"
+    },
+    "refunds": [],
+    "shipping_method": "Standard",
+    "ships_to": "Bath, United Kingdom",
+    "shipping_address": {
+      "name": "Ash Fixture",
+      "lines": [
+        "5 Fixture Close"
+      ],
+      "city": "Bath",
+      "zip": "BA1 1AA",
+      "country": "United Kingdom"
+    },
+    "events": []
+  },
+  "label_only_us": {
+    "order_id": "gid://shopify/Order/2107",
+    "order_number": "CROOKS-2107",
+    "placed_at": "2026-09-12T02:00:00Z",
+    "fulfillment": "FULFILLED",
+    "payment": "PAID",
+    "total": "£121.00",
+    "customer_name": "jay fixture",
+    "customer_id": "gid://shopify/Customer/907",
+    "customer_email": "jay@fixture.invalid",
+    "customer": {
+      "customer_id": "gid://shopify/Customer/907",
+      "name": "Jay Fixture",
+      "email": "jay@fixture.invalid",
+      "orders": 1,
+      "spent": "£121.00",
+      "since": "2026-09-12T00:00:00Z"
+    },
+    "items": [
+      {
+        "title": "Convict Sweats",
+        "variant": "M",
+        "sku": null,
+        "quantity": 1
+      },
+      {
+        "title": "Convict Hoodie",
+        "variant": "M",
+        "sku": null,
+        "quantity": 1
+      }
+    ],
+    "fulfillments": [
+      {
+        "fulfillment_id": "gid://shopify/Fulfillment/7",
+        "status": "SUCCESS",
+        "display_status": "CONFIRMED",
+        "shipped_at": "2026-09-15T14:00:00Z",
+        "carrier": "FedEx",
+        "number": "877200000110",
+        "url": null
+      }
+    ],
+    "cancelled_at": null,
+    "cancel_reason": null,
+    "closed_at": "2026-09-15T14:00:00Z",
+    "return_status": "NO_RETURN",
+    "note": null,
+    "tags": [
+      "ship-email-sent"
+    ],
+    "money": {
+      "total": "£121.00",
+      "refunded": "£0.00",
+      "currency": "GBP"
+    },
+    "refunds": [],
+    "shipping_method": "Standard international",
+    "ships_to": "Miami, United States",
+    "shipping_address": {
+      "name": "Jay Fixture",
+      "lines": [
+        "1 Fixture Avenue"
+      ],
+      "city": "Miami",
+      "zip": "33101",
+      "country": "United States"
+    },
+    "events": [
+      {
+        "at": "2026-09-15T14:00:01Z",
+        "message": "Shipping app sent a shipping confirmation email to Jay Fixture (jay@fixture.invalid)."
+      },
+      {
+        "at": "2026-09-15T14:00:00Z",
+        "message": "Shipping app marked 2 items as fulfilled from Shop location."
+      }
+    ]
+  },
+  "delivered_return_open": {
+    "order_id": "gid://shopify/Order/2108",
+    "order_number": "CROOKS-2108",
+    "placed_at": "2026-09-07T16:39:00Z",
+    "fulfillment": "FULFILLED",
+    "payment": "PAID",
+    "total": "£54.00",
+    "customer_name": "Chris Fixture",
+    "customer_id": "gid://shopify/Customer/908",
+    "customer_email": "chris@fixture.invalid",
+    "customer": {
+      "customer_id": "gid://shopify/Customer/908",
+      "name": "Chris Fixture",
+      "email": "chris@fixture.invalid",
+      "orders": 2,
+      "spent": "£119.00",
+      "since": "2026-09-07T00:00:00Z"
+    },
+    "items": [
+      {
+        "title": "Convict Sweats",
+        "variant": "M",
+        "sku": null,
+        "quantity": 1
+      }
+    ],
+    "fulfillments": [
+      {
+        "fulfillment_id": "gid://shopify/Fulfillment/8",
+        "status": "SUCCESS",
+        "display_status": "DELIVERED",
+        "shipped_at": "2026-09-07T16:43:00Z",
+        "carrier": "Royal Mail",
+        "number": "VU000000001GB",
+        "url": "https://track.example.invalid/VU000000001GB"
+      }
+    ],
+    "cancelled_at": null,
+    "cancel_reason": null,
+    "closed_at": null,
+    "return_status": "IN_PROGRESS",
+    "note": "2026-09-12 07:01:24\n[Returns app] RMA #ABC123\nReturn request submitted",
+    "tags": [
+      "Returns app",
+      "delivery-email-sent",
+      "ship-email-sent"
+    ],
+    "money": {
+      "total": "£54.00",
+      "refunded": "£0.00",
+      "currency": "GBP"
+    },
+    "refunds": [],
+    "shipping_method": "Tracked 48",
+    "ships_to": "London, United Kingdom",
+    "shipping_address": {
+      "name": "Chris Fixture",
+      "lines": [
+        "2 Fixture Terrace"
+      ],
+      "city": "London",
+      "zip": "W1 1AA",
+      "country": "United Kingdom"
+    },
+    "events": [
+      {
+        "at": "2026-09-12T07:01:26Z",
+        "message": "Returns app created return CROOKS-2108-R1."
+      },
+      {
+        "at": "2026-09-10T09:59:54Z",
+        "message": "Carrier tracking marked 1 item as delivered."
+      },
+      {
+        "at": "2026-09-10T09:59:54Z",
+        "message": "Shipment delivered email was sent to Chris Fixture (chris@fixture.invalid)."
+      }
+    ]
+  },
+  "untracked_moving": {
+    "order_id": "gid://shopify/Order/2109",
+    "order_number": "CROOKS-2109",
+    "placed_at": "2026-09-14T09:00:00Z",
+    "fulfillment": "FULFILLED",
+    "payment": "PAID",
+    "total": "£30.00",
+    "customer_name": "Ash Fixture",
+    "customer_id": "gid://shopify/Customer/905",
+    "customer_email": "ash@fixture.invalid",
+    "customer": {
+      "customer_id": "gid://shopify/Customer/905",
+      "name": "Ash Fixture",
+      "email": "ash@fixture.invalid",
+      "orders": 1,
+      "spent": "£30.00",
+      "since": "2026-09-14T00:00:00Z"
+    },
+    "items": [
+      {
+        "title": "Logo Tee",
+        "variant": "White / M",
+        "sku": "LT-M",
+        "quantity": 1
+      }
+    ],
+    "fulfillments": [
+      {
+        "fulfillment_id": "gid://shopify/Fulfillment/9",
+        "status": "SUCCESS",
+        "display_status": "IN_TRANSIT",
+        "shipped_at": "2026-09-15T12:00:00Z",
+        "carrier": "Royal Mail",
+        "number": null,
+        "url": null
+      }
+    ],
+    "cancelled_at": null,
+    "cancel_reason": null,
+    "closed_at": null,
+    "return_status": null,
+    "note": null,
+    "tags": [],
+    "money": {
+      "total": "£30.00",
+      "refunded": "£0.00",
+      "currency": "GBP"
+    },
+    "refunds": [],
+    "shipping_method": "Standard",
+    "ships_to": "Bath, United Kingdom",
+    "shipping_address": {
+      "name": "Ash Fixture",
+      "lines": [
+        "5 Fixture Close"
+      ],
+      "city": "Bath",
+      "zip": "BA1 1AA",
+      "country": "United Kingdom"
+    },
+    "events": []
+  }
+}

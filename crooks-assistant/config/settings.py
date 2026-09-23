@@ -168,6 +168,8 @@ class Settings(BaseSettings):
     # Product thumbnails fetched for the tablet, kept so the same image is not fetched for
     # every look at the same order. Bounded; never a customer's data.
     media_cache_dir: Path = REPO_ROOT / ".cache" / "media"
+    # The owner's objectives (app/objectives): durable state, not a cache. One JSON file each.
+    objectives_dir: Path = REPO_ROOT / ".state" / "objectives"
 
     # --- the production experience recorder (app/observability/recorder.py) ---
     # An hour of real use, written down. Off, and normal production is normal production:

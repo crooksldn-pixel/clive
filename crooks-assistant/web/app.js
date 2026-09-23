@@ -304,6 +304,9 @@ const DETAIL_WORDS = {
   gmail_search: ['Searching', 'the inbox'], gmail_read_thread: ['Reading', 'the thread'],
   gmail_find_in_email: ['Searching', 'the message'], gmail_compose_open: ['Opening', 'the reply'],
   gmail_compose_fill: ['Writing', 'the reply'],
+  // Objectives (CLIVE's own records, nothing outside)
+  objective_open: ['Opening', 'the objective'], objective_list: ['Checking', 'your objectives'],
+  objective_show: ['Reading', 'the objective'], objective_note: ['Updating', 'the objective'],
   // Changing the inbox
   gmail_draft_reply: ['Drafting', 'the reply', true], gmail_draft_new: ['Drafting', 'a new message', true],
   gmail_send_reply: ['Sending', 'the reply', true], gmail_send_new: ['Sending', 'the message', true],
@@ -4261,3 +4264,17 @@ restoreWorkspace();
    collision branch improved that copy — control-local notifications instead of a toast —
    and those improvements were carried up into the live delegate, not lost with the dead
    one. */
+
+// ------------------------------------------------------------------ mobile alpha
+// The one door web/alpha.js uses into this file: ask CLIVE a typed question through the same
+// submit() the microphone and the developer field use, so a typed turn is an ordinary turn.
+window.CliveAlpha = {
+  ask(text) {
+    const value = String(text || '').trim();
+    if (!value || busy) return Promise.resolve(false);
+    unlockSpeech();
+    stopSpeaking();
+    return Promise.resolve(submit({ text: value, session_id: sessionId, turns, speak: el.speakToggle.checked }, false)).then(() => true);
+  },
+  isBusy() { return busy; },
+};

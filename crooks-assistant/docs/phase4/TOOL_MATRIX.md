@@ -11,7 +11,7 @@ unit tests pass but which nothing calls by name is reported as untested. Nothing
 runs a tool, and nothing here can reach a mutation: the audit is a read of registries
 and of source text, so it is safe against a shop it may not touch.
 
-49 tools — 26 reads, 18 writes, 5 bulk — and 50 intent families.
+53 tools — 30 reads, 18 writes, 5 bulk — and 50 intent families.
 
 ## Tools
 
@@ -38,6 +38,10 @@ and of source text, so it is safe against a shop it may not touch.
 | `gmail_send_reply` | RED | yes | yes | yes | gmail.compose | write | prepared from a fresh read, held as gmail_send_reply, tap_commit | a predicate over the re-read, after settling | the change's own card | gmail | — |
 | `gmail_thread_archive` | AMBER | yes | yes | yes | gmail.modify | write | prepared from a fresh read, held as gmail_thread_archive, tap_commit | the re-read must equal what was expected | the change's own card | gmail | — |
 | `inventory_query` | GREEN | yes | yes | yes | none needed | read | — | — | the read layer's cards | — | yes |
+| `objective_list` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
+| `objective_note` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
+| `objective_open` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
+| `objective_show` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `shopify_abandoned_checkouts` | AMBER | yes | yes | yes | read_orders | read | — | — | — | shopify | yes |
 | `shopify_customer_history` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | shopify | yes |
 | `shopify_discount_check` | GREEN | yes | yes | yes | write_discounts | read | — | — | — | shopify | yes |
@@ -92,13 +96,17 @@ and of source text, so it is safe against a shop it may not touch.
 | `gmail_send_reply` | command:a tapped control, family:email_sends | test_actions_routes.py, test_compose.py, test_email_workspace.py, test_experience_analyser.py, test_families.py, test_gmail_tools.py, test_gmail_writes.py, test_owner_feedback.py, test_watch_lines.py | — |
 | `gmail_thread_archive` | command:a tapped control, family:email_archive | test_action_state.py, test_control_audit.py, test_council_fixes.py, test_email_workspace.py, test_experience_analyser.py, test_gaps.py, test_gmail_tools.py, test_gmail_writes.py, test_presentation.py | — |
 | `inventory_query` | recipe:navigation_back, recipe:navigation_home, recipe:stock_cover_analysis, recipe:landing_products, recipe:ui_area_workspace, family:product_reads | test_analytics_present.py, test_analytics_tools.py, test_capabilities.py, test_claims.py, test_flows.py, test_registry.py | back, landing_products, nav_branch_isolation, nav_click_path, nav_home_landing |
+| `objective_list` | family:objectives | test_objectives.py, test_registry.py | — |
+| `objective_note` | family:objectives | test_objectives.py, test_registry.py | — |
+| `objective_open` | family:objectives | test_objectives.py, test_registry.py | — |
+| `objective_show` | family:objectives | test_objectives.py, test_registry.py | — |
 | `shopify_abandoned_checkouts` | recipe:abandoned_checkouts, family:abandoned_checkouts | test_abandoned.py, test_registry.py | abandoned_checkouts, abandoned_window |
 | `shopify_customer_history` | recipe:navigation_back, recipe:working_set_next, recipe:working_set_previous, recipe:customer_history_lookup, recipe:customer_purchase_lookup, recipe:customer_workspace, command:cursor:customers, family:customer_reads | test_analyser_phase5.py, test_anticipation.py, test_branches.py, test_context.py, test_entities.py, test_n_plus_one.py, test_observability.py, test_reads.py, test_registry.py, test_summaries.py, test_workspaces.py | back, customer_history, nav_branch_isolation, nav_click_path, nav_next_position, next_previous |
 | `shopify_discount_check` | recipe:discount_code, family:discount_create | test_registry.py | discount_code_taken, discount_new_code |
 | `shopify_discount_create` | command:a tapped control, family:discount_create | test_registry.py | discounts.py |
 | `shopify_discount_open` | family:discount_create | test_registry.py | — |
 | `shopify_find_customer` | recipe:customer_purchase_lookup, recipe:order_customer, recipe:customer_workspace, family:customer_reads | test_analyser_phase5.py, test_capability_routing.py, test_entities.py, test_gate.py, test_observability.py, test_observability_redaction.py, test_order_create.py, test_presentation.py, test_progressive.py, test_reads.py, test_registry.py, test_shopify_tools.py, test_ui_intent.py, test_workspaces.py | order_new, order_new_ambiguous |
-| `shopify_find_order` | recipe:order_lookup, recipe:order_status_lookup, recipe:order_address_lookup, family:order_reads | test_actions_routes.py, test_analyser.py, test_anticipation.py, test_context.py, test_entities.py, test_fastpath.py, test_gate.py, test_observability.py, test_presentation.py, test_progressive.py, test_provider.py, test_read_dedupe.py, test_reads.py, test_registry.py, test_routes.py, test_shopify_tools.py, test_write_walkthrough.py | enrichment, full_address, graph.py, order_lookup |
+| `shopify_find_order` | recipe:order_lookup, recipe:order_status_lookup, recipe:order_address_lookup, family:order_reads | test_actions_routes.py, test_analyser.py, test_anticipation.py, test_context.py, test_entities.py, test_fastpath.py, test_gate.py, test_observability.py, test_presentation.py, test_progressive.py, test_provider.py, test_read_dedupe.py, test_reads.py, test_registry.py, test_routes.py, test_shopify_tools.py, test_support_investigator.py, test_write_walkthrough.py | enrichment, full_address, graph.py, order_lookup |
 | `shopify_fulfillment_tracking_set` | family:order_fulfil | test_tracking.py | — |
 | `shopify_inventory` | family:product_reads | test_n_plus_one.py, test_observability.py, test_presentation.py, test_progressive.py, test_registry.py, test_shopify_tools.py | — |
 | `shopify_inventory_adjust` | family:inventory_set | test_inventory.py | — |
@@ -182,21 +190,21 @@ and of source text, so it is safe against a shop it may not touch.
 
 none
 
-**no golden scenario names it (29)**
+**no golden scenario names it (33)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_capabilities`, `commerce_summary`, `gmail_compose_fill`, `gmail_compose_open`, `gmail_find_in_email`, `gmail_send_new`, `gmail_send_reply`, `gmail_thread_archive`, `shopify_discount_open`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_list_orders`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_open`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `shopify_store_credit`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_capabilities`, `commerce_summary`, `gmail_compose_fill`, `gmail_compose_open`, `gmail_find_in_email`, `gmail_send_new`, `gmail_send_reply`, `gmail_thread_archive`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `shopify_discount_open`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_list_orders`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_open`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `shopify_store_credit`
 
 **nothing but the model reaches it (5)**
 
 `batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`
 
-**no card is drawn from it (6)**
+**no card is drawn from it (10)**
 
-`commerce_capabilities`, `commerce_summary`, `gmail_find_in_email`, `shopify_abandoned_checkouts`, `shopify_discount_check`, `shopify_order_address`
+`commerce_capabilities`, `commerce_summary`, `gmail_find_in_email`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `shopify_abandoned_checkouts`, `shopify_discount_check`, `shopify_order_address`
 
-**no named error card (11)**
+**no named error card (15)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `inventory_query`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `inventory_query`, `objective_list`, `objective_note`, `objective_open`, `objective_show`
 
 **intent families with no scenario (20)**
 

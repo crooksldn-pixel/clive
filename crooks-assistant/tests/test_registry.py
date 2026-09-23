@@ -261,7 +261,13 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # its recipe pays none of the block at all. That is the trade, and it is the only reason
     # to move this number: 31,840 rather than a round number above it, because a hundred
     # bytes of headroom is still a tool description somebody has to justify.
-    assert total <= 31_840, f"the tool block is {total} bytes"
+    #
+    # 33_930 adds Objective V0 (app/objectives/tools.py, the mobile alpha), 2,199 bytes measured:
+    # objective_note 1,288 (one tool for facts, unknowns, blockers, questions, items and their
+    # ladder, rather than nine), objective_open 415, objective_show 251, objective_list 245.
+    # What it buys is a goal that outlives the conversation; the rules for keeping it live in
+    # the system prompt once, not in these descriptions.
+    assert total <= 33_930, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.
