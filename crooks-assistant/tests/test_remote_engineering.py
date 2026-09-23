@@ -21,16 +21,19 @@ from app.orchestrator.objectives import ObjectiveStore
 from app.remote_engineering import (
     DEFAULT_INBOX_BRANCH,
     DEFAULT_INBOX_DIRECTORY,
+    DEFAULT_STATUS_BRANCH,
     REQUEST_SCHEMA,
     InboxError,
     Receipt,
     ReceiptLog,
     RemoteController,
     RemoteControllerConfig,
+    RemoteEngineeringLoop,
     RequestSchemaError,
     build_status,
     fetch_inbox,
     parse_request,
+    publish_status,
 )
 from scripts import remote_engineering as cli
 
@@ -287,3 +290,68 @@ def test_cli_poll_and_status(env, tmp_path, capsys):
     assert rc2 == 0
     status_out = capsys.readouterr().out
     assert '"r10"' in status_out
+
+
+def test_status_projection_publishes_to_bounded_git_ref_without_touching_worktree(env):
+    before = _git(env.checkout, "status", "--porcelain")
+    status = {
+        "schema_version": "clive.remote_engineering_status.v1",
+        "generated_at": NOW.isoformat(),
+        "requests": [],
+    }
+    first = publish_status(env.checkout, status)
+    second = publish_status(env.checkout, status)
+    assert first == second
+    assert _git(env.checkout, "status", "--porcelain") == before
+    _git(env.checkout, "fetch", "-q", "origin", DEFAULT_STATUS_BRANCH)
+    published = _git(env.checkout, "show", f"origin/{DEFAULT_STATUS_BRANCH}:status.json")
+    assert json.loads(published) == status
+
+
+def test_status_projection_refuses_remote_url(env):
+    with pytest.raises(InboxError):
+        publish_status(env.checkout, {"requests": []}, remote="https://evil.example/repo.git")
+
+
+def test_remote_loop_uses_existing_dispatcher_then_publishes_projection(tmp_path):
+    calls = []
+
+    class Controller:
+        def poll_once(self):
+            calls.append("poll")
+            return [{"outcome": "accepted"}]
+
+    class Dispatcher:
+        def tick(self):
+            calls.append("tick")
+            return iter(["advanced"])
+
+    store = LifecycleStore(tmp_path / "engineering")
+    receipts = ReceiptLog(store.root / "remote_engineering")
+    published = []
+
+    loop = RemoteEngineeringLoop(
+        controller=Controller(),
+        dispatcher=Dispatcher(),
+        store=store,
+        receipts=receipts,
+        publish=lambda status: published.append(status) or "a" * 40,
+        clock=lambda: NOW,
+    )
+    result = loop.cycle()
+    assert calls == ["poll", "tick"]
+    assert result["dispatcher_events"] == ["advanced"]
+    assert result["projection_commit"] == "a" * 40
+    assert published[0]["schema_version"] == "clive.remote_engineering_status.v1"
+
+
+def test_cli_exposes_long_lived_run_without_any_deploy_verb():
+    parser = cli.build_parser()
+    parsed = parser.parse_args([
+        "--store", "x", "--repo", "y", "run",
+        "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main",
+        "--max-cycles", "1",
+    ])
+    assert parsed.verb == "run"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--store", "x", "--repo", "y", "deploy"])
