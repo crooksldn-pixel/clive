@@ -46,7 +46,7 @@ def render_markdown(investigation: Investigation, draft: ReplyDraft, bundle: Evi
         for f in findings:
             out.append(f"- {f.text}" + (f"  \n  evidence: {', '.join(f.evidence)}" if f.evidence else ""))
         out.append("")
-    out.append("## Evidence used")
+    out.append("## Evidence gathered")
     out.append("")
     out.append("| ref | source | kind | summary |")
     out.append("| --- | --- | --- | --- |")

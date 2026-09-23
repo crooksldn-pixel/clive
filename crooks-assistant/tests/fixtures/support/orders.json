@@ -378,7 +378,7 @@
     "fulfillment": "FULFILLED",
     "payment": "PAID",
     "total": "£121.00",
-    "customer_name": "Jay Fixture",
+    "customer_name": "jay fixture",
     "customer_id": "gid://shopify/Customer/907",
     "customer_email": "jay@fixture.invalid",
     "customer": {

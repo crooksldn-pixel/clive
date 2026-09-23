@@ -139,6 +139,31 @@ def test_identifiers_come_from_the_subject_and_the_text_and_the_sender_is_not_a_
     assert enquiry.kind == "delivery"
 
 
+def test_a_phone_number_group_and_a_year_are_not_order_numbers():
+    enquiry = parse_enquiry("Order CROOKS-1924 please. Call me on +44 7789 545133. Sent 19 Sep 2026.", sender_email="c@fixture.invalid")
+    assert enquiry.order_numbers == ("1924",)
+    assert parse_enquiry("Where is 2103?").order_numbers == ("2103",), "an uncued number still counts"
+    assert parse_enquiry("Two orders: 2090 and order 2101").order_numbers == ("2101", "2090"), "the cued one comes first"
+
+
+def test_the_asks_come_from_the_customers_own_words_and_what_they_quoted_of_themselves():
+    text = ("Hi again. Please can you confirm.\n\nSam\n\n+44 7700 900123\n\n"
+            "On Sat, 19 Sep 2026 at 08:41, Sam Fixture <sam@fixture.invalid>\nwrote:\n\n> Hi\n>\n> I'd like to return this item - too big.\n>\n"
+            "> Can you confirm the process?\n>\n> ---------- Forwarded message ---------\n> From: CROOKS <shop@fixture.invalid>\n> Subject: Order CROOKS-2090 confirmed\n> Total 54.00 GBP\n")
+    enquiry = parse_enquiry(text, subject="Re: Order CROOKS-2090 confirmed", sender_email="sam@fixture.invalid")
+    assert enquiry.asks[0] == "Can you confirm the process?"
+    assert "Please can you confirm." in enquiry.asks
+    assert not any("Forwarded" in a or "GBP" in a or "7700" in a for a in enquiry.asks)
+    assert enquiry.kind == "return_exchange" and enquiry.order_numbers == ("2090",)
+    quoted_ours = "Thanks!\n\nOn Mon, 14 Sep 2026 at 10:00, CROOKS <shop@fixture.invalid> wrote:\n> Could you send a photo of the label?\n"
+    assert not any("photo" in a for a in parse_enquiry(quoted_ours, sender_email="sam@fixture.invalid").asks), "what they quoted of ours is not their ask"
+
+
+def test_soft_line_breaks_are_joined_and_greetings_are_not_asks():
+    enquiry = parse_enquiry("Good evening,\n\nI was wondering if you could let me\nknow when it ships.\n\nThank you,\nSam")
+    assert enquiry.asks == ("I was wondering if you could let me know when it ships.",)
+
+
 # --------------------------------------------------------------------- identification
 
 
@@ -219,7 +244,7 @@ async def test_facts_inference_and_unknowns_are_kept_apart_for_a_late_uk_parcel(
     facts = [f["text"] for f in result["facts"]]
     inferences = [f["text"] for f in result["inferences"]]
     unknowns = [f["text"] for f in result["unknowns"]]
-    assert "Dispatched on 11 Sep 2026 via Royal Mail, tracking RM123456789GB (https://track.example.invalid/RM123456789GB); fulfilment status IN_TRANSIT." in facts
+    assert "Fulfilment recorded on 11 Sep 2026: Royal Mail, tracking RM123456789GB (https://track.example.invalid/RM123456789GB); status IN_TRANSIT." in facts
     assert "Our earlier reply in that thread gave the tracking number RM123456789GB." in facts
     assert any("running late by about 3 working day(s)" in i for i in inferences)
     assert any("The customer is waiting on us" in i for i in inferences)
@@ -230,6 +255,22 @@ async def test_facts_inference_and_unknowns_are_kept_apart_for_a_late_uk_parcel(
         assert finding["evidence"], f"a statement without evidence: {finding['text']}"
         assert set(finding["evidence"]) <= refs, finding
     assert "gmail:thread:18f2a9c0b1d2e301" in refs and "gmail:thread:18f2a9c0b1d2e399" not in refs, "the unrelated thread is not evidence"
+
+
+async def test_a_system_email_about_the_order_is_evidence_but_not_the_customer_waiting():
+    r = Readers(["late_uk"], inbox=["system_notice"])
+    bundle, result = await run("Where is my order 2101?", r, sender="sam@fixture.invalid")
+    assert bundle.threads and bundle.threads[0]["match"] == "order_number"
+    assert any("matched by the order number, not from the customer's address" in f["text"] for f in result["facts"])
+    assert not any("waiting on us" in i["text"] or "without a reply" in i["text"] for i in result["inferences"])
+
+
+async def test_two_unanswered_messages_are_named_and_the_draft_apologises():
+    r = Readers(["late_uk"], inbox=["two_chases"])
+    _, result = await run("Where is my order 2101?", r, sender="sam@fixture.invalid")
+    assert any(i["text"].startswith("The customer has written 2 time(s) in thread 'Order 2101' without a reply from us") for i in result["inferences"])
+    body = result["reply_draft"]["body"]
+    assert "Sorry for the slow reply." in body and body.count("Sorry") == 1
 
 
 async def test_an_order_not_dispatched_after_the_grace_period_is_flagged_and_the_note_stays_internal():
@@ -262,7 +303,7 @@ async def test_an_international_parcel_is_judged_by_the_international_window():
 async def test_a_fulfilment_without_tracking_is_an_unknown_not_a_guess():
     r = Readers(["untracked"])
     bundle, result = await run("Where is my order 2105?", r, sender="ash@fixture.invalid")
-    assert any("no tracking number recorded on the fulfilment" in f["text"] for f in result["facts"])
+    assert any("no tracking number on it" in f["text"] for f in result["facts"])
     assert any(u["text"].startswith("The carrier and tracking reference: none recorded") for u in result["unknowns"])
     body = result["reply_draft"]["body"]
     assert "We do not have a tracking reference on file" in body
@@ -277,8 +318,11 @@ async def test_a_label_without_a_carrier_scan_is_not_called_dispatched():
     assert any("confirm with the courier whether the parcel was collected" in d for d in result["owner_decisions"])
     assert any(f["text"].startswith("Shopify event, 15 Sep 2026: Shipping app sent a shipping confirmation email") for f in result["facts"])
     assert any("sending is recorded, receipt is not visible" in u["text"] for u in result["unknowns"])
+    assert any("The first fulfilment was recorded 2 working day(s) after the order was placed" in i["text"] for i in result["inferences"])
     body = result["reply_draft"]["body"]
+    assert body.startswith("Hi Jay,"), "a lower-case store name is still a name"
     assert "A shipping label was created for it on 15 Sep 2026 with FedEx, tracking number 877200000110" in body
+    assert "international delivery usually takes seven to fourteen days" in body
     assert "checking with them that it has been picked up" in body and "It was dispatched" not in body
     assert numbers_in(body) <= evidence_numbers(bundle)
 
@@ -304,7 +348,7 @@ async def test_an_open_return_is_recognised_and_not_restarted():
     assert "Shopify event, 12 Sep 2026: Returns app created return CROOKS-2108-R1." in [f["text"] for f in result["facts"]]
     body = result["reply_draft"]["body"]
     assert "Your return request is already open on our side (CROOKS-2108-R1)" in body
-    assert "Fourteen days from delivery" in body and "swap it for" not in body
+    assert "within fourteen days of delivery" in body and "swap it for" not in body
 
 
 @pytest.mark.parametrize("keys, text, sender", [
@@ -378,7 +422,7 @@ async def test_a_return_quotes_the_published_policy_line():
     r = Readers(["older_same_customer"])
     _, result = await run("I'd like to return order 2090, it's too big", r, sender="sam@fixture.invalid")
     body = result["reply_draft"]["body"]
-    assert "Fourteen days from delivery to return or exchange unworn items with tags on" in body
+    assert "returns and exchanges are within fourteen days of delivery for unworn items with the tags on" in body
     assert "kb:returns" in result["reply_draft"]["based_on"]
 
 
@@ -390,7 +434,7 @@ async def test_the_report_exposes_the_evidence_and_the_approval_requirement():
     _, result = await run("Where is my order 2101?", r, sender="sam@fixture.invalid")
     md = result["markdown"]
     for heading in ("## The enquiry", "## Identification", "## What happened", "## Verified facts", "## Reasonable inference",
-                    "## Unknown", "## Evidence used", "## Decisions for the owner", "## Reply draft (requires the owner's approval; nothing has been sent)"):
+                    "## Unknown", "## Evidence gathered", "## Decisions for the owner", "## Reply draft (requires the owner's approval; nothing has been sent)"):
         assert heading in md, heading
     assert "`shopify:order:gid://shopify/Order/2101`" in md and "`kb:delivery_windows`" in md and "`gmail:thread:18f2a9c0b1d2e301`" in md
     assert result["approval"] == {"required": True, "state": "awaiting_owner", "external_effects_so_far": "none",
@@ -409,7 +453,7 @@ async def test_a_bundle_survives_a_round_trip_and_replays_identically():
 
 async def test_the_redacted_copy_keeps_the_conclusion_and_loses_the_person():
     r = Readers(["late_uk", "older_same_customer"], inbox=["late_uk_chase"])
-    bundle, result = await run("Hi, it's Sam Fixture here. Where is my order 2101? Call me on 07700 900123.", r,
+    bundle, result = await run("Hi, it's Sam Fixture here. Where is my order 2101 (tracking RM123456789GB)? Call me on 07700 900123.", r,
                                subject="Sam Fixture - order 2101", sender="sam@fixture.invalid")
     redacted = redact_bundle(bundle)
     dumped = json.dumps(redacted.to_dict(), ensure_ascii=False)

@@ -16,6 +16,7 @@ from app.support.investigate import (
     day_words,
     delivered,
     delivered_at,
+    is_uk,
     label_only,
     open_return,
     return_name,
@@ -45,7 +46,28 @@ class ReplyDraft:
 
 def _first_name(order: dict[str, Any]) -> str:
     name = str(order.get("customer_name") or "").strip()
-    return name.split(" ")[0] if name else ""
+    first = name.split(" ")[0] if name else ""
+    return first[:1].upper() + first[1:]
+
+
+def _window_line(order: dict[str, Any], bundle: EvidenceBundle) -> str:
+    """The delivery window for this destination, in the customer's terms; the published
+    line itself when the destination is not known."""
+    uk = is_uk(order)
+    if uk is True:
+        return "Once it is on its way, UK delivery is usually one to two working days."
+    if uk is False:
+        return "Once it is on its way, international delivery usually takes seven to fourteen days."
+    return _sentence(_policy(bundle, "delivery_windows"))
+
+
+def _returns_line(bundle: EvidenceBundle) -> str:
+    """The returns rule in the customer's terms when it is the line we know; verbatim otherwise."""
+    line = _policy(bundle, "returns")
+    if "Fourteen days from delivery" in line and "UK size swap is free" in line:
+        return ("As a reminder, returns and exchanges are within fourteen days of delivery for unworn items with the tags on; "
+                "return postage is yours to cover, and a UK size swap is free with the new size sent out at our cost.")
+    return _sentence(line)
 
 
 def _policy(bundle: EvidenceBundle, name: str) -> str:
@@ -99,6 +121,9 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
 
     based.append(bundle.order_ref)
     lines.append(f"Thanks for getting in touch about order {number}.")
+    slow = any("without a reply from us" in i.text for i in investigation.inferences)
+    if slow:
+        lines.append("Sorry for the slow reply.")
     if cancelled:
         refunds = [r for r in order.get("refunds") or [] if isinstance(r, dict)]
         lines.append(_sentence(f"That order was cancelled on {day_words(order.get('cancelled_at'))}"
@@ -114,17 +139,21 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
                 lines.append("If it is not with you, could you check with neighbours or for a safe-place card and let us know? We will then take it up with the courier straight away.")
         elif tracked:
             f = tracked[-1]
+            late = any("running late" in i.text for i in investigation.inferences)
             if label_only([f]):
+                if not slow:
+                    lines.append("Sorry for the wait.")
                 lines.append(_sentence(f"A shipping label was created for it on {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")
                                        + f", tracking number {f.get('number')}" + (f" - you can follow it at {f.get('url')}" if f.get("url") else "")))
                 lines.append("The carrier has not yet reported a collection scan on our side, so we are checking with them that it has been picked up and will confirm as soon as it is moving.")
             else:
+                if late and not slow:
+                    lines.append("Sorry for the wait.")
                 lines.append(_sentence(f"It was dispatched on {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")
                                        + f", tracking number {f.get('number')}" + (f" - you can follow it at {f.get('url')}" if f.get("url") else "")))
             if delivery_line:
-                lines.append(_sentence(delivery_line))
+                lines.append(_window_line(order, bundle))
                 based.append(bundle.policy_ref("delivery_windows"))
-            late = any("running late" in i.text for i in investigation.inferences)
             if late:
                 lines.append("It is taking longer than it should, so we are chasing the courier from our side as well.")
             if lost_line:
@@ -184,11 +213,11 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
             lines.append("Your return request is already open on our side" + (f" ({name})" if name else "") + ", so there is nothing more you need to do to start it.")
             lines.append("We are confirming it now and will send you the return instructions as soon as that is done.")
             if returns_line:
-                lines.append(_sentence(returns_line))
+                lines.append(_returns_line(bundle))
                 based.append(bundle.policy_ref("returns"))
         else:
             if returns_line:
-                lines.append(_sentence(returns_line))
+                lines.append(_returns_line(bundle))
                 based.append(bundle.policy_ref("returns"))
             else:
                 lines.append("Returns and exchanges are within fourteen days of delivery for unworn items with the tags on.")

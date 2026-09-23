@@ -123,6 +123,15 @@ def open_return(order: dict[str, Any]) -> bool:
     return str(order.get("return_status") or "").upper() in OPEN_RETURN_STATUSES
 
 
+def _nonzero(amount: Any) -> bool:
+    found = re.search(r"\d+(?:\.\d+)?", str(amount or ""))
+    return bool(found) and float(found.group(0)) > 0
+
+
+def is_uk(order: dict[str, Any]) -> bool | None:
+    return _is_uk(order)
+
+
 def _is_uk(order: dict[str, Any]) -> bool | None:
     where = str(order.get("ships_to") or "").strip().lower()
     if not where:
@@ -210,11 +219,11 @@ def _order_facts(bundle: EvidenceBundle) -> list[Finding]:
     fulfillments = [f for f in order.get("fulfillments") or [] if isinstance(f, dict)]
     for f in fulfillments:
         if f.get("number"):
-            out.append(Finding(f"Dispatched on {day_words(f.get('shipped_at'))} via {f.get('carrier') or 'an unrecorded carrier'}, tracking {f.get('number')}"
-                               + (f" ({f.get('url')})" if f.get("url") else "") + f"; fulfilment status {f.get('display_status') or f.get('status') or 'unknown'}.", (ref,)))
+            out.append(Finding(f"Fulfilment recorded on {day_words(f.get('shipped_at'))}: {f.get('carrier') or 'carrier not recorded'}, tracking {f.get('number')}"
+                               + (f" ({f.get('url')})" if f.get("url") else "") + f"; status {fulfilment_status(f) or 'unknown'}.", (ref,)))
         else:
-            out.append(Finding(f"Dispatched on {day_words(f.get('shipped_at'))}; no tracking number recorded on the fulfilment"
-                               + (f" (carrier {f.get('carrier')})" if f.get("carrier") else "") + ".", (ref,)))
+            out.append(Finding(f"Fulfilment recorded on {day_words(f.get('shipped_at'))}; no tracking number on it"
+                               + (f" (carrier {f.get('carrier')})" if f.get("carrier") else "") + f"; status {fulfilment_status(f) or 'unknown'}.", (ref,)))
     if not fulfillments:
         out.append(Finding("No fulfilment recorded: the order has not been dispatched.", (ref,)))
     if order.get("cancelled_at"):
@@ -224,15 +233,16 @@ def _order_facts(bundle: EvidenceBundle) -> list[Finding]:
             out.append(Finding(f"Refund of {r.get('amount') or 'an unrecorded amount'} on {day_words(r.get('created_at'))}.", (ref,)))
     money = order.get("money") if isinstance(order.get("money"), dict) else {}
     if money.get("total"):
-        out.append(Finding(f"Order total {money.get('total')}" + (f"; refunded {money['refunded']}" if money.get("refunded") not in (None, "£0.00", "0.00", "GBP 0.00") and money.get("refunded") else "") + ".", (ref,)))
+        out.append(Finding(f"Order total {money.get('total')}" + (f"; refunded {money['refunded']}" if _nonzero(money.get("refunded")) else "") + ".", (ref,)))
     if order.get("note"):
-        out.append(Finding(f"Internal order note (not for the customer): {order.get('note')}", (ref,)))
+        note = " / ".join(part.strip() for part in str(order.get("note")).splitlines() if part.strip())
+        out.append(Finding(f"Internal order note (not for the customer): {note}", (ref,)))
     if order.get("tags"):
         out.append(Finding(f"Order tags: {', '.join(order.get('tags'))}.", (ref,)))
     if order.get("return_status") and str(order.get("return_status")).upper() != "NO_RETURN":
         out.append(Finding(f"Return status on the order: {order.get('return_status')}.", (ref,)))
     for e in order.get("events") or []:
-        if isinstance(e, dict) and e.get("message"):
+        if isinstance(e, dict) and e.get("message") and "payout" not in str(e.get("message")).lower():
             out.append(Finding(f"Shopify event, {day_words(e.get('at'))}: {_TAGS.sub('', str(e.get('message'))).strip()}", (ref,)))
     history = order.get("history") if isinstance(order.get("history"), dict) else None
     if history and history.get("orders") is not None:
@@ -250,9 +260,9 @@ def _thread_facts(bundle: EvidenceBundle) -> list[Finding]:
         inbound = [m for m in messages if not m.get("outbound")]
         outbound = [m for m in messages if m.get("outbound")]
         latest = messages[-1] if messages else None
-        who = "the customer" if t.get("match") in ("both", "sender") else "an address other than the customer's"
-        line = (f"Email thread {t.get('subject')!r} ({t.get('match') or 'unmatched'}): {t.get('message_count', len(messages))} message(s), "
-                f"{len(inbound)} inbound from {who} and {len(outbound)} from us")
+        who = "from the customer's address" if t.get("match") in ("both", "sender") else "matched by the order number, not from the customer's address"
+        line = (f"Email thread {t.get('subject')!r} ({who}): {t.get('message_count', len(messages))} message(s), "
+                f"{len(inbound)} inbound and {len(outbound)} from us")
         if latest:
             line += f"; the latest is {'ours' if latest.get('outbound') else 'theirs'} on {day_words(latest.get('date')) if parse_when(latest.get('date')) else latest.get('date')}"
         out.append(Finding(line + ".", (ref,)))
@@ -347,10 +357,33 @@ def _inferences(bundle: EvidenceBundle, identification: dict[str, Any]) -> tuple
         decisions.append(f"Order {number}: approve or decline the open return{f' {name}' if name else ''} and send the return instructions.")
     elif kind == "return_exchange":
         decisions.append(f"Return or exchange on order {number}: within policy? (fourteen days from delivery, unworn with tags).")
+    if fulfillments and placed is not None and not order.get("cancelled_at"):
+        firsts = [parse_when(f.get("shipped_at")) for f in fulfillments]
+        firsts = [s for s in firsts if s]
+        if firsts:
+            delay = working_days_between(placed, min(firsts))
+            if delay > DISPATCH_GRACE_WORKING_DAYS:
+                out.append(Finding(f"The first fulfilment was recorded {delay} working day(s) after the order was placed; the published rule is same-day dispatch before 6pm, Monday to Saturday.", (ref,) + dispatch_refs))
     if not bundle.threads and bundle.sources.get("gmail") == "live":
         out.append(Finding("No earlier email from this customer about this order was found in the last sixty days, so this is the first message we hold on it.", ("gmail:search",)))
+    reply_refs = tuple(bundle.policy_ref(n) for n in ("reply_time",) if n in bundle.policy)
     for t in bundle.threads:
-        if t.get("awaiting_reply"):
+        if t.get("match") not in ("both", "sender"):
+            continue
+        messages = [m for m in t.get("messages") or [] if isinstance(m, dict)]
+        unanswered = 0
+        for m in reversed(messages):
+            if m.get("outbound"):
+                break
+            unanswered += 1
+        if not unanswered:
+            continue
+        latest = parse_when(messages[-1].get("date"))
+        waited = working_days_between(latest, now) if latest else 0
+        if unanswered >= 2 or waited > 2:
+            out.append(Finding(f"The customer has written {unanswered} time(s) in thread {t.get('subject')!r} without a reply from us; the latest was {waited} working day(s) ago, "
+                               "and the published promise is a reply within one to two working days.", (bundle.thread_ref(t),) + reply_refs))
+        else:
             out.append(Finding(f"The customer is waiting on us in thread {t.get('subject')!r}: the latest message is theirs.", (bundle.thread_ref(t),)))
     return out, decisions
 
@@ -400,14 +433,14 @@ def _narrative(bundle: EvidenceBundle, identification: dict[str, Any], facts: li
     if status == "identified":
         who = f"order {identification.get('order_number')}"
         conf = identification.get("confidence")
-        opening = f"The customer asks ({enquiry.kind.replace('_', ' ')}): {ask!r}. This is {who}, identified with {conf} confidence ({'; '.join(identification.get('reasons') or [])})."
+        opening = f"The customer asks ({enquiry.kind.replace('_', ' ')}): {ask!r}. This is {who}, identified ({conf}: {'; '.join(identification.get('reasons') or [])})."
     elif status == "ambiguous":
         opening = f"The customer asks ({enquiry.kind.replace('_', ' ')}): {ask!r}. The order is not singled out: {'; '.join(identification.get('reasons') or [])}."
     elif status == "not_found":
         opening = f"The customer asks ({enquiry.kind.replace('_', ' ')}): {ask!r}. No order was found: {'; '.join(identification.get('reasons') or [])}."
     else:
         opening = f"The customer asks ({enquiry.kind.replace('_', ' ')}): {ask!r}. The order could not be identified: {'; '.join(identification.get('reasons') or [])}."
-    journey = " ".join(f.text for f in facts if f.text.startswith(("Order ", "Dispatched", "No fulfilment", "Cancelled", "Refund", "Return status", "Email thread", "Our earlier")))
+    journey = " ".join(f.text for f in facts if f.text.startswith(("Order ", "Fulfilment", "No fulfilment", "Cancelled", "Refund", "Return status", "Email thread", "Our earlier")))
     reading = " ".join(f.text for f in inferences)
     return " ".join(part for part in (opening, journey, reading) if part).strip()
 

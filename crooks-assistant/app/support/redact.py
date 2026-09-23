@@ -31,6 +31,7 @@ class _Names:
     def __init__(self) -> None:
         self.emails: dict[str, str] = {}
         self.names: list[str] = []
+        self.tracking: list[str] = []
 
     def email(self, value: Any) -> str:
         real = str(value or "").strip().lower()
@@ -53,6 +54,8 @@ class _Names:
         out = _PHONE.sub("[phone]", out)
         for name in sorted(self.names, key=len, reverse=True):
             out = re.sub(rf"(?i)(?<![A-Za-z]){re.escape(name)}(?![A-Za-z])", "[name]", out)
+        for number in self.tracking:
+            out = out.replace(number, mask_tracking(number) or "")
         return out
 
 
@@ -80,6 +83,7 @@ def redact_bundle(bundle: EvidenceBundle) -> EvidenceBundle:
     for thread in data.get("threads") or []:
         for message in thread.get("messages") or []:
             names.learn_name(message.get("from"))
+    names.tracking = [str(f.get("number")) for f in order.get("fulfillments") or [] if isinstance(f, dict) and f.get("number")]
 
     enquiry = data.get("enquiry") or {}
     enquiry["sender_email"] = names.email(enquiry.get("sender_email"))
