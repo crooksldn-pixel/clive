@@ -1,0 +1,125 @@
+Owner-relayed GPT exact-SHA review verdict (session message 11, received 2026-09-23 ~10:13Z).
+Reviewer session and workspace facts are declared by the relay; GPT states it independently verified CI run 35810435777 and both real cases against the owner's live Shopify and Gmail sources.
+
+GPT EXACT-SHA REVIEW — PACKET 15
+
+Candidate:
+921375628d13ce338c659a7b789c11d8ac2b5f58
+
+Base:
+b68e6e827afbeba3364c8239a2d814a60372f498
+
+VERDICT: CHANGES REQUIRED
+
+CI run 35810435777 independently verified successful.
+
+This is one bounded PRODUCT finding from the real acceptance oracle.
+Do not modify the frozen lifecycle kernel or open any K-series work.
+
+S-01 — reply drafts claim operational actions are already underway when the evidence does not prove that.
+
+I independently verified both real cases against the owner's live Shopify
+and Gmail sources.
+
+CASE A — CROOKS-1968
+
+Verified externally:
+- correct order/customer identification;
+- FedEx tracking reference matches;
+- fulfilment created 15 Sep 2026;
+- Shopify fulfilment display status is CONFIRMED;
+- customer really wrote that tracking still showed Label Created and asked
+  whether FedEx had received the parcel;
+- no reply is present in that customer thread.
+
+The draft currently says:
+
+    "The carrier has not yet reported a collection scan on our side, so we
+     are checking with them that it has been picked up and will confirm as
+     soon as it is moving."
+
+The evidence does NOT establish that CROOKS is currently checking with FedEx.
+
+Also keep the status semantics appropriately bounded: CONFIRMED is Shopify's
+recorded display status; do not turn absence of a later status into stronger
+carrier-scan knowledge than the evidence supports.
+
+A truthful form would be along the lines of:
+
+    "Shopify currently shows the shipment as CONFIRMED rather than picked
+     up or in transit, so I can't confirm from our records that FedEx has
+     collected it yet. We need to check that with the courier before I can
+     give you a definite update."
+
+Wording may differ; preserve the fact/inference distinction.
+
+CASE B — CROOKS-1924
+
+Verified externally:
+- correct order/customer identification;
+- Shopify fulfilment display status is DELIVERED;
+- Shopify recorded the delivery event on 10 Sep 2026;
+- Shopify returnStatus is IN_PROGRESS;
+- Shopify recorded "AfterShip Returns created return CROOKS-1924-R1"
+  on 12 Sep;
+- Gmail has the customer's messages from 19 Sep and 22 Sep asking for
+  the return process;
+- Gmail's AfterShip notification says the return request is Pending approval.
+
+The draft currently says:
+
+    "We are confirming it now and will send you the return instructions
+     as soon as that is done."
+
+The evidence proves the opposite state more precisely: the return is pending
+approval. No evidence proves anyone is presently confirming it.
+
+A truthful form would be along the lines of:
+
+    "Your return request is already open and is currently pending approval,
+     so you do not need to submit another request. Once it has been reviewed,
+     we can confirm the outcome and return instructions."
+
+GENERAL FIX
+
+This is systemic in reply.py, not just these two strings.
+
+Audit deterministic reply templates for unsupported action/progress claims such
+as:
+
+- "we are checking..."
+- "we are chasing..."
+- "we are finding out..."
+- "we have passed it to the team..."
+- "we are confirming it now..."
+
+A draft may:
+- state verified facts;
+- state uncertainty;
+- say what still NEEDS to be done;
+- ask the customer for necessary information;
+- make a policy-backed statement.
+
+It must not state that an internal action has already begun/completed unless
+the evidence bundle proves that action.
+
+This follows the existing cs-rules.md contract:
+the assistant never says a change has been made until the Mac has proved it,
+and where something still needs doing it says what needs doing.
+
+Add targeted tests for the two real-case shapes plus representative unresolved
+cancel/held/untracked cases so unproved operational activity is not emitted.
+
+Keep this a narrow reply-semantics repair.
+
+Do not redesign:
+- evidence gathering
+- identification
+- lifecycle kernel
+- Agent Environment
+- routing architecture
+- business-write authority
+
+Produce one successor candidate and fresh exact-SHA evidence.
+
+The acceptance oracle remains the same two real cases.
