@@ -32,7 +32,7 @@ This checkpoint supersedes stale active-state claims in the 2026-09-19 migration
 - Packet 10 candidate `b68e6e827afbeba3364c8239a2d814a60372f498` was fast-forward landed on the CI stream and acceptance run `35806286976` passed.
 - Five recovery-era tasks are recorded COMPLETE; rejected/superseded revisions remain history rather than authority.
 - No deployment, runtime, watcher, systemd, secret, permission or business-write authority followed from the kernel closure.
-- The first post-kernel product dogfood is `support-investigator-v1`. Candidate `921375628d13ce338c659a7b789c11d8ac2b5f58` passed CI run `35810435777` and correctly identified two real Crooks cases, but exact-SHA review found one material customer-facing issue: deterministic drafts could claim internal follow-up was already underway without evidence. Revision 3 / attempt a3 is currently BUILDING to repair that bounded S-01 defect.
+- The first post-kernel product dogfood is `support-investigator-v1`. Candidate `921375628d13ce338c659a7b789c11d8ac2b5f58` passed CI run `35810435777` and correctly identified two real Crooks cases, but exact-SHA review found one material customer-facing issue: deterministic drafts could claim internal follow-up was already underway without evidence. Revisions 3 to 5 repaired that bounded defect and its two directly reachable siblings (S-01, S-01R, S-01C); r5 candidate `2dbb97bc6c88d3ee3cf5cdf6a980df4f3405104a` was accepted (packet 18) and integrated on 2026-09-23 at 11:11Z. See [Engineering state — 2026-09-23 11:12Z](#engineering-state--2026-09-23-1112z) below.
 - Treat that support repair as a one-round convergence exercise. Block only on material failures of customer/order identity, factual grounding, uncertainty, read-only authority, privacy or materially misleading output; stylistic/theoretical improvements go to backlog.
 - The next engineering capability after Support Investigator closes is the minimum **Objective Intake + Engineering Dispatcher V1** around the frozen kernel: owner objective → worker launch → result/candidate ingestion → independent GPT review → bounded repair → integration → COMPLETE/OWNER_GATE. Do not redesign the kernel.
 - The first no-courier test must be a small real product task with an external oracle, not a task to redesign the dispatcher itself.
@@ -45,6 +45,48 @@ General operational-state invariant learned from dogfood:
 
 The same distinction applies to customer operations and engineering. CLIVE must not turn a proposed next step into a claimed action, an accepted candidate into a deployment, an assignment into active execution, or liveness into meaningful progress.
 
+
+## Engineering state — 2026-09-23 11:12Z
+
+Exact state after the closure of Support Investigator V1, as recorded on `clive/engineering-state` at `4e0194c9668c7d1193af3e5cbd0db6e9748e53ed`. Everything here is a record in that branch or a commit in this repository; nothing here is a deployment.
+
+### Kernel tasks
+
+| Task | State | Accepted SHA | Integrated into |
+| --- | --- | --- | --- |
+| `judgment-ledger-corrections` r3 | COMPLETE | `1958b3272e42a2608dfbd957ccf249c720af8332` | `claude/clive-recovery-handoff-pwuuse` |
+| `agent-environment-truth-repairs` r1 | COMPLETE | `84e12e77e712…` | `claude/agent-environment-clive-state-2026-09-22` |
+| `ci-age-days-floor` r1 | COMPLETE | `ef3d08ff9fc5…` | `claude/ci-age-days-floor-2026-09-22` |
+| `control-plane-producers` r6 | COMPLETE (the kernel, frozen) | `18c3153a2eec10c6343153b550776afed3bec2ba` | `claude/control-plane-producers-2026-09-22` |
+| `judgment-ledger-ci-stream-integration` r1 | COMPLETE | `b68e6e827afbeba3364c8239a2d814a60372f498` | `claude/ci-stream-integration-judgment-2026-09-22`, then landed by fast-forward on `claude/ci-provenance-acceptance-2026-09-22` (run `35806286976` green) |
+| `support-investigator-v1` r5 | COMPLETE | `2dbb97bc6c88d3ee3cf5cdf6a980df4f3405104a` | `claude/support-investigator-v1-2026-09-23` |
+
+Revisions r1–r5 of `control-plane-producers`, r1–r2 of `judgment-ledger-corrections` and r1–r4 of `support-investigator-v1` are OBSOLETE, each superseded by the next revision; rejected candidates stay in history and never become authority.
+
+### Support Investigator V1 (read-only), as accepted
+
+- One customer enquiry about an existing order → the order identified only where the evidence supports it → an evidence bundle read through the application's own read tools (order, fulfilment, tracking, note, events, customer history, up to three inbox threads, the knowledge-base policy lines verbatim) → verified facts, reasonable inference and unknowns kept apart and cited → a reply draft that requires the owner's approval. Entry points: `POST /support/investigate` and `scripts/support_investigate.py` (which engages the process-wide read-only latch before it builds a client). Nothing in it can send, refund, cancel, alter an order, a fulfilment, tracking or a note.
+- Review history: packet 15 (S-01: drafts claimed internal actions were underway), packet 16 (S-01R: an untracked fulfilment was called dispatched), packet 17 (S-01C: cancel/address-change paths equated a fulfilment record with dispatch), packet 18 READY. The rule that closed them: a draft states verified facts, uncertainty, what still needs doing, asks and policy-backed statements only; "dispatched" only for a status that records movement; never an action that the evidence does not prove.
+- The acceptance oracle was two real Crooks cases captured read-only (a delivery enquiry on a label-only international fulfilment; a return enquiry on an order with an open return), replayed through the same code; GPT verified both against the live sources. The raw captures never entered the repository, a packet or the kernel store; the engineering evidence is redacted.
+- Still to happen, all owner decisions: the owner's own verification of the two cases and any sending of the replies by hand from the mailbox; the first live run on the Mac under the read-only latch; landing on the CI stream; deployment. The product-memory document is `SUPPORT_INVESTIGATOR_V1.md` on `claude/support-investigator-v1-2026-09-23` (not on this branch); its status stays TESTING until something is deployed and verified.
+
+### Capability gaps recorded by the dogfood
+
+- No carrier tracking is integrated (Easyship is not connected), so where a parcel is stays an explicit unknown and a fulfilment status is read as Shopify's recorded status, not as carrier knowledge.
+- The engineering container holds no CLIVE credential; the live adapters were exercised against a fake store and their unavailable path. Product-code capability is not deployed-runtime readiness.
+- Drafting is deterministic; no model is in the loop.
+
+### Where the documents are
+
+Product memory is split across branches until reconciled: this file and the 2026-09-23 reconciliation on `chatgpt/product-memory-reconcile-2026-09-23`; `ENGINEERING_LIFECYCLE_PRODUCERS.md` on the kernel branch at `18c3153a`; `SUPPORT_INVESTIGATOR_V1.md` on `claude/support-investigator-v1-2026-09-23`; `JUDGMENT_LEDGER_CONTRACT.md` and `REVIEW_ACCEPTANCE_CONTRACT.md` on the CI stream at `b68e6e82`. The root README on every branch carries the branch map.
+
+### Not authorised by any of the above
+
+Landing on the CI stream, production deployment, runtime, service, watcher or systemd changes, external customer sends, Shopify or Gmail writes, secret or permission changes. The operational-state invariant from the dogfood applies to this list: `NEEDED/PROPOSED ≠ AUTHORISED ≠ STARTED ≠ COMPLETED ≠ VERIFIED`.
+
+### Next engineering capability
+
+Unchanged from the reconciliation (§16): the minimum Objective Intake + Engineering Dispatcher V1 around the frozen kernel, started only on an owner objective; the kernel stays frozen unless dogfood demonstrates a core-invariant failure.
 
 ## Product
 
@@ -91,7 +133,20 @@ Startup identity direction: point of light → abstract world/intelligence orb �
 
 Full direction: [CLIVE_IDENTITY_AND_HOME_SURFACE.md](./CLIVE_IDENTITY_AND_HOME_SURFACE.md).
 
-\n### Long-horizon adaptation doctrine\n\nCLIVE must preserve its **mission and accumulated operational understanding without treating its current mechanisms as permanent**. Large organisations already exhibit distributed agency across people, software, rules, records and incentives; CLIVE's opportunity is to make more of that implicit organisational cognition explicit while reducing coordination cost and preserving human authority.\n\nThe capability frontier is permanently moving. There is no meaningful final 100% state. Models, APIs, interfaces, organisations and working patterns will change, so components should be expected to be replaced or deleted when superior mechanisms appear. Preserve durable semantics — objectives, identity, evidence/provenance, authority, time, commitments, capabilities, uncertainty, outcomes and verification — while keeping providers, frameworks, databases, orchestration, UI and connectors replaceable.\n\nCore rule: **preserve accumulated understanding; make accumulated implementation expendable.** CLIVE should be able to consume technology that would otherwise obsolete its current implementation. Adaptability remains controlled: observed limitation → candidate change → isolated experiment → adversarial evaluation → independent review → controlled adoption.\n\nMaturity principle: **no reasonable objective should leave CLIVE without a useful next move**, even when autonomous completion is impossible.\n\nFull doctrine: [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md).\n\n## Active Live Experience / evaluation direction — 2026-09-20
+
+### Long-horizon adaptation doctrine
+
+CLIVE must preserve its **mission and accumulated operational understanding without treating its current mechanisms as permanent**. Large organisations already exhibit distributed agency across people, software, rules, records and incentives; CLIVE's opportunity is to make more of that implicit organisational cognition explicit while reducing coordination cost and preserving human authority.
+
+The capability frontier is permanently moving. There is no meaningful final 100% state. Models, APIs, interfaces, organisations and working patterns will change, so components should be expected to be replaced or deleted when superior mechanisms appear. Preserve durable semantics — objectives, identity, evidence/provenance, authority, time, commitments, capabilities, uncertainty, outcomes and verification — while keeping providers, frameworks, databases, orchestration, UI and connectors replaceable.
+
+Core rule: **preserve accumulated understanding; make accumulated implementation expendable.** CLIVE should be able to consume technology that would otherwise obsolete its current implementation. Adaptability remains controlled: observed limitation → candidate change → isolated experiment → adversarial evaluation → independent review → controlled adoption.
+
+Maturity principle: **no reasonable objective should leave CLIVE without a useful next move**, even when autonomous completion is impossible.
+
+Full doctrine: [CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md](./CLIVE_ADAPTATION_AND_ORGANISATIONAL_INTELLIGENCE.md).
+
+## Active Live Experience / evaluation direction — 2026-09-20
 
 The owner has explicitly retired **user-facing Split** as the future interaction model. Preserve useful concurrency primitives internally where they still earn their place, but simultaneous work should appear as independently progressing jobs inside one CLIVE session rather than Half 1 / Half 2 / Merge / Close.
 
@@ -202,6 +257,8 @@ DESIGN.md describes the current direction; older visual directions are evidence/
 Every substantial release should operate from a curated Active Context Pack rather than carrying all historical context forward.
 
 ## Current near-term order
+
+> **2026-09-23 note:** this ordering is the 2026-09-19/21 list, kept as written. Items 2, 4 and 5 are done as marked; the Builder/harness items are historical scaffolding under §6 of the reconciliation; the current sequencing after the kernel closure is §15–§16 of [RECONCILIATION_2026-09-23.md](./RECONCILIATION_2026-09-23.md) and the engineering-state section above.
 
 1. reconcile the accepted Builder Environment into the persistent builder and canonical Dev Team trial records,
 2. **Linux production migration/promotion — ratified complete at `1cf3a0f` (DEC-048),**

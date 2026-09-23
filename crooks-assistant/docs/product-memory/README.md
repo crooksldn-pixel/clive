@@ -2,7 +2,7 @@
 
 This directory is the canonical durable product memory for CLIVE. Historical documents may still use the earlier CROOKS OS name where that context matters.
 
-Current repository: `crooksldn-pixel/clive`. Read these files from `claude/product-memory-foundation` by explicit ref; they are not assumed to exist on the repository's default theme branch or on the application baseline.
+Current repository: `crooksldn-pixel/clive`. Read these files by explicit ref from the most recent reconciled branch (`chatgpt/product-memory-reconcile-2026-09-23` as of 2026-09-23; `claude/product-memory-foundation` is the 2026-09-21 base); they are not assumed to exist on the repository's default theme branch or on the application baseline. Two documents live on the branches that produced them: `ENGINEERING_LIFECYCLE_PRODUCERS.md` on the kernel branch (`claude/control-plane-producers-2026-09-22`) and `SUPPORT_INVESTIGATOR_V1.md` on `claude/support-investigator-v1-2026-09-23`.
 
 The rule is simple:
 

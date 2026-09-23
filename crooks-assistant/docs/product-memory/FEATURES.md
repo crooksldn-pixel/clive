@@ -1,6 +1,6 @@
 # CROOKS OS — Feature Register
 
-**Last consolidated:** 2026-09-19
+**Last consolidated:** 2026-09-23 (rows FEAT-010 to FEAT-014 and FEAT-033 to FEAT-037 updated from the 2026-09-23 engineering state; earlier rows as consolidated on 2026-09-19)
 
 This file tracks features that are approved, planned, building, testing, or shipped. Brainstorming that has not been accepted belongs in `IDEAS.md`.
 
@@ -15,11 +15,11 @@ This file tracks features that are approved, planned, building, testing, or ship
 | FEAT-007 | Proposal/action/verification system | SHIPPED | V1 | Safety-critical; preserve semantics. |
 | FEAT-008 | Samsung browser/PWA client | SHIPPED / POLISH | V1 | Needs UX/UI refinement. |
 | FEAT-009 | CROOKS Control Mac app | SHIPPED / POLISH | Phase 6 | Exists but still engineering-like. |
-| FEAT-010 | Always-on Hetzner deployment | BUILDING | NOW | Linux/systemd/Tailscale migration in review. |
-| FEAT-011 | Linux secret architecture | TESTING | NOW | Static vs mutable secret handling under review. |
-| FEAT-012 | Tailscale private HTTPS runtime | TESTING | NOW | Code path prepared; live activation pending. |
+| FEAT-010 | Always-on Hetzner deployment | SHIPPED | NOW | Linux production ratified at `1cf3a0f3…` on 2026-09-19 (DEC-048); no deployment since. |
+| FEAT-011 | Linux secret architecture | TESTING | NOW | Gmail OAuth still outstanding; new secret provisioning remains separately gated. |
+| FEAT-012 | Tailscale private HTTPS runtime | SHIPPED | NOW | Tailnet-only HTTPS active and ratified (DEC-048). |
 | FEAT-013 | Claude GitHub inbox/outbox bridge | SHIPPED / HARDENING | NOW | Manual bridge works. |
-| FEAT-014 | Automatic Claude inbox watcher | TESTING | NOW | Built; review required before install. |
+| FEAT-014 | Automatic Claude inbox watcher | SHIPPED / HARDENING | NOW | Installed and enabled, pinned to `claude-fable-5-1` at high effort from `5ada7b47…`; the hourly supervisor is disabled. |
 | FEAT-015 | iPhone responsive access | PLANNED | NOW | Initial via web/PWA; native later. |
 | FEAT-016 | Current UI polish pass | PLANNED | NOW | Highest product priority after deployment. |
 | FEAT-017 | Response-quality/latency pass | PLANNED | NOW | Entity focus, verbosity, tool routing, speed. |
@@ -38,6 +38,11 @@ This file tracks features that are approved, planned, building, testing, or ship
 | FEAT-030 | Drive/Notes/document context | CAPTURED | NEXT/LATER | Linked business documents. |
 | FEAT-031 | Base44 capability integration | CAPTURED | NEXT/LATER | Bring internal apps behind CROOKS. |
 | FEAT-032 | Model Gateway | PLANNED | LATER | Provider fallback/routing/model independence. |
+| FEAT-033 | Repository-only lifecycle kernel (engineering control plane) | TESTING | NOW | Accepted and frozen at `18c3153a…` (packet 14 READY); records on `clive/engineering-state`; further kernel work only on dogfood evidence of a core-invariant failure. Not deployed as a service. |
+| FEAT-034 | Judgment ledger, exact-SHA review contract and CI acceptance provenance | TESTING | NOW | On the CI stream at `b68e6e82…`; the `acceptance` workflow runs five gates on every push; mechanical gates produce evidence, not permission. |
+| FEAT-035 | Agent Environment authoritative state | TESTING | NOW | Read-only projection of kernel records; truth repairs accepted at `84e12e77…`. |
+| FEAT-036 | Customer Support Investigator V1 (read-only) | TESTING | NOW | COMPLETE in the kernel at `2dbb97bc…` after packets 15–18; two real cases verified read-only; owner verification, first live run, CI-stream landing and deployment pending. Cannot write. |
+| FEAT-037 | CLIVE Live Experience V0.5 | BUILDING | NOW | Implementation stream `chatgpt/clive-live-experience-v0-5`; production-lineage integration candidate `d9621337…` is owner-gated (fixture baseline authorisation and two product answers outstanding); not accepted, not deployed. |
 | FEAT-033 | Anticipation engine | PLANNED | LATER | Detect important missing/abnormal events. |
 | FEAT-034 | Scene compiler | PLANNED | LATER | Contextual UI generation. |
 | FEAT-035 | Multi-user/staff roles | CAPTURED | LATER | Scoped interfaces/capabilities. |

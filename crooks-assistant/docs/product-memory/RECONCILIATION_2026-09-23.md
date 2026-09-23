@@ -489,3 +489,13 @@ Examples:
 - “email prepared” is not “email sent.”
 
 This is the same semantic spine appearing in both business operations and engineering. That convergence is evidence that the architecture is moving toward a general intent-to-execution system rather than two unrelated products.
+
+## 18. Closure addendum — 2026-09-23 11:12Z
+
+Appended after the reconciliation above, without changing it. Sections 12 and 13 describe `support-investigator-v1` at revision 3 as BUILDING; that is now history.
+
+- Support Investigator V1 converged in three bounded repair rounds on the same frozen S-01 criterion: S-01 (drafts claimed internal actions were underway; packet 15 on `92137562`), S-01R (an untracked fulfilment was called dispatched; packet 16 on `2ca2bfee`), S-01C (cancel and address-change paths equated a fulfilment record with dispatch; packet 17 on `109f58c4`). Packet 18 on `2dbb97bc6c88d3ee3cf5cdf6a980df4f3405104a` returned READY.
+- The verdict was admitted against attempt a5 and the exact accepted SHA was integrated by fast-forward into `claude/support-investigator-v1-2026-09-23` with the remote target ref verified; the task is COMPLETE at revision 5 (r1–r4 OBSOLETE). Engineering state `4e0194c9668c7d1193af3e5cbd0db6e9748e53ed`.
+- The convergence rule of §12 held: the review closed on the frozen dimensions (customer identity, factual grounding, explicit uncertainty, read-only authority, privacy, materially misleading output) and opened no speculative round.
+- What the acceptance did not authorise, and what has not happened: landing on the CI stream, deployment, runtime or watcher changes, customer sends, Shopify or Gmail writes, secret or permission changes. The owner's verification of the two real cases and the first live run under the read-only latch are still ahead.
+- The next capability remains §16: Objective Intake + Engineering Dispatcher V1, started only on an owner objective.
