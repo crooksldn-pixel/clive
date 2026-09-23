@@ -1,0 +1,17 @@
+{
+  "_comment": "Synthetic inbox threads in the shape gmail_tools.threads_for (summary) and gmail_read_thread (messages) return. Invented people at .invalid addresses.",
+  "late_uk_chase": {
+    "summary": {"thread_id": "18f2a9c0b1d2e301", "from": "Sam Fixture", "from_email": "sam@fixture.invalid", "subject": "Order 2101 not here yet", "date": "Fri, 18 Sep 2026 09:12:00 +0100", "snippet": "Still nothing", "likely_bulk": false, "authenticated": true},
+    "thread": {"thread_id": "18f2a9c0b1d2e301", "message_count": 3, "messages_shown": 3, "truncated": false, "latest_direction": "inbound", "awaiting_reply": true,
+      "messages": [
+        {"message_id": "m1", "from": "Sam Fixture", "from_email": "sam@fixture.invalid", "date": "2026-09-16T08:00:00Z", "subject": "Order 2101 not here yet", "body": "Hi, order 2101 has not arrived. Any update?", "outbound": false},
+        {"message_id": "m2", "from": "CROOKS", "from_email": "shop@fixture.invalid", "date": "2026-09-16T10:00:00Z", "subject": "Re: Order 2101 not here yet", "body": "Hi Sam, it left us on the 11th with Royal Mail, tracking RM123456789GB. CROOKS", "outbound": true},
+        {"message_id": "m3", "from": "Sam Fixture", "from_email": "sam@fixture.invalid", "date": "2026-09-18T08:12:00Z", "subject": "Re: Order 2101 not here yet", "body": "Still nothing", "outbound": false}
+      ]}
+  },
+  "unrelated": {
+    "summary": {"thread_id": "18f2a9c0b1d2e399", "from": "Nobody", "from_email": "nobody@fixture.invalid", "subject": "Hello", "date": "Mon", "snippet": "unrelated", "likely_bulk": false},
+    "thread": {"thread_id": "18f2a9c0b1d2e399", "message_count": 1, "messages_shown": 1, "truncated": false, "latest_direction": "inbound", "awaiting_reply": true,
+      "messages": [{"message_id": "m9", "from": "Nobody", "from_email": "nobody@fixture.invalid", "date": "2026-09-14T08:00:00Z", "subject": "Hello", "body": "unrelated", "outbound": false}]}
+  }
+}
