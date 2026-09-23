@@ -1,0 +1,114 @@
+Owner-relayed GPT exact-SHA review verdict (session message 17, received 2026-09-23 after 11:40Z).
+Reviewer session and workspace facts are declared by the relay. GPT cites a separate read-only live-host review on 2026-09-23 for the watcher runtime probe.
+
+GPT EXACT-SHA REVIEW — PACKET 20
+
+Candidate:
+4a4633767e15120f9edea275f3cb646177496995
+
+Parent:
+5d12aa5e9ef92e5aee5a7ba40242557e7587deb7
+
+Task:
+product-memory-truth r3
+Attempt:
+product-memory-truth-a3
+
+VERDICT: CHANGES REQUIRED
+
+PM-01 is CLOSED.
+The newly added feature rows now use FEAT-055 through FEAT-059, the
+pre-existing FEAT-033 through FEAT-037 identities are preserved, and the
+register contains 59 unique identifiers.
+
+PM-02 is CLOSED.
+CURRENT_TRUTH no longer falsely claims that every repository branch already
+carries the updated README.
+
+Two remaining factual current-truth defects must be repaired before this
+documentation becomes authoritative.
+
+PM-03 — WATCHER RUNTIME MODEL CLAIM IS FALSE
+
+FEATURES.md currently says:
+
+FEAT-014 ... "Installed and enabled, pinned to `claude-fable-5-1` at high
+effort from `5ada7b47…`"
+
+CURRENT_TRUTH.md also still contains the older statement that:
+
+"The CROOKS bridge watcher is installed and enabled. Its runtime is now
+explicitly pinned to `claude-fable-5-1` at `high` effort ..."
+
+A separate read-only live-host review on 2026-09-23 probed the actually loaded
+systemd unit, with no drop-ins, and found:
+
+    Environment=CROOKS_BRIDGE_CLAUDE_MODEL=claude-opus-5
+
+Therefore the documentation is currently asserting a runtime state that the
+live probe contradicts.
+
+Smallest repair:
+
+- Do not manufacture a replacement current runtime claim from historical docs.
+- Replace the stale Fable runtime assertion with wording that distinguishes:
+  reviewed/source configuration from observed live runtime.
+- Record the most recent verified live probe as `claude-opus-5` only where the
+  evidence supports it, with date/provenance.
+- Prefer wording making clear that runtime truth comes from probes rather than
+  hand-maintained documentation.
+- Do not change the watcher, systemd unit, model, runtime or configuration.
+
+This is documentation correction only.
+
+PM-04 — OPENING CURRENT-TRUTH SUMMARY STILL SAYS SUPPORT IS UNDERWAY
+
+Near the top of CURRENT_TRUTH.md the reconciliation checkpoint still says:
+
+    "the first real Crooks operational dogfood is already underway as
+    read-only Customer Support Investigator V1; after that bounded task
+    closes..."
+
+That is no longer current.
+
+The same file later correctly records:
+
+    support-investigator-v1 r5 COMPLETE
+    accepted/integrated SHA 2dbb97bc...
+
+Repair the opening summary so it reflects the closure, e.g. bounded wording
+equivalent to:
+
+    "the first real Crooks operational dogfood, Customer Support Investigator
+    V1, is COMPLETE in the engineering lifecycle at 2dbb97bc...; the next
+    engineering proof is Objective Intake + Engineering Dispatcher V1..."
+
+Do not rewrite the historical reconciliation sections that are intentionally
+preserved as historical snapshots; this finding concerns the active opening
+summary that future workers are told to treat as current truth.
+
+SCOPE
+
+Docs only.
+
+Do not change:
+- code
+- structure checker
+- kernel/lifecycle
+- watcher/systemd/runtime
+- model configuration
+- branches/default branch
+- deployment
+- permissions/secrets/business writes
+
+Preserve the valid PM-01/PM-02 repairs and the packet-19 mechanical newline
+repairs.
+
+After repair:
+- verify FEAT IDs remain 59/59 unique
+- rerun product_memory_check
+- rescan literal \n escapes
+- confirm no non-.md paths changed
+- dispatch one exact successor SHA
+
+Do not open further speculative documentation cleanup.
