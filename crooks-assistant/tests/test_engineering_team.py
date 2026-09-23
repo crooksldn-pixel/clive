@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_engineering_dispatcher import REGISTRY, World  # noqa: E402
+from test_engineering_dispatcher import EDIT_HELLO, REGISTRY, World  # noqa: E402
 
 from app.orchestrator.contracts import TaskStatus  # noqa: E402
 from app.orchestrator.workers import ClaudeCodeWorker  # noqa: E402
@@ -106,6 +106,43 @@ def test_lists_every_objective_with_correct_totals_and_json_matches_text(tmp_pat
 
     # --json prints exactly what the text prints, rendered from the same report
     assert engineering_team.render(payload) == text.strip("\n")
+
+
+def _reviewing_objective(tmp_path: Path) -> World:
+    """obj-c reaches REVIEWING and stays there: its reviewer (FakeReviewer, "gpt" via
+    "fake-programmatic") is dispatched the candidate but never answers."""
+    w = World(tmp_path, max_concurrent=1)
+    w.scenarios(EDIT_HELLO)
+    w.objective(objective_id="obj-c", target_branch="clive/objective/obj-c")
+    d = w.dispatcher()
+    _run_until(d, lambda: (s := w.store.read_task_state("obj-c", 1)) is not None and s.status is TaskStatus.REVIEWING)
+    return w
+
+
+def test_reviewing_objective_reports_reviewer_principal_and_mechanism_read_only(tmp_path, capsys):
+    w = _reviewing_objective(tmp_path)
+    store_before = _snapshot(w.store.root)
+    runtime_before = _snapshot(w.config.runtime_root)
+    workspace_before = _snapshot(w.config.workspace_root)
+
+    assert engineering_team.run(_argv(w)) == 0
+    text = capsys.readouterr().out
+    line = next(line for line in text.splitlines() if line.startswith("obj-c "))
+    assert "stage=REVIEWING" in line
+    assert "reviewer=gpt via fake-programmatic" in line
+
+    assert engineering_team.run(_argv(w, as_json=True)) == 0
+    payload = json.loads(capsys.readouterr().out)
+    row = next(r for r in payload["objectives"] if r["objective_id"] == "obj-c")
+    assert row["stage"] == "REVIEWING"
+    assert row["reviewer_principal"] == "gpt" and row["reviewer_mechanism"] == "fake-programmatic"
+    assert payload["totals"]["reviewing"] == 1
+
+    # the dispatcher engineering_team.py builds for this read is the real one (with its reviewer
+    # driver wired), yet resolving these fields never dispatched, collected or wrote a thing
+    assert _snapshot(w.store.root) == store_before
+    assert _snapshot(w.config.runtime_root) == runtime_before
+    assert _snapshot(w.config.workspace_root) == workspace_before
 
 
 def test_the_script_writes_nothing(tmp_path):

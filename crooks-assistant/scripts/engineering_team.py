@@ -29,6 +29,7 @@ from app.orchestrator.checks import NamespaceSandbox  # noqa: E402
 from app.orchestrator.dispatcher import Dispatcher, DispatcherConfig  # noqa: E402
 from app.orchestrator.lifecycle import GitFacts, Kernel, LifecycleStore, PrincipalRegistry  # noqa: E402
 from app.orchestrator.objectives import ObjectiveStore  # noqa: E402
+from app.orchestrator.reviewers import GptUnavailable  # noqa: E402
 from app.orchestrator.workers import ClaudeCodeWorker  # noqa: E402
 
 DEFAULT_REGISTRY = ROOT / "config" / "review_principals.json"
@@ -51,16 +52,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def build_dispatcher(args) -> Dispatcher:
-    """The same Dispatcher engineering_dispatcher.py builds, minus anything that writes: no reviewer
-    driver is wired (nothing here dispatches or collects a review) and the worker is never launched."""
+    """The same Dispatcher engineering_dispatcher.py builds for its defaults (``--reviewer gpt`` with no
+    ``--gpt-api-key-file``, ``--worker-cli claude`` and no other worker/check-sandbox overrides): the same
+    app.orchestrator imports, the same reviewer-driver (``GptUnavailable``, since this script takes no key
+    file) and the same worker and sandbox wiring. Only ``status()`` is ever called on it, so nothing here
+    dispatches or collects a review, launches a worker or writes a record."""
     store = LifecycleStore(Path(args.store))
     kernel = Kernel(store=store, registry=PrincipalRegistry.load(Path(args.registry)), git=GitFacts(Path(args.repo)),
                     operator="engineering-team (read-only)", journal=False)
     objectives = ObjectiveStore(store, journal=False)
+    reviewers = [GptUnavailable()]
+    worker = ClaudeCodeWorker(cli="claude", model=None, effort=None, max_turns=200, bash_prefixes=(),
+                              oauth_token_file=None)
     config = DispatcherConfig(runtime_root=Path(args.runtime_root), workspace_root=Path(args.workspace_root),
                               repo=Path(args.repo), max_concurrent=args.max_concurrent)
-    worker = ClaudeCodeWorker(cli="claude")
-    return Dispatcher(kernel, objectives, worker, [], config, checks=NamespaceSandbox())
+    return Dispatcher(kernel, objectives, worker, reviewers, config, checks=NamespaceSandbox())
 
 
 def _category(stage: str | None) -> str:
