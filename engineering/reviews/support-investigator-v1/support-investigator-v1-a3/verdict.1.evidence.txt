@@ -1,0 +1,79 @@
+Owner-relayed GPT exact-SHA review verdict (session message 12, received 2026-09-23 after 10:27Z).
+Reviewer session and workspace facts are declared by the relay; GPT states it independently verified CI run 35848037844.
+
+GPT EXACT-SHA REVIEW — PACKET 16
+
+Candidate:
+2ca2bfee61f91425f119e751ea598d2337b1443e
+
+Parent:
+921375628d13ce338c659a7b789c11d8ac2b5f58
+
+VERDICT: CHANGES REQUIRED — S-01 NOT FULLY CLOSED
+
+CI run 35848037844 independently verified successful.
+
+The two real acceptance cases now close the original unsupported-action problem:
+- CROOKS-1968 no longer claims courier checking is underway.
+- CROOKS-1924 no longer claims return confirmation is underway.
+- wording is now appropriately bounded to facts, uncertainty and required next steps.
+
+One material S-01 path remains.
+
+S-01R — UNTRACKED FULFILMENT STILL CLAIMS DISPATCH WITHOUT MOVEMENT EVIDENCE
+
+In app/support/reply.py, the no-tracking fulfilment branch currently does:
+
+    elif fulfillments:
+        ...
+        lines.append(
+            "It was dispatched on ..."
+        )
+
+This is unconditional on the fulfilment display status.
+
+The existing synthetic `untracked` fixture demonstrates the defect:
+- display_status = FULFILLED
+- tracking number = None
+
+`FULFILLED` is not one of the candidate's declared movement statuses, but this
+path still tells the customer "It was dispatched on ...".
+
+That contradicts Packet 16's own intended invariant:
+
+    "Movement is claimed only for statuses that record it."
+
+The tracked branch already correctly distinguishes `moving([f])` from weaker
+fulfilment states. Apply the same bounded semantics to the no-tracking branch.
+
+For example:
+- movement status → "It was dispatched on..."
+- non-movement fulfilment status → "Our records show it as fulfilled on..."
+  or equivalent bounded wording
+
+Keep:
+
+    "We do not have a tracking reference on file for it, so we need to check
+     with the courier before we can say where it is."
+
+Add/strengthen the untracked test so FULFILLED with no tracking explicitly
+asserts that the draft DOES NOT say "dispatched".
+
+This is not a new finding series or architecture request.
+It is the final uncovered branch of the already-frozen S-01 criterion.
+
+Do not modify:
+- evidence gathering
+- identification
+- kernel
+- routing
+- Agent Environment
+- authority/write behaviour
+
+After this one-line semantic path and its regression test are repaired, rerun
+the same acceptance suite.
+
+Convergence rule:
+If the successor closes this exact path and introduces no material failure in
+customer identity, factual grounding, uncertainty, read-only authority or
+privacy, return READY. Do not open speculative additional review rounds.
