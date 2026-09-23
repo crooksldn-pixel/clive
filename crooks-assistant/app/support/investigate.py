@@ -242,7 +242,7 @@ def _order_facts(bundle: EvidenceBundle) -> list[Finding]:
             out.append(Finding(f"Fulfilment recorded on {day_words(f.get('shipped_at'))}; no tracking number on it"
                                + (f" (carrier {f.get('carrier')})" if f.get("carrier") else "") + f"; status {fulfilment_status(f) or 'unknown'}.", (ref,)))
     if not fulfillments:
-        out.append(Finding("No fulfilment recorded: the order has not been dispatched.", (ref,)))
+        out.append(Finding("No fulfilment recorded on the order.", (ref,)))
     if order.get("cancelled_at"):
         out.append(Finding(f"Cancelled on {day_words(order.get('cancelled_at'))}" + (f" (reason: {order.get('cancel_reason')})" if order.get("cancel_reason") else "") + ".", (ref,)))
     for r in order.get("refunds") or []:
@@ -328,7 +328,7 @@ def _inferences(bundle: EvidenceBundle, identification: dict[str, Any]) -> tuple
         shipped = [parse_when(f.get("shipped_at")) for f in fulfillments]
         shipped = [s for s in shipped if s]
         if shipped and not arrived:
-            verb = "Label created" if labelled else "Dispatched"
+            verb = "Label created" if labelled else ("Dispatched" if moving(fulfillments) else "Fulfilment recorded")
             latest_dispatch = max(shipped)
             elapsed_working = working_days_between(latest_dispatch, now)
             elapsed_calendar = (now - latest_dispatch).days
@@ -353,20 +353,18 @@ def _inferences(bundle: EvidenceBundle, identification: dict[str, Any]) -> tuple
     elif placed is not None:
         waiting = working_days_between(placed, now)
         if waiting > DISPATCH_GRACE_WORKING_DAYS:
-            out.append(Finding(f"Not dispatched {waiting} working day(s) after the order was placed; the published rule is same-day dispatch before 6pm, Monday to Saturday, so something has held it.", (ref,) + dispatch_refs))
-            decisions.append(f"Order {number} is not dispatched {waiting} working day(s) on: what is holding it, and what should the customer be told?")
+            out.append(Finding(f"No fulfilment recorded {waiting} working day(s) after the order was placed; the published rule is same-day dispatch before 6pm, Monday to Saturday, so something has held it.", (ref,) + dispatch_refs))
+            decisions.append(f"Order {number} has no fulfilment recorded {waiting} working day(s) on: what is holding it, and what should the customer be told?")
         else:
-            out.append(Finding("Not dispatched yet, but within the normal dispatch time.", (ref,) + dispatch_refs))
+            out.append(Finding("No fulfilment recorded yet, but within the normal dispatch time.", (ref,) + dispatch_refs))
 
     if kind == "delivery" and not fulfillments and not order.get("cancelled_at"):
         out.append(Finding("The customer is asking where an order is that has not left yet.", (ref, "enquiry")))
     if kind in ("wrong_item", "missing_item", "damaged"):
         out.append(Finding("What the customer received cannot be seen from here; the order shows what should have been sent.", (ref, "enquiry")))
         decisions.append(f"Order {number}: replacement, exchange or refund once the photo arrives (the policy puts damage in transit on us; discretion is the owner's).")
-    if kind == "cancel":
-        decisions.append(f"Cancel order {number}?" + (" It has not been dispatched." if not fulfillments else " It has already been dispatched, so a cancellation would be a return instead."))
-    if kind == "change_address":
-        decisions.append(f"Change the delivery address on order {number}?" + (" It has not been dispatched." if not fulfillments else " It has already been dispatched."))
+    if kind in ("cancel", "change_address"):
+        decisions.append(_change_decision(kind, number, fulfillments))
     if open_return(order):
         name = return_name(order)
         out.append(Finding("A return is already open on this order" + (f" ({name})" if name else "") + f" (return status {order.get('return_status')}), "
@@ -403,6 +401,27 @@ def _inferences(bundle: EvidenceBundle, identification: dict[str, Any]) -> tuple
         else:
             out.append(Finding(f"The customer is waiting on us in thread {t.get('subject')!r}: the latest message is theirs.", (bundle.thread_ref(t),)))
     return out, decisions
+
+
+def _change_decision(kind: str, number: Any, fulfillments: list[dict[str, Any]]) -> str:
+    """The owner's question on a cancellation or address change, read from the fulfilment
+    record the same way the draft reads it: no fulfilment, delivered, moving, or not
+    established. Whether the parcel has left is never inferred from a fulfilment existing."""
+    what = "Cancel order" if kind == "cancel" else "Change the delivery address on order"
+    if not fulfillments:
+        return f"{what} {number}? Our records show no fulfilment."
+    status = fulfilment_status(fulfillments[-1])
+    if delivered(fulfillments):
+        if kind == "cancel":
+            return f"{what} {number}? The carrier reports it delivered, so this is a return question rather than a cancellation."
+        return f"{what} {number}? The carrier reports it delivered, so the delivery address can no longer be changed."
+    if moving(fulfillments):
+        if kind == "cancel":
+            return f"{what} {number}? The recorded status is {status}: it has already been dispatched, so a cancellation would be a return instead."
+        return f"{what} {number}? The recorded status is {status}: it has already been dispatched, so the address cannot be changed on this shipment."
+    then = "cancel it; if it has, treat it as a return" if kind == "cancel" else "change the address; if it has, the address cannot be changed on this shipment"
+    return (f"{what} {number}? A fulfilment is recorded (status {status}) without recorded movement, so whether the parcel has left is not established: "
+            f"check with the warehouse or courier first; if it has not gone, {then}.")
 
 
 # ---------------------------------------------------------------------- unknowns

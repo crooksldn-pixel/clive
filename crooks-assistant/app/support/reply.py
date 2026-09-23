@@ -160,12 +160,12 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
                 opening = "It was dispatched on" if moving([f]) else "Our records show it as fulfilled on"
                 lines.append(_sentence(f"{opening} {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")
                                        + f", tracking number {f.get('number')}" + (f" - you can follow it at {f.get('url')}" if f.get("url") else "")))
-            if delivery_line:
+            if delivery_line and kind in ("delivery", "other"):
                 lines.append(_window_line(order, bundle))
                 based.append(bundle.policy_ref("delivery_windows"))
-            if late:
+            if late and kind in ("delivery", "other"):
                 lines.append("It is taking longer than it should, and it needs chasing with the courier before we can give you a definite update.")
-            if lost_line:
+            if lost_line and kind in ("delivery", "other"):
                 lines.append("If it does not turn up, reply here: that is on us to sort, and the options are chasing the courier, a replacement or a refund.")
                 based.append(bundle.policy_ref("lost_or_damaged"))
         elif fulfillments:
@@ -176,7 +176,7 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
             lines.append(_sentence(f"{opening} {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")))
             lines.append("We do not have a tracking reference on file for it, so we need to check with the courier before we can say where it is.")
         else:
-            lines.append(_sentence(f"It has not left us yet; it was placed on {day_words(order.get('placed_at'))}"))
+            lines.append(_sentence(f"Our records show no fulfilment for it yet; it was placed on {day_words(order.get('placed_at'))}"))
             if dispatch_line:
                 lines.append(_sentence(dispatch_line))
                 based.append(bundle.policy_ref("dispatch"))
@@ -186,17 +186,15 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
             lines.append("Tracking is emailed the moment it ships.")
             if "tracking_emailed" in bundle.policy:
                 based.append(bundle.policy_ref("tracking_emailed"))
-        if kind == "cancel" and fulfillments:
-            lines.append("Because it has already been dispatched we cannot cancel it now; once it arrives you have fourteen days to return it for a refund.")
-            if returns_line:
+        if kind in ("cancel", "change_address") and fulfillments:
+            lines.extend(_after_fulfilment(kind, order, fulfillments))
+            if kind == "cancel" and returns_line:
                 based.append(bundle.policy_ref("returns"))
-        if kind == "change_address" and fulfillments:
-            lines.append("Because it has already been dispatched we cannot change the address on it now. If it comes back to us undelivered, let us know the new address and sending it on can be looked at then.")
     elif kind == "cancel":
-        lines.append(_sentence(f"It has not been dispatched yet (placed on {day_words(order.get('placed_at'))}), so it can still be cancelled"))
+        lines.append(_sentence(f"Our records show no fulfilment for it yet (placed on {day_words(order.get('placed_at'))}), so it can still be cancelled"))
         lines.append("Cancelling it is a step we need to take on our side; once it has been cancelled you will get a confirmation, with the refund to follow.")
     elif kind == "change_address":
-        lines.append(_sentence(f"It has not been dispatched yet (placed on {day_words(order.get('placed_at'))}), so the address can still be changed"))
+        lines.append(_sentence(f"Our records show no fulfilment for it yet (placed on {day_words(order.get('placed_at'))}), so the address can still be changed"))
         lines.append("Could you reply with the full new address, including the postcode? It needs changing on our side before it ships, so the sooner we have it the better.")
     elif kind == "damaged":
         lines.append("Sorry about that. Damage in transit is on us to sort.")
@@ -244,6 +242,32 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
     lines.append(signature)
     return ReplyDraft(subject=_subject(enquiry, number), body="\n".join(lines), requires_owner_approval=True,
                       based_on=tuple(dict.fromkeys(based)), not_said=tuple(u.text for u in investigation.unknowns))
+
+
+def _after_fulfilment(kind: str, order: dict[str, Any], fulfillments: list[dict[str, Any]]) -> list[str]:
+    """What a recorded fulfilment means for a cancellation or an address change. Only recorded
+    delivery or movement supports "already dispatched"; a fulfilment without either is said as
+    uncertainty and a check that still needs doing, never as a refusal."""
+    f = fulfillments[-1]
+    status = fulfilment_status(f)
+    if delivered(fulfillments):
+        arrived = delivered_at(order)
+        shown = "Our records show it delivered" + (f" on {day_words(arrived)}" if arrived else "")
+        if kind == "cancel":
+            return [_sentence(f"{shown}, so it can no longer be cancelled; you have fourteen days from delivery to return it for a refund")]
+        return [_sentence(f"{shown}, so the delivery address can no longer be changed")]
+    if moving(fulfillments):
+        if kind == "cancel":
+            return ["Because it has already been dispatched we cannot cancel it now; once it arrives you have fourteen days to return it for a refund."]
+        return ["Because it has already been dispatched we cannot change the address on it now. If it comes back to us undelivered, let us know the new address and sending it on can be looked at then."]
+    what = "it can still be cancelled" if kind == "cancel" else "the address can still be changed"
+    lines = [f"Our records show a fulfilment for it created on {day_words(f.get('shipped_at'))} (status {status}), but not whether the parcel has actually left us, so we cannot say yet whether {what}.",
+             "That needs checking on our side before we can give you an answer."]
+    if kind == "cancel":
+        lines.append("If it has already gone, the return policy applies once it arrives: fourteen days from delivery.")
+    else:
+        lines.append("If you reply with the full new address, including the postcode, we can see what is possible once that is checked.")
+    return lines
 
 
 def _subject(enquiry, number: Any) -> str:

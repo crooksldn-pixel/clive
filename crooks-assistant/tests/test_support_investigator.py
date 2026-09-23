@@ -278,11 +278,12 @@ async def test_an_order_not_dispatched_after_the_grace_period_is_flagged_and_the
     r = Readers(["unfulfilled_held"])
     _, result = await run("Any update on my order 2102?", r, sender="alex@fixture.invalid")
     assert any("something has held it" in i["text"] for i in result["inferences"])
-    assert any("not dispatched 5 working day(s) on" in d for d in result["owner_decisions"])
+    assert any("has no fulfilment recorded 5 working day(s) on" in d for d in result["owner_decisions"])
     assert any(f["text"].startswith("Internal order note (not for the customer): Customer phoned") for f in result["facts"])
     body = result["reply_draft"]["body"]
     assert "neighbour" not in body and "phoned" not in body
-    assert "It has not left us yet" in body and "It should have gone out by now" in body
+    assert "Our records show no fulfilment for it yet" in body and "It should have gone out by now" in body
+    assert "dispatched" not in body.lower()
 
 
 async def test_a_cancelled_order_is_answered_from_the_cancellation_and_the_refund():
@@ -398,7 +399,7 @@ async def test_a_cancellation_after_dispatch_is_answered_as_a_return_and_not_per
     _, result = await run("Please cancel order 2101", r, sender="sam@fixture.invalid")
     body = result["reply_draft"]["body"]
     assert "we cannot cancel it now" in body and "fourteen days to return it" in body
-    assert "Cancel order CROOKS-2101? It has already been dispatched, so a cancellation would be a return instead." in result["owner_decisions"]
+    assert "Cancel order CROOKS-2101? The recorded status is IN_TRANSIT: it has already been dispatched, so a cancellation would be a return instead." in result["owner_decisions"]
     assert r.verbs <= {"find_order", "order_detail", "threads_for"}
 
 
@@ -407,7 +408,8 @@ async def test_a_cancellation_before_dispatch_is_a_decision_for_the_owner_not_an
     _, result = await run("Please cancel my order 2102", r, sender="alex@fixture.invalid")
     body = result["reply_draft"]["body"]
     assert "so it can still be cancelled" in body
-    assert "Cancel order CROOKS-2102? It has not been dispatched." in result["owner_decisions"]
+    assert "Cancel order CROOKS-2102? Our records show no fulfilment." in result["owner_decisions"]
+    assert "Our records show no fulfilment for it yet (placed on 12 Sep 2026), so it can still be cancelled." in body
     assert result["approval"]["external_effects_so_far"] == "none"
 
 
@@ -452,6 +454,10 @@ UNDERWAY = re.compile(r"\bwe (are|have|were|'re|'ve) (checking|chasing|finding|c
     (["late_uk", "older_same_customer"], ["late_uk_chase"], "Where is my order 2101?", "sam@fixture.invalid"),
     (["late_uk"], ["two_chases"], "Where is my order 2101?", "sam@fixture.invalid"),
     (["unfulfilled_held"], [], "Any update on my order 2102?", "alex@fixture.invalid"),
+    (["label_only_us"], [], "Please cancel my order 2107", "jay@fixture.invalid"),
+    (["label_only_us"], [], "Can I change the address on order 2107?", "jay@fixture.invalid"),
+    (["untracked"], [], "Please cancel order 2105", "ash@fixture.invalid"),
+    (["delivered_return_open"], [], "Please cancel order 2108", "chris@fixture.invalid"),
     (["unfulfilled_held"], [], "Please cancel my order 2102", "alex@fixture.invalid"),
     (["unfulfilled_held"], [], "Can I change the address on order 2102?", "alex@fixture.invalid"),
     (["late_uk"], [], "Please cancel order 2101", "sam@fixture.invalid"),
@@ -500,6 +506,54 @@ async def test_unresolved_cancel_held_and_untracked_cases_say_what_needs_doing_n
     assert "It was dispatched on 11 Sep 2026 with Royal Mail" in late, "IN_TRANSIT is movement Shopify recorded"
     assert "it needs chasing with the courier" in late and "we are chasing" not in late
     assert "that is on us to sort, and the options are chasing the courier, a replacement or a refund" in late
+
+
+async def test_a_cancellation_against_a_label_only_fulfilment_is_uncertainty_not_a_refusal():
+    """S-01C: a fulfilment record is not dispatch. CONFIRMED with a label and no movement is said
+    as what the records show and what still needs establishing, never as already dispatched
+    or as making cancellation impossible."""
+    r = Readers(["label_only_us"])
+    _, result = await run("Please cancel my order 2107", r, sender="jay@fixture.invalid")
+    body = result["reply_draft"]["body"]
+    assert "already been dispatched" not in body and "dispatched" not in body.lower()
+    assert "cannot cancel" not in body and "can no longer be cancelled" not in body
+    assert "Our records show a fulfilment for it created on 15 Sep 2026 (status CONFIRMED), but not whether the parcel has actually left us, so we cannot say yet whether it can still be cancelled." in body
+    assert "That needs checking on our side before we can give you an answer." in body
+    assert "international delivery usually takes" not in body and "If it does not turn up" not in body, "delivery-window lines belong to a delivery enquiry"
+    decision = next(d for d in result["owner_decisions"] if d.startswith("Cancel order CROOKS-2107?"))
+    assert "without recorded movement" in decision and "not established" in decision and "already been dispatched" not in decision
+
+
+async def test_an_address_change_against_a_label_only_fulfilment_is_uncertainty_not_a_refusal():
+    r = Readers(["label_only_us"])
+    _, result = await run("Can I change the address on order 2107?", r, sender="jay@fixture.invalid")
+    body = result["reply_draft"]["body"]
+    assert "already been dispatched" not in body and "dispatched" not in body.lower()
+    assert "cannot change the address" not in body and "can no longer be changed" not in body
+    assert "so we cannot say yet whether the address can still be changed." in body
+    assert "If you reply with the full new address, including the postcode, we can see what is possible once that is checked." in body
+    decision = next(d for d in result["owner_decisions"] if d.startswith("Change the delivery address on order CROOKS-2107?"))
+    assert "without recorded movement" in decision and "not established" in decision
+
+
+async def test_cancel_and_address_change_against_a_moving_fulfilment_still_say_dispatched():
+    r = Readers(["late_uk"])
+    _, cancel = await run("Please cancel order 2101", r, sender="sam@fixture.invalid")
+    assert "Because it has already been dispatched we cannot cancel it now; once it arrives you have fourteen days to return it for a refund." in cancel["reply_draft"]["body"]
+    _, change = await run("I moved house, can you change the address on order 2101?", r, sender="sam@fixture.invalid")
+    assert "Because it has already been dispatched we cannot change the address on it now." in change["reply_draft"]["body"]
+    assert any(d.startswith("Change the delivery address on order CROOKS-2101? The recorded status is IN_TRANSIT") for d in change["owner_decisions"])
+
+
+async def test_cancel_against_a_fulfilled_untracked_or_delivered_order_reads_the_record_not_the_fulfilment():
+    _, fulfilled = await run("Please cancel order 2105", Readers(["untracked"]), sender="ash@fixture.invalid")
+    body = fulfilled["reply_draft"]["body"]
+    assert "dispatched" not in body.lower() and "(status FULFILLED)" in body and "we cannot say yet whether it can still be cancelled" in body
+    _, delivered_case = await run("Please cancel order 2108", Readers(["delivered_return_open"]), sender="chris@fixture.invalid")
+    body = delivered_case["reply_draft"]["body"]
+    assert "Our records show it delivered on 10 Sep 2026, so it can no longer be cancelled; you have fourteen days from delivery to return it for a refund." in body
+    assert "dispatched" not in body.lower()
+    assert "Cancel order CROOKS-2108? The carrier reports it delivered, so this is a return question rather than a cancellation." in delivered_case["owner_decisions"]
 
 
 # ----------------------------------------------------------- the report and the bundle
