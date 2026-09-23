@@ -1,0 +1,97 @@
+Owner-relayed GPT exact-SHA review verdict (session message 5, received 2026-09-23 after 00:05Z).
+Reviewer session and workspace facts are declared by the relay.
+
+PACKET 9
+Candidate:
+acef34793d8742516aa7526480cb7cb959f0e651
+
+Base:
+6ffb2c6626e020c8313910adf76dd6e6be2c6848
+
+VERDICT: CHANGES REQUIRED.
+
+The five original K-01..K-05 findings are materially addressed, but fresh adversarial inspection found four remaining fail-closed defects.
+
+K-06 — rename scope escape remains in K-01.
+
+GitFacts.changed_paths() uses:
+
+git diff --name-only <base> <head>
+
+With Git rename detection, a rename/move can report only the destination path.
+
+Concrete case:
+
+forbidden/secret.txt
+    -> allowed/secret.txt
+
+git diff --name-only may report only:
+
+allowed/secret.txt
+
+Therefore a task whose allowed_paths is ("allowed",) can remove/move an out-of-scope path while the derived changed-path set appears wholly in-scope.
+
+Repair by deriving scope from a representation that preserves BOTH source and destination paths for renames/copies. For example parse --name-status with rename/copy detection, or deliberately disable rename collapsing so deletion + addition both appear.
+
+Add a real-repository regression test, not only FakeGit:
+- commit forbidden/file
+- candidate renames it to allowed/file
+- allowed_paths=("allowed",)
+- candidate/dispatch must fail because forbidden/file was touched.
+
+K-07 — OwnerResolution authority is caller-declared rather than owner-bound.
+
+resume(... owner_resolution=..., resolved_by="owner") checks only:
+
+registry.is_owner(resolved_by)
+
+Any kernel caller can supply the string "owner". OwnerResolution contains no owner session/provenance and no immutable reference to an authoritative owner-origin judgment/action.
+
+Therefore the kernel currently can manufacture the fact it says it cannot manufacture.
+
+Owner-gate resolution must bind to authoritative owner evidence. Reuse the existing owner judgment/provenance architecture where possible rather than adding another authority system.
+
+At minimum the resolution must reference an immutable owner-origin record carrying owner principal/session provenance and the exact gated task/revision, and the kernel must verify that binding before lifting the gate. A free-form CLI --resolved-by owner assertion must not itself constitute authority.
+
+Add adversarial coverage proving a non-owner/controller cannot lift a gate merely by naming the owner principal.
+
+K-08 — real git-journal failure can leave attempted records staged in the Git index.
+
+git_journal() executes git add -A before git commit.
+
+The _verb undo log restores filesystem paths after an exception, but it does not restore/reset the Git index.
+
+The current test monkeypatches git_journal() itself to throw before git add, so it does not exercise the dangerous failure point.
+
+Add a real repository test where commit fails AFTER staging (for example a failing commit hook or an injected failure immediately after git add). After the refused verb:
+- working tree must equal pre-verb state;
+- index must equal pre-verb state;
+- HEAD must equal pre-verb state;
+- no attempted lifecycle record may remain staged.
+
+Repair the journaling transaction so filesystem + index are one rollback boundary.
+
+K-09 — obsolete integration-candidate acceptance can still authorise a merge.
+
+_accepted_integration_candidate() searches historical Acceptance records for integration_sha and a task at target_base_sha.
+
+It does not verify that the integration candidate's task revision remains current/non-obsolete/non-cancelled and still authoritative.
+
+Therefore:
+integration candidate r1 -> READY accepted
+-> defect discovered
+-> r2 supersedes r1 / r1 becomes OBSOLETE
+-> old r1 Acceptance remains on disk
+-> a later integrate() can still find and use that stale acceptance.
+
+An integration candidate acceptance used for completion must belong to a currently authoritative candidate revision, not an obsolete/superseded one. Apply the same stale-revision principle used elsewhere in the control plane.
+
+Add the adversarial sequence above and require refusal.
+
+Keep this narrow. Do not redesign the lifecycle.
+
+Produce one successor SHA to acef3479 with K-06..K-09 repaired, full acceptance evidence and a fresh packet.
+
+Packet 10 READY does not transfer if b68e6e82 changes.
+
+No deployment/runtime/watcher/systemd actions.
