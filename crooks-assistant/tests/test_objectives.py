@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -159,6 +160,58 @@ def test_owner_set_done_and_dropped_stay_as_set(s):
     s.add_blocker(obj2.id, "No flight-booking capability", kind="missing_capability")  # would be blocked
     s.set_status(obj2.id, "dropped", by="owner")
     assert s.get(obj2.id).summary()["attention"] == "dropped"
+
+
+def _write_legacy_record(tmp_path, *, status: str, status_event_by: str | None) -> str:
+    """A pre-field JSON record as it existed before status_set_by was tracked: the key is
+    simply absent, as real dogfood data on disk is."""
+    objectives_dir = tmp_path / "objectives"
+    objectives_dir.mkdir(parents=True, exist_ok=True)
+    now = "2026-01-01T00:00:00Z"
+    events = []
+    if status_event_by is not None:
+        events.append({"at": now, "kind": "status", "text": status, "by": status_event_by})
+    record = {
+        "id": "obj_11111111",
+        "title": "t",
+        "request": "r",
+        "created_at": now,
+        "updated_at": now,
+        "status": status,
+        "deadline": None,
+        "facts": [],
+        "unknowns": [],
+        "blockers": [{"id": "b_1", "text": "No flight-booking capability", "kind": "missing_capability",
+                      "at": now, "resolved_at": None}],
+        "items": [],
+        "attention": [],
+        "events": events,
+    }
+    (objectives_dir / f"{record['id']}.json").write_text(json.dumps(record), encoding="utf-8")
+    return record["id"]
+
+
+def test_legacy_record_without_status_set_by_infers_owner_provenance_and_stays_terminal(tmp_path):
+    obj_id = _write_legacy_record(tmp_path, status="done", status_event_by="owner")
+    loaded = ObjectiveStore(tmp_path / "objectives").get(obj_id)
+    assert loaded.status_set_by == "owner"
+    assert loaded.summary()["attention"] == "done"
+
+
+def test_legacy_record_without_status_set_by_does_not_infer_non_owner_or_unproven_provenance(tmp_path):
+    non_owner_id = _write_legacy_record(tmp_path, status="dropped", status_event_by="clive")
+    loaded = ObjectiveStore(tmp_path / "objectives").get(non_owner_id)
+    assert loaded.status_set_by != "owner"
+    assert loaded.summary()["attention"] == "blocked"
+
+    unproven_id = "obj_22222222"
+    (tmp_path / "objectives" / f"{unproven_id}.json").write_text(
+        json.dumps({**json.loads((tmp_path / "objectives" / "obj_11111111.json").read_text()), "id": unproven_id, "events": []}),
+        encoding="utf-8",
+    )
+    loaded_unproven = ObjectiveStore(tmp_path / "objectives").get(unproven_id)
+    assert loaded_unproven.status_set_by is None
+    assert loaded_unproven.summary()["attention"] == "blocked"
 
 
 def test_the_tools_are_local_reads_to_the_gate():

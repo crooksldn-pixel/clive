@@ -84,6 +84,17 @@ class Objective:
     attention: list[dict] = field(default_factory=list)
     events: list[dict] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        # Legacy JSON written before status_set_by existed has no such field, so the dataclass
+        # default (None) is supplied even when the objective's own status event proves who set
+        # the current terminal status. Infer it from that event so old owner-closed objectives
+        # do not lose their terminal attention; a missing or non-owner event leaves it unproven.
+        if self.status_set_by is None and self.status in ("done", "dropped"):
+            for event in reversed(self.events):
+                if event.get("kind") == "status" and str(event.get("text", "")).startswith(self.status):
+                    self.status_set_by = event.get("by")
+                    break
+
     # ---- views ------------------------------------------------------------
     def open_(self, key: str) -> list[dict]:
         return [x for x in getattr(self, key) if not x.get("resolved_at")]
