@@ -19,7 +19,7 @@ This file tracks features that are approved, planned, building, testing, or ship
 | FEAT-011 | Linux secret architecture | TESTING | NOW | Gmail OAuth still outstanding; new secret provisioning remains separately gated. |
 | FEAT-012 | Tailscale private HTTPS runtime | SHIPPED | NOW | Tailnet-only HTTPS active and ratified (DEC-048). |
 | FEAT-013 | Claude GitHub inbox/outbox bridge | SHIPPED / HARDENING | NOW | Manual bridge works. |
-| FEAT-014 | Automatic Claude inbox watcher | SHIPPED / HARDENING | NOW | Installed and enabled, pinned to `claude-fable-5-1` at high effort from `5ada7b47…`; the hourly supervisor is disabled. |
+| FEAT-014 | Automatic Claude inbox watcher | SHIPPED / HARDENING | NOW | Installed and enabled; the hourly supervisor is disabled. Reviewed source revision `5ada7b47…` pins the installer's runtime to `claude-fable-5-1` at high effort, but the most recent verified live probe, a read-only live-host review on 2026-09-23 reported in the packet-20 review verdict relayed by the owner, found the loaded systemd unit (no drop-ins) carrying `Environment=CROOKS_BRIDGE_CLAUDE_MODEL=claude-opus-5`. Runtime truth comes from probes, not from this register; the model and effort in force are whatever the next probe shows. |
 | FEAT-015 | iPhone responsive access | PLANNED | NOW | Initial via web/PWA; native later. |
 | FEAT-016 | Current UI polish pass | PLANNED | NOW | Highest product priority after deployment. |
 | FEAT-017 | Response-quality/latency pass | PLANNED | NOW | Entity focus, verbosity, tool routing, speed. |
