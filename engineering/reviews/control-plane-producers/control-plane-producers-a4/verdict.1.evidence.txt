@@ -1,0 +1,101 @@
+Owner-relayed GPT exact-SHA review verdict (session message 7, received 2026-09-23 after 00:57Z).
+Reviewer session and workspace facts are declared by the relay; GPT states it independently verified CI run 35803753989 and reproduced K-12 in a real git repository.
+
+PACKET 12
+Candidate:
+692999fcffea238e4fd6acb4722ba2e02955dc9f
+
+Base:
+31fb755360ae40959c14d608de0035815c41cc40
+
+VERDICT: CHANGES REQUIRED.
+
+CI run 35803753989 independently verified successful.
+
+K-10 is CLOSED.
+
+The fail-closed decision is correct: the repository-only kernel cannot establish owner origin, therefore OWNER_GATE remains unresolved by this kernel. A syntactically valid owner judgment may be checked for binding but cannot itself supply trusted authority. resume/cancel/re-block/revision bypasses are correctly refused.
+
+K-11 is substantially correct, but two narrow journal issues remain.
+
+K-12 — the lock-file exception matches by suffix rather than exact identity.
+
+journal_preconditions() currently filters dirty paths with:
+
+    not line.rstrip().endswith(".kernel.lock")
+
+This ignores any store path ending in ".kernel.lock", not only the actual:
+
+    <store>/.kernel.lock
+
+Concrete reproduced case:
+
+    engineering/evil.kernel.lock
+
+Git reports:
+
+    ?? engineering/evil.kernel.lock
+
+The current filter removes it from `dirty`, so the verb proceeds.
+
+The subsequent:
+
+    git add -A -- <store>
+
+then stages that stray file.
+
+I reproduced this in a real Git repository.
+
+This violates the K-11 invariant that an unrelated/untracked store file cannot be swept into the kernel journal.
+
+Fix the exception by exact path identity for the one canonical lock file. Prefer robust porcelain parsing (`-z`) rather than suffix/string-line assumptions if that is the smaller reliable implementation.
+
+Add a real-repository regression:
+
+- create clean journal checkout
+- create `<store>/evil.kernel.lock`
+- kernel verb must REFUSE before writing
+- evil.kernel.lock remains untracked
+- HEAD/index/task state unchanged
+
+The actual `<store>/.kernel.lock` may remain exempt as required by layout.
+
+K-13 — the clean-check is point-in-time, while the final commit can still include a concurrently staged outside change.
+
+The store's flock serialises CLIVE kernels sharing the store, but it does not lock the repository index against an unrelated Git process.
+
+Current sequence is effectively:
+
+    verify no staged changes
+    ...
+    write kernel records
+    git add <store>
+    git commit             # commits the whole index
+
+A different process could stage an unrelated path after the initial precondition and before `git commit`; the kernel commit would then include it.
+
+This contradicts the new stated invariant:
+
+    "a kernel commit can carry only the kernel's own writes"
+
+Keep the fix narrow.
+
+Prefer making the journal commit itself path-scoped / isolated so unrelated index state cannot enter the commit even if it appears after the initial clean check. Preserve the clean precondition as an early fail-closed check if useful.
+
+Do not create a new transaction framework.
+
+Add a deterministic regression using an injection/test seam between precondition and commit:
+- begin clean
+- after the precondition, stage an unrelated outside path
+- kernel journal must not include that path in its commit
+- either refuse safely or commit only the store
+- unrelated index state must not be silently consumed
+
+Produce one successor SHA for K-12/K-13 only.
+
+Do not change lifecycle architecture, owner-authority policy, Agent Environment, routing, product semantics or packet 10.
+
+Packet 10 remains READY and ACCEPTED:
+b68e6e827afbeba3364c8239a2d814a60372f498
+
+No deployment/runtime/watcher/systemd/business-write changes.
