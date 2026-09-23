@@ -17,10 +17,15 @@ from pydantic import Field, ValidationError, field_validator
 from app.orchestrator.contracts import ExactSha, StrictRecord, validate_exact_sha
 from app.orchestrator.objectives import Check
 
-from .errors import RequestSchemaError
+from .errors import RequestSchemaError, redact_validation_error
 
 REQUEST_SCHEMA = "clive.remote_engineering_request.v1"
-_REQUEST_ID = r"^[a-z0-9][a-z0-9.-]{2,79}$"
+# Bounded and safe to use as a filename and a record identity, but deliberately no
+# stricter than that: the one canonical door (``app.orchestrator.objectives.Objective``)
+# is what actually authorises an id, and a shorter duplicate rule here would only
+# ever reject requests before the canonical validator gets to say why, hiding the
+# real refusal reason (e.g. a protected path) behind a schema mismatch instead.
+_REQUEST_ID = r"^[a-z0-9][a-z0-9.-]{0,79}$"
 
 
 class RemoteObjectiveRequest(StrictRecord):
@@ -57,4 +62,6 @@ def parse_request(raw: bytes) -> RemoteObjectiveRequest:
     try:
         return RemoteObjectiveRequest.model_validate(data)
     except ValidationError as exc:
-        raise RequestSchemaError(f"request does not match {REQUEST_SCHEMA}: {exc}") from exc
+        raise RequestSchemaError(
+            f"request does not match {REQUEST_SCHEMA}: {redact_validation_error(exc)}"
+        ) from exc

@@ -21,7 +21,7 @@ from app.orchestrator.lifecycle import GitFacts, Kernel, LifecycleError, sha256_
 from app.orchestrator.objectives import Objective, ObjectiveStore, intake, owner_entry_from_host
 from app.orchestrator.store import RecordConflictError
 
-from .errors import InboxError, RequestSchemaError
+from .errors import InboxError, RequestSchemaError, redact_validation_error
 from .inbox import DEFAULT_INBOX_BRANCH, DEFAULT_INBOX_DIRECTORY, discover_requests, fetch_inbox
 from .receipts import Receipt, ReceiptLog
 from .requests import RemoteObjectiveRequest, parse_request
@@ -80,7 +80,9 @@ def objective_from_request(
             created_at=created_at,
         )
     except ValidationError as exc:
-        raise InboxError(f"request {request.request_id} cannot become an objective: {exc}") from exc
+        raise InboxError(
+            f"request {request.request_id} cannot become an objective: {redact_validation_error(exc)}"
+        ) from exc
 
 
 @dataclass
