@@ -15,8 +15,8 @@ from .errors import InboxError, RequestSchemaError
 from .inbox import DEFAULT_INBOX_BRANCH, DEFAULT_INBOX_DIRECTORY, discover_requests, fetch_inbox
 from .publisher import DEFAULT_STATUS_BRANCH, DEFAULT_STATUS_PATH, publish_status
 from .receipts import Receipt, ReceiptLog
-from .runner import RemoteEngineeringLoop
 from .requests import REQUEST_SCHEMA, RemoteObjectiveRequest, parse_request
+from .runner import RemoteEngineeringLoop
 from .status import STATUS_SCHEMA, build_status
 
 __all__ = [
