@@ -1,5 +1,7 @@
 # CROOKS OS — GPT Conversation Migration Handoff
 
+> **SUPERSESSION NOTICE — 2026-09-23:** This file is retained as the 2026-09-19 migration handoff and contains stale active-task/state details. For current engineering/product truth, read `CURRENT_TRUTH.md` and `RECONCILIATION_2026-09-23.md`. Do not restart the old harness/watcher sequence merely because it appears below. Its durable lessons remain evidence; its then-current mechanics are not binding precedent.
+
 **Purpose:** deterministic handoff for moving CROOKS OS work into a fresh GPT conversation without losing continuity  
 **Status:** ACTIVE  
 **Created:** 2026-09-19
