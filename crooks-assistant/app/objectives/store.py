@@ -75,6 +75,7 @@ class Objective:
     created_at: str
     updated_at: str
     status: str = "active"
+    status_set_by: str | None = None
     deadline: str | None = None
     facts: list[dict] = field(default_factory=list)
     unknowns: list[dict] = field(default_factory=list)
@@ -90,8 +91,9 @@ class Objective:
     def attention_(self) -> tuple[str, str]:
         """The one rule for the headline everywhere, derived from open records, not the stored
         status: needs_you (an open question, or a proposed item needing the owner) beats blocked
-        (an open blocker) beats doing (an item started) beats idle. Owner-set done/dropped stand."""
-        if self.status in ("done", "dropped"):
+        (an open blocker) beats doing (an item started) beats idle. Only owner-set done/dropped
+        (status_set_by == "owner") stand; any other or unproven done/dropped status is ignored."""
+        if self.status in ("done", "dropped") and self.status_set_by == "owner":
             return self.status, f"the owner set this objective to {self.status}"
         question = next(iter(self.open_("attention")), None)
         if question:
@@ -295,11 +297,12 @@ class ObjectiveStore:
     def set_status(self, objective_id: str, status: str, *, note: str = "", by: str = "clive") -> Objective:
         if status not in STATUSES:
             raise ObjectiveError(f"An objective's status is one of {', '.join(STATUSES)}.")
-        if status == "done" and by != "owner":
-            # CLIVE can say everything is complete; closing the owner's objective is the owner's call.
-            raise ObjectiveError("Only the owner closes an objective; ask them whether it is done.")
+        if status in ("done", "dropped") and by != "owner":
+            # CLIVE can say everything is complete or dead; closing the owner's objective is the owner's call.
+            raise ObjectiveError("Only the owner closes or drops an objective; ask them first.")
         def fn(o):
             o.status = status
+            o.status_set_by = by
             self._event(o, "status", f"{status}{' — ' + note if note else ''}", by)
         return self._change(objective_id, fn, by=by)
 

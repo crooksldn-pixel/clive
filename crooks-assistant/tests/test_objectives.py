@@ -112,6 +112,43 @@ def test_attention_needs_you_from_a_question_or_an_awaiting_approval(s):
     assert s.get(both.id).summary()["attention"] == "needs_you"
 
 
+def test_attention_precedence_blocked_beats_doing_on_the_same_objective(s):
+    obj = s.create(title="both", request="r")
+    s.propose(obj.id, "Draft the itinerary", needs_owner=False)
+    item = s.get(obj.id).items[0]
+    s.advance(obj.id, item["id"], "started")
+    s.add_blocker(obj.id, "No flight-booking capability", kind="missing_capability")
+    summary = s.get(obj.id).summary()
+    assert summary["attention"] == "blocked"
+    assert "flight-booking" in summary["attention_reason"]
+
+    blocker = s.get(obj.id).open_("blockers")[0]
+    s.resolve(obj.id, blocker["id"], note="capability shipped", by="owner")
+    summary = s.get(obj.id).summary()
+    assert summary["attention"] == "doing"
+    assert "Draft the itinerary" in summary["attention_reason"]
+
+
+def test_non_owner_or_unproven_dropped_status_does_not_suppress_attention(s):
+    obj = s.create(title="t", request="r")
+    s.add_blocker(obj.id, "No flight-booking capability", kind="missing_capability")
+
+    with pytest.raises(ObjectiveError, match="Only the owner"):
+        s.set_status(obj.id, "dropped", by="clive")
+
+    # a record whose status is 'dropped' without proven owner provenance (e.g. legacy data
+    # written before provenance was tracked) must not suppress the derived attention.
+    legacy = s.get(obj.id)
+    legacy.status = "dropped"
+    legacy.status_set_by = None
+    attention, reason = legacy.attention_()
+    assert attention == "blocked"
+    assert "flight-booking" in reason
+
+    s.set_status(obj.id, "dropped", by="owner")
+    assert s.get(obj.id).summary()["attention"] == "dropped"
+
+
 def test_owner_set_done_and_dropped_stay_as_set(s):
     obj = s.create(title="t", request="r")
     s.propose(obj.id, "Book a flight", needs_owner=True)  # would otherwise be needs_you
