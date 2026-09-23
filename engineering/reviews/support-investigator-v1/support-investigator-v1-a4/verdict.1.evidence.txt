@@ -1,0 +1,119 @@
+Owner-relayed GPT exact-SHA review verdict (session message 13, received 2026-09-23 after 10:41Z).
+Reviewer session and workspace facts are declared by the relay; GPT states it independently verified CI run 35849264263.
+
+GPT EXACT-SHA REVIEW — PACKET 17
+
+Candidate:
+109f58c40b12b996a353731f5a42bdbf2abbf9bb
+
+Parent:
+2ca2bfee61f91425f119e751ea598d2337b1443e
+
+VERDICT: CHANGES REQUIRED — SAME S-01 FACTUAL-GROUNDING INVARIANT
+
+CI run 35849264263 independently verified successful.
+
+The specific S-01R defect identified in Packet 16 is closed:
+- FULFILLED + no tracking now says only that the records show fulfilment.
+- IN_TRANSIT + no tracking may still say dispatched.
+- the new regression coverage correctly distinguishes those cases.
+
+One remaining material path still violates the same invariant.
+
+S-01C — CANCEL / ADDRESS-CHANGE PATHS EQUATE “FULFILMENT EXISTS” WITH “DISPATCHED”
+
+At the exact candidate:
+
+app/support/reply.py:190
+
+    Because it has already been dispatched we cannot cancel it now...
+
+app/support/reply.py:194
+
+    Because it has already been dispatched we cannot change the address on it now...
+
+Both execute whenever `fulfillments` is non-empty.
+
+Likewise:
+
+app/support/investigate.py:367
+
+    Cancel order ... It has already been dispatched, so a cancellation would be a return instead.
+
+app/support/investigate.py:369
+
+    Change the delivery address ... It has already been dispatched.
+
+These also use existence of any fulfilment as proof of dispatch.
+
+That contradicts the candidate's now-established movement invariant.
+
+Concrete counterexample already exists in the synthetic fixtures:
+
+    label_only_us
+    display_status = CONFIRMED
+    tracking number exists
+    carrier collection / movement is not established
+
+For a cancellation or address-change enquiry against that order, the current
+code would first correctly explain that collection is not established, then
+incorrectly tell the customer that the order has already been dispatched.
+
+That is materially misleading and can also incorrectly tell the customer that
+cancellation or an address change is impossible.
+
+REQUIRED REPAIR
+
+Use the same evidence semantics already established elsewhere:
+
+- movement/delivered evidence may support “already dispatched”
+- label-only / CONFIRMED / FULFILLED without movement must not be described as
+  dispatched
+- where the evidence does not establish whether cancellation/address change is
+  still operationally possible, state that uncertainty and make it an owner/
+  operational decision rather than inventing an answer
+
+Do not guess a business rule merely to close the test.
+
+Apply the same correction to:
+1. customer-facing draft wording
+2. owner_decisions / investigation wording
+
+REGRESSION TESTS
+
+Add at minimum:
+
+1. cancellation request against label_only_us:
+   - must not contain “already been dispatched”
+   - must not state cancellation is impossible solely because a fulfilment exists
+
+2. address-change request against label_only_us:
+   - must not contain “already been dispatched”
+   - must not state address change is impossible solely because a fulfilment exists
+
+3. corresponding IN_TRANSIT cases:
+   - may continue to use the dispatched branch
+
+Also correct Packet 17's reviewer-checklist assertion that grep finds only two
+“dispatched” occurrences; at this exact SHA there are additional unconditional
+occurrences.
+
+SCOPE / CONVERGENCE
+
+This is not a new architecture finding and does not reopen general review.
+It is another directly reachable branch of the same frozen S-01 rule:
+do not state an operational fact that the evidence does not establish.
+
+Do not modify the kernel, routing, Agent Environment, evidence gathering,
+write authority or runtime.
+
+After this exact path is repaired and the existing real cases remain clean,
+review only for:
+- customer identity
+- factual grounding
+- explicit uncertainty
+- read-only authority
+- privacy
+- materially misleading customer output
+
+No stylistic or hypothetical expansion beyond those criteria.
