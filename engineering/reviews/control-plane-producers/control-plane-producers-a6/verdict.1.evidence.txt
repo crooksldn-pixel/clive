@@ -1,0 +1,61 @@
+Owner-relayed GPT exact-SHA review verdict (session message 9, received 2026-09-23 after 01:23Z).
+Reviewer session and workspace facts are declared by the relay; GPT states it independently verified CI run 35805639327.
+
+PACKET 14
+Candidate:
+18c3153a2eec10c6343153b550776afed3bec2ba
+
+Base:
+5063115965d6b431019e8b9bc4008fdf8133e008
+
+VERDICT: READY.
+
+CI run 35805639327 independently verified successful.
+
+K-14 is CLOSED.
+
+The canonical <store>/.kernel.lock exemption is now restricted to the one
+safe first-use state: exact canonical path, untracked and empty.
+
+The reviewed regression coverage demonstrates:
+- fresh empty lock can be committed on first journal use;
+- tracked lock content modified externally is refused before a kernel write;
+- staged lock state is refused by the staged-index precondition;
+- non-empty pre-existing untracked canonical lock is refused rather than
+  implicitly trusted;
+- state/index/HEAD preservation holds for the identified failure case.
+
+This review uses the frozen release criteria agreed after the K-series
+convergence discussion.
+
+No remaining release-blocking defect was found in the reviewed delta against
+the core V1 invariants:
+- workers cannot self-certify;
+- exact candidate/reviewer identity is enforced;
+- stale/superseded work cannot inherit authority;
+- repository scope is derived and enforced;
+- owner authority is not fabricated;
+- COMPLETE requires accepted + verified integration evidence;
+- failed kernel operations are fail-closed;
+- unrelated checkout/index work is not consumed by the kernel journal.
+
+Do not open another speculative K-series hardening round from this verdict.
+
+Record READY for:
+18c3153a2eec10c6343153b550776afed3bec2ba
+
+Then, using the accepted kernel procedure:
+
+1. integrate control-plane-producers r6 and record COMPLETE;
+2. re-check that the packet-10 target stream is still exactly
+   6b7c43d29f5deb0317517eb1577e98b4b693eaf7;
+3. if still exact, land the already-READY packet-10 candidate:
+   b68e6e827afbeba3364c8239a2d814a60372f498
+   and record its integration/COMPLETE state;
+4. report the recovery sequence closed.
+
+After that, freeze the repository-only lifecycle kernel at this milestone.
+Further kernel work should be driven by real dogfood evidence or a demonstrated
+core-invariant failure, not open-ended adversarial hardening.
+
+No deployment/runtime/watcher/systemd/business-write changes.
