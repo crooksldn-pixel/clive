@@ -22,6 +22,13 @@ UK_COUNTRIES = ("united kingdom", "uk", "gb", "great britain", "england", "scotl
 UK_WINDOW_WORKING_DAYS = 2
 INTERNATIONAL_WINDOW_DAYS = 14
 DISPATCH_GRACE_WORKING_DAYS = 1
+# Shopify's fulfilment display statuses, read as the carrier's word on the parcel: a label
+# that exists without a scan, a delivery scan, and the failures.
+LABEL_ONLY_STATUSES = ("CONFIRMED", "LABEL_PRINTED", "LABEL_PURCHASED", "SUBMITTED")
+DELIVERED_STATUSES = ("DELIVERED",)
+OPEN_RETURN_STATUSES = ("IN_PROGRESS", "REQUESTED")
+_TAGS = re.compile(r"<[^>]+>")
+_RETURN_NAME = re.compile(r"created return (\S+?)\.?$", re.I)
 
 
 @dataclass(frozen=True)
@@ -81,6 +88,39 @@ def working_days_between(start: datetime, end: datetime) -> int:
 
 def _digits(number: Any) -> str:
     return str(number or "").rsplit("-", 1)[-1].lstrip("#").strip()
+
+
+def fulfilment_status(f: dict[str, Any]) -> str:
+    return str(f.get("display_status") or f.get("status") or "").upper()
+
+
+def label_only(fulfillments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [f for f in fulfillments if fulfilment_status(f) in LABEL_ONLY_STATUSES]
+
+
+def delivered(fulfillments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [f for f in fulfillments if fulfilment_status(f) in DELIVERED_STATUSES]
+
+
+def delivered_at(order: dict[str, Any]) -> Any:
+    """When Shopify recorded the carrier's delivery scan, from the order's events."""
+    for e in order.get("events") or []:
+        message = str((e or {}).get("message") or "").lower()
+        if "delivered" in message and "email" not in message:
+            return e.get("at")
+    return None
+
+
+def return_name(order: dict[str, Any]) -> str:
+    for e in order.get("events") or []:
+        found = _RETURN_NAME.search(str((e or {}).get("message") or ""))
+        if found:
+            return found.group(1)
+    return ""
+
+
+def open_return(order: dict[str, Any]) -> bool:
+    return str(order.get("return_status") or "").upper() in OPEN_RETURN_STATUSES
 
 
 def _is_uk(order: dict[str, Any]) -> bool | None:
@@ -189,6 +229,11 @@ def _order_facts(bundle: EvidenceBundle) -> list[Finding]:
         out.append(Finding(f"Internal order note (not for the customer): {order.get('note')}", (ref,)))
     if order.get("tags"):
         out.append(Finding(f"Order tags: {', '.join(order.get('tags'))}.", (ref,)))
+    if order.get("return_status") and str(order.get("return_status")).upper() != "NO_RETURN":
+        out.append(Finding(f"Return status on the order: {order.get('return_status')}.", (ref,)))
+    for e in order.get("events") or []:
+        if isinstance(e, dict) and e.get("message"):
+            out.append(Finding(f"Shopify event, {day_words(e.get('at'))}: {_TAGS.sub('', str(e.get('message'))).strip()}", (ref,)))
     history = order.get("history") if isinstance(order.get("history"), dict) else None
     if history and history.get("orders") is not None:
         out.append(Finding(f"The customer has {history.get('orders')} order(s) with CROOKS in total.", (f"{ref}#history",)))
@@ -205,8 +250,9 @@ def _thread_facts(bundle: EvidenceBundle) -> list[Finding]:
         inbound = [m for m in messages if not m.get("outbound")]
         outbound = [m for m in messages if m.get("outbound")]
         latest = messages[-1] if messages else None
+        who = "the customer" if t.get("match") in ("both", "sender") else "an address other than the customer's"
         line = (f"Email thread {t.get('subject')!r} ({t.get('match') or 'unmatched'}): {t.get('message_count', len(messages))} message(s), "
-                f"{len(inbound)} from the customer and {len(outbound)} from us")
+                f"{len(inbound)} inbound from {who} and {len(outbound)} from us")
         if latest:
             line += f"; the latest is {'ours' if latest.get('outbound') else 'theirs'} on {day_words(latest.get('date')) if parse_when(latest.get('date')) else latest.get('date')}"
         out.append(Finding(line + ".", (ref,)))
@@ -229,6 +275,7 @@ def _inferences(bundle: EvidenceBundle, identification: dict[str, Any]) -> tuple
     decisions: list[str] = []
     if identification.get("status") != "identified":
         return out, decisions
+    kind = enquiry.kind
     number = order.get("order_number")
     fulfillments = [f for f in order.get("fulfillments") or [] if isinstance(f, dict)]
     uk = _is_uk(order)
@@ -239,9 +286,22 @@ def _inferences(bundle: EvidenceBundle, identification: dict[str, Any]) -> tuple
     if order.get("cancelled_at"):
         out.append(Finding("The order was cancelled, so nothing is on its way; the enquiry should be answered from the cancellation and any refund.", (ref,)))
     elif fulfillments:
+        arrived = delivered(fulfillments)
+        labelled = label_only(fulfillments)
+        if arrived:
+            when = delivered_at(order)
+            out.append(Finding("The carrier has reported the parcel delivered" + (f" on {day_words(when)}" if when else "") + "; the fulfilment status is DELIVERED.", (ref,)))
+            if kind == "delivery":
+                decisions.append(f"Order {number}: the carrier says delivered and the customer says not; check the proof of delivery, a neighbour or a safe place, then a replacement or refund is the owner's call.")
+        elif labelled:
+            f = labelled[-1]
+            out.append(Finding(f"The fulfilment status is {fulfilment_status(f)}: a shipping label exists (created {day_words(f.get('shipped_at'))}) but no carrier scan has reached Shopify, "
+                               f"so the parcel may not have been collected by {f.get('carrier') or 'the carrier'} yet.", (ref,)))
+            decisions.append(f"Order {number}: confirm with the courier whether the parcel was collected on or after {day_words(f.get('shipped_at'))}; if it was not, get it collected or re-dispatch it, and tell the customer which.")
         shipped = [parse_when(f.get("shipped_at")) for f in fulfillments]
         shipped = [s for s in shipped if s]
-        if shipped:
+        if shipped and not arrived:
+            verb = "Label created" if labelled else "Dispatched"
             latest_dispatch = max(shipped)
             elapsed_working = working_days_between(latest_dispatch, now)
             elapsed_calendar = (now - latest_dispatch).days
@@ -249,18 +309,18 @@ def _inferences(bundle: EvidenceBundle, identification: dict[str, Any]) -> tuple
                 late_by = elapsed_working - UK_WINDOW_WORKING_DAYS
                 verdict = (f"by the published UK window (one to two working days once dispatched) the parcel is running late by about {late_by} working day(s)"
                            if late_by > 0 else "the parcel is still within the published UK window (one to two working days once dispatched)")
-                out.append(Finding(f"Dispatched {elapsed_working} working day(s) ago: {verdict}.", (ref,) + policy_refs))
+                out.append(Finding(f"{verb} {elapsed_working} working day(s) ago: {verdict}.", (ref,) + policy_refs))
                 if late_by > 0:
                     decisions.append(f"Order {number} is late by policy: chase the courier, or offer a replacement or refund?")
             elif uk is False:
                 late_by = elapsed_calendar - INTERNATIONAL_WINDOW_DAYS
                 verdict = (f"by the published international window (seven to fourteen days) the parcel is running late by about {late_by} day(s)"
                            if late_by > 0 else "the parcel is still within the published international window (seven to fourteen days)")
-                out.append(Finding(f"Dispatched {elapsed_calendar} day(s) ago to an international address: {verdict}.", (ref,) + policy_refs))
+                out.append(Finding(f"{verb} {elapsed_calendar} day(s) ago for an international address: {verdict}.", (ref,) + policy_refs))
                 if late_by > 0:
                     decisions.append(f"Order {number} is late by policy: chase the courier, or offer a replacement or refund?")
             else:
-                out.append(Finding(f"Dispatched {elapsed_calendar} day(s) ago; the destination is not recorded, so which delivery window applies is not certain.", (ref,)))
+                out.append(Finding(f"{verb} {elapsed_calendar} day(s) ago; the destination is not recorded, so which delivery window applies is not certain.", (ref,)))
         if not any(f.get("number") for f in fulfillments):
             out.append(Finding("The fulfilment carries no tracking number, so the customer cannot have been sent one; the parcel's whereabouts can only be checked with the courier by hand.", (ref,)))
     elif placed is not None:
@@ -271,7 +331,6 @@ def _inferences(bundle: EvidenceBundle, identification: dict[str, Any]) -> tuple
         else:
             out.append(Finding("Not dispatched yet, but within the normal dispatch time.", (ref,) + dispatch_refs))
 
-    kind = enquiry.kind
     if kind == "delivery" and not fulfillments and not order.get("cancelled_at"):
         out.append(Finding("The customer is asking where an order is that has not left yet.", (ref, "enquiry")))
     if kind in ("wrong_item", "missing_item", "damaged"):
@@ -281,7 +340,12 @@ def _inferences(bundle: EvidenceBundle, identification: dict[str, Any]) -> tuple
         decisions.append(f"Cancel order {number}?" + (" It has not been dispatched." if not fulfillments else " It has already been dispatched, so a cancellation would be a return instead."))
     if kind == "change_address":
         decisions.append(f"Change the delivery address on order {number}?" + (" It has not been dispatched." if not fulfillments else " It has already been dispatched."))
-    if kind == "return_exchange":
+    if open_return(order):
+        name = return_name(order)
+        out.append(Finding("A return is already open on this order" + (f" ({name})" if name else "") + f" (return status {order.get('return_status')}), "
+                           "so the customer's request has reached us through the returns process and is waiting on our side.", (ref,)))
+        decisions.append(f"Order {number}: approve or decline the open return{f' {name}' if name else ''} and send the return instructions.")
+    elif kind == "return_exchange":
         decisions.append(f"Return or exchange on order {number}: within policy? (fourteen days from delivery, unworn with tags).")
     if not bundle.threads and bundle.sources.get("gmail") == "live":
         out.append(Finding("No earlier email from this customer about this order was found in the last sixty days, so this is the first message we hold on it.", ("gmail:search",)))
@@ -306,10 +370,17 @@ def _unknowns(bundle: EvidenceBundle, identification: dict[str, Any]) -> list[Fi
         out.append(Finding("Whether the person writing is the customer on the order: " + "; ".join(identification.get("reasons") or []) + ".", (bundle.order_ref,)))
     fulfillments = [f for f in order.get("fulfillments") or [] if isinstance(f, dict)]
     if fulfillments and not order.get("cancelled_at"):
-        out.append(Finding("Where the parcel is now and whether it has been delivered: no carrier tracking is integrated, so only the tracking reference is known, not its scan history.", (bundle.order_ref,)))
+        if delivered(fulfillments):
+            out.append(Finding("Whether the parcel is actually with the customer: the carrier reports it delivered, and nothing here can see beyond that scan.", (bundle.order_ref,)))
+        else:
+            out.append(Finding("Where the parcel is now and whether it has been delivered: no carrier tracking is integrated, so only the tracking reference and the fulfilment status are known, not the scan history.", (bundle.order_ref,)))
         if not any(f.get("number") for f in fulfillments):
             out.append(Finding("The carrier and tracking reference: none recorded on the fulfilment.", (bundle.order_ref,)))
-    out.append(Finding("Whether the customer received the confirmation or tracking email: not visible from the store or the inbox.", (bundle.order_ref,)))
+    sent = [e for e in order.get("events") or [] if isinstance(e, dict) and "email" in str(e.get("message") or "").lower()]
+    if sent:
+        out.append(Finding(f"Whether the customer received the email(s) Shopify records as sent ({', '.join(day_words(e.get('at')) for e in sent)}): sending is recorded, receipt is not visible.", (bundle.order_ref,)))
+    else:
+        out.append(Finding("Whether the customer received the confirmation or tracking email: not visible from the store or the inbox.", (bundle.order_ref,)))
     if enquiry.kind in ("wrong_item", "missing_item", "damaged"):
         out.append(Finding("What actually arrived: no photo or description on file yet.", ("enquiry",)))
     if bundle.sources.get("gmail", "").startswith("unavailable") or bundle.sources.get("gmail") == "not configured":
@@ -336,7 +407,7 @@ def _narrative(bundle: EvidenceBundle, identification: dict[str, Any], facts: li
         opening = f"The customer asks ({enquiry.kind.replace('_', ' ')}): {ask!r}. No order was found: {'; '.join(identification.get('reasons') or [])}."
     else:
         opening = f"The customer asks ({enquiry.kind.replace('_', ' ')}): {ask!r}. The order could not be identified: {'; '.join(identification.get('reasons') or [])}."
-    journey = " ".join(f.text for f in facts if f.text.startswith(("Order ", "Dispatched", "No fulfilment", "Cancelled", "Refund", "Email thread", "Our earlier")))
+    journey = " ".join(f.text for f in facts if f.text.startswith(("Order ", "Dispatched", "No fulfilment", "Cancelled", "Refund", "Return status", "Email thread", "Our earlier")))
     reading = " ".join(f.text for f in inferences)
     return " ".join(part for part in (opening, journey, reading) if part).strip()
 

@@ -11,7 +11,15 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.support.evidence import EvidenceBundle
-from app.support.investigate import Investigation, day_words
+from app.support.investigate import (
+    Investigation,
+    day_words,
+    delivered,
+    delivered_at,
+    label_only,
+    open_return,
+    return_name,
+)
 
 MAX_LISTED_ORDERS = 5
 
@@ -97,10 +105,22 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
                                + (f" and {refunds[0].get('amount')} was refunded on {day_words(refunds[0].get('created_at'))}" if refunds and refunds[0].get("amount") else "")))
         lines.append("If that is not what you expected, tell us and we will look into it.")
     elif kind in ("delivery", "other") or (kind in ("cancel", "change_address") and fulfillments):
-        if tracked:
+        if tracked and delivered(tracked):
+            f = delivered(tracked)[-1]
+            when = delivered_at(order)
+            lines.append(_sentence("Our records show it was delivered" + (f" on {day_words(when)}" if when else "") + (f" by {f.get('carrier')}" if f.get("carrier") else "")
+                                   + f", tracking number {f.get('number')}" + (f" ({f.get('url')})" if f.get("url") else "")))
+            if kind == "delivery":
+                lines.append("If it is not with you, could you check with neighbours or for a safe-place card and let us know? We will then take it up with the courier straight away.")
+        elif tracked:
             f = tracked[-1]
-            lines.append(_sentence(f"It was dispatched on {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")
-                                   + f", tracking number {f.get('number')}" + (f" - you can follow it at {f.get('url')}" if f.get("url") else "")))
+            if label_only([f]):
+                lines.append(_sentence(f"A shipping label was created for it on {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")
+                                       + f", tracking number {f.get('number')}" + (f" - you can follow it at {f.get('url')}" if f.get("url") else "")))
+                lines.append("The carrier has not yet reported a collection scan on our side, so we are checking with them that it has been picked up and will confirm as soon as it is moving.")
+            else:
+                lines.append(_sentence(f"It was dispatched on {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")
+                                       + f", tracking number {f.get('number')}" + (f" - you can follow it at {f.get('url')}" if f.get("url") else "")))
             if delivery_line:
                 lines.append(_sentence(delivery_line))
                 based.append(bundle.policy_ref("delivery_windows"))
@@ -159,12 +179,20 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
             lines.append("Sorry about that.")
         lines.append("Could you tell us which item is missing? We will check the packing and put it right.")
     elif kind == "return_exchange":
-        if returns_line:
-            lines.append(_sentence(returns_line))
-            based.append(bundle.policy_ref("returns"))
+        if open_return(order):
+            name = return_name(order)
+            lines.append("Your return request is already open on our side" + (f" ({name})" if name else "") + ", so there is nothing more you need to do to start it.")
+            lines.append("We are confirming it now and will send you the return instructions as soon as that is done.")
+            if returns_line:
+                lines.append(_sentence(returns_line))
+                based.append(bundle.policy_ref("returns"))
         else:
-            lines.append("Returns and exchanges are within fourteen days of delivery for unworn items with the tags on.")
-        lines.append("Reply with what you would like to swap it for, or that you would like a refund, and we will send the return details.")
+            if returns_line:
+                lines.append(_sentence(returns_line))
+                based.append(bundle.policy_ref("returns"))
+            else:
+                lines.append("Returns and exchanges are within fourteen days of delivery for unworn items with the tags on.")
+            lines.append("Reply with what you would like to swap it for, or that you would like a refund, and we will send the return details.")
     if photo_line and kind in ("damaged", "wrong_item", "missing_item"):
         based.append(bundle.policy_ref("photo"))
     lines.append("")

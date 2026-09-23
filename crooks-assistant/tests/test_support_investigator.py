@@ -40,8 +40,9 @@ def threads() -> dict:
 
 
 class Readers:
-    """Fake readers in the shapes of shopify_find_order, hydrator().order, threads_for and
-    gmail_read_thread. Every call is recorded, so a test can prove only reads were made."""
+    """Fake readers in the shapes the live ones return: the order search, the hydrated order,
+    the inbox correlation and one thread. Every call is recorded, so a test can prove only
+    reads were made."""
 
     def __init__(self, keys=(), *, inbox=(), gmail: str = "live", fail_search: bool = False) -> None:
         book = orders()
@@ -268,7 +269,48 @@ async def test_a_fulfilment_without_tracking_is_an_unknown_not_a_guess():
     assert numbers_in(body) <= evidence_numbers(bundle)
 
 
+async def test_a_label_without_a_carrier_scan_is_not_called_dispatched():
+    r = Readers(["label_only_us"])
+    bundle, result = await run("My tracking only shows label created. Has my order 2107 actually shipped?", r, sender="jay@fixture.invalid")
+    assert any("no carrier scan has reached Shopify" in i["text"] and "CONFIRMED" in i["text"] for i in result["inferences"])
+    assert any("Label created 2 day(s) ago for an international address" in i["text"] for i in result["inferences"])
+    assert any("confirm with the courier whether the parcel was collected" in d for d in result["owner_decisions"])
+    assert any(f["text"].startswith("Shopify event, 15 Sep 2026: Shipping app sent a shipping confirmation email") for f in result["facts"])
+    assert any("sending is recorded, receipt is not visible" in u["text"] for u in result["unknowns"])
+    body = result["reply_draft"]["body"]
+    assert "A shipping label was created for it on 15 Sep 2026 with FedEx, tracking number 877200000110" in body
+    assert "checking with them that it has been picked up" in body and "It was dispatched" not in body
+    assert numbers_in(body) <= evidence_numbers(bundle)
+
+
+async def test_a_delivered_parcel_is_answered_from_the_delivery_scan():
+    r = Readers(["delivered_return_open"])
+    _, result = await run("Where is my order 2108? Nothing has arrived.", r, sender="chris@fixture.invalid")
+    assert any(i["text"].startswith("The carrier has reported the parcel delivered on 10 Sep 2026") for i in result["inferences"])
+    assert not any("running late" in i["text"] for i in result["inferences"])
+    assert any("check the proof of delivery" in d for d in result["owner_decisions"])
+    assert any(u["text"].startswith("Whether the parcel is actually with the customer") for u in result["unknowns"])
+    body = result["reply_draft"]["body"]
+    assert "Our records show it was delivered on 10 Sep 2026 by Royal Mail, tracking number VU000000001GB" in body
+    assert "check with neighbours" in body
+
+
+async def test_an_open_return_is_recognised_and_not_restarted():
+    r = Readers(["delivered_return_open"])
+    _, result = await run("I'd like to return order 2108, it's too big. Can you confirm the process?", r, sender="chris@fixture.invalid")
+    assert any(i["text"].startswith("A return is already open on this order (CROOKS-2108-R1)") for i in result["inferences"])
+    assert "Order CROOKS-2108: approve or decline the open return CROOKS-2108-R1 and send the return instructions." in result["owner_decisions"]
+    assert "Return status on the order: IN_PROGRESS." in [f["text"] for f in result["facts"]]
+    assert "Shopify event, 12 Sep 2026: Returns app created return CROOKS-2108-R1." in [f["text"] for f in result["facts"]]
+    body = result["reply_draft"]["body"]
+    assert "Your return request is already open on our side (CROOKS-2108-R1)" in body
+    assert "Fourteen days from delivery" in body and "swap it for" not in body
+
+
 @pytest.mark.parametrize("keys, text, sender", [
+    (["label_only_us"], "Has my order 2107 shipped? Tracking says label created", "jay@fixture.invalid"),
+    (["delivered_return_open"], "Where is my order 2108?", "chris@fixture.invalid"),
+    (["delivered_return_open"], "I want to return 2108", "chris@fixture.invalid"),
     (["late_uk", "older_same_customer"], "Where is my order 2101?", "sam@fixture.invalid"),
     (["late_uk", "older_same_customer"], "Where is my order?", "sam@fixture.invalid"),
     (["unfulfilled_held"], "Please cancel order 2102", "alex@fixture.invalid"),
@@ -386,6 +428,8 @@ async def test_the_redacted_copy_keeps_the_conclusion_and_loses_the_person():
 
 
 async def test_the_live_readers_are_the_read_tools_and_a_fake_store_sees_only_reads(monkeypatch):
+    """The live readers reach shopify_find_order and the hydrated order through the bound
+    store, and the inbox correlation through the unbound Gmail tools: reads, and nothing else."""
     from app.support import live
     from app.tools import gmail_tools, shopify_tools
     from tests.test_context import ORDER_NODE, Store
