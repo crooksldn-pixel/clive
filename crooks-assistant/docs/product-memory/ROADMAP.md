@@ -7,6 +7,29 @@ This roadmap is intentionally staged. “Later” ideas should not be used as an
 
 The final Sequencing rule and DEC-046 are authoritative for execution order. Engineering Orchestrator specification planning is active alongside N7; implementation waits until deployment, current-product quality and real-world evidence gates are satisfied.
 
+
+## 2026-09-23 late-day convergence correction
+
+Where older status labels below conflict with this checkpoint, this checkpoint is current.
+
+The engineering sequence has moved beyond “Orchestrator implementation waits”. The repository-only lifecycle kernel is frozen, Objective Intake + Engineering Dispatcher V1 is executing real objectives, isolated Claude workers have run concurrently, and the programmatic GPT reviewer has completed a no-courier exact-SHA review/integration round. The next milestone is therefore **self-hosting team/director activation**, not another rewrite of the frozen kernel.
+
+Current execution order:
+
+1. finish `derived-truth-attention-v1` and `engineering-team-activation-v1` through their existing bounded review/repair loops;
+2. remove/reconcile the temporary host-only retry-ceiling recovery change and preserve a principled resume/retry epoch rule;
+3. form one accepted engineering-control-plane release candidate from the frozen kernel + accepted dispatcher + accepted team-activation work, with whole-product checks and independent exact-SHA review;
+4. implement **GPT Director Runtime V1 / dynamic team assembly** above the dispatcher: broad objective intake, decomposition only when useful, quality-first specialist selection, dependency tracking, cross-task reconciliation and final director decision. The current GPT reviewer is a prerequisite component, not the Director itself;
+5. add first-class specialist routes rather than fake job titles: Opus/implementation, Fable Experience Director for substantial experience work, independent QA/security/performance/review where the objective requires them, and deterministic integration;
+6. prove one broad real engineering objective end-to-end from CLIVE without owner project-management: CLIVE/director chooses whether to split it, runs several safe attempts when useful, reconciles their evidence, routes independent review, integrates and returns COMPLETE/BLOCKED/OWNER_GATE;
+7. bind Agent Environment / world-orb surfaces to authoritative CLIVE projections so the owner can inspect objectives, evidence, uncertainty, attention and engineering work without creating a parallel state store;
+8. build a unified product release candidate from the mobile alpha lineage plus accepted Support Investigator, Objective semantics and Derived Truth + Attention, then dogfood it on real Crooks read-only work;
+9. only after that proof, request the separately gated production promotion. Production deployment remains distinct from engineering acceptance and from “candidate COMPLETE”.
+10. after the read-only operational layer is stable, expand business capabilities and narrowly gated writes; then progress into World/Event Ledger/expectations/attention/automation rather than returning to dashboard-style feature accumulation.
+
+The practical milestone is now: **one broad owner objective enters CLIVE once and comes back as a verified integrated result without the owner selecting workers, relaying reviews, managing branches or repeatedly telling the system what to do next.**
+
+
 ---
 
 # NOW — make the current CROOKS product genuinely reliable
