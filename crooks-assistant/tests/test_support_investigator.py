@@ -307,8 +307,18 @@ async def test_a_fulfilment_without_tracking_is_an_unknown_not_a_guess():
     assert any("no tracking number on it" in f["text"] for f in result["facts"])
     assert any(u["text"].startswith("The carrier and tracking reference: none recorded") for u in result["unknowns"])
     body = result["reply_draft"]["body"]
-    assert "We do not have a tracking reference on file" in body
+    assert "We do not have a tracking reference on file for it, so we need to check with the courier before we can say where it is." in body
+    assert "Our records show it as fulfilled on 15 Sep 2026" in body
+    assert "dispatched" not in body.lower(), "FULFILLED without tracking records no movement (S-01R)"
     assert numbers_in(body) <= evidence_numbers(bundle)
+
+
+async def test_an_untracked_fulfilment_whose_status_records_movement_is_still_dispatched():
+    r = Readers(["untracked_moving"])
+    _, result = await run("Where is my order 2109?", r, sender="ash@fixture.invalid")
+    body = result["reply_draft"]["body"]
+    assert "It was dispatched on 15 Sep 2026 with Royal Mail" in body, "IN_TRANSIT is movement Shopify recorded"
+    assert "We do not have a tracking reference on file for it, so we need to check with the courier before we can say where it is." in body
 
 
 async def test_a_label_without_a_carrier_scan_is_not_called_dispatched():
@@ -450,6 +460,7 @@ UNDERWAY = re.compile(r"\bwe (are|have|were|'re|'ve) (checking|chasing|finding|c
     (["international"], [], "You sent me the wrong size on order 2104", "kim@fixture.invalid"),
     (["international"], [], "Order 2104: one item is missing", "kim@fixture.invalid"),
     (["untracked"], [], "Where is my order 2105?", "ash@fixture.invalid"),
+    (["untracked_moving"], [], "Where is my order 2109?", "ash@fixture.invalid"),
     (["late_uk"], [], "Order 2101 arrived damaged", "sam@fixture.invalid"),
     (["older_same_customer"], [], "I'd like to return order 2090, too big", "sam@fixture.invalid"),
     (["late_uk"], [], "Where is order 9999?", ""),
@@ -484,6 +495,7 @@ async def test_unresolved_cancel_held_and_untracked_cases_say_what_needs_doing_n
     assert "we need to find out what has held it before we can give you a date" in held and "finding out" not in held
     untracked = (await run("Where is my order 2105?", Readers(["untracked"]), sender="ash@fixture.invalid"))[1]["reply_draft"]["body"]
     assert "we need to check with the courier before we can say where it is" in untracked and "checking with the courier" not in untracked
+    assert "dispatched" not in untracked.lower() and "Our records show it as fulfilled on" in untracked
     late = (await run("Where is my order 2101?", Readers(["late_uk"]), sender="sam@fixture.invalid"))[1]["reply_draft"]["body"]
     assert "It was dispatched on 11 Sep 2026 with Royal Mail" in late, "IN_TRANSIT is movement Shopify recorded"
     assert "it needs chasing with the courier" in late and "we are chasing" not in late

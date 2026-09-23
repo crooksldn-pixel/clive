@@ -170,7 +170,10 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
                 based.append(bundle.policy_ref("lost_or_damaged"))
         elif fulfillments:
             f = fulfillments[-1]
-            lines.append(_sentence(f"It was dispatched on {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")))
+            # The same bounded reading as the tracked branch: "dispatched" only for a status
+            # that records movement; otherwise what our records show, no more.
+            opening = "It was dispatched on" if moving([f]) else "Our records show it as fulfilled on"
+            lines.append(_sentence(f"{opening} {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")))
             lines.append("We do not have a tracking reference on file for it, so we need to check with the courier before we can say where it is.")
         else:
             lines.append(_sentence(f"It has not left us yet; it was placed on {day_words(order.get('placed_at'))}"))

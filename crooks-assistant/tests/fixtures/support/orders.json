@@ -528,5 +528,67 @@
         "message": "Shipment delivered email was sent to Chris Fixture (chris@fixture.invalid)."
       }
     ]
+  },
+  "untracked_moving": {
+    "order_id": "gid://shopify/Order/2109",
+    "order_number": "CROOKS-2109",
+    "placed_at": "2026-09-14T09:00:00Z",
+    "fulfillment": "FULFILLED",
+    "payment": "PAID",
+    "total": "£30.00",
+    "customer_name": "Ash Fixture",
+    "customer_id": "gid://shopify/Customer/905",
+    "customer_email": "ash@fixture.invalid",
+    "customer": {
+      "customer_id": "gid://shopify/Customer/905",
+      "name": "Ash Fixture",
+      "email": "ash@fixture.invalid",
+      "orders": 1,
+      "spent": "£30.00",
+      "since": "2026-09-14T00:00:00Z"
+    },
+    "items": [
+      {
+        "title": "Logo Tee",
+        "variant": "White / M",
+        "sku": "LT-M",
+        "quantity": 1
+      }
+    ],
+    "fulfillments": [
+      {
+        "fulfillment_id": "gid://shopify/Fulfillment/9",
+        "status": "SUCCESS",
+        "display_status": "IN_TRANSIT",
+        "shipped_at": "2026-09-15T12:00:00Z",
+        "carrier": "Royal Mail",
+        "number": null,
+        "url": null
+      }
+    ],
+    "cancelled_at": null,
+    "cancel_reason": null,
+    "closed_at": null,
+    "return_status": null,
+    "note": null,
+    "tags": [],
+    "money": {
+      "total": "£30.00",
+      "refunded": "£0.00",
+      "currency": "GBP"
+    },
+    "refunds": [],
+    "shipping_method": "Standard",
+    "ships_to": "Bath, United Kingdom",
+    "shipping_address": {
+      "name": "Ash Fixture",
+      "lines": [
+        "5 Fixture Close"
+      ],
+      "city": "Bath",
+      "zip": "BA1 1AA",
+      "country": "United Kingdom"
+    },
+    "events": []
   }
 }
