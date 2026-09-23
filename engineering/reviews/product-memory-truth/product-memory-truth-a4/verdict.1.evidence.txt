@@ -1,0 +1,103 @@
+Owner-relayed GPT exact-SHA review verdict (session message 18, received 2026-09-23 after 11:52Z).
+Reviewer session and workspace facts are declared by the relay; GPT states it reviewed the exact successor candidate against the bounded findings of packets 19 and 20.
+
+GPT EXACT-SHA REVIEW — PACKET 21
+
+Candidate:
+07459b85df00f806d641d924499a207ad41cbe8b
+
+Parent:
+4a4633767e15120f9edea275f3cb646177496995
+
+Task:
+product-memory-truth r4
+Attempt:
+product-memory-truth-a4
+
+VERDICT: READY
+
+The exact successor candidate was reviewed against the bounded findings from
+packets 19 and 20.
+
+PM-01 — CLOSED
+The five newly added feature records use FEAT-055 through FEAT-059.
+The pre-existing FEAT-033 through FEAT-037 identities remain intact.
+The register has 59 identifiers and they are unique.
+
+PM-02 — CLOSED
+CURRENT_TRUTH accurately limits the updated README/branch-map claim to the
+branches where that documentation has actually landed.
+
+PM-03 — CLOSED
+The watcher documentation no longer treats reviewed installer configuration
+as proof of the live runtime.
+
+FEATURES.md and CURRENT_TRUTH.md now distinguish:
+
+- reviewed source revision 5ada7b47..., whose installer configuration pins
+  claude-fable-5-1 at high effort; from
+- the most recent verified live-host probe, which observed the loaded systemd
+  unit carrying:
+      CROOKS_BRIDGE_CLAUDE_MODEL=claude-opus-5
+
+The documents explicitly state that runtime truth comes from live probes and
+record the discrepancy as an unresolved observation rather than silently
+choosing one source.
+
+No watcher, model, systemd unit or runtime configuration was changed.
+
+PM-04 — CLOSED
+The active opening reconciliation checkpoint now correctly records Customer
+Support Investigator V1 as COMPLETE in the engineering lifecycle at:
+
+2dbb97bc6c88d3ee3cf5cdf6a980df4f3405104a
+
+with the remaining owner/live/deployment steps kept separate.
+
+The next engineering proof remains Objective Intake + Engineering Dispatcher
+V1.
+
+SCOPE / EVIDENCE
+
+The repair from 4a463376 to 07459b85 is exactly one commit and changes only:
+
+- crooks-assistant/docs/product-memory/CURRENT_TRUTH.md
+- crooks-assistant/docs/product-memory/FEATURES.md
+
+The prior mechanical newline/index repairs and PM-01/PM-02 repairs remain
+preserved.
+
+Reported reruns remain clean:
+- 59/59 feature identifiers unique
+- product-memory structure checker: 0 violations
+- literal \n scan: clean
+- no non-documentation paths changed
+- DECISIONS.md unchanged since packet 19
+
+No material current-truth defect remains within this documentation task.
+
+CONVERGENCE
+
+Admit READY against r4/a4.
+
+Do not open another speculative documentation review round.
+
+Integrate the exact accepted SHA through the existing kernel lifecycle and
+report:
+
+- verdict admission result
+- accepted SHA
+- integration record
+- final lifecycle state
+- resulting engineering-state SHA
+
+This verdict does NOT authorise:
+- fast-forwarding the GitHub default branch
+- landing the product-memory candidate onto another canonical/integration
+  branch
+- production deployment
+- watcher/systemd/runtime/model changes
+- secrets/permissions
+- business writes
+
+Those remain separate owner decisions.
