@@ -279,3 +279,213 @@ The next product milestone after that is:
 > **CLIVE performs a narrow class of real Crooks operational work for long enough to measure whether owner attention actually falls.**
 
 Those two proofs convert the project from architecture into evidence.
+
+
+## 12. Post-kernel closure and first product dogfood — 2026-09-23
+
+The lifecycle recovery sequence is now closed.
+
+Verified repository state after Packet 14:
+- frozen repository-only lifecycle kernel: `18c3153a2eec10c6343153b550776afed3bec2ba`;
+- Packet 14 READY was admitted and `control-plane-producers` r6 reached COMPLETE;
+- the already-READY judgment-ledger CI integration candidate `b68e6e827afbeba3364c8239a2d814a60372f498` was landed by fast-forward on `claude/ci-provenance-acceptance-2026-09-22`;
+- acceptance run `35806286976` passed at that exact stream head;
+- the engineering-state branch recorded the resulting COMPLETE states;
+- no deployment, watcher, systemd, runtime, secret, permission or business-write authority was added by this closure.
+
+The kernel is a milestone, not a new product to keep hardening speculatively. Future kernel changes require either:
+1. real dogfood evidence that a core invariant is broken, or
+2. a demonstrated release-blocking failure against the frozen V1 acceptance properties.
+
+Do not reopen a K-series merely because another hypothetical edge case can be invented.
+
+### Self-referential convergence rule
+
+The Packet 7→14 sequence exposed a general rule that extends DEC-057 beyond verifier-only defects:
+
+> **When the subject is machinery that defines, executes or evaluates its own improvement process, freeze the acceptance criteria for the round. New non-critical criteria discovered during review become backlog work. Repeated rounds that improve only the machinery without increasing externally observable product capability are a stop signal.**
+
+A new finding should block a frozen engineering-control milestone only when it demonstrates a material failure such as:
+- worker self-certification;
+- stale/wrong SHA inheriting review;
+- out-of-scope code being accepted;
+- fabricated owner authority;
+- rejected/superseded work becoming authoritative again;
+- COMPLETE without accepted and verified integration evidence;
+- failed kernel operation corrupting authoritative state or consuming unrelated work;
+- reviewer-independence failure.
+
+Everything else is either evidence for a future bounded task or a backlog item unless real dogfood makes it material.
+
+## 13. First real product dogfood: Customer Support Investigator V1
+
+The first post-kernel product task is `support-investigator-v1`, a read-only Crooks customer-support investigator.
+
+Its purpose is deliberately external to the engineering machinery:
+- take a real customer enquiry;
+- identify the correct customer/order where evidence permits;
+- gather order, fulfilment/tracking and conversation evidence;
+- separate verified facts, reasonable inference and unknowns;
+- expose evidence;
+- prepare a reply draft requiring owner approval;
+- perform no email/order/refund/fulfilment/business write.
+
+The initial implementation candidate is:
+`921375628d13ce338c659a7b789c11d8ac2b5f58`.
+
+At that SHA:
+- CI run `35810435777` passed;
+- two real Crooks support cases were used as the external acceptance oracle;
+- Shopify and Gmail source data independently confirmed that the candidate selected the correct orders/customers and recovered the relevant evidence;
+- the exact-SHA review returned **CHANGES REQUIRED** for one bounded product defect, S-01.
+
+S-01 is not an infrastructure finding. The deterministic reply templates could claim internal operational work was already underway without evidence, for example “we are checking with them” or “we are confirming it now.” That violates the product’s evidence/verified-reality doctrine even though the underlying investigation was correct.
+
+The current engineering-state branch records `support-investigator-v1` r3 / attempt a3 as BUILDING to repair S-01. Treat this as a one-repair convergence round:
+- rerun the same real cases;
+- block only on a new material customer-facing/safety/authority failure;
+- stylistic or hypothetical improvements become backlog;
+- when the external acceptance properties are clean, freeze Support Investigator V1 and use it rather than polishing indefinitely.
+
+This is a useful proof because real operational evidence found a defect that synthetic tests missed.
+
+### Important runtime limitation
+
+The real acceptance cases were reached using owner-authorised Shopify/Gmail connectors available to the engineering session. This did **not** prove that the currently deployed CLIVE runtime itself has every required live connector credential. In particular, historical roadmap state still marks Gmail runtime OAuth as unresolved unless fresh deployment evidence supersedes it.
+
+Therefore distinguish:
+- **product code capability** — Support Investigator can consume the application’s read-only readers;
+- **real-case acceptance evidence** — proved using live Crooks systems through authorised connectors;
+- **deployed runtime readiness** — still requires fresh verification of CLIVE’s own bound Shopify/Gmail clients before claiming the feature is live end to end.
+
+Credential provisioning remains an owner/authority boundary, not an excuse to widen engineering scope.
+
+## 14. Direction check against the product philosophy
+
+The project is converging toward the approved philosophy rather than away from it.
+
+### Intent-to-execution
+
+The philosophy says the human should stop being the transport and coordination layer. The kernel removed ambiguity from engineering state; Support Investigator removes cross-system support investigation from the owner. The remaining obvious violation is manual couriering between CLIVE, Fable/Claude and GPT.
+
+Therefore the next engineering capability should remove that courier role, not add more control-plane theory.
+
+### Evidence-backed world state
+
+The product doctrine requires observed evidence, inference and unknowns to remain distinct. Support Investigator implements exactly that split. S-01 is important because it caught a subtler version of the same rule: a reply must not convert a proposed/needed operational action into a claimed current fact.
+
+This is a durable product invariant:
+> **CLIVE must distinguish what is true, what it infers, what it proposes, what has been authorised, what has actually started, and what has been verified complete.**
+
+That invariant should generalise beyond support to fulfilment, supplier work, product development and self-engineering.
+
+### APIs are capabilities, not destinations
+
+Support Investigator uses Shopify/Gmail as evidence providers beneath the objective. The owner does not need to coordinate “open Shopify, then Gmail, then compare them.” This directly matches the capability-oriented philosophy.
+
+Do not fossilise the current support implementation into permanent provider-specific UX. The durable capability is “investigate a customer/order case from trustworthy evidence and prepare the next authorised response.”
+
+### Human authority
+
+The product still preserves the right boundary:
+- investigation is read-only;
+- drafts require owner approval;
+- refunds/cancellations/order edits/sends remain external writes;
+- owner gates are not fabricated by the repository kernel.
+
+Self-engineering must follow the same pattern: CLIVE may commission and review changes to itself without gaining the authority to deploy, change privileges/secrets, spend money or cross owner-only business-write gates.
+
+### Future-disposable machinery
+
+The kernel’s semantic responsibilities are worth preserving; its implementation, model/provider adapters and future dispatcher are not sacred. Objective intake and model invocation should therefore be implemented as replaceable adapters around the frozen lifecycle semantics rather than by expanding the kernel into a monolith.
+
+### Dynamic UI / Agent Environment
+
+Agent Environment remains correctly positioned as a projection/client of CLIVE state. Its lifecycle-aware candidate is useful for visibility, but promotion of that UI is not a prerequisite for self-managed engineering.
+
+A private read-only preview is useful because it lets the owner inspect real ASSIGNED/BUILDING/REVIEWING/COMPLETE state. It must not become a second authoritative task store.
+
+## 15. Where the roadmap is actually converging
+
+The 2026-09-19 ROADMAP still contains useful long-horizon stages, but several “Someday” engineering items have effectively moved forward because their prerequisites now exist.
+
+What was once described as:
+- Y1 natural-language engineering requests,
+- Y2 CLIVE-managed Claude Code,
+- Y3 automatic GPT ↔ Claude loop,
+
+is now the immediate missing layer around an already-working authoritative lifecycle kernel.
+
+This is not a contradiction of sequencing. The kernel, exact-SHA review discipline, state projection and first real product dogfood now provide the evidence that makes the old “Someday” idea actionable in a bounded form.
+
+At the same time, the roadmap’s broader warning remains correct: do not jump from this into an indefinitely expanding engineering platform. The purpose of the self-engineering loop is to make product capability cheaper to add, not to become the product.
+
+The converged near-term sequence is now:
+
+1. Close Support Investigator V1 after the bounded S-01 repair and external re-check.
+2. Build **Objective Intake + Engineering Dispatcher V1** as the minimum no-courier layer around the frozen kernel.
+3. Prove one genuinely owner-once engineering objective reaches independently reviewed COMPLETE without George relaying messages.
+4. Keep Agent Environment as truthful observability; optionally expose a private read-only live preview.
+5. Then return immediately to real business capability: support queue/triage, fulfilment exceptions, drop operations or another externally verifiable Crooks objective.
+6. Measure owner attention removed, edits/declines, factual failures, interventions and useful work completed.
+7. Only widen autonomy after repeated evidence justifies a specific action class.
+
+V0.5 production integration remains a separate parked stream until its fixture/owner decisions are resolved. It should not block the no-courier engineering proof or read-only operational dogfood.
+
+## 16. Exact next engineering capability
+
+After Support Investigator V1 closes, the next bounded build should be:
+
+> **CLIVE Objective Intake + Engineering Dispatcher V1**
+
+It should provide only the missing transport/execution responsibilities:
+
+```
+owner objective
+→ CLIVE persistent objective/task
+→ eligible worker launch
+→ worker result/evidence/candidate ingestion
+→ independent reviewer launch
+→ verdict ingestion
+→ bounded repair routing
+→ accepted integration
+→ COMPLETE / OWNER_GATE
+```
+
+The lifecycle kernel remains the source of truth and stays frozen unless dogfood demonstrates a core-invariant failure.
+
+The dispatcher should not become a new policy brain. It should:
+- translate an already-authorised objective into the kernel’s existing lifecycle;
+- invoke the selected worker in an isolated workspace/session;
+- bind model/session/base/task/attempt identity;
+- collect heartbeats/evidence/candidate identity;
+- invoke the independent reviewer against the exact candidate;
+- route CHANGES REQUIRED back as a bounded successor attempt;
+- stop on COMPLETE, BLOCKED or OWNER_GATE;
+- never infer deployment/business-write/privilege authority from repository acceptance.
+
+The first no-courier acceptance test should be a small real product change with an external oracle. Do not test the dispatcher by asking it to redesign the dispatcher.
+
+## 17. Product invariant learned from the first dogfood
+
+Support Investigator produced a general operational-state distinction worth preserving across CLIVE:
+
+```
+NEEDED / PROPOSED
+≠ AUTHORISED
+≠ STARTED
+≠ COMPLETED
+≠ VERIFIED
+```
+
+Natural language must not collapse those states.
+
+Examples:
+- “we need to check with FedEx” is not “we are checking with FedEx”;
+- “return pending approval” is not “we are confirming it now”;
+- “candidate accepted” is not “deployed”;
+- “task assigned” is not “worker running”;
+- “process alive” is not “meaningful progress”;
+- “email prepared” is not “email sent.”
+
+This is the same semantic spine appearing in both business operations and engineering. That convergence is evidence that the architecture is moving toward a general intent-to-execution system rather than two unrelated products.
