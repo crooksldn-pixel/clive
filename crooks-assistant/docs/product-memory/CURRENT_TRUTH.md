@@ -78,7 +78,11 @@ Revisions r1–r5 of `control-plane-producers`, r1–r2 of `judgment-ledger-corr
 
 ### Where the documents are
 
-Product memory is split across branches until reconciled: this file and the 2026-09-23 reconciliation on `chatgpt/product-memory-reconcile-2026-09-23`; `ENGINEERING_LIFECYCLE_PRODUCERS.md` on the kernel branch at `18c3153a`; `SUPPORT_INVESTIGATOR_V1.md` on `claude/support-investigator-v1-2026-09-23`; `JUDGMENT_LEDGER_CONTRACT.md` and `REVIEW_ACCEPTANCE_CONTRACT.md` on the CI stream at `b68e6e82`. The root README on every branch carries the branch map.
+Product memory is split across branches until reconciled: this file and the 2026-09-23 reconciliation on `chatgpt/product-memory-reconcile-2026-09-23`; `ENGINEERING_LIFECYCLE_PRODUCERS.md` on the kernel branch at `18c3153a`; `SUPPORT_INVESTIGATOR_V1.md` on `claude/support-investigator-v1-2026-09-23`; `JUDGMENT_LEDGER_CONTRACT.md` and `REVIEW_ACCEPTANCE_CONTRACT.md` on the CI stream at `b68e6e82`. The updated repository README carries the branch map on the branches where this documentation update has landed (`claude/repository-readme-2026-09-23`, based on the default branch, and `claude/product-memory-truth-2026-09-23`); every other branch, including the CI stream, the kernel branch and the support branch, still carries the older theme-only README until the owner lands the update there.
+
+### Backlog recorded by this documentation round
+
+- `scripts/product_memory_check.py` (on the CI stream) checks document structure only; it does not check that feature identifiers in `FEATURES.md` are unique. Packet 19's PM-01 (five rows added under identifiers already in use) was caught by review, not by the gate. Adding that assertion is a small code change for a later bounded task, not part of this documentation update.
 
 ### Not authorised by any of the above
 
