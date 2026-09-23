@@ -831,6 +831,62 @@ def test_the_journal_refuses_a_checkout_with_staged_or_uncommitted_state_before_
     assert kernel.store.read_task_state("t-1", 1).attempt_id == attempt.attempt_id
 
 
+def test_a_stray_file_named_like_the_lock_is_not_exempt_from_the_journal_preconditions(tmp_path, clock, git):
+    """K-12. Only the layout's own <store>/.kernel.lock is exempt. A stray file that merely ends in
+    .kernel.lock, at the store root or below it, is uncommitted state: the verb is refused before
+    any write, the file stays untracked, and HEAD, the index and the task state are unchanged."""
+    repo = git_repo(tmp_path / "state")
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=repo, check=True)
+    kernel = Kernel(LifecycleStore(repo / "engineering"), REGISTRY, git, operator="tests", clock=clock, journal=True)
+    kernel.create_task(task())
+    assert git_out(repo, "ls-files", "engineering/.kernel.lock") == "engineering/.kernel.lock"  # the real one, committed once
+    head = git_out(repo, "rev-parse", "HEAD")
+    for stray in (kernel.store.root / "evil.kernel.lock", kernel.store.attempts_dir / ".kernel.lock"):
+        stray.write_text("")
+        relative = stray.relative_to(repo).as_posix()
+        with pytest.raises(LifecycleError, match=f"uncommitted changes \\({relative}\\)"):
+            kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR)
+        assert f"?? {relative}" in git_out(repo, "status", "--porcelain", "--untracked-files=all").splitlines()  # still untracked, never staged
+        assert git_out(repo, "diff", "--cached", "--name-only") == ""
+        assert git_out(repo, "rev-parse", "HEAD") == head
+        assert kernel.store.read_attempts() == () and kernel.store.read_task_state("t-1", 1).status is TaskStatus.READY
+        stray.unlink()
+    kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR)
+    assert git_out(repo, "rev-parse", "HEAD") != head and git_out(repo, "status", "--porcelain") == ""
+
+
+def test_the_journal_commit_is_scoped_to_the_store_so_a_change_staged_mid_verb_is_neither_committed_nor_consumed(tmp_path, clock, git):
+    """K-13. Between the precondition and the commit, another process stages an unrelated path.
+    The kernel's commit records the store and nothing else; the unrelated entry stays staged
+    exactly as that process left it, and the next verb's precondition then sees it."""
+    repo = git_repo(tmp_path / "state")
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=repo, check=True)
+    kernel = Kernel(LifecycleStore(repo / "engineering"), REGISTRY, git, operator="tests", clock=clock, journal=True)
+    kernel.create_task(task())
+    head = git_out(repo, "rev-parse", "HEAD")
+
+    def another_process_stages_something(verb: str) -> None:
+        if verb == "assign":  # after the precondition held, before the kernel writes and commits
+            (repo / "notes.txt").write_text("someone else's work\n")
+            subprocess.run(["git", "add", "notes.txt"], cwd=repo, check=True)
+
+    kernel.on_validated = another_process_stages_something
+    attempt = kernel.assign("t-1", 1, worker_id="w1", worker=AUTHOR)
+    assert git_out(repo, "rev-parse", "HEAD") != head
+    committed = git_out(repo, "show", "--name-only", "--format=", "HEAD").splitlines()
+    assert committed and all(name.startswith("engineering/") for name in committed)
+    assert "notes.txt" not in committed
+    assert git_out(repo, "diff", "--cached", "--name-only") == "notes.txt"  # left staged, not consumed
+    assert git_out(repo, "status", "--porcelain", "--", "engineering") == ""
+    assert kernel.store.read_task_state("t-1", 1).attempt_id == attempt.attempt_id
+    kernel.on_validated = None
+    with pytest.raises(LifecycleError, match="staged changes \\(notes.txt\\)"):  # the early check sees what was left
+        kernel.acknowledge(attempt.attempt_id, token=1, base_sha=BASE)
+    subprocess.run(["git", "commit", "-q", "-m", "notes"], cwd=repo, check=True)
+    kernel.acknowledge(attempt.attempt_id, token=1, base_sha=BASE)
+    assert git_out(repo, "status", "--porcelain") == ""
+
+
 def test_a_superseded_or_withdrawn_integration_candidate_acceptance_cannot_complete_a_merge(kernel, clock, git):
     """K-09. The integration candidate's acceptance is history once its revision is withdrawn
     (blocked) or superseded (r2); history authorises nothing."""

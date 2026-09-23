@@ -885,28 +885,50 @@ def _git_toplevel(root: Path) -> str | None:
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
+def _porcelain_entries(output: str) -> list[tuple[str, str]]:
+    """Parse ``git status --porcelain -z``: one (status, path) per entry.
+
+    NUL-terminated, so a path may hold any byte but NUL; a rename or copy entry is
+    followed by its original path, which is skipped (it is the same entry).
+    """
+    tokens = output.split("\0")
+    entries: list[tuple[str, str]] = []
+    index = 0
+    while index < len(tokens):
+        entry = tokens[index]
+        if not entry:
+            index += 1
+            continue
+        status, entry_path = entry[:2], entry[3:]
+        entries.append((status, entry_path))
+        index += 2 if status[:1] in ("R", "C") else 1
+    return entries
+
+
 def journal_preconditions(root: Path) -> None:
     """Refuse a verb, before its first write, unless the journal could commit only that verb's writes.
 
-    The journal stages the store and commits the index, so two things must hold
-    before a verb starts. Nothing may be staged anywhere in the checkout: a staged
-    change outside the store would ride along in the kernel's commit, and a staged
-    change inside it would be lost to a rollback, which restores the index to HEAD.
-    Nothing under the store may be modified or untracked: it would be swept into
-    the commit as if the verb had written it. With both true, the pre-verb index
-    equals HEAD for the store and a rollback restores exactly it. The layout's own
-    lock file is ignored. A store outside any checkout has no journal and no
-    preconditions.
+    Two things must hold before a journaled verb starts. Nothing may be staged
+    anywhere in the checkout: a staged change inside the store would be lost to a
+    rollback, which restores the store's index entries to HEAD, and one outside it
+    is a sign the checkout is being used for something else (the commit itself is
+    scoped to the store, so it could not enter a kernel commit, but the kernel
+    refuses to work around it). Nothing under the store may be modified or
+    untracked: it would be swept into the commit as if the verb had written it.
+    With both true, the pre-verb index equals HEAD for the store and a rollback
+    restores exactly it. The one file exempt is the layout's own lock file at
+    exactly ``<store>/.kernel.lock``; nothing else under the store is, whatever it
+    is called. A store outside any checkout has no journal and no preconditions.
     """
     toplevel = _git_toplevel(root)
     if toplevel is None:
         return
     staged = subprocess.run(
-        ["git", "diff", "--cached", "--name-only"], cwd=toplevel, capture_output=True, text=True
+        ["git", "diff", "--cached", "--name-only", "-z"], cwd=toplevel, capture_output=True, text=True
     )
     if staged.returncode != 0:
         raise LifecycleError(f"cannot inspect the index of {toplevel}: {staged.stderr.strip()}")
-    names = [name for name in staged.stdout.splitlines() if name.strip()]
+    names = [name for name in staged.stdout.split("\0") if name]
     if names:
         shown = ", ".join(names[:5]) + (", …" if len(names) > 5 else "")
         raise LifecycleError(
@@ -914,15 +936,13 @@ def journal_preconditions(root: Path) -> None:
             "own writes: commit or unstage them first; nothing was written"
         )
     status = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=all", "--", str(root)],
+        ["git", "status", "--porcelain", "-z", "--untracked-files=all", "--", str(root)],
         cwd=toplevel, capture_output=True, text=True,
     )
     if status.returncode != 0:
         raise LifecycleError(f"cannot inspect the working tree of {toplevel}: {status.stderr.strip()}")
-    dirty = [
-        line[3:] for line in status.stdout.splitlines()
-        if line.strip() and not line.rstrip().endswith(".kernel.lock")
-    ]
+    lock_path = os.path.relpath((Path(root) / ".kernel.lock").resolve(), Path(toplevel).resolve())
+    dirty = [entry_path for _, entry_path in _porcelain_entries(status.stdout) if entry_path != lock_path]
     if dirty:
         shown = ", ".join(dirty[:5]) + (", …" if len(dirty) > 5 else "")
         raise LifecycleError(
@@ -935,10 +955,12 @@ def git_journal(root: Path, message: str) -> str | None:
     """Commit the store root if it lives in a git worktree. Returns the commit SHA.
 
     The kernel is the author; the operator is named in the message. A store
-    outside any repository journals nothing and returns None. Runs only after
-    ``journal_preconditions`` held at the start of the verb, so the commit can
-    contain nothing but the verb's own writes and a rollback to HEAD restores the
-    pre-verb index exactly.
+    outside any repository journals nothing and returns None. The commit is
+    scoped to the store (``git commit -- <store>``): it records the store's paths
+    and nothing else, so index state that another process stages while the verb
+    runs can neither enter a kernel commit nor be consumed by it; it stays staged,
+    exactly as that process left it. ``journal_preconditions`` held at the start
+    of the verb, so a rollback to HEAD restores the pre-verb index for the store.
     """
     toplevel = _git_toplevel(root)
     if toplevel is None:
@@ -955,7 +977,7 @@ def git_journal(root: Path, message: str) -> str | None:
         subprocess.run(
             [
                 "git", "-c", "user.name=CLIVE kernel", "-c", "user.email=kernel@clive.invalid",
-                "commit", "-q", "-m", message,
+                "commit", "-q", "-m", message, "--", str(root),
             ],
             cwd=toplevel,
             check=True,
