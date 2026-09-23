@@ -16,14 +16,34 @@ The active reconciliation establishes these points without weakening older safet
 
 - precedent is evidence and a presumption, not permanent implementation law; an old mechanism may be explicitly SUPERSEDED/RETIRED when its durable outcome, authority and safety responsibility are preserved or strengthened;
 - CLIVE is one product: self-engineering is an internal capability/domain of the same persistent intent-to-execution system, not a separate end product;
-- the authoritative engineering lifecycle write-side now exists and has processed real accept/reject/repair/complete records; the current hardening target is the successor to `acef3479`, including K-06..K-09;
+- the authoritative engineering lifecycle write-side exists, survived the bounded Packet 14 repair sequence, and is frozen at `18c3153a2eec10c6343153b550776afed3bec2ba`; do not reopen speculative K-series hardening;
 - Agent Environment is a projection/client of CLIVE records, never a second source of truth;
 - direct objective ingress should write to CLIVE's persistent control plane; GPT/models sit beneath CLIVE as workers/directors, not as the permanent doorway;
 - preserve engineering invariants, not a fixed provider/agent org chart; model names, worker roles, bridges, polling and UI mechanisms remain replaceable;
 - the old hourly supervisor is disabled and the unrestricted prose-freeze/parser loop remains parked;
-- after the kernel survives exact-SHA review, the next proof is a genuinely CLIVE-managed engineering objective with no owner courier, followed by a narrow real Crooks operational trial measured by owner attention removed.
+- the first real Crooks operational dogfood is already underway as read-only Customer Support Investigator V1; after that bounded task closes, the next engineering proof is Objective Intake + Engineering Dispatcher V1 so the owner can give CLIVE one objective once without acting as courier.
 
 This checkpoint supersedes stale active-state claims in the 2026-09-19 migration handoff. Git retains that handoff as history.
+
+
+### Post-kernel dogfood checkpoint — 2026-09-23
+
+- Packet 14 READY was admitted; `control-plane-producers` r6 is COMPLETE and the repository-only lifecycle kernel is frozen at `18c3153a2eec10c6343153b550776afed3bec2ba`.
+- Packet 10 candidate `b68e6e827afbeba3364c8239a2d814a60372f498` was fast-forward landed on the CI stream and acceptance run `35806286976` passed.
+- Five recovery-era tasks are recorded COMPLETE; rejected/superseded revisions remain history rather than authority.
+- No deployment, runtime, watcher, systemd, secret, permission or business-write authority followed from the kernel closure.
+- The first post-kernel product dogfood is `support-investigator-v1`. Candidate `921375628d13ce338c659a7b789c11d8ac2b5f58` passed CI run `35810435777` and correctly identified two real Crooks cases, but exact-SHA review found one material customer-facing issue: deterministic drafts could claim internal follow-up was already underway without evidence. Revision 3 / attempt a3 is currently BUILDING to repair that bounded S-01 defect.
+- Treat that support repair as a one-round convergence exercise. Block only on material failures of customer/order identity, factual grounding, uncertainty, read-only authority, privacy or materially misleading output; stylistic/theoretical improvements go to backlog.
+- The next engineering capability after Support Investigator closes is the minimum **Objective Intake + Engineering Dispatcher V1** around the frozen kernel: owner objective → worker launch → result/candidate ingestion → independent GPT review → bounded repair → integration → COMPLETE/OWNER_GATE. Do not redesign the kernel.
+- The first no-courier test must be a small real product task with an external oracle, not a task to redesign the dispatcher itself.
+- Agent Environment remains a read-only projection/client of authoritative CLIVE records. A private live preview is useful observability, not an authority source or a prerequisite to the no-courier milestone.
+- Distinguish product-code capability from deployed runtime readiness: the real support cases were verified through authorised live Shopify/Gmail connectors, but CLIVE's own deployed connector credentials still require fresh verification before claiming end-to-end live support operation.
+
+General operational-state invariant learned from dogfood:
+
+`NEEDED/PROPOSED ≠ AUTHORISED ≠ STARTED ≠ COMPLETED ≠ VERIFIED`.
+
+The same distinction applies to customer operations and engineering. CLIVE must not turn a proposed next step into a claimed action, an accepted candidate into a deployment, an assignment into active execution, or liveness into meaningful progress.
 
 
 ## Product
