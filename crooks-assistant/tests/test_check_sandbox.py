@@ -4,6 +4,12 @@ The candidate here is hostile test code run the way an objective's check runs it
 the real ``pytest`` of this virtualenv, inside ``NamespaceSandbox``, on an exported
 tree. Every property is asserted from the host's side, not from what the code
 inside reports about itself.
+
+Not every test host can establish the sandbox (the CI runner is a non-root user on a
+kernel that restricts unprivileged user namespaces). There the dispatcher fails
+closed, which the tests at the end of this file prove on every host; the escape
+tests skip with the canary's exact reason. A host that runs the dispatcher must
+establish it: with ``CLIVE_REQUIRE_CHECK_SANDBOX=1`` a skip becomes a failure.
 """
 
 from __future__ import annotations
@@ -65,13 +71,19 @@ def test_escape_attempts():
 '''
 
 
-@pytest.fixture
-def sandbox() -> NamespaceSandbox:
-    box = NamespaceSandbox(ro_paths=(sys.prefix,))
+def require_sandbox(box: NamespaceSandbox) -> NamespaceSandbox:
+    """The sandbox, or a skip naming why this host cannot establish it (a failure where it is required)."""
     ok, why = box.availability()
     if not ok:
-        pytest.fail(f"the sandbox must be available on the test host; it is not: {why}")
+        if os.environ.get("CLIVE_REQUIRE_CHECK_SANDBOX") == "1":
+            pytest.fail(f"CLIVE_REQUIRE_CHECK_SANDBOX=1 but the check sandbox cannot be established: {why}")
+        pytest.skip(f"the check sandbox cannot be established on this host (the dispatcher fails closed): {why}")
     return box
+
+
+@pytest.fixture
+def sandbox() -> NamespaceSandbox:
+    return require_sandbox(NamespaceSandbox(ro_paths=(sys.prefix,)))
 
 
 @pytest.fixture
@@ -188,8 +200,26 @@ def test_a_missing_unshare_is_unavailable_not_a_fallback(tmp_path, monkeypatch):
 def test_an_escaping_canary_makes_the_sandbox_unavailable(tmp_path, monkeypatch):
     import app.orchestrator.checks as checks
 
+    require_sandbox(NamespaceSandbox())  # the canary must run for its report to be judged
     # The canary reports a connection (as it would in a sandbox that leaked the network): it must fail closed.
     monkeypatch.setattr(checks, "_CANARY", checks._CANARY.replace('out[f"connected_{name}"] = False',
                                                                   'out[f"connected_{name}"] = True'))
     ok, why = NamespaceSandbox().availability()
     assert not ok and "canary escaped" in why and "connected_loopback" in why
+
+
+def test_a_host_that_refuses_namespaces_makes_the_sandbox_unavailable(tmp_path, monkeypatch):
+    """What the CI runner sees: unshare exists but the kernel refuses the namespaces. Runs on every host."""
+    import app.orchestrator.checks as checks
+
+    refusing = tmp_path / "unshare"
+    refusing.write_text("#!/bin/sh\necho 'unshare: write failed /proc/self/uid_map: Operation not permitted' >&2\nexit 1\n")
+    refusing.chmod(0o755)
+    real_which = checks.shutil.which
+    monkeypatch.setattr(checks.shutil, "which",
+                        lambda name, path=None: str(refusing) if name == "unshare" else real_which(name, path=path))
+    box = NamespaceSandbox()
+    ok, why = box.availability()
+    assert not ok and "could not be established" in why and "Operation not permitted" in why
+    with pytest.raises(SandboxUnavailable):
+        box.run(("/bin/true",), tree=tmp_path, cwd=".", timeout_s=5)

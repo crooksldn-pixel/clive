@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from app.orchestrator.checks import NamespaceSandbox
 from app.orchestrator.contracts import BlockerClass, TaskKind, TaskStatus
 from app.orchestrator.dispatcher import Dispatcher, DispatcherBusy, DispatcherConfig
 from app.orchestrator.lifecycle import (
@@ -101,6 +102,25 @@ class Clock:
         return datetime.now(UTC) + self.offset
 
 
+class TreeRunnerForTests:
+    """A test double for the check runner: runs the check in the exported tree, with no isolation.
+
+    Only for tests of the dispatcher's own logic (evidence, refusal, retry). What isolation a real check
+    gets is ``NamespaceSandbox``'s, tested in test_check_sandbox.py and in the sandbox test below.
+    """
+
+    kind = "tree-runner-for-tests"
+
+    def availability(self):
+        return True, "test double: no isolation"
+
+    def run(self, argv, *, tree, cwd, timeout_s):
+        proc = subprocess.run(list(argv), cwd=str(Path(tree) / cwd), capture_output=True, text=True,
+                              timeout=timeout_s)
+        return {"exit_code": proc.returncode, "stdout_tail": proc.stdout[-6000:], "stderr_tail": proc.stderr[-3000:],
+                "runner": self.kind, "sandbox": "none (test double)"}
+
+
 class FakeReviewer:
     """A programmatic reviewer double: an independent principal answering from a queue."""
 
@@ -147,7 +167,9 @@ FINDING = {"finding_id": "F-01", "material": True, "finding": "the greeting is w
 
 
 class World:
-    def __init__(self, tmp: Path, *, reviewers=None, checks=(), max_repair_rounds: int = 2, **config) -> None:
+    def __init__(self, tmp: Path, *, reviewers=None, checks=(), max_repair_rounds: int = 2, runner=None,
+                 **config) -> None:
+        self.runner = runner or TreeRunnerForTests()
         self.tmp = tmp
         self.repo = tmp / "repo"
         self.repo.mkdir()
@@ -187,7 +209,7 @@ class World:
     def dispatcher(self) -> Dispatcher:
         """A fresh dispatcher each call: nothing survives in memory, as after a restart."""
         return Dispatcher(self.kernel, self.objectives, ClaudeCodeWorker(cli=str(self.cli)), self.reviewers,
-                          self.config)
+                          self.config, checks=self.runner)
 
     def objective(self, **overrides) -> dict:
         fields = dict(
@@ -505,8 +527,10 @@ def test_nothing_the_worker_writes_in_its_tree_can_steer_clives_git(tmp_path):
 
 
 def test_checks_run_in_the_sandbox_on_a_copy_and_cannot_touch_the_candidate_tree(tmp_path):
+    from tests.test_check_sandbox import require_sandbox
+
     probe = Check(name="probe", argv=("/bin/sh", "-c", "id -u > uid.txt; echo tampered > pkg/hello.txt; cat uid.txt"))
-    w = World(tmp_path, checks=(probe,))
+    w = World(tmp_path, checks=(probe,), runner=require_sandbox(NamespaceSandbox()))
     w.scenarios(EDIT_HELLO)
     w.objective()
     w.run_until(w.status_is(TaskStatus.REVIEWING))

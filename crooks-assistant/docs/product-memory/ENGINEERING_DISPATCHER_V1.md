@@ -147,6 +147,16 @@ An objective's checks run worker-authored code, so they run only through a `Chec
 
 Both root and non-root modes were exercised on this host. On a host where neither the dispatcher is root nor unprivileged user namespaces are allowed (Ubuntu's AppArmor `kernel.apparmor_restrict_unprivileged_userns=1`, for example), the canary fails, and objectives with checks block with that reason until the owner decides how the dispatcher should run.
 
+Where the tests run matters. CI acceptance run `35874441460` at `dcd7d745` was red: 3 failed and 4 errors. The CI runner (`ubuntu-latest`, the non-root `runner` user) cannot establish the sandbox, and the dispatcher correctly failed closed there. But the escape tests demanded a working sandbox on every host. The runner's exact canary reason is not visible in CI output. Its most likely cause is Ubuntu's restriction on unprivileged user namespaces. A faithful local simulation (`unshare` present, the kernel refusing the uid map) reproduced exactly those 3 failures and 4 errors.
+
+The tests now require the sandbox only where it can be established:
+
+- **Escape tests:** on a host that cannot establish it, they skip, naming the canary's reason. With `CLIVE_REQUIRE_CHECK_SANDBOX=1`, which the dispatcher's host should set, a skip is a failure.
+- **Fail-closed behaviour:** proven on every host, including "unshare refused by the kernel".
+- **Dispatcher logic tests** (evidence, refusal, retry) use an explicit runner double.
+
+So green CI proves fail-closed behaviour and the dispatcher logic. It does not prove escape resistance. That is proven on a host that can establish the sandbox (this one, as root and as non-root), and it must be proven on the dispatcher's own host before objectives with checks run there.
+
 A repair attempt fast-forwards its fresh workspace to the rejected candidate after assignment, so the kernel's "workspace at the base" fact stays true at assign time.
 
 Restart works like this:
