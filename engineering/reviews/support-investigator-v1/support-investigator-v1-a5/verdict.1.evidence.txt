@@ -1,0 +1,117 @@
+Owner-relayed GPT exact-SHA review verdict (session message 14, received 2026-09-23 after 11:10Z).
+Reviewer session and workspace facts are declared by the relay; GPT states it independently inspected the exact candidate and verified CI run 35852041530.
+
+GPT EXACT-SHA REVIEW — PACKET 18
+
+Candidate:
+2dbb97bc6c88d3ee3cf5cdf6a980df4f3405104a
+
+Parent:
+109f58c40b12b996a353731f5a42bdbf2abbf9bb
+
+Task:
+support-investigator-v1 r5
+Attempt:
+support-investigator-v1-a5
+
+VERDICT: READY
+
+The exact candidate was independently inspected under the frozen Support
+Investigator V1 convergence criteria.
+
+Evidence checked:
+
+- Candidate resolves at the stated SHA.
+- It is exactly one commit on top of 109f58c4.
+- Diff is confined to:
+  - app/support/reply.py
+  - app/support/investigate.py
+  - tests/test_support_investigator.py
+- CI run 35852041530 completed successfully against the exact candidate.
+- The packet-17 S-01C defect is closed.
+
+S-01C CLOSURE
+
+Cancellation and address-change handling no longer equates the existence of
+a fulfilment record with dispatch.
+
+The customer-facing draft and owner-decision path now make the same bounded
+three-way distinction:
+
+1. DELIVERED
+   - delivery is actually recorded
+   - cancellation becomes a return question
+   - delivery address can no longer be changed
+
+2. MOVING
+   - PICKED_UP / IN_TRANSIT / OUT_FOR_DELIVERY /
+     ATTEMPTED_DELIVERY
+   - "already dispatched" remains supported by recorded movement
+
+3. FULFILMENT WITHOUT RECORDED MOVEMENT
+   - CONFIRMED / FULFILLED / equivalent non-movement state
+   - does not say dispatched
+   - does not claim cancellation/address change is impossible
+   - explicitly states that whether the parcel has left is not established
+   - identifies the check still required before an answer
+
+The corresponding owner decision follows the same evidence boundary rather
+than silently upgrading a fulfilment record into a dispatch fact.
+
+The label-only cancellation and address-change regressions cover the exact
+failure from packet 17. The moving case preserves the legitimate dispatch
+branch. FULFILLED-without-movement and DELIVERED cancellation cases cover
+both sides of the distinction.
+
+Delivery-only customer wording has also been removed from cancel/address
+change enquiries.
+
+The corrected "dispatched" inventory in packet 18 matches the implementation:
+customer-facing/decision claims of dispatch are movement-gated; the remaining
+non-gated appearances are explanatory/comment or quoted policy context.
+
+The two existing real Crooks acceptance cases remain unchanged and clean:
+- confident identity
+- read-only evidence gathering
+- no invented order/tracking facts
+- no unsupported action-underway claims
+- no unsupported dispatch claim
+
+REVIEW CONCLUSION
+
+No material new failure was found in the frozen acceptance dimensions:
+
+- customer identity
+- factual grounding
+- explicit uncertainty
+- read-only authority
+- privacy
+- materially misleading customer output
+
+S-01, S-01R and S-01C are therefore closed for Support Investigator V1.
+
+Apply the convergence rule now:
+do not open another speculative support-review round.
+
+Admit this READY verdict against r5/a5 and integrate the exact accepted SHA
+through the existing kernel lifecycle.
+
+Expected result:
+support-investigator-v1 → DONE / COMPLETE
+
+This verdict does NOT authorise:
+- landing onto a separate CI/integration stream
+- production deployment
+- runtime/service/watcher changes
+- external customer sends
+- Shopify/Gmail writes
+- secrets/permission changes
+
+Those remain separate owner decisions where applicable.
+
+After integration, report:
+- verdict admission result
+- accepted SHA
+- integration record
+- final lifecycle state
+- resulting engineering-state SHA
