@@ -251,6 +251,23 @@ class Dispatcher:
         return None, False
 
     # ------------------------------------------------------------ READY
+    def _failed_check_output(self, attempt: Attempt, limit: int = 3000) -> list[str]:
+        """What the failing checks of a refused attempt printed, so the next builder need not guess.
+
+        Output of CLIVE's own sandboxed run of the objective's checks: the builder cannot run them."""
+        out: list[str] = []
+        for path in sorted(self._paths(attempt)["evidence"].glob("check-*.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if data.get("exit_code") == 0:
+                continue
+            tail = ((data.get("stdout_tail") or "") + (data.get("stderr_tail") or ""))[-limit:]
+            out += [f"FAILED CHECK `{data.get('name')}` on {attempt.attempt_id} (exit {data.get('exit_code')}), "
+                    "last output:", "```", tail, "```", ""]
+        return out
+
     def _revision_history(self, task: EngineeringTask) -> list[tuple[Attempt, str, datetime]]:
         """Every cancellation of this revision's attempts: (attempt, reason, when)."""
         out = []
@@ -732,6 +749,7 @@ class Dispatcher:
         refusals = [h for h in self._revision_history(task) if h[1].startswith(RESULT_REFUSED)]
         if refusals:
             lines += ["AN EARLIER ATTEMPT OF THIS REVISION WAS REFUSED BY CLIVE:", *(f"- {h[1]}" for h in refusals), ""]
+            lines += self._failed_check_output(refusals[-1][0])
         lines += [
             "RULES:",
             "- Use only the file tools, only inside the allowed paths. Do not commit: CLIVE commits your tree and",

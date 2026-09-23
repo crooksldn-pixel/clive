@@ -582,6 +582,9 @@ def test_failed_checks_are_evidence_and_never_a_candidate(tmp_path):
     assert "checks failed" in [e.note for e in first_events if e.kind is EventKind.CANCELLED][0]
     result = w.store.read_results()[0]
     assert result.attempt_id == second.attempt_id and "check-says-hello" in result.evidence_satisfied
+    # the retry is told what failed, not only that something did
+    retry_prompt = (w.state / "prompt.1.txt").read_text()
+    assert f"FAILED CHECK `says-hello` on {first.attempt_id} (exit 1)" in retry_prompt
 
 
 # ---------------------------------------------------------------- review
