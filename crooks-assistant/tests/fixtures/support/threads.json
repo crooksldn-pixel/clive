@@ -148,5 +148,35 @@
         }
       ]
     }
+  },
+  "return_pending": {
+    "summary": {
+      "thread_id": "18f2a9c0b1d2e330",
+      "from": "Returns app",
+      "from_email": "noreply@fixture.invalid",
+      "subject": "New return request - RMA #ABC123 (ORDER CROOKS-2108)",
+      "date": "2026-09-12T07:01:28Z",
+      "snippet": "RMA #ABC123 Order #CROOKS-2108 RMA status: Pending approval",
+      "likely_bulk": false
+    },
+    "thread": {
+      "thread_id": "18f2a9c0b1d2e330",
+      "message_count": 1,
+      "messages_shown": 1,
+      "truncated": false,
+      "latest_direction": "inbound",
+      "awaiting_reply": true,
+      "messages": [
+        {
+          "message_id": "m40",
+          "from": "Returns app",
+          "from_email": "noreply@fixture.invalid",
+          "date": "2026-09-12T07:01:28Z",
+          "subject": "New return request - RMA #ABC123 (ORDER CROOKS-2108)",
+          "body": "You have received a new return request. RMA #ABC123 Order #CROOKS-2108 RMA status: Pending approval",
+          "outbound": false
+        }
+      ]
+    }
   }
 }

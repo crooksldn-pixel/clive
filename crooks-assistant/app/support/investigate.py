@@ -26,6 +26,7 @@ DISPATCH_GRACE_WORKING_DAYS = 1
 # that exists without a scan, a delivery scan, and the failures.
 LABEL_ONLY_STATUSES = ("CONFIRMED", "LABEL_PRINTED", "LABEL_PURCHASED", "SUBMITTED")
 DELIVERED_STATUSES = ("DELIVERED",)
+MOVING_STATUSES = ("PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "ATTEMPTED_DELIVERY")
 OPEN_RETURN_STATUSES = ("IN_PROGRESS", "REQUESTED")
 _TAGS = re.compile(r"<[^>]+>")
 _RETURN_NAME = re.compile(r"created return (\S+?)\.?$", re.I)
@@ -96,6 +97,22 @@ def fulfilment_status(f: dict[str, Any]) -> str:
 
 def label_only(fulfillments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [f for f in fulfillments if fulfilment_status(f) in LABEL_ONLY_STATUSES]
+
+
+def moving(fulfillments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [f for f in fulfillments if fulfilment_status(f) in MOVING_STATUSES]
+
+
+def pending_approval(bundle: EvidenceBundle) -> str:
+    """The evidence reference that says the open return is pending approval (a returns-system
+    message in the inbox, or the order note), or "" when nothing read says so."""
+    for t in bundle.threads:
+        texts = [str(t.get("subject") or "")] + [str(m.get("body") or "") for m in t.get("messages") or [] if isinstance(m, dict)]
+        if any("pending approval" in x.lower() for x in texts):
+            return bundle.thread_ref(t)
+    if "pending approval" in str((bundle.order or {}).get("note") or "").lower():
+        return bundle.order_ref
+    return ""
 
 
 def delivered(fulfillments: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -305,8 +322,8 @@ def _inferences(bundle: EvidenceBundle, identification: dict[str, Any]) -> tuple
                 decisions.append(f"Order {number}: the carrier says delivered and the customer says not; check the proof of delivery, a neighbour or a safe place, then a replacement or refund is the owner's call.")
         elif labelled:
             f = labelled[-1]
-            out.append(Finding(f"The fulfilment status is {fulfilment_status(f)}: a shipping label exists (created {day_words(f.get('shipped_at'))}) but no carrier scan has reached Shopify, "
-                               f"so the parcel may not have been collected by {f.get('carrier') or 'the carrier'} yet.", (ref,)))
+            out.append(Finding(f"The fulfilment's recorded status is {fulfilment_status(f)}, not PICKED_UP, IN_TRANSIT or DELIVERED: Shopify holds a label (created {day_words(f.get('shipped_at'))}) "
+                               f"and no later status, so whether {f.get('carrier') or 'the carrier'} has collected the parcel is not established from our records.", (ref,)))
             decisions.append(f"Order {number}: confirm with the courier whether the parcel was collected on or after {day_words(f.get('shipped_at'))}; if it was not, get it collected or re-dispatch it, and tell the customer which.")
         shipped = [parse_when(f.get("shipped_at")) for f in fulfillments]
         shipped = [s for s in shipped if s]

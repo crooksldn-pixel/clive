@@ -9,6 +9,7 @@ captured bundle replayed through the same code, and is not in the repository.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -313,7 +314,7 @@ async def test_a_fulfilment_without_tracking_is_an_unknown_not_a_guess():
 async def test_a_label_without_a_carrier_scan_is_not_called_dispatched():
     r = Readers(["label_only_us"])
     bundle, result = await run("My tracking only shows label created. Has my order 2107 actually shipped?", r, sender="jay@fixture.invalid")
-    assert any("no carrier scan has reached Shopify" in i["text"] and "CONFIRMED" in i["text"] for i in result["inferences"])
+    assert any("not established from our records" in i["text"] and "CONFIRMED" in i["text"] for i in result["inferences"])
     assert any("Label created 2 day(s) ago for an international address" in i["text"] for i in result["inferences"])
     assert any("confirm with the courier whether the parcel was collected" in d for d in result["owner_decisions"])
     assert any(f["text"].startswith("Shopify event, 15 Sep 2026: Shipping app sent a shipping confirmation email") for f in result["facts"])
@@ -323,7 +324,10 @@ async def test_a_label_without_a_carrier_scan_is_not_called_dispatched():
     assert body.startswith("Hi Jay,"), "a lower-case store name is still a name"
     assert "A shipping label was created for it on 15 Sep 2026 with FedEx, tracking number 877200000110" in body
     assert "international delivery usually takes seven to fourteen days" in body
-    assert "checking with them that it has been picked up" in body and "It was dispatched" not in body
+    assert "Our system currently shows the shipment as CONFIRMED rather than picked up or in transit" in body
+    assert "we cannot confirm from our records that FedEx has collected it yet" in body
+    assert "We need to check that with the courier before we can give you a definite update." in body
+    assert "It was dispatched" not in body and "checking with them" not in body
     assert numbers_in(body) <= evidence_numbers(bundle)
 
 
@@ -347,8 +351,10 @@ async def test_an_open_return_is_recognised_and_not_restarted():
     assert "Return status on the order: IN_PROGRESS." in [f["text"] for f in result["facts"]]
     assert "Shopify event, 12 Sep 2026: Returns app created return CROOKS-2108-R1." in [f["text"] for f in result["facts"]]
     body = result["reply_draft"]["body"]
-    assert "Your return request is already open on our side (CROOKS-2108-R1)" in body
-    assert "within fourteen days of delivery" in body and "swap it for" not in body
+    assert "Your return request is already open on our side (CROOKS-2108-R1) (status IN_PROGRESS), so you do not need to submit another request." in body
+    assert "Once it has been reviewed, we can confirm the outcome and the return instructions." in body
+    assert "pending approval" not in body, "nothing read said so"
+    assert "within fourteen days of delivery" in body and "swap it for" not in body and "confirming it now" not in body
 
 
 @pytest.mark.parametrize("keys, text, sender", [
@@ -424,6 +430,64 @@ async def test_a_return_quotes_the_published_policy_line():
     body = result["reply_draft"]["body"]
     assert "returns and exchanges are within fourteen days of delivery for unworn items with the tags on" in body
     assert "kb:returns" in result["reply_draft"]["based_on"]
+
+
+UNDERWAY = re.compile(r"\bwe (are|have|were|'re|'ve) (checking|chasing|finding|confirming|passing|passed|arranging|looking|sorting|updating|working)\b|\bwe (will|'ll|shall)\b|\bwe're \w+ing\b", re.I)
+
+
+@pytest.mark.parametrize("keys, inbox, text, sender", [
+    (["label_only_us"], [], "Tracking only shows label created. Has my order 2107 shipped?", "jay@fixture.invalid"),
+    (["delivered_return_open"], ["return_pending"], "I'd like to return order 2108, too big. Can you confirm the process?", "chris@fixture.invalid"),
+    (["delivered_return_open"], [], "Where is my order 2108? Nothing has arrived.", "chris@fixture.invalid"),
+    (["late_uk", "older_same_customer"], ["late_uk_chase"], "Where is my order 2101?", "sam@fixture.invalid"),
+    (["late_uk"], ["two_chases"], "Where is my order 2101?", "sam@fixture.invalid"),
+    (["unfulfilled_held"], [], "Any update on my order 2102?", "alex@fixture.invalid"),
+    (["unfulfilled_held"], [], "Please cancel my order 2102", "alex@fixture.invalid"),
+    (["unfulfilled_held"], [], "Can I change the address on order 2102?", "alex@fixture.invalid"),
+    (["late_uk"], [], "Please cancel order 2101", "sam@fixture.invalid"),
+    (["late_uk"], [], "I moved house, can you change the address on order 2101?", "sam@fixture.invalid"),
+    (["cancelled"], [], "Where is my order 2103?", "jo@fixture.invalid"),
+    (["international"], [], "You sent me the wrong size on order 2104", "kim@fixture.invalid"),
+    (["international"], [], "Order 2104: one item is missing", "kim@fixture.invalid"),
+    (["untracked"], [], "Where is my order 2105?", "ash@fixture.invalid"),
+    (["late_uk"], [], "Order 2101 arrived damaged", "sam@fixture.invalid"),
+    (["older_same_customer"], [], "I'd like to return order 2090, too big", "sam@fixture.invalid"),
+    (["late_uk"], [], "Where is order 9999?", ""),
+    (["late_uk", "older_same_customer"], [], "Where is my order?", "sam@fixture.invalid"),
+])
+async def test_no_draft_claims_an_internal_action_is_underway_or_promised(keys, inbox, text, sender):
+    """S-01: a draft states facts, uncertainty, what still needs doing, asks and policy; it never
+    says we are checking, chasing, confirming or have passed anything on, and never promises
+    an internal action, because nothing here does any of that."""
+    r = Readers(keys, inbox=inbox)
+    _, result = await run(text, r, sender=sender)
+    body = result["reply_draft"]["body"]
+    assert not UNDERWAY.search(body), body
+    for phrase in ("we are checking", "we are chasing", "we are finding out", "we have passed", "we are confirming", "will confirm", "will update you", "will come back to you"):
+        assert phrase not in body.lower(), (phrase, body)
+
+
+async def test_an_open_return_that_the_returns_system_says_is_pending_approval_is_said_so_with_its_evidence():
+    r = Readers(["delivered_return_open"], inbox=["return_pending"])
+    bundle, result = await run("I'd like to return order 2108, too big. Can you confirm the process?", r, sender="chris@fixture.invalid")
+    body = result["reply_draft"]["body"]
+    assert "Your return request is already open on our side (CROOKS-2108-R1) and is currently pending approval, so you do not need to submit another request." in body
+    assert "Once it has been reviewed, we can confirm the outcome and the return instructions." in body
+    assert "gmail:thread:18f2a9c0b1d2e330" in result["reply_draft"]["based_on"], "the pending-approval statement cites the message that says so"
+    assert "confirming it now" not in body
+
+
+async def test_unresolved_cancel_held_and_untracked_cases_say_what_needs_doing_not_what_is_being_done():
+    cancel = (await run("Please cancel my order 2102", Readers(["unfulfilled_held"]), sender="alex@fixture.invalid"))[1]["reply_draft"]["body"]
+    assert "Cancelling it is a step we need to take on our side" in cancel and "passed it to the team" not in cancel
+    held = (await run("Any update on my order 2102?", Readers(["unfulfilled_held"]), sender="alex@fixture.invalid"))[1]["reply_draft"]["body"]
+    assert "we need to find out what has held it before we can give you a date" in held and "finding out" not in held
+    untracked = (await run("Where is my order 2105?", Readers(["untracked"]), sender="ash@fixture.invalid"))[1]["reply_draft"]["body"]
+    assert "we need to check with the courier before we can say where it is" in untracked and "checking with the courier" not in untracked
+    late = (await run("Where is my order 2101?", Readers(["late_uk"]), sender="sam@fixture.invalid"))[1]["reply_draft"]["body"]
+    assert "It was dispatched on 11 Sep 2026 with Royal Mail" in late, "IN_TRANSIT is movement Shopify recorded"
+    assert "it needs chasing with the courier" in late and "we are chasing" not in late
+    assert "that is on us to sort, and the options are chasing the courier, a replacement or a refund" in late
 
 
 # ----------------------------------------------------------- the report and the bundle

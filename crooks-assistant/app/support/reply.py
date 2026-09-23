@@ -1,8 +1,12 @@
 """The customer-facing draft, built only from verified facts and the published policy.
 
 Every number, date and tracking reference in the body comes from the evidence bundle; an
-unknown is answered by asking, never by guessing. The draft is text for the owner to read,
-edit and send by hand: nothing here sends, saves to the mailbox, or changes anything.
+unknown is answered by asking, never by guessing. A draft may state a verified fact, state
+uncertainty, say what still needs doing, ask the customer for what is needed, or make a
+policy-backed statement. It never says that an internal action has begun or been done
+unless the bundle proves it: nothing here checks with a courier, chases, confirms or
+passes anything on, and the draft must not claim otherwise. The draft is text for the owner
+to read, edit and send by hand: nothing here sends, saves to the mailbox, or changes anything.
 """
 
 from __future__ import annotations
@@ -16,9 +20,12 @@ from app.support.investigate import (
     day_words,
     delivered,
     delivered_at,
+    fulfilment_status,
     is_uk,
     label_only,
+    moving,
     open_return,
+    pending_approval,
     return_name,
 )
 
@@ -128,7 +135,7 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
         refunds = [r for r in order.get("refunds") or [] if isinstance(r, dict)]
         lines.append(_sentence(f"That order was cancelled on {day_words(order.get('cancelled_at'))}"
                                + (f" and {refunds[0].get('amount')} was refunded on {day_words(refunds[0].get('created_at'))}" if refunds and refunds[0].get("amount") else "")))
-        lines.append("If that is not what you expected, tell us and we will look into it.")
+        lines.append("If that is not what you expected, reply here so it can be looked into.")
     elif kind in ("delivery", "other") or (kind in ("cancel", "change_address") and fulfillments):
         if tracked and delivered(tracked):
             f = delivered(tracked)[-1]
@@ -136,7 +143,7 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
             lines.append(_sentence("Our records show it was delivered" + (f" on {day_words(when)}" if when else "") + (f" by {f.get('carrier')}" if f.get("carrier") else "")
                                    + f", tracking number {f.get('number')}" + (f" ({f.get('url')})" if f.get("url") else "")))
             if kind == "delivery":
-                lines.append("If it is not with you, could you check with neighbours or for a safe-place card and let us know? We will then take it up with the courier straight away.")
+                lines.append("If it is not with you, could you check with neighbours or for a safe-place card and let us know? If it has not turned up, it needs taking up with the courier, and that can be done once we hear back from you.")
         elif tracked:
             f = tracked[-1]
             late = any("running late" in i.text for i in investigation.inferences)
@@ -145,24 +152,26 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
                     lines.append("Sorry for the wait.")
                 lines.append(_sentence(f"A shipping label was created for it on {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")
                                        + f", tracking number {f.get('number')}" + (f" - you can follow it at {f.get('url')}" if f.get("url") else "")))
-                lines.append("The carrier has not yet reported a collection scan on our side, so we are checking with them that it has been picked up and will confirm as soon as it is moving.")
+                lines.append(f"Our system currently shows the shipment as {fulfilment_status(f)} rather than picked up or in transit, so we cannot confirm from our records that "
+                             f"{f.get('carrier') or 'the courier'} has collected it yet. We need to check that with the courier before we can give you a definite update.")
             else:
                 if late and not slow:
                     lines.append("Sorry for the wait.")
-                lines.append(_sentence(f"It was dispatched on {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")
+                opening = "It was dispatched on" if moving([f]) else "Our records show it as fulfilled on"
+                lines.append(_sentence(f"{opening} {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")
                                        + f", tracking number {f.get('number')}" + (f" - you can follow it at {f.get('url')}" if f.get("url") else "")))
             if delivery_line:
                 lines.append(_window_line(order, bundle))
                 based.append(bundle.policy_ref("delivery_windows"))
             if late:
-                lines.append("It is taking longer than it should, so we are chasing the courier from our side as well.")
+                lines.append("It is taking longer than it should, and it needs chasing with the courier before we can give you a definite update.")
             if lost_line:
-                lines.append("If it does not turn up, reply here and we will sort it: we chase the courier, or send a replacement or a refund.")
+                lines.append("If it does not turn up, reply here: that is on us to sort, and the options are chasing the courier, a replacement or a refund.")
                 based.append(bundle.policy_ref("lost_or_damaged"))
         elif fulfillments:
             f = fulfillments[-1]
             lines.append(_sentence(f"It was dispatched on {day_words(f.get('shipped_at'))}" + (f" with {f.get('carrier')}" if f.get("carrier") else "")))
-            lines.append("We do not have a tracking reference on file for it, so we are checking with the courier and will come back to you.")
+            lines.append("We do not have a tracking reference on file for it, so we need to check with the courier before we can say where it is.")
         else:
             lines.append(_sentence(f"It has not left us yet; it was placed on {day_words(order.get('placed_at'))}"))
             if dispatch_line:
@@ -170,7 +179,7 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
                 based.append(bundle.policy_ref("dispatch"))
             held = any("held" in i.text for i in investigation.inferences)
             if held:
-                lines.append("It should have gone out by now, so we are finding out what has held it and will update you.")
+                lines.append("It should have gone out by now, and we need to find out what has held it before we can give you a date.")
             lines.append("Tracking is emailed the moment it ships.")
             if "tracking_emailed" in bundle.policy:
                 based.append(bundle.policy_ref("tracking_emailed"))
@@ -179,16 +188,16 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
             if returns_line:
                 based.append(bundle.policy_ref("returns"))
         if kind == "change_address" and fulfillments:
-            lines.append("Because it has already been dispatched we cannot change the address on it now; if it comes back to us we will send it on to the new one.")
+            lines.append("Because it has already been dispatched we cannot change the address on it now. If it comes back to us undelivered, let us know the new address and sending it on can be looked at then.")
     elif kind == "cancel":
         lines.append(_sentence(f"It has not been dispatched yet (placed on {day_words(order.get('placed_at'))}), so it can still be cancelled"))
-        lines.append("We have passed it to the team; you will get a confirmation once it is cancelled and the refund is on its way.")
+        lines.append("Cancelling it is a step we need to take on our side; once it has been cancelled you will get a confirmation, with the refund to follow.")
     elif kind == "change_address":
         lines.append(_sentence(f"It has not been dispatched yet (placed on {day_words(order.get('placed_at'))}), so the address can still be changed"))
-        lines.append("Could you reply with the full new address, including the postcode, and we will update it before it ships?")
+        lines.append("Could you reply with the full new address, including the postcode? It needs changing on our side before it ships, so the sooner we have it the better.")
     elif kind == "damaged":
         lines.append("Sorry about that. Damage in transit is on us to sort.")
-        lines.append("Could you reply with a photo of the damage (and the label, if there is one)? Then we will arrange a replacement or a refund, whichever you would prefer.")
+        lines.append("Could you reply with a photo of the damage (and the label, if there is one)? With that, the options are a replacement or a refund, whichever you would prefer.")
         if lost_line:
             based.append(bundle.policy_ref("lost_or_damaged"))
     elif kind == "wrong_item":
@@ -198,7 +207,7 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
             lines.append(_sentence(f"Sorry about that. Your order was for {listed}"))
         else:
             lines.append("Sorry about that.")
-        lines.append("Could you reply with a photo of what arrived and its label? Then we will get the right one to you and sort the return.")
+        lines.append("Could you reply with a photo of what arrived and its label? That is what we need to see what went wrong and to put it right.")
     elif kind == "missing_item":
         items = [i for i in order.get("items") or [] if isinstance(i, dict)]
         if items:
@@ -206,12 +215,16 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
             lines.append(_sentence(f"Sorry about that. Your order should have had {listed}"))
         else:
             lines.append("Sorry about that.")
-        lines.append("Could you tell us which item is missing? We will check the packing and put it right.")
+        lines.append("Could you tell us which item is missing? The packing needs checking on our side before it can be put right.")
     elif kind == "return_exchange":
         if open_return(order):
             name = return_name(order)
-            lines.append("Your return request is already open on our side" + (f" ({name})" if name else "") + ", so there is nothing more you need to do to start it.")
-            lines.append("We are confirming it now and will send you the return instructions as soon as that is done.")
+            pending_ref = pending_approval(bundle)
+            state = " and is currently pending approval" if pending_ref else f" (status {order.get('return_status')})"
+            lines.append("Your return request is already open on our side" + (f" ({name})" if name else "") + state + ", so you do not need to submit another request.")
+            lines.append("Once it has been reviewed, we can confirm the outcome and the return instructions.")
+            if pending_ref:
+                based.append(pending_ref)
             if returns_line:
                 lines.append(_returns_line(bundle))
                 based.append(bundle.policy_ref("returns"))
@@ -221,7 +234,7 @@ def draft_reply(investigation: Investigation, bundle: EvidenceBundle, *, signatu
                 based.append(bundle.policy_ref("returns"))
             else:
                 lines.append("Returns and exchanges are within fourteen days of delivery for unworn items with the tags on.")
-            lines.append("Reply with what you would like to swap it for, or that you would like a refund, and we will send the return details.")
+            lines.append("Reply with what you would like to swap it for, or that you would like a refund, and the return details can follow from there.")
     if photo_line and kind in ("damaged", "wrong_item", "missing_item"):
         based.append(bundle.policy_ref("photo"))
     lines.append("")
