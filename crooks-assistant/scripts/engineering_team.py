@@ -25,12 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app.orchestrator.checks import NamespaceSandbox  # noqa: E402
-from app.orchestrator.dispatcher import Dispatcher, DispatcherConfig  # noqa: E402
-from app.orchestrator.lifecycle import GitFacts, Kernel, LifecycleStore, PrincipalRegistry  # noqa: E402
-from app.orchestrator.objectives import ObjectiveStore  # noqa: E402
-from app.orchestrator.reviewers import GptUnavailable  # noqa: E402
-from app.orchestrator.workers import ClaudeCodeWorker  # noqa: E402
+from app.orchestrator import checks, dispatcher, lifecycle, objectives, reviewers, workers  # noqa: E402
 
 DEFAULT_REGISTRY = ROOT / "config" / "review_principals.json"
 
@@ -51,22 +46,23 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def build_dispatcher(args) -> Dispatcher:
+def build_dispatcher(args) -> dispatcher.Dispatcher:
     """The same Dispatcher engineering_dispatcher.py builds for its defaults (``--reviewer gpt`` with no
     ``--gpt-api-key-file``, ``--worker-cli claude`` and no other worker/check-sandbox overrides): the same
     app.orchestrator imports, the same reviewer-driver (``GptUnavailable``, since this script takes no key
     file) and the same worker and sandbox wiring. Only ``status()`` is ever called on it, so nothing here
     dispatches or collects a review, launches a worker or writes a record."""
-    store = LifecycleStore(Path(args.store))
-    kernel = Kernel(store=store, registry=PrincipalRegistry.load(Path(args.registry)), git=GitFacts(Path(args.repo)),
-                    operator="engineering-team (read-only)", journal=False)
-    objectives = ObjectiveStore(store, journal=False)
-    reviewers = [GptUnavailable()]
-    worker = ClaudeCodeWorker(cli="claude", model=None, effort=None, max_turns=200, bash_prefixes=(),
-                              oauth_token_file=None)
-    config = DispatcherConfig(runtime_root=Path(args.runtime_root), workspace_root=Path(args.workspace_root),
-                              repo=Path(args.repo), max_concurrent=args.max_concurrent)
-    return Dispatcher(kernel, objectives, worker, reviewers, config, checks=NamespaceSandbox())
+    store = lifecycle.LifecycleStore(Path(args.store))
+    kernel = lifecycle.Kernel(store=store, registry=lifecycle.PrincipalRegistry.load(Path(args.registry)),
+                              git=lifecycle.GitFacts(Path(args.repo)), operator="engineering-team (read-only)",
+                              journal=False)
+    objective_store = objectives.ObjectiveStore(store, journal=False)
+    review_drivers = [reviewers.GptUnavailable()]
+    worker = workers.ClaudeCodeWorker(cli="claude", model=None, effort=None, max_turns=200, bash_prefixes=(),
+                                      oauth_token_file=None)
+    config = dispatcher.DispatcherConfig(runtime_root=Path(args.runtime_root), workspace_root=Path(args.workspace_root),
+                                         repo=Path(args.repo), max_concurrent=args.max_concurrent)
+    return dispatcher.Dispatcher(kernel, objective_store, worker, review_drivers, config, checks=checks.NamespaceSandbox())
 
 
 def _category(stage: str | None) -> str:
@@ -81,13 +77,13 @@ def _category(stage: str | None) -> str:
     return "other"
 
 
-def gather(dispatcher: Dispatcher) -> dict:
+def gather(team: dispatcher.Dispatcher) -> dict:
     """Everything to report, read straight from Dispatcher.status() and the objective store."""
-    builder_kind = {obj.objective_id: (dispatcher.integrator.kind if obj.builder == "integrator" else dispatcher.worker.kind)
-                    for obj in dispatcher.objectives.read_all()}
+    builder_kind = {obj.objective_id: (team.integrator.kind if obj.builder == "integrator" else team.worker.kind)
+                    for obj in team.objectives.read_all()}
     rows = []
     totals = {"building": 0, "reviewing": 0, "blocked": 0, "complete": 0, "other": 0}
-    for item in dispatcher.status():
+    for item in team.status():
         stage = item.get("stage")
         category = _category(stage)
         totals[category] += 1
@@ -104,8 +100,8 @@ def gather(dispatcher: Dispatcher) -> dict:
             "blocker": item.get("blocker") if category == "blocked" else None,
         }
         rows.append(row)
-    free_slots = max(0, dispatcher.config.max_concurrent - totals["building"])
-    return {"objectives": rows, "totals": totals, "max_concurrent": dispatcher.config.max_concurrent,
+    free_slots = max(0, team.config.max_concurrent - totals["building"])
+    return {"objectives": rows, "totals": totals, "max_concurrent": team.config.max_concurrent,
             "free_slots": free_slots}
 
 
@@ -130,8 +126,8 @@ def render(report: dict) -> str:
 
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    dispatcher = build_dispatcher(args)
-    report = gather(dispatcher)
+    team = build_dispatcher(args)
+    report = gather(team)
     if args.json:
         print(json.dumps(report, indent=2, default=str))
     else:
