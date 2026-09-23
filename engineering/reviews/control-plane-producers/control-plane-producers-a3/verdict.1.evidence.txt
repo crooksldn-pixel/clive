@@ -1,0 +1,87 @@
+Owner-relayed GPT exact-SHA review verdict (session message 6, received 2026-09-23 after 00:29Z).
+Reviewer session and workspace facts are declared by the relay; GPT states it confirmed CI run 35801776658 from independent GitHub evidence.
+
+PACKET 11
+Candidate:
+31fb755360ae40959c14d608de0035815c41cc40
+
+Base:
+acef34793d8742516aa7526480cb7cb959f0e651
+
+VERDICT: CHANGES REQUIRED.
+
+Independent GitHub evidence confirms CI run 35801776658 completed successfully.
+
+K-06 is CLOSED.
+The real-repository rename test and --name-status --no-renames derivation correctly ensure both source and destination are treated as touched paths.
+
+K-09 is CLOSED.
+A superseded/blocked/non-current integration candidate acceptance no longer authorises completion.
+
+Two narrow findings remain.
+
+K-10 — owner judgment contents are verified, but owner ORIGIN is still not trusted.
+
+resume() accepts --owner-ledger <arbitrary path>.
+
+A caller capable of writing a JSONL file can construct a syntactically valid JudgmentRecord containing:
+- principal_id = owner
+- an arbitrary session id
+- the exact task/revision/attempt
+- the gate proposal id and fingerprint
+- APPROVED
+
+The kernel then accepts it because registry.is_owner() verifies the asserted principal string, not the origin of the ledger record.
+
+This is structurally the same authority problem one level higher: previously the caller asserted "owner"; now the caller can assert an owner judgment document.
+
+Do NOT solve this by trusting an ordinary Git author/committer string. That is also self-asserted unless independently authenticated.
+
+Prefer the smallest fail-closed V1 solution.
+
+If no already-existing trusted owner-ingress artifact can mechanically prove owner origin, then OWNER_GATE must remain unresolvable by the repository-only kernel for now. Preserve gate_proposal() and the binding contract, but refuse owner-gated resume until a trusted owner authority adapter/record exists.
+
+Non-owner BLOCKED resume may continue normally.
+
+The product doctrine permits an owner gate to remain an owner gate; it does not require the kernel to invent owner authentication.
+
+If an existing canonical owner-authority mechanism genuinely provides non-forgeable origin, reuse it and demonstrate that instead.
+
+Adversarial test:
+- controller constructs a perfectly valid owner JudgmentRecord itself with the correct fingerprint/principal/session fields
+- kernel must still refuse because owner origin is not trusted.
+
+K-11 — journal rollback restores HEAD state, not necessarily PRE-VERB index state.
+
+On git add/commit failure, git_journal() currently runs:
+
+git reset HEAD -- <store>
+
+The test starts with an empty index, so HEAD state equals pre-verb index state.
+
+Those are not equivalent in general.
+
+If store paths had legitimate staged state before the verb, rollback silently destroys that state, contrary to the contract that index/tree/HEAD return exactly to their pre-verb state.
+
+Choose one small coherent rule:
+
+A) fail closed before journaling unless the relevant index is clean, and make that an explicit/tested kernel precondition; or
+
+B) snapshot and restore the actual pre-verb index state.
+
+Do not broaden this into a new transaction framework.
+
+Also verify that the kernel journal cannot accidentally commit unrelated pre-existing staged changes outside the engineering store. If the design depends on a clean dedicated checkout, enforce that assumption mechanically rather than documenting it only.
+
+Add a real-repository regression covering the chosen invariant.
+
+Produce one successor SHA only for K-10/K-11, with fresh exact-SHA evidence.
+
+Do not alter the lifecycle architecture, Agent Environment, model routing or product semantics.
+
+Packet 10 remains READY at:
+b68e6e827afbeba3364c8239a2d814a60372f498
+
+Do not change that candidate. Once the kernel successor receives READY, land packet 10 using the accepted kernel procedure and close the current recovery/integration sequence.
+
+No deployment/runtime/watcher/systemd/business-write changes.
