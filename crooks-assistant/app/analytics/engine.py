@@ -20,6 +20,18 @@ def _local(ts: float, zone: ZoneInfo) -> datetime:
     return datetime.fromtimestamp(ts, UTC).astimezone(zone)
 
 
+def _whole_days(now: float, ts: float) -> int:
+    """How many whole days have actually passed, floored from the raw difference.
+
+    Never from a value already rounded to one decimal place: an order 14 days and 22h51m old
+    is 14.9520... raw, which rounds to 14.9 for display — but once the raw fraction reaches
+    .95 that rounding ticks over to 15.0, and a caller that floors the ROUNDED figure then
+    reports a day more than has actually passed, for the last ~5% of every day. Flooring the
+    unrounded seconds instead is right at every minute, not just most of them.
+    """
+    return int((now - ts) // 86400)
+
+
 def _text_match(needle: str, *haystacks: Any) -> bool:
     n = needle.casefold()
     return any(n in str(h or "").casefold() for h in haystacks)
@@ -517,9 +529,14 @@ def _orders_listing(query: Query, orders: list[dict[str, Any]], *, now: float, z
 
 def _order_row(o: dict[str, Any], *, now: float, zone: ZoneInfo) -> dict[str, Any]:
     c = o.get("customer") or {}
+    ts = float(o.get("ts") or now)
     return {
-        "order_id": o.get("order_id"), "order_number": o.get("order_number"), "placed_at": _local(float(o.get("ts") or 0), zone).isoformat(),
-        "age_days": round((now - float(o.get("ts") or now)) / 86400, 1), "fulfillment": o.get("fulfillment"), "payment": o.get("financial"),
+        "order_id": o.get("order_id"), "order_number": o.get("order_number"), "placed_at": _local(ts, zone).isoformat(),
+        # `age_days` is for display and sorting, at one decimal place. `age_whole_days` is the
+        # number a sentence says: whole days actually waited, floored from `now - ts` itself —
+        # never from `age_days`, which is already rounded and so reads a day high for the last
+        # sliver of every day.
+        "age_days": round((now - ts) / 86400, 1), "age_whole_days": _whole_days(now, ts), "fulfillment": o.get("fulfillment"), "payment": o.get("financial"),
         "total": o.get("total"), "currency": o.get("currency"), "customer_name": c.get("name"), "customer_id": c.get("customer_id"), "customer_email": c.get("email"),
         "country_code": o.get("country_code"), "tags": list(o.get("tags") or [])[:10], "items": len(o.get("items") or []), "has_tracking": bool(o.get("has_tracking")),
         "cancelled": bool(o.get("cancelled")),

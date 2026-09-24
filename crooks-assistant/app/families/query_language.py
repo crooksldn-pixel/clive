@@ -102,7 +102,11 @@ def _render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     library._open_workflow(ctx, body, kind="orders", operation="review")
     oldest = rows[0]
     number = str(oldest.get("order_number") or "").lstrip("#")
-    days = int(oldest.get("age_days") or 0)
+    # Not `int(oldest["age_days"])`: that field is rounded to one decimal for display, which
+    # rounds UP to the next whole day for the last ~1% of every day — reporting an order as
+    # having waited a day longer than it has. `age_whole_days` is floored from the unrounded
+    # difference (app/analytics/engine.py), so it agrees with the calendar at every minute.
+    days = int(oldest.get("age_whole_days") or 0)
     count = library._how_many(body, len(rows))
     one = len(rows) == 1
     words = (f"{count} {kind}{'' if one else 's'} {'is' if one else 'are'} unfulfilled; the oldest is "
