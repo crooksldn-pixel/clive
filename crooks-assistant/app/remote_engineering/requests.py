@@ -17,7 +17,7 @@ from pydantic import Field, ValidationError, field_validator
 from app.orchestrator.contracts import ExactSha, StrictRecord, validate_exact_sha
 from app.orchestrator.objectives import Check
 
-from .errors import RequestSchemaError, redact_validation_error
+from .errors import RequestSchemaError, redact_supplied, redact_validation_error, supplied_strings
 
 REQUEST_SCHEMA = "clive.remote_engineering_request.v1"
 # Bounded and safe to use as a filename and a record identity, but deliberately no
@@ -66,13 +66,18 @@ REQUEST_LABELS = frozenset(RemoteObjectiveRequest.model_fields) | frozenset(Chec
 
 
 def parse_request(raw: bytes) -> RemoteObjectiveRequest:
-    """Parse and validate one request's exact bytes. Fails closed on anything unexpected."""
+    """Parse and validate one request's exact bytes. Fails closed on anything unexpected.
+
+    Every decoder failure is a refusal, not a crash: besides malformed UTF-8 and JSON, Python's
+    decoder raises ``RecursionError`` on deeply nested input and ``ValueError`` on an integer
+    beyond the interpreter's digit limit, and either would otherwise escape into the loop.
+    """
     try:
         data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError):
         # Never ``{exc}``: a decode error quotes the offending bytes and a JSON error can
         # quote the offending token, either of which is rejected content verbatim.
-        raise RequestSchemaError("request is not valid UTF-8 JSON") from exc
+        raise RequestSchemaError("request is not valid UTF-8 JSON") from None
     if not isinstance(data, dict):
         raise RequestSchemaError("request must be a JSON object")
     if data.get("schema_version") != REQUEST_SCHEMA:
@@ -82,6 +87,7 @@ def parse_request(raw: bytes) -> RemoteObjectiveRequest:
     try:
         return RemoteObjectiveRequest.model_validate(data)
     except ValidationError as exc:
-        raise RequestSchemaError(
-            f"request does not match {REQUEST_SCHEMA}: {redact_validation_error(exc, known=REQUEST_LABELS)}"
-        ) from exc
+        detail = redact_supplied(redact_validation_error(exc, known=REQUEST_LABELS), supplied_strings(data))
+        raise RequestSchemaError(f"request does not match {REQUEST_SCHEMA}: {detail}") from None
+    except (ValueError, RecursionError):
+        raise RequestSchemaError(f"request does not match {REQUEST_SCHEMA}") from None

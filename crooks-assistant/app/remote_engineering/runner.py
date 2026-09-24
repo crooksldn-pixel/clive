@@ -29,7 +29,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from app.orchestrator.lifecycle import LifecycleStore
+from app.orchestrator.lifecycle import JournalError, LifecycleError, LifecycleStore
+from app.orchestrator.store import RecordConflictError, StateConflictError
 
 from .controller import RemoteController
 from .errors import InboxBoundExceeded, InboxError, RequestContentChanged
@@ -62,6 +63,10 @@ class RemoteEngineeringLoop:
         except InboxBoundExceeded:
             outcomes, intake_error = [], INTAKE_OVER_BOUND
         except TRANSPORT_ERRORS:
+            outcomes, intake_error = [], INTAKE_UNAVAILABLE
+        except (JournalError, LifecycleError, RecordConflictError, StateConflictError):
+            raise  # authoritative-state failures stop the loop: fail closed
+        except Exception:  # noqa: BLE001 -- untrusted inbox content must never end supervision
             outcomes, intake_error = [], INTAKE_UNAVAILABLE
         else:
             # A schema-invalid record earns no receipt -- nothing was decided about an id --

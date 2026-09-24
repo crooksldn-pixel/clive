@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
+
 from pydantic import ValidationError
 
 __all__ = [
@@ -11,7 +14,10 @@ __all__ = [
     "RequestSchemaError",
     "REDACTED",
     "TransportError",
+    "redact_refusal",
+    "redact_supplied",
     "redact_validation_error",
+    "supplied_strings",
 ]
 
 
@@ -83,3 +89,53 @@ def redact_validation_error(exc: ValidationError, *, known: frozenset[str] = fro
         loc = ".".join(_safe_segment(part, known) for part in error["loc"])
         parts.append(f"{loc}: {error['msg']}" if loc else error["msg"])
     return "; ".join(parts)
+
+
+_MAX_SUPPLIED_STRINGS = 4096
+_QUOTED = re.compile(r"'(?:[^'\\\n]|\\.)*'|\"(?:[^\"\\\n]|\\.)*\"")
+
+
+def supplied_strings(value: object) -> list[str]:
+    """Every string a requester supplied inside ``value``, keys and values, without recursion.
+
+    Iterative, so a deeply nested record cannot exhaust the stack, and capped, so a record
+    with very many strings cannot make redaction itself unbounded.
+    """
+    out: list[str] = []
+    stack: list[object] = [value]
+    while stack and len(out) < _MAX_SUPPLIED_STRINGS:
+        item = stack.pop()
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, dict):
+            stack.extend(item.keys())
+            stack.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(item)
+    return out
+
+
+def redact_supplied(text: str, supplied: Iterable[str], *, keep: Iterable[str] = ()) -> str:
+    """``text`` with every supplied string (and its ``repr`` form) replaced by ``<redacted>``.
+
+    Longest first, so a value containing another is removed whole. Strings shorter than three
+    characters are left: they cannot carry a credential and would only mangle fixed wording.
+    ``keep`` names values already published beside the text (the request id).
+    """
+    kept = set(keep)
+    for value in sorted({s for s in supplied if len(s) >= 3 and s not in kept}, key=len, reverse=True):
+        for form in (value, repr(value)[1:-1]):
+            if form and form in text:
+                text = text.replace(form, REDACTED)
+    return text
+
+
+def redact_refusal(text: str, supplied: Iterable[str], *, keep: Iterable[str] = ()) -> str:
+    """A refusal reason safe to record and publish: quoted literals and supplied strings removed.
+
+    Validators downstream of the adapter (the canonical Objective door, the kernel) quote the
+    values they reject, and some normalise them first, so a supplied value can appear quoted
+    in a form that is not byte-equal to what was supplied. Every quoted literal is therefore
+    redacted outright, and any supplied string still present unquoted is redacted after it.
+    """
+    return redact_supplied(_QUOTED.sub(f"'{REDACTED}'", text), supplied, keep=keep)

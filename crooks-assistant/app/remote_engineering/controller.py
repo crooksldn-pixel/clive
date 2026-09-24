@@ -33,13 +33,21 @@ from app.orchestrator.objectives import (
 )
 from app.orchestrator.store import RecordConflictError
 
-from .errors import InboxError, RequestContentChanged, RequestSchemaError, redact_validation_error
+from .errors import (
+    InboxError,
+    RequestContentChanged,
+    RequestSchemaError,
+    redact_refusal,
+    redact_validation_error,
+    supplied_strings,
+)
 from .inbox import (
     DEFAULT_INBOX_BRANCH,
     DEFAULT_INBOX_DIRECTORY,
     bounded_source,
     discover_requests,
     fetch_inbox,
+    validate_inbox_directory,
 )
 from .receipts import Receipt, ReceiptLog
 from .requests import RemoteObjectiveRequest, parse_request
@@ -65,6 +73,11 @@ class RemoteControllerConfig:
     remote: str = "origin"
     inbox_branch: str = DEFAULT_INBOX_BRANCH
     inbox_directory: str = DEFAULT_INBOX_DIRECTORY
+
+    def __post_init__(self) -> None:
+        # One plain path component, refused without echo; and whatever it is, it is never
+        # serialized: receipts and the projection name records by a fixed label (inbox.py).
+        validate_inbox_directory(self.inbox_directory)
 
 
 def objective_from_request(
@@ -204,6 +217,11 @@ class RemoteController:
                 redact_validation_error(exc, known=OBJECTIVE_LABELS)
                 if isinstance(exc, ValidationError)
                 else str(exc)
+            )
+            # Validators downstream (the Objective door, the kernel) quote what they reject,
+            # sometimes normalised; no supplied value may reach a receipt or the projection.
+            reason = redact_refusal(
+                reason, supplied_strings(request.model_dump(mode="json")), keep=(request.request_id,)
             )
             refusal = Receipt(
                 request_id=request.request_id,

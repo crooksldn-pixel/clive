@@ -36,6 +36,14 @@ MAX_DISCOVERY_S = 60.0
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 _REMOTE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_DIRECTORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+
+def validate_inbox_directory(value: str) -> str:
+    """One plain path component under which request files live. Refused without echo."""
+    if not isinstance(value, str) or not _DIRECTORY_RE.fullmatch(value):
+        raise InboxError("inbox directory must be one plain path component")
+    return value
 
 
 def _validate_name(value: str, *, what: str) -> str:
@@ -151,7 +159,7 @@ def discover_requests(
     from the snapshot and raises ``InboxBoundExceeded`` with fixed text.
     """
     deadline = time.monotonic() + MAX_DISCOVERY_S
-    directory = directory.strip("/")
+    directory = validate_inbox_directory(directory.strip("/"))
     listing = _bounded_git(
         repo, ["ls-tree", "-r", "-z", "-l", ref_sha, "--", directory],
         limit=MAX_LISTING_BYTES, deadline=deadline, what="listing",
@@ -181,18 +189,15 @@ def discover_requests(
 
 
 def bounded_source(directory: str, name: str, digest: str, request_id: str | None) -> str:
-    """The discovered path only when it is the request's own id, else an opaque locator.
+    """A locator for one inbox record that repeats nothing a requester or operator chose.
 
-    A filename under the inbox directory is chosen by whoever opened the request, so it
-    is exactly as untrusted as the file's content -- and a bounded character set is no
-    defence here, because a credential is alphanumeric and ``sk-....json`` is a perfectly
-    well-formed filename. ``source`` is written into a durable receipt and published on a
-    public branch, so the only path safe to echo is one that repeats nothing the
-    projection does not already carry: ``<directory>/<request_id>.json``, where the id is
-    already published beside it. Every other path -- nested, oddly named, or simply not
-    matching its own id -- and every record too malformed to have a trusted id at all is
-    identified by the digest of its exact bytes, which is what a receipt keys on anyway.
+    A filename under the inbox directory is chosen by whoever opened the request, so it is
+    exactly as untrusted as the file's content, and the directory itself is host configuration
+    that must not be echoed either. The locator therefore uses the fixed label
+    ``DEFAULT_INBOX_DIRECTORY`` whatever the configured directory is: ``requests/<id>.json``
+    when the record sits at ``<directory>/<request_id>.json`` (the id is already published
+    beside it), otherwise ``requests/#<sha256 of its exact bytes>``.
     """
     if request_id is not None and name == f"{directory}/{request_id}.json":
-        return name
-    return f"{directory}/#{digest}"
+        return f"{DEFAULT_INBOX_DIRECTORY}/{request_id}.json"
+    return f"{DEFAULT_INBOX_DIRECTORY}/#{digest}"

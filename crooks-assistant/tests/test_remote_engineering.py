@@ -1024,3 +1024,104 @@ def test_the_published_tree_is_built_nul_delimited_and_holds_one_file(env):
     commit = publish_status(env.checkout, _status_at(NOW), path="status.json")
     _git(env.checkout, "fetch", "-q", "origin", f"+refs/heads/{DEFAULT_STATUS_BRANCH}:refs/remotes/origin/{DEFAULT_STATUS_BRANCH}")
     assert _git(env.checkout, "ls-tree", "-r", "--name-only", commit).splitlines() == ["status.json"]
+
+
+# ------------------------------------ activation successor 4: decoder containment and nothing supplied echoed
+
+import dataclasses  # noqa: E402
+
+from app.orchestrator.lifecycle import JournalError  # noqa: E402
+from app.remote_engineering.errors import REDACTED  # noqa: E402
+
+DEEP = b'{"schema_version": "clive.remote_engineering_request.v1", "x": ' + b"[" * 20000 + b"]" * 20000 + b"}"
+HUGE_INT = b'{"schema_version": "clive.remote_engineering_request.v1", "x": 1' + b"1" * 5000 + b"}"
+
+
+@pytest.mark.parametrize("raw", [DEEP, HUGE_INT, b"[" * 30000 + b"]" * 30000], ids=["deep-object", "huge-int", "deep-array"])
+def test_decoder_failures_are_refusals_never_crashes(raw):
+    assert len(raw) < inbox_module.MAX_RECORD_BYTES * 2
+    with pytest.raises(RequestSchemaError) as refusal:
+        parse_request(raw)
+    assert "1111" not in str(refusal.value) and "[[[" not in str(refusal.value)
+
+
+def test_a_deeply_nested_inbox_record_is_refused_and_the_dispatcher_still_ticks(env, tmp_path):
+    assert len(DEEP) < inbox_module.MAX_RECORD_BYTES
+    _commit_raw(env.origin, {"requests/r-deep.json": DEEP})
+    kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
+    ticker = _Ticker()
+    result = _loop(controller, ticker, kernel.store, lambda status: "f" * 40).cycle()
+    assert ticker.calls == 1 and result["intake_error"] is None
+    assert [o["outcome"] for o in result["outcomes"]] == ["refused"]
+    assert _admitted_nothing(kernel)
+
+
+def test_an_unexpected_intake_failure_is_contained_but_journal_failures_still_stop(tmp_path):
+    store = LifecycleStore(tmp_path / "engineering")
+
+    class Explodes:
+        def __init__(self, exc):
+            self.exc = exc
+
+        def poll_once(self):
+            raise self.exc
+
+    ticker = _Ticker()
+    result = _loop(Explodes(RecursionError("deep")), ticker, store, lambda status: "a" * 40).cycle()
+    assert ticker.calls == 1 and result["intake_error"] == INTAKE_UNAVAILABLE
+    assert "deep" not in json.dumps(result, default=str)
+    with pytest.raises(JournalError):
+        _loop(Explodes(JournalError("store")), _Ticker(), store, lambda status: "a" * 40).cycle()
+
+
+@pytest.mark.parametrize(
+    "directory", ["", "../requests", "a/b", "req uests", ".requests", "r" * 65, SECRET_URL],
+    ids=["empty", "parent", "nested", "space", "dot", "long", "url"],
+)
+def test_an_inbox_directory_must_be_one_plain_component_and_is_never_echoed(env, directory):
+    with pytest.raises(InboxError) as refusal:
+        RemoteControllerConfig(repo=env.checkout, repository="crooksldn-pixel/clive",
+                               product_memory_ref="main", inbox_directory=directory)
+    assert directory not in str(refusal.value) or directory == ""
+
+
+def test_a_configured_inbox_directory_never_reaches_receipts_outcomes_or_the_projection(env, tmp_path):
+    good = valid_request(env, request_id="r-dir1")
+    _commit_raw(env.origin, {
+        f"{TOKEN_SHAPED}/r-dir1.json": json.dumps(good).encode(),
+        f"{TOKEN_SHAPED}/odd-name.json": b"not json",
+    })
+    kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
+    controller.config = dataclasses.replace(controller.config, inbox_directory=TOKEN_SHAPED)
+    outcomes = controller.poll_once()
+    refusals = tuple(item for item in outcomes if "refusal_id" in item)
+    status = build_status(store=kernel.store, receipts=receipts, now=NOW, refusals=refusals)
+    everything = json.dumps({"outcomes": outcomes, "status": status}, default=str)
+    assert TOKEN_SHAPED not in everything
+    assert {o.get("source") for o in outcomes} == {"requests/r-dir1.json", f"requests/#{refusals[0]['request_sha256']}"}
+
+
+def test_the_cli_no_longer_accepts_an_inbox_directory(tmp_path):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args([
+            "--store", "x", "--repo", "y", "poll", "--repository", "crooksldn-pixel/clive",
+            "--product-memory-ref", "main", "--directory", "requests",
+        ])
+
+
+@pytest.mark.parametrize("paths", [
+    [f"crooks-assistant/app/orchestrator/workers/{TOKEN_SHAPED}"],
+    [f"../{TOKEN_SHAPED}"],
+    [f"/{TOKEN_SHAPED}/x/"],
+])
+def test_an_intake_refusal_never_records_or_publishes_a_supplied_value(env, tmp_path, capsys, paths):
+    request = valid_request(env, request_id="r-leak1", allowed_paths=paths)
+    commit_request(env.origin, "r-leak1", request)
+    kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
+    outcomes = controller.poll_once()
+    assert [o["outcome"] for o in outcomes] == ["refused"]
+    reason = outcomes[0]["reason"]
+    assert "cannot become an objective" in reason and REDACTED in reason
+    status = build_status(store=kernel.store, receipts=receipts, now=NOW)
+    stored = [r.model_dump(mode="json") for r in receipts.read_all()]
+    assert TOKEN_SHAPED not in json.dumps({"o": outcomes, "s": status, "r": stored}, default=str)

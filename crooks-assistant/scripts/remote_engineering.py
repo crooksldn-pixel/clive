@@ -47,7 +47,6 @@ from app.orchestrator.store import RecordConflictError, StateConflictError  # no
 from app.orchestrator.workers import ClaudeCodeWorker  # noqa: E402
 from app.remote_engineering import (  # noqa: E402
     DEFAULT_INBOX_BRANCH,
-    DEFAULT_INBOX_DIRECTORY,
     DEFAULT_STATUS_BRANCH,
     DEFAULT_STATUS_HEARTBEAT_S,
     DEFAULT_STATUS_PATH,
@@ -75,7 +74,6 @@ def _add_transport_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--product-memory-ref", required=True, help="product-memory truth ref bound by the host")
     parser.add_argument("--remote", default="origin", help="configured remote name, never a URL")
     parser.add_argument("--branch", default=DEFAULT_INBOX_BRANCH)
-    parser.add_argument("--directory", default=DEFAULT_INBOX_DIRECTORY)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -146,7 +144,6 @@ def _controller(args, kernel: Kernel, objectives: ObjectiveStore, receipts: Rece
         product_memory_ref=args.product_memory_ref,
         remote=args.remote,
         inbox_branch=args.branch,
-        inbox_directory=args.directory,
     )
     return RemoteController(kernel=kernel, objectives=objectives, config=config, receipts=receipts)
 
