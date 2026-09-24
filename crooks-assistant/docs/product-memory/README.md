@@ -40,7 +40,7 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [ENGINEERING_DISPATCHER_V1.md](./ENGINEERING_DISPATCHER_V1.md) — Objective Intake + Engineering Dispatcher V1 around the frozen kernel: one owner objective in, an isolated restricted builder, Git-derived candidate, exact-SHA independent review with a typed result, bounded repair, verified integration; COMPLETE, BLOCKED or OWNER_GATE; repository-only, and not by itself the no-courier milestone.
 - [REMOTE_ENGINEERING_CONTROL_V1.md](./REMOTE_ENGINEERING_CONTROL_V1.md) — repository-only bounded GitHub transport/control adapter for submitting and observing engineering objectives without making GitHub lifecycle authority; deployment remains separately owner-authorised.
 
-## Status model
+- [OPUS_5_5_HANDOFF_2026-09-24.md](./OPUS_5_5_HANDOFF_2026-09-24.md) — current CLIVE engineering handoff for a fresh Opus 5.5 session; exact branches, SHAs, safety invariants, activation state and next steps.\n- [OPUS_5_5_START_PROMPT_2026-09-24.md](./OPUS_5_5_START_PROMPT_2026-09-24.md) — paste-ready startup prompt for the new Opus 5.5 chat.\n\n## Status model
 
 Use these states consistently:
 
