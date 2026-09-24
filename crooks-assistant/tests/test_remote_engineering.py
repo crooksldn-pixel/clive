@@ -14,6 +14,7 @@ from app.orchestrator.contracts import BlockerClass, TaskStatus
 from app.orchestrator.lifecycle import (
     GitFacts,
     Kernel,
+    LifecycleError,
     LifecycleStore,
     PrincipalRegistry,
 )
@@ -26,6 +27,8 @@ from app.remote_engineering import (
     MAX_HEARTBEAT_S,
     PUBLISH_UNAVAILABLE,
     REQUEST_SCHEMA,
+    Claim,
+    ClaimLog,
     InboxError,
     Receipt,
     ReceiptLog,
@@ -1125,3 +1128,170 @@ def test_an_intake_refusal_never_records_or_publishes_a_supplied_value(env, tmp_
     status = build_status(store=kernel.store, receipts=receipts, now=NOW)
     stored = [r.model_dump(mode="json") for r in receipts.read_all()]
     assert TOKEN_SHAPED not in json.dumps({"o": outcomes, "s": status, "r": stored}, default=str)
+
+
+# ------------------------------------------- activation successor 5: crash-safe intake provenance
+
+
+class _CrashOnAccept(ReceiptLog):
+    """A receipt log that dies exactly in the window the claim exists to close."""
+
+    def __init__(self, root: Path) -> None:
+        super().__init__(root)
+        self.crashed = 0
+
+    def put(self, receipt: Receipt) -> Receipt:
+        if receipt.outcome == "accepted":
+            self.crashed += 1
+            raise RuntimeError("process died after intake, before the receipt")
+        return super().put(receipt)
+
+
+def _advancing_clock(start: datetime = NOW, step: timedelta = timedelta(minutes=5)):
+    """A clock that moves, as a real host's does between a crash and its restart."""
+    state = {"now": start}
+
+    def tick() -> datetime:
+        value = state["now"]
+        state["now"] = value + step
+        return value
+
+    return tick
+
+
+def _crash_controller(env: SimpleNamespace, tmp_path: Path):
+    store = LifecycleStore(tmp_path / "engineering")
+    kernel = Kernel(store=store, registry=PrincipalRegistry.load(REGISTRY), git=GitFacts(env.checkout),
+                    operator="remote-test", journal=False, clock=lambda: NOW)
+    objectives = ObjectiveStore(store, journal=False)
+    receipts = _CrashOnAccept(store.root / "remote_engineering")
+    config = RemoteControllerConfig(repo=env.checkout, repository="crooksldn-pixel/clive",
+                                    product_memory_ref="main")
+    controller = RemoteController(kernel=kernel, objectives=objectives, config=config, receipts=receipts,
+                                  clock=_advancing_clock())
+    return kernel, objectives, receipts, controller
+
+
+def _live_controller(env: SimpleNamespace, tmp_path: Path):
+    """A fresh process over the same store, with its own later clock."""
+    store = LifecycleStore(tmp_path / "engineering")
+    kernel = Kernel(store=store, registry=PrincipalRegistry.load(REGISTRY), git=GitFacts(env.checkout),
+                    operator="remote-test", journal=False, clock=lambda: NOW)
+    objectives = ObjectiveStore(store, journal=False)
+    receipts = ReceiptLog(store.root / "remote_engineering")
+    config = RemoteControllerConfig(repo=env.checkout, repository="crooksldn-pixel/clive",
+                                    product_memory_ref="main")
+    controller = RemoteController(kernel=kernel, objectives=objectives, config=config, receipts=receipts,
+                                  clock=_advancing_clock(NOW + timedelta(hours=1)))
+    return kernel, objectives, receipts, controller
+
+
+def test_the_claim_is_written_before_any_lifecycle_write(env, tmp_path, monkeypatch):
+    """The binding must already be on disk when the first authoritative write is attempted."""
+    commit_request(env.origin, "r-order", valid_request(env, request_id="r-order"))
+    _kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
+    seen: list[str | None] = []
+
+    def spy(objective, *, kernel, objectives):
+        seen.append(controller.claims.get("r-order").request_sha256 if controller.claims.get("r-order") else None)
+        raise LifecycleError("refused at the canonical door")
+
+    monkeypatch.setattr("app.remote_engineering.controller.intake", spy)
+    outcomes = controller.poll_once()
+
+    assert outcomes[0]["outcome"] == "refused"
+    assert seen and seen[0] is not None          # claimed before intake was ever called
+    assert objectives.read("r-order") is None
+    assert controller.claims.get("r-order").request_sha256 == outcomes[0]["request_sha256"]
+
+
+def test_a_crash_between_intake_and_the_receipt_recovers_idempotently(env, tmp_path):
+    """The window the reviewer named: lifecycle written, receipt not, process gone."""
+    commit_request(env.origin, "r-crash", valid_request(env, request_id="r-crash"))
+    kernel, objectives, receipts, controller = _crash_controller(env, tmp_path)
+
+    with pytest.raises(RuntimeError):
+        controller.poll_once()
+
+    # The objective is admitted, the receipt never landed, the claim did.
+    assert receipts.crashed == 1
+    assert objectives.read("r-crash") is not None
+    assert kernel.store.read_task("r-crash", 1) is not None
+    assert receipts.get("r-crash") is None
+    claimed = controller.claims.get("r-crash")
+    assert claimed is not None and claimed.claimed_at == NOW
+
+    # Restart: the same bytes, a clock an hour later. Recovery must be byte-identical,
+    # not merely equivalent, or the objective store refuses its own record.
+    kernel2, objectives2, receipts2, controller2 = _live_controller(env, tmp_path)
+    outcomes = controller2.poll_once()
+
+    assert outcomes[0]["outcome"] == "accepted"
+    assert outcomes[0]["request_sha256"] == claimed.request_sha256
+    assert receipts2.get("r-crash").objective_id == "r-crash"
+    assert objectives2.read("r-crash").created_at == NOW      # the claimed instant, not the new one
+    assert len(kernel2.store.read_tasks()) == 1
+    assert kernel2.store.read_attempts() == ()
+
+
+def test_a_crash_before_the_receipt_still_refuses_changed_bytes_for_that_id(env, tmp_path):
+    """Provenance may not be replaced by bytes that merely parse to the same request."""
+    commit_request(env.origin, "r-swap", valid_request(env, request_id="r-swap"))
+    _kernel, objectives, _receipts, controller = _crash_controller(env, tmp_path)
+    with pytest.raises(RuntimeError):
+        controller.poll_once()
+    claimed = controller.claims.get("r-swap")
+
+    # Same id, same parsed request, different bytes (whitespace only).
+    payload = valid_request(env, request_id="r-swap")
+    directory = env.origin / DEFAULT_INBOX_DIRECTORY
+    _git(env.origin, "checkout", "-q", DEFAULT_INBOX_BRANCH)
+    (directory / "r-swap.json").write_text(json.dumps(payload, indent=4))
+    _git(env.origin, "add", "-A")
+    _git(env.origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "reformat")
+    _git(env.origin, "checkout", "-q", "main")
+
+    _kernel2, objectives2, receipts2, controller2 = _live_controller(env, tmp_path)
+    with pytest.raises(InboxError):
+        controller2.poll_once()
+
+    assert controller2.claims.get("r-swap").request_sha256 == claimed.request_sha256
+    assert receipts2.get("r-swap") is None
+    assert objectives2.read("r-swap").requested_outcome == objectives.read("r-swap").requested_outcome
+
+
+def test_an_interrupted_id_refuses_its_whole_snapshot_before_any_write(env, tmp_path):
+    """The claim participates in preflight, so admission stays atomic per cycle."""
+    commit_request(env.origin, "b-claimed", valid_request(env, request_id="b-claimed"))
+    _kernel, _objectives, _receipts, controller = _crash_controller(env, tmp_path)
+    with pytest.raises(RuntimeError):
+        controller.poll_once()
+
+    commit_request(env.origin, "a-fresh", valid_request(env, request_id="a-fresh"))
+    commit_request(env.origin, "b-claimed",
+                   valid_request(env, request_id="b-claimed", requested_outcome="Changed."))
+
+    kernel2, objectives2, receipts2, controller2 = _live_controller(env, tmp_path)
+    with pytest.raises(InboxError):
+        controller2.poll_once()
+
+    assert objectives2.read("a-fresh") is None
+    assert kernel2.store.read_task("a-fresh", 1) is None
+    assert receipts2.get("a-fresh") is None
+    assert controller2.claims.get("a-fresh") is None
+
+
+def test_a_claim_is_write_once_and_refuses_divergent_bytes(tmp_path):
+    claims = ClaimLog(tmp_path / "remote_engineering")
+    first = Claim(request_id="r", request_sha256="a" * 64, claimed_at=NOW)
+    assert claims.put(first) == first
+    assert claims.put(first) == first                     # identical bytes are idempotent
+    assert claims.get("r").request_sha256 == "a" * 64
+    with pytest.raises(InboxError):
+        claims.put(Claim(request_id="r", request_sha256="b" * 64, claimed_at=NOW))
+    assert claims.get("r").request_sha256 == "a" * 64
+
+
+def test_a_claim_carries_pointers_only_never_a_second_lifecycle_store():
+    assert set(Claim.model_fields) == {"schema_version", "request_id", "request_sha256", "claimed_at"}
+    assert not hasattr(ClaimLog, "advance") and not hasattr(ClaimLog, "resolve")

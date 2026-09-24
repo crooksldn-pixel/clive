@@ -102,6 +102,14 @@ Echo bounds (activation successor of `05fe8046`). Nothing a requester or a misty
 - `source` is only ever `<directory>/<request_id>.json` -- a path that repeats nothing the projection does not already publish beside it. A bounded character set is no defence for a filename, because a credential is alphanumeric and `sk-....json` is well formed; so every other path, and every record too malformed to have a trusted id, is located by `<directory>/#<sha256 of its exact bytes>` instead;
 - an invalid remote, branch, directory or status path is refused without printing the rejected value, so a one-shot `poll` cannot print a credential an operator mistyped into `--remote`.
 
+Crash-safe provenance (activation successor of `11ab9070`). The lifecycle write and the receipt cannot be one atomic act, so the window between them is closed from the front:
+
+- before the first lifecycle write, an id is bound to the exact bytes being admitted under it by a write-once **claim** (`<store>/remote_engineering/claims/<request_id>.json`, schema `clive.remote_engineering_claim.v1`). Like a receipt it is adapter provenance, never authority: it admits nothing and advances nothing;
+- the claim also pins `created_at`. A resumed admission therefore rebuilds the *byte-identical* objective rather than a merely equivalent one. Without this, a replay after a crash reaches the objective store with a later timestamp, is refused as "already recorded differently", and a durable **refused** receipt is written for a request that was in fact admitted -- so the public projection permanently contradicts a live task;
+- on restart only the claimed digest resumes. Every other byte sequence for that id is refused, including bytes that differ only in formatting and parse to the same request, so provenance cannot be replaced by a later submission;
+- a claimed-but-unreceipted id participates in the snapshot preflight too, so an interrupted admission refuses its whole cycle before any write, exactly as an already-receipted one does;
+- claims and receipts flush the containing directory, not only the file, so the record's *name* survives a crash and not just its bytes.
+
 ## Safety and process execution
 
 - No arbitrary shell execution from inbox content.
@@ -146,6 +154,11 @@ At minimum prove:
 - a credential placed in an unknown key's name is absent from outcomes, loop result, receipts and published status;
 - an untrusted or nested request filename is replaced by an opaque digest locator, while a conventional one is still reported as itself;
 - a one-shot `poll` given a credential-bearing `--remote` prints neither the URL nor the credential.
+- the claim is on disk before the canonical door is called at all;
+- a crash between intake and the receipt recovers idempotently on the original bytes, with one task and the claimed `created_at`, even though the clock has moved;
+- the same crash refuses changed or merely reformatted bytes for that id, and does not replace what was admitted;
+- an interrupted id refuses its whole snapshot, so a fresh request beside it is not admitted either;
+- a claim is write-once and carries pointers only.
 
 ## Definition of done
 

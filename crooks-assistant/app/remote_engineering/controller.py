@@ -49,7 +49,7 @@ from .inbox import (
     fetch_inbox,
     validate_inbox_directory,
 )
-from .receipts import Receipt, ReceiptLog
+from .receipts import Claim, ClaimLog, Receipt, ReceiptLog
 from .requests import RemoteObjectiveRequest, parse_request
 
 # Every field label this host itself defined; see ``redact_validation_error``.
@@ -134,6 +134,13 @@ class RemoteController:
     config: RemoteControllerConfig
     receipts: ReceiptLog
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
+    claims: ClaimLog | None = None
+
+    def __post_init__(self) -> None:
+        # Claims live beside the receipts, in the same adapter-owned directory of the
+        # engineering store, so every existing caller gets one without being changed.
+        if self.claims is None:
+            self.claims = ClaimLog(self.receipts.dir.parent)
 
     def poll_once(self) -> list[dict]:
         """One bounded fetch, one preflight of the whole snapshot, then one pass over it.
@@ -172,6 +179,14 @@ class RemoteController:
                     f"request {request.request_id} is already recorded with different content; "
                     "a request id is immutable: submit a new request id"
                 )
+            # An id claimed but not yet receipted was interrupted mid-admission. It is bound
+            # to its claimed bytes just as firmly, so the whole snapshot is refused here too.
+            claimed = self.claims.get(request.request_id)
+            if claimed is not None and claimed.request_sha256 != digest:
+                raise RequestContentChanged(
+                    f"request {request.request_id} is already claimed for different content; "
+                    "a request id is immutable: submit a new request id"
+                )
 
     def process(self, raw: bytes, *, source: str) -> dict:
         """Decide one request's exact bytes, once. Replay of the same bytes repeats the decision."""
@@ -206,7 +221,25 @@ class RemoteController:
                 "a request id is immutable: submit a new request id"
             )
 
-        now = self.clock()
+        # Bind this id to these exact bytes before the first lifecycle write. A crash
+        # between intake and the receipt would otherwise leave an admitted objective with
+        # no durable digest, and a later replay could bind it to different bytes that
+        # happen to parse to the same request. The claim is provenance, never authority:
+        # it admits nothing and advances nothing on its own.
+        claimed = self.claims.get(request.request_id)
+        if claimed is None:
+            claimed = self.claims.put(
+                Claim(request_id=request.request_id, request_sha256=digest, claimed_at=self.clock())
+            )
+        elif claimed.request_sha256 != digest:
+            raise RequestContentChanged(
+                f"request {request.request_id} is already claimed for different content; "
+                "a request id is immutable: submit a new request id"
+            )
+
+        # The claimed instant, not the current one, so a resumed admission rebuilds the
+        # byte-identical objective rather than a merely equivalent one.
+        now = claimed.claimed_at
         try:
             objective = objective_from_request(request, config=self.config, git=self.kernel.git, created_at=now)
             outcome = intake(objective, kernel=self.kernel, objectives=self.objectives)

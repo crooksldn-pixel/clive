@@ -22,12 +22,13 @@ from .publisher import (
     publish_status,
     validate_seconds,
 )
-from .receipts import Receipt, ReceiptLog
+from .receipts import CLAIM_SCHEMA, Claim, ClaimLog, Receipt, ReceiptLog
 from .requests import REQUEST_SCHEMA, RemoteObjectiveRequest, parse_request
 from .runner import INTAKE_UNAVAILABLE, PUBLISH_UNAVAILABLE, RemoteEngineeringLoop
 from .status import STATUS_SCHEMA, build_status
 
 __all__ = [
+    "CLAIM_SCHEMA",
     "DEFAULT_INBOX_BRANCH",
     "DEFAULT_INBOX_DIRECTORY",
     "DEFAULT_STATUS_BRANCH",
@@ -39,6 +40,8 @@ __all__ = [
     "PUBLISH_UNAVAILABLE",
     "REQUEST_SCHEMA",
     "STATUS_SCHEMA",
+    "Claim",
+    "ClaimLog",
     "InboxError",
     "Receipt",
     "ReceiptLog",
