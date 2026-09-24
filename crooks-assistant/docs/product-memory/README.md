@@ -42,6 +42,7 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [OWNER_DECISIONS_2026-09-24.md](./OWNER_DECISIONS_2026-09-24.md) — judgment-evidence retention (90-day rolling redacted evidence), Gmail runtime credential, operational-alpha promotion authority and Generative UI V1 approval.
 - [SOURCE_ASSIMILATION_V1.md](./SOURCE_ASSIMILATION_V1.md) — how CLIVE learns from external repositories, skills and tools: quarantine, inventory, compare, decide the use, prove or drop; authority lines and the constraints found.
 - [SOURCE_SHELF.md](./SOURCE_SHELF.md) — the owner-supplied candidate sources (Taste Skill, Vercel guidelines, Playwright CLI, Agent Browser, Jev, LangWatch and others), triaged into batches.
+- [PROJECT_AUDIT_2026-09-24.md](./PROJECT_AUDIT_2026-09-24.md) — whole-project finish list: why accepted work never reached the product, what is live, finished-but-unlanded work, stopped streams, agreed-but-unbuilt items, stale records and the finish order.
 
 ## Status model
 
