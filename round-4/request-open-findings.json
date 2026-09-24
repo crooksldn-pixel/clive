@@ -1,0 +1,50 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "remote-engineering-open-findings",
+  "title": "Remote engineering: close the three open review findings on 71c4ed6a",
+  "requested_outcome": "The remote engineering loop was activated by owner decision at 71c4ed6af13d37d8c9d16179a553201c1e2de695 with three material findings from its exact-SHA review still open. Repair all three. (1) A requester-chosen request_id that is schema-valid but credential-shaped is copied into claims, receipts, objective/task ids, refusals, host output, source locators and the public projection. Keep request_id as the Director's identifier (the spec's Outbound visibility section promises it) but constrain it in the request schema to ^[a-z][a-z0-9]{0,15}(-[a-z0-9]{1,16}){1,7}$ and require target_branch to equal clive/objective/<request_id> exactly; refuse both without echoing the rejected value. (2) The claim is not crash-durable on first use: when the remote_engineering and claims directories are newly created, fsync each parent after introducing the directory entry, before any lifecycle write; keep file and containing-directory fsync for each claim. (3) Claim creation is check-then-write: make it an atomic O_CREAT|O_EXCL create; a loser reloads the winning claim, continues only for the same digest using its claimed_at, and refuses a different digest before lifecycle intake; apply equivalent no-clobber semantics to receipts. Test inputs whose ids do not fit the new rule may be renamed; no existing assertion may change.",
+  "base_ref": "71c4ed6af13d37d8c9d16179a553201c1e2de695",
+  "base_sha": "71c4ed6af13d37d8c9d16179a553201c1e2de695",
+  "allowed_paths": [
+    "crooks-assistant/app/remote_engineering",
+    "crooks-assistant/scripts/remote_engineering.py",
+    "crooks-assistant/tests/test_remote_engineering.py",
+    "crooks-assistant/docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md"
+  ],
+  "acceptance_criteria": [
+    "a credential-shaped request_id and a target_branch other than clive/objective/<request_id> are each refused, and the rejected value appears in no refusal, outcome, receipt, claim, host output or projection",
+    "first-ever intake is crash-durable: a fault injected after the claim is written and before the first lifecycle write leaves a claim that survives, with the new directories' parents fsynced",
+    "two overlapping controllers cannot both claim one request id: exactly one claim wins, the loser proceeds only for the same digest and refuses a different digest before any lifecycle write",
+    "every existing test in tests/test_remote_engineering.py still passes with unchanged assertions",
+    "full repository acceptance for the candidate SHA reports mechanical_evidence complete with no unsatisfied gate"
+  ],
+  "checks": [
+    {
+      "name": "remote-engineering",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_remote_engineering.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/remote-engineering-open-findings",
+  "max_repair_rounds": 2
+}
