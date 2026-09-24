@@ -24,15 +24,31 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from app.orchestrator.lifecycle import GitFacts, Kernel, LifecycleError, sha256_of
-from app.orchestrator.objectives import Objective, ObjectiveStore, intake, owner_entry_from_host
+from app.orchestrator.objectives import (
+    Check,
+    Objective,
+    ObjectiveStore,
+    intake,
+    owner_entry_from_host,
+)
 from app.orchestrator.store import RecordConflictError
 
 from .errors import InboxError, RequestContentChanged, RequestSchemaError, redact_validation_error
-from .inbox import DEFAULT_INBOX_BRANCH, DEFAULT_INBOX_DIRECTORY, discover_requests, fetch_inbox
+from .inbox import (
+    DEFAULT_INBOX_BRANCH,
+    DEFAULT_INBOX_DIRECTORY,
+    bounded_source,
+    discover_requests,
+    fetch_inbox,
+)
 from .receipts import Receipt, ReceiptLog
 from .requests import RemoteObjectiveRequest, parse_request
 
+# Every field label this host itself defined; see ``redact_validation_error``.
+OBJECTIVE_LABELS = frozenset(Objective.model_fields) | frozenset(Check.model_fields)
+
 __all__ = [
+    "OBJECTIVE_LABELS",
     "RemoteController",
     "RemoteControllerConfig",
     "objective_from_request",
@@ -61,13 +77,17 @@ def objective_from_request(
     """The one Objective this request authorises, validated only by ``Objective`` itself."""
     resolved = git.rev_parse(request.base_ref)
     if resolved is None or resolved != request.base_sha:
+        # Never echo base_ref: it is requester-supplied and this reason is persisted in a
+        # receipt and published. The request id and the declared sha are both bounded.
         raise InboxError(
-            f"request {request.request_id}: base ref {request.base_ref!r} does not resolve to the "
+            f"request {request.request_id}: base ref does not resolve to the "
             f"declared base sha {request.base_sha}"
         )
     memory_sha = git.rev_parse(config.product_memory_ref)
     if memory_sha is None:
-        raise InboxError(f"product-memory ref {config.product_memory_ref!r} does not resolve in {config.repo}")
+        # The ref and the repo path are the operator's own configuration, and this reason is
+        # published; the operator reads the ref back off the unit file, not off a public branch.
+        raise InboxError("the host's configured product-memory ref does not resolve in the engineering repo")
     try:
         return Objective(
             objective_id=request.request_id,
@@ -87,7 +107,8 @@ def objective_from_request(
         )
     except ValidationError as exc:
         raise InboxError(
-            f"request {request.request_id} cannot become an objective: {redact_validation_error(exc)}"
+            f"request {request.request_id} cannot become an objective: "
+            f"{redact_validation_error(exc, known=OBJECTIVE_LABELS)}"
         ) from exc
 
 
@@ -142,14 +163,17 @@ class RemoteController:
     def process(self, raw: bytes, *, source: str) -> dict:
         """Decide one request's exact bytes, once. Replay of the same bytes repeats the decision."""
         digest = sha256_of(raw)
+        directory = self.config.inbox_directory.strip("/")
         try:
             request = parse_request(raw)
         except RequestSchemaError as exc:
-            # No trustworthy request id exists here, so this refusal is keyed by the bounded
-            # inbox path it came from and the digest of its exact bytes. It earns no receipt
-            # -- nothing was decided about an id -- but it is still projected, so a Director
-            # polling GitHub can see that the record was seen and refused. ``reason`` is a
-            # redacted schema diagnostic only; it never carries the rejected content.
+            source = bounded_source(directory, source, digest, None)
+            # No trustworthy request id exists here, so nothing about this record's own
+            # naming may be echoed: it is keyed by its bounded locator and the digest of its
+            # exact bytes. It earns no receipt -- nothing was decided about an id -- but it
+            # is still projected, so a Director polling GitHub can see that the record was
+            # seen and refused. ``reason`` is a redacted schema diagnostic only; it never
+            # carries the rejected content.
             return {
                 "refusal_id": f"{source}@{digest}",
                 "source": source,
@@ -159,6 +183,7 @@ class RemoteController:
                 "reason": str(exc),
             }
 
+        source = bounded_source(directory, source, digest, request.request_id)
         existing = self.receipts.get(request.request_id)
         if existing is not None:
             if existing.request_sha256 == digest:
@@ -173,11 +198,18 @@ class RemoteController:
             objective = objective_from_request(request, config=self.config, git=self.kernel.git, created_at=now)
             outcome = intake(objective, kernel=self.kernel, objectives=self.objectives)
         except (LifecycleError, RecordConflictError, InboxError, ValidationError) as exc:
+            # A ValidationError reaching here unwrapped (from intake, not from the objective
+            # builder above) still stringifies its rejected input, so it is redacted too.
+            reason = (
+                redact_validation_error(exc, known=OBJECTIVE_LABELS)
+                if isinstance(exc, ValidationError)
+                else str(exc)
+            )
             refusal = Receipt(
                 request_id=request.request_id,
                 request_sha256=digest,
                 outcome="refused",
-                reason=str(exc)[:2000],
+                reason=reason[:2000],
                 source=source,
                 recorded_at=now,
             )

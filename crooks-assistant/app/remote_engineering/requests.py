@@ -26,6 +26,12 @@ REQUEST_SCHEMA = "clive.remote_engineering_request.v1"
 # ever reject requests before the canonical validator gets to say why, hiding the
 # real refusal reason (e.g. a protected path) behind a schema mismatch instead.
 _REQUEST_ID = r"^[a-z0-9][a-z0-9.-]{0,79}$"
+# ``base_ref`` is handed to ``git rev-parse`` before the canonical door sees it, so it has
+# to be a bounded ref *here*. The character set excludes ``:``, ``@``, ``~``, ``^`` and
+# whitespace, so it can be neither a URL (which could carry a credential) nor a revision
+# expression, and the first character must be alphanumeric, so it can never be read as an
+# option by the git command it is interpolated into.
+_BASE_REF = r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$"
 
 
 class RemoteObjectiveRequest(StrictRecord):
@@ -33,7 +39,7 @@ class RemoteObjectiveRequest(StrictRecord):
     request_id: str = Field(pattern=_REQUEST_ID)
     title: str = Field(min_length=1, max_length=200)
     requested_outcome: str = Field(min_length=1, max_length=20000)
-    base_ref: str = Field(min_length=1, max_length=300)
+    base_ref: str = Field(pattern=_BASE_REF)
     base_sha: ExactSha
     allowed_paths: tuple[str, ...] = Field(min_length=1)
     acceptance_criteria: tuple[str, ...] = ()
@@ -41,10 +47,22 @@ class RemoteObjectiveRequest(StrictRecord):
     target_branch: str = Field(min_length=1, max_length=200)
     max_repair_rounds: int = Field(default=2, ge=0, le=5)
 
+    @field_validator("base_ref")
+    @classmethod
+    def bounded_base_ref(cls, value: str) -> str:
+        if ".." in value or "//" in value or value.endswith(("/", ".lock")):
+            raise ValueError("base_ref must be a single bounded git ref, not a revision expression")
+        return value
+
     @field_validator("base_sha")
     @classmethod
     def exact_sha(cls, value: str) -> str:
         return validate_exact_sha(value)
+
+
+# Every field label this host itself defined, and therefore the only ones a refusal reason
+# may repeat back. Anything else in a validation location was named by the requester.
+REQUEST_LABELS = frozenset(RemoteObjectiveRequest.model_fields) | frozenset(Check.model_fields)
 
 
 def parse_request(raw: bytes) -> RemoteObjectiveRequest:
@@ -65,5 +83,5 @@ def parse_request(raw: bytes) -> RemoteObjectiveRequest:
         return RemoteObjectiveRequest.model_validate(data)
     except ValidationError as exc:
         raise RequestSchemaError(
-            f"request does not match {REQUEST_SCHEMA}: {redact_validation_error(exc)}"
+            f"request does not match {REQUEST_SCHEMA}: {redact_validation_error(exc, known=REQUEST_LABELS)}"
         ) from exc

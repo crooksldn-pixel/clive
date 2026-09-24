@@ -78,7 +78,7 @@ def _validate_status_path(value: str) -> str:
         or "/" in value
         or not value.endswith(".json")
     ):
-        raise InboxError(f"status path {value!r} is not a bounded repository-relative JSON path")
+        raise InboxError("status path is not a bounded repository-relative JSON path")
     return value
 
 
@@ -106,7 +106,7 @@ def _validate_status_branch(value: str) -> str:
     value = _validate_name(value, what="status branch")
     if not value.startswith(STATUS_BRANCH_NAMESPACE) or value == DEFAULT_INBOX_BRANCH:
         raise InboxError(
-            f"status branch {value!r} must be a dedicated ref under {STATUS_BRANCH_NAMESPACE!r}, "
+            f"the status branch must be a dedicated ref under {STATUS_BRANCH_NAMESPACE!r}, "
             "separate from the owner inbox"
         )
     return value

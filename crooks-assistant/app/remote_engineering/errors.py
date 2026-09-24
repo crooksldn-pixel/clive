@@ -8,6 +8,7 @@ __all__ = [
     "InboxError",
     "RequestContentChanged",
     "RequestSchemaError",
+    "REDACTED",
     "TransportError",
     "redact_validation_error",
 ]
@@ -41,18 +42,35 @@ class TransportError(InboxError):
     """
 
 
-def redact_validation_error(exc: ValidationError) -> str:
-    """A refusal reason built only from field locations and messages, never a rejected value.
+REDACTED = "<redacted>"
+
+
+def _safe_segment(part: object, known: frozenset[str]) -> str:
+    """A location segment only when this host already knew that label, else a placeholder.
+
+    For a forbidden extra field, pydantic's ``loc`` segment *is* the rejected field name,
+    which the requester chose: a credential put in an unknown key name would otherwise
+    travel in a refusal reason exactly as a credential in an unknown key's value would.
+    List indices are the host's own arithmetic and are bounded, so they travel as-is.
+    """
+    if isinstance(part, int):
+        return str(part)
+    return part if part in known else REDACTED
+
+
+def redact_validation_error(exc: ValidationError, *, known: frozenset[str] = frozenset()) -> str:
+    """A refusal reason built only from known field labels and messages, never rejected input.
 
     ``str(ValidationError)`` includes each error's ``input``, which is exactly the
     rejected content a caller supplied, e.g. a credential submitted as an unknown
-    field. A refusal reason is logged and returned to the requester, so it must
-    never carry that value forward. Reading only ``loc`` and ``msg`` off each error
-    (and never ``input`` or ``ctx``) keeps the rejected value out regardless of
-    which keys a given pydantic version includes.
+    field. A refusal reason is logged and published, so it must never carry that value
+    forward. Reading only ``loc`` and ``msg`` (never ``input`` or ``ctx``) keeps the
+    rejected value out regardless of which keys a given pydantic version includes, and
+    filtering ``loc`` through ``known`` keeps the rejected *label* out too. The default
+    empty allowlist redacts every label, so a caller that forgets one fails safe.
     """
     parts = []
     for error in exc.errors():
-        loc = ".".join(str(part) for part in error["loc"])
+        loc = ".".join(_safe_segment(part, known) for part in error["loc"])
         parts.append(f"{loc}: {error['msg']}" if loc else error["msg"])
     return "; ".join(parts)

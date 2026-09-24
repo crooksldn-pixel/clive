@@ -76,6 +76,7 @@ def commit_request(origin: Path, request_id: str, payload: dict, *,
         _git(origin, "checkout", "-q", "-b", branch)
     directory = origin / DEFAULT_INBOX_DIRECTORY
     directory.mkdir(exist_ok=True)
+    (directory / filename).parent.mkdir(parents=True, exist_ok=True)
     (directory / filename).write_text(json.dumps(payload, indent=2))
     _git(origin, "add", "-A")
     _git(origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", f"request {request_id}")
@@ -666,9 +667,10 @@ def test_a_malformed_record_is_visible_in_the_projection_and_survives_a_restart(
 
     assert first["status"]["requests"] == []
     refused = first["status"]["refused_records"]
-    assert [r["source"] for r in refused] == ["requests/bad2.json"]
     assert refused[0]["outcome"] == "refused"
-    assert refused[0]["refusal_id"] == f"requests/bad2.json@{refused[0]['request_sha256']}"
+    # A record with no trusted id is located by its digest, never by the name it chose.
+    assert [r["source"] for r in refused] == [f"{DEFAULT_INBOX_DIRECTORY}/#{refused[0]['request_sha256']}"]
+    assert refused[0]["refusal_id"] == f"{refused[0]['source']}@{refused[0]['request_sha256']}"
     assert secret not in json.dumps(published, default=str)
     assert secret not in json.dumps(first, default=str)
 
@@ -738,3 +740,138 @@ def test_run_accepts_the_documented_timing_defaults():
     assert args.interval == 15.0 and args.status_heartbeat_s == 600.0
     assert cli.validate_seconds(args.interval, what="--interval",
                                 minimum=cli.MIN_INTERVAL_S, maximum=cli.MAX_INTERVAL_S) == 15.0
+
+
+# --------------------------------------------- activation successor 3: nothing untrusted is echoed
+
+SECRET_URL = "https://x-access-token:SYNTHETIC-NOT-A-TOKEN@example.invalid/r.git"
+
+
+def _spy_git(controller):
+    """Record every ref this controller hands to git, so a refusal can be proven pre-git."""
+    seen: list[str] = []
+    original = controller.kernel.git.rev_parse
+    controller.kernel.git.rev_parse = lambda ref: seen.append(ref) or original(ref)
+    return seen
+
+
+@pytest.mark.parametrize("base_ref", [
+    SECRET_URL,
+    "--upload-pack=touch /tmp/pwned",
+    "-oProxyCommand=touch /tmp/pwned",
+    "main^{commit}",
+    "main..other",
+    "refs/heads/x.lock",
+    "a" * 300,
+])
+def test_an_unbounded_base_ref_is_refused_before_git_and_never_echoed(env, tmp_path, base_ref):
+    """F-01: base_ref reaches `git rev-parse`, and its refusal reason is published."""
+    commit_request(env.origin, "r-ref", valid_request(env, request_id="r-ref", base_ref=base_ref))
+    kernel, objectives, receipts, controller = make_controller(env, tmp_path)
+    seen = _spy_git(controller)
+
+    outcomes = controller.poll_once()
+
+    assert outcomes[0]["outcome"] == "refused"
+    assert seen == []  # refused by the schema, before git was asked anything
+    assert objectives.read("r-ref") is None
+    assert receipts.read_all() == ()
+    status = build_status(store=kernel.store, receipts=receipts, now=NOW,
+                          refusals=tuple(o for o in outcomes if "refusal_id" in o))
+    for rendered in (json.dumps(outcomes), json.dumps(status)):
+        assert base_ref not in rendered
+        assert "SYNTHETIC-NOT-A-TOKEN" not in rendered
+        assert "pwned" not in rendered
+
+
+def test_a_resolvable_ref_that_disagrees_with_the_declared_sha_is_refused_without_echoing_it(env, tmp_path):
+    commit_request(env.origin, "r-mismatch",
+                   valid_request(env, request_id="r-mismatch", base_ref="main", base_sha="f" * 40))
+    _kernel, objectives, receipts, controller = make_controller(env, tmp_path)
+    outcomes = controller.poll_once()
+    assert outcomes[0]["outcome"] == "refused"
+    assert "base ref does not resolve" in outcomes[0]["reason"]
+    assert "'main'" not in outcomes[0]["reason"]
+    assert objectives.read("r-mismatch") is None
+    assert receipts.get("r-mismatch") is not None  # the id was decided, so it earns a receipt
+
+
+def test_a_credential_in_an_unknown_key_name_never_enters_any_output(env, tmp_path):
+    """F-02: pydantic's loc segment for a forbidden extra field IS the requester's key name."""
+    secret = "sk-supersecrettoken1234567890"
+    payload = valid_request(env, request_id="r-key")
+    payload[secret] = "anything"
+    commit_request(env.origin, "r-key", payload)
+    kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
+    ticker = _Ticker()
+    published: list[dict] = []
+    result = _loop(controller, ticker, kernel.store,
+                   lambda status: published.append(status) or "a" * 40).cycle()
+
+    assert secret not in json.dumps(result, default=str)
+    assert secret not in json.dumps(published, default=str)
+    assert secret not in json.dumps(build_status(store=kernel.store, receipts=receipts, now=NOW), default=str)
+    assert "<redacted>" in json.dumps(result, default=str)
+
+
+@pytest.mark.parametrize("filename", [
+    "sk-supersecrettoken1234567890.json",
+    "a b\tc.json",
+    ("n" * 120) + ".json",
+])
+def test_an_untrusted_request_filename_is_replaced_by_an_opaque_locator(env, tmp_path, filename):
+    """F-03: a requester chooses the filename, and `source` is published on a public branch."""
+    commit_request(env.origin, "ignored", {"not": "a request"}, filename=filename)
+    kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
+    published: list[dict] = []
+    result = _loop(controller, _Ticker(), kernel.store,
+                   lambda status: published.append(status) or "b" * 40).cycle()
+
+    stem = filename[:-len(".json")]
+    for rendered in (json.dumps(result, default=str), json.dumps(published, default=str)):
+        assert stem not in rendered
+    refused = result["status"]["refused_records"]
+    assert len(refused) == 1
+    assert refused[0]["source"] == f"{DEFAULT_INBOX_DIRECTORY}/#{refused[0]['request_sha256']}"
+    assert receipts.read_all() == ()
+
+
+def test_a_nested_request_path_is_replaced_by_an_opaque_locator(env, tmp_path):
+    payload = valid_request(env, request_id="r-nested")
+    commit_request(env.origin, "r-nested", payload, filename="sk-secretdir/r-nested.json")
+    _kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
+    outcomes = controller.poll_once()
+    assert "sk-secretdir" not in json.dumps(outcomes)
+    assert receipts.get("r-nested").source.startswith(f"{DEFAULT_INBOX_DIRECTORY}/#")
+
+
+def test_a_plain_request_filename_is_still_reported_as_itself(env, tmp_path):
+    commit_request(env.origin, "r-plain", valid_request(env, request_id="r-plain"))
+    _kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
+    controller.poll_once()
+    assert receipts.get("r-plain").source == f"{DEFAULT_INBOX_DIRECTORY}/r-plain.json"
+
+
+def test_one_shot_poll_never_prints_a_credential_bearing_remote(env, tmp_path, capsys):
+    """F-04: an operator who mistypes an authenticated URL into --remote must not print it."""
+    rc = cli.run([
+        "--store", str(tmp_path / "engineering"), "--repo", str(env.checkout), "--no-journal",
+        "poll", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main",
+        "--remote", SECRET_URL,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "SYNTHETIC-NOT-A-TOKEN" not in captured.out + captured.err
+    assert SECRET_URL not in captured.out + captured.err
+    assert "is not a bounded git identifier" in captured.err
+
+
+def test_one_shot_poll_never_prints_an_escaping_branch_name(env, tmp_path, capsys):
+    rc = cli.run([
+        "--store", str(tmp_path / "engineering"), "--repo", str(env.checkout), "--no-journal",
+        "poll", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main",
+        "--branch", "../../SYNTHETIC-NOT-A-TOKEN",
+    ])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "SYNTHETIC-NOT-A-TOKEN" not in captured.out + captured.err

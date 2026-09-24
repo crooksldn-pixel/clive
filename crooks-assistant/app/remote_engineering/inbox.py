@@ -32,14 +32,17 @@ def _validate_name(value: str, *, what: str) -> str:
         or ".." in value
         or not _NAME_RE.fullmatch(value)
     ):
-        raise InboxError(f"{what} {value!r} is not a bounded git identifier")
+        # The rejected value is never echoed: this message reaches a long-lived process
+        # log and, for the one-shot verbs, stdout -- and an operator who mistypes an
+        # authenticated URL into --remote would otherwise print its credential.
+        raise InboxError(f"{what} is not a bounded git identifier")
     return value
 
 
 def _validate_remote(value: str) -> str:
     _validate_name(value, what="remote")
     if "://" in value or "@" in value or ":" in value:
-        raise InboxError(f"remote {value!r} must be a configured remote name, never a URL")
+        raise InboxError("remote must be a configured remote name, never a URL")
     return value
 
 
@@ -83,14 +86,35 @@ def discover_requests(
         timeout=60,
     )
     if listing.returncode != 0:
-        raise TransportError(f"cannot list {directory!r} at {ref_sha} (git exit {listing.returncode}); output withheld")
+        raise TransportError(f"cannot list the inbox directory at {ref_sha} (git exit {listing.returncode}); output withheld")
     names = sorted(name for name in listing.stdout.split("\0") if name.endswith(".json"))
     out: list[tuple[str, bytes]] = []
-    for name in names:
+    for index, name in enumerate(names):
         show = subprocess.run(
             ["git", "show", f"{ref_sha}:{name}"], cwd=str(repo), capture_output=True, timeout=60
         )
         if show.returncode != 0:
-            raise TransportError(f"cannot read {name!r} at {ref_sha} (git exit {show.returncode}); output withheld")
+            raise TransportError(
+                f"cannot read inbox record {index} of {len(names)} at {ref_sha} "
+                f"(git exit {show.returncode}); output withheld"
+            )
         out.append((name, show.stdout))
     return tuple(out)
+
+
+def bounded_source(directory: str, name: str, digest: str, request_id: str | None) -> str:
+    """The discovered path only when it is the request's own id, else an opaque locator.
+
+    A filename under the inbox directory is chosen by whoever opened the request, so it
+    is exactly as untrusted as the file's content -- and a bounded character set is no
+    defence here, because a credential is alphanumeric and ``sk-....json`` is a perfectly
+    well-formed filename. ``source`` is written into a durable receipt and published on a
+    public branch, so the only path safe to echo is one that repeats nothing the
+    projection does not already carry: ``<directory>/<request_id>.json``, where the id is
+    already published beside it. Every other path -- nested, oddly named, or simply not
+    matching its own id -- and every record too malformed to have a trusted id at all is
+    identified by the digest of its exact bytes, which is what a receipt keys on anyway.
+    """
+    if request_id is not None and name == f"{directory}/{request_id}.json":
+        return name
+    return f"{directory}/#{digest}"

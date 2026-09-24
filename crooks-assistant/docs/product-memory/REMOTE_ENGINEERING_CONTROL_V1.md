@@ -95,6 +95,13 @@ Intake and reporting bounds (activation successor of `c23f1935`):
 - an inbox record too malformed to yield a request id earns no receipt, but is still visible: `refused_records` projects it, keyed by the bounded inbox path it came from plus the digest of its exact bytes rather than by an id this adapter never trusted, carrying a redacted schema diagnostic only. It is regenerated deterministically from the same snapshot on every poll, so it survives a restart;
 - `--interval` (1-3600 s) and `--status-heartbeat-s` (1-86400 s) must be finite and inside those ranges, and are refused before the loop starts. `argparse` accepts `nan` and `inf` for a float: a NaN interval kills the loop on its first sleep, an infinite one parks it for ever, and a non-positive or NaN heartbeat silently disables `generated_at` suppression, turning an idle loop back into one status commit per cycle.
 
+Echo bounds (activation successor of `05fe8046`). Nothing a requester or a mistyped flag supplied is ever repeated back into a receipt, a host log or the status projection:
+
+- `base_ref` is a bounded git ref validated by the request schema, before `git rev-parse` is asked anything. Its character set excludes `:`, `@`, `~`, `^` and whitespace and its first character must be alphanumeric, so it can be neither a URL (which could carry a credential) nor a revision expression, and it can never be read as an option by the command it is interpolated into. A ref that resolves to something other than the declared `base_sha` is refused without repeating the ref;
+- validation locations are filtered through the field labels this host itself defined. For a forbidden extra field pydantic's location segment *is* the requester's key name, so a credential placed in an unknown key's **name** would otherwise travel exactly as one in its value would; unknown labels become `<redacted>`;
+- `source` is only ever `<directory>/<request_id>.json` -- a path that repeats nothing the projection does not already publish beside it. A bounded character set is no defence for a filename, because a credential is alphanumeric and `sk-....json` is well formed; so every other path, and every record too malformed to have a trusted id, is located by `<directory>/#<sha256 of its exact bytes>` instead;
+- an invalid remote, branch, directory or status path is refused without printing the rejected value, so a one-shot `poll` cannot print a credential an operator mistyped into `--remote`.
+
 ## Safety and process execution
 
 - No arbitrary shell execution from inbox content.
@@ -135,6 +142,10 @@ At minimum prove:
 - a transport failure's message, the published projection and the host's own log all omit git output;
 - a malformed record is visible in the projection, keyed by source and digest, and survives a restart;
 - non-finite and out-of-range loop timings are refused before any poll, tick or publication.
+- a URL-bearing, option-like, over-long or revision-expression `base_ref` is refused before git is asked anything, and never echoed;
+- a credential placed in an unknown key's name is absent from outcomes, loop result, receipts and published status;
+- an untrusted or nested request filename is replaced by an opaque digest locator, while a conventional one is still reported as itself;
+- a one-shot `poll` given a credential-bearing `--remote` prints neither the URL nor the credential.
 
 ## Definition of done
 
