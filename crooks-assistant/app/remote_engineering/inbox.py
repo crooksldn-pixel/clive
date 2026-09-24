@@ -4,6 +4,10 @@ Every call here runs ``git`` with an argv list (never a shell string), against a
 remote name and branch that must already look like a git identifier, not a URL. The
 adapter fetches only the one configured remote and the one dedicated inbox branch; it
 never accepts a URL, a refspec with wildcards, or a shell fragment from request content.
+
+When a git call fails, only the operation and its exit status travel: git names the remote
+it was talking to in its own diagnostics, and an authenticated remote URL carries a
+credential, so remote output never enters an exception message here. See ``TransportError``.
 """
 
 from __future__ import annotations
@@ -12,7 +16,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .errors import InboxError
+from .errors import InboxError, TransportError
 
 DEFAULT_INBOX_BRANCH = "clive/control/owner-inbox"
 DEFAULT_INBOX_DIRECTORY = "requests"
@@ -53,7 +57,7 @@ def fetch_inbox(
         timeout=timeout_s,
     )
     if proc.returncode != 0:
-        raise InboxError(f"fetch of {remote} {branch} failed: {(proc.stderr or proc.stdout).strip()}")
+        raise TransportError(f"fetch of {remote} {branch} failed (git exit {proc.returncode}); output withheld")
     rev = subprocess.run(
         ["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{branch}^{{commit}}"],
         cwd=str(repo),
@@ -62,7 +66,7 @@ def fetch_inbox(
     )
     sha = rev.stdout.strip()
     if rev.returncode != 0 or len(sha) != 40:
-        raise InboxError(f"refs/remotes/{remote}/{branch} did not resolve to a commit after fetch")
+        raise TransportError(f"refs/remotes/{remote}/{branch} did not resolve to a commit after fetch")
     return sha
 
 
@@ -79,7 +83,7 @@ def discover_requests(
         timeout=60,
     )
     if listing.returncode != 0:
-        raise InboxError(f"cannot list {directory!r} at {ref_sha}: {listing.stderr.strip()}")
+        raise TransportError(f"cannot list {directory!r} at {ref_sha} (git exit {listing.returncode}); output withheld")
     names = sorted(name for name in listing.stdout.split("\0") if name.endswith(".json"))
     out: list[tuple[str, bytes]] = []
     for name in names:
@@ -87,6 +91,6 @@ def discover_requests(
             ["git", "show", f"{ref_sha}:{name}"], cwd=str(repo), capture_output=True, timeout=60
         )
         if show.returncode != 0:
-            raise InboxError(f"cannot read {name!r} at {ref_sha}: {show.stderr.decode(errors='replace').strip()}")
+            raise TransportError(f"cannot read {name!r} at {ref_sha} (git exit {show.returncode}); output withheld")
         out.append((name, show.stdout))
     return tuple(out)

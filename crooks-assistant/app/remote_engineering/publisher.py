@@ -14,22 +14,30 @@ Bounds, all fail-closed:
   a concurrent update is refused instead of overwritten;
 - every git call is time-bounded, so a hung transport cannot stall the control loop;
 - a projection whose only difference is its ``generated_at`` stamp is not republished
-  until ``heartbeat_s`` has elapsed, so an idle loop does not push a commit every cycle.
+  until ``heartbeat_s`` has elapsed, so an idle loop does not push a commit every cycle;
+- ``heartbeat_s`` itself must be a finite number inside a documented range, so the
+  suppression above cannot be switched off (zero, negative or NaN would make every
+  comparison false and push a commit every cycle) or stretched to never republish;
+- a failed git call reports its operation and exit status only, never git's output,
+  which names the remote and can therefore carry a credential (see ``TransportError``).
 """
 
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from .errors import InboxError
+from .errors import InboxError, TransportError
 from .inbox import DEFAULT_INBOX_BRANCH, _validate_name, _validate_remote
 
 DEFAULT_STATUS_BRANCH = "clive/control/status"
 DEFAULT_STATUS_PATH = "status.json"
 DEFAULT_STATUS_HEARTBEAT_S = 600.0
+MIN_HEARTBEAT_S = 1.0
+MAX_HEARTBEAT_S = 86_400.0
 STATUS_BRANCH_NAMESPACE = "clive/control/"
 VOLATILE_KEYS = ("generated_at",)
 
@@ -54,10 +62,9 @@ def _git(
             timeout=timeout_s,
         )
     except subprocess.TimeoutExpired:
-        raise InboxError(f"git {' '.join(args[:2])} exceeded {timeout_s}s; nothing was published") from None
+        raise TransportError(f"git {' '.join(args[:2])} exceeded {timeout_s}s; nothing was published") from None
     if check and proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout).decode(errors="replace").strip()
-        raise InboxError(f"git {' '.join(args[:3])} failed: {detail[-1000:]}")
+        raise TransportError(f"git {' '.join(args[:3])} failed (exit {proc.returncode}); output withheld")
     return proc
 
 
@@ -73,6 +80,26 @@ def _validate_status_path(value: str) -> str:
     ):
         raise InboxError(f"status path {value!r} is not a bounded repository-relative JSON path")
     return value
+
+
+def validate_seconds(value: float, *, what: str, minimum: float, maximum: float) -> float:
+    """A timing bound the host configured, proven finite and inside its documented range.
+
+    ``argparse`` accepts ``nan`` and ``inf`` for ``type=float``. A NaN interval makes
+    ``time.sleep`` raise and the loop die on its first pass; an infinite one parks it
+    forever; and a non-positive or NaN heartbeat silently disables ``generated_at``
+    suppression, turning an idle loop back into one status commit per cycle. None of
+    those is a bounded long-lived mode, so each is refused before the loop starts.
+    """
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        raise InboxError(f"{what} must be a number") from None
+    if not math.isfinite(seconds):
+        raise InboxError(f"{what} must be a finite number of seconds")
+    if not minimum <= seconds <= maximum:
+        raise InboxError(f"{what} must be between {minimum} and {maximum} seconds")
+    return seconds
 
 
 def _validate_status_branch(value: str) -> str:
@@ -110,8 +137,9 @@ def _remote_head(repo: Path, remote: str, branch: str) -> str:
     if probe.returncode == 2:
         return ""
     if probe.returncode != 0:
-        detail = (probe.stderr or probe.stdout).decode(errors="replace").strip()
-        raise InboxError(f"cannot read status branch {remote} {branch}: {detail[-1000:]}")
+        raise TransportError(
+            f"cannot read status branch {remote} {branch} (git exit {probe.returncode}); output withheld"
+        )
     _git(
         repo, "fetch", "--quiet", "--no-tags", remote,
         f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
@@ -120,7 +148,7 @@ def _remote_head(repo: Path, remote: str, branch: str) -> str:
     rev = _git(repo, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{branch}^{{commit}}", check=False)
     head = rev.stdout.decode().strip()
     if rev.returncode != 0 or len(head) != 40:
-        raise InboxError(f"status branch {remote} {branch} did not resolve to a commit after fetch")
+        raise TransportError(f"status branch {remote} {branch} did not resolve to a commit after fetch")
     return head
 
 
@@ -155,6 +183,9 @@ def publish_status(
     remote = _validate_remote(remote)
     branch = _validate_status_branch(branch)
     path = _validate_status_path(path)
+    heartbeat_s = validate_seconds(
+        heartbeat_s, what="status heartbeat", minimum=MIN_HEARTBEAT_S, maximum=MAX_HEARTBEAT_S
+    )
     payload = (json.dumps(status, sort_keys=True, separators=(",", ":"), default=str) + "\n").encode()
 
     parent = _remote_head(repo, remote, branch)

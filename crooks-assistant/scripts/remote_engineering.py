@@ -51,6 +51,8 @@ from app.remote_engineering import (  # noqa: E402
     DEFAULT_STATUS_BRANCH,
     DEFAULT_STATUS_HEARTBEAT_S,
     DEFAULT_STATUS_PATH,
+    MAX_HEARTBEAT_S,
+    MIN_HEARTBEAT_S,
     InboxError,
     ReceiptLog,
     RemoteController,
@@ -58,9 +60,14 @@ from app.remote_engineering import (  # noqa: E402
     RemoteEngineeringLoop,
     build_status,
     publish_status,
+    validate_seconds,
 )
 
 DEFAULT_REGISTRY = ROOT / "config" / "review_principals.json"
+
+# Host-configured loop bounds. A long-lived mode is only "bounded" if these are.
+MIN_INTERVAL_S = 1.0
+MAX_INTERVAL_S = 3_600.0
 
 
 def _add_transport_args(parser: argparse.ArgumentParser) -> None:
@@ -110,8 +117,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--status-branch", default=DEFAULT_STATUS_BRANCH)
     r.add_argument("--status-path", default=DEFAULT_STATUS_PATH)
     r.add_argument("--status-heartbeat-s", type=float, default=DEFAULT_STATUS_HEARTBEAT_S,
-                   help="republish an unchanged projection at most this often (liveness signal)")
-    r.add_argument("--interval", type=float, default=15.0)
+                   help=f"republish an unchanged projection at most this often (liveness signal); "
+                        f"{MIN_HEARTBEAT_S}-{MAX_HEARTBEAT_S}s")
+    r.add_argument("--interval", type=float, default=15.0,
+                   help=f"seconds between cycles; {MIN_INTERVAL_S}-{MAX_INTERVAL_S}s")
     r.add_argument("--max-cycles", type=int, default=0, help="0 means run until stopped")
     return parser
 
@@ -200,6 +209,15 @@ def run(argv: list[str] | None = None) -> int:
         elif args.verb == "run":
             if args.status_branch == args.branch:
                 raise InboxError("status branch must be separate from the owner inbox branch")
+            # Refused before anything starts: argparse accepts nan and inf for a float, and
+            # neither a NaN sleep (which raises) nor an infinite one is a bounded loop.
+            interval = validate_seconds(
+                args.interval, what="--interval", minimum=MIN_INTERVAL_S, maximum=MAX_INTERVAL_S
+            )
+            heartbeat_s = validate_seconds(
+                args.status_heartbeat_s, what="--status-heartbeat-s",
+                minimum=MIN_HEARTBEAT_S, maximum=MAX_HEARTBEAT_S,
+            )
             controller = _controller(args, kernel, objectives, receipts)
             dispatcher = _dispatcher(args, kernel, objectives)
             loop = RemoteEngineeringLoop(
@@ -213,7 +231,7 @@ def run(argv: list[str] | None = None) -> int:
                     remote=args.remote,
                     branch=args.status_branch,
                     path=args.status_path,
-                    heartbeat_s=args.status_heartbeat_s,
+                    heartbeat_s=heartbeat_s,
                 ),
             )
             cycles = 0
@@ -229,7 +247,7 @@ def run(argv: list[str] | None = None) -> int:
                 cycles += 1
                 if args.max_cycles and cycles >= args.max_cycles:
                     break
-                time.sleep(max(args.interval, 1.0))
+                time.sleep(interval)
         else:  # pragma: no cover
             raise SystemExit(f"unknown verb {args.verb}")
     except DispatcherBusy as exc:

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-__all__ = ["InboxError", "RequestContentChanged", "RequestSchemaError", "redact_validation_error"]
+__all__ = [
+    "InboxError",
+    "RequestContentChanged",
+    "RequestSchemaError",
+    "TransportError",
+    "redact_validation_error",
+]
 
 
 class InboxError(ValueError):
@@ -20,6 +26,18 @@ class RequestContentChanged(InboxError):
 
     Its message is built only from the schema-validated request id, so it is safe to
     project; it never carries the new or old request content.
+    """
+
+
+class TransportError(InboxError):
+    """A git call failed. The message carries the operation and its exit status, never output.
+
+    Git writes the remote it was talking to into its own diagnostics, and an authenticated
+    remote URL carries a credential in its userinfo. That output must therefore never reach
+    an exception message, because this loop's exception messages are printed to a long-lived
+    process log and, for the inbox adapter, projected to a public branch. Only names this
+    host itself configured (a remote name, a branch, a ref) and an exit status are bounded
+    enough to travel; the operator diagnoses the rest from git's own stderr at the console.
     """
 
 

@@ -87,6 +87,14 @@ Projection bounds (activation successor of `abaefa52`):
 
 Loop failure isolation: an inbox or projection transport failure admits nothing new but never stops the existing Dispatcher from supervising already-recorded objectives; kernel, store and Dispatcher errors still stop the loop (fail closed), and exit status 4 means another dispatcher holds the runtime lock. Dispatcher transitions are journalled under `--dispatcher-operator` (default `clive-dispatcher@<host>`), intake under `--operator`.
 
+Intake and reporting bounds (activation successor of `c23f1935`):
+
+- admission is atomic per poll. The whole discovered snapshot is preflighted before the first write, so a snapshot that re-presents an already-decided request id with different bytes, or that carries one id twice with different bytes, admits nothing at all. Whether a changed request id is refused no longer depends on filename order, and no cycle is left half-applied;
+- nothing this loop reports carries git's output, in either direction. A transport failure reports a fixed sentence on the projection *and* in the value the host prints to its own log; git names the remote it was talking to, and an authenticated remote URL carries a credential in its userinfo, so that output never enters an exception message (`TransportError`). The operator diagnoses a transport failure from git's stderr at the console;
+- a rejected value is never echoed back. A record whose `schema_version` is wrong is refused without repeating the value supplied, because a requester chose it and it could itself be a credential;
+- an inbox record too malformed to yield a request id earns no receipt, but is still visible: `refused_records` projects it, keyed by the bounded inbox path it came from plus the digest of its exact bytes rather than by an id this adapter never trusted, carrying a redacted schema diagnostic only. It is regenerated deterministically from the same snapshot on every poll, so it survives a restart;
+- `--interval` (1-3600 s) and `--status-heartbeat-s` (1-86400 s) must be finite and inside those ranges, and are refused before the loop starts. `argparse` accepts `nan` and `inf` for a float: a NaN interval kills the loop on its first sleep, an infinite one parks it for ever, and a non-positive or NaN heartbeat silently disables `generated_at` suppression, turning an idle loop back into one status commit per cycle.
+
 ## Safety and process execution
 
 - No arbitrary shell execution from inbox content.
@@ -123,6 +131,10 @@ At minimum prove:
 - credential values never enter request/status serialization;
 - remote ref/remote name is bounded and cannot become arbitrary URL execution;
 - no second lifecycle truth is created.
+- a changed request id admits nothing else in the same snapshot, including a valid request that sorts before it;
+- a transport failure's message, the published projection and the host's own log all omit git output;
+- a malformed record is visible in the projection, keyed by source and digest, and survives a restart;
+- non-finite and out-of-range loop timings are refused before any poll, tick or publication.
 
 ## Definition of done
 

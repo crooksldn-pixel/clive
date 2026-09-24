@@ -52,13 +52,15 @@ def parse_request(raw: bytes) -> RemoteObjectiveRequest:
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RequestSchemaError(f"request is not valid UTF-8 JSON: {exc}") from exc
+        # Never ``{exc}``: a decode error quotes the offending bytes and a JSON error can
+        # quote the offending token, either of which is rejected content verbatim.
+        raise RequestSchemaError("request is not valid UTF-8 JSON") from exc
     if not isinstance(data, dict):
         raise RequestSchemaError("request must be a JSON object")
     if data.get("schema_version") != REQUEST_SCHEMA:
-        raise RequestSchemaError(
-            f"request schema_version {data.get('schema_version')!r} is not {REQUEST_SCHEMA!r}"
-        )
+        # The supplied value is rejected content and is never echoed: a refusal reason is
+        # logged and published, and anything a requester chose could be a credential.
+        raise RequestSchemaError(f"request schema_version is not {REQUEST_SCHEMA!r}")
     try:
         return RemoteObjectiveRequest.model_validate(data)
     except ValidationError as exc:

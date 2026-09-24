@@ -4,6 +4,13 @@ Every field is either read straight from the kernel's own records (``lifecycle_v
 unchanged) or from a receipt this adapter itself earned when it processed a request.
 Nothing here is inferred and nothing here is authority: a task's real stage is always
 whatever the kernel's records say, never this projection.
+
+``refused_records`` carries the one thing receipts cannot: an inbox record that never
+became a request id at all, because it failed schema validation. Such a record earns no
+receipt -- nothing was decided about an id -- so it is regenerated deterministically from
+the same inbox snapshot on every poll, and keyed by the bounded inbox path it came from
+plus the digest of its exact bytes rather than by an id this adapter never trusted. It
+carries a redacted schema diagnostic only, never the rejected content.
 """
 
 from __future__ import annotations
@@ -29,7 +36,13 @@ _TASK_FIELDS = (
 )
 
 
-def build_status(*, store: LifecycleStore, receipts: ReceiptLog, now: datetime) -> dict:
+def build_status(
+    *,
+    store: LifecycleStore,
+    receipts: ReceiptLog,
+    now: datetime,
+    refusals: tuple[dict, ...] = (),
+) -> dict:
     # A repair is a new task revision (r+1); the earlier revision becomes OBSOLETE. The
     # task's current stage, candidate, review, acceptance and integration are therefore
     # those of its highest recorded revision, exactly as the Dispatcher itself reads them.
@@ -55,4 +68,22 @@ def build_status(*, store: LifecycleStore, receipts: ReceiptLog, now: datetime) 
             item["revision"] = task["revision"]
             item.update({field_name: task.get(field_name) for field_name in _TASK_FIELDS})
         requests.append(item)
-    return {"schema_version": STATUS_SCHEMA, "generated_at": now.isoformat(), "requests": requests}
+    refused = sorted(
+        (
+            {
+                "refusal_id": item["refusal_id"],
+                "source": item["source"],
+                "request_sha256": item["request_sha256"],
+                "outcome": "refused",
+                "reason": item["reason"],
+            }
+            for item in refusals
+        ),
+        key=lambda item: item["refusal_id"],
+    )
+    return {
+        "schema_version": STATUS_SCHEMA,
+        "generated_at": now.isoformat(),
+        "requests": requests,
+        "refused_records": refused,
+    }

@@ -22,6 +22,9 @@ from app.remote_engineering import (
     DEFAULT_INBOX_BRANCH,
     DEFAULT_INBOX_DIRECTORY,
     DEFAULT_STATUS_BRANCH,
+    INTAKE_UNAVAILABLE,
+    MAX_HEARTBEAT_S,
+    PUBLISH_UNAVAILABLE,
     REQUEST_SCHEMA,
     InboxError,
     Receipt,
@@ -513,9 +516,12 @@ def test_an_intake_transport_failure_never_projects_raw_git_output(tmp_path):
     result = _loop(Broken(), ticker, store, lambda status: published.append(status) or "b" * 40).cycle()
 
     assert ticker.calls == 1
+    # The host log is this same dict: `run` prints intake_error/publish_error verbatim, so
+    # the raw transport text must be absent from the whole result, not only the projection.
     assert "SYNTHETIC-NOT-A-TOKEN" not in json.dumps(published)
-    assert published[0]["adapter"]["intake_error"].startswith("inbox could not be fetched or read")
-    assert "SYNTHETIC-NOT-A-TOKEN" in result["intake_error"]  # host log keeps the detail
+    assert "SYNTHETIC-NOT-A-TOKEN" not in json.dumps(result, default=str)
+    assert published[0]["adapter"]["intake_error"] == INTAKE_UNAVAILABLE
+    assert result["intake_error"] == INTAKE_UNAVAILABLE
 
 
 def test_a_publish_failure_is_reported_and_the_cycle_completes(tmp_path):
@@ -530,7 +536,9 @@ def test_a_publish_failure_is_reported_and_the_cycle_completes(tmp_path):
     ticker = _Ticker()
     result = _loop(Quiet(), ticker, store, refuse).cycle()
     assert ticker.calls == 1
-    assert result["projection_commit"] is None and "push rejected" in result["publish_error"]
+    assert result["projection_commit"] is None
+    assert result["publish_error"] == PUBLISH_UNAVAILABLE
+    assert "push rejected" not in json.dumps(result, default=str)
 
 
 def test_kernel_failures_inside_the_dispatcher_still_stop_the_loop(tmp_path):
@@ -563,3 +571,170 @@ def test_run_records_dispatcher_transitions_under_the_dispatcher_operator(tmp_pa
     assert dispatcher.kernel.store is kernel.store and dispatcher.kernel.registry is kernel.registry
     assert dispatcher.kernel.journal_shas is not kernel.journal_shas
     assert args.status_heartbeat_s == 600.0
+
+
+# ------------------------------------------------- activation successor 2: atomic intake and bounded reporting
+
+
+def test_a_changed_request_admits_nothing_else_in_the_same_snapshot(env, tmp_path):
+    """F-01: a valid request must not slip in ahead of a changed one it merely sorts before."""
+    commit_request(env.origin, "b-changed", valid_request(env, request_id="b-changed"))
+    kernel, objectives, receipts, controller = make_controller(env, tmp_path)
+    controller.poll_once()
+
+    # "a-new" sorts before "b-changed", so the old sequential pass would have admitted it first.
+    commit_request(env.origin, "a-new", valid_request(env, request_id="a-new"))
+    commit_request(env.origin, "b-changed",
+                   valid_request(env, request_id="b-changed", requested_outcome="Changed."))
+
+    with pytest.raises(InboxError):
+        controller.poll_once()
+
+    assert objectives.read("a-new") is None
+    assert kernel.store.read_task("a-new", 1) is None
+    assert receipts.get("a-new") is None
+    assert [r.request_id for r in receipts.read_all()] == ["b-changed"]
+    assert objectives.read("b-changed").requested_outcome.startswith("Show unanswered")
+
+
+def test_one_id_twice_in_a_snapshot_with_different_bytes_admits_nothing(env, tmp_path):
+    """F-01: the conflict may also be inside a single snapshot, before anything is recorded."""
+    commit_request(env.origin, "dup", valid_request(env, request_id="dup"), filename="dup-a.json")
+    commit_request(env.origin, "dup", valid_request(env, request_id="dup", requested_outcome="Other."),
+                   filename="dup-b.json")
+    kernel, objectives, receipts, controller = make_controller(env, tmp_path)
+
+    with pytest.raises(InboxError):
+        controller.poll_once()
+
+    assert objectives.read("dup") is None
+    assert kernel.store.read_tasks() == ()
+    assert receipts.read_all() == ()
+
+
+def test_the_same_id_twice_with_identical_bytes_is_not_a_conflict(env, tmp_path):
+    """The immutability rule is about changed bytes; a duplicated file is still one decision."""
+    payload = valid_request(env, request_id="same")
+    commit_request(env.origin, "same", payload, filename="same-a.json")
+    commit_request(env.origin, "same", payload, filename="same-b.json")
+    _kernel, objectives, receipts, controller = make_controller(env, tmp_path)
+
+    outcomes = controller.poll_once()
+
+    assert [o["outcome"] for o in outcomes] == ["accepted", "accepted"]
+    assert objectives.read("same") is not None
+    assert len(receipts.read_all()) == 1
+
+
+def test_a_transport_failure_carries_no_git_output_into_its_message(env, monkeypatch):
+    """F-02: git names the remote it failed to reach, and a remote URL can carry a credential."""
+    monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
+    monkeypatch.setenv("GIT_ASKPASS", "true")
+    url = "https://x-access-token:SYNTHETIC-NOT-A-TOKEN@example.invalid/r.git"
+    _git(env.checkout, "remote", "add", "leaky", url)
+
+    with pytest.raises(InboxError) as fetch_failure:
+        fetch_inbox(env.checkout, remote="leaky", branch=DEFAULT_INBOX_BRANCH)
+    assert "SYNTHETIC-NOT-A-TOKEN" not in str(fetch_failure.value)
+
+    with pytest.raises(InboxError) as publish_failure:
+        publish_status(env.checkout, _status_at(NOW), remote="leaky")
+    assert "SYNTHETIC-NOT-A-TOKEN" not in str(publish_failure.value)
+    assert "cannot read status branch" in str(publish_failure.value)
+
+
+def test_a_rejected_schema_version_value_is_never_echoed():
+    """F-02/F-03: the supplied value is rejected content and could itself be a credential."""
+    secret = "sk-supersecrettoken1234567890"
+    with pytest.raises(RequestSchemaError) as refusal:
+        parse_request(json.dumps({"schema_version": secret}).encode())
+    assert secret not in str(refusal.value)
+    assert REQUEST_SCHEMA in str(refusal.value)
+
+
+def test_a_malformed_record_is_visible_in_the_projection_and_survives_a_restart(env, tmp_path):
+    """F-03: a record that never became a request id still has to be visible on GitHub."""
+    secret = "sk-supersecrettoken1234567890"
+    commit_request(env.origin, "bad2", {"schema_version": REQUEST_SCHEMA, "api_key": secret},
+                   filename="bad2.json")
+    kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
+    ticker = _Ticker()
+    published: list[dict] = []
+    loop = _loop(controller, ticker, kernel.store, lambda status: published.append(status) or "d" * 40)
+
+    first = loop.cycle()
+
+    assert first["status"]["requests"] == []
+    refused = first["status"]["refused_records"]
+    assert [r["source"] for r in refused] == ["requests/bad2.json"]
+    assert refused[0]["outcome"] == "refused"
+    assert refused[0]["refusal_id"] == f"requests/bad2.json@{refused[0]['request_sha256']}"
+    assert secret not in json.dumps(published, default=str)
+    assert secret not in json.dumps(first, default=str)
+
+    # Restart: a new controller over the same store re-derives the identical refusal.
+    kernel2, _objectives2, _receipts2, controller2 = make_controller(env, tmp_path)
+    second = _loop(controller2, _Ticker(), kernel2.store,
+                   lambda status: published.append(status) or "e" * 40).cycle()
+    assert second["status"]["refused_records"] == refused
+
+
+def test_an_accepted_request_leaves_the_refusal_projection_empty(env, tmp_path):
+    commit_request(env.origin, "clean", valid_request(env, request_id="clean"))
+    kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
+    result = _loop(controller, _Ticker(), kernel.store, lambda status: "f" * 40).cycle()
+    assert result["status"]["refused_records"] == []
+    assert [r["request_id"] for r in result["status"]["requests"]] == ["clean"]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), 0.0, -1.0, MAX_HEARTBEAT_S + 1])
+def test_publish_status_refuses_an_unbounded_heartbeat(env, bad):
+    """F-04: a non-finite or out-of-range heartbeat disables generated_at suppression."""
+    heads_before = _git(env.origin, "for-each-ref", "refs/heads")
+    with pytest.raises(InboxError):
+        publish_status(env.checkout, _status_at(NOW), heartbeat_s=bad)
+    assert _git(env.origin, "for-each-ref", "refs/heads") == heads_before
+
+
+@pytest.mark.parametrize("flag,value", [
+    ("--interval", "nan"),
+    ("--interval", "inf"),
+    ("--interval", "0"),
+    ("--interval", "-5"),
+    ("--interval", "100000"),
+    ("--status-heartbeat-s", "nan"),
+    ("--status-heartbeat-s", "0"),
+    ("--status-heartbeat-s", "-1"),
+    ("--status-heartbeat-s", "999999999"),
+])
+def test_run_refuses_an_unbounded_timing_argument_before_any_cycle(monkeypatch, capsys, tmp_path, flag, value):
+    """F-04: refused before the loop starts, so no poll, no tick and no publication happen."""
+    started: list[str] = []
+    monkeypatch.setattr(cli, "_kernel_parts", lambda args: (
+        LifecycleStore(Path(args.store)),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        ReceiptLog(Path(args.store) / "remote_engineering"),
+    ))
+    monkeypatch.setattr(cli, "_controller", lambda *a, **k: started.append("controller"))
+    monkeypatch.setattr(cli, "_dispatcher", lambda *a, **k: started.append("dispatcher"))
+
+    rc = cli.run([
+        "--store", str(tmp_path / "engineering"), "--repo", str(tmp_path),
+        "run", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main",
+        flag, value, "--max-cycles", "1",
+    ])
+
+    assert rc == 2
+    assert flag in capsys.readouterr().err
+    assert started == []
+
+
+def test_run_accepts_the_documented_timing_defaults():
+    args = cli.build_parser().parse_args([
+        "--store", "x", "--repo", "y",
+        "run", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main",
+    ])
+    assert args.interval == 15.0 and args.status_heartbeat_s == 600.0
+    assert cli.validate_seconds(args.interval, what="--interval",
+                                minimum=cli.MIN_INTERVAL_S, maximum=cli.MAX_INTERVAL_S) == 15.0

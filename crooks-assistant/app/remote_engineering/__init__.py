@@ -11,17 +11,20 @@ visibility only, never lifecycle authority.
 from __future__ import annotations
 
 from .controller import RemoteController, RemoteControllerConfig, objective_from_request
-from .errors import InboxError, RequestContentChanged, RequestSchemaError
+from .errors import InboxError, RequestContentChanged, RequestSchemaError, TransportError
 from .inbox import DEFAULT_INBOX_BRANCH, DEFAULT_INBOX_DIRECTORY, discover_requests, fetch_inbox
 from .publisher import (
     DEFAULT_STATUS_BRANCH,
     DEFAULT_STATUS_HEARTBEAT_S,
     DEFAULT_STATUS_PATH,
+    MAX_HEARTBEAT_S,
+    MIN_HEARTBEAT_S,
     publish_status,
+    validate_seconds,
 )
 from .receipts import Receipt, ReceiptLog
 from .requests import REQUEST_SCHEMA, RemoteObjectiveRequest, parse_request
-from .runner import RemoteEngineeringLoop
+from .runner import INTAKE_UNAVAILABLE, PUBLISH_UNAVAILABLE, RemoteEngineeringLoop
 from .status import STATUS_SCHEMA, build_status
 
 __all__ = [
@@ -30,6 +33,10 @@ __all__ = [
     "DEFAULT_STATUS_BRANCH",
     "DEFAULT_STATUS_HEARTBEAT_S",
     "DEFAULT_STATUS_PATH",
+    "INTAKE_UNAVAILABLE",
+    "MAX_HEARTBEAT_S",
+    "MIN_HEARTBEAT_S",
+    "PUBLISH_UNAVAILABLE",
     "REQUEST_SCHEMA",
     "STATUS_SCHEMA",
     "InboxError",
@@ -41,10 +48,12 @@ __all__ = [
     "RemoteObjectiveRequest",
     "RequestContentChanged",
     "RequestSchemaError",
+    "TransportError",
     "build_status",
     "discover_requests",
     "fetch_inbox",
     "objective_from_request",
     "parse_request",
     "publish_status",
+    "validate_seconds",
 ]

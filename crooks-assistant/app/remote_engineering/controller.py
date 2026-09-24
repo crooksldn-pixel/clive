@@ -6,6 +6,12 @@ Objective`` and ``intake``: the same canonical door, the same PROTECTED_PATHS, t
 default prohibited actions, the same repository-only authority class. This module adds
 nothing to what an objective may authorise; it only decides, deterministically and
 idempotently, which request bytes become which one objective.
+
+Admission is atomic per poll. The whole discovered snapshot is preflighted before the
+first write, so a snapshot that re-presents an already-decided request id with different
+bytes admits nothing at all -- not even the requests that happen to sort before it. The
+alternative, refusing partway through a sequence of writes, would make "a changed request
+id is refused" depend on filename order and would leave the cycle half-applied.
 """
 
 from __future__ import annotations
@@ -96,12 +102,42 @@ class RemoteController:
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
 
     def poll_once(self) -> list[dict]:
-        """One bounded fetch, then one pass over every request file found. Safe to repeat."""
+        """One bounded fetch, one preflight of the whole snapshot, then one pass over it.
+
+        Safe to repeat. Nothing is written unless every applicable request in the snapshot
+        agrees with what is already recorded under its id.
+        """
         ref_sha = fetch_inbox(self.config.repo, remote=self.config.remote, branch=self.config.inbox_branch)
-        return [
-            self.process(raw, source=name)
-            for name, raw in discover_requests(self.config.repo, ref_sha, self.config.inbox_directory)
-        ]
+        discovered = discover_requests(self.config.repo, ref_sha, self.config.inbox_directory)
+        self._preflight(discovered)
+        return [self.process(raw, source=name) for name, raw in discovered]
+
+    def _preflight(self, discovered: tuple[tuple[str, bytes], ...]) -> None:
+        """Refuse the whole cycle, before any write, if an immutable id is re-presented changed.
+
+        Schema-invalid records are skipped here: they are refused by ``process`` without
+        writing anything, and they carry no id this adapter would trust as a key anyway.
+        """
+        digests: dict[str, str] = {}
+        for _name, raw in discovered:
+            digest = sha256_of(raw)
+            try:
+                request = parse_request(raw)
+            except RequestSchemaError:
+                continue
+            earlier = digests.get(request.request_id)
+            if earlier is not None and earlier != digest:
+                raise RequestContentChanged(
+                    f"request {request.request_id} appears twice in this inbox snapshot with "
+                    "different content; a request id is immutable: submit a new request id"
+                )
+            digests[request.request_id] = digest
+            existing = self.receipts.get(request.request_id)
+            if existing is not None and existing.request_sha256 != digest:
+                raise RequestContentChanged(
+                    f"request {request.request_id} is already recorded with different content; "
+                    "a request id is immutable: submit a new request id"
+                )
 
     def process(self, raw: bytes, *, source: str) -> dict:
         """Decide one request's exact bytes, once. Replay of the same bytes repeats the decision."""
@@ -109,7 +145,19 @@ class RemoteController:
         try:
             request = parse_request(raw)
         except RequestSchemaError as exc:
-            return {"source": source, "request_sha256": digest, "outcome": "refused", "reason": str(exc)}
+            # No trustworthy request id exists here, so this refusal is keyed by the bounded
+            # inbox path it came from and the digest of its exact bytes. It earns no receipt
+            # -- nothing was decided about an id -- but it is still projected, so a Director
+            # polling GitHub can see that the record was seen and refused. ``reason`` is a
+            # redacted schema diagnostic only; it never carries the rejected content.
+            return {
+                "refusal_id": f"{source}@{digest}",
+                "source": source,
+                "request_sha256": digest,
+                "outcome": "refused",
+                "durable": False,
+                "reason": str(exc),
+            }
 
         existing = self.receipts.get(request.request_id)
         if existing is not None:
