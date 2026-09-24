@@ -1,0 +1,565 @@
+From ca047b8963bcbf7124f71037a2fa14fc4853ab8d Mon Sep 17 00:00:00 2001
+From: "Claude Opus 5.5 (CLIVE engineering)" <claude-opus-5-5@clive.invalid>
+Date: Thu, 24 Sep 2026 13:06:46 +0000
+Subject: [PATCH] Bound every inbox cycle and carry no supplied name in any
+ failure
+
+Repairs the five material findings of the GPT exact-SHA review of
+62f6e7e51f72d87c3f7caae2552f0cc5eea66e85 (activation successor 3).
+
+F-01 Inbox work is bounded before anything is parsed. One snapshot is
+refused whole, admitting nothing, beyond 100 records, 64 KiB for any
+record, 1 MiB in total, 256 KiB of tree listing or 60 s of discovery.
+Sizes come from `ls-tree -l` before any blob is read; each git read is
+capped in bytes and killed at the deadline. The loop reports a fixed
+INTAKE_OVER_BOUND sentence and the Dispatcher still ticks.
+
+F-02 Remote names are one short component (<= 64) and branch names are
+canonical git ref names (<= 200, no empty, dot-leading or .lock-ending
+component, no '..', no trailing '.'), refused before any git call.
+
+F-03 Every transport and refusal message is fixed text: no remote,
+branch, ref, path or git output, including values that passed
+validation. Tested with a token-shaped remote and branch that git
+accepts and then fails on, through one-shot poll and the publisher.
+
+F-04 The inbox fetch uses --no-tags and one explicit refspec into its
+own tracking ref; a regression proves tags and other refs never change.
+
+F-05 The status file name is a short plain .json basename from a strict
+allowlist, and the one-record tree is built with `mktree -z`, so no
+byte of a name can inject a second record.
+
+Existing assertions are unchanged; new messages keep the wording older
+tests pin. No protected path is touched. Authored by Claude Opus 5.5.
+---
+ .../app/remote_engineering/errors.py          |   9 +
+ .../app/remote_engineering/inbox.py           | 168 +++++++++++++-----
+ .../app/remote_engineering/publisher.py       |  38 ++--
+ .../app/remote_engineering/runner.py          |   5 +-
+ .../tests/test_remote_engineering.py          | 149 ++++++++++++++++
+ 5 files changed, 304 insertions(+), 65 deletions(-)
+
+diff --git a/crooks-assistant/app/remote_engineering/errors.py b/crooks-assistant/app/remote_engineering/errors.py
+index 72be1cb6..57154ff2 100644
+--- a/crooks-assistant/app/remote_engineering/errors.py
++++ b/crooks-assistant/app/remote_engineering/errors.py
+@@ -5,6 +5,7 @@ from __future__ import annotations
+ from pydantic import ValidationError
+ 
+ __all__ = [
++    "InboxBoundExceeded",
+     "InboxError",
+     "RequestContentChanged",
+     "RequestSchemaError",
+@@ -42,6 +43,14 @@ class TransportError(InboxError):
+     """
+ 
+ 
++class InboxBoundExceeded(InboxError):
++    """An inbox snapshot exceeded a fixed work bound. Nothing was admitted from it.
++
++    The bounds are this host's constants (record count, per-record and aggregate bytes, listing
++    bytes, wall-clock time), so the message names which bound and nothing a requester chose.
++    """
++
++
+ REDACTED = "<redacted>"
+ 
+ 
+diff --git a/crooks-assistant/app/remote_engineering/inbox.py b/crooks-assistant/app/remote_engineering/inbox.py
+index d52e2c86..c9e94a52 100644
+--- a/crooks-assistant/app/remote_engineering/inbox.py
++++ b/crooks-assistant/app/remote_engineering/inbox.py
+@@ -14,91 +14,169 @@ from __future__ import annotations
+ 
+ import re
+ import subprocess
++import threading
++import time
+ from pathlib import Path
+ 
+-from .errors import InboxError, TransportError
++from .errors import InboxBoundExceeded, InboxError, TransportError
+ 
+ DEFAULT_INBOX_BRANCH = "clive/control/owner-inbox"
+ DEFAULT_INBOX_DIRECTORY = "requests"
+ 
+-_NAME_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
++REMOTE_NAME_MAX = 64
++REF_NAME_MAX = 200
++
++# Work bounds on one inbox snapshot. The inbox is remote input: without these a large listing,
++# many files or one huge file would stall the long-lived loop before the Dispatcher ticks.
++MAX_INBOX_RECORDS = 100
++MAX_RECORD_BYTES = 64 * 1024
++MAX_SNAPSHOT_BYTES = 1024 * 1024
++MAX_LISTING_BYTES = 256 * 1024
++MAX_DISCOVERY_S = 60.0
++
++_NAME_RE = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
++_REMOTE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+ 
+ 
+ def _validate_name(value: str, *, what: str) -> str:
++    """A bounded, canonical git ref name, decided before any git call.
++
++    Canonical here means what ``git check-ref-format`` would accept for a branch, restricted
++    further to a small character set: no empty, ``.``-leading or ``.lock``-ending component, no
++    ``..``, no trailing ``.`` and at most ``REF_NAME_MAX`` characters. The rejected value is never
++    echoed: this message reaches a long-lived process log and one-shot stdout.
++    """
++    if not isinstance(value, str) or not _NAME_RE.fullmatch(value) or len(value) > REF_NAME_MAX:
++        raise InboxError(f"{what} is not a bounded git identifier")
++    parts = value.split("/")
+     if (
+-        not value
+-        or value.startswith(("-", "/"))
+-        or value.endswith("/")
++        value.startswith("-")
+         or ".." in value
+-        or not _NAME_RE.fullmatch(value)
++        or value.endswith(".")
++        or any(not part or part.startswith(".") or part.endswith(".lock") for part in parts)
+     ):
+-        # The rejected value is never echoed: this message reaches a long-lived process
+-        # log and, for the one-shot verbs, stdout -- and an operator who mistypes an
+-        # authenticated URL into --remote would otherwise print its credential.
+-        raise InboxError(f"{what} is not a bounded git identifier")
++        raise InboxError(f"{what} is not a canonical git ref name")
+     return value
+ 
+ 
+ def _validate_remote(value: str) -> str:
+-    _validate_name(value, what="remote")
+-    if "://" in value or "@" in value or ":" in value:
+-        raise InboxError("remote must be a configured remote name, never a URL")
++    """A configured remote's name: short, one component, never a URL. Never echoed."""
++    if not isinstance(value, str) or not _REMOTE_RE.fullmatch(value) or value.endswith(".lock"):
++        raise InboxError("remote is not a bounded git identifier: it must be a configured remote name, never a URL")
+     return value
+ 
+ 
+ def fetch_inbox(
+     repo: Path, *, remote: str = "origin", branch: str = DEFAULT_INBOX_BRANCH, timeout_s: int = 60
+ ) -> str:
+-    """Fetch exactly one remote's one branch and return the commit it now points at."""
++    """Fetch exactly one remote's one branch into its own tracking ref; return that commit.
++
++    ``--no-tags`` and an explicit full refspec confine the fetch to the dedicated inbox ref:
++    git cannot auto-follow tags into local refs that a request's ``base_ref`` could then name.
++    Failures carry fixed text only -- never the remote, the branch or git's own output.
++    """
+     remote = _validate_remote(remote)
+     branch = _validate_name(branch, what="inbox branch")
+-    proc = subprocess.run(
+-        ["git", "fetch", "--quiet", remote, branch],
+-        cwd=str(repo),
+-        capture_output=True,
+-        text=True,
+-        timeout=timeout_s,
+-    )
++    destination = f"refs/remotes/{remote}/{branch}"
++    try:
++        proc = subprocess.run(
++            ["git", "fetch", "--quiet", "--no-tags", remote, f"+refs/heads/{branch}:{destination}"],
++            cwd=str(repo),
++            capture_output=True,
++            text=True,
++            timeout=timeout_s,
++        )
++    except subprocess.TimeoutExpired:
++        raise TransportError("inbox fetch exceeded its time bound; output withheld") from None
+     if proc.returncode != 0:
+-        raise TransportError(f"fetch of {remote} {branch} failed (git exit {proc.returncode}); output withheld")
++        raise TransportError(f"inbox fetch failed (git exit {proc.returncode}); output withheld")
+     rev = subprocess.run(
+-        ["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{branch}^{{commit}}"],
++        ["git", "rev-parse", "--verify", "--quiet", f"{destination}^{{commit}}"],
+         cwd=str(repo),
+         capture_output=True,
+         text=True,
++        timeout=30,
+     )
+     sha = rev.stdout.strip()
+     if rev.returncode != 0 or len(sha) != 40:
+-        raise TransportError(f"refs/remotes/{remote}/{branch} did not resolve to a commit after fetch")
++        raise TransportError("the inbox branch did not resolve to a commit after fetch")
+     return sha
+ 
+ 
++def _bounded_git(repo: Path, args: list[str], *, limit: int, deadline: float, what: str) -> bytes:
++    """Run git and read at most ``limit`` bytes of its stdout before ``deadline``, or refuse.
++
++    Memory and time are both bounded: output past ``limit`` kills the process instead of
++    being buffered, and a timer kills it at the deadline. stderr is discarded unread.
++    """
++    remaining = deadline - time.monotonic()
++    if remaining <= 0:
++        raise InboxBoundExceeded("inbox snapshot exceeded its time bound; nothing was admitted")
++    proc = subprocess.Popen(["git", *args], cwd=str(repo), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
++    fired = threading.Event()
++
++    def _expire() -> None:
++        fired.set()
++        proc.kill()
++
++    timer = threading.Timer(remaining, _expire)
++    timer.start()
++    try:
++        assert proc.stdout is not None
++        data = proc.stdout.read(limit + 1)
++        if len(data) > limit:
++            proc.kill()
++        returncode = proc.wait()
++    finally:
++        timer.cancel()
++        if proc.stdout is not None:
++            proc.stdout.close()
++    if fired.is_set():
++        raise InboxBoundExceeded("inbox snapshot exceeded its time bound; nothing was admitted")
++    if len(data) > limit:
++        raise InboxBoundExceeded(f"inbox {what} exceeded its size bound; nothing was admitted")
++    if returncode != 0:
++        raise TransportError(f"cannot read the inbox {what} (git exit {returncode}); output withheld")
++    return data
++
++
+ def discover_requests(
+     repo: Path, ref_sha: str, directory: str = DEFAULT_INBOX_DIRECTORY
+ ) -> tuple[tuple[str, bytes], ...]:
+-    """Every ``*.json`` request file under ``directory`` at ``ref_sha``, by name, oldest path order."""
++    """Every ``*.json`` request file under ``directory`` at ``ref_sha``, by name, oldest path order.
++
++    Bounded before anything is parsed: the listing, the number of records, each record's size
++    and their total size are checked from the tree listing *before* any blob is read, and the
++    whole discovery runs against one wall-clock deadline. Exceeding any bound admits nothing
++    from the snapshot and raises ``InboxBoundExceeded`` with fixed text.
++    """
++    deadline = time.monotonic() + MAX_DISCOVERY_S
+     directory = directory.strip("/")
+-    listing = subprocess.run(
+-        ["git", "ls-tree", "-r", "--name-only", "-z", ref_sha, "--", directory],
+-        cwd=str(repo),
+-        capture_output=True,
+-        text=True,
+-        timeout=60,
+-    )
+-    if listing.returncode != 0:
+-        raise TransportError(f"cannot list the inbox directory at {ref_sha} (git exit {listing.returncode}); output withheld")
+-    names = sorted(name for name in listing.stdout.split("\0") if name.endswith(".json"))
++    listing = _bounded_git(
++        repo, ["ls-tree", "-r", "-z", "-l", ref_sha, "--", directory],
++        limit=MAX_LISTING_BYTES, deadline=deadline, what="listing",
++    ).decode("utf-8", errors="replace")
++    entries: list[tuple[str, str, int]] = []
++    for record in listing.split("\0"):
++        if not record:
++            continue
++        meta, _, name = record.partition("\t")
++        if not name.endswith(".json"):
++            continue
++        fields = meta.split()
++        if len(fields) != 4 or fields[1] != "blob" or not fields[3].isdigit():
++            raise InboxBoundExceeded("inbox holds a request entry that is not a plain file; nothing was admitted")
++        entries.append((name, fields[2], int(fields[3])))
++    if len(entries) > MAX_INBOX_RECORDS:
++        raise InboxBoundExceeded("inbox holds more records than its bound; nothing was admitted")
++    if any(size > MAX_RECORD_BYTES for _, _, size in entries):
++        raise InboxBoundExceeded("inbox holds a record larger than its bound; nothing was admitted")
++    if sum(size for _, _, size in entries) > MAX_SNAPSHOT_BYTES:
++        raise InboxBoundExceeded("inbox snapshot exceeds its aggregate size bound; nothing was admitted")
+     out: list[tuple[str, bytes]] = []
+-    for index, name in enumerate(names):
+-        show = subprocess.run(
+-            ["git", "show", f"{ref_sha}:{name}"], cwd=str(repo), capture_output=True, timeout=60
+-        )
+-        if show.returncode != 0:
+-            raise TransportError(
+-                f"cannot read inbox record {index} of {len(names)} at {ref_sha} "
+-                f"(git exit {show.returncode}); output withheld"
+-            )
+-        out.append((name, show.stdout))
++    for name, oid, size in sorted(entries):
++        body = _bounded_git(repo, ["cat-file", "blob", oid], limit=size, deadline=deadline, what="record")
++        out.append((name, body))
+     return tuple(out)
+ 
+ 
+diff --git a/crooks-assistant/app/remote_engineering/publisher.py b/crooks-assistant/app/remote_engineering/publisher.py
+index 894f5ac9..8f786d0c 100644
+--- a/crooks-assistant/app/remote_engineering/publisher.py
++++ b/crooks-assistant/app/remote_engineering/publisher.py
+@@ -26,6 +26,7 @@ from __future__ import annotations
+ 
+ import json
+ import math
++import re
+ import subprocess
+ from datetime import datetime
+ from pathlib import Path
+@@ -62,23 +63,23 @@ def _git(
+             timeout=timeout_s,
+         )
+     except subprocess.TimeoutExpired:
+-        raise TransportError(f"git {' '.join(args[:2])} exceeded {timeout_s}s; nothing was published") from None
++        raise TransportError(f"git {args[0]} exceeded {timeout_s}s; nothing was published") from None
+     if check and proc.returncode != 0:
+-        raise TransportError(f"git {' '.join(args[:3])} failed (exit {proc.returncode}); output withheld")
++        raise TransportError(f"git {args[0]} failed (exit {proc.returncode}); output withheld")
+     return proc
+ 
+ 
++_STATUS_PATH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}\.json$")
++
++
+ def _validate_status_path(value: str) -> str:
+-    value = value.strip("/")
+-    if (
+-        not value
+-        or value.startswith(".")
+-        or "\\" in value
+-        or any(part in {"", ".", ".."} for part in value.split("/"))
+-        or "/" in value
+-        or not value.endswith(".json")
+-    ):
+-        raise InboxError("status path is not a bounded repository-relative JSON path")
++    """One short ASCII basename ending in ``.json``: no directory, no control or special character.
++
++    The value becomes a tree record name, so anything outside this allowlist -- a tab, a
++    newline, a NUL, a dot component -- could otherwise shape the tree that is published.
++    """
++    if not isinstance(value, str) or not _STATUS_PATH_RE.fullmatch(value):
++        raise InboxError("status path must be a short plain JSON file name")
+     return value
+ 
+ 
+@@ -137,9 +138,7 @@ def _remote_head(repo: Path, remote: str, branch: str) -> str:
+     if probe.returncode == 2:
+         return ""
+     if probe.returncode != 0:
+-        raise TransportError(
+-            f"cannot read status branch {remote} {branch} (git exit {probe.returncode}); output withheld"
+-        )
++        raise TransportError(f"cannot read status branch (git exit {probe.returncode}); output withheld")
+     _git(
+         repo, "fetch", "--quiet", "--no-tags", remote,
+         f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
+@@ -148,7 +147,7 @@ def _remote_head(repo: Path, remote: str, branch: str) -> str:
+     rev = _git(repo, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{branch}^{{commit}}", check=False)
+     head = rev.stdout.decode().strip()
+     if rev.returncode != 0 or len(head) != 40:
+-        raise TransportError(f"status branch {remote} {branch} did not resolve to a commit after fetch")
++        raise TransportError("the status branch did not resolve to a commit after fetch")
+     return head
+ 
+ 
+@@ -157,7 +156,7 @@ def _require_pure_projection(repo: Path, head: str, path: str, branch: str) -> N
+     entries = [name for name in listing.split("\0") if name]
+     if entries != [path]:
+         raise InboxError(
+-            f"status branch {branch} at {head} holds {len(entries)} path(s), not only {path!r}; "
++            f"the status branch holds {len(entries)} path(s), not only the projection file; "
+             "refusing to overwrite a branch that is not a pure status projection"
+         )
+ 
+@@ -206,8 +205,9 @@ def publish_status(
+                     return parent
+ 
+     blob = _git(repo, "hash-object", "-w", "--stdin", input_bytes=payload).stdout.decode().strip()
+-    tree_line = f"100644 blob {blob}\t{path}\n".encode()
+-    tree = _git(repo, "mktree", input_bytes=tree_line).stdout.decode().strip()
++    # NUL-delimited, so no byte of the (already allowlisted) name can end the record early.
++    tree_record = f"100644 blob {blob}\t{path}".encode() + b"\0"
++    tree = _git(repo, "mktree", "-z", input_bytes=tree_record).stdout.decode().strip()
+     commit_args = [
+         "-c", "user.name=CLIVE Remote Engineering",
+         "-c", "user.email=remote-engineering@clive.invalid",
+diff --git a/crooks-assistant/app/remote_engineering/runner.py b/crooks-assistant/app/remote_engineering/runner.py
+index ad627999..9933833f 100644
+--- a/crooks-assistant/app/remote_engineering/runner.py
++++ b/crooks-assistant/app/remote_engineering/runner.py
+@@ -32,12 +32,13 @@ from datetime import UTC, datetime
+ from app.orchestrator.lifecycle import LifecycleStore
+ 
+ from .controller import RemoteController
+-from .errors import InboxError, RequestContentChanged
++from .errors import InboxBoundExceeded, InboxError, RequestContentChanged
+ from .receipts import ReceiptLog
+ from .status import build_status
+ 
+ INTAKE_UNAVAILABLE = "inbox could not be fetched or read this cycle; nothing new was admitted"
+ PUBLISH_UNAVAILABLE = "status projection could not be published this cycle; it will be retried"
++INTAKE_OVER_BOUND = "inbox snapshot exceeded a work bound; nothing new was admitted this cycle"
+ TRANSPORT_ERRORS = (InboxError, subprocess.TimeoutExpired)
+ 
+ 
+@@ -58,6 +59,8 @@ class RemoteEngineeringLoop:
+             outcomes = self.controller.poll_once()
+         except RequestContentChanged as exc:
+             outcomes, intake_error = [], str(exc)
++        except InboxBoundExceeded:
++            outcomes, intake_error = [], INTAKE_OVER_BOUND
+         except TRANSPORT_ERRORS:
+             outcomes, intake_error = [], INTAKE_UNAVAILABLE
+         else:
+diff --git a/crooks-assistant/tests/test_remote_engineering.py b/crooks-assistant/tests/test_remote_engineering.py
+index 126767e6..15f075a6 100644
+--- a/crooks-assistant/tests/test_remote_engineering.py
++++ b/crooks-assistant/tests/test_remote_engineering.py
+@@ -875,3 +875,152 @@ def test_one_shot_poll_never_prints_an_escaping_branch_name(env, tmp_path, capsy
+     captured = capsys.readouterr()
+     assert rc == 2
+     assert "SYNTHETIC-NOT-A-TOKEN" not in captured.out + captured.err
++
++
++# ------------------------------------------- activation successor 3: work bounds and fixed transport text
++
++from app.remote_engineering import inbox as inbox_module  # noqa: E402
++from app.remote_engineering.errors import InboxBoundExceeded  # noqa: E402
++from app.remote_engineering.runner import INTAKE_OVER_BOUND  # noqa: E402
++
++TOKEN_SHAPED = "ghp_SYNTHETICNOTATOKEN0123456789abcd"
++
++
++def _commit_raw(origin: Path, files: dict[str, bytes], *, branch: str = DEFAULT_INBOX_BRANCH) -> None:
++    exists = subprocess.run(["git", "rev-parse", "--verify", "--quiet", branch], cwd=origin,
++                            capture_output=True).returncode == 0
++    _git(origin, "checkout", "-q", branch) if exists else _git(origin, "checkout", "-q", "-b", branch)
++    for name, body in files.items():
++        target = origin / name
++        target.parent.mkdir(parents=True, exist_ok=True)
++        target.write_bytes(body)
++    _git(origin, "add", "-A")
++    _git(origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "raw inbox files")
++    _git(origin, "checkout", "-q", "main")
++
++
++def _admitted_nothing(kernel) -> bool:
++    return kernel.store.read_tasks() == ()
++
++
++def test_an_oversized_record_admits_nothing_and_the_dispatcher_still_ticks(env, tmp_path):
++    commit_request(env.origin, "r-small", valid_request(env, request_id="r-small"))
++    _commit_raw(env.origin, {"requests/r-huge.json": b"{" + b" " * (inbox_module.MAX_RECORD_BYTES + 1) + b"}"})
++    kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
++    with pytest.raises(InboxBoundExceeded):
++        controller.poll_once()
++    ticker = _Ticker()
++    result = _loop(controller, ticker, kernel.store, lambda status: "e" * 40).cycle()
++    assert ticker.calls == 1
++    assert result["intake_error"] == INTAKE_OVER_BOUND
++    assert _admitted_nothing(kernel)
++
++
++@pytest.mark.parametrize("bound, value", [
++    ("MAX_INBOX_RECORDS", 2),
++    ("MAX_SNAPSHOT_BYTES", 600),
++    ("MAX_LISTING_BYTES", 120),
++    ("MAX_DISCOVERY_S", 0.0),
++])
++def test_every_snapshot_bound_refuses_the_whole_snapshot(env, tmp_path, monkeypatch, bound, value):
++    for request_id in ("r-b1", "r-b2", "r-b3"):
++        commit_request(env.origin, request_id, valid_request(env, request_id=request_id))
++    monkeypatch.setattr(inbox_module, bound, value)
++    kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
++    with pytest.raises(InboxBoundExceeded) as refusal:
++        controller.poll_once()
++    assert "nothing was admitted" in str(refusal.value)
++    assert _admitted_nothing(kernel) and receipts.read_all() == ()
++
++
++def test_record_sizes_are_checked_before_any_record_is_read(env, tmp_path, monkeypatch):
++    _commit_raw(env.origin, {"requests/r-huge.json": b"x" * (inbox_module.MAX_RECORD_BYTES + 1)})
++    reads: list[list[str]] = []
++    real = inbox_module._bounded_git
++
++    def spy(repo, args, **kwargs):
++        reads.append(list(args))
++        return real(repo, args, **kwargs)
++
++    monkeypatch.setattr(inbox_module, "_bounded_git", spy)
++    _kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
++    with pytest.raises(InboxBoundExceeded):
++        controller.poll_once()
++    assert all(args[0] != "cat-file" for args in reads)
++
++
++@pytest.mark.parametrize("name", [
++    "clive/" + "a" * 201,
++    "clive/control/inbox.lock",
++    "clive/./inbox",
++    "clive/.hidden",
++    "clive//inbox",
++    "clive/inbox.",
++    "-clive",
++])
++def test_non_canonical_or_oversized_ref_names_are_refused_before_git(env, monkeypatch, name):
++    def no_git(*_args, **_kwargs):
++        raise AssertionError("git must not be called for a refused name")
++
++    monkeypatch.setattr(inbox_module.subprocess, "run", no_git)
++    with pytest.raises(InboxError) as refusal:
++        fetch_inbox(env.checkout, branch=name)
++    assert name not in str(refusal.value)
++
++
++@pytest.mark.parametrize("remote", ["o" * 65, "origin/other", "origin.lock", ".origin", SECRET_URL])
++def test_oversized_or_non_canonical_remote_names_are_refused_before_git(env, monkeypatch, remote):
++    def no_git(*_args, **_kwargs):
++        raise AssertionError("git must not be called for a refused remote")
++
++    monkeypatch.setattr(inbox_module.subprocess, "run", no_git)
++    with pytest.raises(InboxError) as refusal:
++        fetch_inbox(env.checkout, remote=remote)
++    assert remote not in str(refusal.value)
++
++
++def test_an_accepted_token_shaped_remote_or_branch_is_never_printed(env, tmp_path, capsys, monkeypatch):
++    monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
++    for extra in (["--remote", TOKEN_SHAPED], ["--branch", f"clive/control/{TOKEN_SHAPED}"]):
++        rc = cli.run([
++            "--store", str(tmp_path / "engineering"), "--repo", str(env.checkout), "--no-journal",
++            "poll", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main", *extra,
++        ])
++        captured = capsys.readouterr()
++        assert rc == 2
++        assert TOKEN_SHAPED not in captured.out + captured.err
++        assert "inbox fetch failed" in captured.err
++    with pytest.raises(InboxError) as publish_failure:
++        publish_status(env.checkout, _status_at(NOW), remote=TOKEN_SHAPED)
++    assert TOKEN_SHAPED not in str(publish_failure.value)
++
++
++def test_the_inbox_fetch_never_follows_tags_or_touches_other_refs(env, tmp_path):
++    commit_request(env.origin, "r-tag", valid_request(env, request_id="r-tag"))
++    _git(env.origin, "tag", "sneaky", DEFAULT_INBOX_BRANCH)
++    _git(env.origin, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "sneaky-annotated", "-m", "x",
++         DEFAULT_INBOX_BRANCH)
++    before = set(_git(env.checkout, "for-each-ref", "--format=%(refname) %(objectname)").splitlines())
++    sha = fetch_inbox(env.checkout)
++    after = set(_git(env.checkout, "for-each-ref", "--format=%(refname) %(objectname)").splitlines())
++    assert after - before == {f"refs/remotes/origin/{DEFAULT_INBOX_BRANCH} {sha}"}
++    assert _git(env.checkout, "tag", "-l") == ""
++
++
++@pytest.mark.parametrize("path", [
++    "a\tb.json", "status.json\n100644 blob 0000000000000000000000000000000000000000\tx.json",
++    "st\0atus.json", "status.JSON", ".status.json", "sub/status.json", "st.atus.json",
++    "s" * 64 + ".json", "status json",
++])
++def test_status_paths_outside_the_allowlist_publish_nothing(env, path):
++    heads_before = _git(env.origin, "for-each-ref", "refs/heads")
++    with pytest.raises(InboxError) as refusal:
++        publish_status(env.checkout, _status_at(NOW), path=path)
++    assert path not in str(refusal.value)
++    assert _git(env.origin, "for-each-ref", "refs/heads") == heads_before
++
++
++def test_the_published_tree_is_built_nul_delimited_and_holds_one_file(env):
++    commit = publish_status(env.checkout, _status_at(NOW), path="status.json")
++    _git(env.checkout, "fetch", "-q", "origin", f"+refs/heads/{DEFAULT_STATUS_BRANCH}:refs/remotes/origin/{DEFAULT_STATUS_BRANCH}")
++    assert _git(env.checkout, "ls-tree", "-r", "--name-only", commit).splitlines() == ["status.json"]
+-- 
+2.43.0
+
