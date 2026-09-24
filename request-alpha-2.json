@@ -1,0 +1,49 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "operational-alpha-acceptance-repair-2",
+  "title": "Operational alpha: pass full repository acceptance",
+  "requested_outcome": "Make the operational alpha release candidate f7be86f7f4676ca86de9a7ef18bac2342f29f62d pass full repository acceptance without weakening any gate. Exactly three failures exist at that SHA. (1) The secret scan reports one un-baselined generic-api-key finding at crooks-assistant/mac/CrooksControl/Tests/CrooksControlCoreTests/HumanisingTests.swift line 127, inside testEveryShapeTheControlScriptRedactsIsRedactedHereToo: synthetic redaction fixtures such as sk-proj-Abc123Def456. Do not add a baseline entry and do not touch .gitleaks.toml, .gitleaks-baseline.json or any acceptance script. Instead build every fixture in that array at runtime from a literal prefix plus an obviously synthetic body (for example \"sk-proj-\" + \"Abc123Def456\"), so the source holds no credential-shaped literal while the test exercises exactly the same strings in the same order, with a one-line comment saying why. (2) tests/test_acceptance_provenance.py::test_a_new_secret_still_fails_the_gate fails only because of (1): its control assertion needs a clean tree; do not modify that test. (3) tests/test_tool_matrix.py::test_the_checked_in_document_is_the_generated_one fails because crooks-assistant/docs/phase4/TOOL_MATRIX.md was not regenerated after tests/test_objective_prompt.py was added; regenerate it with the repository's own generator (from crooks-assistant: python -c \"import sys; sys.path.insert(0,'.'); from experience import tool_matrix; print(tool_matrix.write())\") and commit the generated output unedited.",
+  "base_ref": "f7be86f7f4676ca86de9a7ef18bac2342f29f62d",
+  "base_sha": "f7be86f7f4676ca86de9a7ef18bac2342f29f62d",
+  "allowed_paths": [
+    "crooks-assistant/mac/CrooksControl/Tests/CrooksControlCoreTests/HumanisingTests.swift",
+    "crooks-assistant/docs/phase4/TOOL_MATRIX.md"
+  ],
+  "acceptance_criteria": [
+    "the Swift redaction test builds exactly the same fixture strings, in the same order, as at f7be86f7, and asserts exactly what it asserted before",
+    "no secret-scan baseline, gitleaks configuration, acceptance script or test outside the two allowed paths changes",
+    "docs/phase4/TOOL_MATRIX.md is byte-identical to the output of the repository's generator run in a fresh interpreter",
+    "tests/test_tool_matrix.py and tests/test_acceptance_provenance.py pass",
+    "full repository acceptance for the candidate SHA reports mechanical_evidence complete with no unsatisfied gate"
+  ],
+  "checks": [
+    {
+      "name": "matrix-and-provenance",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_tool_matrix.py",
+        "tests/test_acceptance_provenance.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/operational-alpha-acceptance-repair-2",
+  "max_repair_rounds": 2
+}

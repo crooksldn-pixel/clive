@@ -1059,3 +1059,48 @@ claim-before-intake is reconciled with the journalled store — for example by p
 outside the journalled store, exempting the adapter's own directory in the precondition (a
 protected path), or running the loop with `--no-journal`. That decision is the owner's; it is
 also the first thing the loop would need in order to do any work at all.
+
+---
+
+# Round 4 - owner override, addendum: journalled-store cause fixed, both objectives accepted, worker running
+
+Owner-authorised fix, journal left on.
+
+1. `/engineering/remote_engineering/` was appended to
+   `/srv/clive-engineering/state/.git/info/exclude` — git metadata, not a store record. No store
+   record was created, edited or deleted. `git -C /srv/clive-engineering/state status --porcelain
+   --untracked-files=all -- engineering` is now empty, so the adapter's own claims and receipts no
+   longer look to `journal_preconditions` like uncommitted store changes.
+2. The next loop cycle was clean — `intake_error` null, `publish_error` null, store clean, unit
+   active with `NRestarts=0`. **No restart was needed**; the precondition reads git state live.
+   The two original requests correctly replayed their stored immutable refusals, which is what a
+   burned id is supposed to do.
+3. Both objectives were resubmitted under new ids in one fast-forward commit
+   (`52b86313..eaddf3e6`), each validated against the running loop's own schema before submission:
+   `operational-alpha-acceptance-repair-2` (identical content, new id and target branch) and
+   `remote-engineering-review-findings-2` (the activated SHA's three review findings, plus a
+   fourth: the host-local exclude is host state no clone or new host carries, so adapter records
+   must live outside the journalled tree or the loop must refuse to start unless they are ignored,
+   proven by an end-to-end intake test with `journal=True` — no existing test builds a journalled
+   kernel, which is why six exact-SHA reviews and 3341 CI tests never found this).
+4. **Both accepted, and the no-courier path ran end to end for the first time.** Watching only
+   `clive/control/status:status.json`:
+
+```
+operational-alpha-acceptance-repair-2  accepted  task operational-alpha-acceptance-repair-2  stage RUNNING
+remote-engineering-review-findings-2   accepted  task remote-engineering-review-findings-2   stage READY
+```
+
+The first objective went: receipt `accepted` → worker `…-a1` assigned and acknowledged →
+candidate `cd80a2be…` produced → **sandboxed checks failed** → `result_refused`, attempt cancelled
+→ kernel routed the next attempt → worker `…-a2` assigned, acknowledged and building. The second
+is READY behind it, correctly held by `--max-concurrent 1`. Every transition is journalled under
+`clive-dispatcher@crooks-os-prod-1`, the dispatcher operator, with the adapter's own records
+ignored rather than swept in.
+
+Production diff against the 15:02Z baseline: still **empty**. Unit active, `NRestarts=0`, pinned
+`4c32bb3d5f4935402c9cdc897914370950f7f206`.
+
+Still open and unchanged: the loop currently depends on a host-local `.git/info/exclude` line,
+which is exactly what `remote-engineering-review-findings-2` asks it to remove; and no candidate
+has yet reached GitHub acceptance, so neither objective's CI conclusion exists yet.
