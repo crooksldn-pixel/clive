@@ -1,0 +1,58 @@
+{
+  "attempt_id": "62f6e7e51f72-exact-sha-review",
+  "candidate_sha": "62f6e7e51f72d87c3f7caae2552f0cc5eea66e85",
+  "findings": [
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/inbox.py:75-101; crooks-assistant/app/remote_engineering/requests.py:68-86; crooks-assistant/app/remote_engineering/runner.py:53-68",
+      "finding": "A remotely controlled inbox snapshot has no aggregate work bound. The adapter captures the complete tree listing, iterates every matching JSON file, captures each complete blob, and parses arbitrary-size JSON before the Dispatcher is ticked. Per-command timeouts do not bound N files, total bytes, memory use, or total cycle duration. A large or numerous-file snapshot can therefore indefinitely delay or exhaust the long-lived loop and prevent supervision of existing objectives.",
+      "finding_id": "F-01",
+      "material": true,
+      "required_repair": "Enforce explicit limits on discovered-record count, listing bytes, individual blob bytes, aggregate bytes, and total intake-cycle time before parsing. Fail with fixed redacted errors while still allowing the Dispatcher tick. Add oversized-file, excessive-file-count, and aggregate-budget tests proving bounded resource use and continued Dispatcher advancement."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/inbox.py:23-46; crooks-assistant/app/remote_engineering/publisher.py:102-110",
+      "finding": "Remote and ref names are not actually length-bounded or canonically validated. `_NAME_RE` uses an unbounded `+`, `_validate_name` has no maximum length, and the same function protects inbox and status branch names. It also admits noncanonical Git identifiers such as `.` and `.lock`-ending names, leaving Git itself to reject them. This fails the explicit criterion that remote and ref names remain bounded.",
+      "finding_id": "F-02",
+      "material": true,
+      "required_repair": "Define finite, documented maximum lengths and canonical component/ref rules for remote, inbox branch, and status branch names, and reject them before any Git invocation. Add tests for oversized and Git-invalid names, including dot components and `.lock` endings."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/inbox.py:50-72; crooks-assistant/scripts/remote_engineering.py:242-251",
+      "finding": "A credential-shaped value that passes the permissive remote/branch syntax is still echoed by one-shot `poll`. For example, an alphanumeric/underscore `ghp_...` value is accepted as a remote name; when fetch fails, `fetch_inbox` embeds that value in `TransportError`, and the CLI prints the exception verbatim. The URL regression test only covers values rejected before Git, so the no-credential-logging invariant remains violated.",
+      "finding_id": "F-03",
+      "material": true,
+      "required_repair": "Make all transport errors use fixed operation codes/messages that never contain remote, branch, ref, path, or other supplied values, including values that passed validation. Add one-shot CLI tests using a synthetic token-shaped but syntactically accepted remote and branch whose Git operation fails, asserting absence from stdout and stderr."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/inbox.py:50-63",
+      "finding": "Inbox fetching is not confined to the dedicated ref. `git fetch --quiet <remote> <branch>` omits `--no-tags`; Git may auto-follow tags pointing into the fetched history, mutating additional local refs. Those tags can subsequently become resolvable request `base_ref` values, contrary to the dedicated-ref transport boundary.",
+      "finding_id": "F-04",
+      "material": true,
+      "required_repair": "Fetch with `--no-tags` and an explicit full source-to-destination refspec for only the configured inbox branch, then verify that destination commit. Add a regression proving unrelated and newly advertised tags or refs are not created or changed."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/publisher.py:72-84; crooks-assistant/app/remote_engineering/publisher.py:203-211",
+      "finding": "The claimed single-file status projection can be violated through `--status-path`. `_validate_status_path` has no character or length allowlist and accepts tabs/newlines, after which the value is interpolated directly into the newline-delimited `git mktree` input. A crafted path can inject another tree record on first publication, producing a status commit with multiple files despite the publisher's invariant.",
+      "finding_id": "F-05",
+      "material": true,
+      "required_repair": "Prefer a fixed status filename, or enforce a short strict ASCII basename policy excluding all controls and Git-special forms. Construct the tree with an unambiguous NUL-delimited protocol or equivalent safe plumbing. Add tab, newline, control-character, and oversized-path tests proving no commit is published."
+    }
+  ],
+  "reviewer": {
+    "clean": true,
+    "context_fresh": true,
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "read_only": true,
+    "session_id": "openai-response:resp_0eb55d42e1598b2b016ab518cdbe0487d2a38f68c455235474",
+    "session_started_at": "2026-09-24T12:34:20.752941Z",
+    "workspace_branch": "detached:62f6e7e51f72d87c3f7caae2552f0cc5eea66e85",
+    "workspace_head": "62f6e7e51f72d87c3f7caae2552f0cc5eea66e85",
+    "workspace_id": "git-objects:62f6e7e51f72d87c3f7caae2552f0cc5eea66e85"
+  },
+  "schema_version": "clive.review_result.v1",
+  "summary": "The exact SHA passes the supplied mechanical suite and repairs the four previously listed cases, but it is not safe for host activation. Remote inbox work remains unbounded, transport identifiers are not truly bounded, accepted credential-shaped arguments can still be logged, inbox fetch can update tags outside the dedicated ref, and status-path input can break the one-file projection invariant.\n\n[model gpt-5.6-sol, effort high, usage {\"input_tokens\": 53566, \"input_tokens_details\": {\"cache_write_tokens\": 53563, \"cached_tokens\": 0}, \"output_tokens\": 10893, \"output_tokens_details\": {\"reasoning_tokens\": 9798}, \"total_tokens\": 64459}]",
+  "task_id": "remote-engineering-control-v1-activation",
+  "task_revision": 1,
+  "verdict": "CHANGES_REQUIRED"
+}

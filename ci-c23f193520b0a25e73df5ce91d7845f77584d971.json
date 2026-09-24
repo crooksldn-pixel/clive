@@ -1,0 +1,79 @@
+{
+  "artifact": {
+    "acceptance": {
+      "accepted": false,
+      "eligible_for_acceptance_decision": true,
+      "human_approval_recorded": false,
+      "independent_review": "required",
+      "malformed_gates": [],
+      "mechanical_evidence": "complete",
+      "note": "Mechanical gates produce evidence, not permission. Eligibility means an independent principal may now review this exact SHA; it is not acceptance, and acceptance is never derived from this artifact alone.",
+      "unsatisfied_gates": []
+    },
+    "gates": [
+      {
+        "detail": "All checks passed!",
+        "exit_code": 0,
+        "name": "ruff",
+        "status": "pass"
+      },
+      {
+        "detail": "44 passed in 0.24s",
+        "exit_code": 0,
+        "name": "pytest_control_plane",
+        "status": "pass"
+      },
+      {
+        "detail": "}",
+        "exit_code": 0,
+        "name": "product_memory_structure",
+        "status": "pass"
+      },
+      {
+        "detail": "3228 passed, 14 skipped, 2 deselected in 190.59s (0:03:10)",
+        "exit_code": 0,
+        "name": "pytest_offline_full",
+        "status": "pass"
+      },
+      {
+        "detail": "\u001b[90m11:40AM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mno leaks found\u001b[0m",
+        "exit_code": 0,
+        "name": "secret_scan",
+        "status": "pass"
+      }
+    ],
+    "generated_at": "2026-09-24T11:40:42Z",
+    "name": "acceptance-c23f193520b0a25e73df5ce91d7845f77584d971",
+    "repository": {
+      "branch": "HEAD",
+      "candidate_sha": "c23f193520b0a25e73df5ce91d7845f77584d971",
+      "clean_worktree": true,
+      "committed_at": "2026-09-24T10:52:25Z",
+      "head_sha": "c23f193520b0a25e73df5ce91d7845f77584d971",
+      "parents": [
+        "abaefa5228880c266e52f35f009527be7344c05e"
+      ]
+    },
+    "run": {
+      "event": "push",
+      "job": "acceptance",
+      "provider": "github-actions",
+      "run_attempt": "1",
+      "run_id": "35994015937",
+      "run_url": "https://github.com/crooksldn-pixel/clive/actions/runs/35994015937",
+      "runner_os": "Linux",
+      "workflow": "acceptance"
+    }
+  },
+  "candidate_sha": "c23f193520b0a25e73df5ce91d7845f77584d971",
+  "completed_at": "2026-09-24T11:40:47Z",
+  "conclusion": "success",
+  "head_sha": "c23f193520b0a25e73df5ce91d7845f77584d971",
+  "reruns": [],
+  "run_id": 35994015937,
+  "run_url": "https://github.com/crooksldn-pixel/clive/actions/runs/35994015937",
+  "schema": "clive.activation_ci_evidence.v1",
+  "started_at": "2026-09-24T11:36:38Z",
+  "status": "completed",
+  "workflow": "acceptance"
+}

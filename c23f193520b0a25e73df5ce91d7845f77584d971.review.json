@@ -1,0 +1,51 @@
+{
+  "attempt_id": "c23f193520b0-exact-sha-review",
+  "candidate_sha": "c23f193520b0a25e73df5ce91d7845f77584d971",
+  "findings": [
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/controller.py:99-121; crooks-assistant/app/remote_engineering/runner.py:52-57",
+      "finding": "A mixed inbox snapshot containing both a new valid request and a changed previously recorded request can still admit the new objective before reporting the immutable-ID violation. poll_once processes files sequentially with side effects, while RequestContentChanged is detected only inside process; if the new file precedes the changed file, intake and its receipt are already committed. The runner then discards the partial outcomes and incorrectly reports that nothing new was admitted. This does not fail closed on changed request bytes.",
+      "finding_id": "F-01",
+      "material": true,
+      "required_repair": "Preflight the complete discovered snapshot before any intake writes: parse and hash all applicable records, detect conflicts against receipts and conflicting duplicate IDs within the snapshot, and abort admission for the whole cycle on any changed-ID conflict. Add a mixed-snapshot regression test proving that no new objective, task, or receipt is created."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/publisher.py:52-57,103-109; crooks-assistant/app/remote_engineering/runner.py:52-57,64-75; crooks-assistant/scripts/remote_engineering.py:214-223; crooks-assistant/tests/test_remote_engineering.py:test_an_intake_transport_failure_never_projects_raw_git_output",
+      "finding": "Raw transport exception text can be emitted to the long-lived process log, violating the prohibition on logging credential values. Git stderr/stdout is embedded in InboxError; the loop retains raw exception text in intake_error/publish_error; and the CLI JSON-prints those values. The candidate test explicitly demonstrates a token-like value surviving in result['intake_error'], which the run command would print.",
+      "finding_id": "F-02",
+      "material": true,
+      "required_repair": "Do not propagate or print raw subprocess output or transport exception messages. Return and log only bounded structured operation/error codes that cannot contain URLs, credentials, request content, or remote output; apply this to both run and one-shot poll/publish failures. Update the regression test to prove the token-like value is absent from both the projection and all CLI output/result fields."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/controller.py:106-113; crooks-assistant/app/remote_engineering/status.py:39-61; crooks-assistant/app/remote_engineering/runner.py:59-62; crooks-assistant/tests/test_remote_engineering.py:test_malformed_schema_fails_closed",
+      "finding": "Malformed or unknown-schema inbox records are refused only as transient poll outcomes and are never represented in the GitHub-visible projection. process returns before writing a receipt, while build_status reads only receipts and the runner does not merge poll outcomes into status. A Director polling GitHub therefore cannot determine that such an inbox item was refused, contrary to the outbound-visibility requirement.",
+      "finding_id": "F-03",
+      "material": true,
+      "required_repair": "Publish a durable or deterministically regenerated safe refusal projection for malformed records, keyed by bounded source and content digest rather than an untrusted request ID. Include only redacted schema diagnostics and prove through a restart/re-poll test that GitHub-visible status reports the refusal without serializing rejected values or credentials."
+    },
+    {
+      "evidence_ref": "crooks-assistant/scripts/remote_engineering.py:98-104,226-229; crooks-assistant/app/remote_engineering/publisher.py:139-173",
+      "finding": "The configurable polling and heartbeat bounds accept arbitrary floats. NaN or infinity can crash or indefinitely stall time.sleep, while zero, negative, or NaN heartbeat values defeat generated_at suppression and can create a status commit every cycle. Thus the advertised bounded long-lived mode and bounded heartbeat are not enforced.",
+      "finding_id": "F-04",
+      "material": true,
+      "required_repair": "Validate timing arguments before entering the loop or publishing: require finite values within documented positive minimum and maximum bounds, reject invalid heartbeat/interval values, and add tests for zero, negative, NaN, infinity, and excessive values demonstrating no polling or publication occurs."
+    }
+  ],
+  "reviewer": {
+    "clean": true,
+    "context_fresh": true,
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "read_only": true,
+    "session_id": "openai-response:resp_0cd18a3d7c5bf08a016ab50c7d7ea487d2b36ab674020a073e",
+    "session_started_at": "2026-09-24T11:41:48.145689Z",
+    "workspace_branch": "detached:c23f193520b0a25e73df5ce91d7845f77584d971",
+    "workspace_head": "c23f193520b0a25e73df5ce91d7845f77584d971",
+    "workspace_id": "git-objects:c23f193520b0a25e73df5ce91d7845f77584d971"
+  },
+  "schema_version": "clive.review_result.v1",
+  "summary": "The candidate repairs the previously identified revision projection, status-branch, timeout, dispatcher-continuation, and operator-attribution issues in the covered cases, but it is not ready for host activation. Changed-request handling is not atomic across an inbox snapshot, raw transport diagnostics can leak credentials into logs, malformed refusals are absent from GitHub-visible status, and timing bounds can be disabled or crash the loop.\n\n[model gpt-5.6-sol, effort high, usage {\"input_tokens\": 32846, \"input_tokens_details\": {\"cache_write_tokens\": 32843, \"cached_tokens\": 0}, \"output_tokens\": 7970, \"output_tokens_details\": {\"reasoning_tokens\": 6980}, \"total_tokens\": 40816}]",
+  "task_id": "remote-engineering-control-v1-activation",
+  "task_revision": 1,
+  "verdict": "CHANGES_REQUIRED"
+}

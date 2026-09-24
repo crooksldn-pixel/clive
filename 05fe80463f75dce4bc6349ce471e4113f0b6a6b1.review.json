@@ -1,0 +1,51 @@
+{
+  "attempt_id": "05fe80463f75-exact-sha-review",
+  "candidate_sha": "05fe80463f75dce4bc6349ce471e4113f0b6a6b1",
+  "findings": [
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/requests.py:31-43; crooks-assistant/app/remote_engineering/controller.py:49-69,166-175; crooks-assistant/app/remote_engineering/status.py:52-70",
+      "finding": "Request-supplied base refs are not bounded as Git refs. `base_ref` accepts any 1\u2013300 character string, including credential-bearing URLs, option-like strings, and Git revision expressions, and is passed to `GitFacts.rev_parse` before canonical `Objective` validation. On resolution failure, the raw value is embedded in a refusal reason, persisted, printed by `poll`, and projected through status receipts. This violates both the bounded-ref requirement and credential-output prohibition.",
+      "finding_id": "F-01",
+      "material": true,
+      "required_repair": "Validate every request-supplied ref with a bounded canonical Git-ref/revision policy before any Git invocation, rejecting URLs, leading-option forms, unsafe revision syntax, and excessive lengths. Use a fixed/redacted refusal code rather than echoing the supplied ref. Add tests proving credential-bearing URL and option-like base refs are neither passed to Git nor present in poll output, receipts, logs, or status."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/errors.py:38-53; crooks-assistant/app/remote_engineering/controller.py:137-157; crooks-assistant/app/remote_engineering/status.py:71-91",
+      "finding": "Schema-error redaction still serializes attacker-controlled JSON key names. `redact_validation_error` copies every Pydantic `loc` segment verbatim; for a forbidden extra field, that segment is the rejected field name. A token placed in an unknown key name therefore survives in the malformed-record reason, cycle result, host log, and GitHub status projection. Existing tests cover a secret value but not a secret field name.",
+      "finding_id": "F-02",
+      "material": true,
+      "required_repair": "Emit only fixed schema error codes or whitelist known schema field labels; never copy arbitrary validation-location segments. Add a regression test using a credential-like unknown key and assert it is absent from controller outcomes, loop results, CLI output, and published status."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/inbox.py:72-97; crooks-assistant/app/remote_engineering/controller.py:137-157; crooks-assistant/app/remote_engineering/status.py:71-91",
+      "finding": "The claimed bounded source identifier is actually an unvalidated Git tree path. `discover_requests` returns arbitrary matching path names from the remote tree, and malformed-record handling copies that raw path into both `source` and `refusal_id`; status publishes both. A credential-like filename under `requests/` is therefore copied into the status branch and loop result.",
+      "finding_id": "F-03",
+      "material": true,
+      "required_repair": "Enforce a bounded canonical request-path format and length before using a discovered path, without echoing rejected path bytes. For records whose path is not safe, use an opaque digest-based locator only. Add tests with credential-like, control-character, nested, and oversized filenames proving raw path content never reaches receipts, results, logs, or status."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/inbox.py:29-47; crooks-assistant/scripts/remote_engineering.py:244-253",
+      "finding": "One-shot `poll` still leaks an invalid remote argument verbatim. `_validate_name`/`_validate_remote` include the rejected value in `InboxError`, and the CLI prints that exception as `REFUSED`. Supplying an authenticated URL by mistake therefore prints its credential, contrary to the earlier repair requirement that one-shot failures use bounded codes containing no URLs or credentials.",
+      "finding_id": "F-04",
+      "material": true,
+      "required_repair": "Do not include invalid remote, branch, directory, or ref input in externally printed validation errors; return fixed structured error codes. Add a one-shot CLI regression test with a synthetic credential-bearing remote URL and assert the credential and URL are absent from stdout and stderr."
+    }
+  ],
+  "reviewer": {
+    "clean": true,
+    "context_fresh": true,
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "read_only": true,
+    "session_id": "openai-response:resp_0f7a6677914706dd016ab513770f2c87d29a25df27f91ad9b4",
+    "session_started_at": "2026-09-24T12:11:34.122236Z",
+    "workspace_branch": "detached:05fe80463f75dce4bc6349ce471e4113f0b6a6b1",
+    "workspace_head": "05fe80463f75dce4bc6349ce471e4113f0b6a6b1",
+    "workspace_id": "git-objects:05fe80463f75dce4bc6349ce471e4113f0b6a6b1"
+  },
+  "schema_version": "clive.review_result.v1",
+  "summary": "The activation loop and prior atomicity/timing repairs are present, but several remote-controlled or operator-supplied strings can still bypass the claimed bounds and be copied into logs or the GitHub status projection. This exact SHA is not safe for host activation until ref validation and all output redaction paths are closed.\n\n[model gpt-5.6-sol, effort high, usage {\"input_tokens\": 45517, \"input_tokens_details\": {\"cache_write_tokens\": 45514, \"cached_tokens\": 0}, \"output_tokens\": 10803, \"output_tokens_details\": {\"reasoning_tokens\": 9836}, \"total_tokens\": 56320}]",
+  "task_id": "remote-engineering-control-v1-activation",
+  "task_revision": 1,
+  "verdict": "CHANGES_REQUIRED"
+}
