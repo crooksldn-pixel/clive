@@ -1,0 +1,34 @@
+[Unit]
+Description=CLIVE Remote Engineering Control V1 loop (engineering-only, pinned 4c32bb3d5f4935402c9cdc897914370950f7f206)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/srv/clive-engineering/remote-control/4c32bb3d5f4935402c9cdc897914370950f7f206/crooks-assistant
+ExecStart=/home/user/clive/crooks-assistant/.venv/bin/python /srv/clive-engineering/remote-control/4c32bb3d5f4935402c9cdc897914370950f7f206/crooks-assistant/scripts/remote_engineering.py \
+  --store /srv/clive-engineering/state/engineering \
+  --repo /srv/clive-engineering/repo \
+  --runtime-root /srv/clive-engineering/runtime \
+  --workspace-root /srv/clive-engineering/workers \
+  --publish-remote origin \
+  --gpt-api-key-file /root/.config/clive-engineering/openai_api_key \
+  --worker-cli /usr/local/bin/claude \
+  --worker-token-file /root/.config/clive-engineering/claude_oauth_token \
+  --check-ro-path /home/user/clive/crooks-assistant/.venv \
+  --check-ro-path /opt/node22 \
+  --max-concurrent 1 \
+  run --repository crooksldn-pixel/clive \
+  --product-memory-ref origin/claude/product-memory-truth-2026-09-23 \
+  --remote origin --interval 15
+Restart=on-failure
+RestartSec=60
+# The loop never needs to write its own source or any production service path.
+ReadOnlyPaths=/srv/clive-engineering/remote-control
+ReadOnlyPaths=-/opt/crooks-interactive
+ReadOnlyPaths=-/opt/crooks-os
+
+[Install]
+WantedBy=multi-user.target

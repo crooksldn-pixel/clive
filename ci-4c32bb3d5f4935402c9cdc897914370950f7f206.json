@@ -1,0 +1,86 @@
+{
+  "artifact": {
+    "acceptance": {
+      "accepted": false,
+      "eligible_for_acceptance_decision": true,
+      "human_approval_recorded": false,
+      "independent_review": "required",
+      "malformed_gates": [],
+      "mechanical_evidence": "complete",
+      "note": "Mechanical gates produce evidence, not permission. Eligibility means an independent principal may now review this exact SHA; it is not acceptance, and acceptance is never derived from this artifact alone.",
+      "unsatisfied_gates": []
+    },
+    "gates": [
+      {
+        "detail": "All checks passed!",
+        "exit_code": 0,
+        "name": "ruff",
+        "status": "pass"
+      },
+      {
+        "detail": "44 passed in 0.23s",
+        "exit_code": 0,
+        "name": "pytest_control_plane",
+        "status": "pass"
+      },
+      {
+        "detail": "}",
+        "exit_code": 0,
+        "name": "product_memory_structure",
+        "status": "pass"
+      },
+      {
+        "detail": "3341 passed, 14 skipped, 2 deselected in 195.67s (0:03:15)",
+        "exit_code": 0,
+        "name": "pytest_offline_full",
+        "status": "pass"
+      },
+      {
+        "detail": "\u001b[90m3:01PM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mno leaks found\u001b[0m",
+        "exit_code": 0,
+        "name": "secret_scan",
+        "status": "pass"
+      }
+    ],
+    "generated_at": "2026-09-24T15:01:02Z",
+    "name": "acceptance-4c32bb3d5f4935402c9cdc897914370950f7f206",
+    "repository": {
+      "branch": "HEAD",
+      "candidate_sha": "4c32bb3d5f4935402c9cdc897914370950f7f206",
+      "clean_worktree": true,
+      "committed_at": "2026-09-24T14:56:43Z",
+      "head_sha": "4c32bb3d5f4935402c9cdc897914370950f7f206",
+      "parents": [
+        "c6b63e10f244d85491cf09888eaa05652939e0c3"
+      ]
+    },
+    "run": {
+      "event": "push",
+      "job": "acceptance",
+      "provider": "github-actions",
+      "run_attempt": "1",
+      "run_id": "36016500843",
+      "run_url": "https://github.com/crooksldn-pixel/clive/actions/runs/36016500843",
+      "runner_os": "Linux",
+      "workflow": "acceptance"
+    }
+  },
+  "candidate_sha": "4c32bb3d5f4935402c9cdc897914370950f7f206",
+  "completed_at": "2026-09-24T15:01:09Z",
+  "conclusion": "success",
+  "head_sha": "4c32bb3d5f4935402c9cdc897914370950f7f206",
+  "reruns": [
+    {
+      "candidate_sha": "c6b63e10f244d85491cf09888eaa05652939e0c3",
+      "conclusion": "failure",
+      "note": "predecessor SHA; failed secret_scan and pytest_offline_full on a credential-shaped test literal, repaired by this commit",
+      "run_id": 36015482301
+    }
+  ],
+  "run_id": 36016500843,
+  "run_url": "https://github.com/crooksldn-pixel/clive/actions/runs/36016500843",
+  "schema": "clive.activation_ci_evidence.v1",
+  "started_at": "2026-09-24T14:56:47Z",
+  "status": "completed",
+  "workflow": "acceptance"
+}

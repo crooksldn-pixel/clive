@@ -875,3 +875,187 @@ repair with the fixes already identified above, and would take one more successo
 third (F-01) needs an owner decision on whether the remote protocol keeps the Director's own
 `request_id` as the public correlation handle — and, if not, a change to two protected paths
 that this run is not permitted to make.
+
+---
+
+# Round 4 - owner override: ACTIVATED on `4c32bb3d`, proof objective FAILED
+
+**The loop is live.** `clive-remote-engineering.service` is active, enabled, pinned to
+`4c32bb3d5f4935402c9cdc897914370950f7f206`, 0 restarts, production untouched.
+
+**The no-courier proof did not succeed.** Both queued requests were **refused** by the
+running loop for the same reason, and no worker ever ran. Root cause in R4o.6.
+
+## R4o.1 The owner decision, verbatim
+
+From `round-4/OVERRIDE.md` (`d54c9107…`, verified against `SHA256SUMS`):
+
+> **Decision (George, owner):** activate the remote engineering loop at
+> `71c4ed6af13d37d8c9d16179a553201c1e2de695`. Basis: full GitHub acceptance on that exact SHA
+> (run 36011018742, 3319 passed, secret scan clean); 17 of 20 material review findings repaired and
+> confirmed repaired across six reviews; the three open findings on `71c4ed6a` (credential-shaped
+> request ids, first-use claim durability, two overlapping controllers) do not arise when one unit
+> runs and only the owner and his Director write the inbox. They become the loop's second job.
+
+> It overrides one gate only: Gate B READY for the loop's own code. Everything the loop builds
+> afterwards is still gated by CI and the independent exact-SHA review as normal.
+
+Superseded in the same session by owner direction: re-take the `prod_state` baseline; activate
+on the newest successor (`4c32bb3d`) rather than `71c4ed6a` since it already repairs F-01 to
+F-03; treat `request-open-findings.json` as superseded and do not submit it; run Gate B once for
+the record only and activate regardless; write any remaining material findings as one new inbox
+request based on the activated SHA and submit it alongside the operational-alpha proof request;
+author no further repairs.
+
+## R4o.2 A stop that was raised and then resolved by the owner
+
+Before activating, this session stopped. `/opt/crooks-interactive/.gitleaks-baseline.json` — a
+secret-scanning baseline in a production checkout — was modified at 14:42:46Z, adding a
+suppression for `…/HumanisingTests.swift:generic-api-key:127`: exactly the finding the
+operational-alpha request forbids fixing that way, for a file not even present at that
+checkout's HEAD. 54 `.pyc` files showed pytest had run inside production in the same minute, and
+the edit was reverted at 14:53:25Z. The `prod_state` baseline taken at 14:47Z consequently
+already differed from live state through no action of this session, which is what made the
+production-untouched gate unable to produce evidence.
+
+The owner identified it as his own work in another window, confirmed it was reverted and never
+needed, and undertook not to touch `/opt` again during activation. The baseline was re-taken at
+15:02Z against a clean, stable state, and only diffs after that baseline are treated as evidence.
+Recorded because the first baseline is published beside this report and does not match.
+
+## R4o.3 A regression this session introduced, and repaired
+
+`c6b63e10` (successor 6, the CONTINUE.md repairs) **failed its acceptance run**
+([36015482301](https://github.com/crooksldn-pixel/clive/actions/runs/36015482301)) on two gates
+with one cause: the new F-01 tests needed credential-shaped ids and they were written as
+literals, so `secret_scan` reported "leaks found: 1", and
+`test_acceptance_provenance::test_a_new_secret_still_fails_the_gate` failed with it because its
+control assertion needs a clean tree. That is precisely the coupling the operational-alpha
+request describes, and the fix it prescribes: `4c32bb3d` assembles the values at runtime from a
+bare prefix and a repeating body, so no credential-shaped literal exists in source. `ci-c6b63e10…json`
+is published beside this report so the failure is on the record, not just its repair.
+
+## R4o.4 The activated SHA
+
+| Field | Value |
+|---|---|
+| Activated SHA | `4c32bb3d5f4935402c9cdc897914370950f7f206` |
+| Gate A | [36016500843](https://github.com/crooksldn-pixel/clive/actions/runs/36016500843) — success, `mechanical_evidence: complete`, `eligible: true`, no unsatisfied or malformed gate, **3341 passed**, secret_scan "no leaks found" |
+| Gate B | **CHANGES_REQUIRED**, 3 material — run for the record only, activation proceeded under the override |
+| Protected paths touched | none (`protected_hits: []`) |
+
+Gate B findings on the activated SHA, all material, all now queued as the loop's own second job
+(`request-review-findings.json`, published beside this report):
+
+| ID | Finding |
+|---|---|
+| F-01 | A valid slug can still *be* a secret (`prod-password-hunter2`), and `request_id` is still persisted and published verbatim. The earlier required opaque-id repair remains unimplemented. |
+| F-02 | The slug pattern admits ids up to 135 characters while `Claim.request_id` and `Receipt.request_id` cap at 120, and the claim is built outside the guarded intake block — so a 121–135 character request fails repeatedly without ever earning a durable decision, and one-shot `poll` can echo the supplied id through a raw `ValidationError`. Introduced by this session in `c6b63e10`. |
+| F-03 | The atomic claim keeps a concurrent window: the winner may be descheduled after `os.link` but before the directory fsync, and the loser returns from `_write_once` without fsyncing, then may enter lifecycle intake. |
+
+## R4o.5 Activation sequence, as executed
+
+1. `prod_state` baseline re-taken 15:02Z; both `/opt` checkouts on the git branch of the
+   function and clean; stable across samples.
+2. RUNBOOK §6 precondition re-checked: all six objectives COMPLETE / OWNER_GATE / BLOCKED, so
+   none would be advanced by the loop starting. No dispatcher running.
+3. RUNBOOK §5, no-receipt branch (the receipts store did not exist): the superseded
+   `requests/remote-engineering-control-v1-activation-readiness.json` was `git rm`'d on a fresh
+   worktree of the inbox branch and pushed fast-forward, `cc9ab838..4cc17f84`.
+4. Pinned `$E/remote-control/4c32bb3d…`, HEAD exact, worktree clean; fetched
+   `origin/claude/product-memory-truth-2026-09-23` (`07459b85`).
+5. **Smoke cycle**, `--max-cycles 1`, foreground: exit 0, `projection_commit`
+   `a540ae355fce0ee1cbdb748dc03c88ea72a957ea`, `intake_error` null, `publish_error` null, and
+   `origin/clive/control/status:status.json` created and publicly readable (HTTP 200). No
+   `DispatcherBusy`. Production diff empty.
+6. Unit installed from the template with `__SHA__`, `__PYTHON__`, `__VENV__` filled and the
+   proven flag set — `--check-ro-path /opt/node22` beside the venv, as the first report's §1.2
+   recorded from 19 prior dispatcher runs. `daemon-reload`, `enable --now`.
+7. Verified: active, enabled, **2+ cycles** in `journalctl`, `NRestarts=0`, production diff empty.
+
+The installed unit text is published beside this report as
+`clive-remote-engineering.service`.
+
+## R4o.6 The proof objective failed, and why
+
+Both requests were committed to `origin/clive/control/owner-inbox` in one fast-forward commit
+(`4cc17f84..52b86313`) and both were validated against the running code's own schema before
+submission. `request-open-findings.json` was **not** submitted: superseded, per owner direction.
+
+Watching only `clive/control/status:status.json`, the loop picked both up within two cycles and
+**refused both**:
+
+```
+operational-alpha-acceptance-repair  -> refused   objective: null   task: null
+remote-engineering-review-findings   -> refused   objective: null   task: null
+```
+
+> "the store has uncommitted changes (engineering/remote_engineering/claims/operational-alpha-acceptance-repair.json);
+> a verb would sweep them into its journal commit as its own: commit or discard them first; nothing was written"
+
+**Root cause.** The engineering store is journalled (`/srv/clive-engineering/state/.git`), and
+`journal_preconditions` refuses any journalled verb when anything under the store is modified or
+untracked. The claim introduced in `71c4ed6a` is written *into the store* at
+`engineering/remote_engineering/claims/<id>.json` **before** `intake()` — which is exactly what
+the round-4 review required ("persist an atomic immutable claim … before any lifecycle write").
+That untracked claim therefore makes `intake()` fail its own precondition; the controller catches
+the refusal and writes a **refused receipt**, which is immutable. The request id is then burned:
+a replay of the same bytes returns the stored refusal for ever.
+
+So the claim-before-intake repair, as specified by the review and implemented across
+`71c4ed6a`…`4c32bb3d`, is **incompatible with a journalled store**. Nothing caught it: every
+unit test constructs the kernel with `journal=False`, and CI runs the same tests, so six exact-SHA
+reviews and 3341 passing tests never exercised this path. The first real objective did, within
+two minutes of activation. That is the dogfood working exactly as intended — it is the one
+failure mode none of the machinery could find by inspection.
+
+**Consequences, as they stand:**
+
+- the loop is live and stable (it re-reads the stored receipts and writes nothing further), but
+  **it cannot admit any work** in this configuration;
+- both request ids are spent; resubmitting the same bytes replays the refusal, so the work needs
+  new request ids once the cause is fixed;
+- the store now holds untracked adapter files (`engineering/remote_engineering/`), which will
+  refuse **any** journalled kernel verb — including the canonical dispatcher run by hand — until
+  they are committed or removed.
+
+Nothing was done about any of this: the store was not edited by hand (§0 forbids it), no repair
+was authored (owner direction), and the unit was left running (the owner's decision to activate).
+Candidate CI conclusions for the two objectives: **none exist** — no worker ran, no candidate SHA
+was produced, and no `clive/objective/…` ref was created.
+
+## R4o.7 Production and store state
+
+Final `prod_state` diff against the 15:02Z baseline: **empty**. `/opt/crooks-os`
+`ca388ceeedb54cfd495fb2b5205ec2184db9ccae`, `/opt/crooks-interactive`
+`31fb755360ae40959c14d608de0035815c41cc40`, both with tracked-file dirty hash
+`e3b0c44298fc1c14` (no modified tracked file), both units `active`, unit-file hash unchanged.
+The six pre-existing objectives are in exactly the stages recorded at first discovery; the
+OWNER_GATE and BLOCKED items were not resumed, lifted or altered. No credential value was read,
+printed, copied or committed.
+
+## R4o.8 Deviations
+
+1. **Activated `4c32bb3d`, not `71c4ed6a`** — owner direction superseding the SHA in OVERRIDE.md.
+2. **`request-open-findings.json` was not submitted** — superseded by owner direction, because the
+   activated SHA already repairs its three findings; its replacement
+   `request-review-findings.json` carries the activated SHA's own open findings instead.
+3. **Gate B was run once and ignored for the activation decision**, per owner direction; its
+   three material findings were queued rather than repaired.
+4. **A repair was authored after the STOP** (`4c32bb3d`) — but only to undo this session's own
+   `c6b63e10` regression that had left the shared branch failing `secret_scan`. It advanced no
+   gate and was not a review repair.
+5. **The run stopped once before activating** (R4o.2) and resumed only on owner direction.
+
+No protected path, frozen kernel, test assertion, secret-scanning rule, CI workflow or acceptance
+machinery was weakened. No force-push, no amended commit, no rewritten SHA. The engineering store
+was never edited by hand.
+
+## R4o.9 Where this leaves the work
+
+The loop is live on `4c32bb3d`, with full GitHub acceptance for that exact SHA and three open
+material findings queued as its own second job. It cannot admit that job, or any other, until
+claim-before-intake is reconciled with the journalled store — for example by placing claims
+outside the journalled store, exempting the adapter's own directory in the precondition (a
+protected path), or running the loop with `--no-journal`. That decision is the owner's; it is
+also the first thing the loop would need in order to do any work at all.

@@ -1,0 +1,1 @@
+{"dispatcher_events": [], "intake_error": null, "outcomes": [], "projection_commit": "a540ae355fce0ee1cbdb748dc03c88ea72a957ea", "publish_error": null}

@@ -1,0 +1,44 @@
+{
+  "attempt_id": "4c32bb3d5f49-exact-sha-review",
+  "candidate_sha": "4c32bb3d5f4935402c9cdc897914370950f7f206",
+  "findings": [
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/requests.py:21-30; crooks-assistant/app/remote_engineering/controller.py:99-116,174-224; crooks-assistant/app/remote_engineering/status.py:51-62; packet section \u201cFindings of the earlier review of abaefa52\u201d, F-01",
+      "finding": "The requester-selected request_id is still persisted and published verbatim. Restricting it to a readable slug does not prevent it from being a credential: a real secret such as `prod-password-hunter2` satisfies the regex. Such an ID becomes the objective/task ID, claim and receipt key/content, source path, CLI outcome, and public status field. The tests only use credential-shaped values that the chosen regex rejects, so they do not prove the frozen requirement that no credential value can reach adapter records, output, or projection. This also does not implement the earlier review's required opaque-ID repair.",
+      "finding_id": "F-01",
+      "material": true,
+      "required_repair": "Derive a stable domain-separated opaque identifier from request_id and use only that identifier for claims, receipts, objective/task correlation, target branches, source locators, diagnostics, CLI output, and status projection. Store a separate one-way ID hash plus the request-byte digest to preserve same-ID/different-bytes detection. Add a test using a schema-valid slug-shaped value that is treated as an actual secret and prove its absence from all adapter records, lifecycle identifiers, output, errors, and the status commit."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/requests.py:21-30,35-48; crooks-assistant/app/remote_engineering/receipts.py:91-103,134-141; crooks-assistant/app/remote_engineering/controller.py:174-190; crooks-assistant/scripts/remote_engineering.py:243-248",
+      "finding": "The request schema accepts IDs longer than the Claim and Receipt models permit. The slug regex permits up to 135 characters, while Claim.request_id and Receipt.request_id have max_length=120. Claim construction occurs outside the controller's guarded intake block, so a schema-valid 121\u2013135 character request repeatedly fails before receiving an accepted/refused record. In one-shot `poll`, the outer ValueError handler prints the raw Pydantic ValidationError, which can include the supplied ID. This violates valid-request processing, outbound accepted/refused visibility, and the no-echo requirement.",
+      "finding_id": "F-02",
+      "material": true,
+      "required_repair": "Make the externally valid ID domain compatible with every downstream record and canonical identifier, preferably by applying the opaque fixed-length mapping required by F-01. Ensure every schema-valid request reaches a durable accepted/refused decision or a safely redacted schema refusal, and add boundary tests for the maximum permitted raw ID in both `run` and one-shot `poll` modes."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/receipts.py:68-91,151-174; crooks-assistant/app/remote_engineering/controller.py:174-211; crooks-assistant/tests/test_remote_engineering.py:test_two_claims_for_the_same_bytes_converge_on_one_record",
+      "finding": "The atomic claim still has a concurrent crash-durability window. When two processes race, the winner links its fsynced temporary file and may be descheduled before fsyncing the claims directory. The loser sees FileExistsError and returns from `_write_once` without fsyncing that directory, then reads the claim and may perform lifecycle intake. A crash after that lifecycle write but before the winner's directory fsync can lose the claim link, recreating the missing-provenance window that the claim is intended to close. The supplied convergence test invokes the two writes sequentially and does not cover this schedule.",
+      "finding_id": "F-03",
+      "material": true,
+      "required_repair": "On the FileExists loser path, fsync the containing directory before returning and before any caller can proceed to lifecycle intake; then reload and validate the winning record. Add a barrier-based concurrent fault-ordering test that pauses the winner immediately after link publication, lets the loser complete claiming, and proves the directory has been flushed before the loser can enter intake."
+    }
+  ],
+  "reviewer": {
+    "clean": true,
+    "context_fresh": true,
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "read_only": true,
+    "session_id": "openai-response:resp_0ca6b21941e5b815016ab53b752d0087d2bfbb4f292bb2d69c",
+    "session_started_at": "2026-09-24T15:02:11.660651Z",
+    "workspace_branch": "detached:4c32bb3d5f4935402c9cdc897914370950f7f206",
+    "workspace_head": "4c32bb3d5f4935402c9cdc897914370950f7f206",
+    "workspace_id": "git-objects:4c32bb3d5f4935402c9cdc897914370950f7f206"
+  },
+  "schema_version": "clive.review_result.v1",
+  "summary": "The candidate passes the reported mechanical suite, but it does not meet the activation gate. Request IDs can still carry secrets into durable and public state, the request/claim length contracts are inconsistent, and concurrent claim creation retains a crash window before authoritative lifecycle writes.\n\n[model gpt-5.6-sol, effort high, usage {\"input_tokens\": 83318, \"input_tokens_details\": {\"cache_write_tokens\": 83315, \"cached_tokens\": 0}, \"output_tokens\": 7557, \"output_tokens_details\": {\"reasoning_tokens\": 6575}, \"total_tokens\": 90875}]",
+  "task_id": "remote-engineering-control-v1-activation",
+  "task_revision": 1,
+  "verdict": "CHANGES_REQUIRED"
+}
