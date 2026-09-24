@@ -1,0 +1,438 @@
+From 11ab9070650abd12a7f8f990e462d5d328f2fbd9 Mon Sep 17 00:00:00 2001
+From: "Claude Opus 5.5 (CLIVE engineering)" <claude-opus-5-5@clive.invalid>
+Date: Thu, 24 Sep 2026 13:52:00 +0000
+Subject: [PATCH] Contain every decoder failure and echo nothing supplied in
+ any refusal
+
+Repairs the two material findings of the GPT exact-SHA review of
+ca047b8963bcbf7124f71037a2fa14fc4853ab8d (activation successor 4), and
+closes the same class one step further out.
+
+F-01 parse_request turns every decoder failure into a refusal: besides
+malformed UTF-8 and JSON, RecursionError (deep nesting) and ValueError
+(integer beyond the digit limit), and the same around model validation.
+The loop also contains any other unexpected intake failure as the fixed
+INTAKE_UNAVAILABLE sentence and still ticks the Dispatcher, while
+journal, lifecycle and store-conflict errors still stop it (fail closed).
+
+F-02 The inbox directory is no longer operator input: the CLI flag is
+removed, the config value must be one plain path component (refused
+without echo), and receipts, outcomes and the projection name records
+by the fixed label "requests/..." whatever the configured directory is.
+
+Same class: intake refusals from the Objective door quoted rejected
+values (e.g. an allowed path) into receipts and the public projection.
+Refusal reasons now have every quoted literal and every supplied string
+redacted; schema refusals redact supplied strings too.
+
+17 new regression tests; each fails on ca047b89 and passes here.
+Existing assertions unchanged. No protected path touched. Authored by
+Claude Opus 5.5.
+---
+ .../app/remote_engineering/controller.py      |  20 +++-
+ .../app/remote_engineering/errors.py          |  56 ++++++++++
+ .../app/remote_engineering/inbox.py           |  33 +++---
+ .../app/remote_engineering/requests.py        |  20 ++--
+ .../app/remote_engineering/runner.py          |   7 +-
+ .../scripts/remote_engineering.py             |   3 -
+ .../tests/test_remote_engineering.py          | 101 ++++++++++++++++++
+ 7 files changed, 214 insertions(+), 26 deletions(-)
+
+diff --git a/crooks-assistant/app/remote_engineering/controller.py b/crooks-assistant/app/remote_engineering/controller.py
+index 2f58b9be..75673b92 100644
+--- a/crooks-assistant/app/remote_engineering/controller.py
++++ b/crooks-assistant/app/remote_engineering/controller.py
+@@ -33,13 +33,21 @@ from app.orchestrator.objectives import (
+ )
+ from app.orchestrator.store import RecordConflictError
+ 
+-from .errors import InboxError, RequestContentChanged, RequestSchemaError, redact_validation_error
++from .errors import (
++    InboxError,
++    RequestContentChanged,
++    RequestSchemaError,
++    redact_refusal,
++    redact_validation_error,
++    supplied_strings,
++)
+ from .inbox import (
+     DEFAULT_INBOX_BRANCH,
+     DEFAULT_INBOX_DIRECTORY,
+     bounded_source,
+     discover_requests,
+     fetch_inbox,
++    validate_inbox_directory,
+ )
+ from .receipts import Receipt, ReceiptLog
+ from .requests import RemoteObjectiveRequest, parse_request
+@@ -66,6 +74,11 @@ class RemoteControllerConfig:
+     inbox_branch: str = DEFAULT_INBOX_BRANCH
+     inbox_directory: str = DEFAULT_INBOX_DIRECTORY
+ 
++    def __post_init__(self) -> None:
++        # One plain path component, refused without echo; and whatever it is, it is never
++        # serialized: receipts and the projection name records by a fixed label (inbox.py).
++        validate_inbox_directory(self.inbox_directory)
++
+ 
+ def objective_from_request(
+     request: RemoteObjectiveRequest,
+@@ -205,6 +218,11 @@ class RemoteController:
+                 if isinstance(exc, ValidationError)
+                 else str(exc)
+             )
++            # Validators downstream (the Objective door, the kernel) quote what they reject,
++            # sometimes normalised; no supplied value may reach a receipt or the projection.
++            reason = redact_refusal(
++                reason, supplied_strings(request.model_dump(mode="json")), keep=(request.request_id,)
++            )
+             refusal = Receipt(
+                 request_id=request.request_id,
+                 request_sha256=digest,
+diff --git a/crooks-assistant/app/remote_engineering/errors.py b/crooks-assistant/app/remote_engineering/errors.py
+index 57154ff2..4d18f606 100644
+--- a/crooks-assistant/app/remote_engineering/errors.py
++++ b/crooks-assistant/app/remote_engineering/errors.py
+@@ -2,6 +2,9 @@
+ 
+ from __future__ import annotations
+ 
++import re
++from collections.abc import Iterable
++
+ from pydantic import ValidationError
+ 
+ __all__ = [
+@@ -11,7 +14,10 @@ __all__ = [
+     "RequestSchemaError",
+     "REDACTED",
+     "TransportError",
++    "redact_refusal",
++    "redact_supplied",
+     "redact_validation_error",
++    "supplied_strings",
+ ]
+ 
+ 
+@@ -83,3 +89,53 @@ def redact_validation_error(exc: ValidationError, *, known: frozenset[str] = fro
+         loc = ".".join(_safe_segment(part, known) for part in error["loc"])
+         parts.append(f"{loc}: {error['msg']}" if loc else error["msg"])
+     return "; ".join(parts)
++
++
++_MAX_SUPPLIED_STRINGS = 4096
++_QUOTED = re.compile(r"'(?:[^'\\\n]|\\.)*'|\"(?:[^\"\\\n]|\\.)*\"")
++
++
++def supplied_strings(value: object) -> list[str]:
++    """Every string a requester supplied inside ``value``, keys and values, without recursion.
++
++    Iterative, so a deeply nested record cannot exhaust the stack, and capped, so a record
++    with very many strings cannot make redaction itself unbounded.
++    """
++    out: list[str] = []
++    stack: list[object] = [value]
++    while stack and len(out) < _MAX_SUPPLIED_STRINGS:
++        item = stack.pop()
++        if isinstance(item, str):
++            out.append(item)
++        elif isinstance(item, dict):
++            stack.extend(item.keys())
++            stack.extend(item.values())
++        elif isinstance(item, (list, tuple)):
++            stack.extend(item)
++    return out
++
++
++def redact_supplied(text: str, supplied: Iterable[str], *, keep: Iterable[str] = ()) -> str:
++    """``text`` with every supplied string (and its ``repr`` form) replaced by ``<redacted>``.
++
++    Longest first, so a value containing another is removed whole. Strings shorter than three
++    characters are left: they cannot carry a credential and would only mangle fixed wording.
++    ``keep`` names values already published beside the text (the request id).
++    """
++    kept = set(keep)
++    for value in sorted({s for s in supplied if len(s) >= 3 and s not in kept}, key=len, reverse=True):
++        for form in (value, repr(value)[1:-1]):
++            if form and form in text:
++                text = text.replace(form, REDACTED)
++    return text
++
++
++def redact_refusal(text: str, supplied: Iterable[str], *, keep: Iterable[str] = ()) -> str:
++    """A refusal reason safe to record and publish: quoted literals and supplied strings removed.
++
++    Validators downstream of the adapter (the canonical Objective door, the kernel) quote the
++    values they reject, and some normalise them first, so a supplied value can appear quoted
++    in a form that is not byte-equal to what was supplied. Every quoted literal is therefore
++    redacted outright, and any supplied string still present unquoted is redacted after it.
++    """
++    return redact_supplied(_QUOTED.sub(f"'{REDACTED}'", text), supplied, keep=keep)
+diff --git a/crooks-assistant/app/remote_engineering/inbox.py b/crooks-assistant/app/remote_engineering/inbox.py
+index c9e94a52..a7e916d8 100644
+--- a/crooks-assistant/app/remote_engineering/inbox.py
++++ b/crooks-assistant/app/remote_engineering/inbox.py
+@@ -36,6 +36,14 @@ MAX_DISCOVERY_S = 60.0
+ 
+ _NAME_RE = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
+ _REMOTE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
++_DIRECTORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
++
++
++def validate_inbox_directory(value: str) -> str:
++    """One plain path component under which request files live. Refused without echo."""
++    if not isinstance(value, str) or not _DIRECTORY_RE.fullmatch(value):
++        raise InboxError("inbox directory must be one plain path component")
++    return value
+ 
+ 
+ def _validate_name(value: str, *, what: str) -> str:
+@@ -151,7 +159,7 @@ def discover_requests(
+     from the snapshot and raises ``InboxBoundExceeded`` with fixed text.
+     """
+     deadline = time.monotonic() + MAX_DISCOVERY_S
+-    directory = directory.strip("/")
++    directory = validate_inbox_directory(directory.strip("/"))
+     listing = _bounded_git(
+         repo, ["ls-tree", "-r", "-z", "-l", ref_sha, "--", directory],
+         limit=MAX_LISTING_BYTES, deadline=deadline, what="listing",
+@@ -181,18 +189,15 @@ def discover_requests(
+ 
+ 
+ def bounded_source(directory: str, name: str, digest: str, request_id: str | None) -> str:
+-    """The discovered path only when it is the request's own id, else an opaque locator.
+-
+-    A filename under the inbox directory is chosen by whoever opened the request, so it
+-    is exactly as untrusted as the file's content -- and a bounded character set is no
+-    defence here, because a credential is alphanumeric and ``sk-....json`` is a perfectly
+-    well-formed filename. ``source`` is written into a durable receipt and published on a
+-    public branch, so the only path safe to echo is one that repeats nothing the
+-    projection does not already carry: ``<directory>/<request_id>.json``, where the id is
+-    already published beside it. Every other path -- nested, oddly named, or simply not
+-    matching its own id -- and every record too malformed to have a trusted id at all is
+-    identified by the digest of its exact bytes, which is what a receipt keys on anyway.
++    """A locator for one inbox record that repeats nothing a requester or operator chose.
++
++    A filename under the inbox directory is chosen by whoever opened the request, so it is
++    exactly as untrusted as the file's content, and the directory itself is host configuration
++    that must not be echoed either. The locator therefore uses the fixed label
++    ``DEFAULT_INBOX_DIRECTORY`` whatever the configured directory is: ``requests/<id>.json``
++    when the record sits at ``<directory>/<request_id>.json`` (the id is already published
++    beside it), otherwise ``requests/#<sha256 of its exact bytes>``.
+     """
+     if request_id is not None and name == f"{directory}/{request_id}.json":
+-        return name
+-    return f"{directory}/#{digest}"
++        return f"{DEFAULT_INBOX_DIRECTORY}/{request_id}.json"
++    return f"{DEFAULT_INBOX_DIRECTORY}/#{digest}"
+diff --git a/crooks-assistant/app/remote_engineering/requests.py b/crooks-assistant/app/remote_engineering/requests.py
+index 608cbebb..b74945f9 100644
+--- a/crooks-assistant/app/remote_engineering/requests.py
++++ b/crooks-assistant/app/remote_engineering/requests.py
+@@ -17,7 +17,7 @@ from pydantic import Field, ValidationError, field_validator
+ from app.orchestrator.contracts import ExactSha, StrictRecord, validate_exact_sha
+ from app.orchestrator.objectives import Check
+ 
+-from .errors import RequestSchemaError, redact_validation_error
++from .errors import RequestSchemaError, redact_supplied, redact_validation_error, supplied_strings
+ 
+ REQUEST_SCHEMA = "clive.remote_engineering_request.v1"
+ # Bounded and safe to use as a filename and a record identity, but deliberately no
+@@ -66,13 +66,18 @@ REQUEST_LABELS = frozenset(RemoteObjectiveRequest.model_fields) | frozenset(Chec
+ 
+ 
+ def parse_request(raw: bytes) -> RemoteObjectiveRequest:
+-    """Parse and validate one request's exact bytes. Fails closed on anything unexpected."""
++    """Parse and validate one request's exact bytes. Fails closed on anything unexpected.
++
++    Every decoder failure is a refusal, not a crash: besides malformed UTF-8 and JSON, Python's
++    decoder raises ``RecursionError`` on deeply nested input and ``ValueError`` on an integer
++    beyond the interpreter's digit limit, and either would otherwise escape into the loop.
++    """
+     try:
+         data = json.loads(raw.decode("utf-8"))
+-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
++    except (UnicodeDecodeError, ValueError, RecursionError):
+         # Never ``{exc}``: a decode error quotes the offending bytes and a JSON error can
+         # quote the offending token, either of which is rejected content verbatim.
+-        raise RequestSchemaError("request is not valid UTF-8 JSON") from exc
++        raise RequestSchemaError("request is not valid UTF-8 JSON") from None
+     if not isinstance(data, dict):
+         raise RequestSchemaError("request must be a JSON object")
+     if data.get("schema_version") != REQUEST_SCHEMA:
+@@ -82,6 +87,7 @@ def parse_request(raw: bytes) -> RemoteObjectiveRequest:
+     try:
+         return RemoteObjectiveRequest.model_validate(data)
+     except ValidationError as exc:
+-        raise RequestSchemaError(
+-            f"request does not match {REQUEST_SCHEMA}: {redact_validation_error(exc, known=REQUEST_LABELS)}"
+-        ) from exc
++        detail = redact_supplied(redact_validation_error(exc, known=REQUEST_LABELS), supplied_strings(data))
++        raise RequestSchemaError(f"request does not match {REQUEST_SCHEMA}: {detail}") from None
++    except (ValueError, RecursionError):
++        raise RequestSchemaError(f"request does not match {REQUEST_SCHEMA}") from None
+diff --git a/crooks-assistant/app/remote_engineering/runner.py b/crooks-assistant/app/remote_engineering/runner.py
+index 9933833f..4c71f526 100644
+--- a/crooks-assistant/app/remote_engineering/runner.py
++++ b/crooks-assistant/app/remote_engineering/runner.py
+@@ -29,7 +29,8 @@ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ 
+-from app.orchestrator.lifecycle import LifecycleStore
++from app.orchestrator.lifecycle import JournalError, LifecycleError, LifecycleStore
++from app.orchestrator.store import RecordConflictError, StateConflictError
+ 
+ from .controller import RemoteController
+ from .errors import InboxBoundExceeded, InboxError, RequestContentChanged
+@@ -63,6 +64,10 @@ class RemoteEngineeringLoop:
+             outcomes, intake_error = [], INTAKE_OVER_BOUND
+         except TRANSPORT_ERRORS:
+             outcomes, intake_error = [], INTAKE_UNAVAILABLE
++        except (JournalError, LifecycleError, RecordConflictError, StateConflictError):
++            raise  # authoritative-state failures stop the loop: fail closed
++        except Exception:  # noqa: BLE001 -- untrusted inbox content must never end supervision
++            outcomes, intake_error = [], INTAKE_UNAVAILABLE
+         else:
+             # A schema-invalid record earns no receipt -- nothing was decided about an id --
+             # so the controller keys its refusal by source and digest instead, and that key
+diff --git a/crooks-assistant/scripts/remote_engineering.py b/crooks-assistant/scripts/remote_engineering.py
+index 3b70d5a1..34d2650c 100644
+--- a/crooks-assistant/scripts/remote_engineering.py
++++ b/crooks-assistant/scripts/remote_engineering.py
+@@ -47,7 +47,6 @@ from app.orchestrator.store import RecordConflictError, StateConflictError  # no
+ from app.orchestrator.workers import ClaudeCodeWorker  # noqa: E402
+ from app.remote_engineering import (  # noqa: E402
+     DEFAULT_INBOX_BRANCH,
+-    DEFAULT_INBOX_DIRECTORY,
+     DEFAULT_STATUS_BRANCH,
+     DEFAULT_STATUS_HEARTBEAT_S,
+     DEFAULT_STATUS_PATH,
+@@ -75,7 +74,6 @@ def _add_transport_args(parser: argparse.ArgumentParser) -> None:
+     parser.add_argument("--product-memory-ref", required=True, help="product-memory truth ref bound by the host")
+     parser.add_argument("--remote", default="origin", help="configured remote name, never a URL")
+     parser.add_argument("--branch", default=DEFAULT_INBOX_BRANCH)
+-    parser.add_argument("--directory", default=DEFAULT_INBOX_DIRECTORY)
+ 
+ 
+ def build_parser() -> argparse.ArgumentParser:
+@@ -146,7 +144,6 @@ def _controller(args, kernel: Kernel, objectives: ObjectiveStore, receipts: Rece
+         product_memory_ref=args.product_memory_ref,
+         remote=args.remote,
+         inbox_branch=args.branch,
+-        inbox_directory=args.directory,
+     )
+     return RemoteController(kernel=kernel, objectives=objectives, config=config, receipts=receipts)
+ 
+diff --git a/crooks-assistant/tests/test_remote_engineering.py b/crooks-assistant/tests/test_remote_engineering.py
+index 15f075a6..fa1d2c60 100644
+--- a/crooks-assistant/tests/test_remote_engineering.py
++++ b/crooks-assistant/tests/test_remote_engineering.py
+@@ -1024,3 +1024,104 @@ def test_the_published_tree_is_built_nul_delimited_and_holds_one_file(env):
+     commit = publish_status(env.checkout, _status_at(NOW), path="status.json")
+     _git(env.checkout, "fetch", "-q", "origin", f"+refs/heads/{DEFAULT_STATUS_BRANCH}:refs/remotes/origin/{DEFAULT_STATUS_BRANCH}")
+     assert _git(env.checkout, "ls-tree", "-r", "--name-only", commit).splitlines() == ["status.json"]
++
++
++# ------------------------------------ activation successor 4: decoder containment and nothing supplied echoed
++
++import dataclasses  # noqa: E402
++
++from app.orchestrator.lifecycle import JournalError  # noqa: E402
++from app.remote_engineering.errors import REDACTED  # noqa: E402
++
++DEEP = b'{"schema_version": "clive.remote_engineering_request.v1", "x": ' + b"[" * 20000 + b"]" * 20000 + b"}"
++HUGE_INT = b'{"schema_version": "clive.remote_engineering_request.v1", "x": 1' + b"1" * 5000 + b"}"
++
++
++@pytest.mark.parametrize("raw", [DEEP, HUGE_INT, b"[" * 30000 + b"]" * 30000], ids=["deep-object", "huge-int", "deep-array"])
++def test_decoder_failures_are_refusals_never_crashes(raw):
++    assert len(raw) < inbox_module.MAX_RECORD_BYTES * 2
++    with pytest.raises(RequestSchemaError) as refusal:
++        parse_request(raw)
++    assert "1111" not in str(refusal.value) and "[[[" not in str(refusal.value)
++
++
++def test_a_deeply_nested_inbox_record_is_refused_and_the_dispatcher_still_ticks(env, tmp_path):
++    assert len(DEEP) < inbox_module.MAX_RECORD_BYTES
++    _commit_raw(env.origin, {"requests/r-deep.json": DEEP})
++    kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
++    ticker = _Ticker()
++    result = _loop(controller, ticker, kernel.store, lambda status: "f" * 40).cycle()
++    assert ticker.calls == 1 and result["intake_error"] is None
++    assert [o["outcome"] for o in result["outcomes"]] == ["refused"]
++    assert _admitted_nothing(kernel)
++
++
++def test_an_unexpected_intake_failure_is_contained_but_journal_failures_still_stop(tmp_path):
++    store = LifecycleStore(tmp_path / "engineering")
++
++    class Explodes:
++        def __init__(self, exc):
++            self.exc = exc
++
++        def poll_once(self):
++            raise self.exc
++
++    ticker = _Ticker()
++    result = _loop(Explodes(RecursionError("deep")), ticker, store, lambda status: "a" * 40).cycle()
++    assert ticker.calls == 1 and result["intake_error"] == INTAKE_UNAVAILABLE
++    assert "deep" not in json.dumps(result, default=str)
++    with pytest.raises(JournalError):
++        _loop(Explodes(JournalError("store")), _Ticker(), store, lambda status: "a" * 40).cycle()
++
++
++@pytest.mark.parametrize(
++    "directory", ["", "../requests", "a/b", "req uests", ".requests", "r" * 65, SECRET_URL],
++    ids=["empty", "parent", "nested", "space", "dot", "long", "url"],
++)
++def test_an_inbox_directory_must_be_one_plain_component_and_is_never_echoed(env, directory):
++    with pytest.raises(InboxError) as refusal:
++        RemoteControllerConfig(repo=env.checkout, repository="crooksldn-pixel/clive",
++                               product_memory_ref="main", inbox_directory=directory)
++    assert directory not in str(refusal.value) or directory == ""
++
++
++def test_a_configured_inbox_directory_never_reaches_receipts_outcomes_or_the_projection(env, tmp_path):
++    good = valid_request(env, request_id="r-dir1")
++    _commit_raw(env.origin, {
++        f"{TOKEN_SHAPED}/r-dir1.json": json.dumps(good).encode(),
++        f"{TOKEN_SHAPED}/odd-name.json": b"not json",
++    })
++    kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
++    controller.config = dataclasses.replace(controller.config, inbox_directory=TOKEN_SHAPED)
++    outcomes = controller.poll_once()
++    refusals = tuple(item for item in outcomes if "refusal_id" in item)
++    status = build_status(store=kernel.store, receipts=receipts, now=NOW, refusals=refusals)
++    everything = json.dumps({"outcomes": outcomes, "status": status}, default=str)
++    assert TOKEN_SHAPED not in everything
++    assert {o.get("source") for o in outcomes} == {"requests/r-dir1.json", f"requests/#{refusals[0]['request_sha256']}"}
++
++
++def test_the_cli_no_longer_accepts_an_inbox_directory(tmp_path):
++    with pytest.raises(SystemExit):
++        cli.build_parser().parse_args([
++            "--store", "x", "--repo", "y", "poll", "--repository", "crooksldn-pixel/clive",
++            "--product-memory-ref", "main", "--directory", "requests",
++        ])
++
++
++@pytest.mark.parametrize("paths", [
++    [f"crooks-assistant/app/orchestrator/workers/{TOKEN_SHAPED}"],
++    [f"../{TOKEN_SHAPED}"],
++    [f"/{TOKEN_SHAPED}/x/"],
++])
++def test_an_intake_refusal_never_records_or_publishes_a_supplied_value(env, tmp_path, capsys, paths):
++    request = valid_request(env, request_id="r-leak1", allowed_paths=paths)
++    commit_request(env.origin, "r-leak1", request)
++    kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
++    outcomes = controller.poll_once()
++    assert [o["outcome"] for o in outcomes] == ["refused"]
++    reason = outcomes[0]["reason"]
++    assert "cannot become an objective" in reason and REDACTED in reason
++    status = build_status(store=kernel.store, receipts=receipts, now=NOW)
++    stored = [r.model_dump(mode="json") for r in receipts.read_all()]
++    assert TOKEN_SHAPED not in json.dumps({"o": outcomes, "s": status, "r": stored}, default=str)
+-- 
+2.43.0
+
