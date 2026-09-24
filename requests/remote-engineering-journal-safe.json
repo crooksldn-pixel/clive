@@ -1,0 +1,50 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "remote-engineering-journal-safe",
+  "title": "Remote engineering: work with a journalled store and every admitted id length",
+  "requested_outcome": "Two defects in the running loop at 4c32bb3d5f4935402c9cdc897914370950f7f206, and only these two. (1) Intake writes its claim, and later its receipt, into the journalled engineering store before intake(); the kernel's journal_preconditions refuses every verb while the store holds untracked files, so every request was refused and its id burned. The loop now works only because of a host-local line in .git/info/exclude that no clone or new host carries. Keep claims and receipts outside the journalled tree (a configurable adapter root outside the store's git work tree), or refuse to start with a clear fixed message when the adapter directory is inside the work tree and not ignored; say in the spec doc which you chose. Add an end-to-end test that admits a request through a journalled store (journal=True, a real git work tree) to an accepted receipt with no .git/info/exclude entry. (2) The request-id slug admits up to 135 characters but Claim.request_id and Receipt.request_id cap at 120, so a long valid id never reaches a durable decision. Make the admitted id length agree with every downstream record, with a boundary test at the longest admitted id in run and in one-shot poll. Out of scope for this request: opaque id derivation and concurrent-claim fault ordering. Run both checks listed below in your workspace and fix anything they report before you report; the previous request failed ruff twice. Do not report an owner decision for GitHub acceptance: it runs automatically after your candidate is published.",
+  "base_ref": "4c32bb3d5f4935402c9cdc897914370950f7f206",
+  "base_sha": "4c32bb3d5f4935402c9cdc897914370950f7f206",
+  "allowed_paths": [
+    "crooks-assistant/app/remote_engineering",
+    "crooks-assistant/scripts/remote_engineering.py",
+    "crooks-assistant/tests/test_remote_engineering.py",
+    "crooks-assistant/docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md"
+  ],
+  "acceptance_criteria": [
+    "a request is admitted end to end through a journalled store (journal=True) to an accepted receipt, in a test, with no reliance on .git/info/exclude or any other host-local state",
+    "the loop either stores adapter records outside the journalled tree or refuses to start when they are not ignored, and the spec doc says which",
+    "the longest admitted request id reaches a durable accepted or refused record in run and in one-shot poll, without echoing the id",
+    "every existing test in tests/test_remote_engineering.py still passes with unchanged assertions",
+    "both listed checks pass in the worker's workspace"
+  ],
+  "checks": [
+    {
+      "name": "remote-engineering",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_remote_engineering.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/remote-engineering-journal-safe",
+  "max_repair_rounds": 2
+}
