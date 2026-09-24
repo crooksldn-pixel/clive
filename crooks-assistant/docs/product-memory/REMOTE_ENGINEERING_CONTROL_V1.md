@@ -78,6 +78,15 @@ A read-only status projection file/ref may be published if necessary, but it is 
 
 V1 activation uses a dedicated disposable status ref, `refs/heads/clive/control/status`, containing only `status.json`. The long-lived `remote_engineering.py run` loop performs one bounded inbox poll, one existing Dispatcher tick, publishes that projection, then sleeps for the configured interval. It does not alter production services or application runtime.
 
+Projection bounds (activation successor of `abaefa52`):
+
+- each request's task fields come from the task's highest recorded revision, so a repair revision's stage, candidate, review, acceptance and integration are what the Director sees (`revision` is included);
+- the status branch must be under `clive/control/` and never the owner inbox, and an existing status branch is only extended when its tip holds exactly `status.json`; pushes are plain fast-forwards from a freshly fetched head, never forced; every git call is time-bounded;
+- content identical apart from `generated_at` is republished at most every `--status-heartbeat-s` (default 600 s), which doubles as the loop's liveness signal: a `generated_at` older than the heartbeat plus one interval means the loop is not running;
+- `adapter.intake_error` reports a cycle whose inbox could not be read or held a changed request id. A changed request is named by its validated request id only; any other intake failure is a fixed sentence, never raw git/transport output.
+
+Loop failure isolation: an inbox or projection transport failure admits nothing new but never stops the existing Dispatcher from supervising already-recorded objectives; kernel, store and Dispatcher errors still stop the loop (fail closed), and exit status 4 means another dispatcher holds the runtime lock. Dispatcher transitions are journalled under `--dispatcher-operator` (default `clive-dispatcher@<host>`), intake under `--operator`.
+
 ## Safety and process execution
 
 - No arbitrary shell execution from inbox content.

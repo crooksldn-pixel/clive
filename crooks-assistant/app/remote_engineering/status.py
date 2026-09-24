@@ -30,7 +30,14 @@ _TASK_FIELDS = (
 
 
 def build_status(*, store: LifecycleStore, receipts: ReceiptLog, now: datetime) -> dict:
-    tasks_by_id = {(t["task_id"], t["revision"]): t for t in lifecycle_view(store, now=now)["tasks"]}
+    # A repair is a new task revision (r+1); the earlier revision becomes OBSOLETE. The
+    # task's current stage, candidate, review, acceptance and integration are therefore
+    # those of its highest recorded revision, exactly as the Dispatcher itself reads them.
+    latest: dict[str, dict] = {}
+    for task in lifecycle_view(store, now=now)["tasks"]:
+        current = latest.get(task["task_id"])
+        if current is None or task["revision"] > current["revision"]:
+            latest[task["task_id"]] = task
     requests = []
     for receipt in receipts.read_all():
         item = {
@@ -43,8 +50,9 @@ def build_status(*, store: LifecycleStore, receipts: ReceiptLog, now: datetime) 
             "task_id": receipt.task_id,
             "recorded_at": receipt.recorded_at.isoformat(),
         }
-        task = tasks_by_id.get((receipt.task_id, 1)) if receipt.task_id else None
+        task = latest.get(receipt.task_id) if receipt.task_id else None
         if task is not None:
+            item["revision"] = task["revision"]
             item.update({field_name: task.get(field_name) for field_name in _TASK_FIELDS})
         requests.append(item)
     return {"schema_version": STATUS_SCHEMA, "generated_at": now.isoformat(), "requests": requests}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-__all__ = ["InboxError", "RequestSchemaError", "redact_validation_error"]
+__all__ = ["InboxError", "RequestContentChanged", "RequestSchemaError", "redact_validation_error"]
 
 
 class InboxError(ValueError):
@@ -13,6 +13,14 @@ class InboxError(ValueError):
 
 class RequestSchemaError(InboxError):
     """A request's bytes are not a valid ``clive.remote_engineering_request.v1`` record."""
+
+
+class RequestContentChanged(InboxError):
+    """An already-decided request id was presented again with different bytes. Nothing was written.
+
+    Its message is built only from the schema-validated request id, so it is safe to
+    project; it never carries the new or old request content.
+    """
 
 
 def redact_validation_error(exc: ValidationError) -> str:

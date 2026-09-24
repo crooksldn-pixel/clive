@@ -16,7 +16,9 @@ remains in the existing engineering store and frozen lifecycle kernel.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
+import socket
 import sys
 import time
 from datetime import UTC, datetime
@@ -47,6 +49,7 @@ from app.remote_engineering import (  # noqa: E402
     DEFAULT_INBOX_BRANCH,
     DEFAULT_INBOX_DIRECTORY,
     DEFAULT_STATUS_BRANCH,
+    DEFAULT_STATUS_HEARTBEAT_S,
     DEFAULT_STATUS_PATH,
     InboxError,
     ReceiptLog,
@@ -74,6 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo", required=True, help="engineering checkout, never production checkout")
     parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
     parser.add_argument("--operator", default="remote-engineering-inbox")
+    parser.add_argument("--dispatcher-operator", default=f"clive-dispatcher@{socket.gethostname()}",
+                        help="journal operator for Dispatcher transitions (run only); intake keeps --operator")
     parser.add_argument("--no-journal", action="store_true")
 
     # Host-only dispatcher configuration. None of these values can come from inbox JSON.
@@ -104,6 +109,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_transport_args(r)
     r.add_argument("--status-branch", default=DEFAULT_STATUS_BRANCH)
     r.add_argument("--status-path", default=DEFAULT_STATUS_PATH)
+    r.add_argument("--status-heartbeat-s", type=float, default=DEFAULT_STATUS_HEARTBEAT_S,
+                   help="republish an unchanged projection at most this often (liveness signal)")
     r.add_argument("--interval", type=float, default=15.0)
     r.add_argument("--max-cycles", type=int, default=0, help="0 means run until stopped")
     return parser
@@ -164,7 +171,10 @@ def _dispatcher(args, kernel: Kernel, objectives: ObjectiveStore) -> Dispatcher:
         max_concurrent=args.max_concurrent,
     )
     sandbox = NamespaceSandbox(ro_paths=tuple(args.check_ro_path))
-    return Dispatcher(kernel, objectives, worker, reviewers, config, checks=sandbox)
+    # Same store, registry and git facts; only the journal attribution differs, so every
+    # Dispatcher transition is recorded as the dispatcher's, not as the inbox adapter's.
+    dispatch_kernel = dataclasses.replace(kernel, operator=args.dispatcher_operator, journal_shas=[])
+    return Dispatcher(dispatch_kernel, objectives, worker, reviewers, config, checks=sandbox)
 
 
 def _print_status(status: dict) -> None:
@@ -203,6 +213,7 @@ def run(argv: list[str] | None = None) -> int:
                     remote=args.remote,
                     branch=args.status_branch,
                     path=args.status_path,
+                    heartbeat_s=args.status_heartbeat_s,
                 ),
             )
             cycles = 0
@@ -212,6 +223,8 @@ def run(argv: list[str] | None = None) -> int:
                     "outcomes": result["outcomes"],
                     "dispatcher_events": result["dispatcher_events"],
                     "projection_commit": result["projection_commit"],
+                    "intake_error": result["intake_error"],
+                    "publish_error": result["publish_error"],
                 }, sort_keys=True, default=str), flush=True)
                 cycles += 1
                 if args.max_cycles and cycles >= args.max_cycles:

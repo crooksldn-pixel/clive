@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -376,3 +376,190 @@ def test_run_refuses_to_publish_status_over_owner_inbox(monkeypatch, capsys):
     ])
     assert rc == 2
     assert "status branch must be separate" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- activation successor: projection and loop bounds
+
+
+def _status_at(stamp: datetime, requests: list | None = None) -> dict:
+    return {
+        "schema_version": "clive.remote_engineering_status.v1",
+        "generated_at": stamp.isoformat(),
+        "requests": requests or [],
+    }
+
+
+def _status_log(env) -> list[str]:
+    _git(env.checkout, "fetch", "-q", "origin", f"+refs/heads/{DEFAULT_STATUS_BRANCH}:refs/remotes/origin/{DEFAULT_STATUS_BRANCH}")
+    return _git(env.checkout, "rev-list", f"origin/{DEFAULT_STATUS_BRANCH}").splitlines()
+
+
+def test_status_projection_is_not_republished_when_only_generated_at_changes(env):
+    first = publish_status(env.checkout, _status_at(NOW))
+    second = publish_status(env.checkout, _status_at(NOW + timedelta(seconds=15)))
+    third = publish_status(env.checkout, _status_at(NOW + timedelta(seconds=599)))
+    assert first == second == third
+    assert _status_log(env) == [first]
+
+
+def test_status_projection_heartbeat_and_real_changes_republish_as_fast_forwards(env):
+    first = publish_status(env.checkout, _status_at(NOW))
+    beat = publish_status(env.checkout, _status_at(NOW + timedelta(seconds=600)))
+    changed = publish_status(env.checkout, _status_at(NOW + timedelta(seconds=601), [{"request_id": "r-x"}]))
+    assert len({first, beat, changed}) == 3
+    assert _status_log(env) == [changed, beat, first]
+    assert json.loads(_git(env.checkout, "show", f"{changed}:status.json"))["requests"] == [{"request_id": "r-x"}]
+
+
+def test_status_projection_reads_a_fresh_head_from_another_publisher(env, tmp_path):
+    other = tmp_path / "other"
+    _git(tmp_path, "clone", "-q", str(env.origin), str(other))
+    first = publish_status(other, _status_at(NOW))
+    second = publish_status(env.checkout, _status_at(NOW + timedelta(seconds=5), [{"request_id": "r-y"}]))
+    assert _status_log(env) == [second, first]
+
+
+@pytest.mark.parametrize("branch", ["main", DEFAULT_INBOX_BRANCH, "clive/objective/demo", "clive/controlx"])
+def test_status_projection_refuses_branches_outside_the_dedicated_namespace(env, branch):
+    heads_before = _git(env.origin, "for-each-ref", "refs/heads")
+    with pytest.raises(InboxError):
+        publish_status(env.checkout, _status_at(NOW), branch=branch)
+    assert _git(env.origin, "for-each-ref", "refs/heads") == heads_before
+
+
+def test_status_projection_refuses_to_overwrite_a_branch_that_is_not_a_pure_projection(env):
+    _git(env.origin, "branch", "clive/control/status-real-work", "main")
+    before = _git(env.origin, "rev-parse", "clive/control/status-real-work")
+    with pytest.raises(InboxError, match="not a pure status projection"):
+        publish_status(env.checkout, _status_at(NOW), branch="clive/control/status-real-work")
+    assert _git(env.origin, "rev-parse", "clive/control/status-real-work") == before
+
+
+def test_status_projection_distinguishes_an_unreachable_remote_from_a_missing_branch(env):
+    _git(env.checkout, "remote", "add", "gone", str(env.origin.parent / "does-not-exist"))
+    with pytest.raises(InboxError, match="cannot read status branch"):
+        publish_status(env.checkout, _status_at(NOW), remote="gone")
+
+
+def test_status_projection_follows_the_repair_revision_not_revision_one(tmp_path):
+    from tests.test_engineering_dispatcher import FINDING, OBJ, World, review
+
+    w = World(tmp_path)
+    w.scenarios({"edits": [["pkg/hello.txt", "bye\n"]]}, {"edits": [["pkg/hello.txt", "hello\n"]]})
+    w.objective()
+    w.reviewer.answers.append(lambda ctx: review(ctx, "CHANGES_REQUIRED", findings=[FINDING])
+                              if ctx.task_revision == 1 else review(ctx, "READY"))
+    w.run_until(lambda: w.stage() == "COMPLETE")
+    receipts = ReceiptLog(w.store.root / "remote_engineering")
+    receipts.put(Receipt(request_id="r-repair", request_sha256="0" * 64, outcome="accepted",
+                         objective_id=OBJ, task_id=OBJ, source="requests/r-repair.json", recorded_at=NOW))
+    _a1, a2 = w.store.read_attempts(OBJ)
+    repaired = next(r for r in w.store.read_results() if r.attempt_id == a2.attempt_id).result_sha
+
+    item = build_status(store=w.store, receipts=receipts, now=w.clock())["requests"][0]
+    assert item["revision"] == 2
+    assert item["stage"] == "COMPLETE"
+    assert item["candidate_sha"] == repaired
+    assert w.store.read_task_state(OBJ, 1).status is TaskStatus.OBSOLETE
+
+
+class _Ticker:
+    def __init__(self, events=("advanced",), error: Exception | None = None):
+        self.calls = 0
+        self.events = list(events)
+        self.error = error
+
+    def tick(self):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return list(self.events)
+
+
+def _loop(controller, dispatcher, store, publish):
+    return RemoteEngineeringLoop(controller=controller, dispatcher=dispatcher, store=store,
+                                 receipts=ReceiptLog(store.root / "remote_engineering"), publish=publish,
+                                 clock=lambda: NOW)
+
+
+def test_a_changed_request_is_reported_but_the_dispatcher_keeps_supervising(env, tmp_path):
+    commit_request(env.origin, "r-mut", valid_request(env, request_id="r-mut"))
+    kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
+    controller.poll_once()
+    commit_request(env.origin, "r-mut", valid_request(env, request_id="r-mut", requested_outcome="Changed."))
+    ticker = _Ticker()
+    loop = _loop(controller, ticker, kernel.store, lambda status: publish_status(env.checkout, status))
+
+    result = loop.cycle()
+
+    assert ticker.calls == 1 and result["dispatcher_events"] == ["advanced"]
+    assert result["outcomes"] == [] and result["publish_error"] is None
+    published = json.loads(_git(env.checkout, "show", f"{result['projection_commit']}:status.json"))
+    assert "r-mut is already recorded with different content" in published["adapter"]["intake_error"]
+    assert "Changed." not in json.dumps(published)
+    assert [r["request_id"] for r in published["requests"]] == ["r-mut"]
+
+
+def test_an_intake_transport_failure_never_projects_raw_git_output(tmp_path):
+    secretish = "fatal: unable to access 'https://x-access-token:SYNTHETIC-NOT-A-TOKEN@example.invalid/r.git'"
+
+    class Broken:
+        def poll_once(self):
+            raise InboxError(secretish)
+
+    store = LifecycleStore(tmp_path / "engineering")
+    published: list[dict] = []
+    ticker = _Ticker()
+    result = _loop(Broken(), ticker, store, lambda status: published.append(status) or "b" * 40).cycle()
+
+    assert ticker.calls == 1
+    assert "SYNTHETIC-NOT-A-TOKEN" not in json.dumps(published)
+    assert published[0]["adapter"]["intake_error"].startswith("inbox could not be fetched or read")
+    assert "SYNTHETIC-NOT-A-TOKEN" in result["intake_error"]  # host log keeps the detail
+
+
+def test_a_publish_failure_is_reported_and_the_cycle_completes(tmp_path):
+    class Quiet:
+        def poll_once(self):
+            return []
+
+    def refuse(_status):
+        raise InboxError("push rejected")
+
+    store = LifecycleStore(tmp_path / "engineering")
+    ticker = _Ticker()
+    result = _loop(Quiet(), ticker, store, refuse).cycle()
+    assert ticker.calls == 1
+    assert result["projection_commit"] is None and "push rejected" in result["publish_error"]
+
+
+def test_kernel_failures_inside_the_dispatcher_still_stop_the_loop(tmp_path):
+    from app.orchestrator.lifecycle import LifecycleError
+
+    class Quiet:
+        def poll_once(self):
+            return []
+
+    store = LifecycleStore(tmp_path / "engineering")
+    published: list[dict] = []
+    loop = _loop(Quiet(), _Ticker(error=LifecycleError("store refused")), store,
+                 lambda status: published.append(status) or "c" * 40)
+    with pytest.raises(LifecycleError):
+        loop.cycle()
+    assert published == []
+
+
+def test_run_records_dispatcher_transitions_under_the_dispatcher_operator(tmp_path):
+    args = cli.build_parser().parse_args([
+        "--store", str(tmp_path / "engineering"), "--repo", str(tmp_path),
+        "--runtime-root", str(tmp_path / "runtime"), "--workspace-root", str(tmp_path / "workers"),
+        "--dispatcher-operator", "clive-dispatcher@test-host",
+        "run", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main",
+    ])
+    _store, kernel, objectives, _receipts = cli._kernel_parts(args)
+    dispatcher = cli._dispatcher(args, kernel, objectives)
+    assert kernel.operator == "remote-engineering-inbox"
+    assert dispatcher.kernel.operator == "clive-dispatcher@test-host"
+    assert dispatcher.kernel.store is kernel.store and dispatcher.kernel.registry is kernel.registry
+    assert dispatcher.kernel.journal_shas is not kernel.journal_shas
+    assert args.status_heartbeat_s == 600.0

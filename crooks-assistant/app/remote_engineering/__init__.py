@@ -11,9 +11,14 @@ visibility only, never lifecycle authority.
 from __future__ import annotations
 
 from .controller import RemoteController, RemoteControllerConfig, objective_from_request
-from .errors import InboxError, RequestSchemaError
+from .errors import InboxError, RequestContentChanged, RequestSchemaError
 from .inbox import DEFAULT_INBOX_BRANCH, DEFAULT_INBOX_DIRECTORY, discover_requests, fetch_inbox
-from .publisher import DEFAULT_STATUS_BRANCH, DEFAULT_STATUS_PATH, publish_status
+from .publisher import (
+    DEFAULT_STATUS_BRANCH,
+    DEFAULT_STATUS_HEARTBEAT_S,
+    DEFAULT_STATUS_PATH,
+    publish_status,
+)
 from .receipts import Receipt, ReceiptLog
 from .requests import REQUEST_SCHEMA, RemoteObjectiveRequest, parse_request
 from .runner import RemoteEngineeringLoop
@@ -23,6 +28,7 @@ __all__ = [
     "DEFAULT_INBOX_BRANCH",
     "DEFAULT_INBOX_DIRECTORY",
     "DEFAULT_STATUS_BRANCH",
+    "DEFAULT_STATUS_HEARTBEAT_S",
     "DEFAULT_STATUS_PATH",
     "REQUEST_SCHEMA",
     "STATUS_SCHEMA",
@@ -33,6 +39,7 @@ __all__ = [
     "RemoteControllerConfig",
     "RemoteEngineeringLoop",
     "RemoteObjectiveRequest",
+    "RequestContentChanged",
     "RequestSchemaError",
     "build_status",
     "discover_requests",
