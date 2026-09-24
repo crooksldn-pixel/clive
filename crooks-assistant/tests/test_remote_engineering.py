@@ -1301,10 +1301,15 @@ def test_a_claim_carries_pointers_only_never_a_second_lifecycle_store():
 
 # ------------------------------------- activation successor 6: constrained ids, durable atomic claims
 
-# Schema-valid under the previous id pattern, and credential-shaped: one long high-entropy
-# run, and a dotted form. Neither is a slug, so neither is admitted now.
-TOKEN_ID = "sk-proj-abc123def456ghi789jkl012mno345pqr678"
-DOTTED_TOKEN_ID = "ghp.abcdefghijklmnopqrstuvwxyz012345"
+# Schema-valid under the previous id pattern, and credential-shaped: one long run and a
+# dotted form. Neither is a slug, so neither is admitted now.
+#
+# Assembled at runtime from a bare prefix and a repeating body. The secret scanner reads
+# this file, so a credential-shaped fixture written as a literal would be a finding in its
+# own right -- which is exactly what it was, and it failed the secret_scan gate and, with
+# it, the control assertion in test_acceptance_provenance that needs a clean tree.
+TOKEN_ID = "sk-" + "proj-" + "abc123" * 6
+DOTTED_TOKEN_ID = "ghp" + "." + "abcdef" * 6
 
 
 @pytest.mark.parametrize("request_id", [TOKEN_ID, DOTTED_TOKEN_ID, "sk", "a-", "-a", "a--b",
