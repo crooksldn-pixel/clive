@@ -1,0 +1,44 @@
+{
+  "attempt_id": "71c4ed6af13d-exact-sha-review",
+  "candidate_sha": "71c4ed6af13d37d8c9d16179a553201c1e2de695",
+  "findings": [
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/requests.py:27-40; crooks-assistant/app/remote_engineering/controller.py:181-239; crooks-assistant/app/remote_engineering/receipts.py:50-68,112-124; crooks-assistant/app/remote_engineering/status.py:52-75",
+      "finding": "A requester-controlled request_id is treated as safe merely because it matches a filename-oriented character set. A credential composed of lowercase alphanumerics, dots, or hyphens is schema-valid and is then copied verbatim into claims, receipts, objective/task identifiers, refusal messages, host output, source paths, and the public status projection. redact_refusal explicitly exempts request_id. This violates the frozen requirement that no credential or secret value reach a receipt, log, output, or projection.",
+      "finding_id": "F-01",
+      "material": true,
+      "required_repair": "Do not persist, print, or project the requester-selected identifier verbatim. Derive a stable opaque identifier from the request_id alone, use that value for claim/receipt keys and objective/task correlation, and use opaque source locators and changed-content diagnostics. Preserve same-id/different-bytes detection by hashing the ID separately from the byte digest. Add tests using a schema-valid credential-shaped request_id and prove it is absent from adapter-owned records, loop output, errors, and the status commit."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/receipts.py:34-48,132-148",
+      "finding": "The new claim is not fully crash-durable on first use. ClaimLog.put may create both remote_engineering/ and claims/ with mkdir(parents=True), but _durable_write fsyncs only the claims directory after the file rename. It does not fsync the parent directory entries that made the newly created directories reachable. A power or filesystem crash can therefore lose the claims directory while lifecycle writes survive, reopening the exact missing-digest window this commit is intended to close.",
+      "finding_id": "F-02",
+      "material": true,
+      "required_repair": "Before any lifecycle write, durably create the adapter and claims directories by fsyncing each parent after introducing a directory entry, or place claims in an already durable store directory with equivalent guarantees. Retain file and containing-directory fsync for each claim, and add fault-ordering evidence covering first-ever intake as well as an already-existing claims directory."
+    },
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/receipts.py:132-148; crooks-assistant/app/remote_engineering/controller.py:188-218; crooks-assistant/app/remote_engineering/runner.py:57-81",
+      "finding": "The purported write-once claim operation is a check-then-write sequence without an exclusive create, lock, or compare-and-swap. Overlapping run processes both perform inbox intake before Dispatcher.tick can report DispatcherBusy, so two controllers can both observe no claim and attempt different renamed claim files and lifecycle intake. Their differing claimed_at values can produce conflicting objectives/receipts, and the final claim can disagree with the bytes that won authoritative intake. This breaks immutable provenance and restart/re-poll idempotence during an overlapping restart.",
+      "finding_id": "F-03",
+      "material": true,
+      "required_repair": "Make claim creation an atomic create-if-absent operation. A loser must reload the winning claim, continue only for the same digest using its claimed_at, and refuse a different digest before lifecycle intake. Apply equivalent no-clobber semantics to receipts or serialize intake under a singleton lock held before polling through receipt completion. Add concurrent-controller tests for identical and divergent bytes and an overlapping-restart test."
+    }
+  ],
+  "reviewer": {
+    "clean": true,
+    "context_fresh": true,
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "read_only": true,
+    "session_id": "openai-response:resp_0d0c60b52105f5c3016ab530c1dfb487d29b1192e35b2a077d",
+    "session_started_at": "2026-09-24T14:16:32.696037Z",
+    "workspace_branch": "detached:71c4ed6af13d37d8c9d16179a553201c1e2de695",
+    "workspace_head": "71c4ed6af13d37d8c9d16179a553201c1e2de695",
+    "workspace_id": "git-objects:71c4ed6af13d37d8c9d16179a553201c1e2de695"
+  },
+  "schema_version": "clive.review_result.v1",
+  "summary": "The candidate passes the supplied mechanical checks and repairs the ordinary single-process interruption case, but it is not ready for host activation. Request identifiers can carry secrets directly into durable/public output, and the new provenance claim is neither fully first-use crash-durable nor concurrency-safe.\n\n[model gpt-5.6-sol, effort high, usage {\"input_tokens\": 74016, \"input_tokens_details\": {\"cache_write_tokens\": 74013, \"cached_tokens\": 0}, \"output_tokens\": 10386, \"output_tokens_details\": {\"reasoning_tokens\": 9518}, \"total_tokens\": 84402}]",
+  "task_id": "remote-engineering-control-v1-activation",
+  "task_revision": 1,
+  "verdict": "CHANGES_REQUIRED"
+}

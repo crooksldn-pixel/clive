@@ -666,3 +666,212 @@ The remaining defect is a crash window between `intake()` and the acceptance rec
 narrow and the required repair is specified precisely, and it needs no protected path. But
 §4 of this round's runbook forbids authoring that repair, so the next step is an owner
 decision, not another autonomous round.
+
+---
+
+# Round 4 (revised runbook) — autonomous repair loop, `71c4ed6a`
+
+**Outcome: NOT ACTIVATED. The loop is not live. Stopped at RUNBOOK_ROUND4 §4b.**
+
+The round-4 runbook was revised after the first round-4 run (branch tip `f077cf23`,
+"Round 4: the server repairs and re-gates on its own until READY"). The revision replaced
+the previous §4 STOP-on-`CHANGES_REQUIRED` with §4b, authorising this session to author
+successors and re-gate without asking, up to six successor rounds, subject to explicit
+stop conditions.
+
+Stop condition reached, exactly as §4b states it: *"STOP only if: a repair needs any other
+path, a protected path, a credential, production or an owner decision …"*. One of the three
+material findings of the review of `71c4ed6a` cannot be repaired inside the §4b path
+allowlist — its required repair reaches two protected paths and changes the remote
+protocol's identifier contract, which is an owner decision. No further successor was
+authored. Sections 5 (activate) and 6 (operational-alpha proof) were never entered.
+
+Run window: 2026-09-24 14:04Z – 14:30Z. Host `crooks-os-prod-1`.
+
+## R4b.1 What the revision changed, and what was re-verified
+
+The runbook body changed; `round4.patch` did not (`cmp` byte-identical to the copy already
+applied, so `11ab9070` was not re-created). `build_review_job.py` and
+`proof-request-operational-alpha.json` are still fetched from the round-3 branch and were
+again confirmed byte-identical to the copies audited in round 3, so that audit carries over.
+`sha256sum -c SHA256SUMS` passed for all four files.
+
+**The Gate B review of `11ab9070` was deliberately not re-run.** That SHA already has a
+valid, current exact-SHA review (`CHANGES_REQUIRED`, 1 material). Re-rolling a stochastic
+reviewer against unchanged bytes in the hope of a different verdict is gate-shopping, and it
+is exactly what "exact-SHA evidence never transfers" exists to prevent. The existing verdict
+was taken as §4's result and §4b entered from there.
+
+## R4b.2 Successor round 1 — `71c4ed6a`
+
+Repairing the single material finding of the `11ab9070` review (crash window between
+`intake()` and the acceptance receipt).
+
+**The defect was reproduced before it was repaired.** A throwaway probe was run against a
+pristine `11ab9070` tree in the sandbox, and the real behaviour is worse than the review
+described:
+
+- a receipt log that raises on the acceptance receipt simulates a crash in the window;
+- the objective and task are admitted and live;
+- on restart, replaying **the original, unmodified bytes** with a clock that has moved
+  rebuilds an `Objective` whose `created_at` differs, so `ObjectiveStore.put` refuses its own
+  record — *"objective … is already recorded differently"* — and the adapter durably writes a
+  **`refused` receipt for a request that was in fact admitted**.
+
+The consequence is not a missing digest but an actively false public record: the projection
+would report the request refused while the kernel holds a live `READY` task the dispatcher
+will work. The probe is a scratch artifact and is not part of the commit.
+
+**Repair** (commit `71c4ed6a`, "Bind a request id to its bytes before the first lifecycle
+write", 5 files, +303/−10, all inside the §4b allowlist, `protected_hits: []`):
+
+- a write-once **claim** (`claims/<request_id>.json`, `clive.remote_engineering_claim.v1`)
+  binds the id to the exact bytes before the first lifecycle write; like a receipt it is
+  adapter provenance and admits nothing;
+- the claim pins `created_at`, which is what makes recovery byte-identical and therefore
+  possible at all — `ObjectiveStore.put` and `create_task` are idempotent only for identical
+  bytes;
+- on restart only the claimed digest resumes; other bytes for that id — including
+  formatting-only differences that parse to the same request — are refused;
+- same class, one step out: a claimed-but-unreceipted id joins the snapshot preflight, so an
+  interrupted admission refuses its whole cycle before any write; and claims and receipts
+  fsync the containing directory, not only the file.
+
+Six regression tests were added. Pre-flight in the project's `NamespaceSandbox`: ruff clean,
+`tests/test_remote_engineering.py` 132 passed, control-plane 44 passed.
+
+**Gate A — PASS.** Run [36011018742](https://github.com/crooksldn-pixel/clive/actions/runs/36011018742),
+head `71c4ed6a` exact, conclusion success first attempt, `mechanical_evidence: complete`,
+`eligible: true`, no unsatisfied or malformed gate, **3319 offline tests passed**,
+secret_scan "no leaks found".
+
+**Gate B — CHANGES_REQUIRED, 3 material.** Reviewer `gpt`, `read_only: true`, mechanism
+`openai-responses:gpt-5.6-sol`, effort high, one run, same frozen materiality standard.
+
+| ID | Material | Finding |
+|---|---|---|
+| F-01 | true | A requester-controlled `request_id` is schema-valid while being credential-shaped, and is copied verbatim into claims, receipts, objective/task identifiers, refusal messages, host output, source locators and the public projection. |
+| F-02 | true | The claim is not fully crash-durable on **first** use: `_durable_write` fsyncs `claims/` after the rename, but not the parents that made the newly created `remote_engineering/` and `claims/` directories reachable, so a crash can lose the claims directory while lifecycle writes survive. |
+| F-03 | true | `ClaimLog.put` is check-then-write with no exclusive create, lock or compare-and-swap, so two overlapping controllers can both observe no claim, write different claims and race lifecycle intake. |
+
+## R4b.3 Why the loop stopped here rather than continuing
+
+**F-02 and F-03 are mine, are real, and are in scope.** They are defects in the claim
+mechanism this round introduced — the repair was incomplete, not wrong. Both are narrow and
+fixable entirely inside `app/remote_engineering/`: fsync each newly created directory's
+parent as the chain is built (F-02), and make the claim an atomic `O_CREAT|O_EXCL` create
+whose loser reloads the winner and continues only for the same digest (F-03). They are
+recorded here unfixed only because a successor must repair *every* material finding, and
+F-01 cannot be repaired here.
+
+**F-01 is the stop.** Its required repair is "use that value for claim/receipt keys **and
+objective/task correlation**", and that cannot be done inside the allowlist:
+
+- `task_id = objective.objective_id` is assigned in
+  `crooks-assistant/app/orchestrator/objectives.py:248` — a **protected path**;
+- the sibling requester-chosen `target_branch` is published as a real git ref by
+  `crooks-assistant/app/orchestrator/dispatcher.py` — a **protected path**. Making
+  `objective_id` opaque in `controller.py` alone would leave `target_branch` published
+  verbatim, so the finding's class would stay open;
+- replacing the Director's own request identifier with a derived opaque one changes the
+  documented remote protocol: the spec's "Outbound visibility" section requires a Director
+  polling GitHub to determine "request accepted/refused; objective/task id" for **its**
+  request. That is an owner decision about the protocol, not an implementation detail.
+
+Both of §4b's listed reasons therefore apply: the repair needs a protected path, and it needs
+an owner decision.
+
+**A fact the owner should weigh when deciding.** F-01's threat model does not appear to hold
+on this deployment. `crooksldn-pixel/clive` is **public** (`"private": false`, verified
+unauthenticated), and an inbox request only becomes visible to the adapter by being committed
+to `clive/control/owner-inbox` — where its `request_id` is the filename. The request file is
+readable unauthenticated at
+`https://raw.githubusercontent.com/crooksldn-pixel/clive/clive/control/owner-inbox/requests/<request_id>.json`
+(verified: HTTP 200). A credential placed in a `request_id` is therefore already public,
+published by the Director that authored the request, before the adapter ever reads it.
+Redacting it from the status projection would not un-publish it. This is offered as evidence
+for the decision, not as a reason to dismiss the finding: the adapter does copy the value
+into durable records, and whether that is acceptable is the owner's call.
+
+## R4b.4 Convergence signal
+
+Material findings per exact-SHA review across the whole effort:
+
+| SHA | Acceptance run | Gate A | Material findings |
+|---|---|---|---|
+| `c23f1935` | 35994015937 | pass | 4 |
+| `05fe8046` | 35996970816 | pass | 4 |
+| `62f6e7e5` | 35999394632 | pass | 5 |
+| `ca047b89` | 36004882143 | pass | 2 |
+| `11ab9070` | 36008900056 | pass | 1 |
+| `71c4ed6a` | 36011018742 | pass | **3** |
+
+This is the first round in which the count **rose**. §4b's convergence stop is "the
+material-finding count fails to fall across two consecutive rounds", and only one
+non-falling round has occurred, so that condition was **not** reached; the stop above is the
+protected-path/owner-decision one. The rise is recorded because it is the signal DEC-057
+asks to watch, and because two of the three new findings are defects in the repair itself —
+the pattern DEC-057 calls verification improving its own subject.
+
+Twenty material findings have now been raised across six reviews and seventeen repaired and
+confirmed repaired by the following review. One successor round was authored in this run, of
+the six §4b allows.
+
+## R4b.5 What was NOT done
+
+| Section | Status |
+|---|---|
+| §5 Activate | **Not reached.** No pin directory, no smoke cycle, no unit file, no `daemon-reload`/`enable --now`. There is no installed unit text to report. **`prod-before.txt` was not taken** and is not among the published files: §5 takes it "immediately before installing the unit", and no unit was installed. |
+| §6 Operational-alpha proof | **Not reached.** `proof-request-operational-alpha.json` was **not** committed to the inbox. No `operational-alpha-acceptance-repair` objective or `clive/objective/…` ref exists, no candidate was produced for `f7be86f7`, and there is no status.json item or candidate CI conclusion to report. |
+
+`origin/clive/control/status` still does not exist; the loop has never run. The owner-inbox
+is untouched at `cc9ab83887cc1850c75a2e9403dc8db9f5a9d7b1` and the superseded readiness
+request is still present with no receipt. The engineering store still has no
+`remote_engineering/` directory: nothing has ever been admitted through remote ingress.
+
+## R4b.6 Production and store state
+
+The engineering store was read-only throughout (`engineering_dispatcher.py … status --json`
+only). Its six objectives are unchanged from the original discovery:
+`derived-truth-attention-v1` COMPLETE, `engineering-team-activation-v1` COMPLETE,
+`mobile-dogfood-voice-v1` COMPLETE, `remote-engineering-control-v1-repair-1` OWNER_GATE,
+`remote-engineering-control-v1-repair-2` COMPLETE, `remote-engineering-control-v1` BLOCKED.
+The OWNER_GATE and BLOCKED items were not resumed, lifted or altered. No credential value was
+read, printed, copied or committed; key files were referred to by path only.
+
+Using §5's own `prod_state` definition: `/opt/crooks-os` at
+`ca388ceeedb54cfd495fb2b5205ec2184db9ccae`, `/opt/crooks-interactive` at
+`31fb755360ae40959c14d608de0035815c41cc40`, both with tracked-file dirty hash
+`e3b0c44298fc1c14` (sha256 of empty input — no modified tracked file), both taking the **git**
+branch of the function, and both production units `active`. Identical to the values recorded
+in round 4's first run.
+
+## R4b.7 Deviations from RUNBOOK_ROUND4.md (revised)
+
+1. **Gate B was not re-run on `11ab9070`** (R4b.1). §§2–4 were already complete for that SHA
+   from the first round-4 run, and re-reviewing unchanged bytes to seek a better verdict is
+   gate-shopping. Its existing `CHANGES_REQUIRED` was used as §4's result.
+2. **The reused round-3 artifacts were re-verified byte-for-byte** rather than trusted, as in
+   the first round-4 run, because `--materiality` shapes the review gate.
+3. **The `11ab9070` defect was reproduced with a throwaway probe** against a pristine tree in
+   the sandbox before being repaired (R4b.2). §4b does not ask for this; it was done because
+   a repair authored against a description rather than an observed failure is a guess, and it
+   materially changed the fix (it is what revealed that `created_at` must be pinned, and that
+   the real symptom is a false `refused` receipt rather than a missing digest).
+4. **F-02 and F-03 are left unrepaired** (R4b.3), because §4b requires a successor to repair
+   every material finding and F-01 cannot be repaired within the allowlist.
+
+No other deviation. No protected path, frozen kernel, test assertion, secret-scanning rule,
+CI workflow or acceptance machinery was weakened. No force-push, no amended commit, no
+rewritten SHA.
+
+## R4b.8 Where this leaves the work
+
+`claude/remote-engineering-control-v1-activation-successor-2026-09-24` is at **`71c4ed6a`**,
+with full GitHub acceptance for that exact SHA. **The loop is not live.**
+
+Three material findings stand. Two (F-02, F-03) are in-scope defects of this round's own
+repair with the fixes already identified above, and would take one more successor round. The
+third (F-01) needs an owner decision on whether the remote protocol keeps the Director's own
+`request_id` as the public correlation handle — and, if not, a change to two protected paths
+that this run is not permitted to make.
