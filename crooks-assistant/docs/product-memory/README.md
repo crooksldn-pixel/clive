@@ -40,6 +40,8 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [MOBILE_ALPHA.md](./MOBILE_ALPHA.md) — the private, read-only phone alpha: conversation first, the objectives CLIVE is keeping alive (Objective V0, with proposed, authorised, started, completed and verified kept distinct and authorisation the owner's alone) and the Support Investigator on the phone.
 - [GENERATIVE_UI_V1.md](./GENERATIVE_UI_V1.md) — owner-approved generative interface: connectors describe data, CLIVE decides what to show, the screen shows findings not sources; evidence-bound scene primitives, attention budget, user-facing settings and the capability-gap bridge.
 - [OWNER_DECISIONS_2026-09-24.md](./OWNER_DECISIONS_2026-09-24.md) — judgment-evidence retention (90-day rolling redacted evidence), Gmail runtime credential, operational-alpha promotion authority and Generative UI V1 approval.
+- [SOURCE_ASSIMILATION_V1.md](./SOURCE_ASSIMILATION_V1.md) — how CLIVE learns from external repositories, skills and tools: quarantine, inventory, compare, decide the use, prove or drop; authority lines and the constraints found.
+- [SOURCE_SHELF.md](./SOURCE_SHELF.md) — the owner-supplied candidate sources (Taste Skill, Vercel guidelines, Playwright CLI, Agent Browser, Jev, LangWatch and others), triaged into batches.
 
 ## Status model
 
