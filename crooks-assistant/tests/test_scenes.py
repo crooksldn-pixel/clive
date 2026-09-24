@@ -22,6 +22,7 @@ from app.scenes.evidence import (
 from app.scenes.scene import (
     Answer,
     Collection,
+    Comparison,
     Entity,
     EvidenceRef,
     Finding,
@@ -31,6 +32,7 @@ from app.scenes.scene import (
     Question,
     ScenePlan,
     Significance,
+    Timeline,
     Trend,
 )
 from app.scenes.validate import ValidationContext, validate_scene
@@ -178,7 +180,10 @@ def test_adversarial_plan_is_reduced_with_every_reduction_in_the_trace():
         handle="customers", observed_at=OBSERVED_AT,
     )
     evidence = [customers_evidence]
-    context = ValidationContext(session_evidence_handles=frozenset({"customers"}))
+    context = ValidationContext(
+        session_evidence_handles=frozenset({"customers"}),
+        known_action_refs=frozenset({"draft_reply_to_customer"}),
+    )
 
     plan = ScenePlan(
         answer=Answer(
@@ -235,6 +240,15 @@ def test_adversarial_plan_is_reduced_with_every_reduction_in_the_trace():
 
     scene, trace = validate_scene(plan, evidence, context)
     by_element = {t.element: t for t in trace}
+
+    # The answer's own invented number ("over £200") and unsupported period ("this month"): the
+    # evidence it points at is lifetime spend, which binds neither — the line is sanitized away
+    # rather than shown, and the reduction is in the trace.
+    assert by_element["answer.lines:0"].kept is False
+    assert "value" in by_element["answer.lines:0"].reason
+    assert scene.answer.lines != ["Two customers spent over £200 this month."]
+    assert "£200" not in " ".join(scene.answer.lines)
+    assert "this month" not in " ".join(scene.answer.lines)
 
     # The invented reference: dropped, and recorded twice — the reference and the element.
     assert by_element["finding:0.evidence:ev_invented.orders"].kept is False
@@ -312,7 +326,7 @@ def test_synthetic_ads_connector_needs_no_code_in_app_scenes():
 
     plan = ScenePlan(
         answer=Answer(
-            lines=["Ad spend is up this week and still paying back."],
+            lines=["Ad spend is climbing and still paying back its cost."],
             evidence=[EvidenceRef(handle="ads_week", field="spend")],
             justification="checked spend and ROAS for the week",
         ),
@@ -336,6 +350,278 @@ def test_synthetic_ads_connector_needs_no_code_in_app_scenes():
     assert len(scene.elements) == 2
     assert [type(e).__name__ for e in scene.elements] == ["Finding", "Trend"]
     assert all(t.kept for t in trace if t.element in ("answer", "finding:0", "trend:1"))
+    # Clean prose, with a value bound to evidence rather than free-standing, is left untouched.
+    assert scene.answer.lines == ["Ad spend is climbing and still paying back its cost."]
+
+
+# ------------------------------------------------ an answer cannot carry what evidence does not back
+
+
+def _single_customer_evidence() -> Evidence:
+    return descriptors.from_shopify_find_customer(
+        {
+            "query": "big spenders",
+            "customers": [{"name": "Alex Kim", "email": "alex@example.com", "orders": 5, "spent": "500.00 GBP"}],
+        },
+        handle="customers", observed_at=OBSERVED_AT,
+    )
+
+
+def test_answer_with_invented_number_cannot_enter_accepted_scene():
+    customers_evidence = _single_customer_evidence()
+    context = ValidationContext(session_evidence_handles=frozenset({"customers"}))
+    plan = ScenePlan(
+        answer=Answer(
+            lines=["Lifetime spend reached 9999 for the group."],
+            evidence=[EvidenceRef(handle="customers", field="spent")],
+            justification="checked lifetime spend",
+        ),
+        elements=[],
+    )
+
+    scene, trace = validate_scene(plan, [customers_evidence], context)
+    by_element = {t.element: t for t in trace}
+
+    assert scene.answer.lines == ["See the evidence below for details."]
+    assert by_element["answer.lines:0"].kept is False
+    assert "value" in by_element["answer.lines:0"].reason
+
+
+def test_answer_with_unsupported_period_cannot_enter_accepted_scene():
+    customers_evidence = _single_customer_evidence()
+    context = ValidationContext(session_evidence_handles=frozenset({"customers"}))
+    plan = ScenePlan(
+        answer=Answer(
+            lines=["Lifetime spend rose sharply last quarter."],
+            evidence=[EvidenceRef(handle="customers", field="spent")],
+            justification="checked lifetime spend",
+        ),
+        elements=[],
+    )
+
+    scene, trace = validate_scene(plan, [customers_evidence], context)
+    by_element = {t.element: t for t in trace}
+
+    assert scene.answer.lines == ["See the evidence below for details."]
+    assert by_element["answer.lines:0"].kept is False
+    assert "period" in by_element["answer.lines:0"].reason
+
+
+def test_answer_with_markup_cannot_enter_accepted_scene():
+    customers_evidence = _single_customer_evidence()
+    context = ValidationContext(session_evidence_handles=frozenset({"customers"}))
+    plan = ScenePlan(
+        answer=Answer(
+            lines=["<b>Alex Kim</b> is the top spender."],
+            evidence=[EvidenceRef(handle="customers", field="spent")],
+            justification="checked lifetime spend",
+        ),
+        elements=[],
+    )
+
+    scene, trace = validate_scene(plan, [customers_evidence], context)
+    by_element = {t.element: t for t in trace}
+
+    assert scene.answer.lines == ["See the evidence below for details."]
+    assert by_element["answer.lines:0"].kept is False
+    assert "markup" in by_element["answer.lines:0"].reason
+
+
+# --------------------------------------------------------- pii is stripped from every primitive
+
+
+def test_pii_evidence_references_are_stripped_from_every_primitive():
+    customer_history = descriptors.from_shopify_customer_history(
+        {
+            "name": "Alex Kim",
+            "email": "alex@example.com",
+            "orders": 5,
+            "spent": "500.00 GBP",
+            "since": "2024-01-01T00:00:00+00:00",
+            "standing": "good",
+            "first_order_at": "2024-01-01T00:00:00+00:00",
+            "other_unfulfilled": [],
+        },
+        handle="customer_history", observed_at=OBSERVED_AT,
+    )
+    ads_with_pii = Evidence(
+        handle="ads_week",
+        source_tool="synthetic_ads_connector",
+        observed_at=OBSERVED_AT,
+        query_summary="Ad spend, last 7 days",
+        fields=[
+            FieldDescriptor(name="daily_contacts", kind=FieldKind.SERIES, label="Daily contacts reached", pii=True),
+        ],
+        records=[{"daily_contacts": [series_point("2026-09-24", 12.0)]}],
+    )
+    evidence = [customer_history, ads_with_pii]
+    context = ValidationContext(session_evidence_handles=frozenset({"customer_history", "ads_week"}))
+
+    plan = ScenePlan(
+        answer=Answer(
+            lines=["This customer has contact details on file."],
+            evidence=[EvidenceRef(handle="customer_history", field="customer_email")],
+            justification="checked the customer record",
+        ),
+        elements=[
+            Finding(
+                significance=Significance.CONTEXT,
+                text="This customer has a contact email recorded.",
+                evidence=[EvidenceRef(handle="customer_history", field="customer_email")],
+                justification="testing pii on a finding",
+            ),
+            Question(
+                text="Should we email them directly?",
+                evidence=[EvidenceRef(handle="customer_history", field="customer_email")],
+                justification="testing pii on a question",
+            ),
+            Measure(
+                ref=MeasureRef(evidence=EvidenceRef(handle="customer_history", field="customer_email"), period="lifetime"),
+                justification="testing pii on a measure",
+            ),
+            Comparison(
+                baseline=MeasureRef(evidence=EvidenceRef(handle="customer_history", field="customer_email"), period="lifetime"),
+                current=MeasureRef(evidence=EvidenceRef(handle="customer_history", field="spent"), period="lifetime"),
+                justification="testing pii on a comparison",
+            ),
+            Trend(
+                evidence=EvidenceRef(handle="ads_week", field="daily_contacts"),
+                justification="testing pii on a trend",
+            ),
+            Timeline(
+                handle="customer_history",
+                at_field="since",
+                label_field="customer_email",
+                justification="testing pii on a timeline label",
+            ),
+        ],
+    )
+
+    scene, trace = validate_scene(plan, evidence, context)
+    by_element = {t.element: t for t in trace}
+
+    assert scene.answer.evidence == []
+    assert scene.drilldown == []
+    assert by_element["answer.evidence:customer_history.customer_email"].kept is False
+    assert "pii" in by_element["answer.evidence:customer_history.customer_email"].reason
+
+    assert by_element["finding:0.evidence:customer_history.customer_email"].reason == "pii field stripped"
+    assert by_element["finding:0"].kept is False
+    assert by_element["question:1.evidence:customer_history.customer_email"].reason == "pii field stripped"
+    assert by_element["question:1"].kept is False
+    assert by_element["measure:2"].kept is False
+    assert "pii" in by_element["measure:2"].reason
+    assert by_element["comparison:3"].kept is False
+    assert "pii" in by_element["comparison:3"].reason
+    assert by_element["trend:4"].kept is False
+    assert "pii" in by_element["trend:4"].reason
+
+    assert [type(e).__name__ for e in scene.elements] == ["Timeline"]
+    kept_timeline = scene.elements[0]
+    assert kept_timeline.label_field is None
+    assert by_element["timeline:5.label_field"].kept is False
+    assert "pii" in by_element["timeline:5.label_field"].reason
+
+
+# ------------------------------------------------------------------ a proposal names an existing action
+
+
+def test_proposal_with_unknown_action_ref_is_dropped():
+    sales_evidence = descriptors.from_shopify_sales_summary(
+        {"since": "2026-09-24", "until": "2026-09-25", "orders": 0, "revenue": 0.0, "currency": "GBP", "complete": True},
+        handle="sales_today", observed_at=OBSERVED_AT,
+    )
+    context = ValidationContext(session_evidence_handles=frozenset({"sales_today"}))
+    plan = ScenePlan(
+        answer=Answer(lines=["Nothing needs you today."], evidence=[], justification="checked today's orders"),
+        elements=[Proposal(action_ref="mint_a_new_action", justification="propose something")],
+    )
+
+    scene, trace = validate_scene(plan, [sales_evidence], context)
+    by_element = {t.element: t for t in trace}
+
+    assert by_element["proposal:0"].kept is False
+    assert "existing action" in by_element["proposal:0"].reason
+    assert scene.elements == []
+
+
+def test_proposal_with_known_action_ref_is_kept():
+    sales_evidence = descriptors.from_shopify_sales_summary(
+        {"since": "2026-09-24", "until": "2026-09-25", "orders": 0, "revenue": 0.0, "currency": "GBP", "complete": True},
+        handle="sales_today", observed_at=OBSERVED_AT,
+    )
+    context = ValidationContext(
+        session_evidence_handles=frozenset({"sales_today"}),
+        known_action_refs=frozenset({"draft_reply_to_customer"}),
+    )
+    plan = ScenePlan(
+        answer=Answer(lines=["Nothing needs you today."], evidence=[], justification="checked today's orders"),
+        elements=[Proposal(action_ref="draft_reply_to_customer", justification="propose a reply")],
+    )
+
+    scene, trace = validate_scene(plan, [sales_evidence], context)
+    by_element = {t.element: t for t in trace}
+
+    assert by_element["proposal:0"].kept is True
+    assert [type(e).__name__ for e in scene.elements] == ["Proposal"]
+
+
+# --------------------------------------------------------------------- evidence is value-typed
+
+
+def test_evidence_rejects_money_value_with_non_iso_currency():
+    with pytest.raises(ValidationError):
+        Evidence(
+            handle="bad_money", source_tool="test", observed_at=OBSERVED_AT, query_summary="x",
+            fields=[FieldDescriptor(name="total", kind=FieldKind.MONEY, label="Total", currency="GBP")],
+            records=[{"total": {"amount": 10.0, "currency": "pounds"}}],
+        )
+
+
+def test_evidence_rejects_wrong_shaped_value_for_its_kind():
+    with pytest.raises(ValidationError):
+        Evidence(
+            handle="bad_count", source_tool="test", observed_at=OBSERVED_AT, query_summary="x",
+            fields=[FieldDescriptor(name="orders", kind=FieldKind.COUNT, label="Orders")],
+            records=[{"orders": "five"}],
+        )
+
+
+def test_evidence_rejects_unknown_record_field():
+    with pytest.raises(ValidationError):
+        Evidence(
+            handle="bad_field", source_tool="test", observed_at=OBSERVED_AT, query_summary="x",
+            fields=[FieldDescriptor(name="orders", kind=FieldKind.COUNT, label="Orders")],
+            records=[{"orders": 1, "surprise": "nope"}],
+        )
+
+
+def test_money_helper_rejects_non_iso_currency():
+    with pytest.raises(ValueError, match="ISO currency"):
+        money(10.0, "pounds")
+
+
+def test_reference_with_no_recorded_value_is_not_grounded():
+    empty_evidence = Evidence(
+        handle="empty_field", source_tool="test", observed_at=OBSERVED_AT, query_summary="x",
+        fields=[FieldDescriptor(name="note", kind=FieldKind.TEXT, label="Note")],
+        records=[{"note": None}, {}],
+    )
+    context = ValidationContext(session_evidence_handles=frozenset({"empty_field"}))
+    plan = ScenePlan(
+        answer=Answer(
+            lines=["Nothing needs you today."],
+            evidence=[EvidenceRef(handle="empty_field", field="note")],
+            justification="checked the note",
+        ),
+        elements=[],
+    )
+
+    scene, trace = validate_scene(plan, [empty_evidence], context)
+    by_element = {t.element: t for t in trace}
+
+    assert scene.answer.evidence == []
+    assert by_element["answer.evidence:empty_field.note"].reason == "no recorded value grounds this reference"
 
 
 # ------------------------------------------------------------------------------------ the schema
