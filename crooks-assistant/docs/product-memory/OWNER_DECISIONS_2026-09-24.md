@@ -17,3 +17,11 @@ Authorised: promote the repaired operational alpha to production once the exact 
 ## Generative UI V1
 
 Approved as specified in GENERATIVE_UI_V1.md, including user-facing settings, reduced chrome and density, the microphone permission fix and the capability-gap bridge as its own objective track.
+
+## One trunk: the finish rule
+
+Work is finished only when it is in `clive/trunk` and the trunk passes full repository acceptance. An objective's own branch is a candidate, not the product. The trunk was created on 2026-09-24 from the repaired alpha `0bbcfb69` and holds the age-days floor, the judgment ledger CI stream and corrections, the agent environment state view and, by content, the support investigator revisions (PR #3 and #4, tree verified identical to one that passed full acceptance). Production deploys come from the trunk.
+
+## Retirements
+
+Retire what has been replaced: the bridge watcher (the remote loop does its job), `engineering-team-activation-v1` (superseded by the remote loop), the competing alpha fix `claude/release-secret-baseline-2026-09-24`, and the ChatGPT orchestrator-freeze and control-plane-progress streams. Retiring means stopping or closing each and recording why; branches remain in history.
