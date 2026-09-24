@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -62,23 +63,23 @@ def _git(
             timeout=timeout_s,
         )
     except subprocess.TimeoutExpired:
-        raise TransportError(f"git {' '.join(args[:2])} exceeded {timeout_s}s; nothing was published") from None
+        raise TransportError(f"git {args[0]} exceeded {timeout_s}s; nothing was published") from None
     if check and proc.returncode != 0:
-        raise TransportError(f"git {' '.join(args[:3])} failed (exit {proc.returncode}); output withheld")
+        raise TransportError(f"git {args[0]} failed (exit {proc.returncode}); output withheld")
     return proc
 
 
+_STATUS_PATH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}\.json$")
+
+
 def _validate_status_path(value: str) -> str:
-    value = value.strip("/")
-    if (
-        not value
-        or value.startswith(".")
-        or "\\" in value
-        or any(part in {"", ".", ".."} for part in value.split("/"))
-        or "/" in value
-        or not value.endswith(".json")
-    ):
-        raise InboxError("status path is not a bounded repository-relative JSON path")
+    """One short ASCII basename ending in ``.json``: no directory, no control or special character.
+
+    The value becomes a tree record name, so anything outside this allowlist -- a tab, a
+    newline, a NUL, a dot component -- could otherwise shape the tree that is published.
+    """
+    if not isinstance(value, str) or not _STATUS_PATH_RE.fullmatch(value):
+        raise InboxError("status path must be a short plain JSON file name")
     return value
 
 
@@ -137,9 +138,7 @@ def _remote_head(repo: Path, remote: str, branch: str) -> str:
     if probe.returncode == 2:
         return ""
     if probe.returncode != 0:
-        raise TransportError(
-            f"cannot read status branch {remote} {branch} (git exit {probe.returncode}); output withheld"
-        )
+        raise TransportError(f"cannot read status branch (git exit {probe.returncode}); output withheld")
     _git(
         repo, "fetch", "--quiet", "--no-tags", remote,
         f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
@@ -148,7 +147,7 @@ def _remote_head(repo: Path, remote: str, branch: str) -> str:
     rev = _git(repo, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{branch}^{{commit}}", check=False)
     head = rev.stdout.decode().strip()
     if rev.returncode != 0 or len(head) != 40:
-        raise TransportError(f"status branch {remote} {branch} did not resolve to a commit after fetch")
+        raise TransportError("the status branch did not resolve to a commit after fetch")
     return head
 
 
@@ -157,7 +156,7 @@ def _require_pure_projection(repo: Path, head: str, path: str, branch: str) -> N
     entries = [name for name in listing.split("\0") if name]
     if entries != [path]:
         raise InboxError(
-            f"status branch {branch} at {head} holds {len(entries)} path(s), not only {path!r}; "
+            f"the status branch holds {len(entries)} path(s), not only the projection file; "
             "refusing to overwrite a branch that is not a pure status projection"
         )
 
@@ -206,8 +205,9 @@ def publish_status(
                     return parent
 
     blob = _git(repo, "hash-object", "-w", "--stdin", input_bytes=payload).stdout.decode().strip()
-    tree_line = f"100644 blob {blob}\t{path}\n".encode()
-    tree = _git(repo, "mktree", input_bytes=tree_line).stdout.decode().strip()
+    # NUL-delimited, so no byte of the (already allowlisted) name can end the record early.
+    tree_record = f"100644 blob {blob}\t{path}".encode() + b"\0"
+    tree = _git(repo, "mktree", "-z", input_bytes=tree_record).stdout.decode().strip()
     commit_args = [
         "-c", "user.name=CLIVE Remote Engineering",
         "-c", "user.email=remote-engineering@clive.invalid",

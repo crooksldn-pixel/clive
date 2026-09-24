@@ -875,3 +875,152 @@ def test_one_shot_poll_never_prints_an_escaping_branch_name(env, tmp_path, capsy
     captured = capsys.readouterr()
     assert rc == 2
     assert "SYNTHETIC-NOT-A-TOKEN" not in captured.out + captured.err
+
+
+# ------------------------------------------- activation successor 3: work bounds and fixed transport text
+
+from app.remote_engineering import inbox as inbox_module  # noqa: E402
+from app.remote_engineering.errors import InboxBoundExceeded  # noqa: E402
+from app.remote_engineering.runner import INTAKE_OVER_BOUND  # noqa: E402
+
+TOKEN_SHAPED = "ghp_SYNTHETICNOTATOKEN0123456789abcd"
+
+
+def _commit_raw(origin: Path, files: dict[str, bytes], *, branch: str = DEFAULT_INBOX_BRANCH) -> None:
+    exists = subprocess.run(["git", "rev-parse", "--verify", "--quiet", branch], cwd=origin,
+                            capture_output=True).returncode == 0
+    _git(origin, "checkout", "-q", branch) if exists else _git(origin, "checkout", "-q", "-b", branch)
+    for name, body in files.items():
+        target = origin / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+    _git(origin, "add", "-A")
+    _git(origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "raw inbox files")
+    _git(origin, "checkout", "-q", "main")
+
+
+def _admitted_nothing(kernel) -> bool:
+    return kernel.store.read_tasks() == ()
+
+
+def test_an_oversized_record_admits_nothing_and_the_dispatcher_still_ticks(env, tmp_path):
+    commit_request(env.origin, "r-small", valid_request(env, request_id="r-small"))
+    _commit_raw(env.origin, {"requests/r-huge.json": b"{" + b" " * (inbox_module.MAX_RECORD_BYTES + 1) + b"}"})
+    kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
+    with pytest.raises(InboxBoundExceeded):
+        controller.poll_once()
+    ticker = _Ticker()
+    result = _loop(controller, ticker, kernel.store, lambda status: "e" * 40).cycle()
+    assert ticker.calls == 1
+    assert result["intake_error"] == INTAKE_OVER_BOUND
+    assert _admitted_nothing(kernel)
+
+
+@pytest.mark.parametrize("bound, value", [
+    ("MAX_INBOX_RECORDS", 2),
+    ("MAX_SNAPSHOT_BYTES", 600),
+    ("MAX_LISTING_BYTES", 120),
+    ("MAX_DISCOVERY_S", 0.0),
+])
+def test_every_snapshot_bound_refuses_the_whole_snapshot(env, tmp_path, monkeypatch, bound, value):
+    for request_id in ("r-b1", "r-b2", "r-b3"):
+        commit_request(env.origin, request_id, valid_request(env, request_id=request_id))
+    monkeypatch.setattr(inbox_module, bound, value)
+    kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
+    with pytest.raises(InboxBoundExceeded) as refusal:
+        controller.poll_once()
+    assert "nothing was admitted" in str(refusal.value)
+    assert _admitted_nothing(kernel) and receipts.read_all() == ()
+
+
+def test_record_sizes_are_checked_before_any_record_is_read(env, tmp_path, monkeypatch):
+    _commit_raw(env.origin, {"requests/r-huge.json": b"x" * (inbox_module.MAX_RECORD_BYTES + 1)})
+    reads: list[list[str]] = []
+    real = inbox_module._bounded_git
+
+    def spy(repo, args, **kwargs):
+        reads.append(list(args))
+        return real(repo, args, **kwargs)
+
+    monkeypatch.setattr(inbox_module, "_bounded_git", spy)
+    _kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
+    with pytest.raises(InboxBoundExceeded):
+        controller.poll_once()
+    assert all(args[0] != "cat-file" for args in reads)
+
+
+@pytest.mark.parametrize("name", [
+    "clive/" + "a" * 201,
+    "clive/control/inbox.lock",
+    "clive/./inbox",
+    "clive/.hidden",
+    "clive//inbox",
+    "clive/inbox.",
+    "-clive",
+])
+def test_non_canonical_or_oversized_ref_names_are_refused_before_git(env, monkeypatch, name):
+    def no_git(*_args, **_kwargs):
+        raise AssertionError("git must not be called for a refused name")
+
+    monkeypatch.setattr(inbox_module.subprocess, "run", no_git)
+    with pytest.raises(InboxError) as refusal:
+        fetch_inbox(env.checkout, branch=name)
+    assert name not in str(refusal.value)
+
+
+@pytest.mark.parametrize("remote", ["o" * 65, "origin/other", "origin.lock", ".origin", SECRET_URL])
+def test_oversized_or_non_canonical_remote_names_are_refused_before_git(env, monkeypatch, remote):
+    def no_git(*_args, **_kwargs):
+        raise AssertionError("git must not be called for a refused remote")
+
+    monkeypatch.setattr(inbox_module.subprocess, "run", no_git)
+    with pytest.raises(InboxError) as refusal:
+        fetch_inbox(env.checkout, remote=remote)
+    assert remote not in str(refusal.value)
+
+
+def test_an_accepted_token_shaped_remote_or_branch_is_never_printed(env, tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
+    for extra in (["--remote", TOKEN_SHAPED], ["--branch", f"clive/control/{TOKEN_SHAPED}"]):
+        rc = cli.run([
+            "--store", str(tmp_path / "engineering"), "--repo", str(env.checkout), "--no-journal",
+            "poll", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main", *extra,
+        ])
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert TOKEN_SHAPED not in captured.out + captured.err
+        assert "inbox fetch failed" in captured.err
+    with pytest.raises(InboxError) as publish_failure:
+        publish_status(env.checkout, _status_at(NOW), remote=TOKEN_SHAPED)
+    assert TOKEN_SHAPED not in str(publish_failure.value)
+
+
+def test_the_inbox_fetch_never_follows_tags_or_touches_other_refs(env, tmp_path):
+    commit_request(env.origin, "r-tag", valid_request(env, request_id="r-tag"))
+    _git(env.origin, "tag", "sneaky", DEFAULT_INBOX_BRANCH)
+    _git(env.origin, "-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "sneaky-annotated", "-m", "x",
+         DEFAULT_INBOX_BRANCH)
+    before = set(_git(env.checkout, "for-each-ref", "--format=%(refname) %(objectname)").splitlines())
+    sha = fetch_inbox(env.checkout)
+    after = set(_git(env.checkout, "for-each-ref", "--format=%(refname) %(objectname)").splitlines())
+    assert after - before == {f"refs/remotes/origin/{DEFAULT_INBOX_BRANCH} {sha}"}
+    assert _git(env.checkout, "tag", "-l") == ""
+
+
+@pytest.mark.parametrize("path", [
+    "a\tb.json", "status.json\n100644 blob 0000000000000000000000000000000000000000\tx.json",
+    "st\0atus.json", "status.JSON", ".status.json", "sub/status.json", "st.atus.json",
+    "s" * 64 + ".json", "status json",
+])
+def test_status_paths_outside_the_allowlist_publish_nothing(env, path):
+    heads_before = _git(env.origin, "for-each-ref", "refs/heads")
+    with pytest.raises(InboxError) as refusal:
+        publish_status(env.checkout, _status_at(NOW), path=path)
+    assert path not in str(refusal.value)
+    assert _git(env.origin, "for-each-ref", "refs/heads") == heads_before
+
+
+def test_the_published_tree_is_built_nul_delimited_and_holds_one_file(env):
+    commit = publish_status(env.checkout, _status_at(NOW), path="status.json")
+    _git(env.checkout, "fetch", "-q", "origin", f"+refs/heads/{DEFAULT_STATUS_BRANCH}:refs/remotes/origin/{DEFAULT_STATUS_BRANCH}")
+    assert _git(env.checkout, "ls-tree", "-r", "--name-only", commit).splitlines() == ["status.json"]

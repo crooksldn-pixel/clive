@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import ValidationError
 
 __all__ = [
+    "InboxBoundExceeded",
     "InboxError",
     "RequestContentChanged",
     "RequestSchemaError",
@@ -39,6 +40,14 @@ class TransportError(InboxError):
     process log and, for the inbox adapter, projected to a public branch. Only names this
     host itself configured (a remote name, a branch, a ref) and an exit status are bounded
     enough to travel; the operator diagnoses the rest from git's own stderr at the console.
+    """
+
+
+class InboxBoundExceeded(InboxError):
+    """An inbox snapshot exceeded a fixed work bound. Nothing was admitted from it.
+
+    The bounds are this host's constants (record count, per-record and aggregate bytes, listing
+    bytes, wall-clock time), so the message names which bound and nothing a requester chose.
     """
 
 

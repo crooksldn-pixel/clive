@@ -32,12 +32,13 @@ from datetime import UTC, datetime
 from app.orchestrator.lifecycle import LifecycleStore
 
 from .controller import RemoteController
-from .errors import InboxError, RequestContentChanged
+from .errors import InboxBoundExceeded, InboxError, RequestContentChanged
 from .receipts import ReceiptLog
 from .status import build_status
 
 INTAKE_UNAVAILABLE = "inbox could not be fetched or read this cycle; nothing new was admitted"
 PUBLISH_UNAVAILABLE = "status projection could not be published this cycle; it will be retried"
+INTAKE_OVER_BOUND = "inbox snapshot exceeded a work bound; nothing new was admitted this cycle"
 TRANSPORT_ERRORS = (InboxError, subprocess.TimeoutExpired)
 
 
@@ -58,6 +59,8 @@ class RemoteEngineeringLoop:
             outcomes = self.controller.poll_once()
         except RequestContentChanged as exc:
             outcomes, intake_error = [], str(exc)
+        except InboxBoundExceeded:
+            outcomes, intake_error = [], INTAKE_OVER_BOUND
         except TRANSPORT_ERRORS:
             outcomes, intake_error = [], INTAKE_UNAVAILABLE
         else:
