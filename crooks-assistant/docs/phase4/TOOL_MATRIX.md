@@ -96,8 +96,8 @@ and of source text, so it is safe against a shop it may not touch.
 | `gmail_send_reply` | command:a tapped control, family:email_sends | test_actions_routes.py, test_compose.py, test_email_workspace.py, test_experience_analyser.py, test_families.py, test_gmail_tools.py, test_gmail_writes.py, test_owner_feedback.py, test_watch_lines.py | — |
 | `gmail_thread_archive` | command:a tapped control, family:email_archive | test_action_state.py, test_control_audit.py, test_council_fixes.py, test_email_workspace.py, test_experience_analyser.py, test_gaps.py, test_gmail_tools.py, test_gmail_writes.py, test_presentation.py | — |
 | `inventory_query` | recipe:navigation_back, recipe:navigation_home, recipe:stock_cover_analysis, recipe:landing_products, recipe:ui_area_workspace, family:product_reads | test_analytics_present.py, test_analytics_tools.py, test_capabilities.py, test_claims.py, test_flows.py, test_registry.py | back, landing_products, nav_branch_isolation, nav_click_path, nav_home_landing |
-| `objective_list` | family:objectives | test_objectives.py, test_registry.py | — |
-| `objective_note` | family:objectives | test_objectives.py, test_registry.py | — |
+| `objective_list` | family:objectives | test_objective_prompt.py, test_objectives.py, test_registry.py | — |
+| `objective_note` | family:objectives | test_objective_prompt.py, test_objectives.py, test_registry.py | — |
 | `objective_open` | family:objectives | test_objectives.py, test_registry.py | — |
 | `objective_show` | family:objectives | test_objectives.py, test_registry.py | — |
 | `shopify_abandoned_checkouts` | recipe:abandoned_checkouts, family:abandoned_checkouts | test_abandoned.py, test_registry.py | abandoned_checkouts, abandoned_window |
