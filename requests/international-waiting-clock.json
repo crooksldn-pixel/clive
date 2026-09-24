@@ -1,0 +1,56 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "international-waiting-clock",
+  "title": "Make the international-waiting age correct at every time of day",
+  "requested_outcome": "The repaired operational alpha 0bbcfb69e7be36f64261ddb56b9532dbbfca542f cannot deploy because GitHub acceptance failed on tests/test_experience.py::test_the_golden_scenarios[query_international_waiting], and the result depends on the time of day: the identical tree passed the full suite at 21:44-21:46 UTC on 2026-09-24 and failed at about 21:51 UTC (GitHub) and 22:16 UTC (reproduced locally). The failing check is 'and it is named, with how long it has waited': the fixture (experience/fixtures/data.py INTERNATIONAL_ORDER) places order 1927 fourteen shop-local days ago at 00:00 Europe/London, but the answer said '1 international order is unfulfilled; the oldest is 1927, waiting 15 days.' The words come from app/families/query_language.py, which floors age_days from the analytics query (app/analytics/engine.py computes (now - ts) / 86400). tests/test_fixture_wiring.py already records an earlier bug of the same class (a fixture placed part-way through a day). Find which timestamp, clock or cached 'now' makes the age read 15 here, and fix the root cause so the age the owner is told equals the whole shop-local days actually waited, at every minute of the day, in the product code if the product is wrong and in the fixture if only the fixture is. Do not change the scenario's check or weaken any assertion. Add a regression test that drives the real analytics-to-answer path with the clock set to at least 00:30, 11:00, 21:45, 21:55, 22:16 and 23:30 UTC and asserts the stated age each time. Say in your report what the root cause was. Run every check listed below in your workspace and fix anything it reports before you report. Do not report an owner decision for GitHub acceptance: it runs automatically after your candidate is published.",
+  "base_ref": "0bbcfb69e7be36f64261ddb56b9532dbbfca542f",
+  "base_sha": "0bbcfb69e7be36f64261ddb56b9532dbbfca542f",
+  "allowed_paths": [
+    "crooks-assistant/experience/fixtures",
+    "crooks-assistant/app/analytics",
+    "crooks-assistant/app/families/query_language.py",
+    "crooks-assistant/app/tools/analytics_tools.py",
+    "crooks-assistant/tests/test_fixture_wiring.py",
+    "crooks-assistant/tests/test_international_age_clock.py"
+  ],
+  "acceptance_criteria": [
+    "the root cause is identified in the report and fixed where it lives, with no change to the scenario's check",
+    "the international-waiting answer states the correct age at every tested time of day, proven by a clock-walking regression test through the real path",
+    "no existing assertion is weakened",
+    "every listed check passes in the worker's workspace"
+  ],
+  "checks": [
+    {
+      "name": "clock",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_international_age_clock.py",
+        "tests/test_fixture_wiring.py",
+        "tests/test_query_engine_p3.py",
+        "tests/test_experience.py",
+        "-k",
+        "international or fixture or query or clock"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/international-waiting-clock",
+  "max_repair_rounds": 3
+}
