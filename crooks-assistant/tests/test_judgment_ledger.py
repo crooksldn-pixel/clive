@@ -201,3 +201,99 @@ def test_a_correction_may_itself_be_an_edit_with_its_own_replacement() -> None:
     ledger = ledger.append(edit)
     assert ledger.effective_judgment_for("proposal-1").decision is OwnerDecision.EDITED
     assert ledger.records[0].decision is OwnerDecision.APPROVED
+
+
+# ------------------------------------------- J-02: revision and attempt identity
+
+
+def test_a_correction_that_changes_the_task_revision_is_refused() -> None:
+    ledger = JudgmentLedger().append(judgment(task_revision=1))
+    with pytest.raises(JudgmentLedgerError, match="same task revision and attempt"):
+        ledger.append(corrected(task_revision=2))
+
+
+def test_a_correction_that_drops_the_task_revision_is_refused() -> None:
+    ledger = JudgmentLedger().append(judgment(task_revision=1))
+    with pytest.raises(JudgmentLedgerError, match="same task revision and attempt"):
+        ledger.append(corrected())
+
+
+def test_a_correction_that_adds_a_task_revision_is_refused() -> None:
+    ledger = JudgmentLedger().append(judgment())
+    with pytest.raises(JudgmentLedgerError, match="same task revision and attempt"):
+        ledger.append(corrected(task_revision=1))
+
+
+def test_a_correction_that_changes_the_attempt_is_refused() -> None:
+    ledger = JudgmentLedger().append(judgment(attempt_id="attempt-1"))
+    with pytest.raises(JudgmentLedgerError, match="same task revision and attempt"):
+        ledger.append(corrected(attempt_id="attempt-2"))
+
+
+def test_a_correction_that_drops_the_attempt_is_refused() -> None:
+    ledger = JudgmentLedger().append(judgment(attempt_id="attempt-1"))
+    with pytest.raises(JudgmentLedgerError, match="same task revision and attempt"):
+        ledger.append(corrected())
+
+
+def test_a_correction_that_adds_an_attempt_is_refused() -> None:
+    ledger = JudgmentLedger().append(judgment())
+    with pytest.raises(JudgmentLedgerError, match="same task revision and attempt"):
+        ledger.append(corrected(attempt_id="attempt-1"))
+
+
+def test_a_correction_at_the_same_revision_and_attempt_is_accepted() -> None:
+    original = judgment(task_revision=2, attempt_id="attempt-2")
+    ledger = JudgmentLedger().append(original)
+    ledger = ledger.append(corrected(task_revision=2, attempt_id="attempt-2"))
+    assert ledger.records[0] == original
+    effective = ledger.effective_judgment_for("proposal-1")
+    assert effective is not None
+    assert effective.judgment_id == "judgment-2"
+    assert (effective.task_revision, effective.attempt_id) == (2, "attempt-2")
+
+
+def test_a_chain_of_corrections_cannot_drift_revision_or_attempt() -> None:
+    ledger = (
+        JudgmentLedger()
+        .append(judgment(task_revision=1, attempt_id="attempt-1"))
+        .append(corrected(task_revision=1, attempt_id="attempt-1"))
+    )
+
+    def third(**overrides) -> JudgmentRecord:
+        values = dict(
+            judgment_id="judgment-3",
+            corrects_judgment_id="judgment-2",
+            decision=OwnerDecision.DEFERRED,
+            reason_code=ReasonCode.NOT_NOW,
+            decided_at=DECIDED_AT + timedelta(hours=2),
+            task_revision=1,
+            attempt_id="attempt-1",
+        )
+        values.update(overrides)
+        return corrected(**values)
+
+    with pytest.raises(JudgmentLedgerError, match="same task revision and attempt"):
+        ledger.append(third(task_revision=2))
+    with pytest.raises(JudgmentLedgerError, match="same task revision and attempt"):
+        ledger.append(third(attempt_id="attempt-2"))
+    with pytest.raises(JudgmentLedgerError, match="same task revision and attempt"):
+        ledger.append(third(attempt_id=None))
+    chained = ledger.append(third())
+    effective = chained.effective_judgment_for("proposal-1")
+    assert effective is not None
+    assert effective.judgment_id == "judgment-3"
+    assert (effective.task_revision, effective.attempt_id) == (1, "attempt-1")
+
+
+def test_a_refused_correction_names_both_identities_and_moves_nothing() -> None:
+    ledger = JudgmentLedger().append(judgment(task_revision=1, attempt_id="attempt-1"))
+    with pytest.raises(JudgmentLedgerError) as refusal:
+        ledger.append(corrected(task_revision=2, attempt_id="attempt-1"))
+    message = str(refusal.value)
+    assert "revision 1" in message and "revision 2" in message
+    assert "'attempt-1'" in message
+    assert [entry.judgment_id for entry in ledger.records] == ["judgment-1"]
+    assert ledger.effective_judgment_for("proposal-1") == judgment(
+        task_revision=1, attempt_id="attempt-1"
+    )
