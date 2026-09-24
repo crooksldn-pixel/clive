@@ -1,0 +1,51 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "operational-alpha-acceptance-repair-3",
+  "title": "Operational alpha: pass full repository acceptance",
+  "requested_outcome": "Make the operational alpha release candidate f7be86f7f4676ca86de9a7ef18bac2342f29f62d pass full repository acceptance without weakening any gate. Exactly three failures exist at that SHA. (1) The secret scan reports one un-baselined generic-api-key finding at crooks-assistant/mac/CrooksControl/Tests/CrooksControlCoreTests/HumanisingTests.swift line 127, inside testEveryShapeTheControlScriptRedactsIsRedactedHereToo: synthetic redaction fixtures such as sk-proj-Abc123Def456. Do not add a baseline entry and do not touch .gitleaks.toml, .gitleaks-baseline.json or any acceptance script. Instead build every fixture in that array at runtime from a literal prefix plus an obviously synthetic body (for example \"sk-proj-\" + \"Abc123Def456\"), so the source holds no credential-shaped literal while the test exercises exactly the same strings in the same order, with a one-line comment saying why. (2) tests/test_acceptance_provenance.py::test_a_new_secret_still_fails_the_gate fails only because of (1): its control assertion needs a clean tree; do not modify that test. (3) tests/test_tool_matrix.py::test_the_checked_in_document_is_the_generated_one fails because crooks-assistant/docs/phase4/TOOL_MATRIX.md was not regenerated after tests/test_objective_prompt.py was added; regenerate it with the repository's own generator (from crooks-assistant: python -c \"import sys; sys.path.insert(0,'.'); from experience import tool_matrix; print(tool_matrix.write())\") and commit the generated output unedited. Check note (not a change to the work): the previous submission, operational-alpha-acceptance-repair-2, was refused twice with matrix-and-provenance (exit 1) for a sandbox reason and not a defect. The single failure both times was tests/test_acceptance_provenance.py::test_cli_refuses_with_exit_two_and_still_emits_readable_json, which runs the acceptance script in a working directory that git cannot see as a repository inside the namespace sandbox, so the script refuses with \"git rev-parse HEAD failed: fatal: not a git repository\" instead of \"candidate SHA mismatch\". Run outside the sandbox on the last candidate, d8d99593c5efb2e6a3cb14d9c9091181ecb6e52d, the two files are 39 passed, 1 skipped, exit 0. This objective therefore carries a narrowed mechanical check, matrix-and-provenance-sandbox: all six tests in tests/test_tool_matrix.py (test_every_registered_tool_has_a_row, test_every_routable_intent_family_has_a_row, test_a_write_tool_declares_staging_and_verification, test_no_tool_is_called_tested_because_a_unit_test_imported_it, test_the_checked_in_document_is_the_generated_one, test_the_audit_never_mutates_anything) and every test in tests/test_acceptance_provenance.py except test_cli_refuses_with_exit_two_and_still_emits_readable_json, which is deselected because it cannot pass inside the sandbox. Narrowing the check does not weaken the gate and passing it is not the proof: full repository acceptance on GitHub for the candidate SHA is the proof, and acceptance criterion 5 stands unchanged.",
+  "base_ref": "f7be86f7f4676ca86de9a7ef18bac2342f29f62d",
+  "base_sha": "f7be86f7f4676ca86de9a7ef18bac2342f29f62d",
+  "allowed_paths": [
+    "crooks-assistant/mac/CrooksControl/Tests/CrooksControlCoreTests/HumanisingTests.swift",
+    "crooks-assistant/docs/phase4/TOOL_MATRIX.md"
+  ],
+  "acceptance_criteria": [
+    "the Swift redaction test builds exactly the same fixture strings, in the same order, as at f7be86f7, and asserts exactly what it asserted before",
+    "no secret-scan baseline, gitleaks configuration, acceptance script or test outside the two allowed paths changes",
+    "docs/phase4/TOOL_MATRIX.md is byte-identical to the output of the repository's generator run in a fresh interpreter",
+    "tests/test_tool_matrix.py and tests/test_acceptance_provenance.py pass",
+    "full repository acceptance for the candidate SHA reports mechanical_evidence complete with no unsatisfied gate"
+  ],
+  "checks": [
+    {
+      "name": "matrix-and-provenance-sandbox",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_tool_matrix.py",
+        "tests/test_acceptance_provenance.py",
+        "--deselect",
+        "tests/test_acceptance_provenance.py::test_cli_refuses_with_exit_two_and_still_emits_readable_json"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/operational-alpha-acceptance-repair-3",
+  "max_repair_rounds": 2
+}
