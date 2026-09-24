@@ -1,0 +1,30 @@
+{
+  "attempt_id": "11ab9070650a-exact-sha-review",
+  "candidate_sha": "11ab9070650abd12a7f8f990e462d5d328f2fbd9",
+  "findings": [
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/controller.py:207-239",
+      "finding": "Authoritative intake and exact-byte provenance are not committed crash-safely. The controller writes the Objective/task through intake() before persisting the acceptance receipt containing request_sha256. A process interruption or receipt-write failure in that window leaves an admitted objective with no durable request digest. On restart, byte-different JSON that parses to the same request model is indistinguishable from the original request until after intake, so the implementation cannot both replay the original bytes idempotently and refuse the changed bytes. It may misclassify the replay or bind the accepted objective to the replacement digest, violating immutable-request replay safety and durable provenance.",
+      "finding_id": "F-01",
+      "material": true,
+      "required_repair": "Persist an atomic immutable claim mapping request_id to request_sha256 before any lifecycle write, without treating that claim as lifecycle authority or final acceptance. On restart, resume/finalize only the claimed digest and refuse every different digest. Add fault-injection tests that interrupt execution after successful intake but before the acceptance receipt, then prove that the original bytes recover idempotently while formatting-only or otherwise changed bytes with the same id are refused and cannot replace provenance."
+    }
+  ],
+  "reviewer": {
+    "clean": true,
+    "context_fresh": true,
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "read_only": true,
+    "session_id": "openai-response:resp_06f1aa43f023e425016ab52cc54fc487d29aec37afb91469a3",
+    "session_started_at": "2026-09-24T13:59:31.287793Z",
+    "workspace_branch": "detached:11ab9070650abd12a7f8f990e462d5d328f2fbd9",
+    "workspace_head": "11ab9070650abd12a7f8f990e462d5d328f2fbd9",
+    "workspace_id": "git-objects:11ab9070650abd12a7f8f990e462d5d328f2fbd9"
+  },
+  "schema_version": "clive.review_result.v1",
+  "summary": "The decoder and directory-disclosure findings from the earlier review appear addressed, and the mechanical suite passes. However, a crash window between lifecycle intake and receipt persistence still breaks the required exact-byte replay/provenance invariant, so this SHA is not ready for host activation.\n\n[model gpt-5.6-sol, effort high, usage {\"input_tokens\": 65568, \"input_tokens_details\": {\"cache_write_tokens\": 65565, \"cached_tokens\": 0}, \"output_tokens\": 8649, \"output_tokens_details\": {\"reasoning_tokens\": 8286}, \"total_tokens\": 74217}]",
+  "task_id": "remote-engineering-control-v1-activation",
+  "task_revision": 1,
+  "verdict": "CHANGES_REQUIRED"
+}

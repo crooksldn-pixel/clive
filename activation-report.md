@@ -486,3 +486,183 @@ Both remaining findings are small and well-specified — a decoder-exception wid
 refusing to serialize the supplied text. Neither needs a protected path. But §4 of this
 round's runbook forbids authoring that repair, so the next step is an owner decision, not
 another autonomous round.
+
+---
+
+# Round 4 — gate `11ab9070` (RUNBOOK_ROUND4.md)
+
+**Outcome: NOT ACTIVATED. Stopped at RUNBOOK_ROUND4 §4.**
+
+Stop condition, exactly as §4 states it: *"`CHANGES_REQUIRED`: STOP, publish (section 7)
+and end."* The independent GPT exact-SHA review of
+`11ab9070650abd12a7f8f990e462d5d328f2fbd9` returned `CHANGES_REQUIRED` with one material
+finding, judged against the same frozen materiality standard as round 3. No repair was
+authored. Sections 5 (activate) and 6 (operational-alpha proof) were never entered.
+
+Run window: 2026-09-24 13:49Z – 14:03Z. Host `crooks-os-prod-1`.
+
+## R4.1 Package check (§1)
+
+| Fact | Value |
+|---|---|
+| Round-4 files from `origin/clive/evidence/activation-round-4` | `RUNBOOK_ROUND4.md`, `round4.patch`, `SHA256SUMS` |
+| Round-3 files reused from `origin/clive/evidence/activation-round-3` | `build_review_job.py`, `proof-request-operational-alpha.json` |
+| `sha256sum -c SHA256SUMS` | all 4 entries OK |
+| Reused files vs. the copies audited in round 3 | `cmp` byte-identical for both |
+| Prior findings extracted from published `ca047b89.review.json` | **2** (F-01, F-02), so the §1 STOP threshold ("fewer than two") did not apply |
+
+The runbook states the review builder is "round 3's, unchanged and already verified by
+you". That was confirmed rather than assumed: both reused files were compared byte-for-byte
+against the round-3 copies this session had audited, so round 3's `--materiality`
+verification (R3.2) carries over unchanged. The generated packet was re-checked and again
+contains the DEC-057 and self-referential-convergence blocks in full.
+
+## R4.2 Candidate reproduction and publication (§2)
+
+```
+git am --committer-date-is-author-date round4.patch  onto ca047b89
+HEAD = 11ab9070650abd12a7f8f990e462d5d328f2fbd9   (exact match)
+HEAD^ = ca047b8963bcbf7124f71037a2fa14fc4853ab8d   (declared PARENT)
+push: ca047b89..11ab9070 -> claude/remote-engineering-control-v1-activation-successor-2026-09-24
+```
+
+Fast-forward from `$PARENT`; nothing amended, no SHA rewritten, no force. The patch touched
+7 files (+214/−26), all inside the section 9 allowlist (verified mechanically):
+`app/remote_engineering/{controller,errors,inbox,requests,runner}.py`,
+`scripts/remote_engineering.py` and `tests/test_remote_engineering.py`.
+`build_review_job.py` reported `protected_hits: []`.
+
+Notable surface change: the candidate **removes** the `--directory` CLI flag, so the inbox
+directory is no longer operator input at all. That is a reduction in configurability, not a
+weakening of a gate, and it is the reviewer's own preferred repair for `ca047b89` F-02
+("Prefer a fixed inbox directory").
+
+## R4.3 Gate A (§3) — PASS
+
+| Field | Value |
+|---|---|
+| Run | [36008900056](https://github.com/crooksldn-pixel/clive/actions/runs/36008900056) |
+| Head SHA | `11ab9070650abd12a7f8f990e462d5d328f2fbd9` (exact) |
+| Conclusion | success (first attempt; no rerun needed) |
+| `mechanical_evidence` | complete |
+| `eligible_for_acceptance_decision` | true |
+| `unsatisfied_gates` / `malformed_gates` | `[]` / `[]` |
+| Gates | ruff pass · pytest_control_plane 44 passed · product_memory_structure pass · pytest_offline_full **3313 passed**, 14 skipped · secret_scan "no leaks found" |
+
+Offline suite growth across the whole effort: 3234 → 3250 → 3266 → 3296 → **3313**.
+
+## R4.4 Gate B (§4) — CHANGES_REQUIRED (terminal for this round)
+
+Reviewer principal `gpt`, kind `model`, `read_only: true`, `context_fresh: true`, mechanism
+`openai-responses:gpt-5.6-sol`, effort `high`, `courier: false`, one run (no transient
+failure, so no `--run 2`/`--run 3`). Result validates as `clive.review_result.v1` with
+`candidate_sha == 11ab9070…`.
+
+The reviewer recorded that the two `ca047b89` findings "appear addressed" and raised one
+new finding, marked material:
+
+| ID | Material | Finding |
+|---|---|---|
+| F-01 | true | Authoritative intake and exact-byte provenance are not committed crash-safely. `intake()` writes the Objective/task **before** the acceptance receipt carrying `request_sha256` is persisted. A crash or receipt-write failure in that window leaves an admitted objective with no durable request digest; on restart, byte-different JSON that parses to the same request model is indistinguishable from the original until after intake, so the adapter can neither replay the original bytes idempotently nor reliably refuse the changed bytes. |
+
+Required repair (recorded for the owner, not performed): persist an atomic immutable claim
+binding `request_id` to `request_sha256` *before* any lifecycle write — without that claim
+being lifecycle authority — resume or finalise only the claimed digest on restart, refuse
+every different digest, and add fault-injection tests that interrupt after intake but
+before the receipt.
+
+This is a genuine failure of a frozen acceptance criterion ("restart and re-poll remain
+idempotent and do not duplicate objectives, attempts, reviews or integrations", and
+immutable-request replay safety), so `material: true` is correctly assigned under the
+standard rather than being new hardening that the convergence rule would make backlog.
+
+## R4.5 Gate outcomes across all five exact SHAs
+
+| # | SHA | Acceptance run | Gate A | Gate B |
+|---|---|---|---|---|
+| candidate | `c23f1935` | 35994015937 | pass | CHANGES_REQUIRED (4 material) |
+| successor 1 | `05fe8046` | 35996970816 | pass | CHANGES_REQUIRED (4 material) |
+| successor 2 | `62f6e7e5` | 35999394632 | pass | CHANGES_REQUIRED (5 material) |
+| round 3 | `ca047b89` | 36004882143 | pass | CHANGES_REQUIRED (2 material) |
+| round 4 | `11ab9070` | 36008900056 | pass | CHANGES_REQUIRED (1 material) |
+
+Reviewed base held constant at `6c300c5f9a349bf2da397ecd2ac7a263849dbc60` for all five.
+Sixteen material findings raised; fifteen repaired and confirmed repaired by the next
+review. Every SHA passed full GitHub acceptance on its first attempt; the gate that has
+never passed is the independent review.
+
+The per-round material count is falling (4, 4, 5, 2, 1) and each round's findings have been
+confirmed fixed by the next, so the line is converging rather than churning. It has not yet
+converged to zero.
+
+## R4.6 What was NOT done
+
+| Section | Status |
+|---|---|
+| §5 Activate | **Not reached.** No pin directory `$E/remote-control/11ab9070…` was cloned, no smoke cycle was run, no unit file was written, `systemctl daemon-reload`/`enable --now` were never invoked. There is no installed unit text to report. The proven flag set (adding `--check-ro-path /opt/node22`) was never applied. **`prod-before.txt` was not taken** and is therefore not among the published files: §5 specifies taking it "immediately before installing the unit", and no unit was ever installed. |
+| §6 Operational-alpha proof | **Not reached.** `proof-request-operational-alpha.json` was **not** committed to the inbox. No objective `operational-alpha-acceptance-repair` exists, no `clive/objective/operational-alpha-acceptance-repair` ref exists, no candidate was produced for `f7be86f7`, and there is no status.json item or candidate CI conclusion to report. |
+
+`origin/clive/control/status` still does not exist. The owner-inbox is untouched at
+`cc9ab83887cc1850c75a2e9403dc8db9f5a9d7b1`; the superseded readiness request is still
+present and still has no receipt. The engineering store still has no `remote_engineering/`
+directory: nothing has ever been admitted through remote ingress.
+
+## R4.7 Production and store state
+
+The engineering store was read-only throughout round 4 (`engineering_dispatcher.py … status
+--json` only). Its six objectives are unchanged from the original discovery:
+`derived-truth-attention-v1` COMPLETE, `engineering-team-activation-v1` COMPLETE,
+`mobile-dogfood-voice-v1` COMPLETE, `remote-engineering-control-v1-repair-1` OWNER_GATE,
+`remote-engineering-control-v1-repair-2` COMPLETE, `remote-engineering-control-v1` BLOCKED.
+The OWNER_GATE and BLOCKED items were not resumed, lifted or altered. No credential value
+was read, printed, copied or committed; key files were referred to by path only.
+
+**The replacement production check from §5 works.** Although §5 was not reached, its
+`prod_state` function was exercised read-only to confirm it is sound before relying on it:
+
+- Both `/opt/crooks-os` and `/opt/crooks-interactive` take the **git branch** of the
+  function (both are git repositories); the manifest branch was not used for either.
+- `/opt/crooks-os` `ca388ceeedb54cfd495fb2b5205ec2184db9ccae`, `/opt/crooks-interactive`
+  `31fb755360ae40959c14d608de0035815c41cc40`, and both report a tracked-file dirty hash of
+  `e3b0c44298fc1c14` — the sha256 of empty input, i.e. no modified tracked file.
+- Sampled twice 20 s apart, the whole `prod_state` output was byte-identical, and both
+  production units are `active`, matching the original baseline.
+
+This confirms the round-3 report's R3.8 concern is resolved: the new check is stable where
+the old `find … -newer` test now false-positives on the live assistant's own logs and
+caches. Recorded here so a future round can rely on it.
+
+## R4.8 Deviations from RUNBOOK_ROUND4.md
+
+1. **The reused round-3 artifacts were re-verified rather than trusted.** §1 states the
+   builder and proof request are "unchanged and already verified by you"; both were
+   compared byte-for-byte (`cmp`) against the round-3 copies, and the generated packet was
+   re-inspected for the complete materiality blocks. *Reason:* the `--materiality` flag
+   shapes the review gate, and RUNBOOK §0 forbids weakening the acceptance machinery. No
+   change was made; this is an added check.
+2. **`prod_state` was exercised read-only before §5 would have needed it** (R4.7), to
+   establish which branch each directory takes and that its output is stable. *Reason:* the
+   check exists because round 3 found the previous one unreliable; confirming the
+   replacement is sound is cheap and was worth doing even though activation did not follow.
+   No baseline file was written, since §5 was never entered.
+3. **The builder's cosmetic prior-findings heading was left alone**, as §4 instructs ("the
+   builder's prior-findings heading still names `abaefa52`; the findings listed are the
+   `ca047b89` review's. Cosmetic; do not edit the builder."). Recorded so the wording in
+   the published packet is not mistaken for a wrong-SHA provenance error.
+
+No other deviation. No protected path, frozen kernel, test assertion, secret-scanning rule,
+CI workflow or acceptance machinery was weakened. No force-push, no amended commit, no
+rewritten SHA, no repair authored.
+
+## R4.9 Where this leaves the work
+
+`claude/remote-engineering-control-v1-activation-successor-2026-09-24` is at `11ab9070`,
+which holds full GitHub acceptance for its exact SHA and the repairs for fifteen of the
+sixteen material findings raised across five reviews. It is **not** activation-approved: one
+material finding remains, typed in
+`11ab9070650abd12a7f8f990e462d5d328f2fbd9.review.json`.
+
+The remaining defect is a crash window between `intake()` and the acceptance receipt. It is
+narrow and the required repair is specified precisely, and it needs no protected path. But
+§4 of this round's runbook forbids authoring that repair, so the next step is an owner
+decision, not another autonomous round.
