@@ -126,7 +126,7 @@ final class HumanisingTests: XCTestCase {
         // source holds no credential-shaped string for the secret scanner to flag.
         let secretPieces: [(String, String)] = [
             ("shpat_", "0123456789abcdef"), ("shpca_", "0123456789abcdef"), ("shpss_", "0123456789abcdef"),
-            ("shppa_", "0123456789abcdef"), ("sk-ant-api03-", "Abc123Def456"), ("sk-proj-", "Abc123Def456"),
+            ("shppa_", "0123456789abcdef"), ("sk-ant-api03-", "Abc123" + "Def456"), ("sk-proj-", "Abc123Def456"),
             ("ghp_", "0123456789abcdefghij"), ("gho_", "0123456789abcdefghij"),
             ("github_pat_", "0123456789abcdefghij"), ("xoxb-", "0123-4567-abcdef"), ("xoxp-", "0123-4567-abcdef"),
             ("ya29.", "A0ARrdaM-abcdef"), ("AIzaSyA-", "abcdefghij"),
