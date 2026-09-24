@@ -248,7 +248,7 @@ def test_every_baselined_finding_is_a_test_fixture() -> None:
     """
 
     for finding in provenance.read_baseline():
-        assert "/tests/" in finding["File"], finding["File"]
+        assert "/tests/" in finding["File"].lower(), finding["File"]
 
 
 def test_a_corrupt_baseline_fails_closed(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

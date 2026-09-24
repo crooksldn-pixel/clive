@@ -98,5 +98,25 @@
   "Message": "",
   "Tags": [],
   "Fingerprint": "crooks-assistant/tests/test_tts.py:generic-api-key:20"
+ },
+ {
+  "RuleID": "generic-api-key",
+  "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+  "StartLine": 127,
+  "EndLine": 127,
+  "StartColumn": 41,
+  "EndColumn": 90,
+  "Match": "sk-ant-api03-Abc123Def456\", \"REDACTED\"",
+  "Secret": "REDACTED",
+  "File": "crooks-assistant/mac/CrooksControl/Tests/CrooksControlCoreTests/HumanisingTests.swift",
+  "SymlinkFile": "",
+  "Commit": "",
+  "Entropy": 4.221928,
+  "Author": "",
+  "Email": "",
+  "Date": "",
+  "Message": "",
+  "Tags": [],
+  "Fingerprint": "crooks-assistant/mac/CrooksControl/Tests/CrooksControlCoreTests/HumanisingTests.swift:generic-api-key:127"
  }
 ]
