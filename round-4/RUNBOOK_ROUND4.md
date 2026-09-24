@@ -4,7 +4,9 @@ Round 3 stopped correctly at its section 4. Round 4 was authored by Claude Opus 
 repairs both findings of the review of `ca047b89` and closes the same class one step further
 out (intake refusals no longer quote supplied values). Everything in
 `/root/clive-activation/clive-activation-c23f1935/RUNBOOK.md` section 0 still applies unchanged.
-Execute this file end to end; ask George only if a step says STOP.
+Execute this file end to end without asking George anything. This run is authorised to repair
+and re-gate the candidate on its own (section 4b) until it is READY: George is not a trigger in
+this loop. Stop only where a step says STOP.
 
 ```bash
 SHA=11ab9070650abd12a7f8f990e462d5d328f2fbd9
@@ -60,7 +62,30 @@ env -i PATH=/usr/bin:/bin LANG=C.UTF-8 HOME=$OUT PYTHONPATH=$TA $PY -m app.orche
 ```
 (The builder's prior-findings heading still names `abaefa52`; the findings listed are the
 `ca047b89` review's. Cosmetic; do not edit the builder.) Accept only `candidate_sha == $SHA`,
-principal `gpt`, verdict `READY`. `CHANGES_REQUIRED`: STOP, publish (section 7) and end.
+principal `gpt`, verdict `READY`. `READY`: go to section 5. `CHANGES_REQUIRED`: section 4b.
+
+## 4b. Repair autonomously until READY
+
+On `CHANGES_REQUIRED`, author the successor yourself, as the first run did for rounds 1-2:
+
+- one new commit on `$BRANCH` (fast-forward, no amend, no force) repairing every material
+  finding, touching only `crooks-assistant/app/remote_engineering/`,
+  `crooks-assistant/scripts/remote_engineering.py`, `crooks-assistant/tests/test_remote_engineering.py`
+  and `crooks-assistant/docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md`;
+- a regression test per finding that fails on the previous SHA; no existing assertion weakened;
+  also check the finding's whole class, not only its example, so the next review has less to find;
+- pre-flight ruff and `tests/test_remote_engineering.py` in the project's `NamespaceSandbox` as
+  before, then push, Gate A (section 3), Gate B (section 4) with `--prior-findings` built from the
+  latest review's material findings and `--reviewed-base` unchanged;
+- after every round, append that SHA's `review.json`, `ci-*.json` and a short round section to
+  `clive/evidence/remote-engineering-activation`, so progress is visible on GitHub.
+
+From the first successor on, `$SHA` everywhere below means the newest successor's exact SHA.
+Repeat until `READY`, then continue at section 5. STOP only if: a repair needs any other path, a
+protected path, a credential, production or an owner decision; the material-finding count fails to
+fall across two consecutive rounds (the DEC-057 convergence stop); six successor rounds have been
+authored in this run; or Gate A fails twice on one SHA for a non-transient reason. On STOP, publish
+(section 7) and end.
 
 ## 5. Activate (only after READY for exactly `$SHA`)
 
@@ -96,6 +121,8 @@ record the resulting candidate's GitHub acceptance conclusion.
 
 ## 7. Publish
 
-Append to `clive/evidence/remote-engineering-activation` (fast-forward): `$SHA.review.json`,
-`ci-$SHA.json`, `prod-before.txt` if taken, and a `# Round 4` section in `activation-report.md`
-in the same shape as round 3's. Then tell George only: "Round 4 finished - evidence published".
+Append to `clive/evidence/remote-engineering-activation` (fast-forward) whatever section 4b has
+not already published: the final SHA's `review.json` and `ci-*.json`, `prod-before.txt` if taken,
+and a `# Round 4` section in `activation-report.md` in the same shape as round 3's, naming the
+final SHA and whether the loop is live. Then tell George only one line: "Activated - loop live"
+or "Stopped - evidence published".
