@@ -1,0 +1,52 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "remote-engineering-review-findings-2",
+  "title": "Remote engineering: close the review findings and the journalled-store defect",
+  "requested_outcome": "The remote engineering loop is running, activated by owner decision at 4c32bb3d5f4935402c9cdc897914370950f7f206, with three material findings from that SHA's exact-SHA review still open. Repair all three. (1) A request_id that is a valid slug can still be a secret (for example prod-password-hunter2), and it is persisted and published verbatim as the claim and receipt key, the objective and task id, the source locator, CLI output and the public status field. Derive a stable domain-separated opaque identifier from request_id and use only that for claims, receipts, objective/task correlation, target branches, source locators, diagnostics, CLI output and the status projection; keep a separate one-way id hash alongside the request-byte digest so same-id/different-bytes detection still works. Prove it with a test whose id is a valid slug treated as a real secret, absent from every adapter record, lifecycle identifier, output, error and status commit. (2) The request schema admits ids the downstream records reject: the slug pattern permits up to 135 characters while Claim.request_id and Receipt.request_id are max_length 120, and the Claim is built outside the controller's guarded intake block, so a 121-135 character request fails repeatedly without ever earning an accepted or refused record, and one-shot poll prints the raw ValidationError, which can echo the supplied id. Make the externally valid id domain compatible with every downstream record and canonical identifier, ensure every schema-valid request reaches a durable accepted or refused decision or a safely redacted schema refusal, and add boundary tests for the longest permitted raw id in both run and one-shot poll. (3) The atomic claim keeps a concurrent crash-durability window: the winner links its fsynced temporary file and may be descheduled before fsyncing the claims directory, while the loser sees FileExistsError and returns from _write_once without fsyncing it, then may proceed to lifecycle intake. On the FileExists loser path, fsync the containing directory before returning and before any caller can enter intake, then reload and validate the winning record. Add a barrier-based concurrent fault-ordering test that pauses the winner immediately after link publication, lets the loser finish claiming, and proves the directory was flushed before the loser could enter intake. (4) Intake writes the claim into the journalled engineering store before intake(), and the kernel's journal_preconditions refuses any verb while the store holds modified or untracked files, so the adapter's own claim refused every request and the controller then wrote an immutable refused receipt, burning the request id. The running loop only works because a host-local /engineering/remote_engineering/ line was added to .git/info/exclude, which is host state that no clone, rebuild or new host will carry. Adapter records must not depend on it: either keep claims and receipts outside the journalled tree entirely, or have the loop refuse to start unless they are already ignored by the store it was given. Prove it with an end-to-end intake test that builds the kernel with journal=True against a real journalled store and admits a request through to an accepted receipt - no existing test does, which is why six exact-SHA reviews and the full suite never caught this. Do not weaken any existing assertion; test inputs may be renamed if an id no longer fits.",
+  "base_ref": "4c32bb3d5f4935402c9cdc897914370950f7f206",
+  "base_sha": "4c32bb3d5f4935402c9cdc897914370950f7f206",
+  "allowed_paths": [
+    "crooks-assistant/app/remote_engineering",
+    "crooks-assistant/scripts/remote_engineering.py",
+    "crooks-assistant/tests/test_remote_engineering.py",
+    "crooks-assistant/docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md"
+  ],
+  "acceptance_criteria": [
+    "a request_id that is a valid slug but is a real secret appears in no claim, receipt, objective or task identifier, source locator, refusal, host output or status projection",
+    "every schema-valid request_id, including the longest one the schema admits, reaches a durable accepted or refused record, in run and in one-shot poll, without echoing the supplied id",
+    "on the losing side of a concurrent claim the claims directory is flushed before the loser can enter lifecycle intake, proven by a barrier-based fault-ordering test",
+    "a request is admitted end to end through a journalled store (journal=True) to an accepted receipt, in a test, with no reliance on .git/info/exclude or any other host-local state",
+    "the loop either stores adapter records outside the journalled tree or refuses to start when they are not ignored, and says which",
+    "every existing test in tests/test_remote_engineering.py still passes with unchanged assertions",
+    "full repository acceptance for the candidate SHA reports mechanical_evidence complete with no unsatisfied gate"
+  ],
+  "checks": [
+    {
+      "name": "remote-engineering",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_remote_engineering.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/remote-engineering-review-findings-2",
+  "max_repair_rounds": 2
+}
