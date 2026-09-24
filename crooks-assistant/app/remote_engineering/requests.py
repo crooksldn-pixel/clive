@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from app.orchestrator.contracts import ExactSha, StrictRecord, validate_exact_sha
 from app.orchestrator.objectives import Check
@@ -20,12 +20,18 @@ from app.orchestrator.objectives import Check
 from .errors import RequestSchemaError, redact_supplied, redact_validation_error, supplied_strings
 
 REQUEST_SCHEMA = "clive.remote_engineering_request.v1"
-# Bounded and safe to use as a filename and a record identity, but deliberately no
-# stricter than that: the one canonical door (``app.orchestrator.objectives.Objective``)
-# is what actually authorises an id, and a shorter duplicate rule here would only
-# ever reject requests before the canonical validator gets to say why, hiding the
-# real refusal reason (e.g. a protected path) behind a schema mismatch instead.
-_REQUEST_ID = r"^[a-z0-9][a-z0-9.-]{0,79}$"
+# A readable slug: lowercase words of at most 16 characters joined by hyphens. The id is
+# the Director's own correlation handle and stays the objective/task id that the spec's
+# outbound-visibility section promises, so it is deliberately not made opaque -- but it is
+# requester-chosen and ends up in a durable receipt, a claim, a task id and the public
+# projection, so its *shape* is constrained instead. Underscores, mixed case, and runs
+# longer than 16 characters are refused, which excludes credential shapes in practice
+# while admitting every id this system actually uses.
+_REQUEST_ID = r"^[a-z][a-z0-9]{0,15}(-[a-z0-9]{1,16}){1,7}$"
+# The one ref the dispatcher publishes for a request therefore carries the slug and
+# nothing else. Anything a requester could otherwise smuggle through a free-form branch
+# name is excluded by construction rather than by a second pattern.
+_TARGET_BRANCH_PREFIX = "clive/objective/"
 # ``base_ref`` is handed to ``git rev-parse`` before the canonical door sees it, so it has
 # to be a bounded ref *here*. The character set excludes ``:``, ``@``, ``~``, ``^`` and
 # whitespace, so it can be neither a URL (which could carry a credential) nor a revision
@@ -58,6 +64,13 @@ class RemoteObjectiveRequest(StrictRecord):
     @classmethod
     def exact_sha(cls, value: str) -> str:
         return validate_exact_sha(value)
+
+    @model_validator(mode="after")
+    def target_branch_is_the_request_id(self) -> RemoteObjectiveRequest:
+        # Fixed wording: the supplied branch is never echoed, like every other refusal.
+        if self.target_branch != f"{_TARGET_BRANCH_PREFIX}{self.request_id}":
+            raise ValueError("target_branch must be exactly clive/objective/<request_id>")
+        return self
 
 
 # Every field label this host itself defined, and therefore the only ones a refusal reason

@@ -108,7 +108,14 @@ Crash-safe provenance (activation successor of `11ab9070`). The lifecycle write 
 - the claim also pins `created_at`. A resumed admission therefore rebuilds the *byte-identical* objective rather than a merely equivalent one. Without this, a replay after a crash reaches the objective store with a later timestamp, is refused as "already recorded differently", and a durable **refused** receipt is written for a request that was in fact admitted -- so the public projection permanently contradicts a live task;
 - on restart only the claimed digest resumes. Every other byte sequence for that id is refused, including bytes that differ only in formatting and parse to the same request, so provenance cannot be replaced by a later submission;
 - a claimed-but-unreceipted id participates in the snapshot preflight too, so an interrupted admission refuses its whole cycle before any write, exactly as an already-receipted one does;
-- claims and receipts flush the containing directory, not only the file, so the record's *name* survives a crash and not just its bytes.
+- claims and receipts are created with an atomic create-if-absent (`os.link`), so two processes that both find an id unclaimed cannot both write it: the create decides, and the loser reads back the winner's record and continues under its `claimed_at`, converging on one byte-identical objective. A winner holding a different digest is refused before any lifecycle write;
+- every newly created directory on the claim path has its *parent* flushed as the path is built, not only the file's own directory. On the first ever intake both `remote_engineering/` and `claims/` are new, and flushing only the innermost one would let a crash lose the claims directory while the lifecycle writes beneath the store survive -- reopening the window the claim exists to close.
+
+Identifier shape (activation successor of `71c4ed6a`). The Director keeps choosing `request_id`, and it stays the objective/task id that outbound visibility promises; what is constrained is its shape, which is adapter-owned:
+
+- `request_id` must be a readable slug, `^[a-z][a-z0-9]{0,15}(-[a-z0-9]{1,16}){1,7}$`: lowercase words of at most 16 characters joined by hyphens. Underscores, mixed case, dots and long high-entropy runs are refused, which excludes credential shapes in practice while admitting every id this system uses. The id is requester-chosen and reaches a durable claim, a receipt, a task id and the public projection, so constraining it is what keeps a secret out of all four without making the Director's own handle opaque;
+- `target_branch` must equal `clive/objective/<request_id>` exactly, so the one ref the dispatcher publishes carries the slug and nothing else;
+- both are refused without echoing the rejected value, like every other schema refusal.
 
 ## Safety and process execution
 
@@ -159,6 +166,10 @@ At minimum prove:
 - the same crash refuses changed or merely reformatted bytes for that id, and does not replace what was admitted;
 - an interrupted id refuses its whole snapshot, so a fresh request beside it is not admitted either;
 - a claim is write-once and carries pointers only.
+- a non-slug or credential-shaped `request_id`, and a `target_branch` that is not exactly `clive/objective/<request_id>`, are refused, admit nothing and are never echoed;
+- every id the Director and the runbooks actually use is still admitted;
+- the first ever claim flushes each newly created directory's parent, and a later claim still flushes its own;
+- two claims for the same bytes converge on one record and one `claimed_at`, and a loser holding a different digest is refused before any lifecycle write.
 
 ## Definition of done
 

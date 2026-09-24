@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,7 @@ from app.orchestrator.lifecycle import (
     LifecycleError,
     LifecycleStore,
     PrincipalRegistry,
+    sha256_of,
 )
 from app.orchestrator.objectives import ObjectiveStore
 from app.remote_engineering import (
@@ -129,7 +131,7 @@ def test_valid_request_becomes_exactly_one_objective_and_task(env, tmp_path):
 
 
 def test_replay_is_idempotent(env, tmp_path):
-    commit_request(env.origin, "r1a", valid_request(env, request_id="r1a"))
+    commit_request(env.origin, "r-one-a", valid_request(env, request_id="r-one-a"))
     kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
     first = controller.poll_once()
     second = controller.poll_once()
@@ -138,29 +140,29 @@ def test_replay_is_idempotent(env, tmp_path):
 
 
 def test_same_id_different_content_is_refused(env, tmp_path):
-    commit_request(env.origin, "r2a", valid_request(env, request_id="r2a"))
+    commit_request(env.origin, "r-two-a", valid_request(env, request_id="r-two-a"))
     _kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
     controller.poll_once()
-    commit_request(env.origin, "r2a", valid_request(env, request_id="r2a", requested_outcome="Something else."))
+    commit_request(env.origin, "r-two-a", valid_request(env, request_id="r-two-a", requested_outcome="Something else."))
     with pytest.raises(InboxError):
         controller.poll_once()
-    assert objectives.read("r2a").requested_outcome.startswith("Show unanswered")
+    assert objectives.read("r-two-a").requested_outcome.startswith("Show unanswered")
 
 
 def test_protected_scope_is_refused_by_canonical_validation(env, tmp_path):
-    commit_request(env.origin, "r3a", valid_request(
-        env, request_id="r3a", allowed_paths=["crooks-assistant/app/orchestrator/lifecycle.py"]
+    commit_request(env.origin, "r-three-a", valid_request(
+        env, request_id="r-three-a", allowed_paths=["crooks-assistant/app/orchestrator/lifecycle.py"]
     ))
     kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
     assert outcomes[0]["outcome"] == "refused"
     assert "no objective may put in scope" in outcomes[0]["reason"]
-    assert objectives.read("r3a") is None
-    assert kernel.store.read_task("r3a", 1) is None
+    assert objectives.read("r-three-a") is None
+    assert kernel.store.read_task("r-three-a", 1) is None
 
 
 def test_malformed_schema_fails_closed(env, tmp_path):
-    commit_request(env.origin, "bad", {"not": "a request"}, filename="bad.json")
+    commit_request(env.origin, "bad-record", {"not": "a request"}, filename="bad-record.json")
     _kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
     assert outcomes[0]["outcome"] == "refused"
@@ -168,40 +170,40 @@ def test_malformed_schema_fails_closed(env, tmp_path):
 
 
 def test_unknown_field_is_refused_not_executed(env, tmp_path):
-    payload = valid_request(env, request_id="r4a")
+    payload = valid_request(env, request_id="r-four-a")
     payload["shell"] = "rm -rf /"
-    commit_request(env.origin, "r4a", payload)
+    commit_request(env.origin, "r-four-a", payload)
     _kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
     assert outcomes[0]["outcome"] == "refused"
-    assert objectives.read("r4a") is None
+    assert objectives.read("r-four-a") is None
 
 
 def test_check_argv_is_never_shell_parsed(env, tmp_path):
-    payload = valid_request(env, request_id="r12", checks=[{"name": "x", "argv": ["true; rm -rf /"], "cwd": "."}])
-    commit_request(env.origin, "r12", payload)
+    payload = valid_request(env, request_id="r-twelve", checks=[{"name": "x", "argv": ["true; rm -rf /"], "cwd": "."}])
+    commit_request(env.origin, "r-twelve", payload)
     _kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
     controller.poll_once()
-    assert objectives.read("r12").checks[0].argv == ("true; rm -rf /",)
+    assert objectives.read("r-twelve").checks[0].argv == ("true; rm -rf /",)
 
 
 def test_owner_gate_cannot_be_lifted_by_replay(env, tmp_path):
-    commit_request(env.origin, "r5a", valid_request(env, request_id="r5a"))
+    commit_request(env.origin, "r-five-a", valid_request(env, request_id="r-five-a"))
     kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
     controller.poll_once()
-    kernel.block("r5a", 1, blocker_class=BlockerClass.OWNER_ONLY, reason="needs owner", owner_gate=True)
+    kernel.block("r-five-a", 1, blocker_class=BlockerClass.OWNER_ONLY, reason="needs owner", owner_gate=True)
     controller.poll_once()
-    assert kernel.store.read_task_state("r5a", 1).status is TaskStatus.OWNER_GATE
+    assert kernel.store.read_task_state("r-five-a", 1).status is TaskStatus.OWNER_GATE
 
 
 def test_owner_gate_cannot_be_lifted_even_if_the_receipt_is_lost(env, tmp_path):
-    commit_request(env.origin, "r5b", valid_request(env, request_id="r5b"))
+    commit_request(env.origin, "r-five-b", valid_request(env, request_id="r-five-b"))
     kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
     controller.poll_once()
-    kernel.block("r5b", 1, blocker_class=BlockerClass.OWNER_ONLY, reason="needs owner", owner_gate=True)
-    receipts._path("r5b").unlink()
+    kernel.block("r-five-b", 1, blocker_class=BlockerClass.OWNER_ONLY, reason="needs owner", owner_gate=True)
+    receipts._path("r-five-b").unlink()
     controller.poll_once()
-    assert kernel.store.read_task_state("r5b", 1).status is TaskStatus.OWNER_GATE
+    assert kernel.store.read_task_state("r-five-b", 1).status is TaskStatus.OWNER_GATE
 
 
 def test_controller_exposes_no_verb_that_could_advance_or_resolve_lifecycle(env):
@@ -210,7 +212,7 @@ def test_controller_exposes_no_verb_that_could_advance_or_resolve_lifecycle(env)
 
 
 def test_restart_and_repoll_do_not_duplicate(env, tmp_path):
-    commit_request(env.origin, "r6a", valid_request(env, request_id="r6a"))
+    commit_request(env.origin, "r-six-a", valid_request(env, request_id="r-six-a"))
     _kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
     controller.poll_once()
     kernel2, _objectives2, _receipts2, controller2 = make_controller(env, tmp_path)
@@ -220,21 +222,21 @@ def test_restart_and_repoll_do_not_duplicate(env, tmp_path):
 
 
 def test_status_is_a_projection_of_existing_records(env, tmp_path):
-    commit_request(env.origin, "r7a", valid_request(env, request_id="r7a"))
+    commit_request(env.origin, "r-seven-a", valid_request(env, request_id="r-seven-a"))
     kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
     controller.poll_once()
     status = build_status(store=kernel.store, receipts=receipts, now=NOW)
     item = status["requests"][0]
-    assert item["objective_id"] == "r7a" and item["task_id"] == "r7a"
+    assert item["objective_id"] == "r-seven-a" and item["task_id"] == "r-seven-a"
     assert item["stage"] == "READY"
     assert item["owner_gate"] is False
 
 
 def test_credential_like_extra_field_never_enters_output(env, tmp_path):
     secret = "sk-supersecrettoken1234567890"
-    payload = valid_request(env, request_id="r8a")
+    payload = valid_request(env, request_id="r-eight-a")
     payload["api_key"] = secret
-    commit_request(env.origin, "r8a", payload)
+    commit_request(env.origin, "r-eight-a", payload)
     kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
     assert secret not in json.dumps(outcomes)
@@ -250,11 +252,11 @@ def test_receipts_carry_pointers_only_never_a_second_lifecycle_store():
 
 
 def test_base_ref_must_resolve_to_the_declared_sha(env, tmp_path):
-    commit_request(env.origin, "r11", valid_request(env, request_id="r11", base_sha="f" * 40))
+    commit_request(env.origin, "r-eleven", valid_request(env, request_id="r-eleven", base_sha="f" * 40))
     _kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
     assert outcomes[0]["outcome"] == "refused"
-    assert objectives.read("r11") is None
+    assert objectives.read("r-eleven") is None
 
 
 def test_parse_request_rejects_invalid_json():
@@ -283,7 +285,7 @@ def test_cli_rejects_unknown_verb():
 
 
 def test_cli_poll_and_status(env, tmp_path, capsys):
-    commit_request(env.origin, "r10", valid_request(env, request_id="r10"))
+    commit_request(env.origin, "r-ten", valid_request(env, request_id="r-ten"))
     store_dir = tmp_path / "engineering"
     rc = cli.run([
         "--store", str(store_dir), "--repo", str(env.checkout), "--no-journal",
@@ -296,7 +298,7 @@ def test_cli_poll_and_status(env, tmp_path, capsys):
     rc2 = cli.run(["--store", str(store_dir), "--repo", str(env.checkout), "--no-journal", "status", "--json"])
     assert rc2 == 0
     status_out = capsys.readouterr().out
-    assert '"r10"' in status_out
+    assert '"r-ten"' in status_out
 
 
 def test_status_projection_publishes_to_bounded_git_ref_without_touching_worktree(env):
@@ -603,30 +605,30 @@ def test_a_changed_request_admits_nothing_else_in_the_same_snapshot(env, tmp_pat
 
 def test_one_id_twice_in_a_snapshot_with_different_bytes_admits_nothing(env, tmp_path):
     """F-01: the conflict may also be inside a single snapshot, before anything is recorded."""
-    commit_request(env.origin, "dup", valid_request(env, request_id="dup"), filename="dup-a.json")
-    commit_request(env.origin, "dup", valid_request(env, request_id="dup", requested_outcome="Other."),
+    commit_request(env.origin, "dup-record", valid_request(env, request_id="dup-record"), filename="dup-a.json")
+    commit_request(env.origin, "dup-record", valid_request(env, request_id="dup-record", requested_outcome="Other."),
                    filename="dup-b.json")
     kernel, objectives, receipts, controller = make_controller(env, tmp_path)
 
     with pytest.raises(InboxError):
         controller.poll_once()
 
-    assert objectives.read("dup") is None
+    assert objectives.read("dup-record") is None
     assert kernel.store.read_tasks() == ()
     assert receipts.read_all() == ()
 
 
 def test_the_same_id_twice_with_identical_bytes_is_not_a_conflict(env, tmp_path):
     """The immutability rule is about changed bytes; a duplicated file is still one decision."""
-    payload = valid_request(env, request_id="same")
-    commit_request(env.origin, "same", payload, filename="same-a.json")
-    commit_request(env.origin, "same", payload, filename="same-b.json")
+    payload = valid_request(env, request_id="same-record")
+    commit_request(env.origin, "same-record", payload, filename="same-a.json")
+    commit_request(env.origin, "same-record", payload, filename="same-b.json")
     _kernel, objectives, receipts, controller = make_controller(env, tmp_path)
 
     outcomes = controller.poll_once()
 
     assert [o["outcome"] for o in outcomes] == ["accepted", "accepted"]
-    assert objectives.read("same") is not None
+    assert objectives.read("same-record") is not None
     assert len(receipts.read_all()) == 1
 
 
@@ -659,8 +661,8 @@ def test_a_rejected_schema_version_value_is_never_echoed():
 def test_a_malformed_record_is_visible_in_the_projection_and_survives_a_restart(env, tmp_path):
     """F-03: a record that never became a request id still has to be visible on GitHub."""
     secret = "sk-supersecrettoken1234567890"
-    commit_request(env.origin, "bad2", {"schema_version": REQUEST_SCHEMA, "api_key": secret},
-                   filename="bad2.json")
+    commit_request(env.origin, "bad-record-two", {"schema_version": REQUEST_SCHEMA, "api_key": secret},
+                   filename="bad-record-two.json")
     kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
     ticker = _Ticker()
     published: list[dict] = []
@@ -685,11 +687,11 @@ def test_a_malformed_record_is_visible_in_the_projection_and_survives_a_restart(
 
 
 def test_an_accepted_request_leaves_the_refusal_projection_empty(env, tmp_path):
-    commit_request(env.origin, "clean", valid_request(env, request_id="clean"))
+    commit_request(env.origin, "clean-record", valid_request(env, request_id="clean-record"))
     kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
     result = _loop(controller, _Ticker(), kernel.store, lambda status: "f" * 40).cycle()
     assert result["status"]["refused_records"] == []
-    assert [r["request_id"] for r in result["status"]["requests"]] == ["clean"]
+    assert [r["request_id"] for r in result["status"]["requests"]] == ["clean-record"]
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), 0.0, -1.0, MAX_HEARTBEAT_S + 1])
@@ -824,7 +826,7 @@ def test_a_credential_in_an_unknown_key_name_never_enters_any_output(env, tmp_pa
 ])
 def test_an_untrusted_request_filename_is_replaced_by_an_opaque_locator(env, tmp_path, filename):
     """F-03: a requester chooses the filename, and `source` is published on a public branch."""
-    commit_request(env.origin, "ignored", {"not": "a request"}, filename=filename)
+    commit_request(env.origin, "ignored-record", {"not": "a request"}, filename=filename)
     kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
     published: list[dict] = []
     result = _loop(controller, _Ticker(), kernel.store,
@@ -1295,3 +1297,162 @@ def test_a_claim_is_write_once_and_refuses_divergent_bytes(tmp_path):
 def test_a_claim_carries_pointers_only_never_a_second_lifecycle_store():
     assert set(Claim.model_fields) == {"schema_version", "request_id", "request_sha256", "claimed_at"}
     assert not hasattr(ClaimLog, "advance") and not hasattr(ClaimLog, "resolve")
+
+
+# ------------------------------------- activation successor 6: constrained ids, durable atomic claims
+
+# Schema-valid under the previous id pattern, and credential-shaped: one long high-entropy
+# run, and a dotted form. Neither is a slug, so neither is admitted now.
+TOKEN_ID = "sk-proj-abc123def456ghi789jkl012mno345pqr678"
+DOTTED_TOKEN_ID = "ghp.abcdefghijklmnopqrstuvwxyz012345"
+
+
+@pytest.mark.parametrize("request_id", [TOKEN_ID, DOTTED_TOKEN_ID, "sk", "a-", "-a", "a--b",
+                                        "a-" + "b" * 17, "-".join("abc" for _ in range(9)),
+                                        "Mixed-Case", "has_underscore-x"])
+def test_a_request_id_that_is_not_a_slug_is_refused(env, tmp_path, request_id):
+    """F-01: the id reaches a claim, a receipt, a task id and the public projection."""
+    payload = valid_request(env, request_id=request_id,
+                            target_branch=f"clive/objective/{request_id}")
+    commit_request(env.origin, request_id, payload, filename="candidate.json")
+    _kernel, objectives, receipts, controller = make_controller(env, tmp_path)
+
+    outcomes = controller.poll_once()
+
+    assert outcomes[0]["outcome"] == "refused"
+    assert objectives.read(request_id) is None
+    assert receipts.read_all() == ()
+    assert controller.claims.get(request_id) is None
+
+
+@pytest.mark.parametrize("request_id", [TOKEN_ID, DOTTED_TOKEN_ID])
+def test_a_credential_shaped_request_id_is_never_echoed(env, tmp_path, request_id):
+    """The refusal itself must not republish the very value that was refused.
+
+    Only ids long enough to carry a secret are checked: the refusal quotes this host's own
+    id pattern, and a two-character id is a substring of that fixed text rather than an echo.
+    """
+    payload = valid_request(env, request_id=request_id,
+                            target_branch=f"clive/objective/{request_id}")
+    commit_request(env.origin, request_id, payload, filename="candidate.json")
+    kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
+
+    outcomes = controller.poll_once()
+    status = build_status(store=kernel.store, receipts=receipts, now=NOW,
+                          refusals=tuple(o for o in outcomes if "refusal_id" in o))
+
+    for rendered in (json.dumps(outcomes), json.dumps(status)):
+        assert request_id not in rendered
+
+
+def test_every_id_this_system_actually_uses_is_still_admitted(env, tmp_path):
+    """The constraint must not refuse the ids the Director and the runbooks already use."""
+    for request_id in ("operational-alpha-acceptance-repair",
+                       "remote-engineering-control-v1-activation-readiness",
+                       "remote-loop-dispatcher-timing-parity"):
+        assert parse_request(json.dumps(valid_request(env, request_id=request_id,
+                                                      target_branch=f"clive/objective/{request_id}")
+                                        ).encode()).request_id == request_id
+
+
+@pytest.mark.parametrize("target_branch", [
+    "clive/objective/something-else",
+    "clive/objective/r-branch/../../secret",
+    "refs/heads/r-branch",
+    "clive/objective/r-branch-extra",
+])
+def test_a_target_branch_that_is_not_the_request_id_is_refused_without_echo(env, tmp_path, target_branch):
+    """F-01: the dispatcher publishes this branch, so it carries the slug and nothing else."""
+    payload = valid_request(env, request_id="r-branch", target_branch=target_branch)
+    commit_request(env.origin, "r-branch", payload)
+    _kernel, objectives, receipts, controller = make_controller(env, tmp_path)
+
+    outcomes = controller.poll_once()
+
+    assert outcomes[0]["outcome"] == "refused"
+    assert objectives.read("r-branch") is None
+    assert receipts.read_all() == ()
+    assert target_branch not in json.dumps(outcomes)
+
+
+def _fsync_spy(monkeypatch):
+    """Record the path behind every fsynced descriptor, then do the real fsync."""
+    seen: list[str] = []
+    real = os.fsync
+
+    def spy(fd: int) -> None:
+        try:
+            seen.append(os.readlink(f"/proc/self/fd/{fd}"))
+        except OSError:  # pragma: no cover - only on a platform without /proc
+            pass
+        real(fd)
+
+    monkeypatch.setattr(os, "fsync", spy)
+    return seen
+
+
+def test_the_first_ever_claim_makes_each_new_directory_durable(tmp_path, monkeypatch):
+    """F-02: on first intake both remote_engineering/ and claims/ are new."""
+    root = tmp_path / "engineering" / "remote_engineering"
+    seen = _fsync_spy(monkeypatch)
+    ClaimLog(root).put(Claim(request_id="r-first", request_sha256="a" * 64, claimed_at=NOW))
+
+    # Each newly created directory's own parent is flushed, so the entry that makes it
+    # reachable survives, not merely the entry inside it.
+    assert str(root.parent) in seen           # the entry that made remote_engineering/ reachable
+    assert str(root) in seen                  # the entry that made claims/ reachable
+    assert str(root / "claims") in seen       # the entry that made the claim file reachable
+
+
+def test_an_existing_claims_directory_still_flushes_the_claim_itself(tmp_path, monkeypatch):
+    root = tmp_path / "engineering" / "remote_engineering"
+    claims = ClaimLog(root)
+    claims.put(Claim(request_id="r-warm", request_sha256="a" * 64, claimed_at=NOW))
+    seen = _fsync_spy(monkeypatch)
+    claims.put(Claim(request_id="r-second", request_sha256="b" * 64, claimed_at=NOW))
+    assert str(root / "claims") in seen
+
+
+def test_two_claims_for_the_same_bytes_converge_on_one_record(tmp_path):
+    """F-03: both processes found the id unclaimed; the create decides, not the check."""
+    root = tmp_path / "remote_engineering"
+    winner = ClaimLog(root).put(Claim(request_id="r-race", request_sha256="a" * 64, claimed_at=NOW))
+    loser = ClaimLog(root).put(
+        Claim(request_id="r-race", request_sha256="a" * 64, claimed_at=NOW + timedelta(minutes=3))
+    )
+
+    assert loser == winner                       # the loser adopts the winning record
+    assert loser.claimed_at == NOW               # ...including its instant, not its own
+    assert len(list((root / "claims").glob("*.json"))) == 1
+
+
+def test_a_losing_claim_with_different_bytes_is_refused_before_any_lifecycle_write(env, tmp_path):
+    """F-03: the loser must refuse a divergent digest, not intake under it."""
+    payload = valid_request(env, request_id="r-lose")
+    commit_request(env.origin, "r-lose", payload)
+    _kernel, objectives, receipts, controller = make_controller(env, tmp_path)
+
+    # Another process claimed this id first, for different bytes.
+    controller.claims.put(Claim(request_id="r-lose", request_sha256="c" * 64, claimed_at=NOW))
+
+    with pytest.raises(InboxError):
+        controller.poll_once()
+
+    assert objectives.read("r-lose") is None
+    assert receipts.read_all() == ()
+    assert controller.claims.get("r-lose").request_sha256 == "c" * 64
+
+
+def test_a_concurrent_claim_makes_the_admission_use_the_winning_instant(env, tmp_path):
+    """The loser's objective must be the winner's byte-identical one."""
+    payload = valid_request(env, request_id="r-adopt")
+    commit_request(env.origin, "r-adopt", payload)
+    raw = json.dumps(payload, indent=2).encode()
+    earlier = NOW - timedelta(minutes=11)
+    _kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
+    controller.claims.put(Claim(request_id="r-adopt", request_sha256=sha256_of(raw), claimed_at=earlier))
+
+    outcomes = controller.poll_once()
+
+    assert outcomes[0]["outcome"] == "accepted"
+    assert objectives.read("r-adopt").created_at == earlier

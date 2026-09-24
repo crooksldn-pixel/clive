@@ -20,6 +20,7 @@ own records remain the one lifecycle authority.
 from __future__ import annotations
 
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -35,20 +36,59 @@ RECEIPT_SCHEMA = "clive.remote_engineering_receipt.v1"
 CLAIM_SCHEMA = "clive.remote_engineering_claim.v1"
 
 
-def _durable_write(path: Path, payload: bytes) -> None:
-    """Write once, and make the name itself survive a crash, not only the bytes.
-
-    ``JsonRecordStore._atomic_write`` fsyncs the file before renaming it, which is what
-    these records need for their contents. It does not fsync the containing directory, so
-    on a crash the rename can still be lost even though the data reached the disk. These
-    records exist precisely to survive that crash, so the directory entry is flushed too.
-    """
-    JsonRecordStore._atomic_write(path, payload)
-    fd = os.open(path.parent, os.O_RDONLY)
+def _fsync_dir(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def _durable_mkdir(path: Path) -> None:
+    """Create every missing level, flushing the parent that made each one reachable.
+
+    ``mkdir(parents=True)`` leaves the new directory entries in their parents' unflushed
+    metadata. On the very first intake both ``remote_engineering/`` and ``claims/`` are new,
+    so a crash could lose the claims directory outright while the lifecycle writes beneath
+    the store survive -- reopening exactly the missing-digest window the claim exists to
+    close. Each level is therefore created and its parent flushed, deepest last.
+    """
+    missing = []
+    probe = path
+    while not probe.exists():
+        missing.append(probe)
+        if probe.parent == probe:
+            break
+        probe = probe.parent
+    for directory in reversed(missing):
+        directory.mkdir(exist_ok=True)
+        _fsync_dir(directory.parent)
+
+
+def _write_once(path: Path, payload: bytes) -> None:
+    """Create ``path`` with exactly ``payload``, atomically, only if it does not exist yet.
+
+    ``os.link`` is the atomic create-if-absent this needs: it either publishes a complete,
+    already-fsynced file under the final name or fails with ``FileExistsError``, with no
+    window in which a concurrent reader can see a partial record and no check-then-write
+    race between two processes that both found the name free. The containing directory is
+    flushed afterwards so the name survives a crash, not only the bytes.
+    """
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temp_path, path)
+        except FileExistsError:
+            return
+        _fsync_dir(path.parent)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 class Receipt(StrictRecord):
@@ -104,8 +144,13 @@ class ReceiptLog:
                 f"receipt for request {receipt.request_id} is already recorded differently; "
                 "a request id is immutable once decided"
             )
-        self.dir.mkdir(parents=True, exist_ok=True)
-        _durable_write(path, payload)
+        _durable_mkdir(self.dir)
+        _write_once(path, payload)
+        if path.read_bytes() != payload:
+            raise InboxError(
+                f"receipt for request {receipt.request_id} is already recorded differently; "
+                "a request id is immutable once decided"
+            )
         return receipt
 
 
@@ -141,16 +186,24 @@ class ClaimLog:
         return Claim.model_validate_json(path.read_text(encoding="utf-8"))
 
     def put(self, claim: Claim) -> Claim:
-        """Write once. Identical bytes are idempotent; a different claim for the id is refused."""
+        """Claim the id atomically, and return whichever claim is actually on disk.
+
+        Two processes can both find the id unclaimed, so the create itself decides: the
+        loser reads back the winner's record and continues under it. Returning the winner
+        rather than the caller's own claim is what makes a concurrent admission converge on
+        one ``claimed_at``, and therefore on one byte-identical objective. A winner holding
+        a different digest is refused here, before any lifecycle write.
+        """
         payload = JsonRecordStore._canonical_bytes(claim)
         path = self._path(claim.request_id)
-        if path.exists():
-            if path.read_bytes() == payload:
-                return claim
+        _durable_mkdir(self.dir)
+        _write_once(path, payload)
+        winner = self.get(claim.request_id)
+        if winner is None:  # pragma: no cover -- the create above either published or lost
+            raise InboxError(f"request {claim.request_id} could not be claimed")
+        if winner.request_sha256 != claim.request_sha256:
             raise InboxError(
                 f"request {claim.request_id} is already claimed for different content; "
                 "a request id is immutable once claimed"
             )
-        self.dir.mkdir(parents=True, exist_ok=True)
-        _durable_write(path, payload)
-        return claim
+        return winner
