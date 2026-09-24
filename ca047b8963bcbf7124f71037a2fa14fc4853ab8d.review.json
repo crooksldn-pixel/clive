@@ -1,0 +1,37 @@
+{
+  "attempt_id": "ca047b8963bc-exact-sha-review",
+  "candidate_sha": "ca047b8963bcbf7124f71037a2fa14fc4853ab8d",
+  "findings": [
+    {
+      "evidence_ref": "crooks-assistant/app/remote_engineering/requests.py:67-74; crooks-assistant/app/remote_engineering/runner.py:56-75",
+      "finding": "A bounded malformed JSON record can terminate the long-lived process before the Dispatcher advances. parse_request only converts UnicodeDecodeError and JSONDecodeError into RequestSchemaError, but Python's JSON decoder can raise RecursionError for deeply nested JSON and ValueError for an over-limit integer. RemoteEngineeringLoop does not catch either around poll_once, and dispatcher.tick occurs afterward. A sub-64-KiB inbox record can therefore stop supervision of existing objectives, violating malformed-schema fail-closed behavior and the requirement that the loop continue advancing the existing Dispatcher.",
+      "finding_id": "F-01",
+      "material": true,
+      "required_repair": "Bound JSON structural depth and numeric representation before or during decoding, and convert all expected decoder resource/value failures to a fixed, redacted RequestSchemaError. Add end-to-end tests using deeply nested JSON and an over-limit integer that prove refusal is projected without input disclosure and dispatcher.tick still runs."
+    },
+    {
+      "evidence_ref": "crooks-assistant/scripts/remote_engineering.py:65-70 and 143-151; crooks-assistant/app/remote_engineering/controller.py:145-181; crooks-assistant/app/remote_engineering/inbox.py:184-195",
+      "finding": "The operator-supplied inbox directory is neither bounded nor redacted and is copied verbatim into receipt and projection source fields. The CLI accepts arbitrary --directory text, the controller stores it unchanged, and bounded_source prefixes accepted receipts and malformed-record locators with that value. A credential-shaped directory therefore reaches printed outcomes, durable Receipt.source, and the public status projection whenever that directory contains a JSON record. This violates the explicit rule that credential values must never reach a receipt, log, output, or public projection.",
+      "finding_id": "F-02",
+      "material": true,
+      "required_repair": "Prefer a fixed inbox directory. If configurability is retained, validate it before Git use and never serialize the supplied directory text: use a fixed label or opaque locator in outcomes, receipts, and status. Add accepted-record and malformed-record CLI tests with a synthetic credential-shaped directory, asserting absence from stdout, stderr, receipts, and published status."
+    }
+  ],
+  "reviewer": {
+    "clean": true,
+    "context_fresh": true,
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "read_only": true,
+    "session_id": "openai-response:resp_09c64e3e1993d99b016ab5249006b487d2931165515c6ddbdf",
+    "session_started_at": "2026-09-24T13:24:30.703271Z",
+    "workspace_branch": "detached:ca047b8963bcbf7124f71037a2fa14fc4853ab8d",
+    "workspace_head": "ca047b8963bcbf7124f71037a2fa14fc4853ab8d",
+    "workspace_id": "git-objects:ca047b8963bcbf7124f71037a2fa14fc4853ab8d"
+  },
+  "schema_version": "clive.review_result.v1",
+  "summary": "The prior transport/ref/status-path issues are substantially addressed and the mechanical suite passes, but two material activation defects remain: malformed bounded JSON can kill the loop before dispatcher supervision, and raw --directory content can be persisted and publicly projected.\n\n[model gpt-5.6-sol, effort high, usage {\"input_tokens\": 61038, \"input_tokens_details\": {\"cache_write_tokens\": 61035, \"cached_tokens\": 0}, \"output_tokens\": 8634, \"output_tokens_details\": {\"reasoning_tokens\": 8065}, \"total_tokens\": 69672}]",
+  "task_id": "remote-engineering-control-v1-activation",
+  "task_revision": 1,
+  "verdict": "CHANGES_REQUIRED"
+}

@@ -290,3 +290,199 @@ round-2 review raised five further material findings, listed in §4 above and ty
 
 §9's limit is reached, so the next step is an owner decision, not another autonomous
 repair round.
+
+---
+
+# Round 3 — gate `ca047b89` (RUNBOOK_ROUND3.md)
+
+**Outcome: NOT ACTIVATED. Stopped at RUNBOOK_ROUND3 §4.**
+
+Stop condition, exactly as §4 states it: *"`CHANGES_REQUIRED`: STOP. Do not author a repair;
+publish (section 7 below) and end."* The independent GPT exact-SHA review of
+`ca047b8963bcbf7124f71037a2fa14fc4853ab8d` returned `CHANGES_REQUIRED` with two material
+findings, judged against the owner's own frozen materiality standard. No repair was
+authored. Sections 5 (activate) and 6 (operational-alpha proof) were never entered.
+
+Run window: 2026-09-24 13:18Z – 13:31Z. Host `crooks-os-prod-1`.
+
+## R3.1 Package check (§1)
+
+| Fact | Value |
+|---|---|
+| Source ref | `origin/clive/evidence/activation-round-3` |
+| Files fetched | `RUNBOOK_ROUND3.md`, `build_review_job.py`, `round3.patch`, `proof-request-operational-alpha.json`, `SHA256SUMS` |
+| `sha256sum -c SHA256SUMS` | all 4 entries OK |
+| Prior findings extracted from published `62f6e7e5.review.json` | **5** (F-01…F-05), so the §1 STOP threshold ("fewer than five") did not apply |
+
+## R3.2 Verification of the new `--materiality` flag
+
+This flag shapes the independent review gate, and RUNBOOK §0 forbids weakening the
+acceptance machinery, so it was checked before use rather than taken on trust.
+
+- `build_review_job.py` differs from the round-1 builder only by a `block()` extractor and
+  an optional section. It changes nothing about protected-path checking, the candidate
+  SHA/base checks, the packet's criteria, or the reviewer invocation.
+- Both quoted blocks are real and were read independently from git at
+  `origin/chatgpt/product-memory-reconcile-2026-09-23` (`95227cc27729bf7a5ecba8de09e493666342c89e`):
+  `DECISIONS.md` line 832 `## DEC-057 — Verification must reduce subject uncertainty, not
+  justify itself` (dated 2026-09-21, ACTIVE ENGINEERING DIRECTION), and
+  `RECONCILIATION_2026-09-23.md` line 302 `### Self-referential convergence rule`.
+- The generated `packet.md` was inspected: both blocks appear complete and unaltered, with
+  no truncation or paraphrase.
+- The standard does **not** soften the gate in the direction that mattered in rounds 0–2.
+  The framing keeps material: any failure of an acceptance criterion, **and** "any
+  credential or secret value reaching a receipt, log, output or the public projection".
+  DEC-057 itself closes with "This does not weaken independent review, safety gates or
+  owner-only authority." What it makes non-blocking is only *newly invented* hardening
+  beyond the frozen criteria, recorded as `material=false` backlog.
+
+Conclusion recorded for the owner: `--materiality` is the owner's own documented doctrine
+applied to the situation it was written for, not a tilted gate. Its effect is visible in
+the result — the reviewer returned two findings and marked **both** material, so the
+standard did not prevent a block.
+
+## R3.3 Candidate reproduction and publication (§2)
+
+```
+git am --committer-date-is-author-date round3.patch  onto 62f6e7e5
+HEAD = ca047b8963bcbf7124f71037a2fa14fc4853ab8d   (exact match, no fallback needed)
+HEAD^ = 62f6e7e51f72d87c3f7caae2552f0cc5eea66e85   (declared PARENT)
+push: 62f6e7e5..ca047b89 -> claude/remote-engineering-control-v1-activation-successor-2026-09-24
+```
+
+Fast-forward from `$PARENT`; nothing amended, no SHA rewritten, no force. The patch touched
+5 files (+304/−65), all inside the section 9 allowlist (verified mechanically):
+`app/remote_engineering/{errors,inbox,publisher,runner}.py` and
+`tests/test_remote_engineering.py`. `build_review_job.py` reported `protected_hits: []`.
+
+## R3.4 Gate A (§3) — PASS
+
+| Field | Value |
+|---|---|
+| Run | [36004882143](https://github.com/crooksldn-pixel/clive/actions/runs/36004882143) |
+| Head SHA | `ca047b8963bcbf7124f71037a2fa14fc4853ab8d` (exact) |
+| Conclusion | success (first attempt; no rerun needed) |
+| `mechanical_evidence` | complete |
+| `eligible_for_acceptance_decision` | true |
+| `unsatisfied_gates` / `malformed_gates` | `[]` / `[]` |
+| Gates | ruff pass · pytest_control_plane 44 passed · product_memory_structure pass · pytest_offline_full **3296 passed**, 14 skipped · secret_scan "no leaks found" |
+
+Offline suite growth across the whole activation effort: 3234 → 3250 → 3266 → **3296**.
+
+## R3.5 Gate B (§4) — CHANGES_REQUIRED (terminal)
+
+Reviewer principal `gpt`, kind `model`, `read_only: true`, mechanism
+`openai-responses:gpt-5.6-sol`, effort `high`, `courier: false`, one run (no transient
+failure, so no `--run 2`/`--run 3`). Result validates as `clive.review_result.v1` with
+`candidate_sha == ca047b89…`.
+
+The reviewer accepted that the five findings of the `62f6e7e5` round are "substantially
+addressed", and raised two new findings, **both marked material**:
+
+| ID | Material | Finding |
+|---|---|---|
+| F-01 | true | A bounded malformed JSON record can terminate the long-lived process before the Dispatcher advances. `parse_request` converts only `UnicodeDecodeError` and `JSONDecodeError`; Python's decoder can also raise `RecursionError` on deeply nested JSON and `ValueError` on an over-limit integer, neither caught around `poll_once`. A sub-64 KiB record can therefore stop supervision of existing objectives. |
+| F-02 | true | The operator-supplied `--directory` is neither bounded nor redacted and is copied verbatim into `Receipt.source` and the projection's `source`/locator fields, so a credential-shaped directory reaches printed outcomes, a durable receipt and the public status projection. |
+
+Both sit squarely inside what the frozen standard preserves as material: F-01 is a failure
+of the "malformed schema fails closed" criterion *and* of the requirement that the loop keep
+advancing the existing Dispatcher; F-02 is precisely "a credential or secret value reaching
+a receipt, log, output or the public projection". The materiality standard was therefore
+applied and still blocked — it was not a route to READY.
+
+## R3.6 Gate outcomes across all four exact SHAs
+
+| # | SHA | Acceptance run | Gate A | Gate B |
+|---|---|---|---|---|
+| candidate | `c23f1935` | 35994015937 | pass | CHANGES_REQUIRED (4 material) |
+| successor 1 | `05fe8046` | 35996970816 | pass | CHANGES_REQUIRED (4 material) |
+| successor 2 | `62f6e7e5` | 35999394632 | pass | CHANGES_REQUIRED (5 material) |
+| round 3 | `ca047b89` | 36004882143 | pass | CHANGES_REQUIRED (2 material) |
+
+Reviewed base held constant at `6c300c5f9a349bf2da397ecd2ac7a263849dbc60` for all four.
+Fifteen material findings raised, thirteen repaired and confirmed repaired by the next
+review. Every SHA passed full GitHub acceptance; the gate that has never passed is the
+independent review.
+
+## R3.7 What was NOT done
+
+| Section | Status |
+|---|---|
+| §5 Activate (RUNBOOK §§5–6 with `ca047b89`) | **Not reached.** No pin directory `$E/remote-control/ca047b89…` was cloned, no smoke cycle was run, no unit file was written, `systemctl daemon-reload`/`enable --now` were never invoked. There is no installed unit text to report. The proven flag set (adding `--check-ro-path /opt/node22` beside the venv path) was therefore never applied. The owner-inbox is untouched at `cc9ab83887cc1850c75a2e9403dc8db9f5a9d7b1`; the superseded readiness request is still present and still has no receipt. |
+| §6 Operational-alpha proof | **Not reached.** `proof-request-operational-alpha.json` was **not** committed to the inbox. No objective `operational-alpha-acceptance-repair` exists, no candidate was produced for `f7be86f7`, and there is no status.json item or candidate CI conclusion to report. |
+
+`origin/clive/control/status` still does not exist — the loop has never run, so no
+projection has ever been published. The engineering store has no `remote_engineering/`
+directory: nothing has ever been admitted through remote ingress.
+
+## R3.8 Production and store state
+
+The engineering store was read-only throughout round 3 (`engineering_dispatcher.py … status
+--json` only). Its six objectives are unchanged from the first run's discovery:
+`derived-truth-attention-v1` COMPLETE, `engineering-team-activation-v1` COMPLETE,
+`mobile-dogfood-voice-v1` COMPLETE, `remote-engineering-control-v1-repair-1` OWNER_GATE,
+`remote-engineering-control-v1-repair-2` COMPLETE, `remote-engineering-control-v1` BLOCKED.
+The OWNER_GATE and BLOCKED items were not resumed, lifted or altered. No credential value
+was read, printed, copied or committed; key files were referred to by path only.
+
+`systemctl is-active` for `crooks-assistant.service` and `crooks-bridge-watcher.service` is
+`active` for both — identical to the baseline recorded at `2026-09-24T11:35:34Z`. No
+`clive*` unit exists in `/etc/systemd/system/`.
+
+**Correction to the first report's production check, stated precisely.** The first report
+recorded `find /opt/crooks-interactive /opt/crooks-os -newer /tmp/clive-activation.marker`
+as empty; that was true when taken at 12:38Z. Re-run at 13:31Z it is **no longer empty**:
+
+```
+/opt/crooks-os/crooks-assistant/logs{,/assistant.log,/turns.jsonl,/anticipation,/anticipation/transitions.json}
+/opt/crooks-os/crooks-assistant/.cache/media{,/<two cached images and their .type files>}
+/opt/crooks-os/crooks-assistant/kb/.catalogue-cache.txt
+```
+
+Every one of these is a runtime artifact that the **live production assistant writes for
+itself**: `crooks-assistant.service` has been running continuously since
+`2026-09-24T06:59:48Z` (MainPID 3740098, cwd `/opt/crooks-os/crooks-assistant`) and the
+timestamps fall at 12:44–12:51Z, inside its own activity. No source, configuration, unit or
+service path changed, and nothing in this run wrote to `/opt` at any point — round 3 issued
+no command that writes there.
+
+This is recorded rather than glossed because it matters operationally: **RUNBOOK §6.4's
+literal test ("`find …` is empty and every production unit's `is-active` equals the
+baseline") would now produce a false positive on this host**, since a healthy production
+assistant dirties its own log and cache directories within minutes. Had activation
+proceeded, §6.4 would have demanded stopping the new unit for a benign reason. A future
+runbook should scope that check to exclude the service's own `logs/`, `.cache/` and
+`kb/.catalogue-cache.txt`, or compare a manifest of tracked source/config paths instead.
+
+## R3.9 Deviations from RUNBOOK_ROUND3.md
+
+1. **The `--materiality` flag was verified before use** (R3.2) rather than applied on
+   trust: the two quoted blocks were read independently from git and the generated packet
+   was inspected for faithful, untruncated inclusion. *Reason:* RUNBOOK §0 forbids
+   weakening the acceptance machinery, and a flag that reshapes the review gate is exactly
+   the kind of change that rule exists for. No change was made to the flag or its output;
+   this is an added check, not a departure from the instructions.
+2. **No sandboxed pre-flight was run this round.** The first run pre-flighted its own
+   authored code in the project's `NamespaceSandbox`; round 3 authored nothing, and §4
+   forbids authoring a repair, so there was nothing to pre-flight. Gate A supplied all
+   mechanical evidence, as RUNBOOK §0 requires.
+3. **The production-untouched check result changed and is reported as it actually is**
+   (R3.8), including the false-positive risk in §6.4, rather than being reported as empty.
+
+No other deviation. No protected path, frozen kernel, test assertion, secret-scanning rule,
+CI workflow or acceptance machinery was weakened. No force-push, no amended commit, no
+rewritten SHA, no repair authored.
+
+## R3.10 Where this leaves the work
+
+`claude/remote-engineering-control-v1-activation-successor-2026-09-24` is at `ca047b89`,
+which holds full GitHub acceptance for its exact SHA and the repairs for thirteen of the
+fifteen material findings raised across four reviews. It is **not** activation-approved:
+two material findings remain, typed in
+`ca047b8963bcbf7124f71037a2fa14fc4853ab8d.review.json`.
+
+Both remaining findings are small and well-specified — a decoder-exception widening in
+`parse_request` plus loop-level containment, and either fixing the inbox directory or
+refusing to serialize the supplied text. Neither needs a protected path. But §4 of this
+round's runbook forbids authoring that repair, so the next step is an owner decision, not
+another autonomous round.
