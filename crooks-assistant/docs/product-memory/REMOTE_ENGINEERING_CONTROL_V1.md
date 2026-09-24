@@ -76,6 +76,8 @@ The GPT Director must be able to determine from GitHub-visible state, without SS
 
 A read-only status projection file/ref may be published if necessary, but it is explicitly a projection of kernel records, never authority. Do not expose transcripts containing secrets.
 
+V1 activation uses a dedicated disposable status ref, `refs/heads/clive/control/status`, containing only `status.json`. The long-lived `remote_engineering.py run` loop performs one bounded inbox poll, one existing Dispatcher tick, publishes that projection, then sleeps for the configured interval. It does not alter production services or application runtime.
+
 ## Safety and process execution
 
 - No arbitrary shell execution from inbox content.
