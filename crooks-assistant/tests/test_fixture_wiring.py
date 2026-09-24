@@ -66,11 +66,21 @@ def test_the_waiting_order_reports_the_same_age_at_every_hour_of_the_day():
     placed = data._local(spec.days_ago, spec.hour)
     declared = int(spec.days_ago)
 
+    from app.analytics.engine import age_days_tenths
+
     for hour in range(24):
-        # "Now", walked across a whole day, from the same midnight the fixture was built from.
-        now = data.NOW.replace(hour=hour, minute=30, second=0, microsecond=0)
-        elapsed = (now - placed) / timedelta(days=1)
-        assert int(elapsed) == declared, (
-            f"at {hour:02d}:30 the order reads as {int(elapsed)} days old, not {declared} — "
-            "the fixture is on a floor boundary and the scenario will fail for part of the day"
-        )
+        for minute in (0, 30, 59):
+            # "Now", walked across a whole day, from the same midnight the fixture was built from.
+            now = data.NOW.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            elapsed = (now - placed) / timedelta(days=1)
+            assert int(elapsed) == declared, (
+                f"at {hour:02d}:{minute:02d} the order reads as {int(elapsed)} days old, not {declared} — "
+                "the fixture is on a floor boundary and the scenario will fail for part of the day"
+            )
+            # And through the engine, which is what the sentence actually reads. Rounding to a
+            # tenth used to lift 14 days 23 hours to 15.0, and int() of that is 15: the scenario
+            # failed every night from 21:48 UTC for that reason, not the fixture's.
+            reported = int(age_days_tenths(elapsed * 86400))
+            assert reported == declared, (
+                f"at {hour:02d}:{minute:02d} the engine reports {reported} days, not {declared}"
+            )

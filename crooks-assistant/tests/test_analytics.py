@@ -261,3 +261,22 @@ def test_working_set_membership_narrows_a_query(rows):
 def test_limits_truncate_and_say_so(rows):
     out = run({"entity": "order_line_items", "period": "last_90_days", "group_by": ["variant"], "metrics": ["units"], "limit": 2}, rows)
     assert len(out["rows"]) == 2 and out["truncated"] and out["row_count"] > 2
+
+
+def test_age_days_is_truncated_to_a_tenth_so_whole_days_are_the_floor():
+    """The presenters say "waiting N days" with int(age_days). That is only the floor of the
+    elapsed time if the tenth was truncated, never rounded: 14 days 23 hours must read 14."""
+    import math
+
+    from app.analytics.engine import age_days_tenths
+
+    day = 86400.0
+    assert age_days_tenths(14.97 * day) == 14.9
+    assert int(age_days_tenths(14.97 * day)) == 14
+    assert age_days_tenths(20 * day) == 20.0
+    assert age_days_tenths(2.3 * day) == 2.3
+    assert age_days_tenths(0.05 * day) == 0.0
+    for tenths in range(0, 300):
+        for extra in (0.0, 0.04, 0.09, 0.099):
+            elapsed = tenths / 10 + extra
+            assert int(age_days_tenths(elapsed * day)) == math.floor(elapsed), elapsed

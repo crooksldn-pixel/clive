@@ -5,6 +5,7 @@ measured and what was derived. No store, no clock beyond the one passed in."""
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -461,7 +462,7 @@ def _metric(b: _Bucket, metric: str, period: Period, *, now: float, zone: ZoneIn
     if metric == "first_order_at":
         return _local(b.first_ts, zone).isoformat() if b.first_ts else None
     if metric == "age_days":
-        return round((now - b.last_ts) / 86400, 1) if b.last_ts else None
+        return age_days_tenths(now - b.last_ts) if b.last_ts else None
     return None
 
 
@@ -515,11 +516,25 @@ def _orders_listing(query: Query, orders: list[dict[str, Any]], *, now: float, z
             "currency": next((str(o.get("currency")) for o in orders if o.get("currency")), "GBP")}
 
 
+def age_days_tenths(seconds: float) -> float:
+    """Elapsed seconds as days to one decimal, truncated rather than rounded.
+
+    Whole days are what people are told ("waiting 14 days"), and every presenter takes
+    them as int(age_days): the floor of the elapsed time. Rounding to a tenth first broke
+    that promise. Fourteen days and twenty-three hours rounds to 15.0 and then floors to
+    15, so an order read a day older than it was for the last seventy-two minutes of every
+    day, and the golden scenario that pins the age failed nightly from 21:48 UTC. Truncating
+    to a tenth keeps int(age_days) equal to the floor of the true elapsed time at every
+    instant. The small epsilon absorbs binary floating point (2.3 * 10 is 22.999...).
+    """
+    return math.floor(seconds / 86400 * 10 + 1e-9) / 10
+
+
 def _order_row(o: dict[str, Any], *, now: float, zone: ZoneInfo) -> dict[str, Any]:
     c = o.get("customer") or {}
     return {
         "order_id": o.get("order_id"), "order_number": o.get("order_number"), "placed_at": _local(float(o.get("ts") or 0), zone).isoformat(),
-        "age_days": round((now - float(o.get("ts") or now)) / 86400, 1), "fulfillment": o.get("fulfillment"), "payment": o.get("financial"),
+        "age_days": age_days_tenths(now - float(o.get("ts") or now)), "fulfillment": o.get("fulfillment"), "payment": o.get("financial"),
         "total": o.get("total"), "currency": o.get("currency"), "customer_name": c.get("name"), "customer_id": c.get("customer_id"), "customer_email": c.get("email"),
         "country_code": o.get("country_code"), "tags": list(o.get("tags") or [])[:10], "items": len(o.get("items") or []), "has_tracking": bool(o.get("has_tracking")),
         "cancelled": bool(o.get("cancelled")),

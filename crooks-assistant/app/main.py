@@ -28,6 +28,7 @@ from app.routes import (
     branches,
     command,
     context,
+    environment,
     health,
     media,
     objectives,
@@ -161,6 +162,7 @@ def _cross_site(request: Request) -> bool:
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(health.router)
+app.include_router(environment.router)
 app.include_router(turn.router)
 app.include_router(speak.router)
 app.include_router(admin.router)
