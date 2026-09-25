@@ -1,0 +1,52 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "needs-reply-routing-2",
+  "title": "Route every way of asking who needs a reply to the inbox answer",
+  "requested_outcome": "On 2026-09-24 the owner asked 'any customers who need a reply' twice and once got an answer about orders to go out. On the trunk (e618a467) the fast path sends 'any customers who need a reply' and 'who needs a reply' to the needs_reply family, but 'anyone waiting on a reply' falls below the family's confidence floor and goes to the model, and 'customers who need a reply?' is classed as a mutation ('asks for a change') because 'reply' is read as an instruction to send one. Fix app/fastpath/intent.py (and the family's signals if needed) so that questions about who is waiting on or needs a reply resolve to needs_reply with confidence above the floor, while real instructions ('reply to Mia', 'send a reply to order 2044') still resolve as the compose or reply change they are. Add a table-driven test covering at least: any customers who need a reply; customers who need a reply?; anyone waiting on a reply; who's waiting for a reply; does anyone need an answer from us; any emails I haven't replied to; is anyone waiting on me; and the instruction cases, asserting the family and that no question is classed as a mutation. Run every check listed below in your workspace and fix anything it reports before you report. Do not report an owner decision for GitHub acceptance: it runs automatically after your candidate is published.",
+  "base_ref": "e618a467a8680eadde92a1d51078bd748ada11f9",
+  "base_sha": "e618a467a8680eadde92a1d51078bd748ada11f9",
+  "allowed_paths": [
+    "crooks-assistant/app/fastpath",
+    "crooks-assistant/app/families",
+    "crooks-assistant/tests"
+  ],
+  "acceptance_criteria": [
+    "every listed question resolves to needs_reply above the confidence floor and none is classed as a mutation",
+    "the instruction cases still resolve as reply or compose changes",
+    "existing fastpath and family tests pass unchanged",
+    "every listed check passes in the worker's workspace"
+  ],
+  "checks": [
+    {
+      "name": "routing",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_fastpath.py",
+        "tests/test_families.py",
+        "tests/test_multi_intent.py",
+        "tests/test_ui_intent.py",
+        "tests/test_needs_reply_routing.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/needs-reply-routing-2",
+  "max_repair_rounds": 2
+}
