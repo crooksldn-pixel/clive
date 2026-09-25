@@ -1,4 +1,5 @@
-/* The microphone is asked for by the hold-to-speak press and by nothing else (web/app.js).
+/* The microphone is asked for by the hold-to-speak press and by nothing else (web/app.js);
+ * web/alpha.js, loaded with it, never asks at all.
  *
  * On the owner's iPhone every getUserMedia from the home-screen app can be another "would
  * like to access the microphone", so a tap on the orders screen, a return to the app and a
@@ -196,6 +197,11 @@ function boot(permission) {
 }
 
 test('in the whole page, getUserMedia has one caller, reached from the press and the granted load', () => {
+  // Every script the page loads, web/alpha.js among them: only app.js names getUserMedia.
+  const web = path.join(__dirname, '..', '..', 'web');
+  const callers = fs.readdirSync(web).filter((name) => name.endsWith('.js'))
+    .filter((name) => fs.readFileSync(path.join(web, name), 'utf8').includes('getUserMedia'));
+  assert.deepEqual(callers, ['app.js']);
   assert.equal(SOURCE.split('getUserMedia(').length - 1, 1);
   const lines = (name) => SOURCE.split('\n').map((line) => line.trim())
     .filter((line) => line.includes(`${name}(`) && !/^(async )?function /.test(line));
@@ -204,6 +210,28 @@ test('in the whole page, getUserMedia has one caller, reached from the press and
     'const stream = micIsLive() ? micStream : await ensureMicStream();',
   ]);
   assert.deepEqual(lines('warmMic'), [".then((status) => { if (status && status.state === 'granted') warmMic(); })"]);
+});
+
+// web/alpha.js is loaded with the shell, so the rule covers it too. It never opens the
+// microphone: it has no media call of its own, never presses a hold surface, and its one door
+// into app.js, window.CliveAlpha, asks a typed question that reaches no part of the microphone.
+test('web/alpha.js never asks for the microphone, itself or through app.js', () => {
+  const ALPHA = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'alpha.js'), 'utf8');
+  const MIC = ['getUserMedia', 'mediaDevices', 'getDisplayMedia', 'MediaRecorder',
+    'ensureMicStream', 'warmMic', 'micStream', 'startRecording'];
+  for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(']) {
+    assert.ok(!ALPHA.includes(name), `web/alpha.js has ${JSON.stringify(name)}`);
+  }
+  assert.deepEqual([...new Set(ALPHA.match(/\bwindow\.\w+/g))], ['window.CliveAlpha']);
+  assert.deepEqual([...new Set(ALPHA.match(/\bCliveAlpha\.\w+/g))].sort(), ['CliveAlpha.ask', 'CliveAlpha.isBusy']);
+
+  const door = cut('window.CliveAlpha = {', '\n};');
+  assert.match(door, /submit\(\{ text: value, [^\n]*\}, false\)/, 'a typed ask is a text turn');
+  const submit = cut('async function submit(body, isAudio)', '\n}\n');
+  for (const name of MIC) {
+    assert.ok(!door.includes(name), `window.CliveAlpha reaches ${name}`);
+    assert.ok(!submit.includes(name), `submit() reaches ${name}`);
+  }
 });
 
 test('a tap elsewhere on the page never asks for the microphone', async () => {
