@@ -175,7 +175,9 @@ def test_offline_is_shown_only_over_a_quiet_screen_and_retries_quietly():
 def test_recovery_needs_no_hand():
     body = function_body(APP_JS, "function wentOnline()")
     assert "setSystem('online');" in body
-    assert "pollHealth(true);" in body and "acquireWakeLock();" in body and "warmMic();" in body
+    assert "pollHealth(true);" in body and "acquireWakeLock();" in body
+    # The microphone is opened only by a hold to speak, never by coming back online.
+    assert "warmMic();" not in body
     assert "window.addEventListener('online'" in APP_JS
     assert "el.system.addEventListener('click'" in APP_JS
 
