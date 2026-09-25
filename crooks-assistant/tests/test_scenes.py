@@ -369,6 +369,99 @@ def test_a_name_that_is_an_email_address_or_a_phone_number_is_pii():
     assert not [e for e in trace if e.decision == "reduced"]
 
 
+# Valid addresses no simple pattern knows: a quoted local part, domain literals, internationalised
+# addresses, a bare host and an at sign in its full-width and small forms.
+UNUSUAL_ADDRESSES = (
+    '"jo.bloggs"@example.com', '"jo bloggs"@example.com', "jo@[192.0.2.1]", "jo@[IPv6:2001:db8::1]",
+    "jö.blöggs@bücher.de", "用户@例子.广告", "jo@localhost", "jo＠example.com", "jo﹫example.com",
+)
+UNUSUAL_FRAGMENTS = ("@", "＠", "﹫", "bloggs", "blöggs", "192.0.2", "db8", "bücher", "用户", "例子", "localhost", "example")
+
+
+def test_an_email_address_in_any_form_is_a_contact_detail():
+    """Whether a value is an email address fails closed: an address with a quoted local part,
+    a domain literal or in any script is a contact detail, dropped from a bound finding and from
+    a column when the task does not need contact details, and kept but marked pii when it does."""
+    others = len(UNUSUAL_ADDRESSES) + 1
+    inbox = to_evidence("gmail_search", {"count": others, "threads": [
+        *({**_thread(n), "from": address, "from_email": address} for n, address in enumerate(UNUSUAL_ADDRESSES)),
+        {**_thread(len(UNUSUAL_ADDRESSES)), "from": "Sam Smith", "from_email": "sam@example.org"},
+    ]}, handle="ev-inbox", args={"days": 7}, observed_at=NOW, session_id=SESSION)
+    buyers = to_evidence("commerce_aggregate", {"entity": "orders", "group_by": ["customer"], "currency": "GBP", "rows": [
+        *({"key": {"customer_id": f"gid://shopify/Customer/{n}"}, "label": address, "revenue": 100.0 + n, "orders": 1}
+          for n, address in enumerate(UNUSUAL_ADDRESSES)),
+        {"key": {"customer_id": "gid://shopify/Customer/99"}, "label": "Sam Smith", "revenue": 50.0, "orders": 1},
+    ]}, handle="ev-buyers", observed_at=NOW, session_id=SESSION)
+    assert [inbox.records[n].values["from"] for n in range(len(UNUSUAL_ADDRESSES))] == list(UNUSUAL_ADDRESSES)
+    assert [buyers.records[n].values["label"] for n in range(len(UNUSUAL_ADDRESSES))] == list(UNUSUAL_ADDRESSES)
+    assert not inbox.descriptor("from").pii and not buyers.descriptor("label").pii
+
+    def finding(text: str, handle: str, field: str, n: int) -> dict:
+        return {"type": "finding", "significance": "CONTEXT", "text": text, "values": [{"evidence": handle, "field": field, "record": f"r{n + 1}"}],
+                "evidence": [handle], "justification": "Who wrote and who buys."}
+
+    answer = {"text": "Nobody is waiting on a reply.", "justification": "The owner asked whether anyone is waiting."}
+    sam = len(UNUSUAL_ADDRESSES)
+    withheld = SceneContext.for_request("anyone waiting on a reply?", session_id=SESSION)
+    allowed = SceneContext(request="their email addresses please", session_id=SESSION, contact_details=True)
+    assert withheld.contact_details is False
+
+    # Bound into a finding.
+    for n, address in enumerate(UNUSUAL_ADDRESSES):
+        plan = {"answer": answer, "elements": [
+            finding("{0} wrote last.", "ev-inbox", "from", n),
+            finding("{0} is the biggest customer.", "ev-buyers", "label", n),
+            finding("{0} wrote too.", "ev-inbox", "from", sam),
+        ]}
+        scene, trace = validate_scene(plan, [inbox, buyers], withheld)
+        assert [s.text() for s in scene.elements] == ["Sam Smith wrote too."], address
+        final = _final(trace)
+        for target in ("elements[0] finding", "elements[1] finding"):
+            assert final[target].decision == "dropped" and "contact detail" in final[target].reason, (address, target)
+        serialised = json.dumps(scene.as_dict(), ensure_ascii=False) + json.dumps([(e.target, e.reason) for e in trace], ensure_ascii=False)
+        for fragment in UNUSUAL_FRAGMENTS:
+            assert fragment not in serialised, (address, fragment)
+        _no_pii(scene)
+
+        # When the task needs contact details, it is shown as the value it is, marked pii.
+        scene, trace = validate_scene(plan, [inbox, buyers], allowed)
+        assert [s.text() for s in scene.elements] == [f"{address} wrote last.", f"{address} is the biggest customer.", "Sam Smith wrote too."]
+        assert [b.pii for s in scene.elements for b in s.values] == [True, True, False], address
+        assert not [e for e in trace if e.decision in ("reduced", "dropped")]
+
+    # Shown as a column.
+    plan = {"answer": answer, "elements": [
+        finding("{0} wrote too.", "ev-inbox", "from", sam),
+        finding("{0} is a customer too.", "ev-buyers", "label", sam),
+        {"type": "collection", "evidence": "ev-inbox", "columns": ["from", "subject"], "limit": others, "justification": "The threads it is about."},
+        {"type": "collection", "evidence": "ev-buyers", "columns": ["label", "revenue"], "limit": others, "justification": "The customers it is about."},
+    ]}
+    rows = {"max_elements": len(plan["elements"]), "collection_rows": others}
+    scene, trace = validate_scene(plan, [inbox, buyers], SceneContext(request=withheld.request, session_id=SESSION, **rows))
+    assert [s.element.type for s in scene.elements] == ["finding", "finding", "collection", "collection"]
+    assert scene.elements[2].element.columns == ["subject"] and len(scene.elements[2].rows) == others
+    assert scene.elements[3].element.columns == ["revenue"] and len(scene.elements[3].rows) == others
+    assert _reductions(trace, "elements[2] collection") == [
+        "from: a value in it is a contact detail; pii stripped, the task does not need contact details",
+    ]
+    assert _reductions(trace, "elements[3] collection") == [
+        "label: a value in it is a contact detail; pii stripped, the task does not need contact details",
+    ]
+    serialised = json.dumps(scene.as_dict(), ensure_ascii=False) + json.dumps([(e.target, e.reason) for e in trace], ensure_ascii=False)
+    for fragment in UNUSUAL_FRAGMENTS:
+        assert fragment not in serialised, fragment
+    _no_pii(scene)
+
+    scene, trace = validate_scene(plan, [inbox, buyers], SceneContext(request=allowed.request, session_id=SESSION, contact_details=True, **rows))
+    assert scene.elements[2].element.columns == ["from", "subject"] and scene.elements[3].element.columns == ["label", "revenue"]
+    assert not [e for e in trace if e.decision in ("reduced", "dropped")]
+    inbox_rows, buyer_rows = scene.elements[2].rows, scene.elements[3].rows
+    assert [row[0].value for row in inbox_rows] == [*UNUSUAL_ADDRESSES, "Sam Smith"]
+    assert [row[0].pii for row in inbox_rows] == [True] * len(UNUSUAL_ADDRESSES) + [False]
+    assert [row[0].value for row in buyer_rows] == [*UNUSUAL_ADDRESSES, "Sam Smith"]
+    assert [row[0].pii for row in buyer_rows] == [True] * len(UNUSUAL_ADDRESSES) + [False]
+
+
 def test_a_list_asked_for_is_shown_without_a_finding_up_to_the_list_limit():
     assert asks_for_list("list every customer who emailed")
     assert not asks_for_list("any customers who need a reply")

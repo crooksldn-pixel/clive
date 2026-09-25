@@ -146,8 +146,10 @@ _INFLECTIONS = (("ies", "y"), ("ied", "y"), ("es", ""), ("s", ""), ("ed", ""), (
                 ("ing", ""), ("ing", "e"), ("ly", ""))
 # A value can be a contact detail whatever its field is called: a sender with no display name
 # is their email address, and a customer with no name is known by their email address or phone
-# number. Such a value is as personal as a field marked pii, and is stripped the same way.
-_EMAIL = re.compile(r"[^\s@<>()\[\],;:\"']+@[^\s@<>()\[\],;:\"']+\.[A-Za-z]{2,}")
+# number. Such a value is as personal as a field marked pii, and is stripped the same way. An
+# address can be quoted, a domain literal or in any script, so this fails closed: any value
+# with an at sign in it, in any of its forms, is taken for an email address.
+_AT_SIGNS = frozenset("@＠﹫")
 _PHONE = re.compile(r"(?<![\w/-])\+?\(?\d[\d ().-]{7,}\d(?![\w/-])")
 _PHONE_DIGITS = 9
 _LIST_ASK = re.compile(
@@ -264,7 +266,7 @@ def _contact(d: FieldDescriptor, value: object) -> bool:
     phone number, whatever its descriptor says."""
     if not isinstance(value, str):
         return False
-    if _EMAIL.search(value):
+    if any(c in _AT_SIGNS for c in value):
         return True
     return d.kind in (Kind.PERSON, Kind.TEXT) and any(
         sum(c.isdigit() for c in m.group()) >= _PHONE_DIGITS for m in _PHONE.finditer(value)
