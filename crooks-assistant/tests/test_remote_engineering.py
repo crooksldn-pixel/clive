@@ -1664,3 +1664,159 @@ def test_an_id_past_the_admitted_length_is_refused_before_any_claim_and_never_ec
     adapter = store_dir / "remote_engineering"
     assert ClaimLog(adapter).get(request_id) is None
     assert ReceiptLog(adapter).read_all() == ()
+
+
+# ------------------------------------ why a task is stuck: findings, failing checks, worker report
+
+import sys  # noqa: E402
+
+from app.orchestrator.objectives import Check  # noqa: E402
+from app.remote_engineering import status as status_module  # noqa: E402
+from app.remote_engineering.errors import redact_published  # noqa: E402
+
+
+def _blocked_item(w) -> tuple[dict, str]:
+    """The projected request for the World's objective, and the whole published document."""
+    from tests.test_engineering_dispatcher import OBJ
+
+    receipts = ReceiptLog(w.store.root / "remote_engineering")
+    receipts.put(Receipt(request_id="r-blocked", request_sha256="0" * 64, outcome="accepted",
+                         objective_id=OBJ, task_id=OBJ, source="requests/r-blocked.json", recorded_at=NOW))
+    status = build_status(store=w.store, receipts=receipts, now=w.clock())
+    return status["requests"][0], json.dumps(status, sort_keys=True)
+
+
+def test_a_convergence_limited_objective_publishes_its_open_findings_bounded_and_redacted(tmp_path):
+    from tests.test_engineering_dispatcher import EDIT_HELLO, FINDING, World, review
+
+    secret = "sk-ant-" + "q" * 40
+    findings = [
+        FINDING,
+        {**FINDING, "finding_id": "F-02", "finding": f"the log prints {secret} in full"},
+        {**FINDING, "finding_id": "N-01", "material": False, "finding": "a nit, not open"},
+        *({**FINDING, "finding_id": f"F-{n:02d}", "finding": "x" * 4000} for n in range(3, 15)),
+    ]
+    w = World(tmp_path, max_repair_rounds=0)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.reviewer.answers.append(lambda ctx: review(ctx, "CHANGES_REQUIRED", findings=findings))
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+
+    item, published = _blocked_item(w)
+    assert "convergence limit" in item["blocker"]
+    found = item["open_findings"]
+    assert found[0] == {"finding_id": "F-01", "finding": "the greeting is wrong"}
+    assert found[1] == {"finding_id": "F-02", "finding": f"the log prints {REDACTED} in full"}
+    assert [f["finding_id"] for f in found] == ["F-01", "F-02", *(f"F-{n:02d}" for n in range(3, 11))]
+    assert len(found) == status_module.MAX_FINDINGS == 10
+    assert found[2]["finding"] == "x" * status_module.MAX_FINDING_CHARS
+    assert all(len(f["finding"]) <= status_module.MAX_FINDING_CHARS == 600 for f in found)
+    assert item["failed_checks"] == [] and item["worker_report"] is None
+    assert secret not in published
+
+
+def test_a_refused_result_publishes_the_failing_checks_tail_redacted_and_bounded(tmp_path):
+    from tests.test_engineering_dispatcher import EDIT_HELLO, World
+
+    token, key_body = "ghp_" + "Z" * 36, "b3BlbnNzaC1rZXktdjEAAAAABG5vbmU"
+    credential_path, password = "/etc/crooks-os/secrets/gmail_token", "hunter2" * 2
+    says_hello = "\n".join([
+        "import sys",
+        "for n in range(80): print(f'line {n}')",
+        f"print('pushing with {token}')",
+        "print('-----BEGIN OPENSSH PRIVATE KEY-----')",
+        f"print('{key_body}')",
+        "print('-----END OPENSSH PRIVATE KEY-----')",
+        f"print('reading {credential_path}')",
+        f"print('password={password}')",
+        "sys.stderr.write('AssertionError: the greeting is wrong\\n')",
+        "sys.exit(1)",
+    ])
+    wide = "for n in range(60): print(str(n).rjust(3) + ' ' + 'w' * 200)\nraise SystemExit(2)"
+    checks = (Check(name="says-hello", argv=(sys.executable, "-c", says_hello)),
+              Check(name="wide", argv=(sys.executable, "-c", wide)))
+    w = World(tmp_path, checks=checks, max_result_refusals=1)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+
+    item, published = _blocked_item(w)
+    assert "checks failed" in item["blocker"]
+    hello, wide_check = item["failed_checks"]
+    assert (hello["name"], hello["exit_code"]) == ("says-hello", 1)
+    lines = hello["output_tail"].splitlines()
+    assert len(lines) == status_module.MAX_CHECK_TAIL_LINES == 40
+    assert lines[-5:] == [f"pushing with {REDACTED}", REDACTED, f"reading {REDACTED}",
+                          f"password={REDACTED}", "AssertionError: the greeting is wrong"]
+    assert "line 79" in hello["output_tail"] and "line 0" not in hello["output_tail"]
+    assert (wide_check["name"], wide_check["exit_code"]) == ("wide", 2)
+    assert len(wide_check["output_tail"]) == status_module.MAX_CHECK_TAIL_CHARS == 4000
+    assert wide_check["output_tail"].endswith(" 59 " + "w" * 200)
+    assert len(wide_check["output_tail"].splitlines()) <= status_module.MAX_CHECK_TAIL_LINES
+    for planted in (token, key_body, credential_path, password):
+        assert planted not in published
+    assert item["open_findings"] == [] and item["worker_report"] is None
+
+
+def test_a_check_evidence_file_changed_after_it_was_recorded_is_not_published(tmp_path):
+    from tests.test_engineering_dispatcher import EDIT_HELLO, OBJ, World
+
+    w = World(tmp_path, checks=(Check(name="fails", argv=(sys.executable, "-c", "raise SystemExit(1)")),),
+              max_result_refusals=1)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+    attempt = w.store.read_attempts(OBJ)[0]
+    evidence = next(e for e in w.store.read_events(OBJ, attempt.attempt_id) if e.evidence_name == "check-fails")
+    assert [c["name"] for c in _blocked_item(w)[0]["failed_checks"]] == ["fails"]
+
+    Path(evidence.evidence_path).write_text('{"name": "fails", "exit_code": 1, "stdout_tail": "not recorded"}')
+    item, published = _blocked_item(w)
+    assert item["failed_checks"] == [] and "not recorded" not in published
+
+
+def test_a_worker_reported_block_publishes_the_report_redacted(tmp_path):
+    from tests.test_engineering_dispatcher import World
+
+    token = "ghp_" + "W" * 36
+    w = World(tmp_path)
+    w.scenarios({"report": {"status": "blocked", "summary": "cannot",
+                            "reason": f"the fixture needs {token} from ~/.ssh/id_ed25519 to run"}})
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+
+    item, published = _blocked_item(w)
+    assert item["worker_report"] == f"the fixture needs {REDACTED} from {REDACTED} to run"
+    assert token not in published and "id_ed25519" not in published
+    assert item["blocker"] == f"worker reported blocked: {item['worker_report']}"
+    assert item["open_findings"] == [] and item["failed_checks"] == []
+
+
+def test_a_request_that_is_not_stuck_publishes_nothing_extra(env, tmp_path):
+    commit_request(env.origin, "r-idle", valid_request(env, request_id="r-idle"))
+    kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
+    controller.poll_once()
+    item = build_status(store=kernel.store, receipts=receipts, now=NOW)["requests"][0]
+    assert (item["open_findings"], item["failed_checks"], item["worker_report"]) == ([], [], None)
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("key: -----BEGIN RSA PRIVATE KEY-----\nMIIEpAIB\n-----END RSA PRIVATE KEY-----\nok", f"key: {REDACTED}\nok"),
+    ("MIIEpAIB\nAAAAB3Nz\n-----END PRIVATE KEY-----\nok", f"{REDACTED}\nok"),
+    ("ok\n-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIEpAIB", f"ok\n{REDACTED}"),
+    ("fetch https://bot:" + "p" * 20 + "@github.com/x.git", f"fetch https://{REDACTED}@github.com/x.git"),
+    ("curl -H Bearer " + "a1" * 20, f"curl -H Bearer {REDACTED}"),
+    ("Authorization: Basic " + "a1" * 20, f"Authorization: {REDACTED} {REDACTED}"),
+    ('{"api_key": "abc123abc123"}', f'{{"api_key": "{REDACTED}"}}'),
+    ("key file /home/u/.config/clive/gpt.key: mode 644", f"key file {REDACTED} mode 644"),
+    ("AKIA" + "B" * 16 + " and sk-" + "c" * 30, f"{REDACTED} and {REDACTED}"),
+], ids=["key-block", "key-block-cut-at-begin", "key-block-cut-at-end", "url-userinfo", "bearer",
+        "authorization", "assigned", "credential-path", "token-shapes"])
+def test_published_text_is_redacted_by_shape(text, expected):
+    assert redact_published(text) == expected
+
+
+def test_published_redaction_leaves_ordinary_check_output_readable():
+    text = ("FAILED tests/test_remote_engineering.py::test_a_secret_is_redacted - assert 'hello' == 'bye'\n"
+            "task-status-publishes-findings r2: max_tokens 5, app/remote_engineering/status.py:88")
+    assert redact_published(text) == text
