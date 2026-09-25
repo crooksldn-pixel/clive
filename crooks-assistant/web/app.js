@@ -3230,7 +3230,7 @@ function settleAction(node, payload, status) {
 const ACTION_REASONS = {
   refused: 'The service refused that. The card says why.',
   not_authorised: "This device's login is not on CLIVE's allowed list (CROOKS_ALLOWED_LOGINS).",
-  not_authorised_local: "Requests made on CLIVE's own computer may not apply changes (CROOKS_WRITES_LOCAL_OWNER).",
+  not_authorised_local: 'CLIVE is not allowed to apply changes from here.',
   writes_disabled: 'Changes are switched off in CLIVE (CROOKS_WRITES_ENABLED).',
   allow_list_missing: 'No allowed logins are configured in CLIVE (CROOKS_ALLOWED_LOGINS).',
   identity_unverified: "CLIVE could not confirm this device's identity with Tailscale.",

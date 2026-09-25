@@ -1626,7 +1626,7 @@
   function blockedLabel(code) {
     return {
       writes_disabled: 'Changes are switched off in CLIVE', allow_list_missing: 'No allowed logins set in CLIVE',
-      not_authorised: "This device's login is not on CLIVE's list", not_authorised_local: "CLIVE's own computer may not apply changes",
+      not_authorised: "This device's login is not on CLIVE's list", not_authorised_local: 'CLIVE may not apply changes from here',
       scope_missing: 'Shopify has not granted the scope this needs',
     }[text(code)] || "Can't apply from here";
   }
