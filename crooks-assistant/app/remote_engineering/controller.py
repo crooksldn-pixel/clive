@@ -137,8 +137,8 @@ class RemoteController:
     claims: ClaimLog | None = None
 
     def __post_init__(self) -> None:
-        # Claims live beside the receipts, in the same adapter-owned directory of the
-        # engineering store, so every existing caller gets one without being changed.
+        # Claims live beside the receipts, under the same adapter root, so every existing
+        # caller gets one without being changed.
         if self.claims is None:
             self.claims = ClaimLog(self.receipts.dir.parent)
 

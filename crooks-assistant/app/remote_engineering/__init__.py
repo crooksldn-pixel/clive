@@ -22,12 +22,21 @@ from .publisher import (
     publish_status,
     validate_seconds,
 )
-from .receipts import CLAIM_SCHEMA, Claim, ClaimLog, Receipt, ReceiptLog
-from .requests import REQUEST_SCHEMA, RemoteObjectiveRequest, parse_request
+from .receipts import (
+    ADAPTER_ROOT_NOT_IGNORED,
+    CLAIM_SCHEMA,
+    Claim,
+    ClaimLog,
+    Receipt,
+    ReceiptLog,
+    adapter_root_preconditions,
+)
+from .requests import REQUEST_ID_MAX_LENGTH, REQUEST_SCHEMA, RemoteObjectiveRequest, parse_request
 from .runner import INTAKE_UNAVAILABLE, PUBLISH_UNAVAILABLE, RemoteEngineeringLoop
 from .status import STATUS_SCHEMA, build_status
 
 __all__ = [
+    "ADAPTER_ROOT_NOT_IGNORED",
     "CLAIM_SCHEMA",
     "DEFAULT_INBOX_BRANCH",
     "DEFAULT_INBOX_DIRECTORY",
@@ -38,6 +47,7 @@ __all__ = [
     "MAX_HEARTBEAT_S",
     "MIN_HEARTBEAT_S",
     "PUBLISH_UNAVAILABLE",
+    "REQUEST_ID_MAX_LENGTH",
     "REQUEST_SCHEMA",
     "STATUS_SCHEMA",
     "Claim",
@@ -52,6 +62,7 @@ __all__ = [
     "RequestContentChanged",
     "RequestSchemaError",
     "TransportError",
+    "adapter_root_preconditions",
     "build_status",
     "discover_requests",
     "fetch_inbox",

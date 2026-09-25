@@ -104,7 +104,7 @@ Echo bounds (activation successor of `05fe8046`). Nothing a requester or a misty
 
 Crash-safe provenance (activation successor of `11ab9070`). The lifecycle write and the receipt cannot be one atomic act, so the window between them is closed from the front:
 
-- before the first lifecycle write, an id is bound to the exact bytes being admitted under it by a write-once **claim** (`<store>/remote_engineering/claims/<request_id>.json`, schema `clive.remote_engineering_claim.v1`). Like a receipt it is adapter provenance, never authority: it admits nothing and advances nothing;
+- before the first lifecycle write, an id is bound to the exact bytes being admitted under it by a write-once **claim** (`<adapter-root>/claims/<request_id>.json`, schema `clive.remote_engineering_claim.v1`). Like a receipt it is adapter provenance, never authority: it admits nothing and advances nothing;
 - the claim also pins `created_at`. A resumed admission therefore rebuilds the *byte-identical* objective rather than a merely equivalent one. Without this, a replay after a crash reaches the objective store with a later timestamp, is refused as "already recorded differently", and a durable **refused** receipt is written for a request that was in fact admitted -- so the public projection permanently contradicts a live task;
 - on restart only the claimed digest resumes. Every other byte sequence for that id is refused, including bytes that differ only in formatting and parse to the same request, so provenance cannot be replaced by a later submission;
 - a claimed-but-unreceipted id participates in the snapshot preflight too, so an interrupted admission refuses its whole cycle before any write, exactly as an already-receipted one does;
@@ -116,6 +116,11 @@ Identifier shape (activation successor of `71c4ed6a`). The Director keeps choosi
 - `request_id` must be a readable slug, `^[a-z][a-z0-9]{0,15}(-[a-z0-9]{1,16}){1,7}$`: lowercase words of at most 16 characters joined by hyphens. Underscores, mixed case, dots and long high-entropy runs are refused, which excludes credential shapes in practice while admitting every id this system uses. The id is requester-chosen and reaches a durable claim, a receipt, a task id and the public projection, so constraining it is what keeps a secret out of all four without making the Director's own handle opaque;
 - `target_branch` must equal `clive/objective/<request_id>` exactly, so the one ref the dispatcher publishes carries the slug and nothing else;
 - both are refused without echoing the rejected value, like every other schema refusal.
+
+Journal-safe adapter records and admitted id length (successor of `4c32bb3d`):
+
+- claims and receipts live under the **adapter root**, `--adapter-root` (default `<store>/remote_engineering`, the location existing hosts already hold their records in). The kernel's journal refuses every verb while the store holds untracked files, and intake writes its claim before the canonical door, so adapter records that are untracked in the store would have every request refused with its id already claimed. **Chosen: refuse to start.** With a journalled store (anything but `--no-journal`), `poll` and `run` refuse to start, with one fixed message and before anything is claimed, when the adapter root is inside the store's git work tree and its `claims/` and `receipts/` directories themselves are not ignored by that work tree's rules. The directories are what is checked, never a sample record: git cannot re-include anything beneath an ignored directory, so only that covers every request id and every temporary file, and a rule matching only some file names (say `claims/*.json`) is refused. The supported configuration is an `--adapter-root` outside the store's work tree, which needs no ignore rule of any kind. An ignore rule also satisfies the check, but only a committed `.gitignore` goes with a clone: a host-local `.git/info/exclude` line satisfies it on that host only, and a new host without it refuses to start rather than burning ids. The message never repeats a path. `status` only reads and is not checked;
+- the slug pattern alone admits up to 135 characters, but the id becomes the objective id (the canonical pattern caps it at 80), the task id, the claim and the receipt (120 each). The request schema therefore also caps `request_id` at 80 (`REQUEST_ID_MAX_LENGTH`), the shortest of those. The longest admitted id reaches a durable accepted receipt in `run` and in one-shot `poll`, and a longer one is refused by the schema before any claim, without being echoed.
 
 ## Safety and process execution
 
@@ -170,6 +175,9 @@ At minimum prove:
 - every id the Director and the runbooks actually use is still admitted;
 - the first ever claim flushes each newly created directory's parent, and a later claim still flushes its own;
 - two claims for the same bytes converge on one record and one `claimed_at`, and a loser holding a different digest is refused before any lifecycle write.
+- a request is admitted end to end through a journalled store (a real git work tree, `journal=True`) to an accepted receipt, with no `.git/info/exclude` entry and no host git configuration, leaving the store's work tree clean;
+- `poll` and `run` refuse to start, claiming nothing, while the adapter root would be unignored state in the store's work tree, including when ignore rules match only some record file names rather than the record directories;
+- the longest admitted `request_id` reaches an accepted receipt through the journalled store in both `run` and one-shot `poll`, and an id one character longer, or at the old pattern's 135-character maximum, is refused before any claim and never echoed.
 
 ## Definition of done
 
