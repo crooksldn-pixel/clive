@@ -16,6 +16,41 @@ const vm = require('node:vm');
 const ORIGIN = 'https://crooks.test';
 const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'sw.js'), 'utf8').replace('__BUILD__', 'testbuild');
 
+// A Response of our own rather than Node's. Node's comes from its bundled undici, and loading
+// that starts compiling an HTTP parser as WebAssembly in the background; a checker with a
+// capped address space cannot reserve the memory for it, and the run then fails on a rejection
+// that has nothing to do with the worker. This keeps what the worker relies on: a status,
+// headers read case-insensitively, and a body that is read once and must be cloned to be kept.
+class FakeResponse {
+  constructor(body, init) {
+    const options = init || {};
+    this.status = options.status === undefined ? 200 : options.status;
+    this.ok = this.status >= 200 && this.status < 300;
+    this.type = 'default';
+    const fields = new Map(Object.entries(options.headers || {}).map(([k, v]) => [k.toLowerCase(), String(v)]));
+    this.headers = { get: (name) => (fields.has(String(name).toLowerCase()) ? fields.get(String(name).toLowerCase()) : null) };
+    this.body = body === undefined || body === null ? '' : String(body);
+    this.bodyUsed = false;
+  }
+  static error() {
+    const response = new FakeResponse(null, { status: 0 });
+    response.type = 'error';
+    return response;
+  }
+  clone() {
+    if (this.bodyUsed) throw new TypeError('Response.clone: the body has already been read');
+    const copy = new FakeResponse(this.body, { status: this.status });
+    copy.headers = this.headers;
+    copy.type = this.type;
+    return copy;
+  }
+  async text() {
+    if (this.bodyUsed) throw new TypeError('Body is unusable: it has already been read');
+    this.bodyUsed = true;
+    return this.body;
+  }
+}
+
 function boot() {
   const handlers = {};
   const fetched = [];
@@ -36,7 +71,7 @@ function boot() {
   const calls = { skipWaiting: 0, claim: 0 };
   const sandbox = {
     console,
-    Response,
+    Response: FakeResponse,
     URL,
     caches,
     network,
@@ -53,7 +88,7 @@ function boot() {
       if (network.mode === 'hang') return new Promise(() => {});
       const status = typeof network.mode === 'number' ? network.mode : 200;
       const type = network.type || (p.endsWith('.js') ? 'text/javascript' : 'text/html');
-      return new Response(`${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
+      return new FakeResponse(`${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
     },
   };
   sandbox.self = sandbox;

@@ -24,6 +24,10 @@
  * The microphone is opened once and kept warm. Opening it on every press was the cause of the
  * first word of each question being clipped: getUserMedia takes a few hundred milliseconds to
  * hand over a live track, and the owner had already started speaking.
+ * It is opened only by the hold-to-speak press (or on load, where the permission query says
+ * it is already granted) — never by another touch, a return to the app or a reconnect. On
+ * iOS every opening can be another "would like to access the microphone" while the owner is
+ * only reading.
  */
 
 'use strict';
@@ -379,11 +383,11 @@ async function acquireWakeLock() {
 
 // Android drops the lock whenever the page is hidden, so re-acquire on every return. Hidden
 // also means: stop talking, stop drawing, and let go of the microphone unless mid-sentence.
+// Coming back does not reopen it: the next hold does.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     acquireWakeLock();
     if (orb) orb.start();
-    warmMic();
     pollHealth();
     // Coming back to a tablet that has been asleep: ask the Mac what actually happened to
     // every card still on screen before believing any of them.
@@ -989,13 +993,14 @@ function warmMic() {
   ensureMicStream().catch(() => { /* the press will report the real error */ });
 }
 
-// Warm on load when permission is already granted (no prompt), otherwise on the first touch.
+// Warm on load only when the permission query says, positively, that it is already granted.
+// Otherwise the first hold-to-speak press opens it: never any other touch, a return to the
+// app or a reconnect, each of which asked the owner again on iOS while only reading.
 if (navigator.permissions && navigator.permissions.query) {
   navigator.permissions.query({ name: 'microphone' })
-    .then((status) => { if (status.state === 'granted') warmMic(); })
+    .then((status) => { if (status && status.state === 'granted') warmMic(); })
     .catch(() => {});
 }
-document.addEventListener('pointerdown', warmMic, { once: true, capture: true });
 
 function pickMimeType() {
   const candidates = [
@@ -3755,14 +3760,19 @@ el.resetSession.addEventListener('click', async () => {
 });
 
 // M2's diagnostic, kept: records three seconds through the warm stream and reports what the
-// backend actually decoded, then plays it back.
+// backend actually decoded, then plays it back. It never opens the microphone itself — only
+// the hold-to-speak press does — so with no live stream it says to hold to speak first.
 el.micTest.addEventListener('click', async () => {
   el.settings.close();
   setMode('orb');
+  if (!micIsLive()) {
+    setState('READY', 'Microphone test', 'Hold to speak once first, then run the test again.');
+    return;
+  }
   setState('LISTENING', 'Microphone test');
   el.sub.textContent = 'Recording three seconds…';
   try {
-    const stream = await ensureMicStream();
+    const stream = micStream;
     const mimeType = pickMimeType();
     const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
     const parts = [];
@@ -3795,7 +3805,7 @@ el.micTest.addEventListener('click', async () => {
     recorder.start(250);
     setTimeout(() => recorder.stop(), 3000);
   } catch (error) {
-    showMicError('Microphone test failed: the microphone could not be opened.');
+    showMicError('Microphone test failed: the microphone could not be recorded.');
   }
 });
 
@@ -3911,12 +3921,12 @@ function wentOnline() {
   reconnectDelay = RECONNECT_MIN_MS;
   setSystem('online');
   if (wasDown) {
-    // Back after an outage: the pill, the sheet's rows, the lock and the microphone all need
-    // re-establishing, and a build shipped while we were away should be taken.
+    // Back after an outage: the pill, the sheet's rows and the lock all need re-establishing,
+    // and a build shipped while we were away should be taken. The microphone waits for the
+    // next hold.
     setConn('connecting', 'Connecting');
     pollHealth(true);
     acquireWakeLock();
-    warmMic();
     if (swRegistration) swRegistration.update().catch(() => {});
   }
 }

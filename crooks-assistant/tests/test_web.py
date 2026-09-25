@@ -249,8 +249,11 @@ def test_the_microphone_is_opened_once_and_kept_warm():
     # The only place tracks are stopped is the deliberate release, used when the page hides.
     assert APP_JS.count("track.stop()") == 1
     assert "track.stop()" in function_body(APP_JS, "function releaseMicStream()")
-    # The microphone test reuses the warm stream rather than opening a second one.
-    assert "const stream = await ensureMicStream();" in section(APP_JS, "el.micTest.addEventListener")
+    # The microphone test reuses the live stream when there is one, and otherwise tells the
+    # owner to hold to speak first: it never opens the microphone itself.
+    mic_test = section(APP_JS, "el.micTest.addEventListener", "/* ------------------------------------------------------------- developer */")
+    assert ("if (!micIsLive()) {" in mic_test and "Hold to speak once first" in mic_test
+            and "const stream = micStream;" in mic_test and "ensureMicStream(" not in mic_test)
 
 
 def test_the_analysers_hang_off_the_existing_streams():
