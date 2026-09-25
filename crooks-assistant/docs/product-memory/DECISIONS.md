@@ -196,11 +196,12 @@ Before building the full World/automation/self-improvement system, finish:
 
 ## DEC-019 — Server becomes canonical always-on runtime
 **Date:** 2026-09-19  
-**Status:** ACTIVE
+**Status:** ACTIVE for the server as canonical always-on runtime; the Mac's rollback role is SUPERSEDED (2026-09-25) by the Mac's role in DEC-058 / [OWNER_DECISIONS_2026-09-25.md](./OWNER_DECISIONS_2026-09-25.md): Swift and iPhone builds and tests, spare builder capacity; not a production or rollback host.  
+**Was:** ACTIVE
 
 CROOKS runtime should not depend on the Mac being awake.
 
-Mac becomes optional control/development/rollback device.
+Mac becomes optional control/development/rollback device. *(2026-09-19 wording, kept as history; see Status for the current Mac role.)*
 
 ---
 
@@ -538,7 +539,8 @@ Versioned releases, exact artifact identity, health verification and rollback ar
 
 ## DEC-046 — Dev Team planning can proceed now; implementation follows the current-product gates
 **Date:** 2026-09-19  
-**Status:** ACTIVE  
+**Status:** HISTORICAL / SUPERSEDED (2026-09-25) as the execution order — the current order is the 2026-09-25 finish-first rule followed by the approved next phase ([ROADMAP.md](./ROADMAP.md) "NOW — 2026-09-25", [NEXT_PHASE_2026-09-25.md](./NEXT_PHASE_2026-09-25.md), DEC-058). The sequence below is the 2026-09-19 history of how that order was reached; its safety gates still apply.  
+**Was:** ACTIVE  
 **Source:** explicit owner migration continuation; consistent with CURRENT_TRUTH and MIGRATION_HANDOFF
 
 **Decision:** Plan Engineering Orchestrator / Dev Team V1 while the permanent Builder Environment round remains in flight. Preserve that round; do not duplicate or restart it without failure/stoppage evidence.
@@ -573,7 +575,8 @@ Never silently rewrite old rationale. If a decision changes, add a new decision 
 
 ## DEC-047 — Engineering Orchestrator V1 implementation is owner-authorised
 **Date:** 2026-09-19  
-**Status:** ACTIVE  
+**Status:** FULFILLED / HISTORICAL — the bounded implementation approval has been used: Engineering Orchestrator V1 is running as the remote engineering loop (DEC-060; [ROADMAP.md](./ROADMAP.md) D7; [CURRENT_TRUTH.md](./CURRENT_TRUTH.md)). Its DEC-046 gating is history with DEC-046; the limits listed below (no deployment, secrets, privilege, business-write or review-bypass authority) still hold, and later loop changes follow DEC-058.  
+**Was:** ACTIVE  
 **Source:** explicit owner approval in the GPT Director conversation
 
 **Decision:** The owner explicitly approved Engineering Orchestrator V1 moving from planning into implementation under the existing canonical Git specification and safety boundaries.
@@ -591,7 +594,8 @@ Implementation may begin once the preceding DEC-046 deployment/current-product p
 
 ## DEC-048 — Ratify the observed Linux production promotion
 **Date:** 2026-09-19  
-**Status:** ACTIVE  
+**Status:** HISTORICAL — the 2026-09-19 ratification of production at `1cf3a0f…`. It is superseded as current production truth by `clive/trunk` `ce791d03…`, deployed 2026-09-25 under the 2026-09-24 operational alpha promotion decision (DEC-058; [CURRENT_TRUTH.md](./CURRENT_TRUTH.md)); its Gmail gap was closed on 2026-09-24 (DEC-058). Its limit on authority still holds: it approved no further deployment, exposure, secrets, privileges or business writes.  
+**Was:** ACTIVE  
 **Source:** explicit owner ratification in the GPT Director conversation
 
 **Decision:** The owner ratified the already-observed, owner-performed Linux production promotion to exact candidate `1cf3a0f3361b79f9de208d80f501543c53c244b5`, including the installed/enabled `crooks-assistant.service` backend and tailnet-only Tailscale HTTPS route.
@@ -865,7 +869,7 @@ The unrestricted-English prose-freeze parser experiment is therefore parked as h
 - **Engineering off the production host, 2026-09-25:** once clive-worker-01 has proven itself, the loop on the production host is stopped and its reviewer key and worker token are removed there.
 - **The Mac's role, 2026-09-25:** Swift and iPhone builds and tests, spare builder capacity; not a production host.
 
-**Supersedes:** DEC-028, DEC-029 and DEC-030 are RETIRED with the bridge watcher; their outcome (DEC-015: the owner is not a message courier) is carried by the remote engineering loop. DEC-048's Gmail gap is closed.
+**Supersedes:** DEC-028, DEC-029 and DEC-030 are RETIRED with the bridge watcher; their outcome (DEC-015: the owner is not a message courier) is carried by the remote engineering loop. DEC-048's Gmail gap is closed, and DEC-048 is historical as production truth: production now runs `ce791d03…`, promoted under the operational alpha promotion decision above. DEC-019's Mac rollback role is superseded by the Mac's role above. DEC-046's execution order is superseded by the 2026-09-25 finish-first rule and the approved next phase ([NEXT_PHASE_2026-09-25.md](./NEXT_PHASE_2026-09-25.md)). DEC-047's implementation approval is fulfilled: the remote engineering loop is running.
 
 **Reason:** the dated records were written outside this log; without an entry here a reader of DECISIONS.md would miss active owner decisions and would still treat the bridge watcher decisions as active.
 
