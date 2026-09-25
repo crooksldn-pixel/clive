@@ -495,13 +495,13 @@ def test_a_drill_down_never_carries_the_address_or_postcode_that_was_searched_fo
     direct = Evidence(handle="ev-direct", tool="gmail_search", observed_at=NOW, session_id=SESSION,
                       query="threads mentioning Flat 3, 12 Acacia Avenue E1 6AN")
 
-    # A default summary names the arguments, never their values; a given one is redacted when stored.
+    # A default summary names the arguments, never their values; a given one keeps only known words.
     assert found.query == "Search in email by contains, address"
     assert searched.query == "Inbox by query, days"
-    assert told.query == "orders shipping to [address], postcode [postcode], where contains=[value]"
-    assert direct.query == "threads mentioning [address], [address] [postcode]"
+    assert told.query == "orders shipping to [value], postcode [value], where contains [value]"
+    assert direct.query == "threads mentioning [value]"
 
-    plan = {"answer": {"text": "Nobody has written to us from that address.", "justification": "The owner asked about one address."}}
+    plan = {"answer": {"text": "Nobody has written to us from that address.", "justification": "The owner asked about an address."}}
     context = SceneContext.for_request("has anyone at that address emailed us?", session_id=SESSION)
     assert context.contact_details is False
     scene, trace = validate_scene(plan, [found, searched, told, direct], context)
@@ -512,6 +512,174 @@ def test_a_drill_down_never_carries_the_address_or_postcode_that_was_searched_fo
     for value in ("E1 6AN", "6AN", "Acacia", "Avenue", "Flat 3"):
         assert value not in serialised
         assert all(value not in source.query for source in scene.drilldown.sources)
+    _no_pii(scene)
+
+
+GIVEN_SUMMARIES = [
+    # A phone number in a form no pattern for UK numbers knows.
+    ("customer phone 415-555-1212", "customer phone [value]", ("415", "555", "1212")),
+    ("orders for +1 (415) 555 1212 or 415.555.1212", "orders for [value] or [value]", ("415", "555", "1212")),
+    # Addresses and postcodes from other countries.
+    ("orders shipping to 1600 Amphitheatre Parkway, Mountain View, CA 94043", "orders shipping to [value]",
+     ("1600", "Amphitheatre", "Parkway", "Mountain", "View", "CA", "94043")),
+    ("orders to Rue de Rivoli 75001 Paris, Canada K1A 0B1", "orders to [value]", ("Rivoli", "75001", "Paris", "Canada", "K1A", "0B1")),
+    ("orders to 〒100-0001 東京都千代田区", "orders to [value]", ("〒", "100-", "東京")),
+    # Who it was about.
+    ("orders for Jo Bloggs of Hauptstraße, Berlin", "orders for [value] of [value]", ("Bloggs", "Hauptstraße", "Berlin")),
+    ("orders for jo.bloggs@example.co.uk", "orders for [value]", ("bloggs", "@", "example")),
+]
+
+
+def test_a_given_summary_keeps_only_known_words():
+    """What a caller says was asked is kept word by word only where the word is known to be
+    safe; any other word, and every number, is `[value]` — whatever country's form it takes."""
+    evidence = []
+    for n, (query, expected, _) in enumerate(GIVEN_SUMMARIES):
+        told = to_evidence("shopify_find_order", {"orders": []}, handle=f"ev-told-{n}", query=query, observed_at=NOW, session_id=SESSION)
+        direct = Evidence(handle=f"ev-direct-{n}", tool="gmail_search", observed_at=NOW, session_id=SESSION, query=query)
+        assert told.query == expected and direct.query == expected
+        evidence += [told, direct]
+
+    plan = {"answer": {"text": "Nobody has ordered from there.", "justification": "The owner asked about a customer."}}
+    scene, trace = validate_scene(plan, evidence, SceneContext.for_request("has anyone there ordered?", session_id=SESSION))
+
+    assert scene.elements == () and scene.drilldown is not None and len(scene.drilldown.sources) == len(evidence)
+    serialised = json.dumps(scene.as_dict(), ensure_ascii=False) + json.dumps([e.reason for e in trace], ensure_ascii=False)
+    for _, _, secrets in GIVEN_SUMMARIES:
+        for secret in secrets:
+            assert secret not in serialised, secret
+    _no_pii(scene)
+
+
+def test_values_in_words_or_as_addresses_are_refused_unless_bound():
+    """A number spelled out, a fraction, a multiple or an email address is a value, and a
+    value comes from evidence through a slot: citing an evidence handle does not bind it."""
+    mail = to_evidence("email_query", _email_query([_customer_row(n, waiting=n < 3) for n in range(12)]), handle="ev-mail",
+                       observed_at=NOW, session_id=SESSION)
+
+    def finding(text: str) -> dict:
+        return {"type": "finding", "significance": "ACTION_REQUIRED", "text": text, "evidence": ["ev-mail"], "justification": "They need a reply."}
+
+    plan = {
+        "answer": {"text": "{0} customers are waiting on a reply.", "values": [{"evidence": "ev-mail", "field": "needs_reply"}],
+                   "justification": "The owner asked who is waiting."},
+        "elements": [
+            finding("Forty customers are waiting."),
+            finding("Half of them have waited since yesterday."),
+            finding("Replies now take double the usual time."),
+            finding("Twenty-five customers wrote this month."),
+            finding("Email jo@example.com first."),
+            finding("The newest are listed at crooks.example.com today."),
+            {"type": "question", "text": "Shall I answer the dozen oldest?", "justification": "Needs the owner."},
+            finding("{0} customers are waiting since yesterday.") | {"values": [{"evidence": "ev-mail", "field": "needs_reply"}]},
+        ],
+    }
+    scene, trace = validate_scene(plan, [mail], SceneContext(session_id=SESSION))
+
+    assert scene.answer.text() == "3 customers are waiting on a reply."
+    assert [s.text() for s in scene.elements] == ["3 customers are waiting since yesterday."]
+    final = _final(trace)
+    for index in range(4):
+        assert final[f"elements[{index}] finding"].decision == "dropped"
+        assert "a number in the text that is not bound to evidence" in final[f"elements[{index}] finding"].reason
+    for index in (4, 5):
+        assert final[f"elements[{index}] finding"].decision == "dropped"
+        assert "email or web address" in final[f"elements[{index}] finding"].reason
+    assert "number" in final["elements[6] question"].reason
+    assert final["elements[7] finding"].decision == "kept"
+    _no_pii(scene)
+
+    for text, why in (
+        ("Forty customers are waiting on a reply.", "number"),
+        ("About half of them are waiting.", "number"),
+        ("Orders doubled on last week.", "number"),
+        ("Write to jo@example.com today.", "email or web address"),
+    ):
+        scene, trace = validate_scene({"answer": {"text": text, "justification": "Asked."}}, [mail], SceneContext(session_id=SESSION))
+        assert scene.answer.element.text == FALLBACK_ANSWER
+        answer = [e for e in trace if e.target == "answer"]
+        assert len(answer) == 1 and answer[0].decision == "replaced" and why in answer[0].reason
+        _no_pii(scene)
+
+
+def test_a_personal_time_is_not_shown_on_a_timeline():
+    """A connector may say a time is personal. A Timeline cannot show it without the task
+    needing contact details: its time is stripped like any other pii field, and a timeline
+    without its time is dropped, in the trace."""
+    registry = Registry()
+    registry.register(ToolDescriptors(
+        tool="visits_log", label="Visits", records="visits", record_id="visit_id",
+        fields=(
+            FieldDescriptor("visit_id", Kind.LINK, "Visit id"),
+            FieldDescriptor("seen_at", Kind.DATETIME, "Seen at", pii=True),
+            FieldDescriptor("page", Kind.TEXT, "Page"),
+        ),
+    ))
+    result = {"visits": [{"visit_id": f"v{n}", "seen_at": f"2026-09-2{n}T10:1{n}:00Z", "page": "Returns"} for n in range(3)]}
+    visits = registry.to_evidence("visits_log", result, handle="ev-visits", observed_at=NOW, session_id=SESSION)
+    plan = {
+        "answer": {"text": "People are reading the returns page.", "justification": "The owner asked what visitors look at."},
+        "elements": [
+            {"type": "finding", "significance": "CONTEXT", "text": "Visitors keep returning to the returns page.", "evidence": ["ev-visits"],
+             "justification": "Interest in returns can mean a problem."},
+            {"type": "timeline", "evidence": "ev-visits", "at": "seen_at", "label": "page", "limit": 3, "justification": "When they looked."},
+        ],
+    }
+
+    scene, trace = validate_scene(plan, [visits], SceneContext(session_id=SESSION))
+    assert [s.element.type for s in scene.elements] == ["finding"]
+    final = _final(trace)
+    assert final["elements[1] timeline"].decision == "dropped" and "its time may not be shown" in final["elements[1] timeline"].reason
+    assert _reductions(trace, "elements[1] timeline") == ["seen_at: pii stripped; the task does not need contact details"]
+    assert not any(b.pii for b in scene.bound())
+    assert "2026-09-2" not in json.dumps(scene.as_dict()).replace(NOW.isoformat(), "")
+
+    scene, trace = validate_scene(plan, [visits], SceneContext(session_id=SESSION, contact_details=True))
+    assert [s.element.type for s in scene.elements] == ["finding", "timeline"]
+    assert len(scene.elements[1].rows) == 3 and all(row[0].field == "seen_at" for row in scene.elements[1].rows)
+
+
+def test_a_justification_is_plain_words_with_nothing_in_it_to_show():
+    """A justification is kept beside its element and in the trace, so it meets the rule the
+    prose does: no markup, no unbound value, no contact detail. The Answer is always kept, with
+    its justification replaced when it cannot be shown."""
+    mail = to_evidence("email_query", _email_query([_customer_row(n, waiting=n < 2) for n in range(6)]), handle="ev-mail",
+                       observed_at=NOW, session_id=SESSION)
+    waiting = [{"evidence": "ev-mail", "field": "needs_reply"}]
+
+    def finding(justification: str) -> dict:
+        return {"type": "finding", "significance": "ACTION_REQUIRED", "text": "{0} customers are waiting.", "values": waiting,
+                "evidence": ["ev-mail"], "justification": justification}
+
+    plan = {
+        "answer": {"text": "{0} customers are waiting on a reply.", "values": waiting,
+                   "justification": "<i>Asked</i> by jo@example.com"},
+        "elements": [
+            finding("<b>Urgent</b>: they need a reply."),
+            finding("Write to jo@example.com first."),
+            finding("Forty of them are cross."),
+            finding("See {0}."),
+            {"type": "measure", "value": {"evidence": "ev-mail", "field": "needs_reply"}, "justification": "[Waiting](https://evil.example)"},
+            {"type": "proposal", "action": "act-1", "justification": "Phone them on 07700 900123."},
+            finding("They need a reply today."),
+        ],
+    }
+    scene, trace = validate_scene(plan, [mail], SceneContext(session_id=SESSION, actions=frozenset({"act-1"})))
+
+    assert scene.answer.text() == "2 customers are waiting on a reply."
+    assert scene.answer.element.justification == "The answer to what was asked."
+    answer = [(e.decision, e.reason) for e in trace if e.target == "answer"]
+    assert [d for d, _ in answer] == ["reduced", "kept"] and "justification" in answer[0][1]
+    assert [s.element.justification for s in scene.elements] == ["They need a reply today."]
+    final = _final(trace)
+    for target in ("elements[0] finding", "elements[1] finding", "elements[2] finding", "elements[3] finding",
+                   "elements[4] measure", "elements[5] proposal"):
+        assert final[target].decision == "dropped" and "justification" in final[target].reason, target
+    assert final["elements[6] finding"].decision == "kept"
+
+    serialised = json.dumps(scene.as_dict()) + json.dumps([(e.target, e.reason) for e in trace])
+    for literal in ("<i>", "<b>", "Urgent", "jo@", "example.com", "evil", "Forty", "07700", "900123", "See "):
+        assert literal not in serialised, literal
     _no_pii(scene)
 
 

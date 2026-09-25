@@ -128,9 +128,10 @@ class Record:
 class Evidence:
     """What one read found. `records` are its rows, described by `fields`; `facts` are about
     the result as a whole (a total, a count, a series), described by `fact_fields`. The handle
-    is what a scene plan cites; `query` is a short summary of what was asked, redacted when
-    stored; `session_id` is the session whose read produced it, without which nothing in it
-    may be shown."""
+    is what a scene plan cites; `query` is a short summary of what was asked, stored with
+    every word its registration does not allow made `[value]`; `label` is what was read, as
+    its connector registered it; `session_id` is the session whose read produced it, without
+    which nothing in it may be shown."""
 
     handle: str
     tool: str
@@ -141,6 +142,7 @@ class Evidence:
     fact_fields: tuple[FieldDescriptor, ...] = ()
     facts: Mapping[str, Any] = field(default_factory=dict)
     session_id: str | None = None
+    label: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.handle, str) or not HANDLE.match(self.handle):
@@ -149,8 +151,10 @@ class Evidence:
             raise ValueError("observed_at is a timezone-aware datetime.")
         if not isinstance(self.query, str) or len(self.query) > MAX_QUERY:
             raise ValueError("The query summary is short: at most 160 characters.")
+        if not isinstance(self.label, str) or len(self.label) > 60:
+            raise ValueError("A label is at most sixty characters.")
         # However it was made, the summary is stored as a drill-down may show it.
-        object.__setattr__(self, "query", summarise(self.query))
+        object.__setattr__(self, "query", summarise(self.query, self.vocabulary()))
         for described in (self.fields, self.fact_fields):
             names = [d.name for d in described]
             if len(names) != len(set(names)):
@@ -165,6 +169,10 @@ class Evidence:
                 raise ValueError(f"{self.handle}: record {record.id!r} carries an undescribed field.")
         if not set(self.facts) <= {d.name for d in self.fact_fields}:
             raise ValueError(f"{self.handle}: a fact is not described.")
+
+    def vocabulary(self) -> frozenset[str]:
+        """The words its query summary may use beside `SUMMARY_WORDS`."""
+        return terms(self.label, self.fields, self.fact_fields)
 
     def descriptor(self, name: str, *, fact: bool = False) -> FieldDescriptor | None:
         return next((d for d in (self.fact_fields if fact else self.fields) if d.name == name), None)
@@ -340,27 +348,61 @@ def lookup(data: Any, path: str) -> Any:
     return data
 
 
-_QUOTED = re.compile(r"(?<!\w)(?:'[^']*'|\"[^\"]*\"|‘[^’]*’|“[^”]*”)(?!\w)")
-_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-_PHONE = re.compile(r"(?<![\w-])(?:\+|0)\d[\d ()-]{8,}\d")
-_STREET = re.compile(
-    r"\b\d+[a-z]?,?\s+(?:[a-z'.-]+\s+){0,3}?"
-    r"(?:street|st|road|rd|avenue|ave|lane|ln|close|drive|dr|way|place|pl|court|ct|crescent|cres"
-    r"|gardens|gdns|terrace|square|sq|grove|hill|row|mews|walk|park|parade|green|rise|view"
-    r"|boulevard|blvd)\b\.?"
-    r"|\b(?:flat|apartment|apt|unit|suite)\s+\d+[a-z]?\b",
-    re.I,
-)
-_POSTCODE = re.compile(r"\b[a-z]{1,2}\d[a-z\d]?\s*\d[a-z]{2}\b|\b\d{5}(?:-\d{4})?\b", re.I)
+# The words a query summary may keep whatever read it describes: how a question is put and
+# the categories it asks about, never a name, a place or a number. A read adds the words of its
+# own registered label and field descriptors; every other word is a value, and is not kept.
+SUMMARY_WORDS = frozenset("""
+a about after all an and any are as at before between by during each every for from has have
+in into is its last latest mentioning more most new no not of on or over past per since than
+that the their them these this those to under until was were what when where which who with
+within without day days week weeks month months year years today yesterday recent open closed
+unread read sent received replied reply replies waiting inbound outbound bulk query contains
+search find found matching match matches looked limit period status kind entity group metric
+metrics filter filters sort compare set id ids threads thread messages message email emails
+emailed inbox mail orders order customers customer products product variants variant stock
+sales revenue refund refunds returns return shipping delivery fulfilment fulfillment unfulfilled
+fulfilled paid unpaid pending cancelled tracking address addresses phone name names postcode
+contact details note notes subject tag tags sku price
+""".split())
+
+VALUE = "[value]"
+_SUMMARY_TOKEN = re.compile(r"\[value\]|[^\W_]+(?:_[^\W_]+)*(?:['’]s)?|\s+|.")
+_SUMMARY_WORD = re.compile(r"[^\W_]+(?:_[^\W_]+)*(?:['’]s)?")
+_SUMMARY_MARKS = frozenset(",.;:()…")
+_VALUES = re.compile(r"\[value\](?:[\s,.;:()…]*\[value\])+")
 
 
-def summarise(text: Any) -> str:
-    """A query summary as a drill-down may show it: one line, short, with no quoted value,
-    email address, phone number, street address or postcode in it — what was asked is
-    described, never who or where it was asked about."""
-    line = " ".join(str(text or "").split())
-    line = _EMAIL.sub("[email]", _QUOTED.sub("[value]", line))
-    line = _POSTCODE.sub("[postcode]", _STREET.sub("[address]", _PHONE.sub("[phone]", line)))
+def terms(label: str, *described: Iterable[FieldDescriptor]) -> frozenset[str]:
+    """The words a read's own registration adds to what its summary may say: the words of its
+    label and of its fields' names and labels. Registered data, never a request's values."""
+    words = set(re.findall(r"[^\W\d_]+", str(label or "").lower()))
+    for descriptors in described:
+        for d in descriptors:
+            words.update(re.findall(r"[^\W\d_]+", f"{d.name} {d.label}".lower()))
+    return frozenset(words)
+
+
+def summarise(text: Any, vocabulary: frozenset[str] = frozenset()) -> str:
+    """A query summary as a drill-down may show it: one short line in which every word is
+    one `SUMMARY_WORDS` or `vocabulary` allows, and everything else — a name, a number, an
+    address, a postcode, an email address, a phone number in any country's form — is
+    `[value]`. It fails closed: what is kept is what is known to be safe, not what is known to
+    be unsafe, so what was asked is described and never who or where it was asked about. A
+    word with a digit in it, or in capitals ("CA", "OR", "ID"), is a value too."""
+    allowed = SUMMARY_WORDS | vocabulary
+    parts: list[str] = []
+    for token in _SUMMARY_TOKEN.findall(" ".join(str(text or "").split())):
+        if token == VALUE or token.isspace() or token in _SUMMARY_MARKS:
+            parts.append(token)
+        elif _SUMMARY_WORD.fullmatch(token):
+            word = re.sub(r"['’]s$", "", token)
+            plain = not any(c.isdigit() for c in word) and word in (word.lower(), word.capitalize())
+            parts.append(token if plain and all(part in allowed for part in word.lower().split("_")) else VALUE)
+        else:
+            # Any other mark (a quote, @, +, =, a slash, a hyphen) says nothing.
+            parts.append(VALUE if re.match(r"\w", token) else " ")
+    line = " ".join(_VALUES.sub(VALUE, "".join(parts)).split())
+    line = re.sub(r"\s+([,.;:)…])", r"\1", line)
     return line if len(line) <= MAX_QUERY else line[: MAX_QUERY - 1].rstrip() + "…"
 
 
@@ -434,11 +476,12 @@ class Registry:
             seen.add(key)
             records.append(Record(key, {d.name: coerce(d, lookup(raw, d.path or d.name)) for d in spec.fields}))
         facts = {d.name: coerce(d, lookup(data, d.path or d.name)) for d in spec.facts}
+        vocabulary = terms(spec.label, spec.fields, spec.facts)
         return Evidence(
             handle=handle, tool=tool, observed_at=observed_at or datetime.now(UTC),
-            query=summarise(query if query is not None else _describe(spec, args)),
+            query=summarise(query if query is not None else _describe(spec, args, vocabulary), vocabulary),
             fields=spec.fields, records=tuple(records), fact_fields=spec.facts, facts=facts,
-            session_id=session_id,
+            session_id=session_id, label=spec.label,
         )
 
 
@@ -453,12 +496,15 @@ def _raw_records(data: Mapping[str, Any], path: str | None) -> Iterable[Mapping[
     return []
 
 
-def _describe(spec: ToolDescriptors, args: Mapping[str, Any] | None) -> str:
+def _describe(spec: ToolDescriptors, args: Mapping[str, Any] | None, vocabulary: frozenset[str]) -> str:
     """What was asked, by the names of the arguments given and never their values: a value
-    may be an address, a postcode or a name, and a summary is shown without contact details."""
+    may be an address, a postcode or a name, and a summary is shown without contact details.
+    An argument whose name is not in the summary's words is left out rather than shown."""
+    allowed = SUMMARY_WORDS | vocabulary
     asked = [
         str(k) for k, v in (args or {}).items()
         if isinstance(k, str) and _NAME.match(k) and v not in (None, "", False) and v != [] and v != {}
+        and all(part in allowed for part in k.split("_"))
     ]
     return spec.label + (" by " + ", ".join(asked) if asked else "")
 

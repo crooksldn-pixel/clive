@@ -2,11 +2,12 @@
 
 A plan never carries a value of its own. Every value-bearing element points at an evidence
 handle and a field name; prose places bound values through numbered slots ("{0} customers are
-waiting"), and a digit, a currency sign or markup anywhere else in prose is refused by
-app/scenes/validate.py. The schema is strict — an unknown element or an extra field is an
-error — so a plan is one of these shapes or it is not a plan. Every element carries a one-line
-justification; one without is dropped by the validator, which also decides everything else
-about what may be shown. The accepted scene it returns is described at the foot of this file.
+waiting"), and a digit, a currency sign, a number in words ("forty", "half", "double"), an
+email or web address or markup anywhere else in prose is refused by app/scenes/validate.py.
+The schema is strict — an unknown element or an extra field is an error — so a plan is one of
+these shapes or it is not a plan. Every element carries a one-line justification of plain
+words under the same rule; one without is dropped by the validator, which also decides
+everything else about what may be shown. The accepted scene it returns is described at the foot of this file.
 """
 
 from __future__ import annotations

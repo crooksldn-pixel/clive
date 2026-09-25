@@ -57,10 +57,24 @@ LIST_ROWS = 25
 # The Answer is always kept. When what was planned cannot be shown, it says only this, and the
 # drill-down beneath it carries what was checked.
 FALLBACK_ANSWER = "I can't put that in a sentence from what I checked; what I checked is below."
+# ...and when only its justification cannot be shown, this stands in for it.
+FALLBACK_JUSTIFICATION = "The answer to what was asked."
 
-# Prose is words. A digit or a currency sign is a value, and a value comes from evidence
-# through a slot; markup is the renderer's to add, never the plan's.
-_NUMBER = re.compile(r"\d|[£$€¥¢%‰]")
+# Prose is words. A digit, a currency sign, a number in words, a fraction or a multiple is a
+# value, and a value comes from evidence through a slot; so does an email or web address.
+# Markup is the renderer's to add, never the plan's.
+_NUMBER = re.compile(
+    r"\d|[£$€¥¢%‰½⅓⅔¼¾⅛]"
+    r"|\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen"
+    r"|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fourty|fifty|sixty|seventy|eighty|ninety"
+    r"|hundreds?|thousands?|millions?|billions?|trillions?|dozens?|nil|nought|naught"
+    r"|half|halves|halve[ds]?|halving|thirds?|quarters?|fifths?|sixths?|sevenths?|eighths?|ninths?|tenths?"
+    r"|double[ds]?|doubling|twice|triple[ds]?|tripling|treble[ds]?|thrice|quadruple[ds]?"
+    r"|(?:two|three|four|five|six|seven|eight|nine|ten|twenty|hundred|thousand|many|multi)-?fold"
+    r"|percent|per\s+cent|pct)\b",
+    re.I,
+)
+_ADDRESS = re.compile(r"@|\b[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b")
 _MARKUP = re.compile(r"<[^>]*>|&#?[A-Za-z0-9]+;|https?://|www\.|[`*_#|\\<>\[\]{}~^]")
 _LIST_ASK = re.compile(
     r"\b(?:list|lists|listing)\b|\bshow (?:me )?(?:all|every|the whole)\b|\ball of (?:them|the)\b", re.I,
@@ -134,7 +148,7 @@ def validate_scene(
         # A reference, not the evidence: what was read, when, and a summary with no contact
         # details in it, whatever the request allows.
         drilldown = DrillDown(tuple(
-            Source(ev.handle, ev.tool, summarise(ev.query), ev.observed_at, len(ev.records)) for ev in pool.values()
+            Source(ev.handle, ev.tool, summarise(ev.query, ev.vocabulary()), ev.observed_at, len(ev.records)) for ev in pool.values()
         ))
         why = "the planned answer was replaced" if replaced else "only the answer is shown"
         trace.add("drilldown", "kept", f"{why}; a reference to the {len(pool)} evidence it checked, not the evidence")
@@ -171,7 +185,10 @@ def _evidence(pool: Mapping[str, Evidence], handle: str) -> Evidence:
     return ev
 
 
-def _bound(ev: Evidence, record: str | None, d: FieldDescriptor, value: object) -> Bound:
+def _bound(ev: Evidence, record: str | None, d: FieldDescriptor, value: object, context: SceneContext) -> Bound:
+    """A value of evidence as it may be shown; nothing personal unless the task needs it."""
+    if d.pii and not context.contact_details:
+        raise _Refused(f"{d.name} is pii and the task does not need contact details")
     return Bound(evidence=ev.handle, record=record, field=d.name, kind=d.kind, label=d.label, value=value, pii=d.pii, unit=d.unit)
 
 
@@ -194,7 +211,7 @@ def _bind(ref, pool: Mapping[str, Evidence], context: SceneContext) -> Bound:
     value = values.get(ref.field)
     if value is None:
         raise _Refused(f"{ev.handle} has no value for {ref.field}")
-    return _bound(ev, ref.record, d, value)
+    return _bound(ev, ref.record, d, value, context)
 
 
 # -------------------------------------------------------------------------- prose
@@ -215,12 +232,26 @@ def _prose(text: str, bound: int, lines: int = 1) -> None:
         raise _Refused("markup in the text")
     if _NUMBER.search(rest):
         raise _Refused("a number in the text that is not bound to evidence")
+    if _ADDRESS.search(rest):
+        raise _Refused("an email or web address in the text that is not bound to evidence")
     if len(placed) != bound:
         raise _Refused("a bound value is not placed in the text")
 
 
 def _one_line(text: str) -> bool:
     return len(text.strip().splitlines()) == 1
+
+
+def _justification(text: str) -> str:
+    """Why an element is shown: one line of plain words, with no markup and no value in it,
+    since it is kept beside the element and in the trace."""
+    if not isinstance(text, str) or not _one_line(text):
+        raise _Refused("no one-line justification")
+    try:
+        _prose(text, 0)
+    except _Refused as refused:
+        raise _Refused(f"its justification is not plain words: {refused}") from None
+    return text.strip()
 
 
 # ------------------------------------------------------------------------ elements
@@ -233,14 +264,18 @@ def _answer(answer: Answer, pool: Mapping[str, Evidence], context: SceneContext,
     except _Refused as refused:
         trace.add("answer", "replaced", f"{refused}; the answer is always kept, so it says only that what was checked is below")
         return Shown(Answer(text=FALLBACK_ANSWER, justification="The planned answer could not be shown as written.")), True
-    reason = answer.justification.strip()
-    trace.add("answer", "kept", reason if _one_line(reason) else "the answer is always kept")
+    try:
+        reason = _justification(answer.justification)
+    except _Refused as refused:
+        trace.add("answer", "reduced", f"{refused}; the answer is always kept, so its justification is replaced")
+        answer = answer.model_copy(update={"justification": FALLBACK_JUSTIFICATION})
+        reason = "the answer is always kept"
+    trace.add("answer", "kept", reason)
     return Shown(answer, values), False
 
 
 def _check(target: str, element, pool: Mapping[str, Evidence], context: SceneContext, trace: _Trace) -> Shown:
-    if not _one_line(element.justification):
-        raise _Refused("no one-line justification")
+    _justification(element.justification)
     if isinstance(element, Finding):
         _prose(element.text, len(element.values))
         values = tuple(_bind(ref, pool, context) for ref in element.values)
@@ -324,7 +359,7 @@ def _entity(target: str, element: Entity, pool: Mapping[str, Evidence], context:
     names = [d.name for d in fields]
     if names != element.fields:
         element = element.model_copy(update={"fields": names})
-    return Shown(element, rows=(tuple(_bound(ev, record.id, d, record.values.get(d.name)) for d in fields),))
+    return Shown(element, rows=(tuple(_bound(ev, record.id, d, record.values.get(d.name), context) for d in fields),))
 
 
 def _collection(target: str, element: Collection, pool: Mapping[str, Evidence], context: SceneContext, trace: _Trace) -> Shown:
@@ -338,7 +373,7 @@ def _collection(target: str, element: Collection, pool: Mapping[str, Evidence], 
     names = [d.name for d in columns]
     if names != element.columns or limit != element.limit:
         element = element.model_copy(update={"columns": names, "limit": limit})
-    rows = tuple(tuple(_bound(ev, r.id, d, r.values.get(d.name)) for d in columns) for r in ev.records[:limit])
+    rows = tuple(tuple(_bound(ev, r.id, d, r.values.get(d.name), context) for d in columns) for r in ev.records[:limit])
     return Shown(element, rows=rows)
 
 
@@ -347,6 +382,9 @@ def _timeline(target: str, element: Timeline, pool: Mapping[str, Evidence], cont
     at = ev.descriptor(element.at)
     if at is None or at.kind is not Kind.DATETIME:
         raise _Refused(f"{element.at} is not a time in {ev.handle}")
+    # The time is shown as much as the label is, and is as personal as its descriptor says.
+    if not _columns(target, ev, [element.at], context, trace):
+        raise _Refused("its time may not be shown")
     labels = _columns(target, ev, [element.label], context, trace)
     if not labels:
         raise _Refused("its label may not be shown")
@@ -356,7 +394,10 @@ def _timeline(target: str, element: Timeline, pool: Mapping[str, Evidence], cont
     limit = _rows_allowed(target, element.limit, context, trace)
     if limit != element.limit:
         element = element.model_copy(update={"limit": limit})
-    rows = tuple((_bound(ev, r.id, at, r.values[at.name]), _bound(ev, r.id, labels[0], r.values.get(labels[0].name))) for r in dated[-limit:])
+    rows = tuple(
+        (_bound(ev, r.id, at, r.values[at.name], context), _bound(ev, r.id, labels[0], r.values.get(labels[0].name), context))
+        for r in dated[-limit:]
+    )
     return Shown(element, rows=rows)
 
 
