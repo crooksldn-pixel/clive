@@ -1,14 +1,30 @@
 # Engineering Control Plane VNext — Bridge, Termius and Claude Workflow
 
-**Status:** ACTIVE ENGINEERING DIRECTION / IMPLEMENTATION PLAN
+**Status:** SUPERSEDED as an implementation plan on 2026-09-25 and kept as history (was ACTIVE ENGINEERING DIRECTION / IMPLEMENTATION PLAN). The durable requirements named in the notice below remain active.
 **Date:** 2026-09-21
 **Scope:** bridge throughput, task identity, Termius/tmux operation, worker isolation, reviewer independence, event-driven continuation, machine-readable state
+
+> **Status as of 2026-09-25 (the 2026-09-21 plan is kept unchanged below):** this plan's rollout is over. Its goal was reached by a different route, so do not follow its sequencing.
+>
+> - **History: the bridge.** §1–§3 describe the Git bridge (`crooks-ai-bridge`) and its watcher as the current workflow. They were the 2026-09-21 workflow. The bridge watcher was retired on 2026-09-25 (DEC-058). The `bridge/tasks` record shape in §3 was never built.
+> - **History: the phases in §11.** Phase 0 was the 2026-09-21 operating practice. The Phase 1 repository candidate `8588776455a1832da763810064cacb47d7192ef4` received `REJECT — REPAIR REQUIRED` (CURRENT_TRUTH, 2026-09-21), and the control-plane-progress stream was retired on 2026-09-24 (DEC-058). Phase 2 (an isolated watcher/orchestrator trial) and Phase 3 (watcher runtime adoption) are no longer open steps: the watcher they would have adopted is retired.
+> - **What replaced them.** The engineering path is the remote engineering loop: Objective Intake + Engineering Dispatcher V1 around the frozen kernel, with Remote Engineering Control V1 as its bounded inbox and status projection ([ENGINEERING_DISPATCHER_V1.md](./ENGINEERING_DISPATCHER_V1.md), [REMOTE_ENGINEERING_CONTROL_V1.md](./REMOTE_ENGINEERING_CONTROL_V1.md)). Its builders work in isolated workspaces on the machines listed in [CURRENT_TRUTH.md](./CURRENT_TRUTH.md). Phase 4's aims (one workspace per worker, independent review, an integration gate) are carried by that loop and by the one-trunk rule (DEC-058). Task-specific model routing is not in place: all builders run `claude-opus-5-5`.
+>
+> These requirements from this document remain active and bind the remote loop:
+>
+> - **Reviewer independence (§6, DEC-013).** The reviewer is never the author, and identity is issued or bound by the controller rather than self-asserted by a worker. The dispatcher and kernel enforce the first part. The worker's identity is still the session CLIVE chose, not a cryptographic binding (ENGINEERING_DISPATCHER_V1, "Declared, not verified").
+> - **Progress telemetry (§5.1, DEC-055).** Liveness and meaningful progress are different facts, and progress is operational telemetry, never hidden model reasoning. The dispatcher records heartbeats and progress separately, and the loop publishes a status projection. The richer progress events and operator progress view described in §5.1 are still a requirement, not a claim.
+> - **Machine-readable results, state separate from curated memory, and explicit failure classes (§4, §7, §9).**
+> - **Structured critical semantics, the verification stopping rule and obvious continuation (§8, §8.1, §8.2; DEC-057).**
+> - **Starvation prevention and the success criteria (§10, §12),** read against the remote loop rather than the bridge. The Termius items are history.
 
 This document records lessons observed while running the dual-stream Orchestrator-freeze and CLIVE Live Experience work. It is evidence from the current manual/single-worker control plane, not a claim that the final Orchestrator already exists.
 
 No runtime/systemd/watcher modification is authorised merely by this document.
 
 ## 1. Observed problem
+
+*History (2026-09-25): §1–§3 describe the bridge-era workflow of 2026-09-21. The bridge watcher is retired; see the status notice at the top.*
 
 The existing Git bridge is a valuable verified single-worker foundation, but it behaves operationally like a **single-slot mailbox**.
 
@@ -291,6 +307,8 @@ Until genuine multi-worker execution exists, use an explicit fairness rule:
 This is not fake concurrency. It is starvation prevention while running a single shared lane.
 
 ## 11. Implementation phases
+
+*History (2026-09-25): these phases are the 2026-09-21 rollout sequence. They are not an open plan. The remote engineering loop replaced them; see the status notice at the top.*
 
 ### Phase 0 — now, repository-only
 - record this doctrine;
