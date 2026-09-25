@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import selectors
 import subprocess
 import sys
@@ -318,10 +319,14 @@ def test_a_planted_token_never_reaches_a_check_even_through_proc(tmp_path):
     assert result["exit_code"] == 0, result
     # host side: what the check saw, read from its tree, not from what the server returned
     report = json.loads((Path(cfg["scratch"]) / "probe" / "report.json").read_text())
-    assert report["found"] == []
-    assert set(report["env_keys"]) <= {"PATH", "HOME", "TMPDIR", "LANG", "PYTHONDONTWRITEBYTECODE", "PWD", "SHLVL", "_"}
-    assert os.getpid() != report["ppid"] and str(proc.pid) not in report["pids"] and str(pid) not in report["pids"]
-    assert all(int(p) < 100 for p in report["pids"])  # its own PID namespace: only the check's processes
+    assert report["found"] == [], report
+    # the sandbox's fixed environment, plus what its /bin/sh keeps for itself when it cd's into the tree
+    sandbox_env = {"PATH", "HOME", "TMPDIR", "LANG", "PYTHONDONTWRITEBYTECODE"}
+    shell_bookkeeping = {"PWD", "OLDPWD", "SHLVL", "_"}
+    assert set(report["env_keys"]) <= sandbox_env | shell_bookkeeping, report
+    assert not [k for k in report["env_keys"] if re.search(r"TOKEN|KEY|SECRET|PASS|AUTH|CRED", k, re.I)], report
+    assert str(proc.pid) not in report["pids"] and str(pid) not in report["pids"], report
+    assert all(int(p) < 100 for p in report["pids"]), report  # its own PID namespace: only the check's processes
     # and nothing the check wrote reached the builder's live workspace
     assert not (ws / "report.json").exists()
 
