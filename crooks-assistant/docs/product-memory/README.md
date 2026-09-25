@@ -46,6 +46,11 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [PROJECT_AUDIT_2026-09-24.md](./PROJECT_AUDIT_2026-09-24.md) — whole-project finish list: why accepted work never reached the product, what is live, finished-but-unlanded work, stopped streams, agreed-but-unbuilt items, stale records and the finish order.
 - [SOURCE_ASSIMILATION_V1.md](./SOURCE_ASSIMILATION_V1.md) — how CLIVE learns from external repositories, skills and tools: quarantine, inventory, compare, decide the use, prove or drop; authority lines and the constraints found.
 - [SOURCE_SHELF.md](./SOURCE_SHELF.md) — the owner-supplied candidate sources (Taste Skill, Vercel guidelines, Playwright CLI, Agent Browser, Jev, LangWatch and others), triaged into batches.
+- [OWNER_DECISIONS_2026-09-25.md](./OWNER_DECISIONS_2026-09-25.md) — synthetic test credentials by runtime assembly, the approved loop update (builder checks, green-CI gate, protected safety core and loop code), engineering off the production host, and the Mac's role.
+- [CLIVE_SELF_KNOWLEDGE.md](./CLIVE_SELF_KNOWLEDGE.md) — owner doctrine: CLIVE as a machine insisting upon itself, product memory as the way future models and CLIVE itself understand its direction and why it came to be; provenance of intent and honest history.
+- [NEXT_PHASE_2026-09-25.md](./NEXT_PHASE_2026-09-25.md) — the finish-first rule, the approved next phase (eyes, taste, the absorbing machine, the shelf) and every direction and idea captured on 2026-09-24 and 2026-09-25.
+- [INFRASTRUCTURE_2026-09-25.md](./INFRASTRUCTURE_2026-09-25.md) — the production host, clive-worker-01 and the Mac: roles, open hardware items and setup lessons.
+- [EXTERNAL_REVIEW_2026-09-25.md](./EXTERNAL_REVIEW_2026-09-25.md) — the owner-provided external review of 2026-09-25, kept verbatim: red trunk, landing before verification, unprotected safety core, loop confinement, direction carried forward.
 
 ## Status model
 
