@@ -159,9 +159,11 @@ _TOKEN = re.compile(
 )
 _AUTH_SCHEME = re.compile(r"(?i)\b(bearer|basic)(\s+)[A-Za-z0-9._~+/\-]{16,}=*")
 # ``password=...``, ``"api_key": "..."``, ``Authorization: ...``: the name stays, the value goes.
+# A quoted value goes whole, whitespace and escapes included (to the end of the line if unclosed).
 _ASSIGNED = re.compile(
     r"(?i)\b((?:[a-z0-9]+[_\-]){0,4}(?:password|passwd|passphrase|secret|token|api[_\-]?key|access[_\-]?key"
-    r"|private[_\-]?key|credentials?|authorization|cookie))(\s*[\"']?\s*[:=]\s*[\"']?)([^\s\"',;]+)"
+    r"|private[_\-]?key|credentials?|authorization|cookie))(\s*[\"']?\s*[:=]\s*)"
+    r"(\"(?:[^\"\\\n]|\\.)*\"?|'(?:[^'\\\n]|\\.)*'?|[^\s\"',;]+)"
 )
 # One word at a time, so a long run without a separator costs one pass, not one pass per character.
 _WORD = re.compile(r"[^\s'\"`<>()\[\]{},;=]+")
@@ -175,11 +177,21 @@ _CREDENTIAL_PATH = re.compile(
     r"|\.(?:pem|key|p12|pfx|jks|keystore|gpg)$",
     re.I,
 )
+# A diagnostic suffix after a file name -- ``:12``, ``:12:5``, trailing ``.``/``:`` -- matched against
+# the reversed word, so it anchors at the start and costs one pass however long the word is.
+_DIAGNOSTIC_SUFFIX_REVERSED = re.compile(r"[.:!?]*(?:[0-9]+:)*[.:!?]*")
+
+
+def _assigned(match: re.Match) -> str:
+    name, separator, value = match.groups()
+    quote = value[0] if value[0] in "\"'" else ""
+    return f"{name}{separator}{quote}{REDACTED}{quote}"
 
 
 def _credential_path(match: re.Match) -> str:
     word = match.group(0)
-    return REDACTED if _CREDENTIAL_PATH.search(word.rstrip(".:")) else word
+    core = word[: len(word) - _DIAGNOSTIC_SUFFIX_REVERSED.match(word[::-1]).end()]
+    return REDACTED if _CREDENTIAL_PATH.search(core) else word
 
 
 def redact_published(text: str, supplied: Iterable[str] = (), *, keep: Iterable[str] = ()) -> str:
@@ -199,6 +211,6 @@ def redact_published(text: str, supplied: Iterable[str] = (), *, keep: Iterable[
     text = _URL_USERINFO.sub(rf"\1{REDACTED}@", text)
     text = _TOKEN.sub(REDACTED, text)
     text = _AUTH_SCHEME.sub(rf"\1\2{REDACTED}", text)
-    text = _ASSIGNED.sub(rf"\1\2{REDACTED}", text)
+    text = _ASSIGNED.sub(_assigned, text)
     text = _WORD.sub(_credential_path, text)
     return redact_supplied(text, supplied, keep=keep)
