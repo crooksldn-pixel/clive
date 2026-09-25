@@ -1,8 +1,8 @@
 """Descriptors for the read tools that exist today: app/tools/shopify_tools.py,
 app/tools/gmail_tools.py and app/tools/analytics_tools.py.
 
-Each read tool's output is described here — every field's kind, label and pii flag — and
-registered, so `to_evidence(tool, result, handle=...)` turns its result into Evidence. This is
+Each read tool's output is described here — every field's kind, label and pii flag, and the
+names of the arguments the tool takes — and registered, so `to_evidence(tool, result, handle=...)` turns its result into Evidence. This is
 the only file in app/scenes that knows any connector's name, and it knows them only as data:
 what the fields are, never how to draw them. A customer's email address, phone number and
 delivery address are pii wherever they appear. Nothing here imports the tools; a result is
@@ -52,11 +52,13 @@ CUSTOMER = (
 
 register(ToolDescriptors(
     tool="shopify_find_order", label="Orders found", records="orders", record_id="order_id", fields=ORDER,
+    arguments=("query", "limit"),
     facts=(F("orders", COUNT, "Orders found"), F("ambiguous", STATUS, "More than one customer matched")),
 ))
 
 register(ToolDescriptors(
     tool="shopify_list_orders", label="Recent orders", records="orders", record_id="order_id", fields=ORDER,
+    arguments=("days", "limit", "unfulfilled_only", "days_ago"),
     facts=(
         F("count", COUNT, "Orders"),
         F("truncated", STATUS, "More than shown"),
@@ -67,7 +69,7 @@ register(ToolDescriptors(
 ))
 
 register(ToolDescriptors(
-    tool="shopify_order_detail", label="Order", records=".", record_id="order_id",
+    tool="shopify_order_detail", label="Order", records=".", record_id="order_id", arguments=("order_id",),
     fields=ORDER + (
         F("ships_to", TEXT, "Ships to", pii=True),
         F("shipping_address", TEXT, "Delivery address", pii=True),
@@ -91,7 +93,7 @@ register(ToolDescriptors(
 ))
 
 register(ToolDescriptors(
-    tool="shopify_order_address", label="Delivery address", records=".", record_id="order_id",
+    tool="shopify_order_address", label="Delivery address", records=".", record_id="order_id", arguments=("order_id",),
     fields=(
         F("order_id", LINK, "Order id"),
         F("order_number", TEXT, "Order"),
@@ -105,7 +107,7 @@ register(ToolDescriptors(
 ))
 
 register(ToolDescriptors(
-    tool="shopify_customer_history", label="Customer history", records=".", record_id="customer_id",
+    tool="shopify_customer_history", label="Customer history", records=".", record_id="customer_id", arguments=("customer_id",),
     fields=CUSTOMER + (
         F("since", DATETIME, "Customer since"),
         F("standing", STATUS, "Standing"),
@@ -119,6 +121,7 @@ register(ToolDescriptors(
 
 register(ToolDescriptors(
     tool="shopify_find_customer", label="Customers found", records="customers", record_id="customer_id", fields=CUSTOMER,
+    arguments=("query", "limit"),
     facts=(F("count", COUNT, "Customers found"), F("truncated", STATUS, "More than shown"), F("ambiguous", STATUS, "More than one matched")),
 ))
 
@@ -135,6 +138,7 @@ def _inventory(result: Mapping[str, Any]) -> Mapping[str, Any]:
 
 register(ToolDescriptors(
     tool="shopify_inventory", label="Stock", records="variants", record_id="variant_id", extract=_inventory,
+    arguments=("product", "size", "limit"),
     fields=(
         F("variant_id", LINK, "Variant id"),
         F("product", TEXT, "Product"),
@@ -164,6 +168,7 @@ def _sales(result: Mapping[str, Any]) -> Mapping[str, Any]:
 
 register(ToolDescriptors(
     tool="shopify_sales_summary", label="Sales", records="by_day", record_id="date", extract=_sales,
+    arguments=("days", "days_ago", "by_day"),
     fields=(F("date", DATETIME, "Day"), F("orders", COUNT, "Orders"), F("revenue", MONEY, "Sales")),
     facts=(
         F("orders", COUNT, "Orders"),
@@ -180,6 +185,7 @@ register(ToolDescriptors(
 
 register(ToolDescriptors(
     tool="shopify_product_info", label="Products", records="products", record_id="product_id",
+    arguments=("product", "size", "limit"),
     fields=(
         F("product_id", LINK, "Product id"),
         F("title", TEXT, "Product"),
@@ -195,6 +201,7 @@ register(ToolDescriptors(
 
 register(ToolDescriptors(
     tool="shopify_variant_search", label="Variants", records="candidates", record_id="variant_id",
+    arguments=("product", "colour", "size", "limit"),
     fields=(
         F("variant_id", LINK, "Variant id"),
         F("product_id", LINK, "Product id"),
@@ -213,6 +220,7 @@ register(ToolDescriptors(
 
 register(ToolDescriptors(
     tool="gmail_search", label="Inbox", records="threads", record_id="thread_id",
+    arguments=("query", "days", "limit", "include_bulk"),
     fields=(
         F("thread_id", LINK, "Thread id"),
         F("message_id", LINK, "Message id"),
@@ -229,7 +237,7 @@ register(ToolDescriptors(
 ))
 
 register(ToolDescriptors(
-    tool="gmail_read_thread", label="Email thread", records="messages", record_id="message_id",
+    tool="gmail_read_thread", label="Email thread", records="messages", record_id="message_id", arguments=("thread_id",),
     fields=(
         F("message_id", LINK, "Message id"),
         F("from", PERSON, "From"),
@@ -251,6 +259,7 @@ register(ToolDescriptors(
 
 register(ToolDescriptors(
     tool="gmail_find_in_email", label="Search in email", records="matches", record_id="message_id",
+    arguments=("contains", "sender", "mentions", "days"),
     fields=(
         F("message_id", LINK, "Message id"),
         F("thread_id", LINK, "Thread id"),
@@ -365,13 +374,19 @@ COMMERCE_FACTS = (
     F("orders_trend", SERIES, "Orders over time", unit="orders"),
 )
 
-for _tool, _label in (("commerce_aggregate", "Sales breakdown"), ("commerce_query", "Matching records"), ("inventory_query", "Restock priority")):
+for _tool, _label, _arguments in (
+    ("commerce_aggregate", "Sales breakdown",
+     ("entity", "period", "filters", "group_by", "metrics", "sort", "limit", "compare", "view", "title")),
+    ("commerce_query", "Matching records", ("entity", "period", "filters", "sort", "limit", "metrics", "title")),
+    ("inventory_query", "Restock priority", ("period", "product", "colour", "size", "limit", "max_days_cover", "title")),
+):
     register(ToolDescriptors(
         tool=_tool, label=_label, records="rows", record_id="id", extract=_commerce, fields=COMMERCE_ROWS, facts=COMMERCE_FACTS,
+        arguments=_arguments,
     ))
 
 register(ToolDescriptors(
-    tool="email_query", label="Who has emailed", records="rows", record_id="customer_id",
+    tool="email_query", label="Who has emailed", records="rows", record_id="customer_id", arguments=("set_id", "days"),
     fields=(
         F("customer_id", LINK, "Customer id"),
         F("customer_name", PERSON, "Customer"),

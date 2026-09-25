@@ -42,10 +42,14 @@ QUANTITIES = frozenset({Kind.MONEY, Kind.COUNT, Kind.RATIO, Kind.DURATION})
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _TOOL = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 HANDLE = re.compile(r"^[A-Za-z0-9_.:-]{1,40}$")
+# A record's key within its evidence: "r1", "r2", … in the order the read returned them. Never
+# the connector's own id, which can be an email address or a name.
+RECORD_KEY = re.compile(r"^r[1-9][0-9]{0,3}$")
+# What a read is called, as its connector registered it: words, no digits, no marks.
+_LABEL = re.compile(r"^[A-Z][A-Za-z' ]{0,59}$")
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
 MAX_TEXT = 300
 MAX_SHORT = 120
-MAX_QUERY = 160
 MAX_RECORDS = 200
 
 
@@ -118,20 +122,29 @@ class FieldDescriptor:
 
 @dataclass(frozen=True, slots=True)
 class Record:
-    """One row of evidence: an id and a value (or None, unknown) for every described field."""
+    """One row of evidence: its key within the evidence ("r1", "r2", …) and a value (or None,
+    unknown) for every described field. The key is opaque: whatever the connector identifies
+    the row by is a field like any other, shown only as its descriptor allows."""
 
     id: str
     values: Mapping[str, Any]
+
+
+def record_key(index: int) -> str:
+    """The key of the row at `index` (from nought) in the order its read returned them."""
+    return f"r{index + 1}"
 
 
 @dataclass(frozen=True, slots=True)
 class Evidence:
     """What one read found. `records` are its rows, described by `fields`; `facts` are about
     the result as a whole (a total, a count, a series), described by `fact_fields`. The handle
-    is what a scene plan cites; `query` is a short summary of what was asked, stored with
-    every word its registration does not allow made `[value]`; `label` is what was read, as
-    its connector registered it; `session_id` is the session whose read produced it, without
-    which nothing in it may be shown."""
+    is what a scene plan cites; `label` is what was read and `asked` the names of the
+    arguments it was given, both as its connector registered them; `query` is the short
+    summary a drill-down shows, made from those two alone — a summary given in words is not
+    kept, since its words are what was asked about and can be anyone's name or address;
+    `session_id` is the session whose read produced it, without which nothing in it may be
+    shown."""
 
     handle: str
     tool: str
@@ -143,18 +156,20 @@ class Evidence:
     facts: Mapping[str, Any] = field(default_factory=dict)
     session_id: str | None = None
     label: str = ""
+    asked: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.handle, str) or not HANDLE.match(self.handle):
             raise ValueError(f"{self.handle!r} is not an evidence handle.")
         if not isinstance(self.observed_at, datetime) or self.observed_at.tzinfo is None:
             raise ValueError("observed_at is a timezone-aware datetime.")
-        if not isinstance(self.query, str) or len(self.query) > MAX_QUERY:
-            raise ValueError("The query summary is short: at most 160 characters.")
-        if not isinstance(self.label, str) or len(self.label) > 60:
-            raise ValueError("A label is at most sixty characters.")
+        if not isinstance(self.query, str) or not isinstance(self.label, str):
+            raise ValueError("A query summary and a label are text.")
+        object.__setattr__(self, "asked", tuple(self.asked))
+        if (self.label or self.asked) and not registered(self.tool, self.label, self.asked):
+            raise ValueError(f"{self.handle}: its label and arguments are not ones its tool registered.")
         # However it was made, the summary is stored as a drill-down may show it.
-        object.__setattr__(self, "query", summarise(self.query, self.vocabulary()))
+        object.__setattr__(self, "query", summary(self.label, self.asked, self.query))
         for described in (self.fields, self.fact_fields):
             names = [d.name for d in described]
             if len(names) != len(set(names)):
@@ -162,17 +177,15 @@ class Evidence:
         names = {d.name for d in self.fields}
         ids: set[str] = set()
         for record in self.records:
+            if not isinstance(record.id, str) or not RECORD_KEY.fullmatch(record.id):
+                raise ValueError(f"{self.handle}: a record is keyed r1, r2, … and never by the connector's own id.")
             if record.id in ids:
-                raise ValueError(f"{self.handle}: record {record.id!r} appears twice.")
+                raise ValueError(f"{self.handle}: record {record.id} appears twice.")
             ids.add(record.id)
             if not set(record.values) <= names:
-                raise ValueError(f"{self.handle}: record {record.id!r} carries an undescribed field.")
+                raise ValueError(f"{self.handle}: record {record.id} carries an undescribed field.")
         if not set(self.facts) <= {d.name for d in self.fact_fields}:
             raise ValueError(f"{self.handle}: a fact is not described.")
-
-    def vocabulary(self) -> frozenset[str]:
-        """The words its query summary may use beside `SUMMARY_WORDS`."""
-        return terms(self.label, self.fields, self.fact_fields)
 
     def descriptor(self, name: str, *, fact: bool = False) -> FieldDescriptor | None:
         return next((d for d in (self.fact_fields if fact else self.fields) if d.name == name), None)
@@ -348,62 +361,21 @@ def lookup(data: Any, path: str) -> Any:
     return data
 
 
-# The words a query summary may keep whatever read it describes: how a question is put and
-# the categories it asks about, never a name, a place or a number. A read adds the words of its
-# own registered label and field descriptors; every other word is a value, and is not kept.
-SUMMARY_WORDS = frozenset("""
-a about after all an and any are as at before between by during each every for from has have
-in into is its last latest mentioning more most new no not of on or over past per since than
-that the their them these this those to under until was were what when where which who with
-within without day days week weeks month months year years today yesterday recent open closed
-unread read sent received replied reply replies waiting inbound outbound bulk query contains
-search find found matching match matches looked limit period status kind entity group metric
-metrics filter filters sort compare set id ids threads thread messages message email emails
-emailed inbox mail orders order customers customer products product variants variant stock
-sales revenue refund refunds returns return shipping delivery fulfilment fulfillment unfulfilled
-fulfilled paid unpaid pending cancelled tracking address addresses phone name names postcode
-contact details note notes subject tag tags sku price
-""".split())
-
+# What a summary says in place of anything that was asked in words.
 VALUE = "[value]"
-_SUMMARY_TOKEN = re.compile(r"\[value\]|[^\W_]+(?:_[^\W_]+)*(?:['’]s)?|\s+|.")
-_SUMMARY_WORD = re.compile(r"[^\W_]+(?:_[^\W_]+)*(?:['’]s)?")
-_SUMMARY_MARKS = frozenset(",.;:()…")
-_VALUES = re.compile(r"\[value\](?:[\s,.;:()…]*\[value\])+")
 
 
-def terms(label: str, *described: Iterable[FieldDescriptor]) -> frozenset[str]:
-    """The words a read's own registration adds to what its summary may say: the words of its
-    label and of its fields' names and labels. Registered data, never a request's values."""
-    words = set(re.findall(r"[^\W\d_]+", str(label or "").lower()))
-    for descriptors in described:
-        for d in descriptors:
-            words.update(re.findall(r"[^\W\d_]+", f"{d.name} {d.label}".lower()))
-    return frozenset(words)
-
-
-def summarise(text: Any, vocabulary: frozenset[str] = frozenset()) -> str:
-    """A query summary as a drill-down may show it: one short line in which every word is
-    one `SUMMARY_WORDS` or `vocabulary` allows, and everything else — a name, a number, an
-    address, a postcode, an email address, a phone number in any country's form — is
-    `[value]`. It fails closed: what is kept is what is known to be safe, not what is known to
-    be unsafe, so what was asked is described and never who or where it was asked about. A
-    word with a digit in it, or in capitals ("CA", "OR", "ID"), is a value too."""
-    allowed = SUMMARY_WORDS | vocabulary
-    parts: list[str] = []
-    for token in _SUMMARY_TOKEN.findall(" ".join(str(text or "").split())):
-        if token == VALUE or token.isspace() or token in _SUMMARY_MARKS:
-            parts.append(token)
-        elif _SUMMARY_WORD.fullmatch(token):
-            word = re.sub(r"['’]s$", "", token)
-            plain = not any(c.isdigit() for c in word) and word in (word.lower(), word.capitalize())
-            parts.append(token if plain and all(part in allowed for part in word.lower().split("_")) else VALUE)
-        else:
-            # Any other mark (a quote, @, +, =, a slash, a hyphen) says nothing.
-            parts.append(VALUE if re.match(r"\w", token) else " ")
-    line = " ".join(_VALUES.sub(VALUE, "".join(parts)).split())
-    line = re.sub(r"\s+([,.;:)…])", r"\1", line)
-    return line if len(line) <= MAX_QUERY else line[: MAX_QUERY - 1].rstrip() + "…"
+def summary(label: str, asked: Iterable[str] = (), given: Any = "") -> str:
+    """A query summary as a drill-down may show it, made only of what a connector registered:
+    the read's label and the names of the arguments it was given ("Inbox by query, days"),
+    never their values. A summary given in words is not read word by word — any word, even
+    one the store uses, can be a customer's or a business's name — so unless it says exactly
+    what the registration says, all of it is `[value]`."""
+    base = " by ".join(part for part in (label, ", ".join(asked)) if part)
+    told = " ".join(str(given or "").split())
+    if told in ("", base):
+        return base
+    return f"{base}: {VALUE}" if base else VALUE
 
 
 # ------------------------------------------------------------------- registration
@@ -413,10 +385,13 @@ Extract = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 
 @dataclass(frozen=True, slots=True)
 class ToolDescriptors:
-    """What a connector registers for one read tool. `records` is the path of the list of rows
-    in the result ("." when the result is itself the one row); `record_id` the path of each
-    row's id. `extract`, when a result is awkwardly shaped, reshapes it into plain data first;
-    it describes nothing and draws nothing."""
+    """What a connector registers for one read tool. `label` says what the read is, in words;
+    `arguments` are the names of the arguments it takes, the only words besides the label a
+    query summary is made of. `records` is the path of the list of rows in the result ("."
+    when the result is itself the one row); `record_id` the path of each row's own id, used
+    only to know a row read twice, never to key or show it. `extract`, when a result is
+    awkwardly shaped, reshapes it into plain data first; it describes nothing and draws
+    nothing."""
 
     tool: str
     label: str
@@ -425,16 +400,35 @@ class ToolDescriptors:
     records: str | None = None
     record_id: str | None = None
     extract: Extract | None = None
+    arguments: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.tool, str) or not _TOOL.match(self.tool):
             raise ValueError(f"{self.tool!r} is not a tool name.")
+        if not isinstance(self.label, str) or not _LABEL.fullmatch(self.label):
+            raise ValueError(f"{self.tool}: a label is words, capitalised, with no digits or marks.")
+        object.__setattr__(self, "arguments", tuple(self.arguments))
+        if not all(isinstance(a, str) and _NAME.fullmatch(a) for a in self.arguments) or len(set(self.arguments)) != len(self.arguments):
+            raise ValueError(f"{self.tool}: arguments are distinct names (lower case, digits, underscores).")
         if self.fields and self.records is None:
             raise ValueError(f"{self.tool}: record fields need the path of the records.")
         for described in (self.fields, self.facts):
             names = [d.name for d in described]
             if len(names) != len(set(names)):
                 raise ValueError(f"{self.tool}: a field is described twice.")
+
+
+# The label and argument names of every read any registry has registered, by tool: what an
+# Evidence's label and `asked` are checked against, so that a summary is registered words only.
+_REGISTERED: set[tuple[str, str, tuple[str, ...]]] = set()
+
+
+def registered(tool: str, label: str, asked: Iterable[str]) -> bool:
+    """Whether a registration of `tool` has this label (or any, when none is given) and takes
+    every argument named in `asked`."""
+    names = set(asked)
+    return any(t == tool and (not label or registered_label == label) and names <= set(arguments)
+               for t, registered_label, arguments in _REGISTERED)
 
 
 class Registry:
@@ -447,6 +441,7 @@ class Registry:
         if spec.tool in self._specs:
             raise ValueError(f"Descriptors for {spec.tool!r} are already registered.")
         self._specs[spec.tool] = spec
+        _REGISTERED.add((spec.tool, spec.label, spec.arguments))
         return spec
 
     def get(self, tool: str) -> ToolDescriptors | None:
@@ -459,7 +454,9 @@ class Registry:
         self, tool: str, result: Mapping[str, Any], *, handle: str, query: str | None = None,
         args: Mapping[str, Any] | None = None, observed_at: datetime | None = None, session_id: str | None = None,
     ) -> Evidence:
-        """One tool result as Evidence, through its registered descriptors and nothing else."""
+        """One tool result as Evidence, through its registered descriptors and nothing else.
+        Its rows are keyed r1, r2, … and its summary names the registered arguments in `args`
+        that were given; a `query` given in words is kept only as `[value]`."""
         spec = self._specs.get(tool)
         if spec is None:
             raise KeyError(f"No descriptors are registered for {tool!r}.")
@@ -468,20 +465,21 @@ class Registry:
         data = spec.extract(result) if spec.extract is not None else result
         records: list[Record] = []
         seen: set[str] = set()
-        for index, raw in enumerate(_raw_records(data, spec.records)):
+        for raw in _raw_records(data, spec.records):
             ident = lookup(raw, spec.record_id) if spec.record_id else None
-            key = str(ident).strip() if ident is not None else ""
-            if not key or key in seen:
-                key = f"#{index}"
-            seen.add(key)
-            records.append(Record(key, {d.name: coerce(d, lookup(raw, d.path or d.name)) for d in spec.fields}))
+            if ident is not None and str(ident).strip():
+                if str(ident).strip() in seen:
+                    continue   # the same row, read twice
+                seen.add(str(ident).strip())
+            values = {d.name: coerce(d, lookup(raw, d.path or d.name)) for d in spec.fields}
+            records.append(Record(record_key(len(records)), values))
         facts = {d.name: coerce(d, lookup(data, d.path or d.name)) for d in spec.facts}
-        vocabulary = terms(spec.label, spec.fields, spec.facts)
+        given = args if isinstance(args, Mapping) else {}
+        asked = tuple(name for name in spec.arguments if _given(given.get(name)))
         return Evidence(
-            handle=handle, tool=tool, observed_at=observed_at or datetime.now(UTC),
-            query=summarise(query if query is not None else _describe(spec, args, vocabulary), vocabulary),
+            handle=handle, tool=tool, observed_at=observed_at or datetime.now(UTC), query=query or "",
             fields=spec.fields, records=tuple(records), fact_fields=spec.facts, facts=facts,
-            session_id=session_id, label=spec.label,
+            session_id=session_id, label=spec.label, asked=asked,
         )
 
 
@@ -496,17 +494,9 @@ def _raw_records(data: Mapping[str, Any], path: str | None) -> Iterable[Mapping[
     return []
 
 
-def _describe(spec: ToolDescriptors, args: Mapping[str, Any] | None, vocabulary: frozenset[str]) -> str:
-    """What was asked, by the names of the arguments given and never their values: a value
-    may be an address, a postcode or a name, and a summary is shown without contact details.
-    An argument whose name is not in the summary's words is left out rather than shown."""
-    allowed = SUMMARY_WORDS | vocabulary
-    asked = [
-        str(k) for k, v in (args or {}).items()
-        if isinstance(k, str) and _NAME.match(k) and v not in (None, "", False) and v != [] and v != {}
-        and all(part in allowed for part in k.split("_"))
-    ]
-    return spec.label + (" by " + ", ".join(asked) if asked else "")
+def _given(value: Any) -> bool:
+    """Whether an argument was given a value (whatever it is, it is not read)."""
+    return value is not None and value is not False and value != "" and value != [] and value != {}
 
 
 DEFAULT = Registry()

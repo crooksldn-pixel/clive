@@ -3,7 +3,8 @@
 A plan never carries a value of its own. Every value-bearing element points at an evidence
 handle and a field name; prose places bound values through numbered slots ("{0} customers are
 waiting"), and a digit, a currency sign, a number in words ("forty", "half", "double"), an
-email or web address or markup anywhere else in prose is refused by app/scenes/validate.py.
+email or web address, markup, a capitalised name or place, or any word outside the words a
+scene may use anywhere else in prose is refused by app/scenes/validate.py.
 The schema is strict — an unknown element or an extra field is an error — so a plan is one of
 these shapes or it is not a plan. Every element carries a one-line justification of plain
 words under the same rule; one without is dropped by the validator, which also decides
@@ -20,14 +21,15 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.scenes.evidence import Kind, Money, Series
+from app.scenes.evidence import RECORD_KEY, Kind, Money, Series
 
 # A numbered slot in prose, filled with a bound value when the scene is drawn.
 SLOT = re.compile(r"\{(\d)\}")
 
 Handle = Annotated[str, Field(pattern=r"^[A-Za-z0-9_.:-]{1,40}$")]
 FieldName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")]
-RecordId = Annotated[str, Field(min_length=1, max_length=200)]
+# A record by its key within its evidence ("r3"), never by a connector's own id.
+RecordId = Annotated[str, Field(pattern=RECORD_KEY.pattern)]
 Justification = Annotated[str, Field(max_length=160)]
 Significance = Literal["ACTION_REQUIRED", "DECISION_REQUIRED", "RISK", "UNCERTAINTY", "LIMITATION", "CONTEXT"]
 # A closed vocabulary, not a value: "as_observed" is the window the evidence itself covers.
@@ -194,7 +196,8 @@ class ScenePlan(_Strict):
 
 @dataclass(frozen=True, slots=True)
 class Bound:
-    """A value taken from evidence: where it came from, what kind it is, and the value."""
+    """A value taken from evidence: where it came from, what kind it is, and the value.
+    `record` is the row's key within its evidence ("r3"), which says nothing about whose it is."""
 
     evidence: str
     record: str | None

@@ -23,7 +23,6 @@ from app.scenes.evidence import (
     Kind,
     Money,
     Series,
-    summarise,
 )
 from app.scenes.scene import (
     SLOT,
@@ -76,6 +75,72 @@ _NUMBER = re.compile(
 )
 _ADDRESS = re.compile(r"@|\b[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b")
 _MARKUP = re.compile(r"<[^>]*>|&#?[A-Za-z0-9]+;|https?://|www\.|[`*_#|\\<>\[\]{}~^]")
+# ...and prose is only words a scene may use, so it cannot carry a name or a place a plan
+# makes up — a street, a town, a person, a business — whatever form it is written in: the
+# vocabulary is closed, and a value is shown from evidence, through a slot, or not at all. A
+# capital is allowed only where a sentence starts ("I" aside), since a capital within one is a
+# name. The words are the plain words of an answer about a shop, with no street or place word
+# and no connector's words; an ordinary word that is also someone's name ("will", "may") is
+# the one thing a vocabulary cannot tell apart, and written as a name, capitalised within a
+# sentence, it is refused.
+PROSE_WORDS = frozenset("""
+a an the and or but nor so yet if then than that this these those there here it its itself
+they them their theirs themselves we us our ours ourselves you your yours yourself i me my
+mine myself he him his she her hers who whom whose which what whatever when whenever where
+wherever why how whether while whilst as at by for from in into of off on onto out over under
+up down with within without about above across after against along among around before behind
+below beneath beside besides between beyond during except inside near outside past per since
+through throughout till to toward towards until upon via not no none nobody nothing nowhere
+neither either each every everyone everybody everything everywhere all any anyone anybody
+anything anywhere some someone somebody something somewhere both few fewer less least more
+most much many several such own other others another same only just also even still already
+again ever never always often sometimes usually rather quite very too enough almost nearly
+roughly instead perhaps maybe probably possibly otherwise however therefore although though
+because unless yes please thanks
+be am is are was were been being have has had having do does did done doing will would shall
+should can could may might must need ought cannot can't don't doesn't didn't isn't aren't
+wasn't weren't won't wouldn't shouldn't couldn't haven't hasn't hadn't mustn't i'm i've i'll
+i'd we're we've we'll we'd you're you've you'll you'd they're they've they'll they'd
+go goes went gone get got gotten make made take took taken give gave given keep kept want ask
+tell told say said see saw seen show shown know knew known think thought seem look mean meant
+help come came wait expect happen start stop finish arrive leave left move hold held put run
+ran use work matter decide choose chose chosen confirm approve review chase follow handle sort
+fix resolve raise flag remain stay buy bought sell sold order pay paid read write wrote written
+send sent receive answer reply check find found search try tried let call reach cover mention
+note list add remove include miss lose lost gain rise risen fall fell fallen drop grow grew
+grown increase decrease change compare improve slow plan draft prepare update reopen cancel
+refund return exchange ship dispatch deliver fulfil fulfill track pack earn spend spent cost
+owe carry lead led
+owner customer buyer shopper person people team staff supplier visitor visit traffic audience
+item line product variant size colour color stock price sale sales revenue income profit
+margin money amount total value budget payment charge discount tax shipping shipment delivery
+fulfilment fulfillment tracking parcel courier package postage label status email mail message
+thread inbox subject contact address phone detail details store shop site website page listing
+catalogue range trend rate share average growth percentage quantity count number figure series
+data evidence result finding problem issue question reason context information word kind type
+way thing part rest point case sentence action decision risk limitation interest attention
+priority proposal job task step request complaint query queries backlog delay session record
+row field column table chart summary advertising advert marketing promotion click conversion
+week weekend month year day hour minute morning afternoon evening night today tonight
+yesterday tomorrow time period date ago now
+new newer newest old older oldest big bigger biggest small smaller smallest large larger
+largest good better best bad worse worst great poor strong stronger strongest weak weaker
+weakest slower slowest fast faster fastest quick quicker quickest high higher highest low
+lower lowest long longer longest short shorter shortest early earlier earliest late later
+latest recent soon next previous prior current last usual unusual normal typical steady stable
+similar different main key whole entire full empty partial complete incomplete missing
+available unavailable ready due overdue open closed pending unpaid cancelled canceled urgent
+important worrying worried likely unlikely possible certain uncertain unclear clear sure unsure
+safe risky busy quiet right wrong fine okay well barely mostly largely slightly sharply
+steadily daily weekly monthly yearly ahead behind together apart away back forward first
+second outstanding unanswered unread unfulfilled
+""".split())
+# The marks prose may use between its words.
+_PUNCTUATION = frozenset(".,;:!?'’‘\"“”()-–—…")
+_WORD = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
+_SENTENCE_END = frozenset(".!?:")
+_INFLECTIONS = (("ies", "y"), ("ied", "y"), ("es", ""), ("s", ""), ("ed", ""), ("ed", "e"), ("d", ""),
+                ("ing", ""), ("ing", "e"), ("ly", ""))
 _LIST_ASK = re.compile(
     r"\b(?:list|lists|listing)\b|\bshow (?:me )?(?:all|every|the whole)\b|\ball of (?:them|the)\b", re.I,
 )
@@ -145,10 +210,10 @@ def validate_scene(
         trace.add(target, "kept", shown.element.justification.strip())
     drilldown = None
     if (not kept or replaced) and pool:
-        # A reference, not the evidence: what was read, when, and a summary with no contact
-        # details in it, whatever the request allows.
+        # A reference, not the evidence: what was read, when, and its summary, which is made
+        # of registered words only and so has no contact details in it, whatever was asked.
         drilldown = DrillDown(tuple(
-            Source(ev.handle, ev.tool, summarise(ev.query, ev.vocabulary()), ev.observed_at, len(ev.records)) for ev in pool.values()
+            Source(ev.handle, ev.tool, ev.query, ev.observed_at, len(ev.records)) for ev in pool.values()
         ))
         why = "the planned answer was replaced" if replaced else "only the answer is shown"
         trace.add("drilldown", "kept", f"{why}; a reference to the {len(pool)} evidence it checked, not the evidence")
@@ -201,7 +266,8 @@ def _bind(ref, pool: Mapping[str, Evidence], context: SceneContext) -> Bound:
     else:
         record = ev.record(ref.record)
         if record is None:
-            raise _Refused(f"{ev.handle} has no record {ref.record}")
+            # The reference is the plan's own, and is not repeated.
+            raise _Refused(f"{ev.handle} has no such record")
         d = ev.descriptor(ref.field)
         values = record.values
     if d is None:
@@ -218,8 +284,8 @@ def _bind(ref, pool: Mapping[str, Evidence], context: SceneContext) -> Bound:
 
 
 def _prose(text: str, bound: int, lines: int = 1) -> None:
-    """Words only, within its lines: every value through a slot, every bound value placed, no
-    markup."""
+    """Words a scene may use, within its lines: every value through a slot, every bound value
+    placed, no markup. What is refused is never repeated in the reason."""
     if not text.strip():
         raise _Refused("no words in the text, only whitespace")
     if len(text.strip().splitlines()) > lines:
@@ -227,15 +293,53 @@ def _prose(text: str, bound: int, lines: int = 1) -> None:
     placed = {int(n) for n in SLOT.findall(text)}
     if any(n >= bound for n in placed):
         raise _Refused("a slot in the text has no value bound to it")
-    rest = SLOT.sub(" ", text)
+    # A slot is three characters, so the rest keeps every word where it is in the text.
+    rest = SLOT.sub("   ", text)
     if _MARKUP.search(rest):
         raise _Refused("markup in the text")
     if _NUMBER.search(rest):
         raise _Refused("a number in the text that is not bound to evidence")
     if _ADDRESS.search(rest):
         raise _Refused("an email or web address in the text that is not bound to evidence")
+    _words(text, rest)
     if len(placed) != bound:
         raise _Refused("a bound value is not placed in the text")
+
+
+def _words(text: str, rest: str) -> None:
+    """Every word one a scene may use, capitalised only where a sentence starts (a word after
+    a slot does not start one)."""
+    between = _WORD.sub(" ", rest)
+    if any(not c.isspace() and c not in _PUNCTUATION for c in between):
+        raise _Refused("a mark in the text that is not a word or punctuation")
+    for match in _WORD.finditer(rest):
+        word = match.group()
+        if word in ("I", "I'm", "I’m", "I've", "I’ve", "I'll", "I’ll", "I'd", "I’d"):
+            continue
+        before = text[: match.start()].rstrip().rstrip("\"'’‘“(").rstrip()
+        starts = not before or before[-1] in _SENTENCE_END
+        if any(c.isupper() for c in word[1:]) or (word[0].isupper() and not starts):
+            raise _Refused("a capitalised name or place in the text that is not bound to evidence")
+        if not _known(word):
+            raise _Refused("a word in the text a scene may not use: a name, a place or any other value is bound to evidence")
+
+
+def _known(word: str) -> bool:
+    """Whether a word is in PROSE_WORDS, as it is or as a plural, a past, an -ing or an -ly."""
+    word = word.lower().replace("’", "'")
+    if word.endswith("'s"):
+        word = word[:-2]
+    if word in PROSE_WORDS:
+        return True
+    for suffix, back in _INFLECTIONS:
+        if word.endswith(suffix) and len(word) > len(suffix) + 1:
+            stem = word[: -len(suffix)] + back
+            if stem in PROSE_WORDS:
+                return True
+            # A doubled consonant: shipped, planning.
+            if not back and len(stem) > 2 and stem[-1] == stem[-2] and stem[:-1] in PROSE_WORDS:
+                return True
+    return False
 
 
 def _one_line(text: str) -> bool:
@@ -352,7 +456,7 @@ def _entity(target: str, element: Entity, pool: Mapping[str, Evidence], context:
     ev = _evidence(pool, element.evidence)
     record = ev.record(element.record)
     if record is None:
-        raise _Refused(f"{ev.handle} has no record {element.record}")
+        raise _Refused(f"{ev.handle} has no such record")
     fields = _columns(target, ev, element.fields, context, trace)
     if not fields:
         raise _Refused("no chosen field may be shown")

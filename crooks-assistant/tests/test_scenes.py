@@ -17,9 +17,17 @@ import pytest
 from pydantic import ValidationError
 
 from app.scenes import DEFAULT, Evidence, SceneContext, ScenePlan, to_evidence, validate_scene
-from app.scenes.evidence import FieldDescriptor, Kind, Money, Registry, Series, ToolDescriptors
-from app.scenes.scene import Answer, Finding, Question
-from app.scenes.validate import FALLBACK_ANSWER, asks_for_list
+from app.scenes.evidence import (
+    FieldDescriptor,
+    Kind,
+    Money,
+    Record,
+    Registry,
+    Series,
+    ToolDescriptors,
+)
+from app.scenes.scene import Answer, Entity, FieldRef, Finding, Question
+from app.scenes.validate import FALLBACK_ANSWER, FALLBACK_JUSTIFICATION, PROSE_WORDS, asks_for_list
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENES = ROOT / "app" / "scenes"
@@ -149,7 +157,7 @@ def test_the_2026_09_24_case_is_one_answer_and_a_drill_down():
             {"type": "collection", "evidence": "ev-threads", "columns": ["from", "from_email", "subject"], "limit": 7, "justification": ""},
             {"type": "finding", "significance": "CONTEXT", "text": "Top 25 customers ranked by lifetime spend.",
              "evidence": ["ev-customers"], "justification": "Context on who was checked."},
-            {"type": "entity", "evidence": "ev-customers", "record": "gid://shopify/Customer/700", "fields": ["customer_email"],
+            {"type": "entity", "evidence": "ev-customers", "record": "r1", "fields": ["customer_email"],
              "justification": "The biggest customer."},
         ],
     }
@@ -225,7 +233,7 @@ def test_an_adversarial_plan_is_reduced_and_every_reduction_is_traced():
             {"type": "finding", "significance": "UNCERTAINTY", "text": "Profit was about {0} this week.",
              "values": [{"evidence": "ev-orders", "field": "profit"}], "evidence": ["ev-orders"], "justification": "Margins."},
             {"type": "proposal", "action": "act-999", "justification": "Refund them all."},
-            {"type": "entity", "evidence": "ev-mail", "record": "gid://shopify/Customer/700", "fields": ["customer_email"],
+            {"type": "entity", "evidence": "ev-mail", "record": "r1", "fields": ["customer_email"],
              "justification": "Who to write to first."},
             {"type": "finding", "significance": "DECISION_REQUIRED", "text": "{0} orders are still to ship.",
              "values": [{"evidence": "ev-orders", "field": "row_count"}], "evidence": ["ev-orders"], "justification": "They may need chasing."},
@@ -277,7 +285,7 @@ def test_an_answer_that_cannot_be_shown_is_replaced_never_dropped():
     for text, values, why in (
         ("Sales are up 12% this week.", [], "number"),
         ("<script>alert()</script> nobody is waiting.", [], "markup"),
-        ("Write to {0} today.", [{"evidence": "ev-mail", "field": "customer_email", "record": "gid://shopify/Customer/700"}], "pii"),
+        ("Write to {0} today.", [{"evidence": "ev-mail", "field": "customer_email", "record": "r1"}], "pii"),
         ("{0} are waiting.", [{"evidence": "ev-other", "field": "needs_reply"}], "not evidence from this session"),
     ):
         scene, trace = validate_scene({"answer": {"text": text, "values": values, "justification": "Asked."}}, [mail],
@@ -293,7 +301,7 @@ def test_contact_details_are_kept_only_when_the_task_needs_them():
     mail = to_evidence("email_query", _email_query([_customer_row(n, waiting=n < 2) for n in range(4)]), handle="ev-mail",
                        observed_at=NOW, session_id=SESSION)
     plan = {
-        "answer": {"text": "Write to {0} today.", "values": [{"evidence": "ev-mail", "field": "customer_email", "record": "gid://shopify/Customer/700"}],
+        "answer": {"text": "Write to {0} today.", "values": [{"evidence": "ev-mail", "field": "customer_email", "record": "r1"}],
                    "justification": "The owner asked for their address."},
         "elements": [
             {"type": "finding", "significance": "ACTION_REQUIRED", "text": "{0} customers are waiting.",
@@ -495,11 +503,12 @@ def test_a_drill_down_never_carries_the_address_or_postcode_that_was_searched_fo
     direct = Evidence(handle="ev-direct", tool="gmail_search", observed_at=NOW, session_id=SESSION,
                       query="threads mentioning Flat 3, 12 Acacia Avenue E1 6AN")
 
-    # A default summary names the arguments, never their values; a given one keeps only known words.
-    assert found.query == "Search in email by contains, address"
+    # A summary names the registered arguments given, never their values ("address" is not one
+    # the tool takes); one given in words is not kept at all.
+    assert found.query == "Search in email by contains"
     assert searched.query == "Inbox by query, days"
-    assert told.query == "orders shipping to [value], postcode [value], where contains [value]"
-    assert direct.query == "threads mentioning [value]"
+    assert told.query == "Orders found: [value]"
+    assert direct.query == "[value]"
 
     plan = {"answer": {"text": "Nobody has written to us from that address.", "justification": "The owner asked about an address."}}
     context = SceneContext.for_request("has anyone at that address emailed us?", session_id=SESSION)
@@ -517,37 +526,81 @@ def test_a_drill_down_never_carries_the_address_or_postcode_that_was_searched_fo
 
 GIVEN_SUMMARIES = [
     # A phone number in a form no pattern for UK numbers knows.
-    ("customer phone 415-555-1212", "customer phone [value]", ("415", "555", "1212")),
-    ("orders for +1 (415) 555 1212 or 415.555.1212", "orders for [value] or [value]", ("415", "555", "1212")),
-    # Addresses and postcodes from other countries.
-    ("orders shipping to 1600 Amphitheatre Parkway, Mountain View, CA 94043", "orders shipping to [value]",
+    ("customer phone 415-555-1212", ("415", "555", "1212")),
+    ("orders for +1 (415) 555 1212 or 415.555.1212", ("415", "555", "1212")),
+    # Addresses and postcodes from other countries, and a street with no number.
+    ("orders shipping to 1600 Amphitheatre Parkway, Mountain View, CA 94043",
      ("1600", "Amphitheatre", "Parkway", "Mountain", "View", "CA", "94043")),
-    ("orders to Rue de Rivoli 75001 Paris, Canada K1A 0B1", "orders to [value]", ("Rivoli", "75001", "Paris", "Canada", "K1A", "0B1")),
-    ("orders to 〒100-0001 東京都千代田区", "orders to [value]", ("〒", "100-", "東京")),
-    # Who it was about.
-    ("orders for Jo Bloggs of Hauptstraße, Berlin", "orders for [value] of [value]", ("Bloggs", "Hauptstraße", "Berlin")),
-    ("orders for jo.bloggs@example.co.uk", "orders for [value]", ("bloggs", "@", "example")),
+    ("orders to Rue de Rivoli 75001 Paris, Canada K1A 0B1", ("Rivoli", "75001", "Paris", "Canada", "K1A", "0B1")),
+    ("orders to 〒100-0001 東京都千代田区", ("〒", "100-", "東京")),
+    ("orders for the customer at Acacia Avenue", ("Acacia", "Avenue")),
+    # Who it was about, including a name that is also a word the store uses.
+    ("orders for Jo Bloggs of Hauptstraße, Berlin", ("Bloggs", "Hauptstraße", "Berlin")),
+    ("orders for jo.bloggs@example.co.uk", ("bloggs", "@", "example")),
+    ("customer Sales", ("Sales",)),
 ]
 
 
-def test_a_given_summary_keeps_only_known_words():
-    """What a caller says was asked is kept word by word only where the word is known to be
-    safe; any other word, and every number, is `[value]` — whatever country's form it takes."""
+def test_a_summary_given_in_words_is_not_kept():
+    """What a caller says was asked is never kept, not even word by word: any word, even one
+    the store uses, can be a customer's or a business's name. The summary is what the read's
+    registration says, and `[value]` for what was given in words — whatever country's form it took."""
     evidence = []
-    for n, (query, expected, _) in enumerate(GIVEN_SUMMARIES):
+    for n, (query, _) in enumerate(GIVEN_SUMMARIES):
         told = to_evidence("shopify_find_order", {"orders": []}, handle=f"ev-told-{n}", query=query, observed_at=NOW, session_id=SESSION)
         direct = Evidence(handle=f"ev-direct-{n}", tool="gmail_search", observed_at=NOW, session_id=SESSION, query=query)
-        assert told.query == expected and direct.query == expected
-        evidence += [told, direct]
+        labelled = Evidence(handle=f"ev-labelled-{n}", tool="gmail_search", label="Inbox", observed_at=NOW, session_id=SESSION, query=query)
+        assert told.query == "Orders found: [value]"
+        assert direct.query == "[value]"
+        assert labelled.query == "Inbox: [value]"
+        evidence += [told, direct, labelled]
 
     plan = {"answer": {"text": "Nobody has ordered from there.", "justification": "The owner asked about a customer."}}
     scene, trace = validate_scene(plan, evidence, SceneContext.for_request("has anyone there ordered?", session_id=SESSION))
 
     assert scene.elements == () and scene.drilldown is not None and len(scene.drilldown.sources) == len(evidence)
     serialised = json.dumps(scene.as_dict(), ensure_ascii=False) + json.dumps([e.reason for e in trace], ensure_ascii=False)
-    for _, _, secrets in GIVEN_SUMMARIES:
+    for _, secrets in GIVEN_SUMMARIES:
         for secret in secrets:
             assert secret not in serialised, secret
+    _no_pii(scene)
+
+
+def test_a_summary_names_registered_arguments_and_never_their_values():
+    """'customer Sales': the value collides with a word the store uses, and is still not kept,
+    whether it came as the query, as an argument's value or as an argument's name."""
+    found = to_evidence("shopify_find_customer", {"customers": []}, handle="ev-found", query="customer Sales",
+                        args={"query": "Sales", "limit": 5, "sales": "Sales", "Sales": 1}, observed_at=NOW, session_id=SESSION)
+    assert found.asked == ("query", "limit")
+    assert found.query == "Customers found by query, limit: [value]"
+    direct = Evidence(handle="ev-direct", tool="shopify_find_customer", label="Customers found", asked=("query",),
+                      query="customer Sales", observed_at=NOW, session_id=SESSION)
+    assert direct.query == "Customers found by query: [value]"
+    bare = Evidence(handle="ev-bare", tool="gmail_search", query="Sales", observed_at=NOW, session_id=SESSION)
+    assert bare.query == "[value]"
+    # What the registration says is kept as it is.
+    same = Evidence(handle="ev-same", tool="gmail_search", label="Inbox", asked=("query", "days"), query="Inbox by query, days",
+                    observed_at=NOW, session_id=SESSION)
+    assert same.query == "Inbox by query, days"
+
+    # A label or an argument name is only what the tool registered: static words, never a value.
+    for wrong in ({"label": "Sales"}, {"label": "Jo Bloggs"}, {"label": "Customers found", "asked": ("sales",)}, {"asked": ("Sales",)}):
+        with pytest.raises(ValueError):
+            Evidence(handle="ev-wrong", tool="shopify_find_customer", query="", observed_at=NOW, **wrong)
+    for label in ("Orders for jo@example.com", "Postcode E1", "orders", "", "Inbox\n"):
+        with pytest.raises(ValueError):
+            ToolDescriptors(tool="some_read", label=label)
+    with pytest.raises(ValueError):
+        ToolDescriptors(tool="some_read", label="Reads", arguments=("Sales",))
+
+    plan = {"answer": {"text": "Nobody has ordered from us.", "justification": "The owner asked about a customer."}}
+    scene, trace = validate_scene(plan, [found, direct, bare, same], SceneContext.for_request("has customer Sales ordered?", session_id=SESSION))
+    assert scene.drilldown is not None
+    assert [s.query for s in scene.drilldown.sources] == [
+        "Customers found by query, limit: [value]", "Customers found by query: [value]", "[value]", "Inbox by query, days",
+    ]
+    serialised = json.dumps(scene.as_dict()) + json.dumps(scene.drilldown.as_dict()) + json.dumps([e.reason for e in trace])
+    assert "Sales" not in serialised and "sales" not in serialised
     _no_pii(scene)
 
 
@@ -600,6 +653,78 @@ def test_values_in_words_or_as_addresses_are_refused_unless_bound():
         answer = [e for e in trace if e.target == "answer"]
         assert len(answer) == 1 and answer[0].decision == "replaced" and why in answer[0].reason
         _no_pii(scene)
+
+
+STREET = ("Acacia", "acacia", "Avenue", "avenue", "Sales")
+
+
+def test_a_street_without_a_number_is_not_carried_in_prose():
+    """A street named without a house number has no digit, no @ and no web form in it, and is
+    still an address. Prose is only words a scene may use, capitalised only where a sentence
+    starts, so a plan cannot write one — in the Answer, a Finding, an option or a justification —
+    and what was refused is in neither the scene nor the trace."""
+    mail = to_evidence("email_query", _email_query([_customer_row(n, waiting=n < 2) for n in range(4)]), handle="ev-mail",
+                       observed_at=NOW, session_id=SESSION)
+    context = SceneContext(session_id=SESSION, actions=frozenset({"act-1"}))
+    serialised = ""
+    for text, why in (
+        ("Write to the customer at Acacia Avenue.", "capitalised name or place"),
+        ("Acacia Avenue has written to us again.", "a scene may not use"),
+        ("write to them at acacia avenue today.", "a scene may not use"),
+        ("Reply to Sales first.", "capitalised name or place"),
+    ):
+        scene, trace = validate_scene({"answer": {"text": text, "justification": "Asked."}}, [mail], context)
+        assert scene.answer.element.text == FALLBACK_ANSWER, text
+        answer = [e for e in trace if e.target == "answer"]
+        assert len(answer) == 1 and answer[0].decision == "replaced" and why in answer[0].reason, text
+        serialised += json.dumps(scene.as_dict()) + json.dumps([(e.target, e.reason) for e in trace])
+        _no_pii(scene)
+
+    waiting = [{"evidence": "ev-mail", "field": "needs_reply"}]
+    plan = {
+        "answer": {"text": "{0} customers are waiting on a reply.", "values": waiting,
+                   "justification": "Asked by the customer at Acacia Avenue."},
+        "elements": [
+            {"type": "finding", "significance": "ACTION_REQUIRED", "text": "The customer at Acacia Avenue is waiting.",
+             "evidence": ["ev-mail"], "justification": "They need a reply."},
+            {"type": "finding", "significance": "ACTION_REQUIRED", "text": "{0} customers are waiting.", "values": waiting,
+             "evidence": ["ev-mail"], "justification": "They are at acacia avenue."},
+            {"type": "question", "text": "Shall I write to them?", "options": ["Yes", "Acacia Avenue"], "justification": "Needs the owner."},
+            {"type": "proposal", "action": "act-1", "justification": "Draft a reply to Acacia Avenue."},
+            {"type": "finding", "significance": "ACTION_REQUIRED", "text": "{0} customers are waiting.", "values": waiting,
+             "evidence": ["ev-mail"], "justification": "They need a reply today."},
+        ],
+    }
+    scene, trace = validate_scene(plan, [mail], context)
+
+    assert scene.answer.text() == "2 customers are waiting on a reply."
+    assert scene.answer.element.justification == FALLBACK_JUSTIFICATION
+    answer = [(e.decision, e.reason) for e in trace if e.target == "answer"]
+    assert [d for d, _ in answer] == ["reduced", "kept"] and "justification" in answer[0][1]
+    assert [s.text() for s in scene.elements] == ["2 customers are waiting."]
+    assert [s.element.justification for s in scene.elements] == ["They need a reply today."]
+    final = _final(trace)
+    assert "capitalised name or place" in final["elements[0] finding"].reason
+    assert "justification" in final["elements[1] finding"].reason
+    assert "a scene may not use" in final["elements[2] question"].reason
+    assert "justification" in final["elements[3] proposal"].reason
+    assert all(final[f"elements[{i}] {t}"].decision == "dropped" for i, t in enumerate(["finding", "finding", "question", "proposal"]))
+    assert final["elements[4] finding"].decision == "kept"
+
+    serialised += json.dumps(scene.as_dict()) + json.dumps([(e.target, e.reason) for e in trace])
+    for literal in STREET:
+        assert literal not in serialised, literal
+    _no_pii(scene)
+
+
+def test_the_words_a_scene_may_use_are_words_not_places():
+    """What the validator itself says passes its own rule, and the words a scene may use hold no
+    street or place word."""
+    scene, trace = validate_scene({"answer": {"text": FALLBACK_ANSWER, "justification": FALLBACK_JUSTIFICATION}}, [])
+    assert [(e.target, e.decision) for e in trace] == [("answer", "kept")]
+    assert scene.answer.element.text == FALLBACK_ANSWER
+    assert not PROSE_WORDS & {"street", "road", "avenue", "lane", "crescent", "terrace", "drive", "square", "gardens",
+                              "mews", "flat", "postcode", "acacia", "london"}
 
 
 def test_a_personal_time_is_not_shown_on_a_timeline():
@@ -687,7 +812,7 @@ def test_a_justification_is_plain_words_with_nothing_in_it_to_show():
 
 
 ADS = ToolDescriptors(
-    tool="ads_campaign_report", label="Ad campaigns", records="campaigns", record_id="campaign_id",
+    tool="ads_campaign_report", label="Ad campaigns", records="campaigns", record_id="campaign_id", arguments=("period",),
     fields=(
         FieldDescriptor("campaign_id", Kind.LINK, "Campaign id"),
         FieldDescriptor("name", Kind.TEXT, "Campaign"),
@@ -719,16 +844,17 @@ def test_a_connector_registered_only_through_descriptors_yields_a_valid_scene():
     assert ads.facts["roas"] == 2.5
     assert isinstance(ads.facts["daily_spend"], Series) and len(ads.facts["daily_spend"].points) == 7
     assert ads.facts["daily_spend"].currency == "GBP"
-    assert ads.record("c1").values["spend"] == Money(Decimal("512.40"), "GBP")
+    assert ads.record("r1").values["spend"] == Money(Decimal("512.40"), "GBP")
+    assert ads.query == "Ad campaigns by period"
 
     plan = {
-        "answer": {"text": "Ads cost {0} this week at a return on spend of {1}.",
+        "answer": {"text": "Advertising cost {0} this week at a return on spend of {1}.",
                    "values": [{"evidence": "ads-1", "field": "spend"}, {"evidence": "ads-1", "field": "roas"}],
-                   "justification": "The owner asked how the ads did."},
+                   "justification": "The owner asked how the advertising did."},
         "elements": [
             {"type": "finding", "significance": "RISK", "text": "{0} returned only {1} on its spend.",
-             "values": [{"evidence": "ads-1", "field": "name", "record": "c1"}, {"evidence": "ads-1", "field": "roas", "record": "c1"}],
-             "evidence": ["ads-1"], "justification": "The weakest campaign is barely paying for itself."},
+             "values": [{"evidence": "ads-1", "field": "name", "record": "r1"}, {"evidence": "ads-1", "field": "roas", "record": "r1"}],
+             "evidence": ["ads-1"], "justification": "The weakest is barely paying for itself."},
             {"type": "trend", "series": {"evidence": "ads-1", "field": "daily_spend"}, "justification": "Where the week's spend went."},
         ],
     }
@@ -736,7 +862,7 @@ def test_a_connector_registered_only_through_descriptors_yields_a_valid_scene():
 
     assert [s.element.type for s in scene.elements] == ["finding", "trend"]
     assert [b.kind for b in scene.answer.values] == [Kind.MONEY, Kind.RATIO]
-    assert scene.answer.text() == "Ads cost 840.50 GBP this week at a return on spend of 2.5 x."
+    assert scene.answer.text() == "Advertising cost 840.50 GBP this week at a return on spend of 2.5 x."
     assert scene.elements[0].text() == "Autumn denim returned only 1.4 x on its spend."
     assert scene.elements[1].values[0].kind is Kind.SERIES
     assert all(e.decision == "kept" for e in _final(trace).values())
@@ -753,12 +879,95 @@ def test_no_connector_specific_code_in_app_scenes():
             assert not words & {"shopify", "gmail", "commerce", "inventory"}, path.name
 
 
+MEMBERS = ToolDescriptors(
+    tool="members_list", label="Members", records="members", record_id="email", arguments=("plan",),
+    fields=(
+        FieldDescriptor("email", Kind.TEXT, "Email", pii=True),
+        FieldDescriptor("plan", Kind.STATUS, "Plan"),
+        FieldDescriptor("visits", Kind.COUNT, "Visits"),
+    ),
+    facts=(FieldDescriptor("count", Kind.COUNT, "Members"),),
+)
+EMAILS = ("jo.bloggs@example.com", "sam.smith@example.org")
+
+
+def test_a_record_is_never_known_by_a_personal_id():
+    """A connector whose rows are identified by an email address: the rows are keyed r1, r2, …
+    within the evidence, so a scene without contact details — its Collection, its Entity, what
+    it serialises to and its trace — has no email address anywhere in it."""
+    registry = Registry()
+    registry.register(MEMBERS)
+    rows = [{"email": EMAILS[0], "plan": "annual", "visits": 4}, {"email": EMAILS[1], "plan": "monthly", "visits": 1},
+            {"email": EMAILS[0], "plan": "annual", "visits": 4}]
+    members = registry.to_evidence("members_list", {"count": 2, "members": rows}, handle="ev-members", args={"plan": "annual"},
+                                   observed_at=NOW, session_id=SESSION)
+    # The same member read twice is one row.
+    assert [r.id for r in members.records] == ["r1", "r2"]
+    assert members.records[0].values["email"] == EMAILS[0]
+    assert members.query == "Members by plan"
+
+    plan = {
+        "answer": {"text": "Everyone on the list has visited this month.", "justification": "The owner asked who has visited."},
+        "elements": [
+            {"type": "finding", "significance": "CONTEXT", "text": "Most are on the {0} plan.",
+             "values": [{"evidence": "ev-members", "field": "plan", "record": "r1"}], "evidence": ["ev-members"],
+             "justification": "What the list is made of."},
+            {"type": "collection", "evidence": "ev-members", "columns": ["email", "plan"], "limit": 5, "justification": "Who is on the list."},
+            {"type": "entity", "evidence": "ev-members", "record": "r1", "fields": ["email", "visits"], "justification": "The first on the list."},
+        ],
+    }
+    scene, trace = validate_scene(plan, [members], SceneContext.for_request("has everyone visited this month?", session_id=SESSION))
+
+    assert [s.element.type for s in scene.elements] == ["finding", "collection", "entity"]
+    assert scene.elements[0].text() == "Most are on the annual plan."
+    collection, entity = scene.elements[1], scene.elements[2]
+    assert collection.element.columns == ["plan"]
+    assert [[(b.record, b.field) for b in row] for row in collection.rows] == [[("r1", "plan")], [("r2", "plan")]]
+    assert entity.element.fields == ["visits"] and [(b.record, b.field) for b in entity.rows[0]] == [("r1", "visits")]
+    assert _reductions(trace, "elements[1] collection") == ["email: pii stripped; the task does not need contact details"]
+    assert _reductions(trace, "elements[2] entity") == ["email: pii stripped; the task does not need contact details"]
+    serialised = json.dumps(scene.as_dict()) + json.dumps([(e.target, e.decision, e.reason) for e in trace])
+    for literal in (*EMAILS, "@", "bloggs", "smith", "example"):
+        assert literal not in serialised, literal
+    _no_pii(scene)
+
+    # When the task needs contact details, the address is shown as the value of its field and
+    # nowhere else: the rows are still r1 and r2.
+    scene, trace = validate_scene(plan, [members], SceneContext(request="their email addresses please", session_id=SESSION, contact_details=True))
+    assert scene.elements[1].element.columns == ["email", "plan"]
+    assert {b.record for b in scene.bound()} == {"r1", "r2"}
+    assert {b.field for b in scene.bound() if "@" in str(b.value)} == {"email"}
+
+    # A plan cannot name a row by the connector's id; one built past the schema is refused
+    # without the id it named being repeated.
+    with pytest.raises(ValidationError):
+        FieldRef(evidence="ev-members", field="plan", record=EMAILS[0])
+    with pytest.raises(ValidationError):
+        ScenePlan.model_validate({"answer": {"text": "Fine."}, "elements": [
+            {"type": "entity", "evidence": "ev-members", "record": EMAILS[0], "fields": ["plan"], "justification": "Who."}]})
+    constructed = ScenePlan.model_construct(
+        answer=Answer.model_construct(text="Everyone on the list has visited this month.", values=[], justification="Asked."),
+        elements=[Entity.model_construct(evidence="ev-members", record=EMAILS[0], fields=["plan"], justification="The first on the list.")],
+    )
+    scene, trace = validate_scene(constructed, [members], SceneContext(session_id=SESSION))
+    final = _final(trace)
+    assert final["elements[0] entity"].decision == "dropped" and "no such record" in final["elements[0] entity"].reason
+    serialised = json.dumps(scene.as_dict()) + json.dumps([(e.target, e.reason) for e in trace])
+    assert "@" not in serialised and "bloggs" not in serialised
+
+    # Evidence is never keyed by a connector's own id, however it is made.
+    with pytest.raises(ValueError):
+        Evidence(handle="ev-raw", tool="members_list", query="", observed_at=NOW, fields=MEMBERS.fields,
+                 records=(Record(EMAILS[0], {"plan": "annual"}),))
+
+
 # ------------------------------------------------------------ the existing read tools
 
 
-def _read_tools(path: Path) -> list[str]:
-    """Every tool the module registers that is not a write or a batch, read from its source."""
-    names = []
+def _read_tools(path: Path) -> dict[str, tuple[str, ...]]:
+    """Every tool the module registers that is not a write or a batch, with the names of the
+    arguments it takes, read from its source."""
+    tools = {}
     for node in ast.walk(ast.parse(path.read_text())):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -766,15 +975,21 @@ def _read_tools(path: Path) -> list[str]:
             if isinstance(decorator, ast.Call) and getattr(decorator.func, "id", None) == "tool":
                 keywords = {k.arg: k.value for k in decorator.keywords}
                 if "write" not in keywords and "batch" not in keywords:
-                    names.append(keywords["name"].value)
-    return names
+                    tools[keywords["name"].value] = tuple(a.arg for a in node.args.args + node.args.kwonlyargs)
+    return tools
 
 
 def test_every_existing_read_tool_has_descriptors():
-    tools = [name for module in ("shopify_tools.py", "gmail_tools.py", "analytics_tools.py") for name in _read_tools(TOOLS / module)]
+    tools = {
+        name: arguments
+        for module in ("shopify_tools.py", "gmail_tools.py", "analytics_tools.py")
+        for name, arguments in _read_tools(TOOLS / module).items()
+    }
     assert len(tools) >= 18
     assert "shopify_order_note_append" not in tools
     assert [t for t in tools if DEFAULT.get(t) is None] == []
+    # A summary names the arguments a tool was given, and only ones it takes.
+    assert {t: DEFAULT.get(t).arguments for t in tools} == tools
 
 
 def test_customer_contact_fields_are_pii():
@@ -788,7 +1003,7 @@ def test_customer_contact_fields_are_pii():
 def test_adapters_type_what_the_tools_return():
     order = to_evidence("shopify_find_order", {"query": "1901", "orders": [_order(1)]}, handle="o", args={"query": "jo@example.com"}, observed_at=NOW)
     record = order.records[0]
-    assert record.id == "gid://shopify/Order/5001"
+    assert record.id == "r1" and record.values["order_id"] == "gid://shopify/Order/5001"
     assert record.values["total"] == Money(Decimal("47.00"), "GBP")
     assert record.values["placed_at"] == NOW - timedelta(hours=5)
     assert order.descriptor("customer_email").pii and not order.descriptor("customer_name").pii
@@ -816,7 +1031,8 @@ def test_adapters_type_what_the_tools_return():
     assert sales.facts["revenue"] == Money(Decimal("250.5"), "GBP")
     assert [p.value for p in sales.facts["revenue_by_day"].points] == [100.0, 150.5]
     assert sales.facts["revenue_by_day"].currency == "GBP"
-    assert [r.id for r in sales.records] == ["2026-09-22", "2026-09-23"]
+    assert [r.id for r in sales.records] == ["r1", "r2"]
+    assert [r.values["date"].date().isoformat() for r in sales.records] == ["2026-09-22", "2026-09-23"]
 
     by_day = to_evidence("commerce_aggregate", {
         "entity": "orders", "group_by": ["day"], "currency": "GBP", "totals": {"revenue": 30.0},
