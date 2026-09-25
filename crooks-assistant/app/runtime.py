@@ -236,7 +236,7 @@ class Runtime:
             return WriteStatus("ready", f"ready — {operation.replace('_', ' ')}")
         needed = {scope for op, scope in self._write_scopes().items() if operation is None or op == operation}
         if operation is not None and operation not in self._write_scopes():
-            return WriteStatus("blocked", f"blocked — {operation.replace('_', ' ')} is not a change this Mac can make")
+            return WriteStatus("blocked", f"blocked — {operation.replace('_', ' ')} is not a change the assistant can make")
         try:
             granted = await self.shopify.access_scopes()
         except Exception as exc:  # noqa: BLE001
@@ -575,7 +575,7 @@ def build(settings: Settings | None = None) -> Runtime:
     if not settings.allowed_logins:
         log.warning(
             "CROOKS_ALLOWED_LOGINS is empty: any tailnet login may ask (reads only; changes need "
-            "the allow-list). Open /whoami on the tablet and put its login in .env."
+            "the allow-list). Open /whoami on the owner's device and put its login in .env."
         )
     from app.actions import ledger as ledger_module
     from app.observability import hooks as observe_hooks

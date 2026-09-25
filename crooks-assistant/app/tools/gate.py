@@ -270,7 +270,7 @@ def _classify_write(name: str, spec, args: dict[str, Any], issued: frozenset[str
         return deny(problem)
     return Decision(
         spec.tier,
-        f"{name} is a change to the store: prepared for the owner to authorise on the tablet.",
+        f"{name} is a change to the store: prepared for the owner to authorise on the screen.",
         Disposition.STAGE_FOR_OWNER,
     )
 
@@ -301,7 +301,7 @@ def _classify_batch(name: str, spec, args: dict[str, Any], issued: frozenset[str
         return deny(problem)
     return Decision(
         spec.tier,
-        f"{name} is a change to every item in a working set: prepared for the owner to authorise on the tablet.",
+        f"{name} is a change to every item in a working set: prepared for the owner to authorise on the screen.",
         Disposition.STAGE_FOR_OWNER,
     )
 

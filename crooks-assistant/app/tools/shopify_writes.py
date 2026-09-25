@@ -228,7 +228,7 @@ def _present_cancel(proposal) -> dict:
     name="shopify_order_cancel",
     description=(
         "Prepare the cancellation of one order that has not shipped. Whether it refunds, restocks "
-        "and emails the customer is the Mac's policy, shown on the card — not yours to choose."
+        "and emails the customer is fixed policy, shown on the card — not yours to choose."
     ),
     input_schema={
         "type": "object",
@@ -980,8 +980,8 @@ async def _address_threads(order_id: str) -> list[dict[str, Any]]:
     name="shopify_order_shipping_address_set",
     description=(
         "Prepare a change to an order's shipping address before it ships: give only the parts that "
-        "change; the Mac merges them into the current address and prints the difference. If the "
-        "address came from an email, pass its message_id: the Mac reads that message and refuses "
+        "change; they are merged into the current address and the difference printed. If the "
+        "address came from an email, pass its message_id: CLIVE reads that message and refuses "
         "unless the postcode and street are in it."
     ),
     input_schema={
@@ -1142,7 +1142,7 @@ async def shopify_order_shipping_address_set(
             t = about[0]
             raise ToolError(
                 f"An email about this order's address is in the inbox (from {t.get('from_email') or 'an unknown sender'}, "
-                f"{_when(str(t.get('date') or ''))}). Cite its message_id so the Mac can check it, or say from_owner if the owner gave the address."
+                f"{_when(str(t.get('date') or ''))}). Cite its message_id so CLIVE can check it, or say from_owner if the owner gave the address."
             )
         cited = "none — given by the owner"
         cited_tone = "warn"

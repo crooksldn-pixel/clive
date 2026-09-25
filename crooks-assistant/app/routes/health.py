@@ -22,7 +22,7 @@ CACHE_TTL_S = 90.0
 
 @router.get("/ping")
 async def ping(request: Request) -> dict:
-    """Is the Mac there at all? No external call and no cache: the installed app asks this on
+    """Is the server there at all? No external call and no cache: the installed app asks this on
     boot and every few seconds while the assistant is unreachable, and the answer must cost
     nothing and never be stale."""
     runtime = request.app.state.runtime
@@ -130,7 +130,7 @@ def _speech_verdict(
     else:
         speech_ok, speech_effective = False, "none"
         speech_detail = (
-            f"NO recogniser available{why} — the tablet cannot be heard"
+            f"NO recogniser available{why} — nothing spoken can be heard"
             if whisper_enabled
             else f"NOT working: {primary_check} is down{why} and there is no local fallback"
         )

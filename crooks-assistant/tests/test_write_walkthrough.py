@@ -171,7 +171,7 @@ async def test_saying_yes_out_loud_applies_nothing_and_the_tap_does(walk):
     # Out loud: nothing happens, the card stays, and the model is not asked again.
     prompts = len(walk.runtime.provider.prompts)
     said_yes = (await walk.post("/turn", json={"text": "yes", "session_id": "w2", "speak": True}, headers=PROXIED)).json()
-    assert said_yes["answer"] == "Nothing happens until you tap the card. It is still waiting on the tablet."
+    assert said_yes["answer"] == "Nothing happens until you tap the card. It is still waiting on the screen."
     assert len(walk.runtime.provider.prompts) == prompts
     assert said_yes["revoked"] == [] and walk.store.mutations == []
     assert [i["data"]["status"] for i in said_yes["ui"] if i["type"] == "confirmation"] == ["pending"]
@@ -204,8 +204,8 @@ async def test_a_tablet_that_may_not_apply_changes_is_told_before_it_taps(walk):
     body = (await walk.post("/turn", json={"text": QUESTION, "session_id": "w3", "speak": True}, headers=PROXIED)).json()
     (card,) = [i["data"] for i in body["ui"] if i["type"] == "confirmation"]
     assert card["commit"] == {"allowed": False, "code": "writes_disabled",
-                              "reason": "Changes are switched off on the Mac (CROOKS_WRITES_ENABLED)."}
-    assert body["answer"].endswith("Changes are switched off on the Mac, so I can't apply that.")
+                              "reason": "Changes are switched off on the server (CROOKS_WRITES_ENABLED)."}
+    assert body["answer"].endswith("Changes are switched off on the server, so I can't apply that.")
     assert "not allowed" not in body["answer"].lower()
     assert walk.store.mutations == []
     # The model was told before it spoke, so it never offers a tap the Mac would refuse.
@@ -213,7 +213,7 @@ async def test_a_tablet_that_may_not_apply_changes_is_told_before_it_taps(walk):
     assert "cannot be applied from where the owner is" in told and "Do NOT tell them to use the card" in told
     # And a spoken yes over a blocked card says the same thing, in its own fixed line.
     said_yes = (await walk.post("/turn", json={"text": "go ahead", "session_id": "w3", "speak": True}, headers=PROXIED)).json()
-    assert said_yes["answer"].startswith("That is prepared, but it cannot be applied from this tablet.")
+    assert said_yes["answer"].startswith("That is prepared, but it cannot be applied from this device.")
     assert "tap the card" not in said_yes["answer"].lower()
     # And the tap, if it happens anyway, is refused with the same words and no mutation.
     refused = await walk.post(f"/actions/{card['proposal_id']}/commit", data={"session_id": "w3"}, headers=PROXIED)

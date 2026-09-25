@@ -29,7 +29,7 @@
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store',
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.detail || `The Mac answered ${response.status}.`);
+    if (!response.ok) throw new Error(data.detail || `The server answered ${response.status}.`);
     return data;
   }
 

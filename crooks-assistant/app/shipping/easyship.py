@@ -46,7 +46,7 @@ class EasyshipProvider:
     def missing(self) -> tuple[str, ...]:
         out: list[str] = []
         if not self.token_present():
-            out.append(f"{self.token_env} (no Easyship credentials on this Mac)")
+            out.append(f"{self.token_env} (no Easyship credentials on this server)")
         out.append(CLIENT)
         return tuple(out)
 

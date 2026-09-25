@@ -329,13 +329,13 @@ async def _stage(
             )
         return (
             f"PROPOSED ({proposal.proposal_id}): the change to {label} is prepared and waiting on "
-            f"the tablet; {verb}. It has NOT happened.{read_back} "
+            f"the screen; {verb}. It has NOT happened.{read_back} "
             "Tell the owner, in one sentence, what is ready — name the order and say the change in a "
             f"few words — and that {verb}. Do not say it was done, do not ask for a spoken yes (a "
             "spoken yes cannot apply it), and do not call this tool again while this card is waiting."
         )
     return (
-        f"PROPOSED ({proposal.proposal_id}): this same change is already waiting on the tablet. "
+        f"PROPOSED ({proposal.proposal_id}): this same change is already waiting on the screen. "
         f"It has NOT happened. Tell the owner the card is already showing and that {verb}. Do not "
         "call this tool again."
     )
@@ -383,7 +383,7 @@ async def _stage_batch(name: str, args: dict[str, Any], spec, plan: BatchPlan, *
     what = str(batch.summary.get("read_back") or plan.label or "")[:200]
     if not created:
         return (
-            f"PROPOSED BATCH ({batch.batch_id}): this same change is already waiting on the tablet. It has NOT happened. "
+            f"PROPOSED BATCH ({batch.batch_id}): this same change is already waiting on the screen. It has NOT happened. "
             f"Tell the owner the card is already showing and that {verb}. Do not call this tool again."
         )
     if session.writes_blocked:
