@@ -1,8 +1,13 @@
 # Objective Intake + Engineering Dispatcher V1
 
-Status: repository-only implementation, awaiting independent exact-SHA review. It authorises no deployment, no runtime, service, watcher or systemd change, no secret, no permission or connector change, no business write and no spend. It does not by itself prove the no-courier milestone. That milestone is met only when a separate, real, bounded product objective enters through this intake and reaches independently reviewed COMPLETE, BLOCKED or OWNER_GATE without anyone relaying messages between workers.
+Status (2026-09-25): ACTIVE. The dispatcher is the engine inside the remote engineering loop ([REMOTE_ENGINEERING_CONTROL_V1.md](./REMOTE_ENGINEERING_CONTROL_V1.md)), activated by the owner (DEC-059). The loop runs on three machines, and all builders run `claude-opus-5-5`:
+- the production host, with two builders;
+- `clive-worker-01`, an HPE server with eight builders;
+- the owner's Mac, which is being set up.
 
-**As of 2026-09-25:** the dispatcher is the engine inside the remote engineering loop ([REMOTE_ENGINEERING_CONTROL_V1.md](./REMOTE_ENGINEERING_CONTROL_V1.md)), which runs on the engineering machines with `claude-opus-5-5` builders. Dispatcher COMPLETE is not "finished": under the owner's one-trunk rule (DEC-058), work is finished only when it is in `clive/trunk` and the trunk passes full repository acceptance.
+Every candidate gets an exact-SHA independent review by GPT (see "Reviewers") and bounded repair. Dispatcher COMPLETE is not "finished": under the owner's one-trunk rule (DEC-058), work is finished only when it is in `clive/trunk` and the trunk passes full repository acceptance. The dispatcher is repository-only. It authorises no deployment, no runtime, service, watcher or systemd change, no secret, no permission or connector change, no business write and no spend.
+
+*History (2026-09-23): this document was written as "repository-only implementation, awaiting independent exact-SHA review". It stated then that the dispatcher did not by itself prove the no-courier milestone, which is met only when a separate, real, bounded product objective enters through this intake and reaches independently reviewed COMPLETE, BLOCKED or OWNER_GATE without anyone relaying messages between workers. The sections below describe the design as built; where a passage records the 2026-09-23 state, it is marked as history.*
 
 Code: `app/orchestrator/objectives.py` (intake), `app/orchestrator/dispatcher.py` (controller), `app/orchestrator/workspaces.py`, `app/orchestrator/checks.py` (the check sandbox), `app/orchestrator/workers/` (builder drivers), `app/orchestrator/reviewers/` (typed review result and reviewer drivers), `scripts/engineering_dispatcher.py` (the CLI). The kernel is used, unchanged, at `18c3153a2eec10c6343153b550776afed3bec2ba`: `Kernel`, `LifecycleStore`, `PrincipalRegistry`, `GitFacts`, `lifecycle_view`, `journal_preconditions`, `git_journal`.
 
@@ -112,7 +117,13 @@ A reviewer is a driver (`availability`, `start`, `poll`). The dispatcher admits 
 
 `READY` with a material finding, or `CHANGES_REQUIRED` without one, is invalid. Prose goes in `summary` and decides nothing. There is no verdict parser. The kernel re-runs the eligibility rule on the reviewer facts at the exact SHA. As the kernel documents, those facts are declared by whoever relays them.
 
-State of the reviewer side, as found:
+State of the reviewer side as of 2026-09-25:
+
+- **GPT, programmatic: the reviewer the remote loop uses.** The dispatcher line carries an exact-SHA GPT reviewer driver that calls the OpenAI Responses API (`gpt-5.6-sol`, high effort, `store:false`), reading its key from a host-side credential file ([OPUS_5_5_HANDOFF_2026-09-24.md](./OPUS_5_5_HANDOFF_2026-09-24.md) §4–§5). It reaches the reviewer without a person carrying messages. GPT here is the independent reviewer only: the runtime GPT Director is still not implemented (§13 of that handoff; FEAT-043).
+- **Claude as reviewer: ineligible by contract.** Unchanged, as below.
+- **Relay: still exists, and is still a courier.** Unchanged, as below. The remote loop's review is the GPT reviewer above, not the relay.
+
+*History (2026-09-23): the reviewer side as found when this document was written. The "GPT unavailable" path below described the environment at that time, not the reviewer the loop now uses.*
 
 - **GPT, programmatic: does not exist.** This environment has no OpenAI credential and no verified supported programmatic ChatGPT review mechanism. The OpenAI API would be a new secret and new pay-as-you-go spend, both owner decisions. `GptUnavailable` reports exactly this. With the default `--reviewer gpt`, a finished candidate is BLOCKED with the gap. Nothing is dispatched to nobody.
 - **Claude as reviewer: ineligible by contract.** `config/review_principals.json` registers `claude` with `may_review: false`, because every Claude session on the host is one principal. The dispatcher also refuses any reviewer that is the author principal. Changing that registry is an authority change, and objective scope cannot reach it.
@@ -207,6 +218,10 @@ Failure classes:
 - The worker's confinement to its cwd, which keeps it away from the attempt's git directory, is Claude Code's `--restricted` file-tool boundary. The real-worker smoke asks a worker to write into the sibling git directory and to an absolute host path, and records the result.
 
 ## Before the no-courier dogfood
+
+**As of 2026-09-25:** this precondition is met. A genuinely independent reviewer that the dispatcher reaches with no courier now exists: the programmatic GPT reviewer described under "Reviewers". The owner authorised activation (DEC-059), and objectives now enter through the remote loop's bounded inbox with no one relaying messages between workers. Nothing below is an open instruction.
+
+*History (2026-09-23): the text below is the instruction as written before the reviewer existed.*
 
 This is an owner decision. Provide a genuinely independent reviewer that the dispatcher can reach without a person carrying messages, then give CLIVE one real, bounded product objective with an external oracle through `objective`. The options are:
 

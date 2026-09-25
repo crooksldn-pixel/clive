@@ -60,7 +60,7 @@ Production as of 2026-09-25: `/opt/crooks-os` runs `clive/trunk` at `ce791d03`, 
 | FEAT-042 | Independent specialist reviewers | CAPTURED | LATER | “Voice of reason” at each layer. |
 | FEAT-043 | GPT Director | CAPTURED | LATER | Independent top-level engineering reviewer. Not yet implemented: GPT currently serves as the exact-SHA independent reviewer only ([OPUS_5_5_HANDOFF_2026-09-24.md](./OPUS_5_5_HANDOFF_2026-09-24.md) §13). |
 | FEAT-044 | Automatic GPT ↔ Claude loop | SUPERSEDED | LATER | Realised by the remote engineering loop (FEAT-063): builders, exact-SHA GPT review and bounded repair, with no owner message ferrying. |
-| FEAT-045 | CROOKS-managed Claude Code | CAPTURED | SOMEDAY | User no longer directly operates Claude Code. |
+| FEAT-045 | CROOKS-managed Claude Code | BUILDING | NOW | User no longer directly operates Claude Code. The remote engineering loop (FEAT-063) implements the bounded repository-only form: Claude Code (`claude-opus-5-5`) runs as an internal builder launched by the dispatcher (ROADMAP Y2). Broader product-managed engineering is not yet done: natural-language requests from inside the product (ROADMAP Y1), the GPT Director runtime (FEAT-043), and Termius only for emergency/admin access. History: CAPTURED / SOMEDAY on the 2026-09-19 register. |
 | FEAT-046 | Product-memory auto-capture | CAPTURED | SOMEDAY | Detect/capture important product ideas. |
 | FEAT-047 | Native CROOKS Phone | CAPTURED | SOMEDAY | Mobile-first native client. |
 | FEAT-048 | CROOKS Pad hardened/native shell | CAPTURED | SOMEDAY | Dedicated tablet client. |
