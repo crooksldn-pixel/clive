@@ -94,6 +94,9 @@ class ScribeClient:
         # What the key and the account said at the last health probe, before the latest attempt
         # is laid over it: a cached /health reads the attempt again through judged().
         self.last_probe: tuple[bool, str] | None = None
+        # How many transcriptions had succeeded when that probe answered. A success after it
+        # is newer evidence than a failed probe; a probe after the success is newer still.
+        self._probe_successes = 0
 
     # ------------------------------------------------------------------ connection
 
@@ -277,8 +280,9 @@ class ScribeClient:
         a restricted key cannot see it and that is not a fault."""
         # Forgotten first: a probe that times out must not leave an older answer behind it.
         self.last_probe = None
-        self.last_probe = await self._probe()
-        return self.judged(self.last_probe)
+        probe = await self._probe()
+        self.last_probe, self._probe_successes = probe, self.successes
+        return self.judged(probe)
 
     async def _probe(self) -> tuple[bool, str]:
         """What the key and the account say, without the latest attempt."""
@@ -312,6 +316,9 @@ class ScribeClient:
         """A probe's answer with the attempts read NOW, so a cached /health that passes its
         probe back through here shows a failure, or a recovery, since the probe at once."""
         ok, detail = probe
+        if not ok and probe is self.last_probe and self.successes > self._probe_successes:
+            # Transcribed since this probe failed: the key and the account answered after it.
+            ok, detail = True, "key ok (a transcription has succeeded since the last probe)"
         note = f"model {self.model}, language {self.language}"
         if self.attempts:
             note += f" · {self.successes}/{self.attempts} ok, last {self.last_ms:.0f}ms"

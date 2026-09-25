@@ -430,3 +430,46 @@ async def test_a_cached_health_shows_scribe_well_again_after_a_success(mock_http
     assert up["checks"]["speech"]["ok"] is True and up["speech"]["effective"] == "scribe_v2"
     assert up["speech"]["scribe_ok"] is True
     assert up["speech"]["scribe_failure_kind"] is None and up["speech"]["scribe_reason"] is None
+
+
+async def test_a_cached_failed_probe_gives_way_to_a_later_success_but_not_to_a_newer_probe(mock_http, tmp_path):
+    """The cache was filled while /models itself answered 401 quota_exceeded. A transcription
+    that works after that is newer evidence than the probe; a probe after it is newer again."""
+    account = {"empty": True}
+    everything = elevenlabs(account)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models") and account["empty"]:
+            return httpx.Response(401, json=QUOTA)
+        return everything(request)
+
+    mock_http(handler)
+    scribe_client = scribe(cooldown_s=300.0)
+    runtime = runtime_with(voice(cooldown_s=300.0), scribe_client, tmp_path)
+    request = route_request(runtime)
+
+    down = await health(request, fresh=0)
+    assert down["cached"] is False and down["status"] == "degraded"
+    assert down["checks"]["scribe"]["ok"] is False and "credits are used up" in down["checks"]["scribe"]["detail"]
+    assert down["checks"]["speech"]["ok"] is False and down["speech"]["effective"] == "none"
+
+    account["empty"] = False
+    assert (await scribe_client.transcribe(b"wav", keyterms=[])).text == "twelve orders today"
+
+    up = await health(request, fresh=0)
+    assert up["cached"] is True, "answered from the cache filled while the probe failed"
+    assert up["status"] == "ok"
+    assert up["checks"]["scribe"]["ok"] is True and up["checks"]["scribe"]["detail"].startswith("key ok")
+    assert up["checks"]["speech"]["ok"] is True and up["speech"]["effective"] == "scribe_v2"
+    assert up["speech"]["scribe_ok"] is True
+    assert up["speech"]["scribe_failure_kind"] is None and up["speech"]["scribe_reason"] is None
+    assert request.app.state.health_cache[1]["checks"]["scribe"]["ok"] is False, "the cached result itself is not changed"
+
+    # The account empties again and a fresh probe says so: that probe is the newer word.
+    account["empty"] = True
+    fresh = await health(request, fresh=1)
+    assert fresh["cached"] is False and fresh["checks"]["scribe"]["ok"] is False
+    again = await health(request, fresh=0)
+    assert again["cached"] is True and again["status"] == "degraded"
+    assert again["checks"]["scribe"]["ok"] is False and "credits are used up" in again["checks"]["scribe"]["detail"]
+    assert again["checks"]["speech"]["ok"] is False and again["speech"]["effective"] == "none"
