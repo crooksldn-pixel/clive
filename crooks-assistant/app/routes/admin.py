@@ -16,8 +16,8 @@ async def voices() -> dict:
         "guidance": (
             "Prefer a voice whose lang is en-GB and whose localService is true — a local voice "
             "keeps working when the network does not. If every voice shows localService false, "
-            "install the en-GB voice data on the tablet: Settings, General management, "
-            "Text-to-speech, Install voice data."
+            "install the en-GB voice data on this device, in its text-to-speech or spoken "
+            "content settings."
         ),
     }
 
@@ -60,6 +60,6 @@ async def whoami(request: Request) -> dict:
         "proxied": bool(request.headers.get("x-forwarded-for")),
         "note": (
             "This is the login to put in CROOKS_ALLOWED_LOGINS."
-            if login else "No Tailscale login on this request: it was made on the Mac itself."
+            if login else "No Tailscale login on this request: it was made on the server itself."
         ),
     }

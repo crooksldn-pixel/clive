@@ -287,7 +287,7 @@ async def batch_email_send(set_id: str, subject: str, body: str) -> BatchPlan:
 
 @tool(
     name="batch_email_drafts",
-    description="One Gmail draft per order (or per customer, for a set of customers) in a working set (≤50), from a template the Mac fills: {first_name}, {order_number}, {order_age_days}. Nothing is sent.",
+    description="One Gmail draft per order (or per customer, for a set of customers) in a working set (≤50), from a template CLIVE fills: {first_name}, {order_number}, {order_age_days}. Nothing is sent.",
     input_schema=_CAMPAIGN_SCHEMA,
     tier=Tier.AMBER,
     issued_id_args=("set_id",),

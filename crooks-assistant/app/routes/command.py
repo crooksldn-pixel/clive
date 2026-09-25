@@ -90,7 +90,7 @@ async def command(
     if spec is None:
         return _refuse(400, "unknown_command", f"There is no command called {name!r}.")
     if not spec.touch:
-        return _refuse(400, "not_tappable", f"{name!r} is not something the tablet can post.")
+        return _refuse(400, "not_tappable", f"{name!r} is not something the screen can post.")
 
     branch = session.branch(branch_id) if branch_id else session.branch()
     # A tap is addressed to a half too, and anything it causes downstream — a read that opens

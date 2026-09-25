@@ -241,8 +241,8 @@ class MaxAgentSDKProvider(ClaudeProvider):
             self._auth_mode = "cli"
             log.info(
                 "No claude_oauth_token in the Keychain; using the claude CLI's own login "
-                "(auth=cli). This needs the Mac to be logged in, which `make up` and the "
-                "`make install` launchd agents both are."
+                "(auth=cli). This needs the claude CLI to be signed in for the account the "
+                "assistant runs as."
             )
         self._started = True
         log.info("Claude provider ready (model=%s, auth=%s)", self._model, self._auth_mode)
@@ -682,7 +682,7 @@ class MaxAgentSDKProvider(ClaudeProvider):
                 return False, str(exc)
         note = (
             "" if self._auth_mode == "token"
-            else " — the CLI's own login; needs a logged-in Mac (make up / make install launchd agents)"
+            else " — the CLI's own login; needs a logged-in claude CLI on the server"
         )
         return True, f"Agent SDK on Max subscription (model={self._model}, auth={self._auth_mode}{note})"
 
@@ -699,7 +699,7 @@ RESULT_SPOKEN = {
     ),
     "max_turns": "That took more steps than I allow myself. Here is as far as I got.",
     "auth": (
-        "My Claude login is not working on the Mac. Run claude there and sign in again with "
+        "My Claude login is not working on the server. Run claude there and sign in again with "
         "slash login."
     ),
     "api_error": "Claude returned an error, so I have not got an answer.",

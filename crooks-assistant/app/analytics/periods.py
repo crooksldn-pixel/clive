@@ -140,7 +140,7 @@ def resolve(spec: Any, *, now: datetime | None = None, tz: str | ZoneInfo = "Eur
         return _days(days, 0, now, zone)
     if key == "since_launch":
         period = _days(MAX_DAYS, 0, now, zone)
-        return Period(period.start, period.end, "the last year (the Mac keeps a year of orders)", "since_launch")
+        return Period(period.start, period.end, "the last year (the server keeps a year of orders)", "since_launch")
     if key.isdigit():
         return _days(int(key), 0, now, zone)
     raise PeriodError(f"Unknown period {spec!r}. Use one of {', '.join(NAMED)}, {{\"days\": N}} or {{\"start\", \"end\"}}.")

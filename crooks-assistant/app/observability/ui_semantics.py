@@ -234,10 +234,10 @@ ENTRIES: tuple[Entry, ...] = (
     # ------------------------------------------------------------ what a card is saying
     Entry(
         key="applying", control="Applying…", group="surface_state",
-        what="“Applying…” means the card has been sent to the Mac and the Mac has not yet said "
+        what="“Applying…” means the card has been sent to the server and the server has not yet said "
              "what happened",
         where="It should last a second or two and then say Done, or say what went wrong. A card "
-              "still saying it after the change has gone through is a fault on the tablet, not "
+              "still saying it after the change has gone through is a fault on the screen, not "
               "a change still running — the change is finished",
         also=("undo", "approval"),
         asks=_asks(r"\bapplying\b", r"\bspinner\b", r"\bstill (?:going|spinning|hovering)\b"),
@@ -264,7 +264,7 @@ ENTRIES: tuple[Entry, ...] = (
              "Subject and Body take the keyboard",
         where="It opens on the card itself, so what you type stays with the thread it belongs "
               "to. Nothing is saved or sent until you tap — Save draft keeps it, Send sends it. "
-              "A field the Mac heard rather than read is marked so you can check it",
+              "A field the assistant heard rather than read is marked so you can check it",
         says=("write to them", "reply to this"),
         also=("voice_bind", "approval"),
         asks=_asks(r"\bhow do i type\b", r"\btype (?:instead of|rather than) (?:speak|saying|talking)\b",

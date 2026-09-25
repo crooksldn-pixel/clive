@@ -221,19 +221,19 @@
     </div>
 
     <h3>Voice</h3>
-    <p class="voice-line"><span id="voice-status" class="badge quiet">Checking</span><span id="voice-name">ElevenLabs voice, generated on the Mac</span></p>
+    <p class="voice-line"><span id="voice-status" class="badge quiet">Checking</span><span id="voice-name">ElevenLabs voice, generated on the server</span></p>
     <label class="check"><input type="checkbox" id="speak-toggle" checked> Speak answers aloud</label>
     <label class="check"><input type="checkbox" id="stream-toggle" checked> Start speaking before the whole answer has arrived</label>
     <div class="row-btns">
       <button id="preview-voice" class="btn" type="button">Preview voice</button>
       <button id="mic-test" class="btn" type="button">Microphone test</button>
     </div>
-    <p class="note" style="margin-top:14px">If the ElevenLabs voice cannot answer, the tablet speaks with the voice below.</p>
+    <p class="note" style="margin-top:14px">If the ElevenLabs voice cannot answer, this device speaks with the voice below.</p>
     <label class="field"><span>Fallback voice</span><select id="voice-select"></select></label>
     <p id="voice-note" class="note"></p>
 
     <h3>What I can do</h3>
-    <p class="note">Every capability, and where it stands on this Mac right now. Read from the
+    <p class="note">Every capability, and where it stands on the server right now. Read from the
       backend, not guessed at here: a change that needs a permission the shop has not granted
       says so, and one the store does not offer says that instead.</p>
     <div id="families" class="health" role="list"></div>

@@ -130,7 +130,7 @@ def _speech_verdict(
     else:
         speech_ok, speech_effective = False, "none"
         speech_detail = (
-            f"NO recogniser available{why} — the tablet cannot be heard"
+            f"NO recogniser available{why} — nothing spoken can be heard"
             if whisper_enabled
             else f"NOT working: {primary_check} is down{why} and there is no local fallback"
         )

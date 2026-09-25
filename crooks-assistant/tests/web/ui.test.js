@@ -378,7 +378,7 @@ test('a proposal that is not pending, or an interaction the tablet does not know
     h.surface.dispatch('pointerdown'); h.surface.dispatch('pointerup');
     assert.deepEqual(h.commits, []);
   }
-  assert.ok(textOf(tapHarness({ interaction: { kind: 'select_then_commit' } }).node).includes('newer tablet build'));
+  assert.ok(textOf(tapHarness({ interaction: { kind: 'select_then_commit' } }).node).includes('newer app build'));
 });
 
 test('a success card offers its undo the same way, and success needs a verified answer to exist at all', () => {
@@ -543,10 +543,10 @@ test('a blocked card names who is stopping the tap, by code, and never blames th
     assert.equal(surface.dataset.state, 'unavailable');
     words[code] = textOf(surface);
   }
-  assert.ok(/switched off on the Mac/.test(words.writes_disabled));
+  assert.ok(/switched off on the server/.test(words.writes_disabled));
   assert.ok(/No allowed logins/.test(words.allow_list_missing));
-  assert.ok(/tablet's login/.test(words.not_authorised));
-  assert.ok(/Mac itself/.test(words.not_authorised_local) && !/tablet/.test(words.not_authorised_local));
+  assert.ok(/device's login/.test(words.not_authorised));
+  assert.ok(/server itself/.test(words.not_authorised_local) && !/tablet/.test(words.not_authorised_local));
   assert.ok(/Shopify has not granted/.test(words.scope_missing));
   for (const text of Object.values(words)) assert.ok(!/not allowed/i.test(text), text);
 });
