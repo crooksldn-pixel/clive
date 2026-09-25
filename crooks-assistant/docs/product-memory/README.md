@@ -57,6 +57,7 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [NEXT_PHASE_2026-09-25.md](./NEXT_PHASE_2026-09-25.md) — the finish-first rule, the approved next phase (eyes, taste, the absorbing machine, the shelf) and every direction and idea captured on 2026-09-24 and 2026-09-25.
 - [INFRASTRUCTURE_2026-09-25.md](./INFRASTRUCTURE_2026-09-25.md) — the production host, clive-worker-01 and the Mac: roles, open hardware items and setup lessons.
 - [EXTERNAL_REVIEW_2026-09-25.md](./EXTERNAL_REVIEW_2026-09-25.md) — the owner-provided external review of 2026-09-25, kept verbatim: red trunk, landing before verification, unprotected safety core, loop confinement, direction carried forward.
+- [RECONCILIATION_2026-09-25.md](./RECONCILIATION_2026-09-25.md) — evening reconciliation of the trunk, all 48 loop objectives, all 110 branches (knowledge found only on unmerged branches, proposed clean-up) and what waits on the owner.
 
 ## Status model
 
