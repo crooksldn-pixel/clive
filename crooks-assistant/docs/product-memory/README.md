@@ -46,6 +46,7 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [PROJECT_AUDIT_2026-09-24.md](./PROJECT_AUDIT_2026-09-24.md) — whole-project finish list: why accepted work never reached the product, what is live, finished-but-unlanded work, stopped streams, agreed-but-unbuilt items, stale records and the finish order.
 - [SOURCE_ASSIMILATION_V1.md](./SOURCE_ASSIMILATION_V1.md) — how CLIVE learns from external repositories, skills and tools: quarantine, inventory, compare, decide the use, prove or drop; authority lines and the constraints found.
 - [SOURCE_SHELF.md](./SOURCE_SHELF.md) — the owner-supplied candidate sources (Taste Skill, Vercel guidelines, Playwright CLI, Agent Browser, Jev, LangWatch and others), triaged into batches.
+- [OWNER_DECISIONS_2026-09-25.md](./OWNER_DECISIONS_2026-09-25.md) — synthetic test credentials by runtime assembly, the approved loop update (builder checks, green-CI gate, protected safety core and loop code), engineering off the production host, and the Mac's role.
 
 ## Status model
 
