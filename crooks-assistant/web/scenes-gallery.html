@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07070a">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<title>CLIVE — scene gallery</title>
+<!-- A standalone page of fixture scenes, served under /static and linked from nowhere in the
+     app. It loads the app's design tokens, the scene styles and the scene renderer, and
+     nothing else: no route, no fetch, no session. -->
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/scenes.css">
+<script defer src="/static/scenes.js"></script>
+<script defer src="/static/scene-fixtures.js"></script>
+</head>
+<body class="scenes-gallery">
+<header class="gallery-head">
+  <p class="gallery-mark">CLIVE</p>
+  <h1>Scene gallery</h1>
+  <p>Invented examples of the new screen, drawn by the scene renderer. Not wired into the app yet.</p>
+</header>
+<main id="gallery" class="gallery"></main>
+</body>
+</html>
