@@ -977,13 +977,16 @@ function canDoRows(families) {
 // which are engineering text — an exception name, a status code, a stored credential — so they
 // are sorted here into a few kinds with a plain reason and what to do, and the words themselves
 // stay in the Developer view. Only a kind known to clear by itself says so: access that was
-// refused or never set up waits for a person. First match wins.
+// refused or never set up waits for a person. First match wins, so the narrower kinds come
+// first: an app and a shop in different Shopify organisations is refused access too, but for a
+// reason reconnecting the same way will not fix.
 const SERVICE_FAULT_KINDS = {
   shopify: [
+    ['organisation', /shop_not_permitted|different shopify organi[sz]ations?/i],
     ['setup', /no shopify_static_token|not configured|not stored/i],
     ['busy', /\b429\b|rate-limit|throttl/i],
     ['unreachable', /could not reach|timed out|timeout|\b5\d\d\b/i],
-    ['access', /\b40[13]\b|revoked|rejected the token|shop_not_permitted|token request failed|not released|installed/i],
+    ['access', /\b40[13]\b|revoked|rejected the token|token request failed|not released|installed/i],
   ],
   gmail: [
     ['setup', /no gmail token stored/i],
@@ -995,6 +998,9 @@ const SERVICE_WORDS = {
   shopify: { name: 'Shopify', place: 'your shop', purpose: 'read your orders, products and sales' },
   gmail: { name: 'Gmail', place: 'your inbox', purpose: 'read your email' },
 };
+// The kinds that wait for the owner, and the word each has among the owner's steps. The others —
+// busy, unreachable, unknown — establish no step: they clear by themselves or are not the owner's.
+const SERVICE_STEP_WORDS = { setup: 'Not connected', access: 'Needs reconnecting', organisation: 'Needs reconnecting' };
 function serviceFault(key, check) {
   const said = String((check && check.detail) || '');
   const found = (SERVICE_FAULT_KINDS[key] || []).find(([, pattern]) => pattern.test(said));
@@ -1003,6 +1009,13 @@ function serviceFault(key, check) {
   const word = 'Needs attention';
   if (kind === 'setup') {
     return { kind, word, detail: `${name} is not connected to CLIVE yet. Connect ${name} so CLIVE can ${purpose}.` };
+  }
+  if (kind === 'organisation') {
+    return {
+      kind, word,
+      detail: `CLIVE's Shopify connection belongs to a different Shopify organisation from ${place}, so ${place} will not let it in. `
+        + `Reconnect ${place} to CLIVE through ${place}'s own Shopify organisation so CLIVE can ${purpose}.`,
+    };
   }
   if (kind === 'access') {
     const why = key === 'gmail'
@@ -1064,20 +1077,37 @@ function shortWhat(what) {
 function permissionHolder(f) {
   return /gmail|googleapis/i.test(String(f.scope || '')) || f.area === 'email' ? 'Gmail' : 'Shopify';
 }
+// A disconnected family's subject comes from its reported reason where that is narrower than
+// its area (a carrier, not any shipping provider), and otherwise from the area. An area with no
+// service to name has no step to give, so nothing is said rather than "the service it needs".
+const CONNECT_SUBJECTS = {
+  shipping: 'a shipping provider', email: 'Gmail',
+  orders: 'Shopify', customers: 'Shopify', products: 'Shopify', analytics: 'Shopify',
+};
 function connectSubject(f) {
-  if (f.area === 'shipping' || /\bcarrier\b/i.test(String(f.detail || ''))) return 'a carrier';
-  if (f.area === 'email') return 'Gmail';
-  return 'the service it needs';
+  const said = String(f.detail || '');
+  if (/\bcarrier\b/i.test(said)) return 'a carrier';
+  if (/\bshipping provider\b/i.test(said)) return 'a shipping provider';
+  if (/\bgmail\b/i.test(said)) return 'Gmail';
+  if (/\bshopify\b/i.test(said)) return 'Shopify';
+  return CONNECT_SUBJECTS[f.area] || '';
 }
 
-// Only the open steps /health already names as the owner's: a permission a change is waiting
-// for, a service that is not connected, and credits that have run out — each as the task it
-// turns on and the one thing the owner does.
+// Only the open steps /health already names as the owner's: a service to connect or reconnect,
+// a permission a change is waiting for, a family whose service is not connected, and credits
+// that have run out — each as the task it turns on and the one thing the owner does.
 function needsRows(data) {
+  const checks = (data && data.checks) || {};
   const families = (data && data.families) || {};
   const voice = (data && data.voice) || {};
   const speech = (data && data.speech) || {};
   const rows = [];
+  for (const key of ['shopify', 'gmail']) {
+    if (!checks[key] || checks[key].ok !== false) continue;
+    const fault = serviceFault(key, checks[key]);
+    const word = SERVICE_STEP_WORDS[fault.kind];
+    if (word) rows.push({ name: SERVICE_WORDS[key].name, state: 'attention', word, detail: fault.detail });
+  }
   for (const key of Object.keys(families).sort()) {
     const f = families[key] || {};
     if (key === '_error' || f.hide) continue;
@@ -1090,6 +1120,7 @@ function needsRows(data) {
       rows.push({ name: String(f.label || key), state: 'attention', word: 'Needs your permission', detail });
     } else if (f.state === 'DISCONNECTED') {
       const subject = connectSubject(f);
+      if (!subject) continue;
       const tell = /^(whether|what|which|when|where|who|how)\b/.test(task) ? ` so CLIVE can tell you ${task}` : ' to turn this on';
       rows.push({ name: String(f.label || key), state: 'attention', word: 'Not connected', detail: `Connect ${subject}${tell}.` });
     }

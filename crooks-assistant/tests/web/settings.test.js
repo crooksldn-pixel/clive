@@ -205,11 +205,13 @@ test('a service that needs attention says why in plain words and what to do, and
   assert.equal(page.el.setNeeds.hidden, false);
   const needs = rows(page.el.needs);
   assert.deepEqual(needs.map((r) => `${r.name}: ${r.word}`),
-    ['Delivery status: Not connected', 'Discount codes: Needs your permission', 'ElevenLabs plan: Top up']);
+    ['Gmail: Needs reconnecting', 'Delivery status: Not connected', 'Discount codes: Needs your permission', 'ElevenLabs plan: Top up']);
+  // The refused Gmail refresh is the owner's step too, in the same words as the reach row.
+  assert.equal(needs[0].detail, gmail.detail);
   // A disconnected service names what to connect, and what that turns on.
-  assert.equal(needs[0].detail, 'Connect a carrier so CLIVE can tell you whether a parcel has actually arrived.');
+  assert.equal(needs[1].detail, 'Connect a carrier so CLIVE can tell you whether a parcel has actually arrived.');
   // A missing permission is the task it allows, not the scope's identifier.
-  assert.equal(needs[1].detail, "CLIVE does not yet have Shopify's permission to create a discount code. Allow it in Shopify to turn this on.");
+  assert.equal(needs[2].detail, "CLIVE does not yet have Shopify's permission to create a discount code. Allow it in Shopify to turn this on.");
 
   // The backend's engineering detail never reaches these rows — it named the Mac twice here —
   // and neither does a raw identifier: a scope, a state, an exception.
@@ -232,7 +234,8 @@ test('a failed shop or inbox check says why in plain words, and claims recovery 
   };
   const cases = [
     ['shopify', 'Shopify rejected the token (401). It may have been revoked.', /Reconnect Shopify to CLIVE/, 'Needs attention'],
-    ['shopify', 'shop_not_permitted — the app and the store are in different Shopify organisations.', /Reconnect Shopify/, 'Needs attention'],
+    ['shopify', 'shop_not_permitted — the app and the store are in different Shopify organisations. This cannot be fixed in config and apps cannot be moved. Either recreate the app in the store\'s organisation, or set CROOKS_SHOPIFY_AUTH_MODE=static_token and store a legacy shpat_ token.',
+      /^CLIVE's Shopify connection belongs to a different Shopify organisation from your shop.*Reconnect your shop to CLIVE through your shop's own Shopify organisation/, 'Needs attention'],
     ['shopify', 'auth_mode is static_token but no shopify_static_token is stored. Run: python scripts/set_secrets.py shopify_static_token', /Shopify is not connected to CLIVE yet\. Connect Shopify/, 'Needs attention'],
     ['shopify', 'check timed out', /could not reach your shop.*ask for CLIVE's connection to Shopify to be checked/, 'Needs attention'],
     ['shopify', 'Shopify is rate-limiting us. Try again in a moment.', /picks up again by itself/, 'Busy'],
@@ -250,6 +253,67 @@ test('a failed shop or inbox check says why in plain words, and claims recovery 
     assert.doesNotMatch(row.detail, /scripts\/|python|invalid_grant|401|shop_not_permitted|static_token|timed out|rate-limiting/, detail);
     assert.doesNotMatch(row.detail, RUNTIME_HOST, detail);
   }
+  // Organisations that do not match are their own reason, not access withdrawn or run out, and
+  // the raw words — the identifier included — are still the Developer view's.
+  assert.doesNotMatch(detailOf('shopify', 'shop_not_permitted').detail, /withdrawn|run out/);
+  assert.ok(cut('function renderHealthRows(checks)', '\n}\n').includes('c.detail'));
+});
+
+test('a service the owner must connect or reconnect is among the owner\'s steps; one that clears by itself is not', () => {
+  const page = boot();
+  const needsFor = (key, detail) => {
+    const data = healthy();
+    data.checks[key] = { ok: false, detail };
+    page.sandbox.drawOwnerSettings(data);
+    return { hidden: page.el.setNeeds.hidden, rows: rows(page.el.needs), reach: rows(page.el.reach) };
+  };
+  const steps = [
+    ['gmail', 'No Gmail token stored. Re-authorise with: python scripts/gmail_auth.py', 'Gmail', 'Not connected', /^Gmail is not connected to CLIVE yet\. Connect Gmail/],
+    ['gmail', 'Gmail refresh was rejected (invalid_grant). Re-authorise with: python scripts/gmail_auth.py', 'Gmail', 'Needs reconnecting', /Reconnect Gmail to CLIVE/],
+    ['shopify', 'Shopify rejected the token (401). It may have been revoked.', 'Shopify', 'Needs reconnecting', /Reconnect Shopify to CLIVE/],
+    ['shopify', 'auth_mode is static_token but no shopify_static_token is stored.', 'Shopify', 'Not connected', /^Shopify is not connected to CLIVE yet\. Connect Shopify/],
+    ['shopify', 'shop_not_permitted — the app and the store are in different Shopify organisations.', 'Shopify', 'Needs reconnecting', /different Shopify organisation.*through your shop's own Shopify organisation/],
+  ];
+  for (const [key, detail, name, word, expected] of steps) {
+    const seen = needsFor(key, detail);
+    assert.equal(seen.hidden, false, detail);
+    assert.deepEqual(seen.rows.map((r) => `${r.name}: ${r.word}`), [`${name}: ${word}`], detail);
+    assert.match(seen.rows[0].detail, expected, detail);
+    assert.equal(seen.rows[0].detail, seen.reach.find((r) => r.name === name).detail, detail);
+    assert.doesNotMatch(seen.rows[0].detail, /scripts\/|python|invalid_grant|401|shop_not_permitted|static_token|\w_\w/, detail);
+    assert.doesNotMatch(seen.rows[0].detail, RUNTIME_HOST, detail);
+  }
+  // Transient, rate-limited and unrecognised failures establish no step for the owner.
+  for (const [key, detail] of [
+    ['shopify', 'check timed out'], ['shopify', 'Shopify is rate-limiting us. Try again in a moment.'],
+    ['shopify', 'Shopify rejected the query: something odd'], ['gmail', 'check timed out'], ['gmail', 'HTTP 503 from Google'],
+  ]) {
+    const seen = needsFor(key, detail);
+    assert.equal(seen.hidden, true, detail);
+    assert.equal(seen.rows.length, 0, detail);
+  }
+});
+
+test('every disconnected family names the service to connect, and none is told to connect "the service it needs"', () => {
+  const page = boot();
+  const data = healthy();
+  data.families.shipping_provider = { key: 'shipping_provider', label: 'Shipping labels and tracking', area: 'shipping',
+    what: 'whether a label exists for an order, which carrier has it, the tracking number, its latest status, and any shipping exception',
+    state: 'DISCONNECTED', detail: 'no shipping provider is connected: CROOKS_EASYSHIP_TOKEN is unset and the Easyship HTTP client (not written in this build)', operations: [], hide: false };
+  data.families.order_feed = { key: 'order_feed', label: 'Order feed', area: 'orders', what: 'add a customer to the order feed', state: 'DISCONNECTED', detail: 'not connected on this Mac', operations: [], hide: false };
+  data.families.inbox_rules = { key: 'inbox_rules', label: 'Inbox rules', area: 'email', what: 'which threads need a reply', state: 'DISCONNECTED', detail: 'no token', operations: [], hide: false };
+  data.families.mystery = { key: 'mystery', label: 'Something else', area: 'system', what: 'do a thing', state: 'DISCONNECTED', detail: 'X_TOKEN unset', operations: [], hide: false };
+  page.sandbox.drawOwnerSettings(data);
+  const needs = rows(page.el.needs);
+  assert.deepEqual(needs.map((r) => `${r.name}: ${r.detail}`), [
+    'Inbox rules: Connect Gmail so CLIVE can tell you which threads need a reply.',
+    'Order feed: Connect Shopify to turn this on.',
+    'Shipping labels and tracking: Connect a shipping provider so CLIVE can tell you whether a label exists for an order.',
+  ]);
+  const text = page.el.needs.allText();
+  assert.doesNotMatch(text, /service it needs|Something else/);
+  assert.doesNotMatch(text, /CROOKS_|EASYSHIP|\w_\w/);
+  assert.doesNotMatch(text, RUNTIME_HOST);
 });
 
 test('the voice switched off is said as off, not as a fault', () => {
