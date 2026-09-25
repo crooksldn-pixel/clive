@@ -1792,6 +1792,45 @@ def test_a_worker_reported_block_publishes_the_report_redacted(tmp_path):
     assert item["open_findings"] == [] and item["failed_checks"] == []
 
 
+class _NoIntake:
+    def poll_once(self):
+        return []
+
+
+@pytest.mark.parametrize("steps", [200, 400], ids=["longer-than-the-blocker", "longer-than-the-cap"])
+def test_a_worker_reported_block_publishes_the_whole_report_from_the_stream_log(tmp_path, steps):
+    """The kernel's blocker keeps 990 characters of the report; the published report keeps up to 4000."""
+    from tests.test_engineering_dispatcher import OBJ, World
+
+    token = "ghp_" + "L" * 36
+    reason = "".join(f"step {n:04d} failed; " for n in range(steps))
+    reason += f"needs {token} with client.pem and id_ed25519"
+    w = World(tmp_path)
+    w.scenarios({"report": {"status": "blocked", "summary": "cannot", "reason": reason}})
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+    receipts = ReceiptLog(w.store.root / "remote_engineering")
+    receipts.put(Receipt(request_id="r-long", request_sha256="0" * 64, outcome="accepted",
+                         objective_id=OBJ, task_id=OBJ, source="requests/r-long.json", recorded_at=NOW))
+    loop = RemoteEngineeringLoop(controller=_NoIntake(), dispatcher=w.dispatcher(), store=w.store,
+                                 receipts=receipts, publish=lambda status: "projection", clock=w.clock)
+
+    status = loop.cycle()["status"]
+    item, published = status["requests"][0], json.dumps(status, sort_keys=True)
+
+    assert item["blocker"] == ("worker reported blocked: " + reason)[:990]
+    report = item["worker_report"]
+    if steps == 200:
+        assert 990 < len(report) < status_module.MAX_WORKER_REPORT_CHARS
+        assert report == reason.replace(token, REDACTED).replace("client.pem", REDACTED).replace(
+            "id_ed25519", REDACTED)
+    else:
+        assert report == reason[:status_module.MAX_WORKER_REPORT_CHARS]
+        assert len(report) == status_module.MAX_WORKER_REPORT_CHARS == 4000
+    for planted in (token, "client.pem", "id_ed25519"):
+        assert planted not in published
+
+
 def test_a_request_that_is_not_stuck_publishes_nothing_extra(env, tmp_path):
     commit_request(env.origin, "r-idle", valid_request(env, request_id="r-idle"))
     kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
@@ -1814,6 +1853,22 @@ def test_a_request_that_is_not_stuck_publishes_nothing_extra(env, tmp_path):
         "authorization", "assigned", "credential-path", "token-shapes"])
 def test_published_text_is_redacted_by_shape(text, expected):
     assert redact_published(text) == expected
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("copy id_ed25519 into place", f"copy {REDACTED} into place"),
+    ("curl reads .netrc first", f"curl reads {REDACTED} first"),
+    ("loads client.pem and gpt.key", f"loads {REDACTED} and {REDACTED}"),
+    ("opened certs\\client.p12 and C:\\Users\\u\\.ssh\\config", f"opened {REDACTED} and {REDACTED}"),
+    ("wrote config\\secrets\\gmail_token", f"wrote {REDACTED}"),
+], ids=["bare-id_ed25519", "bare-netrc", "relative-key-files", "backslash-paths", "backslash-secrets-dir"])
+def test_published_redaction_finds_a_credential_path_without_a_forward_slash(text, expected):
+    assert redact_published(text) == expected
+
+
+def test_published_redaction_leaves_the_words_secret_and_credentials_alone():
+    text = "no secret or credentials were printed; see docs/credentials.md"
+    assert redact_published(text) == text
 
 
 def test_published_redaction_leaves_ordinary_check_output_readable():

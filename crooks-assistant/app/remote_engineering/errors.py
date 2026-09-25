@@ -163,11 +163,15 @@ _ASSIGNED = re.compile(
     r"(?i)\b((?:[a-z0-9]+[_\-]){0,4}(?:password|passwd|passphrase|secret|token|api[_\-]?key|access[_\-]?key"
     r"|private[_\-]?key|credentials?|authorization|cookie))(\s*[\"']?\s*[:=]\s*[\"']?)([^\s\"',;]+)"
 )
-# One word at a time, so a long run without a slash costs one pass, not one pass per character.
+# One word at a time, so a long run without a separator costs one pass, not one pass per character.
 _WORD = re.compile(r"[^\s'\"`<>()\[\]{},;=]+")
+# A path with either separator, or none: a bare ``.netrc``, ``id_ed25519`` or ``client.pem`` is a
+# credential file too. ``secret`` and ``credentials`` are ordinary words, so they count as a
+# location only beside a separator.
 _CREDENTIAL_PATH = re.compile(
-    r"(?:^|/)(?:\.ssh|\.gnupg|\.aws|\.azure|\.kube|\.docker|\.password-store|secrets?|credentials?)(?:/|$)"
-    r"|(?:^|/)(?:\.netrc|\.git-credentials|\.pgpass|\.npmrc|\.pypirc|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?)$"
+    r"(?:^|[/\\])(?:\.ssh|\.gnupg|\.aws|\.azure|\.kube|\.docker|\.password-store)(?:[/\\]|$)"
+    r"|(?:^|[/\\])(?:secrets?|credentials?)[/\\]|[/\\](?:secrets?|credentials?)$"
+    r"|(?:^|[/\\])(?:\.netrc|\.git-credentials|\.pgpass|\.npmrc|\.pypirc|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?)$"
     r"|\.(?:pem|key|p12|pfx|jks|keystore|gpg)$",
     re.I,
 )
@@ -175,7 +179,7 @@ _CREDENTIAL_PATH = re.compile(
 
 def _credential_path(match: re.Match) -> str:
     word = match.group(0)
-    return REDACTED if "/" in word and _CREDENTIAL_PATH.search(word.rstrip(".:")) else word
+    return REDACTED if _CREDENTIAL_PATH.search(word.rstrip(".:")) else word
 
 
 def redact_published(text: str, supplied: Iterable[str] = (), *, keep: Iterable[str] = ()) -> str:

@@ -16,9 +16,10 @@ Why a task is stuck travels too, so the Director need not read the host: the ope
 of the latest independent verdict (read from the verdict payload the kernel stores beside
 its admission), the failing checks of a refused result (read from the check evidence file
 whose path and sha256 the kernel recorded; a file that no longer matches its digest is not
-published) and the text of a worker-reported block (the kernel's blocker record). Each is
-redacted with ``redact_published`` before it is truncated, and bounded by the constants
-below, so the projection stays deterministic and bounded in size.
+published) and the text of a worker-reported block (the worker's structured report in the
+attempt's runtime stream log, which the kernel's blocker record holds only the first 990
+characters of). Each is redacted with ``redact_published`` before it is truncated, and
+bounded by the constants below, so the projection stays deterministic and bounded in size.
 """
 
 from __future__ import annotations
@@ -49,12 +50,13 @@ MAX_CHECK_TAIL_CHARS = 4000
 MAX_WORKER_REPORT_CHARS = 4000
 _MAX_LABEL_CHARS = 40
 _MAX_EVIDENCE_BYTES = 256 * 1024
+_MAX_STREAM_TAIL_BYTES = 1024 * 1024
 
-# How the dispatcher words a block whose reason is the worker's own report.
-_WORKER_REPORT_PREFIXES = (
-    "worker reported blocked: ",
-    "worker reports an owner decision is required: ",
-)
+# How the dispatcher words a block whose reason is the worker's own report, by report status.
+_WORKER_REPORT_PREFIXES = {
+    "blocked": "worker reported blocked: ",
+    "owner_decision_required": "worker reports an owner decision is required: ",
+}
 _BLOCKED_STAGES = ("BLOCKED", "OWNER_GATE")
 
 _TASK_FIELDS = (
@@ -76,6 +78,7 @@ def build_status(
     receipts: ReceiptLog,
     now: datetime,
     refusals: tuple[dict, ...] = (),
+    runtime_root: Path | None = None,
 ) -> dict:
     # A repair is a new task revision (r+1); the earlier revision becomes OBSOLETE. The
     # task's current stage, candidate, review, acceptance and integration are therefore
@@ -108,7 +111,7 @@ def build_status(
                     item[field_name] = redact_published(item[field_name])
             item["open_findings"] = _open_findings(store, task["task_id"])
             item["failed_checks"] = _failed_checks(task)
-            item["worker_report"] = _worker_report(task)
+            item["worker_report"] = _worker_report(task, runtime_root)
         requests.append(item)
     refused = sorted(
         (
@@ -224,12 +227,52 @@ def _failed_checks(task: dict) -> list[dict]:
     return out
 
 
-def _worker_report(task: dict) -> str | None:
-    """The worker's own report of why it stopped, as the kernel's blocker record holds it."""
+def _reported_text(runtime_root: Path | None, attempt_id: object, status: str) -> str | None:
+    """``reason or summary`` of the attempt's structured report, as the worker wrote it.
+
+    The authoritative record is the dispatcher's stream log of the attempt,
+    ``<runtime_root>/logs/<attempt_id>.stream.jsonl`` (``Dispatcher._paths``), whose ``result``
+    event carries the report as ``structured_output``. It is the worker's last event, so only a
+    bounded tail of the log is read.
+    """
+    if runtime_root is None or not isinstance(attempt_id, str) or Path(attempt_id).name != attempt_id:
+        return None
+    try:
+        with (Path(runtime_root) / "logs" / f"{attempt_id}.stream.jsonl").open("rb") as handle:
+            size = handle.seek(0, 2)
+            handle.seek(max(0, size - _MAX_STREAM_TAIL_BYTES))
+            tail = handle.read(_MAX_STREAM_TAIL_BYTES)
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        try:
+            event = json.loads(line)
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(event, dict) or event.get("type") != "result":
+            continue
+        report = event.get("structured_output")
+        if not isinstance(report, dict) or report.get("status") != status:
+            return None
+        text = report.get("reason") or report.get("summary")
+        return text if isinstance(text, str) else None
+    return None
+
+
+def _worker_report(task: dict, runtime_root: Path | None) -> str | None:
+    """The worker's own report of why it stopped, whole, cut only to ``MAX_WORKER_REPORT_CHARS``.
+
+    Read from the attempt's stream log; the kernel's blocker record is the dispatcher's prefix
+    and the same text cut to 990 characters, so a log report is published only when the blocker
+    is its start. Without the log, the blocker's text is all there is.
+    """
     blocker = task.get("blocker")
     if task.get("stage") not in _BLOCKED_STAGES or not isinstance(blocker, str):
         return None
-    for prefix in _WORKER_REPORT_PREFIXES:
+    for status, prefix in _WORKER_REPORT_PREFIXES.items():
         if blocker.startswith(prefix):
-            return _bounded(blocker.removeprefix(prefix), MAX_WORKER_REPORT_CHARS)
+            text = _reported_text(runtime_root, task.get("attempt_id"), status)
+            if text is None or not (prefix + text).startswith(blocker):
+                text = blocker.removeprefix(prefix)
+            return _bounded(text, MAX_WORKER_REPORT_CHARS)
     return None

@@ -76,7 +76,11 @@ class RemoteEngineeringLoop:
 
         dispatcher_events = list(self.dispatcher.tick())
 
-        status = build_status(store=self.store, receipts=self.receipts, now=self.clock(), refusals=refusals)
+        # The Dispatcher's runtime root holds each attempt's stream log, where a worker's
+        # complete block report lives; without one the projection falls back to the blocker.
+        runtime_root = getattr(getattr(self.dispatcher, "config", None), "runtime_root", None)
+        status = build_status(store=self.store, receipts=self.receipts, now=self.clock(), refusals=refusals,
+                              runtime_root=runtime_root)
         status["adapter"] = {"intake_error": intake_error}
         publish_error: str | None = None
         try:
