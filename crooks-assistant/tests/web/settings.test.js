@@ -195,21 +195,60 @@ test('a service that needs attention says why in plain words and what to do, and
   assert.equal(voice.state, 'attention');
   assert.match(voice.detail, /^Voice is paused because the ElevenLabs credits are used up; it comes back by itself once the ElevenLabs plan is topped up\./);
   assert.match(voice.detail, /answers are spoken in this device's own voice/);
+  // A refused Gmail refresh needs the owner to reconnect it; waiting will not bring it back.
   const gmail = reach.find((r) => r.name === 'Gmail');
   assert.equal(gmail.word, 'Needs attention');
-  assert.match(gmail.detail, /could not reach your inbox/);
+  assert.match(gmail.detail, /stopped letting CLIVE into your inbox/);
+  assert.match(gmail.detail, /Reconnect Gmail to CLIVE/);
+  assert.doesNotMatch(gmail.detail, /by itself|tries again/);
 
   assert.equal(page.el.setNeeds.hidden, false);
   const needs = rows(page.el.needs);
   assert.deepEqual(needs.map((r) => `${r.name}: ${r.word}`),
     ['Delivery status: Not connected', 'Discount codes: Needs your permission', 'ElevenLabs plan: Top up']);
-  assert.match(needs[1].detail, /write_discounts/);
+  // A disconnected service names what to connect, and what that turns on.
+  assert.equal(needs[0].detail, 'Connect a carrier so CLIVE can tell you whether a parcel has actually arrived.');
+  // A missing permission is the task it allows, not the scope's identifier.
+  assert.equal(needs[1].detail, "CLIVE does not yet have Shopify's permission to create a discount code. Allow it in Shopify to turn this on.");
 
-  // The backend's engineering detail never reaches these rows — it named the Mac twice here.
+  // The backend's engineering detail never reaches these rows — it named the Mac twice here —
+  // and neither does a raw identifier: a scope, a state, an exception.
   for (const list of [page.el.canDo, page.el.reach, page.el.needs]) {
     const text = list.allText();
     assert.doesNotMatch(text, RUNTIME_HOST);
-    assert.doesNotMatch(text, /CROOKS_|RefreshError|401|quota_exceeded/);
+    assert.doesNotMatch(text, /CROOKS_|RefreshError|401|quota_exceeded|write_discounts|MISSING_SCOPE|DISCONNECTED|\w_\w/);
+  }
+  // The exact scope and the backend's reason are still there for the Developer view's list.
+  assert.ok(cut('function familyRow(family)', 'function renderFamilies').includes('family.scope'));
+});
+
+test('a failed shop or inbox check says why in plain words, and claims recovery only where it comes by itself', () => {
+  const page = boot();
+  const detailOf = (key, detail) => {
+    const data = healthy();
+    data.checks[key] = { ok: false, detail };
+    page.sandbox.drawOwnerSettings(data);
+    return rows(page.el.reach).find((r) => r.name === (key === 'gmail' ? 'Gmail' : 'Shopify'));
+  };
+  const cases = [
+    ['shopify', 'Shopify rejected the token (401). It may have been revoked.', /Reconnect Shopify to CLIVE/, 'Needs attention'],
+    ['shopify', 'shop_not_permitted — the app and the store are in different Shopify organisations.', /Reconnect Shopify/, 'Needs attention'],
+    ['shopify', 'auth_mode is static_token but no shopify_static_token is stored. Run: python scripts/set_secrets.py shopify_static_token', /Shopify is not connected to CLIVE yet\. Connect Shopify/, 'Needs attention'],
+    ['shopify', 'check timed out', /could not reach your shop.*ask for CLIVE's connection to Shopify to be checked/, 'Needs attention'],
+    ['shopify', 'Shopify is rate-limiting us. Try again in a moment.', /picks up again by itself/, 'Busy'],
+    ['shopify', 'Shopify rejected the query: something odd', /Shopify did not answer CLIVE as expected/, 'Needs attention'],
+    ['gmail', 'Gmail refresh was rejected (invalid_grant). Re-authorise with: python scripts/gmail_auth.py', /Reconnect Gmail to CLIVE/, 'Needs attention'],
+    ['gmail', 'No Gmail token stored. Re-authorise with: python scripts/gmail_auth.py', /Gmail is not connected to CLIVE yet\. Connect Gmail/, 'Needs attention'],
+    ['gmail', 'check timed out', /could not reach your inbox/, 'Needs attention'],
+  ];
+  for (const [key, detail, expected, word] of cases) {
+    const row = detailOf(key, detail);
+    assert.equal(row.state, 'attention', detail);
+    assert.equal(row.word, word, detail);
+    assert.match(row.detail, expected, detail);
+    if (word !== 'Busy') assert.doesNotMatch(row.detail, /by itself|tries again/, detail);
+    assert.doesNotMatch(row.detail, /scripts\/|python|invalid_grant|401|shop_not_permitted|static_token|timed out|rate-limiting/, detail);
+    assert.doesNotMatch(row.detail, RUNTIME_HOST, detail);
   }
 });
 

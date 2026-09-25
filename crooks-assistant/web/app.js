@@ -973,8 +973,54 @@ function canDoRows(families) {
     .map((f) => ({ name: String(f.label || f.key), detail: plainSentence(f.what) }));
 }
 
+// What a failed Shopify or Gmail check means for the owner. /health sends the check's own words,
+// which are engineering text — an exception name, a status code, a stored credential — so they
+// are sorted here into a few kinds with a plain reason and what to do, and the words themselves
+// stay in the Developer view. Only a kind known to clear by itself says so: access that was
+// refused or never set up waits for a person. First match wins.
+const SERVICE_FAULT_KINDS = {
+  shopify: [
+    ['setup', /no shopify_static_token|not configured|not stored/i],
+    ['busy', /\b429\b|rate-limit|throttl/i],
+    ['unreachable', /could not reach|timed out|timeout|\b5\d\d\b/i],
+    ['access', /\b40[13]\b|revoked|rejected the token|shop_not_permitted|token request failed|not released|installed/i],
+  ],
+  gmail: [
+    ['setup', /no gmail token stored/i],
+    ['unreachable', /timed out|timeout|could not reach|unable to find the server|\b5\d\d\b/i],
+    ['access', /RefreshError|invalid_grant|refresh|authoris|authoriz|expired|credential|token|\b40[13]\b/i],
+  ],
+};
+const SERVICE_WORDS = {
+  shopify: { name: 'Shopify', place: 'your shop', purpose: 'read your orders, products and sales' },
+  gmail: { name: 'Gmail', place: 'your inbox', purpose: 'read your email' },
+};
+function serviceFault(key, check) {
+  const said = String((check && check.detail) || '');
+  const found = (SERVICE_FAULT_KINDS[key] || []).find(([, pattern]) => pattern.test(said));
+  const kind = found ? found[0] : 'unknown';
+  const { name, place, purpose } = SERVICE_WORDS[key];
+  const word = 'Needs attention';
+  if (kind === 'setup') {
+    return { kind, word, detail: `${name} is not connected to CLIVE yet. Connect ${name} so CLIVE can ${purpose}.` };
+  }
+  if (kind === 'access') {
+    const why = key === 'gmail'
+      ? 'Google has stopped letting CLIVE into your inbox — a Google password change does this, for example.'
+      : 'Shopify has stopped letting CLIVE into your shop — its access was withdrawn or has run out.';
+    return { kind, word, detail: `${why} Reconnect ${name} to CLIVE so it can ${purpose} again.` };
+  }
+  if (kind === 'busy') {
+    return { kind, word: 'Busy', detail: `${name} asked CLIVE to slow down for a moment. It picks up again by itself; there is nothing to do.` };
+  }
+  const why = kind === 'unreachable'
+    ? `CLIVE could not reach ${place} on its last check.`
+    : `${name} did not answer CLIVE as expected on its last check.`;
+  return { kind, word, detail: `${why} If it stays like this for more than a few minutes, ask for CLIVE's connection to ${name} to be checked.` };
+}
+
 // Each connected service, as connected or as needing attention with the plain reason and what
-// happens next. Only the services /health reports: a check it did not run is not a row.
+// to do. Only the services /health reports: a check it did not run is not a row.
 function reachRows(data) {
   const checks = (data && data.checks) || {};
   const voice = (data && data.voice) || {};
@@ -982,13 +1028,12 @@ function reachRows(data) {
   const rows = [];
   const connected = (name) => ({ name, state: 'ok', word: 'Connected' });
   const attention = (name, detail) => ({ name, state: 'attention', word: 'Needs attention', detail });
-  if (checks.shopify) {
-    rows.push(checks.shopify.ok ? connected('Shopify')
-      : attention('Shopify', 'CLIVE could not reach your shop just now. It tries again by itself.'));
-  }
-  if (checks.gmail) {
-    rows.push(checks.gmail.ok ? connected('Gmail')
-      : attention('Gmail', 'CLIVE could not reach your inbox just now. It tries again by itself.'));
+  for (const key of ['shopify', 'gmail']) {
+    if (!checks[key]) continue;
+    const name = SERVICE_WORDS[key].name;
+    if (checks[key].ok) { rows.push(connected(name)); continue; }
+    const fault = serviceFault(key, checks[key]);
+    rows.push({ name, state: 'attention', word: fault.word, detail: fault.detail });
   }
   if (checks.tts || (data && data.voice)) {
     if (voice.enabled === false) {
@@ -1006,8 +1051,28 @@ function reachRows(data) {
   return rows;
 }
 
+// A family's `what` cut to its first clause and started in lower case, to sit inside a sentence:
+// "Create a discount code — a percentage or …" → "create a discount code".
+function shortWhat(what) {
+  const said = String(what || '').split(/ — |, /)[0].trim().replace(/[.!?]$/, '');
+  return said ? said.charAt(0).toLowerCase() + said.slice(1) : '';
+}
+
+// Which service holds a family's permission, and what must be connected for a family that is
+// not: said as the owner would, never as the scope or the provider's identifier. The exact
+// scope and the backend's reason stay in the Developer view's list of families.
+function permissionHolder(f) {
+  return /gmail|googleapis/i.test(String(f.scope || '')) || f.area === 'email' ? 'Gmail' : 'Shopify';
+}
+function connectSubject(f) {
+  if (f.area === 'shipping' || /\bcarrier\b/i.test(String(f.detail || ''))) return 'a carrier';
+  if (f.area === 'email') return 'Gmail';
+  return 'the service it needs';
+}
+
 // Only the open steps /health already names as the owner's: a permission a change is waiting
-// for, a service that is not connected, and credits that have run out.
+// for, a service that is not connected, and credits that have run out — each as the task it
+// turns on and the one thing the owner does.
 function needsRows(data) {
   const families = (data && data.families) || {};
   const voice = (data && data.voice) || {};
@@ -1016,13 +1081,17 @@ function needsRows(data) {
   for (const key of Object.keys(families).sort()) {
     const f = families[key] || {};
     if (key === '_error' || f.hide) continue;
-    const what = plainSentence(f.what);
+    const task = shortWhat(f.what);
     if (f.state === 'MISSING_SCOPE') {
-      const grant = f.scope ? `Grant the “${f.scope}” permission to turn it on.` : 'Grant the permission it needs to turn it on.';
-      rows.push({ name: String(f.label || key), state: 'attention', word: 'Needs your permission', detail: what ? `${what} ${grant}` : grant });
+      const holder = permissionHolder(f);
+      const detail = task
+        ? `CLIVE does not yet have ${holder}'s permission to ${task}. Allow it in ${holder} to turn this on.`
+        : `CLIVE does not yet have the ${holder} permission this needs. Allow it in ${holder} to turn this on.`;
+      rows.push({ name: String(f.label || key), state: 'attention', word: 'Needs your permission', detail });
     } else if (f.state === 'DISCONNECTED') {
-      const connect = 'It turns on once it is connected.';
-      rows.push({ name: String(f.label || key), state: 'attention', word: 'Not connected', detail: what ? `${what} ${connect}` : connect });
+      const subject = connectSubject(f);
+      const tell = /^(whether|what|which|when|where|who|how)\b/.test(task) ? ` so CLIVE can tell you ${task}` : ' to turn this on';
+      rows.push({ name: String(f.label || key), state: 'attention', word: 'Not connected', detail: `Connect ${subject}${tell}.` });
     }
   }
   if (voice.failure_kind === 'credit' || speech.scribe_failure_kind === 'credit') {
