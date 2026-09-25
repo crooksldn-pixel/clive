@@ -364,8 +364,12 @@ async def harness(*, live: bool = False, writes: bool = True):
             else:
                 from app.runtime import _make_customer_lookup
                 from app.tools import gmail_writes
-                from experience.fixtures import FixtureShopify, fixture_gmail
+                from experience.fixtures import FixtureShopify, data, fixture_gmail
 
+                # The world on the day the application is on, not the day the suite was
+                # collected: a run that crosses midnight otherwise asks for today's orders
+                # in a world whose today has become yesterday (data.rebase).
+                data.rebase()
                 store, gmail = FixtureShopify(), fixture_gmail()
                 runtime.shopify = store
                 shopify_tools.bind(store)

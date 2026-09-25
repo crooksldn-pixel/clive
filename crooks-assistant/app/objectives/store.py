@@ -31,6 +31,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 __all__ = [
     "LADDER",
@@ -46,6 +47,10 @@ STATUSES = ("active", "waiting", "blocked", "done", "dropped")
 BLOCKER_KINDS = ("missing_info", "missing_capability", "needs_owner", "external")
 _ID = re.compile(r"^obj_[0-9a-f]{8}$")
 MAX_TEXT = 2000
+# The owner's calendar. A deadline is a day in London, so "today" has to be London's too: the
+# UTC date is yesterday's for the hour after midnight in summer, and every objective on the
+# home screen read a day further off than it was until one in the morning.
+OWNER_TZ = ZoneInfo("Europe/London")
 
 
 class ObjectiveError(ValueError):
@@ -150,7 +155,7 @@ def _days_left(deadline: str | None) -> int | None:
     if not deadline:
         return None
     try:
-        return (date.fromisoformat(deadline) - datetime.now(UTC).date()).days
+        return (date.fromisoformat(deadline) - datetime.now(OWNER_TZ).date()).days
     except ValueError:
         return None
 

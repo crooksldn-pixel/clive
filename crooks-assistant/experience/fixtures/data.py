@@ -6,8 +6,9 @@ clients hand these straight to the production shaping code. A fixture that were 
 would prove only that the presenter can copy a dictionary.
 
 Time is relative to the run. "Today's orders" has to find today's orders in five months' time,
-so the stamps are computed from the clock at import and then frozen for the process: two runs
-an hour apart see the same world, and a run in a year still has orders placed this morning.
+so the stamps are computed from the clock at import and then frozen — until a harness starts,
+which builds the world again against the clock it will be asked on (`rebase`): two runs an
+hour apart see the same world, and a run in a year still has orders placed this morning.
 
 Every name, address, postcode and email here is invented. There is no real customer in this
 file and there must never be one: a fixture is committed to the repository and a real address
@@ -34,12 +35,29 @@ SHOP_TIMEZONE = "Europe/London"
 SHOP_TZ = ZoneInfo(SHOP_TIMEZONE)
 CURRENCY = "GBP"
 
-# The clock the world is built against, fixed once per process — and kept in the SHOP's zone,
+# The clock the world is built against, fixed until a harness rebases it — and in the SHOP's zone,
 # not UTC. A shopkeeper asking for "today's orders" means the shop's day, and the application
 # agrees: it asks Shopify for the local day's bounds. Stamping the fixtures in UTC instead put
 # every order in the wrong day for the hour either side of midnight UTC, which is a fixture
 # that passes all day and fails at eleven at night.
 NOW = datetime.now(SHOP_TZ)
+
+
+def rebase(now: datetime | None = None) -> datetime:
+    """Build the world against this clock — the shop's clock now, unless told otherwise.
+
+    Frozen at import was frozen at COLLECTION, and the application reads the clock when it is
+    asked. A suite collected before London's midnight and still running after it — 23:00 UTC
+    in summer — had a world whose "today" was yesterday by the time a later harness asked for
+    today's orders: the application's today began after every one of them, so the list came
+    back empty and every scenario that walks it failed. `harness()` calls this when it
+    starts, so the world a harness serves is built on the day the application is on. Every
+    stamp is made when it is read, from NOW, except the discount windows, stamped again here.
+    """
+    global NOW
+    NOW = (now or datetime.now(SHOP_TZ)).astimezone(SHOP_TZ)
+    _stamp_discounts()
+    return NOW
 
 
 # What Royal Mail Tracked 48 costs on every order in this world.
@@ -92,8 +110,13 @@ def _today_at(fraction: float) -> datetime:
     """
     midnight = NOW.replace(hour=0, minute=0, second=0, microsecond=0)
     elapsed = (NOW - midnight).total_seconds()
-    # A minute of headroom, so the newest order is never stamped in the same second as "now".
-    at = midnight + timedelta(seconds=max(0.0, min(fraction, 1.0) * max(0.0, elapsed - 60)))
+    # A minute of headroom, so the newest order is never stamped in the same second as "now" —
+    # but not in the first two minutes of the day, when a minute is most of what there is. With
+    # the headroom taken there, every one of today's orders was stamped at midnight exactly
+    # until a minute past, and "the newest" was whichever the sort happened to leave first.
+    # Half of what has elapsed keeps them apart and in the past; the two meet at two minutes.
+    span = elapsed - 60 if elapsed > 120 else elapsed / 2
+    at = midnight + timedelta(seconds=max(0.0, min(fraction, 1.0) * span))
     return at
 
 
@@ -617,8 +640,6 @@ DISCOUNTS: dict[str, dict[str, Any]] = {
         "id": "gid://shopify/DiscountCodeNode/8801",
         "title": "Summer sale",
         "status": "ACTIVE",
-        "startsAt": _at(30),
-        "endsAt": None,
         "usageLimit": None,
         "asyncUsageCount": 46,
         "value": {"__typename": "DiscountPercentage", "percentage": 0.15},
@@ -627,13 +648,24 @@ DISCOUNTS: dict[str, dict[str, Any]] = {
         "id": "gid://shopify/DiscountCodeNode/8802",
         "title": "Friends and family",
         "status": "EXPIRED",
-        "startsAt": _at(120),
-        "endsAt": _at(60),
         "usageLimit": 200,
         "asyncUsageCount": 188,
         "value": {"__typename": "DiscountAmount", "amount": {"amount": "5.00", "currencyCode": CURRENCY}},
     },
 }
+# Each code's window as days before NOW — when it started and, for the expired one, when it
+# ended. Held as days rather than stamps because this is the one table here that is stamped
+# when it is built instead of when it is read, so `rebase` has to be able to stamp it again.
+_DISCOUNT_DAYS: dict[str, tuple[float, float | None]] = {"SUMMER15": (30, None), "FRIENDS5": (120, 60)}
+
+
+def _stamp_discounts() -> None:
+    for code, (starts, ends) in _DISCOUNT_DAYS.items():
+        DISCOUNTS[code]["startsAt"] = _at(starts)
+        DISCOUNTS[code]["endsAt"] = _at(ends) if ends is not None else None
+
+
+_stamp_discounts()
 # A code nothing in the golden world uses, for the scenario that creates one.
 DISCOUNT_FREE_CODE = "AUTUMN20"
 
