@@ -16,6 +16,25 @@ const vm = require('node:vm');
 const ORIGIN = 'https://crooks.test';
 const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'sw.js'), 'utf8').replace('__BUILD__', 'testbuild');
 
+// Just the Response that sw.js and these tests use. Node's own is undici's, and loading undici
+// starts compiling its HTTP parser as WebAssembly in the background; under a tight memory limit
+// that fails after a test has ended and fails this file for a reason that is not the worker's.
+class FakeResponse {
+  constructor(body, init) {
+    const options = init || {};
+    this.bodyText = body === undefined || body === null ? '' : String(body);
+    this.status = options.status === undefined ? 200 : options.status;
+    this.type = options.type || 'basic';
+    this.init = { status: this.status, type: this.type, headers: options.headers || {} };
+    const headers = new Map(Object.entries(this.init.headers).map(([k, v]) => [k.toLowerCase(), String(v)]));
+    this.headers = { get: (name) => { const key = String(name).toLowerCase(); return headers.has(key) ? headers.get(key) : null; } };
+  }
+  get ok() { return this.status >= 200 && this.status < 300; }
+  clone() { return new FakeResponse(this.bodyText, this.init); }
+  async text() { return this.bodyText; }
+  static error() { return new FakeResponse('', { status: 0, type: 'error' }); }
+}
+
 function boot() {
   const handlers = {};
   const fetched = [];
@@ -36,7 +55,7 @@ function boot() {
   const calls = { skipWaiting: 0, claim: 0 };
   const sandbox = {
     console,
-    Response,
+    Response: FakeResponse,
     URL,
     caches,
     network,
@@ -53,7 +72,7 @@ function boot() {
       if (network.mode === 'hang') return new Promise(() => {});
       const status = typeof network.mode === 'number' ? network.mode : 200;
       const type = network.type || (p.endsWith('.js') ? 'text/javascript' : 'text/html');
-      return new Response(`${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
+      return new FakeResponse(`${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
     },
   };
   sandbox.self = sandbox;

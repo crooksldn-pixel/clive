@@ -106,6 +106,19 @@ def test_the_service_worker_under_node():
 
 
 @needs_node
+def test_the_microphone_is_asked_for_only_by_the_press_under_node():
+    """Only the hold-to-speak press asks for the microphone: a tap elsewhere, a return to the
+    app and a reconnect never do, and later presses share the one live stream — run against
+    the real pieces of web/app.js (tests/web/microphone.test.js)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / "microphone.test.js")],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout
+
+
+@needs_node
 def test_the_one_interaction_state_under_node():
     """V0.5 invariant 2: IDLE → LISTENING → HEARING → UNDERSTOOD → THINKING → WORKING →
     RESPONDING → IDLE, with error, interruption and recovery explicit — and the four

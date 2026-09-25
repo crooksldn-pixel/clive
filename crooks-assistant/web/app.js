@@ -23,7 +23,9 @@
  *
  * The microphone is opened once and kept warm. Opening it on every press was the cause of the
  * first word of each question being clipped: getUserMedia takes a few hundred milliseconds to
- * hand over a live track, and the owner had already started speaking.
+ * hand over a live track, and the owner had already started speaking. It is only ever asked
+ * for by the hold-to-speak press (or on load, where the browser already reports it granted):
+ * on an iPhone every other ask put the permission prompt over a screen being read.
  */
 
 'use strict';
@@ -379,11 +381,11 @@ async function acquireWakeLock() {
 
 // Android drops the lock whenever the page is hidden, so re-acquire on every return. Hidden
 // also means: stop talking, stop drawing, and let go of the microphone unless mid-sentence.
+// Coming back does not reopen it: the next hold-to-speak press does.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     acquireWakeLock();
     if (orb) orb.start();
-    warmMic();
     pollHealth();
     // Coming back to a tablet that has been asleep: ask the Mac what actually happened to
     // every card still on screen before believing any of them.
@@ -989,13 +991,16 @@ function warmMic() {
   ensureMicStream().catch(() => { /* the press will report the real error */ });
 }
 
-// Warm on load when permission is already granted (no prompt), otherwise on the first touch.
+// Warm on load only where the permission query positively reports granted, so no prompt can
+// appear. Nothing else asks: not a touch elsewhere on the page, not a return to the app, not a
+// reconnect. An iPhone home-screen app asks again each time a stream is opened, and its
+// permission query cannot be trusted, so each of those put the prompt in front of the owner
+// while reading. The hold-to-speak press asks; later presses reuse the stream it opened.
 if (navigator.permissions && navigator.permissions.query) {
   navigator.permissions.query({ name: 'microphone' })
-    .then((status) => { if (status.state === 'granted') warmMic(); })
+    .then((status) => { if (status && status.state === 'granted') warmMic(); })
     .catch(() => {});
 }
-document.addEventListener('pointerdown', warmMic, { once: true, capture: true });
 
 function pickMimeType() {
   const candidates = [
@@ -3911,12 +3916,12 @@ function wentOnline() {
   reconnectDelay = RECONNECT_MIN_MS;
   setSystem('online');
   if (wasDown) {
-    // Back after an outage: the pill, the sheet's rows, the lock and the microphone all need
-    // re-establishing, and a build shipped while we were away should be taken.
+    // Back after an outage: the pill, the sheet's rows and the lock all need re-establishing,
+    // and a build shipped while we were away should be taken. The microphone is not asked for
+    // here: the next hold-to-speak press does that, or reuses the stream still open.
     setConn('connecting', 'Connecting');
     pollHealth(true);
     acquireWakeLock();
-    warmMic();
     if (swRegistration) swRegistration.update().catch(() => {});
   }
 }
