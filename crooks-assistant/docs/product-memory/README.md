@@ -2,7 +2,9 @@
 
 This directory is the canonical durable product memory for CLIVE. Historical documents may still use the earlier CROOKS OS name where that context matters.
 
-Current repository: `crooksldn-pixel/clive`. Read these files from `claude/product-memory-foundation` by explicit ref; they are not assumed to exist on the repository's default theme branch or on the application baseline.
+Current repository: `crooksldn-pixel/clive`. Since the consolidation of 2026-09-25 the canonical copy is this directory on `clive/trunk` (`crooks-assistant/docs/product-memory`); it is not assumed to exist on the repository's default theme branch. Earlier product-memory branches (`claude/product-memory-foundation`, the 2026-09-21 base; `chatgpt/product-memory-reconcile-2026-09-23`; `claude/product-memory-truth-2026-09-23`; the Opus 5.5 handoff branch) are history.
+
+The `_incoming/` directory holds byte-identical staging copies of the truth and handoff branches, used for the consolidation and left for the Director to remove. It is not canonical and is not indexed; everything in it is represented in the files below.
 
 The rule is simple:
 
@@ -26,7 +28,11 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [CURRENT_TRUTH.md](./CURRENT_TRUTH.md) — compact active state; the first context file future directors/workers should read.
 - [EVOLUTION_POLICY.md](./EVOLUTION_POLICY.md) — release doctrine: preserve value and lessons without fossilising obsolete implementation or design.
 - [DIRECTOR_PROTOCOL.md](./DIRECTOR_PROTOCOL.md) — named memory/continuity procedures for bootstrap, release context, supersession, pruning, handoff, and audits.
-- [MIGRATION_HANDOFF.md](./MIGRATION_HANDOFF.md) — current GPT-conversation migration entry point: exact active state, in-flight work, control-plane status, and continuation instructions.
+- [MIGRATION_HANDOFF.md](./MIGRATION_HANDOFF.md) — SUPERSEDED: the 2026-09-19 GPT-conversation migration handoff (active state, in-flight work, control-plane status and continuation instructions as of then), kept as history.
+- [RECONCILIATION_2026-09-23.md](./RECONCILIATION_2026-09-23.md) — the 2026-09-23 reconciliation checkpoint: the precedent rule (precedent may be explicitly superseded or retired when its durable responsibility is preserved), CLIVE as one product, engineering-kernel progress, direct objective ingress, model/role replaceability, commercial validation and the NEEDED ≠ AUTHORISED ≠ STARTED ≠ COMPLETED ≠ VERIFIED invariant; its engineering state is history.
+- [OWNER_DECISION_PACKET_2026-09-21.md](./OWNER_DECISION_PACKET_2026-09-21.md) — the owner-only choices kept explicit while repository-only engineering continued unattended (2026-09-21); Gate C decided 2026-09-24, Gate A overtaken by the remote loop, Gate B open.
+- [OPUS_5_5_HANDOFF_2026-09-24.md](./OPUS_5_5_HANDOFF_2026-09-24.md) — SUPERSEDED: the 2026-09-24 engineering handoff to a fresh Opus 5.5 session (branches, SHAs, safety invariants, activation state, next steps), kept as history.
+- [OPUS_5_5_START_PROMPT_2026-09-24.md](./OPUS_5_5_START_PROMPT_2026-09-24.md) — SUPERSEDED: the 2026-09-24 startup prompt for that Opus 5.5 session, kept as history.
 
 - [ENGINEERING_ORCHESTRATOR_V1.md](./ENGINEERING_ORCHESTRATOR_V1.md) — proposed Dev Team V1 contract: authority, lifecycle, context, isolation, evidence, review, integration and recovery; planning only.
 
@@ -51,6 +57,7 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [NEXT_PHASE_2026-09-25.md](./NEXT_PHASE_2026-09-25.md) — the finish-first rule, the approved next phase (eyes, taste, the absorbing machine, the shelf) and every direction and idea captured on 2026-09-24 and 2026-09-25.
 - [INFRASTRUCTURE_2026-09-25.md](./INFRASTRUCTURE_2026-09-25.md) — the production host, clive-worker-01 and the Mac: roles, open hardware items and setup lessons.
 - [EXTERNAL_REVIEW_2026-09-25.md](./EXTERNAL_REVIEW_2026-09-25.md) — the owner-provided external review of 2026-09-25, kept verbatim: red trunk, landing before verification, unprotected safety core, loop confinement, direction carried forward.
+- [RECONCILIATION_2026-09-25.md](./RECONCILIATION_2026-09-25.md) — evening reconciliation of the trunk, all 48 loop objectives, all 110 branches (knowledge found only on unmerged branches, proposed clean-up) and what waits on the owner.
 
 ## Status model
 

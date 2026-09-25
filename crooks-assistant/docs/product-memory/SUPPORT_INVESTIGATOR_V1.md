@@ -1,6 +1,8 @@
 # Customer Support Investigator V1
 
-Status: **TESTING** (built 2026-09-23 as task `support-investigator-v1`, revision 2, through the frozen repository-only lifecycle kernel; awaiting independent exact-SHA review and the owner's verification of the real cases).
+Status: **SHIPPED** as of 2026-09-25 (FEAT-058). Accepted at revision 5, `2dbb97bc`, on 2026-09-23 after review findings S-01, S-01R and S-01C were repaired; the revisions are in production `clive/trunk` `ce791d03` (deployed 2026-09-25) and on the phone through the mobile alpha. The runtime is the Linux server, not the owner's Mac. The owner's verification of the two real cases and a first live run on the server are not recorded here.
+
+Was: **TESTING** (built 2026-09-23 as task `support-investigator-v1`, revision 2, through the frozen repository-only lifecycle kernel; awaiting independent exact-SHA review and the owner's verification of the real cases).
 
 Owner objective (2026-09-23): given one customer enquiry about an existing order, CLIVE must understand what is asked, identify the correct customer and order where the evidence supports it, gather the order and conversation context, produce an internal "what happened" summary that separates verified facts from reasonable inference from the unknown, expose the evidence so the owner can check it, and draft a concise customer reply that requires the owner's explicit approval before anything external happens.
 
@@ -32,7 +34,7 @@ The minimum customer information is read, and only from systems the owner alread
 ## Capability gaps recorded
 
 - **Carrier tracking scans** are not available: Easyship is not integrated (`app/shipping/`), so the parcel's whereabouts is always an unknown, and the draft says the tracking reference rather than a location.
-- **Credentials in the engineering container**: the builder's container holds no Shopify or Gmail credential, so the live path (`app/support/live.py`) was exercised against fakes and its "unavailable" branch; the live run is on the owner's Mac.
+- **Credentials in the engineering container**: the builder's container holds no Shopify or Gmail credential, so the live path (`app/support/live.py`) was exercised against fakes and its "unavailable" branch. At acceptance (2026-09-23) this note said the live run would be on the owner's Mac; that is history. As of 2026-09-25 the revisions are deployed on the Linux production line (`clive/trunk` `ce791d03`), the Mac is not the production runtime, and a first live run on the server is not recorded.
 - **No model**: drafting is deterministic. A worded, more natural draft would be a later revision, and would still be bound to the same evidence.
 
 ## Acceptance

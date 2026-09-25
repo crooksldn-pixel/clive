@@ -17,6 +17,8 @@ The owner's image for this is agar.io: CLIVE grows by absorbing what it meets. T
 
 ## 3. Captured directions and ideas
 
+Each item below has its own entry in IDEAS.md, IDEA-060 to IDEA-089, in this order.
+
 ### 3.1 Building other projects through the loop
 - **The Shopify theme** (Horizon 3.5.0, storefront roadmap: navigation, product page, homepage, lookbook, events, tracking and returns, Crack the Cuffs integration, performance pass) built by the loop: Shopify theme checks, screenshots, independent review, pushed to an unpublished preview theme, published only on the owner's tap with the previous version one tap away. Needs a theme access credential (owner step). Proposed as the first new project after the next phase. Base44 apps do not fit, because they are not in git.
 

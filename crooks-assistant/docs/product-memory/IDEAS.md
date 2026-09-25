@@ -945,6 +945,343 @@ Do not use visual polish to disguise fragmented interaction state.
 
 ---
 
+## IDEA-059 — Judgment Ledger and explicit proposal outcomes
+**Date:** 2026-09-21  
+**Status:** APPROVED DIRECTION — implementation requires action-safety review  
+**Theme:** learning / autonomy / action UX
+
+Add an explicit owner-judgment path for consequential proposals.
+
+Required semantic outcomes:
+- APPROVED;
+- DECLINED;
+- EDITED;
+- DEFERRED;
+- UNKNOWN/EXPIRED remains separate and does not count as disagreement.
+
+The existing action ledger remains content-minimised and should not be repurposed as a rich learning log.
+
+Create a separate redacted Judgment Event / Judgment Ledger linked to proposal identity and capable of preserving bounded reason codes, optional redacted explanation, edited replacement/delta and contextual provenance.
+
+Use this evidence for:
+- earned-autonomy denominators;
+- correction-burden and usefulness metrics;
+- recurring proposal-quality analysis;
+- future business-policy learning;
+- operational-twin adaptation.
+
+UI should provide an explicit decline/edit/defer affordance; absence of a gesture must never be inferred as a negative judgment.
+
+Do not enable production writes merely to implement this evidence layer. Production write enablement remains a separate owner-only gate.
+
+---
+
+Entries IDEA-060 to IDEA-089 are the directions and ideas captured in [NEXT_PHASE_2026-09-25.md](./NEXT_PHASE_2026-09-25.md) section 3, one entry per item, in that section's order. Source: the owner's messages and the Director's proposals in the 2026-09-24 and 2026-09-25 sessions. Each is CAPTURED unless marked otherwise.
+
+---
+
+## IDEA-060 — The Shopify theme built by the loop
+**Date:** 2026-09-25  
+**Status:** CAPTURED — proposed as the first new project after the next phase  
+**Theme:** building other projects / storefront  
+**Source:** NEXT_PHASE_2026-09-25 §3.1
+
+The Crooks Shopify theme (Horizon 3.5.0) and its storefront roadmap (navigation, product page, homepage, lookbook, events, tracking and returns, Crack the Cuffs integration, performance pass) built through the engineering loop: Shopify theme checks, screenshots, independent review, pushed to an unpublished preview theme, published only on the owner's tap with the previous version one tap away.
+
+Needs a theme access credential (owner step). Base44 apps do not fit this path because they are not in git (see IDEA-019).
+
+---
+
+## IDEA-061 — Automatic landing into the trunk
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** loop throughput and autonomy  
+**Source:** NEXT_PHASE_2026-09-25 §3.2
+
+Land a candidate into `clive/trunk` automatically once its checks pass, the independent review is ready and GitHub acceptance is green on the exact SHA. Builds on the approved loop update (OWNER_DECISIONS_2026-09-25.md), which makes green acceptance a precondition for landing; this idea removes the manual step after it.
+
+---
+
+## IDEA-062 — Automatic follow-up and re-planning
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** loop throughput and autonomy  
+**Source:** NEXT_PHASE_2026-09-25 §3.2
+
+When an objective lands, its dependent objective is queued; a blocked objective is re-planned with its reason instead of waiting for the Director. Extends the obvious-continuation rule (DEC-054, ENGINEERING_CONTROL_PLANE_VNEXT §8.2).
+
+---
+
+## IDEA-063 — Multi-loop router
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** loop throughput and autonomy  
+**Source:** NEXT_PHASE_2026-09-25 §3.2
+
+A router that spreads objectives across the engineering loops (production host, clive-worker-01, the Mac) by each loop's published capacity.
+
+---
+
+## IDEA-064 — Automatic job splitter
+**Date:** 2026-09-25  
+**Status:** CAPTURED (owner idea)  
+**Theme:** loop throughput and autonomy  
+**Source:** NEXT_PHASE_2026-09-25 §3.2
+
+When a candidate fails in several separate parts, split the repair into separate workers so each part is fixed faster and more specifically.
+
+---
+
+## IDEA-065 — Continuous Director
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** loop throughput and autonomy  
+**Source:** NEXT_PHASE_2026-09-25 §3.2
+
+Today the Director acts only while the owner is in a chat, so finished work waits. Landing, requeuing and next-step queuing should not depend on that. Extends IDEA-031 (GPT Director) and the open runtime-Director gap recorded in OPUS_5_5_HANDOFF_2026-09-24 §13.
+
+---
+
+## IDEA-066 — Status projection publishes findings, failing checks and reports
+**Date:** 2026-09-25  
+**Status:** CAPTURED — objective `status-publishes-findings` parked under the finish-first rule  
+**Theme:** loop throughput and autonomy  
+**Source:** NEXT_PHASE_2026-09-25 §3.2
+
+The loop's status projection publishes the open review findings, the failing check output and the worker reports, so the Director and the owner see why an objective is stuck without a shell. Extends DEC-055 (work-in-progress is observable state).
+
+---
+
+## IDEA-067 — Builders run their declared checks
+**Date:** 2026-09-25  
+**Status:** APPROVED — being built (part of the loop update in OWNER_DECISIONS_2026-09-25.md)  
+**Theme:** builder efficiency  
+**Source:** NEXT_PHASE_2026-09-25 §3.3; EXTERNAL_REVIEW_2026-09-25 §1.5
+
+Builders may run their objective's declared checks in the loop's check sandbox (no credentials, no network, advisory only), so repairs are no longer blind.
+
+---
+
+## IDEA-068 — Match the model to the job class
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** builder efficiency  
+**Source:** NEXT_PHASE_2026-09-25 §3.3
+
+Opus for design and hard problems, Sonnet for routine changes, Haiku for lint and wording. Extends DEC-041 and ROADMAP D9 (quality-first routing); DEC-040 still applies: cost never outranks quality.
+
+---
+
+## IDEA-069 — Repository maps and pre-warmed workspaces
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** builder efficiency  
+**Source:** NEXT_PHASE_2026-09-25 §3.3
+
+Give builders repository maps so they do not rediscover the code each time, and pre-warm their workspaces.
+
+---
+
+## IDEA-070 — Scope lessons for whoever writes objectives
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** builder efficiency  
+**Source:** NEXT_PHASE_2026-09-25 §3.3; INFRASTRUCTURE_2026-09-25 lessons
+
+An objective should include the tests and generators a change will obviously touch; remember that builders cannot delete files or run commands; declare only checks that are runnable inside the builder sandbox; use a new base commit only after the loop has fetched it.
+
+---
+
+## IDEA-071 — clive-worker-01 as the engineering host
+**Date:** 2026-09-25  
+**Status:** APPROVED (OWNER_DECISIONS_2026-09-25.md, engineering off the production host)  
+**Theme:** local server roles  
+**Source:** NEXT_PHASE_2026-09-25 §3.4
+
+clive-worker-01 hosts the engineering loop, with builders' working copies in memory. Realises IDEA-047 (do not make production the development environment).
+
+---
+
+## IDEA-072 — clive-worker-01 as the proving ground
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** local server roles / testing  
+**Source:** NEXT_PHASE_2026-09-25 §3.4
+
+Run the full suite in parallel on every candidate, clock-boundary sweeps (UK midnight, month end, clock changes), nightly mutation testing (IDEA-056), replay of real sessions (IDEA-024) and phone-screen screenshots.
+
+---
+
+## IDEA-073 — Preview stage: preview, then ship
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** local server roles / release  
+**Source:** NEXT_PHASE_2026-09-25 §3.4
+
+Each finished objective runnable as a live CLIVE preview over Tailscale, behind a "preview, then ship" button.
+
+---
+
+## IDEA-074 — Field operations on the local server
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** local server roles / capabilities  
+**Source:** NEXT_PHASE_2026-09-25 §3.4
+
+Browser agents for sites without APIs (courier tracking, supplier portals, marketplaces), the Nightly Observer (IDEA-022), and brand media processing such as TikTok edits.
+
+---
+
+## IDEA-075 — Business memory on the local server
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** local server roles / knowledge  
+**Source:** NEXT_PHASE_2026-09-25 §3.4
+
+A local mirror of Shopify, Gmail metadata and analytics for instant answers, semantic search over the business's history, a local Whisper fallback for voice (see DEC-022) and encrypted off-site backups. Data leaving the host and new keys stay owner-gated.
+
+---
+
+## IDEA-076 — Builder capacity through the API or a Team plan
+**Date:** 2026-09-25  
+**Status:** CAPTURED — spend is owner-gated  
+**Theme:** capacity  
+**Source:** NEXT_PHASE_2026-09-25 §3.5
+
+For many parallel builders, use the Claude API or a Team plan rather than stacked consumer subscriptions.
+
+---
+
+## IDEA-077 — Cloud-session credits for command-line and visual work
+**Date:** 2026-09-25  
+**Status:** CAPTURED — spend is owner-gated  
+**Theme:** capacity  
+**Source:** NEXT_PHASE_2026-09-25 §3.5
+
+Use cloud-session credits for work that needs a command line or eyes, which loop builders do not have.
+
+---
+
+## IDEA-078 — Hybrid building
+**Date:** 2026-09-25  
+**Status:** CAPTURED  
+**Theme:** ways of building  
+**Source:** NEXT_PHASE_2026-09-25 §3.5
+
+The loop for anything that must be correct and safe; a direct session with a browser for visual design, landing through the same checks and the same trunk.
+
+---
+
+## IDEA-079 — "What needs me today"
+**Date:** 2026-09-25  
+**Status:** CAPTURED — extends IDEA-007 and IDEA-049  
+**Theme:** attention / Generative UI  
+**Source:** NEXT_PHASE_2026-09-25 §3.6
+
+At most three ranked items across orders, email and stock, then one quiet line saying everything else is on track.
+
+---
+
+## IDEA-080 — Stock run-out prediction
+**Date:** 2026-09-25  
+**Status:** CAPTURED — extends IDEA-008 (likely stock-out)  
+**Theme:** anticipation  
+**Source:** NEXT_PHASE_2026-09-25 §3.6
+
+Predict stock run-out from sell-through rate, raise it as a risk, and offer a waitlist proposal.
+
+---
+
+## IDEA-081 — Courier tracking through the capability-gap bridge
+**Date:** 2026-09-25  
+**Status:** CAPTURED — extends IDEA-002  
+**Theme:** fulfilment / capability gaps  
+**Source:** NEXT_PHASE_2026-09-25 §3.6; GENERATIVE_UI_V1 §5
+
+Courier tracking closes the shipping-evidence gap (fulfilment records alone do not prove movement), offered to the owner through the capability-gap bridge; the owner's step is the credential.
+
+---
+
+## IDEA-082 — Resend connection with a duplicate guard
+**Date:** 2026-09-25  
+**Status:** CAPTURED — extends IDEA-003  
+**Theme:** communications  
+**Source:** NEXT_PHASE_2026-09-25 §3.6
+
+Read Resend delivery events and resend published templates such as `shipped-today`, with the `ship-email-sent` tag as the duplicate guard, a last-moment recheck and delivery verification. Sending remains a business write under the action gate.
+
+---
+
+## IDEA-083 — Every capability outage explained in plain words
+**Date:** 2026-09-25  
+**Status:** CAPTURED as a general principle — the voice-credits case is merged to the trunk, not yet deployed  
+**Theme:** honesty / health  
+**Source:** NEXT_PHASE_2026-09-25 §3.6
+
+Every capability outage is explained to the owner in plain words with its cause and the owner's fix. Extends DEC-023 and the contextual-health rule of DEC-053.
+
+---
+
+## IDEA-084 — How the build system is judged
+**Date:** 2026-09-25  
+**Status:** APPROVED (owner-agreed 2026-09-25)  
+**Theme:** engineering evaluation  
+**Source:** NEXT_PHASE_2026-09-25 §3.7
+
+Two measures: hours from asking to seeing it on the phone, and minutes of the owner's attention per change. If the loop does not clearly beat asking a model directly on both, it is cut back to the one trunk, the tests and reviewed deploys.
+
+---
+
+## IDEA-085 — One kernel for engineering and business work
+**Date:** 2026-09-25  
+**Status:** CAPTURED — parked until the finish list is clear  
+**Theme:** architecture  
+**Source:** NEXT_PHASE_2026-09-25 §3.8; EXTERNAL_REVIEW_2026-09-25 §2.1; RECONCILIATION_2026-09-23 §9
+
+Replace the three separate propose → authorise → execute → verify engines (`app/actions`, `app/objectives`, `app/orchestrator`) with one kernel operating in both domains. First reversible step: a Support Investigator reply becomes a Gmail draft through the kernel, approved through the ledger and verified by reading the draft back.
+
+---
+
+## IDEA-086 — The Judgment Ledger as the record of the owner's authority
+**Date:** 2026-09-25  
+**Status:** CAPTURED — parked until the finish list is clear; extends IDEA-059 and DEC-056  
+**Theme:** authority / learning  
+**Source:** NEXT_PHASE_2026-09-25 §3.8; EXTERNAL_REVIEW_2026-09-25 §1.6
+
+Owner decisions (baseline authorisations, retirements, deploy approvals, requeues) are written to the Judgment Ledger rather than living in commit messages and chat.
+
+---
+
+## IDEA-087 — A local SQLite store
+**Date:** 2026-09-25  
+**Status:** CAPTURED — parked until the finish list is clear  
+**Theme:** architecture / storage  
+**Source:** NEXT_PHASE_2026-09-25 §3.8; EXTERNAL_REVIEW_2026-09-25 §2.3; ENGINEERING_ORCHESTRATOR_V1 §4
+
+A SQLite store on the host, arriving with the first business objective that runs through the kernel: privacy, crash safety, queryable ledger history. No free-form model query access; schema and migrations protected; encrypted backups with a tested restore. Not Supabase.
+
+---
+
+## IDEA-088 — The blind self-audit
+**Date:** 2026-09-25  
+**Status:** CAPTURED — parked until the finish list is clear  
+**Theme:** self-knowledge / evaluation  
+**Source:** NEXT_PHASE_2026-09-25 §3.8; EXTERNAL_REVIEW_2026-09-25 §2.2; CLIVE_SELF_KNOWLEDGE §3
+
+A general retirement audit that never names components, with the owner's predictions sealed outside anything CLIVE reads (only their hash recorded), owner-chosen negative controls and scored timing. CLIVE proposes; the owner decides. Builders must not ask for, infer or store the sealed predictions.
+
+---
+
+## IDEA-089 — Harden the loop's service
+**Date:** 2026-09-25  
+**Status:** CAPTURED — parked; the protected-path part is covered by the approved loop update  
+**Theme:** engineering safety  
+**Source:** NEXT_PHASE_2026-09-25 §3.8; EXTERNAL_REVIEW_2026-09-25 §1.4
+
+Confine the loop's service (strict filesystem protection with explicit write paths, no new privileges, private temp, ideally a non-root user). Any systemd or privilege change is an owner decision. Moving engineering off the production host (IDEA-071) is the stronger fix.
+
+---
+
 # Capture policy
 
 New ideas should be appended with:
