@@ -229,6 +229,11 @@ class Runtime:
         if operation is not None and operation in self._gmail_operations():
             entry = (await self._gmail_capabilities()).get(operation) or {}
             return WriteStatus(str(entry.get("state") or "blocked"), str(entry.get("detail") or "blocked"))
+        if operation is not None and operation in self._github_operations():
+            # Filing an engineering request needs no store scope and no Gmail grant. Its token is
+            # read when the change runs; without one the change says GitHub is not connected and
+            # sends nothing.
+            return WriteStatus("ready", f"ready — {operation.replace('_', ' ')}")
         needed = {scope for op, scope in self._write_scopes().items() if operation is None or op == operation}
         if operation is not None and operation not in self._write_scopes():
             return WriteStatus("blocked", f"blocked — {operation.replace('_', ' ')} is not a change this Mac can make")
@@ -287,6 +292,17 @@ class Runtime:
             s.write.operation: s.write.mutation.split(":", 1)[1]
             for s in all_specs()
             if s.write is not None and s.write.mutation.startswith("gmail:") and not s.name.startswith("mock_")
+        }
+
+    def _github_operations(self) -> set[str]:
+        """Every registered GitHub write (app/tools/engineering_tools.py): the operations that
+        file into the engineering loop's inbox."""
+        from app.tools.registry import all_specs
+
+        return {
+            s.write.operation
+            for s in all_specs()
+            if s.write is not None and s.write.mutation.startswith("github:") and not s.name.startswith("mock_")
         }
 
     async def _gmail_capabilities(self) -> dict[str, dict[str, str]]:

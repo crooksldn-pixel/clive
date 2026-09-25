@@ -363,6 +363,22 @@ async def test_engineering_status_reports_each_request_in_plain_words(fake, boun
     assert result["inbox"]["id"] == HEAD and result["connected"] is True
 
 
+async def test_engineering_status_reports_every_request_however_many(fake, bound):
+    stages = ["READY", "RUNNING", "REVIEWING", "COMPLETE", "BLOCKED"]
+    fake.status["requests"] = [
+        {"request_id": f"many-r{n}", "outcome": "accepted", "stage": stages[n % len(stages)], "blocker": "waiting"}
+        for n in range(45)
+    ]
+    result = await engineering_tools.engineering_status()
+    assert [row["request_id"] for row in result["requests"]] == [f"many-r{n}" for n in range(45)], "none is dropped"
+    assert result["summary"] == (
+        "45 engineering requests: 9 queued, 9 building, 9 in review, 9 done, 9 blocked."
+    )
+    # And the answer the model is handed carries every one of them.
+    text = await dispatch(STATUS_TOOL, {}, session=Session(session_id="eng-many"), timeout_s=5)
+    assert all(f'"many-r{n}"' in text for n in range(45))
+
+
 async def test_engineering_status_says_what_the_loop_has_not_published(fake, bound):
     fake.status = None
     result = await engineering_tools.engineering_status()
@@ -425,6 +441,103 @@ async def test_an_inbox_that_moved_before_the_tap_files_nothing(fake, bound, eng
     result = await _authorise(engine, clock, session, proposal)
     assert result.code == "stale" and proposal.status is ActionStatus.STALE
     assert fake.files[PATH] == b"{}\n" and fake.puts == []
+
+
+@pytest.fixture()
+async def owner_app(monkeypatch, fake):
+    """The Mac as the owner's tablet reaches it: the real routes, preflight and engine, with
+    GitHub faked and a token that a test can take away."""
+    from app.clients.elevenlabs import ScribeClient
+    from app.clients.elevenlabs_tts import VoiceClient
+    from app.main import app
+    from app.providers import max_agent_sdk
+    from app.session.manager import SessionManager
+    from app.tools import shopify_tools
+    from tests.test_actions import FakeStore
+    from tests.test_actions_routes import FakeProvider
+
+    async def no_start(self):
+        raise RuntimeError("tests never start the real Claude provider")
+
+    async def fake_scribe_health(self):
+        return True, "fake scribe"
+
+    monkeypatch.setattr(max_agent_sdk.MaxAgentSDKProvider, "start", no_start)
+    monkeypatch.setattr(ScribeClient, "health", fake_scribe_health)
+    monkeypatch.setattr(VoiceClient, "health", lambda self: (True, "fake voice"))
+    token = {"value": TOKEN}
+    inbox = EngineeringInbox(REPO, token_source=lambda: token["value"], transport=fake.transport())
+
+    async with app.router.lifespan_context(app):
+        runtime = app.state.runtime
+        runtime.provider = FakeProvider()
+        store = FakeStore()
+        runtime.shopify = store
+        shopify_tools.bind(store)
+        runtime.actions = ActionEngine(ledger=NullLedger())
+        monkeypatch.setattr(engine_module, "_engine", runtime.actions)
+        runtime.sessions = SessionManager()
+        monkeypatch.setattr(engineering_tools, "_inbox", inbox)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+            c.runtime = runtime
+            c.inbox = inbox
+            c.token = token
+            yield c
+
+
+async def test_the_owner_approval_path_admits_the_engineering_write(fake, owner_app):
+    from tests.test_actions_routes import PROXIED, configure
+
+    runtime = owner_app.runtime
+    operation = "engineering_request_file"
+    # The writes switch and the owner allow-list still come first.
+    configure(owner_app, writes=False)
+    assert (await runtime.write_status(operation)).code == "writes_disabled"
+    configure(owner_app, logins="")
+    assert (await runtime.write_status(operation)).code == "allow_list_missing"
+    configure(owner_app)
+    status = await runtime.write_status(operation)
+    assert status.ready and status.state == "ready", status
+    assert "not a change this Mac can make" not in status.detail
+
+    # Two conversations, each with a request staged for the owner through the gate.
+    proposals = {}
+    for session_id, request_id in (("eng-yes", "bridge-demo-one"), ("eng-gone", "bridge-demo-two")):
+        session = runtime.sessions.get_or_create(session_id)
+        session.epoch = max(session.epoch, 1)
+        await dispatch(STATUS_TOOL, {}, session=session, timeout_s=5)
+        text = await dispatch(SUBMIT_TOOL, {"inbox_id": HEAD, **fields(request_id=request_id)}, session=session, timeout_s=5)
+        assert text.startswith("PROPOSED ("), text
+        (proposals[session_id],) = session.proposals
+    assert fake.puts == []
+
+    async def hold_and_commit(session_id):
+        proposal = proposals[session_id]
+        armed = await owner_app.post(f"/actions/{proposal.proposal_id}/arm", data={"session_id": session_id}, headers=PROXIED)
+        assert armed.status_code == 200, armed.text   # the preflight admitted it
+        proposal.armed_at -= 1.0   # the owner's hold
+        return await owner_app.post(
+            f"/actions/{proposal.proposal_id}/commit", data={"session_id": session_id},
+            headers={**PROXIED, "X-Crooks-Arm": armed.json()["nonce"]},
+        )
+
+    # With the token: the owner's tap files the request, and the re-read proves it.
+    done = await hold_and_commit("eng-yes")
+    assert done.status_code == 200, done.text
+    assert done.json()["code"] == "verified" and done.json()["status"] == "verified"
+    assert fake.files[PATH] == build_request(**fields()).content and len(fake.puts) == 1
+
+    # The token goes before the second tap: not connected, and nothing is sent to GitHub.
+    calls, sent = len(fake.calls), owner_app.inbox.requests_made
+    owner_app.token["value"] = None
+    gone = await hold_and_commit("eng-gone")
+    assert gone.status_code == 200, gone.text
+    assert gone.json()["code"] == "service_unavailable" and gone.json()["status"] == "failed"
+    assert "not connected" in proposals["eng-gone"].reason
+    assert len(fake.calls) == calls and owner_app.inbox.requests_made == sent
+    assert len(fake.puts) == 1 and "requests/bridge-demo-two.json" not in fake.files
+    for response in (done, gone):
+        assert TOKEN not in response.text
 
 
 async def test_preparing_refuses_a_moved_inbox_or_an_id_already_used(fake, bound):

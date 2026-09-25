@@ -38,9 +38,8 @@ STATUS_TOOL = "engineering_status"
 SUBMIT_TOOL = "submit_engineering_request"
 OPERATION = "engineering_request_file"
 
-# How much of the loop's own words a line repeats, and how many requests one answer lists.
+# How much of the loop's own words a line repeats. Every request is listed: none is dropped.
 MAX_REASON_CHARS = 300
-MAX_REQUESTS = 30
 
 _inbox: EngineeringInbox | None = None
 
@@ -102,7 +101,7 @@ def project(status: LoopStatus, head: InboxHead) -> dict[str, Any]:
     data = status.data if status.published else {}
     requests = data.get("requests")
     items = [item for item in requests if isinstance(item, dict)] if isinstance(requests, list) else []
-    rows = [progress(item) for item in items[-MAX_REQUESTS:]]
+    rows = [progress(item) for item in items]
     counts: dict[str, int] = {}
     for row in rows:
         counts[row["progress"]] = counts.get(row["progress"], 0) + 1
