@@ -16,7 +16,15 @@ import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
-from app.scenes.evidence import QUANTITIES, Evidence, FieldDescriptor, Kind, Money, Series
+from app.scenes.evidence import (
+    QUANTITIES,
+    Evidence,
+    FieldDescriptor,
+    Kind,
+    Money,
+    Series,
+    summarise,
+)
 from app.scenes.scene import (
     SLOT,
     Answer,
@@ -68,7 +76,8 @@ def asks_for_list(request: str) -> bool:
 class SceneContext:
     """What the request allows. `contact_details` is true only when the task itself needs an
     address, a phone number or an email address; `actions` are the ids of the actions that
-    already exist this session, the only ones a Proposal may name."""
+    already exist this session, the only ones a Proposal may name. `session_id` is this
+    session's: without it no evidence is this session's, and nothing is bound."""
 
     request: str = ""
     session_id: str | None = None
@@ -122,7 +131,11 @@ def validate_scene(
         trace.add(target, "kept", shown.element.justification.strip())
     drilldown = None
     if (not kept or replaced) and pool:
-        drilldown = DrillDown(tuple(Source(ev.handle, ev.tool, ev.query, ev.observed_at, len(ev.records)) for ev in pool.values()))
+        # A reference, not the evidence: what was read, when, and a summary with no contact
+        # details in it, whatever the request allows.
+        drilldown = DrillDown(tuple(
+            Source(ev.handle, ev.tool, summarise(ev.query), ev.observed_at, len(ev.records)) for ev in pool.values()
+        ))
         why = "the planned answer was replaced" if replaced else "only the answer is shown"
         trace.add("drilldown", "kept", f"{why}; a reference to the {len(pool)} evidence it checked, not the evidence")
     return Scene(answer, tuple(shown for _, shown in kept), drilldown), tuple(trace.entries)
@@ -137,7 +150,12 @@ def _session_evidence(evidence: Iterable[Evidence] | Mapping[str, Evidence], con
         if not isinstance(ev, Evidence):
             raise TypeError("Evidence is given as Evidence objects.")
         target = f"evidence {ev.handle}"
-        if context.session_id is not None and ev.session_id != context.session_id:
+        # Provenance fails closed: evidence is this session's only when both carry the same id.
+        if not context.session_id:
+            trace.add(target, "ignored", "no session is established for this scene; nothing may be bound to it")
+        elif not ev.session_id:
+            trace.add(target, "ignored", "it carries no session, so it is not from this session; nothing may be bound to it")
+        elif ev.session_id != context.session_id:
             trace.add(target, "ignored", "not from this session; nothing may be bound to it")
         elif ev.handle in pool:
             trace.add(target, "ignored", "a second evidence with the same handle; the first stands")
@@ -182,8 +200,13 @@ def _bind(ref, pool: Mapping[str, Evidence], context: SceneContext) -> Bound:
 # -------------------------------------------------------------------------- prose
 
 
-def _prose(text: str, bound: int) -> None:
-    """Words only: every value through a slot, every bound value placed, no markup."""
+def _prose(text: str, bound: int, lines: int = 1) -> None:
+    """Words only, within its lines: every value through a slot, every bound value placed, no
+    markup."""
+    if not text.strip():
+        raise _Refused("no words in the text, only whitespace")
+    if len(text.strip().splitlines()) > lines:
+        raise _Refused(f"more than {lines} line(s) of text")
     placed = {int(n) for n in SLOT.findall(text)}
     if any(n >= bound for n in placed):
         raise _Refused("a slot in the text has no value bound to it")
@@ -197,8 +220,7 @@ def _prose(text: str, bound: int) -> None:
 
 
 def _one_line(text: str) -> bool:
-    text = text.strip()
-    return bool(text) and "\n" not in text
+    return len(text.strip().splitlines()) == 1
 
 
 # ------------------------------------------------------------------------ elements
@@ -206,7 +228,7 @@ def _one_line(text: str) -> bool:
 
 def _answer(answer: Answer, pool: Mapping[str, Evidence], context: SceneContext, trace: _Trace) -> tuple[Shown, bool]:
     try:
-        _prose(answer.text, len(answer.values))
+        _prose(answer.text, len(answer.values), 2)
         values = tuple(_bind(ref, pool, context) for ref in answer.values)
     except _Refused as refused:
         trace.add("answer", "replaced", f"{refused}; the answer is always kept, so it says only that what was checked is below")

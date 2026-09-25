@@ -42,7 +42,12 @@ class _Strict(BaseModel):
 
 
 def _lines(text: str, most: int) -> str:
-    if len(text.strip().splitlines()) > most:
+    """Prose that has words once trimmed, in at most `most` lines by every line boundary
+    (a carriage return ends a line as a newline does)."""
+    text = text.strip()
+    if not text:
+        raise ValueError("no words, only whitespace")
+    if len(text.splitlines()) > most:
         raise ValueError(f"at most {most} line(s)")
     return text
 
@@ -163,6 +168,11 @@ class Question(_Strict):
     @classmethod
     def _one_line(cls, text: str) -> str:
         return _lines(text, 1)
+
+    @field_validator("options")
+    @classmethod
+    def _one_line_each(cls, options: list[str]) -> list[str]:
+        return [_lines(option, 1) for option in options]
 
 
 Element = Annotated[

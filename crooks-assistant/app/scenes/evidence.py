@@ -128,7 +128,9 @@ class Record:
 class Evidence:
     """What one read found. `records` are its rows, described by `fields`; `facts` are about
     the result as a whole (a total, a count, a series), described by `fact_fields`. The handle
-    is what a scene plan cites; `query` is a short, redacted summary of what was asked."""
+    is what a scene plan cites; `query` is a short summary of what was asked, redacted when
+    stored; `session_id` is the session whose read produced it, without which nothing in it
+    may be shown."""
 
     handle: str
     tool: str
@@ -145,8 +147,10 @@ class Evidence:
             raise ValueError(f"{self.handle!r} is not an evidence handle.")
         if not isinstance(self.observed_at, datetime) or self.observed_at.tzinfo is None:
             raise ValueError("observed_at is a timezone-aware datetime.")
-        if len(self.query) > MAX_QUERY:
+        if not isinstance(self.query, str) or len(self.query) > MAX_QUERY:
             raise ValueError("The query summary is short: at most 160 characters.")
+        # However it was made, the summary is stored as a drill-down may show it.
+        object.__setattr__(self, "query", summarise(self.query))
         for described in (self.fields, self.fact_fields):
             names = [d.name for d in described]
             if len(names) != len(set(names)):
@@ -336,15 +340,27 @@ def lookup(data: Any, path: str) -> Any:
     return data
 
 
+_QUOTED = re.compile(r"(?<!\w)(?:'[^']*'|\"[^\"]*\"|‘[^’]*’|“[^”]*”)(?!\w)")
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _PHONE = re.compile(r"(?<![\w-])(?:\+|0)\d[\d ()-]{8,}\d")
+_STREET = re.compile(
+    r"\b\d+[a-z]?,?\s+(?:[a-z'.-]+\s+){0,3}?"
+    r"(?:street|st|road|rd|avenue|ave|lane|ln|close|drive|dr|way|place|pl|court|ct|crescent|cres"
+    r"|gardens|gdns|terrace|square|sq|grove|hill|row|mews|walk|park|parade|green|rise|view"
+    r"|boulevard|blvd)\b\.?"
+    r"|\b(?:flat|apartment|apt|unit|suite)\s+\d+[a-z]?\b",
+    re.I,
+)
+_POSTCODE = re.compile(r"\b[a-z]{1,2}\d[a-z\d]?\s*\d[a-z]{2}\b|\b\d{5}(?:-\d{4})?\b", re.I)
 
 
 def summarise(text: Any) -> str:
-    """A query summary as a drill-down may show it: one line, short, with no address or phone
-    number in it — what was asked is described, never who it was asked about."""
+    """A query summary as a drill-down may show it: one line, short, with no quoted value,
+    email address, phone number, street address or postcode in it — what was asked is
+    described, never who or where it was asked about."""
     line = " ".join(str(text or "").split())
-    line = _PHONE.sub("[phone]", _EMAIL.sub("[email]", line))
+    line = _EMAIL.sub("[email]", _QUOTED.sub("[value]", line))
+    line = _POSTCODE.sub("[postcode]", _STREET.sub("[address]", _PHONE.sub("[phone]", line)))
     return line if len(line) <= MAX_QUERY else line[: MAX_QUERY - 1].rstrip() + "…"
 
 
@@ -438,8 +454,13 @@ def _raw_records(data: Mapping[str, Any], path: str | None) -> Iterable[Mapping[
 
 
 def _describe(spec: ToolDescriptors, args: Mapping[str, Any] | None) -> str:
-    asked = [f"{k} {v}" for k, v in (args or {}).items() if v not in (None, "", False) and v != [] and v != {}]
-    return spec.label + (": " + ", ".join(str(a)[:40] for a in asked) if asked else "")
+    """What was asked, by the names of the arguments given and never their values: a value
+    may be an address, a postcode or a name, and a summary is shown without contact details."""
+    asked = [
+        str(k) for k, v in (args or {}).items()
+        if isinstance(k, str) and _NAME.match(k) and v not in (None, "", False) and v != [] and v != {}
+    ]
+    return spec.label + (" by " + ", ".join(asked) if asked else "")
 
 
 DEFAULT = Registry()
