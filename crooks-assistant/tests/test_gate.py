@@ -7,7 +7,7 @@ import pytest
 from app.session.models import Session
 from app.tools import mock
 from app.tools.dispatch import dispatch
-from app.tools.gate import Tier, classify
+from app.tools.gate import Disposition, Tier, classify
 
 
 @pytest.fixture()
@@ -229,3 +229,71 @@ def test_harvest_records_personal_strings_but_not_order_names(session):
     )
     assert {"Anna Denning", "Jo Bloggs", "jo@example.com"} <= session.pii_seen
     assert "CROOKS-1928" not in session.pii_seen
+
+
+# --- the engineering loop: one name on the allow-list, and nothing else moved ---------------
+
+def test_the_allow_list_gained_engineering_status_and_nothing_else():
+    """The one change the engineering bridge made to the gate. Every other table is as it was:
+    the same mutation verbs, the same personal-data reads, the same issued-id rules and id
+    kinds, the same bounds."""
+    from app.tools import gate
+
+    assert "engineering_status" in gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 34, "33 before, and engineering_status"
+    assert gate._MUTATION_VERBS == (
+        "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
+        "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",
+        "set_", "add_", "remove_", "edit_", "post_", "put_", "patch_", "destroy", "append",
+        "restore", "commit", "approve", "execute", "adjust",
+    )
+    assert len(gate._PII_TOOLS) == 6 and "engineering_status" not in gate._PII_TOOLS
+    assert len(gate._ISSUED_ID_ARGS) == 3 and "engineering_status" not in gate._ISSUED_ID_ARGS
+    assert set(gate._ID_KIND) == {
+        "order_id", "customer_id", "line_item_id", "variant_id", "thread_id",
+        "evidence_message_id", "set_id", "workspace_id",
+    }
+    assert (gate._MAX_LIMIT, gate._MAX_DAYS) == (50, 365)
+
+
+def test_engineering_status_is_a_green_read_held_to_the_same_bounds():
+    from app.tools import engineering_tools  # noqa: F401
+
+    d = classify("engineering_status")
+    assert d.tier is Tier.GREEN and d.disposition is Disposition.EXECUTE_NOW
+    assert classify("mcp__crooks__engineering_status").disposition is Disposition.EXECUTE_NOW
+    # No special case: the general bounds still apply to it like to any read.
+    assert classify("engineering_status", {"limit": 0}).disposition is Disposition.DENY
+
+
+def test_filing_is_staged_by_the_existing_issued_id_rule_and_never_executed():
+    from app.tools import engineering_tools  # noqa: F401
+
+    head = "1" * 40
+    args = {
+        "inbox_id": head, "request_id": "bridge-gate-one", "title": "t", "requested_outcome": "o",
+        "base_ref": "main", "base_sha": "a" * 40, "allowed_paths": ["crooks-assistant/app/engineering_bridge"],
+    }
+    unread = classify("submit_engineering_request", args, issued_ids=[])
+    assert unread.disposition is Disposition.DENY and unread.recoverable, "the inbox has not been read yet"
+    staged = classify("submit_engineering_request", args, issued_ids=[head])
+    assert staged.disposition is Disposition.STAGE_FOR_OWNER and staged.tier is Tier.RED
+    assert not staged.executes
+    missing = {k: v for k, v in args.items() if k != "inbox_id"}
+    assert classify("submit_engineering_request", missing, issued_ids=[head]).disposition is Disposition.DENY
+    assert classify("submit_engineering_request", {**args, "force": True}, issued_ids=[head]).disposition is Disposition.DENY
+    too_long = {**args, "requested_outcome": "o" * 20001}
+    assert classify("submit_engineering_request", too_long, issued_ids=[head]).disposition is Disposition.DENY
+
+
+def test_the_other_decisions_are_unchanged():
+    oid = "gid://shopify/Order/4832"
+    assert classify("shopify_order_detail", {"order_id": oid}, issued_ids=[oid]).disposition is Disposition.EXECUTE_NOW
+    assert classify("shopify_order_detail", {"order_id": oid}, issued_ids=[]).recoverable is True
+    assert classify("shopify_find_customer", {"query": "jo"}).tier is Tier.AMBER
+    assert classify("shopify_list_orders", {"limit": 20}).tier is Tier.GREEN
+    assert classify("gmail_search", {"days": 9999}).disposition is Disposition.DENY
+    assert classify("mock_danger").disposition is Disposition.DENY
+    assert classify("some_tool_we_never_wrote").disposition is Disposition.DENY
+    assert classify("gmail_create_draft").disposition is Disposition.DENY
+    assert classify("engineering_submit_unregistered").disposition is Disposition.DENY
