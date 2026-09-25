@@ -175,7 +175,10 @@ def test_offline_is_shown_only_over_a_quiet_screen_and_retries_quietly():
 def test_recovery_needs_no_hand():
     body = function_body(APP_JS, "function wentOnline()")
     assert "setSystem('online');" in body
-    assert "pollHealth(true);" in body and "acquireWakeLock();" in body and "warmMic();" in body
+    assert "pollHealth(true);" in body and "acquireWakeLock();" in body
+    # A reconnect never opens the microphone: on iOS that asked the owner again. The next hold
+    # does (tests/web/mic.test.js).
+    assert "warmMic();" not in body
     assert "window.addEventListener('online'" in APP_JS
     assert "el.system.addEventListener('click'" in APP_JS
 

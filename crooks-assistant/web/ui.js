@@ -1565,7 +1565,7 @@
     // cannot, the surface says so and never arms: an honest card beats a button that fails.
     const blocked = d.commit && typeof d.commit === 'object' && d.commit.allowed === false ? d.commit : null;
     const live = supported && status === 'pending' && Boolean(d.proposal_id) && !blocked;
-    const label = live ? text(interaction.label, gestureLabel(kind)) : (blocked ? blockedLabel(blocked.code) : (supported ? settledLabel(status) : 'Needs a newer tablet build'));
+    const label = live ? text(interaction.label, gestureLabel(kind)) : (blocked ? blockedLabel(blocked.code) : (supported ? settledLabel(status) : 'Needs a newer version of this app'));
     const surface = buildSurface(kind, label, text(interaction.target), live ? 'arming' : (blocked ? 'unavailable' : (supported ? status : 'unsupported')), live);
     const facts = list(d.facts, 8).filter((f) => text(f.value));
     const footer = text(interaction.footer, 'nothing happens until you tap');
@@ -1620,12 +1620,12 @@
     }, children);
   }
 
-  // Who is stopping the gesture, in five words: the Mac's switch, its allow-list, this
-  // tablet's login, or Shopify's grant. "This tablet" is blamed only when it is the reason.
+  // Who is stopping the gesture, in five words: CLIVE's switch, its allow-list, this
+  // device's login, or Shopify's grant. "This device" is blamed only when it is the reason.
   function blockedLabel(code) {
     return {
-      writes_disabled: 'Changes are switched off on the Mac', allow_list_missing: 'No allowed logins set on the Mac',
-      not_authorised: "This tablet's login is not on the Mac's list", not_authorised_local: 'The Mac itself may not apply changes',
+      writes_disabled: 'Changes are switched off in CLIVE', allow_list_missing: 'No allowed logins set in CLIVE',
+      not_authorised: "This device's login is not on CLIVE's list", not_authorised_local: "CLIVE's own computer may not apply changes",
       scope_missing: 'Shopify has not granted the scope this needs',
     }[text(code)] || "Can't apply from here";
   }
@@ -1751,7 +1751,7 @@
             holdTimer = timers.set(() => {
               holdTimer = null;
               if (committed || state() !== 'holding' || !press) return;
-              if (!nonce) { disarmHold("The Mac hasn't armed it"); return; }
+              if (!nonce) { disarmHold("CLIVE hasn't armed it"); return; }
               held();
             }, 1200);
             return;
@@ -1762,13 +1762,13 @@
       if (typeof opts.onArm === 'function') {
         Promise.resolve(opts.onArm(proposalId)).then((token) => {
           if (request !== armRequest || committed) return;
-          if (!token) { disarmHold("The Mac won't arm this"); return; }
+          if (!token) { disarmHold("CLIVE won't arm this"); return; }
           nonce = String(token);
           // The Mac measures the hold from when it stamped this token, which is never later
           // than now: the hold here runs its full length from now as well, so the Mac's
           // clock is met however long the round trip took.
           if (state() === 'holding' && press) holdFor(HOLD_MS + HOLD_MARGIN_MS);
-        }).catch(() => { if (request === armRequest && !committed) disarmHold("The Mac won't arm this"); });
+        }).catch(() => { if (request === armRequest && !committed) disarmHold("CLIVE won't arm this"); });
       }
       holdFor(HOLD_MS + HOLD_MARGIN_MS);
     };
@@ -1998,7 +1998,7 @@
 
   function analyticFoot(d) {
     return [
-      d.complete === false ? h('p', { class: 'card-note', text: 'Partial: the Mac is still reading Shopify.' }) : null,
+      d.complete === false ? h('p', { class: 'card-note', text: 'Partial: CLIVE is still reading Shopify.' }) : null,
       d.truncated ? h('p', { class: 'card-note', text: 'More rows than shown.' }) : null,
       d.note ? h('p', { class: 'card-note', text: text(d.note) }) : null,
     ];
@@ -2244,7 +2244,7 @@
     const status = text(d.status, 'pending');
     const blocked = d.commit && typeof d.commit === 'object' && d.commit.allowed === false ? d.commit : null;
     const live = supported && status === 'pending' && Boolean(d.batch_id) && !blocked;
-    const label = live ? text(interaction.label, gestureLabel(kind)) : (blocked ? blockedLabel(blocked.code) : (supported ? settledLabel(status) : 'Needs a newer tablet build'));
+    const label = live ? text(interaction.label, gestureLabel(kind)) : (blocked ? blockedLabel(blocked.code) : (supported ? settledLabel(status) : 'Needs a newer version of this app'));
     const surface = buildSurface(kind, label, text(interaction.target, 'Apply to all'), live ? 'arming' : (blocked ? 'unavailable' : (supported ? status : 'unsupported')), live);
     const scope = d.set && typeof d.set === 'object' ? d.set : {};
     const eligible = num(d.eligible) === null ? 0 : d.eligible;

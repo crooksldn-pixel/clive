@@ -2588,8 +2588,8 @@ function offerChip(item) {
     button.className = 'rail-chip is-off';
     button.disabled = true;
     button.setAttribute('aria-disabled', 'true');
-    why(command === 'open.entity' ? 'the Mac did not say which record'
-      : command === 'open.area' ? 'the Mac did not say which place'
+    why(command === 'open.entity' ? 'CLIVE did not say which record'
+      : command === 'open.area' ? 'CLIVE did not say which place'
         : 'this build does not know that command');
     return button;
   }
@@ -2605,7 +2605,7 @@ function offerChip(item) {
     button.classList.add('is-off');
     button.disabled = true;
     button.setAttribute('aria-disabled', 'true');
-    const said = String((answered && (answered.answer || answered.detail)) || 'The Mac would not open that.');
+    const said = String((answered && (answered.answer || answered.detail)) || 'CLIVE would not open that.');
     // The reason goes ON the control and nowhere else. There was a `notifyControl(said,
     // button)` here as well, and F's notification policy caught it twice over: it carried no
     // `code`, so two identical refusals could not be deduped, and §10 forbids it outright
@@ -2688,7 +2688,7 @@ async function focusBranch(branchId) {
     // Not "this half is empty" — a half that holds nothing draws its own screen above
     // (showBranchWorkspace, from the Mac's own words and its offer of ways out). Reaching
     // here means the Mac did not answer for it at all.
-    notify('That half could not be read from the Mac.', { tone: 'bad', code: 'half_unreachable', branch: branchId });
+    notify('That half could not be read from CLIVE.', { tone: 'bad', code: 'half_unreachable', branch: branchId });
   }
   drawBranchHead();
   // Whether the SCREEN changed, not whether the focus did. A tap that moved the focus and
@@ -2794,7 +2794,7 @@ async function branchCommand(branchId, verb) {
     }
     return data;
   } catch {
-    notify('The Mac did not answer.', { class: 'global', machine: true, tone: 'bad', code: 'backend_silent' });
+    notify('CLIVE did not answer.', { class: 'global', machine: true, tone: 'bad', code: 'backend_silent' });
     return null;
   }
 }
@@ -2993,7 +2993,7 @@ async function rowAction(action, ref, button) {
     }
   } catch {
     T.record('row_action', { action, status: 0, outcome: 'refused' });
-    notifyControl('The Mac did not answer.', button, { tone: 'bad', code: 'offline' });
+    notifyControl('CLIVE did not answer.', button, { tone: 'bad', code: 'offline' });
     restore();
   }
 }
@@ -3154,8 +3154,8 @@ async function recoverActionState(proposalId) {
 // Mac says VERIFIED; anything else is shown as exactly what it is.
 function settleAction(node, payload, status) {
   if (!payload) {
-    settleActionNode(node, 'unknown', "Couldn't reach the Mac · check the order");
-    el.errline.textContent = 'The Mac did not confirm that. Check the order before trying again.';
+    settleActionNode(node, 'unknown', "Couldn't reach CLIVE · check the order");
+    el.errline.textContent = 'CLIVE did not confirm that. Check the order before trying again.';
     haptic(HAPTIC.error);
     return;
   }
@@ -3229,12 +3229,12 @@ function settleAction(node, payload, status) {
 // told to do about it, which is this page's business and nobody else's.
 const ACTION_REASONS = {
   refused: 'The service refused that. The card says why.',
-  not_authorised: "This tablet's login is not on the Mac's allowed list (CROOKS_ALLOWED_LOGINS).",
-  not_authorised_local: 'Requests made on the Mac itself may not apply changes (CROOKS_WRITES_LOCAL_OWNER).',
-  writes_disabled: 'Changes are switched off on the Mac (CROOKS_WRITES_ENABLED).',
-  allow_list_missing: 'No allowed logins are configured on the Mac (CROOKS_ALLOWED_LOGINS).',
-  identity_unverified: "The Mac could not confirm this tablet's identity with Tailscale.",
-  unknown: 'The Mac is no longer holding that change — it was restarted, or it waited too long. Ask again.',
+  not_authorised: "This device's login is not on CLIVE's allowed list (CROOKS_ALLOWED_LOGINS).",
+  not_authorised_local: "Requests made on CLIVE's own computer may not apply changes (CROOKS_WRITES_LOCAL_OWNER).",
+  writes_disabled: 'Changes are switched off in CLIVE (CROOKS_WRITES_ENABLED).',
+  allow_list_missing: 'No allowed logins are configured in CLIVE (CROOKS_ALLOWED_LOGINS).',
+  identity_unverified: "CLIVE could not confirm this device's identity with Tailscale.",
+  unknown: 'CLIVE is no longer holding that change — it was restarted, or it waited too long. Ask again.',
   wrong_session: 'That proposal belongs to another conversation.',
 };
 
@@ -4260,7 +4260,7 @@ function wentRefused() {
   if (reachable !== false) T.record('connectivity', { state: 'refused' });
   reachable = false;
   if (quiet()) {
-    setSystem('refused', 'Not allowed', "This tablet's login is not on the Mac's allowed list.", 'CROOKS_ALLOWED_LOGINS on the Mac · open /whoami · tap to check again');
+    setSystem('refused', 'Not allowed', "This device's login is not on CLIVE's allowed list.", 'CROOKS_ALLOWED_LOGINS · open /whoami · tap to check again');
   }
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(checkReachable, RECONNECT_MAX_MS);
@@ -4530,7 +4530,7 @@ if (!window.__crooksCommandDelegate) {
     // CONTROL-LOCAL, not a toast. A refusal is about THIS button, so it belongs beside it,
     // where the thumb already is and where it scrolls with the card. A toast over the dock
     // is a message about the screen, and this is not one.
-    if (!answered) { notifyControl('The Mac did not answer.', button, { tone: 'bad', code: 'offline' }); return; }
+    if (!answered) { notifyControl('CLIVE did not answer.', button, { tone: 'bad', code: 'offline' }); return; }
     if (!answered.ok) { notifyControl(String(answered.detail || 'That could not be done.'), button, { tone: 'bad', code: codeOf(answered.code, 'command_refused') }); return; }
     /* A card the Mac has just taken away goes off the glass (§19: visual state outranks
        the spoken claim). `compose.discard` answers "Gone. Nothing was saved." and sends
