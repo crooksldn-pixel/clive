@@ -1620,8 +1620,9 @@
     }, children);
   }
 
-  // Who is stopping the gesture, in five words: the Mac's switch, its allow-list, this
-  // tablet's login, or Shopify's grant. "This tablet" is blamed only when it is the reason.
+  // Who is stopping the gesture, in five words: CLIVE's switch, its allow-list, this
+  // device's login, or Shopify's grant. "This device" is blamed only when it is the reason,
+  // and none of them names the machine CLIVE runs on (GENERATIVE_UI_V1 §4).
   function blockedLabel(code) {
     return {
       writes_disabled: 'Changes are switched off on the server', allow_list_missing: 'No allowed logins set on the server',
