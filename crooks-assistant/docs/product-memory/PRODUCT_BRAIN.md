@@ -203,7 +203,25 @@ Cost and speed may optimise waste, but they must not justify weaker architecture
 
 Parallelism exists to increase quality and throughput only where isolation is real.
 
-### 2.14 Engineering is multi-model by role, not one model pretending to be a company
+### 2.14 Explicit disagreement is higher-value state than silence
+
+CLIVE must distinguish an owner explicitly rejecting, editing or deferring a proposal from simply not responding.
+
+Expiry is unknown evidence, not a negative vote.
+
+Business-specific judgment compounds over time:
+- what the owner approves;
+- what the owner declines;
+- what the owner edits;
+- what the owner defers;
+- what replacement the owner prefers;
+- and under which context that judgment changes.
+
+This evidence is important to earned autonomy and to the long-term operational twin. A model/provider may be replaceable; the accumulated labelled decision boundary of the business is not.
+
+Preserve the content-minimised action audit ledger. Richer judgment evidence belongs in a separate privacy-minimised/redacted durable layer rather than weakening the audit ledger's PII boundary.
+
+### 2.15 Engineering is multi-model by role, not one model pretending to be a company
 
 The long-term engineering organisation should combine complementary specialists:
 

@@ -196,11 +196,12 @@ Before building the full World/automation/self-improvement system, finish:
 
 ## DEC-019 — Server becomes canonical always-on runtime
 **Date:** 2026-09-19  
-**Status:** ACTIVE
+**Status:** ACTIVE for the server as canonical always-on runtime; the Mac's rollback role is SUPERSEDED (2026-09-25) by the Mac's role in DEC-058 / [OWNER_DECISIONS_2026-09-25.md](./OWNER_DECISIONS_2026-09-25.md): Swift and iPhone builds and tests, spare builder capacity; not a production or rollback host.  
+**Was:** ACTIVE
 
 CROOKS runtime should not depend on the Mac being awake.
 
-Mac becomes optional control/development/rollback device.
+Mac becomes optional control/development/rollback device. *(2026-09-19 wording, kept as history; see Status for the current Mac role.)*
 
 ---
 
@@ -302,7 +303,7 @@ Enabling writes is a separate explicit decision.
 
 ## DEC-028 — GitHub bridge uses a separate branch
 **Date:** 2026-09-19  
-**Status:** ACTIVE
+**Status:** RETIRED 2026-09-25 with the bridge watcher (DEC-058); was ACTIVE
 
 `crooks-ai-bridge` carries communication only.
 
@@ -312,7 +313,7 @@ It must not be merged into production code.
 
 ## DEC-029 — Bridge watcher should trigger on inbox blob SHA, not branch HEAD
 **Date:** 2026-09-19  
-**Status:** ACTIVE
+**Status:** RETIRED 2026-09-25 with the bridge watcher (DEC-058); was ACTIVE
 
 Claude updating its outbox must not retrigger itself.
 
@@ -320,7 +321,7 @@ Claude updating its outbox must not retrigger itself.
 
 ## DEC-030 — Bridge watcher must fail closed around shared/dirty worktrees
 **Date:** 2026-09-19  
-**Status:** ACTIVE
+**Status:** RETIRED 2026-09-25 with the bridge watcher (DEC-058); was ACTIVE
 
 Before launching a headless Claude worker:
 - acquire lock,
@@ -538,7 +539,8 @@ Versioned releases, exact artifact identity, health verification and rollback ar
 
 ## DEC-046 — Dev Team planning can proceed now; implementation follows the current-product gates
 **Date:** 2026-09-19  
-**Status:** ACTIVE  
+**Status:** HISTORICAL / SUPERSEDED (2026-09-25) as the execution order — the current order is the 2026-09-25 finish-first rule followed by the approved next phase ([ROADMAP.md](./ROADMAP.md) "NOW — 2026-09-25", [NEXT_PHASE_2026-09-25.md](./NEXT_PHASE_2026-09-25.md), DEC-058). The sequence below is the 2026-09-19 history of how that order was reached; its safety gates still apply.  
+**Was:** ACTIVE  
 **Source:** explicit owner migration continuation; consistent with CURRENT_TRUTH and MIGRATION_HANDOFF
 
 **Decision:** Plan Engineering Orchestrator / Dev Team V1 while the permanent Builder Environment round remains in flight. Preserve that round; do not duplicate or restart it without failure/stoppage evidence.
@@ -573,7 +575,8 @@ Never silently rewrite old rationale. If a decision changes, add a new decision 
 
 ## DEC-047 — Engineering Orchestrator V1 implementation is owner-authorised
 **Date:** 2026-09-19  
-**Status:** ACTIVE  
+**Status:** FULFILLED / HISTORICAL — the bounded implementation approval has been used: Engineering Orchestrator V1 is running as the remote engineering loop (DEC-060; [ROADMAP.md](./ROADMAP.md) D7; [CURRENT_TRUTH.md](./CURRENT_TRUTH.md)). Its DEC-046 gating is history with DEC-046; the limits listed below (no deployment, secrets, privilege, business-write or review-bypass authority) still hold, and later loop changes follow DEC-058.  
+**Was:** ACTIVE  
 **Source:** explicit owner approval in the GPT Director conversation
 
 **Decision:** The owner explicitly approved Engineering Orchestrator V1 moving from planning into implementation under the existing canonical Git specification and safety boundaries.
@@ -591,7 +594,8 @@ Implementation may begin once the preceding DEC-046 deployment/current-product p
 
 ## DEC-048 — Ratify the observed Linux production promotion
 **Date:** 2026-09-19  
-**Status:** ACTIVE  
+**Status:** HISTORICAL — the 2026-09-19 ratification of production at `1cf3a0f…`. It is superseded as current production truth by `clive/trunk` `ce791d03…`, deployed 2026-09-25 under the 2026-09-24 operational alpha promotion decision (DEC-058; [CURRENT_TRUTH.md](./CURRENT_TRUTH.md)); its Gmail gap was closed on 2026-09-24 (DEC-058). Its limit on authority still holds: it approved no further deployment, exposure, secrets, privileges or business writes.  
+**Was:** ACTIVE  
 **Source:** explicit owner ratification in the GPT Director conversation
 
 **Decision:** The owner ratified the already-observed, owner-performed Linux production promotion to exact candidate `1cf3a0f3361b79f9de208d80f501543c53c244b5`, including the installed/enabled `crooks-assistant.service` backend and tailnet-only Tailscale HTTPS route.
@@ -754,3 +758,150 @@ Detailed plan: [ENGINEERING_CONTROL_PLANE_VNEXT.md](./ENGINEERING_CONTROL_PLANE_
 **Reason:** Overnight operation demonstrated real idle gaps and stream starvation despite correct safety rules: one stream repeatedly occupied the shared lane, another stopped moving, and completed work could remain undispatched until a later hourly tick. M-01 through M-08 also demonstrated the cost of asking a mechanical evaluator to infer critical semantics from unrestricted English.
 
 **Consequences:** Phase 0/1 repository work may proceed within existing engineering boundaries. This decision alone does **not** authorise watcher/systemd/runtime installation, production promotion, secrets/credentials, connector changes, privilege expansion, business writes or owner-only freeze adoption.
+
+---
+
+## DEC-055 — Engineering work-in-progress is observable operational state
+
+**Date:** 2026-09-21
+**Status:** ACTIVE ENGINEERING DIRECTION
+**Source:** explicit owner direction while reviewing hourly-controller utilisation and Orchestrator philosophy
+
+**Decision:** Active engineering attempts must expose structured operational progress rather than collapsing to a binary running/not-running state.
+
+The minimum useful progress model includes current bounded activity, completed milestones, evidence produced, waiting/blocking state, next known action, last meaningful progress and separate liveness heartbeat, all bound to exact task/revision/attempt/worker identity.
+
+Heartbeat must not count as meaningful progress.
+
+The hourly supervisor should consume this progress and use its window productively: leave healthy work intact, schedule unrelated eligible work when safe spare capacity exists, investigate alive-but-nonprogressing attempts without duplicating them, reconcile stale attempts before retry, park blocked/owner-gated streams while others move, and advance completed attempts through already-authorised next actions immediately.
+
+Operator visibility is also a product requirement for the engineering system. Termius and later CLIVE engineering surfaces should be able to render a compact live progress table from the same machine-readable state. This is operational telemetry, not exposure of hidden model reasoning.
+
+Do not invent percentage completion where no reliable bounded denominator exists; show concrete milestones/evidence instead.
+
+**Reason:** Binary liveness wastes supervisory windows and hides whether useful work is advancing. The Orchestrator's purpose is not merely to know whether a worker process exists, but to understand enough verified operational state to coordinate useful work around it without interruption or duplication.
+
+**Consequences:** Phase 1 control-plane work should include append-only progress events, progress projection into ACTIVE_STATE, supervisor interpretation and a human-readable progress view. This decision does not authorise live watcher/systemd/runtime changes, production deployment, additional worker concurrency, new privileges, credentials, connectors, business writes or owner-only release/adoption decisions.
+
+---
+
+## DEC-056 — Explicit owner disagreement is durable operational evidence
+
+**Date:** 2026-09-21
+**Status:** ACTIVE PRODUCT / LEARNING DIRECTION
+**Source:** repository review of the action lifecycle plus explicit owner instruction to preserve the finding
+
+**Decision:** CLIVE must represent an owner explicitly considering and rejecting, editing or deferring a concrete proposal as first-class durable evidence.
+
+Absence is not disagreement:
+- proposal expiry means no decision was captured;
+- revocation/moving-on means the proposal was withdrawn by context;
+- neither may be counted as a decline.
+
+For consequential proposals, the learning model should distinguish at least:
+- **APPROVED** — the proposed action was accepted as presented;
+- **DECLINED** — the owner explicitly decided the proposed action should not happen;
+- **EDITED** — the action class was useful, but material execution details were changed by the owner;
+- **DEFERRED** — the action may be appropriate, but not now.
+
+This evidence should support earned autonomy, usefulness measurement, correction-burden analysis and future policy/world-model learning.
+
+The existing action audit ledger remains deliberately content-minimised. Do not weaken that safety boundary by placing free-text proposal content or customer-sensitive deltas directly into `actions.jsonl`. Instead, design a separate redacted **Judgment Ledger / Judgment Event** layer that can reference the proposal/action identity while storing only the minimum useful learning context under the existing privacy/redaction seams.
+
+A judgment event should be capable of carrying:
+- proposal/action identity and action class;
+- explicit decision outcome;
+- bounded reason code;
+- optional redacted owner explanation;
+- proposal representation or fingerprint sufficient for learning;
+- an edited replacement/delta where applicable;
+- contextual/provenance references;
+- timestamp and owner identity/authority evidence.
+
+Unknown/expired proposals are excluded from approval-rate denominators.
+
+Earned autonomy must be falsifiable. A statement such as “31/31 approved” is only valid when the denominator is defined over explicit considered decisions, not merely the subset that produced approval events.
+
+**Reason:** The current action lifecycle records successful/failed execution, expiry and revocation, but lacks a semantic state for “the owner saw this specific proposal and said no.” The observability layer can detect generic corrections and owner feedback, but that does not recover the exact proposal → judgment → preferred alternative relationship. This loses some of the highest-value business-specific evidence and makes approval-only autonomy metrics structurally biased.
+
+**Consequences:** Future action/judgment work should add explicit decline/edit/defer affordances and durable redacted judgment events before relying on approval-frequency metrics for autonomy. §22-style success criteria should incorporate usefulness/correction evidence as well as conformance. This decision does not enable production writes, alter action-authorisation semantics, weaken TTL/precondition/verification safety, or authorise collection of unredacted customer data.
+
+---
+
+## DEC-057 — Verification must reduce subject uncertainty, not justify itself
+
+**Date:** 2026-09-21
+**Status:** ACTIVE ENGINEERING DIRECTION
+**Source:** observed 30-round Orchestrator freeze loop plus owner direction to optimise unattended engineering for useful product progress
+
+**Decision:** Adversarial review remains required where appropriate, but a verifier does not gain unlimited authority to block a subject merely by finding further defects in the verifier itself.
+
+A review finding blocks the subject only when it demonstrates a material defect in subject behaviour, safety, authority, state semantics or required evidence. A defect confined to the verification apparatus becomes its own bounded verifier task.
+
+Two consecutive verifier-only rounds are a convergence signal to park that verification path and continue with a more appropriate verification mechanism unless the verifier defect invalidates prior subject evidence.
+
+Reviewers are explicitly allowed to return READY/ACCEPT when no material subject defect remains.
+
+The unrestricted-English prose-freeze parser experiment is therefore parked as historical engineering evidence. Preserve the real state-machine and safety lessons it discovered, but do not continue M-series/parser expansion as the active Orchestrator path. The typed Engineering Control Plane VNext implementation is the active path.
+
+**Reason:** The freeze loop grew a 5k-line natural-language parser because each adversarial round could generate new English constructions for the parser to fail on. That process improved its own verifier rather than the Orchestrator subject and starved product-facing work. CLIVE's own evolution doctrine says mechanisms are expendable and null is a valid end state when a mechanism no longer earns its responsibility.
+
+**Consequences:** Hourly supervision and future schedulers should favour actual product/control-plane progress, direct behavioural evidence and structured invariants. Verifier maintenance remains legitimate when it protects a real property, but it must not silently become the dominant product. This does not weaken independent review, safety gates or owner-only authority.
+
+---
+
+## DEC-058 — The 2026-09-24 and 2026-09-25 owner decisions join the log
+
+**Date:** 2026-09-25 (recorded in this log during the product-memory consolidation; the decisions themselves are dated 2026-09-24 and 2026-09-25)
+**Status:** ACTIVE
+**Source:** the owner's explicit statements, recorded in [OWNER_DECISIONS_2026-09-24.md](./OWNER_DECISIONS_2026-09-24.md) and [OWNER_DECISIONS_2026-09-25.md](./OWNER_DECISIONS_2026-09-25.md), which remain the full text
+
+**Decision:** These owner decisions are active and are listed here so that the decision log stays the one place every decision can be found:
+
+- **Judgment evidence retention (Gate C of [OWNER_DECISION_PACKET_2026-09-21.md](./OWNER_DECISION_PACKET_2026-09-21.md)), 2026-09-24:** redacted rich judgment evidence is kept for 90 days on a rolling basis; the structured record is kept permanently; nothing learned from judgments becomes a durable preference until the owner confirms it; expiry is never a decline. Extends DEC-056.
+- **Gmail runtime credential, 2026-09-24:** provisioned by the owner on the production host, stored outside every checkout, unattended refresh verified. The "still-missing Gmail OAuth token" of DEC-048 is history. Production writes remain governed by the existing action gate (DEC-027 unchanged).
+- **Operational alpha promotion, 2026-09-24:** promotion authorised once the exact successor SHA passes full repository acceptance and an independent exact-SHA review, with a prepared rollback and a post-deploy health check.
+- **Generative UI V1, 2026-09-24:** approved as specified in [GENERATIVE_UI_V1.md](./GENERATIVE_UI_V1.md).
+- **One trunk, 2026-09-24:** work is finished only when it is in `clive/trunk` and the trunk passes full repository acceptance; production deploys come from the trunk.
+- **Retirements, 2026-09-24:** the bridge watcher, `engineering-team-activation-v1` (superseded by the remote loop), `claude/release-secret-baseline-2026-09-24`, and the ChatGPT orchestrator-freeze and control-plane-progress streams. The bridge watcher was retired on 2026-09-25.
+- **Synthetic credentials in tests, 2026-09-25:** assembled at runtime through one shared test helper, never listed in the secret-scan baseline; supersedes the 2026-09-24 baseline authorisation for HumanisingTests.swift.
+- **Loop update, 2026-09-25:** builders may run declared checks in the check sandbox; acceptance and landing into `clive/trunk` require a green GitHub acceptance run on the exact SHA; the product safety core, evidence tools and loop code join the protected paths.
+- **Engineering off the production host, 2026-09-25:** once clive-worker-01 has proven itself, the loop on the production host is stopped and its reviewer key and worker token are removed there.
+- **The Mac's role, 2026-09-25:** Swift and iPhone builds and tests, spare builder capacity; not a production host.
+
+**Supersedes:** DEC-028, DEC-029 and DEC-030 are RETIRED with the bridge watcher; their outcome (DEC-015: the owner is not a message courier) is carried by the remote engineering loop. DEC-048's Gmail gap is closed, and DEC-048 is historical as production truth: production now runs `ce791d03…`, promoted under the operational alpha promotion decision above. DEC-019's Mac rollback role is superseded by the Mac's role above. DEC-046's execution order is superseded by the 2026-09-25 finish-first rule and the approved next phase ([NEXT_PHASE_2026-09-25.md](./NEXT_PHASE_2026-09-25.md)). DEC-047's implementation approval is fulfilled: the remote engineering loop is running.
+
+**Reason:** the dated records were written outside this log; without an entry here a reader of DECISIONS.md would miss active owner decisions and would still treat the bridge watcher decisions as active.
+
+**Consequences:** No new authority is created by this entry. Deployment, credentials, spend, permissions and business writes remain owner-gated exactly as the dated records say.
+
+---
+
+## DEC-059 — Canonical Objective IDs keep their three-character minimum; invalid fixtures are repaired
+
+**Date:** 2026-09-23/24 (recorded in this log during the product-memory consolidation on 2026-09-25)
+**Status:** HISTORICAL TECHNICAL RATIONALE — not superseded
+**Source:** owner decision during the Remote Engineering Control V1 repairs, recorded in [OPUS_5_5_HANDOFF_2026-09-24.md](./OPUS_5_5_HANDOFF_2026-09-24.md) §8 ("Owner decision")
+
+**Decision:** When the initial Remote Engineering Control V1 worker candidate (`f496bf61…`) failed because its test request IDs were only two characters long, the owner decided:
+- preserve the canonical Objective ID minimum length of 3;
+- do not weaken `app/orchestrator/objectives.py`;
+- fix the invalid test fixture IDs instead.
+
+**Reason:** the canonical Objective validation is shared by the whole engineering lifecycle; a new consumer's fixtures must conform to it rather than loosen it for everyone.
+
+**Consequences:** The repair line (`a15f87ed…`, then `6c300c5f…`) fixed the fixtures and left the validator unchanged. The decision is kept as the rationale for that validation rule; any change to the minimum needs a new owner decision.
+
+---
+
+## DEC-060 — Owner authority to activate Remote Engineering Control, conditional on its gates
+
+**Date:** 2026-09-24 (recorded in this log during the product-memory consolidation on 2026-09-25)
+**Status:** FULFILLED — the conditional authority has been exercised; it is not standing runtime authority
+**Source:** the owner's explicit words "authorise activation", recorded in [OPUS_5_5_HANDOFF_2026-09-24.md](./OPUS_5_5_HANDOFF_2026-09-24.md) §9 ("Owner activation authority")
+
+**Decision:** The owner authorised activation of Remote Engineering Control once the activation candidate had satisfied the required evidence and review gates: full repository acceptance and a fresh independent exact-SHA review of that exact candidate. The authority explicitly did not permit bypassing exact-SHA review, carrying a review over to a successor SHA, or activating an unreviewed or unaccepted candidate (such as `5fc4aa94…`, whose acceptance run was cancelled).
+
+**Reason:** the owner wanted routine repository-only engineering to stop depending on relayed terminal commands (DEC-015), without giving up the evidence gates.
+
+**Consequences:** The authority has since been used: the remote engineering loop is running (see [CURRENT_TRUTH.md](./CURRENT_TRUTH.md)). It covered that one bounded activation only. It grants no deploy, runtime, secrets, permissions or business-write authority; later changes to the loop, its hosts or its privileges follow their own owner decisions (DEC-058).
