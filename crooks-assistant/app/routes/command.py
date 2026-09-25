@@ -46,9 +46,9 @@ def _refuse(status: int, code: str, detail: str) -> JSONResponse:
 
 @router.get("/commands", response_model=None)
 async def listing() -> dict:
-    """What the tablet may post, and which end of the system may reach each one.
+    """What the page may post, and which end of the system may reach each one.
 
-    Derived from the registry, so the tablet cannot offer a control the Mac does not implement
+    Derived from the registry, so the page cannot offer a control the server does not implement
     and the feature matrix cannot claim a command that does not exist.
     """
     return {"commands": commands.public()}
@@ -90,7 +90,7 @@ async def command(
     if spec is None:
         return _refuse(400, "unknown_command", f"There is no command called {name!r}.")
     if not spec.touch:
-        return _refuse(400, "not_tappable", f"{name!r} is not something the tablet can post.")
+        return _refuse(400, "not_tappable", f"{name!r} is not something the screen can post.")
 
     branch = session.branch(branch_id) if branch_id else session.branch()
     # A tap is addressed to a half too, and anything it causes downstream — a read that opens

@@ -344,7 +344,7 @@ def returning_customers(found: dict[str, Any], *, session: Any = None, period: s
         lines = [
             {"label": "Previous order",
              "value": day_words(r.get("previous_at")) if r.get("previous_known")
-             else "before the Mac's window"},
+             else "before the server's window"},
             {"label": "Lifetime", "value": money_words(r.get("lifetime_spent"), currency)},
             {"label": plural(lifetime_orders, "Order"), "value": str(lifetime_orders)},
         ]
@@ -422,7 +422,7 @@ def attention_rows(found: dict[str, Any], *, session: Any = None, period: str = 
         title=f"Orders that need attention{where}",
         count=count, count_label=plural(count, "order"),
         subtitle=" · ".join(p for p in parts if p),
-        note=(f"Read from the {considered} {plural(considered, 'order')} the Mac holds." if considered else ""),
+        note=(f"Read from the {considered} {plural(considered, 'order')} the server holds." if considered else ""),
         rows=rows, truncated=bool(found.get("truncated")),
         spoken=_attention_words(count, red),
         empty_words=_attention_words(0, 0),
@@ -512,7 +512,7 @@ def freshness_of(coverage: Any, *, source: str = "shopify") -> Freshness:
     age = held.get("read_age_s")
     covered = held.get("covered_days")
     caveat = "" if complete else (
-        f"the Mac holds {covered:.0f} days of orders; the rest of the period is not in this"
+        f"the server holds {covered:.0f} days of orders; the rest of the period is not in this"
         if isinstance(covered, (int, float)) else "part of the period is not in this"
     )
     return Freshness(source=source, age_s=float(age) if isinstance(age, (int, float)) else None,

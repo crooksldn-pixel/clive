@@ -32,7 +32,7 @@ def _source_of(name: str) -> tuple[str, str]:
     for prefix, pair in _FAMILY.items():
         if name.startswith(prefix):
             return pair
-    return ("mac", "the Mac")
+    return ("mac", "the assistant")
 
 
 def build(*, build_id: str = "", writes_enabled: bool = True) -> dict[str, Any]:

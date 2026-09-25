@@ -254,11 +254,11 @@ class OrderCache:
         note = ""
         if not complete:
             if self.last_error:
-                note = f"Shopify could not be read fully ({self.last_error}); figures cover what the Mac holds."
+                note = f"Shopify could not be read fully ({self.last_error}); figures cover what the server holds."
             elif self._covered_since is None:
-                note = "The Mac is still reading recent orders from Shopify; ask again in a moment."
+                note = "The server is still reading recent orders from Shopify; ask again in a moment."
             elif self._covered_since > since or self._partial:
-                note = f"The Mac holds {covered_days:.0f} day(s) of orders so far and is reading further back; figures cover that much."
+                note = f"The server holds {covered_days:.0f} day(s) of orders so far and is reading further back; figures cover that much."
             elif self._stale_ids:
                 note = f"{len(self._stale_ids)} order(s) changed a moment ago and are being read again; figures may lag by a few seconds."
             else:

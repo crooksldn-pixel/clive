@@ -31,13 +31,13 @@ router = APIRouter(prefix="/actions")
 # What the tablet says, out loud, when a change cannot be applied from where it is. Fixed
 # lines: nothing from the request and nothing from Shopify reaches the voice.
 SPOKEN_REFUSALS = {
-    "writes_disabled": "Changes are switched off on the Mac, so I can't apply that.",
-    "allow_list_missing": "Nobody is allowed to apply changes yet: the allowed logins aren't set on the Mac.",
-    "not_authorised": "This tablet isn't allowed to apply changes.",
-    "not_authorised_local": "Requests from the Mac itself aren't allowed to apply changes.",
+    "writes_disabled": "Changes are switched off on the server, so I can't apply that.",
+    "allow_list_missing": "Nobody is allowed to apply changes yet: the allowed logins aren't set on the server.",
+    "not_authorised": "This device isn't allowed to apply changes.",
+    "not_authorised_local": "Requests from the server itself aren't allowed to apply changes.",
     "scope_missing": "The store hasn't granted the permission this change needs; the card says which.",
     "gmail_scope_missing": "The Gmail credential can't make that change yet; the card says what it needs.",
-    "identity_unverified": "I couldn't confirm which tablet this is with Tailscale, so I can't apply that.",
+    "identity_unverified": "I couldn't confirm which device this is with Tailscale, so I can't apply that.",
 }
 
 
@@ -65,7 +65,7 @@ def caller_check(request: Request) -> tuple[str, str, str, str]:
     runtime = request.app.state.runtime
     settings = runtime.settings
     if not settings.writes_enabled:
-        return "", "writes_disabled", "Writes are switched off on the Mac (CROOKS_WRITES_ENABLED).", "writes_disabled"
+        return "", "writes_disabled", "Writes are switched off on the server (CROOKS_WRITES_ENABLED).", "writes_disabled"
     allowed = runtime.allowed_logins
     if not allowed:
         return "", "allow_list_missing", "No allowed Tailscale logins are configured (CROOKS_ALLOWED_LOGINS).", "allow_list_missing"
@@ -82,13 +82,13 @@ def caller_check(request: Request) -> tuple[str, str, str, str]:
 
                 ok, why = identity.verify(request.headers.get("x-forwarded-for", ""), login, cli=identity.cli_path(settings.tailscale_cli))
                 if not ok:
-                    return "", "identity_unverified", f"Tailscale could not confirm this tablet's identity: {why}.", "identity_unverified"
+                    return "", "identity_unverified", f"Tailscale could not confirm this device's identity: {why}.", "identity_unverified"
             return login.lower(), "", "", ""
         return "", "not_authorised", "This login may not apply changes.", "not_authorised"
     # Not proxied: a request made on the Mac itself, whatever headers it carries.
     if settings.writes_local_owner:
         return "local", "", "", ""
-    return "", "not_authorised_local", "Requests made on the Mac itself may not apply changes (CROOKS_WRITES_LOCAL_OWNER).", "not_authorised_local"
+    return "", "not_authorised_local", "Requests made on the server itself may not apply changes (CROOKS_WRITES_LOCAL_OWNER).", "not_authorised_local"
 
 
 def caller_identity(request: Request) -> str:
@@ -217,7 +217,7 @@ async def writes_context(request: Request, operation: str | None = None) -> dict
 async def row(request: Request, session_id: str = Form(default=""), action: str = Form(default=""), ref: str = Form(default=""), branch_id: str = Form(default="")) -> JSONResponse | dict:
     """A button beside a row on a card was tapped.
 
-    The tablet posts WHICH action and WHICH row, and nothing else. The Mac looks the action
+    The page posts WHICH action and WHICH row, and nothing else. The server looks the action
     up in its own table (app/actions/rows.py), builds the arguments from a fresh read through
     the write tool's own prepare step, and stages a proposal — the same path a change the
     model proposed takes, through the same gate. Nothing is applied here: the card that comes
@@ -271,7 +271,7 @@ async def row(request: Request, session_id: str = Form(default=""), action: str 
 
 @router.post("/{proposal_id}/arm", response_model=None)
 async def arm(request: Request, proposal_id: str, session_id: str = Form(default="")) -> JSONResponse | dict:
-    """The owner's hold began on a card whose gesture is a hold. The Mac notes when, and
+    """The owner's hold began on a card whose gesture is a hold. The server notes when, and
     answers with a single-use token the commit must carry. Same refusals as a commit: a login
     that may not apply changes may not arm one either."""
     runtime = request.app.state.runtime
@@ -438,11 +438,11 @@ MAX_RECONCILE = 60
 async def states(request: Request, session_id: str = "", ids: str = "") -> JSONResponse | dict:
     """Where every card on the screen actually stands, in one request.
 
-    The September session ended with two batches the tablet reported committed that the Mac
-    never claimed. A gesture is a request, not an outcome: the tablet renders lifecycle from
+    The September session ended with two batches the page reported committed that the server
+    never claimed. A gesture is a request, not an outcome: the page renders lifecycle from
     THIS — PROPOSED, ARMED, COMMITTING, VERIFIED, UNVERIFIED, FAILED, STALE, EXPIRED,
     REVOKED — and never from the fact that a finger moved. It reconciles after every gesture
-    and on every wake, so a card cannot go on saying something the Mac disagrees with.
+    and on every wake, so a card cannot go on saying something the server disagrees with.
     """
     runtime = request.app.state.runtime
     session_id = session_id.strip()
@@ -489,10 +489,10 @@ async def states(request: Request, session_id: str = "", ids: str = "") -> JSONR
 async def dismiss(request: Request, proposal_id: str, session_id: str = Form(default="")) -> JSONResponse | dict:
     """Let an undo OFFER go.
 
-    The tablet posts this when an undo's own clock runs out on the glass, so that the Mac's
+    The page posts this when an undo's own clock runs out on the glass, so that the server's
     copy stops being something the owner could still be waiting on. It applies nothing,
     reverses nothing and withdraws nothing else — and a proposal that is not an undo is
-    refused here, whatever the tablet believes: a change waiting for a gesture is let go by
+    refused here, whatever the page believes: a change waiting for a gesture is let go by
     moving on from it, never by this door.
     """
     runtime = request.app.state.runtime
@@ -517,7 +517,7 @@ async def dismiss(request: Request, proposal_id: str, session_id: str = Form(def
 
 @router.get("/{proposal_id}", response_model=None)
 async def state(request: Request, proposal_id: str, session_id: str = "") -> JSONResponse | dict:
-    """Where a proposal stands, for a tablet that lost the connection mid-tap: it asks what
+    """Where a proposal stands, for a device that lost the connection mid-tap: it asks what
     happened rather than sending the tap again. Public fields only."""
     runtime = request.app.state.runtime
     proposal = runtime.actions.state(proposal_id, session_id.strip())

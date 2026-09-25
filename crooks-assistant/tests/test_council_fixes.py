@@ -316,7 +316,7 @@ def test_the_context_lines_tell_the_model_what_the_mac_knows():
     s.last_outcome = "Tagged 3 of the 3 orders."
     s.last_query = {"tool": "commerce_aggregate", "entity": "order_line_items", "period": "this month", "group_by": ["product"], "metrics": ["units"], "filters": {}, "limit": 10}
     lines = _context_lines(s, "what sold best by colour last month")
-    assert lines[0].startswith("[The last change, as the Mac proved it: \"Tagged 3 of the 3 orders.\"") and s.last_outcome == ""
+    assert lines[0].startswith("[The last change, as CLIVE proved it: \"Tagged 3 of the 3 orders.\"") and s.last_outcome == ""
     assert lines[1].startswith("[Last read-layer query:") and "commerce_aggregate" in lines[1]
     assert lines[2].startswith("[This asks for") and "commerce_aggregate" in lines[2] and s.hinted
     s.last_query = None
