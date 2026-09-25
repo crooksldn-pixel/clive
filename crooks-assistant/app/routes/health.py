@@ -22,7 +22,7 @@ CACHE_TTL_S = 90.0
 
 @router.get("/ping")
 async def ping(request: Request) -> dict:
-    """Is the Mac there at all? No external call and no cache: the installed app asks this on
+    """Is the server there at all? No external call and no cache: the installed app asks this on
     boot and every few seconds while the assistant is unreachable, and the answer must cost
     nothing and never be stale."""
     runtime = request.app.state.runtime

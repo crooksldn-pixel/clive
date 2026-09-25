@@ -52,8 +52,8 @@ async def tools() -> dict:
 
 @router.get("/whoami")
 async def whoami(request: Request) -> dict:
-    """Who Tailscale says is asking. Open this on the tablet to see the exact login to put in
-    CROOKS_ALLOWED_LOGINS; nothing is guessed. A request made on the Mac itself has no login."""
+    """Who Tailscale says is asking. Open this on the device to see the exact login to put in
+    CROOKS_ALLOWED_LOGINS; nothing is guessed. A request made on the server itself has no login."""
     login = request.headers.get("tailscale-user-login", "")
     return {
         "login": login or None,

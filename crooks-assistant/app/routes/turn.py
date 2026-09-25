@@ -1435,7 +1435,7 @@ async def _answer(
 
 @router.get("/state/{session_id}")
 async def state(request: Request, session_id: str, since: int = 0, branch_id: str = "") -> dict:
-    """What the assistant is doing right now. The tablet polls this during a turn so the
+    """What the assistant is doing right now. The page polls this during a turn so the
     screen says CHECKING SHOPIFY because shopify_list_orders is actually running, not because
     the question had the word "orders" in it."""
     runtime = request.app.state.runtime

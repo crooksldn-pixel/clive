@@ -13,13 +13,16 @@ WHAT IT READS
   spoken lines and refusals, the health and capability text, the tool results and prompts the
   model answers from. Two kinds of literal are not words said TO the owner and are left alone:
   docstrings (bare string statements, read by whoever reads the code) and the pattern handed to
-  a `re` call, which recognises what the owner SAYS. Past those, a literal is let through only
-  where `NOT_SAID` declares it: that module, that top-level name, that exact text.
+  a `re` call, which recognises what the owner SAYS. The exception is the docstring of an HTTP
+  route handler: FastAPI publishes it as the operation's description in /openapi.json and
+  /docs, so it is read like any sentence. Past those, a literal is let through only where
+  `NOT_SAID` declares it: that module, that top-level name, that exact text.
 
   Web: every file the page is built from. Scripts and stylesheets are lexed, strings, template
   literals and regular expressions included, so only a real comment is taken out and a `//` or
-  `/*` inside a string is read as what the page says. A page loses its `<!-- -->` comments and
-  nothing else.
+  `/*` inside a string is read as what the page says. A page is tokenized the same way: it
+  loses the `<!-- -->` comments in its text and nothing else, so a `<!--` inside a quoted
+  attribute or an inline script or style is read as what the page says.
 
 The match ignores case: "MAC", "Tablet" and "Make up" are the same words on the glass.
 Comments may keep their history; they are not read to anyone.
@@ -79,7 +82,17 @@ NOT_SAID: frozenset[tuple[str, str, str]] = frozenset({
     ("app/routes/turn.py", "_performance", "mac"),
 })
 
-_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+# The decorators that make a function an HTTP route, whose docstring the API publishes.
+_ROUTE_METHODS = frozenset({"get", "post", "put", "patch", "delete", "head", "options", "trace",
+                            "api_route", "route", "websocket"})
+
+# An HTML comment as the page parser ends it: at `-->` or `--!>`, or abruptly at `<!-->` and
+# `<!--->`. Matched only where a comment can open, in the page's text between tags.
+_HTML_COMMENT = re.compile(r"<!--(?:-?>|.*?--!?>)", re.S)
+# A start or end tag: `<` or `</` and a letter.
+_HTML_TAG = re.compile(r"<(/?)([A-Za-z][A-Za-z0-9-]*)")
+# Elements whose contents are raw text to the parser, where `<!--` opens no comment.
+_HTML_RAW = frozenset({"script", "style", "textarea", "title"})
 
 # After these words a `/` opens a regular expression; after any other word it divides.
 _REGEX_AFTER = frozenset({"return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
@@ -99,13 +112,35 @@ def _name_of(node: ast.stmt) -> str:
     return ",".join(t.id for t in targets if isinstance(t, ast.Name))
 
 
+def _is_route(node: ast.AST) -> bool:
+    """Whether a function is an HTTP route: decorated `@router.get(...)`, `@app.post(...)` and
+    the like."""
+    return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+        isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and d.func.attr in _ROUTE_METHODS
+        for d in node.decorator_list)
+
+
+def _route_docstrings(tree: ast.AST) -> set[int]:
+    """The docstrings of the route handlers in a module. FastAPI publishes each as its
+    operation's description in /openapi.json and /docs, so these are read out, not skipped."""
+    found: set[int] = set()
+    for node in ast.walk(tree):
+        if _is_route(node) and node.body and isinstance(node.body[0], ast.Expr):
+            value = node.body[0].value
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                found.add(id(value))
+    return found
+
+
 def _literals(source: str, filename: str) -> list[tuple[int, str, str]]:
     """Every string literal in a module that could reach the owner: (line, the top-level name
     that holds it, the text)."""
     tree = ast.parse(source, filename=filename)
+    published = _route_docstrings(tree)
     skip: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+        if (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str) and id(node.value) not in published):
             skip.add(id(node.value))
         elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
               and isinstance(node.func.value, ast.Name) and node.func.value.id == "re" and node.args):
@@ -239,10 +274,66 @@ def _without_comments(source: str, *, script: bool = True) -> str:
     return "".join(out)
 
 
+def _tag_end(text: str, i: int) -> int:
+    """Past the `>` that closes the tag opening at `i`. A quoted attribute value is read whole,
+    so a `>` or `<!--` inside one belongs to the value."""
+    j, n, after_equals = i + 1, len(text), False
+    while j < n:
+        c = text[j]
+        if c == ">":
+            return j + 1
+        if c in "'\"" and after_equals:
+            end = text.find(c, j + 1)
+            if end < 0:
+                raise ValueError(f"an attribute value opened at offset {j} never closes")
+            j, after_equals = end + 1, False
+            continue
+        if c == "=":
+            after_equals = True
+        elif not c.isspace():
+            after_equals = False
+        j += 1
+    raise ValueError(f"a tag opened at offset {i} never closes")
+
+
+def _html_without_comments(text: str) -> str:
+    """A page with its comments removed, line for line.
+
+    A tokenizer, not a pattern: it walks the page's text, its tags with their quoted attribute
+    values, and the raw contents of script, style, textarea and title, so a `<!--` inside a
+    value or a script string is read as what the page says. Only a comment that opens in the
+    page's text is taken out, and it leaves its newlines so a hit still names its line."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        tag = _HTML_TAG.match(text, i)
+        if text.startswith("<!--", i):
+            comment = _HTML_COMMENT.match(text, i)
+            if comment is None:
+                raise ValueError(f"a comment opened at offset {i} never closes")
+            out.append("\n" * comment.group(0).count("\n"))
+            i = comment.end()
+        elif tag:
+            end = _tag_end(text, i)
+            out.append(text[i:end])
+            i = end
+            name = tag.group(2).lower()
+            if not tag.group(1) and name in _HTML_RAW:
+                close = re.compile(rf"</{name}(?=[\s/>])", re.I).search(text, i)
+                if close is None:
+                    raise ValueError(f"a <{name}> opened at offset {tag.start()} never closes")
+                out.append(text[i:close.start()])
+                i = close.start()
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
 def _page_text(text: str, suffix: str) -> str:
     """What a web file can put in front of the owner: itself, less its comments."""
     if suffix == ".html":
-        return _HTML_COMMENT.sub(lambda m: "\n" * m.group(0).count("\n"), text)
+        return _html_without_comments(text)
     if suffix == ".js":
         return _without_comments(text)
     if suffix == ".css":
@@ -279,6 +370,48 @@ def said():
 '''
     hits = [text for _, text in _python_strings(source, "probe.py") if RUNTIME_WORDS.search(text)]
     assert sorted(hits) == ["Is the Mac awake?", "run make up on the "], hits
+
+
+def test_the_python_scan_reads_a_route_handlers_docstring():
+    """A route handler's docstring is published by /openapi.json and /docs, so it is read. The
+    docstrings of the module, a class, a helper and an undecorated function are not."""
+    source = '''
+"""A module about the Mac."""
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+class Helper:
+    """A class about the tablet."""
+
+
+def _helper():
+    """A helper about launchd."""
+
+
+@router.get("/ping")
+async def ping():
+    """Is the Mac there at all?"""
+    return {"ok": True}
+
+
+@router.post("/row", response_model=None)
+def row():
+    """The tablet posts WHICH row."""
+
+
+@app.api_route("/other", methods=["GET"])
+async def other():
+    """Run make up first."""
+
+
+@staticmethod
+def plain():
+    """Not a route, on the Mac."""
+'''
+    hits = [text for _, text in _python_strings(source, "app/routes/probe.py") if RUNTIME_WORDS.search(text)]
+    assert sorted(hits) == ["Is the Mac there at all?", "Run make up first.", "The tablet posts WHICH row."], hits
 
 
 def test_the_python_scan_ignores_case_and_lets_through_only_what_is_declared():
@@ -347,6 +480,30 @@ def test_the_web_scan_reads_a_comment_marker_inside_a_string_as_words():
         "Mac", "TABLET", "tablet", "make up", "Tablet", "LAUNCHD", "mac", "Mac", "tablet"], stripped
     css = _without_comments('a::after { content: "// the Mac /* on it"; } /* the tablet */', script=False)
     assert [m.group(0) for m in RUNTIME_WORDS.finditer(css)] == ["Mac"], css
+
+
+def test_the_page_scan_reads_a_comment_marker_inside_an_attribute_or_a_script_as_words():
+    """`<!--` and `-->` inside a quoted attribute, or inside an inline script or style, open no
+    comment, so nothing the page says is taken out with them. A comment in the page's text is
+    still taken out, keeping its lines."""
+    source = "\n".join([
+        '<button aria-label="Wake the tablet <!-- then -->" title=\'<!-- the Mac\'>Go</button>',
+        "<script>",
+        "  const s = '<!-- the Mac is asleep -->';",
+        '  const t = "--> run make up";',
+        "</script>",
+        '<style>a::after { content: "<!-- launchd"; }</style>',
+        "<p>On the TABLET</p>",
+        "<!-- a real comment about the Mac,",
+        "     and the tablet -->",
+        "<textarea placeholder=\"x\"><!-- the mac --></textarea>",
+        "<p>Ready</p>",
+    ])
+    page = _page_text(source, ".html")
+    assert page.count("\n") == source.count("\n"), "a comment keeps its lines"
+    assert [m.group(0) for m in RUNTIME_WORDS.finditer(page)] == [
+        "tablet", "Mac", "Mac", "make up", "launchd", "TABLET", "mac"], page
+    assert "<p>Ready</p>" in page and "a real comment" not in page, page
 
 
 def test_no_owner_facing_python_string_names_the_runtime_host():
