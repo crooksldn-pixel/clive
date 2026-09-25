@@ -16,6 +16,25 @@ const vm = require('node:vm');
 const ORIGIN = 'https://crooks.test';
 const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'sw.js'), 'utf8').replace('__BUILD__', 'testbuild');
 
+// A stand-in for the platform Response, as the caches and the network are stood in for below.
+// The worker needs a status, a content type, a body read as text, a clone and Response.error().
+// Node's own Response loads its HTTP client, which instantiates a WebAssembly parser as it
+// loads; a memory-capped runner refuses that, and the file failed after every test had passed.
+class FakeResponse {
+  constructor(body, init = {}) {
+    this.init = init;
+    this.body = body == null ? '' : String(body);
+    this.status = init.status === undefined ? 200 : init.status;
+    this.ok = this.status >= 200 && this.status < 300;
+    this.type = init.type || 'default';
+    const headers = new Map(Object.entries(init.headers || {}).map(([k, v]) => [k.toLowerCase(), String(v)]));
+    this.headers = { get: (name) => { const key = String(name).toLowerCase(); return headers.has(key) ? headers.get(key) : null; } };
+  }
+  static error() { return new FakeResponse('', { status: 0, type: 'error' }); }
+  clone() { return new FakeResponse(this.body, this.init); }
+  async text() { return this.body; }
+}
+
 function boot() {
   const handlers = {};
   const fetched = [];
@@ -36,7 +55,7 @@ function boot() {
   const calls = { skipWaiting: 0, claim: 0 };
   const sandbox = {
     console,
-    Response,
+    Response: FakeResponse,
     URL,
     caches,
     network,
@@ -53,7 +72,7 @@ function boot() {
       if (network.mode === 'hang') return new Promise(() => {});
       const status = typeof network.mode === 'number' ? network.mode : 200;
       const type = network.type || (p.endsWith('.js') ? 'text/javascript' : 'text/html');
-      return new Response(`${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
+      return new FakeResponse(`${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
     },
   };
   sandbox.self = sandbox;

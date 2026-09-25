@@ -204,7 +204,7 @@ async def test_a_tablet_that_may_not_apply_changes_is_told_before_it_taps(walk):
     body = (await walk.post("/turn", json={"text": QUESTION, "session_id": "w3", "speak": True}, headers=PROXIED)).json()
     (card,) = [i["data"] for i in body["ui"] if i["type"] == "confirmation"]
     assert card["commit"] == {"allowed": False, "code": "writes_disabled",
-                              "reason": "Changes are switched off on the Mac (CROOKS_WRITES_ENABLED)."}
+                              "reason": "Changes are switched off on the server (CROOKS_WRITES_ENABLED)."}
     assert body["answer"].endswith("Changes are switched off on the Mac, so I can't apply that.")
     assert "not allowed" not in body["answer"].lower()
     assert walk.store.mutations == []

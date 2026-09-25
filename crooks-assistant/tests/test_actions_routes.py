@@ -372,7 +372,7 @@ async def test_a_turn_time_refusal_is_logged_and_the_local_case_is_named(client,
     assert body["writes"]["allowed"] is False and body["writes"]["code"] == "not_authorised_local"
     (card,) = [i for i in body["ui"] if i["type"] == "confirmation"]
     assert card["data"]["commit"]["code"] == "not_authorised_local"
-    assert "Mac itself" in card["data"]["commit"]["reason"] and "tablet" not in card["data"]["commit"]["reason"].lower()
+    assert "server itself" in card["data"]["commit"]["reason"] and "tablet" not in card["data"]["commit"]["reason"].lower()
     lines = [r.getMessage() for r in caplog.records if "tap would be refused" in r.getMessage()]
     assert len(lines) == 1 and "not_authorised_local" in lines[0] and "proxied=False" in lines[0]
 
@@ -871,7 +871,7 @@ async def test_a_login_header_tailscale_does_not_vouch_for_applies_nothing(clien
         state = await client.get(f"/actions/{proposal.proposal_id}?session_id=s1", headers=PROXIED)
         assert state.status_code == 200 and state.json()["status"] == "pending"
         card = next(i for i in state.json()["ui"] if i["type"] == "confirmation")["data"]
-        assert card["commit"] == {"allowed": False, "code": "identity_unverified", "reason": "The Mac could not confirm this tablet's identity with Tailscale."}
+        assert card["commit"] == {"allowed": False, "code": "identity_unverified", "reason": "CROOKS could not confirm this device's identity with Tailscale."}
         # Tailscale names the login on the header: the same tap applies.
         holders["100.64.0.9"] = OWNER
         identity.bind_runner(lambda cli, address: {"UserProfile": {"LoginName": holders.get(address, "")}})

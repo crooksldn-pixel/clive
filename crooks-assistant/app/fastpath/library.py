@@ -119,7 +119,7 @@ def _hedge(body: dict[str, Any]) -> str:
     if not isinstance(body, dict) or body.get("complete") is not False:
         return ""
     note = " ".join(str(body.get("note") or "").split())
-    return f" {note}" if note else " The Mac is still reading recent orders, so this is what it holds so far."
+    return f" {note}" if note else " CROOKS is still reading recent orders, so this is what it holds so far."
 
 
 def _how_many(body: dict[str, Any], shown: int) -> str:

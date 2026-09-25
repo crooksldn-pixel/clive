@@ -120,7 +120,7 @@ ui_semantics.extend([
         what="What is on the glass right now: the cards on the deck, and the furniture that is "
              "there whether or not any card is — the orb, the dock, a chip per half while the "
              "conversation is divided, and Back and Home once this half has a trail",
-        where="Asked at the moment you ask it, from what the Mac has actually put on the "
+        where="Asked at the moment you ask it, from what CROOKS has actually put on the "
               "screen. An empty deck is not an empty screen",
         says=("what is on this screen", "why is this here"),
         also=("dock", "split", "back"),

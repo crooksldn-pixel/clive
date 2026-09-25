@@ -163,6 +163,6 @@ capability_families.register(capability_families.CapabilityFamily(
     key="delivery_tracking", label="Delivery status", area="shipping",
     what="whether a parcel has actually arrived",
     state="DISCONNECTED",
-    detail="no carrier is connected, so whether a parcel arrived is not a fact this Mac holds — "
+    detail="no carrier is connected, so whether a parcel arrived is not a fact CROOKS holds — "
            "only fulfilled/unfulfilled, and whether a tracking number exists",
 ))

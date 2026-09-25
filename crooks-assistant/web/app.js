@@ -595,7 +595,7 @@ async function speakAnswer(text, { isError = false } = {}) {
     // An abort is the owner interrupting, not a failure: they are already holding the orb —
     // unless it was the timer, in which case the Mac's voice is not coming.
     if (controller.signal.aborted && !controller.timedOut) return;
-    browserSpeak(text, { isError, reason: controller.timedOut ? 'voice timed out' : 'the Mac unreachable' });
+    browserSpeak(text, { isError, reason: controller.timedOut ? 'voice timed out' : 'the server unreachable' });
   } finally {
     if (speakAbort === controller) speakAbort = null;
   }
@@ -722,7 +722,7 @@ function playAudio(blob, text, generation, isError, startAt = 0) {
   player.onerror = () => {
     if (generation !== speakGeneration) return;
     releaseAudioUrl();
-    browserSpeak(text, { isError, reason: 'the tablet could not play the audio' });
+    browserSpeak(text, { isError, reason: 'this device could not play the audio' });
   };
   // The analyser path: resume the context if Android suspended it, and bind the player to it
   // if the first touch did not manage to (the context was still starting). Binding is a
@@ -848,7 +848,7 @@ async function pollHealth(fresh = false) {
     const voice = data.voice || {};
     if (voice.voice) {
       el.voiceName.textContent = voice.enabled
-        ? `${voice.voice} · ElevenLabs ${voice.model || ''}`.trim() + ' · generated on the Mac'
+        ? `${voice.voice} · ElevenLabs ${voice.model || ''}`.trim() + ' · generated on the server'
         : 'ElevenLabs voice switched off · the fallback voice below is in use';
       el.preview.textContent = voice.enabled ? `Preview ${voice.voice}` : 'Preview fallback voice';
     }
@@ -858,8 +858,8 @@ async function pollHealth(fresh = false) {
     setConn('down', 'Offline');
     setService('shopify', null); setService('gmail', null); setService('voice', null); setService('changes', null);
     clear(el.health);
-    el.health.appendChild(healthRow(false, 'the Mac', 'Cannot reach the assistant. Is the Mac awake and is it running (make up)?'));
-    if (el.families) { clear(el.families); el.families.appendChild(familyRow({ label: 'Everything', state: 'TEMPORARILY_UNAVAILABLE', detail: 'the Mac cannot be reached' })); }
+    el.health.appendChild(healthRow(false, 'the server', 'Cannot reach the assistant. Check this device is online and that CROOKS is running on the server.'));
+    if (el.families) { clear(el.families); el.families.appendChild(familyRow({ label: 'Everything', state: 'TEMPORARILY_UNAVAILABLE', detail: 'the server cannot be reached' })); }
     el.voiceStatus.textContent = 'Unknown';
     el.voiceStatus.className = 'badge quiet';
     wentOffline();
@@ -923,7 +923,7 @@ function renderFamilies(families) {
     .filter((f) => !f.hide && f.key !== '_error')
     .sort((a, b) => (a.state === 'READY') - (b.state === 'READY') || String(a.area).localeCompare(String(b.area)) || String(a.label).localeCompare(String(b.label)));
   if (!rows.length) {
-    el.families.appendChild(familyRow({ label: 'Capabilities', state: 'TEMPORARILY_UNAVAILABLE', detail: 'the Mac did not list them this time' }));
+    el.families.appendChild(familyRow({ label: 'Capabilities', state: 'TEMPORARILY_UNAVAILABLE', detail: 'CROOKS did not list them this time' }));
     return;
   }
   for (const family of rows) el.families.appendChild(familyRow(family));
@@ -2277,8 +2277,8 @@ function offerChip(item) {
     button.className = 'rail-chip is-off';
     button.disabled = true;
     button.setAttribute('aria-disabled', 'true');
-    why(command === 'open.entity' ? 'the Mac did not say which record'
-      : command === 'open.area' ? 'the Mac did not say which place'
+    why(command === 'open.entity' ? 'CROOKS did not say which record'
+      : command === 'open.area' ? 'CROOKS did not say which place'
         : 'this build does not know that command');
     return button;
   }
@@ -2294,7 +2294,7 @@ function offerChip(item) {
     button.classList.add('is-off');
     button.disabled = true;
     button.setAttribute('aria-disabled', 'true');
-    const said = String((answered && (answered.answer || answered.detail)) || 'The Mac would not open that.');
+    const said = String((answered && (answered.answer || answered.detail)) || 'CROOKS would not open that.');
     // The reason goes ON the control and nowhere else. There was a `notifyControl(said,
     // button)` here as well, and F's notification policy caught it twice over: it carried no
     // `code`, so two identical refusals could not be deduped, and §10 forbids it outright
@@ -2377,7 +2377,7 @@ async function focusBranch(branchId) {
     // Not "this half is empty" — a half that holds nothing draws its own screen above
     // (showBranchWorkspace, from the Mac's own words and its offer of ways out). Reaching
     // here means the Mac did not answer for it at all.
-    notify('That half could not be read from the Mac.', { tone: 'bad', code: 'half_unreachable', branch: branchId });
+    notify('That half could not be read from the server.', { tone: 'bad', code: 'half_unreachable', branch: branchId });
   }
   drawBranchHead();
   // Whether the SCREEN changed, not whether the focus did. A tap that moved the focus and
@@ -2483,7 +2483,7 @@ async function branchCommand(branchId, verb) {
     }
     return data;
   } catch {
-    notify('The Mac did not answer.', { class: 'global', machine: true, tone: 'bad', code: 'backend_silent' });
+    notify('The server did not answer.', { class: 'global', machine: true, tone: 'bad', code: 'backend_silent' });
     return null;
   }
 }
@@ -2682,7 +2682,7 @@ async function rowAction(action, ref, button) {
     }
   } catch {
     T.record('row_action', { action, status: 0, outcome: 'refused' });
-    notifyControl('The Mac did not answer.', button, { tone: 'bad', code: 'offline' });
+    notifyControl('The server did not answer.', button, { tone: 'bad', code: 'offline' });
     restore();
   }
 }
@@ -2843,8 +2843,8 @@ async function recoverActionState(proposalId) {
 // Mac says VERIFIED; anything else is shown as exactly what it is.
 function settleAction(node, payload, status) {
   if (!payload) {
-    settleActionNode(node, 'unknown', "Couldn't reach the Mac · check the order");
-    el.errline.textContent = 'The Mac did not confirm that. Check the order before trying again.';
+    settleActionNode(node, 'unknown', "Couldn't reach the server · check the order");
+    el.errline.textContent = 'The server did not confirm that. Check the order before trying again.';
     haptic(HAPTIC.error);
     return;
   }
@@ -2918,12 +2918,12 @@ function settleAction(node, payload, status) {
 // told to do about it, which is this page's business and nobody else's.
 const ACTION_REASONS = {
   refused: 'The service refused that. The card says why.',
-  not_authorised: "This tablet's login is not on the Mac's allowed list (CROOKS_ALLOWED_LOGINS).",
-  not_authorised_local: 'Requests made on the Mac itself may not apply changes (CROOKS_WRITES_LOCAL_OWNER).',
-  writes_disabled: 'Changes are switched off on the Mac (CROOKS_WRITES_ENABLED).',
-  allow_list_missing: 'No allowed logins are configured on the Mac (CROOKS_ALLOWED_LOGINS).',
-  identity_unverified: "The Mac could not confirm this tablet's identity with Tailscale.",
-  unknown: 'The Mac is no longer holding that change — it was restarted, or it waited too long. Ask again.',
+  not_authorised: "This device's login is not on the server's allowed list (CROOKS_ALLOWED_LOGINS).",
+  not_authorised_local: 'Requests made on the server itself may not apply changes (CROOKS_WRITES_LOCAL_OWNER).',
+  writes_disabled: 'Changes are switched off on the server (CROOKS_WRITES_ENABLED).',
+  allow_list_missing: 'No allowed logins are configured on the server (CROOKS_ALLOWED_LOGINS).',
+  identity_unverified: "CROOKS could not confirm this device's identity with Tailscale.",
+  unknown: 'CROOKS is no longer holding that change — it was restarted, or it waited too long. Ask again.',
   wrong_session: 'That proposal belongs to another conversation.',
 };
 
@@ -3204,14 +3204,14 @@ async function submit(body, isAudio) {
       settleGlass('turn_failed');
       if (!stillHere()) { decks.delete(askedBranch); notify('The other half hit a problem.', { tone: 'bad', code: 'half_failed', branch: askedBranch }); return; }
       lastWasError = true;
-      lastErrorTitle = response.status === 403 ? 'Not allowed' : 'The Mac hit a problem';
+      lastErrorTitle = response.status === 403 ? 'Not allowed' : 'CROOKS hit a problem';
       el.errline.textContent = response.status === 403
-        ? "The Mac refused this tablet: its login is not on the allowed list (CROOKS_ALLOWED_LOGINS)."
-        : `The assistant on the Mac answered with an error (${response.status}). Try again.`;
+        ? "CROOKS refused this device: its login is not on the allowed list (CROOKS_ALLOWED_LOGINS)."
+        : `The assistant on the server answered with an error (${response.status}). Try again.`;
       setState('ERROR', lastErrorTitle);
       haptic(HAPTIC.error);
       // A voice-first device says its errors: the owner is looking at their hands.
-      speakAnswer(response.status === 403 ? 'This tablet is not allowed to ask.' : 'The Mac hit a problem. Ask again.', { isError: true });
+      speakAnswer(response.status === 403 ? 'This device is not allowed to ask.' : 'CROOKS hit a problem. Ask again.', { isError: true });
       return;
     }
     const data = await response.json();
@@ -3273,15 +3273,15 @@ async function submit(body, isAudio) {
     settleGlass(controller.signal.aborted ? 'timed_out' : 'unreachable');
     if (!stillHere()) { decks.delete(askedBranch); notify('The other half hit a problem.', { tone: 'bad', code: 'half_failed', branch: askedBranch }); return; }
     lastWasError = true;
-    lastErrorTitle = controller.signal.aborted ? 'The Mac took too long' : 'The Mac did not answer';
+    lastErrorTitle = controller.signal.aborted ? 'CROOKS took too long' : 'The server did not answer';
     el.errline.textContent = controller.signal.aborted
       ? 'That question was abandoned after two minutes. Ask again.'
-      : 'Is the Mac awake, and is the assistant running on it? (make up)';
+      : 'Check this device is online and that CROOKS is running on the server.';
     setState('ERROR', lastErrorTitle);
     setConn('down', 'Offline');
     haptic(HAPTIC.error);
     // The Mac did not answer, so this goes to the Android voice by way of a failed /speak.
-    speakAnswer(controller.signal.aborted ? 'That took too long. Ask again.' : 'I cannot reach the Mac.', { isError: true });
+    speakAnswer(controller.signal.aborted ? 'That took too long. Ask again.' : 'I cannot reach the server.', { isError: true });
     if (!controller.signal.aborted) setTimeout(checkReachable, 0);   // after `finally` clears busy
   } finally {
     clearTimeout(timeout);
@@ -3480,7 +3480,7 @@ function cancelTurnAndListen() {
   turnAbort.abort();
   // This half's turn, and only this half's: the other half may be mid-thought about
   // something else, and a cancel here must not stop it.
-  cancelTurn(cancelForm(focusedBranch), 'the abort already freed the tablet');
+  cancelTurn(cancelForm(focusedBranch), 'the abort already freed the page');
   haptic(HAPTIC.start);
   // submit()'s finally clears busy once the abort lands; start listening right after it —
   // if the thumb is still down. A thumb that lifted meanwhile just wanted the question gone.
@@ -3927,7 +3927,7 @@ function wentRefused() {
   if (reachable !== false) T.record('connectivity', { state: 'refused' });
   reachable = false;
   if (quiet()) {
-    setSystem('refused', 'Not allowed', "This tablet's login is not on the Mac's allowed list.", 'CROOKS_ALLOWED_LOGINS on the Mac · open /whoami · tap to check again');
+    setSystem('refused', 'Not allowed', "This device's login is not on the server's allowed list.", 'CROOKS_ALLOWED_LOGINS on the server · open /whoami · tap to check again');
   }
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(checkReachable, RECONNECT_MAX_MS);
@@ -4197,7 +4197,7 @@ if (!window.__crooksCommandDelegate) {
     // CONTROL-LOCAL, not a toast. A refusal is about THIS button, so it belongs beside it,
     // where the thumb already is and where it scrolls with the card. A toast over the dock
     // is a message about the screen, and this is not one.
-    if (!answered) { notifyControl('The Mac did not answer.', button, { tone: 'bad', code: 'offline' }); return; }
+    if (!answered) { notifyControl('The server did not answer.', button, { tone: 'bad', code: 'offline' }); return; }
     if (!answered.ok) { notifyControl(String(answered.detail || 'That could not be done.'), button, { tone: 'bad', code: codeOf(answered.code, 'command_refused') }); return; }
     /* A card the Mac has just taken away goes off the glass (§19: visual state outranks
        the spoken claim). `compose.discard` answers "Gone. Nothing was saved." and sends
