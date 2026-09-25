@@ -67,7 +67,9 @@ def _live(runtime, result: dict) -> dict:
         scribe_ok, scribe_detail = runtime.scribe.judged(probe)
         checks["scribe"] = {"ok": scribe_ok, "detail": scribe_detail}
         whisper_enabled = runtime.settings.whisper_enabled
-        checks["speech"], effective = _speech_verdict("scribe", whisper_enabled, checks, runtime.settings)
+        checks["speech"], effective = _speech_verdict(
+            "scribe", whisper_enabled, checks, runtime.settings, failing=_scribe_failing(runtime, "scribe"),
+        )
         speech = {
             **speech,
             **_scribe_state(runtime, "scribe"),
@@ -83,7 +85,9 @@ def _live(runtime, result: dict) -> dict:
     }
 
 
-def _speech_verdict(primary: str, whisper_enabled: bool, checks: dict, settings) -> tuple[dict, str]:
+def _speech_verdict(
+    primary: str, whisper_enabled: bool, checks: dict, settings, *, failing: str = "",
+) -> tuple[dict, str]:
     """checks["speech"] and the engine actually hearing, from the recogniser checks.
 
     Speech recognition is two engines behind one job, so it gets a verdict of its own:
@@ -94,8 +98,12 @@ def _speech_verdict(primary: str, whisper_enabled: bool, checks: dict, settings)
     matters. On the Mac, Scribe going down is a slower assistant. On a host with whisper
     disabled it is a deaf one, and `speech` says UNHEALTHY rather than borrowing the Mac's
     answer. `redundancy` publishes which of the two worlds the reader is in, so the absence
-    of a fallback is a visible fact rather than something you have to already know."""
+    of a fallback is a visible fact rather than something you have to already know.
+
+    `failing` is the kind of Scribe's current failure; while it is set, the verdict says in
+    plain words what happened and what brings it back."""
     primary_check = "scribe" if primary == "scribe" else "whisper"
+    why = f" ({listening_reason(failing)})" if failing else ""
     # Whether whisper could actually take a turn: deployed here AND answering. On the Mac this
     # is exactly checks["whisper"]["ok"], which is why nothing there changes.
     whisper_usable = whisper_enabled and checks["whisper"]["ok"]
@@ -118,22 +126,31 @@ def _speech_verdict(primary: str, whisper_enabled: bool, checks: dict, settings)
             speech_detail += " · no local fallback on this host (by design)"
     elif whisper_usable:
         speech_ok, speech_effective = True, "whisper_fallback"
-        speech_detail = f"whisper_fallback — {primary_check} is unavailable, answers still work"
+        speech_detail = f"whisper_fallback — {primary_check} is unavailable{why}, answers still work"
     else:
         speech_ok, speech_effective = False, "none"
         speech_detail = (
-            "NO recogniser available — the tablet cannot be heard"
+            f"NO recogniser available{why} — the tablet cannot be heard"
             if whisper_enabled
-            else f"NOT working: {primary_check} is down and this host has no local fallback"
+            else f"NOT working: {primary_check} is down{why} and there is no local fallback"
         )
     return {"ok": speech_ok, "detail": speech_detail, "redundancy": redundancy}, speech_effective
 
 
-def _scribe_state(runtime, primary: str) -> dict:
-    """Scribe's counters and, while its latest attempt failed with no success since, what
-    happened in plain words."""
+def _scribe_failing(runtime, primary: str) -> str:
+    """The kind of Scribe's failure while nothing has succeeded since — its latest attempt, or
+    else a probe that found the key or the account wrong; "" when well or not in use."""
+    if primary != "scribe":
+        return ""
     scribe = runtime.scribe
-    failing = (getattr(scribe, "failing_kind", "") or "") if primary == "scribe" else ""
+    return getattr(scribe, "unwell_kind", "") or getattr(scribe, "failing_kind", "") or ""
+
+
+def _scribe_state(runtime, primary: str) -> dict:
+    """Scribe's counters and, while it is failing with no success since, what happened in
+    plain words."""
+    scribe = runtime.scribe
+    failing = _scribe_failing(runtime, primary)
     return {
         "scribe_attempts": scribe.attempts,
         "scribe_successes": scribe.successes,
@@ -265,7 +282,9 @@ async def _health(runtime) -> dict:
     # Speech recognition gets a verdict of its own — see _speech_verdict.
     whisper_usable = whisper_enabled and checks["whisper"]["ok"]
     redundancy = "whisper" if whisper_enabled else "none"
-    checks["speech"], speech_effective = _speech_verdict(primary, whisper_enabled, checks, settings)
+    checks["speech"], speech_effective = _speech_verdict(
+        primary, whisper_enabled, checks, settings, failing=_scribe_failing(runtime, primary),
+    )
 
     checks["knowledge_base"] = {
         "ok": not runtime.kb.empty,

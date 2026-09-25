@@ -97,6 +97,8 @@ class ScribeClient:
         # How many transcriptions had succeeded when that probe answered. A success after it
         # is newer evidence than a failed probe; a probe after the success is newer still.
         self._probe_successes = 0
+        # The kind of what that probe found wrong ("credit", "rejected"), "" when it was well.
+        self._probe_kind = ""
 
     # ------------------------------------------------------------------ connection
 
@@ -280,6 +282,7 @@ class ScribeClient:
         a restricted key cannot see it and that is not a fault."""
         # Forgotten first: a probe that times out must not leave an older answer behind it.
         self.last_probe = None
+        self._probe_kind = ""
         probe = await self._probe()
         self.last_probe, self._probe_successes = probe, self.successes
         return self.judged(probe)
@@ -306,8 +309,10 @@ class ScribeClient:
             # A key scoped to one product. It cannot list models; it can still transcribe.
             return True, "key ok (restricted, unlisted quota)"
         elif probe.status_code in (401, 402, 429) and _says_no_credit(body):
+            self._probe_kind = "credit"
             return False, f"{listening_reason('credit')} (credit)"
         elif probe.status_code == 401:
+            self._probe_kind = "rejected"
             return False, "API key rejected (401)"
         else:
             return False, f"ElevenLabs returned {probe.status_code}"
@@ -342,6 +347,18 @@ class ScribeClient:
         """The kind of the latest failure while nothing has succeeded since; "" when well."""
         if self.failing or self.cooling_down:
             return self.last_error_kind or "failure"
+        return ""
+
+    @property
+    def unwell_kind(self) -> str:
+        """failing_kind, or else what the last probe found wrong while no transcription has
+        succeeded since it — an account the probe already saw empty is not a recogniser that
+        works just because nobody has spoken yet. "" when well."""
+        if self.failing_kind:
+            return self.failing_kind
+        probe = self.last_probe
+        if self._probe_kind and probe is not None and not probe[0] and self.successes <= self._probe_successes:
+            return self._probe_kind
         return ""
 
     # A key that may not read the account says so with a 401 every time it is asked. Ask once

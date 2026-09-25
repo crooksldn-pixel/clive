@@ -346,6 +346,9 @@ async def test_health_route_reports_the_kind_and_the_reason_then_ok_again(mock_h
     assert down["speech"]["scribe_ok"] is False
     assert down["speech"]["scribe_failure_kind"] == "credit"
     plainly_credit(down["speech"]["scribe_reason"])
+    # The hearing verdict says why too, and nothing about which machine it runs on.
+    assert down["checks"]["speech"]["ok"] is False
+    plainly_credit(down["checks"]["speech"]["detail"])
     assert SECRET not in json.dumps(down)
 
     account["empty"] = False
@@ -394,6 +397,7 @@ async def test_a_cached_health_shows_a_scribe_failure_since_it_was_filled(mock_h
     assert down["speech"]["scribe_ok"] is False
     assert down["speech"]["scribe_failure_kind"] == "credit"
     plainly_credit(down["speech"]["scribe_reason"])
+    assert "credits are used up" in down["checks"]["speech"]["detail"]
     if whisper_enabled:
         # Whisper still hears: a slower assistant, not a deaf one.
         assert down["checks"]["speech"]["ok"] is True and down["speech"]["effective"] == "whisper_fallback"
@@ -452,6 +456,11 @@ async def test_a_cached_failed_probe_gives_way_to_a_later_success_but_not_to_a_n
     assert down["cached"] is False and down["status"] == "degraded"
     assert down["checks"]["scribe"]["ok"] is False and "credits are used up" in down["checks"]["scribe"]["detail"]
     assert down["checks"]["speech"]["ok"] is False and down["speech"]["effective"] == "none"
+    # Nothing has been transcribed yet, and the probe already saw the account empty: /health
+    # names the kind and the plain reason all the same.
+    assert down["speech"]["scribe_failure_kind"] == "credit"
+    plainly_credit(down["speech"]["scribe_reason"])
+    plainly_credit(down["checks"]["speech"]["detail"])
 
     account["empty"] = False
     assert (await scribe_client.transcribe(b"wav", keyterms=[])).text == "twelve orders today"
@@ -473,3 +482,5 @@ async def test_a_cached_failed_probe_gives_way_to_a_later_success_but_not_to_a_n
     assert again["cached"] is True and again["status"] == "degraded"
     assert again["checks"]["scribe"]["ok"] is False and "credits are used up" in again["checks"]["scribe"]["detail"]
     assert again["checks"]["speech"]["ok"] is False and again["speech"]["effective"] == "none"
+    assert again["speech"]["scribe_failure_kind"] == "credit"
+    plainly_credit(again["speech"]["scribe_reason"])
