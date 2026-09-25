@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app.clients.elevenlabs_tts import VoiceUnavailable
 from app.observability import timeline
 from app.speech.speakable import to_speakable
+from app.speech.voice_reasons import VOICE, voice_reason
 
 log = logging.getLogger("crooks.speak")
 
@@ -35,22 +36,18 @@ MAX_TEXT_CHARS = 4_000
 RETRY_ONCE_KINDS = frozenset({"server_error", "rate", "network", "prefetch", "empty", "truncated"})
 
 # What the tablet is told. The kind is a shape, never an account detail or an API message —
-# those are in the log on the Mac, where they belong.
-REASONS = {
-    "off": "the ElevenLabs voice is switched off",
-    "no_key": "the ElevenLabs key is not set up on the Mac",
-    "cooldown": "the ElevenLabs voice is unavailable at the moment",
-    "rejected": "the ElevenLabs key was rejected",
-    "forbidden": "the ElevenLabs key is not allowed to speak",
-    "credit": "the ElevenLabs account has no credit left",
-    "no_voice": "the ElevenLabs voice was not found",
-    "timeout": "ElevenLabs did not answer in time",
-    "network": "ElevenLabs could not be reached",
-    "server_error": "ElevenLabs had a server error",
-    "rate": "the ElevenLabs voice has been asked for too often this minute",
-    "cancelled": "that answer was abandoned",
-    "prefetch": "the ElevenLabs voice could not be prepared",
-}
+# those are in the log, where they belong. The words are in app/speech/voice_reasons.py.
+REASONS = VOICE
+
+
+def _reason(kind: str, voice) -> str:
+    """The plain reason for this refusal. A cooldown is worded as the failure that opened it:
+    five minutes of "unavailable at the moment" is how an empty account went unexplained."""
+    if kind == "cooldown":
+        cause = getattr(voice, "last_error_kind", "") or ""
+        if cause in REASONS and cause != "cooldown":
+            return voice_reason(cause)
+    return voice_reason(kind)
 
 
 @router.post("/speak")
@@ -120,7 +117,7 @@ async def speak(request: Request) -> Response:
             content={
                 "ok": False,
                 "kind": exc.kind,
-                "reason": REASONS.get(exc.kind, "the ElevenLabs voice is unavailable"),
+                "reason": _reason(exc.kind, voice),
             },
         )
 
