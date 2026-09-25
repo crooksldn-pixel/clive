@@ -41,6 +41,11 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [ENGINEERING_LIFECYCLE_PRODUCERS.md](./ENGINEERING_LIFECYCLE_PRODUCERS.md) — the write side of the control plane: attempts with leases and fencing tokens, an append-only journal, review dispatch, verdict admission, acceptance and verified integration, so stages are recorded rather than inferred; repository-only.
 - [ENGINEERING_DISPATCHER_V1.md](./ENGINEERING_DISPATCHER_V1.md) — Objective Intake + Engineering Dispatcher V1 around the frozen kernel: one owner objective in, an isolated restricted builder, Git-derived candidate, exact-SHA independent review with a typed result, bounded repair, verified integration; COMPLETE, BLOCKED or OWNER_GATE; repository-only, and not by itself the no-courier milestone.
 - [REMOTE_ENGINEERING_CONTROL_V1.md](./REMOTE_ENGINEERING_CONTROL_V1.md) — repository-only bounded GitHub transport/control adapter for submitting and observing engineering objectives without making GitHub lifecycle authority; deployment remains separately owner-authorised.
+- [GENERATIVE_UI_V1.md](./GENERATIVE_UI_V1.md) — owner-approved generative interface: connectors describe data, CLIVE decides what to show, the screen shows findings not sources; evidence-bound scene primitives, attention budget, user-facing settings and the capability-gap bridge.
+- [OWNER_DECISIONS_2026-09-24.md](./OWNER_DECISIONS_2026-09-24.md) — judgment-evidence retention, Gmail runtime credential, operational-alpha promotion authority, Generative UI V1 approval, the one-trunk finish rule and the retirements.
+- [PROJECT_AUDIT_2026-09-24.md](./PROJECT_AUDIT_2026-09-24.md) — whole-project finish list: why accepted work never reached the product, what is live, finished-but-unlanded work, stopped streams, agreed-but-unbuilt items, stale records and the finish order.
+- [SOURCE_ASSIMILATION_V1.md](./SOURCE_ASSIMILATION_V1.md) — how CLIVE learns from external repositories, skills and tools: quarantine, inventory, compare, decide the use, prove or drop; authority lines and the constraints found.
+- [SOURCE_SHELF.md](./SOURCE_SHELF.md) — the owner-supplied candidate sources (Taste Skill, Vercel guidelines, Playwright CLI, Agent Browser, Jev, LangWatch and others), triaged into batches.
 
 ## Status model
 
