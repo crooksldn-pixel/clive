@@ -57,6 +57,9 @@ class LaunchSpec:
     log_path: Path
     stderr_path: Path
     prompt: str
+    # Host-side config of the objective's declared checks for the builder's run_checks tool
+    # (see workers/check_server.py); None when the objective declares no checks.
+    check_config: Path | None = None
 
     @property
     def marker(self) -> str:

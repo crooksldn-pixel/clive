@@ -254,7 +254,8 @@ class Dispatcher:
     def _failed_check_output(self, attempt: Attempt, limit: int = 3000) -> list[str]:
         """What the failing checks of a refused attempt printed, so the next builder need not guess.
 
-        Output of CLIVE's own sandboxed run of the objective's checks: the builder cannot run them."""
+        Output of CLIVE's own sandboxed run of the objective's checks, the run that counts; the builder's own
+        run_checks runs are advisory and never recorded."""
         out: list[str] = []
         for path in sorted(self._paths(attempt)["evidence"].glob("check-*.json")):
             try:
@@ -336,6 +337,39 @@ class Dispatcher:
             raise LifecycleError(f"repair revision {task.revision} has no rejected candidate to start from")
         return max(results, key=lambda r: r.completed_at).result_sha
 
+    def _check_config_path(self, obj: Objective, attempt: Attempt) -> Path | None:
+        """Where the builder's run_checks config lives, when the builder gets that tool at all.
+
+        Only a Claude builder of an objective with declared checks, and only when the dispatcher's own
+        runner is the namespace sandbox, which the tool then reuses with the same settings."""
+        if obj.builder == "integrator" or not obj.checks or not isinstance(self.checks, NamespaceSandbox):
+            return None
+        return self._paths(attempt)["checks"] / "_builder" / "config.json"
+
+    def _write_check_config(self, obj: Objective, attempt: Attempt) -> Path | None:
+        """The objective's declared checks, host-side and outside the workspace, for the builder's run_checks.
+
+        The builder names at most one of these; it never supplies an argv, a cwd or a timeout. Its runs happen
+        on copies of its workspace under ``scratch`` and are advisory: ``_result`` still runs every check."""
+        path = self._check_config_path(obj, attempt)
+        if path is None:
+            return None
+        box = self.checks
+        config = {
+            "workspace": str(self._paths(attempt)["workspace"]),
+            "scratch": str(path.parent / "runs"),
+            "checks": [{"name": c.name, "argv": list(c.argv), "cwd": c.cwd, "timeout_s": c.timeout_s}
+                       for c in obj.checks],
+            "sandbox": {"ro_paths": list(box.ro_paths), "memory_bytes": box.memory_bytes,
+                        "file_bytes": box.file_bytes, "open_files": box.open_files, "processes": box.processes},
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.replace(path)
+        return path
+
     def _launch(self, obj: Objective, task: EngineeringTask, attempt: Attempt) -> str:
         rt = self._runtime(attempt.attempt_id)
         paths = self._paths(attempt)
@@ -344,6 +378,7 @@ class Dispatcher:
             fencing_token=attempt.fencing_token, session_id=attempt.worker.session.session_id,
             workspace=paths["workspace"], home=paths["home"], log_path=paths["log"],
             stderr_path=paths["stderr"], prompt=self.worker_prompt(obj, task, attempt, rt.get("start_sha")),
+            check_config=self._write_check_config(obj, attempt),
         )
         try:
             record = self._worker_for(obj).launch(spec)
@@ -385,7 +420,8 @@ class Dispatcher:
                 return self._block(obj, task, reason), True
             spec_like = LaunchSpec(task.task_id, task.revision, attempt.attempt_id, attempt.fencing_token,
                                    attempt.worker.session.session_id, paths["workspace"], paths["home"],
-                                   paths["log"], paths["stderr"], "")
+                                   paths["log"], paths["stderr"], "",
+                                   check_config=self._check_config_path(obj, attempt))
             problems = self._worker_for(obj).verify_started(started, spec_like)
             rt["roster"] = {"session_id": started.session_id, "cwd": started.cwd, "model": started.model,
                             "tools": list(started.tools), "mcp_servers": list(started.mcp_servers),
@@ -398,7 +434,8 @@ class Dispatcher:
                 return self._block(obj, task, "worker launch surface refused: " + "; ".join(problems)), True
             self.kernel.acknowledge(attempt.attempt_id, token=attempt.fencing_token, base_sha=attempt.base_sha)
             return self._note(obj.objective_id, f"{attempt.attempt_id} acknowledged from the worker's init event "
-                                                f"(tools {', '.join(started.tools)}; no MCP servers)"), True
+                                                f"(tools {', '.join(started.tools)}; MCP servers: "
+                                                f"{', '.join(started.mcp_servers) or 'none'})"), True
 
         # RUNNING
         if now > self.kernel.lease(attempt)["expires_at"]:
@@ -741,7 +778,10 @@ class Dispatcher:
             lines += ["ACCEPTANCE CRITERIA:", *(f"- {c}" for c in obj.acceptance_criteria), ""]
         if obj.checks:
             lines += ["CHECKS CLIVE WILL RUN on your result (they must pass):",
-                      *(f"- {c.name}: {' '.join(c.argv)} (in {c.cwd})" for c in obj.checks), ""]
+                      *(f"- {c.name}: {' '.join(c.argv)} (in {c.cwd})" for c in obj.checks)]
+            if self._check_config_path(obj, attempt) is not None:
+                lines += ["run_checks runs your objective's listed checks in your workspace; use it before you report."]
+            lines += [""]
         lines += ["ALLOWED PATHS — change files only inside these:", *(f"- {p}" for p in task.allowed_paths), "",
                   "PROHIBITED:", *(f"- {p}" for p in task.prohibited_actions), ""]
         if task.kind is TaskKind.REPAIR:
@@ -752,7 +792,8 @@ class Dispatcher:
             lines += self._failed_check_output(refusals[-1][0])
         lines += [
             "RULES:",
-            "- Use only the file tools, only inside the allowed paths. Do not commit: CLIVE commits your tree and",
+            "- Use only the file tools (and run_checks, when you have it), only inside the allowed paths. Do not",
+            "  commit: CLIVE commits your tree and",
             "  takes the candidate identity from git.",
             "- You have no network, no credentials and no business systems. Never try to deploy, send, or change",
             "  runtime, secrets, permissions or anything outside this repository.",
