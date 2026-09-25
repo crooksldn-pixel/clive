@@ -3,7 +3,9 @@
 `validate_scene(plan, evidence, context)` takes a proposed ScenePlan, the evidence this
 session's reads produced and what the request allows, and returns the scene that may be shown
 with a trace of every decision. It refuses any value not bound to this session's evidence,
-drops elements with no justification, strips pii unless the task needs contact details, keeps
+drops elements with no justification, strips pii unless the task needs contact details — a
+field marked pii, and any value that is an email address or a phone number whatever its field
+is called — keeps
 within an attention budget and always keeps the Answer. The screen shows findings, not
 sources: a list of rows is kept only beside a finding about them, or when the request asked
 for a list. When only the Answer survives, the scene is the Answer and a drill-down reference
@@ -22,6 +24,7 @@ from app.scenes.evidence import (
     FieldDescriptor,
     Kind,
     Money,
+    Record,
     Series,
 )
 from app.scenes.scene import (
@@ -141,6 +144,12 @@ _WORD = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
 _SENTENCE_END = frozenset(".!?:")
 _INFLECTIONS = (("ies", "y"), ("ied", "y"), ("es", ""), ("s", ""), ("ed", ""), ("ed", "e"), ("d", ""),
                 ("ing", ""), ("ing", "e"), ("ly", ""))
+# A value can be a contact detail whatever its field is called: a sender with no display name
+# is their email address, and a customer with no name is known by their email address or phone
+# number. Such a value is as personal as a field marked pii, and is stripped the same way.
+_EMAIL = re.compile(r"[^\s@<>()\[\],;:\"']+@[^\s@<>()\[\],;:\"']+\.[A-Za-z]{2,}")
+_PHONE = re.compile(r"(?<![\w/-])\+?\(?\d[\d ().-]{7,}\d(?![\w/-])")
+_PHONE_DIGITS = 9
 _LIST_ASK = re.compile(
     r"\b(?:list|lists|listing)\b|\bshow (?:me )?(?:all|every|the whole)\b|\ball of (?:them|the)\b", re.I,
 )
@@ -250,11 +259,27 @@ def _evidence(pool: Mapping[str, Evidence], handle: str) -> Evidence:
     return ev
 
 
+def _contact(d: FieldDescriptor, value: object) -> bool:
+    """Whether a value is, or has in it, an email address or — in a name or in words — a
+    phone number, whatever its descriptor says."""
+    if not isinstance(value, str):
+        return False
+    if _EMAIL.search(value):
+        return True
+    return d.kind in (Kind.PERSON, Kind.TEXT) and any(
+        sum(c.isdigit() for c in m.group()) >= _PHONE_DIGITS for m in _PHONE.finditer(value)
+    )
+
+
 def _bound(ev: Evidence, record: str | None, d: FieldDescriptor, value: object, context: SceneContext) -> Bound:
     """A value of evidence as it may be shown; nothing personal unless the task needs it."""
-    if d.pii and not context.contact_details:
-        raise _Refused(f"{d.name} is pii and the task does not need contact details")
-    return Bound(evidence=ev.handle, record=record, field=d.name, kind=d.kind, label=d.label, value=value, pii=d.pii, unit=d.unit)
+    contact = _contact(d, value)
+    if not context.contact_details:
+        if d.pii:
+            raise _Refused(f"{d.name} is pii and the task does not need contact details")
+        if contact:
+            raise _Refused(f"{d.name} holds a contact detail, which is pii, and the task does not need contact details")
+    return Bound(evidence=ev.handle, record=record, field=d.name, kind=d.kind, label=d.label, value=value, pii=d.pii or contact, unit=d.unit)
 
 
 def _bind(ref, pool: Mapping[str, Evidence], context: SceneContext) -> Bound:
@@ -425,8 +450,12 @@ def _check(target: str, element, pool: Mapping[str, Evidence], context: SceneCon
     raise _Refused(f"{element.type} is not a scene primitive")
 
 
-def _columns(target: str, ev: Evidence, names: list[str], context: SceneContext, trace: _Trace) -> list[FieldDescriptor]:
-    """The chosen fields that may be shown as columns; every one left out is in the trace."""
+def _columns(
+    target: str, ev: Evidence, names: list[str], context: SceneContext, trace: _Trace, records: Iterable[Record],
+) -> list[FieldDescriptor]:
+    """The chosen fields that may be shown as columns of `records`, the rows to be shown;
+    every one left out is in the trace."""
+    records = tuple(records)
     kept: list[FieldDescriptor] = []
     for name in names:
         d = ev.descriptor(name)
@@ -438,13 +467,19 @@ def _columns(target: str, ev: Evidence, names: list[str], context: SceneContext,
             trace.add(target, "reduced", f"{name}: a series is shown as a Trend, not a column")
         elif d.pii and not context.contact_details:
             trace.add(target, "reduced", f"{name}: pii stripped; the task does not need contact details")
+        elif not context.contact_details and any(_contact(d, r.values.get(d.name)) for r in records):
+            trace.add(target, "reduced", f"{name}: a value in it is a contact detail; pii stripped, the task does not need contact details")
         else:
             kept.append(d)
     return kept
 
 
+def _row_cap(context: SceneContext) -> int:
+    return context.list_rows if context.list_requested else context.collection_rows
+
+
 def _rows_allowed(target: str, asked: int, context: SceneContext, trace: _Trace) -> int:
-    cap = context.list_rows if context.list_requested else context.collection_rows
+    cap = _row_cap(context)
     if asked <= cap:
         return asked
     why = "the most a list shows" if context.list_requested else "the most shown unless the request asks to see a list"
@@ -457,7 +492,7 @@ def _entity(target: str, element: Entity, pool: Mapping[str, Evidence], context:
     record = ev.record(element.record)
     if record is None:
         raise _Refused(f"{ev.handle} has no such record")
-    fields = _columns(target, ev, element.fields, context, trace)
+    fields = _columns(target, ev, element.fields, context, trace, (record,))
     if not fields:
         raise _Refused("no chosen field may be shown")
     names = [d.name for d in fields]
@@ -470,7 +505,7 @@ def _collection(target: str, element: Collection, pool: Mapping[str, Evidence], 
     ev = _evidence(pool, element.evidence)
     if not ev.records:
         raise _Refused(f"{ev.handle} has no records to list")
-    columns = _columns(target, ev, element.columns, context, trace)
+    columns = _columns(target, ev, element.columns, context, trace, ev.records[: min(element.limit, _row_cap(context))])
     if not columns:
         raise _Refused("no chosen column may be shown")
     limit = _rows_allowed(target, element.limit, context, trace)
@@ -486,13 +521,14 @@ def _timeline(target: str, element: Timeline, pool: Mapping[str, Evidence], cont
     at = ev.descriptor(element.at)
     if at is None or at.kind is not Kind.DATETIME:
         raise _Refused(f"{element.at} is not a time in {ev.handle}")
+    dated = sorted((r for r in ev.records if r.values.get(at.name) is not None), key=lambda r: r.values[at.name])
+    shown = dated[-min(element.limit, _row_cap(context)):]
     # The time is shown as much as the label is, and is as personal as its descriptor says.
-    if not _columns(target, ev, [element.at], context, trace):
+    if not _columns(target, ev, [element.at], context, trace, shown):
         raise _Refused("its time may not be shown")
-    labels = _columns(target, ev, [element.label], context, trace)
+    labels = _columns(target, ev, [element.label], context, trace, shown)
     if not labels:
         raise _Refused("its label may not be shown")
-    dated = sorted((r for r in ev.records if r.values.get(at.name) is not None), key=lambda r: r.values[at.name])
     if not dated:
         raise _Refused(f"{ev.handle} has no dated records")
     limit = _rows_allowed(target, element.limit, context, trace)

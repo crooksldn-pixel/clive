@@ -315,6 +315,60 @@ def test_contact_details_are_kept_only_when_the_task_needs_them():
     assert not [e for e in trace if e.decision == "reduced"]
 
 
+def test_a_name_that_is_an_email_address_or_a_phone_number_is_pii():
+    """A sender with no display name is their address, and a customer with no name is grouped
+    under their email address or phone number: fields not marked pii can still hold a contact
+    detail. Such a value is stripped like a pii field, wherever it would be shown."""
+    inbox = to_evidence("gmail_search", {"count": 2, "threads": [
+        {**_thread(1), "from": "jo.bloggs@example.com", "from_email": "jo.bloggs@example.com"},
+        {**_thread(2), "from": "Sam Smith", "from_email": "sam@example.org"},
+    ]}, handle="ev-inbox", args={"days": 7}, observed_at=NOW, session_id=SESSION)
+    buyers = to_evidence("commerce_aggregate", {"entity": "orders", "group_by": ["customer"], "currency": "GBP", "rows": [
+        {"key": {"customer_id": "gid://shopify/Customer/1"}, "label": "jo.bloggs@example.com", "revenue": 300.0, "orders": 3},
+        {"key": {"customer_id": "gid://shopify/Customer/2"}, "label": "+44 7700 900123", "revenue": 200.0, "orders": 2},
+        {"key": {"customer_id": "gid://shopify/Customer/3"}, "label": "Sam Smith", "revenue": 100.0, "orders": 1},
+    ]}, handle="ev-buyers", observed_at=NOW, session_id=SESSION)
+    assert not inbox.descriptor("from").pii and not buyers.descriptor("label").pii
+    plan = {
+        "answer": {"text": "Nobody is waiting on a reply.", "justification": "The owner asked whether anyone is waiting."},
+        "elements": [
+            {"type": "finding", "significance": "CONTEXT", "text": "{0} wrote last.", "values": [{"evidence": "ev-inbox", "field": "from", "record": "r1"}],
+             "evidence": ["ev-inbox"], "justification": "Who wrote most recently."},
+            {"type": "finding", "significance": "CONTEXT", "text": "{0} is the biggest customer.",
+             "values": [{"evidence": "ev-buyers", "field": "label", "record": "r2"}], "evidence": ["ev-buyers"], "justification": "Context."},
+            {"type": "finding", "significance": "CONTEXT", "text": "{0} wrote too.", "values": [{"evidence": "ev-inbox", "field": "from", "record": "r2"}],
+             "evidence": ["ev-inbox"], "justification": "Context on who wrote."},
+            {"type": "collection", "evidence": "ev-inbox", "columns": ["from", "subject"], "limit": 5, "justification": "The threads it is about."},
+            {"type": "entity", "evidence": "ev-buyers", "record": "r1", "fields": ["label", "revenue"], "justification": "The biggest customer by sales."},
+        ],
+    }
+    scene, trace = validate_scene(plan, [inbox, buyers], SceneContext.for_request("anyone waiting on a reply?", session_id=SESSION))
+
+    assert [s.element.type for s in scene.elements] == ["finding", "collection", "entity"]
+    assert scene.elements[0].text() == "Sam Smith wrote too."
+    assert scene.elements[1].element.columns == ["subject"] and len(scene.elements[1].rows) == 2
+    assert scene.elements[2].element.fields == ["revenue"]
+    final = _final(trace)
+    for target in ("elements[0] finding", "elements[1] finding"):
+        assert final[target].decision == "dropped" and "contact detail" in final[target].reason, target
+    assert _reductions(trace, "elements[3] collection") == [
+        "from: a value in it is a contact detail; pii stripped, the task does not need contact details",
+    ]
+    assert _reductions(trace, "elements[4] entity") == [
+        "label: a value in it is a contact detail; pii stripped, the task does not need contact details",
+    ]
+    serialised = json.dumps(scene.as_dict()) + json.dumps([(e.target, e.reason) for e in trace])
+    for literal in ("jo.bloggs", "@", "7700", "900123"):
+        assert literal not in serialised, literal
+    _no_pii(scene)
+
+    # When the task needs contact details, they are shown as the values they are, marked pii.
+    scene, trace = validate_scene(plan, [inbox, buyers], SceneContext(request="their email addresses please", session_id=SESSION, contact_details=True))
+    assert scene.elements[0].text() == "jo.bloggs@example.com wrote last."
+    assert scene.elements[0].values[0].pii and scene.elements[1].values[0].pii
+    assert not [e for e in trace if e.decision == "reduced"]
+
+
 def test_a_list_asked_for_is_shown_without_a_finding_up_to_the_list_limit():
     assert asks_for_list("list every customer who emailed")
     assert not asks_for_list("any customers who need a reply")
