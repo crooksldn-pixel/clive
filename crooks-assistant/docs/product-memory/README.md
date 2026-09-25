@@ -2,7 +2,7 @@
 
 This directory is the canonical durable product memory for CLIVE. Historical documents may still use the earlier CROOKS OS name where that context matters.
 
-Current repository: `crooksldn-pixel/clive`. Read these files from `claude/product-memory-foundation` by explicit ref; they are not assumed to exist on the repository's default theme branch or on the application baseline.
+Current repository: `crooksldn-pixel/clive`. Read these files from `clive/trunk`, where product memory was consolidated on 2026-09-25. That consolidation merged three sources: the kernel-accepted PM-01 to PM-04 truth branch built on the 2026-09-23 reconciliation, the Opus 5.5 handoff documents, and the 2026-09-24 records. The earlier product-memory branches remain in Git as history: `claude/product-memory-foundation` (the 2026-09-21 base), `chatgpt/product-memory-reconcile-2026-09-23`, `claude/product-memory-truth-2026-09-23` and `chatgpt/opus-5-5-handoff-2026-09-24`. The `_incoming/` directory holds the staged source trees used for the consolidation. It is not canonical and is not indexed here, and the Director removes it after the consolidation lands.
 
 The rule is simple:
 
@@ -26,7 +26,9 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [CURRENT_TRUTH.md](./CURRENT_TRUTH.md) — compact active state; the first context file future directors/workers should read.
 - [EVOLUTION_POLICY.md](./EVOLUTION_POLICY.md) — release doctrine: preserve value and lessons without fossilising obsolete implementation or design.
 - [DIRECTOR_PROTOCOL.md](./DIRECTOR_PROTOCOL.md) — named memory/continuity procedures for bootstrap, release context, supersession, pruning, handoff, and audits.
-- [MIGRATION_HANDOFF.md](./MIGRATION_HANDOFF.md) — current GPT-conversation migration entry point: exact active state, in-flight work, control-plane status, and continuation instructions.
+- [MIGRATION_HANDOFF.md](./MIGRATION_HANDOFF.md) — SUPERSEDED: the 2026-09-19 GPT-conversation migration handoff, kept as history. Its active-state claims were superseded by the 2026-09-23 reconciliation and by `CURRENT_TRUTH.md`.
+- [RECONCILIATION_2026-09-23.md](./RECONCILIATION_2026-09-23.md) — the 2026-09-23 reconciliation checkpoint, now history. It covers engineering-kernel progress, product/builder convergence, direct objective ingress, model/role replaceability and commercial validation. It also records the rule that precedent may be explicitly superseded or retired when its durable responsibility is preserved. That doctrine remains active.
+- [OWNER_DECISION_PACKET_2026-09-21.md](./OWNER_DECISION_PACKET_2026-09-21.md) — the owner-only choices kept explicit while repository-only engineering continued unattended (2026-09-21). Gate C was decided on 2026-09-24 and Gate A is superseded by the remote loop; Gate B remains open.
 
 - [ENGINEERING_ORCHESTRATOR_V1.md](./ENGINEERING_ORCHESTRATOR_V1.md) — proposed Dev Team V1 contract: authority, lifecycle, context, isolation, evidence, review, integration and recovery; planning only.
 
@@ -46,6 +48,8 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [PROJECT_AUDIT_2026-09-24.md](./PROJECT_AUDIT_2026-09-24.md) — whole-project finish list: why accepted work never reached the product, what is live, finished-but-unlanded work, stopped streams, agreed-but-unbuilt items, stale records and the finish order.
 - [SOURCE_ASSIMILATION_V1.md](./SOURCE_ASSIMILATION_V1.md) — how CLIVE learns from external repositories, skills and tools: quarantine, inventory, compare, decide the use, prove or drop; authority lines and the constraints found.
 - [SOURCE_SHELF.md](./SOURCE_SHELF.md) — the owner-supplied candidate sources (Taste Skill, Vercel guidelines, Playwright CLI, Agent Browser, Jev, LangWatch and others), triaged into batches.
+- [OPUS_5_5_HANDOFF_2026-09-24.md](./OPUS_5_5_HANDOFF_2026-09-24.md) — SUPERSEDED: the 2026-09-24 engineering handoff for a fresh Opus 5.5 session, kept as history. It records exact branches, SHAs, safety invariants, the activation state then, the owner's activation authority, and the open GPT Director gap.
+- [OPUS_5_5_START_PROMPT_2026-09-24.md](./OPUS_5_5_START_PROMPT_2026-09-24.md) — SUPERSEDED: the 2026-09-24 startup prompt for that Opus 5.5 session, kept as history.
 
 ## Status model
 

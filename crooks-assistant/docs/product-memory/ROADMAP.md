@@ -1,18 +1,71 @@
 # CROOKS OS — Roadmap
 
-**Last consolidated:** 2026-09-19  
+**Last consolidated:** 2026-09-25 (status lines corrected against production and the remote loop; the 2026-09-19 text is kept as history)  
 **Purpose:** keep sequencing explicit so ambitious ideas do not derail the current product.
 
 This roadmap is intentionally staged. “Later” ideas should not be used as an excuse to leave the current product unfinished.
 
-The final Sequencing rule and DEC-046 are authoritative for execution order. Engineering Orchestrator specification planning is active alongside N7; implementation waits until deployment, current-product quality and real-world evidence gates are satisfied.
+The final Sequencing rule and DEC-046 are authoritative for execution order. Engineering Orchestrator specification planning is active alongside N7; implementation waits until deployment, current-product quality and real-world evidence gates are satisfied. *(2026-09-25: the order now in force is the finish order below; see the note under the Sequencing rule.)*
+
+---
+
+# Status as of 2026-09-25
+
+**Production.** `/opt/crooks-os` runs `clive/trunk` at `ce791d03`, deployed on 2026-09-25 after GitHub acceptance and an independent exact-SHA review with zero findings. It includes:
+- Live Experience V0.5;
+- the mobile alpha;
+- derived truth and attention V1;
+- the mobile dogfood voice rules;
+- the support investigator revisions;
+- the judgment ledger CI stream and corrections;
+- the age-days floor.
+
+**Merged to the trunk, not yet deployed:**
+- needs-reply routing;
+- the microphone permission fix;
+- the voice-credits wording and health;
+- the remote-engineering journal-safe repair.
+
+**Engineering.** The remote engineering loop runs on three machines, and all builders run `claude-opus-5-5`:
+- the production host, with two builders;
+- `clive-worker-01`, an HPE server with eight builders;
+- the owner's Mac, which is being set up.
+
+The owner's one-trunk rule (DEC-058) governs what counts as finished.
+
+**Retired or superseded:**
+- The bridge watcher was retired on 2026-09-25.
+- `engineering-team-activation-v1` is superseded by the remote loop.
+
+**Credentials and voice:**
+- Gmail OAuth was provisioned on 2026-09-24.
+- The Derek voice is unavailable on the server because the ElevenLabs credits are exhausted (FEAT-006).
+
+**Finish order now in force.** Taken from [PROJECT_AUDIT_2026-09-24.md](./PROJECT_AUDIT_2026-09-24.md) §7, with completed steps removed:
+1. Deploy the merged trunk items through an explicit trunk deploy.
+2. Close gates:
+   - the Support Investigator's live verification and the dogfood week;
+   - Samsung verification;
+   - a keep-or-retire decision for each unlanded stream.
+3. Build what is agreed:
+   - Generative UI V1 objectives 2 to 4;
+   - Build from CLIVE objective 2;
+   - response behaviour (interpretation);
+   - the capability-gap bridge;
+   - expectations and deadlines;
+   - selective notifications;
+   - then the Nightly Observer and morning report.
+4. Give every other approved idea an explicit place in the order rather than leaving it silently approved.
+
+Current state detail: [CURRENT_TRUTH.md](./CURRENT_TRUTH.md). Feature statuses: [FEATURES.md](./FEATURES.md).
 
 ---
 
 # NOW — make the current CROOKS product genuinely reliable
 
 ## N1. Complete the always-on Linux deployment
-**Status:** RUNNING / PARTIALLY VERIFIED — production state ratified at `1cf3a0f`; remaining Gmail/device verification open
+**Status:** RUNNING — production runs `clive/trunk` at `ce791d03` (deployed 2026-09-25); Gmail OAuth provisioned 2026-09-24; Derek TTS unavailable on the server (ElevenLabs credits exhausted); Samsung verification open  
+*History: RUNNING / PARTIALLY VERIFIED — production state ratified at `1cf3a0f`; remaining Gmail/device verification open.*
 
 - Linux migration candidate `1cf3a0f` reviewed and owner-ratified in production (DEC-048)
 - provision remaining secrets safely — Gmail OAuth still outstanding; no new secret provisioning approved by DEC-048
@@ -29,7 +82,8 @@ The final Sequencing rule and DEC-046 are authoritative for execution order. Eng
 - later move service from temporary root execution to a dedicated `crooks` user
 
 ## N2. Install and harden the Claude inbox watcher
-**Status:** SHIPPED / HARDENING
+**Status:** RETIRED 2026-09-25 — the remote engineering loop does its job (DEC-058; FEATURES FEAT-013, FEAT-014, FEAT-063)  
+*History: SHIPPED / HARDENING. The list below records what the watcher proved.*
 
 - standalone bridge and builder clones
 - poll inbox blob SHA, not branch HEAD
@@ -48,7 +102,7 @@ The final Sequencing rule and DEC-046 are authoritative for execution order. Eng
 - normal GPT → Claude → outbox loop no longer requires the owner to relay messages
 
 ## N3. Perfect the current UI
-**Status:** PLANNED
+**Status:** BUILDING — carried by Generative UI V1, approved 2026-09-24 ([GENERATIVE_UI_V1.md](./GENERATIVE_UI_V1.md)); the microphone permission fix is merged to the trunk, not yet deployed
 
 Primary focus after deployment.
 
@@ -66,7 +120,7 @@ Primary focus after deployment.
 - improve CROOKS Control from engineering utility to polished resizable app
 
 ## N4. Perfect response behaviour
-**Status:** PLANNED
+**Status:** BUILDING — needs-reply routing (the 2026-09-24 “customers who need a reply” misreading) is merged to the trunk, not yet deployed; interpretation work remains
 
 - concise by default
 - better entity/customer/order focus
@@ -79,7 +133,7 @@ Primary focus after deployment.
 - improve “what actually matters” presentation
 
 ## N5. Real-world test sessions
-**Status:** PLANNED
+**Status:** PLANNED — the dogfood week and the Support Investigator's live verification are next in the finish order
 
 Use CROOKS normally and intentionally stress:
 
@@ -104,7 +158,7 @@ Capture:
 - tool/action traces
 
 ## N6. Product-memory foundation
-**Status:** BUILDING / ACTIVE
+**Status:** ACTIVE — consolidated into `clive/trunk` on 2026-09-25 (truth branch PM-01 to PM-04 and the Opus 5.5 handoff merged with the 2026-09-24 records)
 
 - PRODUCT_BRAIN
 - ROADMAP
@@ -121,7 +175,8 @@ All future meaningful ideas and architecture decisions should become durable ent
 Active context must remain curated: Git stores history; current truth and active decisions drive new releases.
 
 ## N7. Permanent Builder Environment
-**Status:** TESTING — published candidate requires corrections
+**Status:** HISTORY — accepted at `295e483b` (see CURRENT_TRUTH); builders now run in the remote engineering loop's isolated workspaces  
+*History: TESTING — published candidate requires corrections.*
 
 Candidate `9a27bc441adad1e98e8a9ca257d1883246ee7eec` is published on `claude/builder-environment-review`. Independent review reproduced failures in bootstrap, environment validation and shell quoting; clean reconstruction remains incomplete. See [BUILDER_ENVIRONMENT_REVIEW.md](./BUILDER_ENVIRONMENT_REVIEW.md).
 
@@ -205,7 +260,8 @@ Agents should escalate decisions that are fundamentally product/taste/strategy q
 The owner should not be used as a command courier.
 
 ## D7. Engineering Orchestrator V1
-**Status:** IMPLEMENTATION AUTHORISED — harness preparation active; current-product/device/quality gates still precede major V1 implementation
+**Status:** SUPERSEDED IN PRACTICE — the working path is Objective Intake + Engineering Dispatcher V1 around the frozen kernel, run by the remote engineering loop (FEAT-063); the GPT Director runtime above it is still not implemented  
+*History: IMPLEMENTATION AUTHORISED — harness preparation active; current-product/device/quality gates still precede major V1 implementation.*
 
 Detailed proposal: [ENGINEERING_ORCHESTRATOR_V1.md](./ENGINEERING_ORCHESTRATOR_V1.md). Record/review/recovery contracts and the proposed first trial are in [DEV_TEAM_V1_PILOT.md](./DEV_TEAM_V1_PILOT.md). The owner has explicitly authorised V1 implementation under the existing canonical specification and safety boundaries. DEC-046's preceding deployment/current-product gates remain binding; unresolved mechanism choices still require the reviews described by the specification.
 
@@ -279,7 +335,8 @@ Automate the memory procedures in DIRECTOR_PROTOCOL:
 This work may proceed in isolated repo-only branches while Orchestrator freeze convergence continues. It does not itself authorise production/runtime/connector changes.
 
 ## Q1. Retire Split as user-facing interaction
-**Status:** BUILDING IN ISOLATED STREAM
+**Status:** SHIPPED — Live Experience V0.5 is in production `ce791d03`  
+*History: BUILDING IN ISOLATED STREAM.*
 
 Replace manual halves with one CLIVE session and independently progressing jobs. Preserve useful concurrency internals during migration where they still have a unique responsibility.
 
@@ -378,7 +435,7 @@ Becomes:
 - escalation rule
 
 ## X5. Attention / “What needs me?”
-**Status:** APPROVED DIRECTION
+**Status:** APPROVED DIRECTION — V1 shipped as derived truth and attention V1 in production `ce791d03` (FEAT-061); the broader engine remains ahead
 
 Core owner experience:
 
@@ -520,7 +577,7 @@ Detect:
 - missing expected events
 
 ## L3. Objectives
-**Status:** APPROVED DIRECTION
+**Status:** APPROVED DIRECTION — Objective V0 is in production in the mobile alpha (FEAT-060); objectives do not yet act on their own between conversations
 
 Persistent goals rather than isolated tasks.
 
@@ -533,7 +590,7 @@ Examples:
 - surface high-risk refunds
 
 ## L4. Scene compiler
-**Status:** APPROVED DIRECTION
+**Status:** APPROVED DIRECTION — now pursued as Generative UI V1 (FEAT-064)
 
 Render the smallest useful interface based on current context/objective:
 
@@ -645,6 +702,8 @@ High-risk areas remain approval-gated:
 
 # SOMEDAY — CROOKS manages its own engineering
 
+*2026-09-25: this stage moved forward (RECONCILIATION_2026-09-23 §15). A bounded form of Y2 and Y3 now runs as the remote engineering loop. Owner objectives go into a bounded inbox, and Opus 5.5 builders work in isolated workspaces. Every candidate gets an exact-SHA GPT review and bounded repair, and work is finished only in the trunk. The loop has no deploy, secret or business-write authority.*
+
 ## Y1. Natural-language engineering requests
 **Status:** CAPTURED
 
@@ -664,7 +723,7 @@ CROOKS packages:
 Then invokes Builder/Reviewer automatically.
 
 ## Y2. CROOKS-managed Claude Code
-**Status:** CAPTURED
+**Status:** BUILDING — repository-only form running in the remote engineering loop (FEAT-063)
 
 User no longer “uses Claude Code.”
 
@@ -673,7 +732,7 @@ Claude Code becomes an internal engineering worker.
 Termius becomes emergency/admin access only.
 
 ## Y3. Automatic GPT ↔ Claude loop
-**Status:** CAPTURED
+**Status:** SHIPPED (ENGINEERING LOOP) — realised by the remote engineering loop (FEAT-063, FEAT-044 superseded); the GPT Director runtime is still not implemented
 
 - Claude completes
 - GPT reviews
@@ -756,6 +815,14 @@ The current sequence, reaffirmed by the owner in the 2026-09-19 migration contin
 Dev Team V1 implementation is owner-authorised, but execution remains sequenced after the preceding DEC-046 deployment/current-product gates. Planning and implementation preparation may proceed without treating that approval as a waiver of those gates.
 
 This replaces the older footer that placed World/automation ahead of the engineering organisation. No active safety gate is removed.
+
+**2026-09-25 note:** the list above is kept as the 2026-09-19 sequence.
+- Items 2, 4 and 5 are done.
+- Item 3 is done: Gmail OAuth was provisioned on 2026-09-24.
+- Item 10 is realised as the dispatcher and remote engineering loop.
+- Items 6 to 9 continue under the finish order at the top of this file.
+
+The owner's one-trunk rule (DEC-058) now governs what counts as finished.
 
 At every stage, apply EVOLUTION_POLICY: inherit value and evidence, not obsolete implementation form.
 

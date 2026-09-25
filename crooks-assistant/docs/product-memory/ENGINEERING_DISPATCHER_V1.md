@@ -2,6 +2,8 @@
 
 Status: repository-only implementation, awaiting independent exact-SHA review. It authorises no deployment, no runtime, service, watcher or systemd change, no secret, no permission or connector change, no business write and no spend. It does not by itself prove the no-courier milestone. That milestone is met only when a separate, real, bounded product objective enters through this intake and reaches independently reviewed COMPLETE, BLOCKED or OWNER_GATE without anyone relaying messages between workers.
 
+**As of 2026-09-25:** the dispatcher is the engine inside the remote engineering loop ([REMOTE_ENGINEERING_CONTROL_V1.md](./REMOTE_ENGINEERING_CONTROL_V1.md)), which runs on the engineering machines with `claude-opus-5-5` builders. Dispatcher COMPLETE is not "finished": under the owner's one-trunk rule (DEC-058), work is finished only when it is in `clive/trunk` and the trunk passes full repository acceptance.
+
 Code: `app/orchestrator/objectives.py` (intake), `app/orchestrator/dispatcher.py` (controller), `app/orchestrator/workspaces.py`, `app/orchestrator/checks.py` (the check sandbox), `app/orchestrator/workers/` (builder drivers), `app/orchestrator/reviewers/` (typed review result and reviewer drivers), `scripts/engineering_dispatcher.py` (the CLI). The kernel is used, unchanged, at `18c3153a2eec10c6343153b550776afed3bec2ba`: `Kernel`, `LifecycleStore`, `PrincipalRegistry`, `GitFacts`, `lifecycle_view`, `journal_preconditions`, `git_journal`.
 
 ## Division of responsibility

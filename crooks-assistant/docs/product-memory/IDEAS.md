@@ -945,6 +945,39 @@ Do not use visual polish to disguise fragmented interaction state.
 
 ---
 
+## IDEA-059 — Judgment Ledger and explicit proposal outcomes
+**Date:** 2026-09-21  
+**Status:** APPROVED DIRECTION — implementation requires action-safety review  
+**Theme:** learning / autonomy / action UX
+
+Add an explicit owner-judgment path for consequential proposals.
+
+Required semantic outcomes:
+- APPROVED;
+- DECLINED;
+- EDITED;
+- DEFERRED;
+- UNKNOWN/EXPIRED remains separate and does not count as disagreement.
+
+The existing action ledger remains content-minimised and should not be repurposed as a rich learning log.
+
+Create a separate redacted Judgment Event / Judgment Ledger linked to proposal identity and capable of preserving bounded reason codes, optional redacted explanation, edited replacement/delta and contextual provenance.
+
+Use this evidence for:
+- earned-autonomy denominators;
+- correction-burden and usefulness metrics;
+- recurring proposal-quality analysis;
+- future business-policy learning;
+- operational-twin adaptation.
+
+UI should provide an explicit decline/edit/defer affordance; absence of a gesture must never be inferred as a negative judgment.
+
+Do not enable production writes merely to implement this evidence layer. Production write enablement remains a separate owner-only gate.
+
+**Update 2026-09-25:** the Judgment Ledger contract is [JUDGMENT_LEDGER_CONTRACT.md](./JUDGMENT_LEDGER_CONTRACT.md). The judgment ledger CI stream and corrections are in production (FEAT-056). Retention was decided on 2026-09-24 (DEC-058). The 2026-09-24 handoff listed routing owner decisions into the ledger as an open gap, and nothing since has closed it.
+
+---
+
 # Capture policy
 
 New ideas should be appended with:

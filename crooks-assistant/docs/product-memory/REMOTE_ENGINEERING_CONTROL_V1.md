@@ -2,6 +2,16 @@
 
 Status: design mandate for repository-only implementation. This does not authorise deployment, production changes, secrets access, business writes, permission changes, or owner-only decisions.
 
+**As of 2026-09-25:** the owner authorised activation (DEC-059), and the loop is active.
+- It runs on three machines, and all builders run `claude-opus-5-5`:
+  - the production host, with two builders;
+  - `clive-worker-01`, an HPE server with eight builders;
+  - the owner's Mac, which is being set up.
+- The owner's one-trunk rule (DEC-058) governs what counts as finished.
+- The journal-safe repair described below (successor of `4c32bb3d`) is merged to `clive/trunk`, not yet deployed.
+- The loop superseded the bridge watcher (retired 2026-09-25) and `engineering-team-activation-v1`.
+- Activation granted no authority beyond what this document states.
+
 ## Objective
 
 Restore the no-courier operator experience:
