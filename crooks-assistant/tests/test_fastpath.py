@@ -474,8 +474,8 @@ def test_a_read_that_is_not_complete_says_so_in_the_answer():
 
     assert _hedge({"complete": True}) == ""
     assert _hedge({}) == ""
-    hedged = _hedge({"complete": False, "note": "Shopify could not be read fully; figures cover what the Mac holds."})
-    assert "cover what the Mac holds" in hedged
+    hedged = _hedge({"complete": False, "note": "Shopify could not be read fully; figures cover what the server holds."})
+    assert "cover what the server holds" in hedged
     assert "still reading" in _hedge({"complete": False})
 
 

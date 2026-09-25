@@ -39,34 +39,34 @@ WORDS: dict[str, dict[str, str]] = {
         "label": "Tap to apply",
         "footer": "nothing happens until you tap",
         "verb": "tapping the card applies it",
-        "affirmation": "Nothing happens until you tap the card. It is still waiting on the tablet.",
+        "affirmation": "Nothing happens until you tap the card. It is still waiting on the screen.",
         "state_words": "Tap to apply",
     },
     "swipe_commit": {
         "label": "Swipe to apply",
         "footer": "nothing happens until you swipe",
         "verb": "swiping the card applies it",
-        "affirmation": "Nothing happens until you swipe the card. It is still waiting on the tablet.",
+        "affirmation": "Nothing happens until you swipe the card. It is still waiting on the screen.",
         "state_words": "Swipe to apply",
     },
     "hold_to_arm": {
         "label": "Hold to arm, then tap",
         "footer": "nothing happens until you hold the card, then tap it",
         "verb": "holding the card and then tapping it applies it",
-        "affirmation": "Nothing happens until you hold the card and then tap it. It is still waiting on the tablet.",
+        "affirmation": "Nothing happens until you hold the card and then tap it. It is still waiting on the screen.",
         "state_words": "Hold to arm",
     },
     "hold_drag_target": {
         "label": "Hold, then drag to the target",
         "footer": "nothing happens until you hold the card and drag the handle onto the target",
         "verb": "holding the card and dragging the handle onto the target applies it",
-        "affirmation": "Nothing happens until you hold the card and drag the handle onto the target. It is still waiting on the tablet.",
+        "affirmation": "Nothing happens until you hold the card and drag the handle onto the target. It is still waiting on the screen.",
         "state_words": "Hold, then drag",
     },
 }
 
 # What a spoken yes gets while a card is waiting and a tap from there would be refused.
-AFFIRMATION_BLOCKED = "That is prepared, but it cannot be applied from this tablet. The card says why."
+AFFIRMATION_BLOCKED = "That is prepared, but it cannot be applied from this device. The card says why."
 
 # Every fixed sentence, so the voice can keep them: synthesised once, free after that.
 FIXED_LINES = frozenset({w["affirmation"] for w in WORDS.values()} | {AFFIRMATION_BLOCKED})

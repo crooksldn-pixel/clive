@@ -161,3 +161,16 @@ def test_the_v05_acceptance_scenario_under_node():
     )
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
     assert "# fail 0" in result.stdout
+
+
+@needs_node
+def test_the_scene_renderer_under_node():
+    """Generative UI V1 (2a of 4): every primitive renders, all text is text, row limits and
+    drill-downs hold, a control dispatches its event and nothing else, and the gallery's cases
+    draw as asked (web/scenes.js, web/scene-fixtures.js)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / "scenes.test.js")],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout

@@ -508,7 +508,7 @@ def test_a_customer_whose_previous_order_is_outside_the_window_says_so():
 
     built = summaries().returning_customers(found, session=Session(session_id="lone"), period="today")
     lines = {line["label"]: line["value"] for line in built.data["rows"][0]["lines"]}
-    assert lines["Previous order"] == "before the Mac's window", lines
+    assert lines["Previous order"] == "before the server's window", lines
 
 
 def test_a_cancelled_order_is_not_a_purchase():

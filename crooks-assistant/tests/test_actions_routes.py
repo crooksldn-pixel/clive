@@ -372,7 +372,7 @@ async def test_a_turn_time_refusal_is_logged_and_the_local_case_is_named(client,
     assert body["writes"]["allowed"] is False and body["writes"]["code"] == "not_authorised_local"
     (card,) = [i for i in body["ui"] if i["type"] == "confirmation"]
     assert card["data"]["commit"]["code"] == "not_authorised_local"
-    assert "Mac itself" in card["data"]["commit"]["reason"] and "tablet" not in card["data"]["commit"]["reason"].lower()
+    assert "server itself" in card["data"]["commit"]["reason"] and "tablet" not in card["data"]["commit"]["reason"].lower()
     lines = [r.getMessage() for r in caplog.records if "tap would be refused" in r.getMessage()]
     assert len(lines) == 1 and "not_authorised_local" in lines[0] and "proxied=False" in lines[0]
 
@@ -380,7 +380,7 @@ async def test_a_turn_time_refusal_is_logged_and_the_local_case_is_named(client,
 @pytest.mark.parametrize("setup, headers, code, phrase", [
     (dict(writes=False), PROXIED, "writes_disabled", "switched off"),
     (dict(writes=True, logins=""), PROXIED, "allow_list_missing", "allowed logins aren't set"),
-    (dict(writes=True, local=False), {}, "not_authorised_local", "from the Mac itself"),
+    (dict(writes=True, local=False), {}, "not_authorised_local", "from the server itself"),
 ])
 async def test_a_proposal_this_tablet_cannot_apply_says_so_at_once(client, setup, headers, code, phrase):
     """The card appears, but its surface never arms, the reason is on it, and the spoken answer
@@ -405,7 +405,7 @@ async def test_a_refused_commit_carries_a_spoken_line(client):
     assert body["code"] == "writes_disabled" and body["spoken"].startswith("Changes are switched off")
     configure(client, local=False)
     body = (await commit(client, proposal.proposal_id, headers={})).json()
-    assert body["code"] == "not_authorised_local" and body["spoken"].startswith("Requests from the Mac itself")
+    assert body["code"] == "not_authorised_local" and body["spoken"].startswith("Requests from the server itself")
 
 
 async def test_a_login_outside_the_allow_list_cannot_even_ask(client):
@@ -530,7 +530,7 @@ async def test_a_spoken_yes_leaves_the_card_waiting_and_says_what_applies_it(cli
     epoch_before = client.runtime.sessions.get("s9").epoch
     turns_before = len(getattr(client.runtime.provider, "turns", []))
     body = (await client.post("/turn", json={"text": "Yes, go ahead.", "session_id": "s9", "speak": True}, headers=PROXIED)).json()
-    assert body["answer"] == "Nothing happens until you tap the card. It is still waiting on the tablet."
+    assert body["answer"] == "Nothing happens until you tap the card. It is still waiting on the screen."
     assert proposal.status.value == "PENDING" and body["revoked"] == []
     assert client.runtime.sessions.get("s9").epoch == epoch_before
     assert len(getattr(client.runtime.provider, "turns", [])) == turns_before
@@ -864,14 +864,14 @@ async def test_a_login_header_tailscale_does_not_vouch_for_applies_nothing(clien
         response = await commit(client, proposal.proposal_id)
         assert response.status_code == 403 and response.json()["code"] == "identity_unverified", response.text
         assert "belongs to a different login" in response.json()["detail"]
-        assert response.json()["spoken"] == "I couldn't confirm which tablet this is with Tailscale, so I can't apply that."
+        assert response.json()["spoken"] == "I couldn't confirm which device this is with Tailscale, so I can't apply that."
         assert client.store.mutations == [] and proposal.status.value == "PENDING"
         assert (await client.post(f"/actions/{proposal.proposal_id}/arm", data={"session_id": "s1"}, headers=PROXIED)).status_code == 403
         # A card recovered after a lost connection is shown as one a tap here cannot apply.
         state = await client.get(f"/actions/{proposal.proposal_id}?session_id=s1", headers=PROXIED)
         assert state.status_code == 200 and state.json()["status"] == "pending"
         card = next(i for i in state.json()["ui"] if i["type"] == "confirmation")["data"]
-        assert card["commit"] == {"allowed": False, "code": "identity_unverified", "reason": "The Mac could not confirm this tablet's identity with Tailscale."}
+        assert card["commit"] == {"allowed": False, "code": "identity_unverified", "reason": "The server could not confirm this device's identity with Tailscale."}
         # Tailscale names the login on the header: the same tap applies.
         holders["100.64.0.9"] = OWNER
         identity.bind_runner(lambda cli, address: {"UserProfile": {"LoginName": holders.get(address, "")}})

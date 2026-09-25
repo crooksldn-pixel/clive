@@ -110,7 +110,7 @@ async def speak(request: Request) -> Response:
             return Response(status_code=204)
         # The text is not logged; its length is what makes a latency or truncation report
         # readable, and an answer read out in the office does not need repeating to disk.
-        log.info("tts declined (%s) for %d chars — tablet falls back", exc.kind, len(spoken))
+        log.info("tts declined (%s) for %d chars — the page falls back", exc.kind, len(spoken))
         timeline.emit("tts", ok=False, failure=exc.kind, ms=_ms(started), **trace)
         return JSONResponse(
             status_code=503,

@@ -1,0 +1,148 @@
+/* Scenes — the work surface web/scenes.js draws.
+ *
+ * Loaded only by web/scenes-gallery.html for now. Every colour, font, radius, space and motion
+ * here is a token from web/style.css, which loads first: no new fonts and no new colours. One
+ * answer set large, a few elements with air between them, and nothing drawn to fill space.
+ */
+
+/* ------------------------------------------------------------------ the scene */
+.scene{
+  display:flex;flex-direction:column;gap:var(--sp-6);
+  max-width:680px;margin:0 auto;color:var(--ink);font-family:var(--font);
+}
+.scene-lead{display:flex;flex-direction:column;gap:var(--sp-3)}
+.scene-answer{
+  margin:0;font-size:24px;line-height:1.35;font-weight:600;letter-spacing:-.01em;
+  color:var(--ink);white-space:pre-line;
+}
+button.scene-answer{
+  display:block;width:100%;padding:0;border:0;background:none;text-align:left;cursor:pointer;
+}
+/* The one mark that says the answer opens: a small chevron, drawn by the border, never text. */
+button.scene-answer::after{
+  content:"";display:inline-block;width:7px;height:7px;margin-left:var(--sp-3);
+  border-right:1.5px solid var(--ink-3);border-bottom:1.5px solid var(--ink-3);
+  transform:translateY(-4px) rotate(45deg);transition:transform var(--t-2) var(--ease-out);
+}
+button.scene-answer[aria-expanded="true"]::after{transform:translateY(-1px) rotate(225deg)}
+
+.scene-drilldown{color:var(--ink-3);font-size:14px;line-height:1.5}
+.scene-drilldown-line{margin:0 0 var(--sp-2);color:var(--ink-2)}
+
+.scene-elements{display:flex;flex-direction:column;gap:var(--sp-5)}
+.scene-el{
+  padding:var(--sp-5);border-radius:var(--radius-panel);
+  background:var(--glass-surface);border:1px solid var(--border-subtle);box-shadow:var(--inset-hi);
+}
+.scene-caption{
+  margin:0 0 var(--sp-3);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);
+}
+.scene-period{margin:var(--sp-1) 0 0;font-size:13px;color:var(--ink-3)}
+
+/* ------------------------------------------------------------------ sources and fields */
+.scene-sources{list-style:none;margin:0;padding:0}
+.scene-source{
+  display:flex;justify-content:space-between;gap:var(--sp-4);
+  padding:var(--sp-2) 0;border-top:1px solid var(--border-subtle);
+}
+.scene-source-label{color:var(--ink-2)}
+.scene-source-meta{color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+.scene-fields{margin:0}
+.scene-field{
+  display:flex;justify-content:space-between;align-items:baseline;gap:var(--sp-4);
+  padding:var(--sp-2) 0;border-top:1px solid var(--border-subtle);
+}
+.scene-field:first-child{border-top:0;padding-top:0}
+.scene-field-label{color:var(--ink-3);font-size:14px}
+.scene-field-value{margin:0;text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
+
+/* ------------------------------------------------------------------ finding */
+.scene-finding{padding:0}
+.scene-finding-head{
+  display:flex;flex-direction:column;align-items:flex-start;gap:var(--sp-2);width:100%;
+  min-height:var(--tap);padding:var(--sp-5);border:0;background:none;text-align:left;cursor:pointer;
+  border-radius:var(--radius-panel);transition:background var(--t-1);
+}
+.scene-finding-head:active{background:var(--glass-control-active)}
+.scene-finding-text{font-size:17px;line-height:1.4;color:var(--ink)}
+.scene-evidence{padding:0 var(--sp-5) var(--sp-5)}
+.scene-evidence .scene-fields + .scene-sources{margin-top:var(--sp-3)}
+.scene-sig{
+  display:inline-block;padding:2px var(--sp-2);border-radius:var(--r-pill);
+  font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-3);border:1px solid var(--border-subtle);
+}
+.scene-finding[data-significance="ACTION_REQUIRED"] .scene-sig{color:var(--warn);background:var(--warn-dim);border-color:transparent}
+.scene-finding[data-significance="RISK"] .scene-sig{color:var(--bad);background:var(--bad-dim);border-color:transparent}
+.scene-finding[data-significance="DECISION_REQUIRED"] .scene-sig{color:var(--ink);background:var(--glass-4);border-color:transparent}
+
+/* ------------------------------------------------------------------ collection */
+.scene-table{width:100%;border-collapse:collapse;font-size:15px}
+.scene-table th{
+  padding:0 var(--sp-2) var(--sp-2) 0;text-align:left;font-weight:500;font-size:12px;color:var(--ink-3);
+}
+.scene-table td{padding:var(--sp-3) var(--sp-2) var(--sp-3) 0;border-top:1px solid var(--border-subtle);color:var(--ink-2)}
+.scene-table td:first-child{color:var(--ink)}
+.scene-table th:last-child,.scene-table td:last-child{padding-right:0}
+.scene-table .scene-num{text-align:right;font-variant-numeric:tabular-nums}
+.scene-more{
+  margin-top:var(--sp-3);min-height:var(--tap);padding:0;border:0;background:none;
+  color:var(--ink-2);font-size:14px;cursor:pointer;
+}
+.scene-more:active{color:var(--ink)}
+
+/* ------------------------------------------------------------------ measure, comparison, trend */
+.scene-figure{margin:0;display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--sp-2)}
+.scene-big{font-size:44px;line-height:1.1;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.scene-big-sm{font-size:28px}
+.scene-unit{font-size:17px;color:var(--ink-2)}
+.scene-diff{margin:var(--sp-2) 0 0;font-size:15px;color:var(--ink)}
+.scene-spark{display:block;width:100%;height:auto;margin:var(--sp-4) 0 var(--sp-1);overflow:visible}
+.scene-spark polyline{fill:none;stroke:var(--ink-2);stroke-width:1.75px;stroke-linejoin:round;stroke-linecap:round}
+.scene-spark circle{fill:var(--ink)}
+
+/* ------------------------------------------------------------------ timeline */
+.scene-times{list-style:none;margin:0;padding:0}
+.scene-time{
+  display:grid;grid-template-columns:minmax(8.5em,auto) 1fr;gap:var(--sp-4);align-items:baseline;
+  padding:var(--sp-3) 0;border-top:1px solid var(--border-subtle);
+}
+.scene-time:first-child{border-top:0;padding-top:0}
+.scene-when{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.scene-what{color:var(--ink)}
+
+/* ------------------------------------------------------------------ proposal and question */
+.scene-proposal-text,.scene-question-text{margin:0 0 var(--sp-4);font-size:17px;line-height:1.4}
+.scene-button,.scene-chip{
+  min-height:var(--tap);padding:0 var(--sp-5);cursor:pointer;color:var(--ink);
+  background:var(--glass-control);border:1px solid var(--border-rest);
+  transition:background var(--motion-press) var(--ease-standard),border-color var(--motion-press) var(--ease-standard);
+}
+.scene-button{border-radius:var(--r-pill);font-weight:600}
+.scene-chips{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+.scene-chip{border-radius:var(--radius-control)}
+.scene-button:active,.scene-chip:active{background:var(--glass-control-active);border-color:var(--border-active)}
+
+@media (max-width:480px){
+  .scene{gap:var(--sp-5)}
+  .scene-answer{font-size:22px}
+  .scene-big{font-size:38px}
+  .scene-big-sm{font-size:26px}
+}
+
+/* ------------------------------------------------------------------ the gallery page */
+body.scenes-gallery{height:auto;min-height:100%;overflow:auto;overscroll-behavior:auto}
+.gallery-head{max-width:680px;margin:0 auto;padding:var(--sp-7) var(--sp-5) var(--sp-4)}
+.gallery-mark{margin:0 0 var(--sp-3);font-weight:800;letter-spacing:.32em;font-size:13px;color:var(--ink)}
+.gallery-head h1{margin:0 0 var(--sp-2);font-size:20px;font-weight:600}
+.gallery-head p{margin:0;color:var(--ink-3);font-size:14px}
+.gallery-case{
+  padding:var(--sp-7) var(--sp-5);border-top:1px solid var(--border-subtle);
+  padding-bottom:calc(var(--sp-7) + env(safe-area-inset-bottom));
+}
+.gallery-title,.gallery-note{max-width:680px;margin-left:auto;margin-right:auto}
+.gallery-title{margin-top:0;margin-bottom:var(--sp-1);font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.gallery-note{margin-top:0;margin-bottom:var(--sp-6);font-size:13px;color:var(--ink-4)}
+.gallery-event{max-width:680px;margin:var(--sp-4) auto 0;font:12px/1.4 var(--mono);color:var(--ink-3);overflow-wrap:anywhere}
+.gallery-event:empty{display:none}

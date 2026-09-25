@@ -31,7 +31,7 @@ LABELS: dict[str, str] = {
     "the inbox": "The inbox",
     "the read layer": "Sales and stock",
     "bulk changes": "Bulk changes",
-    "the Mac": "The assistant",
+    "the assistant": "The assistant",
 }
 ORDER = tuple(LABELS)
 
@@ -166,7 +166,7 @@ def build_surface(
         },
         "groups": groups,
         "examples": list(EXAMPLES[:MAX_EXAMPLES]),
-        "note": ("" if writes_on else "Changes are switched off on the Mac, so everything here is read-only."),
+        "note": ("" if writes_on else "Changes are switched off on the server, so everything here is read-only."),
     }
     if changed:
         # The delta answer: the same surface, with what moved since the last build called out.

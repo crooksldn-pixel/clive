@@ -240,7 +240,7 @@ async def _run(spec: dict[str, Any], *, default_entity: str, tool: str = "commer
     result = engine.aggregate(query, view.rows, now=now.timestamp(), tz=zone, stock=stock, sets=sets_for(current_session()))
     result["complete"] = view.complete and not result.get("truncated", False) or (view.complete and result.get("truncated", False))
     result["coverage"] = {"complete": view.complete, "covered_days": view.covered_days, "read_age_s": (round(view.age_s, 1) if view.age_s is not None else None), "note": view.note or None}
-    result["source"] = "Shopify orders created in the period" + (f", as read by the Mac {round(view.age_s)} s ago" if view.age_s is not None else "")
+    result["source"] = "Shopify orders created in the period" + (f", as read by the server {round(view.age_s)} s ago" if view.age_s is not None else "")
     result["cost"] = query.cost
     result["_ms"] = round((time.perf_counter() - started) * 1000 + view.served_ms, 1)
     if view.note:
@@ -695,7 +695,7 @@ async def email_query(set_id: str, days: int = 30) -> dict:
     if unavailable:
         notes.append(f"{unavailable} customer(s) could not be checked in Gmail")
     if missing:
-        notes.append(f"{len(missing)} of the set's {ws.kind} are outside the {EMAIL_VIEW_DAYS} days of orders the Mac holds")
+        notes.append(f"{len(missing)} of the set's {ws.kind} are outside the {EMAIL_VIEW_DAYS} days of orders the server holds")
     if guests:
         notes.append(f"{len(guests)} order(s) have no customer record to look up")
     result: dict[str, Any] = {
@@ -771,7 +771,7 @@ def catalogue() -> dict[str, Any]:
             },
             "instead_of": (
                 "listing the period and then reading each customer's or each order's record. "
-                "Every order row the Mac holds already carries that customer's lifetime order "
+                "Every order row the server holds already carries that customer's lifetime order "
                 "count and lifetime spend, so 'has this buyer bought before' is a comparison "
                 "and not a lookup: one call in place of one plus one per row."
             ),

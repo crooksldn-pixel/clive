@@ -172,7 +172,7 @@ async def commerce_summary(task: str, period: Any = None, limit: int = 12) -> di
         "coverage": {"complete": view.complete, "covered_days": view.covered_days,
                      "read_age_s": (round(view.age_s, 1) if view.age_s is not None else None)},
         "complete": bool(view.complete),
-        "source": f"Shopify orders the Mac holds, read {'just now' if not view.age_s else f'{round(view.age_s)} s ago'}",
+        "source": f"Shopify orders the server holds, read {'just now' if not view.age_s else f'{round(view.age_s)} s ago'}",
         "reads": 1,
         "_ms": round((time.perf_counter() - started) * 1000 + view.served_ms, 1),
     })
