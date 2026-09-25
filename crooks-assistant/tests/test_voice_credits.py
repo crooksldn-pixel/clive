@@ -22,7 +22,7 @@ import pytest
 from app.clients.elevenlabs import ScribeClient, ScribeUnavailable
 from app.clients.elevenlabs_tts import VoiceClient, VoiceUnavailable
 from app.clients.whisper import WhisperClient, WhisperUnavailable
-from app.routes.health import _health, _live_voice
+from app.routes.health import _health, _live, health
 from app.routes.speak import speak
 from app.speech.normalise import from_terms
 from app.speech.transcribe import Transcriber
@@ -41,6 +41,8 @@ QUOTA = {
     }
 }
 CREDITS_ONLY = {"detail": {"message": "You have 0 credits remaining."}}
+# The same answer with the quota detail well past the first 200 characters of the body.
+LATE_QUOTA = {"detail": {"request_id": "r" * 240, "status": "quota_exceeded", "message": "You have 0 credits remaining."}}
 INVALID_KEY = {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}}
 
 
@@ -123,6 +125,30 @@ async def test_an_empty_account_is_credit_for_scribe(mock_http, status, body):
         await client.transcribe(b"wav", keyterms=[])
     assert caught.value.kind == "credit"
     assert client._key == SECRET
+
+
+def late_marker() -> str:
+    body = json.dumps(LATE_QUOTA)
+    assert "quota" not in body[:200].lower() and "credit" not in body[:200].lower()
+    return body
+
+
+async def test_a_quota_detail_late_in_the_body_is_still_credit_for_the_voice(mock_http):
+    body = late_marker()
+    mock_http(lambda request: httpx.Response(401, text=body))
+    with pytest.raises(VoiceUnavailable) as caught:
+        await voice().synthesise("Twelve orders today.")
+    assert caught.value.kind == "credit"
+    assert "credits remaining" not in str(caught.value), "only the text shown is truncated"
+
+
+async def test_a_quota_detail_late_in_the_body_is_still_credit_for_scribe(mock_http):
+    body = late_marker()
+    mock_http(lambda request: httpx.Response(401, text=body))
+    with pytest.raises(ScribeUnavailable) as caught:
+        await scribe().transcribe(b"wav", keyterms=[])
+    assert caught.value.kind == "credit"
+    assert "credits remaining" not in str(caught.value), "only the text shown is truncated"
 
 
 async def test_an_invalid_key_is_still_rejected_by_the_voice(mock_http):
@@ -328,7 +354,7 @@ async def test_health_route_reports_the_kind_and_the_reason_then_ok_again(mock_h
     assert await voice_client.synthesise("Twelve orders today.") == MP3
 
     # A cached answer from while it was down does not go on saying so once the voice speaks.
-    cached = _live_voice(runtime, down)
+    cached = _live(runtime, down)
     assert cached["voice"]["ok"] is True and cached["checks"]["tts"]["ok"] is True
     assert cached["voice"]["failure_kind"] is None and cached["voice"]["reason"] is None
     assert down["voice"]["ok"] is False, "the cached result itself is not changed"
@@ -338,3 +364,69 @@ async def test_health_route_reports_the_kind_and_the_reason_then_ok_again(mock_h
     assert up["voice"]["ok"] is True and up["voice"]["failure_kind"] is None and up["voice"]["reason"] is None
     assert up["speech"]["scribe_ok"] is True and up["speech"]["scribe_reason"] is None
     assert up["checks"]["tts"]["ok"] is True and up["checks"]["speech"]["ok"] is True
+
+
+def route_request(runtime: SimpleNamespace) -> SimpleNamespace:
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(runtime=runtime)))
+
+
+@pytest.mark.parametrize("whisper_enabled", [False, True])
+async def test_a_cached_health_shows_a_scribe_failure_since_it_was_filled(mock_http, tmp_path, whisper_enabled):
+    account = {"empty": False}
+    mock_http(elevenlabs(account))
+    scribe_client = scribe(cooldown_s=300.0)
+    runtime = runtime_with(voice(cooldown_s=300.0), scribe_client, tmp_path)
+    runtime.settings.whisper_enabled = whisper_enabled
+    request = route_request(runtime)
+
+    healthy = await health(request, fresh=0)
+    assert healthy["cached"] is False and healthy["status"] == "ok"
+    assert healthy["checks"]["scribe"]["ok"] is True and healthy["speech"]["effective"] == "scribe_v2"
+
+    account["empty"] = True
+    with pytest.raises(ScribeUnavailable):
+        await scribe_client.transcribe(b"wav", keyterms=[])
+
+    down = await health(request, fresh=0)
+    assert down["cached"] is True, "answered from the cache filled while Scribe was well"
+    assert down["status"] == "degraded"
+    assert down["checks"]["scribe"]["ok"] is False and "(credit)" in down["checks"]["scribe"]["detail"]
+    assert down["speech"]["scribe_ok"] is False
+    assert down["speech"]["scribe_failure_kind"] == "credit"
+    plainly_credit(down["speech"]["scribe_reason"])
+    if whisper_enabled:
+        # Whisper still hears: a slower assistant, not a deaf one.
+        assert down["checks"]["speech"]["ok"] is True and down["speech"]["effective"] == "whisper_fallback"
+    else:
+        assert down["checks"]["speech"]["ok"] is False and down["speech"]["effective"] == "none"
+    assert down["voice"]["ok"] is True, "the voice was not touched"
+    assert SECRET not in json.dumps(down)
+    assert request.app.state.health_cache[1]["checks"]["scribe"]["ok"] is True, "the cached result itself is not changed"
+
+
+async def test_a_cached_health_shows_scribe_well_again_after_a_success(mock_http, tmp_path):
+    account = {"empty": True}
+    mock_http(elevenlabs(account))
+    scribe_client = scribe(cooldown_s=300.0)
+    runtime = runtime_with(voice(cooldown_s=300.0), scribe_client, tmp_path)
+    request = route_request(runtime)
+
+    with pytest.raises(ScribeUnavailable):
+        await scribe_client.transcribe(b"wav", keyterms=[])
+    down = await health(request, fresh=0)
+    assert down["cached"] is False and down["status"] == "degraded"
+    assert down["checks"]["scribe"]["ok"] is False and down["checks"]["speech"]["ok"] is False
+    assert down["speech"]["scribe_failure_kind"] == "credit"
+
+    # The plan is topped up: the next recording is heard.
+    account["empty"] = False
+    scribe_client.clear_cooldown()
+    assert (await scribe_client.transcribe(b"wav", keyterms=[])).text == "twelve orders today"
+
+    up = await health(request, fresh=0)
+    assert up["cached"] is True, "answered from the cache filled while Scribe was failing"
+    assert up["status"] == "ok"
+    assert up["checks"]["scribe"]["ok"] is True and up["checks"]["scribe"]["detail"].startswith("key ok")
+    assert up["checks"]["speech"]["ok"] is True and up["speech"]["effective"] == "scribe_v2"
+    assert up["speech"]["scribe_ok"] is True
+    assert up["speech"]["scribe_failure_kind"] is None and up["speech"]["scribe_reason"] is None

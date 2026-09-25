@@ -91,6 +91,9 @@ class ScribeClient:
         # The latest attempt failed and nothing has succeeded since. A key that still lists
         # models is not a recogniser that works: health reads this as well as the probe.
         self.failing = False
+        # What the key and the account said at the last health probe, before the latest attempt
+        # is laid over it: a cached /health reads the attempt again through judged().
+        self.last_probe: tuple[bool, str] | None = None
 
     # ------------------------------------------------------------------ connection
 
@@ -241,8 +244,10 @@ class ScribeClient:
         """Name the failure by its shape. The body is included because it is what makes an
         account problem diagnosable — scrubbed, and truncated, because it is not ours."""
         code = response.status_code
+        # Classified on the whole body — the quota detail can sit past any cut — and only the
+        # text that is shown is truncated.
+        lowered = self._scrub(response.text or "").lower()
         body = self._scrub((response.text or "")[:200])
-        lowered = body.lower()
         if code == 402 or _says_no_credit(lowered):
             # First, whatever the status: ElevenLabs answers an empty account with a 401
             # quota_exceeded, and that is a plan to top up, not a key to replace.
@@ -270,11 +275,43 @@ class ScribeClient:
         unlike the account endpoints, it does not need the `user_read` permission — which a key
         scoped to speech-to-text does not have. Quota is read afterwards, best effort, because
         a restricted key cannot see it and that is not a fault."""
+        # Forgotten first: a probe that times out must not leave an older answer behind it.
+        self.last_probe = None
+        self.last_probe = await self._probe()
+        return self.judged(self.last_probe)
+
+    async def _probe(self) -> tuple[bool, str]:
+        """What the key and the account say, without the latest attempt."""
         try:
             key = self._api_key()
         except ScribeUnavailable as exc:
             return False, self._scrub(str(exc))
 
+        try:
+            client = self._client()
+            headers = {"xi-api-key": key}
+            probe = await client.get(f"{self.base_url}/models", headers=headers, timeout=5.0)
+            quota = await self._quota(client, headers) if probe.status_code == 200 else ""
+        except httpx.HTTPError as exc:
+            return False, f"ElevenLabs unreachable: {type(exc).__name__}"
+
+        body = self._scrub(probe.text or "").lower()
+        if probe.status_code == 200:
+            return True, f"key ok{quota}"
+        elif "missing_permissions" in body or probe.status_code == 403:
+            # A key scoped to one product. It cannot list models; it can still transcribe.
+            return True, "key ok (restricted, unlisted quota)"
+        elif probe.status_code in (401, 402, 429) and _says_no_credit(body):
+            return False, f"{listening_reason('credit')} (credit)"
+        elif probe.status_code == 401:
+            return False, "API key rejected (401)"
+        else:
+            return False, f"ElevenLabs returned {probe.status_code}"
+
+    def judged(self, probe: tuple[bool, str]) -> tuple[bool, str]:
+        """A probe's answer with the attempts read NOW, so a cached /health that passes its
+        probe back through here shows a failure, or a recovery, since the probe at once."""
+        ok, detail = probe
         note = f"model {self.model}, language {self.language}"
         if self.attempts:
             note += f" · {self.successes}/{self.attempts} ok, last {self.last_ms:.0f}ms"
@@ -286,32 +323,12 @@ class ScribeClient:
             )
         elif failing:
             note += f" · last error: {self.last_error}"
-
-        try:
-            client = self._client()
-            headers = {"xi-api-key": key}
-            probe = await client.get(f"{self.base_url}/models", headers=headers, timeout=5.0)
-            quota = await self._quota(client, headers) if probe.status_code == 200 else ""
-        except httpx.HTTPError as exc:
-            return False, f"ElevenLabs unreachable: {type(exc).__name__} · {note}"
-
-        body = self._scrub((probe.text or "")[:200]).lower()
-        if probe.status_code == 200:
-            detail = f"key ok{quota} · {note}"
-        elif "missing_permissions" in body or probe.status_code == 403:
-            # A key scoped to one product. It cannot list models; it can still transcribe.
-            detail = f"key ok (restricted, unlisted quota) · {note}"
-        elif probe.status_code in (401, 402, 429) and _says_no_credit(body):
-            return False, f"{listening_reason('credit')} (credit) · {note}"
-        elif probe.status_code == 401:
-            return False, f"API key rejected (401) · {note}"
-        else:
-            return False, f"ElevenLabs returned {probe.status_code} · {note}"
+        detail = f"{detail} · {note}"
         # The key answers; whether transcription itself works is what the last attempt said.
         # Not ok, in plain words, until the next success.
-        if failing:
+        if ok and failing:
             return False, f"{listening_reason(failing)} ({failing}) · {detail}"
-        return True, detail
+        return ok, detail
 
     @property
     def failing_kind(self) -> str:

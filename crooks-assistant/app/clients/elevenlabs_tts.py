@@ -503,8 +503,10 @@ class VoiceClient:
     def _http_failure(self, code: int, body: str) -> VoiceUnavailable:
         """Name the failure by its shape. The body is included because it is what makes an
         account problem diagnosable — scrubbed, and truncated, because it is not ours."""
+        # Classified on the whole body — the quota detail can sit past any cut — and only the
+        # text that is shown is truncated.
+        lowered = self._scrub(body).lower()
         body = self._scrub(body[:200])
-        lowered = body.lower()
         if code == 402 or "quota" in lowered or "credit" in lowered:
             # First, whatever the status: ElevenLabs answers an empty account with a 401
             # quota_exceeded, and that is a plan to top up, not a key to replace.
