@@ -81,7 +81,7 @@
     failed: 'Not applied', unverified: 'Not confirmed', refused: 'Refused', not_armed: 'Hold first',
     blocked: 'Refused', batch_member: 'Part of a batch', service_unavailable: 'Not applied',
     writes_disabled: 'Switched off', not_authorised: 'Not on the list',
-    not_authorised_local: 'Not from the Mac itself', allow_list_missing: 'Not configured',
+    not_authorised_local: 'Not from the server itself', allow_list_missing: 'Not configured',
     scope_missing: 'Not permitted', wrong_session: 'Not this conversation', unknown: 'No longer waiting',
   };
 

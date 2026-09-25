@@ -124,14 +124,14 @@ _CURRENCY_SYMBOL = {"GBP": "£", "USD": "$", "EUR": "€"}
 # Errors, named calmly. The spoken answer already explains; the card gives one recovery.
 _TURN_ERRORS: dict[str, tuple[str, str, str]] = {
     # error_kind: (service, title, recovery)
-    "speech": ("speech", "Couldn't understand that", "Hold and ask again, a little closer to the tablet."),
+    "speech": ("speech", "Couldn't understand that", "Hold and ask again, a little closer to the microphone."),
     "empty": ("speech", "Didn't catch that", "Hold the orb while you speak."),
     "audio_too_large": ("speech", "That recording was too long", "Ask it in a shorter sentence."),
     "lost_thread": ("assistant", "Lost the thread", "Ask again from the start."),
     "timeout": ("assistant", "That took too long", "Ask again."),
     "not_started": ("assistant", "Assistant still starting", "Wait a moment and ask again."),
     "usage_limit": ("assistant", "Claude usage limit reached", "Try again later."),
-    "auth": ("assistant", "Claude needs signing in on the Mac", "On the Mac: run claude, then /login."),
+    "auth": ("assistant", "Claude needs signing in on the server", "On the server: run claude, then /login."),
     "max_turns": ("assistant", "Stopped part-way", "Ask a narrower question."),
     "api_error": ("assistant", "Assistant unavailable", "Try again in a moment."),
 }
@@ -1094,13 +1094,13 @@ def _confirmation(proposal, *, writes: dict[str, Any] | None = None) -> dict[str
 
 # Why a tap would be refused from here, in the words the card shows under the change.
 _COMMIT_BLOCKED_WORDS = {
-    "writes_disabled": "Changes are switched off on the Mac (CROOKS_WRITES_ENABLED).",
-    "allow_list_missing": "No allowed logins are set on the Mac (CROOKS_ALLOWED_LOGINS).",
-    "not_authorised": "This tablet's login is not on the allowed list. Open /whoami to see it.",
-    "not_authorised_local": "Asked on the Mac itself, which may not apply changes (CROOKS_WRITES_LOCAL_OWNER).",
+    "writes_disabled": "Changes are switched off on the server (CROOKS_WRITES_ENABLED).",
+    "allow_list_missing": "No allowed logins are set on the server (CROOKS_ALLOWED_LOGINS).",
+    "not_authorised": "This device's login is not on the allowed list. Open /whoami to see it.",
+    "not_authorised_local": "Asked on the server itself, which may not apply changes (CROOKS_WRITES_LOCAL_OWNER).",
     "scope_missing": "The store has not granted the permission this change needs.",
     "gmail_scope_missing": "The Gmail credential cannot make this change yet.",
-    "identity_unverified": "The Mac could not confirm this tablet's identity with Tailscale.",
+    "identity_unverified": "CLIVE could not confirm this device's identity with Tailscale.",
     "read_only": "This backend is in read-only test mode and cannot apply changes.",
 }
 
@@ -1399,7 +1399,7 @@ def _commit_words(proposal, writes: dict[str, Any] | None) -> dict[str, Any] | N
             code = WriteStatus(str(entry.get("state") or "blocked"), detail).code
     if not code:
         return None
-    reason = _COMMIT_BLOCKED_WORDS.get(code, "Changes cannot be applied from this tablet.")
+    reason = _COMMIT_BLOCKED_WORDS.get(code, "Changes cannot be applied from this device.")
     if code in ("scope_missing", "gmail_scope_missing") and detail:
         reason = f"{reason} ({_text(detail.replace('blocked — ', '', 1), 140)})"
     return {"allowed": False, "code": _text(code, 40), "reason": _text(reason, 200)}

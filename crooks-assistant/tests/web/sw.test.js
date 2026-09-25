@@ -16,6 +16,27 @@ const vm = require('node:vm');
 const ORIGIN = 'https://crooks.test';
 const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'sw.js'), 'utf8').replace('__BUILD__', 'testbuild');
 
+// Node's own Response is undici's, and loading undici starts compiling its WebAssembly HTTP
+// parser in the background. On a host with a tight memory limit that compile fails after the
+// test has ended and takes the whole file down with it. The worker uses this much of a
+// Response and no more, so it gets this much.
+class FakeHeaders {
+  constructor(init) { this.values = new Map(Object.entries(init || {}).map(([k, v]) => [k.toLowerCase(), String(v)])); }
+  get(name) { const value = this.values.get(String(name).toLowerCase()); return value === undefined ? null : value; }
+}
+class FakeResponse {
+  constructor(body, init = {}) {
+    this.body = body == null ? '' : String(body);
+    this.status = init.status === undefined ? 200 : init.status;
+    this.ok = this.status >= 200 && this.status < 300;
+    this.type = 'default';
+    this.headers = init.headers instanceof FakeHeaders ? init.headers : new FakeHeaders(init.headers);
+  }
+  static error() { const response = new FakeResponse(null, { status: 0 }); response.type = 'error'; return response; }
+  clone() { const copy = new FakeResponse(this.body, { status: this.status, headers: this.headers }); copy.type = this.type; return copy; }
+  async text() { return this.body; }
+}
+
 function boot() {
   const handlers = {};
   const fetched = [];
@@ -36,7 +57,7 @@ function boot() {
   const calls = { skipWaiting: 0, claim: 0 };
   const sandbox = {
     console,
-    Response,
+    Response: FakeResponse,
     URL,
     caches,
     network,
@@ -53,7 +74,7 @@ function boot() {
       if (network.mode === 'hang') return new Promise(() => {});
       const status = typeof network.mode === 'number' ? network.mode : 200;
       const type = network.type || (p.endsWith('.js') ? 'text/javascript' : 'text/html');
-      return new Response(`${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
+      return new FakeResponse(`${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
     },
   };
   sandbox.self = sandbox;

@@ -464,7 +464,7 @@ def _written(text: str, names: set[str]) -> str:
 # The instruction is here, ONCE, rather than repeated on every line of the block. It was on
 # each line, and with seven unavailable families that was 287 characters a turn of the same
 # sentence.
-FAMILY_LINE_PREFIX = "[What this Mac cannot do right now. Do not attempt these; say why if asked:\n"
+FAMILY_LINE_PREFIX = "[What CLIVE cannot do right now. Do not attempt these; say why if asked:\n"
 
 
 def _performance(timings: dict, *, lane: str, recipe_id: str, branch, calls, partial: bool, session, measures: dict, ui: list | None = None, glass: dict | None = None) -> dict:
@@ -856,7 +856,7 @@ def _context_lines(session, text: str, runtime=None) -> list[str]:
     lines: list[str] = []
     outcome = str(getattr(session, "last_outcome", "") or "").strip()
     if outcome:
-        lines.append(f'[The last change, as the Mac proved it: "{outcome[:200]}". If asked whether it worked, say this; do not propose it again.]')
+        lines.append(f'[The last change, as CLIVE proved it: "{outcome[:200]}". If asked whether it worked, say this; do not propose it again.]')
         session.last_outcome = ""
     session.hinted = False
     last = getattr(session, "last_query", None)
@@ -881,7 +881,7 @@ def _context_lines(session, text: str, runtime=None) -> list[str]:
         known = claims.registered()
         usable = [c for c in matched if all(t in known for t in c.tools)]
         if usable:
-            lines.append("[This asks for " + "; ".join(f"{c.what} ({', '.join(c.tools)})" for c in usable[:3]) + " — the Mac composes it; call the tool rather than saying it cannot be done.]")
+            lines.append("[This asks for " + "; ".join(f"{c.what} ({', '.join(c.tools)})" for c in usable[:3]) + " — CLIVE composes it; call the tool rather than saying it cannot be done.]")
             session.hinted = True
     lines.extend(_family_lines(runtime))
     return lines
@@ -922,7 +922,7 @@ _WANTS_SEND = re.compile(r"\b(?:send|sends|email them|email him|email her|email 
 def _draft_or_send(text: str) -> str:
     draft, send = bool(_WANTS_DRAFT.search(text)), bool(_WANTS_SEND.search(text))
     if draft and not send:
-        return "[This asks for a DRAFT: stage gmail_draft_reply or gmail_draft_new, not a send. Nothing leaves the Mac.]"
+        return "[This asks for a DRAFT: stage gmail_draft_reply or gmail_draft_new, not a send. Nothing leaves CLIVE.]"
     if send and not draft:
         return "[This asks for the email to GO: stage gmail_send_reply or gmail_send_new. It still waits for the owner's gesture; a spoken yes never sends it.]"
     if send and draft:
@@ -1065,7 +1065,7 @@ async def _prefetch_order(runtime, session, text: str, calls: list, timings: dic
             "any of it — it answers at once."
         )
     return (
-        f"[The Mac already ran shopify_find_order(query=\"{number}\") for this question. Its result:\n"
+        f"[CLIVE already ran shopify_find_order(query=\"{number}\") for this question. Its result:\n"
         f"{rendered}\nUse it as if you had called the tool; do not call shopify_find_order for "
         f"{number} again.{hydrating}]"
     )

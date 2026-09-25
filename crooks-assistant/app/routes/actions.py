@@ -31,13 +31,13 @@ router = APIRouter(prefix="/actions")
 # What the tablet says, out loud, when a change cannot be applied from where it is. Fixed
 # lines: nothing from the request and nothing from Shopify reaches the voice.
 SPOKEN_REFUSALS = {
-    "writes_disabled": "Changes are switched off on the Mac, so I can't apply that.",
-    "allow_list_missing": "Nobody is allowed to apply changes yet: the allowed logins aren't set on the Mac.",
-    "not_authorised": "This tablet isn't allowed to apply changes.",
-    "not_authorised_local": "Requests from the Mac itself aren't allowed to apply changes.",
+    "writes_disabled": "Changes are switched off on the server, so I can't apply that.",
+    "allow_list_missing": "Nobody is allowed to apply changes yet: the allowed logins aren't set on the server.",
+    "not_authorised": "This device isn't allowed to apply changes.",
+    "not_authorised_local": "Requests from the server itself aren't allowed to apply changes.",
     "scope_missing": "The store hasn't granted the permission this change needs; the card says which.",
     "gmail_scope_missing": "The Gmail credential can't make that change yet; the card says what it needs.",
-    "identity_unverified": "I couldn't confirm which tablet this is with Tailscale, so I can't apply that.",
+    "identity_unverified": "I couldn't confirm which device this is with Tailscale, so I can't apply that.",
 }
 
 
@@ -65,7 +65,7 @@ def caller_check(request: Request) -> tuple[str, str, str, str]:
     runtime = request.app.state.runtime
     settings = runtime.settings
     if not settings.writes_enabled:
-        return "", "writes_disabled", "Writes are switched off on the Mac (CROOKS_WRITES_ENABLED).", "writes_disabled"
+        return "", "writes_disabled", "Writes are switched off on the server (CROOKS_WRITES_ENABLED).", "writes_disabled"
     allowed = runtime.allowed_logins
     if not allowed:
         return "", "allow_list_missing", "No allowed Tailscale logins are configured (CROOKS_ALLOWED_LOGINS).", "allow_list_missing"
@@ -82,13 +82,13 @@ def caller_check(request: Request) -> tuple[str, str, str, str]:
 
                 ok, why = identity.verify(request.headers.get("x-forwarded-for", ""), login, cli=identity.cli_path(settings.tailscale_cli))
                 if not ok:
-                    return "", "identity_unverified", f"Tailscale could not confirm this tablet's identity: {why}.", "identity_unverified"
+                    return "", "identity_unverified", f"Tailscale could not confirm this device's identity: {why}.", "identity_unverified"
             return login.lower(), "", "", ""
         return "", "not_authorised", "This login may not apply changes.", "not_authorised"
     # Not proxied: a request made on the Mac itself, whatever headers it carries.
     if settings.writes_local_owner:
         return "local", "", "", ""
-    return "", "not_authorised_local", "Requests made on the Mac itself may not apply changes (CROOKS_WRITES_LOCAL_OWNER).", "not_authorised_local"
+    return "", "not_authorised_local", "Requests made on the server itself may not apply changes (CROOKS_WRITES_LOCAL_OWNER).", "not_authorised_local"
 
 
 def caller_identity(request: Request) -> str:

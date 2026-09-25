@@ -306,7 +306,7 @@ def continuation_prompt(*, order: dict[str, Any], thread: dict[str, Any], state:
 
     head = [
         f"The owner asked what {_clip(who, 60)} is waiting for on order {_clip(number, 20)}, and for the reply to be drafted.",
-        "The Mac has already read all of this. Do not read it again.",
+        "CLIVE has already read all of this. Do not read it again.",
         # And has already SAID the mechanical half out loud — `_render`'s sentence leads the
         # answer this turn returns (app/routes/turn.py). Repeating it would have the owner hear
         # who wrote and whether we replied twice in one breath.
@@ -320,7 +320,7 @@ def continuation_prompt(*, order: dict[str, Any], thread: dict[str, Any], state:
     tail = [
         f"In one sentence say what they actually want done — the thing behind the email, not its"
         f" state — then call gmail_draft_reply(thread_id='{thread_id}', order_id='{order_id}', body=…).",
-        "A draft only. The owner applies it with a gesture on the tablet; never send it yourself, and never say it has been sent.",
+        "A draft only. The owner applies it with a gesture on the screen; never send it yourself, and never say it has been sent.",
     ]
     fixed = "\n".join(head + tail)
     room = limit - len(fixed) - 2
@@ -614,7 +614,7 @@ def _render(ctx: Ctx, result: ReadResult) -> FastAnswer:
         # second ask this recipe exists to remove.
         pass
     elif asked and not _may_draft(ctx):
-        words += " Changes are off on this Mac, so I cannot draft a reply."
+        words += " Changes are off on the server, so I cannot draft a reply."
     elif _may_draft(ctx):
         words += " Ask me to draft the reply and I will."
 
