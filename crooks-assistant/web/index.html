@@ -40,10 +40,13 @@
 
   <header class="top">
     <span class="wordmark">CLIVE</span>
-    <span id="conn" class="conn" data-state="connecting" role="status">
+    <!-- Contextual (GENERATIVE_UI_V1 §4): drawn only while something is wrong AND it touches
+         what the owner is doing — offline, CLIVE unable to answer or hear, or the service the
+         screen is reading from. When all is well the header says nothing (web/app.js drawConn). -->
+    <span id="conn" class="conn" data-state="connecting" role="status" hidden>
       <span class="conn-dot" aria-hidden="true"></span><span id="conn-text">Connecting</span>
     </span>
-    <button id="settings-btn" class="icon-btn" type="button" aria-label="Settings and diagnostics">
+    <button id="settings-btn" class="icon-btn" type="button" aria-label="Settings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
     </button>
   </header>
@@ -220,48 +223,69 @@
       <button id="close-settings" class="btn primary" type="button" style="flex:0 0 auto;min-width:96px">Done</button>
     </div>
 
-    <h3>Voice</h3>
-    <p class="voice-line"><span id="voice-status" class="badge quiet">Checking</span><span id="voice-name">ElevenLabs voice, generated on the Mac</span></p>
-    <label class="check"><input type="checkbox" id="speak-toggle" checked> Speak answers aloud</label>
-    <label class="check"><input type="checkbox" id="stream-toggle" checked> Start speaking before the whole answer has arrived</label>
-    <div class="row-btns">
-      <button id="preview-voice" class="btn" type="button">Preview voice</button>
-      <button id="mic-test" class="btn" type="button">Microphone test</button>
-    </div>
-    <p class="note" style="margin-top:14px">If the ElevenLabs voice cannot answer, the tablet speaks with the voice below.</p>
-    <label class="field"><span>Fallback voice</span><select id="voice-select"></select></label>
-    <p id="voice-note" class="note"></p>
+    <!-- The owner's sheet (GENERATIVE_UI_V1 §4), in this order and in plain words: Voice; What
+         CLIVE can do for you; Who and what CLIVE can reach; What CLIVE needs from you;
+         Conversation. The three in the middle are drawn from /health as it already is
+         (web/app.js drawOwnerSettings) and stay hidden while they have nothing true to say —
+         never a placeholder. Engineering diagnostics and fixtures are behind the Developer view
+         switch at the bottom, off by default. -->
+    <section id="set-voice" class="set-section" aria-label="Voice">
+      <h3>Voice</h3>
+      <p class="voice-line"><span id="voice-status" class="badge quiet">Checking</span><span id="voice-name">CLIVE's voice</span></p>
+      <label class="check"><input type="checkbox" id="speak-toggle" checked> Speak answers aloud</label>
+      <div class="row-btns">
+        <button id="preview-voice" class="btn" type="button">Preview voice</button>
+        <button id="mic-test" class="btn" type="button">Microphone test</button>
+      </div>
+    </section>
 
-    <h3>What I can do</h3>
-    <p class="note">Every capability, and where it stands on this Mac right now. Read from the
-      backend, not guessed at here: a change that needs a permission the shop has not granted
-      says so, and one the store does not offer says that instead.</p>
-    <div id="families" class="health" role="list"></div>
+    <section id="set-can-do" class="set-section" aria-label="What CLIVE can do for you" hidden>
+      <h3>What CLIVE can do for you</h3>
+      <p class="note">CLIVE can prepare these for you. Nothing changes until you tap to approve it.</p>
+      <div id="can-do" class="set-list" role="list"></div>
+    </section>
 
-    <h3>Diagnostics</h3>
-    <!-- The four services, at a glance. They used to sit in the idle footer, under the orb,
-         in permanent 10px capitals: four facts that are true nearly all of the time, on the
-         one screen whose whole job is to invite a question. Invariant 8 — connection and
-         service health is CONTEXTUAL; it belongs in the primary flow only when it affects
-         what the owner is trying to do, and a fault still says so there (#conn, and the
-         notification band above the wordmark). This is where the owner comes to ASK. -->
-    <div class="services" id="services" aria-label="Service status">
-      <span class="service" id="svc-shopify" data-ok="unknown"><span>Shopify</span><span class="service-dot" aria-hidden="true"></span></span>
-      <span class="service" id="svc-gmail" data-ok="unknown"><span>Gmail</span><span class="service-dot" aria-hidden="true"></span></span>
-      <span class="service" id="svc-voice" data-ok="unknown"><span>Voice</span><span class="service-dot" aria-hidden="true"></span></span>
-      <span class="service" id="svc-changes" data-ok="unknown"><span>Changes</span><span class="service-dot" aria-hidden="true"></span></span>
-    </div>
-    <label class="check"><input type="checkbox" id="timing-toggle"> Show timings</label>
-    <div id="health-detail" class="health" role="list"></div>
+    <section id="set-reach" class="set-section" aria-label="Who and what CLIVE can reach" hidden>
+      <h3>Who and what CLIVE can reach</h3>
+      <div id="reach" class="set-list" role="list"></div>
+    </section>
 
-    <h3>Conversation</h3>
-    <div class="row-btns">
-      <button id="reset-session" class="btn" type="button">New conversation</button>
-    </div>
+    <section id="set-needs" class="set-section" aria-label="What CLIVE needs from you" hidden>
+      <h3>What CLIVE needs from you</h3>
+      <div id="needs" class="set-list" role="list"></div>
+    </section>
+
+    <section id="set-conversation" class="set-section" aria-label="Conversation">
+      <h3>Conversation</h3>
+      <div class="row-btns">
+        <button id="reset-session" class="btn" type="button">New conversation</button>
+      </div>
+    </section>
+
+    <label class="check dev-switch"><input type="checkbox" id="dev-toggle"> Developer view</label>
 
     <section id="dev" class="dev" hidden>
-      <h3>Developer · fixtures are not live data</h3>
-      <p class="note">Renders sample components with made-up data, marked as fixtures. Open the page with <span style="font-family:var(--mono)">?dev=1</span> to show this section, <span style="font-family:var(--mono)">?dev=0</span> to hide it.</p>
+      <h3>Diagnostics</h3>
+      <!-- The four services, at a glance. They used to sit in the idle footer, under the orb,
+           in permanent 10px capitals. Invariant 8 — connection and service health is
+           CONTEXTUAL; the owner's own sheet says it in words (Who and what CLIVE can reach),
+           and these dots are for whoever is diagnosing. -->
+      <div class="services" id="services" aria-label="Service status">
+        <span class="service" id="svc-shopify" data-ok="unknown"><span>Shopify</span><span class="service-dot" aria-hidden="true"></span></span>
+        <span class="service" id="svc-gmail" data-ok="unknown"><span>Gmail</span><span class="service-dot" aria-hidden="true"></span></span>
+        <span class="service" id="svc-voice" data-ok="unknown"><span>Voice</span><span class="service-dot" aria-hidden="true"></span></span>
+        <span class="service" id="svc-changes" data-ok="unknown"><span>Changes</span><span class="service-dot" aria-hidden="true"></span></span>
+      </div>
+      <label class="check"><input type="checkbox" id="stream-toggle" checked> Start speaking before the whole answer has arrived</label>
+      <label class="check"><input type="checkbox" id="timing-toggle"> Show timings</label>
+      <label class="field"><span>Fallback voice</span><select id="voice-select"></select></label>
+      <p id="voice-note" class="note"></p>
+      <div id="health-detail" class="health" role="list"></div>
+      <h3>Every capability</h3>
+      <div id="families" class="health" role="list"></div>
+
+      <h3>Fixtures · not live data</h3>
+      <p class="note">Renders sample components with made-up data, marked as fixtures. <span style="font-family:var(--mono)">?dev=1</span> turns this view on, <span style="font-family:var(--mono)">?dev=0</span> turns it off.</p>
       <div id="dev-grid" class="dev-grid"></div>
       <label class="field" style="margin-top:14px"><span>Ask by typing</span><input id="dev-text" type="text" autocomplete="off" placeholder="Show me order 1930"></label>
     </section>

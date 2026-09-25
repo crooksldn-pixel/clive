@@ -72,7 +72,9 @@ const el = {
   voiceSelect: $('voice-select'), voiceNote: $('voice-note'), preview: $('preview-voice'),
   micTest: $('mic-test'), speakToggle: $('speak-toggle'), streamToggle: $('stream-toggle'), timingToggle: $('timing-toggle'),
   health: $('health-detail'), families: $('families'), resetSession: $('reset-session'),
-  dev: $('dev'), devGrid: $('dev-grid'), devText: $('dev-text'),
+  setCanDo: $('set-can-do'), canDo: $('can-do'), setReach: $('set-reach'), reach: $('reach'),
+  setNeeds: $('set-needs'), needs: $('needs'),
+  dev: $('dev'), devToggle: $('dev-toggle'), devGrid: $('dev-grid'), devText: $('dev-text'),
 };
 
 const store = {
@@ -80,8 +82,9 @@ const store = {
   set(key, value) { try { localStorage.setItem(key, value); } catch { /* private mode */ } },
 };
 
-// The developer gate. ?dev=1 turns fixtures on for this browser, ?dev=0 turns them off; the
-// choice persists so the URL can be plain afterwards. Nothing else reads this flag.
+// The developer gate: where the Developer view switch at the bottom of the sheet starts. Off
+// unless it was turned on in this browser — by the switch, or by ?dev=1 (?dev=0 turns it off);
+// the choice persists so the URL can be plain afterwards. Nothing else reads this flag.
 const DEV = (() => {
   try {
     const params = new URLSearchParams(location.search);
@@ -341,11 +344,6 @@ function detailWords(detail, state) {
   const waited = turnStartedAt ? Date.now() - turnStartedAt : 0;
   if (state === 'THINKING' && waited > LONG_THINK_MS) return `Still working · ${Math.round(waited / 1000)} s`;
   return undefined;
-}
-
-function setConn(state, text) {
-  el.conn.dataset.state = state;
-  el.connText.textContent = text;
 }
 
 function setMode(mode) {
@@ -758,7 +756,8 @@ function playAudio(blob, text, generation, isError, startAt = 0) {
 // The badge names the thing that is down, in the owner's words, worst first.
 function faultLabel(checks) {
   const down = (k) => checks[k] && checks[k].ok === false;
-  if (down('claude')) return 'Claude offline';
+  // The owner's word for what is down, not the provider's name (GENERATIVE_UI_V1 §4).
+  if (down('claude')) return 'CLIVE cannot answer';
   /* Was "Cannot hear you", and the visual pass was right about it: on the most prominent
      band of the page, in amber, beside an amber diamond, that reads as the assistant
      refusing to listen rather than as a service being down. §27's question is whether an
@@ -835,8 +834,10 @@ async function pollHealth(fresh = false) {
     applyUpdateWhenIdle();
     const checks = data.checks || {};
     const failed = Object.entries(checks).filter(([, c]) => !c.ok).map(([k]) => k);
+    // Whether the header says anything about it is decided against what the owner is doing
+    // (drawConn): the checks travel with the state for that.
     if (!failed.length) setConn('ok', 'Online');
-    else setConn('degraded', faultLabel(checks));
+    else setConn('degraded', faultLabel(checks), checks);
     maybeReloadForNewBuild(data.build);
     setService('shopify', checks.shopify ? checks.shopify.ok : null);
     setService('gmail', checks.gmail ? checks.gmail.ok : null);
@@ -849,12 +850,11 @@ async function pollHealth(fresh = false) {
     setService('changes', writesState === 'ready' ? true : writesState === 'disabled' ? 'off' : writesState ? false : null);
     renderHealthRows(checks);
     renderFamilies(data.families);
+    drawOwnerSettings(data);
     const voice = data.voice || {};
     if (voice.voice) {
-      el.voiceName.textContent = voice.enabled
-        ? `${voice.voice} · ElevenLabs ${voice.model || ''}`.trim() + ' · generated on the Mac'
-        : 'ElevenLabs voice switched off · the fallback voice below is in use';
-      el.preview.textContent = voice.enabled ? `Preview ${voice.voice}` : 'Preview fallback voice';
+      el.voiceName.textContent = voice.enabled ? voice.voice : "This device's own voice";
+      el.preview.textContent = voice.enabled ? `Preview ${voice.voice}` : 'Preview voice';
     }
     el.voiceStatus.textContent = voice.ok === false ? 'Unavailable' : voice.enabled === false ? 'Off' : 'Ready';
     el.voiceStatus.className = `badge quiet ${voice.ok === false ? 'bad' : voice.enabled === false ? 'warn' : 'ok'}`;
@@ -862,8 +862,11 @@ async function pollHealth(fresh = false) {
     setConn('down', 'Offline');
     setService('shopify', null); setService('gmail', null); setService('voice', null); setService('changes', null);
     clear(el.health);
-    el.health.appendChild(healthRow(false, 'the Mac', 'Cannot reach the assistant. Is the Mac awake and is it running (make up)?'));
-    if (el.families) { clear(el.families); el.families.appendChild(familyRow({ label: 'Everything', state: 'TEMPORARILY_UNAVAILABLE', detail: 'the Mac cannot be reached' })); }
+    el.health.appendChild(healthRow(false, 'CLIVE', 'CLIVE cannot be reached just now.'));
+    if (el.families) { clear(el.families); el.families.appendChild(familyRow({ label: 'Everything', state: 'TEMPORARILY_UNAVAILABLE', detail: 'CLIVE cannot be reached' })); }
+    // Nothing is known about the services while CLIVE cannot be reached, so the owner's
+    // sections that are drawn from them are left out rather than kept from the last answer.
+    drawOwnerSettings(null);
     el.voiceStatus.textContent = 'Unknown';
     el.voiceStatus.className = 'badge quiet';
     wentOffline();
@@ -927,7 +930,7 @@ function renderFamilies(families) {
     .filter((f) => !f.hide && f.key !== '_error')
     .sort((a, b) => (a.state === 'READY') - (b.state === 'READY') || String(a.area).localeCompare(String(b.area)) || String(a.label).localeCompare(String(b.label)));
   if (!rows.length) {
-    el.families.appendChild(familyRow({ label: 'Capabilities', state: 'TEMPORARILY_UNAVAILABLE', detail: 'the Mac did not list them this time' }));
+    el.families.appendChild(familyRow({ label: 'Capabilities', state: 'TEMPORARILY_UNAVAILABLE', detail: 'CLIVE did not list them this time' }));
     return;
   }
   for (const family of rows) el.families.appendChild(familyRow(family));
@@ -941,6 +944,163 @@ function renderHealthRows(checks) {
     if (!c) continue;
     el.health.appendChild(healthRow(c.ok, HEALTH_NAMES[key] || key, c.detail));
   }
+}
+
+/* ----------------------------------------------------- the owner's settings */
+
+// GENERATIVE_UI_V1 §4: the sheet is the owner's. What CLIVE can do for you, who and what it can
+// reach, and what it needs from you — in plain words, drawn from the /health answer the page
+// already polls, and never naming the machine CLIVE runs on. The backend's own detail strings
+// are engineering text, so they stay in the Developer view; these rows use the words the Mac
+// already writes for a person (`what`, `reason`) or say it plainly here. A section with nothing
+// true to say is left out, never filled with a placeholder.
+
+// "voice is paused because …" → "Voice is paused because ….": the backend's plain reasons are
+// clauses, and the sheet prints sentences.
+function plainSentence(words) {
+  const said = String(words || '').trim();
+  if (!said) return '';
+  const first = said.charAt(0).toUpperCase() + said.slice(1);
+  return /[.!?]$/.test(first) ? first : `${first}.`;
+}
+
+// The actions CLIVE may prepare: every family that stages a change and is ready to. Each one
+// is a proposal the owner taps to apply, which the section's own line says once.
+function canDoRows(families) {
+  return Object.keys(families || {}).map((key) => ({ key, ...(families[key] || {}) }))
+    .filter((f) => f.key !== '_error' && !f.hide && f.state === 'READY' && Array.isArray(f.operations) && f.operations.length)
+    .sort((a, b) => String(a.area).localeCompare(String(b.area)) || String(a.label).localeCompare(String(b.label)))
+    .map((f) => ({ name: String(f.label || f.key), detail: plainSentence(f.what) }));
+}
+
+// Each connected service, as connected or as needing attention with the plain reason and what
+// happens next. Only the services /health reports: a check it did not run is not a row.
+function reachRows(data) {
+  const checks = (data && data.checks) || {};
+  const voice = (data && data.voice) || {};
+  const speech = (data && data.speech) || {};
+  const rows = [];
+  const connected = (name) => ({ name, state: 'ok', word: 'Connected' });
+  const attention = (name, detail) => ({ name, state: 'attention', word: 'Needs attention', detail });
+  if (checks.shopify) {
+    rows.push(checks.shopify.ok ? connected('Shopify')
+      : attention('Shopify', 'CLIVE could not reach your shop just now. It tries again by itself.'));
+  }
+  if (checks.gmail) {
+    rows.push(checks.gmail.ok ? connected('Gmail')
+      : attention('Gmail', 'CLIVE could not reach your inbox just now. It tries again by itself.'));
+  }
+  if (checks.tts || (data && data.voice)) {
+    if (voice.enabled === false) {
+      rows.push({ name: 'Voice', state: 'off', word: 'Off', detail: "Answers are spoken in this device's own voice." });
+    } else if (voice.ok === false || (checks.tts && checks.tts.ok === false)) {
+      rows.push(attention('Voice', `${plainSentence(voice.reason) || "CLIVE's voice is not answering."} Until then, answers are spoken in this device's own voice.`));
+    } else {
+      rows.push(connected('Voice'));
+    }
+  }
+  if (checks.speech) {
+    rows.push(checks.speech.ok ? connected('Transcription')
+      : attention('Transcription', plainSentence(speech.scribe_reason) || 'CLIVE cannot hear you just now.'));
+  }
+  return rows;
+}
+
+// Only the open steps /health already names as the owner's: a permission a change is waiting
+// for, a service that is not connected, and credits that have run out.
+function needsRows(data) {
+  const families = (data && data.families) || {};
+  const voice = (data && data.voice) || {};
+  const speech = (data && data.speech) || {};
+  const rows = [];
+  for (const key of Object.keys(families).sort()) {
+    const f = families[key] || {};
+    if (key === '_error' || f.hide) continue;
+    const what = plainSentence(f.what);
+    if (f.state === 'MISSING_SCOPE') {
+      const grant = f.scope ? `Grant the “${f.scope}” permission to turn it on.` : 'Grant the permission it needs to turn it on.';
+      rows.push({ name: String(f.label || key), state: 'attention', word: 'Needs your permission', detail: what ? `${what} ${grant}` : grant });
+    } else if (f.state === 'DISCONNECTED') {
+      const connect = 'It turns on once it is connected.';
+      rows.push({ name: String(f.label || key), state: 'attention', word: 'Not connected', detail: what ? `${what} ${connect}` : connect });
+    }
+  }
+  if (voice.failure_kind === 'credit' || speech.scribe_failure_kind === 'credit') {
+    rows.push({
+      name: 'ElevenLabs plan', state: 'attention', word: 'Top up',
+      detail: plainSentence(voice.failure_kind === 'credit' ? voice.reason : speech.scribe_reason),
+    });
+  }
+  return rows;
+}
+
+function ownerRow(row) {
+  const node = document.createElement('div');
+  node.className = 'orow';
+  node.setAttribute('role', 'listitem');
+  node.dataset.state = row.state || 'ok';
+  const name = document.createElement('span'); name.className = 'oname'; name.textContent = row.name;
+  node.appendChild(name);
+  if (row.word) { const word = document.createElement('span'); word.className = 'ostate'; word.textContent = row.word; node.appendChild(word); }
+  if (row.detail) { const line = document.createElement('span'); line.className = 'odetail'; line.textContent = row.detail; node.appendChild(line); }
+  return node;
+}
+
+function fillSection(section, list, rows) {
+  if (!section || !list) return;
+  clear(list);
+  for (const row of rows) list.appendChild(ownerRow(row));
+  section.hidden = !rows.length;
+}
+
+// `null` when nothing is known — CLIVE cannot be reached — and every section drawn from /health
+// is left out rather than kept from the last answer.
+function drawOwnerSettings(data) {
+  fillSection(el.setCanDo, el.canDo, data ? canDoRows(data.families) : []);
+  fillSection(el.setReach, el.reach, data ? reachRows(data) : []);
+  fillSection(el.setNeeds, el.needs, data ? needsRows(data) : []);
+}
+
+// The header says something only while something is wrong AND it matters to what the owner is
+// doing (invariant 8, GENERATIVE_UI_V1 §4). Offline always matters, and so do CLIVE being
+// unable to answer or to hear. A service matters while the screen is reading from it — the shop
+// behind Orders, Sales and Products, the inbox behind Inbox. The voice falls back by itself and
+// a missing offline recogniser changes nothing the owner does, so neither is ever the header's.
+// When all is well the header shows nothing at all.
+const FAULT_REACH = { claude: '*', speech: '*', shopify: ['orders', 'sales', 'products'], gmail: ['email'] };
+function relevantFaults(checks, area) {
+  const out = {};
+  for (const key of Object.keys(checks || {})) {
+    const check = checks[key];
+    const where = FAULT_REACH[key];
+    if (!check || check.ok !== false || !where) continue;
+    if (where === '*' || where.indexOf(area) !== -1) out[key] = check;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+let connState = 'connecting';
+let connText = 'Connecting';
+let connChecks = null;
+function setConn(state, text, checks) {
+  connState = state;
+  connText = text;
+  connChecks = checks || null;
+  drawConn();
+}
+// Drawn again whenever the area on screen changes (lightDock), because a fault that did not
+// matter on the orb screen matters the moment the owner opens the place it breaks.
+function drawConn() {
+  let state = connState;
+  let text = connText;
+  if (state === 'degraded') {
+    const faults = relevantFaults(connChecks, el.body.dataset.area || '');
+    if (faults) text = faultLabel(faults);
+    else state = 'ok';
+  }
+  el.conn.dataset.state = state;
+  el.connText.textContent = text;
+  el.conn.hidden = state !== 'down' && state !== 'degraded';
 }
 
 pollHealth();
@@ -1465,6 +1625,8 @@ function lightDock(nodes) {
     btn.setAttribute('aria-pressed', btn.dataset.area === area ? 'true' : 'false');
   }
   el.body.dataset.area = area;
+  // A service fault is the header's only while the owner is in the place it breaks.
+  drawConn();
 }
 
 // `opts.keep` draws nothing: the nodes for this entry are already the deck's children,
@@ -1506,17 +1668,24 @@ function showHistory(index, opts) {
 // says it belongs to. Back is the TRAIL (`can_back`); Previous and Next are the open LIST
 // (`workflow`), and the two of them appear and disappear together.
 //
-// Every chip keeps its slot for the whole walk and greys out at the ends rather than
-// vanishing. Back used to be `hidden` at the start of a list, so the FIRST Next tap made it
+// None of the three is a permanent strip (GENERATIVE_UI_V1 §4). They appear only while the
+// owner is INSIDE something: a list (Previous and Next, and Back beside them) or a drill-down
+// (Back, because there is somewhere to go back to). On a landing with neither, the row carries
+// none of them.
+//
+// Inside a list, every chip keeps its slot for the whole walk and greys out at the ends rather
+// than vanishing. Back used to be `hidden` at the start of a list, so the FIRST Next tap made it
 // appear — and Next slid 68px (9.1mm) to the right, out from under the thumb that had just
 // pressed it, onto the spot the 60px Back chip now occupied. Driven with real taps at one
 // fixed point, tap one advanced the list and tap two at the identical point hit BACK. Walking
 // a queue one-handed is a repeated press in one place; the control under that place must not
-// change identity between presses.
+// change identity between presses — which is why Back is shown, greyed, for the whole of a
+// list even where the trail has nowhere to go.
 function drawWalkChips(index) {
   const workflow = branchState && branchState.workflow;
-  el.backBtn.hidden = false;
-  el.backBtn.disabled = !canGoBack(index);
+  const back = canGoBack(index);
+  el.backBtn.hidden = !back && !workflow;
+  el.backBtn.disabled = !back;
   if (el.prevBtn) {
     el.prevBtn.hidden = !workflow;
     el.prevBtn.disabled = Boolean(workflow && workflow.at_start);
@@ -3209,14 +3378,14 @@ async function submit(body, isAudio) {
       settleGlass('turn_failed');
       if (!stillHere()) { decks.delete(askedBranch); notify('The other half hit a problem.', { tone: 'bad', code: 'half_failed', branch: askedBranch }); return; }
       lastWasError = true;
-      lastErrorTitle = response.status === 403 ? 'Not allowed' : 'The Mac hit a problem';
+      lastErrorTitle = response.status === 403 ? 'Not allowed' : 'CLIVE hit a problem';
       el.errline.textContent = response.status === 403
-        ? "The Mac refused this tablet: its login is not on the allowed list (CROOKS_ALLOWED_LOGINS)."
-        : `The assistant on the Mac answered with an error (${response.status}). Try again.`;
+        ? "CLIVE refused this device: its login is not on the allowed list (CROOKS_ALLOWED_LOGINS)."
+        : `CLIVE answered with an error (${response.status}). Try again.`;
       setState('ERROR', lastErrorTitle);
       haptic(HAPTIC.error);
       // A voice-first device says its errors: the owner is looking at their hands.
-      speakAnswer(response.status === 403 ? 'This tablet is not allowed to ask.' : 'The Mac hit a problem. Ask again.', { isError: true });
+      speakAnswer(response.status === 403 ? 'This device is not allowed to ask.' : 'Something went wrong. Ask again.', { isError: true });
       return;
     }
     const data = await response.json();
@@ -3278,15 +3447,15 @@ async function submit(body, isAudio) {
     settleGlass(controller.signal.aborted ? 'timed_out' : 'unreachable');
     if (!stillHere()) { decks.delete(askedBranch); notify('The other half hit a problem.', { tone: 'bad', code: 'half_failed', branch: askedBranch }); return; }
     lastWasError = true;
-    lastErrorTitle = controller.signal.aborted ? 'The Mac took too long' : 'The Mac did not answer';
+    lastErrorTitle = controller.signal.aborted ? 'That took too long' : 'CLIVE did not answer';
     el.errline.textContent = controller.signal.aborted
       ? 'That question was abandoned after two minutes. Ask again.'
-      : 'Is the Mac awake, and is the assistant running on it? (make up)';
+      : 'CLIVE cannot be reached just now. It keeps checking by itself; ask again in a moment.';
     setState('ERROR', lastErrorTitle);
     setConn('down', 'Offline');
     haptic(HAPTIC.error);
     // The Mac did not answer, so this goes to the Android voice by way of a failed /speak.
-    speakAnswer(controller.signal.aborted ? 'That took too long. Ask again.' : 'I cannot reach the Mac.', { isError: true });
+    speakAnswer(controller.signal.aborted ? 'That took too long. Ask again.' : 'I cannot connect just now.', { isError: true });
     if (!controller.signal.aborted) setTimeout(checkReachable, 0);   // after `finally` clears busy
   } finally {
     clearTimeout(timeout);
@@ -3811,12 +3980,28 @@ el.micTest.addEventListener('click', async () => {
 
 /* ------------------------------------------------------------- developer */
 
-if (DEV) {
-  el.dev.hidden = false;
+// Diagnostics and fixtures live behind one clearly labelled switch at the bottom of the sheet,
+// "Developer view", off unless it was turned on (GENERATIVE_UI_V1 §4). Turning it on shows the
+// developer section and, the first time, loads the fixtures; turning it off hides both again
+// and stops the timings line, so nothing of it is left on the owner's screen.
+let devBanner = null;
+function setDeveloperView(on) {
+  el.devToggle.checked = on;
+  el.dev.hidden = !on;
+  store.set('crooks.dev', on ? '1' : '0');
+  if (on) loadDeveloperTools();
+  if (devBanner) devBanner.hidden = !on;
+  if (!on) { el.timingToggle.checked = false; el.timings.hidden = true; }
+}
+el.devToggle.addEventListener('change', () => setDeveloperView(el.devToggle.checked));
+
+function loadDeveloperTools() {
+  if (devBanner) return;
   const banner = document.createElement('div');
   banner.className = 'dev-banner';
-  banner.textContent = 'Developer mode · fixtures are not live data';
+  banner.textContent = 'Developer view · fixtures are not live data';
   document.body.appendChild(banner);
+  devBanner = banner;
   const script = document.createElement('script');
   script.src = '/static/fixtures.js';
   script.onload = () => {
@@ -3853,6 +4038,7 @@ if (DEV) {
     submit({ text, session_id: sessionId, turns, speak: el.speakToggle.checked }, false);
   });
 }
+setDeveloperView(DEV);
 
 /* ------------------------------------------------------------- system layer */
 

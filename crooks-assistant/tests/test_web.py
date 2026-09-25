@@ -95,14 +95,17 @@ def test_the_frontend_never_chooses_a_component_from_the_prose():
 
 
 def test_fixtures_are_behind_the_developer_gate():
-    """index.html never loads fixtures.js; app.js injects it only when the gate is on, and
-    everything it renders is marked as a fixture."""
+    """index.html never loads fixtures.js; app.js injects it only when the Developer view
+    switch is turned on (off by default), and everything it renders is marked as a fixture."""
     assert "fixtures.js" not in INDEX
-    dev = section(APP_JS, "if (DEV) {")
+    dev = function_body(APP_JS, "function loadDeveloperTools()")
     assert "script.src = '/static/fixtures.js'" in dev
-    assert "'/static/fixtures.js'" not in APP_JS[: APP_JS.index("if (DEV) {")]
+    assert "'/static/fixtures.js'" not in APP_JS[: APP_JS.index("function loadDeveloperTools()")]
     assert "{ fixture: true }" in dev
     assert "crooks.dev" in APP_JS and "params.has('dev')" in APP_JS
+    assert "if (on) loadDeveloperTools();" in function_body(APP_JS, "function setDeveloperView(on)")
+    assert '<input type="checkbox" id="dev-toggle"> Developer view' in INDEX
+    assert '<section id="dev" class="dev" hidden>' in INDEX
     fixtures = (WEB / "fixtures.js").read_text(encoding="utf-8")
     assert "@example.com" in fixtures and not re.search(r"@(?!example\.com)[\w.-]+\.\w+", fixtures)
 
@@ -588,7 +591,7 @@ def test_the_settings_sheet_reports_every_capability_state_from_the_mac():
     assert "!f.hide" in listing, "a family the Mac says to hide would still be listed"
     assert "(a.state === 'READY') - (b.state === 'READY')" in listing, "the unavailable ones are the ones worth reading first"
     # Offline, the section says so rather than keeping the last good list on screen.
-    assert "the Mac cannot be reached" in function_body(APP_JS, "async function pollHealth(fresh = false)")
+    assert "CLIVE cannot be reached" in function_body(APP_JS, "async function pollHealth(fresh = false)")
 
 
 def test_one_delegate_owns_a_card_button_and_it_can_read_what_the_card_wrote():
