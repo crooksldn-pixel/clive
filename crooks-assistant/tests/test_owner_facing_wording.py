@@ -13,12 +13,15 @@ WHAT IT READS
   spoken lines and refusals, the health and capability text, the tool results and prompts the
   model answers from. Two kinds of literal are not words said TO the owner and are left alone:
   docstrings (bare string statements, read by whoever reads the code) and the pattern handed to
-  a `re` call, which recognises what the owner SAYS. A literal that is exactly one word of that
-  input vocabulary ("tablet", in the set of words that make a question about the screen) is
-  the same thing held in a set.
+  a `re` call, which recognises what the owner SAYS. Past those, a literal is let through only
+  where `NOT_SAID` declares it: that module, that top-level name, that exact text.
 
-  Web: every file the page is built from, with its comments taken out.
+  Web: every file the page is built from. Scripts and stylesheets are lexed, strings, template
+  literals and regular expressions included, so only a real comment is taken out and a `//` or
+  `/*` inside a string is read as what the page says. A page loses its `<!-- -->` comments and
+  nothing else.
 
+The match ignores case: "MAC", "Tablet" and "Make up" are the same words on the glass.
 Comments may keep their history; they are not read to anyone.
 """
 
@@ -31,8 +34,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 
-# The runtime, named. "Mac" is case-sensitive so the internal source tag "mac" is not a hit.
-RUNTIME_WORDS = re.compile(r"\bMac\b|\b[Tt]ablet\b|\blaunchd\b|\bmake up\b")
+# The runtime, named, in any case.
+RUNTIME_WORDS = re.compile(r"\bmac\b|\btablets?\b|\blaunchd\b|\bmake\s+up\b", re.I)
 
 PYTHON_SOURCES = (
     "app/fastpath",
@@ -57,14 +60,48 @@ PYTHON_SOURCES = (
 )
 WEB_SUFFIXES = (".js", ".html", ".css", ".webmanifest")
 
-# Words the owner may say, held one to a literal so a sentence can be recognised by them.
-VOCABULARY = frozenset({"tablet"})
+# Literals that are not words said to the owner, each let through only where it is declared:
+# (module, the top-level assignment or function that holds it, the literal exactly as written).
+# The same word anywhere else — another module, another name, another spelling — is read like
+# any sentence, and a declaration nothing matches any more fails the scan.
+NOT_SAID: frozenset[tuple[str, str, str]] = frozenset({
+    # Words the owner may SAY, held in the sets that recognise a question about the screen.
+    ("app/capabilities/ui_intent.py", "_SUBJECT_WORDS", "tablet"),
+    ("app/observability/ui_semantics.py", "UI_WORDS", "tablet"),
+    # "mac": the source tag, beside "shopify" and "gmail", for what this process answers from
+    # what it already holds. It keys budgets, freshness and the manifest's sources.
+    ("app/capabilities/manifest.py", "_FAMILY", "mac"),
+    ("app/capabilities/manifest.py", "_source_of", "mac"),
+    ("app/capabilities/manifest.py", "build", "mac"),
+    ("app/capabilities/surface.py", "build_surface", "mac"),
+    ("app/families/self_knowledge.py", "_surface", "mac"),
+    ("app/families/self_knowledge.py", "_screen_surface", "mac"),
+    ("app/routes/turn.py", "_performance", "mac"),
+})
 
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
+# After these words a `/` opens a regular expression; after any other word it divides.
+_REGEX_AFTER = frozenset({"return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
+                          "throw", "case", "do", "else", "yield", "await"})
 
-def _python_strings(source: str, filename: str) -> list[tuple[int, str]]:
-    """Every string literal in a module that could reach the owner, with its line."""
+
+def _name_of(node: ast.stmt) -> str:
+    """The name a top-level statement declares: a function's or class's, or what it assigns."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return node.name
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+    elif isinstance(node, ast.AnnAssign):
+        targets = [node.target]
+    else:
+        targets = []
+    return ",".join(t.id for t in targets if isinstance(t, ast.Name))
+
+
+def _literals(source: str, filename: str) -> list[tuple[int, str, str]]:
+    """Every string literal in a module that could reach the owner: (line, the top-level name
+    that holds it, the text)."""
     tree = ast.parse(source, filename=filename)
     skip: set[int] = set()
     for node in ast.walk(tree):
@@ -73,60 +110,144 @@ def _python_strings(source: str, filename: str) -> list[tuple[int, str]]:
         elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
               and isinstance(node.func.value, ast.Name) and node.func.value.id == "re" and node.args):
             skip.update(id(n) for n in ast.walk(node.args[0]))
-    return [(getattr(n, "lineno", 0), n.value) for n in ast.walk(tree)
-            if isinstance(n, ast.Constant) and isinstance(n.value, str)
-            and id(n) not in skip and n.value not in VOCABULARY]
+    return [(n.lineno, _name_of(top), n.value) for top in tree.body for n in ast.walk(top)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in skip]
 
 
-def _line_comment(text: str) -> int:
-    """Where a `//` comment starts on this line, or -1. A `//` after a colon is a URL."""
-    start = 0
-    while True:
-        at = text.find("//", start)
-        if at <= 0 or text[at - 1] != ":":
-            return at
-        start = at + 2
+def _python_strings(source: str, filename: str) -> list[tuple[int, str]]:
+    """The literals of a module that are read as words to the owner, with their lines."""
+    return [(line, text) for line, owner, text in _literals(source, filename)
+            if (filename, owner, text) not in NOT_SAID]
 
 
-def _without_comments(source: str) -> str:
-    """A script, stylesheet or page with its `//` and `/* */` comments removed, line for line.
+def _string_end(source: str, i: int) -> int:
+    """Past the closing quote of the '…' or "…" string that opens at `i`."""
+    quote, j = source[i], i + 1
+    while j < len(source) and source[j] != "\n":
+        if source[j] == "\\":
+            j += 2
+        elif source[j] == quote:
+            return j + 1
+        else:
+            j += 1
+    raise ValueError(f"a string opened at offset {i} does not close on its line")
 
-    It does not parse strings, so a `//` or `/*` inside one hides the rest of it: the scan can
-    only ever read LESS than the page says, never read a comment as something said."""
+
+def _template_end(source: str, i: int) -> tuple[int, bool]:
+    """From inside a template literal at `i`: past its closing backtick (False), or past the
+    `${` that opens its next hole (True)."""
+    j = i
+    while j < len(source):
+        if source[j] == "\\":
+            j += 2
+        elif source[j] == "`":
+            return j + 1, False
+        elif source.startswith("${", j):
+            return j + 2, True
+        else:
+            j += 1
+    raise ValueError(f"a template literal open at offset {i} never closes")
+
+
+def _regex_end(source: str, i: int) -> int:
+    """Past the flags of the regular-expression literal that opens at `i`."""
+    j, in_class = i + 1, False
+    while j < len(source) and source[j] != "\n":
+        c = source[j]
+        if c == "\\":
+            j += 2
+            continue
+        if c == "[":
+            in_class = True
+        elif c == "]":
+            in_class = False
+        elif c == "/" and not in_class:
+            j += 1
+            while j < len(source) and source[j].isalpha():
+                j += 1
+            return j
+        j += 1
+    raise ValueError(f"a regular expression opened at offset {i} does not close on its line")
+
+
+def _regex_may_start(prev: str) -> bool:
+    """Whether a `/` after this token opens a regular expression rather than dividing."""
+    if not prev or prev in _REGEX_AFTER:
+        return True
+    return not (prev[-1].isalnum() or prev[-1] in "_$)]}\"")
+
+
+def _without_comments(source: str, *, script: bool = True) -> str:
+    """A script (or, with `script=False`, a stylesheet) with its comments removed, line for line.
+
+    A lexer, not a pattern: it walks '…' and "…" strings, template literals and their `${…}`
+    holes, and regular-expression literals, so a `//` or `/*` inside any of them stays as what
+    the page says. Only a comment that begins in code is taken out, and it leaves its newlines
+    so a hit still names its line. Where it cannot follow the source — a string that does not
+    close, braces that do not balance — it raises rather than guess."""
     out: list[str] = []
-    in_block = False
-    for line in source.splitlines():
-        kept = ""
-        rest = line
-        while rest:
-            if in_block:
-                end = rest.find("*/")
-                if end < 0:
-                    break
-                rest = rest[end + 2:]
-                in_block = False
-                continue
-            block = rest.find("/*")
-            inline = _line_comment(rest)
-            if inline >= 0 and (block < 0 or inline < block):
-                kept += rest[:inline]
-                break
-            if block >= 0:
-                kept += rest[:block]
-                rest = rest[block + 2:]
-                in_block = True
-                continue
-            kept += rest
-            break
-        out.append(kept)
-    return "\n".join(out)
+    i, n = 0, len(source)
+    depth = 0                    # open braces in code
+    holes: list[int] = []        # the depth each open `${` returns to, innermost last
+    prev = ""                    # the last token in code: a word, or one character ('"' a literal)
+    while i < n:
+        c = source[i]
+        if source.startswith("/*", i):
+            end = source.find("*/", i + 2)
+            if end < 0:
+                raise ValueError(f"a comment opened at offset {i} never closes")
+            out.append("\n" * source.count("\n", i, end))
+            i = end + 2
+        elif script and source.startswith("//", i):
+            end = source.find("\n", i)
+            i = n if end < 0 else end
+        elif c in "'\"":
+            end = _string_end(source, i)
+            out.append(source[i:end])
+            i, prev = end, '"'
+        elif script and (c == "`" or (c == "}" and holes and holes[-1] == depth - 1)):
+            if c == "}":
+                depth = holes.pop()
+            end, hole = _template_end(source, i + 1)
+            out.append(source[i:end])
+            i = end
+            if hole:
+                holes.append(depth)
+                depth += 1
+            prev = "{" if hole else '"'
+        elif script and c == "/" and _regex_may_start(prev):
+            end = _regex_end(source, i)
+            out.append(source[i:end])
+            i, prev = end, '"'
+        elif c.isalnum() or c in "_$":
+            j = i + 1
+            while j < n and (source[j].isalnum() or source[j] in "_$"):
+                j += 1
+            out.append(source[i:j])
+            i, prev = j, source[i:j]
+        else:
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+            if not c.isspace():
+                prev = c
+            out.append(c)
+            i += 1
+    if script and (depth or holes):
+        raise ValueError("the braces do not balance: the lexer lost its place in this script")
+    return "".join(out)
 
 
 def _page_text(text: str, suffix: str) -> str:
     """What a web file can put in front of the owner: itself, less its comments."""
     if suffix == ".html":
-        text = _HTML_COMMENT.sub(lambda m: "\n" * m.group(0).count("\n"), text)
-    return _without_comments(text)
+        return _HTML_COMMENT.sub(lambda m: "\n" * m.group(0).count("\n"), text)
+    if suffix == ".js":
+        return _without_comments(text)
+    if suffix == ".css":
+        return _without_comments(text, script=False)
+    return text
 
 
 def _python_files() -> list[Path]:
@@ -150,7 +271,6 @@ import re
 
 # A comment about the tablet.
 PATTERN = re.compile(r"\\b(?:screen|tablet)\\b", re.I)
-WORDS = frozenset({"screen", "tablet"})
 
 
 def said():
@@ -159,6 +279,34 @@ def said():
 '''
     hits = [text for _, text in _python_strings(source, "probe.py") if RUNTIME_WORDS.search(text)]
     assert sorted(hits) == ["Is the Mac awake?", "run make up on the "], hits
+
+
+def test_the_python_scan_ignores_case_and_lets_through_only_what_is_declared():
+    """A declared word passes only in its own declaration. The same word as a label, a reply or
+    a set anywhere else is a hit, and so is every spelling of every runtime word."""
+    source = '''
+UI_WORDS = frozenset({"screen", "tablet"})
+OTHER_WORDS = frozenset({"screen", "tablet"})
+LABEL = "tablet"
+
+
+def said():
+    return "tablet", "TABLET", "Tablets", "the MAC", "mac", "Launchd", "LAUNCHD", "Make up", "MAKE  UP"
+'''
+    hits = [text for _, text in _python_strings(source, "app/observability/ui_semantics.py")
+            if RUNTIME_WORDS.search(text)]
+    assert sorted(hits) == sorted(["tablet", "tablet", "tablet", "TABLET", "Tablets", "the MAC", "mac",
+                                   "Launchd", "LAUNCHD", "Make up", "MAKE  UP"]), hits
+    tag = '''
+_FAMILY = {"batch_": ("mac", "bulk changes")}
+LINE = "mac"
+'''
+    assert [text for _, text in _python_strings(tag, "app/capabilities/manifest.py")
+            if RUNTIME_WORDS.search(text)] == ["mac"]
+    assert [text for _, text in _python_strings(tag, "app/tools/probe.py")
+            if RUNTIME_WORDS.search(text)] == ["mac", "mac"]
+    assert [text for _, text in _python_strings('WORDS = {"Tablet"}\n', "app/capabilities/ui_intent.py")
+            if RUNTIME_WORDS.search(text)] == ["Tablet"]
 
 
 def test_the_web_scan_reads_strings_and_not_comments():
@@ -173,22 +321,48 @@ def test_the_web_scan_reads_strings_and_not_comments():
     ])
     stripped = _without_comments(source)
     assert "https://example.com" in stripped
+    assert stripped.count("\n") == source.count("\n"), "a comment keeps its lines"
     assert [m.group(0) for m in RUNTIME_WORDS.finditer(stripped)] == ["Mac", "make up"], stripped
     page = _page_text("<p>Ready</p>\n<!-- the Mac\n     and the tablet -->\n<p>On the Mac</p>", ".html")
     assert page.count("\n") == 3, "a comment keeps its lines, so a hit names the right one"
     assert [m.group(0) for m in RUNTIME_WORDS.finditer(page)] == ["Mac"], page
 
 
+def test_the_web_scan_reads_a_comment_marker_inside_a_string_as_words():
+    """`//` and `/*` inside a string, a template or a regular expression open no comment, so
+    what follows them on the glass is still read."""
+    source = "\n".join([
+        "const a = 'see https://example.com // then the Mac';",
+        "const b = \"a /* the TABLET */ label\";",
+        "const c = 'half /* open', d = 'and the tablet';",
+        "const e = `run ${x} // make up`;",
+        "const f = `${fn({ k: '}' })} is the Tablet`;   // the Mac, a comment",
+        "const g = /[\"'/]/.test(y) ? 'LAUNCHD' : '';   /* the tablet, a comment */",
+        "const h = n / 2; const i = 'the mac' // after division: a comment about launchd",
+        "const j = `// the Mac, ${'/* the tablet'}`;",
+    ])
+    stripped = _without_comments(source)
+    assert stripped.count("\n") == source.count("\n")
+    assert [m.group(0) for m in RUNTIME_WORDS.finditer(stripped)] == [
+        "Mac", "TABLET", "tablet", "make up", "Tablet", "LAUNCHD", "mac", "Mac", "tablet"], stripped
+    css = _without_comments('a::after { content: "// the Mac /* on it"; } /* the tablet */', script=False)
+    assert [m.group(0) for m in RUNTIME_WORDS.finditer(css)] == ["Mac"], css
+
+
 def test_no_owner_facing_python_string_names_the_runtime_host():
     files = _python_files()
     assert len(files) >= 30, f"the scan found only {len(files)} modules; a scan of nothing passes"
     bad: list[str] = []
+    used: set[tuple[str, str, str]] = set()
     for path in files:
-        where = path.relative_to(ROOT)
-        for line, text in _python_strings(path.read_text(encoding="utf-8"), str(where)):
-            if RUNTIME_WORDS.search(text):
+        where = path.relative_to(ROOT).as_posix()
+        for line, owner, text in _literals(path.read_text(encoding="utf-8"), where):
+            if (where, owner, text) in NOT_SAID:
+                used.add((where, owner, text))
+            elif RUNTIME_WORDS.search(text):
                 bad.append(f"{where}:{line}: {text[:160]!r}")
     assert not bad, "owner-facing strings still name the runtime host:\n" + "\n".join(bad)
+    assert used == NOT_SAID, f"declared and no longer there, so remove them: {sorted(NOT_SAID - used)}"
 
 
 def test_no_web_string_names_the_runtime_host():
@@ -197,7 +371,12 @@ def test_no_web_string_names_the_runtime_host():
     assert {"app.js", "ui.js", "index.html"} <= names, f"the page's own files were not found: {sorted(names)}"
     bad: list[str] = []
     for path in files:
-        for number, line in enumerate(_page_text(path.read_text(encoding="utf-8"), path.suffix).splitlines(), 1):
+        where = f"web/{path.relative_to(WEB).as_posix()}"
+        try:
+            text = _page_text(path.read_text(encoding="utf-8"), path.suffix)
+        except ValueError as exc:
+            raise AssertionError(f"{where} could not be read: {exc}") from exc
+        for number, line in enumerate(text.splitlines(), 1):
             for match in RUNTIME_WORDS.finditer(line):
-                bad.append(f"web/{path.relative_to(WEB)}:{number}: {match.group(0)!r} in {line.strip()[:160]!r}")
+                bad.append(f"{where}:{number}: {match.group(0)!r} in {line.strip()[:160]!r}")
     assert not bad, "the page still names the runtime host:\n" + "\n".join(bad)
