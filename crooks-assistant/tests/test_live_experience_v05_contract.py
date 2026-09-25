@@ -292,9 +292,10 @@ def test_v05_moves_persistent_service_status_out_of_the_idle_surface() -> None:
         assert name not in footer, f"{name} is still on the idle surface"
         assert name in index, f"{name} was deleted rather than moved"
 
-    # In the settings sheet, under Diagnostics, and no longer hidden — the owner opened it.
+    # In the settings sheet, under Diagnostics — which sits in the Developer view, after the
+    # owner's own sections (GENERATIVE_UI_V1 §4).
     sheet = index[index.index('<dialog id="settings"'):]
-    diagnostics = sheet[sheet.index("<h3>Diagnostics</h3>"):sheet.index("<h3>Conversation</h3>")]
+    diagnostics = sheet[sheet.index("<h3>Diagnostics</h3>"):sheet.index("<h3>Every capability</h3>")]
     assert '<div class="services" id="services" aria-label="Service status">' in diagnostics
     assert "svc-shopify" in diagnostics and "svc-changes" in diagnostics
 
