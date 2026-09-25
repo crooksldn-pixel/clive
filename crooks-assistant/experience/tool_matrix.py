@@ -82,6 +82,7 @@ def load() -> None:
     import app.fastpath.library  # noqa: F401
     import app.tools.analytics_tools  # noqa: F401
     import app.tools.batch_tools  # noqa: F401
+    import app.tools.engineering_tools  # noqa: F401
     import app.tools.gmail_tools  # noqa: F401
     import app.tools.gmail_writes  # noqa: F401
     import app.tools.shopify_tools  # noqa: F401

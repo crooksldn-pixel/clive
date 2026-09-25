@@ -480,6 +480,7 @@ def build(settings: Settings | None = None) -> Runtime:
     from app.tools import (  # noqa: F401
         analytics_tools,
         batch_tools,
+        engineering_tools,
         gmail_tools,
         gmail_writes,
         mock,
@@ -523,6 +524,11 @@ def build(settings: Settings | None = None) -> Runtime:
     analytics_tools.bind_email(gmail_tools.threads_for, gmail_tools.replied, gmail_tools.reply_state,
                                own_address=gmail.address)
     gmail_tools.bind(gmail, customer_lookup=_make_customer_lookup(shopify))
+    # The engineering loop's inbox and status on GitHub. Its token is read from the secret
+    # store at each call, so a Mac without one builds the same and says it is not connected.
+    from app.engineering_bridge.github import EngineeringInbox
+
+    engineering_tools.bind(EngineeringInbox())
 
     kb = load(settings.kb_dir)
     provider = MaxAgentSDKProvider(

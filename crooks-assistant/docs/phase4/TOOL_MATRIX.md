@@ -11,7 +11,7 @@ unit tests pass but which nothing calls by name is reported as untested. Nothing
 runs a tool, and nothing here can reach a mutation: the audit is a read of registries
 and of source text, so it is safe against a shop it may not touch.
 
-53 tools — 30 reads, 18 writes, 5 bulk — and 50 intent families.
+55 tools — 31 reads, 19 writes, 5 bulk — and 50 intent families.
 
 ## Tools
 
@@ -27,6 +27,7 @@ and of source text, so it is safe against a shop it may not touch.
 | `commerce_query` | AMBER | yes | yes | yes | none needed | read | — | — | the read layer's cards | — | yes |
 | `commerce_summary` | GREEN | yes | yes | yes | read_orders, read_customers | read | — | — | — | — | — |
 | `email_query` | AMBER | yes | yes | yes | none needed | read | — | — | the read layer's cards | — | yes |
+| `engineering_status` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `gmail_compose_fill` | GREEN | yes | yes | yes | https://www.googleapis.com/auth/gmail.compose | read | — | — | presentation.py | gmail | — |
 | `gmail_compose_open` | GREEN | yes | yes | yes | https://www.googleapis.com/auth/gmail.compose | read | — | — | presentation.py | gmail | — |
 | `gmail_draft_new` | AMBER | yes | yes | yes | https://www.googleapis.com/auth/gmail.compose | write | prepared from a fresh read, held as gmail_draft_new, tap_commit | a predicate over the re-read, after settling | the change's own card | gmail | yes |
@@ -70,6 +71,7 @@ and of source text, so it is safe against a shop it may not touch.
 | `shopify_store_credit` | AMBER | yes | yes | yes | write_store_credit_account_transactions | read | — | — | a workspace | shopify | — |
 | `shopify_store_credit_add` | RED | yes | yes | yes | write_store_credit_account_transactions | write | prepared from a fresh read, held as store_credit_credit, tap_commit | a predicate over the re-read | the change's own card | shopify | yes |
 | `shopify_variant_search` | GREEN | yes | yes | yes | write_order_edits | read | — | — | presentation.py | shopify | yes |
+| `submit_engineering_request` | RED | yes | yes | yes | — | write | prepared from a fresh read, held as engineering_request_file, tap_commit | a predicate over the re-read | the change's own card | — | — |
 
 ### What cites each tool
 
@@ -85,6 +87,7 @@ and of source text, so it is safe against a shop it may not touch.
 | `commerce_query` | recipe:navigation_back, recipe:navigation_home, recipe:order_list_period, recipe:delayed_orders, recipe:needs_reply, recipe:landing_orders, recipe:landing_inbox, recipe:order_latest, recipe:unfulfilled_orders, recipe:international_waiting_orders, recipe:ui_area_workspace, family:analytics | test_analytics_present.py, test_analytics_tools.py, test_claims.py, test_council_fixes.py, test_flows.py, test_n_plus_one.py, test_navigation.py, test_query_engine_p3.py, test_read_budget.py, test_read_dedupe.py, test_recorder.py, test_registry.py, test_working_sets.py | back, landing_inbox, landing_orders, nav_branch_isolation, nav_click_path, nav_home_landing, needs_reply, next_previous, query_international_waiting, query_language.py, query_undelivered, spoken_latest, today_orders |
 | `commerce_summary` | recipe:returning_customers, recipe:returning_customers_before, recipe:orders_attention, recipe:order_list_summary, family:summary_surfaces | test_n_plus_one.py, test_registry.py, test_summaries.py | — |
 | `email_query` | recipe:navigation_back, recipe:navigation_home, recipe:needs_reply, recipe:landing_inbox, recipe:ui_area_workspace, family:email_reads | test_claims.py, test_council_fixes.py, test_flows.py, test_graph.py, test_n_plus_one.py, test_working_sets.py | back, landing_inbox, nav_branch_isolation, nav_click_path, nav_home_landing, needs_reply |
+| `engineering_status` | family:engineering | test_engineering_bridge.py, test_gate.py, test_registry.py | — |
 | `gmail_compose_fill` | family:email_compose | test_compose.py, test_gmail_tools.py, test_registry.py | — |
 | `gmail_compose_open` | family:email_compose | test_compose.py, test_gmail_tools.py, test_registry.py | — |
 | `gmail_draft_new` | command:a tapped control, family:email_compose | test_available.py, test_compose.py, test_control_audit.py, test_email_workspace.py, test_fixture_wiring.py, test_gmail_tools.py, test_gmail_writes.py | compose.py |
@@ -128,6 +131,7 @@ and of source text, so it is safe against a shop it may not touch.
 | `shopify_store_credit` | family:store_credit | test_registry.py | — |
 | `shopify_store_credit_add` | command:a tapped control, family:store_credit | test_registry.py | commerce.py |
 | `shopify_variant_search` | recipe:order_line, recipe:order_add_item, family:order_edit | test_order_edit.py, test_registry.py | order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker |
+| `submit_engineering_request` | family:engineering | test_engineering_bridge.py, test_gate.py, test_registry.py | — |
 
 ## Intent families
 
@@ -190,21 +194,21 @@ and of source text, so it is safe against a shop it may not touch.
 
 none
 
-**no golden scenario names it (33)**
+**no golden scenario names it (35)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_capabilities`, `commerce_summary`, `gmail_compose_fill`, `gmail_compose_open`, `gmail_find_in_email`, `gmail_send_new`, `gmail_send_reply`, `gmail_thread_archive`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `shopify_discount_open`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_list_orders`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_open`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `shopify_store_credit`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_compose_open`, `gmail_find_in_email`, `gmail_send_new`, `gmail_send_reply`, `gmail_thread_archive`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `shopify_discount_open`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_list_orders`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_open`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `shopify_store_credit`, `submit_engineering_request`
 
 **nothing but the model reaches it (5)**
 
 `batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`
 
-**no card is drawn from it (10)**
+**no card is drawn from it (11)**
 
-`commerce_capabilities`, `commerce_summary`, `gmail_find_in_email`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `shopify_abandoned_checkouts`, `shopify_discount_check`, `shopify_order_address`
+`commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_find_in_email`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `shopify_abandoned_checkouts`, `shopify_discount_check`, `shopify_order_address`
 
-**no named error card (15)**
+**no named error card (17)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `inventory_query`, `objective_list`, `objective_note`, `objective_open`, `objective_show`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `inventory_query`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `submit_engineering_request`
 
 **intent families with no scenario (20)**
 
