@@ -1,6 +1,8 @@
 # Customer Support Investigator V1
 
-Status: **TESTING** (built 2026-09-23 as task `support-investigator-v1`, revision 2, through the frozen repository-only lifecycle kernel; awaiting independent exact-SHA review and the owner's verification of the real cases).
+Status: **SHIPPED** as of 2026-09-25 (FEAT-058). Accepted at revision 5, `2dbb97bc`, on 2026-09-23 after review findings S-01, S-01R and S-01C were repaired; the revisions are in production `clive/trunk` `ce791d03` (deployed 2026-09-25) and on the phone through the mobile alpha. The runtime is the Linux server, not the owner's Mac. The owner's verification of the two real cases and a first live run on the server are not recorded here.
+
+Was: **TESTING** (built 2026-09-23 as task `support-investigator-v1`, revision 2, through the frozen repository-only lifecycle kernel; awaiting independent exact-SHA review and the owner's verification of the real cases).
 
 Owner objective (2026-09-23): given one customer enquiry about an existing order, CLIVE must understand what is asked, identify the correct customer and order where the evidence supports it, gather the order and conversation context, produce an internal "what happened" summary that separates verified facts from reasonable inference from the unknown, expose the evidence so the owner can check it, and draft a concise customer reply that requires the owner's explicit approval before anything external happens.
 

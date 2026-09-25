@@ -1,18 +1,62 @@
 # CROOKS OS — Roadmap
 
-**Last consolidated:** 2026-09-19  
+**Last consolidated:** 2026-09-25 (finish-first rule and approved next phase added; stale statuses corrected with their earlier wording kept). Previously consolidated 2026-09-19.  
 **Purpose:** keep sequencing explicit so ambitious ideas do not derail the current product.
 
 This roadmap is intentionally staged. “Later” ideas should not be used as an excuse to leave the current product unfinished.
 
-The final Sequencing rule and DEC-046 are authoritative for execution order. Engineering Orchestrator specification planning is active alongside N7; implementation waits until deployment, current-product quality and real-world evidence gates are satisfied.
+**Execution order as of 2026-09-25:** the section directly below (finish first, then the approved next phase) is authoritative. The final Sequencing rule and DEC-046 are kept as the 2026-09-19 history of how the order was reached; their safety gates still apply.
+
+Was, 2026-09-19: "The final Sequencing rule and DEC-046 are authoritative for execution order. Engineering Orchestrator specification planning is active alongside N7; implementation waits until deployment, current-product quality and real-world evidence gates are satisfied."
+
+---
+
+# NOW — 2026-09-25: finish first, then the approved next phase
+
+Production runs `clive/trunk` `ce791d03` (deployed 2026-09-25). The remote engineering loop builds everything, and work counts as finished only when it is in `clive/trunk` and the trunk passes full repository acceptance. See [CURRENT_TRUTH.md](./CURRENT_TRUTH.md).
+
+## F0. Finish what is already started
+**Status:** ACTIVE — owner rule, 2026-09-25
+
+Finish everything already started before starting anything new. The finish list is [PROJECT_AUDIT_2026-09-24.md](./PROJECT_AUDIT_2026-09-24.md) §7 plus what 2026-09-25 added ([NEXT_PHASE_2026-09-25.md](./NEXT_PHASE_2026-09-25.md) §1):
+
+- the trunk repair (red from PR #8 onwards; [EXTERNAL_REVIEW_2026-09-25.md](./EXTERNAL_REVIEW_2026-09-25.md) §1.1);
+- the approved loop update ([OWNER_DECISIONS_2026-09-25.md](./OWNER_DECISIONS_2026-09-25.md)), in force through an owner-gated re-pin;
+- deploy bundles, including the trunk work merged but not yet deployed: needs-reply routing, the microphone permission fix, the voice-credits wording and health, the remote-engineering journal-safe repair;
+- Generative UI V1 objectives 2 to 4 ([GENERATIVE_UI_V1.md](./GENERATIVE_UI_V1.md));
+- Build from CLIVE objective 2;
+- the product-memory consolidation;
+- the Mac loop;
+- moving engineering off the production host once clive-worker-01 has proven itself.
+
+## Approved next phase
+**Status:** APPROVED by the owner on 2026-09-25; starts when F0 is clear. Order is binding.
+
+### NP1. Eyes
+Real-browser screenshots (Playwright CLI from the source shelf) of every user-interface and theme candidate, at phone and desktop sizes, as evidence for review and for the owner.
+
+### NP2. Taste
+Taste Skill and Vercel's web design guidelines, frozen at pinned versions, loaded as skills for builders doing interface work and turned into automatic review checks.
+
+### NP3. The absorbing machine
+Source Assimilation V1 ([SOURCE_ASSIMILATION_V1.md](./SOURCE_ASSIMILATION_V1.md)): quarantine, inventory, compare with what CLIVE has, propose objectives, measure, prove or drop. Steps 1 and 2 are done semi-manually first so the machine is designed from real cases.
+
+### NP4. The rest of the shelf
+[SOURCE_SHELF.md](./SOURCE_SHELF.md), pulled in only when a real need appears. New keys, data leaving the host and spend stay owner-gated.
+
+The owner's image for this phase is agar.io: CLIVE grows by absorbing what it meets, and the game's own catch keeps it right: mass makes you slow. Absorb the useful part, not the whole repository; measure it; drop what does not earn its place.
+
+**After the next phase (CAPTURED, not scheduled):** the Shopify theme built by the loop (IDEA-060) is proposed as the first new project. The other directions captured on 2026-09-24 and 2026-09-25 are IDEA-061 to IDEA-089.
+
+**How the build system is judged (owner-agreed, IDEA-084):** hours from asking to seeing it on the phone, and minutes of the owner's attention per change. If the loop does not clearly beat asking a model directly on both, it is cut back to the one trunk, the tests and reviewed deploys.
 
 ---
 
 # NOW — make the current CROOKS product genuinely reliable
 
 ## N1. Complete the always-on Linux deployment
-**Status:** RUNNING / PARTIALLY VERIFIED — production state ratified at `1cf3a0f`; remaining Gmail/device verification open
+**Status:** SHIPPED — production runs `clive/trunk` `ce791d03`, deployed 2026-09-25 after GitHub acceptance and an independent exact-SHA review with zero findings; Gmail OAuth provisioned 2026-09-24. Still open: Samsung verification; the Derek voice is unavailable on the server (ElevenLabs credits exhausted). The Mac is no longer a production or rollback host (OWNER_DECISIONS_2026-09-25).  
+**Was (2026-09-19):** RUNNING / PARTIALLY VERIFIED — production state ratified at `1cf3a0f`; remaining Gmail/device verification open
 
 - Linux migration candidate `1cf3a0f` reviewed and owner-ratified in production (DEC-048)
 - provision remaining secrets safely — Gmail OAuth still outstanding; no new secret provisioning approved by DEC-048
@@ -29,7 +73,8 @@ The final Sequencing rule and DEC-046 are authoritative for execution order. Eng
 - later move service from temporary root execution to a dedicated `crooks` user
 
 ## N2. Install and harden the Claude inbox watcher
-**Status:** SHIPPED / HARDENING
+**Status:** RETIRED 2026-09-25 — the remote engineering loop does its job (OWNER_DECISIONS_2026-09-24, DEC-058). The list below is kept as history.  
+**Was:** SHIPPED / HARDENING
 
 - standalone bridge and builder clones
 - poll inbox blob SHA, not branch HEAD
@@ -48,7 +93,7 @@ The final Sequencing rule and DEC-046 are authoritative for execution order. Eng
 - normal GPT → Claude → outbox loop no longer requires the owner to relay messages
 
 ## N3. Perfect the current UI
-**Status:** PLANNED
+**Status:** BUILDING — as Generative UI V1 (approved 2026-09-24; objective 1 of 4 in the trunk, 2 to 4 on the F0 finish list). Was: PLANNED
 
 Primary focus after deployment.
 
@@ -66,7 +111,7 @@ Primary focus after deployment.
 - improve CROOKS Control from engineering utility to polished resizable app
 
 ## N4. Perfect response behaviour
-**Status:** PLANNED
+**Status:** PLANNED — first fix, needs-reply routing, is merged to the trunk and not yet deployed
 
 - concise by default
 - better entity/customer/order focus
@@ -104,7 +149,7 @@ Capture:
 - tool/action traces
 
 ## N6. Product-memory foundation
-**Status:** BUILDING / ACTIVE
+**Status:** BUILDING / ACTIVE — consolidated into `clive/trunk` on 2026-09-25 (the 2026-09-23 truth branch and the Opus 5.5 handoff merged with the 2026-09-24 and 2026-09-25 records)
 
 - PRODUCT_BRAIN
 - ROADMAP
@@ -121,7 +166,8 @@ All future meaningful ideas and architecture decisions should become durable ent
 Active context must remain curated: Git stores history; current truth and active decisions drive new releases.
 
 ## N7. Permanent Builder Environment
-**Status:** TESTING — published candidate requires corrections
+**Status:** ACCEPTED at `295e483` on 2026-09-19 (see CURRENT_TRUTH history); loop builders now work in the remote engineering loop's own isolated workspaces. The text below is kept as history.  
+**Was:** TESTING — published candidate requires corrections
 
 Candidate `9a27bc441adad1e98e8a9ca257d1883246ee7eec` is published on `claude/builder-environment-review`. Independent review reproduced failures in bootstrap, environment validation and shell quoting; clean reconstruction remains incomplete. See [BUILDER_ENVIRONMENT_REVIEW.md](./BUILDER_ENVIRONMENT_REVIEW.md).
 
@@ -205,7 +251,8 @@ Agents should escalate decisions that are fundamentally product/taste/strategy q
 The owner should not be used as a command courier.
 
 ## D7. Engineering Orchestrator V1
-**Status:** IMPLEMENTATION AUTHORISED — harness preparation active; current-product/device/quality gates still precede major V1 implementation
+**Status:** RUNNING as the remote engineering loop — the frozen lifecycle kernel, Objective Intake + Engineering Dispatcher V1 and Remote Engineering Control V1, on three machines with builders on `claude-opus-5-5`. The runtime GPT Director is not implemented (IDEA-065). `engineering-team-activation-v1` is superseded by the remote loop.  
+**Was:** IMPLEMENTATION AUTHORISED — harness preparation active; current-product/device/quality gates still precede major V1 implementation
 
 Detailed proposal: [ENGINEERING_ORCHESTRATOR_V1.md](./ENGINEERING_ORCHESTRATOR_V1.md). Record/review/recovery contracts and the proposed first trial are in [DEV_TEAM_V1_PILOT.md](./DEV_TEAM_V1_PILOT.md). The owner has explicitly authorised V1 implementation under the existing canonical specification and safety boundaries. DEC-046's preceding deployment/current-product gates remain binding; unresolved mechanism choices still require the reviews described by the specification.
 
@@ -278,8 +325,10 @@ Automate the memory procedures in DIRECTOR_PROTOCOL:
 
 This work may proceed in isolated repo-only branches while Orchestrator freeze convergence continues. It does not itself authorise production/runtime/connector changes.
 
+> **2026-09-25:** Live Experience V0.5 is in production as part of `clive/trunk` `ce791d03`. The Orchestrator freeze stream was parked and then retired (OWNER_DECISIONS_2026-09-24); new work goes through the remote loop and the trunk.
+
 ## Q1. Retire Split as user-facing interaction
-**Status:** BUILDING IN ISOLATED STREAM
+**Status:** V0.5 IN PRODUCTION (`ce791d03`); whether every user-facing Split entry point is gone is not recorded here. Was: BUILDING IN ISOLATED STREAM
 
 Replace manual halves with one CLIVE session and independently progressing jobs. Preserve useful concurrency internals during migration where they still have a unique responsibility.
 
@@ -673,7 +722,7 @@ Claude Code becomes an internal engineering worker.
 Termius becomes emergency/admin access only.
 
 ## Y3. Automatic GPT ↔ Claude loop
-**Status:** CAPTURED
+**Status:** SHIPPED as the remote engineering loop (Claude builders, exact-SHA GPT review, bounded repair; see D7). Was: CAPTURED
 
 - Claude completes
 - GPT reviews
@@ -735,6 +784,8 @@ Not:
 ---
 
 # Sequencing rule
+
+> **2026-09-25:** the numbered sequence below is history, superseded as the working order by "NOW — 2026-09-25: finish first, then the approved next phase" at the top of this file. Since it was written: production moved to `clive/trunk` `ce791d03` (2026-09-25); Gmail OAuth was provisioned (2026-09-24), closing step 3; the engineering organisation of step 10 exists as the remote engineering loop. Samsung verification (step 6) is still open. The rule in the next line and the safety gates still apply.
 
 Do not jump to Later/Someday because the concept is exciting.
 
