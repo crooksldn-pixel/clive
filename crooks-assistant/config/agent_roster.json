@@ -3,7 +3,12 @@
   "comment": [
     "The declared roster. Being listed here is NOT evidence that a worker exists.",
     "Every entry is probed against the live system on each read; an entry whose",
-    "probe finds nothing is reported OFFLINE, which is the point of the file."
+    "probe finds nothing is reported OFFLINE, which is the point of the file.",
+    "Optional `engineering_store`: the kernel's engineering/ directory (see product memory,",
+    "ENGINEERING_LIFECYCLE_PRODUCERS.md). When declared, the records decide a worker's status",
+    "and the probes only reconcile. Optional per-worker `principal_id` joins a worker to the",
+    "principal named in review dispatches; `probe.kind: records_only` declares a worker nothing",
+    "on this host can observe."
   ],
   "fresh_window_s": 900,
   "stale_window_s": 3600,

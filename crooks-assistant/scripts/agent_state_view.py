@@ -35,6 +35,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+# The script runs standalone (python scripts/agent_state_view.py) and is imported by
+# the app as scripts.agent_state_view; both must find the control-plane package.
+if str(Path(__file__).resolve().parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.orchestrator.lifecycle import LifecycleStore, lifecycle_view  # noqa: E402
+
 SCHEMA = "clive.agent_environment_view.v1"
 
 # The vocabulary the Agent Environment may render. There is deliberately no
@@ -48,6 +55,8 @@ BLOCKED = "BLOCKED"        # a deterministic blocker was recorded
 OWNER_GATE = "OWNER_GATE"  # progress needs an owner decision
 STALE = "STALE"            # a task is held open but nothing has moved in stale_window
 UNKNOWN = "UNKNOWN"        # the probe could not settle it; reason is always given
+ASSIGNED = "ASSIGNED"      # the kernel recorded an assignment the worker has not acknowledged
+COMPLETE = "COMPLETE"      # the kernel holds acceptance and verified integration records
 
 DEFAULT_ROSTER = Path(__file__).resolve().parent.parent / "config" / "agent_roster.json"
 SKIP_DIRS = {".git", "__pycache__", ".ruff_cache", ".pytest_cache", "node_modules", ".venv"}
@@ -351,15 +360,86 @@ def probe_systemd_bridge(cfg: dict, fresh_s: int, stale_s: int) -> Probe:
     return p
 
 
-PROBES = {"worktree_process": probe_worktree_process, "systemd_bridge": probe_systemd_bridge}
+def probe_records_only(cfg: dict, fresh_s: int, stale_s: int) -> Probe:
+    """A worker nothing on this host can observe (an external reviewer, say).
+
+    Only the kernel's records can place such a worker. With no open record it is
+    UNKNOWN: presence cannot be established, and absence cannot be either.
+    """
+    p = Probe()
+    p.status = UNKNOWN
+    p.reason = "no probe can observe this worker; only CLIVE lifecycle records can place it"
+    p.notes.append("probe=records_only")
+    return p
+
+
+PROBES = {
+    "worktree_process": probe_worktree_process,
+    "systemd_bridge": probe_systemd_bridge,
+    "records_only": probe_records_only,
+}
 
 
 # ------------------------------------------------------------------- assembly
 
 
+def load_lifecycle(store_root: str | None, *, now: float) -> tuple[dict | None, str | None]:
+    """What the kernel's records say, or why they could not be read. Never invented.
+
+    ``now`` is the one clock reading the whole view is built from, so a lease and a
+    file age are judged against the same instant.
+    """
+    if not store_root:
+        return None, None
+    root = Path(store_root)
+    if not root.is_dir():
+        return None, f"declared engineering store {root} does not exist"
+    try:
+        return lifecycle_view(LifecycleStore(root), now=datetime.fromtimestamp(now, UTC)), None
+    except Exception as exc:  # a corrupt store must not become an empty, healthy-looking campus
+        return None, f"engineering store unreadable: {type(exc).__name__}: {exc}"
+
+
+def _record_status(assignment: dict) -> tuple[str, str]:
+    """The worker status the kernel's records imply for its current assignment."""
+    stage, reason = assignment["stage"], assignment["stage_reason"]
+    if stage == "ASSIGNED":
+        return ASSIGNED, reason
+    if stage == "RUNNING":
+        lease = assignment.get("lease") or {}
+        return (BUILDING, reason) if lease.get("alive") else (STALE, reason)
+    if stage == "BLOCKED":
+        return BLOCKED, reason
+    if stage == "OWNER_GATE":
+        return OWNER_GATE, reason
+    if stage in {"EVIDENCE_READY", "REVIEWING", "REJECTED", "ACCEPTED"}:
+        return IDLE, reason  # holding a task, not working on it
+    return UNKNOWN, f"records place this worker in stage {stage}, which the projection cannot render"
+
+
+def _reconcile(p: Probe, cfg: dict, record_status: str) -> dict:
+    """Probe versus record. The record decides the status; the probe may only disagree aloud."""
+    notes: list[str] = []
+    if cfg.get("kind") == "records_only":
+        return {"consistent": True, "probe_status": None, "notes": ["no probe exists for this worker"]}
+    if p.status == UNKNOWN:
+        notes.append(f"probe could not observe the worker: {p.reason}")
+    elif p.status == OFFLINE and record_status in {ASSIGNED, BUILDING, REVIEWING}:
+        notes.append(f"record says {record_status} but the probe found no agent process: {p.reason}")
+    elif p.status in {BUILDING, REVIEWING} and record_status in {STALE, IDLE}:
+        notes.append(f"probe sees fresh writes while the record says {record_status}: {p.reason}")
+    return {"consistent": not notes, "probe_status": p.status, "notes": notes}
+
+
+def _task_label(task: dict) -> str:
+    return f"{task['task_id']} r{task['revision']}: {task['objective']}"
+
+
 def build_view(roster: dict) -> dict:
     fresh_s = int(roster.get("fresh_window_s", 900))
     stale_s = int(roster.get("stale_window_s", 3600))
+    now = time.time()
+    lifecycle, lifecycle_problem = load_lifecycle(roster.get("engineering_store"), now=now)
     records = []
     for worker in roster.get("workers", []):
         cfg = dict(worker.get("probe", {}))
@@ -372,45 +452,110 @@ def build_view(roster: dict) -> dict:
                 p = probe_fn(cfg, fresh_s, stale_s)
             except Exception as exc:  # a broken probe must not invent a healthy worker
                 p = Probe(status=UNKNOWN, reason=f"probe raised {type(exc).__name__}: {exc}")
+
+        worker_id = worker["worker_id"]
+        principal_id = worker.get("principal_id")
+        status, reason, source = p.status, p.reason, "probe"
+        current_task, last_heartbeat = p.current_task, p.last_heartbeat
+        task_ref: dict | None = None
+        review_state: str | None = None
+        reconciliation: dict | None = None
+
+        if lifecycle is not None:
+            assignment = lifecycle["assignments_by_worker"].get(worker_id)
+            reviewing = lifecycle["reviewing_by_principal"].get(principal_id or "")
+            completed = lifecycle["completed_by_worker"].get(worker_id)
+            if assignment is not None:
+                status, reason = _record_status(assignment)
+                task_ref, source = assignment, "records"
+                last_heartbeat = assignment.get("last_heartbeat")
+                review = assignment.get("review") or {}
+                if assignment["stage"] == "REVIEWING":
+                    review_state = f"under review by {review.get('dispatched_to')}"
+                elif assignment["stage"] == "REJECTED":
+                    review_state = "repair required"
+                elif assignment["stage"] == "ACCEPTED":
+                    review_state = "accepted"
+            elif reviewing is not None:
+                status = REVIEWING
+                reason = (
+                    f"review of {reviewing['candidate_sha'][:12]} dispatched to this principal "
+                    f"at {reviewing['review']['dispatched_at']}; no verdict admitted yet"
+                )
+                task_ref, source, review_state = reviewing, "records", "reviewing"
+                last_heartbeat = None
+            elif completed is not None:
+                integrated_at = datetime.strptime(
+                    completed["integration"]["at"], "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=UTC).timestamp()
+                if now - integrated_at <= stale_s:
+                    status, reason = COMPLETE, completed["stage_reason"]
+                    task_ref, source, review_state = completed, "records", "accepted and integrated"
+            if task_ref is not None:
+                current_task = _task_label(task_ref)
+                reconciliation = _reconcile(p, cfg, status)
+                if not reconciliation["consistent"]:
+                    reason = reason + " | reconciliation: " + "; ".join(reconciliation["notes"])
+                    source = "records+probe"
+
         records.append(
             {
-                "worker_id": worker["worker_id"],
-                "display_name": worker.get("display_name", worker["worker_id"]),
+                "worker_id": worker_id,
+                "display_name": worker.get("display_name", worker_id),
                 "role": worker.get("role", "unknown"),
-                "status": p.status,
-                "status_reason": p.reason,
-                "current_task": p.current_task,
+                "principal_id": principal_id,
+                "status": status,
+                "status_reason": reason,
+                "status_source": source,
+                "current_task": current_task,
+                "task_id": task_ref["task_id"] if task_ref else None,
+                "task_revision": task_ref["revision"] if task_ref else None,
+                "attempt_id": task_ref["attempt_id"] if task_ref else None,
+                "candidate_sha": task_ref["candidate_sha"] if task_ref else None,
+                "review_state": review_state,
+                "also_assigned": list(task_ref.get("also_assigned", [])) if task_ref else [],
                 "project": worker.get("project", "clive"),
                 "branch": p.branch,
                 "head_sha": p.head_sha,
-                "last_heartbeat": p.last_heartbeat,
+                "last_heartbeat": last_heartbeat,
                 "process_started_at": p.process_started_at,
                 "last_event": p.last_event,
                 "last_event_at": p.last_event_at,
-                "blocker": p.blocker,
-                "owner_gate": p.owner_gate,
+                "blocker": (task_ref.get("blocker") if task_ref else None) or p.blocker,
+                "owner_gate": bool(task_ref and task_ref.get("owner_gate")) or p.owner_gate,
+                "reconciliation": reconciliation,
                 "evidence": p.notes,
             }
         )
     working = {BUILDING, REVIEWING}
+    present = {IDLE, BUILDING, REVIEWING, BLOCKED, OWNER_GATE, STALE, COMPLETE}
     return {
         "schema": SCHEMA,
-        "generated_at": _iso(time.time()),
+        "generated_at": _iso(now),
         "generator": "scripts/agent_state_view.py",
         "host": os.uname().nodename,
         "fresh_window_s": fresh_s,
         "stale_window_s": stale_s,
         "workers": records,
+        "tasks": lifecycle["tasks"] if lifecycle else [],
+        "engineering": {
+            "store_root": roster.get("engineering_store"),
+            "problem": lifecycle_problem,
+            "task_count": len(lifecycle["tasks"]) if lifecycle else 0,
+        },
         "totals": {
             "declared": len(records),
             # Presence established. UNKNOWN means CLIVE could not establish
-            # presence, so it is counted under `unknown` and never as online.
-            "online": sum(1 for r in records if r["status"] not in (OFFLINE, UNKNOWN)),
+            # presence, and ASSIGNED means the worker has not yet acknowledged;
+            # neither is counted as online.
+            "online": sum(1 for r in records if r["status"] in present),
             "working": sum(1 for r in records if r["status"] in working),
+            "assigned": sum(1 for r in records if r["status"] == ASSIGNED),
             "idle": sum(1 for r in records if r["status"] == IDLE),
             "stale": sum(1 for r in records if r["status"] == STALE),
             "blocked": sum(1 for r in records if r["status"] == BLOCKED),
             "owner_gate": sum(1 for r in records if r["status"] == OWNER_GATE),
+            "complete": sum(1 for r in records if r["status"] == COMPLETE),
             "unknown": sum(1 for r in records if r["status"] == UNKNOWN),
         },
     }
@@ -430,9 +575,18 @@ def render(view: dict) -> str:
         lines.append("")
     t = view["totals"]
     lines.append(
-        f"  {t['declared']} declared · {t['working']} working · {t['idle']} idle · "
-        f"{t['stale']} stale · {t['blocked']} blocked · {t['unknown']} unknown"
+        f"  {t['declared']} declared · {t['assigned']} assigned · {t['working']} working · "
+        f"{t['idle']} idle · {t['stale']} stale · {t['blocked']} blocked · "
+        f"{t['complete']} complete · {t['unknown']} unknown"
     )
+    if view.get("tasks"):
+        lines.append("")
+        lines.append("Engineering tasks (from the kernel's records):")
+        for task in view["tasks"]:
+            lines.append(f"  {task['task_id']} r{task['revision']}  {task['stage']:<14} {task['stage_reason']}")
+    elif view.get("engineering", {}).get("problem"):
+        lines.append("")
+        lines.append(f"Engineering records: {view['engineering']['problem']}")
     return "\n".join(lines)
 
 

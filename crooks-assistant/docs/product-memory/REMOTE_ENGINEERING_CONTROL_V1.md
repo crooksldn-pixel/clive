@@ -1,0 +1,178 @@
+# Remote Engineering Control V1
+
+Status: design mandate for repository-only implementation. This does not authorise deployment, production changes, secrets access, business writes, permission changes, or owner-only decisions.
+
+## Objective
+
+Restore the no-courier operator experience:
+
+Owner -> GPT Director -> bounded remote engineering inbox -> existing deterministic dispatcher -> isolated Claude worker(s) -> independent GPT exact-SHA review -> accepted/integrated candidate.
+
+The owner must not have to paste routine test, repair, review, or worker-routing commands into a terminal.
+
+## Transport
+
+Use GitHub as a transport only, never as engineering lifecycle truth.
+
+A dedicated remote ref carries immutable request files. V1 default:
+
+`refs/remotes/origin/clive/control/owner-inbox`
+
+The adapter may fetch that ref from the configured existing repository remote. It must not accept arbitrary remote URLs.
+
+Requests are strict JSON records with a schema/version and immutable request id. They carry only fields needed to create repository-only engineering objectives: title, requested outcome, base ref/SHA, allowed paths, acceptance criteria, checks, target branch and repair limit.
+
+Do not encode credentials, deployment instructions, business actions, owner judgments, or shell strings with hidden authority.
+
+## Authority
+
+Remote ingress has exactly the same or less authority as existing CLI objective intake.
+
+- repository_only only;
+- reuse the existing Objective/Check validation and PROTECTED_PATHS rules;
+- default prohibited actions remain mandatory;
+- a request cannot resume BLOCKED/OWNER_GATE, alter reviewer principals, change dispatcher/kernel/runtime code, deploy, touch services, or change secrets;
+- remote origin is declared, not cryptographically owner-verified;
+- owner-only actions remain owner-only.
+
+No request-file wording may elevate authority.
+
+## Idempotence and replay safety
+
+- Immutable request id maps deterministically to one engineering objective id.
+- Reprocessing the same exact request is idempotent.
+- Same request id with different bytes is REFUSED.
+- Maintain durable receipt/provenance in the existing engineering store or a separate append-only runtime receipt that never becomes lifecycle truth.
+- Restart must not duplicate an objective, worker attempt, review, or integration.
+
+## Controller behaviour
+
+Provide a small repository-only adapter/CLI that can:
+
+1. fetch/read the dedicated inbox ref;
+2. discover unseen immutable request records;
+3. validate them;
+4. intake accepted requests through the existing Objective intake;
+5. advance the existing Dispatcher, not a second lifecycle engine;
+6. expose machine-readable status/results suitable for a GPT Director polling through GitHub;
+7. optionally run as a long-lived polling loop with bounded interval.
+
+It may import and call existing orchestrator components. It must not modify the frozen kernel or protected dispatcher surfaces.
+
+Results are observed from authoritative kernel records and published candidate refs. Do not create a second task state database.
+
+## Outbound visibility
+
+The GPT Director must be able to determine from GitHub-visible state, without SSH:
+
+- request accepted/refused;
+- objective/task id;
+- current lifecycle stage;
+- blocker/owner gate;
+- candidate exact SHA;
+- review mechanism/verdict;
+- accepted/integrated exact SHA;
+- evidence summary sufficient to decide the next engineering action.
+
+A read-only status projection file/ref may be published if necessary, but it is explicitly a projection of kernel records, never authority. Do not expose transcripts containing secrets.
+
+V1 activation uses a dedicated disposable status ref, `refs/heads/clive/control/status`, containing only `status.json`. The long-lived `remote_engineering.py run` loop performs one bounded inbox poll, one existing Dispatcher tick, publishes that projection, then sleeps for the configured interval. It does not alter production services or application runtime.
+
+Projection bounds (activation successor of `abaefa52`):
+
+- each request's task fields come from the task's highest recorded revision, so a repair revision's stage, candidate, review, acceptance and integration are what the Director sees (`revision` is included);
+- the status branch must be under `clive/control/` and never the owner inbox, and an existing status branch is only extended when its tip holds exactly `status.json`; pushes are plain fast-forwards from a freshly fetched head, never forced; every git call is time-bounded;
+- content identical apart from `generated_at` is republished at most every `--status-heartbeat-s` (default 600 s), which doubles as the loop's liveness signal: a `generated_at` older than the heartbeat plus one interval means the loop is not running;
+- `adapter.intake_error` reports a cycle whose inbox could not be read or held a changed request id. A changed request is named by its validated request id only; any other intake failure is a fixed sentence, never raw git/transport output.
+
+Loop failure isolation: an inbox or projection transport failure admits nothing new but never stops the existing Dispatcher from supervising already-recorded objectives; kernel, store and Dispatcher errors still stop the loop (fail closed), and exit status 4 means another dispatcher holds the runtime lock. Dispatcher transitions are journalled under `--dispatcher-operator` (default `clive-dispatcher@<host>`), intake under `--operator`.
+
+Intake and reporting bounds (activation successor of `c23f1935`):
+
+- admission is atomic per poll. The whole discovered snapshot is preflighted before the first write, so a snapshot that re-presents an already-decided request id with different bytes, or that carries one id twice with different bytes, admits nothing at all. Whether a changed request id is refused no longer depends on filename order, and no cycle is left half-applied;
+- nothing this loop reports carries git's output, in either direction. A transport failure reports a fixed sentence on the projection *and* in the value the host prints to its own log; git names the remote it was talking to, and an authenticated remote URL carries a credential in its userinfo, so that output never enters an exception message (`TransportError`). The operator diagnoses a transport failure from git's stderr at the console;
+- a rejected value is never echoed back. A record whose `schema_version` is wrong is refused without repeating the value supplied, because a requester chose it and it could itself be a credential;
+- an inbox record too malformed to yield a request id earns no receipt, but is still visible: `refused_records` projects it, keyed by the bounded inbox path it came from plus the digest of its exact bytes rather than by an id this adapter never trusted, carrying a redacted schema diagnostic only. It is regenerated deterministically from the same snapshot on every poll, so it survives a restart;
+- `--interval` (1-3600 s) and `--status-heartbeat-s` (1-86400 s) must be finite and inside those ranges, and are refused before the loop starts. `argparse` accepts `nan` and `inf` for a float: a NaN interval kills the loop on its first sleep, an infinite one parks it for ever, and a non-positive or NaN heartbeat silently disables `generated_at` suppression, turning an idle loop back into one status commit per cycle.
+
+Echo bounds (activation successor of `05fe8046`). Nothing a requester or a mistyped flag supplied is ever repeated back into a receipt, a host log or the status projection:
+
+- `base_ref` is a bounded git ref validated by the request schema, before `git rev-parse` is asked anything. Its character set excludes `:`, `@`, `~`, `^` and whitespace and its first character must be alphanumeric, so it can be neither a URL (which could carry a credential) nor a revision expression, and it can never be read as an option by the command it is interpolated into. A ref that resolves to something other than the declared `base_sha` is refused without repeating the ref;
+- validation locations are filtered through the field labels this host itself defined. For a forbidden extra field pydantic's location segment *is* the requester's key name, so a credential placed in an unknown key's **name** would otherwise travel exactly as one in its value would; unknown labels become `<redacted>`;
+- `source` is only ever `<directory>/<request_id>.json` -- a path that repeats nothing the projection does not already publish beside it. A bounded character set is no defence for a filename, because a credential is alphanumeric and `sk-....json` is well formed; so every other path, and every record too malformed to have a trusted id, is located by `<directory>/#<sha256 of its exact bytes>` instead;
+- an invalid remote, branch, directory or status path is refused without printing the rejected value, so a one-shot `poll` cannot print a credential an operator mistyped into `--remote`.
+
+Crash-safe provenance (activation successor of `11ab9070`). The lifecycle write and the receipt cannot be one atomic act, so the window between them is closed from the front:
+
+- before the first lifecycle write, an id is bound to the exact bytes being admitted under it by a write-once **claim** (`<store>/remote_engineering/claims/<request_id>.json`, schema `clive.remote_engineering_claim.v1`). Like a receipt it is adapter provenance, never authority: it admits nothing and advances nothing;
+- the claim also pins `created_at`. A resumed admission therefore rebuilds the *byte-identical* objective rather than a merely equivalent one. Without this, a replay after a crash reaches the objective store with a later timestamp, is refused as "already recorded differently", and a durable **refused** receipt is written for a request that was in fact admitted -- so the public projection permanently contradicts a live task;
+- on restart only the claimed digest resumes. Every other byte sequence for that id is refused, including bytes that differ only in formatting and parse to the same request, so provenance cannot be replaced by a later submission;
+- a claimed-but-unreceipted id participates in the snapshot preflight too, so an interrupted admission refuses its whole cycle before any write, exactly as an already-receipted one does;
+- claims and receipts are created with an atomic create-if-absent (`os.link`), so two processes that both find an id unclaimed cannot both write it: the create decides, and the loser reads back the winner's record and continues under its `claimed_at`, converging on one byte-identical objective. A winner holding a different digest is refused before any lifecycle write;
+- every newly created directory on the claim path has its *parent* flushed as the path is built, not only the file's own directory. On the first ever intake both `remote_engineering/` and `claims/` are new, and flushing only the innermost one would let a crash lose the claims directory while the lifecycle writes beneath the store survive -- reopening the window the claim exists to close.
+
+Identifier shape (activation successor of `71c4ed6a`). The Director keeps choosing `request_id`, and it stays the objective/task id that outbound visibility promises; what is constrained is its shape, which is adapter-owned:
+
+- `request_id` must be a readable slug, `^[a-z][a-z0-9]{0,15}(-[a-z0-9]{1,16}){1,7}$`: lowercase words of at most 16 characters joined by hyphens. Underscores, mixed case, dots and long high-entropy runs are refused, which excludes credential shapes in practice while admitting every id this system uses. The id is requester-chosen and reaches a durable claim, a receipt, a task id and the public projection, so constraining it is what keeps a secret out of all four without making the Director's own handle opaque;
+- `target_branch` must equal `clive/objective/<request_id>` exactly, so the one ref the dispatcher publishes carries the slug and nothing else;
+- both are refused without echoing the rejected value, like every other schema refusal.
+
+## Safety and process execution
+
+- No arbitrary shell execution from inbox content.
+- Checks use the existing structured Check argv model and existing sandbox.
+- Never interpolate request text into a shell.
+- No credential values may be logged or written to git.
+- Host-side credential file paths may be supplied by the operator exactly as the existing dispatcher accepts them; the adapter never publishes or echoes their contents.
+- Fail closed on malformed requests, protected scope, changed request bytes, unknown schema, remote mismatch, or inability to establish safe dispatcher/check execution.
+- Candidate publication may use the existing dispatcher `--publish-remote` semantics only.
+
+## V1 files
+
+Prefer a self-contained implementation outside protected authority surfaces, for example:
+
+- `crooks-assistant/app/remote_engineering/`
+- `crooks-assistant/scripts/remote_engineering.py`
+- `crooks-assistant/tests/test_remote_engineering.py`
+
+Do not change `app/orchestrator/dispatcher.py`, `objectives.py`, the frozen lifecycle kernel, reviewer registry, CI workflow, systemd, watchers, or secrets tooling.
+
+## Tests
+
+At minimum prove:
+
+- valid request becomes exactly one existing Objective/task;
+- replay is idempotent;
+- same id/different bytes is refused;
+- protected paths are refused by reused canonical validation;
+- malformed schema fails closed;
+- no arbitrary shell field is accepted/executed;
+- OWNER_GATE/BLOCKED cannot be lifted remotely;
+- restart/re-poll does not duplicate work;
+- status output is derived from existing records;
+- credential values never enter request/status serialization;
+- remote ref/remote name is bounded and cannot become arbitrary URL execution;
+- no second lifecycle truth is created.
+- a changed request id admits nothing else in the same snapshot, including a valid request that sorts before it;
+- a transport failure's message, the published projection and the host's own log all omit git output;
+- a malformed record is visible in the projection, keyed by source and digest, and survives a restart;
+- non-finite and out-of-range loop timings are refused before any poll, tick or publication.
+- a URL-bearing, option-like, over-long or revision-expression `base_ref` is refused before git is asked anything, and never echoed;
+- a credential placed in an unknown key's name is absent from outcomes, loop result, receipts and published status;
+- an untrusted or nested request filename is replaced by an opaque digest locator, while a conventional one is still reported as itself;
+- a one-shot `poll` given a credential-bearing `--remote` prints neither the URL nor the credential.
+- the claim is on disk before the canonical door is called at all;
+- a crash between intake and the receipt recovers idempotently on the original bytes, with one task and the claimed `created_at`, even though the clock has moved;
+- the same crash refuses changed or merely reformatted bytes for that id, and does not replace what was admitted;
+- an interrupted id refuses its whole snapshot, so a fresh request beside it is not admitted either;
+- a claim is write-once and carries pointers only.
+- a non-slug or credential-shaped `request_id`, and a `target_branch` that is not exactly `clive/objective/<request_id>`, are refused, admit nothing and are never echoed;
+- every id the Director and the runbooks actually use is still admitted;
+- the first ever claim flushes each newly created directory's parent, and a later claim still flushes its own;
+- two claims for the same bytes converge on one record and one `claimed_at`, and a loser holding a different digest is refused before any lifecycle write.
+
+## Definition of done
+
+Repository-only candidate passes focused tests and independent GPT exact-SHA review. It is not deployed by this objective.
+
+After acceptance, the owner may separately authorise one host-side activation of the polling adapter. Once activated, routine repository-only engineering should no longer require the owner to relay terminal commands.
