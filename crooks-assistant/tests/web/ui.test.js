@@ -546,7 +546,7 @@ test('a blocked card names who is stopping the tap, by code, and never blames th
   assert.ok(/switched off in CLIVE/.test(words.writes_disabled));
   assert.ok(/No allowed logins/.test(words.allow_list_missing));
   assert.ok(/device's login/.test(words.not_authorised));
-  assert.ok(/CLIVE's own computer/.test(words.not_authorised_local) && !/device/.test(words.not_authorised_local));
+  assert.ok(/Changes can't be applied from here/.test(words.not_authorised_local) && !/device|computer|Mac/.test(words.not_authorised_local));
   assert.ok(/Shopify has not granted/.test(words.scope_missing));
   for (const text of Object.values(words)) assert.ok(!/not allowed/i.test(text), text);
 });

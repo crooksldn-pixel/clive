@@ -1625,7 +1625,7 @@
   function blockedLabel(code) {
     return {
       writes_disabled: 'Changes are switched off in CLIVE', allow_list_missing: 'No allowed logins set in CLIVE',
-      not_authorised: "This device's login is not on CLIVE's list", not_authorised_local: "CLIVE's own computer may not apply changes",
+      not_authorised: "This device's login is not on CLIVE's list", not_authorised_local: "Changes can't be applied from here",
       scope_missing: 'Shopify has not granted the scope this needs',
     }[text(code)] || "Can't apply from here";
   }
@@ -1633,6 +1633,8 @@
   // The words for a status the Mac has already settled. One table, in web/action-state.js,
   // beside the named state each word means; the page reads the same one.
   function settledLabel(status) {
+    // The shared table names the host for this one; the owner is told the same as when blocked.
+    if (text(status) === 'not_authorised_local') return blockedLabel(status);
     const machine = actionState();
     return machine ? machine.labelFor(text(status), 'Not available') : 'Not available';
   }

@@ -3196,7 +3196,9 @@ function settleAction(node, payload, status) {
     // patched in place (replaceCardNodes), so where the owner is does not move.
     replaceCardNodes(node, rendered.nodes);
   } else {
-    settleActionNode(node, code === 'verified' ? 'verified' : code, AS.labelFor(code, 'Not applied'));
+    // The shared table names the host for a local refusal; the owner is told the same as the card.
+    const label = code === 'not_authorised_local' ? "Changes can't be applied from here" : AS.labelFor(code, 'Not applied');
+    settleActionNode(node, code === 'verified' ? 'verified' : code, label);
   }
   if (proven) {
     // The entity has moved. Any other card still offering a change to it was prepared
@@ -3230,11 +3232,11 @@ function settleAction(node, payload, status) {
 const ACTION_REASONS = {
   refused: 'The service refused that. The card says why.',
   not_authorised: "This device's login is not on CLIVE's allowed list (CROOKS_ALLOWED_LOGINS).",
-  not_authorised_local: "Requests made on CLIVE's own computer may not apply changes (CROOKS_WRITES_LOCAL_OWNER).",
+  not_authorised_local: "Changes can't be applied from here.",
   writes_disabled: 'Changes are switched off in CLIVE (CROOKS_WRITES_ENABLED).',
   allow_list_missing: 'No allowed logins are configured in CLIVE (CROOKS_ALLOWED_LOGINS).',
   identity_unverified: "CLIVE could not confirm this device's identity with Tailscale.",
-  unknown: 'CLIVE is no longer holding that change — it was restarted, or it waited too long. Ask again.',
+  unknown: 'That change is no longer available. Ask again.',
   wrong_session: 'That proposal belongs to another conversation.',
 };
 
