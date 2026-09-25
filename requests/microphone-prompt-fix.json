@@ -1,0 +1,52 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "microphone-prompt-fix",
+  "title": "Ask for the microphone only when the owner holds to speak",
+  "requested_outcome": "On the owner's iPhone the browser keeps showing 'Would like to access the microphone' while he is only reading, for example on the orders screen. Cause, in crooks-assistant/web/app.js: warmMic() opens the microphone on the first pointerdown anywhere on the page, on every visibilitychange back to visible, and after every reconnect, while the page releases the stream whenever it is hidden; on iOS a home-screen web app asks again each time the stream is reopened and the microphone permission query is not reliable there. Change it so the microphone is requested only by the owner's hold-to-speak press, never by any other touch, by returning to the app or by reconnecting; once granted in a session, reuse the one live stream for later presses; keep the existing Android behaviour of forgetting an ended track; keep warming on load only where the permission query positively reports granted. Apply the same rule in web/alpha.js if it opens the microphone. Add a node test under tests/web (using the existing dom-shim) proving that a tap elsewhere, a visibility return and a reconnect never call getUserMedia, and that two presses share one stream. Run every check listed below in your workspace and fix anything it reports before you report. Do not report an owner decision for GitHub acceptance: it runs automatically after your candidate is published.",
+  "base_ref": "ce791d032dcc8cf9b761ca40ce0b08a259c897a2",
+  "base_sha": "ce791d032dcc8cf9b761ca40ce0b08a259c897a2",
+  "allowed_paths": [
+    "crooks-assistant/web/app.js",
+    "crooks-assistant/web/alpha.js",
+    "crooks-assistant/tests/web",
+    "crooks-assistant/tests/test_web_js.py",
+    "crooks-assistant/tests/test_touch_to_voice.py"
+  ],
+  "acceptance_criteria": [
+    "getUserMedia is reached only from the hold-to-speak press path",
+    "a tap elsewhere, a return to the app and a reconnect never request the microphone, proven by a node test",
+    "a granted stream is reused for later presses in the same session",
+    "every listed check passes in the worker's workspace"
+  ],
+  "checks": [
+    {
+      "name": "web",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_web_js.py",
+        "tests/test_touch_to_voice.py",
+        "tests/test_web.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/microphone-prompt-fix",
+  "max_repair_rounds": 2
+}
