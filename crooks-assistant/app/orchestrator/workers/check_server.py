@@ -172,15 +172,24 @@ def handle(service: CheckService, message: dict) -> dict | None:
     return {"jsonrpc": "2.0", "id": mid, "result": result}
 
 
-def _reexec_clean() -> None:
-    """Replace this process with itself under an environment of PATH only (see the module docstring)."""
-    if set(os.environ) - {"PATH"} or os.environ.get("PATH") != CLEAN_PATH:
-        os.execve(sys.executable, [sys.executable, "-I", str(Path(__file__).resolve()), *sys.argv[1:]],
-                  {"PATH": CLEAN_PATH})
+CLEAN_MARK = "--clean-env"
+
+
+def _reexec_clean(argv: list[str]) -> list[str]:
+    """Replace this process, exactly once, with itself under an environment of PATH only.
+
+    Once, by an argument this server adds itself, not by inspecting the environment: Python adds
+    variables of its own at startup (LC_CTYPE, by C-locale coercion), so "the environment is still
+    not just PATH" would be true after every exec and loop for ever. Returns the real arguments."""
+    if argv[:1] == [CLEAN_MARK]:
+        return argv[1:]
+    os.execve(sys.executable, [sys.executable, "-I", str(Path(__file__).resolve()), CLEAN_MARK, *argv],
+              {"PATH": CLEAN_PATH})
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def main(argv: list[str]) -> int:
-    _reexec_clean()
+    argv = _reexec_clean(argv)
     os.chdir("/")
     config = json.loads(Path(argv[0]).read_text(encoding="utf-8"))
     service = CheckService(config)

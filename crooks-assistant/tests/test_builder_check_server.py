@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import selectors
 import subprocess
 import sys
 import time
@@ -217,21 +218,44 @@ def start_like_claude(tmp_path: Path, cfg_path: Path) -> subprocess.Popen:
                             text=True)
 
 
-def call_run_checks(proc: subprocess.Popen, arguments: dict) -> tuple[dict, dict]:
-    messages = [
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
-        {"jsonrpc": "2.0", "method": "notifications/initialized"},
-        {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "run_checks", "arguments": arguments}},
-    ]
+def exchange(proc: subprocess.Popen, messages: list[dict], *, timeout: float = 120) -> dict:
+    """Send the messages; return the replies by id. A server that does not answer in time fails, never hangs."""
     for m in messages:
         proc.stdin.write(json.dumps(m) + "\n")
     proc.stdin.flush()
-    replies = {}
-    while len(replies) < 2:
-        line = proc.stdout.readline()
-        assert line, proc.stderr.read()
-        reply = json.loads(line)
-        replies[reply["id"]] = reply
+    want = {m["id"] for m in messages if "id" in m}
+    replies: dict = {}
+    fd = proc.stdout.fileno()  # read the raw pipe: a buffered readline would hide lines from select
+    selector = selectors.DefaultSelector()
+    selector.register(fd, selectors.EVENT_READ)
+    pending = b""
+    deadline = time.monotonic() + timeout
+    while want - set(replies):
+        while b"\n" in pending:
+            line, pending = pending.split(b"\n", 1)
+            if line.strip():
+                reply = json.loads(line)
+                replies[reply["id"]] = reply
+        if not want - set(replies):
+            break
+        left = deadline - time.monotonic()
+        if left <= 0 or not selector.select(timeout=left):
+            proc.kill()
+            raise AssertionError(f"the server did not answer within {timeout}s (replies so far: {sorted(replies)})")
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            raise AssertionError(f"the server exited: {proc.stderr.read()[-2000:]}")
+        pending += chunk
+    return replies
+
+
+INITIALIZE = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+              {"jsonrpc": "2.0", "method": "notifications/initialized"}]
+
+
+def call_run_checks(proc: subprocess.Popen, arguments: dict) -> tuple[dict, dict]:
+    replies = exchange(proc, [*INITIALIZE, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                                            "params": {"name": "run_checks", "arguments": arguments}}])
     return replies[1], replies[2]
 
 
@@ -246,6 +270,26 @@ def server_pid(shell_pid: int) -> int:
             return int(kids[0])
         time.sleep(0.05)
     raise AssertionError("the server did not start")
+
+
+def test_the_server_reexecs_once_into_a_path_only_environment_and_answers(tmp_path):
+    """Runs on every host (no sandbox needed): the real server, started the way Claude Code starts it."""
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps(config(tmp_path)))
+    proc = start_like_claude(tmp_path, cfg_path)
+    try:
+        replies = exchange(proc, [*INITIALIZE, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}], timeout=30)
+        assert [tool["name"] for tool in replies[2]["result"]["tools"]] == ["run_checks"]
+        pid = server_pid(proc.pid)
+        environ = Path(f"/proc/{pid}/environ").read_bytes()
+        assert environ.rstrip(b"\0").split(b"\0") == [f"PATH={check_server.CLEAN_PATH}".encode()]
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        assert cmdline.count(check_server.CLEAN_MARK.encode()) == 1  # exactly one re-exec
+        assert all(v.encode() in Path(f"/proc/{proc.pid}/environ").read_bytes() for v in PLANTED.values())
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=30)
+    assert proc.returncode == 0
 
 
 def test_a_planted_token_never_reaches_a_check_even_through_proc(tmp_path):
