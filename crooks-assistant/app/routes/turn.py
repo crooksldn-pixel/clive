@@ -12,10 +12,12 @@ import logging
 import re
 import time
 import uuid
+from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app import progressive
 from app.actions import engine as action_engine
@@ -1199,6 +1201,39 @@ async def _provider_turn(runtime, session_id: str, prompt_text: str, branch):
     return await runtime.provider.turn(session_id, prompt_text)
 
 
+class _SceneSwitch(BaseSettings):
+    """CLIVE_SCENES: whether a turn also carries a validated scene (Generative UI V1,
+    docs/product-memory/GENERATIVE_UI_V1.md). Read as config/settings.py reads every setting —
+    the environment, then the same .env file — once, and off unless it is set."""
+
+    model_config = SettingsConfigDict(env_prefix="CLIVE_", env_file_encoding="utf-8", extra="ignore")
+
+    scenes: bool = False
+
+
+@lru_cache(maxsize=1)
+def scenes_enabled() -> bool:
+    from config.settings import _env_file
+
+    return _SceneSwitch(_env_file=_env_file()).scenes
+
+
+def _turn_scene(question: str, answer: str, calls: list | None, session_id: str) -> dict | None:
+    """The turn's scene and its decision trace when CLIVE_SCENES is on, and nothing when it is
+    off. Beside the cards, never instead of them, and never at the cost of the turn: a failure
+    anywhere in it is logged by its kind alone — its message can carry the answer's words or a
+    customer's — and the turn goes out without a scene."""
+    try:
+        if not scenes_enabled():
+            return None
+        from app.scenes.planner import scene_for_turn
+
+        return scene_for_turn(question, answer, calls or [], session_id=session_id)
+    except Exception as exc:  # noqa: BLE001 — a scene is never worth a turn
+        log.warning("scene not built: %s", type(exc).__name__)
+        return None
+
+
 async def _answer(
     runtime,
     session_id: str,
@@ -1289,6 +1324,9 @@ async def _answer(
     # What the screen shows beside the answer: cards chosen from the tool results, never from
     # the prose. See app/presentation.py for the vocabulary and the bounds.
     ui = present(calls, session=session, error_kind=error_kind, writes=rail)
+    # The same turn as a validated scene, when CLIVE_SCENES is on: planned from these reads,
+    # carried as its own field and changing nothing else. Off, nothing here runs.
+    scene = _turn_scene(question or str((transcript or {}).get("text") or ""), answer, calls, session_id)
     # A card a recipe built for itself, for an answer no tool produced. It goes in front of
     # the context stack and behind nothing: it IS the answer to the question that was asked.
     if surfaces:
@@ -1430,6 +1468,10 @@ async def _answer(
             "timings_ms": (payload.get("workspace") or {}).get("timings_ms"),
         } if payload.get("workspace") else None,
     }, names=names)
+    # After the log is written: a scene can bind a customer's name to a row, and the log keeps
+    # which cards were shown, not what they said.
+    if scene is not None:
+        payload["scene"] = scene
     return payload
 
 
