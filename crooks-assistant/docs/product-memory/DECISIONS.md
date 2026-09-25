@@ -870,3 +870,34 @@ The unrestricted-English prose-freeze parser experiment is therefore parked as h
 **Reason:** the dated records were written outside this log; without an entry here a reader of DECISIONS.md would miss active owner decisions and would still treat the bridge watcher decisions as active.
 
 **Consequences:** No new authority is created by this entry. Deployment, credentials, spend, permissions and business writes remain owner-gated exactly as the dated records say.
+
+---
+
+## DEC-059 — Canonical Objective IDs keep their three-character minimum; invalid fixtures are repaired
+
+**Date:** 2026-09-23/24 (recorded in this log during the product-memory consolidation on 2026-09-25)
+**Status:** HISTORICAL TECHNICAL RATIONALE — not superseded
+**Source:** owner decision during the Remote Engineering Control V1 repairs, recorded in [OPUS_5_5_HANDOFF_2026-09-24.md](./OPUS_5_5_HANDOFF_2026-09-24.md) §8 ("Owner decision")
+
+**Decision:** When the initial Remote Engineering Control V1 worker candidate (`f496bf61…`) failed because its test request IDs were only two characters long, the owner decided:
+- preserve the canonical Objective ID minimum length of 3;
+- do not weaken `app/orchestrator/objectives.py`;
+- fix the invalid test fixture IDs instead.
+
+**Reason:** the canonical Objective validation is shared by the whole engineering lifecycle; a new consumer's fixtures must conform to it rather than loosen it for everyone.
+
+**Consequences:** The repair line (`a15f87ed…`, then `6c300c5f…`) fixed the fixtures and left the validator unchanged. The decision is kept as the rationale for that validation rule; any change to the minimum needs a new owner decision.
+
+---
+
+## DEC-060 — Owner authority to activate Remote Engineering Control, conditional on its gates
+
+**Date:** 2026-09-24 (recorded in this log during the product-memory consolidation on 2026-09-25)
+**Status:** FULFILLED — the conditional authority has been exercised; it is not standing runtime authority
+**Source:** the owner's explicit words "authorise activation", recorded in [OPUS_5_5_HANDOFF_2026-09-24.md](./OPUS_5_5_HANDOFF_2026-09-24.md) §9 ("Owner activation authority")
+
+**Decision:** The owner authorised activation of Remote Engineering Control once the activation candidate had satisfied the required evidence and review gates: full repository acceptance and a fresh independent exact-SHA review of that exact candidate. The authority explicitly did not permit bypassing exact-SHA review, carrying a review over to a successor SHA, or activating an unreviewed or unaccepted candidate (such as `5fc4aa94…`, whose acceptance run was cancelled).
+
+**Reason:** the owner wanted routine repository-only engineering to stop depending on relayed terminal commands (DEC-015), without giving up the evidence gates.
+
+**Consequences:** The authority has since been used: the remote engineering loop is running (see [CURRENT_TRUTH.md](./CURRENT_TRUTH.md)). It covered that one bounded activation only. It grants no deploy, runtime, secrets, permissions or business-write authority; later changes to the loop, its hosts or its privileges follow their own owner decisions (DEC-058).
