@@ -1849,6 +1849,70 @@ def test_a_check_tail_with_a_quoted_secret_and_located_credential_files_is_redac
         assert planted not in published
 
 
+# Credential files followed by a textual diagnostic suffix, including one on a Windows drive path.
+_SUFFIXED_TEXT = "failed at id_ed25519:error and certs/client.pem:warning, then C:\\Users\\u\\gpt.key:error."
+_SUFFIXED_REDACTED = f"failed at {REDACTED} and {REDACTED}, then {REDACTED}"
+_SUFFIXED_VALUES = ("id_ed25519", "client.pem", "gpt.key")
+
+
+def test_a_worker_report_with_credential_files_before_a_textual_suffix_is_redacted(tmp_path):
+    from tests.test_engineering_dispatcher import World
+
+    w = World(tmp_path)
+    w.scenarios({"report": {"status": "blocked", "summary": "cannot", "reason": _SUFFIXED_TEXT}})
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+
+    item, published = _blocked_item(w)
+    assert item["worker_report"] == _SUFFIXED_REDACTED
+    for planted in _SUFFIXED_VALUES:
+        assert planted not in published
+
+
+def test_a_finding_with_credential_files_before_a_textual_suffix_is_redacted(tmp_path):
+    from tests.test_engineering_dispatcher import EDIT_HELLO, FINDING, World, review
+
+    w = World(tmp_path, max_repair_rounds=0)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.reviewer.answers.append(
+        lambda ctx: review(ctx, "CHANGES_REQUIRED", findings=[{**FINDING, "finding": _SUFFIXED_TEXT}]))
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+
+    item, published = _blocked_item(w)
+    assert item["open_findings"] == [{"finding_id": "F-01", "finding": _SUFFIXED_REDACTED}]
+    for planted in _SUFFIXED_VALUES:
+        assert planted not in published
+
+
+def test_a_check_tail_with_credential_files_before_a_textual_suffix_is_redacted(tmp_path):
+    from tests.test_engineering_dispatcher import EDIT_HELLO, World
+
+    script = f"import sys\nprint({_SUFFIXED_TEXT!r})\nsys.exit(1)"
+    checks = (Check(name="leaks", argv=(sys.executable, "-c", script)),)
+    w = World(tmp_path, checks=checks, max_result_refusals=1)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+
+    item, published = _blocked_item(w)
+    [leaks] = item["failed_checks"]
+    assert (leaks["name"], leaks["output_tail"]) == ("leaks", _SUFFIXED_REDACTED)
+    for planted in _SUFFIXED_VALUES:
+        assert planted not in published
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("id_ed25519:error", REDACTED),
+    ("certs/client.pem:warning: bad", f"{REDACTED} bad"),
+    ("id_rsa.pub:12:5:error.", REDACTED),
+    ("C:\\Users\\u\\.ssh\\config:note", REDACTED),
+    ("D:\\work\\app.py:12:error", "D:\\work\\app.py:12:error"),
+], ids=["bare-textual", "relative-textual", "numeric-then-textual", "windows-drive", "windows-ordinary"])
+def test_published_redaction_finds_a_credential_file_before_a_textual_suffix(text, expected):
+    assert redact_published(text) == expected
+
+
 @pytest.mark.parametrize("text, expected", [
     ('password="correct horse battery staple" ok', f'password="{REDACTED}" ok'),
     ("secret = 'a \\' b' ok", f"secret = '{REDACTED}' ok"),

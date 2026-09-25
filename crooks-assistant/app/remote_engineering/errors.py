@@ -177,9 +177,8 @@ _CREDENTIAL_PATH = re.compile(
     r"|\.(?:pem|key|p12|pfx|jks|keystore|gpg)$",
     re.I,
 )
-# A diagnostic suffix after a file name -- ``:12``, ``:12:5``, trailing ``.``/``:`` -- matched against
-# the reversed word, so it anchors at the start and costs one pass however long the word is.
-_DIAGNOSTIC_SUFFIX_REVERSED = re.compile(r"[.:!?]*(?:[0-9]+:)*[.:!?]*")
+# Trailing punctuation after a file name, e.g. the full stop ending a sentence.
+_TRAILING_PUNCTUATION = ".!?"
 
 
 def _assigned(match: re.Match) -> str:
@@ -189,9 +188,16 @@ def _assigned(match: re.Match) -> str:
 
 
 def _credential_path(match: re.Match) -> str:
+    """The word redacted whole when any colon-separated part of it is a credential path.
+
+    A diagnostic suffix follows a file name after a colon -- ``:12``, ``:12:5``, ``:error``,
+    ``:warning`` -- so each part is tested on its own and the end-anchored file name patterns
+    still see the name's end. A Windows drive letter (``C:``) is just another part. One split and
+    one search per part, so the cost stays linear in the word however many colons it has.
+    """
     word = match.group(0)
-    core = word[: len(word) - _DIAGNOSTIC_SUFFIX_REVERSED.match(word[::-1]).end()]
-    return REDACTED if _CREDENTIAL_PATH.search(core) else word
+    parts = word.split(":")
+    return REDACTED if any(_CREDENTIAL_PATH.search(p.rstrip(_TRAILING_PUNCTUATION)) for p in parts) else word
 
 
 def redact_published(text: str, supplied: Iterable[str] = (), *, keep: Iterable[str] = ()) -> str:
