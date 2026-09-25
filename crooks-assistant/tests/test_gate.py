@@ -225,19 +225,12 @@ _ENGINEERING = ("engineering_status", "submit_engineering_request")
 
 @pytest.fixture()
 def engineering_registered():
-    """The engineering tools, registered for the test only like the probes above, so the
-    registry-wide checks elsewhere in the suite keep seeing exactly what they list."""
-    import importlib
-
+    """The engineering tools, registered as app/runtime.py registers them: by importing their
+    module. They stay registered, as they do in the running application."""
     from app.tools import engineering_tools, registry
 
-    for name in _ENGINEERING:
-        registry._REGISTRY.pop(name, None)
-    try:
-        yield importlib.reload(engineering_tools)
-    finally:
-        for name in _ENGINEERING:
-            registry._REGISTRY.pop(name, None)
+    assert all(name in registry.names() for name in _ENGINEERING)
+    return engineering_tools
 
 
 def test_engineering_status_is_the_only_name_added_to_the_allow_list():

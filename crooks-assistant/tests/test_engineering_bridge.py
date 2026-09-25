@@ -8,7 +8,6 @@ token is a made-up string whose only job is to be looked for in every output.
 from __future__ import annotations
 
 import base64
-import importlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -38,6 +37,7 @@ from app.tools import registry
 from app.tools.dispatch import dispatch
 from app.tools.gate import Disposition, Tier, classify
 from app.tools.registry import ToolError
+from tests.test_actions_routes import OWNER, PROXIED, FakeProvider
 
 TOKEN = "ghs_madeUpTokenForTests0000000000000000"
 MARKER = "ghp_LEAKED0value"
@@ -116,18 +116,12 @@ def connected(fake: FakeGitHub | None = None) -> tuple[FakeGitHub, GitHubInbox]:
 
 @pytest.fixture()
 def tools():
-    """The two tools, registered for this test only, like the probes in test_gate.py: the
-    registry-wide checks elsewhere in the suite keep seeing exactly what they list."""
+    """The two tools, registered as app/runtime.py registers them: by importing their module.
+    They stay registered, as they do in the running application."""
     from app.tools import engineering_tools
 
-    for name in NAMES:
-        registry._REGISTRY.pop(name, None)
-    module = importlib.reload(engineering_tools)
-    try:
-        yield module
-    finally:
-        for name in NAMES:
-            registry._REGISTRY.pop(name, None)
+    assert all(name in registry.names() for name in NAMES)
+    return engineering_tools
 
 
 @pytest.fixture()
@@ -316,8 +310,12 @@ STATUS = {
         {"request_id": "delta-four", "outcome": "accepted", "stage": "COMPLETE", "candidate_sha": "c" * 40, "acceptance": {"sha": "c" * 40}},
         {"request_id": "echo-five", "outcome": "accepted", "stage": "BLOCKED", "blocker": "the ruff check failed twice", "stage_reason": "blocked"},
         {"request_id": "foxtrot-six", "outcome": "accepted", "stage": "OWNER_GATE", "owner_gate": "a credential only the owner can provide"},
-        {"request_id": "golf-seven", "outcome": "refused", "reason": "request does not match clive.remote_engineering_request.v1"},
+        # Refusals as the loop publishes them: the receipt's reason beside the stage reason and
+        # the blocker, which say why.
+        {"request_id": "golf-seven", "outcome": "refused", "reason": None, "stage": "BLOCKED",
+         "stage_reason": "refused at intake", "blocker": "allowed_paths overlaps a protected path"},
         {"request_id": "hotel-eight", "outcome": "accepted"},
+        {"request_id": "india-nine", "outcome": "refused", "reason": None, "stage_reason": "the base commit is not on main", "blocker": None},
     ],
     "refused_records": [],
 }
@@ -330,7 +328,7 @@ async def test_the_status_is_said_in_plain_words_per_request(tools):
     out = await tools.engineering_status()
     assert out["connected"] is True and out["inbox"] == {"id": HEAD}
     assert [r["progress"] for r in out["requests"]] == [
-        "queued", "building", "in review", "done", "blocked", "needs the owner", "blocked", "queued",
+        "queued", "building", "in review", "done", "blocked", "needs the owner", "blocked", "queued", "blocked",
     ]
     words = [r["words"] for r in out["requests"]]
     assert words == [
@@ -340,13 +338,38 @@ async def test_the_status_is_said_in_plain_words_per_request(tools):
         f"delta-four: done — candidate {'c' * 40}.",
         "echo-five: blocked — the ruff check failed twice",
         "foxtrot-six: needs the owner — a credential only the owner can provide",
-        "golf-seven: blocked — the loop refused it: request does not match clive.remote_engineering_request.v1",
+        "golf-seven: blocked — the loop refused it: allowed_paths overlaps a protected path",
         "hotel-eight: queued.",
+        "india-nine: blocked — the loop refused it: the base commit is not on main",
     ]
     assert out["requests"][3]["candidate_sha"] == "c" * 40
     assert "candidate_sha" not in out["requests"][1], "a SHA is only given once it is done"
     assert out["summary"].startswith("The loop could not read the inbox on its last pass: the inbox could not be fetched")
     assert all(w in out["summary"] for w in words)
+
+
+def test_a_refusal_with_only_the_receipts_reason_still_says_why(tools):
+    said = tools.progress_of({"request_id": "juliet-ten", "outcome": "refused", "reason": "request does not match the schema"})
+    assert said["words"] == "juliet-ten: blocked — the loop refused it: request does not match the schema"
+    bare = tools.progress_of({"request_id": "kilo-eleven", "outcome": "refused", "reason": None, "stage_reason": None, "blocker": None})
+    assert bare["words"] == "kilo-eleven: blocked — the loop refused it: no reason was given"
+
+
+async def test_every_request_is_reported_however_many_there_are(tools):
+    fake, client = connected()
+    items = [
+        {"request_id": f"bulk-{n:03d}", "outcome": "accepted", "stage": "COMPLETE", "candidate_sha": f"{n + 1:040x}"}
+        for n in range(40)
+    ]
+    fake.status = json.dumps({**STATUS, "adapter": {"intake_error": None}, "requests": items}).encode()
+    tools.bind(client)
+    out = await tools.engineering_status()
+    assert [r["request_id"] for r in out["requests"]] == [item["request_id"] for item in items]
+    assert all(r["progress"] == "done" for r in out["requests"])
+    assert out["requests"][0]["words"] == f"bulk-000: done — candidate {1:040x}."
+    assert out["requests"][0]["candidate_sha"] == f"{1:040x}"
+    assert all(r["words"] in out["summary"] for r in out["requests"]), "the earliest are said too"
+    assert "earlier_requests" not in out
 
 
 async def test_no_status_yet_is_said_and_the_inbox_id_is_still_given(tools):
@@ -470,6 +493,107 @@ async def test_the_prepare_step_refuses_a_moved_inbox_an_existing_file_and_a_bad
         await tools.submit_engineering_request(**submission(base_sha=MARKER))
     assert MARKER not in str(refused.value)
     assert fake.puts() == []
+
+
+# --------------------------------------------------------------------------- through the runtime
+
+
+@pytest.fixture()
+async def served(monkeypatch):
+    """The application as the tablet reaches it: its lifespan builds the runtime, which binds
+    the engineering tools, and the owner's tap goes through the commit route, the runtime's
+    write preflight and the engine the runtime installed."""
+    from app.clients.elevenlabs import ScribeClient
+    from app.clients.elevenlabs_tts import VoiceClient
+    from app.main import app
+    from app.providers import max_agent_sdk
+    from app.session.manager import SessionManager
+    from tests.test_actions import FakeStore
+
+    async def no_start(self):
+        raise RuntimeError("tests never start the real Claude provider")
+
+    async def fake_scribe_health(self):
+        return True, "fake scribe"
+
+    monkeypatch.setattr(max_agent_sdk.MaxAgentSDKProvider, "start", no_start)
+    monkeypatch.setattr(ScribeClient, "health", fake_scribe_health)
+    monkeypatch.setattr(VoiceClient, "health", lambda self: (True, "fake voice"))
+    async with app.router.lifespan_context(app):
+        runtime = app.state.runtime
+        runtime.provider = FakeProvider()
+        runtime.shopify = FakeStore()
+        runtime.actions.ledger = NullLedger()
+        runtime.sessions = SessionManager()
+        runtime.settings = runtime.settings.model_copy(
+            update={"writes_enabled": True, "allowed_logins": OWNER, "writes_local_owner": False, "tailscale_verify": False}
+        )
+        app.state.allowed_logins = runtime.allowed_logins
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as http:
+            yield runtime, http
+
+
+async def staged_in(runtime) -> tuple[Session, object]:
+    session = runtime.sessions.get_or_create("eng")
+    session.epoch = 1
+    await dispatch("engineering_status", {}, session=session, timeout_s=5)
+    text = await dispatch("submit_engineering_request", submission(), session=session, timeout_s=5)
+    assert text.startswith("PROPOSED"), text
+    return session, session.proposals[-1]
+
+
+async def tap(http, proposal, headers=PROXIED) -> httpx.Response:
+    return await http.post(f"/actions/{proposal.proposal_id}/commit", data={"session_id": "eng"}, headers=headers)
+
+
+async def test_the_owners_tap_through_the_runtime_passes_its_preflight_and_files_once(served, tools):
+    runtime, http = served
+    fake, client = connected()
+    tools.bind(client)
+    status = await runtime.write_status("engineering_request_submit")
+    assert status.state == "ready" and status.code == ""
+    _, proposal = await staged_in(runtime)
+    response = await tap(http, proposal)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["code"] == "verified" and body["status"] == "verified"
+    assert body["spoken"] == "Engineering request bridge-status-v1 is filed."
+    assert fake.files[PATH] == build_request(**GOOD).to_bytes() and len(fake.puts()) == 1
+    again = await tap(http, proposal)
+    assert again.json()["code"] == "already_executed" and len(fake.puts()) == 1
+    assert TOKEN not in response.text + again.text
+
+
+async def test_the_runtime_preflight_keeps_the_writes_switch_and_the_allow_list(served, tools):
+    runtime, http = served
+    fake, client = connected()
+    tools.bind(client)
+    _, proposal = await staged_in(runtime)
+    ready = runtime.settings
+    runtime.settings = ready.model_copy(update={"writes_enabled": False})
+    assert (await runtime.write_status("engineering_request_submit")).state == "disabled"
+    off = await tap(http, proposal)
+    assert off.status_code == 403 and off.json()["code"] == "writes_disabled"
+    runtime.settings = ready.model_copy(update={"allowed_logins": ""})
+    assert (await runtime.write_status("engineering_request_submit")).code == "allow_list_missing"
+    runtime.settings = ready
+    stranger = await tap(http, proposal, headers={"Tailscale-User-Login": "stranger@example.com", "X-Forwarded-For": "100.64.0.2"})
+    assert stranger.status_code == 403
+    assert fake.puts() == [] and proposal.status is ActionStatus.PENDING
+
+
+async def test_with_no_token_the_tap_passes_the_preflight_and_the_bridge_sends_nothing(served, tools):
+    runtime, http = served
+    fake, client = connected()
+    tools.bind(client)
+    _, proposal = await staged_in(runtime)
+    unconnected = FakeGitHub()
+    tools.bind(GitHubInbox(token=lambda: None, transport=httpx.MockTransport(unconnected.handler)))
+    assert (await runtime.write_status("engineering_request_submit")).ready
+    response = await tap(http, proposal)
+    assert response.status_code == 200, response.text
+    assert response.json()["code"] == "service_unavailable" and proposal.status is ActionStatus.FAILED
+    assert unconnected.calls == [] and fake.puts() == [] and fake.files == {}
 
 
 # --------------------------------------------------------------------------- the token

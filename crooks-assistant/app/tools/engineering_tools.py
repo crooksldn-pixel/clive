@@ -76,15 +76,18 @@ _PROGRESS = {
     "OWNER_GATE": "needs the owner",
     "BLOCKED": "blocked", "OBSOLETE": "blocked", "CANCELLED": "blocked", "UNKNOWN": "blocked",
 }
-# The most recent requests are the ones worth saying; the status keeps every one.
-MAX_REPORTED = 25
 
 
 def progress_of(item: dict[str, Any]) -> dict[str, Any]:
     """One request from status.json, as the owner hears it."""
     rid = _plain(item.get("request_id"), 140) or "an unnamed request"
     if item.get("outcome") == "refused":
-        reason = _plain(item.get("reason")) or "no reason was given"
+        # The published blocker and stage reason say why, as they do for any stopped request;
+        # the receipt's own reason is the fallback when neither is there.
+        reason = (
+            _plain(item.get("blocker")) or _plain(item.get("stage_reason")) or _plain(item.get("reason"))
+            or "no reason was given"
+        )
         return {"request_id": rid, "progress": "blocked", "words": f"{rid}: blocked — the loop refused it: {reason}"}
     stage = str(item.get("stage") or "").upper()
     progress = _PROGRESS.get(stage, "blocked" if stage else "queued")
@@ -153,10 +156,8 @@ async def engineering_status() -> dict[str, Any]:
         document = status.document or {}
         items = document.get("requests") if isinstance(document.get("requests"), list) else []
         items = [item for item in items if isinstance(item, dict)]
-        requests = [progress_of(item) for item in items[-MAX_REPORTED:]]
+        requests = [progress_of(item) for item in items]
         out["requests"] = requests
-        if len(items) > MAX_REPORTED:
-            out["earlier_requests"] = len(items) - MAX_REPORTED
         if _plain(document.get("generated_at"), 40):
             out["as_of"] = _plain(document.get("generated_at"), 40)
         adapter = document.get("adapter") if isinstance(document.get("adapter"), dict) else {}

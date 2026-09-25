@@ -7,7 +7,7 @@ from app.tools.gate import Tier
 
 
 def test_all_day1_tools_are_registered():
-    from app.tools import gmail_tools, mock, shopify_tools  # noqa: F401
+    from app.tools import engineering_tools, gmail_tools, mock, shopify_tools  # noqa: F401
 
     names = registry.names()
     for expected in (
@@ -15,6 +15,7 @@ def test_all_day1_tools_are_registered():
         "shopify_find_order", "shopify_order_detail", "shopify_list_orders",
         "shopify_find_customer", "shopify_inventory", "shopify_sales_summary",
         "shopify_product_info", "gmail_search", "gmail_read_thread",
+        "engineering_status", "submit_engineering_request",
     ):
         assert expected in names
 
@@ -130,6 +131,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     from app.tools import (  # noqa: F401
         analytics_tools,
         batch_tools,
+        engineering_tools,
         gmail_tools,
         gmail_writes,
         shopify_tools,
@@ -267,7 +269,13 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # ladder, rather than nine), objective_open 415, objective_show 251, objective_list 245.
     # What it buys is a goal that outlives the conversation; the rules for keeping it live in
     # the system prompt once, not in these descriptions.
-    assert total <= 33_930, f"the tool block is {total} bytes"
+    #
+    # 35_251 adds the engineering bridge (app/tools/engineering_tools.py), which app/runtime.py
+    # registers and offers like every other tool module, 1,321 bytes in this test's terms:
+    # engineering_status 211 (no arguments) and submit_engineering_request 1,110 (the loop's
+    # request fields, which the bridge checks against the loop's own intake rules before the
+    # owner is asked). Imported above so the budget counts them whichever test ran first.
+    assert total <= 35_251, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.
