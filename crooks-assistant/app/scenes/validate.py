@@ -15,6 +15,7 @@ to the evidence it checked — never the evidence itself.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
@@ -150,8 +151,15 @@ _INFLECTIONS = (("ies", "y"), ("ied", "y"), ("es", ""), ("s", ""), ("ed", ""), (
 # address can be quoted, a domain literal or in any script, so this fails closed: any value
 # with an at sign in it, in any of its forms, is taken for an email address.
 _AT_SIGNS = frozenset("@＠﹫")
-_PHONE = re.compile(r"(?<![\w/-])\+?\(?\d[\d ().-]{7,}\d(?![\w/-])")
-_PHONE_DIGITS = 9
+# A phone number fails closed too: national numbers run from a handful of digits to fifteen,
+# and are written in any digits with any space (no-break, narrow, thin, zero-width), dash,
+# bracket, dot or slash between them. So a run of digits and such marks is taken for a phone
+# number when it has seven digits or more, or five or more split into groups or after a plus.
+_PLUS_SIGNS = frozenset("+＋﹢")
+_PHONE_MARKS = frozenset("./·•‧・．／。﹒−")
+_PHONE_CATEGORIES = frozenset(("Zs", "Zl", "Zp", "Cc", "Cf", "Pd", "Ps", "Pe"))
+_PHONE_DIGITS = 7
+_PHONE_GROUPED_DIGITS = 5
 _LIST_ASK = re.compile(
     r"\b(?:list|lists|listing)\b|\bshow (?:me )?(?:all|every|the whole)\b|\ball of (?:them|the)\b", re.I,
 )
@@ -268,9 +276,32 @@ def _contact(d: FieldDescriptor, value: object) -> bool:
         return False
     if any(c in _AT_SIGNS for c in value):
         return True
-    return d.kind in (Kind.PERSON, Kind.TEXT) and any(
-        sum(c.isdigit() for c in m.group()) >= _PHONE_DIGITS for m in _PHONE.finditer(value)
-    )
+    return d.kind in (Kind.PERSON, Kind.TEXT) and _phone(value)
+
+
+def _phone(value: str) -> bool:
+    """Whether a value has in it a run of digits, spaces and phone punctuation that may be a
+    phone number, in any script's digits and any Unicode spacing."""
+    digits = groups = 0
+    plus = in_group = False
+    for c in value:
+        if c.isdigit():
+            digits += 1
+            groups += not in_group
+            in_group = True
+        elif c in _PLUS_SIGNS or c in _PHONE_MARKS or c.isspace() or unicodedata.category(c) in _PHONE_CATEGORIES:
+            plus = plus or c in _PLUS_SIGNS
+            in_group = False
+        else:
+            if _phone_run(digits, groups, plus):
+                return True
+            digits = groups = 0
+            plus = in_group = False
+    return _phone_run(digits, groups, plus)
+
+
+def _phone_run(digits: int, groups: int, plus: bool) -> bool:
+    return digits >= _PHONE_DIGITS or (digits >= _PHONE_GROUPED_DIGITS and (groups > 1 or plus))
 
 
 def _bound(ev: Evidence, record: str | None, d: FieldDescriptor, value: object, context: SceneContext) -> Bound:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -460,6 +461,124 @@ def test_an_email_address_in_any_form_is_a_contact_detail():
     assert [row[0].pii for row in inbox_rows] == [True] * len(UNUSUAL_ADDRESSES) + [False]
     assert [row[0].value for row in buyer_rows] == [*UNUSUAL_ADDRESSES, "Sam Smith"]
     assert [row[0].pii for row in buyer_rows] == [True] * len(UNUSUAL_ADDRESSES) + [False]
+
+
+# Valid phone numbers no ASCII pattern with a nine-digit minimum knows: Unicode spaces and dashes,
+# shorter national numbers, and full-width digits.
+FULL_WIDTH = str.maketrans("0123456789", "".join(chr(0xFF10 + d) for d in range(10)))
+UNUSUAL_PHONES = (
+    "020\N{NARROW NO-BREAK SPACE}7946\N{NARROW NO-BREAK SPACE}0958", "020\N{NO-BREAK SPACE}7946\N{NO-BREAK SPACE}0958",
+    "(020)\N{THIN SPACE}7946\N{EN DASH}0958", "2123 4567", "2123\N{ZERO WIDTH SPACE}4567", "555\N{NON-BREAKING HYPHEN}1234",
+    "12 34 56", "+683 4002", "020 7946 0958".translate(FULL_WIDTH),
+)
+PHONE_FRAGMENTS = ("7946", "0958", "2123", "4567", "1234", "34 56", "4002", "7946".translate(FULL_WIDTH))
+
+
+def test_a_phone_number_in_any_form_is_a_contact_detail():
+    """Whether a value is a phone number fails closed: a number spaced with no-break, narrow,
+    thin or zero-width spaces, a shorter national number or one in full-width digits is a
+    contact detail, dropped from a bound finding, a column and an entity when the task does not
+    need contact details, and kept but marked pii when it does. It is so as a connector's read
+    stores it (its spaces made plain) and as evidence made directly holds it (its spaces as given)."""
+    others = len(UNUSUAL_PHONES) + 1
+    inbox = to_evidence("gmail_search", {"count": others, "threads": [
+        *({**_thread(n), "from": phone, "from_email": f"caller{n}@example.org"} for n, phone in enumerate(UNUSUAL_PHONES)),
+        {**_thread(len(UNUSUAL_PHONES)), "from": "Sam Smith", "from_email": "sam@example.org"},
+    ]}, handle="ev-inbox", args={"days": 7}, observed_at=NOW, session_id=SESSION)
+    buyers = to_evidence("commerce_aggregate", {"entity": "orders", "group_by": ["customer"], "currency": "GBP", "rows": [
+        *({"key": {"customer_id": f"gid://shopify/Customer/{n}"}, "label": phone, "revenue": 100.0 + n, "orders": 1}
+          for n, phone in enumerate(UNUSUAL_PHONES)),
+        {"key": {"customer_id": "gid://shopify/Customer/99"}, "label": "Sam Smith", "revenue": 50.0, "orders": 1},
+    ]}, handle="ev-buyers", observed_at=NOW, session_id=SESSION)
+    stored = [" ".join(phone.split()) for phone in UNUSUAL_PHONES]
+    assert [inbox.records[n].values["from"] for n in range(len(UNUSUAL_PHONES))] == stored
+    assert [buyers.records[n].values["label"] for n in range(len(UNUSUAL_PHONES))] == stored
+    assert not inbox.descriptor("from").pii and not buyers.descriptor("label").pii
+
+    def as_given(ev: Evidence, name: str) -> Evidence:
+        records = tuple(Record(r.id, {**r.values, name: UNUSUAL_PHONES[n]}) if n < len(UNUSUAL_PHONES) else r for n, r in enumerate(ev.records))
+        return replace(ev, query="", records=records)
+
+    _phone_numbers_are_contact_details(inbox, buyers, stored)
+    _phone_numbers_are_contact_details(as_given(inbox, "from"), as_given(buyers, "label"), list(UNUSUAL_PHONES))
+
+
+def _phone_numbers_are_contact_details(inbox: Evidence, buyers: Evidence, phones: list[str]) -> None:
+    others = len(phones) + 1
+
+    def finding(text: str, handle: str, field: str, n: int) -> dict:
+        return {"type": "finding", "significance": "CONTEXT", "text": text, "values": [{"evidence": handle, "field": field, "record": f"r{n + 1}"}],
+                "evidence": [handle], "justification": "Who wrote and who buys."}
+
+    def serialised(scene, trace) -> str:
+        return json.dumps(scene.as_dict(), ensure_ascii=False) + json.dumps([(e.target, e.reason) for e in trace], ensure_ascii=False)
+
+    answer = {"text": "Nobody is waiting on a reply.", "justification": "The owner asked whether anyone is waiting."}
+    sam = len(phones)
+    withheld = SceneContext(request="anyone waiting on a reply?", session_id=SESSION, max_elements=4)
+    allowed = SceneContext(request="their phone numbers please", session_id=SESSION, contact_details=True, max_elements=4)
+
+    # Bound into a finding, and chosen as an entity's field.
+    for n, phone in enumerate(phones):
+        plan = {"answer": answer, "elements": [
+            finding("{0} wrote last.", "ev-inbox", "from", n),
+            finding("{0} is the biggest customer.", "ev-buyers", "label", n),
+            {"type": "entity", "evidence": "ev-buyers", "record": f"r{n + 1}", "fields": ["label", "revenue"], "justification": "The biggest customer by sales."},
+            finding("{0} wrote too.", "ev-inbox", "from", sam),
+        ]}
+        scene, trace = validate_scene(plan, [inbox, buyers], withheld)
+        assert [s.element.type for s in scene.elements] == ["entity", "finding"], phone
+        assert scene.elements[0].element.fields == ["revenue"] and scene.elements[1].text() == "Sam Smith wrote too."
+        final = _final(trace)
+        for target in ("elements[0] finding", "elements[1] finding"):
+            assert final[target].decision == "dropped" and "contact detail" in final[target].reason, (phone, target)
+        assert _reductions(trace, "elements[2] entity") == [
+            "label: a value in it is a contact detail; pii stripped, the task does not need contact details",
+        ], phone
+        text = serialised(scene, trace)
+        assert phone not in text
+        for fragment in PHONE_FRAGMENTS:
+            assert fragment not in text, (phone, fragment)
+        _no_pii(scene)
+
+        scene, trace = validate_scene(plan, [inbox, buyers], allowed)
+        assert [s.element.type for s in scene.elements] == ["finding", "finding", "entity", "finding"], phone
+        assert [s.text() for s in (scene.elements[0], scene.elements[1], scene.elements[3])] == [
+            f"{phone} wrote last.", f"{phone} is the biggest customer.", "Sam Smith wrote too."]
+        assert [b.pii for s in scene.elements for b in s.values] == [True, True, False], phone
+        assert scene.elements[2].element.fields == ["label", "revenue"]
+        assert [(b.value, b.pii) for b in scene.elements[2].rows[0]][0] == (phone, True)
+        assert not [e for e in trace if e.decision in ("reduced", "dropped")]
+
+    # Shown as a column.
+    plan = {"answer": answer, "elements": [
+        finding("{0} wrote too.", "ev-inbox", "from", sam),
+        finding("{0} is a customer too.", "ev-buyers", "label", sam),
+        {"type": "collection", "evidence": "ev-inbox", "columns": ["from", "subject"], "limit": others, "justification": "The threads it is about."},
+        {"type": "collection", "evidence": "ev-buyers", "columns": ["label", "revenue"], "limit": others, "justification": "The customers it is about."},
+    ]}
+    rows = {"max_elements": len(plan["elements"]), "collection_rows": others}
+    scene, trace = validate_scene(plan, [inbox, buyers], SceneContext(request=withheld.request, session_id=SESSION, **rows))
+    assert [s.element.type for s in scene.elements] == ["finding", "finding", "collection", "collection"]
+    assert scene.elements[2].element.columns == ["subject"] and len(scene.elements[2].rows) == others
+    assert scene.elements[3].element.columns == ["revenue"] and len(scene.elements[3].rows) == others
+    assert _reductions(trace, "elements[2] collection") == [
+        "from: a value in it is a contact detail; pii stripped, the task does not need contact details",
+    ]
+    assert _reductions(trace, "elements[3] collection") == [
+        "label: a value in it is a contact detail; pii stripped, the task does not need contact details",
+    ]
+    text = serialised(scene, trace)
+    for fragment in PHONE_FRAGMENTS:
+        assert fragment not in text, fragment
+    _no_pii(scene)
+
+    scene, trace = validate_scene(plan, [inbox, buyers], SceneContext(request=allowed.request, session_id=SESSION, contact_details=True, **rows))
+    assert scene.elements[2].element.columns == ["from", "subject"] and scene.elements[3].element.columns == ["label", "revenue"]
+    assert not [e for e in trace if e.decision in ("reduced", "dropped")]
+    for collection in scene.elements[2:]:
+        assert [row[0].value for row in collection.rows] == [*phones, "Sam Smith"]
+        assert [row[0].pii for row in collection.rows] == [True] * len(phones) + [False]
 
 
 def test_a_list_asked_for_is_shown_without_a_finding_up_to_the_list_limit():
