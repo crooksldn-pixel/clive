@@ -324,6 +324,9 @@ const DETAIL_WORDS = {
   commerce_query: ['Reading', 'the shop'], commerce_summary: ['Summarising', 'the shop'],
   commerce_aggregate: ['Adding up', 'the numbers'], commerce_capabilities: ['Checking', 'what the shop allows'],
   email_query: ['Reading', 'the inbox'], inventory_query: ['Checking', 'stock'],
+  // Engineering (the remote build loop)
+  engineering_status: ['Checking', 'the build queue'],
+  submit_engineering_request: ['Preparing', 'a build request', true],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;

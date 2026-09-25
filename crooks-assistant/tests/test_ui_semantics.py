@@ -26,7 +26,7 @@ from app.observability import ui_semantics
     ("What does the split button do?", "split", ("two", "half")),
     ("How do I go back?", "back", ("before",)),
     ("How do I type instead of speaking?", "composer", ("typ",)),
-    ("What does Applying mean?", "applying", ("Mac",)),
+    ("What does Applying mean?", "applying", ("server",)),
     ("How do I get back to this order?", "return_here", ("Back",)),
 ])
 def test_the_five_questions_are_answered_from_the_manifest(said, key, must_say):

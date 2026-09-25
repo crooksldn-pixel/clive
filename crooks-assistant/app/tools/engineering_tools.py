@@ -258,7 +258,7 @@ def _present(proposal) -> dict:
     name=SUBMIT_TOOL,
     description=(
         "Prepare one engineering objective for the remote engineering loop; the owner approves "
-        "filing it on the tablet. Call engineering_status first and pass its inbox id. "
+        "filing it in CLIVE. Call engineering_status first and pass its inbox id. "
         "request_id: lowercase words joined by hyphens."
     ),
     input_schema={
