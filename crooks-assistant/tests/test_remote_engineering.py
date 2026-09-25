@@ -1571,6 +1571,43 @@ def test_the_adapter_root_guard_admits_only_records_the_journal_cannot_see(tmp_p
     adapter_root_preconditions(store_root, inside)
 
 
+@pytest.mark.parametrize("rules", [
+    "/engineering/remote_engineering/claims/request.json\n/engineering/remote_engineering/receipts/request.json\n",
+    "/engineering/remote_engineering/claims/*.json\n/engineering/remote_engineering/receipts/*.json\n",
+], ids=["only-the-old-probe-files", "record-names-but-not-temporary-files"])
+def test_poll_and_run_refuse_when_only_some_record_files_are_ignored(env, tmp_path, capsys, monkeypatch,
+                                                                     no_host_git_config, rules):
+    """F-01: rules that cover sample file names, not the record directories, are not safety."""
+    state = _journalled_state(tmp_path)
+    store_dir = state / "engineering"
+    (state / ".gitignore").write_text(rules)
+    _git(state, "add", ".gitignore")
+    _git(state, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ignore some records")
+    commit_request(env.origin, "r-narrow", valid_request(env, request_id="r-narrow"))
+    started: list[str] = []
+    monkeypatch.setattr(cli, "_dispatcher", lambda *a, **k: started.append("dispatcher"))
+
+    with pytest.raises(InboxError) as refusal:
+        adapter_root_preconditions(store_dir, store_dir / "remote_engineering")
+    assert str(refusal.value) == ADAPTER_ROOT_NOT_IGNORED
+
+    for verb, extra in (("poll", []), ("run", ["--max-cycles", "1"])):
+        rc = cli.run([
+            "--store", str(store_dir), "--repo", str(env.checkout),
+            verb, "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main", *extra,
+        ])
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert ADAPTER_ROOT_NOT_IGNORED in captured.err
+        assert "r-narrow" not in captured.out + captured.err
+
+    assert started == []
+    assert ClaimLog(store_dir / "remote_engineering").get("r-narrow") is None
+    assert not (store_dir / "remote_engineering").exists()   # nothing claimed, so no id was burned
+    assert not (store_dir / "objectives").exists()
+    assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
+
+
 def test_the_longest_admitted_id_reaches_an_accepted_receipt_in_one_shot_poll(env, tmp_path, capsys,
                                                                               no_host_git_config):
     assert len(LONGEST_ID) == REQUEST_ID_MAX_LENGTH

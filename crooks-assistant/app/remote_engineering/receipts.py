@@ -63,6 +63,11 @@ def adapter_root_preconditions(store_root: Path, adapter_root: Path) -> None:
     any checkout has no journal, and an adapter root outside the store's work tree cannot be
     swept into one; otherwise both record directories must be ignored by the work tree's own
     rules, or nothing starts.
+
+    The directories themselves are what is checked, never a sample file inside them: git
+    cannot re-include anything beneath an ignored directory, so that is the one answer that
+    covers every request id and every temporary file. A rule matching only some file names
+    is refused, however many of the real records it would happen to cover.
     """
     work_tree = _work_tree(Path(store_root).resolve())
     if work_tree is None:
@@ -72,7 +77,7 @@ def adapter_root_preconditions(store_root: Path, adapter_root: Path) -> None:
         return
     relative = adapter.relative_to(work_tree)
     for directory in ("claims", "receipts"):
-        probe = (relative / directory / "request.json").as_posix()
+        probe = (relative / directory).as_posix()
         ignored = subprocess.run(
             ["git", "check-ignore", "-q", "--", probe], cwd=str(work_tree), capture_output=True, text=True
         )
