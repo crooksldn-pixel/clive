@@ -166,7 +166,7 @@
           },
           {
             id: 'e2', type: 'proposal', justification: 'Tell the customer when it ships.',
-            action: 'act-2107', text: 'Email Amara Okafor that #1042 ships tomorrow.',
+            action: 'act-2107', text: 'An action is ready for you to review.',
           },
         ],
         drilldown: null,

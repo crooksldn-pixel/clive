@@ -43,7 +43,8 @@ PERIODS = {
     "last_30_days": "last 30 days", "last_90_days": "last 90 days", "since_launch": "since launch",
 }
 
-# A Proposal names an action that already exists; this is said when its words are not given.
+# A Proposal names an action that already exists, by id alone; this is all it says, since any
+# words describing the action were not checked by validation and could carry anyone's details.
 PROPOSAL_FALLBACK = "An action is ready for you to review."
 
 _MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September",
@@ -58,6 +59,7 @@ _SECONDS = {
 }
 _MULTIPLE = frozenset({"x", "×"})
 _ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}")
+_DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 # ------------------------------------------------------------------------ numbers
@@ -144,12 +146,6 @@ def _join(main: str, unit: str | None) -> str:
 # -------------------------------------------------------------------------- times
 
 
-def _is_day(value: datetime) -> bool:
-    """A date with no time of day: how a date-only value (a day's bucket) is held."""
-    offset = value.utcoffset()
-    return offset is not None and not offset and (value.hour, value.minute, value.second, value.microsecond) == (0, 0, 0, 0)
-
-
 def _clock(local: datetime) -> str:
     hour = local.hour % 12 or 12
     half = "am" if local.hour < 12 else "pm"
@@ -171,14 +167,16 @@ def _day(day: date, today: date | None) -> str:
     return written if today is not None and day.year == today.year else f"{written} {day.year}"
 
 
-def format_when(value: datetime, now: datetime | None = None) -> str:
+def format_when(value: datetime | date, now: datetime | None = None) -> str:
     """A moment in Europe/London in plain relative words: "just now", "45 minutes ago",
-    "3 hours ago", "today at 9:15am", "yesterday at 4:30pm", "Monday at 11am", "3 September";
-    a date with no time of day is said as its day. Without `now` it is said as its date."""
-    value = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    "3 hours ago", "today at 9:15am", "yesterday at 4:30pm", "Monday at 11am", "3 September".
+    A datetime is always an instant, said after it is turned to London time, midnight UTC
+    included; only a `date` (a day's bucket) is said as its day. Without `now` it is said as
+    its date."""
     today = now.astimezone(LONDON).date() if now is not None else None
-    if _is_day(value):
-        return _day(value.date(), today)
+    if not isinstance(value, datetime):
+        return _day(value, today)
+    value = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
     local = value.astimezone(LONDON)
     if now is not None:
         seconds = (now - value).total_seconds()
@@ -197,11 +195,14 @@ def format_when(value: datetime, now: datetime | None = None) -> str:
     return f"{_day(local.date(), today)} at {_clock(local)}"
 
 
-def _moment(text: str) -> datetime | None:
-    """A series point's label as a time, when it is an ISO date or datetime."""
+def _moment(text: str) -> datetime | date | None:
+    """A series point's label as a time: a `date` when it is exactly an ISO date (a day's
+    bucket), a datetime when it is an ISO datetime."""
     if not _ISO_DAY.match(text):
         return None
     try:
+        if _DATE_ONLY.match(text):
+            return date.fromisoformat(text)
         value = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return None
@@ -212,14 +213,12 @@ def _moment(text: str) -> datetime | None:
 
 
 def scene_payload(
-    scene: Scene, evidence: Iterable[Evidence] | Mapping[str, Evidence] = (), *,
-    now: datetime | None = None, actions: Mapping[str, str] | None = None,
+    scene: Scene, evidence: Iterable[Evidence] | Mapping[str, Evidence] = (), *, now: datetime | None = None,
 ) -> dict[str, Any]:
     """The scene as the renderer draws it: an Answer, its elements in order, and — when the
     scene has one — the drill-down to what was checked. `now` is the moment time words are
-    relative to (the latest read's when not given); `actions` are the words of the existing
-    actions a Proposal may name, by id."""
-    return _Payload(_pool(evidence), now, actions or {}).scene(scene)
+    relative to (the latest read's when not given)."""
+    return _Payload(_pool(evidence), now).scene(scene)
 
 
 def _pool(evidence: Iterable[Evidence] | Mapping[str, Evidence]) -> dict[str, Evidence]:
@@ -232,10 +231,9 @@ def _pool(evidence: Iterable[Evidence] | Mapping[str, Evidence]) -> dict[str, Ev
 
 
 class _Payload:
-    def __init__(self, pool: dict[str, Evidence], now: datetime | None, actions: Mapping[str, str]) -> None:
+    def __init__(self, pool: dict[str, Evidence], now: datetime | None) -> None:
         self.pool = pool
         self.now = now if now is not None else max((ev.observed_at for ev in pool.values()), default=None)
-        self.actions = actions
 
     def scene(self, scene: Scene) -> dict[str, Any]:
         answer = {"id": "answer", "type": "answer", "text": self.prose(scene.answer),
@@ -415,9 +413,7 @@ class _Payload:
         return {"caption": self.caption(shown.element.evidence), "rows": rows}
 
     def _proposal(self, shown: Shown) -> dict[str, Any]:
-        action = shown.element.action
-        words = self.actions.get(action)
-        return {"action": action, "text": words.strip() if isinstance(words, str) and words.strip() else PROPOSAL_FALLBACK}
+        return {"action": shown.element.action, "text": PROPOSAL_FALLBACK}
 
     def _question(self, shown: Shown) -> dict[str, Any]:
         return {"text": shown.element.text, "options": list(shown.element.options)}

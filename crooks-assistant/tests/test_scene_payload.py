@@ -7,7 +7,7 @@ where the validated scene kept it. Everything here is synthetic and offline.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -164,8 +164,10 @@ def test_durations_are_plain_words(value, unit, words):
     (datetime(2026, 9, 21, 10, 0, tzinfo=UTC), "Monday at 11am"),
     (datetime(2026, 9, 1, 12, 0, tzinfo=UTC), "1 September at 1pm"),
     (datetime(2025, 12, 25, 12, 0, tzinfo=UTC), "25 December 2025 at 12pm"),
-    (datetime(2026, 9, 22, tzinfo=UTC), "Tuesday"),                        # a date with no time of day
-    (datetime(2026, 9, 24, tzinfo=UTC), "today"),
+    (date(2026, 9, 22), "Tuesday"),                                        # a date with no time of day
+    (date(2026, 9, 24), "today"),
+    (date(2026, 9, 25), "tomorrow"),
+    (date(2026, 9, 3), "3 September"),
     (NOW + timedelta(minutes=20), "in 20 minutes"),
     (datetime(2026, 9, 25, 9, 0, tzinfo=UTC), "tomorrow at 10am"),
 ])
@@ -187,7 +189,7 @@ def test_london_time_decides_the_day():
 
 def test_every_element_is_resolved_and_formatted_from_evidence():
     scene, evidence = _full_scene()
-    payload = scene_payload(scene, evidence, now=NOW, actions={"act-1": "Draft replies to the three customers waiting."})
+    payload = scene_payload(scene, evidence, now=NOW)
     json.dumps(payload)   # plain JSON, nothing else
 
     assert payload["answer"] == {"id": "answer", "type": "answer", "text": "3 customers are waiting on a reply.",
@@ -236,11 +238,53 @@ def test_every_element_is_resolved_and_formatted_from_evidence():
     assert all(isinstance(v, float) for v in trend["values"])
     assert trend["latest"] == "£1,179.25" and trend["from"] == "Sunday" and trend["to"] == "today"
 
-    assert by["proposal"]["action"] == "act-1" and by["proposal"]["text"] == "Draft replies to the three customers waiting."
+    assert by["proposal"]["action"] == "act-1" and by["proposal"]["text"] == PROPOSAL_FALLBACK
     assert by["question"]["text"] == "Shall I draft the replies?" and by["question"]["options"] == ["Yes", "Not yet"]
 
-    # Without its words, a proposal says only that an action is ready.
-    assert _by_type(scene_payload(scene, evidence, now=NOW))["proposal"]["text"] == PROPOSAL_FALLBACK
+
+def test_a_midnight_utc_instant_is_said_at_its_london_time_and_a_day_bucket_as_its_day():
+    # Midnight UTC during BST is 1am in London: an instant, never mistaken for a date.
+    assert format_when(datetime(2026, 9, 24, tzinfo=UTC), NOW) == "today at 1am"
+    assert format_when(datetime(2026, 9, 22, tzinfo=UTC), NOW) == "Tuesday at 1am"
+    # In winter London is on UTC, so midnight UTC is midnight there.
+    assert format_when(datetime(2026, 12, 9, tzinfo=UTC), datetime(2026, 12, 10, 18, 0, tzinfo=UTC)) == "yesterday at 12am"
+
+    row = _customer_row(0, waiting=True) | {"latest_inbound_at": "2026-09-24T00:00:00Z"}
+    result = {"set_id": "ws1", "set_label": "customers, last 30 days", "days": 30, "customers": 1,
+              "counts": {"contacted": 1, "not_contacted": 0, "replied": 0, "needs_reply": 1, "unchecked": 0}, "rows": [row]}
+    mail = to_evidence("email_query", result, handle="ev-mail", args={"set_id": "ws1", "days": 30}, observed_at=NOW, session_id=SESSION)
+    registry = Registry()
+    registry.register(ADS)
+    daily = [{"day": "2026-09-18", "spend": 90}, {"day": "2026-09-21", "spend": 110}, {"day": "2026-09-24T00:00:00Z", "spend": 150}]
+    ads = registry.to_evidence("ads_campaign_report", {"campaigns": [], "totals": {"spend": "350 GBP", "roas": 2.0, "daily": daily}},
+                               handle="ads-1", args={"period": "last_7_days"}, observed_at=NOW, session_id=SESSION)
+    plan = {
+        "answer": {"text": "{0} customer is waiting on a reply.", "values": [{"evidence": "ev-mail", "field": "needs_reply"}],
+                   "justification": "Asked."},
+        "elements": [
+            {"type": "entity", "evidence": "ev-mail", "record": "r1", "fields": ["customer_name", "latest_inbound_at"],
+             "justification": "Who wrote."},
+            {"type": "trend", "series": {"evidence": "ads-1", "field": "daily_spend"}, "justification": "The week's spend."},
+        ],
+    }
+    scene, _ = validate_scene(plan, [mail, ads], SceneContext(session_id=SESSION))
+    entity, trend = scene_payload(scene, [mail, ads], now=NOW)["elements"]
+    assert next(f for f in entity["fields"] if f["field"] == "latest_inbound_at")["text"] == "today at 1am"
+    # A series label that is exactly a date is a day's bucket; one with a time is an instant.
+    assert trend["from"] == "Friday" and trend["to"] == "today at 1am"
+
+
+def test_an_action_description_cannot_bring_contact_details_into_a_proposal():
+    """A Proposal is validated as an action id alone, so it says only fixed words: nothing
+    describing the action can reach the screen, whatever the scene kept."""
+    for contact_details in (False, True):
+        scene, evidence = _full_scene(contact_details=contact_details)
+        proposal = _by_type(scene_payload(scene, evidence, now=NOW))["proposal"]
+        assert {k: proposal[k] for k in ("action", "text")} == {"action": "act-1", "text": PROPOSAL_FALLBACK}
+    with pytest.raises(TypeError):
+        scene_payload(scene, evidence, now=NOW, actions={"act-1": "Email alice@example.com"})   # type: ignore[call-arg]
+    scene, evidence = _full_scene(contact_details=False)
+    assert "alice" not in json.dumps(scene_payload(scene, evidence, now=NOW))
 
 
 def test_the_2026_09_24_case_is_one_answer_and_a_drill_down():
