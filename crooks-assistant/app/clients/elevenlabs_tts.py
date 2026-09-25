@@ -24,6 +24,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from app.secrets import keychain
+from app.speech.voice_reasons import voice_reason
 
 log = logging.getLogger("crooks.voice")
 
@@ -187,6 +188,9 @@ class VoiceClient:
         self.last_error_kind: str = ""
         self.last_ms: float = 0.0
         self.last_bytes: int = 0
+        # The latest attempt failed and nothing has succeeded since. Health reads this, not
+        # the cooldown alone: a voice that failed its last sentence is not "ok".
+        self.failing = False
 
     # ------------------------------------------------------------------ connection
 
@@ -244,6 +248,7 @@ class VoiceClient:
 
     def _record_failure(self, exc: VoiceUnavailable) -> VoiceUnavailable:
         self.failures += 1
+        self.failing = True
         self.last_error_kind = exc.kind
         self.last_error = self._scrub(str(exc))[:200]
         if exc.kind in STICKY_KINDS and self._cooldown_s > 0:
@@ -261,6 +266,7 @@ class VoiceClient:
         self.last_bytes = stream.bytes_out
         if truncated or not stream.bytes_out:
             self.failures += 1
+            self.failing = True
             self.last_error_kind = "truncated" if truncated else "empty"
             self.last_error = (truncated or "ElevenLabs sent no audio").strip()
             log.warning(
@@ -269,6 +275,7 @@ class VoiceClient:
             )
             return
         self.successes += 1
+        self.failing = False
         self.clear_cooldown()
         log.info(
             "tts ok · %s · %s · %s · %.0fms · %d bytes", self.voice_name, self.model,
@@ -498,12 +505,16 @@ class VoiceClient:
         account problem diagnosable — scrubbed, and truncated, because it is not ours."""
         body = self._scrub(body[:200])
         lowered = body.lower()
-        if code in (401, 403) or "invalid_api_key" in lowered:
+        if code == 402 or "quota" in lowered or "credit" in lowered:
+            # First, whatever the status: ElevenLabs answers an empty account with a 401
+            # quota_exceeded, and that is a plan to top up, not a key to replace.
+            kind = "credit"
+        elif code in (401, 403) or "invalid_api_key" in lowered:
             kind = "rejected" if code == 401 else "forbidden"
         elif code == 429 and ("concurrent" in lowered or "rate" in lowered or "busy" in lowered):
             # Too many requests at once, not an empty account: the next one may well work.
             kind = "rate"
-        elif code in (402, 429) or "quota" in lowered or "credit" in lowered:
+        elif code == 429:
             kind = "credit"
         elif code == 404 or "voice_not_found" in lowered:
             kind = "no_voice"
@@ -563,7 +574,8 @@ class VoiceClient:
     def health(self) -> tuple[bool, str]:
         """Is the voice usable? Answered from configuration and the Keychain, with no request:
         a health check that synthesises a sentence on every poll is a bill, not a check. The
-        account itself is already probed once, by the Scribe check, on the same credential."""
+        account itself is already probed once, by the Scribe check, on the same credential; and
+        the latest real attempt is the evidence of whether speaking works."""
         note = f"ElevenLabs {self.voice_name} · {self.model} · {self.output_format}"
         if not self.enabled:
             return True, f"not in use (CROOKS_TTS_ENABLED=false) · {note}"
@@ -584,9 +596,18 @@ class VoiceClient:
             )
         if self.prefetches:
             note += f" · {self.prefetch_hits}/{self.prefetches} answers ready before asked"
-        if self.cooling_down:
-            return False, (
-                f"{note} · SKIPPING ElevenLabs for {self.cooldown_remaining_s:.0f}s after "
-                f"{self.last_error_kind}: {self.last_error}"
-            )
+        if self.failing_kind:
+            # The latest attempt failed and nothing has worked since: not ok, in plain words
+            # first, then the kind and ElevenLabs' own detail. The next success clears it.
+            detail = f"{voice_reason(self.failing_kind)} ({self.failing_kind}) · {note}"
+            if self.cooling_down:
+                detail += f" · SKIPPING ElevenLabs for {self.cooldown_remaining_s:.0f}s"
+            return False, f"{detail} · last error: {self.last_error}"
         return True, f"key ok · {note}"
+
+    @property
+    def failing_kind(self) -> str:
+        """The kind of the latest failure while nothing has succeeded since; "" when well."""
+        if self.failing or self.cooling_down:
+            return self.last_error_kind or "failure"
+        return ""

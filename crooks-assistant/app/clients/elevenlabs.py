@@ -22,6 +22,7 @@ import httpx
 
 from app.clients.whisper import Transcript
 from app.secrets import keychain
+from app.speech.voice_reasons import listening_reason
 
 log = logging.getLogger("crooks.scribe")
 
@@ -37,6 +38,11 @@ KEYTERM_MAX_WORDS = 5
 # account with no credit. Retrying those on every sentence buys nothing and costs the speaker a
 # round trip before the fallback starts, so they open a short cooldown instead.
 STICKY_KINDS = frozenset({"no_key", "rejected", "forbidden", "credit"})
+
+
+def _says_no_credit(lowered_body: str) -> bool:
+    """An ElevenLabs error body about an empty account (quota_exceeded, "0 credits remaining")."""
+    return "quota" in lowered_body or "credit" in lowered_body
 
 
 class ScribeUnavailable(RuntimeError):
@@ -82,6 +88,9 @@ class ScribeClient:
         self.last_error: str = ""
         self.last_error_kind: str = ""
         self.last_ms: float = 0.0
+        # The latest attempt failed and nothing has succeeded since. A key that still lists
+        # models is not a recogniser that works: health reads this as well as the probe.
+        self.failing = False
 
     # ------------------------------------------------------------------ connection
 
@@ -141,6 +150,7 @@ class ScribeClient:
 
     def _record_failure(self, exc: ScribeUnavailable) -> ScribeUnavailable:
         self.failures += 1
+        self.failing = True
         self.last_error_kind = exc.kind
         self.last_error = self._scrub(str(exc))[:200]
         if exc.kind in STICKY_KINDS and self._cooldown_s > 0:
@@ -222,6 +232,7 @@ class ScribeClient:
 
         ms = (time.perf_counter() - started) * 1000
         self.successes += 1
+        self.failing = False
         self.last_ms = ms
         self.clear_cooldown()
         return Transcript(text=(payload.get("text") or "").strip(), ms=ms, model=self.model)
@@ -232,12 +243,16 @@ class ScribeClient:
         code = response.status_code
         body = self._scrub((response.text or "")[:200])
         lowered = body.lower()
-        if code in (401, 403) or "invalid_api_key" in lowered or "api key" in lowered:
+        if code == 402 or _says_no_credit(lowered):
+            # First, whatever the status: ElevenLabs answers an empty account with a 401
+            # quota_exceeded, and that is a plan to top up, not a key to replace.
+            kind = "credit"
+        elif code in (401, 403) or "invalid_api_key" in lowered or "api key" in lowered:
             kind = "rejected" if code == 401 else "forbidden"
         elif code == 429 and ("concurrent" in lowered or "rate" in lowered or "busy" in lowered):
             # A burst, not an empty account: whisper takes this one, Scribe the next.
             kind = "rate"
-        elif code in (402, 429) or "quota" in lowered or "credit" in lowered:
+        elif code == 429:
             kind = "credit"
         elif code >= 500:
             kind = "server_error"
@@ -263,11 +278,14 @@ class ScribeClient:
         note = f"model {self.model}, language {self.language}"
         if self.attempts:
             note += f" · {self.successes}/{self.attempts} ok, last {self.last_ms:.0f}ms"
+        failing = self.failing_kind
         if self.cooling_down:
             note += (
                 f" · SKIPPING Scribe for {self.cooldown_remaining_s:.0f}s after "
                 f"{self.last_error_kind}: {self.last_error}"
             )
+        elif failing:
+            note += f" · last error: {self.last_error}"
 
         try:
             client = self._client()
@@ -277,15 +295,30 @@ class ScribeClient:
         except httpx.HTTPError as exc:
             return False, f"ElevenLabs unreachable: {type(exc).__name__} · {note}"
 
-        if probe.status_code == 200:
-            return not self.cooling_down, f"key ok{quota} · {note}"
         body = self._scrub((probe.text or "")[:200]).lower()
-        if "missing_permissions" in body or probe.status_code == 403:
+        if probe.status_code == 200:
+            detail = f"key ok{quota} · {note}"
+        elif "missing_permissions" in body or probe.status_code == 403:
             # A key scoped to one product. It cannot list models; it can still transcribe.
-            return not self.cooling_down, f"key ok (restricted, unlisted quota) · {note}"
-        if probe.status_code == 401:
+            detail = f"key ok (restricted, unlisted quota) · {note}"
+        elif probe.status_code in (401, 402, 429) and _says_no_credit(body):
+            return False, f"{listening_reason('credit')} (credit) · {note}"
+        elif probe.status_code == 401:
             return False, f"API key rejected (401) · {note}"
-        return False, f"ElevenLabs returned {probe.status_code} · {note}"
+        else:
+            return False, f"ElevenLabs returned {probe.status_code} · {note}"
+        # The key answers; whether transcription itself works is what the last attempt said.
+        # Not ok, in plain words, until the next success.
+        if failing:
+            return False, f"{listening_reason(failing)} ({failing}) · {detail}"
+        return True, detail
+
+    @property
+    def failing_kind(self) -> str:
+        """The kind of the latest failure while nothing has succeeded since; "" when well."""
+        if self.failing or self.cooling_down:
+            return self.last_error_kind or "failure"
+        return ""
 
     # A key that may not read the account says so with a 401 every time it is asked. Ask once
     # an hour, not on every poll: the answer does not change and the log should not be a column

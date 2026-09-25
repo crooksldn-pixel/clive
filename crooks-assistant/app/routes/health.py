@@ -7,6 +7,8 @@ import time
 
 from fastapi import APIRouter, Query, Request
 
+from app.speech.voice_reasons import listening_reason, voice_reason
+
 router = APIRouter()
 
 VERSION = "0.1.0"
@@ -33,7 +35,7 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
     state = request.app.state
     cached = getattr(state, "health_cache", None)
     if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-        return {**cached[1], "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)}
+        return {**_live_voice(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)}
     lock = getattr(state, "health_lock", None)
     if lock is None:
         lock = state.health_lock = asyncio.Lock()
@@ -42,10 +44,56 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
         # doubling the work.
         cached = getattr(state, "health_cache", None)
         if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-            return {**cached[1], "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)}
+            return {**_live_voice(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)}
         result = await _health(runtime)
         state.health_cache = (time.time(), result)
         return {**result, "observability": _observability(runtime), "pad": _pad(), "cached": False, "age_s": 0.0}
+
+
+def _live_voice(runtime, result: dict) -> dict:
+    """A cached result with the voice read again at ANSWER time.
+
+    The voice check costs no request (the name check is remembered for an hour), and a voice
+    that failed a minute into the cache — or spoke again after failing — must not be reported
+    as it was when the cache was filled. The cached dict itself is not changed."""
+    if "voice" not in result or "checks" not in result:
+        return result
+    ok, detail = runtime.voice.health()
+    checks = {**result["checks"], "tts": {"ok": ok, "detail": detail}}
+    return {
+        **result,
+        "status": "ok" if all(c["ok"] for c in checks.values()) else "degraded",
+        "voice": _voice_block(runtime, ok),
+        "checks": checks,
+    }
+
+
+def _voice_block(runtime, ok: bool) -> dict:
+    """One line for "who is speaking". The tablet decides nothing from this — it asks /speak
+    and falls back if that fails — but it is what makes a silent tablet or an Android-sounding
+    one diagnosable without reading the log."""
+    voice = runtime.voice
+    failing = getattr(voice, "failing_kind", "") or ""
+    return {
+        "provider": "elevenlabs" if voice.enabled else "browser",
+        "voice": voice.voice_name,
+        "model": voice.model,
+        "output_format": voice.output_format,
+        "enabled": voice.enabled,
+        "ok": ok,
+        "attempts": voice.attempts,
+        "successes": voice.successes,
+        "failures": voice.failures,
+        "last_ms": round(voice.last_ms, 1),
+        "last_bytes": voice.last_bytes,
+        "last_error_kind": voice.last_error_kind,
+        # Set while the latest attempt failed with no success since: what happened and what
+        # brings it back. None once the voice has spoken again.
+        "failure_kind": failing or None,
+        "reason": voice_reason(failing) if failing else None,
+        "prefetches": voice.prefetches,
+        "prefetch_hits": voice.prefetch_hits,
+    }
 
 
 def _pad(now: float | None = None) -> dict:
@@ -126,6 +174,7 @@ async def _health(runtime) -> dict:
         pass
     ok, detail = runtime.voice.health()
     checks["tts"] = {"ok": ok, "detail": detail}
+    scribe_failing = (getattr(runtime.scribe, "failing_kind", "") or "") if primary == "scribe" else ""
     settings = runtime.settings
 
     # The plan's M3 failure check: Core ML build succeeds but the .mlmodelc is missing, and
@@ -231,26 +280,12 @@ async def _health(runtime) -> dict:
             "scribe_successes": runtime.scribe.successes,
             "scribe_failures": runtime.scribe.failures,
             "scribe_last_error_kind": runtime.scribe.last_error_kind,
+            # Set while Scribe's latest attempt failed with no success since, in plain words.
+            "scribe_failure_kind": scribe_failing or None,
+            "scribe_reason": listening_reason(scribe_failing) if scribe_failing else None,
         },
-        # And one line for "who is speaking". The tablet decides nothing from this — it asks
-        # /speak and falls back if that fails — but it is what makes a silent tablet or an
-        # Android-sounding one diagnosable without reading the log.
-        "voice": {
-            "provider": "elevenlabs" if runtime.voice.enabled else "browser",
-            "voice": runtime.voice.voice_name,
-            "model": runtime.voice.model,
-            "output_format": runtime.voice.output_format,
-            "enabled": runtime.voice.enabled,
-            "ok": ok,
-            "attempts": runtime.voice.attempts,
-            "successes": runtime.voice.successes,
-            "failures": runtime.voice.failures,
-            "last_ms": round(runtime.voice.last_ms, 1),
-            "last_bytes": runtime.voice.last_bytes,
-            "last_error_kind": runtime.voice.last_error_kind,
-            "prefetches": runtime.voice.prefetches,
-            "prefetch_hits": runtime.voice.prefetch_hits,
-        },
+        # And one line for "who is speaking" — see _voice_block.
+        "voice": _voice_block(runtime, ok),
         "writes": {"state": writes.state, "detail": writes.detail},
         "capabilities": capabilities,
         "families": families,

@@ -24,6 +24,7 @@ from app.clients.elevenlabs import ScribeClient, ScribeUnavailable
 from app.clients.whisper import Transcript, WhisperClient, WhisperUnavailable
 from app.speech.decode import AudioStats, DecodeError, decode
 from app.speech.normalise import Normalised, Normaliser
+from app.speech.voice_reasons import LISTENING_CREDIT_SPOKEN
 
 log = logging.getLogger("crooks.transcribe")
 
@@ -137,6 +138,13 @@ class Transcriber:
             wav, prompt=build_prompt(self._normaliser.catalogue.prompt_terms())
         )
 
+    def _unheard_reason(self, exc: WhisperUnavailable) -> str:
+        """What the owner hears when nothing could transcribe. An empty ElevenLabs account is
+        said as what it is — and what brings it back — rather than as a broken recogniser."""
+        if self._primary == "scribe" and getattr(self._scribe, "failing_kind", "") == "credit":
+            return LISTENING_CREDIT_SPOKEN
+        return exc.spoken
+
     async def _recognise(self, wav: bytes, timings: dict[str, float]) -> tuple[Transcript, str, bool, str]:
         """(transcript, engine, fell_back, why). Raises WhisperUnavailable only when the
         fallback is down too — at which point there is genuinely nothing to say."""
@@ -222,7 +230,7 @@ class Transcriber:
             log.error("no recogniser available: %s", exc)
             return SpeechResult(
                 ok=False,
-                reason=exc.spoken,
+                reason=self._unheard_reason(exc),
                 stats=audio.stats,
                 timings_ms=timings,
                 engine="none",
