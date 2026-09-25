@@ -1,0 +1,22 @@
+{
+  "attempt_id": "ce791d032dcc-exact-sha-review",
+  "candidate_sha": "ce791d032dcc8cf9b761ca40ce0b08a259c897a2",
+  "findings": [],
+  "reviewer": {
+    "clean": true,
+    "context_fresh": true,
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "read_only": true,
+    "session_id": "openai-response:resp_02784713504584da016ab6185bf74c87d2af7faae266090450",
+    "session_started_at": "2026-09-25T06:44:42.733232Z",
+    "workspace_branch": "detached:ce791d032dcc8cf9b761ca40ce0b08a259c897a2",
+    "workspace_head": "ce791d032dcc8cf9b761ca40ce0b08a259c897a2",
+    "workspace_id": "git-objects:ce791d032dcc8cf9b761ca40ce0b08a259c897a2"
+  },
+  "schema_version": "clive.review_result.v1",
+  "summary": "The merge result preserves both reviewed lines without lost or invented paths. The sole textual conflict in app/main.py is correctly resolved as a union: the environment module exists, is imported, and its router is registered without displacing existing routes. The two landed lines have no conflicting shared definitions or apparent cross-line contract drift, the runtime roster is present at the path resolved by the new route, and exact-SHA acceptance passed all required gates, including 3449 offline tests. The protected roster file arrived through the stated owner-merged lane.\n\n[model gpt-5.6-sol, effort high, usage {\"input_tokens\": 67351, \"input_tokens_details\": {\"cache_write_tokens\": 67348, \"cached_tokens\": 0}, \"output_tokens\": 1140, \"output_tokens_details\": {\"reasoning_tokens\": 981}, \"total_tokens\": 68491}]",
+  "task_id": "trunk-landing-2026-09-24",
+  "task_revision": 1,
+  "verdict": "READY"
+}

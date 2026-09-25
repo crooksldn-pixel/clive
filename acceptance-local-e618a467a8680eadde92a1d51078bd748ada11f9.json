@@ -1,0 +1,139 @@
+{
+  "acceptance": {
+    "accepted": false,
+    "eligible_for_acceptance_decision": true,
+    "human_approval_recorded": false,
+    "independent_review": "required",
+    "malformed_gates": [],
+    "mechanical_evidence": "complete",
+    "note": "Mechanical gates produce evidence, not permission. Eligibility means an independent principal may now review this exact SHA; it is not acceptance, and acceptance is never derived from this artifact alone.",
+    "unsatisfied_gates": []
+  },
+  "gates": [
+    {
+      "command": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "detail": "All checks passed!",
+      "duration_s": 0.204,
+      "exit_code": 0,
+      "name": "ruff",
+      "required": true,
+      "status": "pass"
+    },
+    {
+      "command": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_orchestrator_control_plane.py",
+        "-q",
+        "-p",
+        "no:cacheprovider"
+      ],
+      "detail": "44 passed in 0.47s",
+      "duration_s": 1.36,
+      "exit_code": 0,
+      "name": "pytest_control_plane",
+      "required": true,
+      "status": "pass"
+    },
+    {
+      "command": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "/tmp/claude-0/-root/dcfacf38-a455-41d1-bc74-4859bc20dcb1/scratchpad/trunk-work/crooks-assistant/scripts/product_memory_check.py",
+        "--json"
+      ],
+      "data": {
+        "check": "product_memory_structure",
+        "documents": 28,
+        "ok": true,
+        "violations": []
+      },
+      "detail": "}",
+      "duration_s": 0.122,
+      "exit_code": 0,
+      "name": "product_memory_structure",
+      "required": true,
+      "status": "pass"
+    },
+    {
+      "command": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "tests",
+        "-m",
+        "not live",
+        "-q",
+        "-p",
+        "no:cacheprovider"
+      ],
+      "detail": "3748 passed, 8 skipped, 2 deselected in 629.40s (0:10:29)",
+      "duration_s": 631.867,
+      "exit_code": 0,
+      "name": "pytest_offline_full",
+      "required": true,
+      "status": "pass"
+    },
+    {
+      "command": [
+        "/tmp/claude-0/-root/dcfacf38-a455-41d1-bc74-4859bc20dcb1/scratchpad/trunk-work/.tooling/bin/gitleaks",
+        "detect",
+        "--no-banner",
+        "--redact",
+        "--exit-code",
+        "1",
+        "--config",
+        ".gitleaks.toml",
+        "--no-git",
+        "--source",
+        ".",
+        "--baseline-path",
+        ".gitleaks-baseline.json"
+      ],
+      "data": {
+        "baseline_path": ".gitleaks-baseline.json",
+        "baseline_suppressed_findings": 5,
+        "mode": "tree",
+        "scanner": "gitleaks"
+      },
+      "detail": "\u001b[90m7:01AM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mno leaks found\u001b[0m",
+      "duration_s": 2.508,
+      "exit_code": 0,
+      "name": "secret_scan",
+      "required": true,
+      "status": "pass"
+    }
+  ],
+  "generated_at": "2026-09-25T07:01:01Z",
+  "repository": {
+    "branch": "clive/trunk",
+    "candidate_sha": "e618a467a8680eadde92a1d51078bd748ada11f9",
+    "clean_worktree": true,
+    "committed_at": "2026-09-25T06:49:20+00:00",
+    "head_sha": "e618a467a8680eadde92a1d51078bd748ada11f9",
+    "parents": [
+      "ce791d032dcc8cf9b761ca40ce0b08a259c897a2",
+      "4c32bb3d5f4935402c9cdc897914370950f7f206"
+    ]
+  },
+  "run": {
+    "event": null,
+    "job": null,
+    "provider": "local",
+    "run_attempt": null,
+    "run_id": null,
+    "run_url": null,
+    "runner_os": null,
+    "workflow": null
+  },
+  "schema": "clive.acceptance_provenance.v1"
+}

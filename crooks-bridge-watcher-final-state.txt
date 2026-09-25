@@ -1,0 +1,70 @@
+# crooks-bridge-watcher.service — final state before retirement
+captured 2026-09-25T06:50:38Z
+
+## systemd
+MainPID=1049547
+NRestarts=0
+ExecMainStartTimestamp=Sun 2026-09-20 07:32:56 UTC
+ExecMainStatus=0
+Id=crooks-bridge-watcher.service
+Description=CROOKS AI bridge watcher (ChatGPT inbox -> Claude Code)
+LoadState=loaded
+ActiveState=active
+SubState=running
+FragmentPath=/etc/systemd/system/crooks-bridge-watcher.service
+UnitFileState=enabled
+ActiveEnterTimestamp=Sun 2026-09-20 07:32:56 UTC
+
+## unit file sha256
+974bbef73bdfa920b77233422c2a43ef6eefadd906c05c5b506d7eaeff8cd5f0  /etc/systemd/system/crooks-bridge-watcher.service
+
+## working directory / watched repo
+ExecStart={ path=/opt/crooks-bridge-watcher/bin/crooks-bridge-watcher ; argv[]=/opt/crooks-bridge-watcher/bin/crooks-bridge-watcher loop ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+WorkingDirectory=/opt/crooks-bridge-watcher
+
+## last 15 journal lines
+Sep 22 07:58:51 crooks-os-prod-1 crooks-bridge[2521321]: **Three findings I didn't expect, each reproduced first:**
+Sep 22 07:58:51 crooks-os-prod-1 crooks-bridge[2521321]: - Canonical product memory was genuinely corrupt — DEC-052 was a single 3788-character line with literal `\n` escapes. Repaired, content-preservation proved.
+Sep 22 07:58:51 crooks-os-prod-1 crooks-bridge[2521321]: - The `TaskRuntimeState.status` guard was decoration: deleting it entirely left all 36 control-plane tests green. Now 8 tests kill it, and dropping any single status fails exactly one.
+Sep 22 07:58:51 crooks-os-prod-1 crooks-bridge[2521321]: - An absolute `--source` was silently disarming the secret scan — gitleaks echoes back path form, so fingerprints stopped matching the baseline and known findings returned looking like news. That's the failure mode that gets a gate relaxed by the next person who meets it.
+Sep 22 07:58:51 crooks-os-prod-1 crooks-bridge[2521321]: **Evidence:** all five gates green, script exit 0 — ruff, 44 control-plane, product-memory structure, **2936 passed / 8 skipped / 2 deselected** in 527 s, secret scan clean. No pre-existing failures.
+Sep 22 07:58:51 crooks-os-prod-1 crooks-bridge[2521321]: **Three things needing your judgement**, all in §8 of the outbox: the `e8830c44` base choice; that I repaired canonical docs rather than only detecting the corruption (isolatable as `d9792b96`); and `.gitleaks-baseline.json`, which asserts five in-tree findings are redaction fixtures — if any is real it needs rotating, not baselining.
+Sep 22 07:58:51 crooks-os-prod-1 crooks-bridge[2521321]: **Stopped at two owner gates:** the workflow has never actually run (enabling Actions is outward-facing), and `GITLEAKS_SHA256` is left empty because pinning it needs a fetch I'm not authorised to make.
+Sep 22 07:58:51 crooks-os-prod-1 crooks-bridge[2521321]: Safety constraints verified unchanged: `writes_enabled` and `writes_local_owner` both false, FastAPI on `127.0.0.1:8000` only, no live Shopify/Gmail/ElevenLabs calls, production checkout at `1cf3a0f3` untouched and clean, no merge or deploy.
+Sep 22 07:58:51 crooks-os-prod-1 crooks-bridge[2521321]: One correction worth surfacing: my first routing mutation sweep reported every guard as untested. That was my error, not a finding — run from `crooks-assistant/`, the real `app/` beats `PYTHONPATH`, so the mutants were never imported. Corrected with `cwd` pinned to the scratch; all nine guards are killed. I recorded the trap in memory.
+Sep 22 07:58:51 crooks-os-prod-1 crooks-bridge[2521321]: The outbox is written and is the only modified file in `/opt/crooks-ai-bridge` — left unstaged for the watcher to publish. **The proposed next step is routing `3640c54a` to an independent principal: I authored every commit, so I'm ineligible to review it, and a fresh session of me is exactly what the new module refuses.**
+Sep 22 07:58:53 crooks-os-prod-1 crooks-bridge[2557097]: To https://github.com/crooksldn-pixel/clive.git
+Sep 22 07:58:53 crooks-os-prod-1 crooks-bridge[2557097]:    ee6ba77..34fa9ef  crooks-ai-bridge -> crooks-ai-bridge
+Sep 22 07:58:53 crooks-os-prod-1 crooks-bridge[1049547]: bridge: outbox published (b3ebfaf0106b2e36ea3aea6a13b77e8d4a335352 -> a386a8ea8138d2ca16116296b5675d0f7c6a5cdd)
+Sep 22 07:58:53 crooks-os-prod-1 crooks-bridge[1049547]: bridge: run complete
+Sep 22 07:58:53 crooks-os-prod-1 crooks-bridge[1049547]: bridge: inbox 7f4aa77a0fd998d87ea4de28aea34dd12c7bcb6c recorded as processed
+
+## persisted state
+total 24
+drwx------  2 root root 4096 Sep 22 07:58 .
+drwxr-xr-x 43 root root 4096 Sep 23 16:55 ..
+-rw-------  1 root root    2 Sep 22 07:58 failures
+-rw-------  1 root root   41 Sep 22 07:58 last-inbox-sha
+-rw-------  1 root root   65 Sep 22 07:58 last-run
+-rw-r--r--  1 root root    2 Sep 25 06:50 .next-delay
+--- /var/lib/crooks-bridge/failures
+0
+
+--- /var/lib/crooks-bridge/last-inbox-sha
+7f4aa77a0fd998d87ea4de28aea34dd12c7bcb6c
+
+--- /var/lib/crooks-bridge/last-run
+ok 2026-09-22T07:58:53Z 7f4aa77a0fd998d87ea4de28aea34dd12c7bcb6c
+
+
+## Retirement
+stopped and disabled 2026-09-25T06:56:20Z
+MainPID=0
+ExecMainStatus=0
+ActiveState=inactive
+SubState=dead
+UnitFileState=disabled
+unit file left in place at /etc/systemd/system/crooks-bridge-watcher.service (sha256 unchanged); only the multi-user.target.wants symlink was removed
+no crooks-bridge-watcher loop process remains
+persisted state left intact in /var/lib/crooks-bridge (last inbox 7f4aa77a0fd998d87ea4de28aea34dd12c7bcb6c, last run ok 2026-09-22T07:58:53Z, failures 0)
+left alone: an unrelated read-only 'watch -n 5 crooks-bridge-watcher status' shell loop (pid 259540) started outside systemd

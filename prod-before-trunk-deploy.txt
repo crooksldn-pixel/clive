@@ -1,0 +1,18 @@
+### captured 2026-09-25T06:45:09Z
+--- units ---
+crooks-assistant.service               active  enabled=enabled  since=Thu 2026-09-24 06:59:48 UTC
+crooks-bridge-watcher.service          active  enabled=enabled  since=Sun 2026-09-20 07:32:56 UTC
+clive-remote-engineering.service       active  enabled=enabled  since=Thu 2026-09-24 23:31:21 UTC
+--- checkouts ---
+/opt/crooks-os           HEAD=ca388ceeedb54cfd495fb2b5205ec2184db9ccae branch=claude/linux-prod-migration-production dirty=0
+/opt/crooks-interactive  HEAD=31fb755360ae40959c14d608de0035815c41cc40 branch=claude/control-plane-producers-2026-09-22 dirty=0
+/opt/crooks-builder      HEAD=295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b branch=claude/builder-environment-repair dirty=0
+--- assistant runtime ---
+WorkingDirectory=/opt/crooks-os/crooks-assistant
+ExecStart={ path=/opt/crooks-os/crooks-assistant/.venv/bin/python ; argv[]=/opt/crooks-os/crooks-assistant/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 ; ignore_errors=no ; start_time=[
+MainPID=3740098
+venv python: Python 3.12.3
+--- drop-ins ---
+objectives.conf
+--- health ---
+GET /health -> 200

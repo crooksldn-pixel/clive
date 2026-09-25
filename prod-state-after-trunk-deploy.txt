@@ -1,0 +1,5 @@
+/opt/crooks-os ce791d032dcc8cf9b761ca40ce0b08a259c897a2 e3b0c44298fc1c14
+/opt/crooks-interactive 31fb755360ae40959c14d608de0035815c41cc40 e3b0c44298fc1c14
+85e69489bc13299b
+active
+inactive

@@ -1,0 +1,139 @@
+{
+  "acceptance": {
+    "accepted": false,
+    "eligible_for_acceptance_decision": true,
+    "human_approval_recorded": false,
+    "independent_review": "required",
+    "malformed_gates": [],
+    "mechanical_evidence": "complete",
+    "note": "Mechanical gates produce evidence, not permission. Eligibility means an independent principal may now review this exact SHA; it is not acceptance, and acceptance is never derived from this artifact alone.",
+    "unsatisfied_gates": []
+  },
+  "gates": [
+    {
+      "command": [
+        "/opt/hostedtoolcache/Python/3.12.14/x64/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "detail": "All checks passed!",
+      "duration_s": 0.152,
+      "exit_code": 0,
+      "name": "ruff",
+      "required": true,
+      "status": "pass"
+    },
+    {
+      "command": [
+        "/opt/hostedtoolcache/Python/3.12.14/x64/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_orchestrator_control_plane.py",
+        "-q",
+        "-p",
+        "no:cacheprovider"
+      ],
+      "detail": "44 passed in 0.25s",
+      "duration_s": 1.095,
+      "exit_code": 0,
+      "name": "pytest_control_plane",
+      "required": true,
+      "status": "pass"
+    },
+    {
+      "command": [
+        "/opt/hostedtoolcache/Python/3.12.14/x64/bin/python",
+        "/home/runner/work/clive/clive/crooks-assistant/scripts/product_memory_check.py",
+        "--json"
+      ],
+      "data": {
+        "check": "product_memory_structure",
+        "documents": 25,
+        "ok": true,
+        "violations": []
+      },
+      "detail": "}",
+      "duration_s": 0.056,
+      "exit_code": 0,
+      "name": "product_memory_structure",
+      "required": true,
+      "status": "pass"
+    },
+    {
+      "command": [
+        "/opt/hostedtoolcache/Python/3.12.14/x64/bin/python",
+        "-m",
+        "pytest",
+        "tests",
+        "-m",
+        "not live",
+        "-q",
+        "-p",
+        "no:cacheprovider"
+      ],
+      "detail": "3449 passed, 8 skipped, 2 deselected in 168.73s (0:02:48)",
+      "duration_s": 169.956,
+      "exit_code": 0,
+      "name": "pytest_offline_full",
+      "required": true,
+      "status": "pass"
+    },
+    {
+      "command": [
+        "gitleaks",
+        "detect",
+        "--no-banner",
+        "--redact",
+        "--exit-code",
+        "1",
+        "--config",
+        ".gitleaks.toml",
+        "--no-git",
+        "--source",
+        ".",
+        "--baseline-path",
+        ".gitleaks-baseline.json"
+      ],
+      "data": {
+        "baseline_path": ".gitleaks-baseline.json",
+        "baseline_suppressed_findings": 5,
+        "mode": "tree",
+        "scanner": "gitleaks"
+      },
+      "detail": "\u001b[90m11:21PM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mno leaks found\u001b[0m",
+      "duration_s": 1.264,
+      "exit_code": 0,
+      "name": "secret_scan",
+      "required": true,
+      "status": "pass"
+    }
+  ],
+  "generated_at": "2026-09-24T23:21:44Z",
+  "repository": {
+    "branch": "HEAD",
+    "candidate_sha": "ce791d032dcc8cf9b761ca40ce0b08a259c897a2",
+    "clean_worktree": true,
+    "committed_at": "2026-09-25T00:16:58+01:00",
+    "head_sha": "ce791d032dcc8cf9b761ca40ce0b08a259c897a2",
+    "parents": [
+      "247d53d52b71d554694f2872c89d7cd7cdfcb72b",
+      "b68e6e827afbeba3364c8239a2d814a60372f498"
+    ]
+  },
+  "run": {
+    "event": "push",
+    "job": "acceptance",
+    "provider": "github-actions",
+    "run_attempt": "1",
+    "run_id": "36071935518",
+    "run_url": "https://github.com/crooksldn-pixel/clive/actions/runs/36071935518",
+    "runner_os": "Linux",
+    "workflow": "acceptance"
+  },
+  "schema": "clive.acceptance_provenance.v1"
+}
