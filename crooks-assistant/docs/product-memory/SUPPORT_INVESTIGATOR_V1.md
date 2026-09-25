@@ -34,7 +34,7 @@ The minimum customer information is read, and only from systems the owner alread
 ## Capability gaps recorded
 
 - **Carrier tracking scans** are not available: Easyship is not integrated (`app/shipping/`), so the parcel's whereabouts is always an unknown, and the draft says the tracking reference rather than a location.
-- **Credentials in the engineering container**: the builder's container holds no Shopify or Gmail credential, so the live path (`app/support/live.py`) was exercised against fakes and its "unavailable" branch; the live run is on the owner's Mac.
+- **Credentials in the engineering container**: the builder's container holds no Shopify or Gmail credential, so the live path (`app/support/live.py`) was exercised against fakes and its "unavailable" branch. At acceptance (2026-09-23) this note said the live run would be on the owner's Mac; that is history. As of 2026-09-25 the revisions are deployed on the Linux production line (`clive/trunk` `ce791d03`), the Mac is not the production runtime, and a first live run on the server is not recorded.
 - **No model**: drafting is deterministic. A worded, more natural draft would be a later revision, and would still be bound to the same evidence.
 
 ## Acceptance

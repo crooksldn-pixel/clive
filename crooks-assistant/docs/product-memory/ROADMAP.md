@@ -58,8 +58,19 @@ The owner's image for this phase is agar.io: CLIVE grows by absorbing what it me
 **Status:** SHIPPED — production runs `clive/trunk` `ce791d03`, deployed 2026-09-25 after GitHub acceptance and an independent exact-SHA review with zero findings; Gmail OAuth provisioned 2026-09-24. Still open: Samsung verification; the Derek voice is unavailable on the server (ElevenLabs credits exhausted). The Mac is no longer a production or rollback host (OWNER_DECISIONS_2026-09-25).  
 **Was (2026-09-19):** RUNNING / PARTIALLY VERIFIED — production state ratified at `1cf3a0f`; remaining Gmail/device verification open
 
+Current (2026-09-25):
+
+- production is the Linux server (`/opt/crooks-os`), running `clive/trunk` `ce791d03`
+- Gmail OAuth provisioned 2026-09-24
+- the Mac is not a production or rollback host (OWNER_DECISIONS_2026-09-25)
+- Samsung verification remains open
+- Derek TTS is unavailable on the server (ElevenLabs credits exhausted), pending the owner's ElevenLabs spend decision; FEAT-006 is not shipped there
+- merged to the trunk but not yet deployed: needs-reply routing, the microphone permission fix, the voice-credits wording and health, the remote-engineering journal-safe repair; deploying them is the owner's decision
+
+Historical 2026-09-19 checklist (kept as history; superseded where the current list above says otherwise):
+
 - Linux migration candidate `1cf3a0f` reviewed and owner-ratified in production (DEC-048)
-- provision remaining secrets safely — Gmail OAuth still outstanding; no new secret provisioning approved by DEC-048
+- provision remaining secrets safely — Gmail OAuth still outstanding; no new secret provisioning approved by DEC-048 *(as of 2026-09-19; Gmail OAuth was provisioned 2026-09-24)*
 - `crooks-assistant.service` installed/enabled/running and ratified
 - private tailnet-only Tailscale HTTPS active and ratified
 - verify reboot recovery
@@ -69,7 +80,7 @@ The owner's image for this phase is agar.io: CLIVE grows by absorbing what it me
 - verify ElevenLabs Scribe
 - verify Derek TTS
 - keep writes disabled until the read/runtime layer is proven
-- keep Mac deployment as rollback
+- keep Mac deployment as rollback *(superseded 2026-09-25: the Mac is not a production or rollback host)*
 - later move service from temporary root execution to a dedicated `crooks` user
 
 ## N2. Install and harden the Claude inbox watcher
