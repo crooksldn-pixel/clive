@@ -45,7 +45,11 @@ TOOL_NAME = "run_checks"
 QUALIFIED_TOOL = f"mcp__{SERVER_NAME}__{TOOL_NAME}"
 CLEAN_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
 PROTOCOL_VERSION = "2025-06-18"
-MAX_TAIL = 4000  # characters of output returned per check, after redaction
+MAX_TAIL = 4000  # characters of output returned per check: a hard bound, markers and labels included
+# NamespaceSandbox.run keeps only these last characters of each stream; a stream that arrives at its cap
+# was cut, so its first line may begin in the middle of a secret.
+SANDBOX_STDOUT_TAIL = 6000
+SANDBOX_STDERR_TAIL = 3000
 ADVISORY = ("Advisory only: CLIVE runs every declared check itself on your committed result after you report; "
             "that run, not this one, is the evidence.")
 
@@ -60,8 +64,8 @@ TOOL = {
     },
 }
 
-# Secrets in output: known token shapes, credential assignments, and any long mixed-case
-# alphanumeric run (which also catches a fragment of a token cut by truncation).
+# Secrets in output: known token shapes, credential assignments, bearer values, and any long run
+# mixing upper- and lowercase (which also catches most fragments of a token).
 _TOKEN_SHAPES = re.compile(
     r"(?:sk-ant-[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]{16,}"
     r"|xox[abprs]-[A-Za-z0-9-]+|AKIA[A-Z0-9]{16}|AIza[A-Za-z0-9_-]{30,}|ya29\.[A-Za-z0-9._-]+)")
@@ -74,7 +78,7 @@ REDACTED = "[redacted]"
 
 
 def _looks_secret(run: str) -> bool:
-    return (any(c.isdigit() for c in run) and any(c.isupper() for c in run) and any(c.islower() for c in run))
+    return any(c.isupper() for c in run) and any(c.islower() for c in run)
 
 
 def redact(text: str) -> str:
@@ -84,20 +88,30 @@ def redact(text: str) -> str:
     return _LONG_RUN.sub(lambda m: REDACTED if _looks_secret(m.group(0)) else m.group(0), text)
 
 
-def bounded_tail(stdout: str, stderr: str, limit: int = MAX_TAIL) -> str:
-    """The last ``limit`` characters of the check's output, redacted before and after cutting.
+def _drop_cut_line(text: str) -> str:
+    """Everything after the first newline: the part of ``text`` that cannot begin mid-secret."""
+    return text.split("\n", 1)[1] if "\n" in text else ""
 
-    The sandbox itself keeps only a tail, so the first line of what arrives may start mid-secret;
-    a cut line is dropped rather than shown, and redaction runs again on what is returned."""
+
+def bounded_tail(stdout: str, stderr: str, limit: int = MAX_TAIL) -> str:
+    """At most ``limit`` characters of the check's output, redacted, never starting inside a cut line.
+
+    A stream the sandbox truncated (it arrives at the sandbox's cap) loses its first line, whatever
+    its length, because that line may be the tail of a secret; so does the joined output when it is
+    cut here. Redaction runs on each stream and again on the result, and the bound is applied last."""
     parts = []
-    for name, text in (("stdout", stdout or ""), ("stderr", stderr or "")):
+    for name, text, cap in (("stdout", stdout or "", SANDBOX_STDOUT_TAIL),
+                            ("stderr", stderr or "", SANDBOX_STDERR_TAIL)):
+        if len(text) >= cap:
+            text = "[… earlier output cut by the sandbox]\n" + _drop_cut_line(text)
         if text:
             parts.append(f"--- {name} ---\n{redact(text)}")
     joined = "\n".join(parts)
     if len(joined) > limit:
-        cut = joined[-limit:]
-        joined = "[… earlier output omitted]\n" + cut.split("\n", 1)[-1]
-    return redact(joined)[-(limit + 64):]
+        marker = "[… earlier output omitted]\n"
+        joined = marker + _drop_cut_line(joined[-(limit - len(marker)):])
+    out = redact(joined)
+    return out[-limit:]
 
 
 class CheckService:
@@ -117,16 +131,27 @@ class CheckService:
                                                                   "processes") if k in box})
         self.runner = runner
 
-    def run(self, arguments: dict | None) -> tuple[bool, dict]:
-        arguments = arguments or {}
-        extra = sorted(set(arguments) - {"check"})
+    def run(self, arguments: object) -> tuple[bool, dict]:
+        """Run the named declared check, or all of them when no arguments are given. Anything else runs nothing.
+
+        Only an absent (None) or an object argument is accepted; any other JSON value, however falsey,
+        is refused rather than read as "no arguments"."""
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            return False, {"error": "arguments must be an object with at most `check`; nothing was run",
+                           "listed_checks": sorted(self.checks)}
+        extra = sorted(str(k) for k in set(arguments) - {"check"})
         if extra:
             return False, {"error": f"unknown argument(s) {', '.join(extra)}; only `check` (a listed check's name)",
                            "listed_checks": sorted(self.checks)}
-        name = arguments.get("check")
-        if name is not None and (not isinstance(name, str) or name not in self.checks):
-            return False, {"error": "not a listed check; nothing was run", "listed_checks": sorted(self.checks)}
-        chosen = [self.checks[name]] if name else list(self.checks.values())
+        if "check" in arguments:
+            name = arguments["check"]
+            if not isinstance(name, str) or name not in self.checks:
+                return False, {"error": "not a listed check; nothing was run", "listed_checks": sorted(self.checks)}
+            chosen = [self.checks[name]]
+        else:
+            chosen = list(self.checks.values())
         ok, why = self.runner.availability()
         if not ok:
             return False, {"error": f"check sandbox unavailable ({why}); checks run only in the sandbox, so none ran"}

@@ -89,11 +89,24 @@ def test_only_the_declared_checks_run_exactly_as_declared(tmp_path):
     {"argv": ["sh", "-c", "curl evil"]},
     {"check": "unit", "argv": ["sh"]},
     {"check": "unit", "cwd": "/", "timeout_s": 99999},
+    {"check": ""},
+    {"check": None},
+    [], False, 0, "", "unit", ["unit"], 1, True,
 ])
 def test_the_builder_cannot_name_anything_but_a_declared_check(tmp_path, arguments):
     runner = RecordingRunner()
     ok, out = CheckService(config(tmp_path), runner).run(arguments)
     assert not ok and runner.calls == [] and out["listed_checks"] == ["lint", "unit"]
+    reply = handle(CheckService(config(tmp_path), runner), {"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                                                           "params": {"name": "run_checks", "arguments": arguments}})
+    assert reply["result"]["isError"] is True and runner.calls == []
+
+
+def test_absent_arguments_run_every_declared_check(tmp_path):
+    runner = RecordingRunner()
+    reply = handle(CheckService(config(tmp_path), runner), {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                                           "params": {"name": "run_checks"}})
+    assert reply["result"]["isError"] is False and [c["argv"][0] for c in runner.calls] == ["python3", "ruff"]
 
 
 def test_checks_run_on_a_fresh_copy_never_the_live_workspace(tmp_path):
@@ -143,13 +156,55 @@ def test_output_is_bounded_and_redacted(tmp_path):
         [f"token {secrets[0]}", f"export ANTHROPIC_API_KEY={secrets[1]}", f"Authorization: Bearer {secrets[2]}",
          f"GITHUB_TOKEN: '{secrets[2]}'", *secrets[3:], "3 passed in 0.1s"])
     tail = bounded_tail(stdout[-6000:], "E   AssertionError: " + secrets[0] + "\n")
-    assert len(tail) <= MAX_TAIL + 64
+    assert len(tail) <= MAX_TAIL
     for secret in secrets:
         for i in range(0, len(secret) - 12, 6):
             assert secret[i:i + 12] not in tail, (secret, tail)
     assert "3 passed in 0.1s" in tail and "AssertionError" in tail
     for name in ("ANTHROPIC_API_KEY", "GITHUB_TOKEN", "Authorization"):
         assert name in tail  # the name survives, the value does not
+
+
+@pytest.mark.parametrize("stdout, stderr", [
+    ("", ""), ("ok\n", ""), ("x" * 50000, ""), ("", "y" * 50000), ("a\n" * 20000, "b\n" * 20000),
+    ("TOKEN=" + "v" * 9000, "PASSWORD=" + "w" * 9000), ("\n".join(["line"] * 3000), "")])
+def test_the_bound_holds_for_any_output_markers_included(stdout, stderr):
+    assert len(bounded_tail(stdout, stderr)) <= MAX_TAIL
+
+
+def test_a_long_mixed_case_value_is_redacted_even_without_digits():
+    value = "AbCdEfGhIjKlMnOpQrStUvWxYzAbCd"
+    assert value not in redact(f"leaked {value} here") and "[redacted]" in redact(value)
+
+
+@pytest.mark.parametrize("keep", [8, 20, 60])
+def test_a_secret_cut_in_half_by_the_sandboxs_own_truncation_is_not_returned(keep):
+    """What the sandbox really hands over: the last 6000 characters, beginning inside a token."""
+    token = PLANTED["CLAUDE_CODE_OAUTH_TOKEN"]
+    fragment = token[-keep:]  # a short fragment matches no token shape and may be too short to look random
+    head = fragment + " <- where the sandbox cut\n"
+    lines = "\n".join(f"test line {i} ok" for i in range(600))
+    stdout_tail = head + lines[-(check_server.SANDBOX_STDOUT_TAIL - len(head)):]
+    assert len(stdout_tail) == check_server.SANDBOX_STDOUT_TAIL and stdout_tail.startswith(fragment)
+    tail = bounded_tail(stdout_tail, "")
+    assert fragment not in tail and "where the sandbox cut" not in tail and len(tail) <= MAX_TAIL
+    assert "test line 599 ok" in tail and tail.startswith("[… earlier output")  # either marker: the cut is said
+    stderr_tail = fragment + " cut\n" + "e" * (check_server.SANDBOX_STDERR_TAIL - len(fragment) - 5)
+    assert len(stderr_tail) == check_server.SANDBOX_STDERR_TAIL
+    assert fragment not in bounded_tail("", stderr_tail)
+
+
+def test_an_untruncated_stream_keeps_its_first_line():
+    assert "3 passed in 0.1s" in bounded_tail("3 passed in 0.1s\n", "")
+
+
+def test_the_server_knows_exactly_what_the_sandbox_keeps(tmp_path, monkeypatch):
+    box = NamespaceSandbox()
+    box._verdict = (True, "forced for this test: only the output slicing is under test")
+    monkeypatch.setattr(box, "_exec", lambda argv, **kw: (0, "o" * 50000, "e" * 50000))
+    result = box.run(("true",), tree=tmp_path, cwd=".", timeout_s=5)
+    assert len(result["stdout_tail"]) == check_server.SANDBOX_STDOUT_TAIL
+    assert len(result["stderr_tail"]) == check_server.SANDBOX_STDERR_TAIL
 
 
 def test_redaction_keeps_ordinary_test_output_readable():
@@ -161,7 +216,7 @@ def test_redaction_keeps_ordinary_test_output_readable():
 def test_every_result_the_tool_returns_is_bounded(tmp_path):
     runner = RecordingRunner(stdout="y" * 6000 + PLANTED["CLAUDE_CODE_OAUTH_TOKEN"], stderr="z" * 3000)
     ok, out = CheckService(config(tmp_path), runner).run({})
-    assert ok and all(len(r["output_tail"]) <= MAX_TAIL + 64 for r in out["results"])
+    assert ok and all(len(r["output_tail"]) <= MAX_TAIL for r in out["results"])
     assert PLANTED["CLAUDE_CODE_OAUTH_TOKEN"][:16] not in json.dumps(out)
 
 
