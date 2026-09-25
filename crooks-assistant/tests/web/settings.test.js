@@ -143,6 +143,20 @@ test('diagnostics and fixtures are all behind the developer section, and none of
   assert.doesNotMatch(words, /diagnostic|fixture|ElevenLabs/i);
 });
 
+test('the connection and refusal words the owner sees never name the machine CLIVE runs on', () => {
+  const UI = fs.readFileSync(path.join(WEB, 'ui.js'), 'utf8');
+  const code = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const refused = cut('function wentRefused()', 'function wentOffline()');
+  assert.match(refused, /Not allowed/);
+  assert.doesNotMatch(code(refused), RUNTIME_HOST);
+  assert.doesNotMatch(code(cut('const ACTION_REASONS = {', '\n};\n')), RUNTIME_HOST);
+  const blocked = UI.slice(UI.indexOf('function blockedLabel(code)'), UI.indexOf('function blockedLabel(code)') + 600);
+  assert.doesNotMatch(code(blocked), RUNTIME_HOST);
+  for (const said of ["'CLIVE did not answer.'", "Couldn't reach CLIVE", "'CLIVE would not open that.'"]) assert.ok(SOURCE.includes(said), said);
+  assert.ok(!/'The Mac did not answer\.'/.test(SOURCE));
+  assert.ok(!UI.includes('newer tablet build'));
+});
+
 /* ------------------------------------------------------ omission of empty sections */
 
 test('a section with nothing true to show is left out, never filled with a placeholder', () => {
