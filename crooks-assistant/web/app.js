@@ -1032,6 +1032,40 @@ function serviceFault(key, check) {
   return { kind, word, detail: `${why} If it stays like this for more than a few minutes, ask for CLIVE's connection to ${name} to be checked.` };
 }
 
+// What a failed voice or transcription check means for the owner. /health sends the failure's
+// kind and a plain reason for it; the reason says what happened but not always what to do, so
+// the kind decides the next step. Credits used up wait for a top-up (the owner's step, in
+// needsRows); a slow, busy or unreachable moment clears by itself; a key or voice that is wrong
+// does not, and waits for a person. Anything else — no kind, a kind not listed here, a cooldown
+// after a failure of either sort — is watched for a few minutes and then escalated.
+const SPEECH_FAULT_KINDS = {
+  credit: ['credit'],
+  passing: ['timeout', 'network', 'server_error', 'rate', 'cancelled', 'prefetch', 'bad_response', 'empty', 'truncated'],
+  setup: ['no_key', 'rejected', 'forbidden', 'no_voice', 'off'],
+};
+const SPEECH_WORDS = {
+  voice: {
+    subject: "CLIVE's voice", credit: 'Voice is paused because the ElevenLabs credits are used up.',
+    unknown: "CLIVE's voice is not answering.", retry: '',
+  },
+  transcription: {
+    subject: "CLIVE's listening", credit: 'Speech recognition is paused because the ElevenLabs credits are used up.',
+    unknown: 'CLIVE cannot hear you just now.', retry: ' Try speaking again then.',
+  },
+};
+function speechFault(which, kind, reason) {
+  const words = SPEECH_WORDS[which];
+  const group = Object.keys(SPEECH_FAULT_KINDS).find((g) => SPEECH_FAULT_KINDS[g].indexOf(kind) !== -1) || 'unknown';
+  const why = plainSentence(reason) || (group === 'credit' ? words.credit : words.unknown);
+  const steps = {
+    credit: 'Top up the ElevenLabs plan to bring it back.',
+    passing: `It usually clears by itself within a few minutes; there is nothing to do.${words.retry}`,
+    setup: `This does not clear by itself: ask for ${words.subject} to be checked.`,
+    unknown: `If it stays like this for more than a few minutes, ask for ${words.subject} to be checked.`,
+  };
+  return { kind: group, detail: `${why} ${steps[group]}` };
+}
+
 // Each connected service, as connected or as needing attention with the plain reason and what
 // to do. Only the services /health reports: a check it did not run is not a row.
 function reachRows(data) {
@@ -1052,14 +1086,15 @@ function reachRows(data) {
     if (voice.enabled === false) {
       rows.push({ name: 'Voice', state: 'off', word: 'Off', detail: "Answers are spoken in this device's own voice." });
     } else if (voice.ok === false || (checks.tts && checks.tts.ok === false)) {
-      rows.push(attention('Voice', `${plainSentence(voice.reason) || "CLIVE's voice is not answering."} Until then, answers are spoken in this device's own voice.`));
+      const fault = speechFault('voice', voice.failure_kind, voice.reason);
+      rows.push(attention('Voice', `${fault.detail} Until then, answers are spoken in this device's own voice.`));
     } else {
       rows.push(connected('Voice'));
     }
   }
   if (checks.speech) {
     rows.push(checks.speech.ok ? connected('Transcription')
-      : attention('Transcription', plainSentence(speech.scribe_reason) || 'CLIVE cannot hear you just now.'));
+      : attention('Transcription', speechFault('transcription', speech.scribe_failure_kind, speech.scribe_reason).detail));
   }
   return rows;
 }
@@ -1128,7 +1163,9 @@ function needsRows(data) {
   if (voice.failure_kind === 'credit' || speech.scribe_failure_kind === 'credit') {
     rows.push({
       name: 'ElevenLabs plan', state: 'attention', word: 'Top up',
-      detail: plainSentence(voice.failure_kind === 'credit' ? voice.reason : speech.scribe_reason),
+      detail: voice.failure_kind === 'credit'
+        ? speechFault('voice', 'credit', voice.reason).detail
+        : speechFault('transcription', 'credit', speech.scribe_reason).detail,
     });
   }
   return rows;

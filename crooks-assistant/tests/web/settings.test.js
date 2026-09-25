@@ -316,6 +316,58 @@ test('every disconnected family names the service to connect, and none is told t
   assert.doesNotMatch(text, RUNTIME_HOST);
 });
 
+test('a failed voice or transcription check always says why and what to do, even with no reason or an unknown one', () => {
+  const page = boot();
+  const rowFor = (name, kind, reason) => {
+    const data = healthy();
+    if (name === 'Voice') {
+      data.checks.tts = { ok: false, detail: 'ElevenLabs failure · CROOKS_TTS_ENABLED' };
+      data.voice = { enabled: true, ok: false, voice: 'George', failure_kind: kind, reason };
+    } else {
+      data.checks.speech = { ok: false, detail: 'NOT working: scribe is down and there is no local fallback' };
+      data.speech = { scribe_failure_kind: kind, scribe_reason: reason };
+    }
+    page.sandbox.drawOwnerSettings(data);
+    return { row: rows(page.el.reach).find((r) => r.name === name), needs: rows(page.el.needs) };
+  };
+  const cases = [
+    // No kind and no reason: said plainly, watched, then escalated.
+    ['Voice', null, null, /^CLIVE's voice is not answering\. If it stays like this for more than a few minutes, ask for CLIVE's voice to be checked\./],
+    ['Transcription', null, null, /^CLIVE cannot hear you just now\. If it stays like this for more than a few minutes, ask for CLIVE's listening to be checked\.$/],
+    // A kind this page does not know, with or without the backend's reason.
+    ['Voice', 'failure', null, /^CLIVE's voice is not answering\. If it stays like this.*ask for CLIVE's voice to be checked/],
+    ['Transcription', 'something_new', 'ElevenLabs speech recognition is unavailable', /^ElevenLabs speech recognition is unavailable\. If it stays like this.*ask for CLIVE's listening to be checked/],
+    ['Voice', 'cooldown', 'the ElevenLabs voice is unavailable at the moment', /^The ElevenLabs voice is unavailable at the moment\. If it stays like this/],
+    // A passing fault: nothing to do, and for listening, try again.
+    ['Voice', 'timeout', null, /^CLIVE's voice is not answering\. It usually clears by itself within a few minutes; there is nothing to do\./],
+    ['Voice', 'network', 'ElevenLabs could not be reached', /^ElevenLabs could not be reached\. It usually clears by itself.*nothing to do\./],
+    ['Transcription', 'server_error', 'ElevenLabs had a server error', /^ElevenLabs had a server error\. It usually clears by itself.*nothing to do\. Try speaking again then\.$/],
+    ['Transcription', 'rate', null, /^CLIVE cannot hear you just now\. It usually clears by itself.*Try speaking again then\.$/],
+    // A key that is wrong does not clear by itself, and waits for a person.
+    ['Voice', 'rejected', 'the ElevenLabs key was rejected as invalid; the voice comes back once a valid key is stored', /^The ElevenLabs key was rejected.*This does not clear by itself: ask for CLIVE's voice to be checked\./],
+    ['Transcription', 'no_key', null, /^CLIVE cannot hear you just now\. This does not clear by itself: ask for CLIVE's listening to be checked\.$/],
+    // Credits used up, even with no reason sent: why, and the top-up.
+    ['Transcription', 'credit', null, /^Speech recognition is paused because the ElevenLabs credits are used up\. Top up the ElevenLabs plan to bring it back\.$/],
+  ];
+  for (const [name, kind, reason, expected] of cases) {
+    const { row, needs } = rowFor(name, kind, reason);
+    const label = `${name} ${kind} ${reason}`;
+    assert.equal(row.state, 'attention', label);
+    assert.equal(row.word, 'Needs attention', label);
+    assert.match(row.detail, expected, label);
+    if (name === 'Voice') assert.match(row.detail, /answers are spoken in this device's own voice\.$/, label);
+    assert.doesNotMatch(row.detail, /CROOKS_|NOT working|scribe|\w_\w/, label);
+    assert.doesNotMatch(row.detail, RUNTIME_HOST, label);
+    // Only credits used up are the owner's own step; the rest establish none.
+    if (kind === 'credit') {
+      assert.deepEqual(needs.map((r) => `${r.name}: ${r.word}`), ['ElevenLabs plan: Top up'], label);
+      assert.match(needs[0].detail, /used up\. Top up the ElevenLabs plan/, label);
+    } else {
+      assert.equal(needs.length, 0, label);
+    }
+  }
+});
+
 test('the voice switched off is said as off, not as a fault', () => {
   const page = boot();
   const data = healthy();
