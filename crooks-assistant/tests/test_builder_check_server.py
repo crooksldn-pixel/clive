@@ -91,7 +91,7 @@ def test_only_the_declared_checks_run_exactly_as_declared(tmp_path):
     {"check": "unit", "cwd": "/", "timeout_s": 99999},
     {"check": ""},
     {"check": None},
-    [], False, 0, "", "unit", ["unit"], 1, True,
+    [], False, 0, "", "unit", ["unit"], 1, True, None,
 ])
 def test_the_builder_cannot_name_anything_but_a_declared_check(tmp_path, arguments):
     runner = RecordingRunner()
@@ -100,6 +100,23 @@ def test_the_builder_cannot_name_anything_but_a_declared_check(tmp_path, argumen
     reply = handle(CheckService(config(tmp_path), runner), {"jsonrpc": "2.0", "id": 9, "method": "tools/call",
                                                            "params": {"name": "run_checks", "arguments": arguments}})
     assert reply["result"]["isError"] is True and runner.calls == []
+
+
+def test_an_explicit_null_arguments_member_runs_nothing(tmp_path):
+    runner = RecordingRunner()
+    reply = handle(CheckService(config(tmp_path), runner), {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                                           "params": {"name": "run_checks", "arguments": None}})
+    assert reply["result"]["isError"] is True and runner.calls == []
+
+
+@pytest.mark.parametrize("params", [None, [], "run_checks", 1, {"arguments": {}}, {"name": "run_checks_x"}])
+def test_malformed_tools_call_params_are_an_error_not_a_crash_or_a_run(tmp_path, params):
+    runner = RecordingRunner()
+    message = {"jsonrpc": "2.0", "id": 1, "method": "tools/call"}
+    if params is not None:
+        message["params"] = params
+    reply = handle(CheckService(config(tmp_path), runner), message)
+    assert "error" in reply and runner.calls == []
 
 
 def test_absent_arguments_run_every_declared_check(tmp_path):

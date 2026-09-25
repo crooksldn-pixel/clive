@@ -114,6 +114,9 @@ def bounded_tail(stdout: str, stderr: str, limit: int = MAX_TAIL) -> str:
     return out[-limit:]
 
 
+OMITTED = object()  # tools/call carried no `arguments` member at all
+
+
 class CheckService:
     """The declared checks, the workspace they run against, and the runner that runs them."""
 
@@ -131,12 +134,13 @@ class CheckService:
                                                                   "processes") if k in box})
         self.runner = runner
 
-    def run(self, arguments: object) -> tuple[bool, dict]:
+    def run(self, arguments: object = OMITTED) -> tuple[bool, dict]:
         """Run the named declared check, or all of them when no arguments are given. Anything else runs nothing.
 
-        Only an absent (None) or an object argument is accepted; any other JSON value, however falsey,
-        is refused rather than read as "no arguments"."""
-        if arguments is None:
+        Only omitted arguments (``OMITTED``: the request had no ``arguments`` member) or an object are
+        accepted. Any other JSON value, however falsey, including an explicit null, is refused rather than
+        read as "no arguments"."""
+        if arguments is OMITTED:
             arguments = {}
         if not isinstance(arguments, dict):
             return False, {"error": "arguments must be an object with at most `check`; nothing was run",
@@ -187,10 +191,10 @@ def handle(service: CheckService, message: dict) -> dict | None:
     elif method == "tools/list":
         result = {"tools": [TOOL]}
     elif method == "tools/call":
-        params = message.get("params") or {}
-        if params.get("name") != TOOL_NAME:
-            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "unknown tool"}}
-        ok, payload = service.run(params.get("arguments"))
+        params = message.get("params")
+        if not isinstance(params, dict) or params.get("name") != TOOL_NAME:
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "unknown tool or malformed params"}}
+        ok, payload = service.run(params["arguments"] if "arguments" in params else OMITTED)
         result = {"content": [{"type": "text", "text": json.dumps(payload, indent=1)}], "isError": not ok}
     else:
         return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "method not found"}}
