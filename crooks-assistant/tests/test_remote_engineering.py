@@ -22,12 +22,14 @@ from app.orchestrator.lifecycle import (
 )
 from app.orchestrator.objectives import ObjectiveStore
 from app.remote_engineering import (
+    ADAPTER_ROOT_NOT_IGNORED,
     DEFAULT_INBOX_BRANCH,
     DEFAULT_INBOX_DIRECTORY,
     DEFAULT_STATUS_BRANCH,
     INTAKE_UNAVAILABLE,
     MAX_HEARTBEAT_S,
     PUBLISH_UNAVAILABLE,
+    REQUEST_ID_MAX_LENGTH,
     REQUEST_SCHEMA,
     Claim,
     ClaimLog,
@@ -38,6 +40,7 @@ from app.remote_engineering import (
     RemoteControllerConfig,
     RemoteEngineeringLoop,
     RequestSchemaError,
+    adapter_root_preconditions,
     build_status,
     fetch_inbox,
     parse_request,
@@ -1461,3 +1464,166 @@ def test_a_concurrent_claim_makes_the_admission_use_the_winning_instant(env, tmp
 
     assert outcomes[0]["outcome"] == "accepted"
     assert objectives.read("r-adopt").created_at == earlier
+
+
+# ------------------------------------- journal-safe adapter records, every admitted id length
+
+# Exactly REQUEST_ID_MAX_LENGTH characters: the longest id the request schema admits.
+LONGEST_ID = "-".join(["longest" + "a" * 9, "b" * 16, "c" * 16, "d" * 16, "e" * 12])
+
+
+@pytest.fixture
+def no_host_git_config(monkeypatch):
+    """No global excludes file or any other host-level git setting may be relied on."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+def _journalled_state(tmp_path: Path) -> Path:
+    """A real git work tree to hold the store, carrying no ignore rule of any kind."""
+    state = tmp_path / "state"
+    state.mkdir()
+    _git(state, "init", "-q", "-b", "clive/engineering-state")
+    _git(state, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "root")
+    exclude = state / ".git" / "info" / "exclude"
+    rules = exclude.read_text().splitlines() if exclude.exists() else []
+    assert [line for line in rules if line.strip() and not line.startswith("#")] == []
+    assert not (state / ".gitignore").exists()
+    return state
+
+
+def _journalled_cli(env: SimpleNamespace, tmp_path: Path, verb: str, *extra: str) -> int:
+    """The real CLI over a journalled store, with the adapter root outside its work tree."""
+    return cli.run([
+        "--store", str(tmp_path / "state" / "engineering"), "--adapter-root", str(tmp_path / "adapter"),
+        "--repo", str(env.checkout),
+        verb, "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main", *extra,
+    ])
+
+
+def test_a_request_is_admitted_through_a_journalled_store_to_an_accepted_receipt(env, tmp_path,
+                                                                                 no_host_git_config):
+    state = _journalled_state(tmp_path)
+    store = LifecycleStore(state / "engineering")
+    kernel = Kernel(store=store, registry=PrincipalRegistry.load(REGISTRY), git=GitFacts(env.checkout),
+                    operator="remote-test", journal=True, clock=lambda: NOW)
+    objectives = ObjectiveStore(store, journal=True)
+    adapter_root = tmp_path / "adapter"                 # outside the store's git work tree
+    adapter_root_preconditions(store.root, adapter_root)  # so the loop would start
+    receipts = ReceiptLog(adapter_root)
+    config = RemoteControllerConfig(repo=env.checkout, repository="crooksldn-pixel/clive", product_memory_ref="main")
+    controller = RemoteController(kernel=kernel, objectives=objectives, config=config, receipts=receipts,
+                                  clock=lambda: NOW)
+    commit_request(env.origin, "r-journal", valid_request(env, request_id="r-journal"))
+
+    outcomes = controller.poll_once()
+
+    assert [o["outcome"] for o in outcomes] == ["accepted"]
+    assert receipts.get("r-journal").outcome == "accepted"
+    assert controller.claims.get("r-journal").request_sha256 == outcomes[0]["request_sha256"]
+    assert kernel.store.read_task_state("r-journal", 1).status is TaskStatus.READY
+    subjects = _git(state, "log", "--format=%s").splitlines()
+    assert any(s.startswith("objective r-journal entered") for s in subjects)
+    assert any(s.startswith("kernel: task r-journal r1 created") for s in subjects)
+    assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
+    assert controller.poll_once() == outcomes             # a replay through the journal is still clean
+
+
+def test_poll_and_run_refuse_to_start_while_adapter_records_would_be_unignored_store_state(
+        env, tmp_path, capsys, monkeypatch, no_host_git_config):
+    """The default adapter root lies inside the store: without an ignore rule nothing starts."""
+    state = _journalled_state(tmp_path)
+    store_dir = state / "engineering"
+    commit_request(env.origin, "r-unsafe", valid_request(env, request_id="r-unsafe"))
+    started: list[str] = []
+    monkeypatch.setattr(cli, "_dispatcher", lambda *a, **k: started.append("dispatcher"))
+
+    for verb, extra in (("poll", []), ("run", ["--max-cycles", "1"])):
+        rc = cli.run([
+            "--store", str(store_dir), "--repo", str(env.checkout),
+            verb, "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main", *extra,
+        ])
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert ADAPTER_ROOT_NOT_IGNORED in captured.err
+        assert str(state) not in captured.out + captured.err
+
+    assert started == []
+    assert not (store_dir / "remote_engineering").exists()   # nothing claimed, so no id was burned
+    assert not (store_dir / "objectives").exists()
+    assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
+
+
+def test_the_adapter_root_guard_admits_only_records_the_journal_cannot_see(tmp_path, no_host_git_config):
+    state = _journalled_state(tmp_path)
+    store_root = state / "engineering"
+    inside = store_root / "remote_engineering"
+
+    with pytest.raises(InboxError) as refusal:
+        adapter_root_preconditions(store_root, inside)
+    assert str(refusal.value) == ADAPTER_ROOT_NOT_IGNORED
+    adapter_root_preconditions(store_root, tmp_path / "adapter")
+
+    # A committed rule is carried by every clone, unlike a host's .git/info/exclude.
+    (state / ".gitignore").write_text("/engineering/remote_engineering/\n")
+    _git(state, "add", ".gitignore")
+    _git(state, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ignore adapter records")
+    adapter_root_preconditions(store_root, inside)
+
+
+def test_the_longest_admitted_id_reaches_an_accepted_receipt_in_one_shot_poll(env, tmp_path, capsys,
+                                                                              no_host_git_config):
+    assert len(LONGEST_ID) == REQUEST_ID_MAX_LENGTH
+    parse_request(json.dumps(valid_request(env, request_id=LONGEST_ID)).encode())
+    state = _journalled_state(tmp_path)
+    commit_request(env.origin, LONGEST_ID, valid_request(env, request_id=LONGEST_ID))
+
+    rc = _journalled_cli(env, tmp_path, "poll")
+
+    captured = capsys.readouterr()
+    assert rc == 0 and captured.err == ""
+    assert [o["outcome"] for o in json.loads(captured.out)] == ["accepted"]
+    receipt = ReceiptLog(tmp_path / "adapter").get(LONGEST_ID)
+    assert receipt is not None and receipt.outcome == "accepted" and receipt.task_id == LONGEST_ID
+    assert ClaimLog(tmp_path / "adapter").get(LONGEST_ID) is not None
+    assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
+
+
+def test_the_longest_admitted_id_reaches_an_accepted_receipt_in_run(env, tmp_path, capsys, monkeypatch,
+                                                                    no_host_git_config):
+    state = _journalled_state(tmp_path)
+    commit_request(env.origin, LONGEST_ID, valid_request(env, request_id=LONGEST_ID))
+    ticker = _Ticker()
+    monkeypatch.setattr(cli, "_dispatcher", lambda *a, **k: ticker)
+
+    rc = _journalled_cli(env, tmp_path, "run", "--max-cycles", "1")
+
+    captured = capsys.readouterr()
+    assert rc == 0 and captured.err == ""
+    cycle = json.loads(captured.out)
+    assert cycle["intake_error"] is None and ticker.calls == 1
+    assert [o["outcome"] for o in cycle["outcomes"]] == ["accepted"]
+    assert ReceiptLog(tmp_path / "adapter").get(LONGEST_ID).outcome == "accepted"
+    assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
+
+
+@pytest.mark.parametrize("request_id", [LONGEST_ID + "e", "-".join(["a" * 16] + ["b" * 16] * 7)],
+                         ids=["one-past-the-boundary", "previous-pattern-maximum"])
+def test_an_id_past_the_admitted_length_is_refused_before_any_claim_and_never_echoed(env, tmp_path, capsys,
+                                                                                     request_id):
+    assert len(request_id) > REQUEST_ID_MAX_LENGTH
+    commit_request(env.origin, request_id, valid_request(env, request_id=request_id), filename="candidate.json")
+    store_dir = tmp_path / "engineering"
+
+    rc = cli.run([
+        "--store", str(store_dir), "--repo", str(env.checkout), "--no-journal",
+        "poll", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main",
+    ])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert [o["outcome"] for o in json.loads(captured.out)] == ["refused"]
+    assert request_id not in captured.out + captured.err
+    adapter = store_dir / "remote_engineering"
+    assert ClaimLog(adapter).get(request_id) is None
+    assert ReceiptLog(adapter).read_all() == ()

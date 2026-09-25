@@ -28,6 +28,11 @@ REQUEST_SCHEMA = "clive.remote_engineering_request.v1"
 # longer than 16 characters are refused, which excludes credential shapes in practice
 # while admitting every id this system actually uses.
 _REQUEST_ID = r"^[a-z][a-z0-9]{0,15}(-[a-z0-9]{1,16}){1,7}$"
+# The pattern alone admits up to 135 characters, but the id becomes the objective id, whose
+# canonical pattern caps it at 80, and the task id, the claim and the receipt, which cap it at
+# 120. An id longer than the shortest of those would pass this schema and then fail downstream
+# without ever reaching a durable decision, so the admitted length is the shortest cap.
+REQUEST_ID_MAX_LENGTH = 80
 # The one ref the dispatcher publishes for a request therefore carries the slug and
 # nothing else. Anything a requester could otherwise smuggle through a free-form branch
 # name is excluded by construction rather than by a second pattern.
@@ -42,7 +47,7 @@ _BASE_REF = r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$"
 
 class RemoteObjectiveRequest(StrictRecord):
     schema_version: Literal["clive.remote_engineering_request.v1"] = REQUEST_SCHEMA
-    request_id: str = Field(pattern=_REQUEST_ID)
+    request_id: str = Field(max_length=REQUEST_ID_MAX_LENGTH, pattern=_REQUEST_ID)
     title: str = Field(min_length=1, max_length=200)
     requested_outcome: str = Field(min_length=1, max_length=20000)
     base_ref: str = Field(pattern=_BASE_REF)

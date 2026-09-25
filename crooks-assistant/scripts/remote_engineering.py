@@ -57,6 +57,7 @@ from app.remote_engineering import (  # noqa: E402
     RemoteController,
     RemoteControllerConfig,
     RemoteEngineeringLoop,
+    adapter_root_preconditions,
     build_status,
     publish_status,
     validate_seconds,
@@ -79,6 +80,10 @@ def _add_transport_args(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--store", required=True, help="the kernel engineering store root")
+    parser.add_argument("--adapter-root", default=None,
+                        help="where inbox claims and receipts live (default <store>/remote_engineering); "
+                             "with a journalled store it must be outside the store's git work tree or "
+                             "ignored there, or poll and run refuse to start")
     parser.add_argument("--repo", required=True, help="engineering checkout, never production checkout")
     parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
     parser.add_argument("--operator", default="remote-engineering-inbox")
@@ -133,8 +138,16 @@ def _kernel_parts(args):
         journal=not args.no_journal,
     )
     objectives = ObjectiveStore(store, journal=not args.no_journal)
-    receipts = ReceiptLog(store.root / "remote_engineering")
+    adapter_root = Path(args.adapter_root) if args.adapter_root else store.root / "remote_engineering"
+    receipts = ReceiptLog(adapter_root)
     return store, kernel, objectives, receipts
+
+
+def _refuse_an_unsafe_adapter_root(args, store: LifecycleStore, receipts: ReceiptLog) -> None:
+    """Before anything is claimed: a journalled store refuses every verb while claims or receipts
+    sit in its work tree unignored, so every request would be refused with its id already burned."""
+    if not args.no_journal:
+        adapter_root_preconditions(store.root, receipts.dir.parent)
 
 
 def _controller(args, kernel: Kernel, objectives: ObjectiveStore, receipts: ReceiptLog) -> RemoteController:
@@ -195,6 +208,7 @@ def run(argv: list[str] | None = None) -> int:
     store, kernel, objectives, receipts = _kernel_parts(args)
     try:
         if args.verb == "poll":
+            _refuse_an_unsafe_adapter_root(args, store, receipts)
             outcomes = _controller(args, kernel, objectives, receipts).poll_once()
             print(json.dumps(outcomes, indent=2, sort_keys=True, default=str))
         elif args.verb == "status":
@@ -215,6 +229,7 @@ def run(argv: list[str] | None = None) -> int:
                 args.status_heartbeat_s, what="--status-heartbeat-s",
                 minimum=MIN_HEARTBEAT_S, maximum=MAX_HEARTBEAT_S,
             )
+            _refuse_an_unsafe_adapter_root(args, store, receipts)
             controller = _controller(args, kernel, objectives, receipts)
             dispatcher = _dispatcher(args, kernel, objectives)
             loop = RemoteEngineeringLoop(

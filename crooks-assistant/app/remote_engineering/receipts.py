@@ -20,6 +20,7 @@ own records remain the one lifecycle authority.
 from __future__ import annotations
 
 import os
+import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,49 @@ from .errors import InboxError
 
 RECEIPT_SCHEMA = "clive.remote_engineering_receipt.v1"
 CLAIM_SCHEMA = "clive.remote_engineering_claim.v1"
+
+# Fixed text: the paths are host configuration, and this reaches a long-lived process log.
+ADAPTER_ROOT_NOT_IGNORED = (
+    "the remote-engineering adapter directory is inside the journalled store's git work tree and is "
+    "not ignored there: its claims and receipts would be untracked store state, and the kernel refuses "
+    "every verb while any exists. Pass --adapter-root outside the store's work tree; nothing was started"
+)
+
+
+def _work_tree(path: Path) -> Path | None:
+    """The git work tree ``path`` is (or, not yet created, would be) inside, if any."""
+    probe = path
+    while not probe.exists() and probe.parent != probe:
+        probe = probe.parent
+    proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(probe), capture_output=True, text=True)
+    top = proc.stdout.strip()
+    return Path(top).resolve() if proc.returncode == 0 and top else None
+
+
+def adapter_root_preconditions(store_root: Path, adapter_root: Path) -> None:
+    """Refuse to start while claims and receipts would be untracked files in the journalled work tree.
+
+    The kernel's journal refuses every verb while the store holds untracked files, and intake
+    writes its claim before the canonical door, so an unignored adapter directory beneath the
+    store would have every request refused after its id was already claimed. A store outside
+    any checkout has no journal, and an adapter root outside the store's work tree cannot be
+    swept into one; otherwise both record directories must be ignored by the work tree's own
+    rules, or nothing starts.
+    """
+    work_tree = _work_tree(Path(store_root).resolve())
+    if work_tree is None:
+        return
+    adapter = Path(adapter_root).resolve()
+    if not adapter.is_relative_to(work_tree):
+        return
+    relative = adapter.relative_to(work_tree)
+    for directory in ("claims", "receipts"):
+        probe = (relative / directory / "request.json").as_posix()
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", "--", probe], cwd=str(work_tree), capture_output=True, text=True
+        )
+        if ignored.returncode != 0:
+            raise InboxError(ADAPTER_ROOT_NOT_IGNORED)
 
 
 def _fsync_dir(path: Path) -> None:
@@ -111,7 +155,10 @@ class Receipt(StrictRecord):
 
 
 class ReceiptLog:
-    """Append-only, keyed by request id, under its own directory of the engineering store."""
+    """Append-only, keyed by request id, under its own directory of the adapter root.
+
+    The adapter root must not be unignored journalled store state; see ``adapter_root_preconditions``.
+    """
 
     def __init__(self, root: Path) -> None:
         self.dir = Path(root) / "receipts"
@@ -171,7 +218,7 @@ class Claim(StrictRecord):
 
 
 class ClaimLog:
-    """Write-once, keyed by request id, beside the receipts in the engineering store."""
+    """Write-once, keyed by request id, beside the receipts under the adapter root."""
 
     def __init__(self, root: Path) -> None:
         self.dir = Path(root) / "claims"
