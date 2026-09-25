@@ -61,6 +61,17 @@ _OPENERS = frozenset({
     "was", "were", "do", "does", "did", "has", "have", "had", "any", "anyone", "anybody",
     "show", "list", "tell", "give", "find", "check", "read", "look", "whos",
 })
+# A SOFT verb straight after a determiner is a noun, wherever the sentence starts. "Customers
+# who need a reply?" asks about a state of the inbox, and was refused as "asks for a change"
+# because it opens with no question word and "reply" was read as an order to send one. "Reply
+# to Mia" has no determiner in front of it, and "send a reply to order 2044" still carries
+# "send", so neither instruction is lost.
+_DETERMINER = frozenset({"a", "an", "the", "any", "no", "our", "my", "your", "their"})
+_NOUN_READING = frozenset({"reply"})
+
+
+def _as_a_noun(words: tuple[str, ...], index: int) -> bool:
+    return words[index] in _NOUN_READING and index > 0 and words[index - 1] in _DETERMINER
 
 
 def mutating(words: tuple[str, ...]) -> bool:
@@ -68,7 +79,7 @@ def mutating(words: tuple[str, ...]) -> bool:
     have = set(words)
     if have & MUTATION_STRONG:
         return True
-    if not (have & MUTATION_SOFT):
+    if not any(w in MUTATION_SOFT and not _as_a_noun(words, i) for i, w in enumerate(words)):
         return False
     return not (words and words[0] in _OPENERS)
 
@@ -152,6 +163,18 @@ _EMAIL = frozenset({"email", "emails", "emailed", "inbox", "mail", "mailed", "me
 # Someone is owed an answer. The question "who needs replying to" is this signal, not a
 # request to reply: it asks about a state of the inbox.
 _WAITING = frozenset({"waiting", "unanswered", "unreplied", "outstanding", "owed", "chase", "chasing", "needs", "need", "back", "ignored", "hanging"})
+# "Any emails I haven't replied to" names the same state with no word of waiting in it: a
+# negation beside a word of answering. Only when the owner is the one who has not answered —
+# a first-person subject, or the passive "hasn't been answered" — because "did Mia not reply"
+# is about Mia, and "everyone who has not replied" is about the customers.
+_NEGATION = frozenset({"not", "never", "havent", "haven't", "hasnt", "hasn't", "didnt", "didn't"})
+_ANSWERED = frozenset({"replied", "answered", "responded", "reply", "answer"})
+_OWNER_SUBJECT = frozenset({"i", "we", "ive", "i've", "weve", "we've", "been"})
+# Owed an answer, asked without a word for email: "does anyone need an ANSWER from us".
+_ANSWER = frozenset({"answer", "answers", "answered", "response", "responses", "responded"})
+# "Is anyone waiting on ME" — the person waited on is the owner. With no order named, what the
+# owner is being waited on for is an answer.
+_WAITED_ON = frozenset({"me", "us"})
 _DELAY = frozenset({"late", "delayed", "overdue", "waiting", "stuck", "unfulfilled", "unshipped", "slow"})
 # The orders that have not gone out, named as a STATE: "unfulfilled", "undelivered",
 # "unshipped" — and "waiting longest", which names the same set by its worst member. The words
@@ -192,6 +215,7 @@ VOCABULARY: frozenset[str] = frozenset(
     | _PERIOD | _METRIC | _LISTING | _AGAIN | _RANKING | _STOCK | _RUNNING_OUT | _EMAIL
     | _WAITING | _DELAY | _UNFULFILLED | _INTERNATIONAL | _ORDER | _CUSTOMER | _STATUS
     | _ADDRESS | _BOUGHT | _JOIN | _TIME_POSSESSIVE
+    | _NEGATION | _ANSWERED | _OWNER_SUBJECT | _ANSWER | _WAITED_ON
 )
 
 # ------------------------------------------------- appended for app/families/compose.py
@@ -278,6 +302,10 @@ class Signals:
     running_out: bool = False
     email: bool = False
     waiting: bool = False
+    # Somebody is owed an answer by the owner: the inbox and a word of waiting, or an answer
+    # and a word of waiting, or somebody waiting on "me" with no order named. What needs_reply
+    # needs, so the family is not bound to the one word "email" being said.
+    owed_reply: bool = False
     delayed: bool = False
     order: bool = False
     customer: bool = False
@@ -370,7 +398,7 @@ def signals_for(text: str, *, branch: Any = None) -> Signals:
         listing=bool(have & _LISTING),
         again=bool(have & _AGAIN),
         possessive_name=any(w not in _TIME_POSSESSIVE for w in _OWNER_OF.findall(lowered)),
-        waiting=bool(have & _WAITING),
+        waiting=bool(have & _WAITING) or bool(have & _NEGATION and have & _ANSWERED and have & _OWNER_SUBJECT),
         delayed=bool(have & _DELAY),
         order=bool(have & _ORDER),
         customer=bool(have & _CUSTOMER),
@@ -387,6 +415,10 @@ def signals_for(text: str, *, branch: Any = None) -> Signals:
         rewrite=bool(have & _REWRITE),
     )
     sig.has_address = bool(sig.address_words)
+    sig.owed_reply = sig.waiting and (
+        sig.email or bool(have & _ANSWER)
+        or ("waiting" in have and bool(have & _WAITED_ON) and not sig.order)
+    )
     # What was taken back mid-sentence, before any family reads the values (D-8). An order
     # number the owner corrected is NOT a second order: "1956, I mean 1957" named one record,
     # and leaving both in `order_numbers` made every family that needs exactly one defer.
@@ -579,7 +611,11 @@ FAMILIES: tuple[Family, ...] = (
     Family("sales_breakdown_period", needs=("metric", "period"), boosts=("question",), blocks=("mutation", "email", "stock", "running_out", "order_number", "ranking", "customer"), base=0.66, floor=0.72, max_words=16),
     Family("delayed_orders", needs=("delayed", "order"), boosts=("question", "period"), blocks=("mutation", "order_number"), base=0.72, max_words=14),
     Family("stock_cover_analysis", needs=("running_out",), boosts=("question", "period", "metric", "stock"), blocks=("mutation", "email", "order_number"), base=0.7, floor=0.72, max_words=12),
-    Family("needs_reply", needs=("email", "waiting"), boosts=("customer", "question"), blocks=("mutation", "metric", "order_number", "ranking"), base=0.7, floor=0.74, max_words=14),
+    # `owed_reply` rather than `email` and `waiting`, which it contains: "is anyone waiting on
+    # me" and "does anyone need an answer from us" say no word for email. `opens_asking`,
+    # because "anyone waiting on a reply" and "any emails I haven't replied to" are asked with
+    # "any" and "anyone", which carry no question word and left the family under its floor.
+    Family("needs_reply", needs=("owed_reply",), boosts=("customer", "question", "opens_asking"), blocks=("mutation", "metric", "order_number", "ranking"), base=0.7, floor=0.74, max_words=14),
     # "The inbox, in one line." Blocked by anything that narrows it to a person or a field:
     # "what's her email address" is about one customer's address and was being answered with a
     # summary of the whole week's threads.
@@ -632,6 +668,10 @@ _LOOKUP = {
     "again": lambda s: s.again,
     "possessive_name": lambda s: s.possessive_name,
     "waiting": lambda s: s.waiting,
+    "owed_reply": lambda s: s.owed_reply,
+    # Opened the way a question is opened — "any", "anyone", "is", "does" — whether or not a
+    # question word follows.
+    "opens_asking": lambda s: bool(s.words) and s.words[0] in _OPENERS,
     "delayed": lambda s: s.delayed,
     "order": lambda s: s.order,
     "customer": lambda s: s.customer,
