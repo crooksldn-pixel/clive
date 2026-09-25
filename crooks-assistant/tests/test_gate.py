@@ -7,7 +7,7 @@ import pytest
 from app.session.models import Session
 from app.tools import mock
 from app.tools.dispatch import dispatch
-from app.tools.gate import Tier, classify
+from app.tools.gate import Disposition, Tier, classify
 
 
 @pytest.fixture()
@@ -216,6 +216,73 @@ async def test_client_errors_reach_the_model_readably(session):
     finally:
         registry._REGISTRY.pop("shopify_find_order_probe", None)
         gate._KNOWN_TOOLS = frozenset(gate._KNOWN_TOOLS - {"shopify_find_order_probe"})
+
+
+# --- the engineering loop: one read added to the allow-list, nothing else ----
+
+_ENGINEERING = ("engineering_status", "submit_engineering_request")
+
+
+@pytest.fixture()
+def engineering_registered():
+    """The engineering tools, registered for the test only like the probes above, so the
+    registry-wide checks elsewhere in the suite keep seeing exactly what they list."""
+    import importlib
+
+    from app.tools import engineering_tools, registry
+
+    for name in _ENGINEERING:
+        registry._REGISTRY.pop(name, None)
+    try:
+        yield importlib.reload(engineering_tools)
+    finally:
+        for name in _ENGINEERING:
+            registry._REGISTRY.pop(name, None)
+
+
+def test_engineering_status_is_the_only_name_added_to_the_allow_list():
+    from app.tools import gate
+
+    assert "engineering_status" in gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS - {"engineering_status"}) == 33, "the 33 reads that were there, and no other"
+    assert "submit_engineering_request" not in gate._KNOWN_TOOLS, "a write is staged by its WriteSpec, never allow-listed"
+    assert "engineering_status" not in gate._PII_TOOLS and "engineering_status" not in gate._ISSUED_ID_ARGS
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "issued", "tier", "disposition", "recoverable"),
+    [
+        ("mock_echo", {"word": "x"}, (), Tier.GREEN, Disposition.EXECUTE_NOW, False),
+        ("mock_danger", {}, (), Tier.RED, Disposition.DENY, False),
+        ("some_tool_we_never_wrote", {}, (), Tier.RED, Disposition.DENY, False),
+        ("gmail_send_message", {}, (), Tier.RED, Disposition.DENY, False),
+        ("shopify_order_detail", {"order_id": "gid://shopify/Order/1"}, (), Tier.RED, Disposition.DENY, True),
+        ("shopify_order_detail", {"order_id": "gid://shopify/Order/1"}, ("gid://shopify/Order/1",), Tier.AMBER, Disposition.EXECUTE_NOW, False),
+        ("shopify_list_orders", {"limit": 51}, (), Tier.RED, Disposition.DENY, False),
+    ],
+)
+def test_every_other_decision_is_unchanged_with_the_engineering_tools_registered(
+    engineering_registered, name, args, issued, tier, disposition, recoverable,
+):
+    from app.tools import shopify_tools  # noqa: F401
+
+    decision = classify(name, args, issued_ids=issued)
+    assert (decision.tier, decision.disposition, decision.recoverable) == (tier, disposition, recoverable)
+
+
+def test_the_engineering_read_runs_and_the_submission_is_staged_only_on_its_issued_inbox_id(engineering_registered):
+    head = "a" * 40
+    read = classify("engineering_status", {})
+    assert read.tier is Tier.GREEN and read.disposition is Disposition.EXECUTE_NOW
+    args = {
+        "inbox_id": head, "request_id": "bridge-status-v1", "title": "t", "requested_outcome": "o",
+        "base_ref": "main", "base_sha": "b" * 40, "allowed_paths": ["crooks-assistant/app/engineering_bridge"],
+    }
+    staged = classify("submit_engineering_request", args, issued_ids=[head])
+    assert staged.tier is Tier.AMBER and staged.disposition is Disposition.STAGE_FOR_OWNER
+    unread = classify("submit_engineering_request", args, issued_ids=[])
+    assert unread.disposition is Disposition.DENY and unread.recoverable, "the issued-id rule, unchanged"
+    assert classify("submit_engineering_request", {**args, "branch": "main"}, issued_ids=[head]).disposition is Disposition.DENY
 
 
 def test_harvest_records_personal_strings_but_not_order_names(session):
