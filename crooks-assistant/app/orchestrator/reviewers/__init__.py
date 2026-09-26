@@ -8,13 +8,17 @@ from .base import (
     ReviewerFacts,
     ReviewResult,
 )
+from .gpt import DEFAULT_EFFORT as GPT_DEFAULT_EFFORT
 from .gpt import DEFAULT_MODEL as GPT_DEFAULT_MODEL
+from .gpt import DEPLOY_REVIEW_MODEL as GPT_DEPLOY_REVIEW_MODEL
 from .gpt import GptResponsesReviewer
 from .relay import GPT_GAP, GptUnavailable, RelayReviewer
 
 __all__ = [
     "Finding",
+    "GPT_DEFAULT_EFFORT",
     "GPT_DEFAULT_MODEL",
+    "GPT_DEPLOY_REVIEW_MODEL",
     "GPT_GAP",
     "GptResponsesReviewer",
     "GptUnavailable",

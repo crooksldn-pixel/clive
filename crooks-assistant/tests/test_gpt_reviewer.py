@@ -153,8 +153,9 @@ def test_a_finished_candidate_goes_to_gpt_without_a_courier_and_the_typed_verdic
     dispatch = w.store.read_dispatches("demo-objective", attempt.attempt_id)[-1]
     assert dispatch.reviewer_principal_id == "gpt"
     request = openai.requests[0]
-    # the documented Responses API shape: model, high reasoning, a strict schema, nothing stored
-    assert request["model"] == "gpt-5.6-sol" and request["reasoning"] == {"effort": "high"}
+    # the documented Responses API shape: the loop's model at medium reasoning (owner decision
+    # 2026-09-26), a strict schema, nothing stored
+    assert request["model"] == "gpt-6-luna" and request["reasoning"] == {"effort": "medium"}
     assert request["text"]["format"]["type"] == "json_schema" and request["text"]["format"]["strict"] is True
     assert request["store"] is False and "previous_response_id" not in request
     text = request["input"][0]["content"][0]["text"]
