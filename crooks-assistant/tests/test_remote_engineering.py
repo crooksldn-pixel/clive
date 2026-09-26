@@ -47,9 +47,25 @@ from app.remote_engineering import (
     publish_status,
 )
 from scripts import remote_engineering as cli
+from tests.fake_credentials import LOWER_ALNUM, credential_url, github_token, openai_key
 
 REGISTRY = Path(__file__).resolve().parent.parent / "config" / "review_principals.json"
 NOW = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
+# A credential a requester might paste into a request, and the installation token a git remote URL
+# carries. Both come from the shared helper (owner rule B): no credential is written as a literal here.
+LEAKED_KEY = openai_key("remote-engineering", kind="")
+URL_TOKEN = github_token("remote-engineering-url", kind="s")
+SECRET_URL = credential_url(URL_TOKEN)
+
+
+def fake_free_id(value: object) -> str | None:
+    """A parametrized case's id with no fake credential in it: pytest would otherwise use the value
+    itself, and print it in every report and CI log. None keeps pytest's own id."""
+    for name, fake in (("leaked-key", LEAKED_KEY), ("url-token", URL_TOKEN), ("token-shaped", TOKEN_SHAPED),
+                       ("token-id", TOKEN_ID), ("dotted-token-id", DOTTED_TOKEN_ID)):
+        if fake in str(value):
+            return name
+    return None
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -236,7 +252,7 @@ def test_status_is_a_projection_of_existing_records(env, tmp_path):
 
 
 def test_credential_like_extra_field_never_enters_output(env, tmp_path):
-    secret = "sk-supersecrettoken1234567890"
+    secret = LEAKED_KEY
     payload = valid_request(env, request_id="r-eight-a")
     payload["api_key"] = secret
     commit_request(env.origin, "r-eight-a", payload)
@@ -513,7 +529,7 @@ def test_a_changed_request_is_reported_but_the_dispatcher_keeps_supervising(env,
 
 
 def test_an_intake_transport_failure_never_projects_raw_git_output(tmp_path):
-    secretish = "fatal: unable to access 'https://x-access-token:SYNTHETIC-NOT-A-TOKEN@example.invalid/r.git'"
+    secretish = f"fatal: unable to access '{SECRET_URL}'"
 
     class Broken:
         def poll_once(self):
@@ -527,8 +543,8 @@ def test_an_intake_transport_failure_never_projects_raw_git_output(tmp_path):
     assert ticker.calls == 1
     # The host log is this same dict: `run` prints intake_error/publish_error verbatim, so
     # the raw transport text must be absent from the whole result, not only the projection.
-    assert "SYNTHETIC-NOT-A-TOKEN" not in json.dumps(published)
-    assert "SYNTHETIC-NOT-A-TOKEN" not in json.dumps(result, default=str)
+    assert URL_TOKEN not in json.dumps(published)
+    assert URL_TOKEN not in json.dumps(result, default=str)
     assert published[0]["adapter"]["intake_error"] == INTAKE_UNAVAILABLE
     assert result["intake_error"] == INTAKE_UNAVAILABLE
 
@@ -639,22 +655,22 @@ def test_a_transport_failure_carries_no_git_output_into_its_message(env, monkeyp
     """F-02: git names the remote it failed to reach, and a remote URL can carry a credential."""
     monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
     monkeypatch.setenv("GIT_ASKPASS", "true")
-    url = "https://x-access-token:SYNTHETIC-NOT-A-TOKEN@example.invalid/r.git"
+    url = SECRET_URL
     _git(env.checkout, "remote", "add", "leaky", url)
 
     with pytest.raises(InboxError) as fetch_failure:
         fetch_inbox(env.checkout, remote="leaky", branch=DEFAULT_INBOX_BRANCH)
-    assert "SYNTHETIC-NOT-A-TOKEN" not in str(fetch_failure.value)
+    assert URL_TOKEN not in str(fetch_failure.value)
 
     with pytest.raises(InboxError) as publish_failure:
         publish_status(env.checkout, _status_at(NOW), remote="leaky")
-    assert "SYNTHETIC-NOT-A-TOKEN" not in str(publish_failure.value)
+    assert URL_TOKEN not in str(publish_failure.value)
     assert "cannot read status branch" in str(publish_failure.value)
 
 
 def test_a_rejected_schema_version_value_is_never_echoed():
     """F-02/F-03: the supplied value is rejected content and could itself be a credential."""
-    secret = "sk-supersecrettoken1234567890"
+    secret = LEAKED_KEY
     with pytest.raises(RequestSchemaError) as refusal:
         parse_request(json.dumps({"schema_version": secret}).encode())
     assert secret not in str(refusal.value)
@@ -663,7 +679,7 @@ def test_a_rejected_schema_version_value_is_never_echoed():
 
 def test_a_malformed_record_is_visible_in_the_projection_and_survives_a_restart(env, tmp_path):
     """F-03: a record that never became a request id still has to be visible on GitHub."""
-    secret = "sk-supersecrettoken1234567890"
+    secret = LEAKED_KEY
     commit_request(env.origin, "bad-record-two", {"schema_version": REQUEST_SCHEMA, "api_key": secret},
                    filename="bad-record-two.json")
     kernel, _objectives, _receipts, controller = make_controller(env, tmp_path)
@@ -752,8 +768,6 @@ def test_run_accepts_the_documented_timing_defaults():
 
 # --------------------------------------------- activation successor 3: nothing untrusted is echoed
 
-SECRET_URL = "https://x-access-token:SYNTHETIC-NOT-A-TOKEN@example.invalid/r.git"
-
 
 def _spy_git(controller):
     """Record every ref this controller hands to git, so a refusal can be proven pre-git."""
@@ -771,7 +785,7 @@ def _spy_git(controller):
     "main..other",
     "refs/heads/x.lock",
     "a" * 300,
-])
+], ids=fake_free_id)
 def test_an_unbounded_base_ref_is_refused_before_git_and_never_echoed(env, tmp_path, base_ref):
     """F-01: base_ref reaches `git rev-parse`, and its refusal reason is published."""
     commit_request(env.origin, "r-ref", valid_request(env, request_id="r-ref", base_ref=base_ref))
@@ -788,7 +802,7 @@ def test_an_unbounded_base_ref_is_refused_before_git_and_never_echoed(env, tmp_p
                           refusals=tuple(o for o in outcomes if "refusal_id" in o))
     for rendered in (json.dumps(outcomes), json.dumps(status)):
         assert base_ref not in rendered
-        assert "SYNTHETIC-NOT-A-TOKEN" not in rendered
+        assert URL_TOKEN not in rendered
         assert "pwned" not in rendered
 
 
@@ -806,7 +820,7 @@ def test_a_resolvable_ref_that_disagrees_with_the_declared_sha_is_refused_withou
 
 def test_a_credential_in_an_unknown_key_name_never_enters_any_output(env, tmp_path):
     """F-02: pydantic's loc segment for a forbidden extra field IS the requester's key name."""
-    secret = "sk-supersecrettoken1234567890"
+    secret = LEAKED_KEY
     payload = valid_request(env, request_id="r-key")
     payload[secret] = "anything"
     commit_request(env.origin, "r-key", payload)
@@ -823,10 +837,10 @@ def test_a_credential_in_an_unknown_key_name_never_enters_any_output(env, tmp_pa
 
 
 @pytest.mark.parametrize("filename", [
-    "sk-supersecrettoken1234567890.json",
+    f"{LEAKED_KEY}.json",
     "a b\tc.json",
     ("n" * 120) + ".json",
-])
+], ids=fake_free_id)
 def test_an_untrusted_request_filename_is_replaced_by_an_opaque_locator(env, tmp_path, filename):
     """F-03: a requester chooses the filename, and `source` is published on a public branch."""
     commit_request(env.origin, "ignored-record", {"not": "a request"}, filename=filename)
@@ -846,10 +860,11 @@ def test_an_untrusted_request_filename_is_replaced_by_an_opaque_locator(env, tmp
 
 def test_a_nested_request_path_is_replaced_by_an_opaque_locator(env, tmp_path):
     payload = valid_request(env, request_id="r-nested")
-    commit_request(env.origin, "r-nested", payload, filename="sk-secretdir/r-nested.json")
+    directory = openai_key("remote-engineering-dir", kind="", length=16)
+    commit_request(env.origin, "r-nested", payload, filename=f"{directory}/r-nested.json")
     _kernel, _objectives, receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
-    assert "sk-secretdir" not in json.dumps(outcomes)
+    assert directory not in json.dumps(outcomes)
     assert receipts.get("r-nested").source.startswith(f"{DEFAULT_INBOX_DIRECTORY}/#")
 
 
@@ -869,7 +884,7 @@ def test_one_shot_poll_never_prints_a_credential_bearing_remote(env, tmp_path, c
     ])
     captured = capsys.readouterr()
     assert rc == 2
-    assert "SYNTHETIC-NOT-A-TOKEN" not in captured.out + captured.err
+    assert URL_TOKEN not in captured.out + captured.err
     assert SECRET_URL not in captured.out + captured.err
     assert "is not a bounded git identifier" in captured.err
 
@@ -878,11 +893,11 @@ def test_one_shot_poll_never_prints_an_escaping_branch_name(env, tmp_path, capsy
     rc = cli.run([
         "--store", str(tmp_path / "engineering"), "--repo", str(env.checkout), "--no-journal",
         "poll", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main",
-        "--branch", "../../SYNTHETIC-NOT-A-TOKEN",
+        "--branch", f"../../{URL_TOKEN}",
     ])
     captured = capsys.readouterr()
     assert rc == 2
-    assert "SYNTHETIC-NOT-A-TOKEN" not in captured.out + captured.err
+    assert URL_TOKEN not in captured.out + captured.err
 
 
 # ------------------------------------------- activation successor 3: work bounds and fixed transport text
@@ -891,7 +906,7 @@ from app.remote_engineering import inbox as inbox_module  # noqa: E402
 from app.remote_engineering.errors import InboxBoundExceeded  # noqa: E402
 from app.remote_engineering.runner import INTAKE_OVER_BOUND  # noqa: E402
 
-TOKEN_SHAPED = "ghp_SYNTHETICNOTATOKEN0123456789abcd"
+TOKEN_SHAPED = github_token("remote-engineering-shaped")
 
 
 def _commit_raw(origin: Path, files: dict[str, bytes], *, branch: str = DEFAULT_INBOX_BRANCH) -> None:
@@ -976,7 +991,8 @@ def test_non_canonical_or_oversized_ref_names_are_refused_before_git(env, monkey
     assert name not in str(refusal.value)
 
 
-@pytest.mark.parametrize("remote", ["o" * 65, "origin/other", "origin.lock", ".origin", SECRET_URL])
+@pytest.mark.parametrize("remote", ["o" * 65, "origin/other", "origin.lock", ".origin", SECRET_URL],
+                         ids=fake_free_id)
 def test_oversized_or_non_canonical_remote_names_are_refused_before_git(env, monkeypatch, remote):
     def no_git(*_args, **_kwargs):
         raise AssertionError("git must not be called for a refused remote")
@@ -1307,17 +1323,18 @@ def test_a_claim_carries_pointers_only_never_a_second_lifecycle_store():
 # Schema-valid under the previous id pattern, and credential-shaped: one long run and a
 # dotted form. Neither is a slug, so neither is admitted now.
 #
-# Assembled at runtime from a bare prefix and a repeating body. The secret scanner reads
-# this file, so a credential-shaped fixture written as a literal would be a finding in its
-# own right -- which is exactly what it was, and it failed the secret_scan gate and, with
-# it, the control assertion in test_acceptance_provenance that needs a clean tree.
-TOKEN_ID = "sk-" + "proj-" + "abc123" * 6
-DOTTED_TOKEN_ID = "ghp" + "." + "abcdef" * 6
+# Assembled at runtime by the shared helper, in lower case as the previous pattern required.
+# The secret scanner reads this file, so a credential-shaped fixture written as a literal would
+# be a finding in its own right -- which is exactly what it once was, and it failed the
+# secret_scan gate and, with it, the control assertion in test_acceptance_provenance that needs
+# a clean tree.
+TOKEN_ID = openai_key("request-id", alphabet=LOWER_ALNUM, length=36)
+DOTTED_TOKEN_ID = github_token("request-id", alphabet=LOWER_ALNUM).replace("_", ".")
 
 
 @pytest.mark.parametrize("request_id", [TOKEN_ID, DOTTED_TOKEN_ID, "sk", "a-", "-a", "a--b",
                                         "a-" + "b" * 17, "-".join("abc" for _ in range(9)),
-                                        "Mixed-Case", "has_underscore-x"])
+                                        "Mixed-Case", "has_underscore-x"], ids=fake_free_id)
 def test_a_request_id_that_is_not_a_slug_is_refused(env, tmp_path, request_id):
     """F-01: the id reaches a claim, a receipt, a task id and the public projection."""
     payload = valid_request(env, request_id=request_id,
@@ -1333,7 +1350,7 @@ def test_a_request_id_that_is_not_a_slug_is_refused(env, tmp_path, request_id):
     assert controller.claims.get(request_id) is None
 
 
-@pytest.mark.parametrize("request_id", [TOKEN_ID, DOTTED_TOKEN_ID])
+@pytest.mark.parametrize("request_id", [TOKEN_ID, DOTTED_TOKEN_ID], ids=fake_free_id)
 def test_a_credential_shaped_request_id_is_never_echoed(env, tmp_path, request_id):
     """The refusal itself must not republish the very value that was refused.
 

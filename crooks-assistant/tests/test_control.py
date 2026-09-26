@@ -20,6 +20,14 @@ import pytest
 
 from scripts import control, update
 from scripts import launch_common as lc
+from tests.fake_credentials import (
+    anthropic_key,
+    credential_url,
+    elevenlabs_key,
+    github_token,
+    shopify_token,
+    tailscale_auth_key,
+)
 from tests.fake_launchd import LaunchdDouble
 
 # The checkout these tests are part of, whatever directory pytest was started from.
@@ -869,7 +877,9 @@ def test_the_update_runs_the_offline_suite_before_it_restarts(running, here, mon
 # ------------------------------------------------------------------------- no secrets
 
 
-TOKEN = "shpat_" + "9f3a" * 8
+TOKEN = shopify_token("control-status")
+VOICE_KEY = elevenlabs_key("control-status")
+MODEL_KEY = anthropic_key("control-status")
 
 
 def test_no_secret_reaches_the_app_even_when_health_quotes_one(running, here, monkeypatch, capsys):
@@ -877,14 +887,14 @@ def test_no_secret_reaches_the_app_even_when_health_quotes_one(running, here, mo
     which is how it would happen: a client library putting the token in an error message. The
     assertion is over the actual bytes the app would read."""
     monkeypatch.setenv("CROOKS_SHOPIFY_STATIC_TOKEN", TOKEN)
-    monkeypatch.setenv("ELEVENLABS_API_KEY", "el-secret-key-abcdefghijkl")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", VOICE_KEY)
     running["health"]["checks"]["shopify"] = check(False, f"401 Unauthorized for token {TOKEN}")
-    running["health"]["checks"]["gmail"] = check(False, "refresh failed: sk-ant-api03-Aa1Bb2Cc3Dd4Ee5")
-    running["health"]["voice"] = {"api_key": "el-secret-key-abcdefghijkl", "voice": "Derek"}
+    running["health"]["checks"]["gmail"] = check(False, f"refresh failed: {MODEL_KEY}")
+    running["health"]["voice"] = {"api_key": VOICE_KEY, "voice": "Derek"}
     assert control.main(["status"]) == 1
     out = capsys.readouterr().out
     assert TOKEN not in out and "shpat_" not in out
-    assert "el-secret-key-abcdefghijkl" not in out
+    assert VOICE_KEY not in out
     assert "sk-ant-api03" not in out
     assert out.count(control.MASK) >= 3, "and it says something was taken out"
     assert "401 Unauthorized for token" in out, "the diagnosis survives; only the credential goes"
@@ -905,7 +915,7 @@ def test_redaction_leaves_the_identifiers_the_app_needs(running, here, monkeypat
 
 def test_a_field_whose_name_says_credential_goes_whatever_is_in_it():
     out = control.redact({"authorization": "Bearer abc", "token": "anything at all",
-                          "url": "https://x-access-token:ghp_AbCdEf123456@github.com/o/r.git",
+                          "url": credential_url(github_token("control-field"), host="github.com", path="/o/r.git"),
                           "sha": "a" * 40, "detail": "ready"}, secrets=[])
     assert out["authorization"] == control.MASK and out["token"] == control.MASK
     assert "ghp_" not in out["url"] and out["url"].startswith("https://x-access-token:")
@@ -1416,10 +1426,12 @@ def test_a_git_error_quoting_a_token_is_masked_in_the_json_too(here, monkeypatch
     """The other door: `crooks-update --json`, typed. A remote URL with a credential in it is
     exactly what a failed fetch quotes back, so that document goes through the same redactor
     the app's documents do."""
-    monkeypatch.setenv("GIT_ACCESS_TOKEN", "ghp_" + "b7" * 12)
+    token = github_token("update-fetch")
+    monkeypatch.setenv("GIT_ACCESS_TOKEN", token)
 
     def fetch(branch):
-        raise update.Stopped("fatal: could not read from https://x:ghp_b7b7b7b7b7b7b7b7b7b7b7b7@github.com/o/r.git")
+        raise update.Stopped("fatal: could not read from "
+                             + credential_url(token, user="x", host="github.com", path="/o/r.git"))
 
     monkeypatch.setattr(update, "stage_fetch", fetch)
     assert update.main(["--json"]) == 1
@@ -1732,7 +1744,7 @@ def test_no_secret_reaches_the_app_through_a_lifecycle_document(running, here, f
     """The redaction promise, extended to the documents that did not exist when it was made.
     A Tailscale error quoting an auth key is exactly the shape of thing that lands in a
     stage's detail, and a stage's detail is drawn."""
-    key = "tskey-auth-" + "k9x2" * 8
+    key = tailscale_auth_key("lifecycle-restart")
     monkeypatch.setenv("TAILSCALE_AUTH_TOKEN", key)
     fake_mac["route"] = (None, f"tailscale serve failed: the auth key {key} has expired")
     control.main(["restart", "--wait", "5"])

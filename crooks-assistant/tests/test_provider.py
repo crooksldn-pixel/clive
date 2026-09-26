@@ -17,6 +17,7 @@ from app.providers.max_agent_sdk import (
     result_kind,
     usage_limit_line,
 )
+from tests.fake_credentials import anthropic_key
 
 
 class R:
@@ -72,7 +73,7 @@ def test_the_reset_time_is_read_in_the_macs_own_clock():
 
 
 def test_billing_guard(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", anthropic_key("billing-guard"))
     with pytest.raises(BillingGuardError):
         assert_no_payg_credentials()
     monkeypatch.delenv("ANTHROPIC_API_KEY")

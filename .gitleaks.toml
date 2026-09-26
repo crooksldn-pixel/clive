@@ -6,9 +6,12 @@
 # tooling and downloaded browsers, which a candidate does not author and which
 # appear in the tree only because the gate runs after the test suite.
 #
-# Findings that ARE repository content and are nonetheless expected live in
+# Findings that ARE repository content and are nonetheless expected would live in
 # .gitleaks-baseline.json, by fingerprint, so each one is listed individually
-# and a new finding in the same file still fails.
+# and a new finding in the same file still fails. Since 2026-09-26 the baseline
+# is empty: fake credentials in tests are assembled at runtime through
+# crooks-assistant/tests/fake_credentials.py (owner rule B, 2026-09-25), so no
+# test holds a literal the scanner would report.
 
 title = "CLIVE acceptance secret scan"
 

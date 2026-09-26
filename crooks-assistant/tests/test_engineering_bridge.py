@@ -35,8 +35,9 @@ from app.tools import engineering_tools, registry
 from app.tools.dispatch import dispatch
 from app.tools.gate import Disposition, Tier, classify
 from app.tools.registry import ToolError
+from tests.fake_credentials import github_token
 
-TOKEN = "ghp_bridgeTestToken000000000000000000001"
+TOKEN = github_token("engineering-bridge")
 REPO = "crooksldn-pixel/clive"
 HEAD = "1" * 40
 BASE_SHA = "a" * 40

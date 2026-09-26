@@ -22,6 +22,7 @@ from app.session.models import Session
 from app.tools import (
     shopify_tools,  # noqa: F401 — registers the write spec the action cards present
 )
+from tests.fake_credentials import shopify_token
 
 ORDER = {
     "order_id": "gid://shopify/Order/1", "order_number": "CROOKS-1930",
@@ -178,7 +179,7 @@ def test_email_list_and_thread_are_bounded():
 
 def test_a_failed_shopify_call_is_a_calm_error_with_no_raw_detail():
     failed = ToolCall(name="shopify_find_order", args={"query": "1930"}, ok=False,
-                      error="ShopifyError: 502 Bad Gateway <html>…</html> token=shpat_secret")
+                      error=f"ShopifyError: 502 Bad Gateway <html>…</html> token={shopify_token('presentation')}")
     (card,) = present([failed])
     assert card["type"] == "error"
     assert card["data"]["service"] == "shopify" and card["data"]["title"] == "Shopify unavailable"
