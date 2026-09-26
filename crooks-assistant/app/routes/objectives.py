@@ -3,7 +3,9 @@
 These are the only callers that act as the owner (``by="owner"``): authorising a work item and
 closing an objective are refused to the model's tools by the store itself. Access is the
 application's: the tailnet allow-list middleware in app/main.py has already refused any caller
-who is not one of the owner's logins. Nothing here reaches a store, an inbox or the outside world.
+who is not one of the owner's logins. Nothing here reaches a store, an inbox or the outside world,
+with one read-only exception: /objectives/builds reads the engineering loop's published status
+(at most once a minute) to say where each build objective's requests are.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ class CreateBody(BaseModel):
     request: str = Field(min_length=1, max_length=4000)
     title: str = Field(default="", max_length=120)
     deadline: str | None = Field(default=None, max_length=10)
+    kind: str = Field(default="business", max_length=20)
 
 
 class TextBody(BaseModel):
@@ -47,6 +50,17 @@ async def list_objectives() -> dict:
             "needs_you": sum(len(o.open_("attention")) for o in live)}
 
 
+@router.get("/builds")
+async def builds() -> dict:
+    """Each live build objective's latest engineering requests, in the loop's own words."""
+    from app.tools.engineering_tools import build_progress
+
+    live = [o for o in store().live() if o.kind == "build" and o.engineering]
+    recent = {o.id: [str(e.get("request_id") or "") for e in o.engineering[-3:]] for o in live}
+    rows = await build_progress([rid for ids in recent.values() for rid in ids])
+    return {"builds": {oid: [rows[rid] for rid in ids if rid in rows] for oid, ids in recent.items()}}
+
+
 @router.get("/{objective_id}", response_model=None)
 async def read_objective(objective_id: str) -> dict | JSONResponse:
     try:
@@ -59,7 +73,8 @@ async def read_objective(objective_id: str) -> dict | JSONResponse:
 async def create_objective(body: CreateBody) -> dict | JSONResponse:
     title = body.title.strip() or " ".join(body.request.split()[:6])
     try:
-        return _full(store().create(title=title, request=body.request, deadline=body.deadline, by="owner"))
+        return _full(store().create(title=title, request=body.request, deadline=body.deadline, by="owner",
+                                    kind=body.kind))
     except ObjectiveError as exc:
         return _refused(exc)
 

@@ -41,14 +41,15 @@ def _full(obj) -> dict[str, Any]:
             "title": {"type": "string"},
             "request": {"type": "string"},
             "deadline": {"type": "string", "description": "YYYY-MM-DD"},
+            "kind": {"type": "string", "enum": ["business", "build"], "description": "build: a change to CLIVE itself."},
         },
         "required": ["title", "request"],
     },
     tier=Tier.GREEN,
 )
-async def objective_open(title: str, request: str, deadline: str | None = None) -> dict:
+async def objective_open(title: str, request: str, deadline: str | None = None, kind: str = "business") -> dict:
     try:
-        return _full(store().create(title=title, request=request, deadline=deadline))
+        return _full(store().create(title=title, request=request, deadline=deadline, kind=kind))
     except ObjectiveError as exc:
         raise ToolError(str(exc)) from exc
 
