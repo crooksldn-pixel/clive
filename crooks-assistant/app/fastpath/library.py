@@ -1226,12 +1226,15 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     # the card: someone shown as waiting may already have been answered (the 2026-09-26 deploy
     # review, F-02). The scan logs why; the owner is told what it means.
     sent = str(body.get("sent_checked") or "all") if inbox else "all"
+    caveat = ""
     if waiting and sent != "all":
         caveat = ("Replies sent as new emails could not be checked, so some of these may already have been answered."
                   if sent == "none" else
                   "Only the newest sent emails were checked for replies, so some of these may already have been answered.")
         tail += " " + caveat
         scope_note = " ".join(filter(None, [scope_note, caveat]))
+    # A list that may name people already answered is a partial answer, whichever way it is said.
+    partial = bool(unchecked) or bool(caveat) or result.partial
     if len(waiting) > WAITING_SHOWN:
         scope_note = " ".join(filter(None, [scope_note, f"The {WAITING_SHOWN} longest waits are shown."]))
     if not waiting:
@@ -1242,11 +1245,13 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
         else:
             answer = f"Nobody is waiting on a reply — {len(rows)} {scope}.{tail}"
         return FastAnswer(answer=answer, calls=list(result.calls),
-                          partial=bool(unchecked) or result.partial, trace={"rows": len(rows), "waiting": 0, "unchecked": unchecked, "repeat": again})
+                          partial=partial, trace={"rows": len(rows), "waiting": 0, "unchecked": unchecked, "repeat": again})
     if again:
         # "Still just Mia." — no scope sentence: it was said the first time, and the owner is
-        # asking whether anything moved, not how wide the check was.
-        answer = f"Still {'just ' if len(waiting) == 1 else ''}{_first_names(waiting)}."
+        # asking whether anything moved, not how wide the check was. The sent-check caveat is
+        # NOT the scope, though: it says this list may be wrong, and a repeat is the answer he
+        # acts on, so it is said again (the deploy review of 9c37973f, F-02's repeat branch).
+        answer = f"Still {'just ' if len(waiting) == 1 else ''}{_first_names(waiting)}." + (f" {caveat}" if caveat else "")
     elif inbox:
         who = "person is" if len(waiting) == 1 else "people are"
         answer = f"{len(waiting)} {who} waiting on a reply {scope}: {_first_names(waiting, full=True)}.{tail}"
@@ -1255,7 +1260,7 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     return FastAnswer(
         answer=answer,
         surfaces=[_waiting_surface(waiting, unchecked=unchecked, scope=scope_note)], drawn=[],
-        calls=list(result.calls), partial=bool(unchecked) or result.partial,
+        calls=list(result.calls), partial=partial,
         trace={"rows": len(rows), "waiting": len(waiting), "unchecked": unchecked, "repeat": again},
     )
 
