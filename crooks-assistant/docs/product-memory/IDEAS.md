@@ -1284,6 +1284,46 @@ Confine the loop's service (strict filesystem protection with explicit write pat
 
 ---
 
+## IDEA-090 — Pin third-party instructions instead of fetching them live
+**Date:** 2026-09-26  
+**Status:** CAPTURED — found by the first digestions  
+**Theme:** engineering safety, the absorbing machine  
+**Source:** DIGESTIONS_2026-09-26.md (Vercel's interface guidelines)
+
+CLIVE's `web-design-guidelines` skill fetches Vercel's `command.md` from its `main` branch at run time, before every review. That puts unpinned third-party text into an agent's context each time. The fix is the digester's own shape: take the guidelines in at a pinned commit (`e3d624ba`), absorb them as review checks with a removal handle, and let the watchlist propose updates when upstream changes.
+
+---
+
+## IDEA-091 — Provenance and an upstream watch for every vendored skill
+**Date:** 2026-09-26  
+**Status:** CAPTURED — found by the first digestions  
+**Theme:** the absorbing machine  
+**Source:** DIGESTIONS_2026-09-26.md (Taste Skill)
+
+CLIVE's three taste skills are byte-identical to upstream `Leonxlnx/taste-skill` at `ce26fc25`, but carry no record of where they came from and nothing watches upstream. Each vendored skill should carry its Source (origin, pinned commit, licence) and be on the digester's watchlist, so an upstream change becomes a proposal rather than drift. Its redesign skill (for redesigning existing projects) is the one addition worth taking from that source, for the storefront work.
+
+---
+
+## IDEA-092 — Model-assisted relation for the digester
+**Date:** 2026-09-26  
+**Status:** CAPTURED — the digester's "Later" stage, now measured  
+**Theme:** the absorbing machine, self-knowledge  
+**Source:** KNOWLEDGE_DIGESTER_V1.md §9; the first self-digest
+
+Relation today is deterministic word overlap. CLIVE's self-digest traces 21% of its code (512 of 2,458 code units) to a feature, idea or decision, and a module whose name shares no words with its feature is invisible. The next step is the model gateway: a model reads each unit with its neighbours and proposes the link, with its output provenance-tagged and treated as data. The traced share is the measure of success.
+
+---
+
+## IDEA-093 — The digester reconciles the feature register against the code
+**Date:** 2026-09-26  
+**Status:** CAPTURED  
+**Theme:** self-knowledge, drift  
+**Source:** the first self-digest (DIGESTIONS_2026-09-26.md §7)
+
+Self mode found register entries that disagree with the code: FEAT-033 (anticipation engine) and FEAT-020 (event ledger) are PLANNED but have code in the tree, and FEAT-013 is SUPERSEDED but its code remains. Running self mode on every landing, and turning each disagreement into a proposed register correction or clean-up, would keep FEATURES.md true without anyone reconciling it by hand.
+
+---
+
 # Capture policy
 
 New ideas should be appended with:

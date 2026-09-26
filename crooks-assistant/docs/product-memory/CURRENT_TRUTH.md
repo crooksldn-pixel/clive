@@ -33,7 +33,9 @@ Where anything further down this file disagrees with this section, this section 
 - **Decided on 2026-09-26:** the loop's routine exact-SHA reviews run on `gpt-6-luna` at medium effort to cut OpenAI spend; the production deploy review stays on `gpt-6-sol` ([OWNER_DECISIONS_2026-09-26.md](./OWNER_DECISIONS_2026-09-26.md)).
 - **Retired:** the bridge watcher on 2026-09-25 (its job is done by the remote loop); `engineering-team-activation-v1` is superseded by the remote loop; also the competing alpha fix `claude/release-secret-baseline-2026-09-24` and the ChatGPT orchestrator-freeze and control-plane-progress streams. The old hourly supervisor stays disabled and the unrestricted prose-freeze loop stays parked.
 - The runtime GPT Director is still not implemented; the Director acts only while the owner is in a chat (IDEA-065).
-- The trunk was red from PR #8 onwards on 2026-09-25 ([EXTERNAL_REVIEW_2026-09-25.md](./EXTERNAL_REVIEW_2026-09-25.md) §1.1); the trunk repair is on the finish list.
+- The trunk was red from PR #8 onwards on 2026-09-25 ([EXTERNAL_REVIEW_2026-09-25.md](./EXTERNAL_REVIEW_2026-09-25.md) §1.1) and was repaired by PR #12 the same day. Since then every landing has needed the full suite and a green GitHub acceptance run on the exact PR head, with that head containing the current trunk.
+- **Knowledge Digester V1 (FEAT-071): waves 1–4 are on the trunk** (PRs #25, #26, #28). It is a library and two command-line entries (`scripts/digest.py`, `scripts/digest_intake.py`). It takes in any artifact, reads it without executing it, and proposes what CLIVE could absorb, each proposal with a removal handle. In self mode it traces CLIVE to its own decisions. It absorbs nothing yet and does not reach the phone; that is wave 5 ([KNOWLEDGE_DIGESTER_V1.md](./KNOWLEDGE_DIGESTER_V1.md) §9, [DIGESTIONS_2026-09-26.md](./DIGESTIONS_2026-09-26.md)).
+- **Test credentials:** every fake credential in the tests is built by one shared helper (owner rule B), and the secret-scan baseline is empty (PR #30, landing).
 
 ### Product memory
 

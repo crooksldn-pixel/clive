@@ -80,5 +80,16 @@ The share of proposals the owner accepts; time from intake to working capability
 - **Wave 2:** adapters for skills and agent configuration, documents, code repositories, interface specifications, datasets, and web themes and design tokens; one pipeline call `digest(path)`; a command-line entry and a report renderer.
 - **Wave 3:** the generated self-model, relation and absorption proposals, as stages of the one `digest(root, source, store, self_model=...)` call: every Unit related to the self-model, one proposal per Unit written once to the ledger (a re-digest appends nothing), and both in the report and the command line (`scripts/digest.py`, related to CLIVE's own repository by default).
 - **Wave 4, on the engineering host:** the intake fetcher and quarantine; the first real digestions (Playwright CLI, Taste Skill, Vercel's interface guidelines, a public skills collection, and CLIVE's own repository).
+- **Status on 2026-09-26, 15:40:** waves 1 to 4 are on the trunk (PRs #25, #26, #28). Every wave was built by agents that could run the tests, then reviewed by a separate agent that had not seen the work: 64 defects repaired in waves 1–2, 16 in wave 3. Digesting five real sources found 15 more (DIGESTIONS_2026-09-26.md). Three changes came out of the first digestions:
+  - proposals are ranked and budgeted, one per skill, and licence-aware: CLIVE's self-digest proposed 10,434 things and the five sources 6,801 before this;
+  - a proprietary licence inside an artifact excludes only its folder;
+  - CLIVE digests itself in self mode (`--self`), which traces instead of proposing.
+  What it still cannot do:
+  - **Relation is word overlap.** Self mode traces 21% of CLIVE's code to a feature, idea or decision, so model-assisted understanding (below) is what makes the why-index real.
+  - **Coverage gaps:**
+    - no Swift, Kotlin, Go, Rust or Java adapters;
+    - no PDF or Office documents, and no media;
+    - SQLite databases are skipped, because the scanner cannot read them as text;
+    - scanning stops at 32 MB.
 - **Wave 5:** absorbers for each target with removal, measurement and the watchlist; digest proposals shown on the phone as Generative UI scenes; "digest this" through Build from CLIVE.
 - **Later:** model-assisted understanding through the model gateway, sandboxed browser digestion of live sites and apps, media, and earned autonomy for low-risk absorption classes.
