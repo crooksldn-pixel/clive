@@ -2,19 +2,22 @@
 """Take an artifact into quarantine, then digest it: intake, recognise, scan and decompose.
 
     python scripts/digest_intake.py SOURCE [--ref REF] [--kind HANDLER] --quarantine DIR
-        [--store DIR] [--report FILE] [--no-relate | --self-model-root ROOT]
+        [--store DIR] [--report FILE] [--no-relate | --self-model-root ROOT] [--self]
 
-SOURCE is an https URL (a git repository, or a single file or archive to download), an archive,
-a directory or a file. Intake (app/digest/intake.py) is the only step that uses the network,
+SOURCE is an https URL (a git repository, or a single file or archive to download), a package
+by its registry name (npm:<name>[@<version>], pypi:<name>[==<version>]), an archive, a
+directory or a file. Intake (app/digest/intake.py) is the only step that uses the network,
 and only to fetch: it pins the source (the commit SHA, or the digest of the bytes fetched),
 copies it read-only into a directory of its own under --quarantine, which must be outside this
 repository, and records its Source. The quarantined copy is then digested exactly as
 scripts/digest.py digests one — nothing in it is executed, imported or installed. --ref picks a
-branch, tag or full commit SHA of a git repository; --kind names the intake handler when the
-source could be taken more than one way (git, url, archive, directory, file, or any handler
-added to app/digest/intakes). The Units are related to CLIVE's self-model and proposed for
-exactly as scripts/digest.py does it (--no-relate, --self-model-root), and what intake withheld
-and noted is carried into the digest's result and report.
+branch, tag or full commit SHA of a git repository, or a package's version; --kind names the
+intake handler when the source could be taken more than one way (git, url, package, archive,
+directory, file, or any handler added to app/digest/intakes). The Units are related to CLIVE's
+self-model and CLIVE's proposals made exactly as scripts/digest.py does it, with the same
+arguments: --no-relate skips both, --self-model-root generates the self-model from another
+checkout of CLIVE, and --self takes the artifact as CLIVE itself: traced to its product memory,
+nothing proposed. What intake withheld and noted is carried into the digest's result and report.
 
 One line is printed, as scripts/digest.py prints it; what intake pinned, where the copy is and
 anything it withheld are said on standard error.
@@ -40,7 +43,15 @@ from app.digest.intake import IntakeError, UnsafeArtifact, intake, shown  # noqa
 from app.digest.model import Source  # noqa: E402
 from app.digest.pipeline import digest  # noqa: E402
 from app.digest.store import ArtifactConflict, DigestStore  # noqa: E402
-from scripts.digest import BLOCKED, FAILED, add_relating, finish, self_model_for  # noqa: E402
+from scripts.digest import (  # noqa: E402
+    BLOCKED,
+    FAILED,
+    add_relating,
+    finish,
+    purpose_of,
+    relating_problem,
+    self_model_for,
+)
 
 # The repository this script belongs to: third-party content must never land inside it.
 REPOSITORY = _APP_ROOT.parent
@@ -56,7 +67,8 @@ class _Parser(argparse.ArgumentParser):
 
 def _parser() -> argparse.ArgumentParser:
     parser = _Parser(description="Take an artifact into quarantine and digest it.")
-    parser.add_argument("source", help="an https URL, an archive, a directory or a file")
+    parser.add_argument("source", help="an https URL, a package (npm:<name>, pypi:<name>), an "
+                                       "archive, a directory or a file")
     parser.add_argument("--ref", help="a git repository's branch, tag or full commit SHA")
     parser.add_argument("--kind", help="the intake handler to use (default: the one that claims the source)")
     parser.add_argument("--quarantine", type=Path, required=True,
@@ -74,6 +86,10 @@ def inside_repository(path: Path) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    problem = relating_problem(args)
+    if problem is not None:
+        print(f"digest_intake: {problem}", file=sys.stderr)
+        return FAILED
     if inside_repository(args.quarantine):
         print(f"digest_intake: the quarantine {shown(args.quarantine)} is inside this repository; "
               "put it outside, so no third-party content can be committed", file=sys.stderr)
@@ -104,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
             if _same_intake(stored, source):
                 source = stored
         result = digest(taken.path, source, store, self_model=self_model_for(args),
-                        withheld=taken.withheld, notes=taken.notes)
+                        purpose=purpose_of(args), withheld=taken.withheld, notes=taken.notes)
     except ArtifactConflict as error:
         print(f"digest_intake: {shown(error, 2000)}", file=sys.stderr)
         return FAILED

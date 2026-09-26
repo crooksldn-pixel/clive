@@ -37,12 +37,18 @@ already in quarantine and already pinned by its Source:
 4. Relate, when a self-model is given (selfmodel.build_self_model): relate.relate gives each
    Unit its relation to what CLIVE already is — overlap, extends, gap or reference — with the
    entries it rests on and the digest of the self-model it was made against.
-5. Propose, with the relations: propose.propose gives one absorption proposal per Unit, each
-   proposed by CLIVE and decided by no one, with its target, reasoning, hypothesis, measure and
-   removal handle. With a store they go into the artifact's ledger through
-   store.add_proposals, which appends only what the ledger does not already hold: the same
+5. Propose, with the relations: propose.proposals gives CLIVE's absorption proposals — one
+   per skill, per file of procedures or per other Unit, licensed, ranked best first and bounded
+   by a budget per target, the rest held back in `held` — each proposed by CLIVE and decided
+   by no one, with its target, reasoning, hypothesis, measure and removal handle. With
+   purpose="self" (CLIVE digesting its own repository) nothing is proposed: relate.relate_self
+   traces every Unit to the product memory instead, into `trace`. With a store the proposals
+   go into the artifact's ledger through store.add_proposals, which appends only what the
+   ledger does not already hold: the same
    digest against the same self-model again appends nothing, and the result carries the
    records as the ledger holds them, each with the time it was first proposed.
+   Self mode, like every digest, relates only the Units decomposed from what the scanner read,
+   redacted; each folder's licence is read from the same scanned view.
    A blocked artifact has no Units, so nothing is related or proposed; without a self-model
    the digest stops after decomposition, as it always could.
 
@@ -94,12 +100,13 @@ from app.digest.model import (
     Unit,
     utc_now,
 )
-from app.digest.propose import propose
-from app.digest.relate import Relation, relate
+from app.digest.propose import proposals as propose_ranked
+from app.digest.relate import Relation, SelfTrace, relate, relate_self
 from app.digest.selfmodel import SelfModel
 from app.digest.store import DigestStore
 
 ADAPTERS_PACKAGE = "app.digest.adapters"
+PURPOSES = ("absorb", "self")
 
 # --- the one kind table -------------------------------------------------------------------
 #
@@ -278,8 +285,11 @@ class DigestResult:
     adapters: tuple[str, ...]                # the adapters that ran, by NAME, in the order run
     blocked: bool                            # stopped before decomposition by a block finding
     relations: tuple[Relation, ...] = ()     # one per Unit, in the Units' order
-    proposals: tuple[Absorption, ...] = ()   # one per Unit, in reading order, as recorded
+    proposals: tuple[Absorption, ...] = ()   # best first, within the budget, as recorded
     self_model: str | None = None            # the digest of the self-model related against
+    purpose: str = "absorb"                  # PURPOSES: absorb from it, or understand CLIVE
+    held: tuple[tuple[str, tuple[str, ...]], ...] = ()  # (target, unit ids) past the budget
+    trace: SelfTrace | None = None           # self mode: the why-index and drift
     excluded: tuple[str, ...] = ()           # folders left out under their own licence
     withheld: tuple[tuple[str, str], ...] = ()  # (path, why) the intake did not copy
     notes: tuple[str, ...] = ()              # what the intake said about the copy
@@ -296,8 +306,8 @@ class DigestResult:
 
 def digest(root: str | os.PathLike[str], source: Source,
            store: DigestStore | None = None, *, self_model: SelfModel | None = None,
-           recorded_at: str | None = None, withheld: Iterable[tuple[str, str]] = (),
-           notes: Iterable[str] = ()) -> DigestResult:
+           recorded_at: str | None = None, purpose: str = "absorb",
+           withheld: Iterable[tuple[str, str]] = (), notes: Iterable[str] = ()) -> DigestResult:
     """Recognise, scan and decompose the quarantined directory at root, as the artifact source
     names, and write the source, artifact, units and findings to store when one is given.
     Given CLIVE's self_model, and unless the artifact was blocked, relate every Unit to it and
@@ -309,8 +319,11 @@ def digest(root: str | os.PathLike[str], source: Source,
     refused with NotADirectoryError. Writing an artifact whose id the store already holds as a
     different record raises store.ArtifactConflict; the same record again changes nothing.
     `recorded_at` is when new proposals are recorded (default: now); pass it to make them
-    exactly repeatable without a store. `withheld` ((path, why) pairs) and `notes` are what the
-    intake said about the copy (intake.Intake), carried into the result and the report."""
+    exactly repeatable without a store. `purpose` is "absorb" (what CLIVE might take from it) or
+    "self" (CLIVE digesting its own repository: traced to the product memory, nothing proposed);
+    either way the Units are only what the scanner read, redacted. `withheld` ((path, why)
+    pairs) and `notes` are what the intake said about the copy (intake.Intake), carried into
+    the result and the report."""
     if not isinstance(source, Source):
         raise ValueError("a digest needs the artifact's Source")
     if scan.redact(source.origin) != source.origin:
@@ -321,6 +334,12 @@ def digest(root: str | os.PathLike[str], source: Source,
         raise ValueError("store must be a DigestStore")
     if self_model is not None and not isinstance(self_model, SelfModel):
         raise ValueError("self_model must be a SelfModel (selfmodel.build_self_model)")
+    # purpose "self" is CLIVE digesting its own repository: relate everything, trace it to the
+    # product memory (relate.relate_self), and propose nothing — CLIVE does not absorb itself.
+    if purpose not in PURPOSES:
+        raise ValueError(f"purpose must be one of {PURPOSES}, not {purpose!r}")
+    if purpose == "self" and self_model is None:
+        raise ValueError("digesting CLIVE itself needs its self-model")
     base = Path(root)
     if os.path.islink(base) or not base.is_dir():
         raise NotADirectoryError(f"{base} is not a directory: digest reads a quarantined copy")
@@ -376,6 +395,7 @@ def digest(root: str | os.PathLike[str], source: Source,
     # 3. decompose, unless blocked: only what the scanner read, and never a credential
     units: dict[str, Unit] = {}
     ran: list[str] = []
+    licences: dict[str, tuple[str, str]] = {}
     if not blocked:
         view, changed = _scanned_view(base, reading, excluded)
         try:
@@ -398,6 +418,13 @@ def digest(root: str | os.PathLike[str], source: Source,
                         artifact_id, "quality", ADAPTER_FAILURE_SEVERITY, Location("."),
                         f"digest.adapter: the '{_clean(adapter.name)}' adapter {problem}",
                     ))
+            if self_model is not None and purpose != "self":
+                # each folder's own licence, for the proposals: read from the view, so only
+                # from licence files the scanner read, and redacted as the Units' paths are
+                licences = {
+                    scan.redact(folder, secrets): (scan.redact(expression, secrets), scan.redact(where, secrets))
+                    for folder, (expression, where) in scan.licence_map(view).items()
+                }
         finally:
             shutil.rmtree(view.parent, ignore_errors=True)
         for rel in changed:
@@ -430,11 +457,21 @@ def digest(root: str | os.PathLike[str], source: Source,
     relations: tuple[Relation, ...] = ()
     proposals: tuple[Absorption, ...] = ()
     related_to = None
+    held: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    trace = None
     if self_model is not None and not blocked:
         related_to = self_model.digest
-        relations = tuple(relate(artifact.units, self_model))
-        proposals = tuple(propose(artifact.id, artifact.units, relations,
-                                  recorded_at=recorded_at or utc_now()))
+        if purpose == "self":
+            found, trace = relate_self(artifact.units, self_model)
+            relations = tuple(found)
+        else:
+            relations = tuple(relate(artifact.units, self_model))
+            made = propose_ranked(
+                artifact.id, artifact.units, relations, recorded_at=recorded_at or utc_now(),
+                licence=source.licence, licences=licences, findings=ordered,
+                self_model=self_model,
+            )
+            proposals, held = made.kept, made.held
 
     if store is not None:
         store.put(artifact)
@@ -444,8 +481,8 @@ def digest(root: str | os.PathLike[str], source: Source,
     return DigestResult(
         artifact=artifact, findings=ordered, detections=detections,
         census=detection.census, adapters=tuple(ran), blocked=blocked,
-        relations=relations, proposals=proposals, self_model=related_to,
-        excluded=tuple(sorted(excluded)),
+        relations=relations, proposals=proposals, self_model=related_to, purpose=purpose,
+        held=held, trace=trace, excluded=tuple(sorted(excluded)),
         withheld=tuple((scan.redact(path, secrets), scan.redact(why, secrets)) for path, why in withheld),
         notes=tuple(scan.redact(note, secrets) for note in notes),
     )

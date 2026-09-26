@@ -2214,6 +2214,82 @@ def artifact_licence(root: str | os.PathLike[str]) -> str | None:
 
 
 _MANIFESTS = frozenset(("package.json", "composer.json", "pyproject.toml", "Cargo.toml", "setup.cfg"))
+_MAX_LICENCE_FOLDERS = 2000   # folders looked in for a licence of their own
+
+
+def licence_map(root: str | os.PathLike[str]) -> dict[str, tuple[str, str]]:
+    """Each folder of the artifact that declares a licence of its own — by a licence file or a
+    package manifest in it — as {folder: (expression, the file that declares it)}. "" is the
+    top of the artifact. A folder's licence covers what is under it until a deeper folder
+    declares its own; see licence_for. Read as artifact_licence reads the top, never through a
+    link, and bounded."""
+    base = os.fspath(root)
+    if not os.path.isdir(base):
+        raise NotADirectoryError(base)
+    found: dict[str, tuple[str, str]] = {}
+    pending = [""]
+    looked = 0
+    while pending and looked < _MAX_LICENCE_FOLDERS:
+        folder = pending.pop()
+        looked += 1
+        full = os.path.join(base, folder) if folder else base
+        try:
+            with os.scandir(full) as listing:
+                entries = sorted(listing, key=lambda entry: entry.name)[:_MAX_TOP_ENTRIES]
+        except OSError:
+            continue
+        declared: list[tuple[str, str]] = []
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if entry.name not in (".git", "node_modules"):
+                        pending.append(f"{folder}/{entry.name}" if folder else entry.name)
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+            except OSError:
+                continue
+            if not _is_licence_file(entry.name) and entry.name not in _MANIFESTS:
+                continue
+            rel = f"{folder}/{entry.name}" if folder else entry.name
+            of = _licence_of(entry.name, _read_top(full, entry.name))
+            if of is not None and all(expression != of[0] for expression, _ in declared):
+                declared.append((of[0], rel))
+        if declared:
+            expression = declared[0][0] if len(declared) == 1 else "; ".join(e for e, _ in declared)
+            found[folder] = (expression, declared[0][1])
+    return found
+
+
+def licence_for(path: str, licences: dict[str, tuple[str, str]]) -> tuple[str, str] | None:
+    """The licence covering the artifact path given, from licence_map: the nearest folder above
+    it that declares one; None when nothing does."""
+    folder = path.rsplit("/", 1)[0] if "/" in path else ""
+    while True:
+        if folder in licences:
+            return licences[folder]
+        if not folder:
+            return None
+        folder = folder.rsplit("/", 1)[0] if "/" in folder else ""
+
+
+def licence_rank(expression: str | None) -> int | None:
+    """0 when the licence allows reuse, 1 when only on conditions (copyleft, share-alike,
+    source-available, or not recognised), 2 when it forbids reuse; None when there is none.
+    Several licences joined by '; ' (as artifact_licence gives them) are as closed as the most
+    closed."""
+    if not expression:
+        return None
+    parts = [part.split(" (")[0].strip() for part in expression.split(";")]
+    return max(_licence_rank(part) for part in parts if part)
+
+
+def holds_secret(text: str) -> bool:
+    """Whether the text holds anything shaped like a credential, by the scanner's own rules."""
+    if not text:
+        return False
+    clean = _clean(text[:MAX_FILE_BYTES])
+    return bool(_secret_findings("", clean, _line_starts(clean), _Exposed()))
 
 
 def _read_top(base: str, name: str) -> str | None:

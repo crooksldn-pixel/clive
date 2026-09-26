@@ -5,9 +5,9 @@
 
 Intake is the first stage of KNOWLEDGE_DIGESTER_V1.md section 3 and the only one allowed the
 network, and only to fetch. It takes an artifact — a git repository by URL, an archive, a local
-directory, a single file, a file by URL, and whatever kinds are added later — and leaves a
-read-only copy of it in a directory of its own under the quarantine root, with the Source that
-pins it: the commit SHA or the digest of the bytes fetched, the content digest of the copy
+directory, a single file, a file by URL, a package published to npm or PyPI, and whatever kinds
+are added later — and leaves a read-only copy of it in a directory of its own under the
+quarantine root, with the Source that pins it: the commit SHA or the digest of the bytes fetched, the content digest of the copy
 (pipeline.tree_digest), the licence the copy declares at its top, and the time of intake.
 
 Kinds of source are an open registry, as adapters are. Every module in the app.digest.intakes
@@ -600,7 +600,7 @@ def choose_handler(request: Request, handlers: Iterable[Handler]) -> Handler:
                 raise NoHandler(str(refused)) from None     # the reason, not just "no handler"
         raise NoHandler(
             f"no intake handler takes {shown(request.source)}: give an https URL, an archive, a "
-            "directory or a file, or name a handler with kind="
+            "directory, a file or a package (npm:<name>, pypi:<name>), or name a handler with kind="
         )
     return best[1]
 

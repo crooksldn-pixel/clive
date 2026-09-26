@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
 
-ORIGIN_KINDS = ("git", "archive", "file", "directory", "url", "upload")
+ORIGIN_KINDS = ("git", "archive", "file", "directory", "url", "upload", "package")
 ARTIFACT_KINDS = (
     "skill_collection", "python_package", "node_package", "source_code", "document",
     "api_spec", "tool_spec", "dataset", "web_app", "theme", "media", "application",

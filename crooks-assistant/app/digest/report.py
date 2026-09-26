@@ -24,8 +24,9 @@ title, a path, the intake's notes), has anything shaped like a credential replac
 found, wherever a Unit quoted it. Paths are shown as the scanner shows them, and a file
 extension only when it looks like one. Findings never quote what they found, and the title of
 a Unit read from a line where the scanner found a credential is withheld (a file whose findings
-were cut short is withheld whole) — and so are the reasoning of its proposal, which quotes the
-title, and the names of what it would add, which are made from it. Every list is bounded."""
+were cut short is withheld whole) — and so, as a last caution, are its proposal's reasoning and
+the names of what it would add, though neither quotes such a title any more (the pipeline
+redacts it, and propose withholds it). Every list is bounded."""
 
 from __future__ import annotations
 
@@ -125,7 +126,9 @@ def _outcome(result: DigestResult) -> list[str]:
             f"{', '.join(_path(folder + '/') for folder in result.excluded)} — nothing in "
             f"{'it' if len(result.excluded) == 1 else 'them'} was decomposed."
         )
-    if result.related:
+    if result.related and result.purpose == "self":
+        text += " Digested as CLIVE itself: related and traced to its product memory, nothing proposed."
+    elif result.related:
         text += (
             f" Related to CLIVE's self-model, with {len(result.proposals)} proposal(s), of which "
             f"{sum(1 for p in result.proposals if needs_owner(p))} need the owner."
@@ -284,6 +287,8 @@ def _relations(result: DigestResult, secrets: dict[str, set[int | None]]) -> lis
 
 def _proposals(result: DigestResult, secrets: dict[str, set[int | None]],
                relations: dict[str, Relation]) -> list[str]:
+    if result.purpose == "self":
+        return _self(result, secrets)
     lines = ["## Proposals", ""]
     if not result.related:
         return [*lines, "None: nothing was related to CLIVE, so nothing is proposed.", ""]
@@ -307,6 +312,14 @@ def _proposals(result: DigestResult, secrets: dict[str, set[int | None]],
             group = by_target[target]
             lines.append(f"| {target} | {len(group)} | {sum(1 for p in group if needs_owner(p))} |")
     lines.append("")
+    if result.held:
+        counted = "; ".join(f"{target} {len(ids)}" for target, ids in result.held)
+        lines += [
+            f"Held back by the budget per target, as weaker than those above or repeating them: "
+            f"{counted}. They are not recorded as proposals; the digest still lists them by "
+            "Unit, and proposing with no budget records every one.",
+            "",
+        ]
     units = {unit.id: unit for unit in result.units}
     for target in ABSORPTION_TARGETS:
         group = by_target.get(target)
@@ -329,6 +342,68 @@ def _proposals(result: DigestResult, secrets: dict[str, set[int | None]],
     return lines
 
 
+def _self(result: DigestResult, secrets: dict[str, set[int | None]]) -> list[str]:
+    """CLIVE digesting itself: no proposals, but the why-index and the drift it shows."""
+    lines = ["## CLIVE itself: the why-index and drift", ""]
+    trace = result.trace
+    if trace is None:
+        return [*lines, "Nothing was traced: the artifact was not related to the self-model.", ""]
+    units = {unit.id: unit for unit in result.units}
+    traced = sum(1 for t in trace.traces if t.key is not None)
+    share = f" ({100 * trace.traced_code_units // trace.code_units}%)" if trace.code_units else ""
+    lines += [
+        "Digested as CLIVE itself, so nothing is proposed. Every Unit was traced to the feature, "
+        "idea or decision it serves: one it cites by id, one it resembles by the evidence a "
+        "relation needs, or, for code, the one whose name its file carries. These are leads "
+        "found by words, for the owner to confirm, not verdicts.",
+        "",
+        f"- Units traced to the product memory: {traced} of {len(trace.traces)}.",
+        f"- Code units traced: {trace.traced_code_units} of {trace.code_units}{share}, "
+        f"in {trace.traced_code_files} of {trace.code_files} code files.",
+        "",
+        "### What the code serves: the entries most code traces to",
+        "",
+    ]
+    if trace.traced_entries:
+        lines += ["| Entry | Code files |", "|---|---:|"]
+        lines += [f"| {_code(key)} {_text(trace.name(key))} | {n} |" for key, n in trace.traced_entries]
+    else:
+        lines.append("None.")
+    lines += ["", "### Code that traces to nothing in memory", ""]
+    if trace.code_without_memory:
+        lines += ["| Folder | Untraced code units | Code units |", "|---|---:|---:|"]
+        lines += [f"| {_path(folder)} | {untraced} | {total} |"
+                  for folder, untraced, total in trace.code_without_memory]
+    else:
+        lines.append("None.")
+    lines += ["", f"### Shipped features no code carries ({trace.shipped_without_code_count})", ""]
+    lines += [f"- {_code(key)} {_text(trace.name(key))}" for key in trace.shipped_without_code] or ["None."]
+    if trace.shipped_without_code_count > len(trace.shipped_without_code):
+        lines.append(f"- and {trace.shipped_without_code_count - len(trace.shipped_without_code)} more")
+    lines += ["", "### Plans, ideas and superseded features that code already carries", ""]
+    if trace.planned_with_code:
+        lines += ["| Entry | Status in memory | Code files tracing to it |", "|---|---|---:|"]
+        lines += [f"| {_code(key)} {_text(trace.name(key))} | {_text(status) or 'none'} | {n} |"
+                  for key, n, status in trace.planned_with_code]
+    else:
+        lines.append("None.")
+    lines += ["", "### Decisions and the code that carries them out, strongest first", ""]
+    for key, unit_id, score, via in trace.decision_links:
+        unit = units.get(unit_id)
+        if unit is None:
+            continue
+        if via == "file":
+            where = f"the file {_path(unit.location.path)} (it carries the decision's name, {score:.2f})"
+        elif via == "cited":
+            where = f"{_title(unit, secrets)} at {_where(unit.location)} (cites it)"
+        else:
+            where = f"{_title(unit, secrets)} at {_where(unit.location)} (score {score:.2f})"
+        lines.append(f"- {_code(key)} {_text(trace.name(key))} — {where}")
+    if not trace.decision_links:
+        lines.append("None.")
+    return [*lines, ""]
+
+
 def _proposal(proposal: Absorption, unit: Unit, relation: Relation | None,
               secrets: dict[str, set[int | None]], usual: tuple[str, str]) -> list[str]:
     withheld = _withheld(unit, secrets)
@@ -339,7 +414,7 @@ def _proposal(proposal: Absorption, unit: Unit, relation: Relation | None,
     if parts.needs_owner:
         head += " — **Needs the owner**"
     if withheld:
-        why = "*(withheld: the reasoning quotes a title read where a credential was found)*"
+        why = "*(withheld: the proposal is for a Unit read where a credential was found)*"
     else:
         why = _text(parts.why, limit=MAX_REASONING)
     lines = [head, f"  - Why: {why}"]

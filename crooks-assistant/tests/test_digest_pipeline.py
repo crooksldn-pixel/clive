@@ -47,7 +47,7 @@ from app.digest.pipeline import (
     normalise_kind,
     tree_digest,
 )
-from app.digest.propose import NEEDS_OWNER, explain, needs_owner, propose
+from app.digest.propose import NEEDS_OWNER, REMOTE_API, explain, needs_owner, proposals
 from app.digest.relate import relate
 from app.digest.report import MAX_PROPOSALS, render
 from app.digest.selfmodel import SelfEntry, SelfModel
@@ -480,10 +480,13 @@ def test_given_a_self_model_one_call_relates_and_proposes(tmp_path):
     # one relation per unit, in the units' order, and exactly what relate says
     assert [r.unit_id for r in result.relations] == [u.id for u in units]
     assert list(result.relations) == relate(units, SMALL_SELF)
-    # one proposal per unit, exactly what propose says, undecided and proposed by CLIVE
-    assert list(result.proposals) == propose(result.artifact.id, units, result.relations,
-                                             recorded_at=RECORDED)
-    assert sorted(p.unit_id for p in result.proposals) == sorted(u.id for u in units)
+    # exactly what propose says, ranked and bounded, undecided and proposed by CLIVE
+    made = proposals(result.artifact.id, units, result.relations, recorded_at=RECORDED,
+                     licence=result.artifact.source.licence, licences=scan.licence_map(root),
+                     findings=result.findings, self_model=SMALL_SELF)
+    assert list(result.proposals) == list(made.kept) and result.held == made.held
+    anchors = [p.unit_id for p in result.proposals] + [i for _t, ids in result.held for i in ids]
+    assert len(anchors) == len(set(anchors)) and set(anchors) <= {u.id for u in units}
     assert all(p.proposed_by == PROPOSER and p.decided_by is None and p.recorded_at == RECORDED
                for p in result.proposals)
     assert all(SMALL_SELF.digest in p.reasoning for p in result.proposals)
@@ -494,12 +497,16 @@ def test_given_a_self_model_one_call_relates_and_proposes(tmp_path):
     assert [a.kind for a in hero.removal.additions] == ["component"]
     assert hero.removal.additions[0].ref.startswith("crooks-assistant/web/components/shopify-section-hero-")
     assert by_title["module tally"].target == "native_objective"     # a code pattern
-    # a capability read from code is built natively, never registered as a tool that runs it;
-    # one from an API contract becomes a connector, behind the gate when it writes
-    for code in ("function tally.cli.main", "console script tally"):
+    # a capability read from code is built natively, never registered as a tool that runs it,
+    # one objective for a file's code; one from an API contract becomes a connector the owner
+    # approves, since it brings a credential, and behind the gate when it writes
+    for code in ("module tally.cli", "console script tally"):
         assert by_title[code].target == "native_objective" and not needs_owner(by_title[code])
+    assert "The code of tally/cli.py" in by_title["module tally.cli"].reasoning
+    assert "function tally.cli.main" not in by_title
     assert by_title["POST /counts"].target == by_title["GET /counts"].target == "tool_connector"
-    assert needs_owner(by_title["POST /counts"]) and not needs_owner(by_title["GET /counts"])
+    assert explain(by_title["GET /counts"]).needs_owner == REMOTE_API
+    assert "action gate" in explain(by_title["POST /counts"]).needs_owner
     get_counts = {r.unit_id: r for r in result.relations}[_by_title(result, "capability", "GET /counts").id]
     assert get_counts.relation == "extends" and get_counts.basis == "tool:list_counts"
 
@@ -533,7 +540,7 @@ def test_proposals_go_into_the_ledger_once_and_keep_when_they_were_first_made(tm
     ledger = store.path_for(first.artifact.id) / "absorptions.jsonl"
     written = ledger.read_bytes()
     assert store.absorptions(first.artifact.id) == first.proposals
-    assert len(first.proposals) == len(first.units)
+    assert first.proposals and len(first.proposals) < len(first.units)
 
     # the same digest again, later: nothing is appended, and the result holds the ledger's records
     again = _related(root, store, recorded_at="2026-09-27T09:30:00+00:00")
@@ -574,7 +581,7 @@ def test_the_report_shows_relations_and_proposals(tmp_path):
         count = sum(1 for p in result.proposals if p.target == target)
         assert f"| {target} | {count} |" in proposals
     assert "- **POST /counts** at `api/openapi.json:18-26` — gap — **Needs the owner**" in proposals
-    assert f"  - {NEEDS_OWNER}: it writes, so it is registered only" in proposals
+    assert f"  - {NEEDS_OWNER}: {REMOTE_API}; and it writes, so it is registered only" in proposals
     assert ("  - Would add, and so its removal handle: component "
             "`crooks-assistant/web/components/shopify-section-hero-") in proposals
     assert "  - Adds nothing, so its removal handle is empty." in proposals
@@ -589,7 +596,8 @@ def test_the_report_shows_relations_and_proposals(tmp_path):
 
 
 def test_the_report_bounds_the_proposals_it_shows(tmp_path):
-    files = {f"docs/section-{index:02d}.md": f"# Guide {index}\n\n- Always count order {index} once.\n"
+    files = {f"docs/section-{index:02d}.md": f"# Guide {index}\n\n- Always count order batch{index}x "
+                                             f"once and file it under shelf{index}y.\n"
              for index in range(3 * MAX_PROPOSALS)}
     root = _tree(tmp_path / "tree", files)
     result = _related(root)
@@ -613,9 +621,47 @@ def test_the_report_withholds_the_proposal_of_a_unit_read_where_a_credential_was
     folder = store.path_for(result.artifact.id)
     for name in ("units.jsonl", "absorptions.jsonl", "findings.jsonl", "source.json"):
         assert secret not in (folder / name).read_text(encoding="utf-8"), name
+    # and the proposal names the unit's kind, never its title or place
+    assert any("its title and place are withheld" in p.reasoning for p in result.proposals)
     report = render(result)
     assert secret not in report
-    assert "*(withheld: the reasoning quotes a title read where a credential was found)*" in report
+    assert "*(withheld: the proposal is for a Unit read where a credential was found)*" in report
+
+
+def test_clive_digesting_itself_proposes_nothing_and_traces_everything(tmp_path):
+    root = _tree(tmp_path / "tree", COMBINED)
+    store = DigestStore(tmp_path / "store")
+    result = digest(root, _source(root), store, self_model=SMALL_SELF, recorded_at=RECORDED,
+                    purpose="self")
+    assert result.purpose == "self" and result.related and result.self_model == SMALL_SELF.digest
+    assert result.proposals == () and result.held == ()
+    assert store.absorptions(result.artifact.id) == ()
+    assert list(result.relations) == relate(result.units, SMALL_SELF)
+    trace = result.trace
+    assert [t.unit_id for t in trace.traces] == [u.id for u in result.units]
+    assert trace.code_units and trace.self_model == SMALL_SELF.digest
+    report = render(result)
+    sections = [line for line in report.splitlines() if line.startswith("## ")]
+    assert sections[-1] == "## CLIVE itself: the why-index and drift" and "## Proposals" not in sections
+    for heading in ("### What the code serves", "### Code that traces to nothing in memory",
+                    "### Shipped features no code carries", "### Decisions and the code"):
+        assert heading in report
+    assert "nothing proposed" in report
+    with pytest.raises(ValueError, match="purpose"):
+        digest(root, _source(root), self_model=SMALL_SELF, purpose="teach")
+    with pytest.raises(ValueError, match="self-model"):
+        digest(root, _source(root), purpose="self")
+
+
+def test_what_the_budget_holds_back_is_counted_in_the_report(tmp_path):
+    files = {f"docs/section-{index:02d}.md": f"# Guide {index}\n\n- Always count order batch{index}x "
+                                             f"once and file it under shelf{index}y.\n"
+             for index in range(20)}
+    result = _related(_tree(tmp_path / "tree", files))
+    held = dict(result.held)
+    assert len(held["review_check"]) == 20 - sum(1 for p in result.proposals if p.target == "review_check")
+    assert f"review_check {len(held['review_check'])}" in render(result)
+    assert "Held back by the budget per target" in render(result)
 
 
 def test_digest_refuses_what_is_not_a_quarantined_directory(tmp_path):
@@ -745,7 +791,7 @@ def test_the_command_line_digests_stores_and_reports(tmp_path):
     assert proposals and int(proposals.group(2)) > 0
     counted = dict(item.rsplit(" ", 1) for item in proposals.group(1).split(", "))
     assert list(counted) == [t for t in ABSORPTION_TARGETS if t in counted]      # in target order
-    assert {"builder_skill", "review_check", "tool_connector", "design_system"} <= set(counted)
+    assert {"builder_skill", "tool_connector", "design_system"} <= set(counted)
     ledger = DigestStore(store).absorptions(artifact_id)
     assert sum(map(int, counted.values())) == len(ledger)
     assert Counter(p.target for p in ledger) == {t: int(n) for t, n in counted.items()}
@@ -1038,7 +1084,7 @@ def test_the_store_reads_a_large_artifact_a_bounded_number_of_times(tmp_path, mo
     real_load = store.load
     monkeypatch.setattr(store, "load", lambda artifact_id: loads.append(artifact_id) or real_load(artifact_id))
     result = _related(root, store)
-    assert len(result.findings) > 300 and len(result.proposals) >= 300
+    assert len(result.findings) > 300 and result.proposals   # proposals are ranked and budgeted
     assert len(loads) <= 3, loads                     # put, findings, proposals: once each
     loads.clear()
     _related(root, store, recorded_at="2026-09-27T10:00:00+00:00")
@@ -1121,3 +1167,77 @@ def test_the_report_withholds_titles_by_the_scanners_path_and_past_its_cap(tmp_p
         type(result.artifact)(result.artifact.source, result.artifact.kinds,
                               (Unit(aid, "knowledge", "Costs $5 and $6", "", Location("m.md", 1, 1)),)),
         (), result.detections, result.census, (), False))
+
+
+def test_the_command_line_digests_clive_as_itself(tmp_path):
+    root = _tree(tmp_path / "tree", COMBINED)
+    store = tmp_path / "store"
+    done = _cli(root, "--origin", "https://example.invalid/clive.git", "--store", store, "--self",
+                cwd=tmp_path)
+    assert done.returncode == 0, done.stderr
+    [line] = done.stdout.splitlines()
+    assert re.search(r"; self: \d+ of \d+ code units traced to memory, \d+ shipped feature\(s\) "
+                     r"with no code found$", line)
+    artifact_id = line.split(" ")[1].rstrip(":")
+    assert DigestStore(store).absorptions(artifact_id) == ()
+    both = _cli(root, "--origin", "x", "--self", "--no-relate", cwd=tmp_path)
+    assert both.returncode == 1 and "--self" in both.stderr
+
+
+# --- the merged second pass: self mode, held-back proposals and licences keep the same safety ---
+
+
+@pytest.mark.parametrize("case", sorted(UNSCANNED))
+def test_self_mode_reads_only_what_the_scanner_read_and_never_a_credential(tmp_path, case):
+    """Self mode (purpose="self") relates and traces the same Units as any digest: decomposed
+    only from what the scanner read, and redacted before anything relates or shows them."""
+    root = UNSCANNED[case](tmp_path / "tree")
+    _tree(root, {"docs/hosts.md": f"# Host password = \"{PASSWORD}\"\n\nText.\n",
+                 "app/tool.py": f'"""Deploy with {PASSWORD}."""\n\n\ndef run():\n    return 1\n'})
+    store = DigestStore(tmp_path / "store")
+    result = digest(root, _source(root), store, self_model=SMALL_SELF, recorded_at=RECORDED,
+                    purpose="self")
+    assert not result.blocked and result.purpose == "self" and result.trace is not None
+    assert result.proposals == () and store.absorptions(result.artifact.id) == ()
+    _nothing_of(result, TOKEN, INJECTION, PASSWORD, store=store)
+    assert "CLIVE itself" in render(result)
+    if case != "past the walk":                       # there the new files are past it too
+        assert any(pipeline.REDACTED_TAG in unit.tags for unit in result.units)
+
+
+def test_held_back_proposals_hold_only_redacted_units(tmp_path):
+    """Past a target's budget, proposals are held back by Unit id; those Units are redacted
+    like every other, and the report says only how many were held."""
+    files = {f"docs/rule-{i:02d}.md": f"# Rule {i}\n\n- Always set password = \"{PASSWORD}{i:02d}\" first.\n"
+             for i in range(40)}
+    root = _tree(tmp_path / "tree", {"LICENSE": COMBINED["LICENSE"], **files})
+    store = DigestStore(tmp_path / "store")
+    result = _related(root, store)
+    held = {unit_id for _target, ids in result.held for unit_id in ids}
+    assert held, "the budget holds some back"
+    units = {unit.id: unit for unit in result.units}
+    assert held <= set(units)
+    for unit_id in held:
+        assert PASSWORD not in f"{units[unit_id].title} {units[unit_id].body}"
+    _nothing_of(result, PASSWORD, store=store)
+    assert "Held back by the budget per target" in render(result)
+
+
+def test_proposals_read_each_folders_licence_from_the_scanned_redacted_view(tmp_path, monkeypatch):
+    """The licences proposals cite come from licence files the scanner read, with their paths
+    redacted as the Units' are: a folder named like a credential is never quoted."""
+    seen = []
+    real = scan.licence_map
+    monkeypatch.setattr("app.digest.pipeline.scan.licence_map",
+                        lambda root: seen.append(Path(root)) or real(root))
+    root = _tree(tmp_path / "tree", {
+        "LICENSE": COMBINED["LICENSE"],
+        f"skills/{TOKEN}/LICENSE": COMBINED["LICENSE"],
+        f"skills/{TOKEN}/SKILL.md": COMBINED["skills/release/SKILL.md"],
+    })
+    store = DigestStore(tmp_path / "store")
+    result = _related(root, store)
+    assert seen and all(pipeline.VIEW_PREFIX in str(path) for path in seen)
+    assert result.proposals
+    _nothing_of(result, TOKEN, TOKEN.lower(), store=store)
+    assert not list(Path(tempfile.gettempdir()).glob(f"{pipeline.VIEW_PREFIX}*"))

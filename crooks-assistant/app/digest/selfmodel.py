@@ -11,21 +11,34 @@ code:
     intent_family     every intent family the fast lane routes (app/fastpath/intent.py, with
                       those app/families adds), with its signals and its recipe's reads
     scene_primitive   the Generative UI scene elements a plan may use (app/scenes/scene.py)
-    feature           the FEAT-nnn rows of docs/product-memory/FEATURES.md, with their status
-    idea              the IDEA-nnn headings of docs/product-memory/IDEAS.md, with their status
+    review_check      every acceptance gate (the gate_* functions of
+                      scripts/acceptance_provenance.py, read as source and never run): the
+                      automated checks every candidate passes
+    design_token      the Generative UI's tokens (the :root custom properties of
+                      web/style.css), one entry per family (--bg-*, --glass-*, --radius-*, ...)
     builder_skill     every SKILL.md one level under a skills directory (.claude/skills or
                       skills, at the repository root or beside the app), if there is one
+    absorption        every absorption the owner has decided to take (from a digest store's
+                      ledger, when one is given): what the digester has already added
+    feature           the FEAT-nnn rows of docs/product-memory/FEATURES.md, with their status
+    idea              the IDEA-nnn headings of docs/product-memory/IDEAS.md, with their status
+    decision          the DEC-nnn headings of docs/product-memory/DECISIONS.md, with their
+                      status: why CLIVE is as it is, for the why-index
 
 The registries can only be read by importing CLIVE's own code — importing is what runs their
 decorators — which is CLIVE reading itself, not an artifact's content. They are read only when
 the running code is the repository's own; otherwise they are left out and `sources` says so.
-The documents and skills are read as text and never executed.
+The documents, gates, tokens and skills are read as text and never executed.
+
+Nothing is cut silently: a document read only in part is read to its last whole line and its
+source says so, and so does a skills directory with more skills than are read.
 
 The entries are ordered by kind and key, and the model carries a digest of them, so a relation
 can cite exactly which self-model it was made against."""
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -33,7 +46,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, get_args
 
-SELF_KINDS = ("tool", "intent_family", "scene_primitive", "feature", "idea", "builder_skill")
+SELF_KINDS = (
+    "tool", "intent_family", "scene_primitive", "review_check", "design_token", "builder_skill",
+    "absorption", "feature", "idea", "decision",
+)
+# What CLIVE has now, whatever else is said of it; a feature has it only once shipped or testing.
+PRESENT_KINDS = frozenset(
+    ("tool", "intent_family", "scene_primitive", "review_check", "design_token", "builder_skill",
+     "absorption")
+)
+# The product memory: what CLIVE plans, has thought of and decided — what the why-index traces to.
+MEMORY_KINDS = ("feature", "idea", "decision")
+REGISTRY_SOURCES = ("tool registry", "intent families", "scene primitives")
 ACCESS = ("read", "write")
 
 MAX_NAME = 200
@@ -42,15 +66,24 @@ MAX_DOCUMENT_BYTES = 2 * 1024 * 1024   # FEATURES.md and IDEAS.md, each
 MAX_SKILL_BYTES = 64 * 1024            # the head of a SKILL.md: its front matter is at the top
 MAX_SKILLS = 500                       # skill folders looked at, in all skills directories
 MAX_FRONT_MATTER_LINES = 200
+MAX_SOURCE_BYTES = 512 * 1024          # the acceptance script and the token sheet, each
+MAX_ABSORPTIONS = 2_000                # decided absorptions read from a ledger
 
 PRODUCT_MEMORY = Path("docs") / "product-memory"
 FEATURES_FILE = "FEATURES.md"
 IDEAS_FILE = "IDEAS.md"
+DECISIONS_FILE = "DECISIONS.md"
+GATES_FILE = Path("scripts") / "acceptance_provenance.py"
+TOKEN_SHEET = Path("web") / "style.css"
 SKILL_DIRECTORIES = (Path(".claude") / "skills", Path("skills"))
 APP_DIRECTORY = "crooks-assistant"     # where the app lives inside the git repository
 
 _FEATURE_ID = re.compile(r"^FEAT-\d{3,}$")
 _IDEA_HEADING = re.compile(r"^##\s+(IDEA-\d{3,})\s*[—–-]+\s*(.+?)\s*$")
+_DECISION_HEADING = re.compile(r"^##\s+(DEC-\d{3,})\s*[—–-]+\s*(.+?)\s*$")
+_ROOT_BLOCK = re.compile(r":root\s*\{")
+_CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+_CUSTOM_PROPERTY = re.compile(r"--([A-Za-z][\w-]*)\s*:\s*([^;{}]{1,200});")
 _HEADING = re.compile(r"^#{1,2}\s")
 _META = re.compile(r"^\*\*([A-Za-z][A-Za-z ]*):\*\*\s*(.*?)\s*$")
 _SPACE = re.compile(r"\s+")
@@ -96,15 +129,16 @@ class SelfEntry:
             raise ValueError("a tool says whether it reads or writes, and nothing else does")
         if self.access is not None and self.access not in ACCESS:
             raise ValueError(f"tool access must be one of {ACCESS}, not {self.access!r}")
-        if self.status is not None and self.kind not in ("feature", "idea"):
-            raise ValueError("only a feature or an idea has a status")
+        if self.status is not None and self.kind not in MEMORY_KINDS:
+            raise ValueError("only a feature, an idea or a decision has a status")
 
     @property
     def present(self) -> bool:
-        """Whether CLIVE has this now, rather than plans or imagines it: every tool, intent
-        family, scene primitive and builder skill, and a feature that has shipped or is merged
-        and testing. An idea is never something CLIVE has."""
-        if self.kind in ("tool", "intent_family", "scene_primitive", "builder_skill"):
+        """Whether CLIVE has this now, rather than plans, imagines or decided it: every tool,
+        intent family, scene primitive, review check, design token family, builder skill and
+        absorption, and a feature that has shipped or is merged and testing. An idea or a
+        decision is never something CLIVE has."""
+        if self.kind in PRESENT_KINDS:
             return True
         if self.kind == "feature" and self.status:
             return self.status.upper().startswith(("SHIPPED", "TESTING"))
@@ -175,6 +209,15 @@ class SelfModel:
     def counts(self) -> dict[str, int]:
         return {kind: len(self.of_kind(kind)) for kind in SELF_KINDS}
 
+    @property
+    def unread(self) -> tuple[str, ...]:
+        """The registries this self-model could not read. Relating against it cannot tell
+        whether CLIVE has a tool, an intent family or a scene primitive: a unit that seems to
+        be missing from it may be there."""
+        return tuple(source.name for source in self.sources
+                     if source.name in REGISTRY_SOURCES and not source.entries
+                     and source.note.startswith("not read"))
+
     def to_dict(self) -> dict:
         return {
             "digest": self.digest,
@@ -204,11 +247,22 @@ def _roots(repo_root: Path) -> tuple[Path, Path | None]:
 
 
 def _running_code_is(app_root: Path | None) -> bool:
+    """Whether the code that would be imported to read the registries is this repository's:
+    the app package, and the experience package the tool matrix is loaded from."""
     if app_root is None:
         return False
     import app
 
-    return Path(app.__file__).resolve().parent == (app_root / "app").resolve()
+    if Path(app.__file__).resolve().parent != (app_root / "app").resolve():
+        return False
+    try:
+        import experience
+    except ImportError:
+        return False
+    location = getattr(experience, "__file__", None) or next(iter(getattr(experience, "__path__", [])), "")
+    folder = Path(location).resolve()
+    folder = folder.parent if folder.is_file() or folder.suffix == ".py" else folder
+    return folder == (app_root / "experience").resolve()
 
 
 def _relative(path: Path, repo_root: Path) -> str:
@@ -294,15 +348,24 @@ def _scene_primitives() -> list[SelfEntry]:
 # --- product memory, read as text ------------------------------------------------------------
 
 
-def _read_text(path: Path, limit: int) -> str:
+def _read_text(path: Path, limit: int) -> tuple[str, str]:
+    """The file's text up to limit bytes — ended at its last whole line when it is longer, so
+    no row is ever cut in two — and a note saying so when it is; "" when it was read whole."""
     with path.open("rb") as handle:
-        data = handle.read(limit)
-    return data.decode("utf-8", errors="replace")
+        data = handle.read(limit + 1)
+    if len(data) <= limit:
+        return data.decode("utf-8", errors="replace"), ""
+    data = data[:limit]
+    whole = data[: data.rfind(b"\n") + 1]
+    return whole.decode("utf-8", errors="replace"), (
+        f"only its first {len(whole)} bytes (to the last whole line within {limit}) were read: "
+        "what follows is not in the model"
+    )
 
 
-def _features(path: Path, origin: str) -> list[SelfEntry]:
+def _features(text: str, origin: str) -> list[SelfEntry]:
     entries: list[SelfEntry] = []
-    for line in _read_text(path, MAX_DOCUMENT_BYTES).split("\n"):
+    for line in text.split("\n"):
         if not line.startswith("| FEAT-"):
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
@@ -320,7 +383,16 @@ def _features(path: Path, origin: str) -> list[SelfEntry]:
     return entries
 
 
-def _ideas(path: Path, origin: str) -> list[SelfEntry]:
+def _ideas(text: str, origin: str) -> list[SelfEntry]:
+    return _headed(text, origin, _IDEA_HEADING, "idea")
+
+
+def _decisions(text: str, origin: str) -> list[SelfEntry]:
+    return _headed(text, origin, _DECISION_HEADING, "decision")
+
+
+def _headed(text: str, origin: str, pattern: re.Pattern[str], kind: str) -> list[SelfEntry]:
+    """Entries headed "## ID — title" with **Field:** lines (status, theme) and a body."""
     entries: list[SelfEntry] = []
     current: tuple[str, str] | None = None
     meta: dict[str, str] = {}
@@ -329,20 +401,20 @@ def _ideas(path: Path, origin: str) -> list[SelfEntry]:
     def close() -> None:
         if current is None:
             return
-        idea_id, title = current
+        entry_id, title = current
         status = _status(meta.get("status", ""))
-        text = " ".join(line for line in body if line and line != "---")
+        words = " ".join(line for line in body if line and line != "---")
         theme = meta.get("theme", "")
-        description = f"Theme: {theme}. {text}" if theme else text
+        description = f"Theme: {theme}. {words}" if theme else words
         entries.append(SelfEntry(
-            key=f"idea:{idea_id}", kind="idea", name=_one_line(title, MAX_NAME),
+            key=f"{kind}:{entry_id}", kind=kind, name=_one_line(title, MAX_NAME),
             description=_one_line(description, MAX_DESCRIPTION), origin=origin,
             status=status,
         ))
 
-    for raw in _read_text(path, MAX_DOCUMENT_BYTES).split("\n"):
+    for raw in text.split("\n"):
         line = raw.strip()
-        heading = _IDEA_HEADING.match(line)
+        heading = pattern.match(line)
         if heading or _HEADING.match(line):
             close()
             current, meta, body = (heading.group(1), heading.group(2)) if heading else None, {}, []
@@ -390,31 +462,118 @@ def _front_matter(text: str) -> dict[str, str]:
     return found
 
 
-def _skills(folder: Path, repo_root: Path, budget: list[int]) -> list[SelfEntry]:
+def _skills(folder: Path, repo_root: Path, budget: list[int]) -> tuple[list[SelfEntry], str]:
+    """The skills one level under folder, and a note of any left unread past the budget.
+    A folder or SKILL.md that is a link is not followed."""
     entries = []
-    for skill_dir in sorted(p for p in folder.iterdir() if p.is_dir()):
-        if budget[0] <= 0:
-            break
+    skipped = 0
+    for skill_dir in sorted(p for p in folder.iterdir() if p.is_dir() and not p.is_symlink()):
         path = skill_dir / "SKILL.md"
-        if not path.is_file():
+        if not path.is_file() or path.is_symlink():
+            continue
+        if budget[0] <= 0:
+            skipped += 1
             continue
         budget[0] -= 1
-        meta = _front_matter(_read_text(path, MAX_SKILL_BYTES))
+        meta = _front_matter(_read_text(path, MAX_SKILL_BYTES)[0])
         name = _one_line(meta.get("name") or skill_dir.name, MAX_NAME)
         entries.append(SelfEntry(
             key=f"builder_skill:{name}", kind="builder_skill", name=name,
             description=_one_line(meta.get("description", ""), MAX_DESCRIPTION),
             origin=_relative(path, repo_root),
         ))
-    return entries
+    note = (f"{skipped} more skill folder(s) past the limit of {MAX_SKILLS} were not read"
+            if skipped else "")
+    return entries, note
+
+
+# --- review checks, tokens and the ledger ----------------------------------------------------
+
+
+def _gates(path: Path, origin: str) -> tuple[list[SelfEntry], str]:
+    """Each acceptance gate: a gate_* function of the acceptance script, by its name and
+    docstring. The script is parsed, never run."""
+    text, note = _read_text(path, MAX_SOURCE_BYTES)
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return [], "not read: it does not parse as Python"
+    entries = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("gate_"):
+            name = node.name[len("gate_"):]
+            doc = ast.get_docstring(node) or f"the {name.replace('_', ' ')} acceptance gate"
+            entries.append(SelfEntry(
+                key=f"review_check:gate_{name}", kind="review_check", name=f"gate_{name}",
+                description=_one_line(f"Acceptance gate {name.replace('_', ' ')}: {doc}",
+                                      MAX_DESCRIPTION),
+                origin=origin,
+            ))
+    return entries, note
+
+
+def _tokens(path: Path, origin: str) -> tuple[list[SelfEntry], str]:
+    """The Generative UI's tokens: the custom properties of the sheet's :root blocks, one
+    entry per family (the word before the first hyphen), read as text."""
+    text, note = _read_text(path, MAX_SOURCE_BYTES)
+    text = _CSS_COMMENT.sub(" ", text)
+    families: dict[str, list[str]] = {}
+    for opening in _ROOT_BLOCK.finditer(text):
+        end = text.find("}", opening.end())
+        block = text[opening.end(): end if end >= 0 else len(text)]
+        for match in _CUSTOM_PROPERTY.finditer(block):
+            name, value = match.group(1), _one_line(match.group(2), 80)
+            families.setdefault(name.split("-", 1)[0].lower(), []).append(f"--{name}: {value}")
+    entries = [
+        SelfEntry(
+            key=f"design_token:{family}", kind="design_token", name=f"{family} tokens",
+            description=_one_line(f"Generative UI {family} tokens: " + "; ".join(tokens),
+                                  MAX_DESCRIPTION),
+            origin=origin,
+        )
+        for family, tokens in sorted(families.items())
+    ]
+    return entries, note
+
+
+def _absorptions(store: Any) -> tuple[list[SelfEntry], str]:
+    """Every absorption the owner decided to take, from the store's ledgers, bounded."""
+    from app.digest.model import ADDING_TARGETS, DECIDER
+
+    entries: list[SelfEntry] = []
+    left = 0
+    for artifact_id in store.ids():
+        decided = [record for record in store.absorptions(artifact_id)
+                   if record.decided_by == DECIDER and record.target in ADDING_TARGETS]
+        if not decided:
+            continue
+        units = {unit.id: unit for unit in store.load(artifact_id).units}
+        for record in decided:
+            if len(entries) >= MAX_ABSORPTIONS:
+                left += 1
+                continue
+            unit = units.get(record.unit_id)
+            title = unit.title if unit is not None else record.unit_id
+            entries.append(SelfEntry(
+                key=f"absorption:{record.id}", kind="absorption",
+                name=_one_line(f"{record.target}: {title}", MAX_NAME),
+                description=_one_line(unit.body if unit is not None else record.reasoning,
+                                      MAX_DESCRIPTION),
+                origin=f"absorption ledger ({artifact_id})",
+            ))
+    note = f"{left} more decided absorption(s) past the limit of {MAX_ABSORPTIONS} were not read" if left else ""
+    return entries, note
 
 
 # --- the model -------------------------------------------------------------------------------
 
 
-def build_self_model(repo_root: Path) -> SelfModel:
+def build_self_model(repo_root: Path, *, memory: Path | None = None,
+                     store: Any = None) -> SelfModel:
     """Generate CLIVE's self-model from the repository at repo_root (the git root, or the app
-    directory inside it)."""
+    directory inside it). `memory` reads the product memory (FEATURES.md, IDEAS.md,
+    DECISIONS.md) from another folder instead of the repository's; `store`, a DigestStore,
+    adds the absorptions the owner has decided to take."""
     repo_root, app_root = _roots(Path(repo_root))
     entries: dict[str, SelfEntry] = {}
     sources: list[SelfSource] = []
@@ -444,15 +603,32 @@ def build_self_model(repo_root: Path) -> SelfModel:
             add(name, where, [], "not read: the running CLIVE code is not this repository's, "
                                  "and a registry can only be read by importing it")
 
-    memory = (app_root or repo_root) / PRODUCT_MEMORY
-    for name, filename, reader in (("features", FEATURES_FILE, _features),
-                                   ("ideas", IDEAS_FILE, _ideas)):
-        path = memory / filename
+    base = app_root or repo_root
+    for name, relative, reader in (("review checks", GATES_FILE, _gates),
+                                   ("design tokens", TOKEN_SHEET, _tokens)):
+        path = base / relative
         where = _relative(path, repo_root)
-        if path.is_file():
-            add(name, where, reader(path, where))
+        if path.is_file() and not path.is_symlink():
+            add(name, where, *reader(path, where))
         else:
             add(name, where, [], "not found")
+
+    folder = Path(memory) if memory is not None else base / PRODUCT_MEMORY
+    for name, filename, reader in (("features", FEATURES_FILE, _features),
+                                   ("ideas", IDEAS_FILE, _ideas),
+                                   ("decisions", DECISIONS_FILE, _decisions)):
+        path = folder / filename
+        where = _relative(path, repo_root)
+        if path.is_file():
+            text, note = _read_text(path, MAX_DOCUMENT_BYTES)
+            add(name, where, reader(text, where), note)
+        else:
+            add(name, where, [], "not found")
+
+    if store is not None:
+        add("absorption ledger", str(getattr(store, "root", "the digest store")), *_absorptions(store))
+    else:
+        add("absorption ledger", "a digest store", [], "none given: no decided absorption is known")
 
     budget = [MAX_SKILLS]
     seen: set[Path] = set()
@@ -463,7 +639,7 @@ def build_self_model(repo_root: Path) -> SelfModel:
             if not folder.is_dir() or folder.resolve() in seen:
                 continue
             seen.add(folder.resolve())
-            add("builder skills", _relative(folder, repo_root), _skills(folder, repo_root, budget))
+            add("builder skills", _relative(folder, repo_root), *_skills(folder, repo_root, budget))
     if not seen:
         add("builder skills", " or ".join(str(p) for p in SKILL_DIRECTORIES), [],
             "no skills directory")
