@@ -551,7 +551,8 @@ def build(settings: Settings | None = None) -> Runtime:
     # store at each call, so a Mac without one builds the same and says it is not connected.
     from app.engineering_bridge.github import EngineeringInbox
 
-    engineering_tools.bind(EngineeringInbox())
+    engineering_tools.bind(EngineeringInbox(host=settings.engineering_host))
+    engineering_tools.configure(check_python=settings.engineering_check_python)
 
     kb = load(settings.kb_dir)
     provider = MaxAgentSDKProvider(

@@ -65,6 +65,7 @@
     search: ['M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14', 'm20 20-4-4'],
     plus: ['M12 5v14', 'M5 12h14'],
     tick: ['m5 12.5 4.5 4.5L19 7.5'],
+    build: ['m4 20 9-9', 'M11 5.5 14.5 2l7.5 7.5-3.5 3.5z'],
   };
 
   // The one bar. A tap opens the keyboard (here); a hold is the microphone, and that is decided
@@ -139,14 +140,33 @@
 
   // ------------------------------------------------------------------ home
   let objectives = [];
+  // Build objectives' engineering requests, in the loop's own words (GET /objectives/builds,
+  // read from the loop's published status at most once a minute). Drawn when they arrive.
+  let builds = {};
   async function refresh() {
+    let needsYou = 0;
     try {
       const data = await api('/objectives');
       objectives = data.objectives || [];
-      renderHome(data.needs_you || 0);
+      needsYou = data.needs_you || 0;
+      renderHome(needsYou);
     } catch (err) {
       renderHome(0, String(err.message || err));
+      return;
     }
+    if (!objectives.some((o) => o.kind === 'build' && (o.engineering || []).length)) return;
+    try {
+      builds = (await api('/objectives/builds')).builds || {};
+      renderHome(needsYou);
+    } catch { /* the rows already say what the objectives say */ }
+  }
+  const BUILD_WORDS = { queued: 'Build queued', building: 'Being built', 'in review': 'Being reviewed',
+    done: 'Built · ready for you to merge', blocked: 'Build blocked', 'needs the owner': 'The build needs you' };
+  function buildLine(o) {
+    const rows = builds[o.id] || [];
+    const last = rows[rows.length - 1];
+    if (last) return BUILD_WORDS[last.progress] || last.progress;
+    return (o.engineering || []).length ? 'Filed with the builders' : '';
   }
 
   const OWNER = 'George';
@@ -177,11 +197,14 @@
 
     const row = (o) => {
       const blocked = o.attention === 'blocked';
+      const building = o.kind === 'build' ? buildLine(o) : '';
       const sub = o.attention === 'needs_you' && o.needs_you.length ? o.needs_you[0]
-        : o.blocked_by.length ? `Waiting for: ${o.blocked_by[0]}`
-        : o.doing || (o.next.length ? `Next: ${o.next[0]}` : '');
+        : building || (o.blocked_by.length ? `Waiting for: ${o.blocked_by[0]}`
+        : o.doing || (o.next.length ? `Next: ${o.next[0]}` : ''));
       const when = whenFor(o);
-      const lead = needs.indexOf(o) >= 0
+      const lead = o.kind === 'build' && !(o.attention === 'needs_you' && o.needs_you.length)
+        ? h('span', { class: 'alpha-tile is-build' }, icon(ICON.build, 18))
+        : needs.indexOf(o) >= 0
         ? h('span', { class: `alpha-tile${blocked ? ' is-blocked' : ''}` }, icon(blocked ? ICON.wait : ICON.ask, 18))
         : h('span', { class: `alpha-state is-${o.attention}` }, o.attention === 'done' ? icon(ICON.tick, 15) : null);
       return h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'objective', 'data-attention': o.attention, onclick: () => openObjective(o.id) },
@@ -255,6 +278,16 @@
           h('p', { text: item.text }),
           h('p', { class: 'alpha-muted', text: `${STATE[item.state] || item.state}${item.needs_owner && item.state === 'proposed' ? ' · needs your approval' : ''}` }),
           approve));
+      }
+    }
+
+    const filed = (builds[o.id] || []);
+    if ((o.engineering || []).length) {
+      blocks.push(h('h3', { text: 'Being built' }));
+      for (const e of o.engineering.slice(-3)) {
+        const row = filed.find((r) => r.request_id === e.request_id);
+        blocks.push(h('p', { class: 'alpha-line' }, row ? row.words : `${e.request_id} is filed with the builders.`,
+          h('span', { class: 'alpha-src', text: ` · ${e.target_branch || ''}` })));
       }
     }
 

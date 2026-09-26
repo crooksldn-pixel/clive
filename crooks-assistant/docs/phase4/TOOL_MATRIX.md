@@ -92,7 +92,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `commerce_query` | recipe:navigation_back, recipe:navigation_home, recipe:order_list_period, recipe:delayed_orders, recipe:landing_orders, recipe:order_latest, recipe:unfulfilled_orders, recipe:international_waiting_orders, recipe:ui_area_workspace, family:analytics | test_analytics_present.py, test_analytics_tools.py, test_council_fixes.py, test_flows.py, test_n_plus_one.py, test_navigation.py, test_needs_reply_inbox.py, test_query_engine_p3.py, test_read_budget.py, test_read_dedupe.py, test_recorder.py, test_scene_payload.py, test_scenes.py, test_working_sets.py | back, landing_orders, nav_branch_isolation, nav_click_path, nav_home_landing, next_previous, query_international_waiting, query_language.py, query_undelivered, spoken_latest, today_orders |
 | `commerce_summary` | recipe:returning_customers, recipe:returning_customers_before, recipe:orders_attention, recipe:order_list_summary, family:summary_surfaces | test_n_plus_one.py, test_summaries.py | — |
 | `email_query` | recipe:navigation_back, recipe:navigation_home, recipe:needs_reply, recipe:landing_inbox, recipe:ui_area_workspace, family:email_reads | test_council_fixes.py, test_flows.py, test_graph.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_scene_payload.py, test_scene_planner.py, test_scenes.py, test_working_sets.py | back, landing_inbox, nav_branch_isolation, nav_click_path, nav_home_landing, needs_reply |
-| `engineering_status` | family:engineering | test_engineering_bridge.py, test_gate.py | — |
+| `engineering_status` | family:engineering | test_build_from_clive.py, test_engineering_bridge.py, test_gate.py | — |
 | `gmail_compose_fill` | family:email_compose | test_compose.py | — |
 | `gmail_compose_open` | family:email_compose | test_compose.py | — |
 | `gmail_draft_new` | command:a tapped control, family:email_compose | test_compose.py, test_gmail_writes.py | compose.py |
@@ -136,7 +136,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_store_credit` | family:store_credit | test_store_credit.py | — |
 | `shopify_store_credit_add` | command:a tapped control, family:store_credit | test_store_credit.py | commerce.py |
 | `shopify_variant_search` | recipe:order_line, recipe:order_add_item, family:order_edit | test_order_edit.py | order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker |
-| `submit_engineering_request` | family:engineering | test_engineering_bridge.py, test_gate.py | — |
+| `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_engineering_bridge.py, test_gate.py | — |
 
 ## Intent families
 

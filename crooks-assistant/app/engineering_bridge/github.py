@@ -36,6 +36,21 @@ DEFAULT_REPOSITORY = "crooksldn-pixel/clive"
 INBOX_BRANCH = "clive/control/owner-inbox"
 STATUS_BRANCH = "clive/control/status"
 STATUS_PATH = "status.json"
+# Which engineering host's loop takes CLIVE's requests (CROOKS_ENGINEERING_HOST). "owner" is the
+# production host's own loop and its historical branch names; any other host polls
+# clive/control/<host>-inbox and publishes clive/control/<host>-status (INFRASTRUCTURE docs).
+DEFAULT_HOST = "owner"
+TRUNK_REF = "clive/trunk"
+_HOST = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
+
+
+def branches_for(host: str) -> tuple[str, str]:
+    """The inbox and status branches of one engineering host's loop."""
+    if host == DEFAULT_HOST:
+        return INBOX_BRANCH, STATUS_BRANCH
+    if not isinstance(host, str) or not _HOST.fullmatch(host):
+        raise ValueError("an engineering host is lowercase letters, digits and hyphens")
+    return f"clive/control/{host}-inbox", f"clive/control/{host}-status"
 API_URL = "https://api.github.com"
 TIMEOUT_S = 10.0
 
@@ -116,10 +131,13 @@ class EngineeringInbox:
         transport: httpx.AsyncBaseTransport | None = None,
         api_url: str = API_URL,
         timeout_s: float = TIMEOUT_S,
+        host: str = DEFAULT_HOST,
     ) -> None:
         if not isinstance(repository, str) or not _REPOSITORY.fullmatch(repository) or ".." in repository:
             raise ValueError("repository must be owner/name")
         self.repository = repository
+        self.host = host
+        self.inbox_branch, self.status_branch = branches_for(host)
         self._token_source = token_source
         self._transport = transport
         self._api_url = api_url
@@ -133,7 +151,7 @@ class EngineeringInbox:
         token = self._token()
         if token is None:
             return NotConnected()
-        response = await self._call(token, "GET", self._contents(STATUS_PATH), params={"ref": STATUS_BRANCH})
+        response = await self._call(token, "GET", self._contents(STATUS_PATH), params={"ref": self.status_branch})
         if response.status_code == 404:
             return LoopStatus(published=False)
         raw = self._file_bytes(response, "the loop's status")
@@ -147,19 +165,27 @@ class EngineeringInbox:
 
     async def inbox_head(self) -> InboxHead | NotConnected:
         """The inbox branch's head commit."""
+        return await self._branch_head(self.inbox_branch, "the inbox branch")
+
+    async def trunk_head(self, ref: str = TRUNK_REF) -> InboxHead | NotConnected:
+        """The commit a new request starts from: the trunk's head, read now, so the model never
+        has to know or guess a SHA."""
+        return await self._branch_head(ref, "the trunk")
+
+    async def _branch_head(self, branch: str, what: str) -> InboxHead | NotConnected:
         token = self._token()
         if token is None:
             return NotConnected()
-        response = await self._call(token, "GET", f"/repos/{self.repository}/git/ref/heads/{INBOX_BRANCH}")
+        response = await self._call(token, "GET", f"/repos/{self.repository}/git/ref/heads/{branch}")
         if response.status_code == 404:
             return InboxHead(sha=None)
         if response.status_code != 200:
-            raise self._failed(response, "read the inbox branch")
-        body = self._json(response, "the inbox branch")
+            raise self._failed(response, f"read {what}")
+        body = self._json(response, what)
         target = body.get("object") if isinstance(body, dict) else None
         sha = target.get("sha") if isinstance(target, dict) else None
         if not isinstance(sha, str) or not _SHA.fullmatch(sha):
-            raise GitHubError("GitHub did not name the inbox branch's head commit.")
+            raise GitHubError(f"GitHub did not name {what}'s head commit.")
         return InboxHead(sha=sha)
 
     async def request_file(self, request_id: str) -> RequestFile | NotConnected:
@@ -184,7 +210,7 @@ class EngineeringInbox:
         body = {
             "message": f"Request {request_id}",
             "content": base64.b64encode(content).decode("ascii"),
-            "branch": INBOX_BRANCH,
+            "branch": self.inbox_branch,
         }
         response = await self._call(token, "PUT", self._contents(path), body=body)
         if response.status_code in (409, 422):
@@ -217,7 +243,7 @@ class EngineeringInbox:
         return f"/repos/{self.repository}/contents/{path}"
 
     async def _read_file(self, token: str, path: str) -> RequestFile:
-        response = await self._call(token, "GET", self._contents(path), params={"ref": INBOX_BRANCH})
+        response = await self._call(token, "GET", self._contents(path), params={"ref": self.inbox_branch})
         if response.status_code == 404:
             return RequestFile(path=path, exists=False)
         return RequestFile(path=path, exists=True, content=self._file_bytes(response, "the request file"))

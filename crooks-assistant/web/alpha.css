@@ -192,6 +192,7 @@ html[data-lite] .alpha-group{-webkit-backdrop-filter:none;backdrop-filter:none;b
   background:linear-gradient(180deg,rgb(var(--acc-t1)),rgb(var(--acc-t2)));box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
 .alpha-tile.is-blocked{background:linear-gradient(180deg,#6e6e76,#4a4a52)}
 .alpha-tile.is-quiet{background:rgba(255,255,255,.12)}
+.alpha-tile.is-build{background:linear-gradient(180deg,#6f86a6,#44597a)}
 .alpha-state{width:32px;height:32px;border-radius:16px;flex:none;display:grid;place-items:center;background:rgba(255,255,255,.08)}
 .alpha-state::after{content:"";width:8px;height:8px;border-radius:4px;background:rgba(235,235,245,.5)}
 .alpha-state.is-doing::after{background:rgb(var(--acc));box-shadow:0 0 10px rgba(var(--acc),.9);animation:alpha-pulse 1.6s ease-in-out infinite}

@@ -273,7 +273,14 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # words it reports in are the description) and submit_engineering_request about 1,080 (the
     # loop's request fields, each bounded as the loop bounds it, so the gate refuses what the
     # loop would). What it buys is CLIVE filing its own engineering work, with the owner's tap.
-    assert total <= 35_400, f"the tool block is {total} bytes"
+    #
+    # 35_680 is build objectives (tests/test_build_from_clive.py), +300 bytes measured
+    # (35,376 before, 35,676 after): objective_open's `kind` +110, engineering_status's
+    # `areas` +85, submit_engineering_request +105. The submit tool gained the objective it is
+    # for and gave up its base, id and checks as required fields (the Mac fills them in), and
+    # its descriptions were pared to pay for most of it. What it buys is a build objective the
+    # model can file at all: until now it had to know a commit SHA and the builders' checks.
+    assert total <= 35_680, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

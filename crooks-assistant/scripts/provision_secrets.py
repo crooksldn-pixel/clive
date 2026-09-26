@@ -53,6 +53,10 @@ HELP = {
     "gmail_token": "Written by `make gmail`; you never type this one.",
     "elevenlabs_api_key": "ElevenLabs -> Profile -> API key. This hears you and speaks (Derek).",
     "media_signing_key": "Generated here, not typed: use --generate.",
+    "github_engineering_inbox_token": (
+        "GitHub -> Settings -> Developer settings -> Fine-grained tokens: the clive repository "
+        "only, Contents read and write. CLIVE files build requests with it, on your tap."
+    ),
 }
 
 # What `make secrets` walks through on this host, in the order production needs them.

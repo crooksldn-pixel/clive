@@ -49,6 +49,12 @@ KNOWN_KEYS = (
     # BOTH platforms — which invalidated the tablet's thumbnail cache on every restart.
     # Listed now, so app/media.py does what its own docstring always said it did.
     "media_signing_key",
+    # CLIVE's key to the engineering loop's inbox (app/engineering_bridge/github.py): a
+    # fine-grained GitHub token for the clive repository, Contents read and write. Read by the
+    # bridge from the start but never listed here, so every lookup raised "unknown key", the
+    # bridge answered "not connected" whatever was provisioned, and the provisioning scripts
+    # refused to store it at all.
+    "github_engineering_inbox_token",
 )
 
 

@@ -68,6 +68,7 @@ STATIC_KEYS = frozenset({
     "shopify_client_secret",
     "shopify_static_token",
     "claude_oauth_token",
+    "github_engineering_inbox_token",
 })
 MUTABLE_KEYS = frozenset({
     "gmail_token",

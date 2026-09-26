@@ -171,6 +171,13 @@ class Settings(BaseSettings):
     # The owner's objectives (app/objectives): durable state, not a cache. One JSON file each.
     objectives_dir: Path = REPO_ROOT / ".state" / "objectives"
 
+    # --- engineering: CLIVE's build requests (app/engineering_bridge, app/tools/engineering_tools.py) ---
+    # Whose loop builds what CLIVE files: "worker-01" polls clive/control/worker-01-inbox;
+    # "owner" is the production host's own loop (clive/control/owner-inbox).
+    engineering_host: str = "worker-01"
+    # The interpreter the building host runs a request's checks with, when CLIVE fills them in.
+    engineering_check_python: str = "/home/user/clive/crooks-assistant/.venv/bin/python"
+
     # --- test mode, always on ---
     # On, every day is one test session that the backend starts itself ("always-on"), closes
     # at local midnight and follows with the next: nothing has to be started on the host for

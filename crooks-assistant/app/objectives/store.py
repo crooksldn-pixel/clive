@@ -44,6 +44,9 @@ __all__ = [
 LADDER = ("proposed", "authorised", "started", "completed", "verified")
 STATUSES = ("active", "waiting", "blocked", "done", "dropped")
 BLOCKER_KINDS = ("missing_info", "missing_capability", "needs_owner", "external")
+# "build": the owner wants CLIVE itself changed (a capability it lacks, a screen, a fix), and the
+# work goes to the engineering loop. Everything else is the owner's business in the world.
+KINDS = ("business", "build")
 _ID = re.compile(r"^obj_[0-9a-f]{8}$")
 MAX_TEXT = 2000
 
@@ -83,6 +86,10 @@ class Objective:
     items: list[dict] = field(default_factory=list)
     attention: list[dict] = field(default_factory=list)
     events: list[dict] = field(default_factory=list)
+    kind: str = "business"
+    # The engineering requests filed for a build objective, newest last: request id, the host
+    # whose loop builds it, the branch its work lands on, when it was filed.
+    engineering: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         # Legacy JSON written before status_set_by existed has no such field, so the dataclass
@@ -140,6 +147,8 @@ class Objective:
             "unknowns": len(self.open_("unknowns")),
             "facts": len(self.facts),
             "updated_at": self.updated_at,
+            "kind": self.kind if self.kind in KINDS else "business",
+            "engineering": [{"request_id": e.get("request_id"), "host": e.get("host")} for e in self.engineering][-3:],
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -205,7 +214,10 @@ class ObjectiveStore:
             return obj
 
     # ---- creation ---------------------------------------------------------------
-    def create(self, *, title: str, request: str, deadline: str | None = None, by: str = "clive") -> Objective:
+    def create(self, *, title: str, request: str, deadline: str | None = None, by: str = "clive",
+               kind: str = "business") -> Objective:
+        if kind not in KINDS:
+            raise ObjectiveError(f"An objective is one of {', '.join(KINDS)}.")
         if deadline:
             try:
                 deadline = date.fromisoformat(str(deadline)).isoformat()
@@ -214,7 +226,7 @@ class ObjectiveStore:
         now = _now()
         obj = Objective(id=_new_id("obj"), title=_clean(title, limit=120, what="title"),
                         request=_clean(request, limit=4000, what="request"), created_at=now, updated_at=now,
-                        deadline=deadline or None)
+                        deadline=deadline or None, kind=kind)
         self._event(obj, "created", "Objective recorded from the owner's request.", by)
         with self._lock:
             self._write(obj)
@@ -315,6 +327,23 @@ class ObjectiveStore:
             o.status = status
             o.status_set_by = by
             self._event(o, "status", f"{status}{' — ' + note if note else ''}", by)
+        return self._change(objective_id, fn, by=by)
+
+    def link_engineering(self, objective_id: str, *, request_id: str, host: str, target_branch: str,
+                         by: str = "clive") -> Objective:
+        """An engineering request was filed for this objective (app/tools/engineering_tools.py):
+        remember it, make it a build objective, and put the building on the ladder as started —
+        the loop is working on it from now, and the owner authorised the filing on his card."""
+        def fn(o):
+            o.kind = "build"
+            o.engineering.append({"request_id": str(request_id)[:80], "host": str(host)[:40],
+                                  "target_branch": str(target_branch)[:120], "filed_at": _now()})
+            text = _clean(f"Build it with the engineering loop (request {request_id})")
+            o.items.append({"id": _new_id("w"), "text": text, "state": "started", "needs_owner": False,
+                            "evidence": None, "engineering": str(request_id)[:80],
+                            "history": [{"state": "started", "at": _now(), "by": by}]})
+            self._event(o, "engineering", f"Filed engineering request {request_id} with the {host} loop; "
+                                          f"its work lands on {target_branch}.", by)
         return self._change(objective_id, fn, by=by)
 
     def owner_note(self, objective_id: str, text: str) -> Objective:
