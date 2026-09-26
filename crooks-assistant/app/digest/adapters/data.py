@@ -12,10 +12,12 @@ of work. Nothing is written back.
 
 A column that looks like personal data — by its name (email, phone, postcode, a person's name)
 or because at least half its values look like email addresses, phone numbers, postcodes or
-ZIP codes (punctuated or digits alone, stored as text or as numbers) or people's names — is
-marked personal, and none of its values appear in any Unit. Other columns show at most
-MAX_EXAMPLES short example values, and never one that itself looks personal. A first row that
-reads as a person's name over a column of names is read as a record, not as a header.
+ZIP codes (punctuated or digits alone, stored as text or as numbers) or people's names, or
+are JSON lists or objects holding any of these — is marked personal, and none of its values
+appear in any Unit. Other columns show at most MAX_EXAMPLES short example values, never one
+that itself looks personal and never a JSON list or object. A first row with a cell that reads
+as a person's name is read as a record unless something else says it is a header; a header
+cell that reads as a person's name is never shown.
 
 What cannot be read is skipped and said so, in a knowledge Unit tagged 'unparsed' with the
 reason: decompose never raises on malformed input."""
@@ -97,9 +99,12 @@ _POSTCODE_WHOLE = re.compile(_POSTCODE, re.IGNORECASE | re.ASCII)
 _POSTCODE_WITHIN = re.compile(rf"\b(?:{_POSTCODE})\b", re.IGNORECASE | re.ASCII)
 _PHONE = re.compile(r"\+?[0-9 ()-]{7,24}")
 _SEPARATED_DIGITS = re.compile(r"[0-9][ ()-]+[0-9]")
-# digits alone: a national number with its leading 0, an international one after 00, or a
-# North American one (area code and exchange each starting 2-9), with or without its 1
-_DIGIT_PHONE = re.compile(r"0[0-9]{9,10}|00[1-9][0-9]{7,13}|1?[2-9][0-9]{2}[2-9][0-9]{6}")
+# digits alone: a national number with its leading 0, an international one after 00, a North
+# American one (area code and exchange each starting 2-9), with or without its 1, or another
+# international one without its + (a country code from 2 to 9, E.164's 11 to 15 digits in all)
+_DIGIT_PHONE = re.compile(
+    r"0[0-9]{9,10}|00[1-9][0-9]{7,13}|1?[2-9][0-9]{2}[2-9][0-9]{6}|[2-9][0-9]{10,14}"
+)
 _ZIP = re.compile(r"[0-9]{5}(?:-[0-9]{4})?")
 _WORDS = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 _NAME_MARKS = re.compile(r"['’.-]")
@@ -224,9 +229,9 @@ def _digits_personal(text: str) -> bool:
 
 
 def _name_like(text: str) -> bool:
-    """Whether a value reads as a person's name: two to four capitalised words, as in "Ada
-    Lovelace", "Hopper, Grace" or "Dr J. Smith-Jones". A place or a product named the same way
-    is withheld too: a name shown by mistake cannot be taken back."""
+    """Whether a value reads as a person's name: two to four capitalised or upper-case words, as
+    in "Ada Lovelace", "Hopper, Grace", "ADA LOVELACE" or "Dr J. Smith-Jones". A place or a
+    product named the same way is withheld too: a name shown by mistake cannot be taken back."""
     words = text.replace(",", " ", 1).split()
     if len(text) > 60 or not 2 <= len(words) <= 4:
         return False
@@ -237,7 +242,7 @@ def _name_like(text: str) -> bool:
             return False
         if word in NAME_PARTICLES:
             continue
-        if not _MC.sub("", word).istitle():
+        if not (_MC.sub("", word).istitle() or word.isupper()):
             return False
         if len(bare) > 1 and bare.lower() not in HONORIFICS:
             named += 1
@@ -255,12 +260,32 @@ def _personal_name(name: str) -> bool:
 def _example_safe(text: str, kind: str) -> bool:
     if len(text) > MAX_EXAMPLE_CHARS or not text.isprintable() or _personal_value(text):
         return False
-    if kind != "text":
+    if kind in ("boolean", "date", "datetime"):
         return True
-    return not (
-        _EMAIL.search(text) or _POSTCODE_WITHIN.search(text)
-        or sum(char.isdigit() for char in text) >= 7
-    )
+    # seven digits or more, as text or as a number, may be a phone number written another way
+    if sum(char.isdigit() for char in text) >= 7:
+        return False
+    return kind != "text" or not (_EMAIL.search(text) or _POSTCODE_WITHIN.search(text))
+
+
+def _nested_personal(value: object) -> bool:
+    """Whether anything inside a JSON list or object looks personal: a key naming personal
+    data, as in {"full_name": ...}, or a key or value that would look personal on its own."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for key, inner in item.items():
+                if _personal_name(str(key)):
+                    return True
+                stack.extend((str(key), inner))
+        elif isinstance(item, list):
+            stack.extend(item)
+        else:
+            seen = _classify(item)
+            if seen is not None and seen[3]:
+                return True
+    return False
 
 
 def _classify(value: object) -> tuple[str, str, str | None, bool] | None:
@@ -276,12 +301,12 @@ def _classify(value: object) -> tuple[str, str, str | None, bool] | None:
         # a phone number or a ZIP code may be stored as a number: five digits are withheld
         # even though they are as often an id, since a postcode shown cannot be taken back
         personal = _digits_personal(text)
-        shown = len(text) <= MAX_EXAMPLE_CHARS and not personal
+        shown = not personal and _example_safe(text, "integer")
         return "integer", text, text if shown else None, personal
     if isinstance(value, float):
         text = repr(value)
         personal = value.is_integer() and _digits_personal(str(int(value)))
-        shown = len(text) <= MAX_EXAMPLE_CHARS and not personal
+        shown = not personal and _example_safe(text, "number")
         return "number", text, text if shown else None, personal
     if isinstance(value, str):
         text = value.strip()
@@ -293,8 +318,10 @@ def _classify(value: object) -> tuple[str, str, str | None, bool] | None:
         return kind, text, text if shown else None, personal
     if isinstance(value, (bytes, bytearray, memoryview)):
         return "text", "blob:" + hashlib.sha256(bytes(value)).hexdigest(), None, False
+    # a JSON list or object is never shown: what it holds is looked at only to say whether it
+    # is personal
     text = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
-    return "text", text, text if _example_safe(text, "text") else None, False
+    return "text", text, None, _nested_personal(value)
 
 
 # --- profiles --------------------------------------------------------------------------------
@@ -311,7 +338,6 @@ class _Column:
         self.overflow = False
         self.examples: list[str] = []
         self.personal_hits = 0
-        self.name_hits = 0
 
     def add(self, value: object) -> None:
         seen = _classify(value)
@@ -322,8 +348,6 @@ class _Column:
         self.types.add(kind)
         if personal:
             self.personal_hits += 1
-            if kind == "text" and _name_like(canonical):
-                self.name_hits += 1
         digest = hashlib.blake2b(
             f"{kind}\x00{canonical}".encode("utf-8", "surrogatepass"), digest_size=8
         ).digest()
@@ -337,9 +361,6 @@ class _Column:
 
     def is_personal(self) -> bool:
         return self.personal or (self.personal_hits > 0 and self.personal_hits * 2 >= self.filled)
-
-    def holds_names(self) -> bool:
-        return self.name_hits > 0 and self.name_hits * 2 >= self.filled
 
     def type(self) -> str:
         if len(self.types) == 1:
@@ -524,17 +545,41 @@ def _is_header(row: list[str]) -> bool:
     )
 
 
+def _semantic_label(label: str) -> bool:
+    """Whether a label names a column as only a header would: "First Name", "Product Name",
+    "Email"."""
+    words = [word.lower() for word in _WORDS.findall(label)]
+    return "name" in words or _personal_name(label)
+
+
+def _label_withheld(label: str) -> bool:
+    """Whether a label from a first row reads as a person's name, like "Ada Lovelace", rather
+    than as a column's name, like "First Name"."""
+    return _name_like(label) and not _semantic_label(label)
+
+
 def _header_is_a_record(profile: _Profile) -> bool:
     """Whether a first row taken for a header reads better as a record: one of its cells reads
-    as a person's name, not as a column name like "First Name", and heads a column of people's
-    names or a file with no other row. It is then read as data, so that the name is counted and
-    withheld rather than shown as the name of a column."""
-    return any(
-        _name_like(column.name)
-        and "name" not in (word.lower() for word in _WORDS.findall(column.name))
-        and (profile.rows == 0 or column.holds_names())
-        for column in profile.columns
+    as a person's name and nothing says the row names the columns — none of its cells names a
+    column as "First Name" or "Email" do, and no column below it holds numbers, dates or
+    booleans. It is then read as data, so that the name is counted and withheld rather than
+    shown as the name of a column, however few of the values below it are names."""
+    columns = profile.columns
+    return any(_label_withheld(column.name) for column in columns) and not any(
+        _semantic_label(column.name) or (column.filled > 0 and column.type() != "text")
+        for column in columns
     )
+
+
+def _withhold_labels(profile: _Profile) -> int:
+    """Number the columns of a header whose names read as people's names, and say how many:
+    a name that does head a column is still not shown."""
+    withheld = 0
+    for position, column in enumerate(profile.columns, 1):
+        if _label_withheld(column.name):
+            column.name = f"column_{position}"
+            withheld += 1
+    return withheld
 
 
 def _delimited(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
@@ -556,6 +601,12 @@ def _delimited(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
         + ("the first row names the columns." if named else "no header row: columns are numbered.")
     )
     facts.insert(0, heading)
+    withheld = _withhold_labels(profile) if named else 0
+    if withheld:
+        facts.append(
+            f"{withheld} column names are written like people's names and are withheld: those "
+            "columns are numbered."
+        )
     if ragged:
         facts.append(f"{ragged} rows have a different number of fields from the first.")
     schema = _schema_unit(

@@ -375,10 +375,123 @@ def test_title_case_headers_are_still_headers(tmp_path):
     assert _line(unit, "First Name") == (
         "- First Name: text; personal, values withheld; nulls 0.0%; distinct ~2"
     )
-    assert _line(unit, "Home City").endswith('examples "London", "Arlington"')
-    assert _line(unit, "Unit Price").startswith("- Unit Price: number; nulls 0.0%")
+    # written like people's names, so numbered rather than shown
+    assert "2 column names are written like people's names and are withheld" in unit.body
+    assert _line(unit, "column_2").endswith('examples "London", "Arlington"')
+    assert _line(unit, "column_3").startswith("- column_3: number; nulls 0.0%")
     for person in NAMES:
         assert person not in unit.body, person
+
+
+@pytest.mark.parametrize(
+    ("name", "content"),
+    [
+        ("mixed.csv", "Ada Lovelace,London\nunknown,Paris\nunknown,Rome\n"),
+        ("mixed.tsv", "Ada Lovelace\tLondon\nunknown\tParis\nunknown\tRome\n"),
+    ],
+)
+def test_a_headerless_first_record_with_one_name_is_counted_and_withheld(tmp_path, name, content):
+    # the values below the name are not names: the first row is still a record
+    (tmp_path / name).write_text(content, encoding="utf-8")
+    [unit] = data.decompose(tmp_path, ARTIFACT)
+    assert "no header row: columns are numbered." in unit.body
+    assert "Rows: 3" in unit.body.splitlines()
+    assert unit.location.to_dict() == {"path": name, "line_start": 1, "line_end": 3}
+    assert _line(unit, "column_1") == '- column_1: text; nulls 0.0%; distinct ~2; examples "unknown"'
+    assert _line(unit, "column_2").endswith('examples "London", "Paris", "Rome"')
+    assert "Ada Lovelace" not in json.dumps(unit.to_dict(), ensure_ascii=False)
+
+
+def test_people_named_in_a_header_are_not_shown(tmp_path):
+    (tmp_path / "scores.csv").write_text(
+        "Region,Ada Lovelace,GRACE HOPPER\nnorth,5,6\nsouth,7,8\n", encoding="utf-8"
+    )
+    [unit] = data.decompose(tmp_path, ARTIFACT)
+    assert "the first row names the columns." in unit.body
+    assert "Rows: 2" in unit.body.splitlines()
+    assert _line(unit, "Region").endswith('examples "north", "south"')
+    assert _line(unit, "column_2").endswith('examples "5", "7"')
+    assert _line(unit, "column_3").endswith('examples "6", "8"')
+    everything = json.dumps(unit.to_dict(), ensure_ascii=False)
+    for person in ("Ada Lovelace", "GRACE HOPPER"):
+        assert person not in everything, person
+
+
+UNPUNCTUATED = (
+    "ADA LOVELACE", "ALAN TURING", "MARY SOMERVILLE", "GRACE HOPPER", "447700900123",
+    "4915123456789", "8613812345678", "33612345678",
+)
+LEADS = [
+    (1, "ADA LOVELACE", 447700900123, "GRACE HOPPER", 33612345678),
+    (2, "ALAN TURING", 4915123456789, "ok", 12),
+    (3, "MARY SOMERVILLE", 8613812345678, "fine", 34),
+]
+
+
+def test_upper_case_names_and_international_numbers_are_found_by_their_values(tmp_path):
+    # neutral column names: only the values say who and reach are personal; remark and code
+    # hold one personal value each, never shown though the columns are not personal
+    columns = ("ref", "who", "reach", "remark", "code")
+    (tmp_path / "leads.csv").write_text(
+        ",".join(columns) + "\n" + "".join(",".join(map(str, row)) + "\n" for row in LEADS),
+        encoding="utf-8",
+    )
+    (tmp_path / "leads.json").write_text(
+        json.dumps([dict(zip(columns, row, strict=True)) for row in LEADS]), encoding="utf-8"
+    )
+    connection = sqlite3.connect(tmp_path / "leads.sqlite")
+    try:
+        connection.execute(
+            "CREATE TABLE leads (ref INTEGER, who TEXT, reach INTEGER, remark TEXT, code INTEGER)"
+        )
+        connection.executemany("INSERT INTO leads VALUES (?, ?, ?, ?, ?)", LEADS)
+        connection.commit()
+    finally:
+        connection.close()
+    units = data.decompose(tmp_path, ARTIFACT)
+    assert [unit.title for unit in units] == [
+        "Data schema: leads.csv", "Data schema: leads.json", "Data schema: leads.sqlite table leads",
+    ]
+    everything = json.dumps([unit.to_dict() for unit in units], ensure_ascii=False)
+    for value in UNPUNCTUATED:
+        assert value not in everything, value
+    for unit in units:
+        assert "personal" in unit.tags
+        for column in ("who", "reach"):
+            assert "personal, values withheld" in _line(unit, column), column
+            assert "examples" not in _line(unit, column), column
+        for column, examples in (("remark", '"ok", "fine"'), ("code", '"12", "34"')):
+            assert "personal" not in _line(unit, column), column
+            assert _line(unit, column).endswith(f"examples {examples}"), column
+
+
+NESTED = [
+    {"ref": 1, "details": {"full_name": "Ada Lovelace", "since": 2020}, "team": ["gold"]},
+    {"ref": 2, "details": {"profile": {"display": "GRACE HOPPER"}}, "team": ["Alan Turing", "vip"]},
+    {"ref": 3, "details": None, "team": ["silver"]},
+]
+
+
+def test_names_nested_in_json_values_are_found_and_never_shown(tmp_path):
+    (tmp_path / "nested.json").write_text(json.dumps(NESTED), encoding="utf-8")
+    (tmp_path / "nested.jsonl").write_text(
+        "".join(json.dumps(record) + "\n" for record in NESTED), encoding="utf-8"
+    )
+    units = data.decompose(tmp_path, ARTIFACT)
+    assert [unit.title for unit in units] == [
+        "Data schema: nested.json", "Data schema: nested.jsonl",
+    ]
+    everything = json.dumps([unit.to_dict() for unit in units], ensure_ascii=False)
+    for person in ("Ada Lovelace", "GRACE HOPPER", "Alan Turing"):
+        assert person not in everything, person
+    for unit in units:
+        assert "personal" in unit.tags
+        assert _line(unit, "details") == (
+            "- details: text; personal, values withheld; nulls 33.3%; distinct ~2"
+        )
+        # one list in three holds a name: not a personal column, but no list is ever shown
+        assert _line(unit, "team") == "- team: text; nulls 0.0%; distinct ~3"
+        assert _line(unit, "ref").endswith('examples "1", "2", "3"')
 
 
 POSTAL_NUMBERS = ("90210", "10001", "94105", "60614", "30301")
