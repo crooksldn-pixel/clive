@@ -1681,3 +1681,143 @@ def test_an_id_past_the_admitted_length_is_refused_before_any_claim_and_never_ec
     adapter = store_dir / "remote_engineering"
     assert ClaimLog(adapter).get(request_id) is None
     assert ReceiptLog(adapter).read_all() == ()
+
+
+# --------------------------- loop update: the GitHub gate in the projection; findings text only through IDEA-066
+
+FINDING_MARKERS = {
+    "finding": "MARKER-FINDING-TEXT the greeting reads goodbye",
+    "evidence_ref": "MARKER-EVIDENCE-REF pkg/hello.txt:1",
+    "required_repair": "MARKER-REQUIRED-REPAIR write hello",
+    "summary": "MARKER-REVIEW-SUMMARY prose for people only",
+    "note": "MARKER-NON-MATERIAL-NOTE a style remark",
+}
+
+
+def _review_with_text(ctx, verdict: str) -> bytes:
+    from tests.test_engineering_dispatcher import review
+
+    body = json.loads(review(ctx, verdict))
+    material = verdict == "CHANGES_REQUIRED"
+    body["findings"] = [{"finding_id": "F-TEXT-1", "material": material, "finding": FINDING_MARKERS["finding"],
+                         "evidence_ref": FINDING_MARKERS["evidence_ref"],
+                         "required_repair": FINDING_MARKERS["required_repair"]}]
+    if not material:
+        body["findings"][0]["finding"] = FINDING_MARKERS["note"]
+    body["summary"] = FINDING_MARKERS["summary"]
+    return json.dumps(body).encode()
+
+
+def test_the_published_status_never_carries_review_findings_text(tmp_path):
+    """Findings, their evidence refs, required repairs and the reviewer's summary stay in the store.
+
+    Interim, not the direction: IDEA-066 (the status publishes why an objective is stuck, so the
+    owner is not the courier) will publish findings bounded and credential-redacted. Until that is
+    built this pins that nothing unbounded or unredacted reaches the published status; building
+    IDEA-066 replaces this test."""
+    from tests.test_engineering_dispatcher import OBJ, World
+
+    w = World(tmp_path)
+    # Every builder run writes something new, so the repair always changes the rejected candidate, even if a
+    # loaded host makes the harness retry an attempt.
+    w.scenarios(*({"edits": [["pkg/hello.txt", f"hello {n}\n"]]} for n in range(8)))
+    w.objective()
+    w.reviewer.answers.append(lambda ctx: _review_with_text(ctx, "CHANGES_REQUIRED" if ctx.task_revision == 1
+                                                             else "READY"))
+    w.run_until(lambda: w.stage() == "COMPLETE", timeout=60)   # two revisions: generous on a loaded host
+    receipts = ReceiptLog(w.store.root / "remote_engineering")
+    receipts.put(Receipt(request_id="r-findings", request_sha256="0" * 64, outcome="accepted", objective_id=OBJ,
+                         task_id=OBJ, source="requests/r-findings.json", recorded_at=NOW))
+
+    class Quiet:
+        def poll_once(self):
+            return []
+
+    published: list[dict] = []
+    loop = RemoteEngineeringLoop(controller=Quiet(), dispatcher=w.dispatcher(), store=w.store, receipts=receipts,
+                                 publish=lambda status: published.append(status) or "d" * 40, clock=w.clock)
+    result = loop.cycle()
+    text = json.dumps(published, default=str) + json.dumps(result["status"], default=str)
+    # the texts are really in the store, so their absence from the projection is a property, not luck
+    stored = "".join(p.read_text() for p in (w.store.root / "reviews").rglob("verdict.*"))
+    assert all(marker in stored for marker in FINDING_MARKERS.values())
+    for marker in FINDING_MARKERS.values():
+        assert marker not in text
+    assert "MARKER" not in text
+    [item] = published[0]["requests"]
+    assert item["stage"] == "COMPLETE" and item["revision"] == 2
+    assert [(v["outcome"], v["verdict"]) for v in item["review"]["verdicts"]] == [("accepted", "ready")]
+    assert item["github_acceptance"]["sha"] == item["candidate_sha"] and item["github_acceptance"]["green"] is True
+
+
+def test_the_projection_carries_the_gate_answer_and_the_sha_it_checked(tmp_path, capsys):
+    from app.orchestrator.github_acceptance import GateState
+    from tests.test_engineering_dispatcher import OBJ, World
+
+    w = World(tmp_path)
+    w.scenarios({"edits": [["pkg/hello.txt", "hello\n"]]})
+    w.objective()
+    w.acceptance.state = GateState.PENDING
+    w.run_until(lambda: w.state_of().status is TaskStatus.EVIDENCE_READY)
+    receipts = ReceiptLog(w.store.root / "remote_engineering")
+    receipts.put(Receipt(request_id="r-gate", request_sha256="0" * 64, outcome="accepted", objective_id=OBJ,
+                         task_id=OBJ, source="requests/r-gate.json", recorded_at=NOW))
+
+    status = build_status(store=w.store, receipts=receipts, now=w.clock(), gates=w.dispatcher().acceptance_gates())
+    [item] = status["requests"]
+    gate = item["github_acceptance"]
+    assert item["stage"] == "EVIDENCE_READY" and gate["sha"] == item["candidate_sha"]
+    assert gate["state"] == "pending" and gate["green"] is False and gate["check"] == "acceptance"
+    assert [run["id"] for run in gate["runs"]] == [4242] and gate["checked_at"]
+    assert set(gate) == {"schema", "check", "sha", "state", "green", "detail", "runs", "checked_at"}
+
+    # the read-only CLI shows the same answer, read from the dispatcher's runtime root
+    rc = cli.run(["--store", str(w.store.root), "--repo", str(w.repo), "--adapter-root",
+                  str(w.store.root / "remote_engineering"), "--runtime-root", str(tmp_path / "runtime"),
+                  "--no-journal", "status", "--json"])
+    assert rc == 0
+    [shown] = json.loads(capsys.readouterr().out)["requests"]
+    assert shown["github_acceptance"] == gate
+    cli.run(["--store", str(w.store.root), "--repo", str(w.repo), "--adapter-root",
+             str(w.store.root / "remote_engineering"), "--runtime-root", str(tmp_path / "runtime"), "--no-journal",
+             "status"])
+    assert f"GitHub acceptance on {gate['sha']}: pending" in capsys.readouterr().out
+
+
+def test_a_projection_without_recorded_gate_answers_still_publishes(tmp_path):
+    store = LifecycleStore(tmp_path / "engineering")
+
+    class Quiet:
+        def poll_once(self):
+            return []
+
+    class NotesUnreadable:
+        def tick(self):
+            return []
+
+        def acceptance_gates(self):
+            raise ValueError("a runtime note is not JSON")
+
+    published: list[dict] = []
+    result = _loop(Quiet(), NotesUnreadable(), store, lambda status: published.append(status) or "e" * 40).cycle()
+    assert result["projection_commit"] == "e" * 40 and published[0]["requests"] == []
+
+
+def test_both_doors_build_the_github_gate_and_read_product_memory_from_the_trunk(tmp_path):
+    from app.orchestrator.github_acceptance import GitHubAcceptance
+    from scripts import engineering_dispatcher as dispatcher_cli
+
+    common = ["--store", str(tmp_path / "engineering"), "--repo", str(tmp_path),
+              "--runtime-root", str(tmp_path / "runtime"), "--workspace-root", str(tmp_path / "workers")]
+    args = cli.build_parser().parse_args([*common, "run", "--repository", "crooksldn-pixel/clive"])
+    assert args.product_memory_ref == "origin/clive/trunk"
+    _store, kernel, objectives, _receipts = cli._kernel_parts(args)
+    assert isinstance(cli._dispatcher(args, kernel, objectives).acceptance, GitHubAcceptance)
+
+    parser = dispatcher_cli.build_parser()
+    objective = parser.parse_args([*common, "objective", "--title", "t", "--objective", "o", "--base-ref", "main",
+                                   "--allowed-path", "pkg"])
+    integrate = parser.parse_args([*common, "integrate", "--title", "t", "--from", "a-b", "--base-ref", "main"])
+    assert objective.product_memory_ref == integrate.product_memory_ref == "origin/clive/trunk"
+    _kernel, _objectives, dispatcher = dispatcher_cli._parts(objective)
+    assert isinstance(dispatcher.acceptance, GitHubAcceptance)

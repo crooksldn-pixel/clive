@@ -10,7 +10,11 @@ run
     publish a disposable GitHub status projection, sleep, repeat.
 
 GitHub is transport/projection only. Objective/task/review/integration authority
-remains in the existing engineering store and frozen lifecycle kernel.
+remains in the existing engineering store and frozen lifecycle kernel. The one thing
+read back from GitHub is the ``acceptance`` check on a candidate's exact SHA, which the
+Dispatcher's GitHub acceptance gate requires green before review, acceptance and
+integration (app/orchestrator/github_acceptance.py), asked with the credential git
+already holds for the publish remote.
 """
 
 from __future__ import annotations
@@ -28,7 +32,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.orchestrator.checks import NamespaceSandbox  # noqa: E402
-from app.orchestrator.dispatcher import Dispatcher, DispatcherBusy, DispatcherConfig  # noqa: E402
+from app.orchestrator.dispatcher import (  # noqa: E402
+    Dispatcher,
+    DispatcherBusy,
+    DispatcherConfig,
+    recorded_acceptance_gates,
+)
+from app.orchestrator.github_acceptance import GitHubAcceptance, git_remote_token  # noqa: E402
 from app.orchestrator.lifecycle import (  # noqa: E402
     GitFacts,
     JournalError,
@@ -65,6 +75,7 @@ from app.remote_engineering import (  # noqa: E402
 )
 
 DEFAULT_REGISTRY = ROOT / "config" / "review_principals.json"
+PRODUCT_MEMORY_REF = "origin/clive/trunk"
 
 # Host-configured loop bounds. A long-lived mode is only "bounded" if these are.
 MIN_INTERVAL_S = 1.0
@@ -73,7 +84,9 @@ MAX_INTERVAL_S = 3_600.0
 
 def _add_transport_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repository", required=True, help="OWNER/REPO objectives are recorded against")
-    parser.add_argument("--product-memory-ref", required=True, help="product-memory truth ref bound by the host")
+    parser.add_argument("--product-memory-ref", default=PRODUCT_MEMORY_REF,
+                        help=f"product-memory truth ref bound by the host (default {PRODUCT_MEMORY_REF}, "
+                             "where canonical product memory lives since the 2026-09-25 consolidation)")
     parser.add_argument("--remote", default="origin", help="configured remote name, never a URL")
     parser.add_argument("--branch", default=DEFAULT_INBOX_BRANCH)
 
@@ -191,10 +204,21 @@ def _dispatcher(args, kernel: Kernel, objectives: ObjectiveStore) -> Dispatcher:
         max_concurrent=args.max_concurrent,
     )
     sandbox = NamespaceSandbox(ro_paths=tuple(args.check_ro_path))
+    # The GitHub acceptance gate asks with the credential git already holds for the remote the
+    # candidates are published to (else the inbox remote): no credential of its own.
+    acceptance = GitHubAcceptance(git_remote_token(Path(args.repo), args.publish_remote or args.remote))
     # Same store, registry and git facts; only the journal attribution differs, so every
     # Dispatcher transition is recorded as the dispatcher's, not as the inbox adapter's.
     dispatch_kernel = dataclasses.replace(kernel, operator=args.dispatcher_operator, journal_shas=[])
-    return Dispatcher(dispatch_kernel, objectives, worker, reviewers, config, checks=sandbox)
+    return Dispatcher(dispatch_kernel, objectives, worker, reviewers, config, checks=sandbox, acceptance=acceptance)
+
+
+def _recorded_gates(store: LifecycleStore, runtime_root: Path) -> dict[str, dict]:
+    """The dispatcher's recorded GitHub acceptance answers; a read-only view publishes none it cannot read."""
+    try:
+        return recorded_acceptance_gates(store, runtime_root)
+    except (OSError, ValueError):
+        return {}
 
 
 def _print_status(status: dict) -> None:
@@ -202,6 +226,9 @@ def _print_status(status: dict) -> None:
         print(f"{item['request_id']}  {item['outcome']}  {item.get('objective_id') or '-'}  {item.get('stage') or '-'}")
         if item.get("reason"):
             print(f"    {item['reason']}")
+        gate = item.get("github_acceptance") or {}
+        if gate:
+            print(f"    GitHub acceptance on {gate.get('sha')}: {gate.get('state')} ({gate.get('detail')})")
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -213,7 +240,8 @@ def run(argv: list[str] | None = None) -> int:
             outcomes = _controller(args, kernel, objectives, receipts).poll_once()
             print(json.dumps(outcomes, indent=2, sort_keys=True, default=str))
         elif args.verb == "status":
-            status = build_status(store=store, receipts=receipts, now=datetime.now(UTC))
+            status = build_status(store=store, receipts=receipts, now=datetime.now(UTC),
+                                  gates=_recorded_gates(store, Path(args.runtime_root)))
             if args.json:
                 print(json.dumps(status, indent=2, sort_keys=True, default=str))
             else:

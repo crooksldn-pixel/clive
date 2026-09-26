@@ -21,8 +21,10 @@ Example:
 
     engineering_dispatcher.py --store ... --repo ... run
 
-Nothing here deploys, restarts a service, changes runtime, grants a permission or
-lifts an owner gate. Every stage is a kernel record (app/orchestrator/lifecycle.py,
+A candidate is reviewed, accepted and integrated only once GitHub's ``acceptance`` run is green
+on its exact SHA (app/orchestrator/github_acceptance.py), asked with the credential git already
+holds for the publish remote. Nothing here deploys, restarts a service, changes runtime, grants a
+permission or lifts an owner gate. Every stage is a kernel record (app/orchestrator/lifecycle.py,
 unchanged); the dispatcher's own files under --runtime-root are execution notes.
 Exit status: 0 done, 2 refused, 4 another dispatcher is running.
 """
@@ -44,6 +46,7 @@ sys.path.insert(0, str(ROOT))
 from app.orchestrator.checks import NamespaceSandbox  # noqa: E402
 from app.orchestrator.contracts import TaskStatus  # noqa: E402
 from app.orchestrator.dispatcher import Dispatcher, DispatcherBusy, DispatcherConfig  # noqa: E402
+from app.orchestrator.github_acceptance import GitHubAcceptance, git_remote_token  # noqa: E402
 from app.orchestrator.lifecycle import (  # noqa: E402
     GitFacts,
     JournalError,
@@ -77,6 +80,8 @@ from app.orchestrator.workers import ClaudeCodeWorker  # noqa: E402
 
 DEFAULT_REGISTRY = ROOT / "config" / "review_principals.json"
 TERMINAL = {"COMPLETE", "BLOCKED", "OWNER_GATE", "UNKNOWN", "NO_TASK"}
+# Canonical product memory lives on the trunk since the 2026-09-25 consolidation (owner's loop update).
+PRODUCT_MEMORY_REF = "origin/clive/trunk"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -126,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--prohibited", action="append", default=[], help="an extra prohibited action")
     o.add_argument("--max-repair-rounds", type=int, default=2)
     o.add_argument("--repository", default="crooksldn-pixel/clive")
-    o.add_argument("--product-memory-ref", default="origin/claude/product-memory-truth-2026-09-23")
+    o.add_argument("--product-memory-ref", default=PRODUCT_MEMORY_REF)
 
     g = sub.add_parser("integrate", help="an integration objective: CLIVE merges the accepted candidates of "
                                          "several objectives, runs whole-product checks, and GPT reviews the result")
@@ -140,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--check", action="append", default=[], help="NAME=COMMAND (no shell): whole-product checks")
     g.add_argument("--check-cwd", action="append", default=[])
     g.add_argument("--repository", default="crooksldn-pixel/clive")
-    g.add_argument("--product-memory-ref", default="origin/claude/product-memory-truth-2026-09-23")
+    g.add_argument("--product-memory-ref", default=PRODUCT_MEMORY_REF)
 
     sub.add_parser("tick", help="one deterministic pass")
     r = sub.add_parser("run", help="tick until every objective is terminal")
@@ -173,7 +178,10 @@ def _parts(args):
                               publish_remote=args.publish_remote, lease_s=args.lease_s, stall_s=args.stall_s,
                               init_timeout_s=args.init_timeout_s, max_concurrent=args.max_concurrent)
     sandbox = NamespaceSandbox(ro_paths=tuple(args.check_ro_path))
-    return kernel, objectives, Dispatcher(kernel, objectives, worker, reviewers, config, checks=sandbox)
+    # The GitHub acceptance gate asks with the credential git already holds for the remote candidates go to.
+    acceptance = GitHubAcceptance(git_remote_token(Path(args.repo), args.publish_remote or "origin"))
+    return kernel, objectives, Dispatcher(kernel, objectives, worker, reviewers, config, checks=sandbox,
+                                          acceptance=acceptance)
 
 
 def _objective(args, kernel: Kernel) -> Objective:
@@ -230,6 +238,10 @@ def _print_status(items: list[dict]) -> None:
                   f"last progress {s.get('last_progress')}")
         if s.get("candidate_sha"):
             print(f"    candidate {s['candidate_sha']}")
+        gate = s.get("github_acceptance") or {}
+        if gate:
+            print(f"    GitHub acceptance on {gate.get('sha')}: {gate.get('state')} ({gate.get('detail')}); "
+                  f"asked {gate.get('checked_at')}")
         review = s.get("review_mechanism") or {}
         if review:
             print(f"    review: {review.get('principal_id')} via {review.get('mechanism')}"
