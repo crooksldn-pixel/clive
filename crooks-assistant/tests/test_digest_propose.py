@@ -34,6 +34,7 @@ from app.digest.propose import (
 )
 from app.digest.relate import relate
 from app.digest.selfmodel import build_self_model
+from tests.fake_credentials import github_token, password
 from tests.test_digest_relate import REPO_ROOT, fixture_memory
 
 RECORDED = "2026-09-26T10:00:00+00:00"
@@ -45,7 +46,8 @@ SOURCE = Source(
 ARTIFACT = SOURCE.artifact_id
 MIT = ("MIT", "LICENSE")
 # A credential-shaped value, assembled here so that no scanner finds one in this file.
-TOKEN = "gh" + "p_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+TOKEN = github_token("digest-propose")
+HOST_PASSWORD = password("digest-propose")
 
 
 @pytest.fixture(scope="module")
@@ -253,7 +255,7 @@ def test_a_credential_is_never_quoted_in_a_proposal(model):
         _u("lib/client.py", "capability", f"function connect (token {TOKEN})", "Connect.", ("python",)),
         _u(f"docs/{TOKEN}.md", "knowledge", "Parcel labels", "Royal Mail Click & Drop labels carry "
            "each parcel's tracking number.", ()),
-        _u("config/deploy.md", "rule", 'Host password = "S3cretValue0000x"', "Use the host.", ()),
+        _u("config/deploy.md", "rule", f'Host password = "{HOST_PASSWORD}"', "Use the host.", ()),
         _u("config/settings.md", "procedure", "Deploy the service", PROCEDURE, ()),
     ]
     found = Finding(ARTIFACT, "safety", "medium", Location("config/settings.md", 3, 3),
@@ -262,7 +264,7 @@ def test_a_credential_is_never_quoted_in_a_proposal(model):
     assert len(made) == 4
     for proposal in made:
         text = json.dumps(proposal.to_dict())
-        assert TOKEN not in text and "S3cretValue0000x" not in text
+        assert TOKEN not in text and HOST_PASSWORD not in text
         assert "Deploy the service" not in text
         assert "its title and place are withheld" in proposal.reasoning
         for addition in proposal.removal.additions:

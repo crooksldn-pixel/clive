@@ -9,8 +9,10 @@ never quotes what it found.
 
 It is deliberately narrower than gitleaks or the digester: a bare prefix used as a needle
 (``"shpat_" not in out``) and the helper's split pieces (``"gh" + kind + "_"``) are not
-credentials and do not fire. A generic password has no shape to look for, so passwords are
-covered by the scanners, not by this guard.
+credentials and do not fire. A password is caught where a name says it is one and its quoted
+value mixes letters and digits, as a real one would; a word that names itself ("must-not-leak")
+does not fire. A password with no such context has no shape to look for, and
+is left to the scanners.
 """
 
 from __future__ import annotations
@@ -38,9 +40,12 @@ SHAPES = {
         "an Anthropic key": _START + r"sk-ant-[A-Za-z0-9_-]{8,}",
         "an OpenAI key": _START + r"sk-(?!ant-)[A-Za-z0-9_-]{16,}",
         "an sk_ key (ElevenLabs, Stripe)": _START + r"[sr]k_[A-Za-z0-9_]{16,}",
+        "a Stripe webhook secret": _START + r"whsec_[A-Za-z0-9]{8,}",
         "a GitHub token": _START + r"(?:gh[pousr]_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,})",
         "a Shopify token": _START + r"shp(?:at|ca|pa|ss)_[A-Za-z0-9]{6,}",
         "a Slack token": _START + r"xox[abposr]-[A-Za-z0-9-]{8,}",
+        "a Slack webhook": r"hooks\.slack\.com/services/T[0-9A-Z]+/B[0-9A-Z]+/[0-9A-Za-z]{8,}",
+        "a Discord webhook": r"discord(?:app)?\.com/api/webhooks/\d+/[0-9A-Za-z_-]{8,}",
         "a Google OAuth token": _START + r"ya29\.[A-Za-z0-9_-]{8,}",
         "a Google refresh token": _START + r"1//0[A-Za-z0-9_-]{8,}",
         "a Google API key": _START + r"AIza[A-Za-z0-9_-]{8,}",
@@ -48,12 +53,24 @@ SHAPES = {
         "an AWS access key id": _START + r"(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{12,}",
         "an AWS secret access key": r"(?i)aws.{0,20}secret.{0,20}[:=]\s*[\"']?[A-Za-z0-9/+=]{40}",
         "a GitLab token": _START + r"glpat-[A-Za-z0-9_-]{8,}",
+        "an npm token": _START + r"npm_[A-Za-z0-9]{16,}",
+        "a PyPI token": _START + r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{8,}",
+        "a SendGrid key": _START + r"SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{8,}",
+        "a Twilio key": _START + r"SK[0-9a-f]{32}(?![0-9A-Za-z])",
+        "an Azure storage key": r"AccountKey=[A-Za-z0-9+/]{40,}",
         "a Tailscale key": _START + r"tskey-(?:auth|api|client)-[A-Za-z0-9-]{8,}",
         "a Telegram bot token": _START + r"\d{8,10}:AA[A-Za-z0-9_-]{30,}",
         "a JSON web token": _START + r"eyJ[A-Za-z0-9_-]{8,}",
         "a private key block": r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY",
         "a bearer token": r"(?i)" + _START + r"bearer\s+[A-Za-z0-9._~+/-]{16,}",
-        "a password in a URL": r"://[^\s/@:'\"{}()<>]+:[^\s/@'\"{}()<>]{6,}@",
+        "a password or key in a named string": (
+            r"(?i)(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token"
+            r"|client[_-]?secret)\\?[\"']?[ \t]*[:=][ \t]*\\?[\"']"
+            r"(?=[^\"'\s\\{}]*[0-9])(?=[^\"'\s\\{}]*[A-Za-z])[^\"'\s\\{}]{8,}\\?[\"']"
+        ),
+        # user and password in the characters a URL's user information may hold, so neither a
+        # regular expression ("://|www\.|mailto:|[\w.+-]@") nor an f-string placeholder fires
+        "a password in a URL": r"://[A-Za-z0-9._~%!&+,;=-]+:[A-Za-z0-9._~%!&+,;=-]{6,}@",
     }.items()
 }
 
@@ -102,21 +119,32 @@ def _shaped() -> list[tuple[str, str]]:
         ("anthropic_key/oat01", fake.anthropic_key(kind="oat01")),
         ("openai_key", fake.openai_key()),
         ("openai_key/bare", fake.openai_key(kind="")),
+        ("openai_legacy_key", fake.openai_legacy_key()),
         ("shopify_token", fake.shopify_token()),
         ("elevenlabs_key", fake.elevenlabs_key()),
         ("google_oauth_token", fake.google_oauth_token()),
         ("google_api_key", fake.google_api_key()),
         ("stripe_key", fake.stripe_key()),
+        ("stripe_key/rk", fake.stripe_key(kind="rk", mode="test")),
+        ("stripe_webhook_secret", fake.stripe_webhook_secret()),
+        ("slack_webhook_url", fake.slack_webhook_url()),
+        ("discord_webhook_url", fake.discord_webhook_url()),
+        ("sendgrid_key", fake.sendgrid_key()),
+        ("twilio_key", fake.twilio_key()),
+        ("npm_token", fake.npm_token()),
+        ("azure_storage_key", "AccountKey=" + fake.azure_storage_key()),
         ("slack_token", fake.slack_token()),
         ("gitlab_token", fake.gitlab_token()),
         ("telegram_bot_token", fake.telegram_bot_token()),
         ("tailscale_auth_key", fake.tailscale_auth_key()),
         ("aws_access_key_id", fake.aws_access_key_id()),
+        ("aws_access_key_id/ASIA", fake.aws_access_key_id(kind="ASIA")),
         ("aws_secret_access_key", "aws_secret_access_key = " + fake.aws_secret_access_key()),
         ("jwt", fake.jwt()),
         ("private_key_pem", fake.private_key_pem()),
         ("bearer_token", "Authorization: Bearer " + fake.bearer_token()),
         ("credential_url", fake.credential_url(fake.password())),
+        ("password", 'password = "' + fake.password() + '"'),
     ]
 
 
@@ -139,7 +167,8 @@ def test_the_guard_does_not_fire_on_the_helpers_own_pieces(helper):
 def test_bare_prefixes_used_as_needles_do_not_fire():
     for needle in ('assert "shpat_" not in out', 'assert "sk-ant-api03" not in out', 'b"github_pat_"',
                    'for forbidden in ("Bearer", "xi-api-key")', '.sk-row{width:82%}',
-                   'f"Bearer {token}"', 'credential_url(token, user="x", host="github.com")'):
+                   'f"Bearer {token}"', 'credential_url(token, user="x", host="github.com")',
+                   'f"https://bot:{TOKEN}@github.com"', 're.search(r"(?i)[a-z]://|www\\.|mailto:|[\\w.+-]@", prose)'):
         assert credential_literals(needle) == [], needle
 
 

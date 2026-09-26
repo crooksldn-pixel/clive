@@ -105,9 +105,16 @@ def anthropic_key(seed: str = "", *, kind: str = "api03", length: int = 93) -> s
 
 
 def openai_key(seed: str = "", *, kind: str = "proj", length: int = 48, alphabet: str = ALNUM) -> str:
-    """An OpenAI key: ``kind`` proj, svcacct or admin; an empty ``kind`` is the older bare form."""
+    """An OpenAI key: ``kind`` proj, svcacct or admin; an empty ``kind`` is a bare ``sk-`` form."""
     middle = kind + "-" if kind else ""
     return "sk" + "-" + middle + body(_seed("openai-" + kind, seed), length, alphabet)
+
+
+def openai_legacy_key(seed: str = "") -> str:
+    """An OpenAI user key of the older kind: 20 characters, the fixed marker OpenAI put in the
+    middle of every one, and 20 more."""
+    return ("sk" + "-" + body(_seed("openai-legacy", seed), 20) + "T3Blbk" + "FJ"
+            + body(_seed("openai-legacy-tail", seed), 20))
 
 
 # --- the shop and its services ---------------------------------------------------------------
@@ -134,15 +141,53 @@ def google_api_key(seed: str = "") -> str:
     return "AI" + "za" + body(_seed("google-api", seed), 35)
 
 
-def stripe_key(seed: str = "", *, mode: str = "live", length: int = 24) -> str:
-    """A Stripe secret key, ``mode`` live or test."""
-    return "sk" + "_" + mode + "_" + body(_seed("stripe-" + mode, seed), length)
+def stripe_key(seed: str = "", *, kind: str = "sk", mode: str = "live", length: int = 24) -> str:
+    """A Stripe key: ``kind`` sk (secret) or rk (restricted), ``mode`` live or test."""
+    return kind + "_" + mode + "_" + body(_seed("stripe-" + kind + mode, seed), length)
+
+
+def stripe_webhook_secret(seed: str = "", *, length: int = 32) -> str:
+    """A Stripe webhook signing secret."""
+    return "wh" + "sec_" + body(_seed("stripe-webhook", seed), length)
 
 
 def slack_token(seed: str = "", *, kind: str = "b") -> str:
     """A Slack token: ``kind`` b (bot) or p (user), then two numeric ids and a secret part."""
     return ("xo" + "x" + kind + "-" + body(_seed("slack-team", seed), 10, DIGITS) + "-"
             + body(_seed("slack-user", seed), 12, DIGITS) + "-" + body(_seed("slack-" + kind, seed), 24))
+
+
+def slack_webhook_url(seed: str = "") -> str:
+    """A Slack incoming-webhook URL: a team id, a channel id and the secret part."""
+    ids = UPPER + DIGITS
+    return ("https://hooks.slack.com/services/" + "T" + body(_seed("slack-hook-team", seed), 10, ids)
+            + "/" + "B" + body(_seed("slack-hook-channel", seed), 10, ids) + "/" + body(_seed("slack-hook", seed), 24))
+
+
+def discord_webhook_url(seed: str = "") -> str:
+    """A Discord webhook URL: a numeric id and the secret part."""
+    return ("https://discord.com/api/webhooks/" + body(_seed("discord-id", seed), 18, DIGITS)
+            + "/" + body(_seed("discord", seed), 68))
+
+
+def sendgrid_key(seed: str = "") -> str:
+    """A SendGrid API key: a fixed prefix, 22 characters, a dot, 43 more."""
+    return "SG" + "." + body(_seed("sendgrid-id", seed), 22) + "." + body(_seed("sendgrid", seed), 43)
+
+
+def twilio_key(seed: str = "") -> str:
+    """A Twilio API key sid: a fixed prefix and 32 lower-case hex characters."""
+    return "S" + "K" + body(_seed("twilio", seed), 32, HEX)
+
+
+def npm_token(seed: str = "") -> str:
+    """An npm access token."""
+    return "np" + "m_" + body(_seed("npm", seed), 36)
+
+
+def azure_storage_key(seed: str = "") -> str:
+    """An Azure storage account key: 88 characters of base64, the last two padding."""
+    return body(_seed("azure-storage", seed), 86, BASE64) + "=="
 
 
 def gitlab_token(seed: str = "", *, length: int = 20) -> str:
@@ -160,9 +205,10 @@ def tailscale_auth_key(seed: str = "") -> str:
     return "tskey" + "-auth-" + body(_seed("tailscale-id", seed), 12) + "-" + body(_seed("tailscale", seed), 32)
 
 
-def aws_access_key_id(seed: str = "") -> str:
-    """An AWS access key id: a fixed prefix and 16 characters of base32."""
-    return "AK" + "IA" + body(_seed("aws-id", seed), 16, BASE32)
+def aws_access_key_id(seed: str = "", *, kind: str = "AK" + "IA") -> str:
+    """An AWS access key id: a fixed prefix (``kind``: the long-term one by default, ASIA for a
+    temporary one) and 16 characters of base32."""
+    return kind + body(_seed("aws-id-" + kind, seed), 16, BASE32)
 
 
 def aws_secret_access_key(seed: str = "") -> str:
