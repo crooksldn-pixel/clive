@@ -81,12 +81,15 @@ _SENTENCE = re.compile(r"\S.*?(?:[.!?](?=\s|$)|$)", re.S)
 _RULE = re.compile(
     r"\b(?:always|never|must|mustn['’]t|do not|don['’]t|shall|should not|shouldn['’]t)\b", re.I
 )
+# A verification step at the start, or after imperative or contextual words: "Always verify
+# ...", "After building, verify ...", "Make sure to run the tests". The scan from 'run' is
+# bounded, as it may be tried at many places in one long line.
 _CHECK = re.compile(
+    r"(?:^|[,;:(]|\b(?:always|then|also|first|finally|next|please|must|should|to|and|you)\b)"
     r"[\s*_`>]*(?:verify|verif(?:ies|ication)|checks?(?!\s+out\b)|confirm|validate|assert"
-    r"|test that|run\b[^.\n]*?\b(?:tests?|checks?|linters?|lint|pytest|ruff|mypy))\b",
+    r"|test that|run\b[^.\n]{0,200}?\b(?:tests?|checks?|linters?|lint|pytest|ruff|mypy))\b",
     re.I,
 )
-_RUN = re.compile(r"[\s*_`>]*(?:(?:you[ \t]+)?(?:always|must)[ \t]+)?(?:run|execute)\b", re.I)
 _CHECK_HEADING = re.compile(
     r"\b(?:verif\w*|validat\w*|checks?|checklist|tests?|testing|acceptance|confirm\w*"
     r"|done when|definition of done|quality gates?)\b",
@@ -411,9 +414,10 @@ def _kinds(rule: bool, check: bool) -> tuple[str, ...]:
 
 
 def _item_kinds(text: str, section: str) -> tuple[str, ...]:
-    """rule and check, either, or neither for a plain step."""
+    """rule and check, either, or neither for a plain step or sentence: by its section, and by
+    its words."""
     return _kinds(section == "rule" or bool(_RULE.search(text)),
-                  section == "check" or bool(_CHECK.match(text)))
+                  section == "check" or bool(_CHECK.search(text)))
 
 
 def _guidance(lines: list[str], first: int, units: _Units, rel: str, context: str,
@@ -461,8 +465,7 @@ def _paragraph_units(block: _Block, section: str, units: _Units, rel: str,
         line += text.count("\n", position, match.start())
         position = match.start()
         words = " ".join(match.group().split())
-        found = _kinds(bool(_RULE.search(words)),
-                       bool(_CHECK.match(words) or (section == "check" and _RUN.match(words))))
+        found = _item_kinds(words, section)
         last = line + text.count("\n", match.start(), match.end() - 1)
         for kind in found:
             units.add(kind, words, words, rel, (line, last), tags)

@@ -227,8 +227,49 @@ def test_imperative_verification_in_a_skill_is_both_a_rule_and_a_check(tmp_path)
         ("check", "Always run the tests.", skill, 12, 12),
         ("rule", "You must run the linter.", skill, 14, 14),
         ("check", "You must run the linter.", skill, 14, 14),
+        ("check", "The diff is reviewed.", skill, 14, 14),
     ]
     assert units[1].body == "1. Make the change.\n2. Verify that you never commit secrets."
+
+
+def test_verification_after_leading_words_in_a_skill_is_a_check(tmp_path):
+    skill = "skills/sums/SKILL.md"
+    units = _digest(_write(tmp_path / "artifact", {
+        skill: (
+            "---\nname: sums\ndescription: Guard the build output.\n---\n"
+            "## Build\n\n- Always verify the checksum.\n- After building, verify the signature.\n\n"
+            "Always verify the checksum file. After building, confirm the size.\n"
+        ),
+    }))
+    assert _summary(units) == [
+        ("knowledge", "sums", skill, 1, 4),
+        ("rule", "Always verify the checksum.", skill, 7, 7),
+        ("check", "Always verify the checksum.", skill, 7, 7),
+        ("check", "After building, verify the signature.", skill, 8, 8),
+        ("rule", "Always verify the checksum file.", skill, 10, 10),
+        ("check", "Always verify the checksum file.", skill, 10, 10),
+        ("check", "After building, confirm the size.", skill, 10, 10),
+    ]
+
+
+def test_prose_in_a_skill_takes_the_kind_of_its_section(tmp_path):
+    skill = "skills/notes/SKILL.md"
+    units = _digest(_write(tmp_path / "artifact", {
+        skill: (
+            "---\nname: notes\ndescription: Write release notes.\n---\n"
+            "## Rules\n\nSign every tag.\nName every breaking change.\n\n"
+            "## Verification\n\nThe changelog names the version. The tag is signed.\n\n"
+            "- The changelog names the version.\n"
+        ),
+    }))
+    assert _summary(units) == [
+        ("knowledge", "notes", skill, 1, 4),
+        ("rule", "Sign every tag.", skill, 7, 7),
+        ("rule", "Name every breaking change.", skill, 8, 8),
+        ("check", "The changelog names the version.", skill, 12, 12),
+        ("check", "The tag is signed.", skill, 12, 12),
+        ("check", "The changelog names the version.", skill, 14, 14),
+    ]
 
 
 # --- harness configuration -----------------------------------------------------------------------
@@ -238,6 +279,7 @@ def test_harness_configuration_yields_rules_and_procedures(tmp_path):
     units = _digest(_write(tmp_path / "artifact", HARNESS))
     assert _summary(units, "CLAUDE.md") == [
         ("rule", "Always run `make test` before committing.", "CLAUDE.md", 3, 3),
+        ("check", "Always run `make test` before committing.", "CLAUDE.md", 3, 3),
         ("procedure", "Workflow", "CLAUDE.md", 7, 9),
         ("check", "Run the tests.", "CLAUDE.md", 9, 9),
         ("rule", "Never force-push to main.", "CLAUDE.md", 13, 13),
@@ -268,6 +310,7 @@ def test_a_harness_workflow_of_rules_and_checks_is_still_a_procedure(tmp_path):
     assert _summary(units) == [
         ("procedure", "Workflow", "CLAUDE.md", 3, 4),
         ("rule", "Always run the linter.", "CLAUDE.md", 3, 3),
+        ("check", "Always run the linter.", "CLAUDE.md", 3, 3),
         ("check", "Check that the build passes.", "CLAUDE.md", 4, 4),
         ("check", "Verify the release notes.", "CLAUDE.md", 8, 8),
     ]
@@ -292,6 +335,39 @@ def test_imperative_verification_in_harness_configuration_is_both_a_rule_and_a_c
         ("check", "Confirm you never left debug output.", "CLAUDE.md", 10, 10),
     ]
     assert units[4].body == "1. Make the change.\n2. Confirm you never left debug output."
+    assert all("harness" in u.tags for u in units)
+
+
+def test_verification_after_leading_words_in_harness_configuration_is_a_check(tmp_path):
+    units = _digest(_write(tmp_path / "artifact", {
+        "CLAUDE.md": (
+            "## Release\n\n- Always verify the checksum.\n- After building, verify the signature.\n\n"
+            "Always verify the checksum file. After building, confirm the size.\n"
+        ),
+    }))
+    assert _summary(units) == [
+        ("rule", "Always verify the checksum.", "CLAUDE.md", 3, 3),
+        ("check", "Always verify the checksum.", "CLAUDE.md", 3, 3),
+        ("check", "After building, verify the signature.", "CLAUDE.md", 4, 4),
+        ("rule", "Always verify the checksum file.", "CLAUDE.md", 6, 6),
+        ("check", "Always verify the checksum file.", "CLAUDE.md", 6, 6),
+        ("check", "After building, confirm the size.", "CLAUDE.md", 6, 6),
+    ]
+
+
+def test_prose_in_harness_configuration_takes_the_kind_of_its_section(tmp_path):
+    units = _digest(_write(tmp_path / "artifact", {
+        "AGENTS.md": (
+            "## Rules\n\nKeep commits small.\n\n"
+            "## Verification\n\nThe changelog names the version.\n\n"
+            "- The changelog names the version.\n"
+        ),
+    }))
+    assert _summary(units) == [
+        ("rule", "Keep commits small.", "AGENTS.md", 3, 3),
+        ("check", "The changelog names the version.", "AGENTS.md", 7, 7),
+        ("check", "The changelog names the version.", "AGENTS.md", 9, 9),
+    ]
     assert all("harness" in u.tags for u in units)
 
 
