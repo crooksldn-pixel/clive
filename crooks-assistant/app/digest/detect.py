@@ -495,7 +495,8 @@ def _git_repository(tree: Tree) -> Match | None:
     return found.match()
 
 
-_FRONT_MATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)(?:\r?\n---[ \t]*(?:\r?\n|\Z)|\Z)", re.S)
+# Front matter is closed by a second `---` inside the head; an unterminated block is not one.
+_FRONT_MATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)?---[ \t]*(?:\r?\n|\Z)", re.S)
 _FRONT_MATTER_KEY = re.compile(r"^([A-Za-z_][\w-]*)[ \t]*:[ \t]*(.*)$")
 _SKILL_LIMIT = 200
 
@@ -505,7 +506,7 @@ def _front_matter(text: str) -> dict[str, str] | None:
     if match is None:
         return None
     keys: dict[str, str] = {}
-    for line in match.group(1).splitlines():
+    for line in (match.group(1) or "").splitlines():
         key = _FRONT_MATTER_KEY.match(line)
         if key:
             keys.setdefault(key.group(1).lower(), key.group(2).strip())
@@ -600,44 +601,82 @@ def _agent_config(tree: Tree) -> Match | None:
 _MCP_NODE_SDK = "@modelcontextprotocol/sdk"
 _MCP_PY_QUOTED = re.compile(r"""["'](?:mcp|fastmcp)(?:\[[^\]"']*\])?\s*(?:[<>=!~][^"']*)?["']""")
 _MCP_PY_LINE = re.compile(r"(?m)^\s*(?:mcp|fastmcp)(?:\[[^\]]*\])?\s*(?:[<>=!~].*)?$")
-_MCP_IMPORT = re.compile(
-    r"(?m)^\s*from\s+(?:mcp|fastmcp)(?:\.[\w.]+)?\s+import\b|^\s*import\s+(?:mcp|fastmcp)\b"
-    r"|@modelcontextprotocol/sdk/server|\bFastMCP\(|\bMcpServer\("
+# The MCP SDKs are client libraries too, so only the server half of their API says "server":
+# mcp.server.*, fastmcp's FastMCP, the TypeScript SDK's server/ entry points and McpServer.
+_MCP_SERVER_API = re.compile(
+    r"(?m)^\s*from\s+(?:mcp|fastmcp)\.server(?:\.[\w.]+)?\s+import\b"
+    r"|^\s*import\s+(?:mcp|fastmcp)\.server\b"
+    r"|^\s*from\s+fastmcp\s+import\b[^\n]*\bFastMCP\b"
+    r"|@modelcontextprotocol/sdk/server\b|\bFastMCP\s*\(|\bMcpServer\s*\("
 )
 
 
 @register("mcp_server", "MCP server")
 def _mcp_server(tree: Tree) -> Match | None:
     found = Findings()
-    for rel in tree.named("package.json")[:CANDIDATES]:
-        if _MCP_NODE_SDK in tree.head(rel):
-            found.add(rel, "depends on the MCP TypeScript SDK", 0.85)
-    for rel in tree.named("pyproject.toml", "setup.py")[:CANDIDATES]:
-        if _MCP_PY_QUOTED.search(tree.head(rel)):
-            found.add(rel, "depends on the MCP Python SDK", 0.85)
-    for rel in tree.matching(r"(^|/)(requirements[^/]*\.txt|setup\.cfg)$")[:CANDIDATES]:
-        if _MCP_PY_LINE.search(tree.head(rel)):
-            found.add(rel, "depends on the MCP Python SDK", 0.85)
     sources = _prefer(tree.suffixed(".py", ".ts", ".js", ".mjs", ".cjs"), r"mcp|server")
     for rel in sources[:CANDIDATES]:
-        if _MCP_IMPORT.search(tree.head(rel)):
-            found.add(rel, "imports an MCP server SDK", 0.85)
+        if _MCP_SERVER_API.search(tree.head(rel)):
+            found.add(rel, "uses the MCP server API", 0.85)
     for rel in tree.named("server.json")[:CANDIDATES]:
         if "modelcontextprotocol" in tree.head(rel):
             found.add(rel, "MCP registry server manifest", 0.85)
     for rel in tree.named("smithery.yaml", "smithery.yml"):
         found.add(rel, "Smithery MCP server configuration", 0.8)
+    # A dependency on an SDK only corroborates: a client depends on the same packages.
+    if not found:
+        return None
+    for rel in tree.named("package.json")[:CANDIDATES]:
+        if _MCP_NODE_SDK in tree.head(rel):
+            found.add(rel, "depends on the MCP TypeScript SDK", 0.6)
+    for rel in tree.named("pyproject.toml", "setup.py")[:CANDIDATES]:
+        if _MCP_PY_QUOTED.search(tree.head(rel)):
+            found.add(rel, "depends on the MCP Python SDK", 0.6)
+    for rel in tree.matching(r"(^|/)(requirements[^/]*\.txt|setup\.cfg)$")[:CANDIDATES]:
+        if _MCP_PY_LINE.search(tree.head(rel)):
+            found.add(rel, "depends on the MCP Python SDK", 0.6)
     return found.match()
 
 
 _OPENAPI = re.compile(r"""(?m)^[\s{]*["']?(openapi|swagger)["']?\s*:\s*["']?(\d+(?:\.\d+)*)""")
+_OPENAPI_JSON = re.compile(r'"(openapi|swagger)"\s*:\s*"?(\d+(?:\.\d+)*)')
+
+
+def _json_top_level(text: str, index: int) -> bool:
+    """Whether `index` in JSON text sits directly inside the outermost object, outside strings."""
+    depth = 0
+    in_string = escaped = False
+    for char in text[:index]:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char in "{[":
+            depth += 1
+        elif char in "}]":
+            depth -= 1
+    return depth == 1 and not in_string
+
+
+def _openapi_version(head: str) -> re.Match[str] | None:
+    """The version marker in a head. JSON properties are unordered, so in a JSON object it is
+    any top-level `openapi`/`swagger` property within the head, not only the first one."""
+    if head.lstrip().startswith("{"):
+        markers = _OPENAPI_JSON.finditer(head)
+        return next((m for m in markers if _json_top_level(head, m.start())), None)
+    return _OPENAPI.search(head)
 
 
 @register("openapi_spec", "OpenAPI or Swagger specification")
 def _openapi_spec(tree: Tree) -> Match | None:
     found = Findings()
     for rel in _prefer(tree.suffixed(".json", ".yaml", ".yml"), r"openapi|swagger|api")[: CANDIDATES * 2]:
-        match = _OPENAPI.search(tree.head(rel))
+        match = _openapi_version(tree.head(rel))
         if match:
             found.add(rel, f"{match.group(1)} {match.group(2)} document", 0.95)
         elif re.search(r"openapi|swagger", _name(rel), re.IGNORECASE):

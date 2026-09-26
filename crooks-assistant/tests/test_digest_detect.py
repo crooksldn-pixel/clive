@@ -303,6 +303,83 @@ def test_a_plain_skill_md_is_only_weak_evidence_beside_a_real_skill(tmp_path):
     assert skill.confidence >= 0.9
 
 
+def test_an_unterminated_front_matter_block_is_not_front_matter(tmp_path):
+    root = _build(tmp_path / "unterminated", {
+        "SKILL.md": "---\nJust some notes about a skill,\nwith no closing delimiter.\n",
+        "skills/pdf/SKILL.md": "---\nname: pdf\ndescription: Does pdf things\n# pdf\n",
+        "skills/xlsx/SKILL.md": "---\nname: xlsx\ndescription: Does xlsx things\n# xlsx\n",
+    })
+
+    report = detect.detect_kinds(root)
+
+    assert "agent_skill" not in report, report.names()
+    assert "skill_collection" not in report, report.names()
+
+
+def test_an_openapi_version_after_another_property_is_recognised(tmp_path):
+    spec = {"info": {"title": "Shop", "version": "1.0.0"}, "openapi": "3.1.0", "paths": {}}
+    legacy = {"info": {"title": "Pets", "version": "1"}, "host": "example.com", "swagger": "2.0"}
+    root = _build(tmp_path / "specs", {
+        "contract.json": json.dumps(spec),
+        "legacy/service-v1.json": json.dumps(legacy, indent=2),
+    })
+
+    openapi = detect.detect_kinds(root).get("openapi_spec")
+
+    assert openapi is not None
+    by_path = {evidence.path: evidence for evidence in openapi.evidence}
+    assert by_path["contract.json"].signal == "openapi 3.1.0 document"
+    assert by_path["legacy/service-v1.json"].signal == "swagger 2.0 document"
+    assert openapi.confidence >= 0.9
+
+
+def test_an_openapi_key_nested_below_the_top_level_is_not_a_spec(tmp_path):
+    root = _build(tmp_path / "config", {
+        "settings.json": json.dumps({"x-tools": {"openapi": "3.0.0"}, "name": "demo"}),
+    })
+
+    assert "openapi_spec" not in detect.detect_kinds(root)
+
+
+def test_an_mcp_client_is_not_an_mcp_server(tmp_path):
+    root = _build(tmp_path / "clients", {
+        "node/package.json": '{"name": "mcp-client", "dependencies": {"@modelcontextprotocol/sdk": "^1.0.0"}}',
+        "node/src/client.ts": (
+            'import { Client } from "@modelcontextprotocol/sdk/client/index.js";\n'
+            'import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";\n'
+            'const client = new Client({ name: "demo", version: "1.0.0" });\n'
+        ),
+        "py/pyproject.toml": '[project]\nname = "mcp-client"\ndependencies = ["mcp>=1.0", "fastmcp"]\n',
+        "py/requirements.txt": "mcp>=1.0\n",
+        "py/mcp_client.py": (
+            "import mcp\n"
+            "from mcp import ClientSession, StdioServerParameters\n"
+            "from mcp.client.stdio import stdio_client\n"
+            "from fastmcp import Client\n"
+        ),
+    })
+
+    report = detect.detect_kinds(root)
+
+    assert "mcp_server" not in report, report.names()
+    assert {"node_package", "python_package"} <= set(report.names())
+
+
+def test_an_mcp_server_needs_server_evidence_and_dependencies_only_corroborate(tmp_path):
+    root = _build(tmp_path / "server", {
+        "pyproject.toml": '[project]\nname = "weather"\ndependencies = ["mcp[cli]>=1.2"]\n',
+        "weather.py": 'from mcp.server.fastmcp import FastMCP\n\nmcp = FastMCP("weather")\n',
+    })
+
+    server = detect.detect_kinds(root).get("mcp_server")
+
+    assert server is not None
+    by_path = {evidence.path: evidence for evidence in server.evidence}
+    assert server.evidence[0].path == "weather.py"
+    assert "server API" in by_path["weather.py"].signal
+    assert by_path["pyproject.toml"].weight < by_path["weather.py"].weight
+
+
 def test_a_graphql_operations_document_is_not_a_schema(tmp_path):
     root = _build(tmp_path / "ops", {
         "queries/shop.graphql": "query Shop {\n  shop {\n    name\n    type\n  }\n}\n",
