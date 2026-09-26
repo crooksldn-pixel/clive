@@ -11,10 +11,21 @@ receipt -- nothing was decided about an id -- so it is regenerated deterministic
 the same inbox snapshot on every poll, and keyed by the bounded inbox path it came from
 plus the digest of its exact bytes rather than by an id this adapter never trusted. It
 carries a redacted schema diagnostic only, never the rejected content.
+
+``github_acceptance`` is the dispatcher's last recorded answer from the GitHub acceptance gate for
+the task's current attempt (``Dispatcher.acceptance_gates``): the exact SHA it was asked about, its
+state (green, pending, missing, red, unavailable), a sentence the gate built itself, the acceptance
+run ids with GitHub's status and conclusion words, and when it was asked. Like everything here it is
+a projection, and it is the Director's view of why a candidate waits before review or integration.
+
+What is never published: review findings text. A verdict appears only as its outcome, its verdict
+word, the reviewer principal and the kernel's reason codes (``lifecycle_view``); the findings, their
+evidence references, required repairs and the reviewer's summary stay in the engineering store.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 
 from app.orchestrator.lifecycle import LifecycleStore, lifecycle_view
@@ -42,6 +53,7 @@ def build_status(
     receipts: ReceiptLog,
     now: datetime,
     refusals: tuple[dict, ...] = (),
+    gates: Mapping[str, dict] | None = None,
 ) -> dict:
     # A repair is a new task revision (r+1); the earlier revision becomes OBSOLETE. The
     # task's current stage, candidate, review, acceptance and integration are therefore
@@ -67,6 +79,7 @@ def build_status(
         if task is not None:
             item["revision"] = task["revision"]
             item.update({field_name: task.get(field_name) for field_name in _TASK_FIELDS})
+            item["github_acceptance"] = (gates or {}).get(receipt.task_id)
         requests.append(item)
     refused = sorted(
         (

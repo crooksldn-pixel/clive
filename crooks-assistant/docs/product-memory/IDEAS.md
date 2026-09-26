@@ -1050,6 +1050,8 @@ Today the Director acts only while the owner is in a chat, so finished work wait
 
 The loop's status projection publishes the open review findings, the failing check output and the worker reports, so the Director and the owner see why an objective is stuck without a shell. Extends DEC-055 (work-in-progress is observable state).
 
+2026-09-26: still the direction (DRIFT_REVIEW_2026-09-26: the owner must stop being the courier). Loop update part 2 pins, as an interim guard, that the published status carries no findings text (`test_the_published_status_never_carries_review_findings_text`), because nothing yet bounds or redacts it. Building this idea means publishing findings, failing checks and reports with per-field caps and credential redaction, and replacing that test.
+
 ---
 
 ## IDEA-067 — Builders run their declared checks

@@ -12,16 +12,37 @@ the execution behind it, and submits what actually happened to the kernel:
                         CLIVE, scoped, checked in the sandbox (``checks.py``), recorded as
                         ``evidence`` and the exact
                         git SHA as the ``candidate``
-    EVIDENCE_READY   -> an independent, available reviewer gets the exact-SHA packet
-                        (``dispatch``); if none is available, the task is BLOCKED with
-                        the exact gap, and nothing is dispatched to nobody
+    EVIDENCE_READY   -> once GitHub's ``acceptance`` run is green on the exact candidate
+                        SHA (``github_acceptance.py``), an independent, available reviewer
+                        gets the exact-SHA packet (``dispatch``); if none is available, the
+                        task is BLOCKED with the exact gap, and nothing is dispatched to nobody
     REVIEWING        -> a typed ``clive.review_result.v1`` is submitted (``verdict``);
-                        the kernel admits, rejects or refuses it
+                        the kernel admits, rejects or refuses it; a READY verdict is
+                        submitted only while the candidate SHA is green on GitHub
     REJECTED         -> a repair revision carrying the material findings (``task``
                         r+1, kind repair); after ``max_repair_rounds`` it blocks
-    ACCEPTED         -> the target ref is verified at the accepted SHA (``integrate``)
+    ACCEPTED         -> the accepted SHA is green on GitHub and the target ref is
+                        verified at it (``integrate``, fast-forward only)
     DONE             -> COMPLETE when the projection says every record agrees
     BLOCKED / OWNER_GATE -> nothing; the dispatcher never lifts either
+
+The GitHub acceptance gate (owner's loop update, OWNER_DECISIONS_2026-09-25.md): an
+objective counts as accepted, and anything is integrated, only after a green GitHub
+acceptance run on that exact SHA. Waiting is bounded: the gate is asked at most every
+``acceptance_poll_s``, and a step that has waited ``acceptance_timeout_s`` for its SHA to
+turn green (counted again from the task's last resume) blocks the task with the last
+answer; a red answer blocks at once. Every answer is recorded with the SHA it is about
+(``<runtime>/attempts/<attempt>.json`` and ``<runtime>/evidence/<attempt>/github-acceptance.json``),
+travels in the review packet, is the integration's ``gates_evidence`` (kept byte for byte in
+``<runtime>/evidence/<attempt>/integration-gates.json``), and is published by the remote loop's
+status projection. The kernel CLI gates and records the verdicts and integrations an operator
+records by hand in the same way (``scripts/engineering_kernel.py``). The loop never publishes a candidate onto the
+trunk (``landing_branches``): an objective's candidate lives on its own branch, and the
+trunk moves only by a landing made after acceptance, outside the loop.
+
+Protected paths: a task whose scope covers a PROTECTED_PATHS entry (possible only for an
+objective recorded before that entry was added) is blocked before it can advance, and a
+candidate that changes a protected path is refused whatever the task's scope says.
 
 What it never does: manufacture a state (a launch is not an acknowledgement, a
 live process is not progress, a worker's "done" is not a candidate, a candidate is
@@ -49,6 +70,7 @@ import fcntl
 import json
 import os
 import subprocess
+import time
 import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -58,17 +80,19 @@ from pathlib import Path
 
 from .checks import CheckRunner, NamespaceSandbox
 from .contracts import BlockerClass, EngineeringTask, TaskKind, TaskStatus
+from .github_acceptance import AcceptanceChecks, GateResult, GateState, ask
 from .lifecycle import (
     Attempt,
     EventKind,
     IntegrationMethod,
     Kernel,
     LifecycleError,
+    LifecycleStore,
     VerdictOutcome,
     lifecycle_view,
     sha256_of,
 )
-from .objectives import Objective, ObjectiveStore
+from .objectives import Objective, ObjectiveStore, protected_paths_in
 from .reviewers.base import ReviewContext, ReviewerDriver, ReviewResult
 from .routing import Party, Principal, PrincipalKind, SessionContext, Workspace
 from .workers.base import (
@@ -82,19 +106,27 @@ from .workers.base import (
 )
 from .workspaces import WorkspaceError, WorkspaceManager, git
 
-__all__ = ["Dispatcher", "DispatcherBusy", "DispatcherConfig", "NEXT_ACTION"]
+__all__ = ["Dispatcher", "DispatcherBusy", "DispatcherConfig", "NEXT_ACTION", "TRUNK_BRANCH",
+           "record_gate_answer", "recorded_acceptance_gates", "runtime_lock", "write_integration_gates"]
 
 TRANSIENT = "transient:"
 RESULT_REFUSED = "result_refused:"
+TRUNK_BRANCH = "clive/trunk"
+GATE_FILE = "github-acceptance.json"
+INTEGRATION_GATES_FILE = "integration-gates.json"
+INTEGRATION_GATES_SCHEMA = "clive.integration_gates.v1"
 
 NEXT_ACTION = {
     TaskStatus.READY: "launch a builder attempt in a fresh workspace",
     TaskStatus.ASSIGNED: "wait for the worker's init event, check its launch surface, acknowledge",
     TaskStatus.RUNNING: "observe the worker; on its result: commit, scope, checks, evidence, candidate",
-    TaskStatus.EVIDENCE_READY: "dispatch the exact candidate to an available independent reviewer",
-    TaskStatus.REVIEWING: "wait for the typed review result and submit it to the kernel",
+    TaskStatus.EVIDENCE_READY: "wait for a green GitHub acceptance run on the exact candidate, then dispatch it "
+                               "to an available independent reviewer",
+    TaskStatus.REVIEWING: "wait for the typed review result and submit it to the kernel (a READY only while the "
+                          "candidate is green on GitHub)",
     TaskStatus.REJECTED: "route a repair revision carrying the material findings",
-    TaskStatus.ACCEPTED: "verify the target ref at the accepted SHA and record the integration",
+    TaskStatus.ACCEPTED: "verify a green GitHub acceptance run and the target ref at the accepted SHA, and record "
+                         "the integration",
     TaskStatus.DONE: "none",
     TaskStatus.BLOCKED: "none: the blocker must be resolved and the task resumed (kernel resume)",
     TaskStatus.OWNER_GATE: "none: owner decision; the dispatcher never lifts an owner gate",
@@ -125,6 +157,12 @@ class DispatcherConfig:
     max_result_refusals: int = 2
     max_concurrent: int = 1
     packet_diff_limit: int = 200_000
+    # The GitHub acceptance gate: how often GitHub is asked about one SHA, and how long one step may wait
+    # for that SHA to turn green (counted again from the task's last resume) before the task blocks.
+    acceptance_poll_s: int = 60
+    acceptance_timeout_s: int = 3600
+    # Branches the loop never publishes a candidate onto: they move only by a landing after acceptance.
+    landing_branches: tuple[str, ...] = (TRUNK_BRANCH,)
 
 
 @dataclass
@@ -137,6 +175,8 @@ class Dispatcher:
     checks: CheckRunner = field(default_factory=NamespaceSandbox)
     integrator: WorkerDriver | None = None
     log: list[str] = field(default_factory=list)
+    # The GitHub acceptance gate. None is not "off": every candidate then blocks before review.
+    acceptance: AcceptanceChecks | None = None
 
     def __post_init__(self) -> None:
         self.workspaces = WorkspaceManager(self.config.workspace_root)
@@ -231,6 +271,9 @@ class Dispatcher:
             return self._note(obj.objective_id, "objective recorded with no task; re-run intake"), False
         status = state.status
         try:
+            refusal = self._policy_refusal(task, status)
+            if refusal is not None:
+                return self._block(obj, task, refusal), True
             if status is TaskStatus.READY:
                 return self._start_attempt(obj, task, state)
             if status in (TaskStatus.ASSIGNED, TaskStatus.RUNNING):
@@ -249,6 +292,31 @@ class Dispatcher:
             # The kernel refused a verb: nothing was written. Report it; the next tick re-reads the records.
             return self._note(obj.objective_id, f"kernel refused ({status.value}): {exc}"), False
         return None, False
+
+    def _policy_refusal(self, task: EngineeringTask, status: TaskStatus) -> str | None:
+        """Why a task recorded under an older policy may not advance under this one, or None.
+
+        Intake refuses a protected scope for every new objective, so this arises only for an objective
+        recorded before a path joined PROTECTED_PATHS (``ObjectiveStore`` still loads it). A worker already
+        running is left to finish: its candidate is refused at ingestion if it touches a protected path.
+        The trunk is refused as a target before any work starts; ``_publish`` refuses it for the rest."""
+        if status not in (TaskStatus.READY, TaskStatus.EVIDENCE_READY, TaskStatus.REVIEWING, TaskStatus.REJECTED,
+                          TaskStatus.ACCEPTED):
+            return None
+        covered = protected_paths_in(task.allowed_paths)
+        if covered:
+            return (f"the task's scope covers protected path(s) {', '.join(covered)}; since the owner's loop update "
+                    "(OWNER_DECISIONS_2026-09-25) no objective changes them through the loop, and the owner "
+                    "changes them by hand")
+        if status is TaskStatus.READY and task.target_branch in self.config.landing_branches:
+            return self._landing_refusal(task.target_branch)
+        return None
+
+    @staticmethod
+    def _landing_refusal(branch: str) -> str:
+        return (f"the target branch {branch} is one the loop never publishes a candidate onto: it moves only by a "
+                "landing made after a green GitHub acceptance run and an accepted review of the exact SHA; target "
+                "the objective's own branch (clive/objective/<id>)")
 
     # ------------------------------------------------------------ READY
     def _failed_check_output(self, attempt: Attempt, limit: int = 3000) -> list[str]:
@@ -528,6 +596,11 @@ class Dispatcher:
                                               f"{first_line}")
         self.workspaces.ingest(self.config.repo, ws, branch=info.branch, sha=head)
         changed = self.kernel.git.changed_paths(task.base_sha, head) or ()
+        protected = protected_paths_in(changed)
+        if protected:
+            touched = sorted(p for p in changed if protected_paths_in((p,)))
+            return self._cancel(obj, attempt, f"{RESULT_REFUSED} candidate {head} changes protected paths, which no "
+                                              f"objective changes through the loop: {', '.join(touched[:10])}")
         escaped = [p for p in changed if not any(p == a or p.startswith(a + "/") for a in task.allowed_paths)]
         if escaped:
             return self._cancel(obj, attempt, f"{RESULT_REFUSED} candidate {head} changes paths outside the objective's "
@@ -580,7 +653,13 @@ class Dispatcher:
                 "started_at": started.isoformat(), **outcome}
 
     def _publish(self, task: EngineeringTask, sha: str) -> str | None:
-        """Move the target branch forward to the candidate. Returns a blocker reason, or None."""
+        """Move the target branch forward to the candidate. Returns a blocker reason, or None.
+
+        A candidate is not yet reviewed, accepted or green on GitHub, so it is never published onto a
+        landing branch (the trunk): the kernel reads a published candidate's target branch as the
+        candidate's own, and here that would be a landing ahead of every gate."""
+        if task.target_branch in self.config.landing_branches:
+            return self._landing_refusal(task.target_branch)
         repo = self.config.repo
         current = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
         if current == task.target_branch:
@@ -600,11 +679,82 @@ class Dispatcher:
                 return f"{self.config.publish_remote}/{task.target_branch} does not resolve to {sha} after the push"
         return None
 
+    # ------------------------------------------------------------ the GitHub acceptance gate
+    def _resumed_at(self, attempt: Attempt) -> datetime | None:
+        """When the task was last resumed on this attempt (the kernel's record), if ever."""
+        resumed = [e.at for e in self.store.read_events(attempt.task_id, attempt.attempt_id)
+                   if e.kind is EventKind.RESUMED]
+        return max(resumed) if resumed else None
+
+    def _acceptance(self, task: EngineeringTask, attempt: Attempt, sha: str) -> GateResult:
+        """GitHub's answer about exactly ``sha``, asked at most once per ``acceptance_poll_s`` and recorded.
+
+        A remembered answer is reused only inside that interval and never across a resume."""
+        now = self.now()
+        rt = self._runtime(attempt.attempt_id)
+        last = rt.get("github_acceptance")
+        cached = GateResult.from_record(last)
+        checked = _parse(last.get("checked_at")) if cached is not None else None
+        resumed = self._resumed_at(attempt)
+        if (cached is not None and cached.sha == sha and checked is not None
+                and (resumed is None or checked >= resumed)
+                and now - checked < timedelta(seconds=self.config.acceptance_poll_s)):
+            return cached
+        result = ask(self.acceptance, task.repository, sha)
+        record_gate_answer(self.config.runtime_root, attempt.attempt_id, result.record(checked_at=now))
+        return result
+
+    def _await_green(self, obj: Objective, task: EngineeringTask, attempt: Attempt, sha: str,
+                     step: str) -> tuple[str | None, bool] | None:
+        """None when ``sha`` is green on GitHub; otherwise what this tick does instead of ``step``.
+
+        Fail closed and bounded: no configured gate and a red answer block at once; missing, pending or
+        unavailable waits, and blocks once ``step`` has waited ``acceptance_timeout_s`` for this SHA. The
+        wait's start is an execution note (``github_acceptance_wait``), so it survives a restart; a resume
+        (the owner's or Director's "wait again") restarts it."""
+        if self.acceptance is None:
+            return self._block(obj, task, f"no GitHub acceptance gate is configured in this dispatcher; {step} on "
+                                          f"{sha} needs a green GitHub acceptance run on that exact SHA"), True
+        result = self._acceptance(task, attempt, sha)
+        now = self.now()
+        rt = self._runtime(attempt.attempt_id)
+        if result.green:
+            if rt.pop("github_acceptance_wait", None) is not None:
+                self._save_runtime(attempt.attempt_id, rt)
+            return None
+        if result.state is GateState.RED:
+            return self._block(obj, task, f"GitHub acceptance is red on {sha} ({result.detail}); {step} refused. The "
+                                          "candidate is kept as history: resume the task once a re-run of that "
+                                          "exact SHA is green, or submit a new request"), True
+        wait = rt.get("github_acceptance_wait") or {}
+        since = _parse(wait.get("since")) if (wait.get("sha"), wait.get("step")) == (sha, step) else None
+        if since is None:
+            since = now
+            rt["github_acceptance_wait"] = {"sha": sha, "step": step, "since": now.isoformat()}
+            self._save_runtime(attempt.attempt_id, rt)
+        resumed = self._resumed_at(attempt)
+        if resumed is not None and resumed > since:
+            since = resumed
+        if (now - since).total_seconds() > self.config.acceptance_timeout_s:
+            return self._block(obj, task, f"GitHub acceptance on {sha} was not green within "
+                                          f"{self.config.acceptance_timeout_s}s ({result.state.value}: "
+                                          f"{result.detail}); {step} refused; resume the task to wait again"), True
+        return self._note(obj.objective_id, f"{step} waits for a green GitHub acceptance run on {sha} "
+                                            f"({result.state.value}: {result.detail})"), False
+
+    def acceptance_gates(self) -> dict[str, dict]:
+        """Each task's last recorded GitHub acceptance answer, by task id: what the status projection shows."""
+        return recorded_acceptance_gates(self.store, self.config.runtime_root)
+
     # ------------------------------------------------------------ EVIDENCE_READY / REVIEWING
     def _dispatch_review(self, obj: Objective, task: EngineeringTask, state) -> tuple[str | None, bool]:
         attempt = self._current_attempt(task, state)
         result = next(r for r in self.store.read_results()
                       if r.task_id == task.task_id and r.attempt_id == attempt.attempt_id)
+        # Nothing is reviewed, so nothing can be accepted, before GitHub acceptance is green on exactly this SHA.
+        waiting = self._await_green(obj, task, attempt, result.result_sha, "review dispatch")
+        if waiting is not None:
+            return waiting
         author = attempt.worker.principal.principal_id.strip().casefold()
         gaps: list[str] = []
         chosen: ReviewerDriver | None = None
@@ -663,9 +813,7 @@ class Dispatcher:
                                                 "for it is configured in this dispatcher"), False
         ctx = self._review_ctx(task, attempt, dispatch.dispatch_seq, dispatch.candidate_sha, dispatch.packet_path)
         driver.start(ctx)  # idempotent: a restart between dispatch and start loses nothing
-        rt = self._runtime(attempt.attempt_id)
-        review = rt.setdefault("review", {"dispatch_seq": dispatch.dispatch_seq, "consumed": []})
-        consumed = set(review.get("consumed", []))
+        consumed = set((self._runtime(attempt.attempt_id).get("review") or {}).get("consumed", []))
         payload = next((p for p in driver.poll(ctx) if sha256_of(p) not in consumed), None)
         if payload is None:
             problem = driver.problem(ctx) if hasattr(driver, "problem") else None
@@ -674,17 +822,24 @@ class Dispatcher:
             last = f" (last run: {problem})" if problem else ""
             return self._note(obj.objective_id, f"awaiting the typed review of {dispatch.candidate_sha} from "
                                                 f"{dispatch.reviewer_principal_id} via {driver.mechanism}{last}"), False
-        review.setdefault("consumed", []).append(sha256_of(payload))
-        self._save_runtime(attempt.attempt_id, rt)
         try:
             typed = ReviewResult.model_validate_json(payload)
         except ValueError as exc:
+            self._consume(attempt, dispatch.dispatch_seq, payload)
             return self._note(obj.objective_id, f"review result refused before the kernel: not a valid "
                                                 f"clive.review_result.v1 ({str(exc).splitlines()[0][:200]})"), True
         if (typed.task_id, typed.task_revision, typed.attempt_id) != (task.task_id, task.revision, attempt.attempt_id):
+            self._consume(attempt, dispatch.dispatch_seq, payload)
             return self._note(obj.objective_id, f"stale review result refused: it judges {typed.task_id} "
                                                 f"r{typed.task_revision} {typed.attempt_id}, not the current "
                                                 f"{attempt.attempt_id}"), True
+        if typed.verdict == "READY":
+            # Admitting a READY records the acceptance, so it waits, unconsumed, for a green run on the exact
+            # candidate. Normally already green: review is dispatched only then (``_dispatch_review``).
+            waiting = self._await_green(obj, task, attempt, dispatch.candidate_sha, "accepting a READY verdict")
+            if waiting is not None:
+                return waiting
+        self._consume(attempt, dispatch.dispatch_seq, payload)
         admission = self.kernel.admit_verdict(attempt.attempt_id, reviewer=typed.reviewer.party(),
                                               verdict=typed.kernel_verdict, payload=payload,
                                               observed_candidate_sha=typed.candidate_sha,
@@ -695,6 +850,13 @@ class Dispatcher:
         # next one (if any) is read in the same tick.
         return self._note(obj.objective_id, f"verdict {typed.verdict} on {typed.candidate_sha} from "
                                             f"{typed.reviewer.principal_id}: {admission.outcome.value}{detail}"), True
+
+    def _consume(self, attempt: Attempt, dispatch_seq: int, payload: bytes) -> None:
+        """Mark one review submission as read, so the next poll moves past it. Re-read, never a stale copy."""
+        rt = self._runtime(attempt.attempt_id)
+        review = rt.setdefault("review", {"dispatch_seq": dispatch_seq, "consumed": []})
+        review.setdefault("consumed", []).append(sha256_of(payload))
+        self._save_runtime(attempt.attempt_id, rt)
 
     # ------------------------------------------------------------ REJECTED
     def _route_repair(self, obj: Objective, task: EngineeringTask, state) -> tuple[str | None, bool]:
@@ -734,16 +896,25 @@ class Dispatcher:
     # ------------------------------------------------------------ ACCEPTED
     def _integrate(self, obj: Objective, task: EngineeringTask, state) -> tuple[str | None, bool]:
         acceptance = [a for a in self.store.read_acceptances(task.task_id) if a.attempt_id == state.attempt_id][-1]
+        attempt = self._current_attempt(task, state)
+        # Integration lands exactly the accepted SHA (fast-forward only, below), and only once GitHub acceptance
+        # is green on that SHA: an acceptance recorded before this gate existed is held here too.
+        waiting = self._await_green(obj, task, attempt, acceptance.accepted_sha, "integration")
+        if waiting is not None:
+            return waiting
         head = self._target_head(task)
         if head != acceptance.accepted_sha:
             return self._block(obj, task, f"target branch {task.target_branch} is at {head}, not the accepted "
                                           f"{acceptance.accepted_sha}; integration refused"), True
+        gates = write_integration_gates(self.config.runtime_root, attempt.attempt_id,
+                                        [self._runtime(attempt.attempt_id)["github_acceptance"]])
         self.kernel.integrate(task.task_id, task.revision, integration_sha=acceptance.accepted_sha,
                               target_base_sha=task.base_sha, method=IntegrationMethod.FAST_FORWARD,
                               integrated_by=f"clive-dispatcher ({self.kernel.operator})",
-                              remote=self.config.publish_remote)
+                              remote=self.config.publish_remote, gates_evidence=gates)
         return self._note(obj.objective_id, f"accepted {acceptance.accepted_sha} integrated on {task.target_branch} "
-                                            "(fast-forward, target ref verified); not deployed"), True
+                                            "(fast-forward, target ref verified, GitHub acceptance green on that "
+                                            "SHA); not deployed"), True
 
     # ------------------------------------------------------------ kernel shorthands
     def _block(self, obj: Objective, task: EngineeringTask, reason: str, *, owner: bool = False) -> str:
@@ -856,6 +1027,10 @@ class Dispatcher:
             *(f"- prohibited: {p}" for p in task.prohibited_actions), "",
             "## Evidence recorded by CLIVE (name, sha256)", *(f"- `{e.evidence_name}` {e.evidence_sha256}" for e in evidence), "",
         ]
+        gate = self._runtime(attempt.attempt_id).get("github_acceptance")
+        if gate is not None:
+            lines += ["## GitHub acceptance on this exact SHA (CLIVE's gate: review is dispatched only when green)",
+                      "```json", json.dumps(gate, indent=2, sort_keys=True), "```", ""]
         for check in obj.checks:
             file = checks_dir / f"check-{check.name}.json"
             if file.exists():
@@ -908,10 +1083,111 @@ class Dispatcher:
                                    "last_observed_event_at": rt.get("last_activity_at"),
                                    "observed_roster": rt.get("roster"), "permission_denials": rt.get("denials", 0)}
                 item["review_mechanism"] = rt.get("review")
+                item["github_acceptance"] = rt.get("github_acceptance")
                 if state.status is TaskStatus.REVIEWING:
                     item["review_problem"] = self._review_problem(task, state)
             out.append(item)
         return out
+
+
+def _canonical(document: dict) -> bytes:
+    return (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
+
+
+def _atomic_write(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(payload)
+    os.replace(tmp, path)
+
+
+def record_gate_answer(runtime_root: Path, attempt_id: str, record: dict) -> Path:
+    """Record one GitHub acceptance answer where the loop keeps it, and return the evidence file.
+
+    The attempt's runtime notes (``github_acceptance``, which the status projection reads) and
+    ``<runtime>/evidence/<attempt>/github-acceptance.json``. The dispatcher records every answer it
+    gets here, and so does the kernel CLI for the verdicts and integrations an operator records by
+    hand; the caller holds the runtime lock (a tick, or ``runtime_lock``)."""
+    root = Path(runtime_root)
+    notes_path = root / "attempts" / f"{attempt_id}.json"
+    notes = json.loads(notes_path.read_text(encoding="utf-8")) if notes_path.exists() else {}
+    notes["github_acceptance"] = record
+    _atomic_write(notes_path, (json.dumps(notes, indent=2, sort_keys=True, default=str) + "\n").encode())
+    evidence = root / "evidence" / attempt_id / GATE_FILE
+    _atomic_write(evidence, _canonical(record))
+    return evidence
+
+
+def write_integration_gates(runtime_root: Path, attempt_id: str, records: list[dict],
+                            operator_evidence_sha256: str | None = None) -> bytes:
+    """The integration's gates evidence: the green answers it rests on, kept byte for byte.
+
+    Written to ``<runtime>/evidence/<attempt>/integration-gates.json``; the kernel's integration record
+    holds the digest of exactly these bytes (``gates_evidence_sha256``). An operator's own gates evidence
+    file, given to the kernel CLI, is bound by its digest."""
+    document = {"schema": INTEGRATION_GATES_SCHEMA, "github_acceptance": list(records),
+                "operator_gates_evidence_sha256": operator_evidence_sha256}
+    payload = _canonical(document)
+    _atomic_write(Path(runtime_root) / "evidence" / attempt_id / INTEGRATION_GATES_FILE, payload)
+    return payload
+
+
+@contextmanager
+def runtime_lock(runtime_root: Path, timeout_s: float) -> Iterator[None]:
+    """Hold the dispatcher's runtime lock, waiting at most ``timeout_s`` for a tick to finish.
+
+    For writers other than a dispatcher tick (the kernel CLI) that record into the runtime notes:
+    one writer at a time, so neither overwrites the other's answer. Raises ``DispatcherBusy``."""
+    root = Path(runtime_root)
+    root.mkdir(parents=True, exist_ok=True)
+    handle = open(root / "dispatcher.lock", "a+b")  # noqa: SIM115
+    try:
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise DispatcherBusy(f"a dispatcher holds {root}/dispatcher.lock") from None
+                time.sleep(0.2)
+        yield
+    finally:
+        handle.close()
+
+
+def recorded_acceptance_gates(store: LifecycleStore, runtime_root: Path) -> dict[str, dict]:
+    """Each task's last GitHub acceptance answer, by task id, read from the dispatcher's runtime notes.
+
+    The task is read at its highest revision and the attempt the kernel's own projection would show
+    (the current one, else that revision's last), so the answer sits beside the stage, candidate and
+    review the status projection already publishes. Only a record this gate wrote is returned, rebuilt
+    field by field: a SHA, a state word, a sentence built by the gate, run ids and GitHub's enum words.
+    Unreadable notes are skipped; this is a projection, never authority."""
+    latest: dict[str, EngineeringTask] = {}
+    for task in store.read_tasks():
+        if task.task_id not in latest or task.revision > latest[task.task_id].revision:
+            latest[task.task_id] = task
+    out: dict[str, dict] = {}
+    for task_id, task in latest.items():
+        state = store.read_task_state(task_id, task.revision)
+        attempt_id = state.attempt_id if state is not None else None
+        if attempt_id is None:
+            attempts = [a for a in store.read_attempts(task_id) if a.task_revision == task.revision]
+            attempt_id = max(attempts, key=lambda a: a.fencing_token).attempt_id if attempts else None
+        if attempt_id is None:
+            continue
+        try:
+            notes = json.loads((Path(runtime_root) / "attempts" / f"{attempt_id}.json").read_text(encoding="utf-8"))
+            raw = notes.get("github_acceptance") if isinstance(notes, dict) else None
+            result = GateResult.from_record(raw)
+            checked_at = datetime.fromisoformat(raw["checked_at"]) if result is not None else None
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+        if result is None or checked_at is None or checked_at.tzinfo is None:
+            continue
+        out[task_id] = result.record(checked_at=checked_at)
+    return out
 
 
 def _review_problem_of(driver, ctx) -> str | None:
