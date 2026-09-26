@@ -2,17 +2,21 @@
 """Take an artifact into quarantine, then digest it: intake, recognise, scan and decompose.
 
     python scripts/digest_intake.py SOURCE [--ref REF] [--kind HANDLER] --quarantine DIR
-        [--store DIR] [--report FILE]
+        [--store DIR] [--report FILE] [--no-relate | --self]
 
-SOURCE is an https URL (a git repository, or a single file or archive to download), an archive,
-a directory or a file. Intake (app/digest/intake.py) is the only step that uses the network,
+SOURCE is an https URL (a git repository, or a single file or archive to download), a package
+by its registry name (npm:<name>[@<version>], pypi:<name>[==<version>]), an archive, a
+directory or a file. Intake (app/digest/intake.py) is the only step that uses the network,
 and only to fetch: it pins the source (the commit SHA, or the digest of the bytes fetched),
 copies it read-only into a directory of its own under --quarantine, which must be outside this
 repository, and records its Source. The quarantined copy is then digested exactly as
 scripts/digest.py digests one — nothing in it is executed, imported or installed. --ref picks a
-branch, tag or full commit SHA of a git repository; --kind names the intake handler when the
-source could be taken more than one way (git, url, archive, directory, file, or any handler
-added to app/digest/intakes).
+branch, tag or full commit SHA of a git repository, or a package's version; --kind names the
+intake handler when the source could be taken more than one way (git, url, package, archive,
+directory, file, or any handler added to app/digest/intakes). The Units are related to CLIVE's
+self-model, generated from this repository, and CLIVE's proposals made, as scripts/digest.py
+does; --no-relate skips both, and --self takes the artifact as CLIVE itself: traced to its
+product memory, nothing proposed.
 
 One line is printed, as scripts/digest.py prints it; what intake pinned, where the copy is and
 anything it withheld are said on standard error.
@@ -38,6 +42,7 @@ from app.digest.intake import IntakeError, UnsafeArtifact, intake, shown  # noqa
 from app.digest.model import Source  # noqa: E402
 from app.digest.pipeline import digest  # noqa: E402
 from app.digest.report import render  # noqa: E402
+from app.digest.selfmodel import build_self_model  # noqa: E402
 from app.digest.store import ArtifactConflict, DigestStore  # noqa: E402
 from scripts.digest import BLOCKED, DIGESTED, FAILED, summary  # noqa: E402
 
@@ -55,13 +60,20 @@ class _Parser(argparse.ArgumentParser):
 
 def _parser() -> argparse.ArgumentParser:
     parser = _Parser(description="Take an artifact into quarantine and digest it.")
-    parser.add_argument("source", help="an https URL, an archive, a directory or a file")
+    parser.add_argument("source", help="an https URL, a package (npm:<name>, pypi:<name>), an "
+                                       "archive, a directory or a file")
     parser.add_argument("--ref", help="a git repository's branch, tag or full commit SHA")
     parser.add_argument("--kind", help="the intake handler to use (default: the one that claims the source)")
     parser.add_argument("--quarantine", type=Path, required=True,
                         help="the quarantine root, outside this repository")
     parser.add_argument("--store", type=Path, help="digest store directory to write to")
     parser.add_argument("--report", type=Path, help="file to write the Markdown report to")
+    relating = parser.add_mutually_exclusive_group()
+    relating.add_argument("--no-relate", action="store_true",
+                          help="do not relate the Units to CLIVE's self-model, and propose nothing")
+    relating.add_argument("--self", dest="itself", action="store_true",
+                          help="the artifact is CLIVE itself: trace it to the product memory and "
+                               "propose nothing")
     return parser
 
 
@@ -101,7 +113,9 @@ def main(argv: list[str] | None = None) -> int:
             stored = store.load(source.artifact_id).source
             if _same_intake(stored, source):
                 source = stored
-        result = digest(taken.path, source, store)
+        self_model = None if args.no_relate else build_self_model(_APP_ROOT)
+        result = digest(taken.path, source, store, self_model=self_model,
+                        purpose="self" if args.itself else "absorb")
         if args.report is not None:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(render(result), encoding="utf-8")
