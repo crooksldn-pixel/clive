@@ -39,7 +39,8 @@ MAX_TOTAL_BYTES = 20_000_000    # all of them
 MAX_UNITS = 5_000               # units returned for one artifact
 MAX_DEPTH = 64                  # nesting, in every format
 MAX_TOKENS = 200_000            # one GraphQL file
-MAX_SKIPPED = 100               # malformed tools said of one by one in one list; more are counted
+MAX_SKIPPED = 100               # malformed tools or parameters said of one by one in one list;
+                                # more are counted
 
 _JSON = (".json",)
 _YAML = (".yaml", ".yml")
@@ -932,22 +933,32 @@ def _graphql(out: _File, schema: _Sdl, roots: dict[str, str]) -> None:
 # --- OpenAPI and Swagger -----------------------------------------------------------------------
 
 
-def _resolve(doc: dict, node: Any) -> Any:
-    """A local $ref — '#/components/parameters/limit' — followed once to what it names."""
-    if not isinstance(node, dict) or not isinstance(node.get("$ref"), str):
-        return node
-    if not node["$ref"].startswith("#/"):
-        return node
+_MISSING = object()
+
+
+def _target(doc: dict, ref: str) -> Any:
+    """What a local $ref — '#/components/parameters/limit' — names in doc; _MISSING if it
+    names nothing there. Nothing outside the file is ever looked at."""
+    if not ref.startswith("#/"):
+        return _MISSING
     target: Any = doc
-    for part in node["$ref"][2:].split("/"):
+    for part in ref[2:].split("/"):
         key = part.replace("~1", "/").replace("~0", "~")
         if isinstance(target, dict) and key in target:
             target = target[key]
         elif isinstance(target, list) and key.isdigit() and int(key) < len(target):
             target = target[int(key)]
         else:
-            return node
+            return _MISSING
     return target
+
+
+def _resolve(doc: dict, node: Any) -> Any:
+    """A local $ref followed once to what it names; anything else as it is."""
+    if not isinstance(node, dict) or not isinstance(node.get("$ref"), str):
+        return node
+    target = _target(doc, node["$ref"])
+    return node if target is _MISSING else target
 
 
 def _schema_type(schema: Any, depth: int = 0) -> str:
@@ -964,13 +975,52 @@ def _schema_type(schema: Any, depth: int = 0) -> str:
     return _word(kind)
 
 
-def _parameters(doc: dict, listed: list) -> list[str]:
-    merged: dict[tuple[str, str], dict] = {}
-    for item in listed:
+def _parameter_problem(parameter: Any) -> str:
+    """Why an entry of a parameter list cannot be read as a parameter; nothing if it can."""
+    if not isinstance(parameter, dict):
+        return "is not a mapping"
+    if isinstance(parameter.get("$ref"), str):
+        return ""       # one this file does not hold, listed as its reference
+    for key in ("name", "in"):
+        if not isinstance(parameter.get(key), str) or not _word(parameter[key]):
+            return f"has no '{key}' that is text"
+    return ""
+
+
+def _parameter_list(out: _File, doc: dict, holder: dict, label: str) -> list[dict]:
+    """The parameters holder lists for label, each resolved. A list that is not one, and each
+    entry that is not a parameter, is said so of — entries up to MAX_SKIPPED, and then
+    counted — and the well-formed entries beside them are still taken."""
+    listed = holder["parameters"]
+    if not isinstance(listed, list):
+        out.unparsed(f"the parameters of {label} are not a list, so none of them was read",
+                     _entry(holder, "parameters"))
+        return []
+    taken: list[dict] = []
+    skipped = 0
+    for number, item in enumerate(listed, 1):
         parameter = _resolve(doc, item)
-        if isinstance(parameter, dict) and isinstance(parameter.get("$ref"), str):
+        problem = _parameter_problem(parameter)
+        if not problem:
+            taken.append(parameter)
+            continue
+        skipped += 1
+        if skipped <= MAX_SKIPPED:
+            out.unparsed(f"parameter {number} of {label} {problem}, so it was not read",
+                         _entry(listed, number - 1))
+    if skipped > MAX_SKIPPED:
+        out.unparsed(f"{skipped - MAX_SKIPPED} more parameters of {label} were not read either: "
+                     f"each is malformed, and only the first {MAX_SKIPPED} are said of one by one",
+                     _entry(holder, "parameters"))
+    return taken
+
+
+def _parameters(listed: list[dict]) -> list[str]:
+    merged: dict[tuple[str, str], dict] = {}
+    for parameter in listed:
+        if isinstance(parameter.get("$ref"), str):
             merged[("$ref", parameter["$ref"])] = parameter     # one this file does not hold
-        elif isinstance(parameter, dict):
+        else:
             # An operation's own parameter replaces its path's of the same name and place.
             merged[(_word(parameter.get("name")), _word(parameter.get("in")))] = parameter
     lines = []
@@ -1025,7 +1075,9 @@ def _security(requirements: Any) -> str:
 
 
 def _operation(out: _File, doc: dict, heading: str, path: str, method: str,
-               operation: dict, shared: list) -> None:
+               operation: dict, shared: list[dict]) -> None:
+    own = (_parameter_list(out, doc, operation, f"{method.upper()} {path}")
+           if "parameters" in operation else [])
     lines = [f"{method.upper()} {path}"]
     if heading:
         lines.append(heading)
@@ -1035,8 +1087,7 @@ def _operation(out: _File, doc: dict, heading: str, path: str, method: str,
         lines.append(f"Summary: {_word(operation.get('summary'))}")
     if _prose(operation.get("description")):
         lines.append(f"Description: {_prose(operation.get('description'))}")
-    own = operation.get("parameters")
-    parameters = _parameters(doc, [*shared, *(own if isinstance(own, list) else [])])
+    parameters = _parameters([*shared, *own])
     lines.append("Parameters:" if parameters else "Parameters: none")
     lines += parameters
     lines += _request_body(doc, operation.get("requestBody"))
@@ -1052,13 +1103,44 @@ def _operation(out: _File, doc: dict, heading: str, path: str, method: str,
     out.add("capability", f"{method.upper()} {path}", "\n".join(lines), _lines(operation), tags)
 
 
+def _path_layers(out: _File, doc: dict, path: str, item: dict) -> list[dict]:
+    """paths[path] and the Path Items it refers to, nearest first. Each $ref is followed within
+    this file only, never twice to one place and at most MAX_DEPTH times; one that cannot be
+    followed is said so of, and what was reached before it is still read."""
+    layers = [item]
+    followed: set[str] = set()
+    node = item
+    while "$ref" in node:
+        ref = node["$ref"]
+        if not isinstance(ref, str):
+            problem = "is not text"
+        elif not ref.startswith("#"):
+            problem = f"refers outside this file, to {ref}, which is not read"
+        elif ref in followed:
+            problem = f"refers back to {ref}, which was already followed"
+        elif len(followed) >= MAX_DEPTH:
+            problem = f"ends a chain of more than {MAX_DEPTH} references"
+        else:
+            followed.add(ref)
+            target = _target(doc, ref)
+            if isinstance(target, dict):
+                layers.append(target)
+                node = target
+                continue
+            problem = (f"refers to {ref}, which names nothing in this file" if target is _MISSING
+                       else f"refers to {ref}, which is not a mapping of methods to operations")
+        out.unparsed(f"the $ref of path {path} {problem}, so it was not followed",
+                     _entry(node, "$ref"))
+        break
+    return layers
+
+
 def _openapi(out: _File, doc: dict) -> None:
     info = doc.get("info") if isinstance(doc.get("info"), dict) else {}
     api = " ".join(filter(None, (_word(info.get("title")), _word(info.get("version")))))
     heading = f"API: {api}" if api else ""
-    paths = doc.get("paths")
-    if paths is None:
-        paths = {}
+    # Only a container that is absent is empty: one that is there, even as null, must be one.
+    paths = doc.get("paths", {})
     if not isinstance(paths, dict):
         out.unparsed("'paths' is not a mapping of paths to operations, so no operation was read",
                      _entry(doc, "paths"))
@@ -1068,27 +1150,38 @@ def _openapi(out: _File, doc: dict) -> None:
             out.unparsed(f"path {path} is not a mapping of methods to operations",
                          _entry(paths, path))
             continue
-        shared = item.get("parameters") if isinstance(item.get("parameters"), list) else []
-        for method, operation in item.items():
+        # A Path Item's own fields come before those of the Path Item it refers to.
+        fields: dict[str, dict] = {}
+        for layer in _path_layers(out, doc, path, item):
+            for key in layer:
+                fields.setdefault(key, layer)
+        shared = (_parameter_list(out, doc, fields["parameters"], f"path {path}")
+                  if "parameters" in fields else [])
+        for method, holder in fields.items():
             if method.lower() not in _HTTP_METHODS:
                 continue
+            operation = holder[method]
             if not isinstance(operation, dict):
                 out.unparsed(f"{method.upper()} {path} is not a mapping, so it was not read",
-                             _entry(item, method))
+                             _entry(holder, method))
                 continue
             _operation(out, doc, heading, path, method.lower(), operation, shared)
-    components = doc.get("components")
-    if components is not None and not isinstance(components, dict):
-        out.unparsed("'components' is not a mapping, so no schema in it was read",
-                     _entry(doc, "components"))
-    section, holder = "components.schemas", components
-    schemas = components.get("schemas") if isinstance(components, dict) else None
-    if schemas is None:
-        section, holder, schemas = "definitions", doc, doc.get("definitions")     # Swagger 2
-    if schemas is not None and not isinstance(schemas, dict):
-        out.unparsed(f"'{section}' is not a mapping of names to schemas, so no schema in it "
-                     "was read", _entry(holder, section.rsplit(".", 1)[-1]))
-    elif isinstance(schemas, dict):
+    sections: list[tuple[str, dict, str]] = []
+    if "components" in doc:
+        components = doc["components"]
+        if not isinstance(components, dict):
+            out.unparsed("'components' is not a mapping, so no schema in it was read",
+                         _entry(doc, "components"))
+        elif "schemas" in components:
+            sections.append(("components.schemas", components, "schemas"))
+    if "definitions" in doc:
+        sections.append(("definitions", doc, "definitions"))     # Swagger 2
+    for section, holder, key in sections:
+        schemas = holder[key]
+        if not isinstance(schemas, dict):
+            out.unparsed(f"'{section}' is not a mapping of names to schemas, so no schema in it "
+                         "was read", _entry(holder, key))
+            continue
         for name, schema in schemas.items():
             lines = [f"schema {name}"] + ([heading] if heading else []) + ["", _dump(schema)]
             out.add("interface", f"schema {name}", "\n".join(lines), _entry(schemas, name),
@@ -1121,22 +1214,24 @@ def _has_tool(candidate: Any) -> bool:
 
 
 def _tool_list(doc: Any) -> tuple[Any, tuple[int | None, int | None], str] | None:
-    """Where a list of MCP tools is — the document itself, its 'tools', or a tools/list
-    result's — as that value, its lines and its name. A list is one when any entry carries an
-    input schema, whether or not that entry is otherwise well formed; a JSON-RPC result's
-    'tools' is one whatever it holds. So a malformed list is still found, and said so of."""
+    """Where a list of MCP tools is — the document's 'tools', a tools/list result's, or the
+    document itself — as that value, its lines and its name. An explicit 'tools' is one
+    whatever it holds, so a malformed list is still found, and said so of; a bare list is one
+    when any entry carries an input schema."""
+    if isinstance(doc, dict):
+        if "tools" in doc:
+            return doc["tools"], _entry(doc, "tools"), "'tools'"
+        result = doc.get("result")
+        if isinstance(result, dict) and "tools" in result:
+            return result["tools"], _entry(result, "tools"), "'result.tools'"
+        return None
     if _has_tool(doc):
         return doc, _lines(doc), "the document"
-    if not isinstance(doc, dict):
-        return None
-    if _has_tool(doc.get("tools")):
-        return doc["tools"], _entry(doc, "tools"), "'tools'"
-    result = doc.get("result")
-    if isinstance(result, dict) and "tools" in result and (
-        "jsonrpc" in doc or _has_tool(result["tools"])
-    ):
-        return result["tools"], _entry(result, "tools"), "'result.tools'"
     return None
+
+
+def _tool_schema(tool: dict) -> Any:
+    return tool["inputSchema"] if "inputSchema" in tool else tool.get("input_schema")
 
 
 def _tool_problem(tool: Any) -> str:
@@ -1145,8 +1240,9 @@ def _tool_problem(tool: Any) -> str:
         return "is not an object with a name"
     if not isinstance(tool["name"], str) or not _word(tool["name"]):
         return "has a name that is not text"
-    schema = tool.get("inputSchema", tool.get("input_schema"))
-    if schema is not None and not isinstance(schema, dict):
+    if "inputSchema" not in tool and "input_schema" not in tool:
+        return "has no input schema"
+    if not isinstance(_tool_schema(tool), dict):
         return "has an input schema that is not an object"
     if tool.get("annotations") is not None and not isinstance(tool["annotations"], dict):
         return "has annotations that are not an object"
@@ -1171,7 +1267,7 @@ def _mcp_tools(out: _File, tools: Any, at: tuple[int | None, int | None], where:
         name = _word(tool.get("name"))
         annotations = tool.get("annotations") or {}
         access = _tool_access(annotations)
-        schema = tool.get("inputSchema", tool.get("input_schema"))
+        schema = _tool_schema(tool)
         lines = [f"MCP tool {name}"]
         title = _word(annotations.get("title")) or _word(tool.get("title"))
         if title:
@@ -1180,7 +1276,7 @@ def _mcp_tools(out: _File, tools: Any, at: tuple[int | None, int | None], where:
         lines.append(f"Access: {access} ({said})")
         if annotations:
             lines += ["Annotations:", _dump(annotations)]
-        lines += ["Input schema:", _dump(schema) if schema is not None else "none given"]
+        lines += ["Input schema:", _dump(schema)]
         if _prose(tool.get("description")):
             lines.append(f"Description: {_prose(tool.get('description'))}")
         tags = ["mcp", access]

@@ -847,6 +847,18 @@ MALFORMED = [
     ("deep.graphql", "type A { a: " + "[" * 500 + "Int" + "]" * 500 + " }\n", "deeper than"),
     ("tools.json", '[{"name": "a", "inputSchema": {}}, 7]', "tool 2"),
     ("names.json", '{"tools":[{"name":7,"inputSchema":{}}]}', "tool 1 has a name that is not text"),
+    ("scalar_tools.json", '{"tools":[7]}', "tool 1 is not an object with a name"),
+    ("name_only.json", '{"tools":[{"name":"broken"}]}', "tool 1 has no input schema"),
+    ("null_schema.json", '{"tools":[{"name":"broken","inputSchema":null}]}',
+     "tool 1 has an input schema that is not an object"),
+    ("bare_result.json", '{"result": {"tools": [7]}}', "tool 1 is not an object with a name"),
+    ("null_paths.json", '{"openapi": "3.0.0", "paths": null}', "'paths' is not a mapping"),
+    ("null_paths.yaml", "openapi: 3.0.0\npaths:\n", "'paths' is not a mapping"),
+    ("parameters.json",
+     '{"openapi": "3.0.0", "paths": {"/y": {"get": {"parameters": {"name": "id"}}}}}',
+     "the parameters of GET /y are not a list"),
+    ("path_ref.json",
+     '{"openapi": "3.1.0", "paths": {"/y": {"$ref": "other.json#/Y"}}}', "refers outside"),
     ("server.json", '{"name": "io.example/x", "tools": "none"}', "'tools' is not a list"),
     ("result.json", '{"jsonrpc": "2.0", "id": 1, "result": {"tools": {"name": "a"}}}',
      "'result.tools' is not a list"),
@@ -891,6 +903,241 @@ def test_a_schema_section_that_is_not_a_mapping_is_said_so_and_operations_still_
     assert _access(units[0]) == "write" and "Summary: Make" in units[0].body
     assert units[1].tags == ("unparsed",) and section in units[1].body
     assert units[1].location == Location(name, *lines)
+
+
+NULL_CONTAINERS = [
+    ("paths.json",
+     '{\n  "openapi": "3.0.0",\n  "paths": null,\n'
+     '  "components": {"schemas": {"Pet": {"type": "object"}}}\n}\n',
+     "'paths'", [("knowledge", "Unparsed: paths.json", 3, 3), ("interface", "schema Pet", 4, 4)]),
+    ("components.json",
+     '{\n  "openapi": "3.0.0",\n  "paths": {"/y": {"post": {"summary": "Make"}}},\n'
+     '  "components": null\n}\n',
+     "'components'", [("capability", "POST /y", 3, 3), ("knowledge", "Unparsed: components.json", 4, 4)]),
+    ("schemas.json",
+     '{\n  "openapi": "3.0.0",\n  "paths": {"/y": {"post": {"summary": "Make"}}},\n'
+     '  "components": {"schemas": null}\n}\n',
+     "'components.schemas'", [("capability", "POST /y", 3, 3), ("knowledge", "Unparsed: schemas.json", 4, 4)]),
+    ("definitions.json",
+     '{\n  "swagger": "2.0",\n  "paths": {"/y": {"post": {"summary": "Make"}}},\n'
+     '  "definitions": null\n}\n',
+     "'definitions'", [("capability", "POST /y", 3, 3), ("knowledge", "Unparsed: definitions.json", 4, 4)]),
+    ("paths.yaml",
+     "openapi: 3.0.0\npaths:\ncomponents:\n  schemas:\n    Pet:\n      type: object\n",
+     "'paths'", [("knowledge", "Unparsed: paths.yaml", 2, 2), ("interface", "schema Pet", 5, 6)]),
+    ("components.yaml",
+     "openapi: 3.0.0\npaths:\n  /y:\n    post:\n      summary: Make\ncomponents: ~\n",
+     "'components'", [("capability", "POST /y", 4, 5), ("knowledge", "Unparsed: components.yaml", 6, 6)]),
+    ("schemas.yaml",
+     "openapi: 3.0.0\npaths:\n  /y:\n    post:\n      summary: Make\ncomponents:\n  schemas: null\n",
+     "'components.schemas'", [("capability", "POST /y", 4, 5), ("knowledge", "Unparsed: schemas.yaml", 7, 7)]),
+    ("definitions.yaml",
+     'swagger: "2.0"\npaths:\n  /y:\n    post:\n      summary: Make\ndefinitions:\n',
+     "'definitions'", [("capability", "POST /y", 4, 5), ("knowledge", "Unparsed: definitions.yaml", 6, 6)]),
+]
+
+
+@pytest.mark.parametrize(("name", "content", "section", "expected"), NULL_CONTAINERS,
+                         ids=[name for name, _, _, _ in NULL_CONTAINERS])
+def test_a_container_that_is_there_but_null_is_said_so_of(tmp_path, name, content, section, expected):
+    units = _units(_write(tmp_path, {name: content}))
+    assert [(unit.kind, unit.title, unit.location) for unit in units] == [
+        (kind, title, Location(name, start, end)) for kind, title, start, end in expected
+    ]
+    unparsed = [unit for unit in units if unit.kind == "knowledge"]
+    assert len(unparsed) == 1 and unparsed[0].tags == ("unparsed",)
+    assert f"{section} is not a mapping" in unparsed[0].body
+    assert units == _units(tmp_path)
+
+
+PARAMETERS_JSON = """\
+{
+  "openapi": "3.0.0",
+  "components": {"parameters": {"Bad": 7, "Page": {"name": "page", "in": "query"}}},
+  "paths": {
+    "/a": {
+      "parameters": {"name": "id", "in": "path"},
+      "get": {
+        "parameters": {"name": "limit", "in": "query"}
+      }
+    },
+    "/b": {
+      "post": {
+        "parameters": [
+          {"name": "ok", "in": "query"},
+          7,
+          {"in": "query"},
+          {"$ref": "#/components/parameters/Bad"},
+          {"$ref": "#/components/parameters/Page"}
+        ]
+      }
+    }
+  }
+}
+"""
+
+PARAMETERS_YAML = """\
+openapi: 3.0.0
+paths:
+  /a:
+    parameters: {name: id, in: path}
+    get:
+      parameters:
+        name: limit
+        in: query
+  /b:
+    post:
+      parameters:
+        - name: ok
+          in: query
+        - 7
+        - in: query
+        - [id]
+"""
+
+
+@pytest.mark.parametrize(("name", "content", "expected"), [
+    ("api.json", PARAMETERS_JSON, [
+        ("the parameters of path /a are not a list", 6, 6),
+        ("the parameters of GET /a are not a list", 8, 8),
+        ("GET /a", 7, 9),
+        ("parameter 2 of POST /b is not a mapping", 15, 15),
+        ("parameter 3 of POST /b has no 'name' that is text", 16, 16),
+        ("parameter 4 of POST /b is not a mapping", 17, 17),
+        ("POST /b", 12, 20),
+    ]),
+    ("api.yaml", PARAMETERS_YAML, [
+        ("the parameters of path /a are not a list", 4, 4),
+        ("the parameters of GET /a are not a list", 6, 8),
+        ("GET /a", 5, 8),
+        ("parameter 2 of POST /b is not a mapping", 14, 14),
+        ("parameter 3 of POST /b has no 'name' that is text", 15, 15),
+        ("parameter 4 of POST /b is not a mapping", 16, 16),
+        ("POST /b", 10, 16),
+    ]),
+], ids=["json", "yaml"])
+def test_malformed_parameters_are_said_so_of_and_their_operations_still_read(
+    tmp_path, name, content, expected
+):
+    units = _units(_write(tmp_path, {name: content}))
+    assert len(units) == len(expected)
+    for unit, (said, start, end) in zip(units, expected, strict=True):
+        assert unit.location == Location(name, start, end), (said, unit)
+        if unit.kind == "capability":
+            assert unit.title == said
+        else:
+            assert unit.tags == ("unparsed",) and said in unit.body, (said, unit.body)
+    get = _titled(units, "GET /a")
+    post = _titled(units, "POST /b")
+    assert "Parameters: none" in get.body and _access(get) == "read"
+    assert "- ok (query)" in post.body and _access(post) == "write"
+    if name == "api.json":
+        assert "- page (query)" in post.body
+    assert units == _units(tmp_path)
+
+
+def test_the_malformed_parameters_said_of_one_by_one_are_bounded(tmp_path, monkeypatch):
+    monkeypatch.setattr(interfaces, "MAX_SKIPPED", 2)
+    parameters = [*range(5), {"name": "ok", "in": "query"}]
+    text = json.dumps({"openapi": "3.0.0", "paths": {"/y": {"get": {"parameters": parameters}}}})
+    units = _units(_write(tmp_path, {"api.json": text}))
+    assert [(unit.kind, unit.title) for unit in units] == [
+        ("knowledge", "Unparsed: api.json"), ("knowledge", "Unparsed: api.json"),
+        ("knowledge", "Unparsed: api.json"), ("capability", "GET /y"),
+    ]
+    assert "parameter 1 " in units[0].body and "parameter 2 " in units[1].body
+    assert "3 more parameters" in units[2].body and "first 2" in units[2].body
+    assert "- ok (query)" in units[3].body
+
+
+PATH_REFS = """\
+{
+  "openapi": "3.1.0",
+  "paths": {
+    "/pets": {"$ref": "#/components/pathItems/Pets"},
+    "/alias": {"$ref": "#/paths/~1pets"},
+    "/loop": {"$ref": "#/paths/~1loop"},
+    "/away": {"$ref": "https://example.invalid/pets.json#/Pets"},
+    "/gone": {"$ref": "#/components/pathItems/Gone"}
+  },
+  "components": {
+    "pathItems": {
+      "Pets": {
+        "parameters": [{"name": "tenant", "in": "header"}],
+        "get": {"summary": "List pets"},
+        "post": {"summary": "Add a pet"}
+      }
+    }
+  }
+}
+"""
+
+
+def test_operations_of_a_referenced_path_item_are_read_under_the_referring_path(tmp_path):
+    units = _units(_write(tmp_path, {"api.json": PATH_REFS}))
+    get, post = _line(PATH_REFS, '"get"'), _line(PATH_REFS, '"post"')
+    assert [(unit.kind, unit.title, unit.location) for unit in units] == [
+        ("capability", "GET /pets", Location("api.json", get, get)),
+        ("capability", "POST /pets", Location("api.json", post, post)),
+        ("capability", "GET /alias", Location("api.json", get, get)),
+        ("capability", "POST /alias", Location("api.json", post, post)),
+        ("knowledge", "Unparsed: api.json", Location("api.json", 6, 6)),
+        ("knowledge", "Unparsed: api.json", Location("api.json", 7, 7)),
+        ("knowledge", "Unparsed: api.json", Location("api.json", 8, 8)),
+    ]
+    assert [_access(unit) for unit in units[:4]] == ["read", "write", "read", "write"]
+    assert all("- tenant (header)" in unit.body for unit in units[:4])
+    assert "Summary: List pets" in units[0].body and "Summary: Add a pet" in units[1].body
+    assert "the $ref of path /loop refers back to #/paths/~1loop" in units[4].body
+    assert "the $ref of path /away refers outside this file" in units[5].body
+    assert "the $ref of path /gone refers to #/components/pathItems/Gone" in units[6].body
+    assert all(unit.tags == ("unparsed",) for unit in units[4:])
+    assert units == _units(tmp_path)
+
+
+def test_a_referenced_path_item_is_read_from_yaml_too(tmp_path):
+    text = (
+        "openapi: 3.1.0\n"
+        "paths:\n"
+        "  /pets:\n"
+        "    $ref: '#/components/pathItems/Pets'\n"
+        "components:\n"
+        "  pathItems:\n"
+        "    Pets:\n"
+        "      get:\n"
+        "        summary: List pets\n"
+        "      delete:\n"
+        "        summary: Remove pets\n"
+    )
+    units = _units(_write(tmp_path, {"api.yaml": text}))
+    assert [(unit.kind, unit.title, unit.location, _access(unit)) for unit in units] == [
+        ("capability", "GET /pets", Location("api.yaml", 8, 9), "read"),
+        ("capability", "DELETE /pets", Location("api.yaml", 10, 11), "write"),
+    ]
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ('{"tools": [\n  7,\n  "echo"\n]}\n', [
+        ("tool 1 is not an object with a name", 2, 2),
+        ("tool 2 is not an object with a name", 3, 3),
+    ]),
+    ('{"tools": [{"name": "broken"}]}\n', [("tool 1 has no input schema", 1, 1)]),
+    ('{"tools": [\n'
+     '  {"name": "broken", "description": "No schema"},\n'
+     '  {"name": "ping", "inputSchema": {"type": "object"}, "annotations": {"readOnlyHint": true}}\n'
+     "]}\n", [("tool 1 has no input schema", 2, 2), ("MCP tool ping", 3, 3)]),
+], ids=["all-scalar", "name-only", "name-only-beside-a-tool"])
+def test_an_explicit_tools_list_is_read_whatever_it_holds(tmp_path, text, expected):
+    units = _units(_write(tmp_path, {"tools.json": text}))
+    assert len(units) == len(expected)
+    for unit, (said, start, end) in zip(units, expected, strict=True):
+        assert unit.location == Location("tools.json", start, end), (said, unit)
+        if unit.kind == "capability":
+            assert unit.title == said and _access(unit) == "read"
+            assert '"type": "object"' in unit.body and "none given" not in unit.body
+        else:
+            assert unit.tags == ("unparsed",) and said in unit.body, (said, unit.body)
+    assert units == _units(tmp_path)
 
 
 def test_what_can_be_read_beside_what_cannot_still_is(tmp_path):
