@@ -21,6 +21,12 @@ LAST_FILE = "last.json"
 # The name of the day-long session the backend starts itself when test mode is always on.
 AUTO_NAME = "always-on"
 SCREENS_SUFFIX = "-screens"
+# A session started by name is the owner's, and is kept longer than a day of always-on test
+# mode, but not for ever (CROOKS_TEST_SESSION_KEEP_NAMED_DAYS).
+KEEP_NAMED_DAYS = 90
+# One timeline file stops growing here (app/observability/timeline.py): a day of always-on test
+# mode holds a few megabytes; this is the bound on a runaway.
+MAX_TIMELINE_BYTES = 64 * 1024 * 1024
 # How long a cached answer to "is a session active" stands before the file is looked at again.
 # Every event asks; the file changes only when someone runs start or stop.
 RECHECK_S = 1.0
@@ -80,6 +86,56 @@ def _write_private(path: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
+def _remove_if_older(path: Path, cutoff: float) -> int:
+    import shutil
+
+    try:
+        if path.stat().st_mtime >= cutoff:
+            return 0
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink()
+        return 1
+    except OSError:
+        return 0
+
+
+def private_dir(path: Path) -> Path:
+    """A folder only its owner can read: created 0700, and made so if it already exists."""
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        if path.stat().st_mode & 0o077:
+            path.chmod(0o700)
+    except OSError:
+        pass
+    return path
+
+
+def write_private_text(path: Path, text: str) -> Path:
+    """A report, created 0600 in a 0700 folder and renamed into place: never readable by
+    anyone else, not even for the moment between writing and a chmod."""
+    path = Path(path)
+    private_dir(path.parent)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    os.replace(tmp, path)
+    return path
+
+
+def prune_reports(out_dir: Path, keep_days: int, *, now: float | None = None) -> int:
+    """Reports drawn from sessions (ts-….md, ts-…-proposals.md, ts-…-screens/) older than
+    `keep_days`: they carry what the sessions carried, so they go when the sessions would."""
+    out_dir = Path(out_dir)
+    if not out_dir.is_dir():
+        return 0
+    cutoff = (time.time() if now is None else now) - max(1, int(keep_days)) * 86_400
+    return sum(_remove_if_older(path, cutoff) for path in out_dir.glob("ts-*"))
+
+
 def _read(path: Path) -> TestSession | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -97,7 +153,7 @@ class TestSessions:
     __test__ = False   # not a pytest class, whatever its name says
 
     def __init__(self, log_dir: Path, *, clock=time.time, dir_name: str = DIR_NAME,
-                 always: bool = False, keep_days: int = 14) -> None:
+                 always: bool = False, keep_days: int = 14, keep_named_days: int = KEEP_NAMED_DAYS) -> None:
         # `dir_name`, because a production recording is NOT a test session and must not share
         # a directory with one: `make test-session-report` finds the last test session by
         # reading this folder, and a recording landing in it would be reported as one.
@@ -107,9 +163,21 @@ class TestSessions:
         # own is started here, on the first question asked of it, and yesterday's is closed.
         self.always = bool(always)
         self.keep_days = max(1, int(keep_days or 14))
+        self.keep_named_days = max(self.keep_days, int(keep_named_days or KEEP_NAMED_DAYS))
         self._cached: TestSession | None = None
         self._checked_at = -1.0
         self._mtime = -1.0
+
+    @classmethod
+    def from_settings(cls, settings, **kwargs) -> TestSessions:
+        """The store as the settings configure it: where, whether always on, and for how long."""
+        options = {
+            "always": bool(getattr(settings, "test_session_always", False)),
+            "keep_days": int(getattr(settings, "test_session_keep_days", 14) or 14),
+            "keep_named_days": int(getattr(settings, "test_session_keep_named_days", KEEP_NAMED_DAYS) or KEEP_NAMED_DAYS),
+        }
+        options.update(kwargs)
+        return cls(settings.log_dir, **options)
 
     def _ensure_root(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -183,24 +251,25 @@ class TestSessions:
         self._cached, self._mtime = None, -1.0
 
     def _prune(self, now: float) -> int:
-        """Delete always-on days older than `keep_days`, with their screens. Named sessions are
-        the owner's and are kept whatever their age."""
-        import shutil
-
-        cutoff = now - self.keep_days * 86_400
+        """Delete always-on days older than `keep_days`, and sessions started by name older
+        than `keep_named_days`, each with its screens. The session running is never touched."""
+        running = self._cached.test_session_id if self._cached is not None else None
         removed = 0
-        for path in self.root.glob(f"ts-*-{AUTO_NAME}*"):
-            try:
-                if path.stat().st_mtime >= cutoff:
-                    continue
-                if path.is_dir():
-                    shutil.rmtree(path, ignore_errors=True)
-                else:
-                    path.unlink()
-                removed += 1
-            except OSError:
+        for path in self.root.glob("ts-*"):
+            ident = path.name.removesuffix(".jsonl").removesuffix(SCREENS_SUFFIX)
+            if running and ident == running:
                 continue
+            days = self.keep_days if path.name.startswith("ts-") and f"-{AUTO_NAME}" in path.name else self.keep_named_days
+            removed += _remove_if_older(path, now - days * 86_400)
         return removed
+
+    def prune(self) -> int:
+        """Apply the ages now. The backend does it each day as always-on test mode rolls; the
+        command line does it as a session is started by name."""
+        try:
+            return self._prune(self.clock()) if self.root.exists() else 0
+        except OSError:
+            return 0
 
     def start(self, name: str) -> TestSession:
         self._ensure_root()

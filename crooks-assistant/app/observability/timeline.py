@@ -156,6 +156,12 @@ def _redact(text: str) -> str:
 _EMAIL_FALLBACK = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 
 
+def scrub_text(text: str) -> str:
+    """One string made safe to write, by the same rules as every event: credential shapes out,
+    then contact details and the customer names this process has been shown."""
+    return _redact(_SECRET.sub("[secret]", text or ""))
+
+
 class Timeline:
     def __init__(self, sessions: TestSessions, *, clock=time.time) -> None:
         self.sessions = sessions
@@ -172,6 +178,7 @@ class Timeline:
         self._seq = 0
         self._written = 0
         self._dropped = 0
+        self._full: set[Path] = set()
         # The last few CORRELATION ids to go past, so something being written down now can say
         # what was happening around it without reading the file back. Owner feedback is the
         # caller (app/observability/feedback.py): "log that the split is broken" is worth far
@@ -314,14 +321,37 @@ class Timeline:
                 self._append(target, lines)
 
     def _append(self, path: Path, lines: list[str]) -> None:
+        """Lines onto a timeline, up to MAX_TIMELINE_BYTES a file. Past that, what follows is
+        counted as dropped and one line says the file is full: test mode is always on, and a
+        day's timeline must not be able to fill the disk."""
+        from app.observability.session import MAX_TIMELINE_BYTES
+
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             try:
-                os.write(fd, ("\n".join(lines) + "\n").encode("utf-8"))
+                if path in self._full:
+                    self._dropped += len(lines)
+                    return
+                room = MAX_TIMELINE_BYTES - os.fstat(fd).st_size
+                keep: list[bytes] = []
+                for line in lines:
+                    data = (line + "\n").encode("utf-8")
+                    if len(data) > room:
+                        break
+                    keep.append(data)
+                    room -= len(data)
+                if keep:
+                    os.write(fd, b"".join(keep))
+                if len(keep) < len(lines):
+                    # Full: one line says so, and nothing more is written to this file.
+                    self._full.add(path)
+                    os.write(fd, (json.dumps({"kind": "timeline_full", "ts": self.clock(),
+                                              "max_bytes": MAX_TIMELINE_BYTES}) + "\n").encode("utf-8"))
+                    self._dropped += len(lines) - len(keep)
             finally:
                 os.close(fd)
-            self._written += len(lines)
+            self._written += len(keep)
         except OSError as exc:
             self._dropped += len(lines)
             log.warning("could not write the timeline: %s", exc)

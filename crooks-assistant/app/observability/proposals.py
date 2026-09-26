@@ -349,15 +349,10 @@ def build(path: Path, *, registered: list[str] | None = None,
 def write_proposals(path: Path, out_dir: Path, *, registered: list[str] | None = None,
                     capability_states: dict[str, Any] | None = None) -> Path:
     rec, _cands, markdown = build(Path(path), registered=registered, capability_states=capability_states)
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / f"{rec.session.get('test_session_id') or Path(path).stem}-proposals.md"
-    target.write_text(markdown, encoding="utf-8")
-    try:
-        target.chmod(0o600)
-    except OSError:
-        pass
-    return target
+    from app.observability.session import write_private_text
+
+    target = Path(out_dir) / f"{rec.session.get('test_session_id') or Path(path).stem}-proposals.md"
+    return write_private_text(target, markdown)
 
 
 def evidence_counter(turns: list[Turn]) -> Counter:

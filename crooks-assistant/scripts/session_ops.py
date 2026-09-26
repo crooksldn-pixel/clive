@@ -73,7 +73,9 @@ def call(port: int, method: str, path: str, body: dict | None = None, *, timeout
 def store(log_dir: Path | None = None):
     from app.observability.session import TestSessions
 
-    return TestSessions(Path(log_dir) if log_dir else settings().log_dir)
+    if log_dir:
+        return TestSessions(Path(log_dir))
+    return TestSessions.from_settings(settings(), always=False)
 
 
 def _number(value, fallback: float) -> float:

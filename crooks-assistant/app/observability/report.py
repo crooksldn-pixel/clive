@@ -2561,12 +2561,7 @@ def build_report(path: Path, *, tools_registered: list[str] | None = None,
 def write_report(path: Path, out_dir: Path, *, tools_registered: list[str] | None = None,
                  capability_states: dict[str, dict[str, Any]] | None = None) -> Path:
     rec, markdown = build_report(Path(path), tools_registered=tools_registered, capability_states=capability_states)
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / f"{rec.session.get('test_session_id') or Path(path).stem}.md"
-    target.write_text(markdown, encoding="utf-8")
-    try:
-        target.chmod(0o600)
-    except OSError:
-        pass
-    return target
+    from app.observability.session import write_private_text
+
+    target = Path(out_dir) / f"{rec.session.get('test_session_id') or Path(path).stem}.md"
+    return write_private_text(target, markdown)

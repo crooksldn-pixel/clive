@@ -267,6 +267,10 @@
     screenTimer = setTimeout(takeScreen, wait);
   }
 
+  function typedMask(value) {
+    return '•'.repeat(Math.min(24, String(value).length));
+  }
+
   function copyScreen() {
     const doc = root.document;
     const app = doc && doc.getElementById ? doc.getElementById('app') : null;
@@ -282,8 +286,12 @@
         const a = from[i];
         const b = to[i];
         const tag = a.tagName;
-        if (tag === 'INPUT' && a.type !== 'password') b.setAttribute('value', a.value || '');
-        else if (tag === 'TEXTAREA') b.textContent = a.value || '';
+        // What was typed is never copied: a field shows only that it held something, and how
+        // much, so the picture still shows a half-written question without saying what it was.
+        if (tag === 'INPUT') {
+          b.removeAttribute('value');
+          if (a.type !== 'password' && a.type !== 'hidden' && a.value) b.setAttribute('value', typedMask(a.value));
+        } else if (tag === 'TEXTAREA') b.textContent = a.value ? typedMask(a.value) : '';
         else if (tag === 'CANVAS') {
           try {
             const img = doc.createElement('img');
