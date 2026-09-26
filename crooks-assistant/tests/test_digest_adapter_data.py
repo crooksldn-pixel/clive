@@ -579,6 +579,18 @@ def test_wide_datasets_stay_within_the_body_limit(tmp_path):
     assert "more lines not shown" in unit.body
 
 
+def test_a_dataset_profiled_only_in_part_says_so(tmp_path):
+    """Personal columns past the ones profiled are not seen, so the profile says it is partial
+    and nothing downstream may take it as saying the dataset holds no personal data."""
+    header = ",".join(f"c{i}" for i in range(100)) + ",email,phone"
+    row = ",".join(str(i) for i in range(100)) + ",ada@example.com,+44 20 7946 0958"
+    (tmp_path / "wide.csv").write_text(f"{header}\n{row}\n", encoding="utf-8")
+    (tmp_path / "narrow.csv").write_text("sku,qty\nA-1,5\n", encoding="utf-8")
+    narrow, wide = data.decompose(tmp_path, ARTIFACT)
+    assert "partial" in wide.tags and "personal" not in wide.tags
+    assert "partial" not in narrow.tags
+
+
 def test_text_is_read_up_to_a_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(data, "MAX_TEXT_BYTES", 200)
     (tmp_path / "big.csv").write_text(

@@ -406,6 +406,7 @@ def test_the_adapter_only_reads_and_uses_the_standard_library():
     assert imported <= {
         "__future__", "bisect", "collections.abc", "dataclasses", "html.parser", "os",
         "pathlib", "re", "stat", "app.digest.model",
+        "app.digest.adapters.skills",   # to leave the skills adapter the files it owns
     }
     calls = [node.func for node in ast.walk(tree) if isinstance(node, ast.Call)]
     names = {func.id for func in calls if isinstance(func, ast.Name)}
@@ -659,3 +660,63 @@ def test_the_bytes_read_from_one_artifact_are_bounded(tmp_path, monkeypatch):
         ("knowledge", "C", "", "c.md"),
     ]
 
+
+
+# --- found by the first real digestions (2026-09-26) ---------------------------------------------
+
+
+def test_skills_harness_files_and_prompts_are_left_to_the_skills_adapter(tmp_path):
+    # Leonxlnx/taste-skill: every SKILL.md was read twice, as a skill and as prose, and 160 of one
+    # file's 854 spans came out as two different Units.
+    root = tmp_path / "collection"
+    for rel, text in {
+        "README.md": "# Collection\n\nAlways read the skill first.\n",
+        "skills/taste/SKILL.md": "---\nname: taste\ndescription: d\n---\n# Taste\n\n- Never use purple.\n",
+        "skills/taste/references/tokens.md": "# Tokens\n\nSpacing is 8px.\n",
+        "AGENTS.md": "# Agents\n\n- Always run the tests.\n",
+        "prompts/review.md": "Review this.\n",
+        "docs/prompt-caching.md": "# Caching\n\nIt is a prefix match.\n",
+    }.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    read = {unit.location.path for unit in documents.decompose(root, ARTIFACT)}
+    assert read == {"README.md", "skills/taste/references/tokens.md", "docs/prompt-caching.md"}
+
+
+def test_a_bold_lead_in_does_not_hide_the_guideline_after_it(tmp_path):
+    # vercel-labs/web-interface-guidelines: "**Links are links.** Use <a> ..." lost its rule, and
+    # its "Never substitute ..." came back as a claim to verify.
+    text = (
+        "# Guide\n\n"
+        "- **Links are links.** Use `<a>` for navigation. Never substitute with `<button>`.\n"
+        "- **Deep-link everything.** Filters, tabs and pagination.\n"
+        "- **Colour** is decided by the brand team.\n\n"
+        "Never exceed 100 ms for a tap response. Deploys are always reviewed.\n"
+    )
+    rows = _rows(_one(tmp_path, "guide.md", text))
+    rules = [row[2] for row in rows if row[0] == "rule"]
+    assert rules[0].startswith("**Links are links.** Use `<a>`") and rules[1].startswith("**Deep-link everything.**")
+    assert len(rules) == 2                                   # a lead-in that states is not a rule
+    claims = {row[2]: row[6] for row in rows if row[0] == "claim"}
+    assert claims == {
+        "Never exceed 100 ms for a tap response.": ("number", "comparison"),   # a directive, but checkable
+        "Deploys are always reviewed.": ("always",),
+    }
+
+
+def test_a_fence_that_opens_on_a_list_items_line_closes_under_it(tmp_path):
+    # anthropics/skills: "2. ```sh" ... "   ```" left the rest of the guide read as code.
+    text = (
+        "# Deploy\n\n"
+        "1. Write the config.\n"
+        "2. ```sh\n"
+        "   ant agents create < agent.yaml\n"
+        "   ```\n\n"
+        "## After\n\n"
+        "- Always check the logs.\n"
+    )
+    rows = _rows(_one(tmp_path, "guide.md", text))
+    assert not [row for row in rows if "unparsed" in row[6]]
+    assert ("example", "Deploy", "   ant agents create < agent.yaml", "guide.md", 4, 6, ("sh",)) in rows
+    assert ("rule", "Deploy > After", "Always check the logs.", "guide.md", 10, 10, ()) in rows
