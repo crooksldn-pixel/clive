@@ -84,6 +84,14 @@ TERMINAL = {"COMPLETE", "BLOCKED", "OWNER_GATE", "UNKNOWN", "NO_TASK"}
 PRODUCT_MEMORY_REF = "origin/clive/trunk"
 
 
+# The 2026-09-26 re-pin review, F-02: the loop is GitHub-gated, and GitHub only sees what is pushed.
+NO_PUBLISH_REMOTE = (
+    "candidates are published nowhere without --publish-remote, so GitHub never runs acceptance on them "
+    "and every one would wait and then block; a GitHub-gated loop needs an explicit publication remote "
+    "(normally origin)"
+)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--store", required=True, help="the kernel's store root (engineering/)")
@@ -93,7 +101,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--workspace-root", default="/opt/crooks-workers")
     p.add_argument("--operator", default=f"clive-dispatcher@{socket.gethostname()}")
     p.add_argument("--no-journal", action="store_true")
-    p.add_argument("--publish-remote", default=None, help="push candidates to this remote's target branch")
+    p.add_argument("--publish-remote", default=None,
+                   help="push candidates to this remote's target branch, so GitHub runs acceptance on them; "
+                        "tick and run refuse to start without it")
     p.add_argument("--reviewer", choices=["gpt", "relay"], default="gpt",
                    help="gpt: the programmatic GPT reviewer (needs --gpt-api-key-file, else the task blocks with the gap); "
                         "relay: a person carries packet and typed result (courier)")
@@ -259,6 +269,8 @@ def run(argv: list[str] | None = None) -> int:
             print(json.dumps(intake(_objective(args, kernel), kernel=kernel, objectives=objectives), indent=2))
         elif args.verb == "integrate":
             print(json.dumps(intake(_integration(args, kernel), kernel=kernel, objectives=objectives), indent=2))
+        elif args.verb in ("tick", "run") and not args.publish_remote:
+            raise LifecycleError(NO_PUBLISH_REMOTE)
         elif args.verb == "tick":
             for line in dispatcher.tick():
                 print(line)

@@ -586,7 +586,7 @@ def test_run_records_dispatcher_transitions_under_the_dispatcher_operator(tmp_pa
     args = cli.build_parser().parse_args([
         "--store", str(tmp_path / "engineering"), "--repo", str(tmp_path),
         "--runtime-root", str(tmp_path / "runtime"), "--workspace-root", str(tmp_path / "workers"),
-        "--dispatcher-operator", "clive-dispatcher@test-host",
+        "--dispatcher-operator", "clive-dispatcher@test-host", "--publish-remote", "origin",
         "run", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main",
     ])
     _store, kernel, objectives, _receipts = cli._kernel_parts(args)
@@ -1809,7 +1809,8 @@ def test_both_doors_build_the_github_gate_and_read_product_memory_from_the_trunk
 
     common = ["--store", str(tmp_path / "engineering"), "--repo", str(tmp_path),
               "--runtime-root", str(tmp_path / "runtime"), "--workspace-root", str(tmp_path / "workers")]
-    args = cli.build_parser().parse_args([*common, "run", "--repository", "crooksldn-pixel/clive"])
+    args = cli.build_parser().parse_args([*common, "--publish-remote", "origin",
+                                          "run", "--repository", "crooksldn-pixel/clive"])
     assert args.product_memory_ref == "origin/clive/trunk"
     _store, kernel, objectives, _receipts = cli._kernel_parts(args)
     assert isinstance(cli._dispatcher(args, kernel, objectives).acceptance, GitHubAcceptance)
@@ -1821,3 +1822,29 @@ def test_both_doors_build_the_github_gate_and_read_product_memory_from_the_trunk
     assert objective.product_memory_ref == integrate.product_memory_ref == "origin/clive/trunk"
     _kernel, _objectives, dispatcher = dispatcher_cli._parts(objective)
     assert isinstance(dispatcher.acceptance, GitHubAcceptance)
+
+
+
+# ------------------------------------------------ the 2026-09-26 re-pin review: F-02
+
+def test_a_github_gated_loop_does_not_start_without_a_publication_remote(tmp_path, capsys):
+    """F-02: without --publish-remote a candidate only moves a local branch, GitHub never runs acceptance on
+    it, and every one would wait and then block. The loop refuses to start instead; with it, it starts."""
+    from scripts import engineering_dispatcher as dispatcher_cli
+
+    common = ["--store", str(tmp_path / "engineering"), "--repo", str(tmp_path),
+              "--runtime-root", str(tmp_path / "runtime"), "--workspace-root", str(tmp_path / "workers")]
+    tail = ["run", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main"]
+    args = cli.build_parser().parse_args([*common, *tail])
+    assert args.publish_remote is None
+    _store, kernel, objectives, _receipts = cli._kernel_parts(args)
+    with pytest.raises(InboxError, match="--publish-remote"):
+        cli._dispatcher(args, kernel, objectives)
+    assert cli.run([*common, *tail, "--max-cycles", "1"]) == 2
+    assert cli.NO_PUBLISH_REMOTE in capsys.readouterr().err
+    with_remote = cli.build_parser().parse_args([*common, "--publish-remote", "origin", *tail])
+    assert cli._dispatcher(with_remote, kernel, objectives).config.publish_remote == "origin"
+
+    for verb in ("tick", "run"):
+        assert dispatcher_cli.run([*common, verb]) == 2
+        assert dispatcher_cli.NO_PUBLISH_REMOTE in capsys.readouterr().err

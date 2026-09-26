@@ -143,7 +143,7 @@ The owner approved one reviewed change to the loop ([OWNER_DECISIONS_2026-09-25.
 - No credential values may be logged or written to git.
 - Host-side credential file paths may be supplied by the operator exactly as the existing dispatcher accepts them; the adapter never publishes or echoes their contents.
 - Fail closed on malformed requests, protected scope, changed request bytes, unknown schema, remote mismatch, or inability to establish safe dispatcher/check execution.
-- Candidate publication may use the existing dispatcher `--publish-remote` semantics only.
+- Candidate publication may use the existing dispatcher `--publish-remote` semantics only, and `run` refuses to start without `--publish-remote`: the loop is GitHub-gated, and GitHub only runs acceptance on what is pushed (the 2026-09-26 re-pin review, F-02).
 
 ## V1 files
 
