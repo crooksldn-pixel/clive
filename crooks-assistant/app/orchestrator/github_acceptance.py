@@ -56,6 +56,7 @@ __all__ = [
     "GateState",
     "GitHubAcceptance",
     "RunFact",
+    "ask",
     "evaluate",
     "git_remote_token",
     "unavailable",
@@ -148,6 +149,18 @@ class AcceptanceChecks(Protocol):
 
 def unavailable(sha: str, detail: str) -> GateResult:
     return GateResult(sha=sha, state=GateState.UNAVAILABLE, detail=detail)
+
+
+def ask(gate: AcceptanceChecks, repository: str, sha: str) -> GateResult:
+    """One answer about exactly ``sha`` from any gate: a gate that raises, or that answers about
+    another commit or in another type, is ``unavailable``, never green. Used by every caller."""
+    try:
+        result = gate.check(repository, sha)
+    except Exception as exc:  # noqa: BLE001 -- a gate that cannot answer is not green, and never crashes its caller
+        return unavailable(sha, f"the acceptance gate failed ({type(exc).__name__})")
+    if not isinstance(result, GateResult) or result.sha != sha:
+        return unavailable(sha, "the acceptance gate answered about another commit")
+    return result
 
 
 def _word(value: object) -> str | None:

@@ -79,7 +79,7 @@ _SAFE_ID = r"^[a-z0-9][a-z0-9.-]{2,79}$"
 # read-only guard, the Shopify and Gmail write funnels, ``app/actions``), the evidence
 # tools (acceptance provenance, the secret-scan rules and baseline, the package and
 # test configuration) and the loop's own code (the remote inbox adapter and its CLI,
-# and the GitHub acceptance gate).
+# and the GitHub acceptance gate); then the tests that hold all of these.
 PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/orchestrator/lifecycle.py",
     "crooks-assistant/app/orchestrator/contracts.py",
@@ -114,6 +114,47 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/remote_engineering",
     "crooks-assistant/scripts/remote_engineering.py",
     "crooks-assistant/app/orchestrator/github_acceptance.py",
+    # The tests that hold the protected code, chosen by what each one imports and exercises (not by
+    # a glob over tests/, so an objective may still name any ordinary test file): a builder that
+    # cannot change the safety core must not be able to weaken what proves it either. conftest.py
+    # is here because its autouse fixtures run inside every one of them.
+    "crooks-assistant/tests/conftest.py",
+    "crooks-assistant/tests/test_gate.py",                      # app/tools/gate.py
+    "crooks-assistant/tests/test_readonly.py",                  # app/readonly.py
+    "crooks-assistant/tests/test_cancel.py",                    # app/tools/shopify_writes.py: cancel
+    "crooks-assistant/tests/test_refund.py",                    # ... refund
+    "crooks-assistant/tests/test_address.py",                   # ... shipping address
+    "crooks-assistant/tests/test_fulfil.py",                    # ... fulfilment
+    "crooks-assistant/tests/test_inventory.py",                 # ... stock adjustment
+    "crooks-assistant/tests/test_tracking.py",                  # ... tracking
+    "crooks-assistant/tests/test_order_edit.py",                # ... adding an item
+    "crooks-assistant/tests/test_gmail_writes.py",              # app/tools/gmail_writes.py
+    "crooks-assistant/tests/test_compose.py",                   # ... a new email to any address
+    "crooks-assistant/tests/test_actions.py",                   # app/actions/engine.py, ledger.py, models.py
+    "crooks-assistant/tests/test_actions_routes.py",            # ... the action endpoint, the write boundary
+    "crooks-assistant/tests/test_engine_hooks.py",              # ... the engine's hooks
+    "crooks-assistant/tests/test_batch.py",                     # app/actions/batch.py
+    "crooks-assistant/tests/test_available.py",                 # app/actions/available.py
+    "crooks-assistant/tests/test_judgment.py",                  # app/actions/judgment.py
+    "crooks-assistant/tests/test_judgment_construction.py",     # ...
+    "crooks-assistant/tests/test_judgment_chain.py",            # app/actions/judgment_chain.py
+    "crooks-assistant/tests/test_judgment_ledger.py",           # app/actions/judgment_ledger.py
+    "crooks-assistant/tests/test_acceptance_provenance.py",     # scripts/acceptance_provenance.py
+    "crooks-assistant/tests/test_ci_workflow.py",               # .github/workflows/acceptance.yml
+    "crooks-assistant/tests/test_lifecycle_kernel.py",          # app/orchestrator/lifecycle.py
+    "crooks-assistant/tests/test_orchestrator_control_plane.py",  # contracts, policy, state, store
+    "crooks-assistant/tests/test_review_acceptance.py",         # review_acceptance.py
+    "crooks-assistant/tests/test_review_result_gate.py",        # review_result_gate.py
+    "crooks-assistant/tests/test_review_routing.py",            # routing.py
+    "crooks-assistant/tests/test_engineering_objective_intake.py",  # objectives.py
+    "crooks-assistant/tests/test_engineering_dispatcher.py",    # dispatcher.py, workspaces.py
+    "crooks-assistant/tests/test_engineering_kernel_gate.py",   # scripts/engineering_kernel.py
+    "crooks-assistant/tests/test_check_sandbox.py",             # checks.py
+    "crooks-assistant/tests/test_builder_check_server.py",      # workers/check_server.py
+    "crooks-assistant/tests/test_claude_worker_adapter.py",     # workers/claude.py
+    "crooks-assistant/tests/test_gpt_reviewer.py",              # reviewers/gpt.py
+    "crooks-assistant/tests/test_remote_engineering.py",        # app/remote_engineering, its CLI
+    "crooks-assistant/tests/test_github_acceptance.py",         # github_acceptance.py
     ".github",
     "engineering",
 )

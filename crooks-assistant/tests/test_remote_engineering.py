@@ -1666,7 +1666,7 @@ def test_an_id_past_the_admitted_length_is_refused_before_any_claim_and_never_ec
     assert ReceiptLog(adapter).read_all() == ()
 
 
-# ------------------------------------------------- loop update: the GitHub gate in the projection, no findings text
+# --------------------------- loop update: the GitHub gate in the projection; findings text only through IDEA-066
 
 FINDING_MARKERS = {
     "finding": "MARKER-FINDING-TEXT the greeting reads goodbye",
@@ -1692,7 +1692,12 @@ def _review_with_text(ctx, verdict: str) -> bytes:
 
 
 def test_the_published_status_never_carries_review_findings_text(tmp_path):
-    """Findings, their evidence refs, required repairs and the reviewer's summary stay in the store."""
+    """Findings, their evidence refs, required repairs and the reviewer's summary stay in the store.
+
+    Interim, not the direction: IDEA-066 (the status publishes why an objective is stuck, so the
+    owner is not the courier) will publish findings bounded and credential-redacted. Until that is
+    built this pins that nothing unbounded or unredacted reaches the published status; building
+    IDEA-066 replaces this test."""
     from tests.test_engineering_dispatcher import OBJ, World
 
     w = World(tmp_path)

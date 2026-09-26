@@ -852,6 +852,11 @@ def _candidate(w: World):
     return result
 
 
+def latest_attempt(w: World):
+    """The attempt that carries the candidate: on a loaded host the harness may have retried one first."""
+    return max(w.store.read_attempts(OBJ), key=lambda a: a.fencing_token)
+
+
 def test_review_is_dispatched_only_once_github_acceptance_is_green_on_the_exact_candidate(tmp_path):
     w = World(tmp_path)
     w.scenarios(EDIT_HELLO)
@@ -860,7 +865,7 @@ def test_review_is_dispatched_only_once_github_acceptance_is_green_on_the_exact_
     w.run_until(w.status_is(TaskStatus.EVIDENCE_READY))
     sha = _candidate(w).result_sha
     lines = w.dispatcher().tick()
-    attempt = w.store.read_attempts(OBJ)[0]
+    attempt = latest_attempt(w)
     assert w.state_of().status is TaskStatus.EVIDENCE_READY
     assert not w.store.read_dispatches(OBJ, attempt.attempt_id)
     assert any(f"review dispatch waits for a green GitHub acceptance run on {sha} (pending" in line for line in lines)
@@ -888,7 +893,7 @@ def test_a_red_candidate_blocks_before_review_and_is_resumable_once_green(tmp_pa
     w.acceptance.state = GateState.RED
     w.run_until(w.status_is(TaskStatus.BLOCKED))
     sha = _candidate(w).result_sha
-    attempt = w.store.read_attempts(OBJ)[0]
+    attempt = latest_attempt(w)
     reason = w.state_of().blocker_reason
     assert f"GitHub acceptance is red on {sha}" in reason and "review dispatch refused" in reason
     assert not w.store.read_dispatches(OBJ, attempt.attempt_id) and not w.store.read_acceptances(OBJ)
@@ -969,7 +974,7 @@ def test_a_ready_verdict_waits_unconsumed_until_the_candidate_is_green(tmp_path)
     w.objective()
     w.run_until(w.status_is(TaskStatus.REVIEWING))                  # green when review was dispatched
     sha = _candidate(w).result_sha
-    attempt = w.store.read_attempts(OBJ)[0]
+    attempt = latest_attempt(w)
     w.acceptance.state = GateState.PENDING                          # e.g. a re-run started on the same SHA
     w.reviewer.answers.append(lambda ctx: review(ctx, "READY"))
     lines = w.dispatcher().tick()
@@ -1032,12 +1037,16 @@ def test_integration_lands_only_a_green_accepted_sha_and_keeps_the_answer_as_gat
         w.kernel.resume(OBJ, 1, note="re-run is green")
     w.run_until(lambda: w.stage() == "COMPLETE", dispatcher=d)
     integration = w.store.read_integrations()[0]
-    attempt = w.store.read_attempts(OBJ)[0]
-    evidence = tmp_path / "runtime" / "evidence" / attempt.attempt_id / "github-acceptance.json"
-    record = json.loads(evidence.read_text())
+    attempt = latest_attempt(w)
+    evidence = tmp_path / "runtime" / "evidence" / attempt.attempt_id
+    record = json.loads((evidence / "github-acceptance.json").read_text())
     assert record["green"] is True and record["sha"] == integration.integration_sha == integration.accepted_sha
     assert integration.method.value == "fast_forward"
-    assert integration.gates_evidence_sha256 == sha256_of(evidence.read_bytes())
+    kept = (evidence / "integration-gates.json").read_bytes()      # the gates evidence, byte for byte
+    assert integration.gates_evidence_sha256 == sha256_of(kept)
+    document = json.loads(kept)
+    assert document["schema"] == "clive.integration_gates.v1" and document["github_acceptance"] == [record]
+    assert document["operator_gates_evidence_sha256"] is None
 
 
 def test_without_a_configured_gate_nothing_is_reviewed_or_accepted(tmp_path):
@@ -1046,7 +1055,7 @@ def test_without_a_configured_gate_nothing_is_reviewed_or_accepted(tmp_path):
     w.scenarios(EDIT_HELLO)
     w.objective()
     w.run_until(w.status_is(TaskStatus.BLOCKED))
-    attempt = w.store.read_attempts(OBJ)[0]
+    attempt = latest_attempt(w)
     assert "no GitHub acceptance gate is configured" in w.state_of().blocker_reason
     assert not w.store.read_dispatches(OBJ, attempt.attempt_id) and w.store.read_results()
 
@@ -1070,7 +1079,7 @@ def test_a_gate_that_fails_or_answers_about_another_sha_is_not_green(tmp_path, g
     w.run_until(w.status_is(TaskStatus.EVIDENCE_READY))
     w.dispatcher().tick()
     assert w.state_of().status is TaskStatus.EVIDENCE_READY
-    attempt = w.store.read_attempts(OBJ)[0]
+    attempt = latest_attempt(w)
     assert not w.store.read_dispatches(OBJ, attempt.attempt_id)
     assert w.dispatcher().status()[0]["github_acceptance"]["state"] == "unavailable"
 
@@ -1110,12 +1119,13 @@ def test_an_objective_recorded_before_its_scope_was_protected_loads_but_never_ad
     assert w.invocations() == 0 and not w.store.read_attempts(OBJ)
 
 
-def test_a_candidate_that_changes_a_protected_path_is_refused_whatever_the_scope(tmp_path):
+@pytest.mark.parametrize("protected", [".gitleaks.toml", "crooks-assistant/tests/test_gate.py"])
+def test_a_candidate_that_changes_a_protected_path_is_refused_whatever_the_scope(tmp_path, protected):
     w = World(tmp_path, max_result_refusals=1)
-    w.scenarios({"edits": [["pkg/hello.txt", "hello\n"], [".gitleaks.toml", "[allowlist]\n"]]})
+    w.scenarios({"edits": [["pkg/hello.txt", "hello\n"], [protected, "# weakened\n"]]})
     w.objective()
     w.run_until(w.status_is(TaskStatus.BLOCKED))
     assert not w.store.read_results()
-    attempt = w.store.read_attempts(OBJ)[0]
+    attempt = latest_attempt(w)
     [note] = [e.note for e in w.store.read_events(OBJ, attempt.attempt_id) if e.kind is EventKind.CANCELLED]
-    assert "changes protected paths" in note and ".gitleaks.toml" in note
+    assert "changes protected paths" in note and protected in note

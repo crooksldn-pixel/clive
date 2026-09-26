@@ -143,6 +143,86 @@ def test_every_path_the_owner_protected_is_listed_where_it_really_lives():
     assert (root / "crooks-assistant/app/actions").is_dir() and (root / "crooks-assistant/app/remote_engineering").is_dir()
 
 
+# Each protected test, and the protected code its own source names (an import, or the file it loads):
+# the reason it is on PROTECTED_PATHS. The tests that hold the safety core, the evidence tools and the
+# loop are protected with it, so a builder cannot weaken them either; ordinary tests are not.
+PROTECTED_TESTS = {
+    "conftest.py": None,                                    # its autouse fixtures run inside every test
+    "test_gate.py": "app.tools.gate",
+    "test_readonly.py": "from app import readonly",
+    "test_cancel.py": "shopify_writes",
+    "test_refund.py": "shopify_writes",
+    "test_address.py": "shopify_writes",
+    "test_fulfil.py": "shopify_writes",
+    "test_inventory.py": "shopify_writes",
+    "test_tracking.py": "shopify_writes",
+    "test_order_edit.py": "shopify_writes",
+    "test_gmail_writes.py": "gmail_writes",
+    "test_compose.py": "gmail_writes",
+    "test_actions.py": "app.actions.engine",
+    "test_actions_routes.py": "app.actions.ledger",
+    "test_engine_hooks.py": "app.actions.engine",
+    "test_batch.py": "app.actions.batch",
+    "test_available.py": "app.actions.available",
+    "test_judgment.py": "app.actions.judgment",
+    "test_judgment_construction.py": "app.actions.judgment",
+    "test_judgment_chain.py": "app.actions.judgment_chain",
+    "test_judgment_ledger.py": "app.actions.judgment_ledger",
+    "test_acceptance_provenance.py": "acceptance_provenance",
+    "test_ci_workflow.py": '".github" / "workflows"',
+    "test_lifecycle_kernel.py": "app.orchestrator.lifecycle",
+    "test_orchestrator_control_plane.py": "app.orchestrator.policy",
+    "test_review_acceptance.py": "app.orchestrator.review_acceptance",
+    "test_review_result_gate.py": "app.orchestrator.review_result_gate",
+    "test_review_routing.py": "app.orchestrator.routing",
+    "test_engineering_objective_intake.py": "app.orchestrator.objectives",
+    "test_engineering_dispatcher.py": "app.orchestrator.dispatcher",
+    "test_engineering_kernel_gate.py": "engineering_kernel",
+    "test_check_sandbox.py": "app.orchestrator.checks",
+    "test_builder_check_server.py": "app.orchestrator.workers.check_server",
+    "test_claude_worker_adapter.py": "app.orchestrator.workers.claude",
+    "test_gpt_reviewer.py": "app.orchestrator.reviewers.gpt",
+    "test_remote_engineering.py": "app.remote_engineering",
+    "test_github_acceptance.py": "app.orchestrator.github_acceptance",
+}
+
+
+def test_the_tests_that_hold_protected_code_are_listed_one_by_one_and_name_what_they_hold():
+    tests = Path(__file__).resolve().parent
+    listed = {p.removeprefix("crooks-assistant/tests/") for p in PROTECTED_PATHS
+              if p.startswith("crooks-assistant/tests/")}
+    assert listed == set(PROTECTED_TESTS)
+    assert "crooks-assistant/tests" not in PROTECTED_PATHS           # never the directory as a whole
+    for name, subject in PROTECTED_TESTS.items():
+        source = (tests / name).read_text(encoding="utf-8")
+        assert subject is None or subject in source, name
+
+
+@pytest.mark.parametrize("path", [
+    "crooks-assistant/tests/test_gate.py",
+    "crooks-assistant/tests/conftest.py",
+    "crooks-assistant/tests/test_github_acceptance.py",
+    "crooks-assistant/tests/test_remote_engineering.py",
+    "crooks-assistant/tests",                               # the directory holds protected tests
+])
+def test_the_tests_that_hold_protected_code_are_out_of_every_scope(repo, path):
+    _, base = repo
+    with pytest.raises(ValidationError, match="no objective may put in scope"):
+        objective(base, allowed_paths=(path,))
+
+
+@pytest.mark.parametrize("path", [
+    "crooks-assistant/tests/test_support_queue.py",
+    "crooks-assistant/tests/test_gaps.py",
+    "crooks-assistant/tests/test_gate_wording.py",          # a new file beside a protected one
+    "crooks-assistant/tests/test_engineering_bridge.py",
+    "crooks-assistant/tests/fixtures",
+])
+def test_an_objective_may_still_name_ordinary_tests(repo, path):
+    _, base = repo
+    assert objective(base, allowed_paths=("crooks-assistant/app/support", path)).allowed_paths[-1] == path
+
+
 @pytest.mark.parametrize("path", [
     *OWNER_PROTECTED_2026_09_25,
     "crooks-assistant/app/orchestrator/github_acceptance.py",
@@ -164,7 +244,7 @@ def test_the_safety_core_evidence_tools_and_loop_code_are_out_of_every_scope(rep
     "crooks-assistant/app/tools/batch_tools.py",
     "crooks-assistant/app/actionsx",
     "crooks-assistant/scripts/remote_engineering_notes.md",
-    "crooks-assistant/tests/test_gate.py",
+    "crooks-assistant/app/tools/gate_notes.md",
     "crooks-assistant/app/support",
     "gitleaks.toml",
 ])

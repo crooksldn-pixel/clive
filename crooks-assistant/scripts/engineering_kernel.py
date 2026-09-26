@@ -15,6 +15,20 @@ rolled back.
 Nothing here runs a worker, a watcher, a service or a deployment. The store is the
 authoritative record of the lifecycle; processes and branches are what the projection
 reconciles against it.
+
+The GitHub acceptance gate (owner's loop update, OWNER_DECISIONS_2026-09-25.md) holds here
+exactly as in the dispatcher: a ``ready`` verdict, which records an acceptance, is submitted
+only while GitHub's ``acceptance`` run is green on the attempt's exact candidate SHA, and
+``integrate`` only while it is green on the integrated SHA and on the accepted SHA. Anything
+else (red, pending, missing, or GitHub unavailable) refuses the verb before it writes to the
+store, exit 2, naming the SHA, the gate's answer and what to do. There is no bypass. Each
+answer is recorded where the dispatcher records its own (``--runtime-root``: the attempt's
+runtime notes and ``evidence/<attempt>/github-acceptance.json``, which the status projection
+reads), under the dispatcher's runtime lock; exit 4 means a dispatcher tick held that lock
+for longer than ``--lock-timeout``. An integration's gates evidence is the green answers it
+rests on (``evidence/<attempt>/integration-gates.json``), binding ``--gates-evidence`` by
+digest when given. GitHub is asked with the credential git already holds for
+``--github-remote``.
 """
 
 from __future__ import annotations
@@ -32,8 +46,23 @@ from app.orchestrator.contracts import (  # noqa: E402
     BlockerClass,
     EngineeringTask,
     TaskKind,
+    validate_exact_sha,
+)
+from app.orchestrator.dispatcher import (  # noqa: E402
+    DispatcherBusy,
+    record_gate_answer,
+    runtime_lock,
+    write_integration_gates,
+)
+from app.orchestrator.github_acceptance import (  # noqa: E402
+    AcceptanceChecks,
+    GateState,
+    GitHubAcceptance,
+    ask,
+    git_remote_token,
 )
 from app.orchestrator.lifecycle import (  # noqa: E402
+    Attempt,
     GitFacts,
     IntegrationMethod,
     JournalError,
@@ -42,6 +71,7 @@ from app.orchestrator.lifecycle import (  # noqa: E402
     LifecycleStore,
     PrincipalRegistry,
     lifecycle_view,
+    sha256_of,
 )
 from app.orchestrator.review_acceptance import ReviewVerdict  # noqa: E402
 from app.orchestrator.routing import (  # noqa: E402
@@ -115,6 +145,44 @@ def _current_head(kernel: Kernel, args, task_branch: str) -> str:
     return head
 
 
+# What the operator can do about each answer that is not green.
+_NEXT_STEP = {
+    GateState.RED: "a completed acceptance run on it is not successful: re-run the workflow on that exact SHA "
+                   "until it is green, or record a new candidate",
+    GateState.PENDING: "its acceptance run has not finished: run this verb again once it is green",
+    GateState.MISSING: "no acceptance run exists for it: push that SHA to a branch so the workflow runs on it, "
+                       "then run this verb again once it is green",
+    GateState.UNAVAILABLE: "GitHub could not be asked or gave an answer the gate will not decide on: check the "
+                           "credential git holds for --github-remote, then run this verb again",
+}
+
+
+def acceptance_gate(args) -> AcceptanceChecks:
+    """The GitHub acceptance gate, asking with the credential git holds for ``--github-remote``."""
+    return GitHubAcceptance(git_remote_token(Path(args.repo), args.github_remote))
+
+
+def _require_green(kernel: Kernel, args, attempt: Attempt, shas: tuple[str, ...], step: str) -> list[dict]:
+    """Ask the gate about each exact SHA and record every answer; refuse, before any store write, unless
+    all are green. The caller holds the runtime lock."""
+    task = kernel._task(attempt.task_id, attempt.task_revision)
+    gate = acceptance_gate(args)
+    records = []
+    for sha in dict.fromkeys(shas):
+        result = ask(gate, task.repository, sha)
+        record = result.record(checked_at=datetime.now(UTC))
+        where = record_gate_answer(Path(args.runtime_root), attempt.attempt_id, record)
+        records.append(record)
+        if not result.green:
+            raise LifecycleError(
+                f"GitHub acceptance is not green on {sha} ({result.state.value}: {result.detail}); {step} only after "
+                f"a green GitHub acceptance run on that exact SHA (owner's loop update, OWNER_DECISIONS_2026-09-25). "
+                f"Nothing was written to the store; the gate's answer is recorded in {where}. Next: "
+                f"{_NEXT_STEP[result.state]}"
+            )
+    return records
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--store", required=True, help="store root (the engineering/ directory)")
@@ -123,7 +191,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--operator", default="unnamed operator")
     parser.add_argument("--no-journal", action="store_true", help="do not git-commit the store")
     parser.add_argument("--lock-timeout", type=float, default=10.0,
-                        help="seconds to wait for the store's writer lock before refusing")
+                        help="seconds to wait for the store's writer lock (and, for verdict and integrate, the "
+                             "dispatcher's runtime lock) before refusing")
+    parser.add_argument("--runtime-root", default="/opt/crooks-workers/runtime",
+                        help="the dispatcher's runtime root, where verdict and integrate record the GitHub "
+                             "acceptance gate's answers")
+    parser.add_argument("--github-remote", default="origin",
+                        help="configured remote (never a URL) whose git credential the GitHub acceptance gate reuses")
     sub = parser.add_subparsers(dest="verb", required=True)
 
     t = sub.add_parser("task", help="record an authorised task revision")
@@ -256,6 +330,7 @@ def run(argv: list[str] | None = None) -> int:
     )
     when = dict(at=_iso(getattr(args, "at", None)), backfilled=getattr(args, "backfilled", False),
                 evidence_ref=getattr(args, "evidence_ref", None))
+    gated: list[dict] = []
     try:
         if args.verb == "task":
             task = EngineeringTask(
@@ -299,18 +374,38 @@ def run(argv: list[str] | None = None) -> int:
         elif args.verb == "verdict":
             attempt = kernel._find_attempt(args.attempt_id)
             task = kernel._task(attempt.task_id, attempt.task_revision)
-            out = kernel.admit_verdict(
-                args.attempt_id, reviewer=_party(args, "reviewer"), verdict=ReviewVerdict(args.verdict),
-                payload=Path(args.evidence).read_bytes(), observed_candidate_sha=args.observed_sha,
-                current_head=_current_head(kernel, args, task.target_branch), **when,
-            ).model_dump(mode="json")
+            verdict = ReviewVerdict(args.verdict)
+            payload = Path(args.evidence).read_bytes()
+            current_head = _current_head(kernel, args, task.target_branch)
+            with runtime_lock(Path(args.runtime_root), args.lock_timeout):
+                if verdict is ReviewVerdict.READY:
+                    # A READY that the kernel admits records the acceptance: the exact candidate must be green.
+                    result = kernel._result(attempt)
+                    if result is None or result.result_sha is None:
+                        raise LifecycleError(f"no candidate is recorded for attempt {attempt.attempt_id}")
+                    gated = _require_green(kernel, args, attempt, (result.result_sha,), "a READY verdict is admitted")
+                out = kernel.admit_verdict(
+                    args.attempt_id, reviewer=_party(args, "reviewer"), verdict=verdict, payload=payload,
+                    observed_candidate_sha=args.observed_sha, current_head=current_head, **when,
+                ).model_dump(mode="json")
         elif args.verb == "integrate":
-            out = kernel.integrate(
-                args.task_id, args.revision, integration_sha=args.integration_sha,
-                target_base_sha=args.target_base_sha, method=IntegrationMethod(args.method),
-                integrated_by=args.integrated_by, remote=args.verify_remote,
-                gates_evidence=Path(args.gates_evidence).read_bytes() if args.gates_evidence else None,
-            ).model_dump(mode="json")
+            integration_sha = validate_exact_sha(args.integration_sha)
+            state = kernel._state(args.task_id, args.revision)
+            if state.attempt_id is None:
+                raise LifecycleError(f"task {args.task_id} r{args.revision} is {state.status.value}, not ACCEPTED")
+            attempt = kernel._attempt(args.task_id, state.attempt_id)
+            accepted = [a.accepted_sha for a in store.read_acceptances(args.task_id) if a.attempt_id == attempt.attempt_id]
+            operator = Path(args.gates_evidence).read_bytes() if args.gates_evidence else None
+            with runtime_lock(Path(args.runtime_root), args.lock_timeout):
+                # What lands (the integration SHA) and what was accepted must both be green.
+                gated = _require_green(kernel, args, attempt, (integration_sha, *accepted[-1:]), "an integration lands")
+                gates = write_integration_gates(Path(args.runtime_root), attempt.attempt_id, gated,
+                                                sha256_of(operator) if operator is not None else None)
+                out = kernel.integrate(
+                    args.task_id, args.revision, integration_sha=integration_sha,
+                    target_base_sha=args.target_base_sha, method=IntegrationMethod(args.method),
+                    integrated_by=args.integrated_by, remote=args.verify_remote, gates_evidence=gates,
+                ).model_dump(mode="json")
         elif args.verb == "cancel":
             out = kernel.cancel_attempt(args.attempt_id, reason=args.reason).model_dump(mode="json")
         elif args.verb == "block":
@@ -345,13 +440,22 @@ def run(argv: list[str] | None = None) -> int:
             return 0
         else:  # pragma: no cover
             raise SystemExit(f"unknown verb {args.verb}")
+    except DispatcherBusy as exc:
+        print(f"BUSY: {exc}; nothing was written; try again, or pass a longer --lock-timeout", file=sys.stderr)
+        return 4
     except (LifecycleError, RecordConflictError, StateConflictError, ValueError) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        # A file this verb reads, or the runtime root the gate records into, is not usable.
+        print(f"REFUSED: {exc}; nothing was written to the store", file=sys.stderr)
         return 2
     except JournalError as exc:
         print(f"JOURNAL FAILED: {exc}; the verb's writes were rolled back, files and index", file=sys.stderr)
         return 3
     summary = {"verb": args.verb, "record": out}
+    if gated:
+        summary["github_acceptance"] = gated
     if kernel.journal_shas:
         summary["journal_commit"] = kernel.journal_shas[-1]
     print(json.dumps(summary, indent=2, sort_keys=True, default=str))

@@ -33,8 +33,10 @@ acceptance run on that exact SHA. Waiting is bounded: the gate is asked at most 
 turn green (counted again from the task's last resume) blocks the task with the last
 answer; a red answer blocks at once. Every answer is recorded with the SHA it is about
 (``<runtime>/attempts/<attempt>.json`` and ``<runtime>/evidence/<attempt>/github-acceptance.json``),
-travels in the review packet, is the integration's ``gates_evidence``, and is published
-by the remote loop's status projection. The loop never publishes a candidate onto the
+travels in the review packet, is the integration's ``gates_evidence`` (kept byte for byte in
+``<runtime>/evidence/<attempt>/integration-gates.json``), and is published by the remote loop's
+status projection. The kernel CLI gates and records the verdicts and integrations an operator
+records by hand in the same way (``scripts/engineering_kernel.py``). The loop never publishes a candidate onto the
 trunk (``landing_branches``): an objective's candidate lives on its own branch, and the
 trunk moves only by a landing made after acceptance, outside the loop.
 
@@ -68,6 +70,7 @@ import fcntl
 import json
 import os
 import subprocess
+import time
 import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -77,7 +80,7 @@ from pathlib import Path
 
 from .checks import CheckRunner, NamespaceSandbox
 from .contracts import BlockerClass, EngineeringTask, TaskKind, TaskStatus
-from .github_acceptance import AcceptanceChecks, GateResult, GateState, unavailable
+from .github_acceptance import AcceptanceChecks, GateResult, GateState, ask
 from .lifecycle import (
     Attempt,
     EventKind,
@@ -104,12 +107,14 @@ from .workers.base import (
 from .workspaces import WorkspaceError, WorkspaceManager, git
 
 __all__ = ["Dispatcher", "DispatcherBusy", "DispatcherConfig", "NEXT_ACTION", "TRUNK_BRANCH",
-           "recorded_acceptance_gates"]
+           "record_gate_answer", "recorded_acceptance_gates", "runtime_lock", "write_integration_gates"]
 
 TRANSIENT = "transient:"
 RESULT_REFUSED = "result_refused:"
 TRUNK_BRANCH = "clive/trunk"
 GATE_FILE = "github-acceptance.json"
+INTEGRATION_GATES_FILE = "integration-gates.json"
+INTEGRATION_GATES_SCHEMA = "clive.integration_gates.v1"
 
 NEXT_ACTION = {
     TaskStatus.READY: "launch a builder attempt in a fresh workspace",
@@ -695,18 +700,8 @@ class Dispatcher:
                 and (resumed is None or checked >= resumed)
                 and now - checked < timedelta(seconds=self.config.acceptance_poll_s)):
             return cached
-        try:
-            result = self.acceptance.check(task.repository, sha)
-        except Exception as exc:  # noqa: BLE001 -- a gate that cannot answer is not green, and never ends the tick
-            result = unavailable(sha, f"the acceptance gate failed ({type(exc).__name__})")
-        if not isinstance(result, GateResult) or result.sha != sha:
-            result = unavailable(sha, "the acceptance gate answered about another commit")
-        record = result.record(checked_at=now)
-        rt["github_acceptance"] = record
-        self._save_runtime(attempt.attempt_id, rt)
-        evidence = self._paths(attempt)["evidence"]
-        evidence.mkdir(parents=True, exist_ok=True)
-        (evidence / GATE_FILE).write_bytes(_gate_bytes(record))
+        result = ask(self.acceptance, task.repository, sha)
+        record_gate_answer(self.config.runtime_root, attempt.attempt_id, result.record(checked_at=now))
         return result
 
     def _await_green(self, obj: Objective, task: EngineeringTask, attempt: Attempt, sha: str,
@@ -911,11 +906,12 @@ class Dispatcher:
         if head != acceptance.accepted_sha:
             return self._block(obj, task, f"target branch {task.target_branch} is at {head}, not the accepted "
                                           f"{acceptance.accepted_sha}; integration refused"), True
-        gate = self._runtime(attempt.attempt_id)["github_acceptance"]
+        gates = write_integration_gates(self.config.runtime_root, attempt.attempt_id,
+                                        [self._runtime(attempt.attempt_id)["github_acceptance"]])
         self.kernel.integrate(task.task_id, task.revision, integration_sha=acceptance.accepted_sha,
                               target_base_sha=task.base_sha, method=IntegrationMethod.FAST_FORWARD,
                               integrated_by=f"clive-dispatcher ({self.kernel.operator})",
-                              remote=self.config.publish_remote, gates_evidence=_gate_bytes(gate))
+                              remote=self.config.publish_remote, gates_evidence=gates)
         return self._note(obj.objective_id, f"accepted {acceptance.accepted_sha} integrated on {task.target_branch} "
                                             "(fast-forward, target ref verified, GitHub acceptance green on that "
                                             "SHA); not deployed"), True
@@ -1094,9 +1090,70 @@ class Dispatcher:
         return out
 
 
-def _gate_bytes(record: dict) -> bytes:
-    """The one serialisation of a gate record: the evidence file and the integration's gates_evidence."""
-    return (json.dumps(record, indent=2, sort_keys=True) + "\n").encode()
+def _canonical(document: dict) -> bytes:
+    return (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
+
+
+def _atomic_write(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(payload)
+    os.replace(tmp, path)
+
+
+def record_gate_answer(runtime_root: Path, attempt_id: str, record: dict) -> Path:
+    """Record one GitHub acceptance answer where the loop keeps it, and return the evidence file.
+
+    The attempt's runtime notes (``github_acceptance``, which the status projection reads) and
+    ``<runtime>/evidence/<attempt>/github-acceptance.json``. The dispatcher records every answer it
+    gets here, and so does the kernel CLI for the verdicts and integrations an operator records by
+    hand; the caller holds the runtime lock (a tick, or ``runtime_lock``)."""
+    root = Path(runtime_root)
+    notes_path = root / "attempts" / f"{attempt_id}.json"
+    notes = json.loads(notes_path.read_text(encoding="utf-8")) if notes_path.exists() else {}
+    notes["github_acceptance"] = record
+    _atomic_write(notes_path, (json.dumps(notes, indent=2, sort_keys=True, default=str) + "\n").encode())
+    evidence = root / "evidence" / attempt_id / GATE_FILE
+    _atomic_write(evidence, _canonical(record))
+    return evidence
+
+
+def write_integration_gates(runtime_root: Path, attempt_id: str, records: list[dict],
+                            operator_evidence_sha256: str | None = None) -> bytes:
+    """The integration's gates evidence: the green answers it rests on, kept byte for byte.
+
+    Written to ``<runtime>/evidence/<attempt>/integration-gates.json``; the kernel's integration record
+    holds the digest of exactly these bytes (``gates_evidence_sha256``). An operator's own gates evidence
+    file, given to the kernel CLI, is bound by its digest."""
+    document = {"schema": INTEGRATION_GATES_SCHEMA, "github_acceptance": list(records),
+                "operator_gates_evidence_sha256": operator_evidence_sha256}
+    payload = _canonical(document)
+    _atomic_write(Path(runtime_root) / "evidence" / attempt_id / INTEGRATION_GATES_FILE, payload)
+    return payload
+
+
+@contextmanager
+def runtime_lock(runtime_root: Path, timeout_s: float) -> Iterator[None]:
+    """Hold the dispatcher's runtime lock, waiting at most ``timeout_s`` for a tick to finish.
+
+    For writers other than a dispatcher tick (the kernel CLI) that record into the runtime notes:
+    one writer at a time, so neither overwrites the other's answer. Raises ``DispatcherBusy``."""
+    root = Path(runtime_root)
+    root.mkdir(parents=True, exist_ok=True)
+    handle = open(root / "dispatcher.lock", "a+b")  # noqa: SIM115
+    try:
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise DispatcherBusy(f"a dispatcher holds {root}/dispatcher.lock") from None
+                time.sleep(0.2)
+        yield
+    finally:
+        handle.close()
 
 
 def recorded_acceptance_gates(store: LifecycleStore, runtime_root: Path) -> dict[str, dict]:
