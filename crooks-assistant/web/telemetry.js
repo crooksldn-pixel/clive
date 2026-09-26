@@ -9,6 +9,13 @@
  * Nothing here is ever waited for. Events go on a queue; the queue is posted every couple of
  * seconds, or at forty events, with fetch keepalive (sendBeacon on pagehide). A post that
  * fails is dropped. Off, `record` is a boolean test and a return.
+ *
+ * The one exception to "never the DOM" is the owner's own switch, CROOKS_SCREEN_SNAPSHOTS:
+ * when /health says `screens`, the page also sends a copy of what it is showing — at each
+ * answer drawn, each question asked, each failure, each tap on the phone's home — so the
+ * host can redraw it as a picture (`make test-session-screens`). Scripts and handlers are
+ * taken out, a field's typed value is kept, the orb is kept as an image. One every few
+ * seconds at most, a few hundred a day at most, and only while a test session runs.
  */
 (function (root) {
   'use strict';
@@ -29,6 +36,23 @@
   let transport = null;   // tests hand in a function; the page uses fetch / sendBeacon
   let sent = 0;
   let dropped = 0;
+  // The screen copies (see the header). Off unless /health says `screens`.
+  let screens = false;
+  let screenTimer = null;
+  let screenPending = null;
+  let lastScreenAt = 0;
+  let screenCount = 0;
+  const SCREEN_GAP_MS = 2500;
+  const SCREEN_MAX = 400;
+  const SCREEN_SETTLE_MS = 1100;   // after the event, so a card has finished arriving
+  // The events a copy of the screen is taken for, and the name it is kept under. A failure
+  // outranks an answer, and an answer a tap, when two land inside one gap.
+  const SCREEN_ON = {
+    exception: ['error', 3], turn_failed: ['error', 3], image_failed: ['error', 3], http_error: ['error', 3],
+    connectivity: ['offline', 3], recording_too_short: ['error', 2],
+    render: ['answer', 2], turn_submitted: ['asked', 2], session_joined: ['opened', 1],
+    alpha_tap: ['home_tap', 1], navigate: ['navigate', 1], ask_bar: ['bar', 1],
+  };
 
   function now() { return Date.now(); }
 
@@ -61,6 +85,7 @@
     const was = enabled;
     testSession = id || null;
     enabled = Boolean(id);
+    if (observability && typeof observability === 'object' && 'screens' in observability) screens = Boolean(observability.screens);
     if (!enabled) { queue = []; if (timer) { clearTimeout(timer); timer = null; } }
     else if (!was) record('session_joined', { name: observability && observability.name ? String(observability.name) : undefined });
     return enabled;
@@ -81,6 +106,7 @@
       { kind: String(kind), t: now(), seq: ++seq },   // last: a field never overwrites these
     );
     queue.push(event);
+    if (screens && SCREEN_ON[event.kind]) wantScreen(event);
     if (queue.length > MAX_QUEUE) { dropped += queue.length - MAX_QUEUE; queue.splice(0, queue.length - MAX_QUEUE); }
     if (queue.length >= FLUSH_AT) flush(false);
     else if (!timer) timer = setTimeout(() => { timer = null; flush(false); }, FLUSH_MS);
@@ -227,11 +253,98 @@
     return out;
   }
 
-  function status() { return { enabled, test_session: testSession, queued: queue.length, sent, dropped, seq }; }
+  // ---- the screen, as it looked (CROOKS_SCREEN_SNAPSHOTS only).
+  function wantScreen(event) {
+    const [reason, rank] = SCREEN_ON[event.kind];
+    if (screenPending && screenPending.rank > rank) return;
+    const trigger = { kind: event.kind };
+    for (const key of ['status', 'message', 'file', 'line', 'src', 'target', 'control', 'outcome', 'reason', 'code', 'path']) {
+      if (event[key] !== undefined) trigger[key] = event[key];
+    }
+    screenPending = { reason, rank, turn_id: event.turn_id || context.turn_id || '', trigger };
+    if (screenTimer) clearTimeout(screenTimer);
+    const wait = Math.max(SCREEN_SETTLE_MS, lastScreenAt + SCREEN_GAP_MS - now());
+    screenTimer = setTimeout(takeScreen, wait);
+  }
 
-  function reset() { enabled = false; testSession = null; queue = []; if (timer) clearTimeout(timer); timer = null; seq = 0; context = { session_id: '', turn_id: '' }; sent = 0; dropped = 0; }
+  function copyScreen() {
+    const doc = root.document;
+    const app = doc && doc.getElementById ? doc.getElementById('app') : null;
+    if (!app || typeof root.XMLSerializer !== 'function') return null;
+    const live = [app];
+    const dialogs = Array.from(doc.querySelectorAll('dialog[open]'));
+    live.push(...dialogs);
+    const parts = live.map((node) => {
+      const clone = node.cloneNode(true);
+      const from = node.querySelectorAll('*');
+      const to = clone.querySelectorAll('*');
+      for (let i = 0; i < from.length && i < to.length; i += 1) {
+        const a = from[i];
+        const b = to[i];
+        const tag = a.tagName;
+        if (tag === 'INPUT' && a.type !== 'password') b.setAttribute('value', a.value || '');
+        else if (tag === 'TEXTAREA') b.textContent = a.value || '';
+        else if (tag === 'CANVAS') {
+          try {
+            const img = doc.createElement('img');
+            img.setAttribute('src', a.toDataURL('image/png'));
+            img.setAttribute('class', a.getAttribute('class') || '');
+            img.setAttribute('style', 'display:block;width:100%;height:100%');
+            b.replaceWith(img);
+          } catch { /* a tainted canvas stays blank */ }
+        }
+        if (a.scrollTop > 0) b.setAttribute('data-snap-top', String(Math.round(a.scrollTop)));
+        if (a.scrollLeft > 0) b.setAttribute('data-snap-left', String(Math.round(a.scrollLeft)));
+      }
+      clone.querySelectorAll('script,iframe,object,embed').forEach((n) => n.remove());
+      [clone, ...clone.querySelectorAll('*')].forEach((n) => {
+        for (const attr of Array.from(n.attributes || [])) if (/^on/i.test(attr.name)) n.removeAttribute(attr.name);
+      });
+      if (node !== app) clone.setAttribute('data-snap-dialog', '');
+      // Serialised, never assigned: nothing on this page is ever built from a string.
+      return new root.XMLSerializer().serializeToString(clone);
+    });
+    const body = doc.body;
+    return {
+      html: parts.join('\n'),
+      body: { class: body ? body.className : '', mode: body && body.dataset ? body.dataset.mode || '' : '' },
+      lite: Boolean(doc.documentElement && doc.documentElement.dataset && doc.documentElement.dataset.lite),
+      viewport: { w: root.innerWidth || 0, h: root.innerHeight || 0, dpr: root.devicePixelRatio || 1 },
+    };
+  }
 
-  const api = { configure, setContext, record, flush, snapshot, collisions, cardState, pathOnly, status, reset, _setTransport(fn) { transport = fn; } };
+  function takeScreen() {
+    screenTimer = null;
+    const pending = screenPending;
+    screenPending = null;
+    if (!pending || !enabled || !screens || screenCount >= SCREEN_MAX) return false;
+    let copy = null;
+    try { copy = copyScreen(); } catch { copy = null; }
+    if (!copy) return false;
+    lastScreenAt = now();
+    screenCount += 1;
+    const body = JSON.stringify(Object.assign(copy, {
+      session_id: context.session_id, test_session_id: testSession, turn_id: pending.turn_id,
+      reason: pending.reason, trigger: bounded(pending.trigger), t: lastScreenAt,
+    }));
+    try {
+      if (transport) { transport(body, false, '/telemetry/screen'); return true; }
+      if (typeof root.fetch === 'function') {
+        root.fetch('/telemetry/screen', { method: 'POST', headers: { 'content-type': 'application/json' }, body, cache: 'no-store' }).catch(() => {});
+        return true;
+      }
+    } catch { /* a copy that cannot be sent is not taken */ }
+    return false;
+  }
+
+  function status() { return { enabled, test_session: testSession, queued: queue.length, sent, dropped, seq, screens, screen_count: screenCount }; }
+
+  function reset() {
+    enabled = false; testSession = null; queue = []; if (timer) clearTimeout(timer); timer = null; seq = 0; context = { session_id: '', turn_id: '' }; sent = 0; dropped = 0;
+    screens = false; if (screenTimer) clearTimeout(screenTimer); screenTimer = null; screenPending = null; lastScreenAt = 0; screenCount = 0;
+  }
+
+  const api = { configure, setContext, record, flush, snapshot, collisions, cardState, pathOnly, status, reset, screen: takeScreen, copyScreen, _setTransport(fn) { transport = fn; } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.CrooksTelemetry = api;
 })(typeof window !== 'undefined' ? window : globalThis);

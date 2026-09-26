@@ -171,6 +171,22 @@ class Settings(BaseSettings):
     # The owner's objectives (app/objectives): durable state, not a cache. One JSON file each.
     objectives_dir: Path = REPO_ROOT / ".state" / "objectives"
 
+    # --- test mode, always on ---
+    # On, every day is one test session that the backend starts itself ("always-on"), closes
+    # at local midnight and follows with the next: nothing has to be started on the host for
+    # the owner's own use to be written down. A session started by name still wins while it
+    # runs. Everything stays where a test session always wrote it (logs/test-sessions/, 0600),
+    # redacted the same way; always-on days older than `test_session_keep_days` are deleted
+    # when the next one starts, named sessions never are.
+    test_session_always: bool = False
+    test_session_keep_days: int = 14
+    # The screen as it was. On (and only while a test session is running), the page sends a
+    # copy of what it is showing at each answer, each question, each failure and each
+    # navigation; `make test-session-screens` redraws them as phone-sized pictures with
+    # Playwright. Unlike the rest of the timeline these carry what the screen SHOWED, customer
+    # names included, so they stay beside the timeline on this host, 0600, and go with it.
+    screen_snapshots: bool = False
+
     # --- the production experience recorder (app/observability/recorder.py) ---
     # An hour of real use, written down. Off, and normal production is normal production:
     # nothing about a turn changes when this is on except that its events are also minimised

@@ -142,7 +142,7 @@ OWNER_QUOTE_CHARS = 220
 # The voice target, by every name the tablet has used for it. Anything else named as a
 # pointer target or owner is an interactive control, and a touch that began there and became
 # a recording is misrouted whatever its duration.
-VOICE_TARGETS = frozenset({"", "dock", "orb", "talk", "voice", "hold", "mic", "orb-zone"})
+VOICE_TARGETS = frozenset({"", "dock", "orb", "talk", "voice", "hold", "mic", "orb-zone", "ask_bar"})
 # What the owner says when the voice layer is eating his taps. Matched against `owner_feedback`
 # text only — his own words, never the assistant's.
 PRESS_LEADS_TO_LISTENING = re.compile(

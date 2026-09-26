@@ -600,3 +600,83 @@ async def test_the_live_marks_survive_the_allow_list_and_carry_no_words(client):
     # And nothing that could repeat what was said.
     assert "heard" not in event and "answer" not in event
     assert "orders" not in json.dumps(event)
+
+
+# --------------------------------------------------------------------------- always on, and the screens
+
+
+def test_test_mode_always_on_keeps_one_session_a_day_and_yields_to_a_named_one(tmp_path):
+    """CROOKS_TEST_SESSION_ALWAYS: with nothing running there is the day's own session; it is
+    closed at the first question of the next day and followed by that day's; a session started
+    by name takes over and, stopped, hands back; always-on days past the keep are deleted,
+    named sessions never are."""
+    from app.observability.session import AUTO_NAME
+
+    clock = Clock(1_800_000_000.0)
+    store = TestSessions(tmp_path, clock=clock, always=True, keep_days=2)
+    first = store.active()
+    assert first is not None and first.name == AUTO_NAME and first.test_session_id.endswith("-always-on")
+    import os
+
+    store.timeline_path(first).write_text("{}\n")
+    os.utime(store.timeline_path(first), (clock.now, clock.now))
+    clock.now += 60
+    assert store.active().test_session_id == first.test_session_id, "the same day keeps its session"
+    clock.now += 86_400
+    second = store.active()
+    assert second.test_session_id != first.test_session_id and second.name == AUTO_NAME
+    assert store.last().test_session_id == first.test_session_id and store.last().stopped_at is not None
+    assert store.timeline_path(first).exists(), "a day inside the keep stays"
+    named = store.start("evening check")
+    assert named.name == "evening check" and store.active().test_session_id == named.test_session_id
+    clock.now += 5
+    assert store.active().test_session_id == named.test_session_id, "a named session is never rolled"
+    store.stop()
+    clock.now += 5
+    assert store.active().name == AUTO_NAME, "stopped, the day's own session comes back"
+    old = store.timeline_path(first)
+    named_file = store.timeline_path(named)
+    named_file.write_text("{}\n")
+    os.utime(old, (clock.now - 10 * 86_400, clock.now - 10 * 86_400))
+    os.utime(named_file, (clock.now - 10 * 86_400, clock.now - 10 * 86_400))
+    clock.now += 86_400
+    store.active()
+    assert not old.exists(), "an always-on day past the keep is deleted"
+    assert named_file.exists(), "a named session is the owner's, whatever its age"
+    plain = TestSessions(tmp_path / "plain", clock=clock)
+    assert plain.active() is None, "off, nothing starts by itself"
+
+
+async def test_screen_copies_are_kept_only_when_switched_on_and_only_for_a_test_session(client):
+    from tests.test_actions_routes import OWNER
+
+    configure(client, logins=f"{OWNER}, other@example.com")
+    runtime = client.runtime
+    copy_ = {"session_id": "mine", "reason": "error", "html": "<div id=\"app\">hello</div>", "turn_id": "turn_1",
+             "viewport": {"w": 390, "h": 844, "dpr": 3}, "trigger": {"kind": "exception", "message": "boom"}}
+    await client.post("/test-session/start", json={"name": "screens"})
+    session = runtime.timeline.own
+    folder = runtime.tests.screens_dir(session)
+    assert (await client.post("/telemetry/screen", json=copy_, headers=PROXIED)).status_code == 204
+    assert not folder.exists(), "off by default: nothing is kept"
+    assert "screens" not in (await client.get("/health")).json()["observability"]
+    runtime.settings = replace(runtime.settings, screen_snapshots=True) if hasattr(runtime.settings, "__dataclass_fields__") else runtime.settings.model_copy(update={"screen_snapshots": True})
+    assert (await client.get("/health")).json()["observability"]["screens"] is True
+    assert (await client.post("/turn", json={"text": "hello", "session_id": "mine"}, headers=PROXIED)).status_code == 200
+    assert (await client.post("/telemetry/screen", json=copy_, headers=STRANGER)).status_code == 204
+    assert not folder.exists() or not list(folder.glob("*.json")), "another login's conversation keeps nothing"
+    assert (await client.post("/telemetry/screen", json=copy_, headers=PROXIED)).status_code == 204
+    kept = sorted(folder.glob("*.json"))
+    assert [p.name for p in kept] == ["0001-error.json"]
+    assert oct(kept[0].stat().st_mode & 0o777) == "0o600" and oct(folder.stat().st_mode & 0o777) == "0o700"
+    body = json.loads(kept[0].read_text())
+    assert body["html"] == copy_["html"] and body["turn_id"] == "turn_1" and body["trigger"]["message"] == "boom"
+    too_big = dict(copy_, html="x" * 1_600_000)
+    assert (await client.post("/telemetry/screen", json=too_big, headers=PROXIED)).status_code == 204
+    assert len(list(folder.glob("*.json"))) == 1
+    stopped = (await client.post("/test-session/stop")).json()
+    assert (await client.post("/telemetry/screen", json=copy_, headers=PROXIED)).status_code == 204
+    assert len(list(folder.glob("*.json"))) == 1, "no session: nothing kept"
+    client.runtime.timeline.flush()
+    screens = [e for e in read_events(Path(stopped["path"])) if e["kind"] == "tablet_screen"]
+    assert [(e["reason"], e["file"]) for e in screens] == [("error", "0001-error.json")]

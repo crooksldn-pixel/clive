@@ -4,6 +4,7 @@
   GET  /test-session/status           the session in progress, if any (the Mac itself only)
   POST /test-session/stop             end it (the Mac itself only)
   POST /telemetry            {session_id, events: [...]}   the tablet's batch; always 204
+  POST /telemetry/screen     {session_id, reason, html, …}  a copy of the screen; always 204
   GET  /anticipation                  why anything was prefetched (the Mac itself only)
   POST /anticipation/reset            forget every learned pattern (the Mac itself only)
 
@@ -55,7 +56,14 @@ ALLOWED_FIELDS = frozenset({
     # one. This list is an allow-list precisely so that stays true.
     "ack_ms", "transcript_ms", "progress_ms", "useful_ms", "responding_ms",
     "partials", "heard_chars", "interruptions", "faults",
+    # The phone's home, its bar and its sheets (web/alpha.js), and a request that came back
+    # refused: where it was tapped, which control, what the server answered.
+    "path", "control",
 })
+
+MAX_SCREEN_BYTES = 1_500_000
+MAX_SCREENS = 600          # per session: a day of heavy use is a few hundred
+_REASON = re.compile(r"[^a-z0-9_]+")
 
 
 def _local(request: Request) -> bool:
@@ -199,6 +207,73 @@ async def telemetry(request: Request) -> Response:
         log.warning("%s appliance event(s) were POSTed to /telemetry and refused: pad_* events "
                     "belong on POST /pad/heartbeat", appliance)
     return Response(status_code=204, headers={"X-Crooks-Telemetry": str(received)})
+
+
+@router.post("/telemetry/screen")
+async def telemetry_screen(request: Request) -> Response:
+    """A copy of what the page was showing (CROOKS_SCREEN_SNAPSHOTS), kept beside the test
+    session's timeline so `make test-session-screens` can draw it as a picture. 204 whatever
+    happens, and nothing kept unless snapshots are on and a test session of this timeline's own
+    is running: a production recording never keeps a screen."""
+    runtime = request.app.state.runtime
+    timeline = runtime.timeline
+    session = timeline.own
+    if session is None or not getattr(runtime.settings, "screen_snapshots", False):
+        return Response(status_code=204)
+    raw = await request.body()
+    if not raw or len(raw) > MAX_SCREEN_BYTES:
+        return Response(status_code=204)
+    try:
+        import json
+
+        body = json.loads(raw.decode("utf-8", "replace") or "{}")
+    except ValueError:
+        return Response(status_code=204)
+    if not isinstance(body, dict) or not isinstance(body.get("html"), str):
+        return Response(status_code=204)
+    session_id = str(body.get("session_id") or "")[:64]
+    if session_id:
+        from app.routes.actions import session_matches
+
+        try:
+            owner = runtime.sessions.peek(session_id)
+        except KeyError:
+            owner = None
+        if owner is not None and not session_matches(owner, request):
+            return Response(status_code=204)
+    folder = runtime.tests.screens_dir(session)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        folder.chmod(0o700)
+        if sum(1 for _ in folder.glob("*.json")) >= MAX_SCREENS:
+            return Response(status_code=204)
+        seq = sum(1 for _ in folder.glob("*.json")) + 1
+        reason = _REASON.sub("_", str(body.get("reason") or "screen").lower())[:24].strip("_") or "screen"
+        name = f"{seq:04d}-{reason}.json"
+        keep = {
+            "reason": reason,
+            "t": body.get("t") if isinstance(body.get("t"), (int, float)) else None,
+            "session_id": session_id or None,
+            "turn_id": str(body.get("turn_id") or "")[:64] or None,
+            "trigger": _bounded(body.get("trigger")),
+            "viewport": _bounded(body.get("viewport")),
+            "body": _bounded(body.get("body")),
+            "lite": bool(body.get("lite")),
+            "html": body["html"],
+        }
+        import os
+
+        fd = os.open(folder / name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, json.dumps(keep, ensure_ascii=False).encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        log.warning("a screen snapshot was not kept: %s", type(exc).__name__)
+        return Response(status_code=204)
+    timeline.emit("tablet_screen", source="tablet", session_id=session_id or None, turn_id=keep["turn_id"],
+                  reason=reason, file=name)
+    return Response(status_code=204)
 
 
 def _bounded(value: Any, depth: int = 0) -> Any:

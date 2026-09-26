@@ -82,7 +82,7 @@
     h('span', { class: 'ask-face ask-busy', text: 'Working on it' }));
   const input = h('input', { id: 'alpha-input', class: 'alpha-input', type: 'text', placeholder: 'Ask CLIVE…',
     autocomplete: 'off', enterkeyhint: 'send', 'aria-label': 'Ask CLIVE' });
-  const send = h('button', { class: 'alpha-send', type: 'submit', 'aria-label': 'Send' }, icon(ICON.up, 18));
+  const send = h('button', { class: 'alpha-send', type: 'submit', 'aria-label': 'Send', 'data-alpha': 'send' }, icon(ICON.up, 18));
   const stopTyping = h('button', { class: 'alpha-close', type: 'button', 'aria-label': 'Stop typing', onclick: () => closeTyping() }, icon(ICON.close, 16));
   const typeRow = h('div', { class: 'alpha-typerow' }, stopTyping, input, send);
   typeRow.inert = true;
@@ -129,7 +129,7 @@
   function head(title, sub) {
     return h('div', { class: 'alpha-sheet-head' },
       h('div', {}, h('h2', { text: title }), sub ? h('p', { class: 'alpha-muted', text: sub }) : null),
-      h('button', { class: 'btn primary', type: 'button', text: 'Done', onclick: closeSheet }));
+      h('button', { class: 'btn primary', type: 'button', text: 'Done', 'data-alpha': 'done', onclick: closeSheet }));
   }
   function flash(text) {
     const note = h('p', { class: 'alpha-flash', role: 'status', text });
@@ -184,7 +184,7 @@
       const lead = needs.indexOf(o) >= 0
         ? h('span', { class: `alpha-tile${blocked ? ' is-blocked' : ''}` }, icon(blocked ? ICON.wait : ICON.ask, 18))
         : h('span', { class: `alpha-state is-${o.attention}` }, o.attention === 'done' ? icon(ICON.tick, 15) : null);
-      return h('button', { class: 'alpha-row', type: 'button', onclick: () => openObjective(o.id) },
+      return h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'objective', 'data-attention': o.attention, onclick: () => openObjective(o.id) },
         lead, rowMain(o.title, sub, when), icon(ICON.chev, 16));
     };
 
@@ -202,10 +202,10 @@
       moving.length ? h('div', { class: 'alpha-group' }, ...moving.map(row)) : null,
       !objectives.length && !problem ? h('p', { class: 'alpha-muted', text: 'Nothing ongoing. Tell CLIVE about something you want handled, and it stays here.' }) : null,
       h('div', { class: 'alpha-group alpha-tools' },
-        h('button', { class: 'alpha-row', type: 'button', onclick: openSupport },
+        h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'support', onclick: openSupport },
           h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.search, 18)),
           rowMain('Investigate a customer enquiry', 'Paste their message. Read-only.'), icon(ICON.chev, 16)),
-        h('button', { class: 'alpha-row', type: 'button', onclick: openNewObjective },
+        h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'new_objective', onclick: openNewObjective },
           h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.plus, 18)),
           rowMain('New objective', 'Something for CLIVE to keep alive'), icon(ICON.chev, 16))),
     ].filter(Boolean));
@@ -236,7 +236,7 @@
             await refresh();
             openObjective(o.id);
           },
-        }, answer, h('button', { class: 'btn primary', type: 'submit', text: 'Answer' }))));
+        }, answer, h('button', { class: 'btn primary', type: 'submit', text: 'Answer', 'data-alpha': 'answer' }))));
       }
     }
 
@@ -245,7 +245,7 @@
       blocks.push(h('h3', { text: 'What happens next' }));
       for (const item of live) {
         const approve = item.needs_owner && item.state === 'proposed'
-          ? h('button', { class: 'btn', type: 'button', text: 'Approve', onclick: async () => {
+          ? h('button', { class: 'btn', type: 'button', text: 'Approve', 'data-alpha': 'approve', onclick: async () => {
               if (!confirm(`Approve: ${item.text}?\n\nThis records your approval. CLIVE still cannot book, pay, submit or send anything itself yet.`)) return;
               try { await api(`/objectives/${o.id}/items/${item.id}/authorise`, {}); } catch (err) { flash(String(err.message || err)); return; }
               openObjective(o.id);
@@ -284,14 +284,14 @@
         refresh();
         setTimeout(refresh, 2500);
       },
-    }, note, h('button', { class: 'btn primary', type: 'submit', text: 'Send' })));
+    }, note, h('button', { class: 'btn primary', type: 'submit', text: 'Send', 'data-alpha': 'continue' })));
 
     blocks.push(h('h3', { text: 'History' }));
     for (const e of o.events.slice(-12).reverse()) {
       blocks.push(h('p', { class: 'alpha-event' }, h('span', { class: 'alpha-src', text: `${e.at.slice(5, 16).replace('T', ' ')} · ${e.by} · ` }), e.text));
     }
     blocks.push(h('div', { class: 'row-btns' },
-      h('button', { class: 'btn', type: 'button', text: 'Mark done', onclick: async () => {
+      h('button', { class: 'btn', type: 'button', text: 'Mark done', 'data-alpha': 'mark_done', onclick: async () => {
         if (!confirm('Close this objective as done?')) return;
         await api(`/objectives/${o.id}/status`, { status: 'done' }).catch((err) => flash(String(err.message || err)));
         closeSheet(); refresh();
@@ -312,7 +312,7 @@
         refresh();
         setTimeout(refresh, 2500);
       },
-    }, request, h('button', { class: 'btn primary alpha-wide', type: 'submit', text: 'Give it to CLIVE' })));
+    }, request, h('button', { class: 'btn primary alpha-wide', type: 'submit', text: 'Give it to CLIVE', 'data-alpha': 'create_objective' })));
   }
 
   // ------------------------------------------------------------------ support
@@ -320,7 +320,7 @@
     const message = h('textarea', { class: 'alpha-text', rows: '6', placeholder: "Paste the customer's message", 'aria-label': "Customer's message" });
     const sender = h('input', { class: 'alpha-field', type: 'email', placeholder: "Customer's email (optional)", 'aria-label': "Customer's email" });
     const out = h('div', { class: 'alpha-support-out', 'aria-live': 'polite' });
-    const go = h('button', { class: 'btn primary alpha-wide', type: 'submit', text: 'Investigate' });
+    const go = h('button', { class: 'btn primary alpha-wide', type: 'submit', text: 'Investigate', 'data-alpha': 'investigate' });
     openSheet(head('Support enquiry', 'Read-only. Nothing is sent or changed.'), h('form', {
       onsubmit: async (event) => {
         event.preventDefault();
@@ -360,7 +360,7 @@
       h('h3', { text: 'Reply draft · needs your approval' }),
       h('p', { class: 'alpha-muted', text: `${draft.subject || ''} — nothing has been sent. Copy it into your mail to send it yourself.` }),
       body,
-      h('div', { class: 'row-btns' }, h('button', { class: 'btn', type: 'button', text: 'Copy draft', onclick: async () => {
+      h('div', { class: 'row-btns' }, h('button', { class: 'btn', type: 'button', text: 'Copy draft', 'data-alpha': 'copy_draft', onclick: async () => {
         try { await navigator.clipboard.writeText(draft.body || ''); flash('Draft copied.'); } catch { body.select(); }
       } })),
       h('details', { class: 'alpha-evidence' }, h('summary', { text: `Evidence (${(r.evidence || []).length})` }),
