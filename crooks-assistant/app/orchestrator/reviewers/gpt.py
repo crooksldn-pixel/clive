@@ -39,10 +39,13 @@ from pathlib import Path
 
 from .base import ReviewContext, ReviewerFacts, ReviewResult
 
-__all__ = ["DEFAULT_MODEL", "GptResponsesReviewer", "key_file_problem"]
+__all__ = ["DEFAULT_EFFORT", "DEFAULT_MODEL", "DEPLOY_REVIEW_MODEL", "GptResponsesReviewer", "key_file_problem"]
 
-DEFAULT_MODEL = "gpt-5.6-sol"
-DEFAULT_EFFORT = "high"
+# Owner decision 2026-09-26 (OWNER_DECISIONS_2026-09-26.md): the loop's routine reviews run on the
+# low-cost model at medium effort; the production deploy review stays on DEPLOY_REVIEW_MODEL.
+DEFAULT_MODEL = "gpt-6-luna"
+DEFAULT_EFFORT = "medium"
+DEPLOY_REVIEW_MODEL = "gpt-6-sol"
 API_BASE = "https://api.openai.com/v1"
 MAX_RUNS = 3
 FILES_LIMIT = 300_000
