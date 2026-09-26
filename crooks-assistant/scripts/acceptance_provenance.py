@@ -301,10 +301,11 @@ def _display_path(path: Path) -> str:
 def read_baseline() -> list[dict]:
     """The pre-existing findings this repository has already accounted for.
 
-    They are all redaction fixtures in test files — strings that exist
-    precisely so the observability tests can prove a secret gets masked. The
-    baseline records them by fingerprint, never by value, so the scanner stops
-    reporting them without anybody having to weaken a rule or exclude a path.
+    The baseline records such findings by fingerprint, never by value, so the
+    scanner stops reporting them without anybody having to weaken a rule or
+    exclude a path. Since 2026-09-26 it is empty: the redaction fixtures it used
+    to list are now assembled at runtime by tests/fake_credentials.py (owner
+    rule B), and a new entry needs the owner's decision.
     """
 
     if not SECRET_BASELINE.is_file():
