@@ -1253,3 +1253,22 @@ def test_openapi_3_2_query_and_additional_operations_are_capabilities(tmp_path):
     assert any("additional operation PURGE of path /items" in body for body in unparsed)
     assert any("the additionalOperations of path /broken are not a mapping" in body
                for body in unparsed)
+
+
+# --- found by the first real digestions (2026-09-26) ---------------------------------------------
+
+
+def test_json_with_comments_is_read_as_the_json_it_holds(tmp_path):
+    # CLIVE's Shopify theme: every locale, template and settings file opens with a /* */ header,
+    # and 66 of them came back unparsed.
+    header = "/*\n * IMPORTANT: The contents of this file are auto-generated.\n */\n"
+    schema = {"$schema": "https://json-schema.org/draft/2020-12/schema", "title": "Order",
+              "type": "object", "properties": {"id": {"type": "string"}}}
+    units = _units(_write(tmp_path / "theme", {
+        "locales/en.default.json": header + '{"general": {"title": "Shop // not a comment"}}\n',
+        "schemas/order.schema.json": header + "// and a line comment\n" + json.dumps(schema, indent=2) + "\n",
+        "broken/open.json": '{"a": 1} /* never closed\n',
+    }))
+    unparsed = {unit.location.path: unit.body for unit in units if "unparsed" in unit.tags}
+    assert set(unparsed) == {"broken/open.json"} and "never closed" in unparsed["broken/open.json"]
+    assert [unit.title for unit in units if unit.kind == "interface"] == ["JSON Schema Order"]

@@ -103,6 +103,8 @@ _MODAL = re.compile(
     r"\b(?:must|mustn't|should|shouldn't|shall|needs? to|has to|have to)\b", re.IGNORECASE
 )
 _LABEL = re.compile(r"\W*[A-Za-z'-]+\W*:")
+# A bold or strong lead-in that ends in a full stop, colon or exclamation mark, and what follows.
+_LEAD_IN = re.compile(r"[ \t]*(\*\*|__)(?P<lead>[^*_\n]{1,160}?[.:!])\1[ \t]+(?P<rest>\S.*)", re.S)
 _WORDS = re.compile(r"[A-Za-z][A-Za-z']*")
 # Verbs that open a command. The list is a help, not a limit: a word outside it still opens one
 # when it is not shaped like a noun, adjective or participle and an object follows it, bare or
@@ -297,6 +299,8 @@ def _walk(root: Path) -> Iterator[_Document | _Skipped]:
                     if not entry.is_file(follow_symlinks=False):
                         yield _Skipped(path, "not a regular file; not read")
                         continue
+                    if _owned_by_skills(path):
+                        continue        # a skill, harness file or prompt: the skills adapter's
                     documents += 1
                     if documents > MAX_DOCUMENTS:
                         yield _Skipped(".", f"more than {MAX_DOCUMENTS} documents; the rest were not read")
@@ -305,6 +309,14 @@ def _walk(root: Path) -> Iterator[_Document | _Skipped]:
             except OSError as exc:
                 yield _Skipped(path, f"could not be examined: {_why(exc)}")
         folders.extend(reversed(inner))
+
+
+def _owned_by_skills(path: str) -> bool:
+    """Whether the skills adapter reads this file; it always runs beside this one (see its
+    HANDLES). Imported here, not at the top, because it imports this module's _imperative."""
+    from app.digest.adapters.skills import owns
+
+    return owns(path)
 
 
 def _listing(folder: Path) -> list[os.DirEntry[str]] | str:
@@ -445,6 +457,11 @@ def _imperative(text: str) -> bool:
     ('Rotate key'), or any when the item is a sentence ('Quarantine unknown files.'); a bare
     noun phrase ('Offline support', 'Private key') is not a command."""
     head = text[:300].replace("’", "'")
+    lead = _LEAD_IN.match(head)
+    if lead:
+        # "**Links are links.** Use <a> for navigation": a bold lead-in names the guideline and
+        # the sentence after it gives it; either telling the reader what to do makes it a rule.
+        return _imperative(lead.group("lead")) or _imperative(lead.group("rest"))
     if _LABEL.match(head):
         return False
     if _MODAL.search(head):
@@ -500,8 +517,13 @@ def _claim(sentence: str) -> tuple[str, ...]:
         reasons.append("date")
     if _DIGIT.search(_DATE.sub(" ", plain)):
         reasons.append("number")
+    opening = _WORDS.match(plain.lstrip(" \t*_>-"))
     for word in ("always", "never"):
         if re.search(rf"\b{word}\b", plain, re.IGNORECASE):
+            # "Never substitute a button for a link" tells the reader what to do; it asserts
+            # nothing to verify. "Deploys are always reviewed" does.
+            if opening and opening.group().lower() == word and _imperative(plain.lstrip(" \t*_>-")[opening.end():]):
+                continue
             reasons.append(word)
     unmarked = _CODE_SPAN.sub(" ", _URL.sub(" ", _TAG.sub(" ", _LINK_TARGET.sub("]", sentence))))
     if _COMPARISON.search(plain) or _OPERATOR.search(unmarked):

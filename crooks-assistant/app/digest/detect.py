@@ -1035,6 +1035,14 @@ _DOC_GENERATORS = (
     (r"(^|/)\.vitepress/config\.[cm]?[jt]s$", "VitePress configuration"),
 )
 _DOC_DIRS = ("docs", "doc", "documentation", "wiki", "guides", "manual", "handbook")
+# Files every project carries, which say nothing about whether it is mostly prose.
+_BOILERPLATE = re.compile(
+    r"(^|/)(license|licence|copying|notice|authors|contributors|code_of_conduct|security"
+    r"|changelog|changes|history|funding|codeowners)(\.[^/]*)?$|(^|/)\.[^/]+(/|$)",
+    re.IGNORECASE,
+)
+_README = re.compile(r"readme(\.(md|mdx|markdown|rst|adoc|txt))?", re.IGNORECASE)
+_SUBSTANTIAL = 3000      # characters of a README's head that make it worth reading as a document
 
 
 @register("documentation_set", "documentation set")
@@ -1053,6 +1061,20 @@ def _documentation_set(tree: Tree) -> Match | None:
         _aggregate(found, docs, "prose documents (Markdown, reStructuredText, AsciiDoc)", 0.75 if share >= 0.5 else 0.55)
     elif docs and len(docs) == len(tree.files):
         _aggregate(found, docs, "prose document(s) and nothing else", 0.6)
+    if found:
+        return found.match()
+    # Otherwise, an artifact that is mostly prose is a document whatever its prose files are
+    # called: a guidelines repository is a README and a few Markdown files beside a script.
+    content = [rel for rel in tree.files if not _BOILERPLATE.search(rel)]
+    prose = [rel for rel in content if rel.lower().endswith(_DOC_SUFFIXES)]
+    if prose and 2 * len(prose) >= len(content) and (len(prose) >= 2 or len(content) == 1):
+        _aggregate(found, prose, f"mostly prose: {len(prose)} of {len(content)} files", 0.6)
+        return found.match()
+    # And a README long enough to explain the artifact is a document to read, even in a
+    # repository of code.
+    for rel in [rel for rel in tree.files if "/" not in rel and _README.fullmatch(rel)][:1]:
+        if len(tree.head(rel)) >= _SUBSTANTIAL:
+            found.add(rel, "a README long enough to read as a document", 0.5)
     return found.match()
 
 

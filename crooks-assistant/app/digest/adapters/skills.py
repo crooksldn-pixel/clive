@@ -34,14 +34,18 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 
+from app.digest.adapters.documents import _imperative
 from app.digest.model import ARTIFACT_ID_PATTERN, MAX_BODY, MAX_TAG, MAX_TITLE, Location, Unit
 
 NAME = "skills"
 # The kinds in plain words, and as detect.py names them (skill_collection is also the model's
 # ARTIFACT_KINDS name), so that the adapter is found whichever vocabulary asks for it.
+# It also runs beside the documents adapter, which leaves to it every file it owns (owns()):
+# skills, harness files and prompts found among an artifact's documents are read as what they
+# are, once, and never twice as prose.
 HANDLES = (
     "skill", "skill collection", "agent configuration", "harness configuration", "prompt library",
-    "agent_skill", "skill_collection", "agent_config",
+    "agent_skill", "skill_collection", "agent_config", "documentation_set",
 )
 
 MAX_FILES = 5_000              # files looked at in one artifact
@@ -88,6 +92,12 @@ _SENTENCE = re.compile(r"\S.*?(?:[.!?](?=\s|$)|$)", re.S)
 _RULE = re.compile(
     r"\b(?:always|never|must|mustn['’]t|do not|don['’]t|shall|should not|shouldn['’]t)\b", re.I
 )
+# RFC 2119 keywords, in the capitals that make them keywords: "SHOULD: Autofocus on desktop".
+_RFC_RULE = re.compile(r"\b(?:SHOULD|RECOMMENDED|REQUIRED)\b")
+# A label or a word or two: under a rules heading, "Good text:", "premium" and a bold
+# pseudo-heading say nothing on their own, and are gathered into one Unit for the section.
+_THIN_WORDS = 3
+_MARKUP = re.compile(r"[*_`~>#]+")
 # A verification step at the start, or after imperative or contextual words: "Always verify
 # ...", "After building, verify ...", "Make sure to run the tests". The scan from 'run' is
 # bounded, as it may be tried at many places in one long line.
@@ -245,6 +255,17 @@ def _within(folders: tuple[str, ...], sequence: tuple[str, ...]) -> bool:
     return any(folders[i:i + size] == sequence for i in range(len(folders) - size + 1))
 
 
+# A file named as a prompt: "prompts.json", "system-prompt.md", "review.prompt", "x.prompt.md".
+# Not a file about prompts: "prompt-caching.md" and "prompting-guide.md" are documents.
+_PROMPT_NAME = re.compile(r"(?:^|.*[._-])prompts?", re.I)
+
+
+def owns(rel: str) -> bool:
+    """Whether this adapter reads the file at rel (a relative path) as a skill, a harness file
+    or a prompt; the documents adapter leaves such files to it."""
+    return _classify(rel) is not None
+
+
 def _classify(rel: str) -> str | None:
     path = PurePosixPath(rel)
     name, suffix = path.name.lower(), path.suffix.lower()
@@ -255,8 +276,9 @@ def _classify(rel: str) -> str | None:
         suffix in HARNESS_SUFFIXES and any(_within(folders, f) for f in HARNESS_FOLDERS)
     ):
         return "harness"
+    stem = name[: -len(suffix)] if suffix else name
     if suffix in PROMPT_SUFFIXES and (
-        "prompt" in name or bool(PROMPT_FOLDERS & set(folders))
+        suffix == ".prompt" or bool(_PROMPT_NAME.fullmatch(stem)) or bool(PROMPT_FOLDERS & set(folders))
         or any(_within(folders, f) for f in COMMAND_FOLDERS)
     ):
         return "prompts"
@@ -500,11 +522,31 @@ def _kinds(rule: bool, check: bool) -> tuple[str, ...]:
     return (("rule",) if rule else ()) + (("check",) if check else ())
 
 
+def _own_kinds(text: str) -> tuple[str, ...]:
+    """rule and check, either, or neither, by the words alone."""
+    return _kinds(bool(_RULE.search(text) or _RFC_RULE.search(text)), bool(_CHECK.search(text)))
+
+
 def _item_kinds(text: str, section: str) -> tuple[str, ...]:
     """rule and check, either, or neither for a plain step or sentence: by its section, and by
     its words."""
-    return _kinds(section == "rule" or bool(_RULE.search(text)),
-                  section == "check" or bool(_CHECK.search(text)))
+    own = _own_kinds(text)
+    return _kinds(section == "rule" or "rule" in own, section == "check" or "check" in own)
+
+
+def _thin(text: str) -> bool:
+    """A label ("Good text:") or a word or two ("premium", "**Dimensions:**")."""
+    plain = _MARKUP.sub(" ", text).strip()
+    return plain.endswith(":") or len(_WORD_RUN.findall(plain)) < _THIN_WORDS
+
+
+_WORD_RUN = re.compile(r"\w+")
+
+
+def _stepwise(texts: list[str]) -> bool:
+    """Whether a list reads as steps: at least half its items tell the reader what to do
+    ("Read the issue", "Label it"), rather than naming things ("Layered shadows", "premium")."""
+    return bool(texts) and 2 * sum(1 for text in texts if _imperative(text)) >= len(texts)
 
 
 def _guidance(lines: list[str], first: int, units: _Units, rel: str, context: str,
@@ -532,9 +574,14 @@ def _section_units(lines: list[str], blocks: list[_Block], heading: str | None, 
     items = {id(block): _item_text(block) for block in blocks if block.kind == "item"}
     kinds = {key: _item_kinds(text, section) for key, text in items.items()}
     steps = bool(heading and _STEPS_HEADING.search(heading))    # a steps section, whatever its items
+    plain = [items[key] for key, found in kinds.items() if not found]
     procedure = bool(items) and (steps or (not section and (
-        any(block.numbered for block in blocks if block.kind == "item") or () in kinds.values()
+        any(block.numbered for block in blocks if block.kind == "item") or _stepwise(plain)
     )))
+    # Items that are a rule or check only by their heading, and are a label or a word or two,
+    # are one Unit for the section, where the first of them is.
+    thin = [block for block in blocks if block.kind == "item" and section and kinds[id(block)]
+            and not _own_kinds(items[id(block)]) and _thin(items[id(block)])]
     for block in blocks:
         if block.kind == "item":
             if procedure:
@@ -544,6 +591,12 @@ def _section_units(lines: list[str], blocks: list[_Block], heading: str | None, 
                 body = "\n".join(lines[start - 1:end])
                 units.add("procedure", heading or f"{context}: steps", body, rel, (start, end), tags)
             text = items[id(block)]
+            if thin and block is thin[0]:
+                body = "; ".join(items[id(item)] for item in thin)
+                units.add(section, heading or f"{context}: {section}s", body, rel,
+                          (thin[0].start, thin[-1].end), tags)
+            if any(block is item for item in thin):
+                continue
             for kind in kinds[id(block)]:
                 units.add(kind, text, text, rel, (block.start, block.end), tags)
         elif block.kind == "paragraph":
@@ -559,6 +612,8 @@ def _paragraph_units(block: _Block, section: str, units: _Units, rel: str,
         position = match.start()
         words = " ".join(match.group().split())
         found = _item_kinds(words, section)
+        if section and not _own_kinds(words) and _thin(words):
+            found = ()          # a label or a pseudo-heading, a rule only by its heading
         last = line + text.count("\n", match.start(), match.end() - 1)
         for kind in found:
             units.add(kind, words, words, rel, (line, last), tags)

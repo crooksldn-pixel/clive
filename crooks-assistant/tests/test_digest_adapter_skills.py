@@ -808,3 +808,67 @@ def test_a_table_of_prompts_yields_one_example_per_row(tmp_path):
     ]
     assert "needs a column" in _unparsed(units, "prompts/columns.csv")[0].body
     assert "cannot be read" in _unparsed(units, "prompts/broken.csv")[0].body
+
+
+# --- found by the first real digestions (2026-09-26) ---------------------------------------------
+
+
+def test_a_document_about_prompts_is_not_a_prompt(tmp_path):
+    # anthropics/skills: prompt-caching.md, a design guide, was read as 18 opaque prompts.
+    root = _write(tmp_path / "files", {
+        "shared/prompt-caching.md": "# Prompt caching\n\n1. Trace the path.\n2. Classify inputs.\n",
+        "shared/prompting-guide.md": "# Guide\n",
+        "system-prompt.md": "You are careful.\n",
+        "review.prompt.md": "Review this.\n",
+        "prompts.json": '[{"name": "a", "prompt": "Say a."}]',
+    })
+    assert not skills.owns("shared/prompt-caching.md") and not skills.owns("shared/prompting-guide.md")
+    assert skills.owns("system-prompt.md") and skills.owns("review.prompt.md") and skills.owns("prompts.json")
+    read = {unit.location.path for unit in _digest(root)}
+    assert "shared/prompt-caching.md" not in read and "system-prompt.md" in read
+
+
+def test_every_artifact_the_documents_adapter_reads_is_one_the_skills_adapter_reads_too():
+    # The documents adapter leaves skills, harness files and prompts to the skills adapter; that is
+    # only safe if the skills adapter runs whenever the documents adapter does.
+    from app.digest import detect
+    from app.digest.adapters import documents
+    from app.digest.pipeline import Adapter
+
+    def adapter(module) -> Adapter:
+        return Adapter(module.NAME, module.NAME, tuple(module.HANDLES), module.decompose)
+
+    docs, ours = adapter(documents), adapter(skills)
+    kinds = [registration.kind for registration in detect.registered()] + ["document", "markdown", "text", "html"]
+    for kind in kinds:
+        if docs.handles_any([kind]):
+            assert ours.handles_any([kind]), kind
+
+
+def test_a_list_of_things_is_not_a_procedure_and_a_label_is_not_a_rule(tmp_path):
+    # Leonxlnx/taste-skill and the Vercel guidelines: lists of adjectives and SHOULD-lines were
+    # procedures, and 347 of taste's 1,854 rules were a word or two ("premium", "Good text:").
+    skill = "skills/look/SKILL.md"
+    units = _digest(_write(tmp_path / "artifact", {
+        skill: (
+            "---\nname: look\ndescription: How it looks.\n---\n"      # 1-4
+            "## Design\n\n"                                           # 5-6
+            "- SHOULD: Layered shadows (ambient + direct)\n"          # 7
+            "- SHOULD: Crisp edges via semi-transparent borders\n\n"  # 8-9
+            "## Final goal\n\n- premium\n- clean\n- readable\n\n"     # 10-15
+            "## Rules\n\n"                                            # 16-17
+            "**Responsiveness & Spacing:**\n\n"                       # 18-19
+            "- premium\n- Good text:\n- Never use purple.\n\n"        # 20-23
+            "## Triage\n\n- Read the issue.\n- Label it.\n"           # 24-27
+        ),
+    }))
+    summary = [row for row in _summary(units, skill) if row[0] != "knowledge"]
+    assert summary == [
+        ("rule", "SHOULD: Layered shadows (ambient + direct)", skill, 7, 7),
+        ("rule", "SHOULD: Crisp edges via semi-transparent borders", skill, 8, 8),
+        ("rule", "Rules", skill, 20, 21),
+        ("rule", "Never use purple.", skill, 22, 22),
+        ("procedure", "Triage", skill, 26, 27),
+    ]
+    [gathered] = [unit for unit in units if unit.title == "Rules"]
+    assert gathered.body == "premium; Good text:"

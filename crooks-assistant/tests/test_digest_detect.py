@@ -807,3 +807,29 @@ def test_an_mcp_client_in_go_is_not_an_mcp_server(tmp_path):
     })
 
     assert "mcp_server" not in detect.detect_kinds(root)
+
+
+# --- found by the first real digestions (2026-09-26) ---------------------------------------------
+
+
+def test_an_artifact_that_is_mostly_prose_is_a_documentation_set(tmp_path):
+    # vercel-labs/web-interface-guidelines: its guidelines are its README, and were never read.
+    root = _build(tmp_path / "guidelines", {
+        "LICENSE": "MIT License\n",
+        "AGENTS.md": "# Agents\n",
+        "README.md": "# Guidelines\n\n- Do this.\n",
+        "command.md": "Review the files against the guidelines.\n",
+        "install.sh": "#!/bin/sh\necho install\n",
+    })
+    documents = detect.detect_kinds(root).get("documentation_set")
+    assert documents is not None
+    assert any("mostly prose: 3 of 4 files" in evidence.signal for evidence in documents.evidence)
+
+
+def test_a_substantial_readme_makes_a_code_repository_a_document_too(tmp_path):
+    code = {f"src/pkg/m{index}.py": "x = 1\n" for index in range(8)}
+    short = _build(tmp_path / "short", {**code, "README.md": "# pkg\n"})
+    assert "documentation_set" not in detect.detect_kinds(short)
+    long = _build(tmp_path / "long", {**code, "README.md": "# pkg\n\n" + "Explains the package. " * 200})
+    readme = detect.detect_kinds(long).get("documentation_set")
+    assert readme is not None and readme.evidence[0].path == "README.md"

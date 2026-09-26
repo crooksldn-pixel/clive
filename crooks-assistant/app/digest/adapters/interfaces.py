@@ -199,7 +199,8 @@ _JSON_NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?
 
 
 class _Json:
-    """JSON, strictly, keeping the lines each object and array spans."""
+    """JSON, strictly but for comments between tokens, keeping the lines each object and array
+    spans."""
 
     def __init__(self, text: str) -> None:
         self.text = text
@@ -216,7 +217,22 @@ class _Json:
         return bisect.bisect_left(self.breaks, position) + 1
 
     def _space(self, position: int) -> int:
-        return _JSON_SPACE.match(self.text, position).end()
+        """Past whitespace and, between tokens, comments: JSON with comments (tsconfig.json, the
+        /* ... */ header Shopify writes into every theme template, locale and settings file) is
+        read as the JSON it holds. Found by hand, so an unclosed comment costs one pass."""
+        text = self.text
+        while True:
+            position = _JSON_SPACE.match(text, position).end()
+            if text.startswith("//", position):
+                end = text.find("\n", position)
+                position = len(text) if end < 0 else end
+            elif text.startswith("/*", position):
+                end = text.find("*/", position + 2)
+                if end < 0:
+                    raise _Unparsed(f"line {self._line(position)}: a comment that is never closed")
+                position = end + 2
+            else:
+                return position
 
     def _value(self, position: int, depth: int) -> tuple[Any, int]:
         position = self._space(position)
