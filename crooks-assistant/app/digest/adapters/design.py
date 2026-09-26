@@ -14,8 +14,9 @@ source states them.
 
 Nothing read is executed, imported or installed, and nothing is written. Links are not
 followed. Files, counts, tokens and bodies are bounded by the limits below. Units come back in
-path order, and in a fixed order within a file, with exact line spans. A file that cannot be
-read does not raise: it becomes a knowledge Unit tagged 'unparsed' that says why."""
+path order, and in a fixed order within a file, with exact line spans. What cannot be read —
+a file, or a part of one whose comments, blocks or brackets are never closed or do not pair —
+does not raise: it becomes a knowledge Unit tagged 'unparsed' that says why."""
 
 from __future__ import annotations
 
@@ -114,18 +115,42 @@ def _kind(rel: str) -> str | None:
 
 def _walk(root: Path) -> tuple[list[tuple[str, Path, str]], list[str]]:
     """The files to read, sorted by path, and notes on what the bounds or the names left out.
-    Hidden and dependency directories are passed over, and directory links are not followed."""
+    Directories are listed in path order, each in full or not at all, and every entry listed —
+    a directory as much as a file — counts towards MAX_ENTRIES: the directory that would take
+    the count past it, and every one after it, is not looked at. Hidden and dependency
+    directories are passed over, and links are not followed."""
     found: list[tuple[str, Path, str]] = []
     notes: list[str] = []
-    seen = 0
-    for current, dirs, names in os.walk(root):
-        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in _SKIPPED_DIRS)
-        for name in sorted(names):
-            seen += 1
-            if seen > MAX_ENTRIES:
-                notes.append(f"more than {MAX_ENTRIES} files in the artifact: only the first were looked at")
-                return sorted(found), notes
-            path = Path(current) / name
+    budget = MAX_ENTRIES
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        where = directory.relative_to(root).as_posix()
+        try:
+            with os.scandir(directory) as listing:
+                entries: list[tuple[str, bool]] = []
+                for entry in listing:
+                    if len(entries) >= budget:
+                        notes.append(
+                            f"more than {MAX_ENTRIES} directory entries in the artifact: {where} "
+                            "and the directories after it were not looked at"
+                        )
+                        return sorted(found), notes
+                    entries.append((entry.name, entry.is_dir(follow_symlinks=False)))
+        except OSError as exc:
+            if directory == root:
+                raise
+            if len(notes) < MAX_LISTED:
+                notes.append(f"a directory could not be listed: {where}: {_reason(exc)}")
+            continue
+        budget -= len(entries)
+        subdirs: list[Path] = []
+        for name, is_dir in sorted(entries):
+            path = directory / name
+            if is_dir:
+                if not name.startswith(".") and name not in _SKIPPED_DIRS:
+                    subdirs.append(path)
+                continue
             rel = path.relative_to(root).as_posix()
             kind = _kind(rel)
             if kind is None:
@@ -141,6 +166,7 @@ def _walk(root: Path) -> tuple[list[tuple[str, Path, str]], list[str]]:
                 notes.append(f"more than {MAX_FILES} design files: only the first {MAX_FILES} found were read")
                 return sorted(found), notes
             found.append((rel, path, kind))
+        pending.extend(reversed(subdirs))
     return sorted(found), notes
 
 
@@ -255,13 +281,16 @@ def _fill(out: list[str], text: str, start: int, end: int, char: str) -> None:
     out[start:end] = _NOT_NEWLINE.sub(char, text[start:end])
 
 
-def _mask(text: str, *, script: bool) -> str:
+def _mask(text: str, *, script: bool) -> tuple[str, tuple[str, int] | None]:
     """text with its comments blanked to spaces and the contents of its strings to underscores,
     line breaks kept: offsets and line numbers still hold, and a bracket, colon or comma in a
-    comment or a string is not taken for code. `script` adds // comments and template strings."""
+    comment or a string is not taken for code. `script` adds // comments and template strings.
+    Also what, if anything, runs on unclosed to the end — a /* comment or a template string —
+    and where it opens."""
     out = list(text)
     finder = _MASK_SCRIPT if script else _MASK_STYLE
     index, size = 0, len(text)
+    unclosed: tuple[str, int] | None = None
     while True:
         found = finder.search(text, index)
         if found is None:
@@ -269,6 +298,8 @@ def _mask(text: str, *, script: bool) -> str:
         start, token = found.start(), found.group()
         if token == "/*":
             end = text.find("*/", start + 2)
+            if end < 0:
+                unclosed = ("a /* comment", start)
             end = size if end < 0 else end + 2
             _fill(out, text, start, end, " ")
         elif token == "//":
@@ -279,40 +310,81 @@ def _mask(text: str, *, script: bool) -> str:
             end = start + 1
             while end < size and text[end] != token and (token == "`" or text[end] != "\n"):
                 end += 2 if text[end] == "\\" else 1
+            if token == "`" and end >= size:
+                unclosed = ("a template string", start)
             _fill(out, text, start + 1, min(end, size), "_")
             end += 1
         index = end
-    return "".join(out)
+    return "".join(out), unclosed
 
 
 def _blank(match: re.Match[str]) -> str:
     return _NOT_NEWLINE.sub(" ", match.group())
 
 
+class _Unbalanced(ValueError):
+    """Brackets that do not pair: the bracket opened at `opened`, and what was found at `found`
+    — the wrong kind of closing bracket, or, when closer is None, the end with it still open."""
+
+    def __init__(self, opened: int, found: int, closer: str | None) -> None:
+        super().__init__("unbalanced brackets")
+        self.opened, self.found, self.closer = opened, found, closer
+
+
 class _Code:
-    """Source text, read and never run: the text itself, the same text masked, and its lines."""
+    """Source text, read and never run: the text itself, the same text masked, its lines, and
+    the parts of it that could not be read — each why, and its first and last line."""
 
     def __init__(self, text: str, *, script: bool) -> None:
         self.text = text
-        self.masked = _mask(text, script=script)
+        self.masked, unclosed = _mask(text, script=script)
         self.lines = _Lines(text)
+        self.problems: list[tuple[str, int, int]] = []
+        if unclosed:
+            self.problem(
+                f"{unclosed[0]} on line {self.lines.line(unclosed[1])} is never closed: "
+                "the rest of the file is not read", unclosed[1], len(text),
+            )
+
+    def problem(self, reason: str, start: int, end: int) -> None:
+        """Records that text[start:end] could not be read, and why."""
+        if len(self.problems) < MAX_LISTED:
+            self.problems.append((reason, self.lines.line(start), self.lines.line(max(start, end))))
+
+    def unbalanced(self, what: str, start: int, exc: _Unbalanced) -> None:
+        """Records that what starts at start could not be read, because its brackets do not pair."""
+        where = f"the '{self.masked[exc.opened]}' on line {self.lines.line(exc.opened)}"
+        why = (
+            f"{where} is closed by '{exc.closer}' on line {self.lines.line(exc.found)}"
+            if exc.closer else f"{where} is never closed"
+        )
+        self.problem(f"{what} cannot be read: {why}", start, exc.found)
+
+    def unparsed(self, artifact_id: str, rel: str) -> list[Unit]:
+        return [_unparsed(artifact_id, rel, reason, (first, last)) for reason, first, last in self.problems]
 
 
 _BRACKET = re.compile(r"[{}\[\]()]")
+_CLOSER = {"{": "}", "[": "]", "(": ")"}
 _KEY = re.compile(r"[A-Za-z_$][\w$-]*|\d+(?:\.\d+)?|'[^'\n]*'|\"[^\"\n]*\"")
 
 
-def _closing(masked: str, start: int) -> int:
-    """The offset of the bracket that closes the one at start, or -1 if it is never closed."""
-    depth = 0
-    for match in _BRACKET.finditer(masked, start):
-        if match.group() in "{[(":
-            depth += 1
-        else:
-            depth -= 1
-            if depth == 0:
-                return match.start()
-    return -1
+def _closing(masked: str, start: int, end: int | None = None) -> int:
+    """The offset of the bracket that closes the one at start, before end. Brackets pair by
+    kind: one closed by the wrong kind, or not closed before end, raises _Unbalanced."""
+    end = len(masked) if end is None else end
+    opened: list[int] = []
+    for match in _BRACKET.finditer(masked, start, end):
+        char = match.group()
+        if char in _CLOSER:
+            opened.append(match.start())
+            continue
+        if not opened or _CLOSER[masked[opened[-1]]] != char:
+            raise _Unbalanced(opened[-1] if opened else match.start(), match.start(), char)
+        opened.pop()
+        if not opened:
+            return match.start()
+    raise _Unbalanced(start, end, None)
 
 
 def _trim(masked: str, start: int, end: int) -> tuple[int, int]:
@@ -325,7 +397,12 @@ def _trim(masked: str, start: int, end: int) -> tuple[int, int]:
 
 def _is_object(code: _Code, start: int, end: int) -> bool:
     """Whether text[start:end] is exactly one object literal."""
-    return start < end and code.masked[start] == "{" and _closing(code.masked, start) == end - 1
+    if not (start < end and code.masked[start] == "{"):
+        return False
+    try:
+        return _closing(code.masked, start, end) == end - 1
+    except _Unbalanced:
+        return False
 
 
 def _entries(code: _Code, open_at: int, close_at: int) -> list[tuple[str, int, int, int]]:
@@ -468,22 +545,31 @@ def _group(name: str, value: object, declared: object = None) -> str | None:
     return _group_by_value(value) if isinstance(value, str) else None
 
 
+# A design token as read: its group, name and value, and the first and last line it is written on.
+_Token = tuple[str, str, str, int, int]
+
+
+def _span(first: int, last: int) -> str:
+    return f"line {first}" if first == last else f"lines {first}-{last}"
+
+
 def _token_units(artifact_id: str, rel: str, source: str,
-                 tokens: list[tuple[str, str, str, int]], *, truncated: bool) -> list[Unit]:
-    """One design_token Unit per group found in the file, spanning its tokens' lines."""
+                 tokens: list[_Token], *, truncated: bool) -> list[Unit]:
+    """One design_token Unit per group found in the file, spanning every line of its tokens."""
     units: list[Unit] = []
     for group in GROUPS:
         found = [token for token in tokens if token[0] == group]
         if not found:
             continue
-        lines = [token[3] for token in found]
         listed = "\n".join(
-            f"- {name}: {_clip(value, 200)} (line {line})" for _, name, value, line in found
+            f"- {name}: {_clip(value, 200)} ({_span(first, last)})"
+            for _, name, value, first, last in found
         )
         body = f"{len(found)} {group} token(s) in {rel}, read as text from {_SOURCES[source]}.\n{listed}"
         units.append(_unit(
             artifact_id, "design_token", f"{group.capitalize()} tokens: {rel}", body,
-            Location(rel, min(lines), max(lines)), (NAME, group, source),
+            Location(rel, min(token[3] for token in found), max(token[4] for token in found)),
+            (NAME, group, source),
         ))
     if truncated:
         units.append(_unparsed(
@@ -494,23 +580,55 @@ def _token_units(artifact_id: str, rel: str, source: str,
 
 _CUSTOM_PROPERTY = re.compile(r"(?<![\w-])(--[\w-]+)\s*:([^;{}]*)")
 _LIQUID_TAG = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.S)
+_BRACE = re.compile(r"[{}]")
+
+
+def _check_braces(code: _Code) -> None:
+    """Records the first brace in a stylesheet that does not pair: a '}' that closes no block,
+    or a '{' never closed."""
+    depth = outer = 0
+    for match in _BRACE.finditer(code.masked):
+        if match.group() == "{":
+            if depth == 0:
+                outer = match.start()
+            depth += 1
+        elif depth:
+            depth -= 1
+        else:
+            line = code.lines.line(match.start())
+            code.problem(f"the stylesheet's braces do not pair: the '}}' on line {line} closes no block",
+                         match.start(), match.start())
+            return
+    if depth:
+        line = code.lines.line(outer)
+        code.problem(f"the stylesheet's braces do not pair: the '{{' on line {line} is never closed",
+                     outer, len(code.masked))
 
 
 def _read_css(artifact_id: str, rel: str, text: str) -> list[Unit]:
-    masked = _mask(text, script=False)
+    """The custom properties of a stylesheet, and what in it does not scan: an unclosed comment
+    or a brace that does not pair."""
+    code = _Code(text, script=False)
     if rel.lower().endswith(".liquid"):
-        masked = _LIQUID_TAG.sub(_blank, masked)
-    lines = _Lines(text)
-    tokens: list[tuple[str, str, str, int]] = []
-    for match in _CUSTOM_PROPERTY.finditer(masked):
+        code.masked = _LIQUID_TAG.sub(_blank, code.masked)
+    _check_braces(code)
+    tokens: list[_Token] = []
+    truncated = False
+    for match in _CUSTOM_PROPERTY.finditer(code.masked):
         name = text[match.start(1):match.end(1)]
-        value = _squash(text[match.start(2):match.end(2)])
+        raw = text[match.start(2):match.end(2)]
+        value = _squash(raw)
         group = _group(name, value)
         if value and group:
             if len(tokens) >= MAX_TOKENS:
-                return _token_units(artifact_id, rel, "css", tokens, truncated=True)
-            tokens.append((group, name, value, lines.line(match.start(1))))
-    return _token_units(artifact_id, rel, "css", tokens, truncated=False)
+                truncated = True
+                break
+            last = match.start(2) + len(raw.rstrip()) - 1
+            tokens.append((group, name, value, code.lines.line(match.start(1)), code.lines.line(last)))
+    return [
+        *_token_units(artifact_id, rel, "css", tokens, truncated=truncated),
+        *code.unparsed(artifact_id, rel),
+    ]
 
 
 def _json_spans(text: str) -> dict[tuple, list[int]]:
@@ -527,6 +645,9 @@ def _json_spans(text: str) -> dict[tuple, list[int]]:
         if not frames or not frames[-1][0]:
             spans[here()] = [line, line]
 
+    def finish() -> None:
+        spans.setdefault(here(), [line, line])[1] = line
+
     while index < size:
         char = text[index]
         if char == "\n":
@@ -541,6 +662,7 @@ def _json_spans(text: str) -> dict[tuple, list[int]]:
                 spans[here()] = [line, line]
             else:
                 begin()
+                finish()
             index = end
         elif char in "{[":
             begin()
@@ -548,7 +670,7 @@ def _json_spans(text: str) -> dict[tuple, list[int]]:
         elif char in "}]":
             if frames:
                 frames.pop()
-            spans.setdefault(here(), [line, line])[1] = line
+            finish()
         elif char == ",":
             if frames and frames[-1][0]:
                 frames[-1][2] = True
@@ -558,12 +680,13 @@ def _json_spans(text: str) -> dict[tuple, list[int]]:
             begin()
             while index + 1 < size and text[index + 1] not in ",]} \t\r\n":
                 index += 1
+            finish()
         index += 1
     return spans
 
 
 def _json_tokens(node: object, path: tuple, declared: object, spans: dict[tuple, list[int]],
-                 tokens: list[tuple[str, str, str, int]], depth: int) -> bool:
+                 tokens: list[_Token], depth: int) -> bool:
     """Collects the tokens under node, in document order: W3C design tokens ($value, $type,
     inherited from the group) and Style Dictionary or Tokens Studio ones (value, type). True
     when MAX_TOKENS cut the collection short."""
@@ -574,14 +697,17 @@ def _json_tokens(node: object, path: tuple, declared: object, spans: dict[tuple,
         "value" in node and ("type" in node or not isinstance(node["value"], dict))
     )
     if is_token:
-        value = node["$value"] if "$value" in node else node["value"]
+        key = "$value" if "$value" in node else "value"
+        value = node[key]
         name = ".".join(str(part) for part in path) or "(root)"
         group = _group(name, value, node.get("$type") or node.get("type") or declared)
         if group:
             if len(tokens) >= MAX_TOKENS:
                 return True
             shown = _squash(value) if isinstance(value, str) else _show(value, 200)
-            tokens.append((group, name, shown, spans.get(path, [1, 1])[0]))
+            first = spans.get(path, [1, 1])[0]           # the line of the token's name
+            last = spans.get((*path, key), [first, first])[1]   # where its value ends
+            tokens.append((group, name, shown, first, max(first, last)))
         return False
     for key, child in node.items():
         if not key.startswith("$") and _json_tokens(
@@ -593,7 +719,7 @@ def _json_tokens(node: object, path: tuple, declared: object, spans: dict[tuple,
 
 def _read_tokens(artifact_id: str, rel: str, text: str) -> list[Unit]:
     data = json.loads(text)
-    tokens: list[tuple[str, str, str, int]] = []
+    tokens: list[_Token] = []
     truncated = _json_tokens(data, (), None, _json_spans(text), tokens, 0)
     return _token_units(artifact_id, rel, "tokens_json", tokens, truncated=truncated)
 
@@ -620,34 +746,40 @@ def _read_tailwind(artifact_id: str, rel: str, text: str) -> list[Unit]:
     code = _Code(text, script=True)
     found = _THEME.search(code.masked)
     if found is None:
-        raise _Skipped(
-            "no literal theme object to read: a Tailwind configuration is read as text and never evaluated"
-        )
+        return [_unparsed(
+            artifact_id, rel,
+            "no literal theme object to read: a Tailwind configuration is read as text and never evaluated",
+        ), *code.unparsed(artifact_id, rel)]
     open_at = found.end() - 1
-    close_at = _closing(code.masked, open_at)
-    if close_at < 0:
-        raise _Skipped("the theme object is never closed")
-    tokens: list[tuple[str, str, str, int]] = []
+    try:
+        close_at = _closing(code.masked, open_at)
+    except _Unbalanced as exc:
+        code.unbalanced("the theme object", found.start(), exc)
+        return code.unparsed(artifact_id, rel)
+    tokens: list[_Token] = []
     for entry in _entries(code, open_at, close_at):
         if entry[0] == "extend" and _is_object(code, entry[2], entry[3]):
             for inner in _entries(code, entry[2], entry[3] - 1):
                 _theme_entry(code, ("extend",), inner, tokens)
         else:
             _theme_entry(code, (), entry, tokens)
-    return _token_units(
-        artifact_id, rel, "tailwind", tokens[:MAX_TOKENS], truncated=len(tokens) > MAX_TOKENS
-    )
+    return [
+        *_token_units(
+            artifact_id, rel, "tailwind", tokens[:MAX_TOKENS], truncated=len(tokens) > MAX_TOKENS
+        ),
+        *code.unparsed(artifact_id, rel),
+    ]
 
 
 def _theme_entry(code: _Code, prefix: tuple[str, ...], entry: tuple[str, int, int, int],
-                 tokens: list[tuple[str, str, str, int]]) -> None:
+                 tokens: list[_Token]) -> None:
     group = _TAILWIND_GROUPS.get(entry[0])
     if group is not None:
         _flatten(code, group, (*prefix, entry[0]), entry, tokens, 0)
 
 
 def _flatten(code: _Code, group: str, path: tuple[str, ...], entry: tuple[str, int, int, int],
-             tokens: list[tuple[str, str, str, int]], depth: int) -> None:
+             tokens: list[_Token], depth: int) -> None:
     _, key_at, value_at, value_end = entry
     if len(tokens) > MAX_TOKENS:
         return
@@ -656,7 +788,9 @@ def _flatten(code: _Code, group: str, path: tuple[str, ...], entry: tuple[str, i
             _flatten(code, group, (*path, inner[0]), inner, tokens, depth + 1)
     else:
         value = _squash(code.text[value_at:value_end])
-        tokens.append((group, ".".join(path), value, code.lines.line(key_at)))
+        tokens.append((
+            group, ".".join(path), value, code.lines.line(key_at), code.lines.line(value_end - 1),
+        ))
 
 
 # --- Shopify themes ----------------------------------------------------------------------------
@@ -666,6 +800,7 @@ _SCHEMA_OPEN = re.compile(r"\{%-?\s*schema\s*-?%\}")
 _LIQUID_BLOCK = re.compile(
     r"\{%-?\s*(schema|javascript|stylesheet|style|comment)\s*-?%\}.*?\{%-?\s*end\1\s*-?%\}", re.S
 )
+_BLOCK_OPEN = re.compile(r"\{%-?\s*(javascript|stylesheet|style|comment)\s*-?%\}")
 _LIQUID_STATEMENT = re.compile(r"\{%.*?%\}", re.S)
 _JAVASCRIPT = re.compile(r"\{%-?\s*javascript\s*-?%\}")
 _RENDER = re.compile(r"\{%-?\s*(render|include|section)\s+['\"]([^'\"]+)['\"]")
@@ -772,6 +907,19 @@ def _read_liquid(artifact_id: str, rel: str, text: str) -> list[Unit]:
         f"The Shopify {kind} '{name}' in {rel} ({lines.last} lines). Its scripts are not read.",
         "Schema: " + ("; ".join(schemas) if schemas else "none"),
     ]
+    unclosed = _BLOCK_OPEN.search(without_blocks)
+    if unclosed:   # nothing after it is read: it may be a script
+        span = (lines.line(unclosed.start()), lines.last)
+        units.append(_unparsed(
+            artifact_id, rel,
+            f"a {{% {unclosed.group(1)} %}} block in {rel} is never closed: nothing after it is read",
+            span,
+        ))
+        body.append(f"Not read: lines {span[0]}-{span[1]}, an unclosed {{% {unclosed.group(1)} %}} "
+                    "block (see its 'unparsed' unit)")
+        without_blocks = without_blocks[:unclosed.start()] + _NOT_NEWLINE.sub(
+            " ", without_blocks[unclosed.start():]
+        )
     body += _listed("Renders", [
         f"- line {lines.line(match.start())}: {match.group(1)} '{match.group(2)}'"
         for match in _RENDER.finditer(without_blocks)
@@ -786,7 +934,13 @@ def _read_liquid(artifact_id: str, rel: str, text: str) -> list[Unit]:
     if scripts:
         body.append(f"{{% javascript %}} blocks: {scripts}, not read or run")
     body.append("Markup structure:")
-    body += _structure_lines(_LIQUID_STATEMENT.sub(_blank, without_blocks))
+    try:
+        body += _structure_lines(_LIQUID_STATEMENT.sub(_blank, without_blocks))
+    except Exception as exc:  # markup past what the parser tolerates: say so, do not raise
+        body.append("- not readable (see its 'unparsed' unit)")
+        units.append(_unparsed(
+            artifact_id, rel, f"the markup of {rel} cannot be read: {_reason(exc)}", (1, lines.last)
+        ))
     pattern = _unit(
         artifact_id, "pattern", f"Shopify {kind}: {name}", "\n".join(body),
         Location(rel, 1, lines.last), (NAME, "shopify", kind),
@@ -947,12 +1101,10 @@ class _Structure(HTMLParser):
 
 
 def _structure_lines(markup: str, *, scripts: bool = True) -> list[str]:
+    """The outline of markup; raises on markup past what the parser tolerates."""
     parser = _Structure()
-    try:
-        parser.feed(markup)
-        parser.close()
-    except Exception as exc:  # markup past what the parser tolerates: say so, do not raise
-        return [f"Markup not readable: {_reason(exc)}"]
+    parser.feed(markup)
+    parser.close()
     return parser.summary(scripts=scripts)
 
 
@@ -986,6 +1138,7 @@ _TYPE_DECLARATION = re.compile(
 )
 _PROP_TYPES = re.compile(r"(?<![\w$])([A-Z][\w$]*)\.propTypes\s*=\s*\{")
 _SCRIPT_BLOCK = re.compile(r"<script\b[^>]*>(.*?)</script\s*>", re.S | re.I)
+_SCRIPT_OPEN = re.compile(r"<script\b", re.I)
 _DEFINE_PROPS = re.compile(r"(?<![\w$])defineProps\s*(?:<\s*([A-Za-z_$][\w$]*|\{)|\(\s*([\[{]))")
 _OPTIONS_PROPS = re.compile(r"(?<![\w$.])props\s*:\s*[\[{]")
 _EXPORT_LET = re.compile(r"(?<![\w$])export\s+let\s+([^;\n]+)")
@@ -999,15 +1152,27 @@ def _declared_types(code: _Code, start: int, end: int) -> dict[str, tuple[int, l
     types: dict[str, tuple[int, list[str]]] = {}
     for match in _TYPE_DECLARATION.finditer(code.masked, start, end):
         name = match.group(1) or match.group(2)
-        close_at = _closing(code.masked, match.end() - 1)
-        if close_at > 0 and name not in types and len(types) < MAX_COMPONENTS:
-            types[name] = (code.lines.line(match.start()), _members(code, match.end() - 1, close_at))
+        if name in types or len(types) >= MAX_COMPONENTS:
+            continue
+        try:
+            close_at = _closing(code.masked, match.end() - 1, end)
+        except _Unbalanced as exc:
+            code.unbalanced(f"the type {_clip(name, 80)}", match.start(), exc)
+            continue
+        types[name] = (code.lines.line(match.start()), _members(code, match.end() - 1, close_at))
     return types
 
 
-def _literal_members(code: _Code, open_at: int) -> list[str]:
-    close_at = _closing(code.masked, open_at)
-    return _members(code, open_at, close_at) if close_at > open_at else []
+def _literal_members(code: _Code, start: int, open_at: int, what: str,
+                     end: int | None = None) -> list[str]:
+    """The members of the literal whose bracket is at open_at, for what starts at start; none,
+    and a problem recorded, if its brackets do not pair before end."""
+    try:
+        close_at = _closing(code.masked, open_at, end)
+    except _Unbalanced as exc:
+        code.unbalanced(what, start, exc)
+        return []
+    return _members(code, open_at, close_at)
 
 
 def _params(code: _Code, open_at: int, close_at: int,
@@ -1041,15 +1206,24 @@ def _jsx_props(code: _Code) -> list[str]:
         if name in named or len(named) >= MAX_COMPONENTS:
             continue
         open_at = match.end() - 1
-        close_at = _closing(code.masked, open_at)
-        if close_at < 0 or (is_const and not _ARROW_OR_BODY.match(code.masked, close_at + 1)):
+        line = code.lines.line(match.start(1))
+        try:
+            close_at = _closing(code.masked, open_at)
+        except _Unbalanced as exc:
+            named.add(name)
+            code.unbalanced(f"the parameters of {_clip(name, 80)}", match.start(), exc)
+            lines.append(f"- {name} (line {line}): parameters not readable (see its 'unparsed' unit)")
+            continue
+        if is_const and not _ARROW_OR_BODY.match(code.masked, close_at + 1):
             continue
         named.add(name)
         note, members = _params(code, open_at, close_at, types)
-        lines.append(f"- {name} (line {code.lines.line(match.start(1))}){note}")
+        lines.append(f"- {name} (line {line}){note}")
         lines += [f"  - {member}" for member in members[:MAX_LISTED]]
     for match in list(_PROP_TYPES.finditer(code.masked))[:MAX_COMPONENTS]:
-        members = _literal_members(code, match.end() - 1)
+        members = _literal_members(
+            code, match.start(), match.end() - 1, f"the propTypes of {_clip(match.group(1), 80)}"
+        )
         lines.append(f"- {match.group(1)}.propTypes (line {code.lines.line(match.start())})")
         lines += [f"  - {member}" for member in members[:MAX_LISTED]]
     body = ["Components:", *lines] if lines else ["Components: none found"]
@@ -1066,8 +1240,10 @@ def _sfc_props(code: _Code, framework: str) -> list[str]:
     """The props a Vue or Svelte single-file component declares in its script blocks."""
     props: list[str] = []
     masked = code.masked
+    after = 0
     for block in _SCRIPT_BLOCK.finditer(masked):
         start, end = block.start(1), block.end(1)
+        after = block.end()
         types = _declared_types(code, start, end)
         if framework == "vue":
             for match in _DEFINE_PROPS.finditer(masked, start, end):
@@ -1078,18 +1254,28 @@ def _sfc_props(code: _Code, framework: str) -> list[str]:
                         f"line {code.lines.line(match.start())}: typed as {named}, declared elsewhere"
                     ]
                 else:
-                    props += _literal_members(code, match.end() - 1)
+                    props += _literal_members(code, match.start(), match.end() - 1, "defineProps", end)
             for match in _OPTIONS_PROPS.finditer(masked, start, end):
-                props += _literal_members(code, match.end() - 1)
+                props += _literal_members(code, match.start(), match.end() - 1, "the props option", end)
         else:
             for match in _EXPORT_LET.finditer(masked, start, end):
                 prop = _clip(_squash(code.text[match.start(1):match.end(1)]), 120)
                 props.append(f"line {code.lines.line(match.start(1))}: {prop}")
             for match in _RUNES_PROPS.finditer(masked, start, end):
                 open_at = match.end() - 1
-                close_at = _closing(masked, open_at)
-                if close_at > 0 and _RUNES_TAIL.match(masked, close_at + 1, end):
+                try:
+                    close_at = _closing(masked, open_at, end)
+                except _Unbalanced as exc:
+                    code.unbalanced("a destructuring let", match.start(), exc)
+                    continue
+                if _RUNES_TAIL.match(masked, close_at + 1, end):
                     props += _members(code, open_at, close_at)
+    unclosed = _SCRIPT_OPEN.search(masked, after)
+    if unclosed:
+        code.problem(
+            f"the <script> on line {code.lines.line(unclosed.start())} is never closed: it is not read",
+            unclosed.start(), len(masked),
+        )
     if not props:
         return ["Props: none readable from the source"]
     return _listed("Props", [f"- {prop}" for prop in props])
@@ -1110,11 +1296,17 @@ def _read_component(artifact_id: str, rel: str, text: str) -> list[Unit]:
     else:
         body += _sfc_props(code, framework)
         body.append("Markup structure:")
-        body += _structure_lines(text, scripts=False)
+        try:
+            body += _structure_lines(text, scripts=False)
+        except Exception as exc:  # markup past what the parser tolerates: say so, do not raise
+            body.append("- not readable (see its 'unparsed' unit)")
+            code.problem(f"the markup cannot be read: {_reason(exc)}", 0, len(text))
+    if code.problems:
+        body.append(f"Not read: {len(code.problems)} part(s), each in an 'unparsed' unit")
     return [_unit(
         artifact_id, "pattern", f"Component {name}: {rel}", "\n".join(body),
         Location(rel, 1, code.lines.last), (NAME, "component", framework),
-    )]
+    ), *code.unparsed(artifact_id, rel)]
 
 
 _READERS = {

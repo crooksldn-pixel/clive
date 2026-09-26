@@ -392,6 +392,79 @@ def test_a_tailwind_configuration_is_read_as_text_and_never_evaluated(tmp_path):
     assert not (tmp_path / "pwned").exists()
 
 
+MULTILINE_CSS = """\
+:root {
+  --shadow-stack:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 4px 8px rgba(0, 0, 0, 0.1);
+  --color-ink: #111;
+}
+"""
+
+MULTILINE_TOKENS = """\
+{
+  "font": {
+    "body": {
+      "$type": "fontFamily",
+      "$value": [
+        "Inter",
+        "sans-serif"
+      ]
+    }
+  },
+  "color": {
+    "ink": {
+      "$value":
+        "#111111"
+    }
+  }
+}
+"""
+
+MULTILINE_TAILWIND = """\
+module.exports = {
+  theme: {
+    boxShadow: {
+      card: [
+        '0 1px 2px rgba(0,0,0,0.1)',
+        '0 4px 8px rgba(0,0,0,0.1)',
+      ],
+    },
+    colors: { ink: '#111' },
+  },
+}
+"""
+
+
+def test_a_token_written_over_several_lines_is_located_on_all_of_them(tmp_path):
+    _write(tmp_path, "multi.css", MULTILINE_CSS)
+    _write(tmp_path, "tokens.json", MULTILINE_TOKENS)
+    _write(tmp_path, "tailwind.config.js", MULTILINE_TAILWIND)
+    units = design.decompose(tmp_path, ART)
+    assert not [unit for unit in units if "unparsed" in unit.tags]
+
+    shadow = _one(units, "multi.css", "design_token", "shadow")
+    assert shadow.location == Location("multi.css", 2, 4)
+    assert ("- --shadow-stack: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 8px rgba(0, 0, 0, 0.1) "
+            "(lines 2-4)") in _lines(shadow)
+    assert _one(units, "multi.css", "design_token", "colour").location == Location("multi.css", 5, 5)
+
+    typography = _one(units, "tokens.json", "design_token", "typography")
+    assert typography.location == Location("tokens.json", 3, 8)
+    assert '- font.body: ["Inter", "sans-serif"] (lines 3-8)' in _lines(typography)
+    colour = _one(units, "tokens.json", "design_token", "colour")
+    assert colour.location == Location("tokens.json", 12, 14)
+    assert "- color.ink: #111111 (lines 12-14)" in _lines(colour)
+
+    rel = "tailwind.config.js"
+    shadow = _one(units, rel, "design_token", "shadow")
+    assert shadow.location == Location(rel, 4, 7)
+    [card] = [line for line in _lines(shadow) if line.startswith("- boxShadow.card:")]
+    assert "'0 1px 2px rgba(0,0,0,0.1)'" in card and "'0 4px 8px rgba(0,0,0,0.1)'" in card
+    assert card.endswith("(lines 4-7)")
+    assert _one(units, rel, "design_token", "colour").location == Location(rel, 9, 9)
+
+
 def test_a_theme_only_code_could_produce_is_reported_not_run(tmp_path):
     _write(tmp_path, "tailwind.config.js", "module.exports = require('./preset')\n")
     [unit] = design.decompose(tmp_path, ART)
@@ -606,6 +679,30 @@ def test_the_number_of_units_is_bounded(tmp_path, monkeypatch):
     assert "stopped at 2 units: c.css" in units[-1].body
 
 
+def test_the_directory_entries_looked_at_are_bounded(tmp_path, monkeypatch):
+    monkeypatch.setattr(design, "MAX_ENTRIES", 5)
+    _write(tmp_path, "a.css", ":root { --color-a: #000; }\n")
+    for index in range(10):                                   # more empty directories than the bound
+        (tmp_path / "empty" / f"d{index}").mkdir(parents=True)
+    _write(tmp_path, "later/b.css", ":root { --color-b: #fff; }\n")
+    units = design.decompose(tmp_path, ART)
+    assert [unit.location.path for unit in units] == ["a.css", "."]
+    note = units[-1]
+    assert note.kind == "knowledge" and "unparsed" in note.tags
+    assert "more than 5 directory entries in the artifact: empty and the directories after" in note.body
+    assert units == design.decompose(tmp_path, ART)
+
+
+def test_a_deep_tree_of_empty_directories_is_bounded(tmp_path, monkeypatch):
+    monkeypatch.setattr(design, "MAX_ENTRIES", 5)
+    _write(tmp_path, "a.css", ":root { --color-a: #000; }\n")
+    (tmp_path / "deep" / Path(*["x"] * 20)).mkdir(parents=True)
+    units = design.decompose(tmp_path, ART)
+    assert [unit.location.path for unit in units] == ["a.css", "."]
+    assert "more than 5 directory entries in the artifact: deep/x/x/x and" in units[-1].body
+    assert units == design.decompose(tmp_path, ART)
+
+
 def test_the_number_of_tokens_is_bounded(tmp_path, monkeypatch):
     monkeypatch.setattr(design, "MAX_TOKENS", 3)
     _write(tmp_path, "many.css",
@@ -636,11 +733,23 @@ MALFORMED = {
     "styles/binary.css": b"\xff\xfe\x00--color-x: red;",
     "tailwind.config.js": "module.exports = require('./preset')\n",
     "unclosed/tailwind.config.js": "module.exports = { theme: { colors: { red: '#f00' \n",
+    "mismatch/tailwind.config.js": "module.exports = { theme: { colors: { red: '#f00' ] } }\n",
+    "styles/open-comment.css": ":root { --color-a: #000; }\n/* never closed\n:root { --color-b: #fff; }\n",
+    "styles/unclosed.css": ":root {\n  --color-a: #000;\n",
     "sections/broken.liquid": (
         '<div class="broken"></div>\n{% schema %}\n{ "name": "Broken", }\n{% endschema %}\n'
     ),
     "sections/open.liquid": '<div></div>\n{% schema %}\n{ "name": "Open" }\n',
+    "snippets/script.liquid": (
+        '<div class="x"></div>\n{% javascript %}\n  document.title = "{{ settings.x }}"\n'
+    ),
     "components/Broken.jsx": "export function Broken({ a, b\n",
+    "components/Mismatch.tsx": "export const Mismatch = ({ a, b ) => null\n",
+    "components/Open.vue": (
+        "<script setup>\nconst props = defineProps({\n  label: String,\n</script>\n"
+        "<template><p>{{ label }}</p></template>\n"
+    ),
+    "components/Unclosed.svelte": "<script>\n  export let start = 0;\n",
     "pages/odd.html": "<div <<>> </p></p><![bogus[ x ]]><!-- never closed",
 }
 
@@ -659,20 +768,51 @@ def test_malformed_input_yields_unparsed_units_not_exceptions(tmp_path):
         "config/settings_schema.json": "is not a JSON array of setting groups",
         "styles/binary.css": "not UTF-8 text",
         "tailwind.config.js": "never evaluated",
-        "unclosed/tailwind.config.js": "never closed",
+        "unclosed/tailwind.config.js": "the theme object cannot be read: the '{' on line 1 is never closed",
+        "mismatch/tailwind.config.js": "the theme object cannot be read: the '{' on line 1 is closed by ']'",
+        "styles/open-comment.css": "a /* comment on line 2 is never closed",
+        "styles/unclosed.css": "the '{' on line 1 is never closed",
         "sections/broken.liquid": "is not a JSON object that can be read: JSONDecodeError",
         "sections/open.liquid": "is never closed",
+        "snippets/script.liquid": "{% javascript %} block in snippets/script.liquid is never closed",
+        "components/Broken.jsx": "the parameters of Broken cannot be read: the '(' on line 1 is never closed",
+        "components/Mismatch.tsx": "the parameters of Mismatch cannot be read: the '{' on line 1 is closed by ')'",
+        "components/Open.vue": "defineProps cannot be read: the '{' on line 2 is never closed",
+        "components/Unclosed.svelte": "the <script> on line 1 is never closed",
         "styles/linked.css": "not a regular file",
     }
     for rel, reason in expected.items():
         [unit] = _unparsed(units, rel)
         assert unit.kind == "knowledge" and unit.tags == ("design", "unparsed"), rel
         assert reason in unit.body, (rel, unit.body)
-    assert _unparsed(units, "sections/broken.liquid")[0].location == Location("sections/broken.liquid", 2, 4)
-    assert _unparsed(units, "sections/open.liquid")[0].location == Location("sections/open.liquid", 2, 3)
+        assert len(unit.body) <= 1_000, rel                   # the reason is bounded
+    spans = {
+        "sections/broken.liquid": (2, 4), "sections/open.liquid": (2, 3),
+        "styles/open-comment.css": (2, 3), "styles/unclosed.css": (1, 2),
+        "snippets/script.liquid": (2, 3), "mismatch/tailwind.config.js": (1, 1),
+        "components/Broken.jsx": (1, 1), "components/Mismatch.tsx": (1, 1),
+        "components/Open.vue": (2, 4), "components/Unclosed.svelte": (1, 2),
+    }
+    for rel, span in spans.items():
+        assert _unparsed(units, rel)[0].location == Location(rel, *span), rel
     broken = _one(units, "sections/broken.liquid", "pattern")
     assert "Schema: lines 2-4, not readable (see its 'unparsed' unit)" in _lines(broken)
-    assert _one(units, "components/Broken.jsx", "pattern").body.endswith("Components: none found")
+    script = _one(units, "snippets/script.liquid", "pattern")
+    assert "settings.x" not in script.body                   # nothing after the open block is read
+
+    # what cannot be parsed is not passed off as parsed: no tokens from unbalanced theme objects,
+    # and a component whose signature does not close is reported rather than "none found"
+    assert not [unit for unit in units if unit.location.path.endswith("tailwind.config.js")
+                and unit.kind == "design_token"]
+    component = _one(units, "components/Broken.jsx", "pattern")
+    assert "- Broken (line 1): parameters not readable (see its 'unparsed' unit)" in _lines(component)
+    assert "Components: none found" not in component.body
+    assert "Not read: 1 part(s), each in an 'unparsed' unit" in _lines(component)
+    assert "- Mismatch (line 1): parameters not readable (see its 'unparsed' unit)" in _lines(
+        _one(units, "components/Mismatch.tsx", "pattern")
+    )
+    for rel in ("styles/open-comment.css", "styles/unclosed.css"):   # what could be read still is
+        assert _one(units, rel, "design_token", "colour").body.startswith("1 colour token(s)")
     assert [unit for unit in units if unit.location.path == "pages/odd.html"]
     assert "--color-secret" not in "\n".join(unit.body for unit in units)
 
