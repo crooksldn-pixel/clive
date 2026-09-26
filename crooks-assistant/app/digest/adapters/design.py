@@ -13,7 +13,10 @@ unread; each .jsx, .tsx, .vue and .svelte file becomes a pattern Unit of its pro
 source states them.
 
 Nothing read is executed, imported or installed, and nothing is written. Links are not
-followed. Files, counts, tokens and bodies are bounded by the limits below. Units come back in
+followed. Files, counts, tokens and bodies are bounded by the limits below, and so is time:
+each file is read in about one pass — no pattern searches on to the end of the
+file from each of many places, and no bracket is paired twice — however it is written. A
+"<script/>" hides what follows it, as a browser runs it, and a javascript: URL is not shown. Units come back in
 path order, and in a fixed order within a file, with exact line spans. What cannot be read —
 a file, or a part of one whose comments, strings, blocks, script or style elements or brackets
 are never closed or do not pair — does not raise: it becomes a knowledge Unit tagged 'unparsed'
@@ -338,6 +341,35 @@ def _blank(match: re.Match[str]) -> str:
     return _NOT_NEWLINE.sub(" ", match.group())
 
 
+_LIQUID_TAGS = (("{{", "}}"), ("{%", "%}"))
+_LIQUID_STATEMENTS = (("{%", "%}"),)
+
+
+def _blank_between(text: str, pairs: tuple[tuple[str, str], ...]) -> str:
+    """text with each span from an opener to the first closer of its pair after it blanked,
+    line breaks kept — what a lazy pattern from "{%" to "%}" would find, found in one pass. It
+    searches to the end from every opener that has no closer after it, which a text of openers
+    alone makes cost its length squared; here, once no closer of a pair is left, its openers
+    are passed over."""
+    finder = re.compile("|".join(re.escape(opener) for opener, _ in pairs))
+    closers = dict(pairs)
+    spent: set[str] = set()
+    out: list[str] = []
+    last = index = 0
+    while (match := finder.search(text, index)) is not None:
+        opener = match.group()
+        end = -1 if opener in spent else text.find(closers[opener], match.end())
+        if end < 0:
+            spent.add(opener)
+            index = match.start() + 1
+            continue
+        end += len(closers[opener])
+        out += [text[last:match.start()], _NOT_NEWLINE.sub(" ", text[match.start():end])]
+        last = index = end
+    out.append(text[last:])
+    return "".join(out)
+
+
 class _Unbalanced(ValueError):
     """Brackets that do not pair: the bracket opened at `opened`, and what was found at `found`
     — the wrong kind of closing bracket, or, when closer is None, the end with it still open."""
@@ -357,9 +389,13 @@ class _Code:
     where it cuts into something read."""
 
     def __init__(self, text: str, *, script: bool, line_comments: bool = False,
-                 lone_quotes: bool = False) -> None:
+                 lone_quotes: bool = False, liquid: bool = False) -> None:
         self.text = text
         self.masked, unclosed, self.cuts = _mask(text, script=script, line_comments=line_comments)
+        if liquid:      # Liquid's own tags hold no code of the stylesheet's
+            self.masked = _blank_between(self.masked, _LIQUID_TAGS)
+        # each bracket's pairing once found: the offset of its closer, or what is wrong with it
+        self._closed: dict[int, int | tuple[int, int, str | None]] = {}
         self.lines = _Lines(text)
         self.lone_quotes = lone_quotes
         self.problems: list[tuple[str, int, int]] = []
@@ -405,28 +441,66 @@ class _Code:
     def unparsed(self, artifact_id: str, rel: str) -> list[Unit]:
         return [_unparsed(artifact_id, rel, reason, (first, last)) for reason, first, last in self.problems]
 
+    def closing(self, start: int, end: int | None = None) -> int:
+        """The offset of the bracket that closes the one at start, before end. Brackets pair by
+        kind: one closed by the wrong kind, or not closed before end, raises _Unbalanced.
+
+        Each bracket is paired once and remembered, with every bracket its pairing passes, so
+        asking of brackets nested inside one another — a thousand "const A = (" before their
+        closers — costs the text once, not once for every bracket."""
+        end = len(self.masked) if end is None else end
+        found = self._closed.get(start)
+        if found is None:
+            self._pair(start)
+            found = self._closed.get(start, (start, len(self.masked), None))
+        if isinstance(found, int):
+            if found < end:
+                return found
+        elif found[2] is not None and found[1] < end:
+            raise _Unbalanced(*found)
+        raise _Unbalanced(start, end, None)
+
+    def _pair(self, start: int) -> None:
+        """Pairs the bracket at start, recording each bracket settled on the way: its closer,
+        or what is wrong — the wrong kind of closer, which every bracket still open when it is
+        met shares, or the end reached with it open. A bracket already paired is stepped over
+        whole."""
+        masked, closed = self.masked, self._closed
+        opened: list[int] = []
+        position = start
+        while (match := _BRACKET.search(masked, position)) is not None:
+            at, char = match.start(), match.group()
+            position = at + 1
+            if char in _CLOSER:
+                known = closed.get(at)
+                if isinstance(known, int):
+                    position = known + 1
+                    continue
+                if known is not None:
+                    if known[2] is None:        # never closed, nor anything open around it
+                        break
+                    for bracket in opened:      # the same wrong closer ends them all
+                        closed[bracket] = known
+                    return
+                opened.append(at)
+                continue
+            if not opened or _CLOSER[masked[opened[-1]]] != char:
+                wrong = (opened[-1] if opened else at, at, char)
+                for bracket in opened:
+                    closed[bracket] = wrong
+                closed.setdefault(start, wrong)
+                return
+            closed[opened.pop()] = at
+            if not opened:
+                return
+        for bracket in opened:
+            closed[bracket] = (bracket, len(masked), None)
+        closed.setdefault(start, (start, len(masked), None))
+
 
 _BRACKET = re.compile(r"[{}\[\]()]")
 _CLOSER = {"{": "}", "[": "]", "(": ")"}
 _KEY = re.compile(r"[A-Za-z_$][\w$-]*|\d+(?:\.\d+)?|'[^'\n]*'|\"[^\"\n]*\"")
-
-
-def _closing(masked: str, start: int, end: int | None = None) -> int:
-    """The offset of the bracket that closes the one at start, before end. Brackets pair by
-    kind: one closed by the wrong kind, or not closed before end, raises _Unbalanced."""
-    end = len(masked) if end is None else end
-    opened: list[int] = []
-    for match in _BRACKET.finditer(masked, start, end):
-        char = match.group()
-        if char in _CLOSER:
-            opened.append(match.start())
-            continue
-        if not opened or _CLOSER[masked[opened[-1]]] != char:
-            raise _Unbalanced(opened[-1] if opened else match.start(), match.start(), char)
-        opened.pop()
-        if not opened:
-            return match.start()
-    raise _Unbalanced(start, end, None)
 
 
 def _trim(masked: str, start: int, end: int) -> tuple[int, int]:
@@ -442,7 +516,7 @@ def _is_object(code: _Code, start: int, end: int) -> bool:
     if not (start < end and code.masked[start] == "{"):
         return False
     try:
-        return _closing(code.masked, start, end) == end - 1
+        return code.closing(start, end) == end - 1
     except _Unbalanced:
         return False
 
@@ -544,9 +618,11 @@ _TYPOGRAPHY_PAIRS = (" line height", " letter spacing")
 _COLOUR_FUNCTIONS = r"(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\("
 _COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}|" + _COLOUR_FUNCTIONS + r".*\)", re.S)
 _HAS_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b|(?<![\w-])" + _COLOUR_FUNCTIONS)
-_DURATION = re.compile(r"-?(?:\d+\.?\d*|\.\d+)m?s", re.I)
+# a number is \d+(\.\d*)? rather than \d+\.?\d*, which splits a run of digits every way it can
+# before failing, and so costs a long run its length squared
+_DURATION = re.compile(r"-?(?:\d+(?:\.\d*)?|\.\d+)m?s", re.I)
 _EASING = re.compile(r"cubic-bezier\(|steps\(", re.I)
-_LENGTH = re.compile(r"(?<![\w.#-])-?(?:\d+\.?\d*|\.\d+)(?:px|rem|em)?(?![\w%.])")
+_LENGTH = re.compile(r"(?<![\w.#-])-?(?:\d+(?:\.\d*)?|\.\d+)(?:px|rem|em)?(?![\w%.])")
 _PARENTHESISED = re.compile(r"\([^()]*\)")
 
 
@@ -621,7 +697,6 @@ def _token_units(artifact_id: str, rel: str, source: str,
 
 
 _CUSTOM_PROPERTY = re.compile(r"(?<![\w-])(--[\w-]+)\s*:([^;{}]*)")
-_LIQUID_TAG = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.S)
 _BRACE = re.compile(r"[{}]")
 
 
@@ -652,9 +727,8 @@ def _read_css(artifact_id: str, rel: str, text: str) -> list[Unit]:
     a quoted string cut off by a line break, or a brace that does not pair."""
     # Sass and Less have // comments, which may hold a property, a brace or an apostrophe
     code = _Code(text, script=False,
-                 line_comments=rel.lower().endswith((".scss", ".less", ".scss.liquid")))
-    if rel.lower().endswith(".liquid"):
-        code.masked = _LIQUID_TAG.sub(_blank, code.masked)
+                 line_comments=rel.lower().endswith((".scss", ".less", ".scss.liquid")),
+                 liquid=rel.lower().endswith(".liquid"))
     _check_braces(code)
     tokens: list[_Token] = []
     truncated = False
@@ -765,6 +839,12 @@ def _json_tokens(node: object, path: tuple, declared: object, spans: dict[tuple,
 
 def _read_tokens(artifact_id: str, rel: str, text: str) -> list[Unit]:
     data = json.loads(text)
+    if not isinstance(data, dict):
+        held = {list: "an array", str: "a string", bool: "a boolean", type(None): "null"}
+        raise _Skipped(
+            f"not read as design tokens: {rel} holds {held.get(type(data), 'a number')}, not "
+            "an object of tokens and groups"
+        )
     tokens: list[_Token] = []
     truncated = _json_tokens(data, (), None, _json_spans(text), tokens, 0)
     return _token_units(artifact_id, rel, "tokens_json", tokens, truncated=truncated)
@@ -802,7 +882,7 @@ def _read_tailwind(artifact_id: str, rel: str, text: str) -> list[Unit]:
         ), *code.unparsed(artifact_id, rel)]
     open_at = found.end() - 1
     try:
-        close_at = _closing(code.masked, open_at)
+        close_at = code.closing(open_at)
     except _Unbalanced as exc:
         code.unbalanced("the theme object", found.start(), exc)
         return code.unparsed(artifact_id, rel)
@@ -849,15 +929,35 @@ def _flatten(code: _Code, group: str, path: tuple[str, ...], entry: tuple[str, i
 
 _SCHEMA_OPEN = re.compile(r"\{%-?\s*schema\s*-?%\}")
 _SCHEMA_CLOSE = re.compile(r"\{%-?\s*endschema\s*-?%\}")
-_LIQUID_BLOCK = re.compile(
-    r"\{%-?\s*(schema|javascript|stylesheet|style|comment)\s*-?%\}.*?\{%-?\s*end\1\s*-?%\}", re.S
-)
+_BLOCK_KINDS = ("schema", "javascript", "stylesheet", "style", "comment")
+_BLOCK_START = re.compile(r"\{%-?\s*(" + "|".join(_BLOCK_KINDS) + r")\s*-?%\}")
+_BLOCK_END = {kind: re.compile(r"\{%-?\s*end" + kind + r"\s*-?%\}") for kind in _BLOCK_KINDS}
 _BLOCK_OPEN = re.compile(r"\{%-?\s*(javascript|stylesheet|style|comment)\s*-?%\}")
-_LIQUID_STATEMENT = re.compile(r"\{%.*?%\}", re.S)
 _JAVASCRIPT = re.compile(r"\{%-?\s*javascript\s*-?%\}")
 _RENDER = re.compile(r"\{%-?\s*(render|include|section)\s+['\"]([^'\"]+)['\"]")
 _LIQUID_FORM = re.compile(r"\{%-?\s*form\s+['\"]([^'\"]+)['\"]")
 _SETTING = re.compile(r"(?<![\w.])(?:(?:section|block)\.)?settings\.[A-Za-z_]\w*")
+
+
+def _blank_blocks(text: str) -> str:
+    """text with each {% schema %}, {% javascript %}, {% stylesheet %}, {% style %} and
+    {% comment %} block that is closed blanked, line breaks kept — in one pass: once a kind has
+    no closer left, its openers are not searched from again, where a lazy pattern would search
+    to the end from every one of them."""
+    out: list[str] = []
+    unclosed: set[str] = set()
+    last = index = 0
+    while (opened := _BLOCK_START.search(text, index)) is not None:
+        kind = opened.group(1)
+        closed = None if kind in unclosed else _BLOCK_END[kind].search(text, opened.end())
+        if closed is None:
+            unclosed.add(kind)
+            index = opened.start() + 1
+            continue
+        out += [text[last:opened.start()], _NOT_NEWLINE.sub(" ", text[opened.start():closed.end()])]
+        last = index = closed.end()
+    out.append(text[last:])
+    return "".join(out)
 
 
 def _settings_lines(settings: object) -> list[str]:
@@ -971,7 +1071,7 @@ def _read_liquid(artifact_id: str, rel: str, text: str) -> list[Unit]:
             (lines.line(at), lines.last),
         ))
 
-    without_blocks = _LIQUID_BLOCK.sub(_blank, text)
+    without_blocks = _blank_blocks(text)
     body = [
         f"The Shopify {kind} '{name}' in {rel} ({lines.last} lines). Its scripts are not read.",
         "Schema: " + ("; ".join(schemas) if schemas else "none"),
@@ -1004,7 +1104,7 @@ def _read_liquid(artifact_id: str, rel: str, text: str) -> list[Unit]:
         body.append(f"{{% javascript %}} blocks: {scripts}, not read or run")
     body.append("Markup structure:")
     try:
-        body += _structure_lines(_LIQUID_STATEMENT.sub(_blank, without_blocks))
+        body += _structure_lines(_blank_between(without_blocks, _LIQUID_STATEMENTS))
     except Exception as exc:  # markup past what the parser tolerates: say so, do not raise
         body.append("- not readable (see its 'unparsed' unit)")
         units.append(_unparsed(
@@ -1061,10 +1161,17 @@ _CLASS_BLOCK = re.compile(r"[A-Za-z][\w-]*")
 _BEM = re.compile(r"__|--")
 
 
+_SCRIPT_URL = re.compile(r"(?:java|vb)script:", re.I)
+_URL_NOISE = re.compile(r"[\x00-\x20]")
+
+
 def _describe(tag: str, values: dict[str, str], extra: tuple[str, ...] = ()) -> str:
     parts = [tag]
     for key in ("id", "role", "aria-label", *extra):
         value = _squash(values.get(key, ""))
+        # a javascript: URL is a script, however it is spaced, and scripts are not read
+        if _SCRIPT_URL.match(_URL_NOISE.sub("", value)):
+            value = "(a script, not read)"
         if value:
             parts.append(f'{key}="{_clip(value, 80)}"')
     return " ".join(parts)
@@ -1129,6 +1236,14 @@ class _Structure(HTMLParser):
                     self.blocks[block] = self.blocks.get(block, 0) + 1
         if "-" in tag:
             self.elements[tag] = self.elements.get(tag, 0) + 1
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        # A browser takes "<script/>" for an opening tag: the script runs on to </script>. So
+        # here it hides what follows it too, rather than letting a script's text be read as the
+        # page's headings or title.
+        self.handle_starttag(tag, attrs)
+        if tag not in ("script", "style"):
+            self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
         if self._hidden:
@@ -1224,25 +1339,33 @@ def _read_html(artifact_id: str, rel: str, text: str) -> list[Unit]:
     ), *units]
 
 
-_COMPONENT_FUNCTION = re.compile(r"(?<![\w$])function\s*\*?\s*([A-Z][\w$]*)\s*(?:<[^()]*?>)?\s*\(")
-_COMPONENT_CONST = re.compile(
-    r"(?<![\w$])(?:const|let|var)\s+([A-Z][\w$]*)\s*(?::[^=;]*)?=\s*"
-    r"(?:[\w$.]+\s*(?:<[^()]*?>)?\s*\(\s*)?(?:async\s+)?(?:function\s*[\w$]*\s*)?\("
+# Generics, type annotations and extends clauses are read up to _SPAN characters: unbounded,
+# each "function A <" or "interface A extends" with nothing to end it searched on to the end of
+# the file, and a file of them cost its length squared.
+_SPAN = 400
+_COMPONENT_FUNCTION = re.compile(
+    rf"(?<![\w$])function\s*\*?\s*([A-Z][\w$]*)\s*(?:<[^()]{{0,{_SPAN}}}?>)?\s*\("
 )
-_ARROW_OR_BODY = re.compile(r"\s*(?::[^=;{]*)?(?:=>|\{)")
+_COMPONENT_CONST = re.compile(
+    rf"(?<![\w$])(?:const|let|var)\s+([A-Z][\w$]*)\s*(?::[^=;]{{0,{_SPAN}}})?=\s*"
+    rf"(?:[\w$.]{{1,{_SPAN}}}\s*(?:<[^()]{{0,{_SPAN}}}?>)?\s*\(\s*)?(?:async\s+)?"
+    r"(?:function\s*[\w$]*\s*)?\("
+)
+_ARROW_OR_BODY = re.compile(rf"\s*(?::[^=;{{]{{0,{_SPAN}}})?(?:=>|\{{)")
 _TYPED_PARAM = re.compile(r"\s*[A-Za-z_$][\w$]*\s*:\s*([A-Za-z_$][\w$]*)")
 _TYPE_DECLARATION = re.compile(
-    r"(?<![\w$])(?:interface\s+([A-Za-z_$][\w$]*)\s*(?:<[^{]*?>)?\s*(?:extends\s+[^{]*?)?\{"
-    r"|type\s+([A-Za-z_$][\w$]*)\s*(?:<[^=]*?>)?\s*=\s*\{)"
+    rf"(?<![\w$])(?:interface\s+([A-Za-z_$][\w$]*)\s*(?:<[^{{]{{0,{_SPAN}}}?>)?\s*"
+    rf"(?:extends\s+[^{{]{{0,{_SPAN}}}?)?\{{"
+    rf"|type\s+([A-Za-z_$][\w$]*)\s*(?:<[^=]{{0,{_SPAN}}}?>)?\s*=\s*\{{)"
 )
 _PROP_TYPES = re.compile(r"(?<![\w$])([A-Z][\w$]*)\.propTypes\s*=\s*\{")
-_SCRIPT_BLOCK = re.compile(r"<script\b[^>]*>(.*?)</script\s*>", re.S | re.I)
 _SCRIPT_OPEN = re.compile(r"<script\b", re.I)
+_SCRIPT_CLOSE = re.compile(r"</script\s*>", re.I)
 _DEFINE_PROPS = re.compile(r"(?<![\w$])defineProps\s*(?:<\s*([A-Za-z_$][\w$]*|\{)|\(\s*([\[{]))")
 _OPTIONS_PROPS = re.compile(r"(?<![\w$.])props\s*:\s*[\[{]")
 _EXPORT_LET = re.compile(r"(?<![\w$])export\s+let\s+([^;\n]+)")
 _RUNES_PROPS = re.compile(r"(?<![\w$])let\s*\{")
-_RUNES_TAIL = re.compile(r"\s*(?::[^=]*)?=\s*\$props\s*\(")
+_RUNES_TAIL = re.compile(rf"\s*(?::[^=]{{0,{_SPAN}}})?=\s*\$props\s*\(")
 
 
 def _declared_types(code: _Code, start: int, end: int) -> dict[str, tuple[int, list[str]]]:
@@ -1254,7 +1377,7 @@ def _declared_types(code: _Code, start: int, end: int) -> dict[str, tuple[int, l
         if name in types or len(types) >= MAX_COMPONENTS:
             continue
         try:
-            close_at = _closing(code.masked, match.end() - 1, end)
+            close_at = code.closing(match.end() - 1, end)
         except _Unbalanced as exc:
             code.unbalanced(f"the type {_clip(name, 80)}", match.start(), exc)
             continue
@@ -1270,7 +1393,7 @@ def _literal_members(code: _Code, start: int, open_at: int, what: str,
     and a problem recorded, if its brackets do not pair before end or a string in it is cut
     off."""
     try:
-        close_at = _closing(code.masked, open_at, end)
+        close_at = code.closing(open_at, end)
     except _Unbalanced as exc:
         code.unbalanced(what, start, exc)
         return []
@@ -1287,7 +1410,7 @@ def _params(code: _Code, open_at: int, close_at: int,
     if start == end:
         return ": no props", []
     if code.masked[start] == "{":
-        inner = _closing(code.masked, start)
+        inner = code.closing(start)
         if start < inner < close_at:
             return "", _members(code, start, inner)
     typed = _TYPED_PARAM.match(code.masked, open_at + 1, close_at)
@@ -1312,7 +1435,7 @@ def _jsx_props(code: _Code) -> list[str]:
         open_at = match.end() - 1
         line = code.lines.line(match.start(1))
         try:
-            close_at = _closing(code.masked, open_at)
+            close_at = code.closing(open_at)
         except _Unbalanced as exc:
             named.add(name)
             code.unbalanced(f"the parameters of {_clip(name, 80)}", match.start(), exc)
@@ -1343,14 +1466,28 @@ def _jsx_props(code: _Code) -> list[str]:
     return body
 
 
+def _script_blocks(masked: str) -> list[tuple[int, int, int]]:
+    """Where the content of each closed <script> element starts and ends, and where the element
+    ends — in one pass: once no '>' or no </script> follows an opening, none follows a later
+    one, where a lazy pattern would search to the end from each of them."""
+    blocks: list[tuple[int, int, int]] = []
+    index = 0
+    while (opened := _SCRIPT_OPEN.search(masked, index)) is not None:
+        start = masked.find(">", opened.end()) + 1
+        closed = _SCRIPT_CLOSE.search(masked, start) if start else None
+        if closed is None:
+            break
+        blocks.append((start, closed.start(), closed.end()))
+        index = closed.end()
+    return blocks
+
+
 def _sfc_props(code: _Code, framework: str) -> list[str]:
     """The props a Vue or Svelte single-file component declares in its script blocks."""
     props: list[str] = []
     masked = code.masked
-    after = 0
-    for block in _SCRIPT_BLOCK.finditer(masked):
-        start, end = block.start(1), block.end(1)
-        after = block.end()
+    blocks = _script_blocks(masked)
+    for start, end, _ in blocks:
         types = _declared_types(code, start, end)
         if framework == "vue":
             for match in _DEFINE_PROPS.finditer(masked, start, end):
@@ -1373,7 +1510,7 @@ def _sfc_props(code: _Code, framework: str) -> list[str]:
             for match in _RUNES_PROPS.finditer(masked, start, end):
                 open_at = match.end() - 1
                 try:
-                    close_at = _closing(masked, open_at, end)
+                    close_at = code.closing(open_at, end)
                 except _Unbalanced as exc:
                     code.unbalanced("a destructuring let", match.start(), exc)
                     continue
@@ -1381,7 +1518,7 @@ def _sfc_props(code: _Code, framework: str) -> list[str]:
                     "a destructuring let", match.start(), close_at
                 ):
                     props += _members(code, open_at, close_at)
-    unclosed = _SCRIPT_OPEN.search(masked, after)
+    unclosed = _SCRIPT_OPEN.search(masked, blocks[-1][2] if blocks else 0)
     if unclosed:
         code.problem(
             f"the <script> on line {code.lines.line(unclosed.start())} is never closed: it is not read",

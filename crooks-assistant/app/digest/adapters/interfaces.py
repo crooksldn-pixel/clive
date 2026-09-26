@@ -3,9 +3,11 @@ Schema and MCP tool manifests — read out of a quarantined artifact and into Un
 
 Each operation, query, mutation and tool becomes a capability Unit tagged 'read', 'write' or
 'unknown'; each schema and type becomes an interface Unit. The access tag is what CLIVE's action
-gate reads, so it is never guessed downwards: an HTTP method that changes things, a GraphQL
+gate reads, so it is never guessed downwards: POST, PUT, PATCH and DELETE — and any method an
+OpenAPI 3.2 document adds that is not known only to read, such as COPY or LOCK — a GraphQL
 mutation and a tool whose own annotations say it changes things are 'write', and a tool that
-says nothing about itself is 'unknown', never 'read'.
+says nothing about itself is 'unknown', never 'read'. Text is stored as UTF-8 can hold it: a
+lone surrogate an escape spells becomes '?'. No more than MAX_UNITS Units are ever made.
 
 Reading only: nothing here executes, imports or installs what it reads, follows a symbolic link
 or opens anything but a regular file, and every size and count is bounded. A file that cannot
@@ -47,8 +49,12 @@ _YAML = (".yaml", ".yml")
 _GRAPHQL = (".graphql", ".graphqls", ".gql")
 _SUFFIXES = _JSON + _YAML + _GRAPHQL
 _SKIPPED_DIRS = frozenset({".git", ".hg", ".svn", "node_modules", "__pycache__"})
-_HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
-_WRITE_METHODS = frozenset({"post", "put", "patch", "delete"})
+# the fixed fields of a Path Item, with OpenAPI 3.2's query; any other method a 3.2 document
+# names under additionalOperations is read too
+_HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace", "query")
+# the methods that only read: every other — POST, PUT, PATCH, DELETE, and any method an
+# additionalOperations names — is 'write', never guessed to be read-only
+_READ_METHODS = frozenset({"get", "head", "options", "trace", "query"})
 _OPENAPI_YAML = re.compile(r"""^["']?(?:openapi|swagger)["']?[ \t]*:""", re.MULTILINE)
 _SCHEMA_KEYWORDS = frozenset(
     {"type", "properties", "items", "$ref", "$defs", "definitions", "oneOf", "anyOf", "allOf",
@@ -120,17 +126,24 @@ def _entry(container: Any, key: Any) -> tuple[int | None, int | None]:
     return getattr(container, "spans", {}).get(key, (None, None))
 
 
+def _storable(text: str) -> str:
+    """Text as a Unit can hold it. A JSON, YAML or GraphQL escape can spell a lone surrogate,
+    which no UTF-8 encodes — the Unit could be made but never given its id — so each becomes
+    '?'."""
+    return text.encode("utf-8", "replace").decode("utf-8")
+
+
 def _unit(artifact_id: str, kind: str, title: str, body: str, path: str,
           lines: tuple[int | None, int | None], tags: tuple[str, ...] | list[str]) -> Unit:
     clean: list[str] = []
     for tag in tags:
-        text = " ".join(str(tag).split())[:MAX_TAG]
+        text = _storable(" ".join(str(tag).split())[:MAX_TAG])
         if text and text not in clean:
             clean.append(text)
     return Unit(
         artifact_id=artifact_id, kind=kind,
-        title=_clip(" ".join(title.split()) or "untitled", MAX_TITLE),
-        body=_clip(body, MAX_BODY), location=Location(path, *lines), tags=tuple(clean),
+        title=_clip(_storable(" ".join(title.split())) or "untitled", MAX_TITLE),
+        body=_clip(_storable(body), MAX_BODY), location=Location(path, *lines), tags=tuple(clean),
     )
 
 
@@ -139,21 +152,44 @@ def _unparsed(artifact_id: str, path: str, reason: str,
     return _unit(artifact_id, "knowledge", f"Unparsed: {path}", reason, path, lines, ("unparsed",))
 
 
-class _File:
-    """The Units read out of one file, each located in it."""
+class _Budget:
+    """How many more Units may be made for the artifact, and how many were not made for want
+    of room: MAX_UNITS bounds the work and memory spent, not only what is returned."""
 
-    def __init__(self, artifact_id: str, path: str) -> None:
+    def __init__(self) -> None:
+        self.left = MAX_UNITS
+        self.dropped = 0
+
+
+class _File:
+    """The Units read out of one file, each located in it, each drawn from the budget."""
+
+    def __init__(self, artifact_id: str, path: str, budget: _Budget | None = None) -> None:
         self.artifact_id = artifact_id
         self.path = path
+        self.budget = budget if budget is not None else _Budget()
         self.units: list[Unit] = []
         self.whole: tuple[int | None, int | None] = (None, None)    # every line of the file
 
+    def _take(self, make: Any) -> None:
+        if self.budget.left <= 0:
+            self.budget.dropped += 1
+            return
+        self.budget.left -= 1
+        self.units.append(make())
+
     def add(self, kind: str, title: str, body: str, lines: tuple[int | None, int | None],
             tags: tuple[str, ...] | list[str]) -> None:
-        self.units.append(_unit(self.artifact_id, kind, title, body, self.path, lines, tags))
+        self._take(lambda: _unit(self.artifact_id, kind, title, body, self.path, lines, tags))
 
     def unparsed(self, reason: str, lines: tuple[int | None, int | None] = (None, None)) -> None:
-        self.units.append(_unparsed(self.artifact_id, self.path, reason, lines))
+        self._take(lambda: _unparsed(self.artifact_id, self.path, reason, lines))
+
+    def failed(self, reason: str) -> None:
+        """Nothing of the file is taken but why: what was read of it is given back."""
+        self.budget.left += len(self.units)
+        self.units = []
+        self.unparsed(reason)
 
 
 # --- JSON, with lines --------------------------------------------------------------------------
@@ -473,6 +509,10 @@ class _Yaml:
         self.index = 0
         self.started = False
         self.last = 0       # the last line consumed, from 1
+        # each line as first read, its comment stripped once: a line is looked at again at
+        # every level of nesting it opens, and stripping it each time made a long line of
+        # "- - - …" cost its length for every level
+        self.read: dict[int, _Line] = {}
 
     def parse(self) -> Any:
         value = self._block(-1, 0)
@@ -483,6 +523,9 @@ class _Yaml:
 
     def _peek(self) -> _Line | None:
         while self.index < len(self.lines):
+            known = self.read.get(self.index)
+            if known is not None:
+                return known
             raw = self.lines[self.index]
             number = self.index + 1
             stripped = raw.strip()
@@ -501,7 +544,8 @@ class _Yaml:
             if text.startswith("\t"):
                 raise _Unparsed(f"line {number}: tab indentation {_BEYOND}")
             self.started = True
-            return _Line(number, len(raw) - len(text), _strip_comment(text))
+            line = self.read[self.index] = _Line(number, len(raw) - len(text), _strip_comment(text))
+            return line
         return None
 
     def _block(self, parent: int, depth: int) -> Any:
@@ -550,6 +594,7 @@ class _Yaml:
                 # so the line is read again as that block at the column it begins in.
                 column = line.indent + len(line.text) - len(rest)
                 self.lines[self.index] = " " * column + rest
+                self.read[self.index] = _Line(line.number, column, rest)
                 item = self._block(indent, depth + 1)
             else:
                 self.index += 1
@@ -1096,7 +1141,7 @@ def _operation(out: _File, doc: dict, heading: str, path: str, method: str,
         lines.append("Responses: " + ", ".join(str(code) for code in responses))
     security = operation["security"] if "security" in operation else doc.get("security")
     lines.append(f"Security: {_security(security)}")
-    access = "write" if method in _WRITE_METHODS else "read"
+    access = "read" if method in _READ_METHODS else "write"
     tags = ["openapi", access]
     if operation.get("deprecated") is True:
         tags.append("deprecated")
@@ -1135,6 +1180,24 @@ def _path_layers(out: _File, doc: dict, path: str, item: dict) -> list[dict]:
     return layers
 
 
+def _additional(out: _File, doc: dict, heading: str, path: str, holder: dict,
+                shared: list[dict]) -> None:
+    """OpenAPI 3.2's operations for methods beyond the fixed fields — COPY, LOCK, PURGE and
+    the like — each a capability like any other. None of them is known to only read, so each
+    is 'write' unless its method is one that does."""
+    extra = holder["additionalOperations"]
+    if not isinstance(extra, dict):
+        out.unparsed(f"the additionalOperations of path {path} are not a mapping of methods to "
+                     "operations, so none of them was read", _entry(holder, "additionalOperations"))
+        return
+    for method, operation in extra.items():
+        if not _word(method) or not isinstance(operation, dict):
+            out.unparsed(f"additional operation {_clip(_word(method) or '?', 80)} of path {path} "
+                         "is not a mapping, so it was not read", _entry(extra, method))
+            continue
+        _operation(out, doc, heading, path, _word(method).lower(), operation, shared)
+
+
 def _openapi(out: _File, doc: dict) -> None:
     info = doc.get("info") if isinstance(doc.get("info"), dict) else {}
     api = " ".join(filter(None, (_word(info.get("title")), _word(info.get("version")))))
@@ -1166,6 +1229,8 @@ def _openapi(out: _File, doc: dict) -> None:
                              _entry(holder, method))
                 continue
             _operation(out, doc, heading, path, method.lower(), operation, shared)
+        if "additionalOperations" in fields:
+            _additional(out, doc, heading, path, fields["additionalOperations"], shared)
     sections: list[tuple[str, dict, str]] = []
     if "components" in doc:
         components = doc["components"]
@@ -1325,8 +1390,7 @@ def _json_schema(out: _File, doc: dict | bool) -> None:
         # own, so it is the whole file.
         verdict = "every instance is valid against it" if doc else "no instance is valid against it"
         body = f"JSON Schema {out.path}\nA boolean schema: {verdict}.\n\n{_dump(doc)}"
-        out.units.append(_unit(out.artifact_id, "interface", f"JSON Schema {out.path}", body,
-                               out.path, out.whole, ("json_schema",)))
+        out.add("interface", f"JSON Schema {out.path}", body, out.whole, ("json_schema",))
         return
     name = _word(doc.get("title")) or _word(doc.get("$id")) or out.path
     lines = [f"JSON Schema {name}"]
@@ -1467,13 +1531,18 @@ def decompose(root: Path, artifact_id: str) -> list[Unit]:
     if not readable:
         return [_unparsed(artifact_id, ".", "not read: the artifact is not a directory")]
     paths, notes = _find(root)
+    budget = _Budget()
     files: list[tuple[_File, _Sdl | None]] = []
     # Every byte read counts, whether or not its file is taken: no file is read past what is
     # left of MAX_TOTAL_BYTES, and one that would cross it ends the reading, so no more than
     # MAX_TOTAL_BYTES + 1 bytes are ever read and no more than MAX_TOTAL_BYTES are taken.
     total = 0
+    unread = 0
     for path in paths:
-        out = _File(artifact_id, path)
+        if budget.left <= 0:
+            unread += 1     # nothing more could be taken from it: it is not read at all
+            continue
+        out = _File(artifact_id, path, budget)
         schema = None
         try:
             allowance = MAX_TOTAL_BYTES - total
@@ -1489,8 +1558,7 @@ def decompose(root: Path, artifact_id: str) -> list[Unit]:
                                 f"past {MAX_TOTAL_BYTES} bytes")
             schema = _parse(out, _decode(data))
         except Exception as exc:  # noqa: BLE001 — what an artifact contains is never an error
-            out.units = []
-            out.unparsed(_reason(exc))
+            out.failed(_reason(exc))
         files.append((out, schema))
 
     roots = {"query": "Query", "mutation": "Mutation", "subscription": "Subscription"}
@@ -1503,16 +1571,19 @@ def decompose(root: Path, artifact_id: str) -> list[Unit]:
             try:
                 _graphql(out, schema, roots)
             except Exception as exc:  # noqa: BLE001
-                out.units = []
-                out.unparsed(_reason(exc))
+                out.failed(_reason(exc))
         units.extend(out.units)
     units.extend(_unparsed(artifact_id, ".", note) for note in notes)
 
     units = list({unit.id: unit for unit in units}.values())
-    if len(units) > MAX_UNITS:
-        dropped = len(units) - MAX_UNITS + 1
-        units = units[:MAX_UNITS - 1] + [_unparsed(
+    if budget.dropped or unread or len(units) > MAX_UNITS:
+        # Units past the bound were never made: the budget counted them instead.
+        kept = units[:MAX_UNITS - 1]
+        dropped = len(units) - len(kept) + budget.dropped
+        files_left = (f", and {unread} more specification files were not read once it was "
+                      "reached") if unread else ""
+        units = kept + [_unparsed(
             artifact_id, ".", f"not read: {dropped} more units; at most {MAX_UNITS} are taken "
-            "from one artifact",
+            f"from one artifact{files_left}",
         )]
     return units
