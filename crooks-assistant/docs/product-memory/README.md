@@ -58,6 +58,9 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [INFRASTRUCTURE_2026-09-25.md](./INFRASTRUCTURE_2026-09-25.md) — the production host, clive-worker-01 and the Mac: roles, open hardware items and setup lessons.
 - [EXTERNAL_REVIEW_2026-09-25.md](./EXTERNAL_REVIEW_2026-09-25.md) — the owner-provided external review of 2026-09-25, kept verbatim: red trunk, landing before verification, unprotected safety core, loop confinement, direction carried forward.
 - [RECONCILIATION_2026-09-25.md](./RECONCILIATION_2026-09-25.md) — evening reconciliation of the trunk, all 48 loop objectives, all 110 branches (knowledge found only on unmerged branches, proposed clean-up) and what waits on the owner.
+- [DRIFT_REVIEW_2026-09-26.md](./DRIFT_REVIEW_2026-09-26.md) — the build measured against the philosophy: what converges, the eight drifts (machinery ahead of the owner's attention, roadmap out of order, three approval systems, stale device model, no way to consume new technology) and the corrections.
+- [KNOWLEDGE_DIGESTER_V1.md](./KNOWLEDGE_DIGESTER_V1.md) — how CLIVE digests any artifact (repositories, skills, documents, API specifications, data, websites, themes, media, applications, itself) into provenance-tagged, reversible units, relates them to its self-model, and proves or drops what it absorbs.
+- [PLAN_2026-09-26.md](./PLAN_2026-09-26.md) — the day's plan: the deploy and owner steps, digester waves, loop update part 2, and how the day is judged.
 
 ## Status model
 
