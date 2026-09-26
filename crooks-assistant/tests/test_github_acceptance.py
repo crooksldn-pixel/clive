@@ -1,6 +1,6 @@
 """The GitHub acceptance gate: green only on a complete, all-success answer about the exact SHA.
 
-No test here reaches GitHub. The pure evaluator is fed check-runs answers directly; the HTTP client
+No test here reaches GitHub. The pure evaluators are fed Actions answers (workflow runs, jobs) directly; the HTTP client
 runs against ``httpx.MockTransport``; the credential source runs real ``git`` against a local
 repository whose remote URL or credential helper holds a fake token assembled at runtime.
 """
@@ -18,11 +18,14 @@ import pytest
 
 from app.orchestrator.github_acceptance import (
     ACCEPTANCE_CHECK,
+    ACCEPTANCE_WORKFLOW,
     GATE_SCHEMA,
     GateResult,
     GateState,
     GitHubAcceptance,
+    RunFact,
     evaluate,
+    evaluate_jobs,
     git_remote_token,
 )
 from tests.fake_credentials import github_token
@@ -36,15 +39,26 @@ FAKE_TOKEN = github_token("github-acceptance")
 
 
 def run(run_id: int = 1, *, status: str = "completed", conclusion: str | None = "success", sha: str = SHA,
-        name: str = "acceptance", app: str | None = "github-actions") -> dict:
-    return {"id": run_id, "name": name, "head_sha": sha, "status": status, "conclusion": conclusion,
-            "app": {"slug": app} if app is not None else None,
-            "output": {"title": "attacker-chosen text", "summary": "never published"},
+        path: str = ACCEPTANCE_WORKFLOW, event: str = "push") -> dict:
+    """One workflow run as GitHub's Actions API lists it, with text a commit author chose."""
+    return {"id": run_id, "name": "acceptance", "path": path, "head_sha": sha, "event": event,
+            "status": status, "conclusion": conclusion, "run_attempt": 1,
+            "display_title": "attacker-chosen text", "head_commit": {"message": "never published"},
             "html_url": f"https://github.com/{REPOSITORY}/actions/runs/{run_id}"}
 
 
 def answer(*runs: dict, total: int | None = None) -> dict:
-    return {"total_count": len(runs) if total is None else total, "check_runs": list(runs)}
+    return {"total_count": len(runs) if total is None else total, "workflow_runs": list(runs)}
+
+
+def job(run_id: int = 1, *, name: str = ACCEPTANCE_CHECK, status: str = "completed",
+        conclusion: str | None = "success", sha: str = SHA) -> dict:
+    return {"id": run_id * 100, "run_id": run_id, "name": name, "head_sha": sha, "status": status,
+            "conclusion": conclusion, "steps": [{"name": "attacker-chosen step"}]}
+
+
+def jobs(*listed: dict, total: int | None = None) -> dict:
+    return {"total_count": len(listed) if total is None else total, "jobs": list(listed)}
 
 
 # ---------------------------------------------------------------- the evaluator
@@ -92,20 +106,50 @@ def test_no_acceptance_run_is_missing():
     assert evaluate(SHA, answer()).state is GateState.MISSING
 
 
-def test_a_run_from_another_app_can_neither_make_a_commit_green_nor_stand_in_for_the_workflow():
-    assert evaluate(SHA, answer(run(9, app="some-other-app"))).state is GateState.MISSING
-    assert evaluate(SHA, answer(run(9, app=None))).state is GateState.MISSING
-    # ... and cannot turn the workflow's green red either: it is simply not the workflow.
-    assert evaluate(SHA, answer(run(1), run(9, app="some-other-app", conclusion="failure"))).green
+def test_a_run_of_another_workflow_listed_under_acceptance_is_not_decided_on():
+    assert evaluate(SHA, answer(run(9, path=".github/workflows/other.yml"))).state is GateState.UNAVAILABLE
+    assert evaluate(SHA, answer(run(1), run(9, path=None))).state is GateState.UNAVAILABLE
 
 
-def test_a_check_of_another_name_is_not_the_acceptance_job():
-    assert evaluate(SHA, answer(run(1, name="lint"))).state is GateState.MISSING
+def test_the_same_run_listed_twice_is_not_decided_on():
+    assert evaluate(SHA, answer(run(1), run(1))).state is GateState.UNAVAILABLE
+
+
+# ---------------------------------------------------------------- the acceptance job of a successful run
+
+RUN = RunFact(id=7, status="completed", conclusion="success")
+
+
+def test_a_run_whose_acceptance_job_succeeded_on_the_sha_is_confirmed():
+    assert evaluate_jobs(SHA, RUN, jobs(job(7)), (RUN,)) is None
+    assert evaluate_jobs(SHA, RUN, jobs(job(7, name="setup"), job(7)), (RUN,)) is None   # other jobs are not it
+
+
+@pytest.mark.parametrize(("listed", "why"), [
+    ((), "without an acceptance job"),
+    ((job(7, name="lint"),), "without an acceptance job"),
+    ((job(7, conclusion="skipped"),), "its acceptance job did not"),
+    ((job(7, conclusion="failure"),), "its acceptance job did not"),
+    ((job(7, status="in_progress", conclusion=None),), "its acceptance job did not"),
+    ((job(7), job(7, conclusion="cancelled")), "its acceptance job did not"),
+], ids=["no-jobs", "no-acceptance-job", "skipped", "failed", "unfinished", "one-of-two-cancelled"])
+def test_a_run_that_succeeded_without_its_acceptance_job_succeeding_is_red(listed, why):
+    result = evaluate_jobs(SHA, RUN, jobs(*listed), (RUN,))
+    assert result is not None and result.state is GateState.RED and why in result.detail and "run 7" in result.detail
 
 
 @pytest.mark.parametrize("body", [
-    None, [], "ok", {}, {"check_runs": "x", "total_count": 0}, {"check_runs": [], "total_count": "0"},
-    {"check_runs": [], "total_count": True}, answer(run(1), total=2), answer(run(1), total=0),
+    None, {}, {"jobs": "x", "total_count": 0}, jobs(job(7), total=2), jobs("not a job"),
+    jobs(job(7, sha=OTHER)), jobs({**job(7), "run_id": 8}),
+], ids=["none", "empty", "jobs-not-list", "partial-list", "entry-not-dict", "another-commit", "another-run"])
+def test_every_jobs_answer_the_gate_cannot_trust_is_unavailable(body):
+    result = evaluate_jobs(SHA, RUN, body, (RUN,))
+    assert result is not None and result.state is GateState.UNAVAILABLE
+
+
+@pytest.mark.parametrize("body", [
+    None, [], "ok", {}, {"workflow_runs": "x", "total_count": 0}, {"workflow_runs": [], "total_count": "0"},
+    {"workflow_runs": [], "total_count": True}, answer(run(1), total=2), answer(run(1), total=0),
     answer("not a run"), answer({**run(1), "id": "1"}), answer({**run(1), "id": True}),
     answer({**run(1), "status": None}), answer(run(1, conclusion="Success! <script>")),
     answer(run(1, sha=OTHER)),
@@ -135,11 +179,11 @@ def test_a_record_round_trips_and_a_forged_one_is_refused():
     assert GateResult.from_record("green") is None
 
 
-def test_the_gate_asks_for_the_check_run_the_acceptance_workflow_really_creates():
-    """The gate is coupled to .github/workflows/acceptance.yml: one job, no matrix and no display name, so its
-    check run is named exactly ``acceptance``; and every pushed branch runs it, candidate branches included."""
+def test_the_gate_asks_about_the_workflow_and_job_that_really_exist():
+    """The gate is coupled to .github/workflows/acceptance.yml: one job, no matrix and no display name, so the
+    job is named exactly ``acceptance``; and every pushed branch runs it, candidate branches included."""
     yaml = pytest.importorskip("yaml")
-    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "acceptance.yml").read_text(encoding="utf-8"))
+    workflow = yaml.safe_load((REPO / ACCEPTANCE_WORKFLOW).read_text(encoding="utf-8"))
     job = workflow["jobs"][ACCEPTANCE_CHECK]
     assert job.get("name", ACCEPTANCE_CHECK) == ACCEPTANCE_CHECK and "strategy" not in job
     triggers = workflow.get("on", workflow.get(True))        # YAML 1.1 reads a bare `on:` key as true
@@ -153,33 +197,58 @@ def client(handler, token: str | None = None) -> GitHubAcceptance:
     return GitHubAcceptance(lambda _repository: token, transport=httpx.MockTransport(handler))
 
 
-def test_it_asks_for_exactly_the_acceptance_runs_of_exactly_the_sha():
-    seen: list[httpx.Request] = []
+RUNS_PATH = f"/repos/{REPOSITORY}/actions/workflows/acceptance.yml/runs"
 
+
+def github(runs_body: dict, jobs_by_run: dict[int, dict] | None = None, seen: list | None = None):
+    """A handler answering the two Actions requests the gate makes, and nothing else."""
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(200, json=answer(run(21)))
+        if seen is not None:
+            seen.append(request)
+        if request.url.path == RUNS_PATH:
+            return httpx.Response(200, json=runs_body)
+        prefix = f"/repos/{REPOSITORY}/actions/runs/"
+        if request.url.path.startswith(prefix) and request.url.path.endswith("/jobs"):
+            run_id = int(request.url.path[len(prefix):-len("/jobs")])
+            listed = (jobs_by_run or {}).get(run_id, jobs(job(run_id)))
+            return httpx.Response(200, json=listed)
+        return httpx.Response(404)
+    return handler
 
-    result = client(handler).check(REPOSITORY, SHA)
-    assert result.green
-    [request] = seen
-    assert request.method == "GET"
-    assert request.url.host == "api.github.com"
-    assert request.url.path == f"/repos/{REPOSITORY}/commits/{SHA}/check-runs"
-    assert dict(request.url.params) == {"check_name": "acceptance", "filter": "latest", "per_page": "100"}
-    assert "authorization" not in request.headers
+
+def test_it_asks_for_exactly_the_acceptance_runs_of_exactly_the_sha_then_each_runs_job():
+    seen: list[httpx.Request] = []
+    result = client(github(answer(run(21), run(22, event="pull_request")), seen=seen)).check(REPOSITORY, SHA)
+    assert result.green and [r.id for r in result.runs] == [21, 22]
+    runs, first, second = seen
+    assert all(r.method == "GET" and r.url.host == "api.github.com" for r in seen)
+    assert runs.url.path == RUNS_PATH
+    assert dict(runs.url.params) == {"head_sha": SHA, "per_page": "100", "exclude_pull_requests": "true"}
+    assert first.url.path == f"/repos/{REPOSITORY}/actions/runs/21/jobs"
+    assert second.url.path == f"/repos/{REPOSITORY}/actions/runs/22/jobs"
+    assert dict(first.url.params) == {"filter": "latest", "per_page": "100"}
+    assert "authorization" not in runs.headers
+
+
+def test_a_run_that_is_not_green_is_answered_without_asking_for_its_jobs():
+    seen: list[httpx.Request] = []
+    assert client(github(answer(run(1, conclusion="failure")), seen=seen)).check(REPOSITORY, SHA).state is GateState.RED
+    assert client(github(answer(), seen=seen)).check(REPOSITORY, SHA).state is GateState.MISSING
+    assert [r.url.path for r in seen] == [RUNS_PATH, RUNS_PATH]
+
+
+def test_a_successful_run_whose_job_was_skipped_is_red_through_the_client():
+    result = client(github(answer(run(3)), {3: jobs(job(3, conclusion="skipped"))})).check(REPOSITORY, SHA)
+    assert result.state is GateState.RED and "run 3" in result.detail
 
 
 def test_the_remote_credential_is_sent_only_as_a_bearer_header():
     seen: list[httpx.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(200, json=answer(run(1)))
-
-    assert client(handler, token=FAKE_TOKEN).check(REPOSITORY, SHA).green
-    assert seen[0].headers["authorization"] == f"Bearer {FAKE_TOKEN}"
-    assert FAKE_TOKEN not in str(seen[0].url)
+    assert client(github(answer(run(1)), seen=seen), token=FAKE_TOKEN).check(REPOSITORY, SHA).green
+    assert len(seen) == 2
+    assert all(r.headers["authorization"] == f"Bearer {FAKE_TOKEN}" for r in seen)
+    assert all(FAKE_TOKEN not in str(r.url) for r in seen)
 
 
 @pytest.mark.parametrize("status", [301, 302, 401, 403, 404, 422, 429, 500, 502])
@@ -192,6 +261,23 @@ def test_any_answer_but_200_is_unavailable_and_carries_only_the_status(status):
     assert result.state is GateState.UNAVAILABLE and f"HTTP {status}" in result.detail
     assert FAKE_TOKEN not in result.detail and "http" not in result.detail.replace("HTTP", "")
 
+
+
+@pytest.mark.parametrize("status", [403, 404, 500])
+def test_a_refused_jobs_request_is_unavailable_never_green(status):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == RUNS_PATH:
+            return httpx.Response(200, json=answer(run(1)))
+        return httpx.Response(status, text=f"echo {FAKE_TOKEN}")
+
+    result = client(handler, token=FAKE_TOKEN).check(REPOSITORY, SHA)
+    assert result.state is GateState.UNAVAILABLE and f"HTTP {status}" in result.detail and "jobs" in result.detail
+    assert FAKE_TOKEN not in result.detail
+
+
+def test_a_refusal_names_the_permission_a_fine_grained_token_needs():
+    result = client(lambda request: httpx.Response(403)).check(REPOSITORY, SHA)
+    assert "Actions: read" in result.detail
 
 def test_a_transport_failure_is_unavailable_by_type_name_only():
     def handler(request: httpx.Request) -> httpx.Response:
@@ -212,9 +298,8 @@ def test_a_credential_source_that_fails_means_asking_without_one():
         raise RuntimeError(FAKE_TOKEN)
 
     seen: list[httpx.Request] = []
-    gate = GitHubAcceptance(broken, transport=httpx.MockTransport(
-        lambda request: seen.append(request) or httpx.Response(200, json=answer(run(1)))))
-    assert gate.check(REPOSITORY, SHA).green and "authorization" not in seen[0].headers
+    gate = GitHubAcceptance(broken, transport=httpx.MockTransport(github(answer(run(1)), seen=seen)))
+    assert gate.check(REPOSITORY, SHA).green and all("authorization" not in r.headers for r in seen)
 
 
 @pytest.mark.parametrize(("repository", "sha"), [
