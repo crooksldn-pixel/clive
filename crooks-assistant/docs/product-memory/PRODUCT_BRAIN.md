@@ -353,14 +353,23 @@ Before major new architecture is added, the existing CROOKS experience must be m
 
 ### 4.2 Device model
 
-Long term:
+Current (drift review of 2026-09-26, drift 5; `INFRASTRUCTURE_2026-09-25.md`, `OWNER_DECISIONS_2026-09-25.md`):
 
-- **CROOKS Control** — Mac control/administration/development surface.
-- **CROOKS Pad** — tablet-first operational interface.
-- **CROOKS Phone** — mobile access, notifications, approvals, quick commands.
-- Browser/PWA may remain a useful universal fallback.
+- **Phone — primary surface.** The owner uses CLIVE on an iPhone through the mobile web app.
+- **Production server — runtime.** The CLIVE runtime runs on `crooks-os-prod-1`.
+- **Engineering hosts.** Engineering runs on `clive-worker-01` and, for Swift and iPhone builds, the owner's Mac. Neither is the runtime or the primary surface.
+- **Native iPhone app — later possibility** (FEAT-047).
 
 All clients should talk to the same business state and runtime.
+
+**SUPERSEDED on 2026-09-26** — the owner uses the phone, not a Mac or tablet, as the primary surface, and the runtime is the production server. Kept as history:
+
+> Long term:
+>
+> - **CROOKS Control** — Mac control/administration/development surface.
+> - **CROOKS Pad** — tablet-first operational interface.
+> - **CROOKS Phone** — mobile access, notifications, approvals, quick commands.
+> - Browser/PWA may remain a useful universal fallback.
 
 ### 4.3 Voice
 
