@@ -1170,3 +1170,86 @@ def test_the_adapter_only_reads_and_follows_no_links(tmp_path):
     assert not any(unit.location.path.startswith(("linked", "pipe")) for unit in units)
     assert units == _units(_write(tmp_path / "plain", FIXTURE))
     assert _snapshot(root) == before
+
+
+# --- repairs: stored text, bounded work, OpenAPI 3.2 operations -------------------------------
+
+
+@pytest.mark.parametrize(("name", "content"), [
+    ("api.json", '{"openapi": "3.0.0", "paths": {"/\\udc00": {"get": {"summary": "a \\ud800 b"}}}}'),
+    ("api.yaml", 'openapi: 3.0.0\npaths:\n  "/\\udc00":\n    get:\n      summary: "a \\ud800 b"\n'),
+    ("schema.graphql", 'type Query {\n  "a \\ud800 b"\n  pets: Int\n}\n'),
+    ("tools.json", '[{"name": "t\\ud800", "inputSchema": {"description": "\\udfff"}}]'),
+])
+def test_a_lone_surrogate_spelled_by_an_escape_is_stored_not_raised(tmp_path, name, content):
+    units = _units(_write(tmp_path, {name: content}))
+    [capability] = [unit for unit in units if unit.kind == "capability"]
+    for unit in units:
+        assert Unit.from_dict(json.loads(json.dumps(unit.to_dict()))) == unit
+    assert "?" in capability.body or "?" in capability.title
+
+
+def test_the_unit_bound_bounds_the_units_made_not_only_those_returned(tmp_path, monkeypatch):
+    monkeypatch.setattr(interfaces, "MAX_UNITS", 5)
+    made: list[str] = []
+    real_unit = interfaces._unit
+
+    def counted(*args, **kwargs):
+        made.append(args[2])
+        return real_unit(*args, **kwargs)
+
+    read: list[Path] = []
+    real_read = interfaces._read
+
+    def spy(path, limit):
+        read.append(path)
+        return real_read(path, limit)
+
+    monkeypatch.setattr(interfaces, "_unit", counted)
+    monkeypatch.setattr(interfaces, "_read", spy)
+    schemas = {f"S{index}": {"type": "object"} for index in range(200)}
+    document = json.dumps({"openapi": "3.0.0", "components": {"schemas": schemas}})
+    units = _units(_write(tmp_path, {"a.json": document, "b.json": document}))
+    assert len(units) == 5 and "at most 5" in units[-1].body
+    assert "1 more specification files were not read" in units[-1].body
+    assert len(made) <= 5 + 1                  # the bound's worth, and the note that says so
+    assert [path.name for path in read] == ["a.json"]
+
+
+def test_a_line_that_opens_many_levels_has_its_comment_stripped_once(tmp_path, monkeypatch):
+    stripped: list[int] = []
+    real_strip = interfaces._strip_comment
+
+    def spy(text):
+        stripped.append(len(text))
+        return real_strip(text)
+
+    monkeypatch.setattr(interfaces, "_strip_comment", spy)
+    text = "openapi: 3.0.0\nx:\n" + "- " * 5_000 + "\n"
+    [unit] = _units(_write(tmp_path, {"deep.yaml": text}))
+    assert "nested deeper than" in unit.body
+    assert sum(stripped) <= 3 * len(text)     # not the line's length again at every level
+
+
+def test_openapi_3_2_query_and_additional_operations_are_capabilities(tmp_path):
+    document = {
+        "openapi": "3.2.0",
+        "paths": {
+            "/items": {
+                "query": {"summary": "Search with a body"},
+                "additionalOperations": {
+                    "COPY": {"summary": "Copy an item"},
+                    "LOCK": {"summary": "Lock an item"},
+                    "PURGE": "not an operation",
+                },
+            },
+            "/broken": {"additionalOperations": ["COPY"]},
+        },
+    }
+    units = _units(_write(tmp_path, {"api.json": json.dumps(document, indent=2)}))
+    capabilities = {unit.title: _access(unit) for unit in units if unit.kind == "capability"}
+    assert capabilities == {"QUERY /items": "read", "COPY /items": "write", "LOCK /items": "write"}
+    unparsed = [unit.body for unit in units if "unparsed" in unit.tags]
+    assert any("additional operation PURGE of path /items" in body for body in unparsed)
+    assert any("the additionalOperations of path /broken are not a mapping" in body
+               for body in unparsed)

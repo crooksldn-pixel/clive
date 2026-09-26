@@ -7,7 +7,9 @@ the same input gives the same Units; every size is bounded; and malformed input 
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
@@ -717,3 +719,159 @@ def test_an_unterminated_quote_is_unparsed_not_read_as_a_row(tmp_path, name, con
 def test_a_missing_artifact_is_unparsed_not_raised(tmp_path):
     [unit] = data.decompose(tmp_path / "missing", ARTIFACT)
     assert unit.tags == ("unparsed",) and unit.location.path == "."
+
+
+# --- repairs: names, depth, keys, run-together names, whole-artifact bounds ----------------------
+
+
+def test_a_file_whose_name_is_not_utf8_is_counted_not_raised(tmp_path):
+    try:
+        (tmp_path / os.fsdecode(b"odd\xff.csv")).write_text("a,b\n1,2\n", encoding="utf-8")
+    except (OSError, UnicodeEncodeError):
+        pytest.skip("the file system refuses names that are not UTF-8")
+    (tmp_path / "plain.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    units = data.decompose(tmp_path, ARTIFACT)
+    for unit in units:                               # every Unit can be identified and stored
+        assert Unit.from_dict(json.loads(json.dumps(unit.to_dict()))) == unit
+    assert [unit.title for unit in units] == ["Data schema: plain.csv", "Not parsed: the artifact"]
+    assert "1 dataset files whose names cannot be recorded were not read" in units[1].body
+
+
+def test_directories_nested_past_the_recursion_limit_are_walked_not_raised(tmp_path):
+    made = [str(tmp_path)]
+    try:
+        for _ in range(sys.getrecursionlimit() + 100):
+            made.append(made[-1] + "/d")
+            os.mkdir(made[-1])
+        Path(made[-1], "bottom.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+        [unit] = data.decompose(tmp_path, ARTIFACT)
+        assert unit.kind == "data_schema" and unit.location.path.endswith("/d/bottom.csv")
+    finally:
+        # taken down here, bottom up: pytest's own clean-up recurses, and would not get far
+        Path(made[-1], "bottom.csv").unlink(missing_ok=True)
+        for directory in reversed(made[1:]):
+            if os.path.isdir(directory):
+                os.rmdir(directory)
+
+
+def test_directories_count_towards_the_entry_bound(tmp_path, monkeypatch):
+    monkeypatch.setattr(data, "MAX_ENTRIES", 5)
+    for index in range(10):
+        (tmp_path / f"empty{index}").mkdir()
+    (tmp_path / "z.csv").write_text("a\n1\n", encoding="utf-8")
+    [note] = data.decompose(tmp_path, ARTIFACT)
+    assert note.tags == ("unparsed",) and "after 5 directory entries" in note.body
+
+
+def test_record_keys_and_table_columns_written_like_names_are_withheld(tmp_path):
+    records = [{"Ada Lovelace": 3, "GRACE HOPPER": 4, "region": "north"},
+               {"Ada Lovelace": 5, "GRACE HOPPER": 6, "region": "south"}]
+    (tmp_path / "scores.json").write_text(json.dumps(records), encoding="utf-8")
+    (tmp_path / "scores.jsonl").write_text(
+        "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
+    )
+    _database(tmp_path / "scores.sqlite", """
+        CREATE TABLE scores ("Ada Lovelace" INTEGER, region TEXT);
+        INSERT INTO scores VALUES (3, 'north'), (5, 'south');
+    """)
+    units = data.decompose(tmp_path, ARTIFACT)
+    assert [unit.kind for unit in units] == ["data_schema"] * 3
+    everything = json.dumps([unit.to_dict() for unit in units], ensure_ascii=False)
+    for person in ("Ada Lovelace", "GRACE HOPPER"):
+        assert person not in everything, person
+    for unit in units:
+        assert "written like people's names and are withheld" in unit.body
+        assert _line(unit, "column_1").startswith("- column_1: integer")
+        assert _line(unit, "region").endswith('examples "north", "south"')
+
+
+def test_personal_column_names_written_run_together_are_found(tmp_path):
+    (tmp_path / "crm.csv").write_text(
+        "customername,phonenumber,contactemail,postalcode,dateofbirth,productname\n"
+        "ada lovelace,call desk,ada at example,sw1a,1815-12-10,widget\n"
+        "grace hopper,ask front,grace at example,ec1a,1906-12-09,gadget\n",
+        encoding="utf-8",
+    )
+    [unit] = data.decompose(tmp_path, ARTIFACT)
+    for column in ("customername", "phonenumber", "contactemail", "postalcode", "dateofbirth"):
+        assert "personal, values withheld" in _line(unit, column), column
+        assert "examples" not in _line(unit, column), column
+    assert _line(unit, "productname").endswith('examples "widget", "gadget"')
+    for value in ("ada lovelace", "grace hopper", "call desk", "ada at example", "sw1a", "1815"):
+        assert value not in unit.body, value
+
+
+def test_phone_numbers_written_with_dots_are_personal(tmp_path):
+    (tmp_path / "dots.csv").write_text(
+        "415.555.0123,north\n415.555.0188,south\n", encoding="utf-8"
+    )
+    (tmp_path / "dates.csv").write_text(
+        "when,ratio\n26.09.2026,3.14159\n27.09.2026,2.5\n", encoding="utf-8"
+    )
+    dates, dots = data.decompose(tmp_path, ARTIFACT)
+    assert "no header row: columns are numbered." in dots.body     # a number is not a header
+    assert "personal, values withheld" in _line(dots, "column_1")
+    assert "415.555" not in json.dumps(dots.to_dict())
+    assert "personal" not in dates.tags                              # dotted dates and decimals
+    assert "personal" not in _line(dates, "when")
+    assert _line(dates, "ratio").endswith('examples "3.14159", "2.5"')
+
+
+def _aliased_table(path: Path, aliases: int, rows: int) -> None:
+    """A hostile database: one table's rows listed under many names, all at one root page."""
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("CREATE TABLE t (n INTEGER)")
+        connection.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(rows)])
+        connection.commit()
+        [(root,)] = connection.execute("SELECT rootpage FROM sqlite_master WHERE name = 't'")
+        connection.execute("PRAGMA writable_schema = ON")
+        for index in range(aliases):
+            connection.execute(
+                "INSERT INTO sqlite_master VALUES ('table', ?, ?, ?, ?)",
+                (f"t{index:02d}", f"t{index:02d}", root, f"CREATE TABLE t{index:02d} (n INTEGER)"),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_the_scan_is_bounded_across_the_whole_artifact(tmp_path, monkeypatch):
+    monkeypatch.setattr(data, "MAX_TOTAL_CELLS", 100)
+    _aliased_table(tmp_path / "a.sqlite", aliases=30, rows=60)
+    (tmp_path / "b.csv").write_text("n\n1\n2\n", encoding="utf-8")
+    units = data.decompose(tmp_path, ARTIFACT)
+    schemas = [unit for unit in units if unit.kind == "data_schema"]
+    assert [unit.title for unit in schemas] == [
+        "Data schema: a.sqlite table t", "Data schema: a.sqlite table t00",
+    ]
+    assert "Rows: 60" in schemas[0].body.splitlines()
+    assert "truncated" in schemas[1].tags and "the artifact's limit of 100 values" in schemas[1].body
+    notes = [unit.body for unit in units if unit.kind == "knowledge"]
+    assert any("29 more tables were not read: the artifact's scan limit" in note for note in notes)
+    assert units[-1].location.path == "b.csv" and "scan limit" in units[-1].body
+
+
+def test_sqlite_work_is_bounded_across_the_whole_artifact(tmp_path, monkeypatch):
+    monkeypatch.setattr(data, "MAX_TOTAL_SQLITE_STEPS", 3)
+    _aliased_table(tmp_path / "a.sqlite", aliases=30, rows=5_000)
+    units = data.decompose(tmp_path, ARTIFACT)
+    assert len([unit for unit in units if unit.kind == "data_schema"]) <= 1
+    assert any("more tables were not read" in unit.body for unit in units)
+
+
+def test_sqlite_errors_never_carry_the_databases_own_text(tmp_path):
+    connection = sqlite3.connect(tmp_path / "bad.sqlite")
+    try:
+        connection.execute("CREATE TABLE t (x)")
+        connection.execute("PRAGMA writable_schema = ON")
+        connection.execute(
+            "UPDATE sqlite_master SET sql = ? WHERE name = 't'",
+            ("CREATE TABLE t (x) 'ada@example.com'",),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    [note] = data.decompose(tmp_path, ARTIFACT)
+    assert note.tags == ("unparsed",) and "malformed database schema" in note.body
+    assert "ada@example.com" not in note.body and "example" not in note.body

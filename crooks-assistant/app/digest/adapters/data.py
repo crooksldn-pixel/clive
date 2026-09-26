@@ -8,16 +8,21 @@ a SQLite database is opened through a file URI with mode=ro and immutable=1, at 
 MAX_SCHEMA_ENTRIES of its tables and views are listed, only its tables are read — never its
 views, which would run SQL stored in the database — no value is fetched past its first
 MAX_CELL_CHARS characters or bytes, and every statement is stopped once it has used its share
-of work. Nothing is written back.
+of work. However many files and tables the artifact holds, no more than MAX_TOTAL_CELLS values
+and MAX_TOTAL_SQLITE_STEPS of SQLite's work are spent on it in all; what that leaves unread is
+said so. Directories are walked without recursion, and a file whose name cannot be recorded is
+counted, not read. Nothing is written back.
 
-A column that looks like personal data — by its name (email, phone, postcode, a person's name)
-or because at least half its values look like email addresses, phone numbers, postcodes or
-ZIP codes (punctuated or digits alone, stored as text or as numbers) or people's names, or
-are JSON lists or objects holding any of these — is marked personal, and none of its values
-appear in any Unit. Other columns show at most MAX_EXAMPLES short example values, never one
-that itself looks personal and never a JSON list or object. A first row with a cell that reads
-as a person's name is read as a record unless something else says it is a header; a header
-cell that reads as a person's name is never shown.
+A column that looks like personal data — by its name (email, phone, postcode, a person's name,
+in words or run together, as in "phonenumber") or because at least half its values look like
+email addresses, phone numbers, postcodes or ZIP codes (punctuated or digits alone, stored as
+text or as numbers) or people's names, or are JSON lists or objects holding any of these — is
+marked personal, and none of its values appear in any Unit. Other columns show at most
+MAX_EXAMPLES short example values, never one that itself looks personal and never a JSON list
+or object. A first row with a cell that reads as a person's name is read as a record unless
+something else says it is a header; a column name — a header cell, a record's key or a table's
+column — that reads as a person's name is never shown, and neither is anything SQLite quotes
+from the database in an error.
 
 What cannot be read is skipped and said so, in a knowledge Unit tagged 'unparsed' with the
 reason: decompose never raises on malformed input."""
@@ -31,7 +36,6 @@ import json
 import os
 import re
 import sqlite3
-import stat
 from collections.abc import Callable, Sequence
 from contextlib import closing
 from datetime import date, datetime
@@ -49,7 +53,7 @@ SUFFIXES = {
 }
 SKIPPED_DIRECTORIES = frozenset((".git",))
 
-MAX_ENTRIES = 50_000              # files looked at while finding datasets
+MAX_ENTRIES = 50_000              # directory entries, files or directories, looked at
 MAX_FILES = 200                   # dataset files read per artifact
 MAX_TEXT_BYTES = 4 * 1024 * 1024  # read from a text file; a larger JSON document is not read
 MAX_ROWS = 50_000                 # rows scanned per file or table
@@ -63,8 +67,14 @@ MAX_DISTINCT = 10_000             # distinct values counted per column before "m
 MAX_EXAMPLES = 3
 MAX_EXAMPLE_CHARS = 40
 MAX_NAME_CHARS = 80
-SNIFF_CHARS = 8 * 1024            # of a delimited file, to find its dialect
+SNIFF_CHARS = 4 * 1024            # of a delimited file, to find its dialect: csv.Sniffer
+                                  # costs its sample squared at worst, 0.1 s at this size
 SQLITE_STEPS = 20_000             # progress callbacks, each 1,000 SQLite instructions, per table
+# what the whole artifact may cost, however many files and tables it holds — a database can
+# list one table's rows under a hundred names, and each would otherwise be scanned in full
+MAX_TOTAL_CELLS = 2_000_000       # values profiled across every file and table
+MAX_TOTAL_SQLITE_STEPS = 200_000  # progress callbacks across every database
+MAX_REASON_CHARS = 300            # of an error message from a database, once made safe to show
 SQLITE_MAGIC = b"SQLite format 3\x00"
 
 NULL_WORDS = frozenset(("null", "none", "na", "n/a", "nan"))
@@ -72,8 +82,15 @@ BOOLEAN_WORDS = frozenset(("true", "false", "yes", "no"))
 PERSONAL_WORDS = frozenset((
     "email", "phone", "telephone", "tel", "mobile", "cellphone", "fax", "postcode", "postal",
     "zip", "zipcode", "surname", "forename", "firstname", "lastname", "fullname", "username",
-    "address", "street", "birthdate", "dob",
+    "address", "street", "birthdate", "dob", "dateofbirth", "birthday", "mobileno",
+    "mobilenumber", "cellno", "cellnumber", "telno", "phoneno",
 ))
+# personal words long enough to be found inside a name written without separators, as in
+# "contactemail", "phonenumber" or "billingaddress"
+PERSONAL_PARTS = (
+    "email", "phone", "postcode", "postal", "zipcode", "surname", "forename", "firstname",
+    "lastname", "fullname", "username", "address", "birthdate",
+)
 # "name" on its own, or with one of these, is a person's name; "product_name" is not.
 NAME_QUALIFIERS = frozenset((
     "first", "last", "full", "given", "family", "middle", "maiden", "nick", "display", "user",
@@ -97,8 +114,8 @@ _EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
 _POSTCODE = r"[A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2}|[A-Z][0-9][A-Z] ?[0-9][A-Z][0-9]"
 _POSTCODE_WHOLE = re.compile(_POSTCODE, re.IGNORECASE | re.ASCII)
 _POSTCODE_WITHIN = re.compile(rf"\b(?:{_POSTCODE})\b", re.IGNORECASE | re.ASCII)
-_PHONE = re.compile(r"\+?[0-9 ()-]{7,24}")
-_SEPARATED_DIGITS = re.compile(r"[0-9][ ()-]+[0-9]")
+_PHONE = re.compile(r"\+?[0-9 ().-]{7,24}")
+_SEPARATED_DIGITS = re.compile(r"[0-9][ ().-]+[0-9]")
 # digits alone: a national number with its leading 0, an international one after 00, a North
 # American one (area code and exchange each starting 2-9), with or without its 1, or another
 # international one without its + (a country code from 2 to 9, E.164's 11 to 15 digits in all)
@@ -116,14 +133,34 @@ def decompose(root: Path, artifact_id: str) -> list[Unit]:
     the order of their relative paths. Reads only; never raises on malformed input."""
     root = Path(root)
     found, notes = _find(root)
+    budget = _Budget()
     units: list[Unit] = []
     for rel, path, fmt in found:
+        if budget.spent():
+            units.append(_unparsed(artifact_id, rel, (
+                f"Not read: the artifact's scan limit — {MAX_TOTAL_CELLS} values, or "
+                f"{MAX_TOTAL_SQLITE_STEPS} steps of SQLite's work, across all its datasets — "
+                "was reached before this file."
+            )))
+            continue
         try:
-            units.extend(_READERS[fmt](artifact_id, rel, path, fmt))
+            units.extend(_READERS[fmt](artifact_id, rel, path, fmt, budget))
         except Exception as exc:
             units.append(_unparsed(artifact_id, rel, f"Could not be read: {type(exc).__name__}."))
     units.extend(_unparsed(artifact_id, ".", note) for note in notes)
     return units
+
+
+class _Budget:
+    """What is left of the scanning the whole artifact may cost: values profiled, and
+    SQLite's work. Each file and table also has its own limits; these hold across them all."""
+
+    def __init__(self) -> None:
+        self.cells = MAX_TOTAL_CELLS
+        self.steps = MAX_TOTAL_SQLITE_STEPS
+
+    def spent(self) -> bool:
+        return self.cells <= 0 or self.steps <= 0
 
 
 # --- finding the datasets --------------------------------------------------------------------
@@ -133,39 +170,79 @@ def _format(name: str) -> str | None:
     return SUFFIXES.get(os.path.splitext(name)[1].lower())
 
 
+def _recordable(rel: str) -> bool:
+    """Whether a relative path can be the path of a Unit's Location: a name that is not UTF-8
+    could be made into a Unit but not into its id."""
+    try:
+        rel.encode("utf-8")
+        Location(rel)
+    except ValueError:
+        return False
+    return True
+
+
 def _find(root: Path) -> tuple[list[tuple[str, Path, str]], list[str]]:
     """(relative path, path, format) of each regular dataset file, sorted and capped, and the
-    notes to make about what was not looked at. Symbolic links are never followed."""
+    notes to make about what was not looked at. Symbolic links are never followed.
+
+    Directories are listed from a stack, not by recursion, so no depth of nesting can raise;
+    every entry listed, a directory as much as a file, counts towards MAX_ENTRIES, and the
+    directory that would take the count past it, and every one after it, is not taken. A file
+    whose name cannot be recorded is left out and counted."""
     try:
         if root.is_file():
             fmt = _format(root.name)
-            return ([(root.name, root, fmt)] if fmt else []), []
+            if fmt is None:
+                return [], []
+            if not _recordable(root.name):
+                return [], ["A dataset file whose name cannot be recorded was not read."]
+            return [(root.name, root, fmt)], []
         if not root.is_dir():
             return [], ["The artifact is not a readable file or directory."]
     except OSError as exc:
         return [], [f"The artifact could not be looked at: {type(exc).__name__}."]
     found: list[tuple[str, Path, str]] = []
     notes: list[str] = []
-    entries = 0
-    for top, directories, files in os.walk(root):
-        directories[:] = sorted(name for name in directories if name not in SKIPPED_DIRECTORIES)
-        for name in sorted(files):
-            entries += 1
-            if entries > MAX_ENTRIES:
-                break
-            fmt = _format(name)
-            if fmt is None:
-                continue
-            path = Path(top, name)
+    entries = unnamed = 0
+    pending: list[tuple[str, str]] = [(str(root), "")]
+    while pending:
+        directory, prefix = pending.pop()
+        listed: list[os.DirEntry[str]] = []
+        try:
+            with os.scandir(directory) as listing:
+                for entry in listing:
+                    entries += 1
+                    if entries > MAX_ENTRIES:
+                        break
+                    listed.append(entry)
+        except OSError:
+            continue
+        if entries > MAX_ENTRIES:
+            notes.append(
+                f"Stopped looking for datasets after {MAX_ENTRIES} directory entries: the "
+                "directory that went past them, and every one after it, was not looked at."
+            )
+            break
+        subdirectories: list[tuple[str, str]] = []
+        for entry in sorted(listed, key=lambda item: item.name):
+            rel = prefix + entry.name
             try:
-                regular = stat.S_ISREG(path.lstat().st_mode)
+                if entry.is_dir(follow_symlinks=False):
+                    if entry.name not in SKIPPED_DIRECTORIES:
+                        subdirectories.append((entry.path, rel + "/"))
+                    continue
+                fmt = _format(entry.name)
+                if fmt is None or not entry.is_file(follow_symlinks=False):
+                    continue
             except OSError:
                 continue
-            if regular:
-                found.append((path.relative_to(root).as_posix(), path, fmt))
-        if entries > MAX_ENTRIES:
-            notes.append(f"Stopped looking for datasets after {MAX_ENTRIES} files.")
-            break
+            if _recordable(rel):
+                found.append((rel, Path(entry.path), fmt))
+            else:
+                unnamed += 1
+        pending.extend(reversed(subdirectories))
+    if unnamed:
+        notes.append(f"{unnamed} dataset files whose names cannot be recorded were not read.")
     found.sort(key=lambda item: item[0])
     if len(found) > MAX_FILES:
         notes.append(
@@ -215,12 +292,18 @@ def _personal_value(text: str) -> bool:
         return True
     if _DIGIT_PHONE.fullmatch(text) or _ZIP.fullmatch(text):
         return True
-    if not _PHONE.fullmatch(text) or _DATE.fullmatch(text):
+    if not _PHONE.fullmatch(text) or _DATE.fullmatch(text) or _NUMBER.fullmatch(text):
         return False
     digits = sum(char.isdigit() for char in text)
-    return 7 <= digits <= 15 and (
-        text.startswith(("+", "(")) or _SEPARATED_DIGITS.search(text) is not None
-    )
+    if not 7 <= digits <= 15:
+        return False
+    if text.startswith(("+", "(")):
+        return True
+    if _SEPARATED_DIGITS.search(text) is None:
+        return False
+    # dots alone, as in "415.555.0123", also separate a date's eight digits: a phone number
+    # written so has at least nine
+    return digits >= 9 or any(char in " ()-" for char in text)
 
 
 def _digits_personal(text: str) -> bool:
@@ -250,9 +333,15 @@ def _name_like(text: str) -> bool:
 
 
 def _personal_name(name: str) -> bool:
-    """Whether a column's name says it holds personal data."""
+    """Whether a column's name says it holds personal data — written in words, as in
+    "customer_email" or "First Name", or run together, as in "phonenumber" or
+    "customername"."""
     words = [word.lower() for word in _WORDS.findall(name)]
     if "".join(words) in PERSONAL_WORDS or any(word in PERSONAL_WORDS for word in words):
+        return True
+    if any(part in word for word in words for part in PERSONAL_PARTS):
+        return True
+    if any(word.endswith("name") and word[:-4] in NAME_QUALIFIERS for word in words):
         return True
     return "name" in words and set(words) - {"name"} <= NAME_QUALIFIERS
 
@@ -282,15 +371,15 @@ def _nested_personal(value: object) -> bool:
         elif isinstance(item, list):
             stack.extend(item)
         else:
-            seen = _classify(item)
+            seen = _classify(item, example=False)
             if seen is not None and seen[3]:
                 return True
     return False
 
 
-def _classify(value: object) -> tuple[str, str, str | None, bool] | None:
+def _classify(value: object, example: bool = True) -> tuple[str, str, str | None, bool] | None:
     """(type, canonical form, the example it may be shown as, whether it looks personal), or
-    None for a null."""
+    None for a null. With example false no example is looked for: the column has its share."""
     if value is None:
         return None
     if isinstance(value, bool):
@@ -301,12 +390,12 @@ def _classify(value: object) -> tuple[str, str, str | None, bool] | None:
         # a phone number or a ZIP code may be stored as a number: five digits are withheld
         # even though they are as often an id, since a postcode shown cannot be taken back
         personal = _digits_personal(text)
-        shown = not personal and _example_safe(text, "integer")
+        shown = example and not personal and _example_safe(text, "integer")
         return "integer", text, text if shown else None, personal
     if isinstance(value, float):
         text = repr(value)
         personal = value.is_integer() and _digits_personal(str(int(value)))
-        shown = not personal and _example_safe(text, "number")
+        shown = example and not personal and _example_safe(text, "number")
         return "number", text, text if shown else None, personal
     if isinstance(value, str):
         text = value.strip()
@@ -314,7 +403,7 @@ def _classify(value: object) -> tuple[str, str, str | None, bool] | None:
             return None
         kind = _infer(text)
         personal = _personal_value(text) or (kind == "text" and _name_like(text))
-        shown = not personal and _example_safe(text, kind)
+        shown = example and not personal and _example_safe(text, kind)
         return kind, text, text if shown else None, personal
     if isinstance(value, (bytes, bytearray, memoryview)):
         return "text", "blob:" + hashlib.sha256(bytes(value)).hexdigest(), None, False
@@ -340,7 +429,7 @@ class _Column:
         self.personal_hits = 0
 
     def add(self, value: object) -> None:
-        seen = _classify(value)
+        seen = _classify(value, example=len(self.examples) < MAX_EXAMPLES)
         if seen is None:
             return
         kind, canonical, example, personal = seen
@@ -382,7 +471,8 @@ def _column(raw: object, position: int) -> _Column:
 
 
 class _Profile:
-    def __init__(self) -> None:
+    def __init__(self, budget: _Budget) -> None:
+        self.budget = budget
         self.columns: list[_Column] = []
         self.keys: dict[str, _Column] = {}
         self.unprofiled: set[str] = set()
@@ -390,8 +480,12 @@ class _Profile:
         self.rows = 0
         self.cells = 0
         self.truncated = False
+        self.spent = False      # stopped by the artifact's limit rather than its own
 
     def full(self) -> bool:
+        if self.budget.cells <= 0:
+            self.spent = True
+            return True
         return self.rows >= MAX_ROWS or self.cells >= MAX_CELLS
 
     def fixed(self, names: Sequence[object]) -> None:
@@ -401,12 +495,14 @@ class _Profile:
     def add_row(self, values: Sequence[object]) -> None:
         self.rows += 1
         self.cells += max(1, len(values))
+        self.budget.cells -= max(1, min(len(values), len(self.columns)))
         for column, value in zip(self.columns, values, strict=False):
             column.add(value)
 
     def add_record(self, record: dict) -> None:
         self.rows += 1
         self.cells += max(1, len(record))
+        self.budget.cells -= max(1, len(record))
         for key, value in record.items():
             column = self.keys.get(key)
             if column is None:
@@ -472,6 +568,11 @@ def _schema_unit(artifact_id: str, title: str, facts: list[str], profile: _Profi
     if profile.width > len(profile.columns):
         columns += f" (the first {len(profile.columns)} profiled)"
     lines = [*facts, f"Rows: {rows}", f"Columns: {columns}"]
+    if profile.spent:
+        lines.insert(len(facts), (
+            f"The scan stopped at the artifact's limit of {MAX_TOTAL_CELLS} values across all "
+            "its datasets."
+        ))
     if personal:
         lines.append("Personal data, values withheld: " + ", ".join(personal))
     lines.append("")
@@ -571,28 +672,34 @@ def _header_is_a_record(profile: _Profile) -> bool:
     )
 
 
-def _withhold_labels(profile: _Profile) -> int:
-    """Number the columns of a header whose names read as people's names, and say how many:
-    a name that does head a column is still not shown."""
+def _withhold_labels(profile: _Profile, facts: list[str]) -> None:
+    """Number the columns whose names read as people's names — a header's, a record's keys or
+    a table's columns — and say how many: a name that does head a column is still not shown."""
     withheld = 0
     for position, column in enumerate(profile.columns, 1):
         if _label_withheld(column.name):
             column.name = f"column_{position}"
             withheld += 1
-    return withheld
+    if withheld:
+        facts.append(
+            f"{withheld} column names are written like people's names and are withheld: those "
+            "columns are numbered."
+        )
 
 
-def _delimited(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
+def _delimited(artifact_id: str, rel: str, path: Path, fmt: str, budget: _Budget) -> list[Unit]:
     text, cut, facts = _read_text(path)
     if not text.strip():
         return [_unparsed(artifact_id, rel, _empty(cut))]
     dialect = _dialect(text, fmt)
+    left = budget.cells
     profile, notes, started, named, ragged, last = _scan(
-        artifact_id, rel, text, dialect, cut, header=True
+        artifact_id, rel, text, dialect, cut, budget, header=True
     )
     if named and _header_is_a_record(profile):
+        budget.cells = left     # the first reading is not counted twice
         profile, notes, started, named, ragged, last = _scan(
-            artifact_id, rel, text, dialect, cut, header=False
+            artifact_id, rel, text, dialect, cut, budget, header=False
         )
     if not started:
         return notes or [_unparsed(artifact_id, rel, _empty(cut))]
@@ -601,12 +708,8 @@ def _delimited(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
         + ("the first row names the columns." if named else "no header row: columns are numbered.")
     )
     facts.insert(0, heading)
-    withheld = _withhold_labels(profile) if named else 0
-    if withheld:
-        facts.append(
-            f"{withheld} column names are written like people's names and are withheld: those "
-            "columns are numbered."
-        )
+    if named:
+        _withhold_labels(profile, facts)
     if ragged:
         facts.append(f"{ragged} rows have a different number of fields from the first.")
     schema = _schema_unit(
@@ -616,14 +719,14 @@ def _delimited(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
 
 
 def _scan(artifact_id: str, rel: str, text: str, dialect: type[csv.Dialect], cut: bool,
-          header: bool) -> tuple[_Profile, list[Unit], bool, bool, int, int]:
+          budget: _Budget, header: bool) -> tuple[_Profile, list[Unit], bool, bool, int, int]:
     """(profile, notes, whether a row was found, whether the first row names the columns, rows
     of another width, the last line read) of a delimited text. The first row is taken for a
     header only when header is true and it looks like one."""
     # strict: malformed quoting, such as a quote never closed, stops the scan and is said so
     # rather than being read as a row
     reader = csv.reader(io.StringIO(text, newline=""), dialect, strict=True)
-    profile = _Profile()
+    profile = _Profile(budget)
     profile.truncated = cut
     notes: list[Unit] = []
     started = named = False
@@ -669,7 +772,7 @@ def _json_kind(value: object) -> str:
     return "a number"
 
 
-def _json_array(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
+def _json_array(artifact_id: str, rel: str, path: Path, fmt: str, budget: _Budget) -> list[Unit]:
     size = path.stat().st_size
     if size > MAX_TEXT_BYTES:
         return [_unparsed(
@@ -692,7 +795,7 @@ def _json_array(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
         return [_unparsed(
             artifact_id, rel, f"The top-level JSON value is {_json_kind(data)}, not an array of records."
         )]
-    profile = _Profile()
+    profile = _Profile(budget)
     others = 0
     for item in data:
         if not isinstance(item, dict):
@@ -707,14 +810,15 @@ def _json_array(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
     facts.insert(0, "Format: JSON array of records.")
     if others:
         facts.append(f"{others} items of the array are not objects and were skipped.")
+    _withhold_labels(profile, facts)
     return [_schema_unit(
         artifact_id, f"Data schema: {rel}", facts, profile, Location(rel, 1, _line_count(text)), fmt
     )]
 
 
-def _json_lines(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
+def _json_lines(artifact_id: str, rel: str, path: Path, fmt: str, budget: _Budget) -> list[Unit]:
     text, cut, facts = _read_text(path)
-    profile = _Profile()
+    profile = _Profile(budget)
     profile.truncated = cut
     bad: list[int] = []
     bad_count = last = 0
@@ -743,6 +847,7 @@ def _json_lines(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
             )]
         return [_unparsed(artifact_id, rel, _empty(cut))]
     facts.insert(0, "Format: JSON Lines, one record per line.")
+    _withhold_labels(profile, facts)
     units = [_schema_unit(
         artifact_id, f"Data schema: {rel}", facts, profile, Location(rel, 1, last), fmt
     )]
@@ -762,7 +867,20 @@ def _lenient_text(data: bytes) -> str:
     return data.decode("utf-8", "replace")
 
 
-def _sqlite(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"|`[^`]*`|\[[^\]]*\]")
+
+
+def _reason(exc: sqlite3.Error) -> str:
+    """What went wrong, as SQLite says it, safe to show. SQLite quotes what it found in the
+    database — a token of a malformed schema, a name, a value an expression failed on — so
+    whatever it quotes is withheld: a database's own text never reaches a Unit through an
+    error."""
+    said = _QUOTED.sub("(withheld)", " ".join(str(exc).split()))
+    said = "".join(char if char.isprintable() else "?" for char in said)
+    return _clip(said, MAX_REASON_CHARS) or type(exc).__name__
+
+
+def _sqlite(artifact_id: str, rel: str, path: Path, fmt: str, budget: _Budget) -> list[Unit]:
     with path.open("rb") as handle:
         magic = handle.read(len(SQLITE_MAGIC))
     if magic != SQLITE_MAGIC:
@@ -770,21 +888,23 @@ def _sqlite(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
     uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
     try:
         with closing(sqlite3.connect(uri, uri=True)) as connection:
-            return _database(artifact_id, rel, connection)
+            return _database(artifact_id, rel, connection, budget)
     except sqlite3.Error as exc:
-        return [_unparsed(artifact_id, rel, f"Not readable as a SQLite database: {exc}.")]
+        return [_unparsed(artifact_id, rel, f"Not readable as a SQLite database: {_reason(exc)}.")]
 
 
-def _database(artifact_id: str, rel: str, connection: sqlite3.Connection) -> list[Unit]:
+def _database(artifact_id: str, rel: str, connection: sqlite3.Connection,
+              budget: _Budget) -> list[Unit]:
     spent = 0
 
     def progress() -> int:
         nonlocal spent
         spent += 1
-        return int(spent > SQLITE_STEPS)
+        budget.steps -= 1
+        return int(exhausted())
 
     def exhausted() -> bool:
-        return spent > SQLITE_STEPS
+        return spent > SQLITE_STEPS or budget.steps < 0
 
     connection.text_factory = _lenient_text
     # a larger value is refused by SQLite rather than read, whatever the query asks of it
@@ -812,12 +932,23 @@ def _database(artifact_id: str, rel: str, connection: sqlite3.Connection) -> lis
         else:
             tables.append(name)
     units: list[Unit] = []
+    unread = 0
     for name in tables[:MAX_TABLES]:
+        if budget.spent():
+            unread += 1
+            continue
         spent = 0
         try:
-            units.extend(_table(artifact_id, rel, connection, name, exhausted))
+            units.extend(_table(artifact_id, rel, connection, name, exhausted, budget))
         except sqlite3.Error as exc:
-            units.append(_unparsed(artifact_id, rel, f"Table {_shown(name)} could not be read: {exc}."))
+            units.append(_unparsed(
+                artifact_id, rel, f"Table {_shown(name)} could not be read: {_reason(exc)}."
+            ))
+    if unread:
+        units.append(_unparsed(
+            artifact_id, rel,
+            f"{unread} more tables were not read: the artifact's scan limit was reached.",
+        ))
     if len(tables) > MAX_TABLES:
         units.append(_unparsed(
             artifact_id, rel,
@@ -842,7 +973,7 @@ def _quote(name: str) -> str:
 
 
 def _table(artifact_id: str, rel: str, connection: sqlite3.Connection, name: str,
-           exhausted: Callable[[], bool]) -> list[Unit]:
+           exhausted: Callable[[], bool], budget: _Budget) -> list[Unit]:
     [(width,)] = connection.execute(
         "SELECT count(*) FROM pragma_table_info(?)", (name,)
     ).fetchall()
@@ -857,12 +988,13 @@ def _table(artifact_id: str, rel: str, connection: sqlite3.Connection, name: str
         for quoted in (_quote(str(raw)) for raw, _ in declared)
     )
     cursor = connection.execute(f"SELECT {fetched} FROM {_quote(name)} LIMIT ?", (MAX_ROWS + 1,))
-    profile = _Profile()
+    profile = _Profile(budget)
     profile.fixed([str(raw) for raw, _ in declared])
     profile.width = width
     for column, (_, kind) in zip(profile.columns, declared, strict=False):
         column.declared = _shown(str(kind)) if kind else None
     facts = [f"Format: SQLite table {_shown(name)}, opened read-only."]
+    _withhold_labels(profile, facts)
     cut = 0
     try:
         for row in cursor:
@@ -900,7 +1032,7 @@ def _table(artifact_id: str, rel: str, connection: sqlite3.Connection, name: str
     return [schema, *notes]
 
 
-_READERS: dict[str, Callable[[str, str, Path, str], list[Unit]]] = {
+_READERS: dict[str, Callable[[str, str, Path, str, _Budget], list[Unit]]] = {
     "csv": _delimited, "tsv": _delimited, "json": _json_array, "jsonl": _json_lines,
     "sqlite": _sqlite,
 }
