@@ -619,6 +619,79 @@ def test_regular_expressions_and_jsx_text_are_not_taken_for_broken_code(tmp_path
     assert _span(_titled(units, "function View (view.jsx)")) == ("view.jsx", 1, 3)
 
 
+def test_a_quoted_string_left_open_is_reported_and_nothing_in_the_file_is_read(tmp_path):
+    root = _write(tmp_path / "open-strings", {
+        # The braces pair, so only the string left open shows the file is broken.
+        "double.js": 'export function f() { return "unterminated\n}\n',
+        "single.ts": "export function g(): string {\n  return 'oops;\n}\n",
+        # An apostrophe in JSX text after an expression is not a string left open.
+        "card.jsx": "export function Card({ name }) {\n  return <p>{name}'s card</p>;\n}\n",
+    })
+    units = _units(root)
+    unparsed = _unparsed(units)
+    assert [_span(unit) for unit in unparsed["double.js"]] == [("double.js", 1, 1)]
+    assert '" string that is never closed' in unparsed["double.js"][0].body
+    assert [_span(unit) for unit in unparsed["single.ts"]] == [("single.ts", 2, 2)]
+    assert "' string that is never closed" in unparsed["single.ts"][0].body
+    assert all(unit.kind == "knowledge" for found in unparsed.values() for unit in found)
+    assert not [
+        unit for unit in units
+        if unit.location.path in ("double.js", "single.ts") and "unparsed" not in unit.tags
+    ]
+    assert "card.jsx" not in unparsed
+    assert _span(_titled(units, "function Card (card.jsx)")) == ("card.jsx", 1, 3)
+
+
+def test_an_export_left_incomplete_is_reported_and_the_rest_of_the_file_is_read(tmp_path):
+    root = _write(tmp_path / "incomplete", {
+        "default.js": "export default ;\nexport function ok() {}\n",
+        "trailing.ts": "export function ok() {}\nexport async ;\nexport interface = 1;\n"
+                       "export default\n",
+    })
+    units = _units(root)
+    unparsed = _unparsed(units)
+    assert [_span(unit) for unit in unparsed["default.js"]] == [("default.js", 1, 1)]
+    assert "export default ;" in unparsed["default.js"][0].body
+    assert [_span(unit)[1] for unit in unparsed["trailing.ts"]] == [2, 3, 4]
+    assert "export async ;" in unparsed["trailing.ts"][0].body
+    assert "export interface = 1;" in unparsed["trailing.ts"][1].body
+    assert "export default" in unparsed["trailing.ts"][2].body
+    for path in ("default.js", "trailing.ts"):
+        ok = _titled(units, f"function ok ({path})")
+        assert ok.kind == "capability"
+        assert [unit for unit in units if unit.location.path == path
+                and "unparsed" not in unit.tags] == [ok]
+
+
+RETURN_TYPES_TS = '''\
+export function make(): { value: number } {
+  return {value: 1};
+}
+
+export async function pair(): Promise<{ a: number }> | { b: string } {
+  return { b: "x" };
+}
+
+export declare function shape(): { x: number };
+'''
+
+
+def test_typescript_return_types_are_kept_whole_and_not_taken_for_the_body(tmp_path):
+    units = _units(_write(tmp_path / "returns", {"make.ts": RETURN_TYPES_TS}))
+    assert not _unparsed(units)
+    make = _titled(units, "function make (make.ts)")
+    assert make.kind == "capability" and _span(make) == ("make.ts", 1, 3)
+    assert make.body.startswith("export function make(): { value: number }\n")
+    pair = _titled(units, "function pair (make.ts)")
+    assert _span(pair) == ("make.ts", 5, 7)
+    assert pair.body.startswith(
+        "export async function pair(): Promise<{ a: number }> | { b: string }\n"
+    )
+    shape = _titled(units, "function shape (make.ts)")
+    assert _span(shape) == ("make.ts", 9, 9)
+    assert shape.body.startswith("export declare function shape(): { x: number };\n")
+
+
 BAD_VALUES = json.dumps({
     "name": "bad-values",
     "bin": {"good-cli": "bin/good.js", "list-cli": ["bin/a.js"], "": "bin/empty.js"},

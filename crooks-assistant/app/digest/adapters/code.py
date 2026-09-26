@@ -4,7 +4,7 @@ beside them — read into Units.
 Reading is all it does. Python is parsed with the ast module, which reads source without
 importing or running a line of it; JavaScript and TypeScript are read by pattern, with comments
 set aside first so that commented-out code is not mistaken for code, and a file whose comments,
-template strings or brackets do not close, or an export that cannot be made out, is reported
+strings or brackets do not close, or an export that cannot be made out, is reported
 rather than guessed at; pyproject.toml, setup.cfg, requirements files and package.json are
 parsed as the data they are, and an entry of the wrong shape is reported, not recorded as one.
 Nothing found is imported, installed or run — a package.json script is recorded as a script and
@@ -132,6 +132,24 @@ _JS_EXPORT_WORDS = frozenset((
     "namespace", "module", "import", "as", "const", "let", "var",
 ))
 _JS_BINDING = re.compile(r"[ \t]*$|[ \t]+[A-Za-z_$\[{]")
+# What must come next for an export begun with one of these keywords to be complete.
+_JS_NAMED = re.compile(rf"\s*{_JS_NAME}")
+_JS_EXPORT_FOLLOWS = {
+    "default": re.compile(r"""\s*[\w$'"`(\[{!~+\-/<@.]"""),
+    "async": re.compile(r"\s+function\b"),
+    "abstract": re.compile(r"\s+class\b"),
+    "as": re.compile(r"\s+namespace\b"),
+    "type": re.compile(rf"\s*(?:[{{*]|{_JS_NAME})"),
+    "namespace": re.compile(rf"""\s*(?:{_JS_NAME}|['"])"""),
+    "module": re.compile(rf"""\s*(?:{_JS_NAME}|['"])"""),
+    "declare": _JS_NAMED, "interface": _JS_NAMED, "enum": _JS_NAMED, "import": _JS_NAMED,
+}
+# Words that join TypeScript types, after which a type is still wanted.
+_TYPE_OPERATORS = frozenset((
+    "keyof", "typeof", "infer", "readonly", "unique", "asserts", "is", "extends", "new",
+    "abstract",
+))
+_RETURN_TYPE = re.compile(r"\s*:")
 _BRACKETS = {"(": ")", "[": "]", "{": "}"}
 # A / after one of these, or after one of these words, opens a regular expression; else it divides.
 _REGEX_AFTER = frozenset("(,=:[!&|?{};+-*%>~^")
@@ -599,9 +617,10 @@ class _Digest:
                 found.append((match.start(), end, "class", name, signature, _default_note(match)))
         for match in _JS_EXPORT_WORD.finditer(skeleton):
             word = match.group("word")
+            follows = _JS_EXPORT_FOLLOWS.get(word)
             if word not in _JS_EXPORT_WORDS or (
                 word in ("const", "let", "var") and not _JS_BINDING.match(match.group("after"))
-            ):
+            ) or (follows is not None and not follows.match(skeleton, match.end("word"))):
                 written = _one_line(code[match.start():_end_of_line(code, match.start())])
                 problems.append((match.start(), f"an export this reader cannot make out: {written}"))
         for offset, what in sorted(problems):
@@ -1174,7 +1193,7 @@ def _set_aside_comments(
     """Two copies of the text with every offset and newline kept: code, with comments blanked,
     and a skeleton that also blanks the inside of strings and regular expressions — so neither
     a commented-out export nor a brace in a string is taken for code. And the block comments,
-    as offsets; and the first comment or template string left open, as (offset, what)."""
+    as offsets; and the first comment or string left open, as (offset, what)."""
     code = list(text)
     skeleton = list(text)
     blocks: list[tuple[int, int]] = []
@@ -1211,6 +1230,10 @@ def _set_aside_comments(
                 unclosed = unclosed or (index, "a ` template string that is never closed")
                 _blank(skeleton, index + 1, size)
                 index = size
+            elif _literal_expected(text, last):     # only a string can begin here: left open
+                unclosed = unclosed or (index, f"a {char} string that is never closed on its line")
+                last = index
+                index += 1
             else:                 # a quote alone on its line: an apostrophe in JSX text, say
                 last = index
                 index += 1
@@ -1238,12 +1261,22 @@ def _string_end(text: str, start: int) -> int | None:
         if char == quote:
             return index
         if char == "\\":
-            index += 2
+            index += 3 if text.startswith("\r\n", index + 1) else 2
             continue
         if char == "\n" and quote != "`":
             return None
         index += 1
     return None
+
+
+def _literal_expected(text: str, last: int) -> bool:
+    """Whether a quote after the code character at last can only open a string — where an
+    expression is wanted, as after an operator, an opening bracket or return — so that one not
+    closed on its line is a string left open. After a word, a > or a } the quote may be JSX
+    text instead: Don't, <p>'Tis, {name}'s."""
+    if last >= 0 and (text[last] == "}" or (text[last] == ">" and text[last - 1:last] != "=")):
+        return False
+    return _regex_may_follow(text, last)
 
 
 def _regex_may_follow(text: str, last: int) -> bool:
@@ -1343,12 +1376,66 @@ def _function_extent(code: str, skeleton: str, pairs: dict[int, int], begin: int
     if close is None:
         stop = _end_of_line(skeleton, begin)
         return stop, _one_line(code[begin:stop])
-    brace = skeleton.find("{", close, close + 2_000)
-    semi = skeleton.find(";", close, close + 2_000)
+    # A TypeScript return type comes before the body, and may hold braces of its own.
+    start = close
+    returns = _RETURN_TYPE.match(skeleton, close + 1)
+    if returns is not None:
+        end = _type_end(skeleton, pairs, returns.end())
+        start = end if end is not None else close
+    brace = skeleton.find("{", start, start + 2_000)
+    semi = skeleton.find(";", start, start + 2_000)
     if brace != -1 and (semi == -1 or brace < semi):
         return pairs.get(brace, brace), _one_line(code[begin:brace])
     stop = semi if semi != -1 else close
     return stop, _one_line(code[begin:stop + 1])
+
+
+def _type_end(skeleton: str, pairs: dict[int, int], start: int) -> int | None:
+    """Where a TypeScript type written from start ends: the offset of the first character past
+    it, such as a function's body brace. A brace where a type is still wanted — first, or after
+    |, &, =>, < or keyof — opens an object type and is part of it; a brace after a whole type is
+    not. None when the type does not end, or its brackets do not pair, within the bound."""
+    stop = min(len(skeleton), start + 2_000)
+    index, depth, wanted = start, 0, True       # depth: the < of type arguments still open
+    while index < stop:
+        char = skeleton[index]
+        if char.isspace():
+            index += 1
+        elif skeleton.startswith("=>", index):
+            index, wanted = index + 2, True
+        elif char in "{([" and (wanted or depth or char == "["):
+            close = pairs.get(index)
+            if close is None:
+                return None
+            index, wanted = close + 1, False
+        elif char == "<":
+            index, depth, wanted = index + 1, depth + 1, True
+        elif char == ">" and depth:
+            index, depth, wanted = index + 1, depth - 1, False
+        elif char in "|&?:.-+" or (char == "," and depth):
+            index, wanted = index + 1, True
+        elif char in "'\"`":
+            close = skeleton.find(char, index + 1, stop)
+            if close == -1:
+                return None
+            index, wanted = close + 1, False
+        elif char.isalnum() or char in "_$":
+            end = index + 1
+            while end < stop and (skeleton[end].isalnum() or skeleton[end] in "_$"):
+                end += 1
+            word = skeleton[index:end]
+            if word in _TYPE_OPERATORS:
+                wanted = True
+            elif wanted or depth:
+                wanted = False
+            else:
+                return index              # a second type with nothing joining them: it ended
+            index = end
+        elif depth:
+            index += 1
+        else:
+            return index                  # a body brace, a ; or anything else no type holds
+    return None
 
 
 def _class_extent(code: str, skeleton: str, pairs: dict[int, int], begin: int,
