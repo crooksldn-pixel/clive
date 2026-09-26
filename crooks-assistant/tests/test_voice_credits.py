@@ -20,6 +20,7 @@ import httpx
 import pytest
 
 from app.clients.elevenlabs import ScribeClient, ScribeUnavailable
+from app.clients.elevenlabs_account import AccountCredit
 from app.clients.elevenlabs_tts import VoiceClient, VoiceUnavailable
 from app.clients.whisper import WhisperClient, WhisperUnavailable
 from app.routes.health import _health, _live, health
@@ -84,14 +85,19 @@ def scribe(**kwargs) -> ScribeClient:
 
 def elevenlabs(account: dict):
     """ElevenLabs as it answers: the key lists models and names the voice either way; speech
-    and transcription answer 401 quota_exceeded while the account is empty."""
+    and transcription answer 401 quota_exceeded while the account is empty.
+
+    The subscription answers for the same account, so it is spent exactly while the account is
+    empty and has room the moment it is topped up. It used to read 10000/10000 whatever
+    `empty` said, which was harmless only for as long as nothing acted on it."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/models"):
             return httpx.Response(200, json=[{"model_id": "scribe_v2"}])
         if path.endswith("/user/subscription"):
-            return httpx.Response(200, json={"tier": "creator", "character_count": 10000, "character_limit": 10000})
+            used = 10000 if account["empty"] else 2500
+            return httpx.Response(200, json={"tier": "creator", "character_count": used, "character_limit": 10000})
         if path.startswith("/v1/voices/"):
             return httpx.Response(200, json={"voice_id": VOICE_ID, "name": "Derek"})
         if account["empty"]:
@@ -228,10 +234,189 @@ def test_a_scribe_that_is_not_out_of_credit_keeps_its_own_words():
     assert transcriber._unheard_reason(exc) == exc.spoken
 
 
+# ------------------------------------------------------- an empty account across a restart
+#
+# F-01 of the exact-SHA review of e847a2cb. Everything above answers for a process that has
+# already tried to speak. A deploy restarts the service, and a restarted process has tried
+# nothing: `attempts` is 0, no attempt has failed, and until this section existed /health
+# answered "key ok" on an account with 0 credits — the very surface this file exists to
+# remove, back again, and back again after every deploy.
+#
+# The voice must learn it without spending a synthesis. It does, because Scribe probes the
+# account on the same key on every /health, and both clients answer to one AccountCredit.
+
+
+async def fresh_pair(tmp_path: Path):
+    """A brand-new process: two clients that have never called anything, wired as on the host."""
+    voice_client, scribe_client = voice(cooldown_s=300.0), scribe(cooldown_s=300.0)
+    runtime = runtime_with(voice_client, scribe_client, tmp_path)
+    assert voice_client.attempts == 0 and scribe_client.attempts == 0
+    return voice_client, scribe_client, runtime
+
+
+async def test_a_restarted_process_does_not_call_an_empty_account_healthy(mock_http, tmp_path):
+    """The regression this repair is for: zero attempts, zero credits, /health.voice.ok false."""
+    account = {"empty": True}
+    mock_http(elevenlabs(account))
+    voice_client, _, runtime = await fresh_pair(tmp_path)
+
+    report = await _health(runtime)
+
+    assert report["voice"]["attempts"] == 0, "nothing has been synthesised in this process"
+    assert report["voice"]["ok"] is False and report["checks"]["tts"]["ok"] is False
+    assert report["voice"]["failure_kind"] == "credit"
+    plainly_credit(report["voice"]["reason"])
+    plainly_credit(report["checks"]["tts"]["detail"])
+    assert "rejected" not in report["checks"]["tts"]["detail"]
+    assert report["status"] == "degraded"
+    assert SECRET not in json.dumps(report)
+
+
+async def test_the_restarted_process_learns_it_without_paying_for_a_synthesis(mock_http, tmp_path):
+    """A health check that spends credit to find out there is none would be the same bug."""
+    account = {"empty": True}
+    holder = mock_http(elevenlabs(account))
+    _, _, runtime = await fresh_pair(tmp_path)
+
+    await _health(runtime)
+
+    paths = [r.url.path for r in holder["requests"]]
+    assert not [p for p in paths if "text-to-speech" in p], "the voice asked ElevenLabs for nothing"
+    assert any(p.endswith("/user/subscription") for p in paths), "Scribe's probe is what found out"
+
+
+async def test_the_cached_page_is_honest_about_the_empty_account_too(mock_http, tmp_path):
+    """/health serves from a cache for a while; the voice line is re-read at answer time."""
+    account = {"empty": True}
+    mock_http(elevenlabs(account))
+    _, _, runtime = await fresh_pair(tmp_path)
+    request = route_request(runtime)
+
+    first = await health(request, fresh=1)
+    assert first["cached"] is False and first["voice"]["ok"] is False
+
+    cached = await health(request, fresh=0)
+    assert cached["cached"] is True, "answered from the cache"
+    assert cached["voice"]["ok"] is False and cached["checks"]["tts"]["ok"] is False
+    assert cached["voice"]["failure_kind"] == "credit"
+    plainly_credit(cached["voice"]["reason"])
+
+
+async def test_a_topped_up_account_is_well_again_at_the_next_check_without_speaking(mock_http, tmp_path):
+    """Cleared by newer evidence, and the probe is evidence: no synthesis needed to recover."""
+    account = {"empty": True}
+    mock_http(elevenlabs(account))
+    voice_client, _, runtime = await fresh_pair(tmp_path)
+    assert (await _health(runtime))["voice"]["ok"] is False
+
+    account["empty"] = False
+    up = await _health(runtime)
+
+    assert up["voice"]["attempts"] == 0, "still nothing spoken"
+    assert up["voice"]["ok"] is True and up["checks"]["tts"]["ok"] is True
+    assert up["voice"]["failure_kind"] is None and up["voice"]["reason"] is None
+    assert voice_client.health()[1].startswith("key ok")
+
+
+async def test_the_newest_evidence_wins_whichever_product_gave_it(mock_http, tmp_path):
+    """A success clears an earlier emptiness; a later refusal sets it again. Either client."""
+    account = {"empty": True}
+    mock_http(elevenlabs(account))
+    voice_client, scribe_client, runtime = await fresh_pair(tmp_path)
+
+    with pytest.raises(ScribeUnavailable):
+        await scribe_client.transcribe(b"wav", keyterms=[])
+    assert voice_client.health()[0] is False, "Scribe's refusal answers for the voice as well"
+
+    account["empty"] = False
+    scribe_client.clear_cooldown()
+    voice_client.clear_cooldown()
+    await scribe_client.transcribe(b"wav", keyterms=[])
+    assert voice_client.health()[0] is True, "a transcription is evidence the plan has credit"
+
+    account["empty"] = True
+    with pytest.raises(VoiceUnavailable):
+        await voice_client.synthesise("Twelve orders today.")
+    assert scribe_client.account.exhausted, "and the voice's refusal answers for Scribe"
+
+
+async def test_an_allowance_that_cannot_be_read_is_not_an_empty_one(mock_http, tmp_path):
+    """Fails safe. A key scoped to speech cannot see the plan, and silence is not emptiness."""
+
+    def restricted(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/models"):
+            return httpx.Response(200, json=[{"model_id": "scribe_v2"}])
+        if path.endswith("/user/subscription"):
+            return httpx.Response(401, json={"detail": {"status": "missing_permissions"}})
+        if path.startswith("/v1/voices/"):
+            return httpx.Response(200, json={"voice_id": VOICE_ID, "name": "Derek"})
+        return httpx.Response(200, content=MP3, headers={"content-type": "audio/mpeg"})
+
+    mock_http(restricted)
+    voice_client, _, runtime = await fresh_pair(tmp_path)
+
+    report = await _health(runtime)
+
+    assert report["voice"]["ok"] is True, "unreadable is not empty"
+    assert not voice_client.account.exhausted
+    assert "quota unreadable" in report["checks"]["scribe"]["detail"]
+
+
+@pytest.mark.parametrize("sub", [
+    {"tier": "creator"},                                        # no allowance stated
+    {"tier": "creator", "character_count": 0, "character_limit": 0},   # no allowance to spend
+    {"tier": "creator", "character_count": 2500, "character_limit": 10000},
+])
+async def test_an_allowance_with_room_or_none_stated_leaves_the_voice_alone(mock_http, tmp_path, sub):
+    def answering(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/models"):
+            return httpx.Response(200, json=[{"model_id": "scribe_v2"}])
+        if path.endswith("/user/subscription"):
+            return httpx.Response(200, json=sub)
+        if path.startswith("/v1/voices/"):
+            return httpx.Response(200, json={"voice_id": VOICE_ID, "name": "Derek"})
+        return httpx.Response(200, content=MP3, headers={"content-type": "audio/mpeg"})
+
+    mock_http(answering)
+    voice_client, _, runtime = await fresh_pair(tmp_path)
+
+    assert (await _health(runtime))["voice"]["ok"] is True
+    assert not voice_client.account.exhausted
+
+
+async def test_a_rejected_key_is_still_a_key_to_replace_not_a_plan_to_top_up(mock_http, tmp_path):
+    """The failure this whole file was written about, in reverse: do not overcorrect."""
+
+    def bad_key(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(401, json=INVALID_KEY)
+        return httpx.Response(401, json=INVALID_KEY)
+
+    mock_http(bad_key)
+    voice_client, _, runtime = await fresh_pair(tmp_path)
+
+    report = await _health(runtime)
+
+    assert not voice_client.account.exhausted, "a bad key says nothing about the plan"
+    assert "credits are used up" not in report["checks"]["scribe"]["detail"]
+    assert report["voice"]["ok"] is True, "the voice's own key is fine and untried"
+
+
 # --------------------------------------------------------------------------- health
 
 
 def runtime_with(voice_client: VoiceClient, scribe_client: ScribeClient, tmp_path: Path) -> SimpleNamespace:
+    """A runtime around these two clients, wired as app/runtime.build() wires them.
+
+    That includes the one thing a test would otherwise miss for free: both clients answer to a
+    single AccountCredit, because on the host there is one ElevenLabs plan and one key behind
+    the two of them. Give each its own and the voice can never learn what the account told
+    Scribe, which is the whole defect this file exists for."""
+    account = AccountCredit()
+    voice_client.account = scribe_client.account = account
+
     async def ok(detail: str):
         return True, detail
 
@@ -270,7 +455,8 @@ async def test_voice_health_is_not_ok_while_the_account_is_empty_and_recovers(mo
     account = {"empty": True}
     mock_http(elevenlabs(account))
     client = voice(cooldown_s=300.0)
-    assert client.health()[0], "nothing has been tried yet"
+    assert client.health()[0], "nothing tried yet AND nothing known about the account"
+    assert not client.account.exhausted, "this client has been told nothing; see the tests below"
 
     with pytest.raises(VoiceUnavailable):
         await client.synthesise("Twelve orders today.")
@@ -404,7 +590,15 @@ async def test_a_cached_health_shows_a_scribe_failure_since_it_was_filled(mock_h
         assert down["checks"]["speech"]["ok"] is True and down["speech"]["effective"] == "whisper_fallback"
     else:
         assert down["checks"]["speech"]["ok"] is False and down["speech"]["effective"] == "none"
-    assert down["voice"]["ok"] is True, "the voice was not touched"
+    # Changed deliberately on 2026-09-26, and the only existing assertion this repair changes.
+    # It used to read `down["voice"]["ok"] is True, "the voice was not touched"`, which said
+    # that an account refusing a transcription for credit tells the voice nothing. It tells it
+    # everything: one plan, one key, and the 401 that stopped Scribe is the one that will stop
+    # Derek. The voice has made no attempt of its own here and still knows, which is the point.
+    assert down["voice"]["ok"] is False and down["checks"]["tts"]["ok"] is False
+    assert down["voice"]["attempts"] == 0, "and it learnt it without spending a synthesis"
+    assert down["voice"]["failure_kind"] == "credit"
+    plainly_credit(down["voice"]["reason"])
     assert SECRET not in json.dumps(down)
     assert request.app.state.health_cache[1]["checks"]["scribe"]["ok"] is True, "the cached result itself is not changed"
 

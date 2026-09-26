@@ -20,6 +20,7 @@ import time
 
 import httpx
 
+from app.clients.elevenlabs_account import AccountCredit
 from app.clients.whisper import Transcript
 from app.secrets import keychain
 from app.speech.voice_reasons import listening_reason
@@ -69,6 +70,7 @@ class ScribeClient:
         base_url: str = API_BASE,
         max_keyterms: int = 99,
         cooldown_s: float = 300.0,
+        account: AccountCredit | None = None,
     ) -> None:
         self.model = model
         self.language = language
@@ -99,6 +101,10 @@ class ScribeClient:
         self._probe_successes = 0
         # The kind of what that probe found wrong ("credit", "rejected"), "" when it was well.
         self._probe_kind = ""
+        # What the account last said about its own credit. Shared with the voice when the
+        # runtime builds both, because one account and one credential cannot be empty for
+        # listening and full for speaking; its own when a caller builds this client alone.
+        self.account = account or AccountCredit()
 
     # ------------------------------------------------------------------ connection
 
@@ -161,6 +167,9 @@ class ScribeClient:
         self.failing = True
         self.last_error_kind = exc.kind
         self.last_error = self._scrub(str(exc))[:200]
+        if exc.kind == "credit":
+            # The account, not the product: the voice is on the same plan and the same key.
+            self.account.observe(exhausted=True, source="a transcription was refused for credit")
         if exc.kind in STICKY_KINDS and self._cooldown_s > 0:
             self._cooldown_until = time.time() + self._cooldown_s
             if exc.kind in {"rejected", "forbidden"}:
@@ -243,6 +252,9 @@ class ScribeClient:
         self.failing = False
         self.last_ms = ms
         self.clear_cooldown()
+        # The account answered, so it has credit: newer evidence than any earlier emptiness,
+        # for the voice as much as for Scribe.
+        self.account.observe(exhausted=False, source="a transcription succeeded")
         return Transcript(text=(payload.get("text") or "").strip(), ms=ms, model=self.model)
 
     def _http_failure(self, response: httpx.Response) -> ScribeUnavailable:
@@ -298,18 +310,30 @@ class ScribeClient:
             client = self._client()
             headers = {"xi-api-key": key}
             probe = await client.get(f"{self.base_url}/models", headers=headers, timeout=5.0)
-            quota = await self._quota(client, headers) if probe.status_code == 200 else ""
+            quota = await self._quota(client, headers) if probe.status_code == 200 else ("", None)
         except httpx.HTTPError as exc:
             return False, f"ElevenLabs unreachable: {type(exc).__name__}"
 
         body = self._scrub(probe.text or "").lower()
-        if probe.status_code == 200:
-            return True, f"key ok{quota}"
+        note, spent = quota
+        if probe.status_code == 200 and spent:
+            # The key is fine and the account is empty. Before this the allowance was read and
+            # then only printed, so an account with nothing left in it passed its own health
+            # probe and the voice, which has no probe of its own, was told nothing at all.
+            self._probe_kind = "credit"
+            self.account.observe(exhausted=True, source="the account's character allowance is spent")
+            return False, f"{listening_reason('credit')} (credit){note}"
+        elif probe.status_code == 200:
+            if spent is False:
+                self.account.observe(exhausted=False, source="the account has allowance left")
+            return True, f"key ok{note}"
         elif "missing_permissions" in body or probe.status_code == 403:
-            # A key scoped to one product. It cannot list models; it can still transcribe.
+            # A key scoped to one product. It cannot list models; it can still transcribe. It
+            # cannot see the allowance either, and an unreadable allowance is not an empty one.
             return True, "key ok (restricted, unlisted quota)"
         elif probe.status_code in (401, 402, 429) and _says_no_credit(body):
             self._probe_kind = "credit"
+            self.account.observe(exhausted=True, source="the account refused a request for credit")
             return False, f"{listening_reason('credit')} (credit)"
         elif probe.status_code == 401:
             self._probe_kind = "rejected"
@@ -366,24 +390,35 @@ class ScribeClient:
     # of refusals.
     QUOTA_RECHECK_S = 3600.0
 
-    async def _quota(self, client: httpx.AsyncClient, headers: dict[str, str]) -> str:
-        """Characters used, when the key is allowed to see them. Never a failure on its own."""
+    async def _quota(
+        self, client: httpx.AsyncClient, headers: dict[str, str]
+    ) -> tuple[str, bool | None]:
+        """Characters used, when the key is allowed to see them, and whether they are all gone.
+
+        The second answer is the one the voice needs and cannot ask for itself. It is True only
+        when the account states a limit and has reached it, False when it states a limit with
+        room left, and None when there is nothing to read — a restricted key, an unreachable
+        endpoint, an answer without an allowance in it. None is not emptiness: a key that may
+        not see the plan says nothing about the plan, and must leave the verdict where it was."""
         remembered = getattr(self, "_quota_memo", None)
         if remembered is not None and time.monotonic() < remembered[0]:
-            return remembered[1]
+            return remembered[1], remembered[2]
         try:
             response = await client.get(
                 f"{self.base_url}/user/subscription", headers=headers, timeout=5.0
             )
             if response.status_code != 200:
                 note = ", quota unreadable (restricted key)"
-                self._quota_memo = (time.monotonic() + self.QUOTA_RECHECK_S, note)
-                return note
+                self._quota_memo = (time.monotonic() + self.QUOTA_RECHECK_S, note, None)
+                return note, None
             sub = response.json()
         except (httpx.HTTPError, ValueError):
-            return ""
+            return "", None
         if not isinstance(sub, dict):
-            return ""
+            return "", None
         used, limit = sub.get("character_count"), sub.get("character_limit")
         tier = sub.get("tier") or "unknown tier"
-        return f", {tier}, {used}/{limit} characters used" if limit is not None else f", {tier}"
+        spent = None
+        if isinstance(limit, int | float) and limit > 0 and isinstance(used, int | float):
+            spent = used >= limit
+        return (f", {tier}, {used}/{limit} characters used" if limit is not None else f", {tier}"), spent

@@ -473,7 +473,7 @@ async def test_a_restricted_key_is_asked_about_its_quota_once_an_hour(mock_http)
     assert sum(p.endswith("/subscription") for p in paths) == 1
 
     # The memory expires: an hour later it is asked again.
-    c._quota_memo = (0.0, c._quota_memo[1])
+    c._quota_memo = (0.0, *c._quota_memo[1:])
     await c.health()
     paths = [str(r.url.path) for r in holder["requests"]]
     assert sum(p.endswith("/subscription") for p in paths) == 2
