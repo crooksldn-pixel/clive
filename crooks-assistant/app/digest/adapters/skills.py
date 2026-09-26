@@ -86,7 +86,7 @@ _CHECK = re.compile(
     r"|test that|run\b[^.\n]*?\b(?:tests?|checks?|linters?|lint|pytest|ruff|mypy))\b",
     re.I,
 )
-_RUN = re.compile(r"[\s*_`>]*(?:run|execute)\b", re.I)
+_RUN = re.compile(r"[\s*_`>]*(?:(?:you[ \t]+)?(?:always|must)[ \t]+)?(?:run|execute)\b", re.I)
 _CHECK_HEADING = re.compile(
     r"\b(?:verif\w*|validat\w*|checks?|checklist|tests?|testing|acceptance|confirm\w*"
     r"|done when|definition of done|quality gates?)\b",
@@ -404,13 +404,16 @@ def _item_text(block: _Block) -> str:
     return " ".join(" ".join([first, *block.lines[1:]]).split())
 
 
-def _item_kind(text: str, section: str) -> str | None:
-    """check, rule, or None for a plain step."""
-    if section == "check" or _CHECK.match(text):
-        return "check"
-    if section == "rule" or _RULE.search(text):
-        return "rule"
-    return None
+def _kinds(rule: bool, check: bool) -> tuple[str, ...]:
+    """What some guidance is: a rule, a check, both — an imperative verification step is
+    each — or neither."""
+    return (("rule",) if rule else ()) + (("check",) if check else ())
+
+
+def _item_kinds(text: str, section: str) -> tuple[str, ...]:
+    """rule and check, either, or neither for a plain step."""
+    return _kinds(section == "rule" or bool(_RULE.search(text)),
+                  section == "check" or bool(_CHECK.match(text)))
 
 
 def _guidance(lines: list[str], first: int, units: _Units, rel: str, context: str,
@@ -439,14 +442,14 @@ def _guidance(lines: list[str], first: int, units: _Units, rel: str, context: st
 def _list_units(lines: list[str], run: list[_Block], heading: str | None, section: str,
                 units: _Units, rel: str, context: str, tags: tuple[str, ...]) -> None:
     items = [(block, _item_text(block)) for block in run]
-    kinds = [_item_kind(text, section) for _, text in items]
+    kinds = [_item_kinds(text, section) for _, text in items]
     steps = bool(heading and _STEPS_HEADING.search(heading))    # a steps section, whatever its items
-    if steps or (not section and (any(block.numbered for block in run) or None in kinds)):
+    if steps or (not section and (any(block.numbered for block in run) or () in kinds)):
         start, end = run[0].start, run[-1].end
         body = "\n".join(lines[start - 1:end])
         units.add("procedure", heading or f"{context}: steps", body, rel, (start, end), tags)
-    for (block, text), kind in zip(items, kinds, strict=True):
-        if kind is not None:
+    for (block, text), found in zip(items, kinds, strict=True):
+        for kind in found:
             units.add(kind, text, text, rel, (block.start, block.end), tags)
 
 
@@ -458,14 +461,11 @@ def _paragraph_units(block: _Block, section: str, units: _Units, rel: str,
         line += text.count("\n", position, match.start())
         position = match.start()
         words = " ".join(match.group().split())
-        if _CHECK.match(words) or (section == "check" and _RUN.match(words)):
-            kind = "check"
-        elif _RULE.search(words):
-            kind = "rule"
-        else:
-            continue
+        found = _kinds(bool(_RULE.search(words)),
+                       bool(_CHECK.match(words) or (section == "check" and _RUN.match(words))))
         last = line + text.count("\n", match.start(), match.end() - 1)
-        units.add(kind, words, words, rel, (line, last), tags)
+        for kind in found:
+            units.add(kind, words, words, rel, (line, last), tags)
 
 
 # --- skills and the files they reference -----------------------------------------------------

@@ -208,6 +208,29 @@ def test_a_steps_section_of_rules_and_checks_is_still_a_procedure(tmp_path):
     assert units[1].body == "- Always pin dependencies.\n- Verify the result."
 
 
+def test_imperative_verification_in_a_skill_is_both_a_rule_and_a_check(tmp_path):
+    skill = "skills/gate/SKILL.md"
+    units = _digest(_write(tmp_path / "artifact", {
+        skill: (
+            "---\nname: gate\ndescription: Gate a change.\n---\n"
+            "## Steps\n\n1. Make the change.\n2. Verify that you never commit secrets.\n\n"
+            "## Verification\n\n- Always run the tests.\n\n"
+            "You must run the linter. The diff is reviewed.\n"
+        ),
+    }))
+    assert _summary(units) == [
+        ("knowledge", "gate", skill, 1, 4),
+        ("procedure", "Steps", skill, 7, 8),
+        ("rule", "Verify that you never commit secrets.", skill, 8, 8),
+        ("check", "Verify that you never commit secrets.", skill, 8, 8),
+        ("rule", "Always run the tests.", skill, 12, 12),
+        ("check", "Always run the tests.", skill, 12, 12),
+        ("rule", "You must run the linter.", skill, 14, 14),
+        ("check", "You must run the linter.", skill, 14, 14),
+    ]
+    assert units[1].body == "1. Make the change.\n2. Verify that you never commit secrets."
+
+
 # --- harness configuration -----------------------------------------------------------------------
 
 
@@ -249,6 +272,27 @@ def test_a_harness_workflow_of_rules_and_checks_is_still_a_procedure(tmp_path):
         ("check", "Verify the release notes.", "CLAUDE.md", 8, 8),
     ]
     assert units[0].body == "- Always run the linter.\n- Check that the build passes."
+
+
+def test_imperative_verification_in_harness_configuration_is_both_a_rule_and_a_check(tmp_path):
+    units = _digest(_write(tmp_path / "artifact", {
+        "CLAUDE.md": (
+            "## Checks\n\n- Never skip the tests.\n\n"
+            "Always run `ruff check` before committing.\n\n"
+            "## Workflow\n\n1. Make the change.\n2. Confirm you never left debug output.\n"
+        ),
+    }))
+    assert _summary(units) == [
+        ("rule", "Never skip the tests.", "CLAUDE.md", 3, 3),
+        ("check", "Never skip the tests.", "CLAUDE.md", 3, 3),
+        ("rule", "Always run `ruff check` before committing.", "CLAUDE.md", 5, 5),
+        ("check", "Always run `ruff check` before committing.", "CLAUDE.md", 5, 5),
+        ("procedure", "Workflow", "CLAUDE.md", 9, 10),
+        ("rule", "Confirm you never left debug output.", "CLAUDE.md", 10, 10),
+        ("check", "Confirm you never left debug output.", "CLAUDE.md", 10, 10),
+    ]
+    assert units[4].body == "1. Make the change.\n2. Confirm you never left debug output."
+    assert all("harness" in u.tags for u in units)
 
 
 # --- prompt libraries ------------------------------------------------------------------------------
