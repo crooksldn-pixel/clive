@@ -998,6 +998,111 @@ def test_a_ready_verdict_on_a_red_candidate_blocks_and_records_no_acceptance(tmp
     assert not w.store.read_acceptances(OBJ) and not w.store.read_integrations()
 
 
+
+# ---------------------------------------------- the 2026-09-26 re-pin review: F-01 and F-03
+
+def _script(w: World, *answers: GateState, then: GateState) -> None:
+    """GitHub answers ``answers`` in order, one per question, then ``then`` for every later question."""
+    queue = list(answers)
+    real = w.acceptance.check
+
+    def check(repository: str, sha: str) -> GateResult:
+        w.acceptance.state = queue.pop(0) if queue else then
+        return real(repository, sha)
+
+    w.acceptance.check = check
+
+
+@pytest.mark.parametrize("change", [GateState.RED, GateState.PENDING, GateState.UNAVAILABLE])
+def test_a_green_answer_inside_the_poll_interval_never_admits_a_ready_verdict(tmp_path, change):
+    """F-01: the green answer that let review be dispatched is not reused when the READY arrives; GitHub is
+    asked again at that moment, and a re-run or an outage inside the interval holds the acceptance."""
+    w = World(tmp_path, acceptance_poll_s=300, acceptance_timeout_s=7200)
+    _script(w, GateState.GREEN, then=change)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.REVIEWING))                  # green when review was dispatched
+    asked = len(w.acceptance.asked)
+    w.reviewer.answers.append(lambda ctx: review(ctx, "READY"))
+    w.dispatcher().tick()                                           # well inside the 300 s interval
+    assert len(w.acceptance.asked) == asked + 1                     # asked afresh, not the remembered green
+    assert not w.store.read_acceptances(OBJ)
+    if change is GateState.RED:
+        assert w.state_of().status is TaskStatus.BLOCKED
+        assert "accepting a READY verdict refused" in w.state_of().blocker_reason
+    else:
+        assert w.state_of().status is TaskStatus.REVIEWING
+        w.dispatcher().tick()                                       # a remembered non-green answer is reused
+        assert len(w.acceptance.asked) == asked + 1 and not w.store.read_acceptances(OBJ)
+
+
+@pytest.mark.parametrize("change", [GateState.RED, GateState.PENDING, GateState.UNAVAILABLE])
+def test_a_green_answer_inside_the_poll_interval_never_lands_an_integration(tmp_path, change):
+    """F-01: the green answer the acceptance rested on is not reused to integrate; GitHub is asked again."""
+    w = World(tmp_path, acceptance_poll_s=300, acceptance_timeout_s=7200)
+    _script(w, GateState.GREEN, GateState.GREEN, then=change)       # review dispatch, READY, then integration
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.REVIEWING))
+    w.reviewer.answers.append(lambda ctx: review(ctx))
+    w.run_until(lambda: bool(w.store.read_acceptances(OBJ)) and len(w.acceptance.asked) >= 3)
+    for _ in range(3):
+        w.dispatcher().tick()
+    assert not w.store.read_integrations()
+    assert w.stage() != "COMPLETE"
+    if change is GateState.RED:
+        assert "integration refused" in w.state_of().blocker_reason
+    else:
+        w.acceptance.check = FakeAcceptance(GateState.GREEN).check  # GitHub is green again
+        w.clock.offset += timedelta(seconds=301)
+        w.run_until(lambda: w.stage() == "COMPLETE")
+        assert len(w.store.read_integrations()) == 1
+
+
+def test_git_error_text_is_redacted_before_it_becomes_a_reason():
+    from app.orchestrator.dispatcher import MAX_GIT_ERROR, safe_git_error
+    from tests.fake_credentials import github_token, password
+
+    token, secret = github_token("push-error"), password("push-error")
+    text = safe_git_error(
+        f"fatal: unable to access 'https://x-access-token:{token}@github.com/o/r.git/': 403\n"
+        f"fatal: could not read from https://bot:{secret}@example.com/r.git\nremote: token {token}\n"
+        + "x" * 1000)
+    assert token not in text and secret not in text and secret[:6] not in text
+    assert "https://[redacted]@github.com/o/r.git/" in text and "\n" not in text
+    assert len(text) == MAX_GIT_ERROR
+    # redaction happens before the cut, so a cut can never leave a secret's head behind
+    head = safe_git_error("x" * (MAX_GIT_ERROR - 10) + f" https://u:{secret}@h/r")
+    assert secret[:4] not in head
+    assert safe_git_error("") == "git gave no error text"
+
+
+def test_a_failed_candidate_push_blocks_without_git_error_credentials_in_the_store_or_status(tmp_path, monkeypatch):
+    """F-03: a failed push's stderr can name an authenticated remote URL; the blocker reason, which the store
+    keeps and the status projection publishes, carries it redacted."""
+    from app.orchestrator import dispatcher as dispatcher_module
+    from tests.fake_credentials import github_token
+
+    token = github_token("failed-push")
+    real_run = dispatcher_module.subprocess.run
+
+    def run(argv, *args, **kwargs):
+        if list(argv[:2]) == ["git", "push"]:
+            return subprocess.CompletedProcess(argv, 128, "", f"fatal: unable to access 'https://x-access-token:"
+                                                            f"{token}@github.com/o/r.git/': 403 {token}\n")
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(dispatcher_module.subprocess, "run", run)
+    w = World(tmp_path, publish_remote="origin")
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+    reason = w.state_of().blocker_reason
+    assert reason.startswith("publishing ") and "failed:" in reason and "[redacted]" in reason
+    assert token not in reason
+    assert token not in json.dumps(w.dispatcher().status(), default=str)
+    assert not any(token in path.read_text(errors="replace") for path in w.store.root.rglob("*") if path.is_file())
+
 def test_a_rejection_is_admitted_without_waiting_for_github(tmp_path):
     w = World(tmp_path)
     w.scenarios({"edits": [["pkg/hello.txt", "bye\n"]]}, EDIT_HELLO)

@@ -91,6 +91,14 @@ def _add_transport_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--branch", default=DEFAULT_INBOX_BRANCH)
 
 
+# The 2026-09-26 re-pin review, F-02: the loop is GitHub-gated, and GitHub only sees what is pushed.
+NO_PUBLISH_REMOTE = (
+    "candidates are published nowhere without --publish-remote, so GitHub never runs acceptance on them "
+    "and every one would wait and then block; a GitHub-gated loop needs an explicit publication remote "
+    "(normally origin)"
+)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--store", required=True, help="the kernel engineering store root")
@@ -108,7 +116,9 @@ def build_parser() -> argparse.ArgumentParser:
     # Host-only dispatcher configuration. None of these values can come from inbox JSON.
     parser.add_argument("--runtime-root", default="/opt/crooks-workers/runtime")
     parser.add_argument("--workspace-root", default="/opt/crooks-workers")
-    parser.add_argument("--publish-remote", default=None)
+    parser.add_argument("--publish-remote", default=None,
+                        help="remote the candidates are pushed to, so GitHub runs acceptance on them; "
+                             "run refuses to start without it")
     parser.add_argument("--gpt-api-key-file", default=None)
     parser.add_argument("--gpt-model", default=GPT_DEFAULT_MODEL)
     parser.add_argument("--gpt-effort", default=GPT_DEFAULT_EFFORT)
@@ -176,6 +186,8 @@ def _controller(args, kernel: Kernel, objectives: ObjectiveStore, receipts: Rece
 
 
 def _dispatcher(args, kernel: Kernel, objectives: ObjectiveStore) -> Dispatcher:
+    if not args.publish_remote:
+        raise InboxError(NO_PUBLISH_REMOTE)
     runtime = Path(args.runtime_root)
     if args.gpt_api_key_file:
         reviewers = [

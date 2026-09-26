@@ -69,6 +69,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import subprocess
 import time
 import uuid
@@ -104,6 +105,7 @@ from .workers.base import (
     WorkerLaunchError,
     worker_marker,
 )
+from .workers.check_server import redact as _redact_secrets
 from .workspaces import WorkspaceError, WorkspaceManager, git
 
 __all__ = ["Dispatcher", "DispatcherBusy", "DispatcherConfig", "NEXT_ACTION", "TRUNK_BRANCH",
@@ -674,7 +676,8 @@ class Dispatcher:
                                    f"{sha}:refs/heads/{task.target_branch}"],
                                   cwd=str(repo), capture_output=True, text=True, timeout=180)
             if proc.returncode != 0:
-                return f"publishing {sha} to {self.config.publish_remote}/{task.target_branch} failed: {proc.stderr.strip()[:300]}"
+                return (f"publishing {sha} to {self.config.publish_remote}/{task.target_branch} failed: "
+                        f"{safe_git_error(proc.stderr)}")
             if self.kernel.git.remote_head(self.config.publish_remote, task.target_branch) != sha:
                 return f"{self.config.publish_remote}/{task.target_branch} does not resolve to {sha} after the push"
         return None
@@ -686,10 +689,14 @@ class Dispatcher:
                    if e.kind is EventKind.RESUMED]
         return max(resumed) if resumed else None
 
-    def _acceptance(self, task: EngineeringTask, attempt: Attempt, sha: str) -> GateResult:
+    def _acceptance(self, task: EngineeringTask, attempt: Attempt, sha: str, *, fresh: bool = False) -> GateResult:
         """GitHub's answer about exactly ``sha``, asked at most once per ``acceptance_poll_s`` and recorded.
 
-        A remembered answer is reused only inside that interval and never across a resume."""
+        A remembered answer is reused only inside that interval and never across a resume. With ``fresh``
+        (admitting a READY, which records the acceptance, and integrating) a remembered green answer is
+        never reused: GitHub may have gone pending, red or unavailable since (a re-run, an outage), so the
+        step that authorises something asks again at that moment. A remembered answer that is not green
+        authorises nothing, so it may still spare GitHub a question inside the interval."""
         now = self.now()
         rt = self._runtime(attempt.attempt_id)
         last = rt.get("github_acceptance")
@@ -697,6 +704,7 @@ class Dispatcher:
         checked = _parse(last.get("checked_at")) if cached is not None else None
         resumed = self._resumed_at(attempt)
         if (cached is not None and cached.sha == sha and checked is not None
+                and not (fresh and cached.green)
                 and (resumed is None or checked >= resumed)
                 and now - checked < timedelta(seconds=self.config.acceptance_poll_s)):
             return cached
@@ -705,7 +713,7 @@ class Dispatcher:
         return result
 
     def _await_green(self, obj: Objective, task: EngineeringTask, attempt: Attempt, sha: str,
-                     step: str) -> tuple[str | None, bool] | None:
+                     step: str, *, fresh: bool = False) -> tuple[str | None, bool] | None:
         """None when ``sha`` is green on GitHub; otherwise what this tick does instead of ``step``.
 
         Fail closed and bounded: no configured gate and a red answer block at once; missing, pending or
@@ -715,7 +723,7 @@ class Dispatcher:
         if self.acceptance is None:
             return self._block(obj, task, f"no GitHub acceptance gate is configured in this dispatcher; {step} on "
                                           f"{sha} needs a green GitHub acceptance run on that exact SHA"), True
-        result = self._acceptance(task, attempt, sha)
+        result = self._acceptance(task, attempt, sha, fresh=fresh)
         now = self.now()
         rt = self._runtime(attempt.attempt_id)
         if result.green:
@@ -836,7 +844,8 @@ class Dispatcher:
         if typed.verdict == "READY":
             # Admitting a READY records the acceptance, so it waits, unconsumed, for a green run on the exact
             # candidate. Normally already green: review is dispatched only then (``_dispatch_review``).
-            waiting = self._await_green(obj, task, attempt, dispatch.candidate_sha, "accepting a READY verdict")
+            waiting = self._await_green(obj, task, attempt, dispatch.candidate_sha, "accepting a READY verdict",
+                                        fresh=True)
             if waiting is not None:
                 return waiting
         self._consume(attempt, dispatch.dispatch_seq, payload)
@@ -899,7 +908,7 @@ class Dispatcher:
         attempt = self._current_attempt(task, state)
         # Integration lands exactly the accepted SHA (fast-forward only, below), and only once GitHub acceptance
         # is green on that SHA: an acceptance recorded before this gate existed is held here too.
-        waiting = self._await_green(obj, task, attempt, acceptance.accepted_sha, "integration")
+        waiting = self._await_green(obj, task, attempt, acceptance.accepted_sha, "integration", fresh=True)
         if waiting is not None:
             return waiting
         head = self._target_head(task)
@@ -1204,3 +1213,19 @@ def _parse(value: str | None) -> datetime | None:
     parsed = datetime.fromisoformat(value)
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
+
+
+# A URL's user part (``https://user:secret@host/...``, ``https://x-access-token:...@github.com``): git
+# names the remote it failed to reach, and that name can carry the credential it used.
+_URL_USERINFO = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s@]*@")
+MAX_GIT_ERROR = 300
+
+
+def safe_git_error(text: str, limit: int = MAX_GIT_ERROR) -> str:
+    """Git's error text as a blocker reason may carry it: one line, credentials in URLs and token shapes
+    redacted before it is cut to ``limit``, so the store and the published status never hold a secret
+    from it (a cut made first could leave a secret's head that no longer looks like one)."""
+    text = _URL_USERINFO.sub(r"\1[redacted]@", text or "")
+    text = _redact_secrets(text)
+    text = " ".join(text.split())
+    return text[:limit] if text else "git gave no error text"
