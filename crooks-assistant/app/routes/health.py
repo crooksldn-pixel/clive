@@ -166,7 +166,10 @@ def _voice_block(runtime, ok: bool) -> dict:
     and falls back if that fails — but it is what makes a silent tablet or an Android-sounding
     one diagnosable without reading the log."""
     voice = runtime.voice
-    failing = getattr(voice, "failing_kind", "") or ""
+    # Not `failing_kind`: with an empty account and no attempt yet there is no failure to name
+    # and there is still a reason, and a block that says `ok: false` beside `reason: null` tells
+    # the owner nothing. `blocking_kind` falls back to what the account said.
+    failing = getattr(voice, "blocking_kind", "") or ""
     return {
         "provider": "elevenlabs" if voice.enabled else "browser",
         "voice": voice.voice_name,

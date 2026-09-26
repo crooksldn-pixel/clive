@@ -23,6 +23,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 
+from app.clients.elevenlabs_account import AccountCredit
 from app.secrets import keychain
 from app.speech.voice_reasons import voice_reason
 
@@ -152,6 +153,7 @@ class VoiceClient:
         cooldown_s: float = 300.0,
         enabled: bool = True,
         max_per_minute: int = 30,
+        account: AccountCredit | None = None,
     ) -> None:
         self.voice_id = voice_id
         self.voice_name = voice_name or voice_id
@@ -173,6 +175,10 @@ class VoiceClient:
         self._http: httpx.AsyncClient | None = None
         self._voice_checked_at: float = 0.0
         self._voice_actual_name: str | None = None
+        # What the account last said about its own credit. Shared with Scribe when the runtime
+        # builds both: Scribe is the one that probes the account, and this client will not —
+        # a health check that synthesises a sentence on every poll is a bill, not a check.
+        self.account = account or AccountCredit()
         # Answers synthesised ahead of the tablet asking for them — see prefetch(). Keyed by
         # the spoken text; a handful of entries, a couple of minutes, in memory only.
         self._ready: dict[str, Prefetched] = {}
@@ -251,6 +257,9 @@ class VoiceClient:
         self.failing = True
         self.last_error_kind = exc.kind
         self.last_error = self._scrub(str(exc))[:200]
+        if exc.kind == "credit":
+            # The account, not the product: Scribe is on the same plan and the same key.
+            self.account.observe(exhausted=True, source="an answer was refused for credit")
         if exc.kind in STICKY_KINDS and self._cooldown_s > 0:
             self._cooldown_until = time.time() + self._cooldown_s
             if exc.kind in {"rejected", "forbidden"}:
@@ -277,6 +286,8 @@ class VoiceClient:
         self.successes += 1
         self.failing = False
         self.clear_cooldown()
+        # It spoke, so the account has credit: newer evidence than any earlier emptiness.
+        self.account.observe(exhausted=False, source="an answer was spoken")
         log.info(
             "tts ok · %s · %s · %s · %.0fms · %d bytes", self.voice_name, self.model,
             self.output_format, stream.ms, stream.bytes_out,
@@ -574,10 +585,19 @@ class VoiceClient:
         return actual
 
     def health(self) -> tuple[bool, str]:
-        """Is the voice usable? Answered from configuration and the Keychain, with no request:
-        a health check that synthesises a sentence on every poll is a bill, not a check. The
-        account itself is already probed once, by the Scribe check, on the same credential; and
-        the latest real attempt is the evidence of whether speaking works."""
+        """Is the voice usable? Answered from configuration, the Keychain and what the account
+        has already said about itself, with no request of its own: a health check that
+        synthesises a sentence on every poll is a bill, not a check.
+
+        Three kinds of evidence, strongest first. The latest real attempt is the best: it tried
+        to speak and either did or did not. Under it sits the account, probed once per check by
+        Scribe on the same credential — one plan pays for both, so an empty account is as true
+        of speaking as of listening. Only when neither has anything to say is configuration on
+        its own enough to answer "key ok".
+
+        That last clause is the whole of the repair. Until it existed, a process that had not
+        yet tried to speak reported the voice healthy no matter what the account had told
+        Scribe a moment earlier, and every restart put that answer back."""
         note = f"ElevenLabs {self.voice_name} · {self.model} · {self.output_format}"
         if not self.enabled:
             return True, f"not in use (CROOKS_TTS_ENABLED=false) · {note}"
@@ -605,6 +625,10 @@ class VoiceClient:
             if self.cooling_down:
                 detail += f" · SKIPPING ElevenLabs for {self.cooldown_remaining_s:.0f}s"
             return False, f"{detail} · last error: {self.last_error}"
+        if self.account.exhausted:
+            # Nothing has been tried in this process — a restart, or a quiet morning — but the
+            # account has already answered, and it said there is nothing left to spend.
+            return False, f"{voice_reason('credit')} (credit) · {self.account.detail} · {note}"
         return True, f"key ok · {note}"
 
     @property
@@ -613,3 +637,12 @@ class VoiceClient:
         if self.failing or self.cooling_down:
             return self.last_error_kind or "failure"
         return ""
+
+    @property
+    def blocking_kind(self) -> str:
+        """Why the voice cannot speak, from the strongest evidence there is; "" when it can.
+
+        `failing_kind` answers only for what this process has tried. This answers for the
+        account as well, so /health can name the reason on a page whose process has made no
+        attempt at all — which is every page served in the first minutes after a deploy."""
+        return self.failing_kind or ("credit" if self.account.exhausted else "")
