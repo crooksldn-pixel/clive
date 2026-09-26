@@ -19,12 +19,18 @@ The Units are related to CLIVE's self-model (app/digest/selfmodel.py), generated
 from the repository this script belongs to; --self-model-root generates it from another
 checkout of CLIVE instead, and --no-relate digests without it: no relations, no proposals.
 
+--origin is stored and shown, so it must not carry a credential: a URL with a user or password
+in it, or anything shaped like a token, is refused (exit 1), as intake refuses it.
+
 One line is printed: the artifact, its Units, its findings by severity, its kinds and, when it
-was related, its relations by kind and its proposals by target.
+was related, its relations by kind and its proposals by target. It is printed before the report
+is written, so it is there even when the report cannot be.
 
 Exit status: 0 digested; 2 blocked in quarantine by a block-severity finding, before
-decomposition; 1 could not digest (bad arguments, not a directory, too large to pin, a
-different record already stored under this artifact's id, or a file that cannot be written).
+decomposition — whatever else then fails, 2 always means blocked; 1 could not digest (bad
+arguments, an origin with a credential, not a directory, too large to pin, a different record
+already stored under this artifact's id, or a file that cannot be written — the report
+included).
 """
 
 from __future__ import annotations
@@ -32,12 +38,15 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # The script runs standalone (python scripts/digest.py); it must find the app package.
 APP_ROOT = Path(__file__).resolve().parent.parent
 if str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
 
+from app.digest import scan  # noqa: E402
+from app.digest.intake import shown  # noqa: E402
 from app.digest.model import (  # noqa: E402
     ABSORPTION_TARGETS,
     ORIGIN_KINDS,
@@ -49,7 +58,7 @@ from app.digest.pipeline import DigestResult, digest, tree_digest  # noqa: E402
 from app.digest.propose import needs_owner  # noqa: E402
 from app.digest.relate import RELATIONS  # noqa: E402
 from app.digest.report import render  # noqa: E402
-from app.digest.selfmodel import build_self_model  # noqa: E402
+from app.digest.selfmodel import SelfModel, build_self_model  # noqa: E402
 from app.digest.store import ArtifactConflict, DigestStore  # noqa: E402
 
 DIGESTED = 0
@@ -75,13 +84,67 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--licence", help="the artifact's licence, when known")
     parser.add_argument("--store", type=Path, help="digest store directory to write to")
     parser.add_argument("--report", type=Path, help="file to write the Markdown report to")
+    add_relating(parser)
+    return parser
+
+
+def add_relating(parser: argparse.ArgumentParser) -> None:
+    """--no-relate and --self-model-root, for every command that digests."""
     relating = parser.add_mutually_exclusive_group()
     relating.add_argument("--no-relate", action="store_true",
                           help="do not relate the Units to CLIVE's self-model, and propose nothing")
     relating.add_argument("--self-model-root", type=Path,
                           help="the CLIVE repository to generate the self-model from "
                                "(default: the one this script belongs to)")
-    return parser
+
+
+def self_model_for(args: argparse.Namespace) -> SelfModel | None:
+    """The self-model the arguments ask for: None with --no-relate; else generated from
+    --self-model-root, or from the repository this script belongs to."""
+    if args.no_relate:
+        return None
+    root = args.self_model_root if args.self_model_root is not None else APP_ROOT
+    if not root.is_dir():
+        raise NotADirectoryError(f"the self-model root {shown(root)} is not a directory")
+    return build_self_model(root)
+
+
+def origin_problem(origin: str) -> str | None:
+    """Why an origin may not be stored and shown, or None: a URL with a user or a password in
+    it, or anything shaped like a credential (scan.redact)."""
+    try:
+        netloc = urlsplit(origin).netloc
+    except ValueError:
+        netloc = ""
+    if "@" in netloc:
+        return "the origin is a URL with a user or password in it; give it without them"
+    if scan.redact(origin) != origin:
+        return "the origin holds something shaped like a credential; give it without it"
+    return None
+
+
+def write_report(result: DigestResult, path: Path | None, prog: str) -> bool:
+    """Write the report, if one was asked for: False, said on standard error, if it could not be."""
+    if path is None:
+        return True
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render(result), encoding="utf-8")
+    except OSError as error:
+        print(f"{prog}: the report could not be written: {type(error).__name__}: {shown(error)}",
+              file=sys.stderr)
+        return False
+    return True
+
+
+def finish(result: DigestResult, report: Path | None, prog: str) -> int:
+    """Print the summary, then write the report, and say how it went: 2 whenever the artifact
+    was blocked, whatever else fails; 1 when the report could not be written; else 0."""
+    print(summary(result))
+    written = write_report(result, report, prog)
+    if result.blocked:
+        return BLOCKED
+    return DIGESTED if written else FAILED
 
 
 def summary(result: DigestResult) -> str:
@@ -112,6 +175,10 @@ def summary(result: DigestResult) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    problem = origin_problem(args.origin)
+    if problem is not None:
+        print(f"digest: {problem}", file=sys.stderr)
+        return FAILED
     try:
         pinned = tree_digest(args.path)
         source = Source(
@@ -123,24 +190,14 @@ def main(argv: list[str] | None = None) -> int:
             stored = store.load(source.artifact_id).source
             if _same_intake(stored, source):
                 source = stored
-        self_model = None
-        if not args.no_relate:
-            root = args.self_model_root if args.self_model_root is not None else APP_ROOT
-            if not root.is_dir():
-                raise NotADirectoryError(f"the self-model root {root} is not a directory")
-            self_model = build_self_model(root)
-        result = digest(args.path, source, store, self_model=self_model)
-        if args.report is not None:
-            args.report.parent.mkdir(parents=True, exist_ok=True)
-            args.report.write_text(render(result), encoding="utf-8")
+        result = digest(args.path, source, store, self_model=self_model_for(args))
     except ArtifactConflict as error:
-        print(f"digest: {error}", file=sys.stderr)
+        print(f"digest: {shown(error, 2000)}", file=sys.stderr)
         return FAILED
     except (OSError, ValueError) as error:
-        print(f"digest: {type(error).__name__}: {error}", file=sys.stderr)
+        print(f"digest: {type(error).__name__}: {shown(error, 2000)}", file=sys.stderr)
         return FAILED
-    print(summary(result))
-    return BLOCKED if result.blocked else DIGESTED
+    return finish(result, args.report, "digest")
 
 
 def _same_intake(stored: Source, source: Source) -> bool:

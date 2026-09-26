@@ -16,11 +16,16 @@ or the tree. Everything taken from the artifact — its origin, paths, evidence,
 shown as text and never as markup: characters that do not print (a direction override, a
 zero-width space) are written as escapes, as the scanner writes them, and Markdown's
 punctuation is escaped, so a title cannot hide words in an HTML comment or rearrange the
-report around it. Paths are shown as the scanner shows them, with anything shaped like a
-credential replaced by its kind. Findings never quote what they found, and the title of a Unit
-read from a line where the scanner found a credential is withheld — and so are the reasoning of
-its proposal, which quotes the title, and the names of what it would add, which are made from
-it — so no secret value reaches the report. Every list is bounded."""
+report around it; and nothing is left that GitHub's Markdown would turn into a live link (a
+bare URL, a www. name, an e-mail address) — each is defanged: https[:]//, www[.], name[@]host.
+Every piece of the artifact's text, wherever it comes from (its origin, detect's evidence, a
+title, a path, the intake's notes), has anything shaped like a credential replaced by its kind
+(scan.redact), on top of what the pipeline has already redacted — every credential the scanner
+found, wherever a Unit quoted it. Paths are shown as the scanner shows them, and a file
+extension only when it looks like one. Findings never quote what they found, and the title of
+a Unit read from a line where the scanner found a credential is withheld (a file whose findings
+were cut short is withheld whole) — and so are the reasoning of its proposal, which quotes the
+title, and the names of what it would add, which are made from it. Every list is bounded."""
 
 from __future__ import annotations
 
@@ -51,18 +56,28 @@ MAX_RELATED = 25           # overlaps, and extensions, listed
 MAX_PROPOSALS = 10         # proposals shown for each target
 MAX_REASONING = 900        # characters of a proposal's reasoning
 MAX_ADDITIONS = 5          # additions named for one proposal
+MAX_INTAKE = 20            # withheld entries and notes shown from the intake
 
 _UNPARSED = "unparsed"
-_MARKDOWN = re.compile(r"([\\`*_\[\]<>|~&!#])")
+_MARKDOWN = re.compile(r"([\\`*_\[\]<>|~&!#$])")   # $ too: GitHub renders $…$ as math
 _SECRET = "secret."        # pipeline._from_scan starts each explanation with the scan rule
+_TRUNCATED = "scan.truncated"
+_EXTENSION = re.compile(r"\.[a-z0-9]{1,10}")
+# What GitHub's Markdown links on its own: a scheme and "://", "www.", mailto: and xmpp:, and an
+# e-mail address.
+_SCHEME = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*)://")
+_WWW = re.compile(r"(?i)\bwww\.")
+_MAIL_SCHEME = re.compile(r"(?i)\b(mailto|xmpp):")
+_EMAIL_AT = re.compile(r"(?<=[A-Za-z0-9._+-])@(?=[A-Za-z0-9-]+\.)")
 
 
 def render(result: DigestResult) -> str:
     artifact = result.artifact
-    lines = [f"# Digest of {_text(artifact.source.origin)}", ""]
+    lines = [f"# Digest of {_code(artifact.source.origin)}", ""]
     secrets = _secret_places(result.findings)
     relations = {relation.unit_id: relation for relation in result.relations}
     lines += _source(result)
+    lines += _intake(result)
     lines += _outcome(result)
     lines += _kinds(result)
     lines += _findings(result.findings)
@@ -81,7 +96,7 @@ def _source(result: DigestResult) -> list[str]:
         "## Source",
         "",
         f"- Artifact: {_code(result.artifact.id)}",
-        f"- Origin: {_text(source.origin)} ({source.origin_kind})",
+        f"- Origin: {_code(source.origin)} ({source.origin_kind})",
         f"- Pinned reference: {_code(source.pinned_ref)}",
         f"- Content digest: {_code(source.content_digest)}",
         f"- Licence: {_text(source.licence) if source.licence else 'none recorded'}",
@@ -104,12 +119,40 @@ def _outcome(result: DigestResult) -> list[str]:
         )
     else:
         text = "No adapter reads the kinds found, so no Units were read."
+    if result.excluded and not result.blocked:
+        text += (
+            f" Left out under their own licence, which forbids reuse: "
+            f"{', '.join(_path(folder + '/') for folder in result.excluded)} — nothing in "
+            f"{'it' if len(result.excluded) == 1 else 'them'} was decomposed."
+        )
     if result.related:
         text += (
             f" Related to CLIVE's self-model, with {len(result.proposals)} proposal(s), of which "
             f"{sum(1 for p in result.proposals if needs_owner(p))} need the owner."
         )
     return ["## Outcome", "", text, ""]
+
+
+def _intake(result: DigestResult) -> list[str]:
+    """What the intake said about the copy: entries it withheld, with why, and its notes."""
+    if not result.withheld and not result.notes:
+        return []
+    lines = ["## Intake", ""]
+    if result.withheld:
+        lines.append(f"Withheld from the copy ({len(result.withheld)}): not in quarantine, so not digested.")
+        lines.append("")
+        for path, why in result.withheld[:MAX_INTAKE]:
+            lines.append(f"- {_path(path)}: {_text(why)}")
+        if len(result.withheld) > MAX_INTAKE:
+            lines.append(f"- and {len(result.withheld) - MAX_INTAKE} more")
+        lines.append("")
+    if result.notes:
+        lines += ["Notes:", ""]
+        lines += [f"- {_text(note)}" for note in result.notes[:MAX_INTAKE]]
+        if len(result.notes) > MAX_INTAKE:
+            lines.append(f"- and {len(result.notes) - MAX_INTAKE} more")
+        lines.append("")
+    return lines
 
 
 def _kinds(result: DigestResult) -> list[str]:
@@ -127,8 +170,13 @@ def _kinds(result: DigestResult) -> list[str]:
             if more > 0:
                 lines.append(f"  - and {more} more piece(s) of evidence for {_text(detection.label)}")
     census = result.census
+    # A name's last dot can start anything, a credential included: only what looks like an
+    # extension is named, and the rest is counted.
+    named = [(ext, count) for ext, count in census.by_extension.items() if _EXTENSION.fullmatch(ext)]
+    others = sum(count for ext, count in census.by_extension.items() if not _EXTENSION.fullmatch(ext))
     extensions = ", ".join(
-        f"{_text(ext)} {count}" for ext, count in list(census.by_extension.items())[:MAX_EXTENSIONS]
+        [f"{_text(ext)} {count}" for ext, count in named[:MAX_EXTENSIONS]]
+        + ([f"other {others}"] if others else [])
     )
     notes = []
     if census.truncated:
@@ -337,16 +385,24 @@ def _entry(match: Match) -> str:
 
 
 def _secret_places(findings: tuple[Finding, ...]) -> dict[str, set[int | None]]:
+    """Where the scanner found credentials, by the path as the scanner shows it: each line, or
+    None for the whole file — as for a file whose credential findings were cut short, where the
+    lines not listed are unknown."""
     places: dict[str, set[int | None]] = {}
     for finding in findings:
-        if finding.category == "safety" and finding.explanation.startswith(_SECRET):
+        if finding.category != "safety":
+            continue
+        if finding.explanation.startswith(_SECRET):
             places.setdefault(finding.location.path, set()).add(finding.location.line_start)
+        elif finding.explanation.startswith(_TRUNCATED) and f"'{_SECRET}" in finding.explanation:
+            places.setdefault(finding.location.path, set()).add(None)
     return places
 
 
 def _withheld(unit: Unit, secrets: dict[str, set[int | None]]) -> bool:
-    """Whether the Unit was read from where the scanner found a credential."""
-    lines = secrets.get(unit.location.path)
+    """Whether the Unit was read from where the scanner found a credential. Its path is compared
+    as the scanner shows paths (credential shapes redacted, anything unprintable escaped)."""
+    lines = secrets.get(scan._display(unit.location.path)) or secrets.get(unit.location.path)
     if not lines:
         return False
     start, end = unit.location.line_start, unit.location.line_end
@@ -390,15 +446,27 @@ def _clip(text: str, limit: int | None) -> str:
     return text
 
 
+def _defang(text: str) -> str:
+    """Text GitHub's Markdown will not turn into a link: https[:]//, www[.], mailto[:], a[@]b."""
+    text = _SCHEME.sub(r"\1[:]//", text)
+    text = _WWW.sub(lambda match: match.group(0)[:-1] + "[.]", text)
+    text = _MAIL_SCHEME.sub(r"\1[:]", text)
+    return _EMAIL_AT.sub("[@]", text)
+
+
 def _text(text: str, limit: int | None = MAX_TEXT) -> str:
-    """Plain text in Markdown: one line, printable, every piece of Markdown punctuation escaped."""
-    return _MARKDOWN.sub(r"\\\1", _clip(_printable(text), limit))
+    """Plain text in Markdown: one line, printable, credentials redacted, links defanged, every
+    piece of Markdown punctuation escaped."""
+    return _MARKDOWN.sub(r"\\\1", _defang(_clip(_printable(scan.redact(text)), limit)))
 
 
 def _code(text: str, limit: int | None = MAX_TEXT) -> str:
-    """A code span that holds the text whatever backticks it contains (CommonMark's rule)."""
-    shown = _clip(_printable(text), limit)
+    """A code span that holds the text whatever backticks it contains (CommonMark's rule), with
+    credentials redacted. GitHub links nothing inside a code span."""
+    shown = _clip(_printable(scan.redact(text)), limit)
     longest = max((len(run) for run in re.findall(r"`+", shown)), default=0)
     fence = "`" * (longest + 1)
-    pad = " " if shown.startswith(("`", " ")) or shown.endswith(("`", " ")) else ""
+    # CommonMark strips one space from each end of a code span, unless it is all spaces
+    edged = shown.startswith(("`", " ")) or shown.endswith(("`", " "))
+    pad = " " if edged and shown.strip(" ") else ""
     return f"{fence}{pad}{shown}{pad}{fence}"

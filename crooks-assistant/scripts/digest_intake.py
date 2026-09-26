@@ -2,7 +2,7 @@
 """Take an artifact into quarantine, then digest it: intake, recognise, scan and decompose.
 
     python scripts/digest_intake.py SOURCE [--ref REF] [--kind HANDLER] --quarantine DIR
-        [--store DIR] [--report FILE]
+        [--store DIR] [--report FILE] [--no-relate | --self-model-root ROOT]
 
 SOURCE is an https URL (a git repository, or a single file or archive to download), an archive,
 a directory or a file. Intake (app/digest/intake.py) is the only step that uses the network,
@@ -12,7 +12,9 @@ repository, and records its Source. The quarantined copy is then digested exactl
 scripts/digest.py digests one — nothing in it is executed, imported or installed. --ref picks a
 branch, tag or full commit SHA of a git repository; --kind names the intake handler when the
 source could be taken more than one way (git, url, archive, directory, file, or any handler
-added to app/digest/intakes).
+added to app/digest/intakes). The Units are related to CLIVE's self-model and proposed for
+exactly as scripts/digest.py does it (--no-relate, --self-model-root), and what intake withheld
+and noted is carried into the digest's result and report.
 
 One line is printed, as scripts/digest.py prints it; what intake pinned, where the copy is and
 anything it withheld are said on standard error.
@@ -37,9 +39,8 @@ if str(_APP_ROOT) not in sys.path:
 from app.digest.intake import IntakeError, UnsafeArtifact, intake, shown  # noqa: E402
 from app.digest.model import Source  # noqa: E402
 from app.digest.pipeline import digest  # noqa: E402
-from app.digest.report import render  # noqa: E402
 from app.digest.store import ArtifactConflict, DigestStore  # noqa: E402
-from scripts.digest import BLOCKED, DIGESTED, FAILED, summary  # noqa: E402
+from scripts.digest import BLOCKED, FAILED, add_relating, finish, self_model_for  # noqa: E402
 
 # The repository this script belongs to: third-party content must never land inside it.
 REPOSITORY = _APP_ROOT.parent
@@ -62,6 +63,7 @@ def _parser() -> argparse.ArgumentParser:
                         help="the quarantine root, outside this repository")
     parser.add_argument("--store", type=Path, help="digest store directory to write to")
     parser.add_argument("--report", type=Path, help="file to write the Markdown report to")
+    add_relating(parser)
     return parser
 
 
@@ -101,18 +103,15 @@ def main(argv: list[str] | None = None) -> int:
             stored = store.load(source.artifact_id).source
             if _same_intake(stored, source):
                 source = stored
-        result = digest(taken.path, source, store)
-        if args.report is not None:
-            args.report.parent.mkdir(parents=True, exist_ok=True)
-            args.report.write_text(render(result), encoding="utf-8")
+        result = digest(taken.path, source, store, self_model=self_model_for(args),
+                        withheld=taken.withheld, notes=taken.notes)
     except ArtifactConflict as error:
-        print(f"digest_intake: {error}", file=sys.stderr)
+        print(f"digest_intake: {shown(error, 2000)}", file=sys.stderr)
         return FAILED
     except (OSError, ValueError) as error:
-        print(f"digest_intake: {type(error).__name__}: {error}", file=sys.stderr)
+        print(f"digest_intake: {type(error).__name__}: {shown(error, 2000)}", file=sys.stderr)
         return FAILED
-    print(summary(result))
-    return BLOCKED if result.blocked else DIGESTED
+    return finish(result, args.report, "digest_intake")
 
 
 def _same_intake(stored: Source, source: Source) -> bool:

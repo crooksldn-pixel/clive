@@ -42,7 +42,7 @@ import tomllib
 import unicodedata
 from collections import deque
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import NamedTuple
 
 INFO = "info"
@@ -78,14 +78,31 @@ class Finding:
     message: str
 
 
+@dataclass
+class Reading:
+    """What one scan read, for the stages after it. ``text`` holds every file the scanner read
+    and scanned as text, by its path relative to the root, with the SHA-256 of the bytes it
+    scanned: anything else — binary, too large, hard-linked, unreadable, past a limit, or in the
+    parts of a git directory it does not read — it cannot vouch for. ``secrets`` holds every
+    credential value it found, so that nothing built from the artifact repeats one; they are
+    kept in memory only, never written or shown, and ``overflowed`` says there were more than
+    it keeps."""
+
+    text: dict[str, str] = field(default_factory=dict)
+    secrets: frozenset[str] = frozenset()
+    overflowed: bool = False
+
+
 def scan_tree(
     root: str | os.PathLike[str],
     *,
     max_files: int = MAX_FILES,
     max_file_bytes: int = MAX_FILE_BYTES,
     max_total_bytes: int = MAX_TOTAL_BYTES,
+    reading: Reading | None = None,
 ) -> list[Finding]:
-    """Every finding for the quarantined directory at ``root``, most severe first, then by path."""
+    """Every finding for the quarantined directory at ``root``, most severe first, then by path.
+    Given a Reading, it is filled with what the scan read as text and the credentials found."""
     base = os.fspath(root)
     if not os.path.isdir(base):
         raise NotADirectoryError(base)
@@ -109,7 +126,8 @@ def scan_tree(
         elif entry.kind == "other":
             findings.append(_special(path))
         else:
-            found, has_licence = _scan_file(base, entry, path, max_file_bytes, budget, exposed, seen)
+            found, has_licence = _scan_file(base, entry, path, max_file_bytes, budget, exposed, seen,
+                                            reading.text if reading is not None else None)
             findings.extend(found)
             # Only a licence at the top of the artifact is the artifact's: one further down belongs
             # to whatever is vendored or bundled there.
@@ -128,6 +146,9 @@ def scan_tree(
             "The licence is 'unknown', and without one nothing grants the right to reuse it.",
         ))
     findings = _withhold(findings, exposed)
+    if reading is not None:
+        reading.secrets = frozenset(exposed.values)
+        reading.overflowed = exposed.overflowed
     return sorted(set(findings), key=_order)
 
 
@@ -403,7 +424,7 @@ _NATIVE = (
 
 def _scan_file(
     base: str, entry: _Entry, path: str, max_bytes: int, budget: _Budget, exposed: _Exposed,
-    seen: dict[bytes, list[Finding]] | None = None,
+    seen: dict[bytes, list[Finding]] | None = None, read: dict[str, str] | None = None,
 ) -> tuple[list[Finding], bool]:
     rel = entry.rel
     found: list[Finding] = []
@@ -440,6 +461,8 @@ def _scan_file(
                 ))
             else:
                 text = _decode(data)
+                if read is not None:
+                    read[rel] = hashlib.sha256(data).hexdigest()
     found.extend(_execution_findings(rel, path, text))
     licence, has_licence = _licence_findings(rel, path, text)
     found.extend(licence)
@@ -1419,6 +1442,49 @@ def _secret_findings(path: str, text: str, starts: list[int], exposed: _Exposed)
                 "Treat it as exposed: it is never digested, and its owner should revoke it.",
             ))
     return found
+
+
+# --- redaction -----------------------------------------------------------------------------
+
+REDACTED = "[redacted]"
+MIN_REDACTED_VALUE = 8   # a value found elsewhere is replaced wherever it appears from this long
+# The same shapes as the scanner looks for, without word boundaries (a credential often follows
+# a letter or an underscore in a name built from a path), and a private key with its body.
+_REDACT_SHAPES = tuple(
+    (re.compile(secret.pattern.pattern.replace(r"\b", ""), secret.pattern.flags), secret)
+    for secret in _SECRETS if secret.slug != "private_key"
+)
+_PEM_BLOCK = re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----(?:" + _PEM_BODY.pattern + ")?")
+
+
+def redact(text: str, values: Iterable[str] = ()) -> str:
+    """The text with every credential of a shape the scanner knows replaced by
+    '[redacted <kind>]', and every one of the values given — credentials found in the artifact,
+    such as a Reading's secrets — by '[redacted]' wherever it appears, a value shorter than
+    MIN_REDACTED_VALUE only where a shape finds it. For text built from an artifact (a title
+    quoting a heading, a parser error quoting a line, a name made from a path) before anything
+    keeps or shows it: the scanner's findings never quote a value, and neither may anything else."""
+    for value in sorted({v for v in values if len(v) >= MIN_REDACTED_VALUE}, key=lambda v: (-len(v), v)):
+        if value in text:
+            text = text.replace(value, REDACTED)
+    if "-----BEGIN " in text:
+        text = _PEM_BLOCK.sub("[redacted private_key]", text)
+    for pattern, secret in _REDACT_SHAPES:
+        if secret.requires and not any(literal in text for literal in secret.requires):
+            continue
+        marker = f"[redacted {secret.slug}]"
+        if secret.group:
+            def keep_context(match: re.Match[str], group: int = secret.group, marker: str = marker) -> str:
+                start, end = match.span(group)
+                if start < 0:
+                    return match.group(0)
+                offset = match.start()
+                whole = match.group(0)
+                return whole[: start - offset] + marker + whole[end - offset:]
+            text = pattern.sub(keep_context, text)
+        else:
+            text = pattern.sub(marker, text)
+    return text
 
 
 # --- things that would run ----------------------------------------------------------------

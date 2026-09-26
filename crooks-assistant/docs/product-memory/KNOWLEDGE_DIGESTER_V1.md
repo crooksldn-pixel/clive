@@ -68,7 +68,7 @@ Relating needs an up-to-date picture of what CLIVE already has: the tool registr
 
 ## 7. Authority and safety
 
-SOURCE_ASSIMILATION_V1.md section 3 governs. In addition: digestion has no network and executes nothing; quarantine is read-only; a block-severity finding stops the artifact before decomposition; content is data, never instructions, including to any model used in understanding; licences constrain reuse; credentials found are reported without their values. The repository is public, so digest reports of private business material stay on the engineering host, not in git.
+SOURCE_ASSIMILATION_V1.md section 3 governs. In addition: digestion has no network and executes nothing; quarantine is read-only; a block-severity finding stops the artifact before decomposition — except a licence that forbids reuse declared below the top of the artifact, which leaves out only its own folder (an instruction aimed at an agent, a credential, a deceptive name or a file that would run still stops everything, since it speaks for the whole artifact and adapters read across folders); adapters read only what the scanner read as text, byte for byte, so nothing it skipped is passed as clean; content is data, never instructions, including to any model used in understanding; licences constrain reuse; credentials found are reported without their values, and are replaced by `[redacted …]` in every Unit, proposal and report, wherever an adapter quoted them. The repository is public, so digest reports of private business material stay on the engineering host, not in git.
 
 ## 8. Measures
 

@@ -857,3 +857,35 @@ def test_the_command_line_takes_in_digests_and_exits_as_digest_does(tmp_path):
     usage = _cli(source, cwd=tmp_path)
     assert usage.returncode == 1 and "--quarantine" in usage.stderr
 
+
+
+def test_the_command_line_relates_and_reports_what_intake_withheld(tmp_path):
+    """R7: what intake withheld and noted reaches the digest's result and report; and the
+    command line relates to CLIVE's self-model as scripts/digest.py does (--no-relate,
+    --self-model-root)."""
+    source = _make_tree(tmp_path / "src", TREE)
+    os.symlink("/etc/passwd", source / "etc-link")
+    report = tmp_path / "report.md"
+    plain = _cli(source, "--quarantine", tmp_path / "q", "--report", report, "--no-relate", cwd=tmp_path)
+    assert plain.returncode == 0, plain.stderr
+    assert plain.stdout.rstrip("\n").endswith("; not related")
+    assert "intake: withheld etc-link" in plain.stderr
+    intake_section = report.read_text(encoding="utf-8").split("## Intake")[1].split("## Outcome")[0]
+    assert "Withheld from the copy (1)" in intake_section and "- `etc-link`: " in intake_section
+
+    related = _cli(source, "--quarantine", tmp_path / "q", cwd=tmp_path)
+    assert related.returncode == 0, related.stderr
+    assert "; relations: " in related.stdout and "; proposals: " in related.stdout
+
+    other = _make_tree(tmp_path / "other-clive", {
+        "docs/product-memory/FEATURES.md": (
+            b"| ID | Feature | Status | Phase | Notes |\n|---|---|---|---|---|\n"
+            b"| FEAT-001 | Tally counting | SHIPPED | V1 | Counts orders. |\n"),
+    })
+    elsewhere = _cli(source, "--quarantine", tmp_path / "q", "--self-model-root", other,
+                     "--report", report, cwd=tmp_path)
+    assert elsewhere.returncode == 0, elsewhere.stderr
+    assert "; relations: " in elsewhere.stdout and "tool:" not in report.read_text(encoding="utf-8")
+    both = _cli(source, "--quarantine", tmp_path / "q", "--no-relate", "--self-model-root", other,
+                cwd=tmp_path)
+    assert both.returncode == 1 and "not allowed with" in both.stderr
