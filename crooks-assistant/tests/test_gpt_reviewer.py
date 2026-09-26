@@ -22,11 +22,12 @@ from app.orchestrator.contracts import TaskStatus
 from app.orchestrator.lifecycle import lifecycle_view
 from app.orchestrator.reviewers import GptResponsesReviewer, ReviewContext, ReviewResult
 from app.orchestrator.reviewers.gpt import key_file_problem, redact
+from tests.fake_credentials import openai_key
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_engineering_dispatcher import EDIT_HELLO, FINDING, World, _git  # noqa: E402
 
-KEY = "sk-test-DO-NOT-LEAK-0123456789"
+KEY = openai_key("gpt-reviewer")
 
 
 class FakeOpenAI:

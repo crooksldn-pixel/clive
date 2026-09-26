@@ -13,6 +13,10 @@ import stat
 import pytest
 
 from app.secrets import keychain, linux_store
+from tests.fake_credentials import elevenlabs_key
+
+# The value stored and read back, standing in for a real ElevenLabs key.
+KEY_VALUE = elevenlabs_key("linux-store")
 
 
 @pytest.fixture
@@ -56,8 +60,8 @@ def on_linux(monkeypatch):
 
 
 def test_round_trip_through_the_writable_tier(store):
-    linux_store.write("elevenlabs_api_key", "sk-value")
-    assert linux_store.read("elevenlabs_api_key") == "sk-value"
+    linux_store.write("elevenlabs_api_key", KEY_VALUE)
+    assert linux_store.read("elevenlabs_api_key") == KEY_VALUE
     assert linux_store.where("elevenlabs_api_key") == "file"
     linux_store.remove("elevenlabs_api_key")
     assert linux_store.read("elevenlabs_api_key") is None
@@ -65,7 +69,7 @@ def test_round_trip_through_the_writable_tier(store):
 
 
 def test_the_directory_is_0700_and_the_file_is_0600(store):
-    linux_store.write("elevenlabs_api_key", "sk-value")
+    linux_store.write("elevenlabs_api_key", KEY_VALUE)
     assert stat.S_IMODE(store.stat().st_mode) == 0o700
     assert stat.S_IMODE((store / "elevenlabs_api_key").stat().st_mode) == 0o600
 
@@ -73,12 +77,12 @@ def test_the_directory_is_0700_and_the_file_is_0600(store):
 def test_a_loose_directory_mode_is_tightened(store):
     store.mkdir(parents=True)
     store.chmod(0o755)
-    linux_store.write("elevenlabs_api_key", "sk-value")
+    linux_store.write("elevenlabs_api_key", KEY_VALUE)
     assert stat.S_IMODE(store.stat().st_mode) == 0o700
 
 
 def test_no_temporary_file_is_left_behind(store):
-    linux_store.write("elevenlabs_api_key", "sk-value")
+    linux_store.write("elevenlabs_api_key", KEY_VALUE)
     assert [p.name for p in store.iterdir()] == ["elevenlabs_api_key"]
 
 
@@ -88,8 +92,8 @@ def test_removing_an_absent_secret_is_not_an_error(store):
 
 def test_a_trailing_newline_is_stripped(store):
     store.mkdir(parents=True)
-    (store / "elevenlabs_api_key").write_text("sk-value\n", encoding="utf-8")
-    assert linux_store.read("elevenlabs_api_key") == "sk-value"
+    (store / "elevenlabs_api_key").write_text(KEY_VALUE + "\n", encoding="utf-8")
+    assert linux_store.read("elevenlabs_api_key") == KEY_VALUE
 
 
 def test_an_empty_file_reads_as_absent(store):
@@ -138,8 +142,8 @@ def test_a_credentials_directory_that_is_not_there_is_simply_ignored(store, monk
 
 
 def test_keychain_uses_the_linux_store_when_dispatching_there(store, on_linux):
-    keychain.set_secret("elevenlabs_api_key", "sk-value")
-    assert keychain.get("elevenlabs_api_key") == "sk-value"
+    keychain.set_secret("elevenlabs_api_key", KEY_VALUE)
+    assert keychain.get("elevenlabs_api_key") == KEY_VALUE
     assert keychain.present("elevenlabs_api_key") is True
     assert keychain.where("elevenlabs_api_key") == "file"
     keychain.delete("elevenlabs_api_key")

@@ -19,9 +19,10 @@ from app.speech.normalise import from_terms
 from app.speech.transcribe import Transcriber
 
 av = pytest.importorskip("av")
+from tests.fake_credentials import elevenlabs_key  # noqa: E402
 from tests.test_decode import tone_pcm, webm_opus  # noqa: E402
 
-SECRET = "sk_elevenlabs_test_key_0123456789abcdef"
+SECRET = elevenlabs_key("scribe")
 
 
 # --------------------------------------------------------------------------- doubles
@@ -445,7 +446,7 @@ async def test_one_connection_is_reused_across_recordings(monkeypatch):
     from app.clients.elevenlabs import ScribeClient
 
     client = ScribeClient()
-    client._key = "sk_test_key_0123456789abcdef"
+    client._key = elevenlabs_key("scribe-client")
     assert (await client.transcribe(b"wav")).text == "twelve orders"
     assert (await client.transcribe(b"wav")).text == "twelve orders"
     assert len(created) == 1

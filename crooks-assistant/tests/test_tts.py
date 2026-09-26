@@ -16,8 +16,9 @@ import httpx
 import pytest
 
 from app.clients.elevenlabs_tts import VoiceClient, VoiceUnavailable
+from tests.fake_credentials import elevenlabs_key
 
-SECRET = "sk_elevenlabs_test_key_0123456789abcdef"
+SECRET = elevenlabs_key("tts")
 VOICE_ID = "Q0Et7LOU7VpeoeCRQAVS"
 MODEL = "eleven_flash_v2_5"
 OUTPUT_FORMAT = "mp3_44100_128"

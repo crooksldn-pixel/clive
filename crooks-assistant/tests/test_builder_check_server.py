@@ -28,18 +28,25 @@ from app.orchestrator.workers.check_server import (
     handle,
     redact,
 )
+from tests.fake_credentials import (
+    anthropic_key,
+    aws_access_key_id,
+    github_fine_grained_token,
+    github_token,
+    jwt,
+    slack_token,
+)
 
 SERVER = Path(check_server.__file__).resolve()
-# Fake credentials in real shapes, assembled at runtime so no token-shaped literal sits in the source
-# (the secret scan would rightly flag one).
-_FILL = "PLANTEDplanted0123456789abcdefABCDEF"
+# Fake credentials in real shapes, from the shared helper (owner rule B): assembled at runtime, so no
+# token-shaped literal sits in the source for the secret scan to (rightly) flag.
 PLANTED = {
-    "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-" + "oat01-" + _FILL + "0123456789xyzXYZ-_q",
-    "ANTHROPIC_API_KEY": "sk-ant-" + "api03-" + _FILL + "ghijklmnop",
-    "GITHUB_TOKEN": "github_" + "pat_11" + _FILL + "_abcdefghijklmnop",
+    "CLAUDE_CODE_OAUTH_TOKEN": anthropic_key("builder-check", kind="oat01"),
+    "ANTHROPIC_API_KEY": anthropic_key("builder-check"),
+    "GITHUB_TOKEN": github_fine_grained_token("builder-check"),
 }
-OTHER_SHAPES = ["gh" + "p_ABCDEFghijkl0123456789mnopQRSTuvwx", "AK" + "IAABCDEFGHIJKLMNOP",
-                "xo" + "xb-1234-5678-PLANTEDslack", "eyJhbGciOiJIUzI1NiJ9" + "PLANTEDjwtBody123"]
+OTHER_SHAPES = [github_token("builder-check"), aws_access_key_id("builder-check"),
+                slack_token("builder-check"), jwt("builder-check")]
 
 
 class RecordingRunner:

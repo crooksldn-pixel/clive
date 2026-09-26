@@ -33,6 +33,7 @@ from app.digest.pipeline import (
     tree_digest,
 )
 from app.digest.report import render
+from tests.fake_credentials import password
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "digest.py"
 TAKEN_AT = "2026-09-26T10:00:00+00:00"
@@ -502,7 +503,7 @@ def test_the_tree_digest_is_bounded(tmp_path):
 
 
 def test_the_report_withholds_titles_where_a_credential_was_found(tmp_path):
-    secret = "hunter2hunter2x"
+    secret = password("digest-report")
     root = _tree(tmp_path / "tree", {
         "docs/setup.md": f"# Setup\n\nSet password = \"{secret}\" in the config file 3 times.\n",
         "docs/other.md": "# Other\n\nNothing to hide here.\n",

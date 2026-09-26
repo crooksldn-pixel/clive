@@ -27,6 +27,7 @@ from app.session.manager import SessionManager
 from app.tools import registry, shopify_tools
 from app.tools.dispatch import dispatch
 from tests.conftest import FakeShopify
+from tests.fake_credentials import bearer_token, google_oauth_token, shopify_token
 from tests.test_actions_routes import PROXIED, FakeProvider, configure
 from tests.test_context import CUSTOMER_NODE, ORDER_NODE, inbox
 
@@ -76,15 +77,17 @@ def test_the_writer_writes_nothing_without_a_session_and_scrubs_what_it_writes(t
     timeline = Timeline(store, clock=clock)
     assert timeline.emit("turn_started", session_id="s1") is None and timeline.active is None
     session = timeline.start("scrub")
+    bearer = bearer_token("timeline-answer")
     event = timeline.emit(
         "tool_finished", source="mac", session_id="s1", tool="x", ok=True,
-        headers={"Authorization": "Bearer abcdefghijklmnopqrstuvwxyz"}, nonce="secret-nonce", args={"token": "shpat_0123456789abcdef", "note": "hi"},
-        answer="the key is shpat_0123456789abcdefABCDEF and the token ya29.a0AfH6SMBxyz-1234567890 and Bearer ZZZZZZZZZZZZZZZZZZZZZZ.",
+        headers={"Authorization": f"Bearer {bearer_token('timeline-header')}"}, nonce="secret-nonce",
+        args={"token": shopify_token("timeline-args"), "note": "hi"},
+        answer=f"the key is {shopify_token('timeline-answer')} and the token {google_oauth_token('timeline-answer')} and Bearer {bearer}.",
         nothing=None,
     )
     assert event["seq"] == 2 and event["test_session_id"] == session.test_session_id and event["kind"] == "tool_finished"
     assert event["headers"] == "[withheld]" and event["nonce"] == "[withheld]" and event["args"] == {"token": "[withheld]", "note": "hi"}
-    assert "shpat_" not in event["answer"] and "ya29" not in event["answer"] and "ZZZZ" not in event["answer"] and event["answer"].count("[secret]") == 3
+    assert "shpat_" not in event["answer"] and "ya29" not in event["answer"] and bearer[:4] not in event["answer"] and event["answer"].count("[secret]") == 3
     assert "nothing" not in event, "a None field is not written"
     assert timeline.flush()
     path = store.timeline_path(session)

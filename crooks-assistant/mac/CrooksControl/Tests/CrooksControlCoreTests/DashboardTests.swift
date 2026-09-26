@@ -200,12 +200,13 @@ final class DashboardTests: XCTestCase {
         // it; this asserts that if one ever DID arrive — a health detail quoting a header, a
         // button's stderr, a field added later that redact() has not been taught about — the
         // app does not put it on the screen.
-        let token = "shpat_" + String(repeating: "9f8e7d6c", count: 4)
+        let token = FakeCredential.shopifyToken("dashboard")
+        let apiKey = FakeCredential.anthropicKey("dashboard")
         var raw = try XCTUnwrap(String(data: Fixture.onlineStatus, encoding: .utf8))
         raw = raw.replacingOccurrences(of: "crooks-clothing.myshopify.com",
                                        with: "crooks-clothing.myshopify.com (\(token))")
         raw = raw.replacingOccurrences(of: "everything answering, changes ready, tablet routed",
-                                       with: "everything answering; ANTHROPIC_API_KEY=sk-ant-api03-LEAKED123456")
+                                       with: "everything answering; ANTHROPIC_API_KEY=\(apiKey)")
         let document = try status(Data(raw.utf8))
         var machine = LifecycleMachine()
         machine.observe(.status(document), at: now)
@@ -216,7 +217,7 @@ final class DashboardTests: XCTestCase {
 
         for text in dashboard.everyVisibleString {
             XCTAssertFalse(text.contains(token), "a Shopify token is on screen: \(text)")
-            XCTAssertFalse(text.contains("sk-ant-api03-LEAKED123456"), "an API key is on screen: \(text)")
+            XCTAssertFalse(text.contains(apiKey), "an API key is on screen: \(text)")
             XCTAssertFalse(Redaction.looksLikeASecret(text), "something credential-shaped: \(text)")
         }
         XCTAssertTrue(dashboard.everyVisibleString.contains { $0.contains(Redaction.mask) },
