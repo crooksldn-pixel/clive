@@ -12,9 +12,10 @@ of work. Nothing is written back.
 
 A column that looks like personal data — by its name (email, phone, postcode, a person's name)
 or because at least half its values look like email addresses, phone numbers, postcodes or
-ZIP codes (punctuated or digits alone) or people's names — is marked personal, and none of its
-values appear in any Unit. Other columns show at most MAX_EXAMPLES short example values, and
-never one that itself looks personal.
+ZIP codes (punctuated or digits alone, stored as text or as numbers) or people's names — is
+marked personal, and none of its values appear in any Unit. Other columns show at most
+MAX_EXAMPLES short example values, and never one that itself looks personal. A first row that
+reads as a person's name over a column of names is read as a record, not as a header.
 
 What cannot be read is skipped and said so, in a knowledge Unit tagged 'unparsed' with the
 reason: decompose never raises on malformed input."""
@@ -217,6 +218,11 @@ def _personal_value(text: str) -> bool:
     )
 
 
+def _digits_personal(text: str) -> bool:
+    """Whether a number, written out, reads as a phone number or a ZIP code in digits alone."""
+    return _DIGIT_PHONE.fullmatch(text) is not None or _ZIP.fullmatch(text) is not None
+
+
 def _name_like(text: str) -> bool:
     """Whether a value reads as a person's name: two to four capitalised words, as in "Ada
     Lovelace", "Hopper, Grace" or "Dr J. Smith-Jones". A place or a product named the same way
@@ -267,14 +273,16 @@ def _classify(value: object) -> tuple[str, str, str | None, bool] | None:
         return "boolean", text, text, False
     if isinstance(value, int):
         text = str(value)
-        # a phone number may be stored as a number; five digits stored as one are more often
-        # an id than a ZIP code, which is written as text to keep its leading zeros
-        phone = _DIGIT_PHONE.fullmatch(text) is not None
-        shown = len(text) <= MAX_EXAMPLE_CHARS and not phone
-        return "integer", text, text if shown else None, phone
+        # a phone number or a ZIP code may be stored as a number: five digits are withheld
+        # even though they are as often an id, since a postcode shown cannot be taken back
+        personal = _digits_personal(text)
+        shown = len(text) <= MAX_EXAMPLE_CHARS and not personal
+        return "integer", text, text if shown else None, personal
     if isinstance(value, float):
         text = repr(value)
-        return "number", text, text if len(text) <= MAX_EXAMPLE_CHARS else None, False
+        personal = value.is_integer() and _digits_personal(str(int(value)))
+        shown = len(text) <= MAX_EXAMPLE_CHARS and not personal
+        return "number", text, text if shown else None, personal
     if isinstance(value, str):
         text = value.strip()
         if not text or text.lower() in NULL_WORDS:
@@ -303,6 +311,7 @@ class _Column:
         self.overflow = False
         self.examples: list[str] = []
         self.personal_hits = 0
+        self.name_hits = 0
 
     def add(self, value: object) -> None:
         seen = _classify(value)
@@ -313,6 +322,8 @@ class _Column:
         self.types.add(kind)
         if personal:
             self.personal_hits += 1
+            if kind == "text" and _name_like(canonical):
+                self.name_hits += 1
         digest = hashlib.blake2b(
             f"{kind}\x00{canonical}".encode("utf-8", "surrogatepass"), digest_size=8
         ).digest()
@@ -326,6 +337,9 @@ class _Column:
 
     def is_personal(self) -> bool:
         return self.personal or (self.personal_hits > 0 and self.personal_hits * 2 >= self.filled)
+
+    def holds_names(self) -> bool:
+        return self.name_hits > 0 and self.name_hits * 2 >= self.filled
 
     def type(self) -> str:
         if len(self.types) == 1:
@@ -510,11 +524,51 @@ def _is_header(row: list[str]) -> bool:
     )
 
 
+def _header_is_a_record(profile: _Profile) -> bool:
+    """Whether a first row taken for a header reads better as a record: one of its cells reads
+    as a person's name, not as a column name like "First Name", and heads a column of people's
+    names or a file with no other row. It is then read as data, so that the name is counted and
+    withheld rather than shown as the name of a column."""
+    return any(
+        _name_like(column.name)
+        and "name" not in (word.lower() for word in _WORDS.findall(column.name))
+        and (profile.rows == 0 or column.holds_names())
+        for column in profile.columns
+    )
+
+
 def _delimited(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
     text, cut, facts = _read_text(path)
     if not text.strip():
         return [_unparsed(artifact_id, rel, _empty(cut))]
     dialect = _dialect(text, fmt)
+    profile, notes, started, named, ragged, last = _scan(
+        artifact_id, rel, text, dialect, cut, header=True
+    )
+    if named and _header_is_a_record(profile):
+        profile, notes, started, named, ragged, last = _scan(
+            artifact_id, rel, text, dialect, cut, header=False
+        )
+    if not started:
+        return notes or [_unparsed(artifact_id, rel, _empty(cut))]
+    heading = (
+        f"Format: {fmt.upper()}, delimiter {json.dumps(dialect.delimiter)}, "
+        + ("the first row names the columns." if named else "no header row: columns are numbered.")
+    )
+    facts.insert(0, heading)
+    if ragged:
+        facts.append(f"{ragged} rows have a different number of fields from the first.")
+    schema = _schema_unit(
+        artifact_id, f"Data schema: {rel}", facts, profile, Location(rel, 1, max(last, 1)), fmt
+    )
+    return [schema, *notes]
+
+
+def _scan(artifact_id: str, rel: str, text: str, dialect: type[csv.Dialect], cut: bool,
+          header: bool) -> tuple[_Profile, list[Unit], bool, bool, int, int]:
+    """(profile, notes, whether a row was found, whether the first row names the columns, rows
+    of another width, the last line read) of a delimited text. The first row is taken for a
+    header only when header is true and it looks like one."""
     # strict: malformed quoting, such as a quote never closed, stops the scan and is said so
     # rather than being read as a row
     reader = csv.reader(io.StringIO(text, newline=""), dialect, strict=True)
@@ -530,7 +584,7 @@ def _delimited(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
                 continue
             if not started:
                 started = True
-                named = _is_header(row)
+                named = header and _is_header(row)
                 profile.fixed(row if named else [""] * len(row))
                 if named:
                     last = reader.line_num
@@ -549,19 +603,7 @@ def _delimited(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
             artifact_id, rel, f"Stopped reading at line {line}: {exc}.", line,
             max(reader.line_num, line),
         ))
-    if not started:
-        return notes or [_unparsed(artifact_id, rel, _empty(cut))]
-    heading = (
-        f"Format: {fmt.upper()}, delimiter {json.dumps(dialect.delimiter)}, "
-        + ("the first row names the columns." if named else "no header row: columns are numbered.")
-    )
-    facts.insert(0, heading)
-    if ragged:
-        facts.append(f"{ragged} rows have a different number of fields from the first.")
-    schema = _schema_unit(
-        artifact_id, f"Data schema: {rel}", facts, profile, Location(rel, 1, max(last, 1)), fmt
-    )
-    return [schema, *notes]
+    return profile, notes, started, named, ragged, last
 
 
 def _json_kind(value: object) -> str:

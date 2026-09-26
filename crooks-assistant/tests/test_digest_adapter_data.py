@@ -335,6 +335,85 @@ def test_names_phones_and_zip_codes_are_found_by_their_values(tmp_path):
     assert _line(table, "tier").endswith('examples "gold", "silver", "bronze"')
 
 
+NAMES = ("Ada Lovelace", "Grace Hopper", "Alan Turing")
+
+
+@pytest.mark.parametrize(
+    ("name", "content", "rows"),
+    [
+        ("people.csv", "Ada Lovelace,London\nGrace Hopper,Arlington\nAlan Turing,Wilmslow\n", 3),
+        ("people.tsv", "Ada Lovelace\tLondon\nGrace Hopper\tArlington\nAlan Turing\tWilmslow\n", 3),
+        ("one.csv", "Ada Lovelace,London\n", 1),
+        ("one.tsv", "Ada Lovelace\tLondon\n", 1),
+    ],
+)
+def test_a_headerless_first_record_of_names_is_counted_and_withheld(tmp_path, name, content, rows):
+    (tmp_path / name).write_text(content, encoding="utf-8")
+    [unit] = data.decompose(tmp_path, ARTIFACT)
+    assert "no header row: columns are numbered." in unit.body
+    assert f"Rows: {rows}" in unit.body.splitlines()
+    assert unit.location.to_dict() == {"path": name, "line_start": 1, "line_end": rows}
+    assert unit.tags == ("dataset", name.rsplit(".", 1)[1], "personal")
+    assert "Personal data, values withheld: column_1" in unit.body.splitlines()
+    assert _line(unit, "column_1") == (
+        f"- column_1: text; personal, values withheld; nulls 0.0%; distinct ~{rows}"
+    )
+    assert "London" in _line(unit, "column_2")
+    everything = json.dumps(unit.to_dict(), ensure_ascii=False)
+    for person in NAMES:
+        assert person not in everything, person
+
+
+def test_title_case_headers_are_still_headers(tmp_path):
+    (tmp_path / "customers.csv").write_text(
+        "First Name,Home City,Unit Price\nAda Lovelace,London,4.5\nGrace Hopper,Arlington,3\n",
+        encoding="utf-8",
+    )
+    [unit] = data.decompose(tmp_path, ARTIFACT)
+    assert "the first row names the columns." in unit.body
+    assert "Rows: 2" in unit.body.splitlines()
+    assert _line(unit, "First Name") == (
+        "- First Name: text; personal, values withheld; nulls 0.0%; distinct ~2"
+    )
+    assert _line(unit, "Home City").endswith('examples "London", "Arlington"')
+    assert _line(unit, "Unit Price").startswith("- Unit Price: number; nulls 0.0%")
+    for person in NAMES:
+        assert person not in unit.body, person
+
+
+POSTAL_NUMBERS = ("90210", "10001", "94105", "60614", "30301")
+
+
+def test_postal_codes_stored_as_numbers_are_withheld(tmp_path):
+    # neutral column names: only the values say these columns are personal
+    (tmp_path / "areas.json").write_text(json.dumps([
+        {"ref": 1, "area": 90210, "zone": 60614.0, "label": "alpha"},
+        {"ref": 2, "area": 10001, "zone": 30301.0, "label": "beta"},
+        {"ref": 3, "area": 94105, "zone": None, "label": "gamma"},
+    ]), encoding="utf-8")
+    _database(tmp_path / "areas.sqlite", """
+        CREATE TABLE areas (ref INTEGER, area INTEGER, zone REAL, label TEXT);
+        INSERT INTO areas VALUES (1, 90210, 60614, 'alpha'), (2, 10001, 30301, 'beta'),
+                                 (3, 94105, NULL, 'gamma');
+    """)
+    json_unit, table = data.decompose(tmp_path, ARTIFACT)
+    assert table.title == "Data schema: areas.sqlite table areas"
+    everything = json.dumps(
+        [[unit.title, unit.body, list(unit.tags)] for unit in (json_unit, table)], ensure_ascii=False
+    )
+    for value in POSTAL_NUMBERS:
+        assert value not in everything, value
+    assert json_unit.tags == ("dataset", "json", "personal")
+    assert table.tags == ("dataset", "sqlite", "personal")
+    for unit in (json_unit, table):
+        assert "Rows: 3" in unit.body.splitlines()
+        for column in ("area", "zone"):
+            assert "personal, values withheld" in _line(unit, column), column
+            assert "examples" not in _line(unit, column), column
+        assert _line(unit, "ref").endswith('examples "1", "2", "3"')
+        assert _line(unit, "label").endswith('examples "alpha", "beta", "gamma"')
+
+
 # --- determinism and bounds --------------------------------------------------------------------
 
 
