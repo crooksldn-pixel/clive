@@ -638,7 +638,8 @@ def _mcp_server(tree: Tree) -> Match | None:
     return found.match()
 
 
-_OPENAPI = re.compile(r"""(?m)^[\s{]*["']?(openapi|swagger)["']?\s*:\s*["']?(\d+(?:\.\d+)*)""")
+# YAML: only an unindented (top-level) key on its own line; `[ \t]` never crosses a newline.
+_OPENAPI = re.compile(r"""(?m)^["']?(openapi|swagger)["']?[ \t]*:[ \t]*["']?(\d+(?:\.\d+)*)""")
 _OPENAPI_JSON = re.compile(r'"(openapi|swagger)"\s*:\s*"?(\d+(?:\.\d+)*)')
 
 

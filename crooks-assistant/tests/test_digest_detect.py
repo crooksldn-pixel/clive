@@ -341,6 +341,27 @@ def test_an_openapi_key_nested_below_the_top_level_is_not_a_spec(tmp_path):
     assert "openapi_spec" not in detect.detect_kinds(root)
 
 
+def test_a_nested_yaml_openapi_key_is_not_a_spec(tmp_path):
+    root = _build(tmp_path / "config", {
+        "generator.yaml": "name: client\ngenerator:\n  openapi: 3.1.0\n",
+        "tools/settings.yml": "service:\n  swagger:\n    2.0\nlegacy:\n\tswagger: 2.0\n",
+    })
+
+    assert "openapi_spec" not in detect.detect_kinds(root)
+
+
+def test_a_top_level_yaml_openapi_key_after_other_properties_is_recognised(tmp_path):
+    root = _build(tmp_path / "specs", {
+        "contract.yaml": "info:\n  title: Shop\n  version: 1.0.0\nopenapi: 3.1.0\npaths: {}\n",
+    })
+
+    openapi = detect.detect_kinds(root).get("openapi_spec")
+
+    assert openapi is not None
+    by_path = {evidence.path: evidence for evidence in openapi.evidence}
+    assert by_path["contract.yaml"].signal == "openapi 3.1.0 document"
+
+
 def test_an_mcp_client_is_not_an_mcp_server(tmp_path):
     root = _build(tmp_path / "clients", {
         "node/package.json": '{"name": "mcp-client", "dependencies": {"@modelcontextprotocol/sdk": "^1.0.0"}}',
