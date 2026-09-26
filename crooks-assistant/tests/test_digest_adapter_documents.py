@@ -703,3 +703,20 @@ def test_a_bold_lead_in_does_not_hide_the_guideline_after_it(tmp_path):
         "Never exceed 100 ms for a tap response.": ("number", "comparison"),   # a directive, but checkable
         "Deploys are always reviewed.": ("always",),
     }
+
+
+def test_a_fence_that_opens_on_a_list_items_line_closes_under_it(tmp_path):
+    # anthropics/skills: "2. ```sh" ... "   ```" left the rest of the guide read as code.
+    text = (
+        "# Deploy\n\n"
+        "1. Write the config.\n"
+        "2. ```sh\n"
+        "   ant agents create < agent.yaml\n"
+        "   ```\n\n"
+        "## After\n\n"
+        "- Always check the logs.\n"
+    )
+    rows = _rows(_one(tmp_path, "guide.md", text))
+    assert not [row for row in rows if "unparsed" in row[6]]
+    assert ("example", "Deploy", "   ant agents create < agent.yaml", "guide.md", 4, 6, ("sh",)) in rows
+    assert ("rule", "Deploy > After", "Always check the logs.", "guide.md", 10, 10, ()) in rows

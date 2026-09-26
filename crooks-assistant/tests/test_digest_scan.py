@@ -1178,3 +1178,16 @@ def test_typed_names_in_source_code_are_not_chat_turns(tmp_path):
     findings = scan.scan_tree(tmp_path)
     markers = {f.path for f in with_rule(findings, "injection.marker")}
     assert markers == {"notes.md", "app/prompt.py"}
+
+
+def test_a_skill_that_grants_itself_shell_commands_is_reported(tmp_path):
+    # microsoft/playwright-cli's skill asks for Bash(npx:*) and Bash(npm:*): any package, run unasked.
+    build(tmp_path, {
+        "skills/browse/SKILL.md": "---\nname: browse\ndescription: d\nallowed-tools: Bash(tool:*) Bash(npx:*) Read\n---\n# Browse\n",
+        "skills/read/SKILL.md": "---\nname: read\ndescription: d\nallowed-tools: Read Grep\n---\n# Read\n",
+    })
+    findings = scan.scan_tree(tmp_path)
+    [grant] = with_rule(findings, "execute.agent_permissions")
+    assert (grant.path, grant.line, grant.severity) == ("skills/browse/SKILL.md", 4, scan.WARN)
+    assert "2 shell-command permission(s), including a wildcard," in grant.message
+    assert "npx" not in grant.message                            # a finding never quotes the artifact

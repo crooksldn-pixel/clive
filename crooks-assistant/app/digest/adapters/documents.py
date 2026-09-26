@@ -688,6 +688,14 @@ class _Reader:
             self._flush()
             return i + 1, False
         bullet = _BULLET.fullmatch(text)
+        ordered_at = _ORDERED.match(text)
+        if self.flavour == "markdown" and (bullet or ordered_at):
+            # A fence may open on the item's own line ("2. ```sh"); its closing fence is then
+            # indented under the item, and must not be taken for a fence of its own.
+            inner = _FENCE_OPEN.fullmatch(bullet.group(1) if bullet else text[ordered_at.end():])
+            if inner and not (inner.group(1)[0] == "`" and "`" in inner.group(2)):
+                self.in_list = True
+                return self._fence(i, inner), False
         if bullet:
             return self._item(i, bullet.group(1)), False
         if (self.flavour == "markdown" and not self.paragraph and not self.in_list

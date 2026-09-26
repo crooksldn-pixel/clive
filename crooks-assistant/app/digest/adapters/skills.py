@@ -569,27 +569,51 @@ def _section_units(lines: list[str], blocks: list[_Block], heading: str | None, 
     """A section's Units in the order they begin. Its steps are one procedure, from its first
     item to its last item or code block — so the commands fenced between or after the steps
     are part of it — however often prose, code or a divider breaks the list; and every item
-    and sentence that is a rule or a check is that as well."""
+    and sentence that is a rule or a check is that as well.
+
+    A label item ("Do not:", "The output must feel:") and the items nested under it are one
+    Unit of the label's kind or, failing that, the section's: the label is what makes them a
+    rule, and each alone would say either nothing or the opposite."""
     section = _section(heading)
-    items = {id(block): _item_text(block) for block in blocks if block.kind == "item"}
+    groups = _label_groups(blocks)
+    grouped = {id(member) for label, members in groups for member in (label, *members)}
+    items = {id(block): _item_text(block) for block in blocks
+             if block.kind == "item" and id(block) not in grouped}
     kinds = {key: _item_kinds(text, section) for key, text in items.items()}
     steps = bool(heading and _STEPS_HEADING.search(heading))    # a steps section, whatever its items
     plain = [items[key] for key, found in kinds.items() if not found]
-    procedure = bool(items) and (steps or (not section and (
+    procedure = (bool(items) or bool(groups)) and (steps or (not section and (
         any(block.numbered for block in blocks if block.kind == "item") or _stepwise(plain)
     )))
+    labelled = {id(label): (label, members) for label, members in groups}
     # Items that are a rule or check only by their heading, and are a label or a word or two,
     # are one Unit for the section, where the first of them is.
-    thin = [block for block in blocks if block.kind == "item" and section and kinds[id(block)]
+    thin = [block for block in blocks if id(block) in items and section and kinds[id(block)]
             and not _own_kinds(items[id(block)]) and _thin(items[id(block)])]
     for block in blocks:
+        if block.kind == "item" and procedure:
+            procedure = False
+            start = block.start
+            end = max(b.end for b in blocks if b.kind in ("item", "code") and b.start >= start)
+            body = "\n".join(lines[start - 1:end])
+            units.add("procedure", heading or f"{context}: steps", body, rel, (start, end), tags)
+        if id(block) in labelled:
+            label, members = labelled[id(block)]
+            text = _item_text(label)
+            found = _item_kinds(text, section)
+            if found:
+                body = text + " " + "; ".join(_item_text(member) for member in members)
+                for kind in found:
+                    units.add(kind, text, body, rel, (label.start, members[-1].end), tags)
+                continue
+            for member in members:               # a label that makes nothing a rule: as ever
+                for kind in _item_kinds(_item_text(member), section):
+                    units.add(kind, _item_text(member), _item_text(member), rel,
+                              (member.start, member.end), tags)
+            continue
         if block.kind == "item":
-            if procedure:
-                procedure = False
-                start = block.start
-                end = max(b.end for b in blocks if b.kind in ("item", "code") and b.start >= start)
-                body = "\n".join(lines[start - 1:end])
-                units.add("procedure", heading or f"{context}: steps", body, rel, (start, end), tags)
+            if id(block) not in items:
+                continue                         # a member of a label's group, read with it
             text = items[id(block)]
             if thin and block is thin[0]:
                 body = "; ".join(items[id(item)] for item in thin)
@@ -601,6 +625,48 @@ def _section_units(lines: list[str], blocks: list[_Block], heading: str | None, 
                 units.add(kind, text, text, rel, (block.start, block.end), tags)
         elif block.kind == "paragraph":
             _paragraph_units(block, section, units, rel, tags)
+
+
+_LABEL_WORDS = 6
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" \t"))
+
+
+def _is_label(text: str) -> bool:
+    plain = _MARKUP.sub(" ", text).strip()
+    return plain.endswith(":") and len(_WORD_RUN.findall(plain)) <= _LABEL_WORDS
+
+
+def _label_groups(blocks: list[_Block]) -> list[tuple[_Block, list[_Block]]]:
+    """Each rule or check label with the items it introduces, when it has any: a label item with the items
+    nested under it (indented further), or a one-line label paragraph ("Do not:") with the list
+    that follows it — with nothing but items and code between."""
+    groups: list[tuple[_Block, list[_Block]]] = []
+    index = 0
+    while index < len(blocks):
+        block = blocks[index]
+        index += 1
+        # Only a label whose own words make a rule or check ("Do not:", "Never:", "It must
+        # feel:") carries its items; a pseudo-heading ("**Spacing:**") leaves each to itself.
+        if block.kind == "item" and _is_label(_item_text(block)) and _own_kinds(_item_text(block)):
+            depth: int | None = _indent(block.lines[0])
+        elif (block.kind == "paragraph" and len(block.lines) == 1 and _is_label(block.lines[0])
+              and _own_kinds(block.lines[0])):
+            depth = None                         # a paragraph introduces the whole list after it
+        else:
+            continue
+        members: list[_Block] = []
+        while index < len(blocks) and blocks[index].kind in ("item", "code"):
+            if blocks[index].kind == "item":
+                if depth is not None and _indent(blocks[index].lines[0]) <= depth:
+                    break
+                members.append(blocks[index])
+            index += 1
+        if members:
+            groups.append((block, members))
+    return groups
 
 
 def _paragraph_units(block: _Block, section: str, units: _Units, rel: str,
@@ -676,26 +742,34 @@ def _references(root: Path, rel: str, lines: list[str], first: int, units: _Unit
     """Each file the skill names — by a link, or as a path that is there — once, in the order
     they are first named. A link to nothing, or out of the artifact, is said so."""
     folder = posixpath.dirname(rel)
-    named: dict[str, tuple[int, bool]] = {}      # path: the line first naming it, by a link?
+    named: dict[str, tuple[int, str | None]] = {}   # path: the line first naming it, and the link
     problems: list[tuple[int, str]] = []
+    fence: str | None = None
     for index in range(first, len(lines)):
-        for match in _LINK.finditer(lines[index]):
+        opening = _FENCE.match(lines[index])
+        if opening and (fence is None or opening.group(1)[0] == fence[0]):
+            fence = opening.group(1) if fence is None else None
+            continue
+        # A markdown link inside fenced code is example output, not a link; a path there is
+        # still how a skill names its scripts ("python scripts/run.py"), and is followed.
+        for match in () if fence is not None else _LINK.finditer(lines[index]):
             target, problem = _target(folder, match.group(1))
             if problem:
                 problems.append((index + 1, f"{match.group(1)}: {problem}"))
             elif target is not None and target not in named:
-                named[target] = (index + 1, True)
+                named[target] = (index + 1, match.group(1))
         for match in _PATH.finditer(lines[index]):
             target, _ = _target(folder, match.group(1))
             if target is not None and target not in named:
-                named[target] = (index + 1, False)
+                named[target] = (index + 1, None)
     followed = 0
-    for target, (number, linked) in named.items():
+    for target, (number, link) in named.items():
         if target == rel or target in documents:
             continue             # a skill, harness file or prompt library is read as itself
         full = os.path.join(root, target)
         if not os.path.lexists(full):
-            if linked:
+            # "[Title](URL)" in a template is a placeholder, not a missing file.
+            if link is not None and ("/" in link or "." in link):
                 problems.append((number, f"{target}: the referenced file is not in the artifact"))
             continue
         if not _inside(root, target):

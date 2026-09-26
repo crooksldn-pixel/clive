@@ -872,3 +872,45 @@ def test_a_list_of_things_is_not_a_procedure_and_a_label_is_not_a_rule(tmp_path)
     ]
     [gathered] = [unit for unit in units if unit.title == "Rules"]
     assert gathered.body == "premium; Good text:"
+
+
+def test_links_in_example_output_and_placeholder_links_are_not_missing_files(tmp_path):
+    # microsoft/playwright-cli: a link in a fenced example of the tool's output, and
+    # anthropics/skills: "[Title](URL)" in a template, were reported as files not in the artifact.
+    skill = "skills/cli/SKILL.md"
+    units = _digest(_write(tmp_path / "artifact", {
+        skill: (
+            "---\nname: cli\ndescription: d\n---\n"
+            "```bash\n> cli goto https://example.com\n[Snapshot](.cli/page-1.yml)\npython scripts/run.py\n```\n\n"
+            "> See also: [Title](URL)\n\n"
+            "Read [the guide](guide/missing.md).\n"
+        ),
+        "skills/cli/scripts/run.py": "print('run')\n",
+    }))
+    reasons = [unit.body for unit in _unparsed(units, skill)]
+    assert reasons == ["skills/cli/guide/missing.md: the referenced file is not in the artifact"]
+    assert [unit.location.path for unit in units if unit.kind == "script"] == ["skills/cli/scripts/run.py"]
+
+
+def test_a_label_and_the_items_under_it_are_one_rule(tmp_path):
+    # Leonxlnx/taste-skill: "Do not:" (11 times) and "The output must feel:" were rules on their
+    # own, and the items under them lost the "do not".
+    skill = "skills/style/SKILL.md"
+    units = _digest(_write(tmp_path / "artifact", {
+        skill: (
+            "---\nname: style\ndescription: d\n---\n"            # 1-4
+            "## Style\n\n"                                       # 5-6
+            "- Do not:\n  - use purple gradients\n  - center everything\n"     # 7-9
+            "- The output must feel:\n  - premium\n  - calm\n"   # 10-12
+            "- Good text:\n  - brand name\n\n"                   # 13-15
+            "Never:\n- default to safe layouts\n- repeat one block\n"   # 16-18
+        ),
+    }))
+    assert [row for row in _summary(units, skill) if row[0] != "knowledge"] == [
+        ("rule", "Do not:", skill, 7, 9),
+        ("rule", "The output must feel:", skill, 10, 12),
+        ("rule", "Never:", skill, 16, 18),
+    ]
+    bodies = [unit.body for unit in units if unit.kind == "rule"]
+    assert bodies == ["Do not: use purple gradients; center everything", "The output must feel: premium; calm",
+                      "Never: default to safe layouts; repeat one block"]

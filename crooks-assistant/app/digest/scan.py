@@ -1516,6 +1516,10 @@ _PYPROJECT_HOOKS = (
 )
 
 
+# A shell tool in a skill's allowed-tools: "Bash", "Bash(npm:*)", "Shell(...)", "PowerShell".
+_SHELL_TOOL = re.compile(r"\b(?:Bash|Shell|PowerShell|Terminal)\b(?:\([^)\n]{0,200}\))?", re.I)
+
+
 def _execution_findings(rel: str, path: str, text: str | None) -> list[Finding]:
     """Findings that come from what a file is: its name and place say it would run."""
     name = rel.rsplit("/", 1)[-1]
@@ -1536,6 +1540,16 @@ def _execution_findings(rel: str, path: str, text: str | None) -> list[Finding]:
     if name == ".pre-commit-config.yaml":
         flag(WARN, "execute.git_hook",
              "pre-commit configuration: once installed, it fetches and runs the listed hooks on every commit.")
+    if lower == "skill.md" and text is not None:
+        tools = _front_matter_field(text, "allowed-tools") or _front_matter_field(text, "allowed_tools")
+        shell = _SHELL_TOOL.findall(tools or "")
+        if shell:
+            wildcard = any("*" in grant for grant in shell)
+            flag(WARN, "execute.agent_permissions",
+                 f"The skill's allowed-tools grant the agent {len(shell)} shell-command permission(s)"
+                 f"{', including a wildcard,' if wildcard else ''} to use without asking while the "
+                 "skill is active: installed as it is, it widens what the agent may run.",
+                 _line_of(text, r"(?m)^allowed[-_]tools[ \t]*:"))
     if _GIT_CONFIG.search(rel):
         line = _git_config_command(text) if text is not None else 0
         if line or text is None:
