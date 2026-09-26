@@ -743,19 +743,27 @@ def _wrapped_base64(text: str) -> Iterator[tuple[int, str]]:
 
 def _wrapped_group(group: list[tuple[int, str]]) -> Iterator[tuple[int, str]]:
     """Decoding is tried from each chunk in turn, so words of prose run into the blob are passed
-    over. A try that finds text resumes after it; one that does not reads only a small window, so
-    the work stays linear in the size of the run."""
+    over. A try that finds text resumes after it. A try that does not rules out the chunks that
+    start inside the stretch it decoded and in step with it (a multiple of four characters on):
+    they would decode to a tail of the same bytes, and a tail of a blob is passed over here as the
+    unwrapped pattern passes it over. So each character is decoded in at most four alignments,
+    and the work stays linear in the size of the run however long a rejected stretch is."""
     joined = "".join(chunk for _offset, chunk in group).rstrip("=")
     begins: list[int] = []
     size = 0
     for _offset, chunk in group:
         begins.append(size)
         size += len(chunk)
+    decoded_to = [0, 0, 0, 0]  # by alignment, where the last try that found no text stopped
     index = 0
     while index < len(group) and len(joined) - begins[index] >= 20:
         begin = begins[index]
+        if begin < decoded_to[begin % 4]:
+            index += 1
+            continue
         decoded, used = _from_wrapped(joined, begin)
         if decoded is None:
+            decoded_to[begin % 4] = begin + max(used, 1)
             index += 1
             continue
         yield group[index][0], decoded
@@ -855,6 +863,15 @@ _SECRETS = (
             ),
             severity=WARN, group=1, generic=True),
 )
+# The body of a PEM block after its header: at most a few header lines (Proc-Type, DEK-Info),
+# then lines of base64, broken by real newlines or by the escaped "\n" of a key pasted into JSON
+# or an environment file. The base64 is the key itself; the header only announces it.
+_PEM_BREAK = re.compile(r"(?:[ \t]*(?:\r?\n|\\n))+[ \t]*")
+_PEM_BODY = re.compile(
+    rf"(?:{_PEM_BREAK.pattern}[A-Za-z-]+:[^\r\n\\]*){{0,4}}"
+    rf"((?:{_PEM_BREAK.pattern}[A-Za-z0-9+/]+={{0,2}}(?=[ \t]*(?:\r?\n|\\n|$)))+)"
+)
+_MIN_PEM_LINE = 8  # shorter lines give little away, and would redact ordinary names
 _PLACEHOLDER = re.compile(
     r"example|sample|dummy|placeholder|changeme|change[_-]me|your[_-]|xxxx|\*{3}|\.\.\.|[<>{}$%]|redacted|fake|password",
     re.I,
@@ -870,6 +887,7 @@ _PATH_SECRETS = tuple(
 def _secret_findings(path: str, text: str, starts: list[int], exposed: set[str]) -> list[Finding]:
     found: list[Finding] = []
     specific_lines: set[int] = set()
+    pem_end = 0  # a header inside the block before is not read again, so parsing stays linear
     for secret in _SECRETS:
         for match in secret.pattern.finditer(text):
             value = match.group(secret.group) or ""
@@ -881,6 +899,13 @@ def _secret_findings(path: str, text: str, starts: list[int], exposed: set[str])
                 specific_lines.add(line)
             if value:
                 exposed.add(value)
+            if secret.slug == "private_key" and match.start() >= pem_end:
+                body = _PEM_BODY.match(text, match.end())
+                if body:
+                    pem_end = body.end()
+                    exposed.update(
+                        part for part in _PEM_BREAK.split(body.group(1)) if len(part) >= _MIN_PEM_LINE
+                    )
             found.append(Finding(
                 secret.severity, f"secret.{secret.slug}", path, line,
                 f"Looks like {secret.label} ({len(value)} characters; the value is withheld). "
