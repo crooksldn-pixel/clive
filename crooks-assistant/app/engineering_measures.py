@@ -379,6 +379,11 @@ def _total(values: Iterable[float | int | None]) -> float | int | None:
     return sum(present) if present else None
 
 
+def _total_hours(values: Iterable[float | None]) -> float | None:
+    total = _total(values)
+    return round(total, 3) if total is not None else None
+
+
 def _aggregate(
     rows: Sequence[dict],
     deploys: Sequence[Deploy] | None,
@@ -395,8 +400,11 @@ def _aggregate(
         "landed": sum(1 for row in rows if row["landed_at"]) if have_trunk else None,
         "deployed": sum(1 for row in rows if row["deployed_at"]) if deploys is not None else None,
         "deploys": len(deploys) if deploys is not None else None,
+        "total_hours_to_complete": _total_hours(column("hours_to_complete")),
         "median_hours_to_complete": _median(column("hours_to_complete")),
+        "total_hours_to_trunk": _total_hours(column("hours_to_trunk")),
         "median_hours_to_trunk": _median(column("hours_to_trunk")),
+        "total_hours_to_production": _total_hours(column("hours_to_production")),
         "median_hours_to_production": _median(column("hours_to_production")),
         "review_rounds": _total(column("review_rounds")),
         "median_review_rounds": _median(column("review_rounds")),
@@ -497,8 +505,11 @@ _AGGREGATE_COLUMNS = (
     ("Landed", "landed"),
     ("Deployed", "deployed"),
     ("Deploys", "deploys"),
+    ("Total h to complete", "total_hours_to_complete"),
     ("Median h to complete", "median_hours_to_complete"),
+    ("Total h to trunk", "total_hours_to_trunk"),
     ("Median h to trunk", "median_hours_to_trunk"),
+    ("Total h to production", "total_hours_to_production"),
     ("Median h to production", "median_hours_to_production"),
     ("Review rounds", "review_rounds"),
     ("Median review rounds", "median_review_rounds"),

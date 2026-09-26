@@ -244,9 +244,9 @@ def test_totals_and_medians_per_day():
     first = days["2026-09-21"]
     assert (first["objectives"], first["completed"], first["landed"], first["deployed"]) == (2, 2, 2, 2)
     assert first["deploys"] == 1
-    assert first["median_hours_to_complete"] == 13.0
-    assert first["median_hours_to_trunk"] == 29.0
-    assert first["median_hours_to_production"] == 41.0
+    assert (first["total_hours_to_complete"], first["median_hours_to_complete"]) == (26.0, 13.0)
+    assert (first["total_hours_to_trunk"], first["median_hours_to_trunk"]) == (58.0, 29.0)
+    assert (first["total_hours_to_production"], first["median_hours_to_production"]) == (82.0, 41.0)
     assert (first["review_rounds"], first["median_review_rounds"]) == (3, 1.5)
     assert (first["owner_minutes_attributed"], first["median_owner_minutes"]) == (12.0, 6.0)
     assert first["owner_minutes_logged"] == 5.0
@@ -256,8 +256,10 @@ def test_day_without_deploys_has_no_production_median():
     second = days_by_date(full_report())["2026-09-22"]
     assert second["objectives"] == 2
     assert (second["deploys"], second["deployed"]) == (0, 0)
-    assert second["median_hours_to_production"] is None
+    assert second["median_hours_to_production"] is None and second["total_hours_to_production"] is None
+    # req-c never landed and req-r was refused: no completion or trunk hours to add up.
     assert second["landed"] == 0 and second["median_hours_to_trunk"] is None
+    assert second["total_hours_to_trunk"] is None and second["total_hours_to_complete"] is None
     assert second["owner_minutes_logged"] == 10.0
 
 
@@ -266,14 +268,17 @@ def test_days_with_only_attention_or_deploys_are_reported():
     third = days["2026-09-23"]
     assert third["objectives"] == 0 and third["deploys"] == 0
     assert third["owner_minutes_logged"] == 6.0 and third["owner_minutes_attributed"] == 0
-    assert third["median_hours_to_complete"] is None
+    assert third["median_hours_to_complete"] is None and third["total_hours_to_complete"] is None
     assert days["2026-09-24"]["deploys"] == 1
+    assert days["2026-09-24"]["total_hours_to_production"] is None  # the deploy covers objectives of earlier days
 
 
 def test_totals_and_unattributed_minutes():
     report = full_report()
     totals = report["totals"]
     assert (totals["objectives"], totals["completed"], totals["landed"], totals["deployed"]) == (4, 2, 2, 2)
+    assert (totals["total_hours_to_complete"], totals["total_hours_to_trunk"]) == (26.0, 58.0)
+    assert totals["total_hours_to_production"] == 82.0
     assert totals["owner_minutes_attributed"] == 15.0
     assert totals["owner_minutes_logged"] == 21.0
     unattributed = {entry["about"]: entry for entry in report["unattributed_attention"]}
@@ -299,8 +304,10 @@ def test_missing_inputs_leave_their_columns_empty():
     assert rows_by_id(report)["req-a"]["hours_to_complete"] == 2.0  # the status projection was supplied
     for aggregate in (*report["days"], report["totals"]):
         for column in ("landed", "deployed", "deploys", "owner_minutes_attributed", "median_owner_minutes",
-                       "owner_minutes_logged", "median_hours_to_trunk", "median_hours_to_production"):
+                       "owner_minutes_logged", "median_hours_to_trunk", "median_hours_to_production",
+                       "total_hours_to_trunk", "total_hours_to_production"):
             assert aggregate[column] is None, column
+    assert report["totals"]["total_hours_to_complete"] == 26.0  # the status projection was supplied
     assert report["unattributed_attention"] == []
 
 
@@ -376,6 +383,21 @@ def test_markdown_renders_empty_cells_not_none():
     assert "## Per objective" in markdown and "## Per day" in markdown and "## Totals" in markdown
     assert "None" not in markdown
     assert "deploy log: not supplied" in markdown
+
+
+def test_markdown_shows_daily_hour_totals():
+    lines = render_markdown(full_report()).splitlines()
+    header = next(line for line in lines if line.startswith("| Day |"))
+    titles = [cell.strip() for cell in header.strip("|").split("|")]
+
+    def day_cells(day: str) -> dict[str, str]:
+        row = next(line for line in lines if line.startswith(f"| {day} |"))
+        return dict(zip(titles, (cell.strip() for cell in row.strip("|").split("|")), strict=True))
+
+    first = day_cells("2026-09-21")
+    assert (first["Total h to complete"], first["Total h to trunk"], first["Total h to production"]) == ("26", "58", "82")
+    second = day_cells("2026-09-22")
+    assert (second["Total h to complete"], second["Total h to trunk"], second["Total h to production"]) == ("", "", "")
 
 
 # ------------------------------------------------------------------ the script
