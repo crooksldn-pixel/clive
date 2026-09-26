@@ -22,8 +22,9 @@ What comes out:
   knowledge   the repository map, first; and, tagged 'unparsed', everything that could not be
               read, with the reason
 
-Every read is bounded — files walked, directories and their depth, bytes per file and in all,
-Units made — and meeting a bound is itself reported as 'unparsed'. The same tree gives the same
+Every read is bounded — files walked, entries looked at, directories and their depth, bytes per
+file and in all, Units made — and meeting a bound is itself reported as 'unparsed'; and every
+pattern is written to take time in proportion to the text it reads, however that text is made. The same tree gives the same
 Units in the same order wherever it is on disk: nothing about the machine, the clock or the
 absolute path goes into a Unit. Malformed input never raises; only a malformed artifact id,
 which is the caller's mistake rather than the artifact's, does."""
@@ -39,7 +40,7 @@ import stat
 import sys
 import tomllib
 import warnings
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
@@ -51,6 +52,7 @@ HANDLES = ("source_code", "python_package", "node_package")
 
 MAX_FILES = 5_000               # files walked; the rest are not read
 MAX_DIRECTORIES = 2_000
+MAX_ENTRIES = 50_000            # files, directories, links and the rest looked at, in all
 MAX_DEPTH = 24
 MAX_FILE_BYTES = 512 * 1024
 MAX_TOTAL_BYTES = 32 * 1024 * 1024
@@ -78,18 +80,35 @@ _TEST_TOOLS = frozenset(("__future__", "pytest", "unittest", "hypothesis", "mock
 _JS_TEST_DIRS = frozenset(("test", "tests", "__tests__"))
 _NPM_DEPENDENCIES = ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies")
 
+# A requirement is one line (a newline in one is refused before this is tried), and the name
+# and the space around it give nothing back, so no requirement makes the match backtrack.
 _REQUIREMENT = re.compile(
-    r"^\s*(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(?P<extras>\[[^\]]*\])?"
-    r"\s*(?P<rest>[^;]*)(?:;(?P<marker>.*))?$"
+    r"\s*+(?P<name>(?>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?))\s*+(?P<extras>\[[^\]]*\])?"
+    r"\s*+(?P<rest>[^;]*)(?:;(?P<marker>.*))?"
 )
+# Where a comment starts on a requirements or setup.cfg line: at a # after a space. Found by
+# one scan, where splitting on \s+# tried each space of a long run afresh.
+_COMMENT = re.compile(r"\s#")
+_OPTION_TAIL = re.compile(r"\s--")
 _TOML_HEADER = re.compile(r"^\s*\[\[?[^\[\],=]+\]\]?\s*(?:#.*)?$")
+# A table's [header], its dotted parts one by one, and a key at the start of a line: written
+# bare, in double quotes or in single quotes.
+_TOML_TABLE_LINE = re.compile(r"\s*+\[(?!\[)(?P<inside>[^\[\]\n]*+)\]\s*+(?:#.*)?")
+_TOML_PART = re.compile(r"""\s*+(?:"([^"\n]*)"|'([^'\n]*)'|([^\s."'\[\]#]++))\s*+""")
+_TOML_KEY = re.compile(r"""\s*+(?:"([^"\n]*)"|'([^'\n]*)'|([A-Za-z0-9_-]++))\s*+=""")
+_QUOTED = re.compile(r""""([^"\n]*)"|'([^'\n]*)'""")
 _INI_HEADER = re.compile(r"^\s*\[[^\]]*\]\s*$")
 # An entry point's object reference, as importlib.metadata reads one: module[:attr] [extras].
 _ENTRY_POINT = re.compile(r"[\w.]+\s*(?::\s*[\w.]+\s*)?(?:\[.*\]\s*)?")
 # What a Poetry dependency table takes its version or its source from.
 _POETRY_SOURCES = ("version", "git", "path", "url", "file")
 
+# Patterns here are written so that no text makes them backtrack without bound: where two
+# parts could match the same characters, the first takes them all and gives none back (*+, ++),
+# and the alternatives inside a repeat never match the same character. A pattern read over a
+# long line of spaces or backslashes must take time in proportion to it, not its square or more.
 _JS_NAME = r"[A-Za-z_$][\w$]*"
+_JS_WHOLE_NAME = r"[A-Za-z_$][\w$]*+"      # the name and all of it: nothing given back
 _JS_IDENTIFIER = re.compile(_JS_NAME)
 _JS_TAIL = rf"[ \t]*=[ \t]*(?:async\b[ \t]*)?(?P<form>function\b|\(|<|{_JS_NAME}[ \t]*=>)"
 _JS_FUNCTION = re.compile(
@@ -103,34 +122,40 @@ _JS_CLASS = re.compile(
     re.M,
 )
 _JS_CONST = re.compile(
-    rf"^[ \t]*export[ \t]+(?:const|let|var)[ \t]+(?P<name>{_JS_NAME})[^=\n]*?{_JS_TAIL}", re.M
+    rf"^[ \t]*export[ \t]+(?:const|let|var)[ \t]+(?P<name>{_JS_WHOLE_NAME})[^=\n]*+{_JS_TAIL}",
+    re.M,
 )
 _JS_COMMONJS = re.compile(rf"^[ \t]*(?:module\.)?exports\.(?P<name>{_JS_NAME}){_JS_TAIL}", re.M)
 # Declarations at the left margin — top level, by the usual layout — that an export list names.
 _JS_LOCAL = re.compile(
-    rf"^(?:async[ \t]+)?(?P<what>function|class)\b[ \t]*\*?[ \t]*(?P<name>{_JS_NAME})", re.M
+    rf"^(?:async[ \t]+)?(?P<what>function|class)\b[ \t]*+\*?[ \t]*+(?P<name>{_JS_NAME})", re.M
 )
-_JS_LOCAL_CONST = re.compile(rf"^(?:const|let|var)[ \t]+(?P<name>{_JS_NAME})[^=\n]*?{_JS_TAIL}", re.M)
+_JS_LOCAL_CONST = re.compile(
+    rf"^(?:const|let|var)[ \t]+(?P<name>{_JS_WHOLE_NAME})[^=\n]*+{_JS_TAIL}", re.M
+)
 _JS_EXPORT_LIST = re.compile(r"^[ \t]*export[ \t]*\{(?P<names>[^}]*)\}", re.M)
 _JS_MODULE_EXPORTS = re.compile(r"^[ \t]*module\.exports[ \t]*=[ \t]*\{(?P<names>[^}]*)\}", re.M)
 _JS_EXPORT_DEFAULT_NAME = re.compile(
-    rf"^[ \t]*export[ \t]+default[ \t]+(?P<name>{_JS_NAME})[ \t]*;?[ \t]*$", re.M
+    rf"^[ \t]*export[ \t]+default[ \t]+(?P<name>{_JS_WHOLE_NAME})[ \t]*+;?[ \t]*+$", re.M
 )
 _JS_MODULE_EXPORTS_NAME = re.compile(
-    rf"^[ \t]*module\.exports[ \t]*=[ \t]*(?P<name>{_JS_NAME})[ \t]*;?[ \t]*$", re.M
+    rf"^[ \t]*module\.exports[ \t]*=[ \t]*(?P<name>{_JS_WHOLE_NAME})[ \t]*+;?[ \t]*+$", re.M
 )
 _JS_ALIAS = re.compile(rf"(?:type[ \t]+)?(?P<local>{_JS_NAME})(?:\s+as\s+(?P<alias>{_JS_NAME}))?")
 _JS_PROPERTY = re.compile(rf"(?P<alias>{_JS_NAME})(?:\s*:\s*(?P<local>{_JS_NAME}))?")
 _ARROW = re.compile(r"\s*(?::[^=;{]*)?=>")
 _JS_TEST_CALL = re.compile(
-    r"""\b(?P<fn>describe|it|test)(?:\.(?:only|skip|todo|concurrent))?\s*\(\s*"""
-    r"""(?P<q>['"`])(?P<title>(?:\\.|(?!(?P=q)).)*)(?P=q)"""
+    r"""\b(?P<fn>describe|it|test)(?:\.(?:only|skip|todo|concurrent))?\s*+\(\s*+"""
+    r"""(?P<q>['"`])(?P<title>(?:\\.|(?!(?P=q))[^\\\n])*+)(?P=q)"""
 )
-_JS_IMPORT = re.compile(r"""(?:\bfrom|\bimport|\brequire)\s*\(?\s*(?P<q>['"])(?P<spec>[^'"\n]+)(?P=q)""")
-# What a well-formed class must have after its name: a body, before any declaration that follows.
-_JS_CLASS_BODY = re.compile(
-    r"(?:(?!\n\s*(?:export|import|class|function|const|let|var)\b)[^;{}]){0,2000}\{"
+_JS_IMPORT = re.compile(
+    r"""(?:\bfrom|\bimport|\brequire)\s*+(?:\(\s*+)?(?P<q>['"])(?P<spec>[^'"\n]++)(?P=q)"""
 )
+# What a well-formed class must have after its name, within _CLASS_HEADING characters: a body,
+# before any line that begins a declaration of its own.
+_CLASS_HEADING = 2_000
+_JS_CLASS_STOP = re.compile(r"[;{}]")
+_JS_DECLARATION_WORD = re.compile(r"\b(?:export|import|class|function|const|let|var)\b")
 # A function expression's generator star and name, before its parameters.
 _JS_FUNCTION_NAME = re.compile(rf"\s*\*?\s*(?:{_JS_NAME})?")
 # An export by keyword; the keywords an export may begin with.
@@ -166,6 +191,16 @@ _REGEX_KEYWORDS = frozenset((
     "return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw",
     "yield", "await", "instanceof",
 ))
+# A / that may open a regular expression is followed to its close, to the end of its line or
+# _REGEX_REACH characters on; the following, over the whole file, is bounded by its length, so a
+# long line of [/ cannot be walked a thousand times over. A file that needs more is not read.
+_REGEX_REACH = 1_000
+_REGEX_SCAN_FACTOR = 4
+_REGEX_SCAN_SLACK = 10_000
+_TOO_MANY_SLASHES = (
+    "more / that may open regular expressions than this reader follows, so its strings and "
+    "brackets cannot be told apart"
+)
 
 
 class _Malformed(ValueError):
@@ -216,9 +251,10 @@ class _Units:
         else:
             start = max(1, start)
             end = max(start, end if end is not None else start)
+        where = Location(path if _safe(path) == path else ".", start, end)
         unit = Unit(
-            artifact_id=self.artifact_id, kind=kind, title=_title(title), body=_clip(body),
-            location=Location(path, start, end), tags=_tags(tags),
+            artifact_id=self.artifact_id, kind=kind, title=_title(_safe(title)),
+            body=_clip(_safe(body)), location=where, tags=_tags(tuple(_safe(tag) for tag in tags)),
         )
         (self.head if first else self.made).append(unit)
 
@@ -246,6 +282,13 @@ def _order(unit: Unit) -> tuple:
     where = unit.location
     return (where.path, where.line_start or 0, where.line_end or 0, unit.kind, unit.title,
             unit.body, unit.tags)
+
+
+def _safe(text: str) -> str:
+    """Text that can be written as UTF-8, and so be given an id and stored: a lone surrogate —
+    which a JSON or Python escape, or a file name that is not UTF-8, can put in a string — is
+    shown escaped instead."""
+    return text.encode("utf-8", "backslashreplace").decode("utf-8")
 
 
 def _clip(text: str, limit: int = MAX_BODY) -> str:
@@ -276,6 +319,8 @@ def _listed(items: list[str]) -> list[str]:
 
 
 def _reason(exc: Exception) -> str:
+    if isinstance(exc, (RecursionError, MemoryError)):
+        return f"nested too deeply to be read ({type(exc).__name__}); skipped"
     if isinstance(exc, SyntaxError):
         where = f" at line {exc.lineno}" if exc.lineno else ""
         return f"not valid Python{where}: {exc.msg}; skipped"
@@ -290,6 +335,7 @@ def _reason(exc: Exception) -> str:
 class _Digest:
     def __init__(self, root: str, units: _Units) -> None:
         self.root = root
+        self.base = root                    # the directory the relative paths are under
         self.units = units
         self.files: list[str] = []          # relative POSIX paths, sorted
         self.links: list[str] = []
@@ -321,9 +367,32 @@ class _Digest:
 
     def _walk(self) -> None:
         """Every regular file under the root, in a fixed order. Links are noted and not
-        followed; caches and vendored trees are noted and not entered."""
+        followed, the root among them; caches and vendored trees are noted and not entered; a
+        name that is not UTF-8 is noted and not read. A root that is one regular file is read as
+        a repository of that file. Every entry looked at counts towards MAX_ENTRIES, and a
+        directory holding more than that is passed over whole, so what is read never depends on
+        the order the disk lists entries in."""
+        try:
+            info = os.lstat(self.root)
+        except OSError as exc:
+            self.units.unparsed(".", f"the artifact could not be read ({type(exc).__name__})")
+            return
+        if stat.S_ISLNK(info.st_mode):
+            self.units.unparsed(".", "the artifact is a symbolic link; not followed")
+            return
+        if stat.S_ISREG(info.st_mode):
+            name = os.path.basename(self.root)
+            if _safe(name) != name:
+                self.units.unparsed(".", f"a name that is not UTF-8 was not read: {name!r}")
+            else:
+                self.base = os.path.dirname(self.root)
+                self.files.append(name)
+            return
+        if not stat.S_ISDIR(info.st_mode):
+            self.units.unparsed(".", "the artifact is neither a directory nor a regular file")
+            return
         stack: list[tuple[str, int]] = [("", 0)]
-        directories = 0
+        directories = looked = 0
         while stack:
             rel, depth = stack.pop()
             directories += 1
@@ -332,15 +401,24 @@ class _Digest:
                     ".", f"stopped after {MAX_DIRECTORIES} directories; the rest were not read"
                 )
                 break
-            try:
-                with os.scandir(os.path.join(self.root, rel)) as listing:
-                    entries = sorted(listing, key=lambda entry: entry.name)
-            except OSError as exc:
-                self.units.unparsed(rel or ".", f"could not be listed ({type(exc).__name__})")
-                continue
+            entries = self._listing(rel)
             below: list[str] = []
             for entry in entries:
+                looked += 1
+                if looked > MAX_ENTRIES:
+                    self.units.unparsed(
+                        ".", f"stopped after {MAX_ENTRIES} files, directories and links; the "
+                        "rest were not read",
+                    )
+                    stack.clear()
+                    below.clear()
+                    break
                 path = f"{rel}/{entry.name}" if rel else entry.name
+                if _safe(entry.name) != entry.name:
+                    self.units.unparsed(
+                        rel or ".", f"a name that is not UTF-8 was not read: {entry.name!r}"
+                    )
+                    continue
                 try:
                     if entry.is_symlink():
                         self.links.append(path)
@@ -365,24 +443,49 @@ class _Digest:
             stack.extend((sub, depth + 1) for sub in reversed(below))
         self.files.sort()
 
-    def _text(self, path: str) -> tuple[str | None, str]:
-        """The file's text, or None and why not."""
-        full = os.path.join(self.root, *path.split("/"))
+    def _listing(self, rel: str) -> list[os.DirEntry[str]]:
+        """A directory's entries by name; none, and said so, when it cannot be listed or holds
+        more than MAX_ENTRIES — which are not all read into memory to find that out."""
+        entries: list[os.DirEntry[str]] = []
         try:
-            info = os.lstat(full)
-            if not stat.S_ISREG(info.st_mode):
-                return None, "not a regular file; not read"
-            if info.st_size > MAX_FILE_BYTES:
-                return None, f"larger than {MAX_FILE_BYTES} bytes; not read"
-            if self.bytes_read + info.st_size > MAX_TOTAL_BYTES:
-                return None, f"the {MAX_TOTAL_BYTES}-byte reading budget was spent; not read"
-            with open(full, "rb") as handle:
-                data = handle.read(MAX_FILE_BYTES + 1)
+            with os.scandir(os.path.join(self.base, rel)) as listing:
+                for entry in listing:
+                    entries.append(entry)
+                    if len(entries) > MAX_ENTRIES:
+                        self.units.unparsed(
+                            rel or ".", f"holds more than {MAX_ENTRIES} entries; not read"
+                        )
+                        return []
+        except OSError as exc:
+            self.units.unparsed(rel or ".", f"could not be listed ({type(exc).__name__})")
+            return []
+        return sorted(entries, key=lambda entry: entry.name)
+
+    def _text(self, path: str) -> tuple[str | None, str]:
+        """The file's text, or None and why not. The file is opened without following a link
+        or waiting on a pipe — whatever it was when the walk saw it — and is checked as opened,
+        so nothing swapped in after the walk is read in its place."""
+        full = os.path.join(self.base, *path.split("/"))
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        allowance = MAX_TOTAL_BYTES - self.bytes_read
+        spent = f"the {MAX_TOTAL_BYTES}-byte reading budget was spent; not read"
+        try:
+            with open(os.open(full, flags), "rb") as handle:
+                info = os.fstat(handle.fileno())
+                if not stat.S_ISREG(info.st_mode):
+                    return None, "not a regular file; not read"
+                if info.st_size > MAX_FILE_BYTES:
+                    return None, f"larger than {MAX_FILE_BYTES} bytes; not read"
+                if info.st_size > allowance:
+                    return None, spent
+                data = handle.read(min(MAX_FILE_BYTES, allowance) + 1)
         except OSError as exc:
             return None, f"could not be read ({type(exc).__name__})"
+        self.bytes_read += len(data)
         if len(data) > MAX_FILE_BYTES:
             return None, f"larger than {MAX_FILE_BYTES} bytes; not read"
-        self.bytes_read += len(data)
+        if len(data) > allowance:
+            return None, spent
         try:
             return data.decode("utf-8-sig"), ""
         except UnicodeDecodeError:
@@ -582,9 +685,8 @@ class _Digest:
         broken = unclosed or _unbalanced(skeleton)
         if broken is not None:
             offset, what = broken
-            self.units.unparsed(
-                path, f"not well-formed {language}: {what}; skipped", _line_of(starts, offset)
-            )
+            lead = "not read" if what == _TOO_MANY_SLASHES else f"not well-formed {language}"
+            self.units.unparsed(path, f"{lead}: {what}; skipped", _line_of(starts, offset))
             return
 
         # Every export is measured whole — test files' too — before anything is made of it: one
@@ -794,14 +896,14 @@ class _Digest:
 
     def _pyproject(self, path: str, text: str) -> None:
         data = tomllib.loads(text)
-        lines = text.split("\n")
+        lines = _Lines(text)
         last = _line_count(text)
         for table, tag in (("project.scripts", "console-script"),
                            ("project.gui-scripts", "gui-script"),
                            ("tool.poetry.scripts", "console-script")):
             for script, target in self._table(path, lines, data, table).items():
                 reference = target.get("reference") if isinstance(target, dict) else target
-                line = _toml_line(lines, table, script)
+                line = lines.toml(table, script)
                 # A Poetry script of type "file" names a file to run, not a module:function.
                 is_file = isinstance(target, dict) and target.get("type") == "file"
                 if not script.strip() or script != script.strip() or "=" in script:
@@ -834,7 +936,7 @@ class _Digest:
             for dependency, spec in self._table(path, lines, data, table).items():
                 if dependency == "python":
                     continue
-                line = _toml_line(lines, table, dependency)
+                line = lines.toml(table, dependency)
                 constraint = _poetry_constraint(spec)
                 if not dependency.strip() or constraint is None:
                     self.units.unparsed(
@@ -844,7 +946,7 @@ class _Digest:
                     continue
                 self._declared(path, dependency, constraint, "", line, last, group)
 
-    def _table(self, path: str, lines: list[str], data: dict, dotted: str) -> dict:
+    def _table(self, path: str, lines: _Lines, data: dict, dotted: str) -> dict:
         value: object = data
         for key in dotted.split("."):
             if not isinstance(value, dict) or key not in value:
@@ -852,14 +954,14 @@ class _Digest:
             value = value[key]
         if isinstance(value, dict):
             return value
-        self.units.unparsed(path, f"{dotted} is not a table; skipped", _toml_line(lines, dotted))
+        self.units.unparsed(path, f"{dotted} is not a table; skipped", lines.toml(dotted))
         return {}
 
-    def _requirement_list(self, path: str, lines: list[str], last: int, table: str, key: str,
+    def _requirement_list(self, path: str, lines: _Lines, last: int, table: str, key: str,
                           items: object, group: str) -> None:
         if items is None:
             return
-        anchor = _toml_line(lines, table, key)
+        anchor = lines.toml(table, key)
         if not isinstance(items, list):
             self.units.unparsed(path, f"{table}.{key} is not a list of requirements; skipped", anchor)
             return
@@ -871,7 +973,7 @@ class _Digest:
                     anchor,
                 )
                 continue
-            line = _quoted_line(lines, item, cursor)
+            line = lines.quoted(item, cursor)
             if line:
                 cursor = line
             self._dependency(path, item, line or anchor, last, group)
@@ -879,7 +981,7 @@ class _Digest:
     def _setup_cfg(self, path: str, text: str) -> None:
         parser = configparser.ConfigParser(interpolation=None)
         parser.read_string(text, source=path)
-        lines = text.split("\n")
+        lines = _Lines(text)
         last = _line_count(text)
         section = "options.entry_points"
         for option, tag in (("console_scripts", "console-script"), ("gui_scripts", "gui-script")):
@@ -887,26 +989,25 @@ class _Digest:
                 script, sep, reference = entry.partition("=")
                 if not sep or not script.strip() or not reference.strip():
                     self.units.unparsed(
-                        path, f"not an entry point: {entry!r}; skipped", _ini_line(lines, section)
+                        path, f"not an entry point: {entry!r}; skipped", lines.ini(section)
                     )
                     continue
-                line = _ini_line(lines, section, re.compile(rf"^\s*{re.escape(script.strip())}\s*="))
+                line = lines.ini(section, key=script.strip())
                 self._console_script(path, script.strip(), reference.strip(), line, last, tag)
         for entry in _ini_values(parser, "options", "install_requires"):
-            self._dependency(path, entry, _ini_line(lines, "options", _ini_exact(entry)), last,
+            self._dependency(path, entry, lines.ini("options", entry=entry), last,
                              "install_requires")
         extras = "options.extras_require"
         if parser.has_section(extras):
             for extra in parser.options(extras):
                 for entry in _ini_values(parser, extras, extra):
-                    self._dependency(path, entry, _ini_line(lines, extras, _ini_exact(entry)),
+                    self._dependency(path, entry, lines.ini(extras, entry=entry),
                                      last, f"extra {extra}")
 
     def _requirements(self, path: str, text: str) -> None:
         last = _line_count(text)
         for number, raw in enumerate(text.split("\n"), 1):
-            line = re.split(r"\s+#", raw.strip(), maxsplit=1)[0]
-            line = re.split(r"\s+--", line, maxsplit=1)[0].rstrip("\\").strip()
+            line = _before(_before(raw.strip(), _COMMENT), _OPTION_TAIL).rstrip("\\").strip()
             # Comments, and options and includes (-r, -e, --index-url): not requirements by name.
             if not line or line.startswith(("#", "-")):
                 continue
@@ -929,7 +1030,8 @@ class _Digest:
 
     def _dependency(self, path: str, requirement: str, line: int | None, last: int,
                     group: str) -> None:
-        parsed = _REQUIREMENT.match(requirement)
+        one_line = "\n" not in requirement and "\r" not in requirement
+        parsed = _REQUIREMENT.fullmatch(requirement) if one_line else None
         rest = parsed.group("rest").strip() if parsed else ""
         if parsed is None or (rest and rest[0] not in "<>=!~@("):
             self.units.unparsed(
@@ -1259,6 +1361,7 @@ def _set_aside_comments(
     size = len(text)
     index = 0
     last = -1                     # the last character of code before index
+    allowance = _REGEX_SCAN_FACTOR * size + _REGEX_SCAN_SLACK
     while index < size:
         char = text[index]
         if text.startswith("//", index):
@@ -1296,7 +1399,11 @@ def _set_aside_comments(
                 last = index
                 index += 1
         elif char == "/" and _regex_may_follow(text, last):
-            close = _regex_end(text, index)
+            if allowance < 0:
+                unclosed = unclosed or (index, _TOO_MANY_SLASHES)
+                break
+            close, reached = _regex_end(text, index)
+            allowance -= reached - index
             if close is not None:
                 _blank(skeleton, index + 1, close)
                 index = close
@@ -1349,16 +1456,16 @@ def _regex_may_follow(text: str, last: int) -> bool:
     return text[start:last + 1] in _REGEX_KEYWORDS
 
 
-def _regex_end(text: str, start: int) -> int | None:
-    """The offset of the / closing a regular expression opened at start; None when its line,
-    or a thousand characters, end first — a division after all."""
+def _regex_end(text: str, start: int) -> tuple[int | None, int]:
+    """The offset of the / closing a regular expression opened at start — None when its line,
+    or _REGEX_REACH characters, end first: a division after all — and how far was read."""
     in_class = False
     index = start + 1
-    stop = min(len(text), start + 1_000)
+    stop = min(len(text), start + _REGEX_REACH)
     while index < stop:
         char = text[index]
         if char == "\n":
-            return None
+            return None, index
         if char == "\\":
             index += 2
             continue
@@ -1367,9 +1474,9 @@ def _regex_end(text: str, start: int) -> int | None:
         elif char == "]":
             in_class = False
         elif char == "/" and not in_class:
-            return index
+            return index, index
         index += 1
-    return None
+    return None, index
 
 
 def _unbalanced(skeleton: str) -> tuple[int, str] | None:
@@ -1487,7 +1594,7 @@ def _overload(skeleton: str, begin: int, after: int, at: int) -> bool:
     if name is None:
         return False
     again = re.compile(
-        r"(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?function\b\s*\*?\s*"
+        r"(?:export\s++)?(?:default\s++)?(?:declare\s++)?(?:async\s++)?function\b\s*+\*?\s*+"
         + re.escape(name.group(1)) + r"(?![\w$])"
     )
     return again.match(skeleton, at) is not None
@@ -1591,12 +1698,24 @@ def _type_end(skeleton: str, pairs: dict[int, int], start: int) -> int | None:
 def _class_extent(code: str, skeleton: str, pairs: dict[int, int], begin: int,
                   after: int) -> tuple[int, str]:
     """Where a class declared at begin ends, and its heading as written. Raises _Malformed when
-    no body follows its heading before the next declaration."""
-    head = _JS_CLASS_BODY.match(skeleton, after)
-    if head is None:
+    no body follows its heading before the next declaration. Each character of the heading is
+    looked at a bounded number of times, however the text around it is laid out."""
+    stop = _JS_CLASS_STOP.search(skeleton, after, after + _CLASS_HEADING + 1)
+    if stop is None or stop.group() != "{" or _declaration_line(skeleton, after, stop.start()):
         raise _Malformed("has no body")
-    brace = head.end() - 1
+    brace = stop.start()
     return pairs.get(brace, brace), _one_line(code[begin:brace])
+
+
+def _declaration_line(skeleton: str, start: int, end: int) -> bool:
+    """Whether a line from start to end begins, after its indent, with a declaration."""
+    for word in _JS_DECLARATION_WORD.finditer(skeleton, start, end):
+        at = word.start()
+        while at > start and skeleton[at - 1] != "\n" and skeleton[at - 1].isspace():
+            at -= 1
+        if at > start and skeleton[at - 1] == "\n":
+            return True
+    return False
 
 
 def _arrow_extent(code: str, skeleton: str, pairs: dict[int, int], begin: int,
@@ -1764,67 +1883,129 @@ def _json_line(keys: dict[str, tuple[int, dict[str, int]]], section: str,
     return line if key is None else children.get(key, line)
 
 
-def _toml_key(key: str) -> str:
-    escaped = re.escape(key)
-    return f"(?:\"{escaped}\"|'{escaped}'|{escaped})"
+class _Lines:
+    """A manifest's lines, and where its tables, keys and entries are written in them. Table
+    headers, and the keys under each table or section, are read in one pass and then looked
+    up, so a manifest of many thousand entries is placed in time in proportion to its length —
+    not to its length times the number of its entries, as scanning afresh for each would be."""
+
+    def __init__(self, text: str) -> None:
+        self.lines = text.split("\n")
+        self._headers: dict[tuple[str, ...], int] | None = None
+        self._keys: dict[int, dict[str, int]] = {}
+        self._quoted: dict[str, list[int]] | None = None
+        self._sections: dict[str, int | None] = {}
+        self._options: dict[int, tuple[dict[str, int], dict[str, int]]] = {}
+
+    def toml(self, table: str, key: str | None = None) -> int | None:
+        """The line of a key in a TOML table — the table's header, or the parent's key that
+        holds it inline, when the key itself is not on a line of its own."""
+        if self._headers is None:
+            self._headers = {}
+            for index, text in enumerate(self.lines):
+                parts = _toml_header(text)
+                if parts is not None:
+                    self._headers.setdefault(parts, index + 1)
+        anchor = self._headers.get(tuple(table.split(".")))
+        if anchor is None and "." in table:
+            parent, _, leaf = table.rpartition(".")
+            base = self.toml(parent)
+            if base is not None:
+                anchor = self._toml_keys(base).get(leaf)
+        if anchor is None or key is None:
+            return anchor
+        return self._toml_keys(anchor).get(key) or anchor
+
+    def _toml_keys(self, anchor: int) -> dict[str, int]:
+        """The keys written on lines of their own under the header at line anchor, each with
+        the first line it is on."""
+        keys = self._keys.get(anchor)
+        if keys is None:
+            keys = self._keys[anchor] = {}
+            for index in range(anchor, len(self.lines)):
+                if _TOML_HEADER.match(self.lines[index]):
+                    break
+                found = _TOML_KEY.match(self.lines[index])
+                if found is not None:
+                    written = next(part for part in found.groups() if part is not None)
+                    keys.setdefault(written, index + 1)
+        return keys
+
+    def quoted(self, text: str, start: int) -> int | None:
+        """The first line from start on where text is written as a quoted string."""
+        if self._quoted is None:
+            self._quoted = {}
+            for index, line in enumerate(self.lines):
+                for found in _QUOTED.finditer(line):
+                    written = found.group(1) if found.group(1) is not None else found.group(2)
+                    places = self._quoted.setdefault(written, [])
+                    if not places or places[-1] != index + 1:
+                        places.append(index + 1)
+        places = self._quoted.get(text, [])
+        at = bisect_left(places, start)
+        return places[at] if at < len(places) else None
+
+    def ini(self, section: str, *, key: str | None = None, entry: str | None = None) -> int | None:
+        """The line of a setup.cfg section's header; or, when it can be found, of the option key
+        assigned in that section, or of the entry written on a line of its own there."""
+        if section not in self._sections:
+            header = re.compile(r"^\s*\[\s*" + re.escape(section) + r"\s*\]")
+            self._sections[section] = _first(self.lines, header)
+        start = self._sections[section]
+        if start is None or (key is None and entry is None):
+            return start
+        options = self._options.get(start)
+        if options is None:
+            keys: dict[str, int] = {}
+            entries: dict[str, int] = {}
+            for index in range(start, len(self.lines)):
+                line = self.lines[index]
+                if _INI_HEADER.match(line):
+                    break
+                name, sep, _ = line.partition("=")
+                if sep:
+                    keys.setdefault(name.strip(), index + 1)
+                entries.setdefault(_before(line.strip(), _COMMENT), index + 1)
+            options = self._options[start] = (keys, entries)
+        found = options[0].get(key) if key is not None else options[1].get(entry or "")
+        return found or start
 
 
-def _toml_line(lines: list[str], table: str, key: str | None = None) -> int | None:
-    """The line of a key in a TOML table — the table's header, or the parent's key that holds it
-    inline, when the key itself is not on a line of its own."""
-    header = re.compile(
-        r"^\s*\[\s*" + r"\s*\.\s*".join(_toml_key(part) for part in table.split("."))
-        + r"\s*\]\s*(?:#.*)?$"
-    )
-    anchor = _first(lines, header)
-    if anchor is None and "." in table:
-        parent, _, leaf = table.rpartition(".")
-        base = _toml_line(lines, parent)
-        if base is not None:
-            anchor = _in_toml_table(lines, base, leaf)
-    if anchor is None or key is None:
-        return anchor
-    return _in_toml_table(lines, anchor, key) or anchor
-
-
-def _in_toml_table(lines: list[str], anchor: int, key: str) -> int | None:
-    pattern = re.compile(r"^\s*" + _toml_key(key) + r"\s*=")
-    for index in range(anchor, len(lines)):
-        if _TOML_HEADER.match(lines[index]):
+def _toml_header(line: str) -> tuple[str, ...] | None:
+    """The parts of the table a [header] line names, unquoted; None when the line is not one.
+    An array of tables' [[header]] is not a table's."""
+    found = _TOML_TABLE_LINE.fullmatch(line)
+    if found is None:
+        return None
+    inside = found.group("inside")
+    parts: list[str] = []
+    at = 0
+    while True:
+        part = _TOML_PART.match(inside, at)
+        if part is None:
             return None
-        if pattern.match(lines[index]):
-            return index + 1
-    return None
-
-
-def _quoted_line(lines: list[str], text: str, start: int) -> int | None:
-    for index in range(max(0, start - 1), len(lines)):
-        if f'"{text}"' in lines[index] or f"'{text}'" in lines[index]:
-            return index + 1
-    return None
+        parts.append(next(piece for piece in part.groups() if piece is not None))
+        at = part.end()
+        if at == len(inside):
+            return tuple(parts)
+        if inside[at] != ".":
+            return None
+        at += 1
 
 
 def _ini_values(parser: configparser.ConfigParser, section: str, option: str) -> list[str]:
     value = parser.get(section, option, fallback="")
     entries = []
     for line in value.split("\n"):
-        entry = re.split(r"\s+#", line.strip(), maxsplit=1)[0].strip()
+        entry = _before(line.strip(), _COMMENT).strip()
         if entry and not entry.startswith(("#", ";")):
             entries.append(entry)
     return entries
 
 
-def _ini_exact(entry: str) -> re.Pattern:
-    return re.compile(r"^\s*" + re.escape(entry) + r"\s*(?:[#;].*)?$")
+def _before(text: str, mark: re.Pattern) -> str:
+    """The text before the first place mark matches, with the space before it taken off."""
+    found = mark.search(text)
+    return text if found is None else text[: found.start()].rstrip()
 
 
-def _ini_line(lines: list[str], section: str, pattern: re.Pattern | None = None) -> int | None:
-    start = _first(lines, re.compile(r"^\s*\[\s*" + re.escape(section) + r"\s*\]"))
-    if start is None or pattern is None:
-        return start
-    for index in range(start, len(lines)):
-        if _INI_HEADER.match(lines[index]):
-            break
-        if pattern.search(lines[index]):
-            return index + 1
-    return start

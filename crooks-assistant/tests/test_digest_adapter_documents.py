@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import ast
 import os
+import signal
+import tracemalloc
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -130,6 +133,29 @@ def _rows(units: list[Unit]) -> list[tuple]:
         (u.kind, u.title, u.body, u.location.path, u.location.line_start, u.location.line_end, u.tags)
         for u in units
     ]
+
+
+class _TooSlow(BaseException):
+    """Raised by _deadline; not an Exception, so an adapter's catch-all cannot swallow it."""
+
+
+@contextmanager
+def _deadline(seconds: float):
+    """Fails the block when it runs longer than seconds — a pattern that backtracks without
+    bound is interrupted rather than left to run for hours."""
+    if not hasattr(signal, "setitimer"):
+        pytest.skip("no interval timer on this platform")
+
+    def expire(*_):
+        raise _TooSlow(f"took longer than {seconds} seconds")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def _snapshot(root: Path) -> dict[str, tuple[bytes, int] | None]:
@@ -563,3 +589,73 @@ def test_a_name_that_is_not_utf8_is_reported_not_read(tmp_path):
     assert [unit.title for unit in units] == ["Unparsed: the artifact", "Fine"]
     assert "not UTF-8" in units[0].body
     Artifact(source=SOURCE, kinds=("document",), units=tuple(units))
+
+
+# --- hostile input: bounded in time and memory -----------------------------------------------
+
+
+def test_a_long_run_of_stops_is_read_in_linear_time(tmp_path):
+    """A run of full stops with no space after it was retried from each of its characters, so
+    60 000 of them took most of a minute and a 2 MB file hours."""
+    root = _write(tmp_path / "art", {
+        "dots.md": "# Dots\n\n" + "." * 60_000 + "\n\n" + "!?" * 30_000 + "x\n\nIt is 5 km.\n",
+    })
+    with _deadline(5):
+        units = documents.decompose(root, ARTIFACT)
+    assert [(u.kind, u.body) for u in units if u.kind == "claim"] == [("claim", "It is 5 km.")]
+
+
+def test_an_html_link_left_open_across_blocks_cannot_blow_up_the_text(tmp_path):
+    """A link left open repeats its target in every block it reaches: a 30 kB page once grew
+    to 40 MB of text in memory, and a 2 MB page to hundreds of gigabytes. The text a page gives
+    is now bounded by its length, and the cut is reported."""
+    page = '<h1>Links</h1>\n<a href="https://example.invalid/' + "x" * 20_000 + '">' + "<p>a\n" * 2_000
+    root = _write(tmp_path / "art", {"page.html": page})
+    tracemalloc.start()
+    try:
+        units = documents.decompose(root, ARTIFACT)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 10_000_000
+    assert units[0].title == "Links" and units[0].body.startswith("[a](https://example.invalid/xx")
+    report = units[-1]
+    assert "unparsed" in report.tags and report.location.path == "page.html"
+    assert "the rest was not read" in report.body
+    Artifact(source=SOURCE, kinds=("document",), units=tuple(units))
+
+
+def test_html_text_that_looks_like_markdown_is_read_as_prose(tmp_path):
+    """HTML is read as text: a paragraph that opens with a fence, a hash or a dash is prose, not
+    a code block that swallows the rest of the page, a heading or a rule."""
+    units = _one(tmp_path, "page.html", "\n".join([
+        "<h1>Markdown</h1>",                                                     # 1
+        "<p>```</p>",
+        "<p># of users</p>",                                                     # 3
+        "<p>- Keep the lid closed.</p>",
+        "<h2>Next</h2>",                                                         # 5
+        "<ul><li>Lock the door.</li></ul>",
+    ]) + "\n")
+    assert _rows(units) == [
+        ("knowledge", "Markdown", "```\n\n# of users\n\n- Keep the lid closed.", "page.html", 1, 4, ()),
+        ("knowledge", "Markdown > Next", "- Lock the door.", "page.html", 5, 6, ()),
+        ("rule", "Markdown > Next", "Lock the door.", "page.html", 6, 6, ()),
+    ]
+
+
+def test_the_bytes_read_from_one_artifact_are_bounded(tmp_path, monkeypatch):
+    """Each document was bounded, but not all of them together: a thousand 2 MB documents were
+    all read. Documents past the artifact's reading budget are reported, not read."""
+    monkeypatch.setattr(documents, "MAX_TOTAL_BYTES", 150, raising=False)
+    root = _write(tmp_path / "art", {
+        "a.md": "# A\n\n" + "Word. " * 14 + "Word.\n",
+        "b.md": "# B\n\n" + "Word. " * 14 + "Word.\n",
+        "c.md": "# C\n",
+    })
+    rows = _rows(documents.decompose(root, ARTIFACT))
+    assert [row[:4] for row in rows] == [
+        ("knowledge", "A", "Word. " * 14 + "Word.", "a.md"),
+        ("knowledge", "Unparsed: b.md", "the 150-byte reading budget for the artifact was spent; not read", "b.md"),
+        ("knowledge", "C", "", "c.md"),
+    ]
+
