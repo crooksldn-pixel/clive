@@ -13,6 +13,7 @@ from app.actions.engine import ActionEngine
 from app.actions.engine import install as install_engine
 from app.actions.ledger import ActionLedger
 from app.clients.elevenlabs import ScribeClient
+from app.clients.elevenlabs_account import AccountCredit
 from app.clients.elevenlabs_tts import VoiceClient
 from app.clients.gmail import GmailClient
 from app.clients.shopify import ShopifyClient
@@ -430,6 +431,10 @@ def build(settings: Settings | None = None) -> Runtime:
 
     sessions = get_manager(settings.session_idle_timeout_s)
     whisper = WhisperClient(settings.whisper_url, model=settings.whisper_model)
+    # Speaking and listening are two products on one ElevenLabs plan and one key, so what the
+    # account says about its credit is one fact. Scribe is the only one of the two that probes
+    # it; the voice reads the answer here rather than paying for a synthesis to find out.
+    account = AccountCredit()
     scribe = ScribeClient(
         model=settings.scribe_model,
         language=settings.scribe_language,
@@ -437,6 +442,7 @@ def build(settings: Settings | None = None) -> Runtime:
         base_url=settings.elevenlabs_base_url,
         max_keyterms=settings.scribe_max_keyterms,
         cooldown_s=settings.scribe_cooldown_s,
+        account=account,
     )
     voice = VoiceClient(
         voice_id=settings.tts_voice_id,
@@ -448,6 +454,7 @@ def build(settings: Settings | None = None) -> Runtime:
         max_chars=settings.tts_max_chars,
         cooldown_s=settings.tts_cooldown_s,
         enabled=settings.tts_enabled,
+        account=account,
     )
     voice.prefetch_enabled = settings.tts_prefetch
     normaliser = _build_normaliser(settings)
