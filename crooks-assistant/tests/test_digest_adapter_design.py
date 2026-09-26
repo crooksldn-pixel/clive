@@ -740,6 +740,10 @@ MALFORMED = {
         '<div class="broken"></div>\n{% schema %}\n{ "name": "Broken", }\n{% endschema %}\n'
     ),
     "sections/open.liquid": '<div></div>\n{% schema %}\n{ "name": "Open" }\n',
+    "sections/twice.liquid": (
+        '<div></div>\n{% schema %}\n{ "name": "First" }\n{% endschema %}\n'
+        '{% schema %}\n{ "name": "Second" }\n'
+    ),
     "snippets/script.liquid": (
         '<div class="x"></div>\n{% javascript %}\n  document.title = "{{ settings.x }}"\n'
     ),
@@ -751,6 +755,9 @@ MALFORMED = {
     ),
     "components/Unclosed.svelte": "<script>\n  export let start = 0;\n",
     "pages/odd.html": "<div <<>> </p></p><![bogus[ x ]]><!-- never closed",
+    "pages/open-comment.html": (
+        "<main>\n<h1>Kept</h1>\n<!-- never closed\n<nav>Hidden</nav>\n<h2>Lost</h2>\n"
+    ),
     # quoted strings cut off by a line break, with the brackets around them still pairing
     "styles/cut-string.css": ':root {\n  --color-a: "#f00\n  ;\n  --color-b: #fff;\n}\n',
     "cut/tailwind.config.js": "module.exports = { theme: { colors: { red: '#f00\n } } }\n",
@@ -781,7 +788,9 @@ def test_malformed_input_yields_unparsed_units_not_exceptions(tmp_path):
         "styles/open-comment.css": "a /* comment on line 2 is never closed",
         "styles/unclosed.css": "the '{' on line 1 is never closed",
         "sections/broken.liquid": "is not a JSON object that can be read: JSONDecodeError",
-        "sections/open.liquid": "is never closed",
+        "sections/open.liquid": "the {% schema %} on line 2 of sections/open.liquid is never closed",
+        "sections/twice.liquid": "the {% schema %} on line 5 of sections/twice.liquid is never closed",
+        "pages/open-comment.html": "the <!-- comment on line 3 is never closed: nothing after it is read",
         "snippets/script.liquid": "{% javascript %} block in snippets/script.liquid is never closed",
         "components/Broken.jsx": "the parameters of Broken cannot be read: the '(' on line 1 is never closed",
         "components/Mismatch.tsx": "the parameters of Mismatch cannot be read: the '{' on line 1 is closed by ')'",
@@ -802,6 +811,7 @@ def test_malformed_input_yields_unparsed_units_not_exceptions(tmp_path):
         assert len(unit.body) <= 1_000, rel                   # the reason is bounded
     spans = {
         "sections/broken.liquid": (2, 4), "sections/open.liquid": (2, 3),
+        "sections/twice.liquid": (5, 6), "pages/open-comment.html": (3, 5),
         "styles/open-comment.css": (2, 3), "styles/unclosed.css": (1, 2),
         "snippets/script.liquid": (2, 3), "mismatch/tailwind.config.js": (1, 1),
         "components/Broken.jsx": (1, 1), "components/Mismatch.tsx": (1, 1),
@@ -838,7 +848,26 @@ def test_malformed_input_yields_unparsed_units_not_exceptions(tmp_path):
     cut = _one(units, "components/Cut.vue", "pattern")
     assert "Props: none readable from the source" in _lines(cut)
     assert "'x" not in cut.body
-    assert [unit for unit in units if unit.location.path == "pages/odd.html"]
+    # a complete schema before one never closed is read, and the one never closed reported
+    twice = _one(units, "sections/twice.liquid", "interface", "schema")
+    assert twice.location == Location("sections/twice.liquid", 2, 4) and '"First"' in twice.body
+    assert ('Schema: lines 2-4, named "First": 0 setting(s), 0 block type(s), 0 preset(s); '
+            "line 5, never closed (see its 'unparsed' unit)") in _lines(
+        _one(units, "sections/twice.liquid", "pattern"))
+    # a comment never closed hides the rest of the page: only what precedes it is described
+    page = _one(units, "pages/open-comment.html", "pattern", "page")
+    lines = _lines(page)
+    assert "- line 1: main" in lines and "- line 2: h1 Kept" in lines
+    assert "Not read: lines 3-5, an unclosed <!-- comment (see its 'unparsed' unit)" in lines
+    assert "Hidden" not in page.body and "Lost" not in page.body and "- line 4: nav" not in lines
+    # the odd page ends in a comment never closed; a parser that refuses its bogus marked section
+    # first reports the whole page instead: either way it is reported, never passed off as read
+    [odd] = _unparsed(units, "pages/odd.html")
+    if [unit for unit in units if unit.location.path == "pages/odd.html" and unit.kind == "pattern"]:
+        assert "the <!-- comment on line 1 is never closed" in odd.body
+        assert odd.location == Location("pages/odd.html", 1, 1)
+    else:
+        assert "not readable as an HTML page" in odd.body
     assert "--color-secret" not in "\n".join(unit.body for unit in units)
 
 
@@ -851,6 +880,31 @@ def test_an_apostrophe_in_prose_or_a_sass_comment_is_not_a_malformed_string(tmp_
     assert "  - line 1: text" in _lines(_one(units, "components/Note.jsx", "pattern", "component"))
     colour = _one(units, "styles/notes.scss", "design_token", "colour")
     assert "- --color-a: #000 (line 2)" in _lines(colour)
+
+
+def test_sass_and_less_line_comments_hold_no_tokens_and_no_delimiters(tmp_path):
+    _write(tmp_path, "styles/commented.scss", (
+        "// --color-fake: #fff;\n"
+        "// a brace { and a quote ' in a comment are no code\n"
+        ":root {\n"
+        "  --color-real: #000; // --space-fake: 4px; }\n"
+        "}\n"
+        ".hero { background: url(//cdn.example.invalid/hero.png); }\n"   # // in a url() is no comment
+        ".logo { background: url(https://example.invalid/logo.png); }\n"
+    ))
+    _write(tmp_path, "styles/commented.less", (
+        "// --radius-fake: 2px; }\n"
+        ".card { --radius-card: 4px; } // { never opened\n"
+    ))
+    units = design.decompose(tmp_path, ART)
+    assert not [unit for unit in units if "unparsed" in unit.tags]
+    [colour] = [unit for unit in units if unit.location.path == "styles/commented.scss"]
+    assert colour.kind == "design_token" and colour.location == Location("styles/commented.scss", 4, 4)
+    assert "- --color-real: #000 (line 4)" in _lines(colour)
+    [radius] = [unit for unit in units if unit.location.path == "styles/commented.less"]
+    assert radius.kind == "design_token" and radius.location == Location("styles/commented.less", 2, 2)
+    assert "- --radius-card: 4px (line 2)" in _lines(radius)
+    assert "fake" not in "\n".join(unit.body for unit in units)
 
 
 def test_an_unclosed_script_or_style_is_reported_and_only_what_precedes_it_described(tmp_path):

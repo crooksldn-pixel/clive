@@ -272,9 +272,15 @@ class _Lines:
     def line(self, offset: int) -> int:
         return min(bisect.bisect_right(self._starts, offset), self.last)
 
+    def offset(self, line: int, column: int) -> int:
+        """The offset of a 1-based line and a 0-based column in it."""
+        return self._starts[min(max(line, 1), len(self._starts)) - 1] + column
+
 
 _MASK_SCRIPT = re.compile(r"/\*|//|['\"`]")
 _MASK_STYLE = re.compile(r"/\*|['\"]")
+_MASK_SASS = re.compile(r"/\*|//|['\"]|(?<![\w-])url\(", re.I)
+_URL_BODY = re.compile(r"[^)'\"\n]*")
 _NOT_NEWLINE = re.compile(r"[^\n]")
 
 
@@ -282,15 +288,17 @@ def _fill(out: list[str], text: str, start: int, end: int, char: str) -> None:
     out[start:end] = _NOT_NEWLINE.sub(char, text[start:end])
 
 
-def _mask(text: str, *, script: bool) -> tuple[str, tuple[str, int] | None, list[tuple[int, int]]]:
+def _mask(text: str, *, script: bool,
+          line_comments: bool = False) -> tuple[str, tuple[str, int] | None, list[tuple[int, int]]]:
     """text with its comments blanked to spaces and the contents of its strings to underscores,
     line breaks kept: offsets and line numbers still hold, and a bracket, colon or comma in a
-    comment or a string is not taken for code. `script` adds // comments and template strings.
-    Also what, if anything, runs on unclosed to the end — a /* comment or a template string —
-    and where it opens; and where each quoted string that an unescaped line break or the end
-    cuts off opens and stops."""
+    comment or a string is not taken for code. `line_comments` adds the // comments of Sass and
+    Less, passing over an unquoted url(), in which // opens no comment; `script` adds // comments
+    and template strings. Also what, if anything, runs on unclosed to the end — a /* comment or
+    a template string — and where it opens; and where each quoted string that an unescaped line
+    break or the end cuts off opens and stops."""
     out = list(text)
-    finder = _MASK_SCRIPT if script else _MASK_STYLE
+    finder = _MASK_SCRIPT if script else _MASK_SASS if line_comments else _MASK_STYLE
     index, size = 0, len(text)
     unclosed: tuple[str, int] | None = None
     cuts: list[tuple[int, int]] = []
@@ -309,6 +317,8 @@ def _mask(text: str, *, script: bool) -> tuple[str, tuple[str, int] | None, list
             end = text.find("\n", start)
             end = size if end < 0 else end
             _fill(out, text, start, end, " ")
+        elif token[-1] == "(":   # an unquoted url() is read as it is, up to a quote if it has one
+            end = _URL_BODY.match(text, found.end()).end()
         else:
             end = start + 1
             while end < size and text[end] != token and (token == "`" or text[end] != "\n"):
@@ -343,12 +353,13 @@ class _Code:
 
     A quoted string that a line break or the end cuts off is malformed, and what it is part of
     is not read. Each is recorded as it is found, unless `lone_quotes` says a quote in this text
-    may be no string at all — an apostrophe in JSX text or a template, or in a // comment the
-    scanner does not know — when it is recorded only where it cuts into something read."""
+    may be no string at all — an apostrophe in JSX text or a template — when it is recorded only
+    where it cuts into something read."""
 
-    def __init__(self, text: str, *, script: bool, lone_quotes: bool = False) -> None:
+    def __init__(self, text: str, *, script: bool, line_comments: bool = False,
+                 lone_quotes: bool = False) -> None:
         self.text = text
-        self.masked, unclosed, self.cuts = _mask(text, script=script)
+        self.masked, unclosed, self.cuts = _mask(text, script=script, line_comments=line_comments)
         self.lines = _Lines(text)
         self.lone_quotes = lone_quotes
         self.problems: list[tuple[str, int, int]] = []
@@ -639,9 +650,9 @@ def _check_braces(code: _Code) -> None:
 def _read_css(artifact_id: str, rel: str, text: str) -> list[Unit]:
     """The custom properties of a stylesheet, and what in it does not scan: an unclosed comment,
     a quoted string cut off by a line break, or a brace that does not pair."""
-    # Sass and Less have // comments, which may hold an apostrophe that opens no string
+    # Sass and Less have // comments, which may hold a property, a brace or an apostrophe
     code = _Code(text, script=False,
-                 lone_quotes=rel.lower().endswith((".scss", ".less", ".scss.liquid")))
+                 line_comments=rel.lower().endswith((".scss", ".less", ".scss.liquid")))
     if rel.lower().endswith(".liquid"):
         code.masked = _LIQUID_TAG.sub(_blank, code.masked)
     _check_braces(code)
@@ -836,8 +847,8 @@ def _flatten(code: _Code, group: str, path: tuple[str, ...], entry: tuple[str, i
 
 # --- Shopify themes ----------------------------------------------------------------------------
 
-_SCHEMA = re.compile(r"\{%-?\s*schema\s*-?%\}(.*?)\{%-?\s*endschema\s*-?%\}", re.S)
 _SCHEMA_OPEN = re.compile(r"\{%-?\s*schema\s*-?%\}")
+_SCHEMA_CLOSE = re.compile(r"\{%-?\s*endschema\s*-?%\}")
 _LIQUID_BLOCK = re.compile(
     r"\{%-?\s*(schema|javascript|stylesheet|style|comment)\s*-?%\}.*?\{%-?\s*end\1\s*-?%\}", re.S
 )
@@ -922,10 +933,27 @@ def _read_liquid(artifact_id: str, rel: str, text: str) -> list[Unit]:
     lines = _Lines(text)
     units: list[Unit] = []
     schemas: list[str] = []
-    for match in _SCHEMA.finditer(text):
-        span = (lines.line(match.start()), lines.line(match.end() - 1))
+    at, closers_left = 0, True
+    while len(schemas) < MAX_LISTED:
+        # each {% schema %} in turn, closed by the first {% endschema %} after it, if there is one
+        opened = _SCHEMA_OPEN.search(text, at)
+        if opened is None:
+            break
+        closed = _SCHEMA_CLOSE.search(text, opened.end()) if closers_left else None
+        if closed is None:   # and none after it: every opener from here on runs to the end
+            closers_left = False
+            span = (lines.line(opened.start()), lines.last)
+            units.append(_unparsed(
+                artifact_id, rel,
+                f"the {{% schema %}} on line {span[0]} of {rel} is never closed", span,
+            ))
+            schemas.append(f"line {span[0]}, never closed (see its 'unparsed' unit)")
+            at = opened.end()
+            continue
+        at = closed.end()
+        span = (lines.line(opened.start()), lines.line(closed.end() - 1))
         try:
-            schema = json.loads(match.group(1))
+            schema = json.loads(text[opened.end():closed.start()])
             if not isinstance(schema, dict):
                 raise ValueError("it is not a JSON object")
             units.append(_schema_unit(artifact_id, rel, kind, name, schema, span))
@@ -937,11 +965,11 @@ def _read_liquid(artifact_id: str, rel: str, text: str) -> list[Unit]:
                 span,
             ))
             schemas.append(f"lines {span[0]}-{span[1]}, not readable (see its 'unparsed' unit)")
-    opened = _SCHEMA_OPEN.search(text)
-    if not schemas and opened:
-        span = (lines.line(opened.start()), lines.last)
-        units.append(_unparsed(artifact_id, rel, f"the {{% schema %}} of {rel} is never closed", span))
-        schemas.append(f"line {span[0]}, never closed (see its 'unparsed' unit)")
+    if len(schemas) >= MAX_LISTED and _SCHEMA_OPEN.search(text, at):
+        units.append(_unparsed(
+            artifact_id, rel, f"more than {MAX_LISTED} {{% schema %}} blocks: the rest were not read",
+            (lines.line(at), lines.last),
+        ))
 
     without_blocks = _LIQUID_BLOCK.sub(_blank, text)
     body = [
@@ -1155,12 +1183,16 @@ def _structure_lines(markup: str, *, scripts: bool = True) -> list[str]:
 
 
 def _read_html(artifact_id: str, rel: str, text: str) -> list[Unit]:
-    """A page as a pattern Unit of its structure. A script or style element never closed hides
-    the rest of the page: only what comes before it is described, and the rest is reported."""
+    """A page as a pattern Unit of its structure. A script or style element, or a comment, never
+    closed hides the rest of the page: only what comes before it is described, and the rest is
+    reported."""
     parser = _Structure()
     parser.feed(text)
-    parser.close()
     lines = _Lines(text)
+    held = lines.offset(*parser.getpos())   # what the parser holds back, waiting for more
+    open_comment = parser.unclosed() is None and text.startswith("<!--", held)
+    if not open_comment:   # closing would read a comment never closed as page text: it is left
+        parser.close()
     body = [
         f"The structure of the page {rel} ({lines.last} lines): its landmarks, headings, forms "
         "and components. Its scripts are not read.",
@@ -1174,6 +1206,15 @@ def _read_html(artifact_id: str, rel: str, text: str) -> list[Unit]:
                     "(see its 'unparsed' unit)")
         units.append(_unparsed(
             artifact_id, rel, f"the <{tag}> on line {first} is never closed: nothing after it is read",
+            (first, lines.last),
+        ))
+    elif open_comment:
+        first = lines.line(held)
+        body.append(f"Not read: {_span(first, lines.last)}, an unclosed <!-- comment "
+                    "(see its 'unparsed' unit)")
+        units.append(_unparsed(
+            artifact_id, rel,
+            f"the <!-- comment on line {first} is never closed: nothing after it is read",
             (first, lines.last),
         ))
     title = f"Page {rel}: {parser.title}" if parser.title else f"Page {rel}"
