@@ -454,6 +454,32 @@ def test_json_schema_files_become_interfaces(tmp_path):
     assert all(unit.tags == ("json_schema",) for unit in units)
 
 
+def test_schemas_that_assert_nothing_and_boolean_schemas_are_interfaces(tmp_path):
+    described = json.dumps({"$schema": "http://json-schema.org/draft-07/schema#",
+                            "description": "Free-form"}, indent=2)
+    units = _units(_write(tmp_path, {
+        "anything.json": json.dumps({"$schema": "https://json-schema.org/draft/2020-12/schema",
+                                     "title": "Anything"}),
+        "described.json": described,
+        "empty.schema.json": "{}\n",
+        "false.schema.json": "false\n",
+        "true.schema.json": "\n  true\n",
+    }))
+    assert [(unit.kind, unit.title, unit.location) for unit in units] == [
+        ("interface", "JSON Schema Anything", Location("anything.json", 1, 1)),
+        ("interface", "JSON Schema described.json",
+         Location("described.json", 1, len(described.splitlines()))),
+        ("interface", "JSON Schema empty.schema.json", Location("empty.schema.json", 1, 1)),
+        ("interface", "JSON Schema false.schema.json", Location("false.schema.json", 1, 1)),
+        ("interface", "JSON Schema true.schema.json", Location("true.schema.json", 1, 2)),
+    ]
+    assert all(unit.tags == ("json_schema",) for unit in units)
+    assert "Free-form" in units[1].body
+    assert "no instance is valid" in units[3].body and units[3].body.endswith("false")
+    assert "every instance is valid" in units[4].body and units[4].body.endswith("true")
+    assert units == _units(tmp_path)
+
+
 def test_mcp_tools_are_tagged_from_their_own_annotations(tmp_path):
     units = _units(_write(tmp_path, {
         "mcp/server.json": SERVER, "mcp/tools.json": TOOLS, "mcp/list.json": LIST,
@@ -562,6 +588,40 @@ def test_the_entries_looked_at_are_bounded(tmp_path, monkeypatch):
     assert units[0].location == Location(".") and "more than 2 entries" in units[0].body
 
 
+def test_one_directory_past_the_entry_bound_is_not_listed_in_full(tmp_path, monkeypatch):
+    root = _write(tmp_path, {f"{number:03}.json": _schema() for number in range(50)})
+    monkeypatch.setattr(interfaces, "MAX_ENTRIES", 10)
+    examined: list[str] = []
+    scandir = os.scandir
+
+    class Counted:
+        """os.scandir, counting the entries it hands out."""
+
+        def __init__(self, path):
+            self.listing = scandir(path)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.listing.close()
+
+        def __iter__(self):
+            for entry in self.listing:
+                examined.append(entry.name)
+                yield entry
+
+    monkeypatch.setattr(interfaces.os, "scandir", Counted)
+    units = _units(root)
+    again = _units(root)
+    monkeypatch.undo()
+
+    assert len(examined) == 2 * 11           # at most MAX_ENTRIES + 1 looked at, each time
+    assert units == again and len(units) == 1
+    assert units[0].location == Location(".") and units[0].tags == ("unparsed",)
+    assert "more than 10 entries" in units[0].body
+
+
 def test_the_units_from_one_artifact_are_bounded(tmp_path, monkeypatch):
     monkeypatch.setattr(interfaces, "MAX_UNITS", 3)
     units = _units(_write(tmp_path, {"api/openapi.json": OPENAPI}))
@@ -593,6 +653,14 @@ MALFORMED = [
     ("operation.json",
      '{"openapi": "3.0.0", "paths": {"/x": {"get": "nope"}, "/y": {"post": {"summary": "Make"}}}}',
      "GET /x is not a mapping"),
+    ("schemas.json",
+     '{"openapi": "3.0.0", "paths": {"/y": {"get": {}}}, "components": {"schemas": [{"type": "object"}]}}',
+     "'components.schemas' is not a mapping"),
+    ("components.json", '{"openapi": "3.0.0", "paths": {}, "components": "none"}',
+     "'components' is not a mapping"),
+    ("definitions.yaml", 'swagger: "2.0"\npaths:\n  /y:\n    get: {}\ndefinitions: [Pet]\n',
+     "'definitions' is not a mapping"),
+    ("list.schema.json", "[1, 2]", "neither an object nor a boolean"),
     ("anchors.yaml", "openapi: 3.0.0\ninfo: &info\n  title: x\n", "anchors"),
     ("aliases.yaml", "openapi: 3.0.0\ninfo:\n  title: x\nother: *info\n", "anchors"),
     ("tabs.yaml", "openapi: 3.0.0\ninfo:\n\ttitle: x\n", "tab"),
@@ -616,6 +684,25 @@ def test_malformed_input_becomes_an_unparsed_unit(tmp_path, name, content, reaso
     assert len(unparsed) == 1, units
     assert unparsed[0].kind == "knowledge" and unparsed[0].location.path == name
     assert reason in unparsed[0].body
+
+
+@pytest.mark.parametrize(("name", "content", "section", "lines"), [
+    ("api.json", json.dumps({"openapi": "3.0.0", "paths": {"/y": {"post": {"summary": "Make"}}},
+                             "components": {"schemas": ["Pet"]}}, indent=2),
+     "'components.schemas'", (11, 13)),
+    ("api.yaml", 'swagger: "2.0"\npaths:\n  /y:\n    post:\n      summary: Make\n'
+                 "definitions:\n  - Pet\n", "'definitions'", (6, 7)),
+])
+def test_a_schema_section_that_is_not_a_mapping_is_said_so_and_operations_still_read(
+    tmp_path, name, content, section, lines
+):
+    units = _units(_write(tmp_path, {name: content}))
+    assert [(unit.kind, unit.title) for unit in units] == [
+        ("capability", "POST /y"), ("knowledge", f"Unparsed: {name}"),
+    ]
+    assert _access(units[0]) == "write" and "Summary: Make" in units[0].body
+    assert units[1].tags == ("unparsed",) and section in units[1].body
+    assert units[1].location == Location(name, *lines)
 
 
 def test_what_can_be_read_beside_what_cannot_still_is(tmp_path):

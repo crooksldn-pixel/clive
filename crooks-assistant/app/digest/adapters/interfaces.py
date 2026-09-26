@@ -52,6 +52,9 @@ _SCHEMA_KEYWORDS = frozenset(
     {"type", "properties", "items", "$ref", "$defs", "definitions", "oneOf", "anyOf", "allOf",
      "enum", "const"}
 )
+_METASCHEMA = re.compile(
+    r"https?://json-schema\.org/(?:draft-0[0-9]/|draft/[0-9]{4}-[0-9]{2}/)?(?:hyper-)?schema#?"
+)
 _GQL_TYPES = ("type", "interface", "input", "enum", "union", "scalar")
 
 
@@ -124,6 +127,7 @@ class _File:
         self.artifact_id = artifact_id
         self.path = path
         self.units: list[Unit] = []
+        self.whole: tuple[int | None, int | None] = (None, None)    # every line of the file
 
     def add(self, kind: str, title: str, body: str, node: Any,
             tags: tuple[str, ...] | list[str]) -> None:
@@ -1045,10 +1049,16 @@ def _openapi(out: _File, doc: dict) -> None:
                 continue
             _operation(out, doc, heading, path, method.lower(), operation, shared)
     components = doc.get("components")
+    if components is not None and not isinstance(components, dict):
+        out.unparsed("'components' is not a mapping, so no schema in it was read", components)
+    section = "components.schemas"
     schemas = components.get("schemas") if isinstance(components, dict) else None
     if schemas is None:
-        schemas = doc.get("definitions")       # Swagger 2
-    if isinstance(schemas, dict):
+        section, schemas = "definitions", doc.get("definitions")       # Swagger 2
+    if schemas is not None and not isinstance(schemas, dict):
+        out.unparsed(f"'{section}' is not a mapping of names to schemas, so no schema in it "
+                     "was read", schemas)
+    elif isinstance(schemas, dict):
         for name, schema in schemas.items():
             lines = [f"schema {name}"] + ([heading] if heading else []) + ["", _dump(schema)]
             out.add("interface", f"schema {name}", "\n".join(lines), schema, ("openapi", "schema"))
@@ -1134,13 +1144,25 @@ def _mcp_server(out: _File, doc: dict) -> None:
 
 
 def _is_json_schema(path: str, doc: Any) -> bool:
-    if not isinstance(doc, dict):
+    """A .schema.json file whose root is an object or a boolean; or an object that declares a
+    JSON Schema metaschema; or one that declares another $schema and asserts something."""
+    if path.lower().endswith(".schema.json"):
+        return isinstance(doc, (dict, bool))
+    if not isinstance(doc, dict) or not isinstance(doc.get("$schema"), str):
         return False
-    declared = isinstance(doc.get("$schema"), str) or path.endswith(".schema.json")
-    return declared and any(key in doc for key in _SCHEMA_KEYWORDS)
+    return (_METASCHEMA.fullmatch(doc["$schema"].strip()) is not None
+            or any(key in doc for key in _SCHEMA_KEYWORDS))
 
 
-def _json_schema(out: _File, doc: dict) -> None:
+def _json_schema(out: _File, doc: dict | bool) -> None:
+    if isinstance(doc, bool):
+        # A boolean schema: true accepts every instance, false none. It has no lines of its
+        # own, so it is the whole file.
+        verdict = "every instance is valid against it" if doc else "no instance is valid against it"
+        body = f"JSON Schema {out.path}\nA boolean schema: {verdict}.\n\n{_dump(doc)}"
+        out.units.append(_unit(out.artifact_id, "interface", f"JSON Schema {out.path}", body,
+                               out.path, out.whole, ("json_schema",)))
+        return
     name = _word(doc.get("title")) or _word(doc.get("$id")) or out.path
     lines = [f"JSON Schema {name}"]
     if _prose(doc.get("description")):
@@ -1165,6 +1187,8 @@ def _document(out: _File, doc: Any) -> None:
         _mcp_tools(out, tools)
     elif _is_json_schema(out.path, doc):
         _json_schema(out, doc)
+    elif out.path.lower().endswith(".schema.json"):
+        out.unparsed("not a JSON Schema: its root is neither an object nor a boolean", doc)
 
 
 # --- reading -----------------------------------------------------------------------------------
@@ -1172,34 +1196,45 @@ def _document(out: _File, doc: Any) -> None:
 
 def _find(root: Path) -> tuple[list[str], list[str]]:
     """The specification files under root, as sorted relative paths — regular files only, no
-    link followed — and what was left out, in words."""
+    link followed — and what was left out, in words.
+
+    Directories are read one entry at a time, and no more than MAX_ENTRIES + 1 entries are
+    ever looked at. Which entries come first is the file system's order, not the artifact's,
+    so an artifact past the bound gives no files at all rather than an arbitrary few of them."""
     found: list[str] = []
     notes: list[str] = []
     entries = 0
     unnamed = 0
-    for directory, dirnames, filenames in os.walk(root, followlinks=False):
-        dirnames[:] = sorted(name for name in dirnames if name not in _SKIPPED_DIRS)
-        entries += len(dirnames) + len(filenames)
-        if entries > MAX_ENTRIES:
-            notes.append(f"not read: the artifact has more than {MAX_ENTRIES} entries, and "
-                         "those past them were not looked at")
-            break
-        for filename in sorted(filenames):
-            if not filename.lower().endswith(_SUFFIXES):
-                continue
-            full = os.path.join(directory, filename)
-            try:
-                if not stat.S_ISREG(os.lstat(full).st_mode):
-                    continue
-            except OSError:
-                continue
-            relative = Path(full).relative_to(root).as_posix()
-            try:
-                relative.encode("utf-8")
-            except UnicodeEncodeError:
-                unnamed += 1
-                continue
-            found.append(relative)
+    pending = [str(root)]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as listing:
+                for entry in listing:
+                    entries += 1
+                    if entries > MAX_ENTRIES:
+                        return [], [f"not read: the artifact has more than {MAX_ENTRIES} "
+                                     "entries, so none of its files were read"]
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            if entry.name not in _SKIPPED_DIRS:
+                                pending.append(entry.path)
+                            continue
+                        if not entry.name.lower().endswith(_SUFFIXES) or not entry.is_file(
+                            follow_symlinks=False
+                        ):
+                            continue
+                    except OSError:
+                        continue
+                    relative = Path(entry.path).relative_to(root).as_posix()
+                    try:
+                        relative.encode("utf-8")
+                    except UnicodeEncodeError:
+                        unnamed += 1
+                        continue
+                    found.append(relative)
+        except OSError:
+            continue
     if unnamed:
         notes.append(f"not read: {unnamed} files whose names are not UTF-8")
     found.sort()
@@ -1232,6 +1267,7 @@ def _parse(out: _File, text: str) -> _Sdl | None:
     """Reads one file into out; a GraphQL schema is returned instead, to be read once every
     file's root operation types are known."""
     suffix = PurePosixPath(out.path).suffix.lower()
+    out.whole = (1, text.count("\n") + (not text.endswith("\n")))
     if suffix in _GRAPHQL:
         return _Sdl(text)
     if suffix in _YAML:
