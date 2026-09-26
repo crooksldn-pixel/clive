@@ -140,6 +140,16 @@ def test_the_adapter_names_itself_and_lives_in_a_namespace_package():
     assert not (Path(skills.__file__).parent / "__init__.py").exists()
 
 
+def test_the_adapter_handles_the_kinds_recognition_and_the_model_name():
+    from app.digest import detect
+    from app.digest.model import ARTIFACT_KINDS
+
+    ours = {"agent_skill", "skill_collection", "agent_config"}
+    assert ours <= {registration.kind for registration in detect.registered()}
+    assert ours <= set(skills.HANDLES)
+    assert set(skills.HANDLES) & set(ARTIFACT_KINDS) == {"skill_collection"}
+
+
 def test_an_artifact_id_that_is_not_one_is_refused(tmp_path):
     with pytest.raises(ValueError):
         skills.decompose(tmp_path, "not-an-id")
@@ -639,3 +649,162 @@ def test_the_adapter_only_reads(tmp_path):
     assert not methods & {"system", "popen", "spawnv", "execv", "execvp", "remove", "unlink",
                           "rename", "rmdir", "mkdir", "makedirs", "write", "write_text",
                           "write_bytes", "touch", "chmod", "symlink_to", "import_module"}
+
+
+# --- regressions: structure, text and bounds -------------------------------------------------------
+
+
+def test_steps_broken_by_fenced_commands_are_one_procedure_with_the_commands(tmp_path):
+    skill = "skills/setup/SKILL.md"
+    units = _digest(_write(tmp_path / "artifact", {
+        skill: (
+            "---\nname: setup\ndescription: Set the tool up.\n---\n"      # 1-4
+            "## Steps\n\n"                                                   # 5-6
+            "1. Install it:\n\n```bash\npip install tool\n```\n\n"          # 7-12
+            "2. Run it:\n\n```bash\ntool run\n```\n\n"                      # 13-18
+            "3. Done.\n\n"                                                   # 19-20
+            "## Notes\n\n- Keep it simple.\n"                                # 21-23
+        ),
+    }))
+    procedures = [u for u in units if u.kind == "procedure"]
+    assert _summary(procedures) == [
+        ("procedure", "Steps", skill, 7, 19),
+        ("procedure", "Notes", skill, 23, 23),
+    ]
+    steps = procedures[0].body
+    assert "pip install tool" in steps and "tool run" in steps
+    assert steps.startswith("1. Install it:") and steps.endswith("3. Done.")
+
+
+def test_a_procedure_ends_with_the_code_after_its_last_step(tmp_path):
+    units = _digest(_write(tmp_path / "artifact", {
+        "CLAUDE.md": "## Release\n\n1. Tag the release:\n\n```sh\ngit tag v1\n```\n\nThat is all.\n",
+    }))
+    [procedure] = [u for u in units if u.kind == "procedure"]
+    assert (procedure.location.line_start, procedure.location.line_end) == (3, 7)
+    assert procedure.body == "1. Tag the release:\n\n```sh\ngit tag v1\n```"
+
+
+def test_harness_configuration_opening_with_a_divider_keeps_its_rules(tmp_path):
+    units = _digest(_write(tmp_path / "artifact", {
+        "CLAUDE.md": "---\n\n# Rules\n\n- Never push to main.\n- Always sign commits.\n",
+        "AGENTS.md": "---\n\nNever force-push.\n\n---\n\n- Always run the linter.\n",
+    }))
+    assert ("rule", "Never push to main.", "CLAUDE.md", 5, 5) in _summary(units)
+    assert ("rule", "Always sign commits.", "CLAUDE.md", 6, 6) in _summary(units)
+    assert ("rule", "Never force-push.", "AGENTS.md", 3, 3) in _summary(units)
+    assert ("rule", "Always run the linter.", "AGENTS.md", 7, 7) in _summary(units)
+    [claude] = _unparsed(units, "CLAUDE.md")
+    assert "never closed" in claude.body and "read as markdown" in claude.body
+    [agents] = _unparsed(units, "AGENTS.md")
+    assert "not 'key: value'" in agents.body
+
+
+def test_a_lone_surrogate_escape_costs_one_character_not_the_file(tmp_path):
+    units = _digest(_write(tmp_path / "artifact", {
+        "prompts.json": '[{"name": "odd", "prompt": "bad \\ud800 one"}, {"name": "fine", "prompt": "good"}]',
+        "skills/odd/SKILL.md": '---\nname: "odd\\udc80"\ndescription: Odd.\n---\n- Never stop.\n',
+    }))
+    assert [u.title for u in units if u.location.path == "prompts.json"] == ["odd", "fine"]
+    assert [u.body for u in units if u.location.path == "prompts.json"] == ["bad ? one", "good"]
+    assert ("rule", "Never stop.", "skills/odd/SKILL.md", 5, 5) in _summary(units)
+    assert not [u for u in units if "could not be read" in u.body]
+    for unit in units:
+        assert Unit.from_dict(unit.to_dict()) == unit
+    Artifact(source=SOURCE, kinds=("skill_collection",), units=tuple(units))
+
+
+def test_a_lone_carriage_return_ends_a_line(tmp_path):
+    units = _digest(_write(tmp_path / "artifact", {
+        "CLAUDE.md": b"# Rules\r\r- Never push.\r- Always test.\r",
+    }))
+    assert _summary(units) == [
+        ("rule", "Never push.", "CLAUDE.md", 3, 3),
+        ("rule", "Always test.", "CLAUDE.md", 4, 4),
+    ]
+
+
+def test_folders_count_towards_the_walk_bound(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills, "MAX_ENTRIES", 50, raising=False)   # a bound the walk must have
+    root = _write(tmp_path / "artifact", {"CLAUDE.md": "- Never push.\n"})
+    for n in range(60):
+        (root / "empty" / f"folder{n:02}").mkdir(parents=True)
+    units = _digest(root)
+    assert ("rule", "Never push.", "CLAUDE.md", 1, 1) in _summary(units)
+    [stopped] = _unparsed(units, ".")
+    assert "more than 50 names" in stopped.body and "empty" in stopped.body
+
+
+def test_folders_too_deep_to_enter_are_said(tmp_path):
+    deep = "/".join(["d"] * (skills.MAX_DEPTH + 1))
+    units = _digest(_write(tmp_path / "artifact", {
+        "CLAUDE.md": "- Never push.\n",
+        f"{deep}/AGENTS.md": "- Never merge.\n",
+    }))
+    assert [u.title for u in units if u.kind == "rule"] == ["Never push."]
+    [said] = _unparsed(units, ".")
+    assert f"more than {skills.MAX_DEPTH} levels" in said.body
+
+
+def test_an_artifact_that_is_a_link_is_not_followed(tmp_path):
+    outside = _write(tmp_path / "outside", {"CLAUDE.md": "- Never reveal the secret.\n"})
+    try:
+        (tmp_path / "artifact").symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symbolic links are not available here")
+    [unit] = _digest(tmp_path / "artifact")
+    assert unit.location.path == "." and unit.tags == ("unparsed",)
+    assert "link" in unit.body
+
+
+def test_a_folder_swapped_for_a_link_after_it_was_looked_at_is_not_read(tmp_path, monkeypatch):
+    outside = _write(tmp_path / "outside", {"CLAUDE.md": "- Never reveal the secret.\n"})
+    root = _write(tmp_path / "artifact", {"sub/CLAUDE.md": "- Never push.\n"})
+    target = root / "sub" / "CLAUDE.md"
+
+    def swap_after(look):
+        def looked(path, *args, **kwargs):
+            result = look(path, *args, **kwargs)
+            if Path(path) == target and not (root / "sub").is_symlink():
+                (root / "sub").rename(root / "sub.looked-at")
+                (root / "sub").symlink_to(outside, target_is_directory=True)
+            return result
+        return looked
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "lstat", swap_after(os.lstat))
+        patch.setattr(Path, "lstat", swap_after(Path.lstat))
+        units = _digest(root)
+
+    assert (root / "sub").is_symlink()         # the swap came between the look and the read
+    assert all("secret" not in u.body for u in units)
+    [refused] = _unparsed(units, "sub/CLAUDE.md")
+    assert "not a regular file" in refused.body
+
+
+def test_a_table_of_prompts_yields_one_example_per_row(tmp_path):
+    units = _digest(_write(tmp_path / "artifact", {
+        "prompts.csv": (
+            '"act","prompt"\n'                                                  # 1
+            '"Linux Terminal","I want you to act as a linux terminal."\n'      # 2
+            "\n"                                                                # 3
+            '"Poet","Write a poem\nabout {topic}."\n'                          # 4-5
+            '"Empty",""\n'                                                      # 6
+        ),
+        "prompts/roles.tsv": "name\ttemplate\nreviewer\tReview the diff.\n",
+        "prompts/columns.csv": "a,b\n1,2\n",
+        "prompts/broken.csv": 'prompt\n"a"b\n',
+    }))
+    assert _summary(units, "prompts.csv") == [
+        ("example", "Linux Terminal", "prompts.csv", 2, 2),
+        ("example", "Poet", "prompts.csv", 4, 5),
+        ("knowledge", "Unparsed: prompts.csv", "prompts.csv", 6, 6),
+    ]
+    assert [u.body for u in units if u.kind == "example" and u.location.path == "prompts.csv"] == [
+        "I want you to act as a linux terminal.", "Write a poem\nabout {topic}.",
+    ]
+    assert _summary(units, "prompts/roles.tsv") == [
+        ("example", "reviewer", "prompts/roles.tsv", 2, 2),
+    ]
+    assert "needs a column" in _unparsed(units, "prompts/columns.csv")[0].body
+    assert "cannot be read" in _unparsed(units, "prompts/broken.csv")[0].body

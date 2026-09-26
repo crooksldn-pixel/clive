@@ -619,3 +619,191 @@ def test_symlinks_are_listed_and_never_followed(tmp_path):
     assert tree.head("linked/pyproject.toml") == ""
     with pytest.raises(ValueError):
         detect.Tree(root / "linked")
+
+
+# --- hostile trees: bounded, linear, never raising --------------------------------------------
+
+
+def test_a_tree_deeper_than_the_stack_is_walked_without_recursing(tmp_path):
+    import inspect
+    import sys
+
+    depth = 400
+    root = _build(tmp_path / "deep", {"pyproject.toml": '[project]\nname = "deep"\n'})
+    (root / "/".join(["d"] * depth)).mkdir(parents=True)
+    (root / "/".join(["d"] * depth) / "leaf.txt").write_text("leaf\n", encoding="utf-8")
+    # A walk that recursed once per folder would need `depth` frames; the stack is limited to
+    # far fewer, as a real tree deeper than the default limit (~1000) would do, without
+    # leaving such a tree behind for every later temporary-directory clean-up to trip on.
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(len(inspect.stack(0)) + 100)
+    try:
+        report = detect.detect_kinds(root)
+    finally:
+        sys.setrecursionlimit(limit)
+
+    assert "python_package" in report
+    assert report.census.files == 2
+    assert report.census.dirs == depth
+
+
+def test_every_entry_counts_towards_the_walk_bound(tmp_path, monkeypatch):
+    monkeypatch.setattr(detect, "MAX_ENTRIES", 50)
+    root = _build(tmp_path / "wide", {"pyproject.toml": '[project]\nname = "wide"\n'})
+    for n in range(60):
+        (root / "empty" / f"folder{n:02}").mkdir(parents=True)
+
+    report = detect.detect_kinds(root)
+
+    # Folders are entries too, and a folder is listed in full or not at all.
+    assert report.census.truncated is True
+    assert report.census.dirs == 1 and report.census.files == 1
+    assert "python_package" in report
+
+
+def test_many_folders_of_one_sort_are_looked_at_a_bounded_number_of_times(tmp_path):
+    files: dict[str, str | bytes] = {}
+    for n in range(detect.CANDIDATES + 20):
+        for name in ("a.md", "b.md"):
+            files[f"part{n:02}/docs/{name}"] = "# Page\n"
+            files[f"part{n:02}/prompts/{name}"] = "Summarise this.\n"
+        files[f"part{n:02}/tokens/colors.json"] = '{"brand": {"$value": "#f00"}}'
+    root = _build(tmp_path / "parts", files)
+
+    report = detect.detect_kinds(root)
+
+    for kind in ("documentation_set", "agent_config", "design_tokens"):
+        detection = report.get(kind)
+        assert detection is not None, kind
+        # At most CANDIDATES folders, and one signal for the files taken together.
+        signals = len(detection.evidence) + detection.more_evidence
+        assert signals <= detect.CANDIDATES + 1, (kind, signals)
+        assert any(e.path.count("/") == 1 for e in detection.evidence), kind
+
+
+def _best_of_three(run) -> float:
+    import time
+
+    best = float("inf")
+    for _ in range(3):
+        start = time.perf_counter()
+        run()
+        best = min(best, time.perf_counter() - start)
+    return best
+
+
+def test_expressions_run_on_a_head_in_linear_time():
+    import re
+
+    width = detect.HEAD_BYTES
+    heads = {
+        "newlines": "\n" * width,
+        "blank lines": " \n" * (width // 2),
+        "tabbed lines": "\t\n" * (width // 2),
+        "open brackets": "mcp[\n" * (width // 5),
+    }
+    patterns = {name: value for name, value in vars(detect).items() if isinstance(value, re.Pattern)}
+    assert {"_MCP_PY_LINE", "_DOCKER_FROM", "_TERRAFORM_BLOCK", "_FLUTTER", "_TAILWIND_THEME"} <= set(patterns)
+    for name, pattern in patterns.items():
+        for label, head in heads.items():
+            took = _best_of_three(lambda p=pattern, h=head: (p.search(h), p.findall(h)))
+            assert took < 0.02, (name, label, took)
+
+    nested = '{"x": [' + '"openapi": "3.0.0", ' * (width // 20) + '], "openapi": "3.1.0"}'
+    assert detect._openapi_version(nested).group(2) == "3.1.0"
+    assert _best_of_three(lambda: detect._openapi_version(nested[:width])) < 0.01
+
+
+def test_a_recogniser_that_answers_with_something_else_is_a_failure_not_a_crash(tmp_path):
+    root = _build(tmp_path / "pkg", FIXTURES["python_package"])
+    answers = {
+        "answers_a_dict": {"confidence": 0.9},
+        "answers_strings": detect.Match(0.9, ("pyproject.toml",)),
+        "answers_nan": detect.Match(float("nan"), (detect.Evidence("pyproject.toml", "x", 0.5),)),
+    }
+    for kind, answer in answers.items():
+        detect.register(kind)(lambda tree, answer=answer: answer)
+    try:
+        report = detect.detect_kinds(root)
+    finally:
+        for kind in answers:
+            detect.unregister(kind)
+
+    assert "python_package" in report
+    assert set(report.failures) == set(answers)
+    assert not set(answers) & set(report.names())
+
+
+def test_a_folder_swapped_for_a_link_after_it_was_checked_is_not_read(tmp_path, monkeypatch):
+    outside = _build(tmp_path / "outside", {"SKILL.md": _skill("elsewhere")})
+    root = _build(tmp_path / "artifact", {"sub/SKILL.md": _skill("inside")})
+    tree = detect.Tree(root)
+    real_open = os.open
+
+    def swap_then_open(path, flags, *args, **kwargs):
+        if Path(path) == root / "sub" / "SKILL.md" and not (root / "sub").is_symlink():
+            (root / "sub").rename(root / "sub.checked")
+            (root / "sub").symlink_to(outside, target_is_directory=True)
+        return real_open(path, flags, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "open", swap_then_open)
+        head = tree.head("sub/SKILL.md")
+
+    assert (root / "sub").is_symlink()      # the swap happened between the check and the open
+    assert "elsewhere" not in head
+    assert head == ""
+
+
+def test_a_head_the_budget_does_not_allow_is_not_called_a_mismatch(tmp_path, monkeypatch):
+    monkeypatch.setattr(detect, "MAX_HEADS", 1)
+    root = _build(tmp_path / "docs", {"a.pdf": b"%PDF-1.7\n", "b.pdf": b"%PDF-1.7\n"})
+
+    report = detect.detect_kinds(root)
+
+    by_path = {evidence.path: evidence for evidence in report.get("office_documents").evidence}
+    assert "signature verified" in by_path["a.pdf"].signal
+    assert "is not a PDF" not in by_path["b.pdf"].signal
+    assert "not opened" in by_path["b.pdf"].signal
+    assert report.census.heads_read == 1 and report.census.heads_refused >= 1
+
+
+@pytest.mark.parametrize("files", [
+    {"main.go": (
+        'package main\n\nimport "github.com/mark3labs/mcp-go/server"\n\n'
+        'func main() { server.ServeStdio(server.NewMCPServer("demo", "1.0")) }\n'
+    )},
+    {"main.go": (
+        'package main\n\nimport "github.com/modelcontextprotocol/go-sdk/mcp"\n\n'
+        'func main() { _ = mcp.NewServer(&mcp.Implementation{Name: "demo"}, nil) }\n'
+    )},
+    {"src/main.rs": "use rmcp::ServerHandler;\n\nstruct Demo;\n\nimpl ServerHandler for Demo {}\n"},
+    {"src/main/java/Server.java": (
+        "import io.modelcontextprotocol.server.McpServer;\n\n"
+        "class Server { Object s = McpServer.sync(transport).build(); }\n"
+    )},
+    {"Program.cs": (
+        "using ModelContextProtocol.Server;\n\n"
+        "builder.Services.AddMcpServer().WithStdioServerTransport();\n"
+    )},
+], ids=["go-mcp-go", "go-sdk", "rust-rmcp", "java-sdk", "csharp-sdk"])
+def test_mcp_servers_written_with_the_other_sdks_are_recognised(tmp_path, files):
+    root = _build(tmp_path / "server", files)
+
+    server = detect.detect_kinds(root).get("mcp_server")
+
+    assert server is not None
+    assert server.evidence[0].path == next(iter(files))
+    assert "server API" in server.evidence[0].signal
+
+
+def test_an_mcp_client_in_go_is_not_an_mcp_server(tmp_path):
+    root = _build(tmp_path / "client", {
+        "go.mod": "module example.com/client\n\nrequire github.com/mark3labs/mcp-go v0.30.0\n",
+        "main.go": (
+            'package main\n\nimport "github.com/mark3labs/mcp-go/client"\n\n'
+            'func main() { c, _ := client.NewStdioMCPClient("server", nil); _ = c }\n'
+        ),
+    })
+
+    assert "mcp_server" not in detect.detect_kinds(root)

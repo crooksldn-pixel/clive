@@ -13,9 +13,10 @@ Digesting is reading, and recognising is the smallest kind of reading:
 * **Names and heads only.** A recogniser sees the tree's file and directory names and, through
   `Tree.head`, at most the first HEAD_BYTES of a regular file inside the root. Nothing is
   imported, run, unpacked or fetched. Symlinks are listed and never read through.
-* **Bounded.** The walk stops at MAX_ENTRIES files, one detection reads at most MAX_HEADS
-  heads, and a recogniser opens a small fixed number of files of one sort (usually
-  CANDIDATES), shallowest first.
+* **Bounded.** The walk stops at MAX_ENTRIES entries (files, folders and links alike) and
+  never recurses, one detection reads at most MAX_HEADS heads, a recogniser opens a small
+  fixed number of files of one sort (usually CANDIDATES), shallowest first, and no
+  expression is matched in a way that grows faster than the text it reads.
 * **Extensible.** Each kind is one small recogniser in a registry: a function from a `Tree` to
   a `Match`, and one `@register(...)` line. Adding a kind changes no other recogniser.
 """
@@ -115,6 +116,7 @@ class Census:
     truncated: bool
     unreadable: int
     heads_read: int
+    heads_refused: int = 0      # files whose head was wanted after MAX_HEADS was spent: not read
 
 
 @dataclass(frozen=True)
@@ -171,6 +173,7 @@ class Tree:
         self.unreadable = 0
         self.truncated = False
         self.heads_read = 0
+        self._refused: set[str] = set()     # files whose head was wanted once MAX_HEADS was spent
         self._heads: dict[str, bytes] = {}
         self._only: str | None = None
         if os.path.islink(self.root):
@@ -190,35 +193,47 @@ class Tree:
             self._by_name.setdefault(_name(rel).lower(), []).append(rel)
 
     def _walk(self) -> None:
-        def failed(_error: OSError) -> None:
-            self.unreadable += 1
-
-        for current, dirnames, filenames in os.walk(self.base, onerror=failed):
-            rel_dir = os.path.relpath(current, self.base)
-            prefix = "" if rel_dir == "." else rel_dir.replace(os.sep, "/") + "/"
-            descend = []
-            for name in sorted(dirnames):
+        """Depth first in name order, without recursion, so no depth of folders can exhaust
+        the stack. Every entry listed — file, folder, link or anything else — counts towards
+        MAX_ENTRIES, and a folder is listed in full or not at all: the folder that would take
+        the count past it, and everything after it, is not looked at, so where a large tree is
+        cut never depends on the order the disk lists it in."""
+        budget = MAX_ENTRIES
+        pending = [""]
+        while pending:
+            rel_dir = pending.pop()
+            entries: list[tuple[str, bool, bool]] = []    # name, is a folder, is a link
+            try:
+                with os.scandir(self.base / rel_dir if rel_dir else self.base) as listing:
+                    for entry in listing:
+                        if len(entries) >= budget:
+                            self.truncated = True
+                            return
+                        try:
+                            link = entry.is_symlink()
+                            folder = not link and entry.is_dir(follow_symlinks=False)
+                        except OSError:
+                            link = folder = False
+                        entries.append((entry.name, folder, link))
+            except OSError:
+                self.unreadable += 1
+                continue
+            budget -= len(entries)
+            prefix = rel_dir + "/" if rel_dir else ""
+            descend: list[str] = []
+            for name, folder, link in sorted(entries):
                 rel = prefix + name
-                if os.path.islink(os.path.join(current, name)):
+                if link:
                     self.symlinks.append(rel)
-                    continue
-                self.dirs.add(rel)
-                if name in PRUNED:
-                    self.pruned.append(rel)
-                else:
-                    descend.append(name)
-            dirnames[:] = descend
-            for name in sorted(filenames):
-                if len(self.files) >= MAX_ENTRIES:
-                    self.truncated = True
-                    break
-                rel = prefix + name
-                if os.path.islink(os.path.join(current, name)):
-                    self.symlinks.append(rel)
+                elif folder:
+                    self.dirs.add(rel)
+                    if name in PRUNED:
+                        self.pruned.append(rel)
+                    else:
+                        descend.append(rel)
                 else:
                     self.files.append(rel)
-            if self.truncated:
-                break
+            pending.extend(reversed(descend))
 
     # names
 
@@ -249,11 +264,30 @@ class Tree:
 
     # heads
 
+    @property
+    def exhausted(self) -> bool:
+        """Whether the MAX_HEADS budget is spent, so that a head not read yet reads as empty."""
+        return self.heads_read >= MAX_HEADS
+
+    @property
+    def heads_refused(self) -> int:
+        return len(self._refused)
+
+    def can_read(self, rel: str) -> bool:
+        """Whether `head(rel)` will be what the file starts with rather than an empty stand-in
+        for a head the budget no longer allows: a recogniser can then say it did not look,
+        rather than that it looked and found nothing. Asking counts as wanting the head."""
+        if rel in self._heads or not self.exhausted:
+            return True
+        self._refused.add(rel)
+        return False
+
     def head_bytes(self, rel: str, size: int = HEAD_BYTES) -> bytes:
         """At most the first `size` (never more than HEAD_BYTES) bytes of a regular file."""
         size = max(0, min(size, HEAD_BYTES))
         if rel not in self._heads:
-            if self.heads_read >= MAX_HEADS:
+            if self.exhausted:
+                self._refused.add(rel)
                 return b""
             self._heads[rel] = self._read_head(rel)
         return self._heads[rel][:size]
@@ -269,22 +303,35 @@ class Tree:
         if self._only is not None and rel != self._only:
             return b""
         current = self.base
-        mode = 0
+        checked: os.stat_result | None = None
         for part in path.parts:
             current = current / part
             try:
-                mode = os.lstat(current).st_mode
+                checked = os.lstat(current)
             except OSError:
                 return b""
-            if stat.S_ISLNK(mode):
+            if stat.S_ISLNK(checked.st_mode):
                 return b""
-        if not stat.S_ISREG(mode):
+        if checked is None or not stat.S_ISREG(checked.st_mode):
             return b""
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         try:
             fd = os.open(current, flags)
         except OSError:
             self.unreadable += 1
+            return b""
+        try:
+            opened = os.fstat(fd)
+        except OSError:
+            os.close(fd)
+            self.unreadable += 1
+            return b""
+        # What was opened must be the regular file that was checked: a folder on the way
+        # swapped for a link after the check would otherwise lead the open out of the root.
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
+            checked.st_dev, checked.st_ino
+        ):
+            os.close(fd)
             return b""
         self.heads_read += 1
         chunks: list[bytes] = []
@@ -334,6 +381,7 @@ class Tree:
             truncated=self.truncated,
             unreadable=self.unreadable,
             heads_read=self.heads_read,
+            heads_refused=self.heads_refused,
         )
 
 
@@ -381,32 +429,49 @@ def detect_kinds(
 ) -> DetectionReport:
     """Every kind `root` is, most confident first, with evidence, and the tree's census.
 
-    A recogniser that raises does not stop the others: its error is kept in `failures`. When
-    nothing matches, the one kind is 'unknown', and its evidence is the file-type census."""
+    A recogniser that raises, or returns something that is not a Match of Evidence, does not
+    stop the others: what went wrong is kept in `failures`. When nothing matches, the one kind
+    is 'unknown', and its evidence is the file-type census."""
     tree = Tree(root)
     found: list[Detection] = []
     failures: dict[str, str] = {}
     for registration in registered() if recognisers is None else recognisers:
         try:
-            match = registration.recognise(tree)
+            detection = _detection(registration, registration.recognise(tree))
         except Exception as error:
             failures[registration.kind] = f"{type(error).__name__}: {error}"
             continue
-        if match is None or not match.evidence:
-            continue
-        evidence = tuple(match.evidence)
-        found.append(Detection(
-            kind=registration.kind,
-            label=registration.label,
-            confidence=max(0.0, min(1.0, float(match.confidence))),
-            evidence=evidence[:MAX_EVIDENCE],
-            more_evidence=max(0, len(evidence) - MAX_EVIDENCE),
-        ))
+        if detection is not None:
+            found.append(detection)
     census = tree.census()
     if not found:
         found.append(_unknown(tree, census))
     found.sort(key=lambda d: (-d.confidence, -(len(d.evidence) + d.more_evidence), d.kind))
     return DetectionReport(str(tree.root), tuple(found), census, failures)
+
+
+def _detection(registration: Registration, match: object) -> Detection | None:
+    """A recogniser's answer as a Detection, or None when its kind is absent. An answer that is
+    not a Match of Evidence with a finite confidence is refused, with the reason."""
+    if match is None:
+        return None
+    if not isinstance(match, Match):
+        raise TypeError(f"the recogniser returned {type(match).__name__}, not a Match")
+    evidence = tuple(match.evidence)
+    if not all(isinstance(item, Evidence) for item in evidence):
+        raise TypeError("the recogniser's evidence is not all Evidence")
+    if not evidence:
+        return None
+    confidence = float(match.confidence)
+    if confidence != confidence:        # NaN
+        raise ValueError("the recogniser's confidence is not a number")
+    return Detection(
+        kind=registration.kind,
+        label=registration.label,
+        confidence=max(0.0, min(1.0, confidence)),
+        evidence=evidence[:MAX_EVIDENCE],
+        more_evidence=max(0, len(evidence) - MAX_EVIDENCE),
+    )
 
 
 def _unknown(tree: Tree, census: Census) -> Detection:
@@ -462,6 +527,8 @@ def _typed_files(
         noun, magic = table[ext] if ext in table else ("file", None)
         if magic is None:
             found.add(rel, noun, unverified)
+        elif not tree.can_read(rel):
+            found.add(rel, f"{noun} by extension; not opened, the head budget is spent", unverified)
         elif tree.head_bytes(rel, len(magic)) == magic:
             found.add(rel, f"{noun} (file signature verified)", verified)
         else:
@@ -591,7 +658,7 @@ def _agent_config(tree: Tree) -> Match | None:
     for pattern, signal, weight in _AGENT_PATHS:
         for rel in tree.matching(pattern)[:CANDIDATES]:
             found.add(rel, signal, weight)
-    for directory in tree.dirs_named("prompts", "prompt-library", "prompt_library"):
+    for directory in tree.dirs_named("prompts", "prompt-library", "prompt_library")[:CANDIDATES]:
         prompts = [rel for rel in tree.under(directory) if rel.lower().endswith(_PROMPT_SUFFIXES)]
         if len(prompts) >= 2:
             found.add(directory, f"prompt library: {len(prompts)} prompts", 0.6)
@@ -600,21 +667,28 @@ def _agent_config(tree: Tree) -> Match | None:
 
 _MCP_NODE_SDK = "@modelcontextprotocol/sdk"
 _MCP_PY_QUOTED = re.compile(r"""["'](?:mcp|fastmcp)(?:\[[^\]"']*\])?\s*(?:[<>=!~][^"']*)?["']""")
-_MCP_PY_LINE = re.compile(r"(?m)^\s*(?:mcp|fastmcp)(?:\[[^\]]*\])?\s*(?:[<>=!~].*)?$")
+_MCP_PY_LINE = re.compile(r"(?m)^[ \t]*(?:mcp|fastmcp)(?:\[[^\]\n]*\])?[ \t]*(?:[<>=!~].*)?$")
 # The MCP SDKs are client libraries too, so only the server half of their API says "server":
-# mcp.server.*, fastmcp's FastMCP, the TypeScript SDK's server/ entry points and McpServer.
+# mcp.server.*, fastmcp's FastMCP, the TypeScript SDK's server/ entry points and McpServer;
+# in Go, mcp-go's server package and the official SDK's mcp.NewServer; in Rust, rmcp's
+# ServerHandler; in Java and Kotlin, McpServer.sync/async; in C#, ModelContextProtocol.Server.
 _MCP_SERVER_API = re.compile(
-    r"(?m)^\s*from\s+(?:mcp|fastmcp)\.server(?:\.[\w.]+)?\s+import\b"
-    r"|^\s*import\s+(?:mcp|fastmcp)\.server\b"
-    r"|^\s*from\s+fastmcp\s+import\b[^\n]*\bFastMCP\b"
+    r"(?m)^[ \t]*from[ \t]+(?:mcp|fastmcp)\.server(?:\.[\w.]+)?[ \t]+import\b"
+    r"|^[ \t]*import[ \t]+(?:mcp|fastmcp)\.server\b"
+    r"|^[ \t]*from[ \t]+fastmcp[ \t]+import\b[^\n]*\bFastMCP\b"
     r"|@modelcontextprotocol/sdk/server\b|\bFastMCP\s*\(|\bMcpServer\s*\("
+    r"|mark3labs/mcp-go/server\b|\bmcp\.NewServer\s*\("
+    r"|\bimpl[ \t]+ServerHandler[ \t]+for\b"
+    r"|\bio\.modelcontextprotocol\.server\b|\bMcpServer\.(?:sync|async)\s*\("
+    r"|\bModelContextProtocol\.Server\b|\.AddMcpServer\s*\("
 )
+_MCP_SOURCES = (".py", ".ts", ".js", ".mjs", ".cjs", ".go", ".rs", ".java", ".kt", ".cs")
 
 
 @register("mcp_server", "MCP server")
 def _mcp_server(tree: Tree) -> Match | None:
     found = Findings()
-    sources = _prefer(tree.suffixed(".py", ".ts", ".js", ".mjs", ".cjs"), r"mcp|server")
+    sources = _prefer(tree.suffixed(*_MCP_SOURCES), r"mcp|server")
     for rel in sources[:CANDIDATES]:
         if _MCP_SERVER_API.search(tree.head(rel)):
             found.add(rel, "uses the MCP server API", 0.85)
@@ -643,33 +717,38 @@ _OPENAPI = re.compile(r"""(?m)^["']?(openapi|swagger)["']?[ \t]*:[ \t]*["']?(\d+
 _OPENAPI_JSON = re.compile(r'"(openapi|swagger)"\s*:\s*"?(\d+(?:\.\d+)*)')
 
 
-def _json_top_level(text: str, index: int) -> bool:
-    """Whether `index` in JSON text sits directly inside the outermost object, outside strings."""
+def _json_top_level_marker(text: str, markers: Iterable[re.Match[str]]) -> re.Match[str] | None:
+    """The first of `markers` (in text order) that sits directly inside the outermost JSON
+    object, outside strings. One pass over the text, however many markers there are."""
     depth = 0
     in_string = escaped = False
-    for char in text[:index]:
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
+    position = 0
+    for marker in markers:
+        for char in text[position:marker.start()]:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
             elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-        elif char in "{[":
-            depth += 1
-        elif char in "}]":
-            depth -= 1
-    return depth == 1 and not in_string
+                in_string = True
+            elif char in "{[":
+                depth += 1
+            elif char in "}]":
+                depth -= 1
+        position = marker.start()
+        if depth == 1 and not in_string:
+            return marker
+    return None
 
 
 def _openapi_version(head: str) -> re.Match[str] | None:
     """The version marker in a head. JSON properties are unordered, so in a JSON object it is
     any top-level `openapi`/`swagger` property within the head, not only the first one."""
     if head.lstrip().startswith("{"):
-        markers = _OPENAPI_JSON.finditer(head)
-        return next((m for m in markers if _json_top_level(head, m.start())), None)
+        return _json_top_level_marker(head, _OPENAPI_JSON.finditer(head))
     return _OPENAPI.search(head)
 
 
@@ -889,6 +968,7 @@ def _browser_extension(tree: Tree) -> Match | None:
     return found.match()
 
 
+_FLUTTER = re.compile(r"(?m)^[ \t]*flutter[ \t]*:")
 _IOS_PLIST_KEYS = re.compile(
     r"<key>(UIApplication\w*|LSRequiresIPhoneOS|UILaunchStoryboardName"
     r"|UIRequiredDeviceCapabilities|UISupportedInterfaceOrientations)</key>"
@@ -901,7 +981,7 @@ def _mobile_app(tree: Tree) -> Match | None:
     for rel in tree.named("AndroidManifest.xml")[:CANDIDATES]:
         found.add(rel, "Android manifest", 0.95)
     for rel in tree.named("pubspec.yaml")[:CANDIDATES]:
-        if re.search(r"(?m)^\s*flutter\s*:", tree.head(rel)):
+        if _FLUTTER.search(tree.head(rel)):
             found.add(rel, "Flutter app (pubspec.yaml)", 0.95)
     for rel in tree.named("package.json")[:CANDIDATES]:
         head = tree.head(rel)
@@ -964,7 +1044,7 @@ def _documentation_set(tree: Tree) -> Match | None:
         for rel in tree.matching(pattern)[:CANDIDATES]:
             found.add(rel, signal, 0.9)
     docs = [rel for rel in tree.suffixed(*_DOC_SUFFIXES) if not _NOT_DOCS.search(rel)]
-    for directory in tree.dirs_named(*_DOC_DIRS):
+    for directory in tree.dirs_named(*_DOC_DIRS)[:CANDIDATES]:
         inside = [rel for rel in docs if rel.startswith(directory + "/")]
         if inside:
             found.add(directory, f"{len(inside)} document(s) under {directory}/", 0.75 if len(inside) >= 2 else 0.5)
@@ -1035,9 +1115,10 @@ def _dataset(tree: Tree) -> Match | None:
 
 
 _TOKEN_FILES = r"(^|/)((design[-_])?tokens|[^/]+\.tokens)\.(json|ya?ml)$|(^|/)[^/]+\.tokens$"
-_TOKEN_VALUE = re.compile(r'"\$?(value|type)"\s*:|^\s*\$?value\s*:', re.MULTILINE)
+_TOKEN_VALUE = re.compile(r'"\$?(value|type)"\s*:|^[ \t]*\$?value[ \t]*:', re.MULTILINE)
 _CUSTOM_PROPERTY = re.compile(r"(?<![\w-])--[A-Za-z][\w-]*\s*:")
-_SASS_VARIABLE = re.compile(r"(?m)^\s*\$[A-Za-z][\w-]*\s*:")
+_SASS_VARIABLE = re.compile(r"(?m)^[ \t]*\$[A-Za-z][\w-]*[ \t]*:")
+_TAILWIND_THEME = re.compile(r"(?m)^[ \t]*@theme\b")
 
 
 @register("design_tokens", "design tokens and style system")
@@ -1048,7 +1129,7 @@ def _design_tokens(tree: Tree) -> Match | None:
             found.add(rel, "design token file with token values", 0.9)
         else:
             found.add(rel, "design token file", 0.65)
-    for directory in tree.dirs_named("tokens", "design-tokens", "design_tokens"):
+    for directory in tree.dirs_named("tokens", "design-tokens", "design_tokens")[:CANDIDATES]:
         if any(rel.lower().endswith((".json", ".yaml", ".yml")) for rel in tree.under(directory)):
             found.add(directory, "tokens/ folder", 0.7)
     for rel in tree.matching(r"(^|/)tailwind\.config\.[cm]?[jt]s$"):
@@ -1062,7 +1143,7 @@ def _design_tokens(tree: Tree) -> Match | None:
         if properties >= 3:
             weight = 0.65 if ":root" in head else 0.55
             found.add(rel, f"{properties} CSS custom properties in its head", weight)
-        elif re.search(r"(?m)^\s*@theme\b", head):
+        elif _TAILWIND_THEME.search(head):
             found.add(rel, "Tailwind @theme block", 0.75)
         elif len(_SASS_VARIABLE.findall(head)) >= 5:
             found.add(rel, "Sass variables", 0.5)
@@ -1106,10 +1187,12 @@ register("video", "video")(_media("video", _VIDEO))
 
 
 _DOCKERFILE = r"(^|/)(dockerfile|containerfile)(\.[^/]*)?$|\.dockerfile$"
-_DOCKER_FROM = re.compile(r"(?im)^\s*FROM\s+\S")
+_DOCKER_FROM = re.compile(r"(?im)^[ \t]*FROM[ \t]+\S")
 _COMPOSE = r"(^|/)(docker-)?compose(\.[\w-]+)?\.ya?ml$"
 _SYSTEMD_SECTION = re.compile(r"(?m)^\[(Unit|Service|Timer|Socket|Mount|Path|Install)\]")
-_TERRAFORM_BLOCK = re.compile(r"(?m)^\s*(resource|provider|module|terraform|variable|output|data|locals)\b")
+_TERRAFORM_BLOCK = re.compile(
+    r"(?m)^[ \t]*(resource|provider|module|terraform|variable|output|data|locals)\b"
+)
 _K8S_API = re.compile(r"(?m)^apiVersion:\s*\S")
 _K8S_KIND = re.compile(r"(?m)^kind:\s*(\w+)")
 
