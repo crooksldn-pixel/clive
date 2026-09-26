@@ -84,9 +84,14 @@ _REQUIREMENT = re.compile(
 )
 _TOML_HEADER = re.compile(r"^\s*\[\[?[^\[\],=]+\]\]?\s*(?:#.*)?$")
 _INI_HEADER = re.compile(r"^\s*\[[^\]]*\]\s*$")
+# An entry point's object reference, as importlib.metadata reads one: module[:attr] [extras].
+_ENTRY_POINT = re.compile(r"[\w.]+\s*(?::\s*[\w.]+\s*)?(?:\[.*\]\s*)?")
+# What a Poetry dependency table takes its version or its source from.
+_POETRY_SOURCES = ("version", "git", "path", "url", "file")
 
 _JS_NAME = r"[A-Za-z_$][\w$]*"
-_JS_TAIL = rf"[ \t]*=[ \t]*(?:async\b[ \t]*)?(?P<form>function\b|\(|{_JS_NAME}[ \t]*=>)"
+_JS_IDENTIFIER = re.compile(_JS_NAME)
+_JS_TAIL = rf"[ \t]*=[ \t]*(?:async\b[ \t]*)?(?P<form>function\b|\(|<|{_JS_NAME}[ \t]*=>)"
 _JS_FUNCTION = re.compile(
     r"^[ \t]*export[ \t]+(?:declare[ \t]+)?(?P<default>default[ \t]+)?(?:async[ \t]+)?"
     rf"function\b[ \t]*\*?[ \t]*(?P<name>{_JS_NAME})?",
@@ -122,16 +127,20 @@ _JS_TEST_CALL = re.compile(
     r"""(?P<q>['"`])(?P<title>(?:\\.|(?!(?P=q)).)*)(?P=q)"""
 )
 _JS_IMPORT = re.compile(r"""(?:\bfrom|\bimport|\brequire)\s*\(?\s*(?P<q>['"])(?P<spec>[^'"\n]+)(?P=q)""")
-# What a well-formed export must have after its name: a parameter list, a class body.
-_JS_PARAMETERS = re.compile(r"\s*(?:<[^()\n;]*>\s*)?\(")
-_JS_CLASS_BODY = re.compile(r"[^;{}]{0,2000}\{")
-# An export by keyword; the keywords an export may begin with; what a const, let or var binds.
-_JS_EXPORT_WORD = re.compile(rf"^[ \t]*export[ \t]+(?P<word>{_JS_NAME})(?P<after>[^\n]*)", re.M)
+# What a well-formed class must have after its name: a body, before any declaration that follows.
+_JS_CLASS_BODY = re.compile(
+    r"(?:(?!\n\s*(?:export|import|class|function|const|let|var)\b)[^;{}]){0,2000}\{"
+)
+# A function expression's generator star and name, before its parameters.
+_JS_FUNCTION_NAME = re.compile(rf"\s*\*?\s*(?:{_JS_NAME})?")
+# An export by keyword; the keywords an export may begin with.
+_JS_EXPORT_WORD = re.compile(rf"^[ \t]*export[ \t]+(?P<word>{_JS_NAME})", re.M)
 _JS_EXPORT_WORDS = frozenset((
     "default", "function", "async", "class", "abstract", "declare", "interface", "type", "enum",
     "namespace", "module", "import", "as", "const", "let", "var",
 ))
-_JS_BINDING = re.compile(r"[ \t]*$|[ \t]+[A-Za-z_$\[{]")
+# Words that begin a declaration, not a value: after `=`, one of these means the value is missing.
+_NOT_A_VALUE = frozenset(("export", "const", "let", "var"))
 # What must come next for an export begun with one of these keywords to be complete.
 _JS_NAMED = re.compile(rf"\s*{_JS_NAME}")
 _JS_EXPORT_FOLLOWS = {
@@ -577,6 +586,98 @@ class _Digest:
                 path, f"not well-formed {language}: {what}; skipped", _line_of(starts, offset)
             )
             return
+
+        # Every export is measured whole — test files' too — before anything is made of it: one
+        # that does not end as its declaration must is said where it is, and is not read on past.
+        pairs = _pairs(skeleton)
+        typescript = language == "TypeScript"
+        ambient = typescript and _name(path).endswith((".d.ts", ".d.mts", ".d.cts"))
+        found: list[tuple[int, int, str, str, str, str]] = []
+        problems: list[tuple[int, str]] = []
+        for match in _JS_FUNCTION.finditer(skeleton):
+            name = match.group("name") or ("default" if match.group("default") else "")
+            if not name:
+                problems.append((match.start(), "an exported function with no name"))
+                continue
+            try:
+                end, signature = _function_extent(code, skeleton, pairs, match.start(), match.end(),
+                                                  typescript=typescript, ambient=ambient)
+            except _Malformed as exc:
+                problems.append((match.start(), f"exported function {name} {exc}"))
+                continue
+            found.append((match.start(), end, "function", name, signature, _default_note(match)))
+        for match in _JS_CLASS.finditer(skeleton):
+            name = match.group("name")
+            if name in (None, "extends", "implements"):
+                name = "default" if match.group("default") else ""
+            if not name:
+                problems.append((match.start(), "an exported class with no name"))
+                continue
+            try:
+                end, signature = _class_extent(code, skeleton, pairs, match.start(), match.end())
+            except _Malformed as exc:
+                problems.append((match.start(), f"exported class {name} {exc}"))
+                continue
+            found.append((match.start(), end, "class", name, signature, _default_note(match)))
+        for match in _JS_EXPORT_WORD.finditer(skeleton):
+            word = match.group("word")
+            follows = _JS_EXPORT_FOLLOWS.get(word)
+            reason = None
+            if word not in _JS_EXPORT_WORDS or (
+                follows is not None and not follows.match(skeleton, match.end("word"))
+            ):
+                reason = "an export this reader cannot make out"
+            elif word in ("const", "let", "var"):
+                reason = _binding_problem(skeleton, pairs, word, match.end("word"))
+            if reason is not None:
+                written = _one_line(code[match.start():_end_of_line(code, match.start())])
+                problems.append((match.start(), f"{reason}: {written}"))
+        for pattern in (_JS_CONST, _JS_COMMONJS):
+            for match in pattern.finditer(skeleton):
+                try:
+                    extent = _bound_extent(code, skeleton, pairs, match)
+                except _Malformed as exc:
+                    problems.append((match.start(), f"exported function {match.group('name')} {exc}"))
+                    continue
+                if extent is not None:
+                    found.append((match.start(), extent[0], "function", match.group("name"),
+                                  extent[1], ""))
+
+        declared: dict[str, tuple[int, int, str, str]] = {}
+        faulty: dict[str, tuple[int, str]] = {}     # declarations that do not end as they must
+        for match in _JS_LOCAL.finditer(skeleton):
+            what, name = match.group("what"), match.group("name")
+            try:
+                if what == "function":
+                    end, signature = _function_extent(
+                        code, skeleton, pairs, match.start(), match.end(), typescript=typescript,
+                        ambient=ambient,
+                    )
+                else:
+                    end, signature = _class_extent(code, skeleton, pairs, match.start(), match.end())
+            except _Malformed as exc:
+                faulty.setdefault(name, (match.start(), f"{what} {name}, exported by name, {exc}"))
+                continue
+            declared.setdefault(name, (match.start(), end, what, signature))
+        for match in _JS_LOCAL_CONST.finditer(skeleton):
+            name = match.group("name")
+            try:
+                extent = _bound_extent(code, skeleton, pairs, match)
+            except _Malformed as exc:
+                faulty.setdefault(name, (match.start(), f"function {name}, exported by name, {exc}"))
+                continue
+            if extent is not None:
+                declared.setdefault(name, (match.start(), extent[0], "function", extent[1]))
+        for note, local in _export_lists(skeleton):
+            if local in declared:
+                begin, end, what, signature = declared[local]
+                found.append((begin, end, what, local, signature, note))
+            elif local in faulty:
+                problems.append(faulty[local])
+
+        malformed = {offset for offset, _ in problems}
+        for offset, what in sorted(set(problems)):
+            self.units.unparsed(path, f"{what}; skipped", _line_of(starts, offset))
         if _is_js_test(path):
             tests = [
                 f"- {match.group('fn')}: {match.group('title')} "
@@ -584,70 +685,17 @@ class _Digest:
                 for match in _JS_TEST_CALL.finditer(code)
             ]
             specs = list(dict.fromkeys(match.group("spec") for match in _JS_IMPORT.finditer(code)))
-            local = [spec for spec in specs if spec.startswith(".")]
-            self._check(path, text, tag, local or specs, tests)
+            relative = [spec for spec in specs if spec.startswith(".")]
+            self._check(path, text, tag, relative or specs, tests)
             return
 
-        pairs = _pairs(skeleton)
         docs = {
             _line_of(starts, end - 1): _jsdoc(text[start:end])
             for start, end in blocks if text.startswith("/**", start)
         }
-        found: list[tuple[int, int, str, str, str, str]] = []
-        problems: list[tuple[int, str]] = []
-        for match in _JS_FUNCTION.finditer(skeleton):
-            name = match.group("name") or ("default" if match.group("default") else "")
-            if not name:
-                problems.append((match.start(), "an exported function with no name"))
-            elif not _JS_PARAMETERS.match(skeleton, match.end()):
-                problems.append((match.start(), f"exported function {name} has no parameter list"))
-            else:
-                end, signature = _function_extent(code, skeleton, pairs, match.start(), match.end())
-                found.append((match.start(), end, "function", name, signature, _default_note(match)))
-        for match in _JS_CLASS.finditer(skeleton):
-            name = match.group("name")
-            if name in (None, "extends", "implements"):
-                name = "default" if match.group("default") else ""
-            if not name:
-                problems.append((match.start(), "an exported class with no name"))
-            elif not _JS_CLASS_BODY.match(skeleton, match.end()):
-                problems.append((match.start(), f"exported class {name} has no body"))
-            else:
-                end, signature = _class_extent(code, skeleton, pairs, match.start(), match.end())
-                found.append((match.start(), end, "class", name, signature, _default_note(match)))
-        for match in _JS_EXPORT_WORD.finditer(skeleton):
-            word = match.group("word")
-            follows = _JS_EXPORT_FOLLOWS.get(word)
-            if word not in _JS_EXPORT_WORDS or (
-                word in ("const", "let", "var") and not _JS_BINDING.match(match.group("after"))
-            ) or (follows is not None and not follows.match(skeleton, match.end("word"))):
-                written = _one_line(code[match.start():_end_of_line(code, match.start())])
-                problems.append((match.start(), f"an export this reader cannot make out: {written}"))
-        for offset, what in sorted(problems):
-            self.units.unparsed(path, f"{what}; skipped", _line_of(starts, offset))
-        for pattern in (_JS_CONST, _JS_COMMONJS):
-            for match in pattern.finditer(skeleton):
-                extent = _bound_extent(code, skeleton, pairs, match)
-                if extent is not None:
-                    found.append((match.start(), extent[0], "function", match.group("name"),
-                                  extent[1], ""))
-
-        declared: dict[str, tuple[int, int, str, str]] = {}
-        for match in _JS_LOCAL.finditer(skeleton):
-            what = match.group("what")
-            measure = _function_extent if what == "function" else _class_extent
-            end, signature = measure(code, skeleton, pairs, match.start(), match.end())
-            declared.setdefault(match.group("name"), (match.start(), end, what, signature))
-        for match in _JS_LOCAL_CONST.finditer(skeleton):
-            extent = _bound_extent(code, skeleton, pairs, match)
-            if extent is not None:
-                declared.setdefault(match.group("name"), (match.start(), extent[0], "function", extent[1]))
-        for note, local in _export_lists(skeleton):
-            if local in declared:
-                begin, end, what, signature = declared[local]
-                found.append((begin, end, what, local, signature, note))
-
         for begin, end, what, name, signature, note in sorted(found):
+            if begin in malformed:
+                continue
             first = _line_of(starts, begin)
             doc = docs.get(first - 1) or docs.get(first) or "(no doc comment)"
             where = f"Exported from {path}" + (f" ({note})" if note else "") + "."
@@ -754,12 +802,18 @@ class _Digest:
             for script, target in self._table(path, lines, data, table).items():
                 reference = target.get("reference") if isinstance(target, dict) else target
                 line = _toml_line(lines, table, script)
-                if not isinstance(reference, str):
-                    self.units.unparsed(
-                        path, f"{table}.{script} is not a module:function reference; skipped", line
-                    )
+                # A Poetry script of type "file" names a file to run, not a module:function.
+                is_file = isinstance(target, dict) and target.get("type") == "file"
+                if not script.strip() or script != script.strip() or "=" in script:
+                    problem = f"{table} entry {script!r} is not a script name"
+                elif not isinstance(reference, str):
+                    problem = f"{table}.{script} is not a module:function reference"
+                elif not (reference.strip() if is_file else _ENTRY_POINT.fullmatch(reference.strip())):
+                    problem = f"{table}.{script} = {reference!r} is not a module:function reference"
+                else:
+                    self._console_script(path, script, reference, line, last, tag)
                     continue
-                self._console_script(path, script, reference, line, last, tag)
+                self.units.unparsed(path, f"{problem}; skipped", line)
 
         project = self._table(path, lines, data, "project")
         self._requirement_list(path, lines, last, "project", "dependencies",
@@ -780,11 +834,15 @@ class _Digest:
             for dependency, spec in self._table(path, lines, data, table).items():
                 if dependency == "python":
                     continue
-                constraint = spec.get("version") if isinstance(spec, dict) else spec
-                if not isinstance(constraint, str):
-                    constraint = _as_text(spec)
-                self._declared(path, dependency, constraint, "",
-                               _toml_line(lines, table, dependency), last, group)
+                line = _toml_line(lines, table, dependency)
+                constraint = _poetry_constraint(spec)
+                if not dependency.strip() or constraint is None:
+                    self.units.unparsed(
+                        path, f"{table}.{dependency} = {spec!r} is not a version constraint or a "
+                        "dependency table this adapter can read; skipped", line,
+                    )
+                    continue
+                self._declared(path, dependency, constraint, "", line, last, group)
 
     def _table(self, path: str, lines: list[str], data: dict, dotted: str) -> dict:
         value: object = data
@@ -1368,33 +1426,123 @@ def _one_line(text: str) -> str:
     return " ".join(text.split())[:MAX_SIGNATURE]
 
 
-def _function_extent(code: str, skeleton: str, pairs: dict[int, int], begin: int,
-                     after: int) -> tuple[int, str]:
-    """Where a function declared at begin ends, and its signature as written."""
-    paren = skeleton.find("(", after, after + 1_000)
-    close = pairs.get(paren) if paren != -1 else None
-    if close is None:
-        stop = _end_of_line(skeleton, begin)
-        return stop, _one_line(code[begin:stop])
+def _skip_space(text: str, index: int) -> int:
+    while index < len(text) and text[index].isspace():
+        index += 1
+    return index
+
+
+def _parameter_list(skeleton: str, pairs: dict[int, int], at: int) -> int | None:
+    """The offset of the ( opening the parameter list that begins at at, past any TypeScript
+    type parameters — a balanced <…>, which may hold parentheses of its own; None when no
+    parameter list begins there."""
+    index = _skip_space(skeleton, at)
+    if skeleton.startswith("<", index):
+        end = _type_end(skeleton, pairs, index)
+        if end is None:
+            return None
+        index = end
+    return index if skeleton.startswith("(", index) and index in pairs else None
+
+
+def _function_extent(code: str, skeleton: str, pairs: dict[int, int], begin: int, after: int,
+                     *, typescript: bool = False, ambient: bool = False) -> tuple[int, str]:
+    """Where a function declared at begin ends, and its signature as written: the brace closing
+    its body, which must follow the signature directly; or, for a TypeScript signature with no
+    body — ended by a ;, the block around it or the file, or by its line when it is declared
+    (ambient) or an overload of the function that follows — the end of the signature. Raises
+    _Malformed when it ends no such way, so that nothing is read on into the next declaration."""
+    paren = _parameter_list(skeleton, pairs, after)
+    if paren is None:
+        raise _Malformed("has no parameter list")
+    end = pairs[paren] + 1
     # A TypeScript return type comes before the body, and may hold braces of its own.
-    start = close
-    returns = _RETURN_TYPE.match(skeleton, close + 1)
+    returns = _RETURN_TYPE.match(skeleton, end)
     if returns is not None:
-        end = _type_end(skeleton, pairs, returns.end())
-        start = end if end is not None else close
-    brace = skeleton.find("{", start, start + 2_000)
-    semi = skeleton.find(";", start, start + 2_000)
-    if brace != -1 and (semi == -1 or brace < semi):
-        return pairs.get(brace, brace), _one_line(code[begin:brace])
-    stop = semi if semi != -1 else close
-    return stop, _one_line(code[begin:stop + 1])
+        found = _type_end(skeleton, pairs, returns.end())
+        if found is None:
+            raise _Malformed("has a return type that does not end")
+        end = found
+    while skeleton[end - 1].isspace():
+        end -= 1                          # the signature ends at its last character
+    body = _skip_space(skeleton, end)
+    if skeleton.startswith("{", body):
+        return pairs.get(body, body), _one_line(code[begin:body])
+    if typescript:
+        if skeleton.startswith(";", body):
+            return body, _one_line(code[begin:body + 1])
+        declared = ambient or "declare" in skeleton[begin:after].split()
+        closed = body >= len(skeleton) or skeleton[body] == "}"
+        if closed or ("\n" in skeleton[end:body] and (
+            declared or _overload(skeleton, begin, after, body)
+        )):
+            return end - 1, _one_line(code[begin:end])
+    raise _Malformed("has no body")
+
+
+def _overload(skeleton: str, begin: int, after: int, at: int) -> bool:
+    """Whether the function declared from begin to after is declared again at at: an overload
+    signature, whose body is the later declaration's."""
+    name = re.search(rf"function\b[ \t]*\*?[ \t]*({_JS_NAME})", skeleton[begin:after])
+    if name is None:
+        return False
+    again = re.compile(
+        r"(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?function\b\s*\*?\s*"
+        + re.escape(name.group(1)) + r"(?![\w$])"
+    )
+    return again.match(skeleton, at) is not None
+
+
+def _binding_problem(skeleton: str, pairs: dict[int, int], keyword: str, at: int) -> str | None:
+    """What is wrong with the declaration an exported const, let or var begins, read from at,
+    just past the keyword; None when it is whole. It must bind a name or a destructuring
+    pattern, with a type if one is written, and then take a value after an = — which a const
+    must — or end: at a ;, a comma, the end of its line or of the text. The first binding is
+    the one read."""
+    size = len(skeleton)
+    index = _skip_space(skeleton, at)
+    name = _JS_IDENTIFIER.match(skeleton, index)
+    if name is not None:
+        label, last = f"exported {keyword} {name.group()}", name.end()
+    elif index < size and skeleton[index] in "{[" and index in pairs:
+        label, last = f"an exported {keyword} pattern", pairs[index] + 1
+    else:
+        return "an export this reader cannot make out"
+    index = _skip_space(skeleton, last)
+    if keyword == "const" and name is not None and name.group() == "enum" \
+            and _JS_IDENTIFIER.match(skeleton, index):
+        return None                       # a TypeScript const enum
+    if skeleton.startswith("!", index):   # TypeScript's definite assignment: let x!: T
+        index = _skip_space(skeleton, index + 1)
+    if skeleton.startswith(":", index):
+        end = _type_end(skeleton, pairs, index + 1)
+        if end is None:
+            return f"{label} has a type that does not end"
+        last = end
+        while skeleton[last - 1].isspace():
+            last -= 1
+        index = _skip_space(skeleton, last)
+    if skeleton.startswith("=", index) and not skeleton.startswith(("==", "=>"), index):
+        value = _skip_space(skeleton, index + 1)
+        word = _JS_IDENTIFIER.match(skeleton, value)
+        if value >= size or skeleton[value] in ";,)]}=" or (
+            word is not None and word.group() in _NOT_A_VALUE
+        ):
+            return f"{label} has no value after its ="
+        return None
+    if keyword == "const":
+        return f"{label} has no value, which a const must be given"
+    if index >= size or skeleton[index] in ";," or "\n" in skeleton[last:index]:
+        return None
+    return f"{label} does not end where its declaration must"
 
 
 def _type_end(skeleton: str, pairs: dict[int, int], start: int) -> int | None:
     """Where a TypeScript type written from start ends: the offset of the first character past
     it, such as a function's body brace. A brace where a type is still wanted — first, or after
     |, &, =>, < or keyof — opens an object type and is part of it; a brace after a whole type is
-    not. None when the type does not end, or its brackets do not pair, within the bound."""
+    not; a whole type written to the end of the text ends there. None when the type does not
+    end, or its brackets do not pair, within the bound."""
     stop = min(len(skeleton), start + 2_000)
     index, depth, wanted = start, 0, True       # depth: the < of type arguments still open
     while index < stop:
@@ -1435,24 +1583,28 @@ def _type_end(skeleton: str, pairs: dict[int, int], start: int) -> int | None:
             index += 1
         else:
             return index                  # a body brace, a ; or anything else no type holds
+    if index >= len(skeleton) and not depth and not wanted:
+        return index
     return None
 
 
 def _class_extent(code: str, skeleton: str, pairs: dict[int, int], begin: int,
                   after: int) -> tuple[int, str]:
-    brace = skeleton.find("{", after, after + 2_000)
-    if brace == -1:
-        stop = _end_of_line(skeleton, begin)
-        return stop, _one_line(code[begin:stop])
+    """Where a class declared at begin ends, and its heading as written. Raises _Malformed when
+    no body follows its heading before the next declaration."""
+    head = _JS_CLASS_BODY.match(skeleton, after)
+    if head is None:
+        raise _Malformed("has no body")
+    brace = head.end() - 1
     return pairs.get(brace, brace), _one_line(code[begin:brace])
 
 
 def _arrow_extent(code: str, skeleton: str, pairs: dict[int, int], begin: int,
                   at: int) -> tuple[int, str]:
-    body = at
-    while body < len(skeleton) and skeleton[body] in " \t\r\n":
-        body += 1
-    if body < len(skeleton) and skeleton[body] in "{(":
+    body = _skip_space(skeleton, at)
+    if body >= len(skeleton) or skeleton[body] in ";,)]}":
+        raise _Malformed("has no body after its =>")
+    if skeleton[body] in "{(":
         end = pairs.get(body, body)
     else:
         end = _end_of_line(skeleton, body)
@@ -1461,12 +1613,16 @@ def _arrow_extent(code: str, skeleton: str, pairs: dict[int, int], begin: int,
 
 def _bound_extent(code: str, skeleton: str, pairs: dict[int, int],
                   match: re.Match) -> tuple[int, str] | None:
-    """A name bound to a function or an arrow function; None when what is bound is not one."""
+    """A name bound to a function or an arrow function — a TypeScript one perhaps generic, its
+    type parameters before its parameters; None when what is bound is not one. Raises
+    _Malformed when it is one that does not end as it must."""
     form = match.group("form")
     if form == "function":
-        return _function_extent(code, skeleton, pairs, match.start(), match.end())
-    if form == "(":
-        close = pairs.get(match.end() - 1)
+        after = _JS_FUNCTION_NAME.match(skeleton, match.end()).end()
+        return _function_extent(code, skeleton, pairs, match.start(), after)
+    if form in ("(", "<"):
+        paren = match.end() - 1 if form == "(" else _parameter_list(skeleton, pairs, match.end() - 1)
+        close = pairs.get(paren) if paren is not None else None
         arrow = _ARROW.match(skeleton, close + 1) if close is not None else None
         if arrow is None:
             return None
@@ -1511,7 +1667,29 @@ def _jsdoc(raw: str) -> str:
 
 
 def _as_text(value: object) -> str:
-    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _poetry_constraint(spec: object) -> str | None:
+    """What a Poetry dependency asks for, as written: a version constraint; a table with a
+    version, or else a source to take it from (git, path, url or file); or a list of such
+    tables, one for each set of conditions. None for any other shape."""
+    if isinstance(spec, str):
+        return spec if spec.strip() else None
+    if isinstance(spec, list):
+        whole = spec and all(
+            isinstance(item, dict) and _poetry_constraint(item) is not None for item in spec
+        )
+        return _as_text(spec) if whole else None
+    if not isinstance(spec, dict):
+        return None
+    given = [spec[key] for key in _POETRY_SOURCES if key in spec]
+    if not given or not all(isinstance(value, str) and value.strip() for value in given):
+        return None
+    version = spec.get("version")
+    return version if isinstance(version, str) else _as_text(spec)
 
 
 def _first(lines: list[str], pattern: re.Pattern, start: int = 0) -> int | None:

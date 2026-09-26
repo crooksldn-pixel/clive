@@ -692,6 +692,123 @@ def test_typescript_return_types_are_kept_whole_and_not_taken_for_the_body(tmp_p
     assert shape.body.startswith("export declare function shape(): { x: number };\n")
 
 
+# Each file's brackets pair, so only its first declaration shows that it is malformed; the
+# declaration after it is whole.
+MALFORMED_DECLARATIONS = {
+    "novalue.js": "export const x = ;\nexport const y = 1;\nexport function ok() {}\n",
+    "bodyless.js": "export function broken()\nexport function ok() {}\n",
+    "bodyless.ts": "export function broken(a: string): void\nexport function ok() {}\n",
+    "noclass.js": "export class Broken extends Base\nexport class Fine {}\n",
+    "noarrow.js": "export const broken = (a) => ;\nexport const ok = (a) => a;\n",
+    "web/add.test.js": 'import { add } from "./add.js";\n\nexport const shared = ;\n\n'
+                       'test("adds", () => {\n  expect(add(1, 2)).toBe(3);\n});\n',
+}
+
+# TypeScript that may end a declaration without a body or a value, and is whole.
+BODYLESS_TS = '''\
+export function over(a: string): string
+export function over(a: number): number
+export function over(a: unknown): unknown {
+  return a;
+}
+
+export declare function ambient(): void
+
+export const enum Color { Red }
+
+export let later: number;
+export let pending
+'''
+
+
+def test_a_malformed_export_declaration_is_reported_and_not_read_past(tmp_path):
+    units = _units(_write(tmp_path / "declarations", {
+        **MALFORMED_DECLARATIONS, "valid.ts": BODYLESS_TS,
+        "types.d.ts": "export function parse(text: string): number\n"
+                      "export function format(value: number): string\n",
+    }))
+    unparsed = _unparsed(units)
+    assert {path: [_span(unit)[1:] for unit in found] for path, found in unparsed.items()} == {
+        "novalue.js": [(1, 1)], "bodyless.js": [(1, 1)], "bodyless.ts": [(1, 1)],
+        "noclass.js": [(1, 1)], "noarrow.js": [(1, 1)], "web/add.test.js": [(3, 3)],
+    }
+    assert all(unit.kind == "knowledge" for found in unparsed.values() for unit in found)
+    novalue = unparsed["novalue.js"][0].body
+    assert "exported const x has no value after its =" in novalue and "export const x = ;" in novalue
+    assert "exported function broken has no body" in unparsed["bodyless.js"][0].body
+    assert "exported function broken has no body" in unparsed["bodyless.ts"][0].body
+    assert "exported class Broken has no body" in unparsed["noclass.js"][0].body
+    assert "exported function broken has no body after its =>" in unparsed["noarrow.js"][0].body
+    assert "exported const shared has no value" in unparsed["web/add.test.js"][0].body
+    # The malformed declaration made no Unit, and the one after it is read to its own end.
+    for path, title, line in (
+        ("novalue.js", "function ok (novalue.js)", 3),
+        ("bodyless.js", "function ok (bodyless.js)", 2),
+        ("bodyless.ts", "function ok (bodyless.ts)", 2),
+        ("noclass.js", "class Fine (noclass.js)", 2),
+        ("noarrow.js", "function ok (noarrow.js)", 2),
+    ):
+        ok = _titled(units, title)
+        assert _span(ok) == (path, line, line)
+        assert [unit for unit in units if unit.location.path == path
+                and "unparsed" not in unit.tags] == [ok]
+    # A test file with a malformed export is reported there, and its tests are still a check.
+    check = _titled(units, "tests for add")
+    assert check.kind == "check" and "test: adds (line 5)" in check.body
+    assert [unit for unit in units if unit.location.path == "web/add.test.js"
+            and "unparsed" not in unit.tags] == [check]
+    # Overload signatures, ambient declarations, a const enum and a let without a value are
+    # whole TypeScript, and a declaration file's signatures need no body.
+    over = [_span(unit) for unit in units if unit.title == "function over (valid.ts)"]
+    assert over == [("valid.ts", 1, 1), ("valid.ts", 2, 2), ("valid.ts", 3, 5)]
+    assert _span(_titled(units, "function ambient (valid.ts)")) == ("valid.ts", 7, 7)
+    assert _span(_titled(units, "function parse (types.d.ts)")) == ("types.d.ts", 1, 1)
+    assert _span(_titled(units, "function format (types.d.ts)")) == ("types.d.ts", 2, 2)
+
+
+GENERIC_TS = '''\
+export const identity = <T>(value: T): T => value;
+
+export const pick = <T extends object, K extends keyof T>(
+  source: T,
+  key: K,
+): T[K] => {
+  return source[key];
+};
+
+export const run = async <T,>(task: () => Promise<T>): Promise<T> => await task();
+
+export function apply<F extends (x: number) => number>(fn: F): number {
+  return fn(1);
+}
+'''
+
+
+def test_typescript_generic_arrow_functions_are_exported_capabilities(tmp_path):
+    units = _units(_write(tmp_path / "generics", {
+        "generic.ts": GENERIC_TS,
+        # JSX bound to a name opens with < too, and is not a function.
+        "view.tsx": "export const view = <div>hello</div>;\n",
+    }))
+    assert not _unparsed(units)
+    identity = _titled(units, "function identity (generic.ts)")
+    assert identity.kind == "capability" and _span(identity) == ("generic.ts", 1, 1)
+    assert identity.body.startswith("export const identity = <T>(value: T): T =>\n")
+    pick = _titled(units, "function pick (generic.ts)")
+    assert pick.kind == "capability" and _span(pick) == ("generic.ts", 3, 8)
+    assert pick.body.startswith(
+        "export const pick = <T extends object, K extends keyof T>( source: T, key: K, ): T[K] =>\n"
+    )
+    run = _titled(units, "function run (generic.ts)")
+    assert run.kind == "capability" and _span(run) == ("generic.ts", 10, 10)
+    apply = _titled(units, "function apply (generic.ts)")
+    assert apply.kind == "capability" and _span(apply) == ("generic.ts", 12, 14)
+    assert apply.body.startswith(
+        "export function apply<F extends (x: number) => number>(fn: F): number\n"
+    )
+    assert not [unit for unit in units if unit.location.path == "view.tsx"]
+
+
 BAD_VALUES = json.dumps({
     "name": "bad-values",
     "bin": {"good-cli": "bin/good.js", "list-cli": ["bin/a.js"], "": "bin/empty.js"},
@@ -717,6 +834,57 @@ def test_malformed_package_json_entries_are_skipped_and_reported_where_they_are(
         "command good-cli", "dependency left-pad", "repository map", "script build",
     ]
     assert "list-cli" not in units[0].body and "bin/empty.js" not in units[0].body
+
+
+BAD_PYPROJECT = '''\
+[project]
+name = "bad-entries"
+
+[project.scripts]
+empty = ""
+blank = "   "
+"" = "pkg.cli:main"
+spaced = "not a reference"
+good = "pkg.cli:main"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+requests = "^2.31"
+tabled = { version = ">=1.0", extras = ["socks"] }
+sourced = { git = "https://example.invalid/sourced.git" }
+split = [{ version = "<2", python = "<3.8" }, { version = ">=2", python = ">=3.8" }]
+number = 3
+listed = ["1.0", "2.0"]
+flag = true
+sourceless = { optional = true }
+unversioned = ""
+'''
+
+
+def test_malformed_pyproject_scripts_and_poetry_dependencies_are_reported_not_recorded(tmp_path):
+    units = _units(_write(tmp_path / "entries", {"pyproject.toml": BAD_PYPROJECT}))
+    bad = _unparsed(units)["pyproject.toml"]
+    assert [_span(unit)[1:] for unit in bad] == [
+        (5, 5), (6, 6), (7, 7), (8, 8), (17, 17), (18, 18), (19, 19), (20, 20), (21, 21),
+    ]
+    assert all(unit.kind == "knowledge" and "skipped" in unit.body for unit in bad)
+    assert "project.scripts.empty = '' is not a module:function reference" in bad[0].body
+    assert "project.scripts entry '' is not a script name" in bad[2].body
+    assert "tool.poetry.dependencies.number = 3 is not a version constraint" in bad[4].body
+    assert "tool.poetry.dependencies.listed = ['1.0', '2.0']" in bad[5].body
+    # Only the well-formed entries became Units: no false commands or dependencies.
+    assert sorted(unit.title for unit in units if "unparsed" not in unit.tags) == [
+        "console script good", "dependency requests", "dependency sourced", "dependency split",
+        "dependency tabled", "repository map",
+    ]
+    good = _titled(units, "console script good")
+    assert good.kind == "capability" and _span(good) == ("pyproject.toml", 9, 9)
+    assert ">=1.0" in _titled(units, "dependency tabled").body
+    assert "sourced.git" in _titled(units, "dependency sourced").body
+    split = _titled(units, "dependency split")
+    assert _span(split) == ("pyproject.toml", 16, 16) and ">=3.8" in split.body
+    assert "good: console script" in units[0].body
+    assert "empty: console script" not in units[0].body
 
 
 # Namesakes of the sections and entries the adapter reads, nested elsewhere and written first,
