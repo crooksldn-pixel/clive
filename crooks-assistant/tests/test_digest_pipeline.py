@@ -9,18 +9,20 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
 
 import app.digest
-from app.digest import ARTIFACT_KINDS, DigestStore, Source, Unit, detect
+from app.digest import ABSORPTION_TARGETS, ARTIFACT_KINDS, DigestStore, Source, Unit, detect
 from app.digest.adapters import data as data_adapter
 from app.digest.adapters import design as design_adapter
-from app.digest.model import Location
+from app.digest.model import PROPOSER, Location
 from app.digest.pipeline import (
     KIND_TABLE,
     SCAN_SEVERITY,
@@ -32,7 +34,10 @@ from app.digest.pipeline import (
     normalise_kind,
     tree_digest,
 )
-from app.digest.report import render
+from app.digest.propose import NEEDS_OWNER, explain, needs_owner, propose
+from app.digest.relate import relate
+from app.digest.report import MAX_PROPOSALS, render
+from app.digest.selfmodel import SelfEntry, SelfModel
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "digest.py"
 TAKEN_AT = "2026-09-26T10:00:00+00:00"
@@ -433,6 +438,167 @@ def test_the_store_holds_exactly_what_the_digest_returned(tmp_path):
     assert any(f.severity == "critical" for f in store.findings(blocked.artifact.id))
 
 
+# --- relate and propose: the same call, given a self-model -------------------------------------
+
+# A small self-model, written out rather than generated, so these tests say exactly what CLIVE
+# "has": a read tool the GET operation names, a shipped feature, and an idea about releases.
+SMALL_SELF = SelfModel(entries=(
+    SelfEntry("tool:list_counts", "tool", "list_counts", "List the counts of orders placed.",
+              "tool registry (test)", access="read"),
+    SelfEntry("feature:FEAT-001", "feature", "Order counting", "Counts the orders placed each day.",
+              "docs/product-memory/FEATURES.md", status="SHIPPED"),
+    SelfEntry("idea:IDEA-001", "idea", "Release skill", "A skill to cut a release of a package: "
+              "bump the version, build the wheel and sign the tag.",
+              "docs/product-memory/IDEAS.md", status="CAPTURED"),
+))
+RECORDED = "2026-09-26T11:00:00+00:00"
+
+
+def _related(root: Path, store: DigestStore | None = None, *, model: SelfModel = SMALL_SELF,
+             recorded_at: str = RECORDED) -> DigestResult:
+    return digest(root, _source(root), store, self_model=model, recorded_at=recorded_at)
+
+
+def test_given_a_self_model_one_call_relates_and_proposes(tmp_path):
+    root = _tree(tmp_path / "tree", COMBINED)
+    result = _related(root)
+    units = result.units
+    assert result.related and result.self_model == SMALL_SELF.digest
+    # one relation per unit, in the units' order, and exactly what relate says
+    assert [r.unit_id for r in result.relations] == [u.id for u in units]
+    assert list(result.relations) == relate(units, SMALL_SELF)
+    # one proposal per unit, exactly what propose says, undecided and proposed by CLIVE
+    assert list(result.proposals) == propose(result.artifact.id, units, result.relations,
+                                             recorded_at=RECORDED)
+    assert sorted(p.unit_id for p in result.proposals) == sorted(u.id for u in units)
+    assert all(p.proposed_by == PROPOSER and p.decided_by is None and p.recorded_at == RECORDED
+               for p in result.proposals)
+    assert all(SMALL_SELF.digest in p.reasoning for p in result.proposals)
+
+    by_title = {unit.title: p for unit in units for p in result.proposals if p.unit_id == unit.id}
+    hero = by_title["Shopify section: hero"]                 # a design adapter's pattern
+    assert hero.target == "design_system"
+    assert [a.kind for a in hero.removal.additions] == ["component"]
+    assert hero.removal.additions[0].ref.startswith("crooks-assistant/web/components/shopify-section-hero-")
+    assert by_title["module tally"].target == "native_objective"     # a code pattern
+    # a capability read from code is built natively, never registered as a tool that runs it;
+    # one from an API contract becomes a connector, behind the gate when it writes
+    for code in ("function tally.cli.main", "console script tally"):
+        assert by_title[code].target == "native_objective" and not needs_owner(by_title[code])
+    assert by_title["POST /counts"].target == by_title["GET /counts"].target == "tool_connector"
+    assert needs_owner(by_title["POST /counts"]) and not needs_owner(by_title["GET /counts"])
+    get_counts = {r.unit_id: r for r in result.relations}[_by_title(result, "capability", "GET /counts").id]
+    assert get_counts.relation == "extends" and get_counts.basis == "tool:list_counts"
+
+
+def test_without_a_self_model_nothing_is_related_or_proposed(tmp_path):
+    root = _tree(tmp_path / "tree", COMBINED)
+    result = _digest(root)
+    assert not result.related and result.self_model is None
+    assert result.relations == () and result.proposals == ()
+    report = render(result)
+    assert "Not related to CLIVE: it was digested without CLIVE's self-model." in report
+    assert "None: nothing was related to CLIVE, so nothing is proposed." in report
+    with pytest.raises(ValueError, match="SelfModel"):
+        digest(root, _source(root), self_model="the repository")  # type: ignore[arg-type]
+
+
+def test_a_blocked_artifact_is_neither_related_nor_proposed_for(tmp_path):
+    root = _tree(tmp_path / "tree", BLOCKED_TREES["postinstall"])
+    store = DigestStore(tmp_path / "store")
+    result = _related(root, store)
+    assert result.blocked and not result.related
+    assert result.relations == () and result.proposals == ()
+    assert store.absorptions(result.artifact.id) == ()
+    assert "Not related to CLIVE: the artifact was blocked before decomposition." in render(result)
+
+
+def test_proposals_go_into_the_ledger_once_and_keep_when_they_were_first_made(tmp_path):
+    root = _tree(tmp_path / "tree", COMBINED)
+    store = DigestStore(tmp_path / "store")
+    first = _related(root, store, recorded_at="2026-09-26T11:00:00+00:00")
+    ledger = store.path_for(first.artifact.id) / "absorptions.jsonl"
+    written = ledger.read_bytes()
+    assert store.absorptions(first.artifact.id) == first.proposals
+    assert len(first.proposals) == len(first.units)
+
+    # the same digest again, later: nothing is appended, and the result holds the ledger's records
+    again = _related(root, store, recorded_at="2026-09-27T09:30:00+00:00")
+    assert ledger.read_bytes() == written
+    assert again.proposals == first.proposals
+    assert {p.recorded_at for p in again.proposals} == {"2026-09-26T11:00:00+00:00"}
+    assert render(again) == render(first)
+
+    # against another self-model the reasoning differs: new proposals, after the old ones
+    grown = SelfModel(entries=(*SMALL_SELF.entries, SelfEntry(
+        "idea:IDEA-002", "idea", "Dataset feeds", "Read datasets of orders as feeds.",
+        "docs/product-memory/IDEAS.md", status="CAPTURED")))
+    later = _related(root, store, model=grown, recorded_at="2026-09-28T08:00:00+00:00")
+    held = store.absorptions(first.artifact.id)
+    assert held[: len(first.proposals)] == first.proposals
+    assert held[len(first.proposals):] == later.proposals
+    assert all(grown.digest in p.reasoning for p in later.proposals)
+
+
+def test_the_report_shows_relations_and_proposals(tmp_path):
+    root = _tree(tmp_path / "tree", COMBINED)
+    result = _related(root)
+    report = render(result)
+    assert render(_related(root, recorded_at="2026-10-01T00:00:00+00:00")) == report
+    sections = [line for line in report.splitlines() if line.startswith("## ")]
+    assert sections == ["## Source", "## Outcome", "## Kinds", "## Findings", "## Units",
+                        "## Relations", "## Proposals"]
+    relations, proposals = report.split("## Relations")[1].split("## Proposals")
+    assert f"Related to CLIVE's self-model `{SMALL_SELF.digest}`" in relations
+    assert "- **GET /counts** at `api/openapi.json:9-17` — extends `tool:list_counts`" in relations
+    # each sampled unit carries its relation
+    assert "- **GET /counts** at `api/openapi.json:9-17` (openapi, read) — extends `tool:list_counts`" in report
+
+    # grouped by target, in the model's order of targets
+    targets = [line.split(" ")[1] for line in proposals.splitlines() if line.startswith("### ")]
+    assert targets == [t for t in ABSORPTION_TARGETS if t in {p.target for p in result.proposals}]
+    for target in targets:
+        count = sum(1 for p in result.proposals if p.target == target)
+        assert f"| {target} | {count} |" in proposals
+    assert "- **POST /counts** at `api/openapi.json:18-26` — gap — **Needs the owner**" in proposals
+    assert f"  - {NEEDS_OWNER}: it writes, so it is registered only" in proposals
+    assert ("  - Would add, and so its removal handle: component "
+            "`crooks-assistant/web/components/shopify-section-hero-") in proposals
+    assert "  - Adds nothing, so its removal handle is empty." in proposals
+    # the hypothesis and measure are said once for a target, and again only where they differ
+    assert proposals.count("Hypothesis, unless a proposal says otherwise:") == len(targets)
+    assert "Hypothesis: the claim holds" in proposals or not any(
+        u.kind == "claim" and p.target == "product_memory"
+        for u in result.units for p in result.proposals if p.unit_id == u.id)
+    for proposal in result.proposals:
+        why = explain(proposal)
+        assert why.hypothesis and why.measure and why.removal, proposal.reasoning
+
+
+def test_the_report_bounds_the_proposals_it_shows(tmp_path):
+    files = {f"docs/section-{index:02d}.md": f"# Guide {index}\n\n- Always count order {index} once.\n"
+             for index in range(3 * MAX_PROPOSALS)}
+    root = _tree(tmp_path / "tree", files)
+    result = _related(root)
+    checks = [p for p in result.proposals if p.target == "review_check"]
+    assert len(checks) > MAX_PROPOSALS
+    report = render(result)
+    assert f"- and {len(checks) - MAX_PROPOSALS} more review_check proposal(s)" in report
+
+
+def test_the_report_withholds_the_proposal_of_a_unit_read_where_a_credential_was(tmp_path):
+    secret = "hunter2hunter2x"
+    root = _tree(tmp_path / "tree", {
+        "docs/setup.md": f"# Setup {secret}\n\nAlways set password = \"{secret}\" in the config file.\n",
+    })
+    result = _related(root)
+    assert any(f.explanation.startswith("secret.") for f in result.findings)
+    assert result.proposals and any(secret in p.reasoning for p in result.proposals)
+    report = render(result)
+    assert secret not in report
+    assert "*(withheld: the reasoning quotes a title read where a credential was found)*" in report
+
+
 def test_digest_refuses_what_is_not_a_quarantined_directory(tmp_path):
     root = _tree(tmp_path / "tree", {"a.csv": "a,b\n1,2\n"})
     os.symlink(root, tmp_path / "link")
@@ -552,18 +718,61 @@ def test_the_command_line_digests_stores_and_reports(tmp_path):
     [line] = done.stdout.splitlines()
     assert line.startswith(f"digested {artifact_id}: ")
     assert "findings: critical 0, high 0, medium 0, low 0, info 1" in line
-    assert line.endswith("kinds: skill_collection, python_package, document, api_spec, dataset, theme")
+    assert "; kinds: skill_collection, python_package, document, api_spec, dataset, theme; " in line
+    # related, by default, to the self-model of the repository the script belongs to
+    relations = re.search(r"; relations: overlap (\d+), extends (\d+), gap (\d+), reference (\d+); ", line)
+    assert relations and sum(map(int, relations.groups())) == len(DigestStore(store).load(artifact_id).units)
+    proposals = re.search(r"; proposals: (.+) \((\d+) need the owner\)$", line)
+    assert proposals and int(proposals.group(2)) > 0
+    counted = dict(item.rsplit(" ", 1) for item in proposals.group(1).split(", "))
+    assert list(counted) == [t for t in ABSORPTION_TARGETS if t in counted]      # in target order
+    assert {"builder_skill", "review_check", "tool_connector", "design_system"} <= set(counted)
+    ledger = DigestStore(store).absorptions(artifact_id)
+    assert sum(map(int, counted.values())) == len(ledger)
+    assert Counter(p.target for p in ledger) == {t: int(n) for t, n in counted.items()}
     text = report.read_text(encoding="utf-8")
     assert text.startswith("# Digest of https://example.invalid/tally.git\n")
     assert "- Pinned reference: `abc123`" in text
+    assert "## Relations" in text and "## Proposals" in text and "**Needs the owner**" in text
     stored = DigestStore(store).load(artifact_id)
     assert stored.source.pinned_ref == "abc123" and stored.units
 
+    ledger_file = store / artifact_id / "absorptions.jsonl"
+    before = ledger_file.read_bytes()
     again = _cli(root, "--origin", "https://example.invalid/tally.git", "--origin-kind", "git",
                  "--pinned-ref", "abc123", "--licence", "MIT", "--store", store, cwd=tmp_path)
     assert (again.returncode, again.stdout) == (0, done.stdout)       # the same intake, unchanged
+    assert ledger_file.read_bytes() == before                         # and nothing proposed twice
     other = _cli(root, "--origin", "somewhere else", "--store", store, cwd=tmp_path)
     assert other.returncode == 1 and "not overwritten" in other.stderr
+
+
+def test_the_command_line_relates_to_another_root_or_not_at_all(tmp_path):
+    root = _tree(tmp_path / "tree", COMBINED)
+    plain = _cli(root, "--origin", "tally", "--no-relate", cwd=tmp_path)
+    assert plain.returncode == 0, plain.stderr
+    assert plain.stdout.rstrip("\n").endswith("; not related") and "proposals:" not in plain.stdout
+
+    other = tmp_path / "other-clive"
+    _tree(other, {
+        "docs/product-memory/FEATURES.md": (
+            "| ID | Feature | Status | Phase | Notes |\n|---|---|---|---|---|\n"
+            "| FEAT-001 | Tally counting of orders | SHIPPED | V1 | Counts orders and lists counts. |\n"
+        ),
+        "docs/product-memory/IDEAS.md": "# Ideas\n",
+    })
+    report = tmp_path / "other.md"
+    elsewhere = _cli(root, "--origin", "tally", "--self-model-root", other, "--report", report,
+                     cwd=tmp_path)
+    assert elsewhere.returncode == 0, elsewhere.stderr
+    assert "; relations: " in elsewhere.stdout and "; proposals: " in elsewhere.stdout
+    assert "feature:FEAT-001" in report.read_text(encoding="utf-8")
+    assert "tool:" not in report.read_text(encoding="utf-8")      # no registry there to read
+
+    both = _cli(root, "--origin", "tally", "--no-relate", "--self-model-root", other, cwd=tmp_path)
+    assert both.returncode == 1 and "not allowed with" in both.stderr
+    missing = _cli(root, "--origin", "tally", "--self-model-root", tmp_path / "nowhere", cwd=tmp_path)
+    assert missing.returncode == 1 and "self-model root" in missing.stderr
 
 
 def test_the_command_line_exits_two_when_blocked(tmp_path):

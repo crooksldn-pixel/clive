@@ -2,9 +2,9 @@
 
 One Relation per Unit, against the self-model (app/digest/selfmodel.py):
 
-    overlap     CLIVE already has it: an entry CLIVE has now (a tool, an intent family, a
-                scene primitive, a builder skill, a shipped or testing feature) scores at or
-                above OVERLAP_THRESHOLD
+    overlap     CLIVE already has it: the unit names an entry CLIVE has (see below), or an
+                entry CLIVE has now (a tool, an intent family, a scene primitive, a builder
+                skill, a shipped or testing feature) scores at or above OVERLAP_THRESHOLD
     extends     it adds to something CLIVE has, plans or has thought of: the best entry scores
                 at or above EXTENDS_THRESHOLD (or an idea or planned feature scores above the
                 overlap threshold, which is an idea getting closer, not something CLIVE has)
@@ -18,7 +18,18 @@ bodies are tokenised (lowercased, split on anything not a letter or digit and at
 snake_case joins, a small stopword list dropped, a light suffix stemmer), weighted by TF-IDF
 over the self-model's own entries, and compared by cosine similarity. Each match carries the
 terms that made it, so the reason for a relation can be read off it. Work is bounded: each
-text is cut to MAX_TEXT_CHARS before it is tokenised and to MAX_TOKENS after."""
+text is cut to MAX_TEXT_CHARS before it is tokenised and to MAX_TOKENS after. The units of one
+artifact are related together, and a term in more than COMMON_SHARE of them (in an artifact of
+at least COMMON_MIN_UNITS) is the artifact's own vocabulary and not evidence of anything.
+
+Similar words are not the only evidence. A unit that names something CLIVE has, exactly,
+overlaps it whatever the words around the name score: its title holds the name of a tool, an
+intent family, a scene primitive or a builder skill as a whole identifier — a compound name,
+like shopify_find_order or web-design-guidelines, never a single word like "answer" — or it
+was read out of a builder skill of that name (the skills adapter tags it skill:<name>, and
+any adapter's unit from <name>/SKILL.md is in that skill's folder). Without this,
+the function shopify_find_order scored a whisker closer to the tool shopify_find_customer, whose
+description shares more of its words, than to the tool it is."""
 
 from __future__ import annotations
 
@@ -27,6 +38,7 @@ import re
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 
 from app.digest.model import CONTENT_DIGEST_PATTERN, UNIT_ID_PATTERN, UNIT_KINDS, Unit
 from app.digest.selfmodel import SelfEntry, SelfModel
@@ -36,6 +48,8 @@ RELATIONS = ("overlap", "extends", "gap", "reference")
 OVERLAP_THRESHOLD = 0.45   # an entry CLIVE has scores this or more: CLIVE already has it
 EXTENDS_THRESHOLD = 0.18   # the best entry scores this or more: it adds to that entry
 MIN_SHARED_TERMS = 2       # one word in common is a coincidence, not a relation
+COMMON_SHARE = 0.2         # a term in more than this share of an artifact's own units ...
+COMMON_MIN_UNITS = 50      # ... of at least this many is the artifact's vocabulary, not evidence
 TOP_MATCHES = 3
 TOP_TERMS = 5              # the shared terms kept to explain a match
 MAX_TEXT_CHARS = 8_000     # of a unit's title and body, or an entry's name and description
@@ -44,6 +58,9 @@ MIN_TOKEN = 2
 MAX_TOKEN = 40
 REFERENCE_WHEN_UNMATCHED = frozenset({"knowledge", "claim", "example"})
 ALWAYS_REFERENCE = frozenset({"script"})
+NAMED_KINDS = frozenset({"tool", "intent_family", "scene_primitive", "builder_skill"})
+SKILL_TAG = "skill:"       # the skills adapter's tag for the skill a unit was read from
+SKILL_FILE = "SKILL.md"    # a skill's file, in a folder named for the skill
 
 STOPWORDS = frozenset("""
 a about after all also always an and any are as at be been before being but by can could do
@@ -53,6 +70,10 @@ that the their them then there these they this those through to too under up upo
 using via was we were what when where which while who will with would you your
 """.split())
 
+# A compound name — words joined by "_" or "-" — and every whole identifier in a title, each
+# run as long as it goes, so shopify_find_order_extra does not name shopify_find_order.
+_COMPOUND = re.compile(r"[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)+")
+_IDENTIFIER = re.compile(r"[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*")
 _CAMEL_LOWER_UPPER = re.compile(r"([a-z0-9])([A-Z])")
 _CAMEL_ACRONYM = re.compile(r"([A-Z]+)([A-Z][a-z])")
 _WORD = re.compile(r"[a-z0-9]+")
@@ -130,16 +151,18 @@ class Match:
     present: bool
     terms: tuple[str, ...] = ()
     shared: int = 0          # how many distinct terms the unit and the entry share
+    named: bool = False      # the unit names this entry exactly
 
     @property
     def counts(self) -> bool:
-        """Whether this match may carry a relation: it shares enough terms to be more than a
-        coincidence of one word."""
-        return self.shared >= MIN_SHARED_TERMS
+        """Whether this match may carry a relation: the unit names the entry, or shares enough
+        terms with it to be more than a coincidence of one word."""
+        return self.named or self.shared >= MIN_SHARED_TERMS
 
     def to_dict(self) -> dict:
         return {"key": self.key, "kind": self.kind, "name": self.name, "score": self.score,
-                "present": self.present, "terms": list(self.terms), "shared": self.shared}
+                "present": self.present, "terms": list(self.terms), "shared": self.shared,
+                "named": self.named}
 
 
 @dataclass(frozen=True)
@@ -211,13 +234,39 @@ class _Index:
         for index, vector in enumerate(self.vectors):
             for term in vector:
                 self.postings.setdefault(term, []).append(index)
+        # entries a unit can name: present, and called by a compound identifier; and every
+        # builder skill, by the name of the skill a unit was read from
+        self.by_name: dict[str, list[int]] = {}
+        self.skills: dict[str, list[int]] = {}
+        for index, entry in enumerate(self.entries):
+            if entry.kind in NAMED_KINDS and entry.present and _COMPOUND.fullmatch(entry.name):
+                self.by_name.setdefault(entry.name, []).append(index)
+            if entry.kind == "builder_skill":
+                self.skills.setdefault(entry.name, []).append(index)
 
-    def matches(self, unit: Unit) -> list[Match]:
-        vector = _weights(_unit_terms(unit), self.idf, self.unseen)
+    def named(self, unit: Unit) -> set[int]:
+        """The entries the unit names: by a whole identifier in its title, or as the skill it
+        was read from — its skill:<name> tag, or the folder of the SKILL.md it is in."""
+        found: set[int] = set()
+        for identifier in _IDENTIFIER.findall(unit.title[:MAX_TEXT_CHARS]):
+            found.update(self.by_name.get(identifier, ()))
+        skills = {tag[len(SKILL_TAG):] for tag in unit.tags if tag.startswith(SKILL_TAG)}
+        path = PurePosixPath(unit.location.path)
+        if path.name == SKILL_FILE and path.parent.name:
+            skills.add(path.parent.name)
+        for skill in skills:
+            found.update(self.skills.get(skill, ()))
+        return found
+
+    def matches(self, unit: Unit, terms: list[str] | None = None,
+                ignore: frozenset[str] = frozenset()) -> list[Match]:
+        named = self.named(unit)
+        terms = _unit_terms(unit) if terms is None else terms
+        vector = _weights([term for term in terms if term not in ignore], self.idf, self.unseen)
         norm = _norm(vector)
-        if not norm:
+        if not norm and not named:
             return []
-        dots: dict[int, float] = {}
+        dots: dict[int, float] = {index: 0.0 for index in named}
         shared: dict[int, list[tuple[float, str]]] = {}
         for term, weight in vector.items():
             for index in self.postings.get(term, ()):
@@ -226,18 +275,18 @@ class _Index:
                 shared.setdefault(index, []).append((part, term))
         scored = []
         for index, dot in dots.items():
-            if not self.norms[index]:
-                continue
-            score = round(min(1.0, dot / (norm * self.norms[index])), 4)
-            if score > 0:
+            score = (round(min(1.0, dot / (norm * self.norms[index])), 4)
+                     if norm and self.norms[index] else 0.0)
+            if score > 0 or index in named:
                 scored.append((score, index))
         scored.sort(key=lambda item: (-item[0], self.entries[item[1]].key))
         out = []
         for score, index in scored:
             entry = self.entries[index]
-            terms = sorted(shared[index], key=lambda item: (-item[0], item[1]))[:TOP_TERMS]
+            terms = sorted(shared.get(index, ()), key=lambda item: (-item[0], item[1]))[:TOP_TERMS]
             out.append(Match(entry.key, entry.kind, entry.name, score, entry.present,
-                             tuple(term for _part, term in terms), len(shared[index])))
+                             tuple(term for _part, term in terms), len(shared.get(index, ())),
+                             index in named))
         return out
 
 
@@ -247,6 +296,10 @@ def _relation(unit: Unit, ranked: list[Match], digest: str) -> Relation:
     nearest = counted[0].score if counted else 0.0
     if unit.kind in ALWAYS_REFERENCE:
         return Relation(unit.id, unit.kind, "reference", nearest, top, None, digest)
+    named = next((match for match in ranked if match.named and match.present), None)
+    if named is not None:
+        return Relation(unit.id, unit.kind, "overlap", named.score, _showing(top, named),
+                        named.key, digest)
     have = next((match for match in counted if match.present), None)
     if have is not None and have.score >= OVERLAP_THRESHOLD:
         return Relation(unit.id, unit.kind, "overlap", have.score, _showing(top, have),
@@ -266,13 +319,31 @@ def _showing(top: tuple[Match, ...], basis: Match) -> tuple[Match, ...]:
 
 
 def relate(units: Iterable[Unit], self_model: SelfModel) -> list[Relation]:
-    """One Relation per Unit, in the order given."""
+    """One Relation per Unit, in the order given. The units are related together: in an
+    artifact of at least COMMON_MIN_UNITS units, a term found in more than COMMON_SHARE of them
+    is the artifact's own vocabulary — its name, its package path, the word every page of it
+    uses — and is left out of every comparison (see common_terms)."""
     if not isinstance(self_model, SelfModel):
         raise ValueError("relate needs CLIVE's self-model")
-    index = _Index(self_model)
-    out = []
+    units = list(units)
     for unit in units:
         if not isinstance(unit, Unit):
             raise ValueError("relate takes Unit records")
-        out.append(_relation(unit, index.matches(unit), index.digest))
-    return out
+    index = _Index(self_model)
+    terms = [_unit_terms(unit) for unit in units]
+    ignore = common_terms(terms)
+    return [_relation(unit, index.matches(unit, unit_terms, ignore), index.digest)
+            for unit, unit_terms in zip(units, terms, strict=True)]
+
+
+def common_terms(terms: list[list[str]]) -> frozenset[str]:
+    """The terms in more than COMMON_SHARE of the units whose terms are given, when there are
+    at least COMMON_MIN_UNITS units; none otherwise. Without this, every module of a package
+    named crooks-assistant.app "extended" the feature 'CROOKS Control Mac app' on the two words
+    its path shares with that feature's name."""
+    if len(terms) < COMMON_MIN_UNITS:
+        return frozenset()
+    counts: Counter[str] = Counter()
+    for unit_terms in terms:
+        counts.update(set(unit_terms))
+    return frozenset(term for term, n in counts.items() if n > COMMON_SHARE * len(terms))

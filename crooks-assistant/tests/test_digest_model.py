@@ -11,6 +11,9 @@ import re
 import pytest
 
 from app.digest import (
+    ABSORPTION_TARGETS,
+    ADDING_TARGETS,
+    ADDITION_KINDS,
     SCHEMAS,
     Absorption,
     Addition,
@@ -301,6 +304,22 @@ def test_an_absorption_that_adds_something_must_say_what():
     assert _absorption(artifact, target="rejected", removal=RemovalHandle()).removal.additions == ()
 
 
+def test_the_design_system_target_adds_a_token_set_or_a_component():
+    """KNOWLEDGE_DIGESTER_V1.md section 6: design tokens or patterns are absorbed as tokens or
+    components with provenance, removed by the token set or component path."""
+    artifact = _artifact()
+    assert "design_system" in ABSORPTION_TARGETS and "design_system" in ADDING_TARGETS
+    assert {"token_set", "component"} <= set(ADDITION_KINDS)
+    with pytest.raises(ValueError, match="removal handle"):
+        _absorption(artifact, target="design_system", removal=RemovalHandle())
+    for kind, ref in (("token_set", "crooks-assistant/web/style.css#digested-colour-0a1b2c3d"),
+                      ("component", "crooks-assistant/web/components/hero-0a1b2c3d")):
+        absorption = _absorption(artifact, target="design_system",
+                                 removal=RemovalHandle((Addition(kind, ref),)))
+        assert Absorption.from_dict(absorption.to_dict()) == absorption
+        assert _errors(absorption.to_dict(), SCHEMAS["absorption"]) == []
+
+
 def test_clive_proposes_and_the_owner_decides():
     artifact = _artifact()
     assert not _absorption(artifact).is_decision
@@ -419,6 +438,47 @@ def test_the_absorption_ledger_is_append_only(tmp_path):
     assert ledger.read_bytes() == after_second
 
 
+def test_a_proposal_goes_into_the_ledger_once_whenever_it_is_proposed(tmp_path):
+    store = DigestStore(tmp_path)
+    artifact = _artifact()
+    store.put(artifact)
+    ledger = tmp_path / artifact.id / "absorptions.jsonl"
+    first = _absorption(artifact)
+    other = _absorption(artifact, unit_id=artifact.units[1].id, target="reference_only",
+                        removal=RemovalHandle(), reasoning="Only ever pointed at.")
+
+    held, appended = store.add_proposals([first, other])
+    assert (held, appended) == ((first, other), 2)
+    written = ledger.read_bytes()
+
+    # the same proposals, proposed again later: the ledger keeps the first, and appends nothing
+    later = "2026-09-27T09:00:00+00:00"
+    again = [_absorption(artifact, recorded_at=later), first]
+    assert again[0].id != first.id
+    assert store.add_proposals(again) == ((first, first), 0)
+    assert ledger.read_bytes() == written
+
+    # a decision is not a proposal, and does not stand for one either
+    decision = _absorption(artifact, decided_by="owner", recorded_at=later)
+    with pytest.raises(ValueError, match="decision"):
+        store.add_proposals([decision])
+    assert store.add_absorption(decision) is True
+    changed = _absorption(artifact, reasoning="Reasoned again, against a new self-model.",
+                          recorded_at=later)
+    assert store.add_proposals([changed]) == ((changed,), 1)
+    assert store.absorptions(artifact.id) == (first, other, decision, changed)
+
+    # nothing is written when any proposal names a unit the artifact does not have
+    before = ledger.read_bytes()
+    stranger = _absorption(artifact, unit_id=_unit(_source(b"other").artifact_id).id,
+                           reasoning="A stranger.")
+    fresh = _absorption(artifact, reasoning="Fresh, and not written with the stranger.")
+    with pytest.raises(ValueError, match="does not have"):
+        store.add_proposals([fresh, stranger])
+    assert ledger.read_bytes() == before
+    assert store.add_proposals([]) == ((), 0)
+
+
 def test_findings_are_appended_and_read_back(tmp_path):
     store = DigestStore(tmp_path)
     artifact = _artifact()
@@ -429,6 +489,29 @@ def test_findings_are_appended_and_read_back(tmp_path):
     assert store.findings(artifact.id) == (finding,)
     line = (tmp_path / artifact.id / "findings.jsonl").read_text().strip()
     assert _errors(json.loads(line), SCHEMAS["finding"]) == []
+
+
+def test_findings_are_added_together_once_each(tmp_path, monkeypatch):
+    store = DigestStore(tmp_path)
+    artifact = _artifact()
+    store.put(artifact)
+    first = _finding(artifact)
+    second = Finding(artifact.id, "quality", "low", Location("."), "A second finding.")
+    loads = []
+    real_load = store.load
+    monkeypatch.setattr(store, "load", lambda artifact_id: loads.append(artifact_id) or real_load(artifact_id))
+    assert store.add_findings([first, second, first]) == 2
+    assert loads == [artifact.id]                          # the artifact is read once, not per finding
+    assert store.add_findings([second, first]) == 0
+    assert store.findings(artifact.id) == (first, second)
+    written = (tmp_path / artifact.id / "findings.jsonl").read_bytes()
+    stranger = Finding(artifact.id, "quality", "low", Location("."), "Names a stranger.",
+                       unit_id=_unit(_source(b"other").artifact_id).id)
+    third = Finding(artifact.id, "quality", "info", Location("."), "Not written with the stranger.")
+    with pytest.raises(ValueError, match="does not have"):
+        store.add_findings([third, stranger])
+    assert (tmp_path / artifact.id / "findings.jsonl").read_bytes() == written
+    assert store.add_findings([]) == 0
 
 
 def test_the_store_refuses_ids_that_are_not_artifact_ids(tmp_path):

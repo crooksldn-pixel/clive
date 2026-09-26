@@ -9,7 +9,8 @@
 An artifact is written once, into a staging directory that is then renamed into place, so a
 reader never sees half of one. Writing the same artifact again changes nothing; writing a
 different one under an id already taken is refused. Findings and absorptions are only ever
-appended, and a record already in the file is not appended twice."""
+appended, and a record already in the file is not appended twice; a proposal already in the
+ledger is not appended again when it is proposed again later (add_proposals)."""
 
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ import re
 import shutil
 import tempfile
 import threading
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -159,6 +161,41 @@ class DigestStore:
                 raise ValueError(f"finding names unit {finding.unit_id}, which {artifact.id} does not have")
             return self._append(artifact.id, FINDINGS_FILE, finding, Finding)
 
+    def add_findings(self, findings: Iterable[Finding]) -> int:
+        """Append findings not already recorded, in the order given: how many were appended.
+        The same as add_finding for each, but each artifact is loaded, and its findings read,
+        once — a large artifact with many findings is not read again for every one. Every
+        finding is checked before any is written."""
+        findings = tuple(findings)
+        for finding in findings:
+            if not isinstance(finding, Finding):
+                raise ValueError("only a Finding can be added")
+        appended = 0
+        with self._lock:
+            artifact_ids = sorted({finding.artifact_id for finding in findings})
+            recorded: dict[str, set[str]] = {}
+            for artifact_id in artifact_ids:
+                units = {unit.id for unit in self.load(artifact_id).units}
+                for finding in findings:
+                    if (finding.artifact_id == artifact_id and finding.unit_id is not None
+                            and finding.unit_id not in units):
+                        raise ValueError(f"finding names unit {finding.unit_id}, which {artifact_id} does not have")
+                path = self.path_for(artifact_id) / FINDINGS_FILE
+                recorded[artifact_id] = {Finding.from_dict(item).id for item in _read_lines(path)}
+            for artifact_id in artifact_ids:
+                fresh = []
+                for finding in findings:
+                    if finding.artifact_id == artifact_id and finding.id not in recorded[artifact_id]:
+                        recorded[artifact_id].add(finding.id)
+                        fresh.append(finding)
+                if fresh:
+                    with (self.path_for(artifact_id) / FINDINGS_FILE).open("a", encoding="utf-8") as handle:
+                        handle.write("".join(_line(f.to_dict()) for f in fresh))
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    appended += len(fresh)
+        return appended
+
     def findings(self, artifact_id: str) -> tuple[Finding, ...]:
         folder = self._existing(artifact_id)
         return tuple(Finding.from_dict(item) for item in _read_lines(folder / FINDINGS_FILE))
@@ -178,6 +215,51 @@ class DigestStore:
         folder = self._existing(artifact_id)
         return tuple(Absorption.from_dict(item) for item in _read_lines(folder / ABSORPTIONS_FILE))
 
+    def add_proposals(self, proposals: Iterable[Absorption]) -> tuple[tuple[Absorption, ...], int]:
+        """Record CLIVE's proposals, each unless the ledger already holds the same proposal:
+        the same unit, target, reasoning and removal handle, undecided, whenever it was
+        recorded. Returns the record the ledger holds for each proposal, in the order given,
+        and how many were appended now. So a digest run again proposes nothing new and appends
+        nothing, and each proposal keeps the time it was first made; a proposal that differs —
+        made against another self-model, say — is a new record after the old one. Decisions
+        are not proposals: they go through add_absorption."""
+        proposals = tuple(proposals)
+        for proposal in proposals:
+            if not isinstance(proposal, Absorption):
+                raise ValueError("only an Absorption can be added")
+            if proposal.is_decision:
+                raise ValueError("a decision is not a proposal: record it with add_absorption")
+        held: dict[tuple, Absorption] = {}
+        appended = 0
+        with self._lock:
+            artifact_ids = sorted({proposal.artifact_id for proposal in proposals})
+            # every proposal is checked, and every ledger read, before anything is written
+            for artifact_id in artifact_ids:
+                units = {unit.id for unit in self.load(artifact_id).units}
+                for proposal in proposals:
+                    if proposal.artifact_id == artifact_id and proposal.unit_id not in units:
+                        raise ValueError(f"absorption names unit {proposal.unit_id}, which {artifact_id} does not have")
+                # read back through from_dict, so a damaged ledger is found before it is added to
+                for item in _read_lines(self.path_for(artifact_id) / ABSORPTIONS_FILE):
+                    record = Absorption.from_dict(item)
+                    if not record.is_decision:
+                        held.setdefault(_proposal_key(record), record)
+            for artifact_id in artifact_ids:
+                fresh = []
+                for proposal in proposals:
+                    key = _proposal_key(proposal)
+                    if proposal.artifact_id == artifact_id and key not in held:
+                        held[key] = proposal
+                        fresh.append(proposal)
+                if fresh:
+                    path = self.path_for(artifact_id) / ABSORPTIONS_FILE
+                    with path.open("a", encoding="utf-8") as handle:
+                        handle.write("".join(_line(p.to_dict()) for p in fresh))
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    appended += len(fresh)
+        return tuple(held[_proposal_key(p)] for p in proposals), appended
+
     def _append(self, artifact_id: str, name: str, record: Finding | Absorption, kind: type) -> bool:
         path = self.path_for(artifact_id) / name
         # read back through from_dict, so a damaged ledger is found before it is added to
@@ -188,3 +270,11 @@ class DigestStore:
             handle.flush()
             os.fsync(handle.fileno())
         return True
+
+
+def _proposal_key(proposal: Absorption) -> tuple:
+    """What makes two proposals the same proposal: everything but when it was recorded."""
+    return (
+        proposal.artifact_id, proposal.unit_id, proposal.target, proposal.reasoning,
+        _line(proposal.removal.to_dict()), proposal.proposed_by,
+    )

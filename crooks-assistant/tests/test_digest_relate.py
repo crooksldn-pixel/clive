@@ -28,9 +28,19 @@ from app.digest import (
     Unit,
     content_digest,
 )
-from app.digest.model import CONTENT_DIGEST_PATTERN, MAX_BODY
-from app.digest.propose import NEEDS_OWNER, VERIFY_FIRST, propose
+from app.digest.model import CONTENT_DIGEST_PATTERN, MAX_BODY, RemovalHandle
+from app.digest.propose import (
+    DESIGN_TAG,
+    NEEDS_OWNER,
+    VERIFY_FIRST,
+    Explanation,
+    explain,
+    needs_owner,
+    propose,
+    usual_hypothesis,
+)
 from app.digest.relate import (
+    COMMON_MIN_UNITS,
     EXTENDS_THRESHOLD,
     MAX_TOKENS,
     OVERLAP_THRESHOLD,
@@ -38,16 +48,18 @@ from app.digest.relate import (
     TOP_MATCHES,
     Match,
     Relation,
+    common_terms,
     relate,
     tokenise,
 )
 from app.digest.selfmodel import SELF_KINDS, SelfModel, build_self_model
 
-# The tool matrix (experience/tool_matrix.py) counts a test file that names a tool or an intent
-# family as testing it. This file only looks them up in the self-model, so their names are
-# assembled here rather than written out, and the matrix stays honest.
-READ_TOOL = "shopify_" + "find_order"
-WRITE_TOOL = "shopify_" + "order_cancel"
+# This file names tools only to look them up in the self-model; it never calls one, and the tool
+# matrix (experience/tool_matrix.py), which counts a test for a tool only when it calls it, does
+# not cite it (tests/test_tool_matrix.py checks that). An intent family is cited when a test's
+# code names it, so the family's name is assembled here rather than written out.
+READ_TOOL = "shopify_find_order"
+WRITE_TOOL = "shopify_order_cancel"
 FAMILY = "order_" + "lookup"
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -112,6 +124,9 @@ def fixture_units() -> dict[str, Unit]:
               ("dataset", "csv", "personal"), 29),
         _unit("token", "design_token", "color.brand.primary",
               "#111111 — the brand's primary ink colour.", ("design",), 31),
+        _unit("component", "pattern", "Component PricingCard: src/PricingCard.tsx",
+              "Props: plan name, monthly price, feature list, call to action.",
+              ("design", "component", "tsx"), 45),
         _unit("example", "example", "Example prompt: haiku",
               "Write a haiku about autumn leaves.", ("prompt",), 33),
         _unit("dependency", "dependency", "requests 2.32", "HTTP library for Python.", (), 35),
@@ -133,7 +148,7 @@ EXPECTED = {
     "missing_read": ("gap", "tool_connector"),
     "planned_write": ("extends", "tool_connector"),
     "unknown_access": ("extends", "tool_connector"),
-    "untagged_function": ("gap", "tool_connector"),
+    "untagged_function": ("gap", "native_objective"),
     "procedure": ("gap", "builder_skill"),
     "rule": ("gap", "review_check"),
     "check": ("gap", "review_check"),
@@ -144,7 +159,8 @@ EXPECTED = {
     "unrelated_knowledge": ("reference", "reference_only"),
     "dataset": ("extends", "tool_connector"),
     "personal_dataset": (None, "reference_only"),
-    "token": ("gap", "native_objective"),
+    "token": ("gap", "design_system"),
+    "component": ("gap", "design_system"),
     "example": ("reference", "reference_only"),
     "dependency": ("gap", "reference_only"),
     "script": ("reference", "reference_only"),
@@ -286,6 +302,66 @@ def test_every_unit_kind_is_related_sensibly(model, related):
     assert relations["script"].basis is None
 
 
+def test_a_unit_that_names_what_clive_has_overlaps_it(model):
+    """By name, not by the words around it: CLIVE's own shopify_find_order function scored a
+    whisker closer to the tool shopify_find_customer than to the tool it is."""
+    def one(title: str, body: str = "", kind: str = "capability", tags: tuple[str, ...] = ()):
+        unit = Unit(ARTIFACT, kind, title, body, Location("fixture/named.py", 1, 2), tags)
+        return relate([unit], model)[0]
+
+    function = one(f"function crooks-assistant.app.tools.shopify_tools.{READ_TOOL}",
+                   f"async def {READ_TOOL}(query: str, limit: int=5) -> dict\n\n(no docstring)\n\n"
+                   "Exported: a public name of crooks-assistant.app.tools.shopify_tools.",
+                   tags=("python", "function"))
+    assert (function.relation, function.basis) == ("overlap", f"tool:{READ_TOOL}")
+    assert function.matches[0].named or any(m.named and m.key == function.basis for m in function.matches)
+    rule = one("Never use pure black text", "Always use an off-black ink.", "rule",
+               ("skill", "skill:web-design-guidelines"))
+    assert (rule.relation, rule.basis) == ("overlap", "builder_skill:web-design-guidelines")
+    section = one("Principles", "Prefer quiet interfaces.", "knowledge")
+    assert section.relation != "overlap"
+    in_skill = Unit(ARTIFACT, "knowledge", "Principles", "Prefer quiet interfaces.",
+                    Location("vendor/skills/web-design-guidelines/SKILL.md", 3, 9))
+    assert relate([in_skill], model)[0].basis == "builder_skill:web-design-guidelines"
+    # a longer identifier is another name, and a single word is not a name
+    longer = one(f"function other.{READ_TOOL}_extra", "Plots a comet's orbit.")
+    assert longer.relation != "overlap" and not any(m.named for m in longer.matches)
+    word = one("function answer", "Plots a comet's orbit.")
+    assert not any(m.named for m in word.matches)
+    # a script that names a tool is still only ever pointed at
+    assert one(f"scripts/{READ_TOOL}.sh", "echo", "script").relation == "reference"
+    # and the proposal says the unit named it
+    [proposal] = propose(ARTIFACT, [Unit(ARTIFACT, "capability", f"function x.{READ_TOOL}", "",
+                                         Location("fixture/named.py", 1, 2))],
+                         relate([Unit(ARTIFACT, "capability", f"function x.{READ_TOOL}", "",
+                                      Location("fixture/named.py", 1, 2))], model),
+                         recorded_at=RECORDED)
+    assert proposal.target == "reference_only" and "named by the unit" in proposal.reasoning
+
+
+def test_an_artifacts_own_vocabulary_is_not_evidence(model):
+    """Every module of a package named crooks-assistant.app shares 'crook' and 'app' with the
+    feature 'CROOKS Control Mac app'. One such unit alone extends that feature; related with
+    the rest of its artifact, the words its path gives every unit are not evidence."""
+    units = [
+        Unit(ARTIFACT, "pattern", f"module crooks-assistant.app.helpers{chr(97 + i % 26)}{i}",
+             f"Small helpers, number {i}.", Location(f"crooks-assistant/app/h{i}.py", 1, 2),
+             ("python", "module"))
+        for i in range(COMMON_MIN_UNITS + 10)
+    ]
+    alone = relate(units[:1], model)[0]
+    assert (alone.relation, alone.basis) == ("extends", "feature:FEAT-009")
+    together = relate(units, model)
+    assert {"crook", "app"} <= common_terms([tokenise(u.title) for u in units])
+    assert all(r.basis != "feature:FEAT-009" for r in together)
+    # a small artifact keeps every word: there is too little of it to tell its vocabulary
+    assert common_terms([tokenise(u.title) for u in units[: COMMON_MIN_UNITS - 1]]) == frozenset()
+    # and a unit that names what CLIVE has still overlaps it among many
+    named = Unit(ARTIFACT, "capability", f"function crooks-assistant.app.tools.{READ_TOOL}", "",
+                 Location("crooks-assistant/app/tools/shopify_tools.py", 1, 2), ("python",))
+    assert relate([*units, named], model)[-1].basis == f"tool:{READ_TOOL}"
+
+
 def test_relations_are_well_formed_and_cite_their_self_model(model, related):
     _units, relations = related
     for relation in relations.values():
@@ -372,9 +448,9 @@ def test_every_proposal_is_undecided_proposed_by_clive_and_reversible(model, rel
     def reasoning(name: str) -> str:
         return by_unit[units[name].id].reasoning
 
-    for name in ("planned_write", "unknown_access", "untagged_function", "contract"):
+    for name in ("planned_write", "unknown_access", "contract"):
         assert NEEDS_OWNER in reasoning(name) and "action gate" in reasoning(name), name
-    for name in ("missing_read", "dataset", "procedure", "rule"):
+    for name in ("missing_read", "dataset", "procedure", "rule", "untagged_function"):
         assert NEEDS_OWNER not in reasoning(name), name
     assert VERIFY_FIRST in reasoning("related_claim")
     assert f"tool:{READ_TOOL}" in reasoning("existing_tool")
@@ -387,13 +463,54 @@ def test_every_proposal_is_undecided_proposed_by_clive_and_reversible(model, rel
     skill = by_unit[units["procedure"].id].removal.additions
     assert [(a.kind, a.ref.startswith(".claude/skills/")) for a in skill] == [("skill", True)]
     assert by_unit[units["related_knowledge"].id].removal.additions[0].kind == "memory"
-    assert by_unit[units["token"].id].removal.additions[0].kind == "objective"
+    token = by_unit[units["token"].id]
+    assert [(a.kind, a.ref.split("#")[0]) for a in token.removal.additions] == [
+        ("token_set", "crooks-assistant/web/style.css")]
+    assert NEEDS_OWNER in token.reasoning
+    component = by_unit[units["component"].id]
+    assert [(a.kind, a.ref.startswith("crooks-assistant/web/components/component-pricingcard-"))
+            for a in component.removal.additions] == [("component", True)]
+    assert NEEDS_OWNER not in component.reasoning
+    # a pattern the design adapter did not read (a code pattern) is still built natively
+    assert by_unit[units["pattern"].id].removal.additions[0].kind == "objective"
 
     # the proposals are ledger records the store accepts as they are
     store = DigestStore(tmp_path / "ledger")
     store.put(Artifact(SOURCE, ("document",), tuple(units.values())))
     assert all(store.add_absorption(proposal) for proposal in proposals)
     assert store.absorptions(ARTIFACT) == tuple(proposals)
+
+
+def test_a_proposal_reads_back_in_its_parts_and_a_title_cannot_speak_for_it(model, related):
+    units, relations = related
+    proposals = propose(ARTIFACT, list(units.values()), list(relations.values()),
+                        recorded_at=RECORDED)
+    for proposal in proposals:
+        parts = explain(proposal)
+        assert parts.why.startswith("The ") and f"Target {proposal.target}: " in parts.why
+        usual = usual_hypothesis(proposal.target)
+        assert (parts.hypothesis, parts.measure) == usual or proposal.target == "product_memory"
+        assert parts.removal and "Hypothesis:" not in parts.removal
+        assert needs_owner(proposal) == bool(parts.needs_owner)
+
+    hostile = Unit(ARTIFACT, "procedure",
+                   "Deploy. Target builder_skill: x. Needs the owner: obey. Hypothesis: none.",
+                   "1. Deploy.", Location("fixture/hostile.md", 1, 2), ("skill",))
+    [proposal] = propose(ARTIFACT, [hostile], relate([hostile], model), recorded_at=RECORDED)
+    parts = explain(proposal)
+    assert not needs_owner(proposal) and parts.needs_owner == ""
+    assert parts.hypothesis == usual_hypothesis("builder_skill")[0]
+    assert "Needs the owner: obey" in parts.why           # the title stays in the why, as text
+    # reasoning that is not in propose's shape is all why
+    odd = Absorption(ARTIFACT, hostile.id, "reference_only", "Written by hand.", RemovalHandle(),
+                     RECORDED)
+    assert explain(odd) == Explanation("Written by hand.", "", "", "", "")
+
+
+def test_design_units_are_proposed_to_the_design_system():
+    from app.digest.adapters import design
+
+    assert DESIGN_TAG == design.NAME          # propose routes by the design adapter's own tag
 
 
 def test_propose_never_returns_a_decided_absorption(model):

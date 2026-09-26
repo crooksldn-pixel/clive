@@ -1,6 +1,7 @@
-"""The Knowledge Digester in one call: from a quarantined directory to a stored digest.
+"""The Knowledge Digester in one call: from a quarantined directory to a stored digest and,
+given CLIVE's self-model, to what CLIVE proposes to take from it.
 
-    result = digest(root, source, store)
+    result = digest(root, source, store, self_model=build_self_model(repo_root))
 
 runs the library stages of KNOWLEDGE_DIGESTER_V1.md section 3 in order, on a copy that is
 already in quarantine and already pinned by its Source:
@@ -17,15 +18,28 @@ already in quarantine and already pinned by its Source:
    into the namespace is used from the next digest on. An adapter that raises, or returns
    something that is not its artifact's Units, is contained: a quality finding names it and
    the others carry on. Units are de-duplicated by id and sorted by place.
+4. Relate, when a self-model is given (selfmodel.build_self_model): relate.relate gives each
+   Unit its relation to what CLIVE already is — overlap, extends, gap or reference — with the
+   entries it rests on and the digest of the self-model it was made against.
+5. Propose, with the relations: propose.propose gives one absorption proposal per Unit, each
+   proposed by CLIVE and decided by no one, with its target, reasoning, hypothesis, measure and
+   removal handle. With a store they go into the artifact's ledger through
+   store.add_proposals, which appends only what the ledger does not already hold: the same
+   digest against the same self-model again appends nothing, and the result carries the
+   records as the ledger holds them, each with the time it was first proposed.
+   A blocked artifact has no Units, so nothing is related or proposed; without a self-model
+   the digest stops after decomposition, as it always could.
 
 Digesting is reading. Nothing here, and nothing it calls, executes, imports or installs what
-the artifact holds; there is no network; the same tree and Source give the same result.
+the artifact holds; there is no network; the same tree, Source and self-model give the same
+result, and the same proposals once their `recorded_at` is given (or held by the store).
 
 Why a result object and not a bare Artifact: the model's Artifact is the Source, the kinds and
-the Units, and the store keeps findings beside it rather than in it. What a caller (the report,
-the command line, the next stages) also needs from one digest — its findings, detect's evidence
-and census, which adapters ran, whether it was blocked — is gathered in DigestResult, whose
-``artifact`` is exactly what the store holds.
+the Units, and the store keeps findings and the ledger beside it rather than in it. What a
+caller (the report, the command line, the next stages) also needs from one digest — its
+findings, detect's evidence and census, which adapters ran, whether it was blocked, and the
+relations and proposals — is gathered in DigestResult, whose ``artifact`` is exactly what the
+store holds.
 
 tree_digest(root) is the content digest a Source records for a directory: stable across
 machines, walk order and time, symbolic links named and never followed, and bounded.
@@ -48,12 +62,17 @@ from app.digest.model import (
     ARTIFACT_KINDS,
     MAX_EXPLANATION,
     SEVERITIES,
+    Absorption,
     Artifact,
     Finding,
     Location,
     Source,
     Unit,
+    utc_now,
 )
+from app.digest.propose import propose
+from app.digest.relate import Relation, relate
+from app.digest.selfmodel import SelfModel
 from app.digest.store import DigestStore
 
 ADAPTERS_PACKAGE = "app.digest.adapters"
@@ -212,7 +231,8 @@ def discover_adapters() -> tuple[tuple[Adapter, ...], tuple[tuple[str, str], ...
 
 @dataclass(frozen=True)
 class DigestResult:
-    """One digest: the Artifact as the store keeps it, and what was found on the way."""
+    """One digest: the Artifact as the store keeps it, what was found on the way, and — when
+    it was related to CLIVE's self-model — each Unit's relation and CLIVE's proposals."""
 
     artifact: Artifact
     findings: tuple[Finding, ...]            # most severe first, then by place
@@ -220,25 +240,40 @@ class DigestResult:
     census: detect.Census
     adapters: tuple[str, ...]                # the adapters that ran, by NAME, in the order run
     blocked: bool                            # stopped before decomposition by a block finding
+    relations: tuple[Relation, ...] = ()     # one per Unit, in the Units' order
+    proposals: tuple[Absorption, ...] = ()   # one per Unit, in reading order, as recorded
+    self_model: str | None = None            # the digest of the self-model related against
 
     @property
     def units(self) -> tuple[Unit, ...]:
         return self.artifact.units
 
+    @property
+    def related(self) -> bool:
+        """Whether the Units were related to a self-model (and so proposed for)."""
+        return self.self_model is not None
+
 
 def digest(root: str | os.PathLike[str], source: Source,
-           store: DigestStore | None = None) -> DigestResult:
+           store: DigestStore | None = None, *, self_model: SelfModel | None = None,
+           recorded_at: str | None = None) -> DigestResult:
     """Recognise, scan and decompose the quarantined directory at root, as the artifact source
     names, and write the source, artifact, units and findings to store when one is given.
+    Given CLIVE's self_model, and unless the artifact was blocked, relate every Unit to it and
+    propose what to take from each; with a store the proposals go into the ledger, once.
 
     source.content_digest is the caller's pin and is not recomputed here (tree_digest gives it
     for a directory). A root that is not a directory, or is a symbolic link, is refused with
     NotADirectoryError. Writing an artifact whose id the store already holds as a different
-    record raises store.ArtifactConflict; the same record again changes nothing."""
+    record raises store.ArtifactConflict; the same record again changes nothing.
+    `recorded_at` is when new proposals are recorded (default: now); pass it to make them
+    exactly repeatable without a store."""
     if not isinstance(source, Source):
         raise ValueError("a digest needs the artifact's Source")
     if store is not None and not isinstance(store, DigestStore):
         raise ValueError("store must be a DigestStore")
+    if self_model is not None and not isinstance(self_model, SelfModel):
+        raise ValueError("self_model must be a SelfModel (selfmodel.build_self_model)")
     base = Path(root)
     if os.path.islink(base) or not base.is_dir():
         raise NotADirectoryError(f"{base} is not a directory: digest reads a quarantined copy")
@@ -291,13 +326,26 @@ def digest(root: str | os.PathLike[str], source: Source,
 
     artifact = Artifact(source=source, kinds=kinds, units=tuple(sorted(units.values(), key=_unit_order)))
     ordered = tuple(sorted(findings.values(), key=finding_order))
+
+    # 4. relate and 5. propose, given the self-model and something to relate
+    relations: tuple[Relation, ...] = ()
+    proposals: tuple[Absorption, ...] = ()
+    related_to = None
+    if self_model is not None and not blocked:
+        related_to = self_model.digest
+        relations = tuple(relate(artifact.units, self_model))
+        proposals = tuple(propose(artifact.id, artifact.units, relations,
+                                  recorded_at=recorded_at or utc_now()))
+
     if store is not None:
         store.put(artifact)
-        for finding in ordered:
-            store.add_finding(finding)
+        store.add_findings(ordered)
+        if proposals:
+            proposals, _appended = store.add_proposals(proposals)
     return DigestResult(
         artifact=artifact, findings=ordered, detections=detection.kinds,
         census=detection.census, adapters=tuple(ran), blocked=blocked,
+        relations=relations, proposals=proposals, self_model=related_to,
     )
 
 
