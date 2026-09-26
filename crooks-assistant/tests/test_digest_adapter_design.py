@@ -751,6 +751,14 @@ MALFORMED = {
     ),
     "components/Unclosed.svelte": "<script>\n  export let start = 0;\n",
     "pages/odd.html": "<div <<>> </p></p><![bogus[ x ]]><!-- never closed",
+    # quoted strings cut off by a line break, with the brackets around them still pairing
+    "styles/cut-string.css": ':root {\n  --color-a: "#f00\n  ;\n  --color-b: #fff;\n}\n',
+    "cut/tailwind.config.js": "module.exports = { theme: { colors: { red: '#f00\n } } }\n",
+    "components/Cut.jsx": "export function Cut({ label = 'x\n, size }) {\n  return null\n}\n",
+    "components/Cut.vue": (
+        "<script setup>\nconst props = defineProps({\n  label: 'x,\n})\n</script>\n"
+        "<template><p>{{ label }}</p></template>\n"
+    ),
 }
 
 
@@ -780,6 +788,12 @@ def test_malformed_input_yields_unparsed_units_not_exceptions(tmp_path):
         "components/Open.vue": "defineProps cannot be read: the '{' on line 2 is never closed",
         "components/Unclosed.svelte": "the <script> on line 1 is never closed",
         "styles/linked.css": "not a regular file",
+        "styles/cut-string.css": "the quoted string opened on line 2 is never closed",
+        "cut/tailwind.config.js": "the quoted string opened on line 1 is never closed",
+        "components/Cut.jsx": (
+            "the parameters of Cut cannot be read: the quoted string opened on line 1 is never closed"
+        ),
+        "components/Cut.vue": "defineProps cannot be read: the quoted string opened on line 3 is never closed",
     }
     for rel, reason in expected.items():
         [unit] = _unparsed(units, rel)
@@ -792,6 +806,8 @@ def test_malformed_input_yields_unparsed_units_not_exceptions(tmp_path):
         "snippets/script.liquid": (2, 3), "mismatch/tailwind.config.js": (1, 1),
         "components/Broken.jsx": (1, 1), "components/Mismatch.tsx": (1, 1),
         "components/Open.vue": (2, 4), "components/Unclosed.svelte": (1, 2),
+        "styles/cut-string.css": (2, 2), "cut/tailwind.config.js": (1, 1),
+        "components/Cut.jsx": (1, 2), "components/Cut.vue": (2, 4),
     }
     for rel, span in spans.items():
         assert _unparsed(units, rel)[0].location == Location(rel, *span), rel
@@ -811,10 +827,97 @@ def test_malformed_input_yields_unparsed_units_not_exceptions(tmp_path):
     assert "- Mismatch (line 1): parameters not readable (see its 'unparsed' unit)" in _lines(
         _one(units, "components/Mismatch.tsx", "pattern")
     )
-    for rel in ("styles/open-comment.css", "styles/unclosed.css"):   # what could be read still is
+    for rel in ("styles/open-comment.css", "styles/unclosed.css", "styles/cut-string.css"):
+        # what could be read still is
         assert _one(units, rel, "design_token", "colour").body.startswith("1 colour token(s)")
+    # a value a cut-off string runs into is not passed off as parsed
+    assert "--color-a" not in _one(units, "styles/cut-string.css", "design_token").body
+    cut = _one(units, "components/Cut.jsx", "pattern")
+    assert "- Cut (line 1): parameters not readable (see its 'unparsed' unit)" in _lines(cut)
+    assert "label" not in cut.body
+    cut = _one(units, "components/Cut.vue", "pattern")
+    assert "Props: none readable from the source" in _lines(cut)
+    assert "'x" not in cut.body
     assert [unit for unit in units if unit.location.path == "pages/odd.html"]
     assert "--color-secret" not in "\n".join(unit.body for unit in units)
+
+
+def test_an_apostrophe_in_prose_or_a_sass_comment_is_not_a_malformed_string(tmp_path):
+    _write(tmp_path, "components/Note.jsx",
+           "export function Note({ text }) {\n  return <p>Don't panic: {text}</p>\n}\n")
+    _write(tmp_path, "styles/notes.scss", "// Don't inline these\n:root { --color-a: #000; }\n")
+    units = design.decompose(tmp_path, ART)
+    assert not [unit for unit in units if "unparsed" in unit.tags]
+    assert "  - line 1: text" in _lines(_one(units, "components/Note.jsx", "pattern", "component"))
+    colour = _one(units, "styles/notes.scss", "design_token", "colour")
+    assert "- --color-a: #000 (line 2)" in _lines(colour)
+
+
+def test_an_unclosed_script_or_style_is_reported_and_only_what_precedes_it_described(tmp_path):
+    _write(tmp_path, "open-script.html", (
+        "<html>\n<body>\n<header><h1>Kept</h1></header>\n<script>\n"
+        '  var x = "<main>never read</main>";\n</body>\n</html>\n'
+    ))
+    _write(tmp_path, "open-style.html", (
+        "<html><head><title>Styled</title>\n<style>\n  .a { color: red; }\n</head>\n"
+        '<body><nav class="menu__x">Hidden</nav></body>\n'
+    ))
+    units = design.decompose(tmp_path, ART)
+
+    page = _one(units, "open-script.html", "pattern", "page")
+    lines = _lines(page)
+    assert "- line 3: header" in lines and "- line 3: h1 Kept" in lines   # the prefix is kept
+    assert "Scripts: 1 <script> element(s), not read or run" in lines
+    assert "Not read: lines 4-7, an unclosed <script> (see its 'unparsed' unit)" in lines
+    assert "never read" not in page.body and "- line 5: main" not in lines
+    [note] = _unparsed(units, "open-script.html")
+    assert note.kind == "knowledge" and note.tags == ("design", "unparsed")
+    assert note.location == Location("open-script.html", 4, 7)
+    assert "the <script> on line 4 is never closed" in note.body
+
+    page = _one(units, "open-style.html", "pattern", "page")
+    assert page.title == "Page open-style.html: Styled"
+    assert "Not read: lines 2-5, an unclosed <style> (see its 'unparsed' unit)" in _lines(page)
+    assert "Hidden" not in page.body and "menu" not in page.body and "Landmarks:" not in page.body
+    [note] = _unparsed(units, "open-style.html")
+    assert note.kind == "knowledge" and note.tags == ("design", "unparsed")
+    assert note.location == Location("open-style.html", 2, 5)
+    assert "the <style> on line 2 is never closed" in note.body
+    assert units == design.decompose(tmp_path, ART)
+
+
+def test_a_quoted_theme_key_is_read_like_a_bare_one(tmp_path):
+    _write(tmp_path, "single/tailwind.config.js",
+           "module.exports = {'theme': {'colors': {'brand': '#123456'}}}\n")
+    _write(tmp_path, "double/tailwind.config.js",
+           'module.exports = {"theme": {"extend": {"spacing": {"18": "4.5rem"}}}}\n')
+    _write(tmp_path, "open/tailwind.config.js", "module.exports = { 'theme': { colors: { red: '#f00' \n")
+    _write(tmp_path, "mismatch/tailwind.config.js",
+           'module.exports = { "theme": { colors: { red: "#f00" ] } }\n')
+    _write(tmp_path, "other/tailwind.config.js",
+           "module.exports = { 'themes': { colors: { red: '#f00' } } }\n")
+    units = design.decompose(tmp_path, ART)
+
+    rel = "single/tailwind.config.js"
+    colour = _one(units, rel, "design_token", "colour", "tailwind")
+    assert colour.location == Location(rel, 1, 1)
+    assert "- colors.brand: '#123456' (line 1)" in _lines(colour)
+    rel = "double/tailwind.config.js"
+    spacing = _one(units, rel, "design_token", "spacing", "tailwind")
+    assert '- extend.spacing.18: "4.5rem" (line 1)' in _lines(spacing)
+    for rel in ("single/tailwind.config.js", "double/tailwind.config.js"):
+        assert _unparsed(units, rel) == []
+
+    expected = {
+        "open/tailwind.config.js": "the theme object cannot be read: the '{' on line 1 is never closed",
+        "mismatch/tailwind.config.js": "the theme object cannot be read: the '{' on line 1 is closed by ']'",
+        "other/tailwind.config.js": "no literal theme object to read",
+    }
+    for rel, reason in expected.items():
+        [unit] = _unparsed(units, rel)
+        assert unit.kind == "knowledge" and reason in unit.body, (rel, unit.body)
+        assert not [token for token in units
+                    if token.location.path == rel and token.kind == "design_token"]
 
 
 def test_an_artifact_that_is_not_a_directory_is_reported(tmp_path):

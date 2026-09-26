@@ -15,8 +15,9 @@ source states them.
 Nothing read is executed, imported or installed, and nothing is written. Links are not
 followed. Files, counts, tokens and bodies are bounded by the limits below. Units come back in
 path order, and in a fixed order within a file, with exact line spans. What cannot be read —
-a file, or a part of one whose comments, blocks or brackets are never closed or do not pair —
-does not raise: it becomes a knowledge Unit tagged 'unparsed' that says why."""
+a file, or a part of one whose comments, strings, blocks, script or style elements or brackets
+are never closed or do not pair — does not raise: it becomes a knowledge Unit tagged 'unparsed'
+that says why."""
 
 from __future__ import annotations
 
@@ -281,16 +282,18 @@ def _fill(out: list[str], text: str, start: int, end: int, char: str) -> None:
     out[start:end] = _NOT_NEWLINE.sub(char, text[start:end])
 
 
-def _mask(text: str, *, script: bool) -> tuple[str, tuple[str, int] | None]:
+def _mask(text: str, *, script: bool) -> tuple[str, tuple[str, int] | None, list[tuple[int, int]]]:
     """text with its comments blanked to spaces and the contents of its strings to underscores,
     line breaks kept: offsets and line numbers still hold, and a bracket, colon or comma in a
     comment or a string is not taken for code. `script` adds // comments and template strings.
     Also what, if anything, runs on unclosed to the end — a /* comment or a template string —
-    and where it opens."""
+    and where it opens; and where each quoted string that an unescaped line break or the end
+    cuts off opens and stops."""
     out = list(text)
     finder = _MASK_SCRIPT if script else _MASK_STYLE
     index, size = 0, len(text)
     unclosed: tuple[str, int] | None = None
+    cuts: list[tuple[int, int]] = []
     while True:
         found = finder.search(text, index)
         if found is None:
@@ -310,12 +313,15 @@ def _mask(text: str, *, script: bool) -> tuple[str, tuple[str, int] | None]:
             end = start + 1
             while end < size and text[end] != token and (token == "`" or text[end] != "\n"):
                 end += 2 if text[end] == "\\" else 1
-            if token == "`" and end >= size:
-                unclosed = ("a template string", start)
+            if end >= size or text[end] != token:
+                if token == "`":
+                    unclosed = ("a template string", start)
+                else:
+                    cuts.append((start, min(end, size)))
             _fill(out, text, start + 1, min(end, size), "_")
             end += 1
         index = end
-    return "".join(out), unclosed
+    return "".join(out), unclosed, cuts
 
 
 def _blank(match: re.Match[str]) -> str:
@@ -333,18 +339,43 @@ class _Unbalanced(ValueError):
 
 class _Code:
     """Source text, read and never run: the text itself, the same text masked, its lines, and
-    the parts of it that could not be read — each why, and its first and last line."""
+    the parts of it that could not be read — each why, and its first and last line.
 
-    def __init__(self, text: str, *, script: bool) -> None:
+    A quoted string that a line break or the end cuts off is malformed, and what it is part of
+    is not read. Each is recorded as it is found, unless `lone_quotes` says a quote in this text
+    may be no string at all — an apostrophe in JSX text or a template, or in a // comment the
+    scanner does not know — when it is recorded only where it cuts into something read."""
+
+    def __init__(self, text: str, *, script: bool, lone_quotes: bool = False) -> None:
         self.text = text
-        self.masked, unclosed = _mask(text, script=script)
+        self.masked, unclosed, self.cuts = _mask(text, script=script)
         self.lines = _Lines(text)
+        self.lone_quotes = lone_quotes
         self.problems: list[tuple[str, int, int]] = []
         if unclosed:
             self.problem(
                 f"{unclosed[0]} on line {self.lines.line(unclosed[1])} is never closed: "
                 "the rest of the file is not read", unclosed[1], len(text),
             )
+        if not lone_quotes:
+            for opened, stopped in self.cuts[:MAX_LISTED]:
+                self.problem(f"{self._cut_reason(opened)}: what it is part of is not read",
+                             opened, stopped)
+
+    def _cut_reason(self, opened: int) -> str:
+        return (f"the quoted string opened on line {self.lines.line(opened)} is never closed "
+                "before a line break or the end of the file")
+
+    def cut(self, what: str, start: int, end: int) -> bool:
+        """Whether a quoted string cut off by a line break or the end opens between start and
+        end, so that what is there cannot be read; recorded against what where lone quotes
+        leave it to be recorded here."""
+        at = bisect.bisect_left(self.cuts, (start,))
+        if at == len(self.cuts) or self.cuts[at][0] >= end:
+            return False
+        if self.lone_quotes:
+            self.problem(f"{what} cannot be read: {self._cut_reason(self.cuts[at][0])}", start, end)
+        return True
 
     def problem(self, reason: str, start: int, end: int) -> None:
         """Records that text[start:end] could not be read, and why."""
@@ -606,9 +637,11 @@ def _check_braces(code: _Code) -> None:
 
 
 def _read_css(artifact_id: str, rel: str, text: str) -> list[Unit]:
-    """The custom properties of a stylesheet, and what in it does not scan: an unclosed comment
-    or a brace that does not pair."""
-    code = _Code(text, script=False)
+    """The custom properties of a stylesheet, and what in it does not scan: an unclosed comment,
+    a quoted string cut off by a line break, or a brace that does not pair."""
+    # Sass and Less have // comments, which may hold an apostrophe that opens no string
+    code = _Code(text, script=False,
+                 lone_quotes=rel.lower().endswith((".scss", ".less", ".scss.liquid")))
     if rel.lower().endswith(".liquid"):
         code.masked = _LIQUID_TAG.sub(_blank, code.masked)
     _check_braces(code)
@@ -616,6 +649,8 @@ def _read_css(artifact_id: str, rel: str, text: str) -> list[Unit]:
     truncated = False
     for match in _CUSTOM_PROPERTY.finditer(code.masked):
         name = text[match.start(1):match.end(1)]
+        if code.cut(f"the custom property {_clip(name, 80)}", match.start(), match.end()):
+            continue
         raw = text[match.start(2):match.end(2)]
         value = _squash(raw)
         group = _group(name, value)
@@ -724,7 +759,8 @@ def _read_tokens(artifact_id: str, rel: str, text: str) -> list[Unit]:
     return _token_units(artifact_id, rel, "tokens_json", tokens, truncated=truncated)
 
 
-_THEME = re.compile(r"(?<![\w$.])theme\s*:\s*\{")
+# theme: {, its key bare or quoted; a quoted key is masked, so the text says whether it is theme
+_THEME = re.compile(r"(?:(?<![\w$.])theme|(['\"])_{5}\1)\s*:\s*\{")
 _TAILWIND_GROUPS = {
     "colors": "colour", "textColor": "colour", "backgroundColor": "colour",
     "borderColor": "colour", "accentColor": "colour", "ringColor": "colour", "fill": "colour",
@@ -744,7 +780,10 @@ def _read_tailwind(artifact_id: str, rel: str, text: str) -> list[Unit]:
     """The literal theme object, and its extend, read as text. Values that are code — a
     function, a spread, a require — are recorded as written, not run."""
     code = _Code(text, script=True)
-    found = _THEME.search(code.masked)
+    found = next((
+        match for match in _THEME.finditer(code.masked)
+        if not match.group(1) or code.text[match.start() + 1:match.start() + 6] == "theme"
+    ), None)
     if found is None:
         return [_unparsed(
             artifact_id, rel,
@@ -755,6 +794,8 @@ def _read_tailwind(artifact_id: str, rel: str, text: str) -> list[Unit]:
         close_at = _closing(code.masked, open_at)
     except _Unbalanced as exc:
         code.unbalanced("the theme object", found.start(), exc)
+        return code.unparsed(artifact_id, rel)
+    if code.cut("the theme object", found.start(), close_at):
         return code.unparsed(artifact_id, rel)
     tokens: list[_Token] = []
     for entry in _entries(code, open_at, close_at):
@@ -1017,6 +1058,7 @@ class _Structure(HTMLParser):
         self.blocks: dict[str, int] = {}
         self.elements: dict[str, int] = {}
         self._hidden: str | None = None
+        self._hidden_line = 0
         self._title: list[str] | None = None
         self._heading: tuple[int, str, list[str]] | None = None
         self._fields: list[str] | None = None
@@ -1029,7 +1071,7 @@ class _Structure(HTMLParser):
         if tag in ("script", "style"):
             if tag == "script":
                 self.scripts += 1
-            self._hidden = tag
+            self._hidden, self._hidden_line = tag, line
             return
         if tag == "title" and not self.title:
             self._title = []
@@ -1084,6 +1126,10 @@ class _Structure(HTMLParser):
         if self._heading is not None:
             self._heading[2].append(data)
 
+    def unclosed(self) -> tuple[str, int] | None:
+        """The script or style element still open at the end, and the line it opens on."""
+        return (self._hidden, self._hidden_line) if self._hidden else None
+
     def summary(self, *, scripts: bool = True) -> list[str]:
         lines = [f"Scripts: {self.scripts} <script> element(s), not read or run"] if scripts else []
         if self.title:
@@ -1109,6 +1155,8 @@ def _structure_lines(markup: str, *, scripts: bool = True) -> list[str]:
 
 
 def _read_html(artifact_id: str, rel: str, text: str) -> list[Unit]:
+    """A page as a pattern Unit of its structure. A script or style element never closed hides
+    the rest of the page: only what comes before it is described, and the rest is reported."""
     parser = _Structure()
     parser.feed(text)
     parser.close()
@@ -1118,11 +1166,21 @@ def _read_html(artifact_id: str, rel: str, text: str) -> list[Unit]:
         "and components. Its scripts are not read.",
         *parser.summary(),
     ]
+    units: list[Unit] = []
+    unclosed = parser.unclosed()
+    if unclosed:
+        tag, first = unclosed[0], min(unclosed[1], lines.last)
+        body.append(f"Not read: {_span(first, lines.last)}, an unclosed <{tag}> "
+                    "(see its 'unparsed' unit)")
+        units.append(_unparsed(
+            artifact_id, rel, f"the <{tag}> on line {first} is never closed: nothing after it is read",
+            (first, lines.last),
+        ))
     title = f"Page {rel}: {parser.title}" if parser.title else f"Page {rel}"
     return [_unit(
         artifact_id, "pattern", title, "\n".join(body), Location(rel, 1, lines.last),
         (NAME, "page"),
-    )]
+    ), *units]
 
 
 _COMPONENT_FUNCTION = re.compile(r"(?<![\w$])function\s*\*?\s*([A-Z][\w$]*)\s*(?:<[^()]*?>)?\s*\(")
@@ -1159,6 +1217,8 @@ def _declared_types(code: _Code, start: int, end: int) -> dict[str, tuple[int, l
         except _Unbalanced as exc:
             code.unbalanced(f"the type {_clip(name, 80)}", match.start(), exc)
             continue
+        if code.cut(f"the type {_clip(name, 80)}", match.start(), close_at):
+            continue
         types[name] = (code.lines.line(match.start()), _members(code, match.end() - 1, close_at))
     return types
 
@@ -1166,11 +1226,14 @@ def _declared_types(code: _Code, start: int, end: int) -> dict[str, tuple[int, l
 def _literal_members(code: _Code, start: int, open_at: int, what: str,
                      end: int | None = None) -> list[str]:
     """The members of the literal whose bracket is at open_at, for what starts at start; none,
-    and a problem recorded, if its brackets do not pair before end."""
+    and a problem recorded, if its brackets do not pair before end or a string in it is cut
+    off."""
     try:
         close_at = _closing(code.masked, open_at, end)
     except _Unbalanced as exc:
         code.unbalanced(what, start, exc)
+        return []
+    if code.cut(what, start, close_at):
         return []
     return _members(code, open_at, close_at)
 
@@ -1217,6 +1280,9 @@ def _jsx_props(code: _Code) -> list[str]:
         if is_const and not _ARROW_OR_BODY.match(code.masked, close_at + 1):
             continue
         named.add(name)
+        if code.cut(f"the parameters of {_clip(name, 80)}", match.start(), close_at):
+            lines.append(f"- {name} (line {line}): parameters not readable (see its 'unparsed' unit)")
+            continue
         note, members = _params(code, open_at, close_at, types)
         lines.append(f"- {name} (line {line}){note}")
         lines += [f"  - {member}" for member in members[:MAX_LISTED]]
@@ -1259,6 +1325,8 @@ def _sfc_props(code: _Code, framework: str) -> list[str]:
                 props += _literal_members(code, match.start(), match.end() - 1, "the props option", end)
         else:
             for match in _EXPORT_LET.finditer(masked, start, end):
+                if code.cut("an exported let", match.start(), match.end()):
+                    continue
                 prop = _clip(_squash(code.text[match.start(1):match.end(1)]), 120)
                 props.append(f"line {code.lines.line(match.start(1))}: {prop}")
             for match in _RUNES_PROPS.finditer(masked, start, end):
@@ -1268,7 +1336,9 @@ def _sfc_props(code: _Code, framework: str) -> list[str]:
                 except _Unbalanced as exc:
                     code.unbalanced("a destructuring let", match.start(), exc)
                     continue
-                if _RUNES_TAIL.match(masked, close_at + 1, end):
+                if _RUNES_TAIL.match(masked, close_at + 1, end) and not code.cut(
+                    "a destructuring let", match.start(), close_at
+                ):
                     props += _members(code, open_at, close_at)
     unclosed = _SCRIPT_OPEN.search(masked, after)
     if unclosed:
@@ -1286,7 +1356,7 @@ def _read_component(artifact_id: str, rel: str, text: str) -> list[Unit]:
     states them, and for Vue and Svelte the outline of its markup."""
     name, _, framework = rel.rsplit("/", 1)[-1].rpartition(".")
     framework = framework.lower()
-    code = _Code(text, script=True)
+    code = _Code(text, script=True, lone_quotes=True)   # its markup and JSX text are prose
     body = [
         f"The {framework} component file {rel} ({code.lines.last} lines): its props, read from "
         "the source as text. Nothing in it is run."
