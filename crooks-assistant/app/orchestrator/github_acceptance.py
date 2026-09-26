@@ -1,29 +1,34 @@
-"""The GitHub acceptance gate: is the ``acceptance`` check green on this exact commit?
+"""The GitHub acceptance gate: did the ``acceptance`` workflow pass on this exact commit?
 
 The owner's loop update (OWNER_DECISIONS_2026-09-25.md, "Loop update"): an objective counts as
 accepted, and a landing may happen, only after a green GitHub acceptance run on that exact SHA.
 The run is ``.github/workflows/acceptance.yml``, whose one job, ``acceptance``, checks out the
-exact commit it was triggered for and refuses to produce evidence for any other. GitHub attaches
-the job's check run to that commit, so the question asked here is about one SHA and nothing else:
+exact commit it was triggered for and refuses to produce evidence for any other.
 
-    GET /repos/{repository}/commits/{sha}/check-runs?check_name=acceptance&filter=latest
+The question is asked through the Actions API, because that is what the loop's credential can
+read: a fine-grained personal access token cannot be granted the Checks permission at all, but
+it can be granted Actions: read for one repository (found on clive-worker-01 at the 2026-09-26
+re-pin). Two requests, both about one SHA and nothing else:
 
-Green means, and only means: at least one ``acceptance`` run created by GitHub Actions exists for
-the SHA, every one of them has completed, and every one concluded ``success``. Everything else
-fails closed and is named:
+    GET /repos/{repository}/actions/workflows/acceptance.yml/runs?head_sha={sha}
+    GET /repos/{repository}/actions/runs/{run_id}/jobs?filter=latest   (each run that concluded success)
+
+Green means, and only means: at least one run of the acceptance workflow exists for the SHA, every
+one of them has completed and concluded ``success``, and in every one the ``acceptance`` job itself
+ran on that SHA and concluded ``success``. Everything else fails closed and is named:
 
     missing       no acceptance run exists for the SHA (yet)
     pending       a run exists and has not completed
-    red           a completed run concluded anything but success (failure, cancelled,
-                  timed_out, skipped, neutral, ...), even beside a green duplicate
-    unavailable   GitHub could not be asked, refused, or answered something this gate will
-                  not decide on (an unexpected shape, a run for another commit, a partial list)
+    red           a completed run concluded anything but success (failure, cancelled, timed_out,
+                  skipped, neutral, ...), even beside a green duplicate; or a run that succeeded
+                  without its acceptance job succeeding on this SHA
+    unavailable   GitHub could not be asked, refused, or answered something this gate will not
+                  decide on (an unexpected shape, a run for another commit, a partial list)
 
-``filter=latest`` is GitHub's own default: a re-run replaces the earlier run of its check suite,
-so a flaky failure that was re-run green is judged by the re-run. A commit pushed to a branch and
-also opened as a pull request carries one run per event; both must be green. A run created by
-anything other than GitHub Actions is not the workflow and is ignored, so a check run posted by
-another app can neither make a commit green nor stand in for the workflow.
+A workflow run carries its latest attempt, so a flaky failure that was re-run green is judged by
+the re-run. A commit pushed to a branch and also opened as a pull request carries one run per
+event; both must be green. A run of any other workflow is not listed under this workflow and could
+not stand in for it.
 
 The credential is the one git already uses for the loop's remote (``git_remote_token``); no new
 credential exists. It is read at the moment of each request, held in a local for that request,
@@ -49,6 +54,7 @@ import httpx
 
 __all__ = [
     "ACCEPTANCE_CHECK",
+    "ACCEPTANCE_WORKFLOW",
     "ACTIONS_APP",
     "GATE_SCHEMA",
     "AcceptanceChecks",
@@ -58,12 +64,14 @@ __all__ = [
     "RunFact",
     "ask",
     "evaluate",
+    "evaluate_jobs",
     "git_remote_token",
     "unavailable",
 ]
 
 ACCEPTANCE_CHECK = "acceptance"      # the job name in .github/workflows/acceptance.yml
-ACTIONS_APP = "github-actions"       # the app that creates a workflow job's check run
+ACCEPTANCE_WORKFLOW = ".github/workflows/acceptance.yml"
+ACTIONS_APP = "github-actions"       # kept for records written before the gate read the Actions API
 GATE_SCHEMA = "clive.github_acceptance_gate.v1"
 API_URL = "https://api.github.com"
 TIMEOUT_S = 15.0
@@ -85,7 +93,7 @@ class GateState(StrEnum):
 
 @dataclass(frozen=True)
 class RunFact:
-    """One acceptance check run, reduced to what may be published: GitHub's id and two enum words."""
+    """One acceptance workflow run, reduced to what may be published: GitHub's run id and two enum words."""
 
     id: int
     status: str
@@ -172,22 +180,22 @@ def _ids(runs: list[RunFact]) -> str:
 
 
 def evaluate(sha: str, body: object) -> GateResult:
-    """Decide one SHA from GitHub's check-runs answer. Pure; every doubt is a refusal."""
-    if not isinstance(body, dict) or not isinstance(body.get("check_runs"), list):
-        return unavailable(sha, "GitHub's check-runs answer was not in the expected shape")
-    listed = body["check_runs"]
+    """Decide one SHA from GitHub's list of the acceptance workflow's runs for it. Pure; every doubt is a
+    refusal. A green answer here still needs each run's acceptance job confirmed (``evaluate_jobs``)."""
+    if not isinstance(body, dict) or not isinstance(body.get("workflow_runs"), list):
+        return unavailable(sha, "GitHub's workflow-runs answer was not in the expected shape")
+    listed = body["workflow_runs"]
     total = body.get("total_count")
     if not isinstance(total, int) or isinstance(total, bool) or total != len(listed):
         return unavailable(
-            sha, "GitHub's check-runs answer did not list every run it counted; a partial list is not decided on"
+            sha, "GitHub's workflow-runs answer did not list every run it counted; a partial list is not decided on"
         )
     runs: list[RunFact] = []
     for raw in listed:
         if not isinstance(raw, dict):
-            return unavailable(sha, "GitHub's check-runs answer held an entry that is not a check run")
-        app = raw.get("app")
-        if raw.get("name") != ACCEPTANCE_CHECK or not isinstance(app, dict) or app.get("slug") != ACTIONS_APP:
-            continue  # not the workflow's job: it can neither make the commit green nor stand in for it
+            return unavailable(sha, "GitHub's workflow-runs answer held an entry that is not a run")
+        if raw.get("path") != ACCEPTANCE_WORKFLOW:
+            return unavailable(sha, "GitHub listed a run of another workflow under the acceptance workflow")
         if raw.get("head_sha") != sha:
             return unavailable(sha, "GitHub listed an acceptance run for another commit under this SHA")
         run_id, status = raw.get("id"), _word(raw.get("status"))
@@ -198,6 +206,8 @@ def evaluate(sha: str, body: object) -> GateResult:
             return unavailable(sha, f"acceptance run {run_id} carries a conclusion this gate does not recognise")
         runs.append(RunFact(id=run_id, status=status, conclusion=conclusion))
     runs.sort(key=lambda run: run.id)
+    if len({run.id for run in runs}) != len(runs):
+        return unavailable(sha, "GitHub listed the same acceptance run twice")
     facts = tuple(runs)
     if not runs:
         return GateResult(sha, GateState.MISSING, "no GitHub Actions acceptance run exists for this commit", facts)
@@ -215,8 +225,35 @@ def evaluate(sha: str, body: object) -> GateResult:
     return GateResult(sha, GateState.GREEN, f"acceptance run(s) {_ids(runs)} completed with success", facts)
 
 
+def evaluate_jobs(sha: str, run: RunFact, body: object, runs: tuple[RunFact, ...]) -> GateResult | None:
+    """None when the ``acceptance`` job of ``run`` (a run that concluded success) ran on ``sha`` and concluded
+    success; otherwise the answer that refuses. Pure; every doubt is a refusal. A run whose job was skipped or
+    is missing succeeded without proving anything, so it is red, not green."""
+    if not isinstance(body, dict) or not isinstance(body.get("jobs"), list):
+        return unavailable(sha, f"GitHub's jobs answer for acceptance run {run.id} was not in the expected shape")
+    listed = body["jobs"]
+    total = body.get("total_count")
+    if not isinstance(total, int) or isinstance(total, bool) or total != len(listed):
+        return unavailable(sha, f"GitHub's jobs answer for acceptance run {run.id} did not list every job it counted")
+    jobs = []
+    for raw in listed:
+        if not isinstance(raw, dict):
+            return unavailable(sha, f"GitHub's jobs answer for acceptance run {run.id} held an entry that is not a job")
+        if raw.get("name") != ACCEPTANCE_CHECK:
+            continue
+        if raw.get("run_id") != run.id or raw.get("head_sha") != sha:
+            return unavailable(sha, f"GitHub listed an acceptance job under run {run.id} for another run or commit")
+        jobs.append((_word(raw.get("status")), raw.get("conclusion")))
+    if not jobs:
+        return GateResult(sha, GateState.RED, f"acceptance run {run.id} succeeded without an acceptance job", runs)
+    if any(status != "completed" or conclusion != "success" for status, conclusion in jobs):
+        return GateResult(sha, GateState.RED, f"acceptance run {run.id} succeeded but its acceptance job did not",
+                          runs)
+    return None
+
+
 class GitHubAcceptance:
-    """The real gate: GitHub's check-runs API for one repository and one exact SHA per call."""
+    """The real gate: GitHub's Actions API for one repository and one exact SHA per call."""
 
     def __init__(
         self,
@@ -238,12 +275,24 @@ class GitHubAcceptance:
         if not isinstance(repository, str) or not _REPOSITORY.fullmatch(repository) or ".." in repository:
             return unavailable(sha, "the repository asked about is not owner/name")
         try:
-            body = self._fetch(repository, sha)
+            headers = self._headers(repository)
+            workflow = ACCEPTANCE_WORKFLOW.rsplit("/", 1)[-1]
+            result = evaluate(sha, self._get(
+                f"/repos/{repository}/actions/workflows/{workflow}/runs",
+                {"head_sha": sha, "per_page": str(MAX_RUNS), "exclude_pull_requests": "true"}, headers, "workflow-runs"))
+            if not result.green:
+                return result
+            for run in result.runs:
+                refused = evaluate_jobs(sha, run, self._get(
+                    f"/repos/{repository}/actions/runs/{run.id}/jobs",
+                    {"filter": "latest", "per_page": str(MAX_RUNS)}, headers, "jobs"), result.runs)
+                if refused is not None:
+                    return refused
+            return result
         except _Unavailable as exc:
             return unavailable(sha, str(exc))
         except Exception as exc:  # noqa: BLE001 -- any surprise fails closed, by type name only
-            return unavailable(sha, f"the check-runs request failed ({type(exc).__name__})")
-        return evaluate(sha, body)
+            return unavailable(sha, f"the acceptance request failed ({type(exc).__name__})")
 
     def _token(self, repository: str) -> str | None:
         try:
@@ -252,7 +301,7 @@ class GitHubAcceptance:
             return None
         return token if isinstance(token, str) and token.strip() else None
 
-    def _fetch(self, repository: str, sha: str) -> Any:
+    def _headers(self, repository: str) -> dict[str, str]:
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -261,28 +310,29 @@ class GitHubAcceptance:
         token = self._token(repository)
         if token is not None:
             headers["Authorization"] = f"Bearer {token.strip()}"
-        del token
-        params = {"check_name": ACCEPTANCE_CHECK, "filter": "latest", "per_page": str(MAX_RUNS)}
+        return headers
+
+    def _get(self, path: str, params: dict[str, str], headers: dict[str, str], what: str) -> Any:
         self.requests_made += 1
         try:
             with httpx.Client(base_url=self._api_url, transport=self._transport, timeout=self._timeout_s,
                               follow_redirects=False) as client:
-                response = client.get(f"/repos/{repository}/commits/{sha}/check-runs", params=params,
-                                      headers=headers)
+                response = client.get(path, params=params, headers=headers)
         except httpx.HTTPError as exc:
             # The exception's own text can carry the URL; only its kind travels.
             raise _Unavailable(f"GitHub could not be reached ({type(exc).__name__})") from None
         if response.status_code in (401, 403):
             raise _Unavailable(
-                f"GitHub refused the check-runs request (HTTP {response.status_code}): the credential git uses "
-                "for the remote cannot read checks, or the rate limit is exhausted"
+                f"GitHub refused the {what} request (HTTP {response.status_code}): the credential git uses for "
+                "the remote cannot read Actions (a fine-grained token needs Actions: read on the repository), "
+                "or the rate limit is exhausted"
             )
         if response.status_code != 200:
-            raise _Unavailable(f"GitHub could not list the commit's check runs (HTTP {response.status_code})")
+            raise _Unavailable(f"GitHub could not list the {what} (HTTP {response.status_code})")
         try:
             return response.json()
         except ValueError:
-            raise _Unavailable("GitHub's check-runs answer was not JSON") from None
+            raise _Unavailable(f"GitHub's {what} answer was not JSON") from None
 
 
 class _Unavailable(RuntimeError):
