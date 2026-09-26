@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
 
-ORIGIN_KINDS = ("git", "archive", "file", "directory", "url", "upload")
+ORIGIN_KINDS = ("git", "archive", "file", "directory", "url", "upload", "package")
 ARTIFACT_KINDS = (
     "skill_collection", "python_package", "node_package", "source_code", "document",
     "api_spec", "tool_spec", "dataset", "web_app", "theme", "media", "application",
@@ -45,14 +45,20 @@ FINDING_CATEGORIES = ("safety", "quality")
 SEVERITIES = ("info", "low", "medium", "high", "critical")
 ABSORPTION_TARGETS = (
     "builder_skill", "review_check", "tool_connector", "product_memory", "native_objective",
-    "reference_only", "rejected",
+    "design_system", "reference_only", "rejected",
 )
 # The targets that put something into CLIVE, and so must say exactly what; the other two add
 # nothing, and their removal handle says so by being empty.
 ADDING_TARGETS = frozenset(
-    ("builder_skill", "review_check", "tool_connector", "product_memory", "native_objective")
+    ("builder_skill", "review_check", "tool_connector", "product_memory", "native_objective",
+     "design_system")
 )
-ADDITION_KINDS = ("file", "skill", "check", "tool", "connector", "memory", "objective")
+# token_set: a named block of design tokens in the Generative UI's token sheet; component: a
+# component's folder beside the scene renderer. Both are what the design_system target adds.
+ADDITION_KINDS = (
+    "file", "skill", "check", "tool", "connector", "memory", "objective", "token_set",
+    "component",
+)
 PROPOSER = "clive"   # CLIVE proposes
 DECIDER = "owner"    # the owner decides
 

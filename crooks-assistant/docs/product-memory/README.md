@@ -61,6 +61,7 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [RECONCILIATION_2026-09-25.md](./RECONCILIATION_2026-09-25.md) — evening reconciliation of the trunk, all 48 loop objectives, all 110 branches (knowledge found only on unmerged branches, proposed clean-up) and what waits on the owner.
 - [DRIFT_REVIEW_2026-09-26.md](./DRIFT_REVIEW_2026-09-26.md) — the build measured against the philosophy: what converges, the eight drifts (machinery ahead of the owner's attention, roadmap out of order, three approval systems, stale device model, no way to consume new technology) and the corrections.
 - [KNOWLEDGE_DIGESTER_V1.md](./KNOWLEDGE_DIGESTER_V1.md) — how CLIVE digests any artifact (repositories, skills, documents, API specifications, data, websites, themes, media, applications, itself) into provenance-tagged, reversible units, relates them to its self-model, and proves or drops what it absorbs.
+- [DIGESTIONS_2026-09-26.md](./DIGESTIONS_2026-09-26.md) — the digester's first real digestions (Vercel's interface guidelines, anthropics/skills, Playwright CLI, Taste Skill, CLIVE itself): what each is, what came out, what CLIVE should absorb, the defects found and fixed, and what the digester is and is not good at yet.
 - [PLAN_2026-09-26.md](./PLAN_2026-09-26.md) — the day's plan: the deploy and owner steps, digester waves, loop update part 2, and how the day is judged.
 
 ## Status model

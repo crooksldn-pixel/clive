@@ -582,6 +582,10 @@ def _schema_unit(artifact_id: str, title: str, facts: list[str], profile: _Profi
         tags.append("personal")
     if profile.truncated:
         tags.append("truncated")
+    # Columns left unprofiled, or the artifact's value budget spent: what was not looked at may
+    # hold personal data, so nothing may take this profile as saying it does not.
+    if profile.width > len(profile.columns) or profile.spent:
+        tags.append("partial")
     return Unit(
         artifact_id=artifact_id, kind="data_schema", title=_clip(title, MAX_TITLE),
         body=_fit(lines), location=location, tags=tuple(tags),
