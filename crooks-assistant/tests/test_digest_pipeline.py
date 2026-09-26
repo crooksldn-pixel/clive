@@ -925,6 +925,16 @@ def test_what_the_scanner_did_not_read_is_never_decomposed(tmp_path, case):
     assert _digest(control).blocked
 
 
+
+def _own_tempdir(monkeypatch, tmp_path: Path) -> Path:
+    """A temporary folder of this test's own for the pipeline's scanned-only views, so "the view
+    is removed" is checked without racing other tests' digests in the shared system folder."""
+    folder = tmp_path / "system-tmp"
+    folder.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(folder))
+    return folder
+
+
 def test_a_file_that_changed_after_it_was_scanned_is_not_decomposed(tmp_path, monkeypatch):
     root = _tree(tmp_path / "tree", {"docs/a.md": "# Guide\n\nCount orders once.\n",
                                      "docs/b.md": "# Other\n\nPlain words.\n"})
@@ -936,11 +946,12 @@ def test_a_file_that_changed_after_it_was_scanned_is_not_decomposed(tmp_path, mo
         return found
 
     monkeypatch.setattr("app.digest.pipeline.scan.scan_tree", then_changed)
+    views = _own_tempdir(monkeypatch, tmp_path)
     result = _digest(root)
     assert {unit.location.path for unit in result.units} == {"docs/b.md"}
     changed = [f for f in result.findings if f.explanation.startswith("digest.changed")]
     assert [(f.category, f.severity, f.location.path) for f in changed] == [("safety", "high", "docs/a.md")]
-    assert not list(Path(tempfile.gettempdir()).glob(f"{pipeline.VIEW_PREFIX}*")), "the view is removed"
+    assert not list(views.glob(f"{pipeline.VIEW_PREFIX}*")), "the view is removed"
 
 
 def test_no_credential_is_stored_related_proposed_or_shown(tmp_path):
@@ -1236,8 +1247,9 @@ def test_proposals_read_each_folders_licence_from_the_scanned_redacted_view(tmp_
         f"skills/{TOKEN}/SKILL.md": COMBINED["skills/release/SKILL.md"],
     })
     store = DigestStore(tmp_path / "store")
+    views = _own_tempdir(monkeypatch, tmp_path)
     result = _related(root, store)
     assert seen and all(pipeline.VIEW_PREFIX in str(path) for path in seen)
     assert result.proposals
     _nothing_of(result, TOKEN, TOKEN.lower(), store=store)
-    assert not list(Path(tempfile.gettempdir()).glob(f"{pipeline.VIEW_PREFIX}*"))
+    assert not list(views.glob(f"{pipeline.VIEW_PREFIX}*"))
