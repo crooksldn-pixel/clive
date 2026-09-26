@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from app.orchestrator.workers import check_server
 from app.orchestrator.workers.base import LaunchSpec, Started
-from app.orchestrator.workers.claude import ClaudeCodeWorker, _finished, parse_events
+from app.orchestrator.workers.claude import FILE_TOOLS, ClaudeCodeWorker, _finished, parse_events
 
 # A real init event, as Claude Code 2.1.280 printed it on 2026-09-23 for the restricted launch
 # (cwd and session shortened; every roster field verbatim).
@@ -86,6 +87,63 @@ def test_the_real_restricted_init_event_passes_the_launch_check_only_with_bash_a
 def test_any_widening_of_the_observed_surface_is_refused(tmp_path, change, expected):
     event = {**REAL_INIT, "tools": ["Read", "Edit", "Write", "Glob", "Grep", "StructuredOutput"], **change}
     problems = ClaudeCodeWorker().verify_started(parse_events(json.dumps(event))[0], spec(tmp_path))
+    assert any(expected in p for p in problems), problems
+
+
+# ---------------------------------------------------------------- run_checks: exactly one server, one tool
+
+CHECK_TOOL = "mcp__clive_checks__run_checks"
+
+
+def test_without_declared_checks_the_launch_has_no_server_and_no_extra_tool(tmp_path):
+    worker = ClaudeCodeWorker()
+    argv = worker.argv(spec(tmp_path), "/bin/claude")
+    assert argv[argv.index("--mcp-config") + 1] == '{"mcpServers":{}}'
+    assert CHECK_TOOL not in argv
+    assert "MCP_TOOL_TIMEOUT" not in worker.environment(spec(tmp_path), "/bin/claude")
+
+
+def test_the_worker_launch_allows_exactly_the_file_tools_plus_run_checks(tmp_path):
+    config = tmp_path / "runtime" / "config.json"
+    worker = ClaudeCodeWorker(check_python="/venv/bin/python")
+    argv = worker.argv(spec(tmp_path, check_config=config), "/bin/claude")
+    assert argv[argv.index("--tools") + 1] == "Read,Edit,Write,Glob,Grep"  # the built-ins are unchanged
+    start = argv.index("--allowedTools") + 1
+    allowed = argv[start:argv.index("--permission-mode")]
+    assert allowed == [*FILE_TOOLS, CHECK_TOOL] and CHECK_TOOL == check_server.QUALIFIED_TOOL
+    assert "Bash" not in " ".join(argv)
+    servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]
+    assert servers == {"clive_checks": {"type": "stdio", "command": "/venv/bin/python",
+                                        "args": ["-I", str(Path(check_server.__file__).resolve()), str(config)],
+                                        "env": {}}}
+    assert "--strict-mcp-config" in argv
+    env = worker.environment(spec(tmp_path, check_config=config), "/bin/claude")
+    assert set(env) == {"PATH", "HOME", "LANG", "TMPDIR", "CLIVE_ATTEMPT_ID", "MCP_TOOL_TIMEOUT"}
+
+
+def test_the_launch_check_accepts_the_check_server_only_when_the_launch_asked_for_it(tmp_path):
+    event = {**REAL_INIT, "tools": ["Read", "Edit", "Write", "Glob", "Grep", "StructuredOutput", CHECK_TOOL],
+             "mcp_servers": [{"name": "clive_checks", "status": "connected"}]}
+    started = parse_events(json.dumps(event))[0]
+    asked = spec(tmp_path, check_config=tmp_path / "config.json")
+    assert ClaudeCodeWorker().verify_started(started, asked) == []
+    problems = ClaudeCodeWorker().verify_started(started, spec(tmp_path))
+    assert any("MCP servers present: clive_checks" in p for p in problems)
+    assert any(CHECK_TOOL in p for p in problems)
+
+
+@pytest.mark.parametrize("change, expected", [
+    ({"mcp_servers": [{"name": "clive_checks", "status": "connected"}, {"name": "claude.ai Gmail"}]},
+     "MCP servers present: claude.ai Gmail"),
+    ({"tools": ["Read", CHECK_TOOL, "mcp__clive_checks__shell"]}, "mcp__clive_checks__shell"),
+    ({"tools": ["Read", CHECK_TOOL, "Bash"]}, "Bash"),
+    ({"mcp_servers": [{"name": "clive-checks"}]}, "MCP servers present: clive-checks"),
+])
+def test_with_the_check_server_any_further_widening_is_still_refused(tmp_path, change, expected):
+    event = {**REAL_INIT, "tools": ["Read", "Edit", "Write", "Glob", "Grep", "StructuredOutput", CHECK_TOOL],
+             "mcp_servers": [{"name": "clive_checks", "status": "connected"}], **change}
+    problems = ClaudeCodeWorker().verify_started(parse_events(json.dumps(event))[0],
+                                                 spec(tmp_path, check_config=tmp_path / "config.json"))
     assert any(expected in p for p in problems), problems
 
 

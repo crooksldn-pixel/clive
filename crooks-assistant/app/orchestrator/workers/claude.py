@@ -15,8 +15,12 @@ What reduces the worker's capability is the launch itself, not the prompt:
 - ``--restricted``: user, project and local settings are ignored and file tools are
   confined to the workspace; ``--setting-sources ""`` and ``--disable-slash-commands``
   load no settings, skills or commands;
-- ``--strict-mcp-config --mcp-config '{"mcpServers":{}}'``: no MCP server, so no
-  connector, however the host is configured;
+- ``--strict-mcp-config --mcp-config``: no MCP server, so no connector, however the
+  host is configured, with one exception: when the objective declares checks, the
+  config names exactly CLIVE's own ``run_checks`` server (``check_server.py``), started
+  from the dispatcher's interpreter with a host-side config of those checks, and
+  ``--allowedTools`` gains exactly its one tool. The checks it runs are the
+  objective's, in the same sandbox the dispatcher uses; the runs are advisory;
 - ``--tools`` names the built-in tools (file tools only, by default; Bash only when
   the dispatcher is configured with explicit command prefixes); ``--permission-mode
   dontAsk`` with an explicit ``--allowedTools`` list denies everything else (a denied
@@ -25,8 +29,8 @@ What reduces the worker's capability is the launch itself, not the prompt:
   records at assignment is the session that runs.
 
 Then the launch is checked, fail-closed: ``verify_started`` compares the init
-event against what was asked for, and any extra tool, any MCP server, any
-non-builtin plugin, any skill, another cwd or another session is a deterministic
+event against what was asked for, and any extra tool, any MCP server but that one
+(and it only when asked for), any non-builtin plugin, any skill, another cwd or another session is a deterministic
 refusal; the dispatcher kills the worker and blocks the task.
 
 Authentication is whatever the CLI resolves in that clean environment: a host
@@ -43,9 +47,11 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import check_server
 from .base import (
     Activity,
     Finished,
@@ -68,6 +74,10 @@ FILE_TOOLS = ("Read", "Edit", "Write", "Glob", "Grep")
 DEFAULT_BASH: tuple[str, ...] = ()
 ALLOWED_PLUGINS = frozenset({"telemetry@builtin"})
 REPORT_TOOL = "StructuredOutput"
+CHECK_SERVER = check_server.SERVER_NAME
+CHECK_TOOL = check_server.QUALIFIED_TOOL
+# An MCP tool call has its own client-side timeout; a declared check may run for up to 7200s.
+CHECK_TOOL_TIMEOUT_MS = str((7200 + 300) * 1000)
 EDIT_TOOLS = frozenset({"Edit", "Write"})
 
 WORKER_REPORT_SCHEMA = {
@@ -99,6 +109,7 @@ class ClaudeCodeWorker:
         max_turns: int = 200,
         bash_prefixes: tuple[str, ...] = DEFAULT_BASH,
         oauth_token_file: Path | None = None,
+        check_python: str = sys.executable,
     ) -> None:
         self.cli = cli
         self.model = model
@@ -106,14 +117,28 @@ class ClaudeCodeWorker:
         self.max_turns = max_turns
         self.bash_prefixes = tuple(bash_prefixes)
         self.oauth_token_file = oauth_token_file
+        self.check_python = check_python
         self._children: dict[int, subprocess.Popen] = {}
 
     # ---- launch --------------------------------------------------------------
     def builtin_tools(self) -> tuple[str, ...]:
         return (*FILE_TOOLS, "Bash") if self.bash_prefixes else FILE_TOOLS
 
-    def allowed_tools(self) -> tuple[str, ...]:
-        return (*FILE_TOOLS, *(f"Bash({p}:*)" for p in self.bash_prefixes))
+    def allowed_tools(self, spec: LaunchSpec | None = None) -> tuple[str, ...]:
+        extra = (CHECK_TOOL,) if spec is not None and spec.check_config is not None else ()
+        return (*FILE_TOOLS, *(f"Bash({p}:*)" for p in self.bash_prefixes), *extra)
+
+    def mcp_config(self, spec: LaunchSpec) -> str:
+        """No MCP server, or exactly CLIVE's run_checks server bound to this attempt's declared checks."""
+        servers = {}
+        if spec.check_config is not None:
+            servers[CHECK_SERVER] = {
+                "type": "stdio",
+                "command": self.check_python,
+                "args": ["-I", str(Path(check_server.__file__).resolve()), str(spec.check_config)],
+                "env": {},
+            }
+        return json.dumps({"mcpServers": servers}, separators=(",", ":"))
 
     def argv(self, spec: LaunchSpec, cli_path: str) -> list[str]:
         argv = [
@@ -122,9 +147,9 @@ class ClaudeCodeWorker:
             "--session-id", spec.session_id,
             "--restricted",
             "--tools", ",".join(self.builtin_tools()),
-            "--allowedTools", *self.allowed_tools(),
+            "--allowedTools", *self.allowed_tools(spec),
             "--permission-mode", "dontAsk",
-            "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+            "--strict-mcp-config", "--mcp-config", self.mcp_config(spec),
             "--setting-sources", "",
             "--disable-slash-commands",
             "--no-session-persistence",
@@ -147,6 +172,8 @@ class ClaudeCodeWorker:
             "TMPDIR": str(tmp),
             MARKER: spec.marker,
         }
+        if spec.check_config is not None:
+            env["MCP_TOOL_TIMEOUT"] = CHECK_TOOL_TIMEOUT_MS
         if self.oauth_token_file is not None:
             try:
                 token = Path(self.oauth_token_file).read_text(encoding="utf-8").strip()
@@ -203,11 +230,16 @@ class ClaudeCodeWorker:
         if os.path.realpath(started.cwd) != os.path.realpath(spec.workspace):
             problems.append(f"cwd {started.cwd} is not the attempt workspace {spec.workspace}")
         allowed = set(self.builtin_tools()) | {REPORT_TOOL}
+        allowed_servers = set()
+        if spec.check_config is not None:
+            allowed.add(CHECK_TOOL)
+            allowed_servers.add(CHECK_SERVER)
         extra = sorted(set(started.tools) - allowed)
         if extra:
             problems.append("tools beyond the launch policy: " + ", ".join(extra))
-        if started.mcp_servers:
-            problems.append("MCP servers present: " + ", ".join(started.mcp_servers))
+        foreign_servers = sorted(set(started.mcp_servers) - allowed_servers)
+        if foreign_servers:
+            problems.append("MCP servers present: " + ", ".join(foreign_servers))
         foreign = sorted(set(started.plugins) - ALLOWED_PLUGINS)
         if foreign:
             problems.append("plugins beyond the builtin allowance: " + ", ".join(foreign))
