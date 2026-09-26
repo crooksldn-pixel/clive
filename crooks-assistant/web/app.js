@@ -4614,3 +4614,70 @@ window.CliveAlpha = {
   },
   isBusy() { return busy; },
 };
+
+// ------------------------------------------------------------------ the ask bar
+/* The phone's one bar, drawn by web/alpha.js as `#ask-bar`: a tap types, a hold speaks.
+ *
+ * The tap is the bar's own click, which web/alpha.js answers by opening the keyboard. The hold
+ * is decided HERE, where the microphone lives, so web/alpha.js never reaches the recorder. The
+ * recorder starts ASK_HOLD_MS after the touch rather than on it — that wait is what lets a tap
+ * be a tap without opening the microphone — and the click that follows a hold is swallowed so
+ * it cannot also open the keyboard. Sliding the thumb ASK_CANCEL_PX away before lifting drops
+ * the recording; the bar shows it (`data-cancel`) before the thumb lifts.
+ *
+ * The bar is a <button>, so the touch machine files it as a control, never as voice: the
+ * orb's and #talk's pointers are untouched by this. */
+const ASK_HOLD_MS = 260;
+const ASK_CANCEL_PX = 90;
+let askPress = null;
+let askSwallowUntil = 0;
+document.addEventListener('pointerdown', (event) => {
+  const bar = event.target && event.target.closest ? event.target.closest('#ask-bar') : null;
+  if (!bar || askPress || (event.button !== undefined && event.button !== 0)) return;
+  try { bar.setPointerCapture(event.pointerId); } catch { /* unsupported */ }
+  unlockSpeech();   // inside the gesture, so the answer can be spoken
+  const press = { id: event.pointerId, x: event.clientX, y: event.clientY, bar, held: false, live: false, cancel: false };
+  askPress = press;
+  press.timer = setTimeout(() => {
+    if (askPress !== press) return;
+    press.held = true;
+    if (busy || recording || pendingStart) { if (busy) showBusyHint(); return; }
+    stopSpeaking();   // the voice must not be recorded answering itself
+    acquireWakeLock();
+    if (live) live.pointerDown();
+    press.live = true;
+    setState('LISTENING');
+    startRecording();
+  }, ASK_HOLD_MS);
+});
+document.addEventListener('pointermove', (event) => {
+  const press = askPress;
+  if (!press || !press.live || event.pointerId !== press.id) return;
+  const away = Math.hypot(event.clientX - press.x, event.clientY - press.y) > ASK_CANCEL_PX;
+  if (away === press.cancel) return;
+  press.cancel = away;
+  press.bar.dataset.cancel = away ? 'true' : 'false';
+});
+function endAskPress(event) {
+  const press = askPress;
+  if (!press || event.pointerId !== press.id) return;
+  askPress = null;
+  clearTimeout(press.timer);
+  press.bar.dataset.cancel = 'false';
+  if (press.held) askSwallowUntil = Date.now() + 700;
+  if (press.live) stopRecording(press.cancel || event.type === 'pointercancel');
+}
+document.addEventListener('pointerup', endAskPress);
+document.addEventListener('pointercancel', endAskPress);
+document.addEventListener('click', (event) => {
+  if (Date.now() > askSwallowUntil) return;
+  if (!event.target || !event.target.closest || !event.target.closest('#ask-bar')) return;
+  askSwallowUntil = 0;
+  event.preventDefault();
+  event.stopPropagation();
+}, true);
+// The capture went away with no lift (the bar redrawn, Android taking the gesture): nothing
+// was said on purpose, so nothing is sent, and the next press is not refused as a second one.
+document.addEventListener('lostpointercapture', (event) => {
+  if (askPress && event.pointerId === askPress.id) endAskPress({ pointerId: event.pointerId, type: 'pointercancel' });
+});
