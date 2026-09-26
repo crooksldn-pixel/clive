@@ -8,7 +8,8 @@ asserts must be verified before it is trusted. Links stay in the body where they
 
 Digesting is reading: files are opened read-only without following links and are never run,
 imported or installed; HTML is parsed as text by the standard library, its scripts and styles
-dropped unread. The walk, the files and the output are bounded, the order is fixed (names in
+dropped unread. The walk, each file, the bytes read in all, the text an HTML page may give and
+the output are bounded, and no pattern backtracks without bound; the order is fixed (names in
 code-point order, then document order), and nothing malformed raises: what cannot be read is
 skipped and said so in a knowledge Unit tagged 'unparsed'."""
 
@@ -29,6 +30,7 @@ NAME = "documents"
 HANDLES = ("document", "markdown", "restructuredtext", "text", "html")
 
 MAX_FILE_BYTES = 2_000_000   # a document larger than this is not read
+MAX_TOTAL_BYTES = 32_000_000 # bytes read from one artifact; documents past it are not read
 MAX_DOCUMENTS = 1_000        # documents read from one artifact
 MAX_ENTRIES = 20_000         # files and folders looked at, in all and in any one folder
 MAX_DEPTH = 32               # folders nested deeper than this are not entered
@@ -36,6 +38,11 @@ MAX_UNITS = 10_000           # Units returned, besides the one saying the rest w
 MAX_SENTENCE = 2_000         # a longer run without a full stop is not read as one claim
 _MAX_PROBLEMS = 20           # malformed places named in one HTML page's report; the rest counted
 _MAX_OPEN = 256              # HTML elements open at once; markup nested deeper is not checked
+# Characters of text an HTML page may give for each character of it (and a few thousand more):
+# a link left open across many blocks repeats its target in each, and without a bound a small
+# page could be made to give gigabytes.
+_HTML_TEXT_FACTOR = 2
+_HTML_TEXT_SLACK = 10_000
 
 _FLAVOURS = {
     ".md": "markdown", ".markdown": "markdown", ".mdown": "markdown", ".mkd": "markdown",
@@ -61,7 +68,10 @@ _ADORN = re.compile(r"([!-/:-@\[-`{-~])\1+[ \t]*")
 _RST_CODE = re.compile(r"\.\.[ \t]+(?:code-block|code|sourcecode)::[ \t]*(\S*)")
 _OPTION = re.compile(r":[\w-]+:.*")
 
-_SENTENCE_END = re.compile(r"[.!?]+[\"')\]*_]*(?=\s)")
+# A sentence's end: a run of stops, closing marks after it, then space. It begins only where a
+# run of stops begins and gives nothing back, so a long run with no space after it is passed
+# over in one step rather than tried again from each of its characters.
+_SENTENCE_END = re.compile(r"(?<![.!?])[.!?]++[\"')\]*_]*+(?=\s)")
 _LINK_TARGET = re.compile(r"\]\([^)]*\)|<[^<>\s]+>`_*")
 _URL = re.compile(r"\b(?:https?|ftp)://\S+|\bwww\.\S+")
 _CODE_SPAN = re.compile(r"`[^`]*`")
@@ -172,6 +182,7 @@ def decompose(root: Path, artifact_id: str) -> list[Unit]:
         raise ValueError(f"artifact_id does not match {ARTIFACT_ID_PATTERN}: {artifact_id!r}")
     units: list[Unit] = []
     cut = False
+    spent = 0
     try:
         for found in _walk(Path(root)):
             if len(units) >= MAX_UNITS:
@@ -180,8 +191,10 @@ def decompose(root: Path, artifact_id: str) -> list[Unit]:
             if isinstance(found, _Skipped):
                 units.append(_unparsed(artifact_id, found.path, found.reason))
                 continue
-            read, stopped = _read(artifact_id, found, MAX_UNITS - len(units))
+            read, stopped, size = _read(artifact_id, found, MAX_UNITS - len(units),
+                                        MAX_TOTAL_BYTES - spent)
             units.extend(read)
+            spent += size
             cut = cut or stopped
     except Exception as exc:  # noqa: BLE001 — a fault in the walk is reported, never raised
         units.append(_unparsed(artifact_id, ".", f"reading stopped early: {type(exc).__name__}: {exc}"))
@@ -209,7 +222,11 @@ class _Skipped:
 
 
 class _Unreadable(Exception):
-    """A document that was not read, and why."""
+    """A document that was not read, and why; and how many of its bytes were read to find out."""
+
+    def __init__(self, reason: str, size: int = 0) -> None:
+        super().__init__(reason)
+        self.size = size
 
 
 def _flavour(name: str) -> str | None:
@@ -305,8 +322,11 @@ def _listing(folder: Path) -> list[os.DirEntry[str]] | str:
     return sorted(entries, key=lambda entry: entry.name)
 
 
-def _load(file: Path) -> str:
+def _load(file: Path, allowance: int) -> tuple[str, int]:
+    """The document's text, and how many bytes were read for it: never more than the file bound,
+    nor than the allowance left of the artifact's reading budget."""
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    spent = f"the {MAX_TOTAL_BYTES}-byte reading budget for the artifact was spent; not read"
     try:
         descriptor = os.open(file, flags)
         with open(descriptor, "rb") as handle:
@@ -315,33 +335,41 @@ def _load(file: Path) -> str:
                 raise _Unreadable("not a regular file; not read")
             if info.st_size > MAX_FILE_BYTES:
                 raise _Unreadable(f"larger than {MAX_FILE_BYTES} bytes; not read")
-            data = handle.read(MAX_FILE_BYTES + 1)
+            if info.st_size > allowance:
+                raise _Unreadable(spent)
+            data = handle.read(max(0, min(MAX_FILE_BYTES, allowance)) + 1)
     except OSError as exc:
         raise _Unreadable(f"could not be read: {_why(exc)}") from None
-    if len(data) > MAX_FILE_BYTES:
-        raise _Unreadable(f"larger than {MAX_FILE_BYTES} bytes; not read")
+    size = len(data)
+    if size > MAX_FILE_BYTES:
+        raise _Unreadable(f"larger than {MAX_FILE_BYTES} bytes; not read", size)
+    if size > allowance:
+        raise _Unreadable(spent, size)
     if b"\x00" in data:
-        raise _Unreadable("holds NUL bytes, so it is binary rather than a text document; not read")
+        raise _Unreadable("holds NUL bytes, so it is binary rather than a text document; not read", size)
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise _Unreadable(f"not UTF-8 text: byte {exc.start} cannot be decoded; not read") from None
-    return text.replace("\r\n", "\n").replace("\r", "\n")
+        raise _Unreadable(f"not UTF-8 text: byte {exc.start} cannot be decoded; not read", size) from None
+    return text.replace("\r\n", "\n").replace("\r", "\n"), size
 
 
-def _read(artifact_id: str, document: _Document, budget: int) -> tuple[list[Unit], bool]:
-    """One document's Units, and whether the budget cut them short."""
+def _read(artifact_id: str, document: _Document, budget: int,
+          allowance: int) -> tuple[list[Unit], bool, int]:
+    """One document's Units, whether the Unit budget cut them short, and the bytes read."""
+    size = 0
     try:
-        text = _load(document.file)
+        text, size = _load(document.file, allowance)
         problems: list[tuple[int, str]] = []
+        prose: frozenset[int] = frozenset()
         if document.flavour == "html":
-            lines, problems = _html_lines(text)
+            lines, problems, prose = _html_lines(text)
         else:
             lines = [(number, number, line) for number, line in enumerate(text.split("\n"), 1)]
             if lines and not lines[-1][2]:
                 lines.pop()
         reader = _Reader(artifact_id, document.path, lines, document.flavour,
-                         budget - 1 if problems else budget)
+                         budget - 1 if problems else budget, prose)
         units = reader.run()
         if problems:
             reason = (
@@ -350,12 +378,12 @@ def _read(artifact_id: str, document: _Document, budget: int) -> tuple[list[Unit
             )
             units.append(_unparsed(artifact_id, document.path, reason, problems[0][0],
                                    max(line for line, _ in problems)))
-        return units, reader.cut
+        return units, reader.cut, size
     except _Unreadable as exc:
-        return [_unparsed(artifact_id, document.path, str(exc))], False
+        return [_unparsed(artifact_id, document.path, str(exc))], False, exc.size
     except Exception as exc:  # noqa: BLE001 — a parser fault is reported as unparsed, never raised
         reason = f"could not be parsed: {type(exc).__name__}: {exc}"
-        return [_unparsed(artifact_id, document.path, reason)], False
+        return [_unparsed(artifact_id, document.path, reason)], False, size
 
 
 # --- making Units ----------------------------------------------------------------------------
@@ -495,14 +523,18 @@ class _Section:
 
 class _Reader:
     """One document's logical lines, read top to bottom into Units in the order they begin.
-    A section's Unit holds its place from its heading and is written when the section ends."""
+    A section's Unit holds its place from its heading and is written when the section ends.
+    Prose lines — an HTML page's own text, as against the structure its tags were written
+    as — are read as prose however they begin: a paragraph that opens with '#' or '```' is not a heading
+    or a fence."""
 
     def __init__(self, artifact_id: str, path: str, lines: list[_Line], flavour: str,
-                 budget: int) -> None:
+                 budget: int, prose: frozenset[int] = frozenset()) -> None:
         self.artifact_id = artifact_id
         self.path = path
         self.lines = lines
         self.flavour = flavour
+        self.prose = prose
         self.budget = budget
         self.cut = False
         self.units: list[Unit | None] = []
@@ -605,6 +637,10 @@ class _Reader:
         """Reads the construct that begins at line i: the index after it, and whether it was
         a heading."""
         start, end, text = self.lines[i]
+        if i in self.prose:
+            self.in_list = False
+            self.paragraph.append((start, end, text))
+            return i + 1, False
         if self.flavour == "rst":
             found = self._rst(i)
             if found is not None:
@@ -811,12 +847,14 @@ def _html_language(classes: str | None) -> str:
     return ""
 
 
-def _html_lines(text: str) -> tuple[list[_Line], list[tuple[int, str]]]:
-    """The page's lines, and what was malformed in it: the line and a plain account of each."""
-    parser = _HTMLText()
+def _html_lines(text: str) -> tuple[list[_Line], list[tuple[int, str]], frozenset[int]]:
+    """The page's lines, what was malformed in it — the line and a plain account of each — and
+    which lines are the page's own text rather than structure written as markdown. The text is
+    bounded by the page's length (see _HTML_TEXT_FACTOR)."""
+    parser = _HTMLText(_HTML_TEXT_FACTOR * len(text) + _HTML_TEXT_SLACK)
     parser.feed(text)
     parser.close()
-    return parser.finish(), parser.problems
+    return parser.finish(), parser.problems, frozenset(parser.prose)
 
 
 class _HTMLText(HTMLParser):
@@ -871,9 +909,13 @@ class _HTMLText(HTMLParser):
         "base", "head", "html", "link", "meta", "noscript", "script", "style", "template", "title",
     ))
 
-    def __init__(self) -> None:
+    def __init__(self, budget: int) -> None:
         super().__init__(convert_charrefs=True)
         self.lines: list[_Line] = []
+        self.prose: set[int] = set()                # the lines that are the page's own text
+        self._budget = budget                       # characters of text the page may give
+        self._size = 0
+        self._full = False                          # the budget is spent: nothing more is read
         self._words: list[str] = []
         self._first = 0
         self._last = 0
@@ -958,7 +1000,7 @@ class _HTMLText(HTMLParser):
             self._flush()
 
     def handle_data(self, data: str) -> None:
-        if self._dropped:
+        if self._dropped or self._full:
             return
         if self._pre is not None:
             self._pre.append(data)
@@ -1087,19 +1129,44 @@ class _HTMLText(HTMLParser):
             tail = " " if inner[-1:].isspace() else ""
             self._words[at:] = [f"{lead}[{text}]({href.strip()}){tail}"]
 
+    def _room(self, size: int) -> bool:
+        """Whether size more characters of text fit the page's budget. Once they do not, the
+        rest of the page is not read, and that is noted where it happened."""
+        if not self._full and self._size + size <= self._budget:
+            self._size += size
+            return True
+        if not self._full:
+            self._full = True
+            line = self.getpos()[0]
+            self._problem(line, f"its text runs past {self._budget} characters at line {line} — "
+                                "a link left open across blocks repeats its target in each — so "
+                                "the rest was not read")
+        return False
+
     def _flush(self) -> None:
+        if self._full:
+            self._words = []
+            self._prefix = ""
+            self._first = self._last = 0
+            return
         # A link still open spans blocks: its text in each line it reaches is marked with it.
         for index in range(len(self._links) - 1, -1, -1):
             href, at = self._links[index]
             self._mark_link(href, at)
             self._links[index] = (href, 0)
+            if self._words and len(self._words[-1]) > self._budget - self._size:
+                break                       # past the budget already: _room below says so
         text = " ".join("".join(self._words).split())
         self._words = []
         if text:
-            first = self._first or self.getpos()[0]
-            last = max(self._last, first)
-            self.lines.append((first, last, self._prefix + text))
-            self.lines.append((last, last, ""))
+            line = self._prefix + text
+            if self._room(len(line) + 2):
+                first = self._first or self.getpos()[0]
+                last = max(self._last, first)
+                if not self._prefix:
+                    self.prose.add(len(self.lines))
+                self.lines.append((first, last, line))
+                self.lines.append((last, last, ""))
             self._prefix = ""
         self._first = self._last = 0
 
@@ -1111,6 +1178,8 @@ class _HTMLText(HTMLParser):
         code = code.removeprefix("\n").rstrip()
         run = max((len(ticks) for ticks in re.findall(r"`+", code)), default=0)
         fence = "`" * max(3, run + 1)
+        if not self._room(len(code) + 2 * len(fence) + 4 + len(self._pre_language)):
+            return
         self.lines.append((self._pre_line, self._pre_line, fence + self._pre_language))
         for offset, text in enumerate(code.split("\n") if code else []):
             number = min(first + offset, end)

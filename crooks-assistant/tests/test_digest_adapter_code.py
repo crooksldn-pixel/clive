@@ -6,8 +6,11 @@ what it cannot read said in an 'unparsed' Unit rather than raised."""
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import signal
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -293,6 +296,29 @@ def _unparsed(units: list[Unit]) -> dict[str, list[Unit]]:
         if "unparsed" in unit.tags:
             found.setdefault(unit.location.path, []).append(unit)
     return found
+
+
+class _TooSlow(BaseException):
+    """Raised by _deadline; not an Exception, so the adapter's backstop cannot swallow it."""
+
+
+@contextmanager
+def _deadline(seconds: float):
+    """Fails the block when it runs longer than seconds — a pattern that backtracks without
+    bound is interrupted rather than left to run for hours."""
+    if not hasattr(signal, "setitimer"):
+        pytest.skip("no interval timer on this platform")
+
+    def expire(*_):
+        raise _TooSlow(f"took longer than {seconds} seconds")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 @pytest.fixture()
@@ -992,3 +1018,167 @@ def test_long_names_and_docstrings_are_held_to_the_model_bounds(tmp_path):
     functions = [unit for unit in units if unit.kind == "capability"]
     assert len(functions) == 1
     assert len(functions[0].title) <= MAX_TITLE and len(functions[0].body) <= MAX_BODY
+
+
+# --- hostile input: bounded in time, never raising, never followed out ------------------------
+
+# Each of these took from tens of seconds to hours, or never finished: a pattern tried again
+# from every character of a long run, or — for the backslashes — in every way of pairing them.
+HOSTILE_JAVASCRIPT = {
+    "backslashes.test.js": 'const s = "test(\'' + "\\\\" * 40 + '";\n',
+    "spaces.test.js": "import x from" + " " * 200_000 + "y\n",
+    "const.js": "export const x" + " " * 200_000 + "y\n",
+    "local.js": "const x" + "\t" * 200_000 + "y\n",
+    "default.js": "export default x" + " " * 200_000 + "y\n",
+    "overload.ts": "export function f(a: string): string\nfunction" + " " * 200_000 + "g() {}\n",
+    "heading.js": "export class A" + "\n" * 500_000,
+    "slashes.js": "[/" * 250_000 + "\n",
+}
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE_JAVASCRIPT))
+def test_hostile_javascript_is_read_in_bounded_time(tmp_path, name):
+    root = _write(tmp_path / "hostile", {name: HOSTILE_JAVASCRIPT[name]})
+    with _deadline(4):
+        units = _units(root)
+    Artifact(source=SOURCE, kinds=adapter.HANDLES, units=tuple(units))
+    assert units[0].title == "repository map"
+
+
+def test_slashes_too_many_to_follow_are_reported_not_walked_over_and_over(tmp_path):
+    units = _units(_write(tmp_path / "slashes", {"slashes.js": HOSTILE_JAVASCRIPT["slashes.js"]}))
+    assert [unit.body for unit in _unparsed(units)["slashes.js"]] == [
+        "not read: more / that may open regular expressions than this reader follows, so its "
+        "strings and brackets cannot be told apart; skipped"
+    ]
+
+
+HOSTILE_MANIFESTS = {
+    "requirements.txt": "a" + " " * 200_000 + "b # comment\n",
+    "pyproject.toml": '[project]\ndependencies = ["' + "a" * 200_000 + ';\\nx"]\n',
+    "setup.cfg": "[options]\ninstall_requires =\n    a" + " " * 200_000 + "b # c\n",
+}
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE_MANIFESTS))
+def test_hostile_requirement_lines_are_read_in_bounded_time(tmp_path, name):
+    root = _write(tmp_path / "hostile", {name: HOSTILE_MANIFESTS[name]})
+    with _deadline(4):
+        units = _units(root)
+    bad = _unparsed(units)[name]
+    assert len(bad) == 1 and "not a requirement this adapter can read" in bad[0].body
+
+
+MANY = 20_000
+MANY_ENTRIES = {
+    "pyproject.toml": "[tool.poetry.dependencies]\n" + "".join(f'p{i} = "{i}"\n' for i in range(MANY)),
+    "escaped/pyproject.toml": "[project]\ndependencies = [\n"
+                              + "".join(f'  "q{i}\\u0030",\n' for i in range(MANY)) + "]\n",
+    "setup.cfg": "[options]\ninstall_requires =\n" + "".join(f"    r{i}\n" for i in range(MANY)),
+}
+
+
+@pytest.mark.parametrize(("name", "title", "line"), [
+    ("pyproject.toml", "dependency p1999", 2001),
+    ("setup.cfg", "dependency r1999", 2002),
+    # An escaped string is not written as it reads, so it is placed at its list.
+    ("escaped/pyproject.toml", "dependency q19990", 2),
+])
+def test_manifests_of_many_entries_are_placed_in_linear_time(tmp_path, name, title, line):
+    """Each entry's line was found by scanning the manifest afresh, so 20 000 entries took
+    minutes. Every entry is still placed where it is written."""
+    root = _write(tmp_path / "many", {name: MANY_ENTRIES[name]})
+    with _deadline(4):
+        units = _units(root)
+    assert _span(_titled(units, title)) == (name, line, line)
+
+
+def test_text_that_cannot_be_written_as_utf8_is_escaped_not_raised(tmp_path):
+    """A lone surrogate — from a Python or JSON escape, or a file name that is not UTF-8 — once
+    made deriving a Unit's id raise UnicodeEncodeError out of decompose."""
+    root = _write(tmp_path / "surrogates", {
+        "doc.py": 'import argparse\n\n\ndef f():\n    "\\ud800"\n\n\n'
+                  'parser = argparse.ArgumentParser(description="\\udfff")\n',
+        "package.json": '{"scripts": {"\\ud800": "echo hi"}}\n',
+    })
+    try:
+        (root / os.fsdecode(b"caf\xe9.py")).write_text("def hidden():\n    return 1\n")
+    except (OSError, UnicodeError):
+        pass                                    # a filesystem that refuses such names
+    units = _units(root)
+    Artifact(source=SOURCE, kinds=adapter.HANDLES, units=tuple(units))
+    assert "\\ud800" in _titled(units, "function doc.f").body
+    assert _titled(units, "script \\ud800").kind == "script"
+    assert "\\udfff" in _titled(units, "command-line parser doc").body
+    assert not [unit for unit in units if "hidden" in unit.title]
+
+
+def test_a_root_that_is_a_link_is_not_followed_and_a_root_that_is_a_file_is_read(tmp_path):
+    outside = _write(tmp_path / "outside", {"secret.py": "def leaked():\n    return 1\n"})
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("this filesystem cannot make symbolic links")
+    units = _units(link)
+    assert not [unit for unit in units if "leaked" in unit.title + unit.body]
+    assert [unit.body for unit in _unparsed(units)["."]] == [
+        "the artifact is a symbolic link; not followed"
+    ]
+    single = _units(outside / "secret.py")
+    assert not _unparsed(single)
+    assert _span(_titled(single, "function secret.leaked")) == ("secret.py", 1, 2)
+    assert "- secret.py" in single[0].body
+
+
+def test_a_file_swapped_for_a_link_after_it_was_checked_is_not_followed(tmp_path, monkeypatch):
+    """The file was checked with lstat and then opened by name, following whatever was there by
+    then: a link swapped in between was read through, out of the artifact."""
+    outside = _write(tmp_path / "outside", {"secret.py": "def leaked():\n    return 1\n"})
+    root = _write(tmp_path / "swapped", {"inside.py": "def kept():\n    return 1\n"})
+    target = root / "inside.py"
+    regular = os.lstat(target)
+    walk = adapter._Digest._walk
+
+    def walk_then_swap(self):
+        walk(self)
+        target.unlink()
+        target.symlink_to(outside / "secret.py")
+
+    lstat = os.lstat
+
+    def stale(path, *args, **kwargs):          # the check saw the file as it was
+        return regular if os.fspath(path) == os.fspath(target) else lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(adapter._Digest, "_walk", walk_then_swap)
+    monkeypatch.setattr(adapter.os, "lstat", stale)
+    units = _units(root)
+    assert not [unit for unit in units if "leaked" in unit.title + unit.body]
+    assert [unit.body for unit in _unparsed(units)["inside.py"]] == ["could not be read (OSError)"]
+
+
+def test_the_entries_looked_at_are_bounded(tmp_path, monkeypatch):
+    """Files and directories were bounded, but not links and the rest, nor a directory's
+    listing: all of it was read into memory and sorted first."""
+    monkeypatch.setattr(adapter, "MAX_ENTRIES", 5, raising=False)
+    root = _write(tmp_path / "entries", {"a.py": "def a():\n    return 1\n", "big/x.py": "x = 1\n"})
+    for index in range(10):
+        (root / "big" / f"link{index}").symlink_to(root / "a.py")
+    units = _units(root)
+    notes = [unit.body for unit in _unparsed(units).get("big", [])]
+    assert notes == ["holds more than 5 entries; not read"]
+    assert "link" not in units[0].body
+    assert _titled(units, "function a.a").kind == "capability"
+
+
+def test_python_nested_too_deeply_to_parse_is_reported_as_such(tmp_path):
+    units = _units(_write(tmp_path / "deep", {
+        "sums.py": "x = " + "1 + " * 100_000 + "1\n",
+        "calls.py": "x = f" + "()" * 100_000 + "\n",
+        "fine.py": "def ok():\n    return 1\n",
+    }))
+    unparsed = _unparsed(units)
+    for path in ("sums.py", "calls.py"):
+        assert [unit.body.split(" (")[0] for unit in unparsed[path]] == ["nested too deeply to be read"]
+    assert _titled(units, "function fine.ok").kind == "capability"
+
