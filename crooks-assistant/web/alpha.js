@@ -66,6 +66,7 @@
     plus: ['M12 5v14', 'M5 12h14'],
     tick: ['m5 12.5 4.5 4.5L19 7.5'],
     build: ['m4 20 9-9', 'M11 5.5 14.5 2l7.5 7.5-3.5 3.5z'],
+    plug: ['M9 3v5', 'M15 3v5', 'M7 8h10v3a5 5 0 0 1-10 0z', 'M12 16v5'],
   };
 
   // The one bar. A tap opens the keyboard (here); a hold is the microphone, and that is decided
@@ -143,6 +144,9 @@
   // Build objectives' engineering requests, in the loop's own words (GET /objectives/builds,
   // read from the loop's published status at most once a minute). Drawn when they arrive.
   let builds = {};
+  // What CLIVE cannot do yet (GET /objectives/gaps): each gap, how often it came up and what
+  // became of it. Drawn when it arrives; the home does not wait for it.
+  let gaps = { gaps: [], summary: {} };
   async function refresh() {
     let needsYou = 0;
     try {
@@ -154,9 +158,11 @@
       renderHome(0, String(err.message || err));
       return;
     }
-    if (!objectives.some((o) => o.kind === 'build' && (o.engineering || []).length)) return;
     try {
-      builds = (await api('/objectives/builds')).builds || {};
+      gaps = await api('/objectives/gaps');
+      if (objectives.some((o) => o.kind === 'build' && (o.engineering || []).length)) {
+        builds = (await api('/objectives/builds')).builds || {};
+      }
       renderHome(needsYou);
     } catch { /* the rows already say what the objectives say */ }
   }
@@ -185,11 +191,31 @@
         sub || null) : null);
   }
 
+  const GAP_STAGE = { open: 'no build yet', proposed: 'build proposed', filed: 'build filed', building: 'being built',
+    built: 'built, not merged yet', merged: 'merged, not live yet', live: 'fixed and live' };
+  function gapLine(g) {
+    const times = `Came up ${g.hits} time${g.hits === 1 ? '' : 's'}`;
+    const back = g.stage === 'live' && g.hits_after_fix ? `, came back ${g.hits_after_fix} time${g.hits_after_fix === 1 ? '' : 's'}` : '';
+    return `${times} · ${GAP_STAGE[g.stage] || g.stage}${back}`;
+  }
+  function openGaps() {
+    return (gaps.gaps || []).filter((g) => g.stage !== 'live' || g.hits_after_fix).slice(0, 3);
+  }
+
   function renderHome(needsYou, problem) {
     const now = new Date();
     const hour = now.getHours();
     const part = hour < 12 ? 'Morning' : hour < 18 ? 'Afternoon' : 'Evening';
-    const needs = objectives.filter((o) => o.attention === 'needs_you' || o.attention === 'blocked');
+    // A build objective the builders are working on is in motion, whatever gap it is blocked by:
+    // the gap is what the build is closing. It needs the owner only if he has a question or the
+    // loop says so.
+    const beingBuilt = (o) => {
+      if (o.kind !== 'build' || !(o.engineering || []).length || (o.attention === 'needs_you' && o.needs_you.length)) return false;
+      const rows = builds[o.id] || [];
+      const last = rows[rows.length - 1];
+      return !last || (last.progress !== 'blocked' && last.progress !== 'needs the owner');
+    };
+    const needs = objectives.filter((o) => !beingBuilt(o) && (o.attention === 'needs_you' || o.attention === 'blocked'));
     const moving = objectives.filter((o) => needs.indexOf(o) < 0 && o.attention !== 'dropped');
     const summary = needs.length
       ? `${needs.length === 1 ? 'One thing needs' : `${needs.length} things need`} you.${moving.length ? ' The rest is in motion.' : ''}`
@@ -224,6 +250,10 @@
       moving.length ? h('h2', { class: 'alpha-h2', text: 'In motion' }) : null,
       moving.length ? h('div', { class: 'alpha-group' }, ...moving.map(row)) : null,
       !objectives.length && !problem ? h('p', { class: 'alpha-muted', text: 'Nothing ongoing. Tell CLIVE about something you want handled, and it stays here.' }) : null,
+      openGaps().length ? h('h2', { class: 'alpha-h2', text: 'CLIVE can’t do yet' }) : null,
+      openGaps().length ? h('div', { class: 'alpha-group' }, ...openGaps().map((g) =>
+        h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'gap', onclick: () => openGap(g) },
+          h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.plug, 18)), rowMain(g.title || g.label, gapLine(g)), icon(ICON.chev, 16)))) : null,
       h('div', { class: 'alpha-group alpha-tools' },
         h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'support', onclick: openSupport },
           h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.search, 18)),
@@ -236,6 +266,46 @@
 
   function labelFor(attention) {
     return { needs_you: 'Needs you', blocked: 'Blocked', doing: 'Doing', idle: 'Idle', done: 'Done', dropped: 'Dropped' }[attention] || attention;
+  }
+
+  // ------------------------------------------------------------------ one gap
+  function openGap(g) {
+    const titles = (g.objectives || []).map((id) => (objectives.find((o) => o.id === id) || {}).title).filter(Boolean);
+    const s = gaps.summary || {};
+    const title = g.title || g.label;
+    const blocks = [head(title.length > 48 ? `${title.slice(0, 45)}…` : title, gapLine(g))];
+    if (g.label !== title) blocks.push(h('p', { class: 'alpha-line', text: g.label }));
+    const src = g.sources || {};
+    blocks.push(h('p', { class: 'alpha-line', text: [
+      src.blocker ? `Recorded as a blocker ${src.blocker} time${src.blocker === 1 ? '' : 's'}` : '',
+      src.tool ? `reached for a tool it does not have ${src.tool} time${src.tool === 1 ? '' : 's'}` : '',
+    ].filter(Boolean).join('; ') + '.' }));
+    if (titles.length) {
+      blocks.push(h('h3', { text: 'Holding up' }));
+      for (const t of titles) blocks.push(h('p', { class: 'alpha-line', text: t }));
+    }
+    if ((g.builds || []).length) {
+      blocks.push(h('h3', { text: 'Builds' }));
+      for (const b of g.builds) {
+        const where = b.live_at ? 'live' : b.merged_at ? 'merged, not live yet' : b.built_at ? 'built, waiting for you to merge' : b.filed_at ? (b.progress || 'filed') : 'proposed, not filed';
+        blocks.push(h('p', { class: 'alpha-line' }, `${b.request_id}: ${where}`));
+      }
+    }
+    if (g.stage === 'open') {
+      blocks.push(h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', type: 'button', text: 'Build it', 'data-alpha': 'build_gap', onclick: async () => {
+        closeSheet();
+        const on = (g.objectives || [])[0];
+        const where = on ? `It is holding up my objective ${on}; file the build for that objective.` : 'Open a build objective for it, then file the build.';
+        await window.CliveAlpha.ask(`Build a fix so you can do this: "${g.label}". It has come up ${g.hits} time${g.hits === 1 ? '' : 's'}. ${where}`);
+        refresh();
+        setTimeout(refresh, 2500);
+      } })));
+    }
+    blocks.push(h('h3', { text: 'How CLIVE is choosing' }));
+    blocks.push(h('p', { class: 'alpha-muted', text: `Of the ${s.top || 0} gaps that come up most, ${s.top_proposed || 0} ${s.top_proposed === 1 ? 'has' : 'have'} a build proposed. `
+      + `${s.live || 0} fix${s.live === 1 ? '' : 'es'} live${s.live ? ` (${s.fixes_held || 0} held, ${s.fixes_recurred || 0} came back)` : ''}. `
+      + `It said it couldn't do something it could ${s.misjudged || 0} time${s.misjudged === 1 ? '' : 's'}.` }));
+    openSheet(...blocks);
   }
 
   // ------------------------------------------------------------------ one objective

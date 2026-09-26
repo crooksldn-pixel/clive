@@ -1376,13 +1376,20 @@ async def _answer(
     # How this turn actually went, in numbers. Every field is measured; none of it is content.
     # This is what the report's speed section and the bench read (brief section 32).
     performance = _performance(timings, lane=lane, recipe_id=recipe_id, branch=branch, calls=calls, partial=partial, session=session, measures=measures or {}, ui=ui, glass=glass)
-    if timeline.current().active is not None:
-        # An answer that declines, held against what the Mac composes: a refusal of a best
-        # seller, a breakdown, a comparison or a bulk change the tools could have made is a
-        # FALSE UNSUPPORTED claim, and the report counts it. Words only; no reasoning text.
-        from app.observability import claims
+    # An answer that declines, held against what the Mac composes: a refusal of a best
+    # seller, a breakdown, a comparison or a bulk change the tools could have made is a
+    # FALSE UNSUPPORTED claim, and the report counts it. Words only; no reasoning text. The
+    # gap record counts it too, apart from the gaps: CLIVE misjudging what it can do.
+    from app.objectives import gaps as gap_record
+    from app.observability import claims
 
+    record = gap_record.ledger()
+    signal = None
+    if timeline.current().active is not None or record is not None:
         signal = claims.claim(question or (transcript or {}).get("text") or "", answer, tool_calls, claims.registered(), hinted=bool(getattr(session, "hinted", False)))
+        if record is not None and signal is not None and signal.get("false_unsupported"):
+            record.note_misjudged(list(signal.get("capabilities") or []))
+    if timeline.current().active is not None:
         if signal is not None:
             timeline.emit("unsupported_claim", session_id=session_id, turn_id=turn_id or None, **signal)
         timeline.emit(

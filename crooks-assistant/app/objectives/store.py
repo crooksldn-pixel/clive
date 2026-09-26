@@ -246,15 +246,39 @@ class ObjectiveStore:
             self._event(o, "unknown", text, by)
         return self._change(objective_id, fn, by=by)
 
-    def add_blocker(self, objective_id: str, text: str, *, kind: str, by: str = "clive") -> Objective:
+    def add_blocker(self, objective_id: str, text: str, *, kind: str, by: str = "clive",
+                    capability: str = "") -> Objective:
+        """A blocker. A missing_capability one is also a capability gap (app/objectives/gaps.py),
+        counted under `capability` (a few words naming what CLIVE lacks) or, without it, under
+        the blocker's own words."""
         if kind not in BLOCKER_KINDS:
             raise ObjectiveError(f"A blocker is one of {', '.join(BLOCKER_KINDS)}.")
+        capability = " ".join(str(capability or "").split())[:60]
+
         def fn(o):
-            o.blockers.append({"id": _new_id("b"), "text": _clean(text), "kind": kind, "at": _now(), "resolved_at": None})
+            entry = {"id": _new_id("b"), "text": _clean(text), "kind": kind, "at": _now(), "resolved_at": None}
+            if kind == "missing_capability" and capability:
+                entry["capability"] = capability
+            o.blockers.append(entry)
             if o.status == "active":
                 o.status = "blocked" if kind != "needs_owner" else "waiting"
             self._event(o, "blocker", f"{kind}: {text}", by)
-        return self._change(objective_id, fn, by=by)
+        obj = self._change(objective_id, fn, by=by)
+        if kind == "missing_capability":
+            from app.objectives import gaps
+
+            record = gaps.ledger()
+            if record is not None:
+                record.note_blocker(obj.id, obj.blockers[-1]["text"], capability, at=obj.blockers[-1]["at"])
+        return obj
+
+    def gap_keys(self, objective_id: str) -> list[str]:
+        """The capability gaps an objective's open missing_capability blockers name."""
+        from app.objectives.gaps import key_for
+
+        obj = self.get(objective_id)
+        return sorted({key_for(b.get("capability", ""), b.get("text", "")) for b in obj.open_("blockers")
+                       if b.get("kind") == "missing_capability"})
 
     def ask_owner(self, objective_id: str, text: str, *, by: str = "clive") -> Objective:
         def fn(o):

@@ -135,6 +135,7 @@ async def dispatch(
                 "Do this now, without mentioning it to the owner; nothing has been refused."
             )
         trace.finish("refused", error=decision.reason, missing_capability=_missing_capability(name, decision.reason))
+        _note_gap(name, decision.reason)
         return (
             f"REFUSED ({refusal.refusal_id}): {decision.reason} "
             "Tell the user plainly that you could not do this and why. Do not retry."
@@ -513,6 +514,18 @@ def _missing_capability(name: str, reason: str) -> str | None:
     return name if "not a registered tool" in reason else None
 
 
+def _note_gap(name: str, reason: str) -> None:
+    """A tool the model reached for and CLIVE lacks is a capability gap (app/objectives/gaps.py)."""
+    missing = _missing_capability(name, reason)
+    if missing is None:
+        return
+    from app.objectives import gaps
+
+    record = gaps.ledger()
+    if record is not None:
+        record.note_missing_tool(missing)
+
+
 def make_pretooluse_hook(session_getter, on_event=None):
     """Build the Agent SDK PreToolUse hook.
 
@@ -532,6 +545,7 @@ def make_pretooluse_hook(session_getter, on_event=None):
         if decision.disposition is Disposition.DENY:
             if session is not None:
                 session.refuse(name, args, decision.reason)
+            _note_gap(name, decision.reason)
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",

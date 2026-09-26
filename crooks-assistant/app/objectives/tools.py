@@ -98,6 +98,7 @@ async def objective_show(objective_id: str) -> dict:
             "text": {"type": "string"},
             "source": {"type": "string"},
             "kind": {"type": "string", "enum": list(BLOCKER_KINDS)},
+            "capability": {"type": "string", "description": "What is missing, in a few words."},
             "needs_owner": {"type": "boolean"},
             "item_id": {"type": "string"},
             "state": {"type": "string", "enum": [s for s in LADDER if s != "authorised"]},
@@ -111,7 +112,7 @@ async def objective_show(objective_id: str) -> dict:
 )
 async def objective_note(objective_id: str, action: str, text: str = "", source: str = "", kind: str = "",
                          needs_owner: bool = False, item_id: str = "", state: str = "", evidence: str = "",
-                         entry_id: str = "", status: str = "") -> dict:
+                         entry_id: str = "", status: str = "", capability: str = "") -> dict:
     s = store()
     try:
         if action == "fact":
@@ -119,7 +120,7 @@ async def objective_note(objective_id: str, action: str, text: str = "", source:
         elif action == "unknown":
             obj = s.add_unknown(objective_id, text)
         elif action == "blocker":
-            obj = s.add_blocker(objective_id, text, kind=kind or "missing_info")
+            obj = s.add_blocker(objective_id, text, kind=kind or "missing_info", capability=capability)
         elif action == "ask_owner":
             obj = s.ask_owner(objective_id, text)
         elif action == "propose":

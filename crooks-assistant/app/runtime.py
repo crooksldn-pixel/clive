@@ -511,7 +511,12 @@ def build(settings: Settings | None = None) -> Runtime:
         shopify_writes,
     )
 
-    install_objectives(settings.objectives_dir)
+    objectives = install_objectives(settings.objectives_dir)
+    # What CLIVE cannot do yet, beside the objectives that name it; the gaps already recorded
+    # as blockers are counted once, the first time (app/objectives/gaps.py).
+    from app.objectives import gaps as gaps_module
+
+    gaps_module.install(settings.objectives_dir / "gaps.json").seed(objectives.all())
 
     load_families()
 

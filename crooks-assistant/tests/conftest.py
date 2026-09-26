@@ -20,15 +20,19 @@ os.environ.setdefault("CROOKS_ANALYTICS_WARM_DAYS", "0")
 # /etc/crooks-os/secrets as a side effect of collecting the suite. Set here, with the three
 # above, because "before any Settings() is built" is also before any app module is imported.
 os.environ.setdefault("CROOKS_SECRET_DIR", os.path.join(_TEST_STATE, "secrets"))
+# Objectives, and the capability-gap record beside them, away from the checkout's own .state:
+# every runtime a test builds installs both, and the gap record counts each unregistered tool
+# a gate test reaches for.
+os.environ.setdefault("CROOKS_OBJECTIVES_DIR", os.path.join(_TEST_STATE, "objectives"))
 
 # The environment every offline test is given, whatever the Mac it runs on has in its own.
-# Built from the four above so a deliberate override on the command line still works, and
+# Built from the ones above so a deliberate override on the command line still works, and
 # applied by _offline_environment below — which also takes everything else away.
 _TEST_ENV = {
     name: os.environ[name]
     for name in (
         "CROOKS_LOG_DIR", "CROOKS_BENCH_AUDIO_DIR", "CROOKS_SAVE_CAPTURES",
-        "CROOKS_ANALYTICS_WARM_DAYS", "CROOKS_SECRET_DIR",
+        "CROOKS_ANALYTICS_WARM_DAYS", "CROOKS_SECRET_DIR", "CROOKS_OBJECTIVES_DIR",
     )
 }
 # No .env. This is the one that matters: `.env` is the owner's own configuration and
