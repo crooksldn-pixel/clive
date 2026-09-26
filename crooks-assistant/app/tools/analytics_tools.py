@@ -6,11 +6,12 @@ language can express. All of them read; none of them can change anything."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.analytics import engine
@@ -51,7 +52,7 @@ READ_TIMEOUT_S = 6.0
 PLANNED = frozenset({"commerce_aggregate", "commerce_query", "inventory_query",
                      "commerce_summary"})
 # What the model reads of a result: never the membership lists the Mac keeps for itself.
-_MODEL_HIDDEN = ("member_ids", "variant_ids")
+_MODEL_HIDDEN = ("member_ids", "variant_ids", "member_totals")
 
 
 def bind(cache: OrderCache | None) -> None:
@@ -171,7 +172,9 @@ def _set_from(result: dict[str, Any], query: Query, *, tool: str) -> dict[str, A
     if kind is None or not members:
         return None
     label = query.title or _describe(query)
-    totals = {k: v for k, v in (result.get("totals") or {}).items() if k in ("orders", "revenue", "units", "customers", "unfulfilled_value")}
+    # What the MEMBERS come to, from their own rows — never the period's totals, which the
+    # set card would otherwise print as "this list … value" (app/analytics/engine.py _sums).
+    totals = {k: v for k, v in (result.get("member_totals") or {}).items() if k in ("orders", "revenue", "units", "customers", "unfulfilled_value")}
     parent_id = query.filters.get("in_set")
     parent = working_sets.get(session, parent_id) if parent_id else None
     if parent is not None:
@@ -409,12 +412,22 @@ _NOISE_SENDER = re.compile(
 )
 
 
-def bind_email(threads_for=None, replied=None, reply_state=None, own_address=None) -> None:
-    global _threads_for, _replied, _reply_state, _own_address
+_inbox_for = None         # gmail_tools.inbox_threads, or a test's stand-in
+# The inbox itself, for "is anyone waiting on us" (`email_query` with no set). Every thread
+# the listing returns is asked who spoke last, three at a time (Gmail's slots), and the whole
+# read has to land inside the fast lane's five seconds (app/fastpath/runner.py BUDGET_MS) —
+# so a thread whose turn comes after this deadline is counted as unchecked and said so,
+# rather than the whole answer being lost to the lane's timeout.
+INBOX_DEADLINE_S = 4.0
+
+
+def bind_email(threads_for=None, replied=None, reply_state=None, own_address=None, inbox_for=None) -> None:
+    global _threads_for, _replied, _reply_state, _own_address, _inbox_for
     _threads_for = threads_for
     _replied = replied
     _reply_state = reply_state
     _own_address = own_address
+    _inbox_for = inbox_for
     _email_cache.clear()
 
 
@@ -559,6 +572,17 @@ def _fold_reply_states(states: list[dict[str, Any]]) -> dict[str, Any]:
         direction = "outbound"
     else:
         direction = "inbound" if latest_in > latest_out else "outbound"
+    waiting = bool(latest_in is not None and not answered)
+    # How long they have been waiting: their earliest message after our latest reply, in any
+    # thread. A thread's own first unanswered message may predate a reply we sent elsewhere;
+    # then what is still unanswered in it is at least its latest message.
+    since: list[Any] = []
+    for s in states if waiting else ():
+        first, last = s.get("waiting_since") or s.get("latest_inbound_at"), s.get("latest_inbound_at")
+        if first is not None and latest_out is not None and first <= latest_out:
+            first = last if last is not None and last > latest_out else None
+        if first is not None:
+            since.append(first)
     return {
         "checked_threads": len(states),
         "thread_count": len(states),
@@ -566,7 +590,8 @@ def _fold_reply_states(states: list[dict[str, Any]]) -> dict[str, Any]:
         "latest_outbound_at": latest_out,
         "latest_direction": direction,
         "has_reply_after_latest_inbound": answered,
-        "needs_reply": bool(latest_in is not None and not answered),
+        "needs_reply": waiting,
+        "waiting_since": (min(since) if since else latest_in) if waiting else None,
     }
 
 
@@ -575,22 +600,24 @@ def _fold_reply_states(states: list[dict[str, Any]]) -> dict[str, Any]:
     description=(
         "For a working set of orders or customers: which of them have emailed us (recent inbox "
         "threads from the customer, mentioning their order), and which we have replied to. Makes "
-        "derived sets: contacted and not contacted, so 'draft an apology to the rest' has an exact list."
+        "derived sets: contacted and not contacted, so 'draft an apology to the rest' has an exact list. "
+        "With no set: the inbox itself, everyone who wrote and whether we have answered."
     ),
     input_schema={
         "type": "object",
         "properties": {
-            "set_id": {"type": "string", "description": "The working set (orders or customers)."},
+            "set_id": {"type": "string", "description": "The working set (orders or customers); omit for the inbox."},
             "days": {"type": "integer", "description": "How far back to look in the inbox, default 30."},
         },
-        "required": ["set_id"],
     },
     tier=Tier.AMBER,
     issued_id_args=("set_id",),
 )
-async def email_query(set_id: str, days: int = 30) -> dict:
+async def email_query(set_id: str = "", days: int = 30) -> dict:
 
     session = current_session()
+    if not str(set_id or "").strip():
+        return await _inbox_waiting(max(1, min(int(days or 30), 365)))
     ws = working_sets.get(session, set_id) if session is not None else None
     if ws is None:
         raise ToolError(f"There is no working set {set_id} in this conversation.")
@@ -681,6 +708,7 @@ async def email_query(set_id: str, days: int = 30) -> dict:
             "latest_direction": mail.get("latest_direction") or ("none" if not has_mail else "unknown"),
             "has_reply_after_latest_inbound": mail.get("has_reply_after_latest_inbound"),
             "needs_reply": bool(mail.get("needs_reply")),
+            "waiting_since": mail.get("waiting_since"),
             # The customer's own order numbers found in their threads, how sure the link is,
             # and the whole account of how the row was decided (app/tools/analytics_tools.py
             # `_customer_threads`). The queue prints the first two; the report keeps the third.
@@ -729,6 +757,124 @@ async def email_query(set_id: str, days: int = 30) -> dict:
         timeline.emit("working_set", session_id=session.session_id, turn_id=session.turn_id or None, set_id=made.set_id, set_kind=made.kind, count=made.count, label=made.label, parent=ws.set_id, step="correlate", tool="email_query", which="threads")
     timeline.emit("cross_source", session_id=session.session_id, turn_id=session.turn_id or None, set_id=ws.set_id, customers=len(by_customer), counts=result["counts"], ms=result["_ms"])
     return result
+
+
+async def _inbox_waiting(days: int) -> dict[str, Any]:
+    """Who in the inbox is waiting on us.
+
+    The question "any emails need my attention" is about the INBOX. It used to be answered by
+    listing the 25 most recent customers and checking each one's mail, which is a different
+    question — anyone who had not ordered in the last month could not be waiting, however long
+    they had been. So this starts from the inbox: the newest threads from people in the window
+    (bulk, automated and our own mail left out), each asked who spoke last, folded per sender
+    WITHOUT merging any thread, then matched to a customer and their orders wherever the order
+    cache knows the address. Read-only, like everything here: a listing and a thread read each.
+    """
+    if _inbox_for is None or _reply_state is None:
+        raise ToolError("Gmail is not configured on this backend.")
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + INBOX_DEADLINE_S
+    started = time.perf_counter()
+    found, (customers, numbers) = await asyncio.gather(_inbox_for(days=days), _shop_people(INBOX_DEADLINE_S / 2))
+    if not found.get("available"):
+        raise ToolError(str(found.get("reason") or "The inbox could not be read.")[:200])
+    own = _own()
+    threads = [t for t in found.get("threads") or [] if isinstance(t, dict) and t.get("thread_id") and not _noise(t, own)]
+
+    async def state_of(index: int) -> dict[str, Any] | None:
+        left = deadline - loop.time()
+        if left <= 0:
+            raise TimeoutError
+        return await asyncio.wait_for(_reply_state(str(threads[index]["thread_id"])), timeout=left)
+
+    states, _late = await fanout.gather_with_failures(range(len(threads)), state_of, source="gmail", timeout_s=INBOX_DEADLINE_S)
+    people: dict[str, dict[str, Any]] = {}
+    for index, t in enumerate(threads):
+        sender = str(t.get("from_email") or "").strip().lower()
+        person = people.setdefault(sender or str(t["thread_id"]), {"email": sender, "name": str(t.get("from") or sender or "someone"), "threads": [], "states": {}})
+        person["threads"].append(t)
+        state = states[index] if index < len(states) else None
+        if isinstance(state, dict):
+            person["states"][str(t["thread_id"])] = state
+    unchecked = sum(1 for index in range(len(threads)) if not isinstance(states[index] if index < len(states) else None, dict))
+    rows = []
+    for person in people.values():
+        folded = _fold_reply_states(list(person["states"].values()))
+        customer = (customers or {}).get(person["email"]) if person["email"] else None
+        terms = [str(n).rsplit("-", 1)[-1].lstrip("#") for n in (customer or {}).get("orders", []) if n]
+        related = _related_orders(person["threads"], terms if customer is not None else numbers)
+        if customer is not None:
+            confidence = "confident" if any(_confidence(t, person["email"], terms) == "confident" for t in person["threads"]) else "possible"
+        else:
+            confidence = "possible" if related else "none"
+        # The thread to open is the one they last wrote in.
+        last = max(person["threads"], key=lambda t, s=person["states"]: (s.get(str(t["thread_id"])) or {}).get("latest_inbound_at") or 0)
+        rows.append({
+            "customer_id": str((customer or {}).get("customer_id") or ""), "customer_name": str((customer or {}).get("name") or person["name"])[:80],
+            "customer_email": person["email"], "known_customer": customer is not None, "orders": list((customer or {}).get("orders") or [])[:5],
+            "emailed": True, "threads": len(person["threads"]), "replied": folded["has_reply_after_latest_inbound"] if folded["checked_threads"] else None,
+            "last_subject": str(last.get("subject") or "")[:80], "last_date": str(last.get("date") or "")[:32], "last_thread_id": str(last.get("thread_id") or ""),
+            "checked": bool(folded["checked_threads"]), "thread_count": len(person["threads"]),
+            "latest_inbound_at": folded["latest_inbound_at"], "latest_outbound_at": folded["latest_outbound_at"],
+            "latest_direction": folded["latest_direction"] if folded["checked_threads"] else "unknown",
+            "has_reply_after_latest_inbound": folded["has_reply_after_latest_inbound"],
+            "needs_reply": folded["needs_reply"], "waiting_since": folded["waiting_since"],
+            "related_orders": related, "confidence": confidence,
+            "provenance": {"threads_checked": folded["checked_threads"], "thread_ids": list(person["states"]), "latest_inbound_at": folded["latest_inbound_at"],
+                           "latest_outbound_at": folded["latest_outbound_at"], "latest_direction": folded["latest_direction"], "related_orders": related, "confidence": confidence},
+        })
+    # Waiting on us first, and among them whoever has waited longest.
+    rows.sort(key=lambda r: (not r["needs_reply"], r["waiting_since"] or float("inf"), r["customer_name"].lower()))
+    notes = []
+    if found.get("full"):
+        notes.append(f"the last {days} days hold more mail than the {len(threads)} newest threads read")
+    if unchecked:
+        notes.append(f"{unchecked} thread(s) could not be checked")
+    if customers is None:
+        notes.append("the order cache did not answer, so senders are not matched to customers")
+    result: dict[str, Any] = {
+        "scope": "inbox", "set_id": "", "set_label": "The inbox", "kind": "inbox", "days": days,
+        "people": len(rows), "customers": sum(1 for r in rows if r["known_customer"]),
+        "threads_listed": len(threads), "threads_checked": len(threads) - unchecked, "window_complete": not found.get("full"),
+        "counts": {"people": len(rows), "contacted": len(rows), "not_contacted": 0, "replied": sum(1 for r in rows if r["replied"]),
+                   "needs_reply": sum(1 for r in rows if r["needs_reply"]), "unchecked": unchecked},
+        "rows": rows, "note": "; ".join(notes),
+        "source": f"Gmail: threads from people in the inbox's last {days} days" + (f", the newest {len(threads)}" if found.get("full") else ""),
+        "_ms": round((time.perf_counter() - started) * 1000, 1),
+    }
+    session = current_session()
+    timeline.emit("cross_source", session_id=getattr(session, "session_id", None), turn_id=getattr(session, "turn_id", None) or None,
+                  set_id=None, customers=result["customers"], counts=result["counts"], ms=result["_ms"])
+    return result
+
+
+async def _shop_people(within_s: float) -> tuple[dict[str, dict[str, Any]] | None, list[str]]:
+    """The shop's customers by email address, and every order number the Mac holds, from the
+    order cache the listings already read — a sender is matched without a Shopify call per
+    address. (None, []) when the cache cannot answer in time: the inbox answer stands without
+    the match, and says so."""
+    async def read():
+        now, _zone = await _now_and_zone()
+        return await cache().view(Period(now - timedelta(days=EMAIL_VIEW_DAYS), now, "held", "days"), timeout_s=within_s)
+
+    try:
+        view = await asyncio.wait_for(read(), timeout=within_s)
+    except Exception as exc:  # noqa: BLE001 — the inbox is the answer; the match is a courtesy
+        log.info("inbox senders not matched to customers: %s", type(exc).__name__)
+        return None, []
+    by_email: dict[str, dict[str, Any]] = {}
+    numbers: list[str] = []
+    for o in view.rows:
+        number = str(o.get("order_number") or "")
+        if number:
+            numbers.append(number)
+        c = o.get("customer") or {}
+        email = str(c.get("email") or "").strip().lower()
+        if email and c.get("customer_id"):
+            entry = by_email.setdefault(email, {"customer_id": str(c["customer_id"]), "name": c.get("name"), "orders": []})
+            if number:
+                entry["orders"].append(number)
+    return by_email, numbers
 
 
 @tool(

@@ -133,8 +133,8 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
 
 
 def _inbox_plan(ctx: Ctx) -> ReadPlan | None:
-    """The needs-reply queue's two waves, and the recent inbox beside them. The inbox read
-    does not wait for the customer set; the mail read does, as it always has."""
+    """The needs-reply queue's read of the inbox, and the recent threads beside it. Neither
+    waits for the other."""
     queue = library._needs_reply_plan(ctx)
     recent = library._inbox_plan(ctx)
     reads = list(queue.reads if queue else []) + list(recent.reads if recent else [])
@@ -246,8 +246,8 @@ register(Recipe(
     min_confidence=0.72, target_ms=1500, plan=_orders_plan, render=_orders_render,
 ))
 register(Recipe(
-    recipe_id="landing_inbox", intent_family="landing_inbox", read_primitives=("commerce_query", "email_query", "gmail_search"),
-    parallel_nodes=(("customers", "inbox"), ("mail",)), ui="email_list", cache_policy=CACHE_EMAIL,
+    recipe_id="landing_inbox", intent_family="landing_inbox", read_primitives=("email_query", "gmail_search"),
+    parallel_nodes=(("mail", "inbox"),), ui="email_list", cache_policy=CACHE_EMAIL,
     min_confidence=0.72, target_ms=4000, plan=_inbox_plan, render=_inbox_render,
 ))
 register(Recipe(

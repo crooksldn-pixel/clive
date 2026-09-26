@@ -307,6 +307,30 @@ async def threads_for(*, sender: str = "", terms: list[str] | tuple[str, ...] = 
     return {"available": True, "query": query, "threads": threads[:limit]}
 
 
+# "Is anyone waiting on us" reads the inbox itself, not a list of customers. The listing is
+# bounded; when it comes back full the window held more than was read, and `full` says so, so
+# the answer can name what it covered instead of implying the whole inbox.
+INBOX_LIMIT = 50
+
+
+async def inbox_threads(*, days: int = 30, limit: int = INBOX_LIMIT) -> dict[str, Any]:
+    """The inbox's recent threads from people, newest first, one summary per thread, bulk mail
+    left out. The same query `gmail_search` reads ("the inbox"), for the context layer rather
+    than the model: never raises, and metadata only."""
+    if _client is None:
+        return {"available": False, "reason": "Gmail is not configured on this backend.", "threads": []}
+    days = max(1, min(int(days), 365))
+    limit = max(1, min(int(limit), INBOX_LIMIT))
+    query = f"newer_than:{days}d {BASE_QUERY}"
+    try:
+        messages = await _list_metadata(_c(), query, limit)
+    except ToolError as exc:
+        log.warning("inbox listing unavailable: %s", exc)
+        return {"available": False, "reason": str(exc)[:160], "threads": []}
+    threads = [_summary(t, h, m) for t, h, m in _one_per_thread(messages, include_bulk=False)]
+    return {"available": True, "query": query, "threads": threads, "full": len(messages) >= limit}
+
+
 async def replied(thread_id: str) -> bool | None:
     """Whether a message in this thread went out from here (Gmail's SENT label on any of its
     messages). None when the thread cannot be read."""
@@ -341,12 +365,17 @@ async def reply_state(thread_id: str) -> dict[str, Any] | None:
     outbound = [m["at_ms"] for m in messages if "SENT" in m["labels"] and m["at_ms"]]
     latest_in = max(inbound) if inbound else None
     latest_out = max(outbound) if outbound else None
+    # Their first message we have not answered: how long they have been waiting, which is not
+    # the same as when they last wrote — a chase yesterday on a question from last week is a
+    # week's wait.
+    unanswered = [at for at in inbound if latest_out is None or at > latest_out]
     return {
         "thread_id": str(thread_id),
         "latest_inbound_at": latest_in,
         "latest_outbound_at": latest_out,
         "latest_direction": _direction(latest_in, latest_out),
         "has_reply_after_latest_inbound": bool(latest_in is not None and latest_out is not None and latest_out >= latest_in),
+        "waiting_since": min(unanswered) if unanswered else None,
         "messages": len(messages),
     }
 

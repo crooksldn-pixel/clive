@@ -1099,18 +1099,21 @@ def _inbox_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
                       calls=list(result.calls), partial=result.partial, trace={"threads": len(real), "days": days})
 
 
-def _needs_reply_plan(ctx: Ctx) -> ReadPlan | None:
-    """Who is waiting on us: recent customers, then their inbox state, at customer level and
-    across threads. Two waves — the second needs the set the first makes."""
+# How far back "waiting on us" looks in the inbox.
+NEEDS_REPLY_DAYS = 30
+
+
+def _needs_reply_plan(ctx: Ctx) -> ReadPlan | None:   # noqa: ARG001 — the question has one shape
+    """Who is waiting on us: the INBOX, read once — every recent thread from a person, who spoke
+    last in it, and the sender matched to a customer where the shop knows them.
+
+    It used to list the 25 most recent customers first and check only their mail, so "any
+    emails need my attention" was answered about 25 customers — and the list it started from
+    was drawn as a revenue ranking under the answer, with the month's totals labelled as its
+    own. One read now, of the thing the question is about, and nothing drawn but the answer."""
     return ReadPlan([
-        Read("customers", "commerce_query", {"entity": "customers", "period": "last_30_days", "limit": 25, "title": "Recent customers"}, source="shopify", cost=120.0),
-        Read("mail", "email_query", _needs_reply_args, source="gmail", after=("customers",), cost=8.0, timeout_s=10.0),
+        Read("mail", "email_query", {"days": NEEDS_REPLY_DAYS}, source="gmail", cost=8.0, timeout_s=10.0, draws=False),
     ], label="needs_reply", timeout_s=16.0)
-
-
-def _needs_reply_args(values: dict[str, Any]) -> dict[str, Any] | None:
-    set_id = _set_id_of(values.get("customers"))
-    return {"set_id": set_id, "days": 30} if set_id else None
 
 
 def _set_id_of(body: Any, key: str = "set") -> str:
@@ -1126,13 +1129,14 @@ def _set_id_of(body: Any, key: str = "set") -> str:
 
 
 # The same question, asked again inside this window, gets the short form: the owner has just
-# heard "1 of 25 customers checked" and is asking whether anything has changed, not for the
-# scope of the check read out a second time.
+# heard who is waiting and how far back the inbox was read, and is asking whether anything has
+# changed, not for the scope of the check read out a second time.
 NEEDS_REPLY_REPEAT_S = 600.0
 
 
-def _first_names(rows: list[dict[str, Any]], limit: int = 3) -> str:
-    names = [str(r.get("customer_name") or "someone").split()[0] for r in rows[:limit]]
+def _first_names(rows: list[dict[str, Any]], limit: int = 3, *, full: bool = False) -> str:
+    names = [str(r.get("customer_name") or "someone") for r in rows[:limit]]
+    names = names if full else [n.split()[0] for n in names]
     rest = len(rows) - len(names)
     if rest > 0:
         names.append(f"{rest} other{'s' if rest > 1 else ''}")
@@ -1153,15 +1157,49 @@ def _asked_again(ctx: Ctx, *, clock=time.time) -> bool:
     return bool(last) and 0 <= now - last < NEEDS_REPLY_REPEAT_S
 
 
+def _waited_since(row: dict[str, Any]) -> float | None:
+    """When this person started waiting on us: their first message we have not answered, or
+    — from a read that does not say — their latest."""
+    for key in ("waiting_since", "latest_inbound_at"):
+        value = row.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+    return None
+
+
+def _longest_waiting_first(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The order the answer names them in, the card lists them in and Next walks them in. The
+    queue came out 11d, 13d, 13d, 5d, …, 1d — the read's own order, which is nobody's."""
+    return sorted(rows, key=lambda r: (_waited_since(r) is None, _waited_since(r) or 0.0))
+
+
+def _reply_scope(body: dict[str, Any], rows: list[dict[str, Any]]) -> tuple[str, str]:
+    """What was checked, in words: (the scope for the sentence, the note for the card).
+
+    The answer said "10 of 25 customers checked" to a question about the inbox. Whatever this
+    read covered is said as what it covered — never as the whole inbox when it was not."""
+    if body.get("scope") != "inbox":
+        counts = body.get("counts") or {}
+        total = int(counts.get("contacted") or 0) + int(counts.get("not_contacted") or 0) + int(counts.get("unchecked") or 0) or len(rows)
+        return f"of the {total} customers checked", ""
+    days = int(body.get("days") or NEEDS_REPLY_DAYS)
+    if body.get("window_complete") is False:
+        listed = int(body.get("threads_listed") or 0)
+        return (f"in the inbox's newest {listed} threads",
+                f"The newest {listed} threads were checked; the last {days} days hold more.")
+    return f"in the inbox's last {days} days", ""
+
+
 def _needs_reply_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     body = result.values.get("mail")
     if not isinstance(body, dict):
-        return FastAnswer(answer="", defer="the inbox correlation did not come back")
+        return FastAnswer(answer="", defer="the inbox did not come back")
     rows = [r for r in (body.get("rows") or []) if isinstance(r, dict)]
-    waiting = [r for r in rows if r.get("needs_reply")]
+    waiting = _longest_waiting_first([r for r in rows if r.get("needs_reply")])
+    inbox = body.get("scope") == "inbox"
     counts = body.get("counts") or {}
     unchecked = int(counts.get("unchecked") or 0)
-    total = int(counts.get("contacted") or 0) + int(counts.get("not_contacted") or 0) + unchecked or len(rows)
+    scope, scope_note = _reply_scope(body, rows)
     again = _asked_again(ctx)
     # What "next" walks here is the MESSAGES, not the people. Opening the customers set meant
     # tapping Next on "Waiting on a reply" drew Mia Jones's customer profile — three orders,
@@ -1177,21 +1215,28 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     waiting_set = _set_id_of(body, "set_needs_reply")
     if waiting_set and ctx.branch.workflow is None:
         _open_workflow(ctx, body, kind="customers", operation="reply", set_id=waiting_set)
-    tail = f" {unchecked} could not be checked." if unchecked else ""
+    tail = (f" {unchecked} {'thread' if inbox else 'customer'}{'s' if unchecked != 1 else ''} could not be checked." if unchecked else "")
     if not waiting:
-        answer = "Still nobody." if again else f"Nobody is waiting on a reply — {len(rows)} of {total} customers checked.{tail}"
+        if again:
+            answer = "Still nobody."
+        elif inbox:
+            answer = f"Nobody is waiting on a reply {scope} — {int(body.get('threads_checked') or 0)} threads from people checked.{tail}"
+        else:
+            answer = f"Nobody is waiting on a reply — {len(rows)} {scope}.{tail}"
         return FastAnswer(answer=answer, calls=list(result.calls),
                           partial=bool(unchecked) or result.partial, trace={"rows": len(rows), "waiting": 0, "unchecked": unchecked, "repeat": again})
     if again:
         # "Still just Mia." — no scope sentence: it was said the first time, and the owner is
         # asking whether anything moved, not how wide the check was.
         answer = f"Still {'just ' if len(waiting) == 1 else ''}{_first_names(waiting)}."
+    elif inbox:
+        who = "person is" if len(waiting) == 1 else "people are"
+        answer = f"{len(waiting)} {who} waiting on a reply {scope}: {_first_names(waiting, full=True)}.{tail}"
     else:
-        names = ", ".join(str(r.get("customer_name") or "someone") for r in waiting[:3])
-        answer = f"{len(waiting)} of {len(rows)} customers checked are waiting on a reply: {names}{' and others' if len(waiting) > 3 else ''}.{tail}"
+        answer = f"{len(waiting)} {scope} {'is' if len(waiting) == 1 else 'are'} waiting on a reply: {_first_names(waiting, full=True)}.{tail}"
     return FastAnswer(
         answer=answer,
-        surfaces=[_waiting_surface(waiting, unchecked=unchecked)], drawn=[],
+        surfaces=[_waiting_surface(waiting, unchecked=unchecked, scope=scope_note)], drawn=[],
         calls=list(result.calls), partial=bool(unchecked) or result.partial,
         trace={"rows": len(rows), "waiting": len(waiting), "unchecked": unchecked, "repeat": again},
     )
@@ -1208,17 +1253,23 @@ def _open_waiting_threads(ctx: Ctx, body: dict[str, Any], waiting: list[dict[str
     issue = getattr(ctx.session, "issue", None)
     if callable(issue):
         issue(*threads)
-    parent = working_sets.get(ctx.session, _set_id_of(body))
-    if parent is None:
-        return
     labels = {
         str(r.get("last_thread_id") or ""): str(r.get("customer_name") or r.get("last_subject") or "")[:60]
         for r in waiting if r.get("last_thread_id")
     }
-    made = working_sets.derive(
-        ctx.session, parent, members=threads, label="Waiting on a reply", step="correlate",
-        kind="emails", labels=labels, detail={"tool": "email_query", "which": "waiting"}, focus=False,
-    )
+    detail = {"tool": "email_query", "which": "waiting"}
+    parent = working_sets.get(ctx.session, _set_id_of(body))
+    if parent is not None:
+        made = working_sets.derive(
+            ctx.session, parent, members=threads, label="Waiting on a reply", step="correlate",
+            kind="emails", labels=labels, detail=detail, focus=False,
+        )
+    else:
+        # The inbox read starts from no set, so the queue is a set of its own.
+        made = working_sets.create(
+            ctx.session, kind="emails", members=threads, label="Waiting on a reply",
+            provenance={**detail, "step": "correlate"}, labels=labels, focus=False,
+        )
     _open_workflow(ctx, body, kind="emails", operation="reply", set_id=made.set_id)
 
 
@@ -1254,7 +1305,7 @@ def _since(when: Any, *, now: float | None = None) -> str:
     return f"{int(seconds // 86400)}d ago"
 
 
-def _waiting_surface(waiting: list[dict[str, Any]], *, unchecked: int = 0):
+def _waiting_surface(waiting: list[dict[str, Any]], *, unchecked: int = 0, scope: str = ""):
     """The people waiting on us, as the thing the question asked for.
 
     This recipe used to hand its raw reads to `present()`, which built whatever the analytic
@@ -1297,19 +1348,22 @@ def _waiting_surface(waiting: list[dict[str, Any]], *, unchecked: int = 0):
                 "not sure which order" if confidence == "possible" and not orders else "",
                 f"{count} threads" if count > 1 else "",
             ])),
-            "date": _since(row.get("latest_inbound_at")),
-            "known_customer": True,
+            # How long they have waited — the figure the rows are ordered by, so the column
+            # reads down from the longest wait rather than jumping about.
+            "date": _since(int(waited)) if (waited := _waited_since(row)) else "",
+            # The inbox read says who is a customer; a row from a set of customers is one.
+            "known_customer": row.get("known_customer", True) is not False,
             "related_orders": related,
             "confidence": confidence[:12],
         })
-    note = f"{unchecked} could not be checked." if unchecked else ""
+    note = " ".join(filter(None, [scope, f"{unchecked} could not be checked." if unchecked else ""]))
     return Surface(
         surface_type="work_queue",
         ui_type="email_list",
         data={"title": "Waiting on a reply", "count": len(waiting), "threads": threads, "note": note},
         title="Waiting on a reply",
         subtitle=f"{len(waiting)} waiting" + (f" · {note}" if note else ""),
-        freshness=Freshness(source="gmail", complete=not unchecked,
+        freshness=Freshness(source="gmail", complete=not unchecked and not scope,
                             caveat=note or ""),
     )
 
@@ -1355,7 +1409,7 @@ register(Recipe(
     target_ms=2500, plan=_inbox_plan, render=_inbox_render,
 ))
 register(Recipe(
-    recipe_id="needs_reply", intent_family="needs_reply", read_primitives=("commerce_query", "email_query"),
-    parallel_nodes=(("customers",), ("mail",)), ui="email_list", cache_policy=CACHE_EMAIL,
+    recipe_id="needs_reply", intent_family="needs_reply", read_primitives=("email_query",),
+    parallel_nodes=(("mail",),), ui="email_list", cache_policy=CACHE_EMAIL,
     min_confidence=0.74, target_ms=4000, plan=_needs_reply_plan, render=_needs_reply_render,
 ))

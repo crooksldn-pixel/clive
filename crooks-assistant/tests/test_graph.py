@@ -403,7 +403,9 @@ def _needs_reply(session: Session, rows: list[dict]):
     from app.session.branch import Branch
 
     ctx = Ctx(runtime=None, session=session, branch=Branch(branch_id="b", session_id=session.session_id), intent=None, text="who needs replying to")
-    result = ReadResult(values={"mail": {"rows": rows, "counts": {"contacted": len(rows), "not_contacted": 24, "unchecked": 0}}})
+    # The inbox read (`email_query` with no set), which is what the recipe asks for now.
+    result = ReadResult(values={"mail": {"scope": "inbox", "days": 30, "window_complete": True, "threads_listed": 12, "threads_checked": 12,
+                                         "rows": rows, "counts": {"people": len(rows), "unchecked": 0}}})
     return _needs_reply_render(ctx, result)
 
 
@@ -420,7 +422,7 @@ def test_the_scope_is_said_once_and_the_repeat_is_short():
 
     session = Session(session_id="s-again")
     first = _needs_reply(session, [MIA_ROW])
-    assert first.answer == "1 of 1 customers checked are waiting on a reply: Mia Jones."
+    assert first.answer == "1 person is waiting on a reply in the inbox's last 30 days: Mia Jones."
     assert session.last_needs_reply_at > 0
     again = _needs_reply(session, [MIA_ROW])
     assert again.answer == "Still just Mia."
@@ -429,9 +431,10 @@ def test_the_scope_is_said_once_and_the_repeat_is_short():
     assert several.answer == "Still Mia and Priya."
     # Past the window it is a fresh question again, scope and all.
     session.last_needs_reply_at -= library.NEEDS_REPLY_REPEAT_S + 1
-    assert _needs_reply(session, [MIA_ROW]).answer.startswith("1 of 1 customers checked")
+    assert _needs_reply(session, [MIA_ROW]).answer.startswith("1 person is waiting on a reply in the inbox's last 30 days")
     # And nobody, asked again, is "still nobody" rather than the count read twice.
-    _needs_reply(session, [])
+    session.last_needs_reply_at -= library.NEEDS_REPLY_REPEAT_S + 1
+    assert _needs_reply(session, []).answer == "Nobody is waiting on a reply in the inbox's last 30 days — 12 threads from people checked."
     assert _needs_reply(session, []).answer == "Still nobody."
 
 

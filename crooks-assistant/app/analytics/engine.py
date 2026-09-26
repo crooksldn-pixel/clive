@@ -278,6 +278,9 @@ def _aggregate_period(query: Query, period: Period, rows: list[dict[str, Any]], 
                 bucket = buckets[keys] = _Bucket(keys)
             for b in (bucket, total):
                 _fold(b, order, item, item_level)
+    # The totals are the period's. The rows are its own only while nothing below drops one —
+    # a bucket filter or the row limit — and the card says which (`totals_scope`).
+    grouped = len(buckets)
     if query.entity == "customers":
         _lifetime(buckets, orders)
         _lifetime({(): total}, orders)
@@ -298,6 +301,7 @@ def _aggregate_period(query: Query, period: Period, rows: list[dict[str, Any]], 
     out = {
         "rows": shaped[: query.limit], "row_count": len(shaped), "truncated": truncated,
         "totals": _totals(total, query, period, now=now, zone=zone, orders=len(orders)),
+        "totals_scope": "rows" if not truncated and len(buckets) == grouped else "period",
         "orders_in_period": len(orders), "currency": next((str(o.get("currency")) for o in orders if o.get("currency")), "GBP"),
         # What "revenue" is here: line values after discounts for anything broken down by
         # item, the order's total (shipping and tax in) for orders as wholes.
@@ -315,6 +319,30 @@ def _aggregate_period(query: Query, period: Period, rows: list[dict[str, Any]], 
         chosen = shaped[: query.limit] if query.limit_explicit else shaped
         out["member_ids"] = list(dict.fromkeys(str(r["key"][id_key]) for r in chosen if r.get("key", {}).get(id_key)))[:MAX_MEMBERS]
         out["member_labels"] = {str(r["key"][id_key]): str(r.get("label") or "") for r in chosen if r.get("key", {}).get(id_key)}
+        members = set(out["member_ids"])
+        out["member_totals"] = _sums([r for r in chosen if str(r.get("key", {}).get(id_key) or "") in members],
+                                     _ADDITIVE.get(query.entity, ()), **({"customers": len(members)} if query.entity == "customers" else {}))
+    return out
+
+
+# What the members of a set come to, from their own rows: only the figures that ARE sums of
+# the rows (an order is one customer's, a line one product's), so a set's value is never the
+# period's total under the set's name. "25 customers · £16,681.45" was the whole month's
+# revenue beside a list whose 25 rows came to about £3,000.
+_ADDITIVE: dict[str, tuple[str, ...]] = {
+    "customers": ("orders", "revenue", "units", "unfulfilled_value"),
+    "products": ("units", "revenue", "unfulfilled_value"),
+    "variants": ("units", "revenue", "unfulfilled_value"),
+}
+
+
+def _sums(rows: list[dict[str, Any]], metrics: tuple[str, ...], **counts: int) -> dict[str, Any]:
+    out: dict[str, Any] = dict(counts)
+    for metric in metrics:
+        values = [r.get(metric) for r in rows]
+        if values and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
+            total = sum(values)
+            out[metric] = round(total, 2) if isinstance(total, float) else total
     return out
 
 
@@ -492,6 +520,15 @@ def _sorted(rows: list[dict[str, Any]], sort: tuple[tuple[str, str], ...]) -> li
     return out
 
 
+def _order_totals(orders: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "orders": len(orders), "revenue": round(sum(float(o.get("total") or 0) for o in orders), 2),
+        "unfulfilled_value": round(sum(float(o.get("total") or 0) for o in orders if str(o.get("fulfillment") or "").upper() != "FULFILLED" and not o.get("cancelled")), 2),
+        "units": sum(int(i.get("quantity") or 0) for o in orders for i in o.get("items") or []),
+        "customers": len({(o.get("customer") or {}).get("customer_id") for o in orders if (o.get("customer") or {}).get("customer_id")}),
+    }
+
+
 def _orders_listing(query: Query, orders: list[dict[str, Any]], *, now: float, zone: ZoneInfo) -> dict[str, Any]:
     key, direction = query.sort[0] if query.sort else ("created_at", "desc")
     if key in ("created_at", "placed_at"):
@@ -501,17 +538,15 @@ def _orders_listing(query: Query, orders: list[dict[str, Any]], *, now: float, z
     elif key == "age_days":
         orders.sort(key=lambda o: float(o.get("ts") or 0), reverse=direction != "desc")
     shaped = [_order_row(o, now=now, zone=zone) for o in orders]
-    revenue = round(sum(float(o.get("total") or 0) for o in orders), 2)
-    unfulfilled = round(sum(float(o.get("total") or 0) for o in orders if str(o.get("fulfillment") or "").upper() != "FULFILLED" and not o.get("cancelled")), 2)
-    totals = {"orders": len(orders), "revenue": revenue, "unfulfilled_value": unfulfilled, "units": sum(int(i.get("quantity") or 0) for o in orders for i in o.get("items") or []),
-              "customers": len({(o.get("customer") or {}).get("customer_id") for o in orders if (o.get("customer") or {}).get("customer_id")}),
-              "refunded": round(sum(float(o.get("refunded") or 0) for o in orders), 2)}
+    totals = {**_order_totals(orders), "refunded": round(sum(float(o.get("refunded") or 0) for o in orders), 2)}
     if "aov" in query.metrics:
-        totals["aov"] = round(revenue / len(orders), 2) if orders else None
+        totals["aov"] = round(totals["revenue"] / len(orders), 2) if orders else None
     # The set a listing makes holds every match; when the model asked for a number ("the five
     # oldest"), it holds exactly the rows shown.
     members = [o["order_id"] for o in orders][:MAX_MEMBERS] if not query.limit_explicit else [r["order_id"] for r in shaped[: query.limit]]
+    held = set(members)
     return {"rows": shaped[: query.limit], "row_count": len(shaped), "truncated": len(shaped) > query.limit, "totals": totals, "orders_in_period": len(orders), "member_ids": members,
+            "member_totals": _order_totals([o for o in orders if o["order_id"] in held]),
             "revenue_basis": "order totals, shipping and tax included", "item_level": False,
             "currency": next((str(o.get("currency")) for o in orders if o.get("currency")), "GBP")}
 

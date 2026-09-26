@@ -141,7 +141,8 @@ async def main(argv: list[str] | None = None) -> int:
         await asyncio.sleep(args.latency_ms / 1000.0)
         return None
 
-    analytics_tools.bind_email(threads_for, None, reply_state)
+    # The needs-reply recipe reads the inbox itself; the same empty inbox, the same latency.
+    analytics_tools.bind_email(threads_for, None, reply_state, inbox_for=threads_for)
 
     class Runtime:
         build = "bench"

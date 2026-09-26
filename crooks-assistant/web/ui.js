@@ -2057,6 +2057,8 @@
         ]);
         return li;
       })),
+      // Whose totals these are, when they are not the rows' own (app/analytics/present.py).
+      list(d.totals, 4).length && text(d.totals_label) ? h('p', { class: 'card-meta', text: text(d.totals_label) }) : null,
       list(d.totals, 4).length ? h('div', { class: `stats${list(d.totals, 4).length === 3 ? ' three' : ''}` }, list(d.totals, 4).map((t) => h('div', { class: 'stat' }, [h('div', { class: 'stat-v', text: text(t.value, '—') }), h('div', { class: 'stat-k', text: text(t.label) })]))) : null,
       legend(d),
     ].concat(analyticFoot(d)), opts);

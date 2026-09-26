@@ -545,7 +545,7 @@ def build(settings: Settings | None = None) -> Runtime:
     # waiting. Passed as the bound method, not its result — the profile is one network call
     # and it is made lazily, once, the first time a thread is actually judged.
     analytics_tools.bind_email(gmail_tools.threads_for, gmail_tools.replied, gmail_tools.reply_state,
-                               own_address=gmail.address)
+                               own_address=gmail.address, inbox_for=gmail_tools.inbox_threads)
     gmail_tools.bind(gmail, customer_lookup=_make_customer_lookup(shopify))
     # The engineering loop's inbox and status on GitHub. Its token is read from the secret
     # store at each call, so a Mac without one builds the same and says it is not connected.

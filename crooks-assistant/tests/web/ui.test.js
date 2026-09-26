@@ -796,6 +796,24 @@ test('a ranking draws rank, label, the primary figure, a bar and the totals, all
   assert.ok(textOf(node).includes('76') && textOf(node).includes('Derived: share') && textOf(node).includes('From the last 30 days.'));
 });
 
+test('totals that are not the list\'s own say whose they are, above the tiles', () => {
+  // "any emails need my attention" drew 25 customers over tiles reading 272 ORDERS and
+  // £16,681.45 REVENUE: the month's totals, standing under the list as if they were its own.
+  const data = {
+    title: 'Recent customers', subtitle: 'last 30 days', mode: '', truncated: true, complete: true,
+    rows: [{ rank: 1, label: 'Ann Able', ref: '', kind: '', primary: { key: 'orders', label: 'orders', value: '2' }, secondary: null, pct: 100, lines: [], known: true }],
+    totals: [{ key: 'orders', label: 'orders', value: '272' }, { key: 'revenue', label: 'revenue', value: '£16,681.45' }],
+    totals_label: 'Whole period (last 30 days), not just this list',
+  };
+  const node = UI.render([{ type: 'ranking', data }]).nodes[0];
+  const kids = node.children;
+  const label = kids.findIndex((n) => textOf(n) === data.totals_label);
+  const tiles = kids.findIndex((n) => n.classList.contains('stats'));
+  assert.ok(label !== -1 && tiles !== -1 && label === tiles - 1, `the label sits directly above the tiles (${label}, ${tiles})`);
+  const own = UI.render([{ type: 'ranking', data: Object.assign({}, data, { totals_label: '' }) }]).nodes[0];
+  assert.ok(!textOf(own).includes('Whole period'), 'totals that are the rows\' own need no label');
+});
+
 test('restock priority shows measured and derived lines and marks unknown stock', () => {
   const out = UI.render([{ type: 'ranking', data: { title: 'Restock priority', subtitle: 'last 7 days', mode: 'restock', rows: [
     { rank: 1, label: 'Convict Joggers · Black / L', primary: { key: 'days_cover', label: 'days cover', value: '1.6' }, secondary: { key: 'stock', label: 'in stock', value: '3' }, pct: null, lines: [{ key: 'stock', label: 'in stock', value: '3', derived: false }, { key: 'velocity', label: 'a day', value: '1.86', derived: true }], known: true },
