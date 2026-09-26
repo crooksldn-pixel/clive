@@ -11,16 +11,19 @@ out of the artifact is followed. What it reads:
                      content bounded and never run. A folder of skills yields every skill.
   harness files      CLAUDE.md, AGENTS.md, GEMINI.md, .cursorrules, .cursor/rules/, ...: rules
                      and procedures, read the same way.
-  prompt libraries   prompts.md, *.prompt, prompts/*.json, .claude/commands/, ...: one example
-                     Unit per prompt.
+  prompt libraries   prompts.md, *.prompt, prompts/*.json, prompts.csv, .claude/commands/, ...:
+                     one example Unit per prompt.
 
-Everything is bounded — the files looked at, the bytes read from each, the references
-followed and the Units returned — and ordered by path and then by line, so the same artifact
-gives the same Units. What cannot be read is not an exception: it is a knowledge Unit tagged
-'unparsed' that says why."""
+Everything is bounded — the names listed, the files looked at, the bytes read from each, the
+references followed and the Units returned — and the order is fixed: file by file in path
+order, each in the order its text is read, a skill followed by the files it references, so the
+same artifact gives the same Units. What cannot be read is not an exception: it is a knowledge
+Unit tagged 'unparsed' that says why."""
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import posixpath
@@ -34,11 +37,15 @@ from urllib.parse import unquote
 from app.digest.model import ARTIFACT_ID_PATTERN, MAX_BODY, MAX_TAG, MAX_TITLE, Location, Unit
 
 NAME = "skills"
+# The kinds in plain words, and as detect.py names them (skill_collection is also the model's
+# ARTIFACT_KINDS name), so that the adapter is found whichever vocabulary asks for it.
 HANDLES = (
     "skill", "skill collection", "agent configuration", "harness configuration", "prompt library",
+    "agent_skill", "skill_collection", "agent_config",
 )
 
 MAX_FILES = 5_000              # files looked at in one artifact
+MAX_ENTRIES = 50_000           # names listed while looking: files, folders and links alike
 MAX_DEPTH = 24                 # directories entered below the root
 MAX_FILE_BYTES = 512 * 1024    # bytes read from any one file
 MAX_REFERENCES = 100           # files followed from one skill
@@ -60,7 +67,7 @@ HARNESS_SUFFIXES = frozenset({".md", ".mdc", ".markdown", ".txt", ""})
 COMMAND_FOLDERS = ((".claude", "commands"), (".cursor", "commands"))   # one prompt per file
 PROMPT_FOLDERS = frozenset({"prompts", "prompt-library", "prompt_library"})
 PROMPT_SUFFIXES = frozenset(
-    {".md", ".markdown", ".txt", ".prompt", ".json", ".jsonl", ".yaml", ".yml"}
+    {".md", ".markdown", ".txt", ".prompt", ".json", ".jsonl", ".yaml", ".yml", ".csv", ".tsv"}
 )
 SCRIPT_SUFFIXES = frozenset({
     ".py", ".sh", ".bash", ".zsh", ".fish", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".php",
@@ -113,6 +120,12 @@ _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 # --- the Units, as they are found ------------------------------------------------------------
 
 
+def _clean(text: str) -> str:
+    """Text as a Unit can hold it: a lone surrogate, which a JSON escape such as "\\ud800" can
+    produce, has no UTF-8 form, so the Unit's id could not be made; it becomes '?'."""
+    return text.encode("utf-8", "replace").decode("utf-8")
+
+
 def _title(text: str, fallback: str) -> str:
     words = " ".join(text.split()) or " ".join(fallback.split()) or "untitled"
     return words if len(words) <= MAX_TITLE else words[: MAX_TITLE - 1] + "…"
@@ -140,6 +153,7 @@ class _Units:
             self.full = True
             kind, title, path, span = "knowledge", "Unparsed: the rest of the artifact", ".", None
             body, tags = f"stopped after {MAX_UNITS - 1} units; the rest is not digested", ("unparsed",)
+        title, body, tags = _clean(title), _clean(body), tuple(_clean(tag) for tag in tags)
         cut = ("truncated",) if len(body) > MAX_BODY else ()
         tags = tuple(dict.fromkeys(tag for tag in (_tag(t) for t in (*tags, *cut)) if tag))
         try:
@@ -158,20 +172,49 @@ class _Units:
 # --- finding and reading files ---------------------------------------------------------------
 
 
-def _walk(root: Path) -> tuple[list[str], bool, int]:
-    """Every file under root as a relative POSIX path, sorted; whether the walk stopped at
-    MAX_FILES; and how many names were skipped for not being UTF-8. Links to directories are
-    not entered."""
+def _walk(root: Path) -> tuple[list[str], list[str]]:
+    """Every file under root (a link or special file is listed as one, and refused when read)
+    as a relative POSIX path, sorted; and what the bounds or the names left out, said.
+
+    Depth first in name order, without recursion. Every name listed — file, folder or link —
+    counts towards MAX_ENTRIES, and a folder is listed in full or not at all, so where a large
+    tree is cut never depends on the order the disk lists it in. Links to folders are not
+    entered, and folders below MAX_DEPTH are not entered either: both are said."""
     found: list[str] = []
-    unnamed = 0
-    for here, directories, files in os.walk(root):
-        relative = os.path.relpath(here, root)
-        parts = () if relative == os.curdir else tuple(relative.split(os.sep))
-        directories[:] = (
-            sorted(d for d in directories if d not in SKIPPED_DIRECTORIES)
-            if len(parts) < MAX_DEPTH else []
-        )
-        for name in sorted(files):
+    notes: list[str] = []
+    unnamed = unlisted = 0
+    too_deep = False
+    budget = MAX_ENTRIES
+    pending: list[tuple[str, ...]] = [()]
+    while pending:
+        parts = pending.pop()
+        entries: list[tuple[str, bool]] = []          # name, is a folder (never through a link)
+        try:
+            with os.scandir(os.path.join(root, *parts)) as listing:
+                for entry in listing:
+                    if len(entries) >= budget:
+                        notes.append(f"more than {MAX_ENTRIES} names in the artifact: "
+                                     f"{'/'.join(parts) or '.'} and what follows it were not looked at")
+                        return sorted(found), notes + _walk_notes(unnamed, unlisted, too_deep)
+                    try:
+                        folder = entry.is_dir(follow_symlinks=False)
+                    except OSError:
+                        folder = False
+                    entries.append((entry.name, folder))
+        except OSError:
+            unlisted += 1
+            continue
+        budget -= len(entries)
+        inner: list[tuple[str, ...]] = []
+        for name, folder in sorted(entries):
+            if folder:
+                if name in SKIPPED_DIRECTORIES:
+                    continue
+                if len(parts) >= MAX_DEPTH:
+                    too_deep = True
+                    continue
+                inner.append((*parts, name))
+                continue
             rel = "/".join((*parts, name))
             try:
                 rel.encode("utf-8")
@@ -179,9 +222,22 @@ def _walk(root: Path) -> tuple[list[str], bool, int]:
                 unnamed += 1
                 continue
             if len(found) == MAX_FILES:
-                return sorted(found), True, unnamed
+                notes.append(f"only the first {MAX_FILES} files were looked at")
+                return sorted(found), notes + _walk_notes(unnamed, unlisted, too_deep)
             found.append(rel)
-    return sorted(found), False, unnamed
+        pending.extend(reversed(inner))
+    return sorted(found), notes + _walk_notes(unnamed, unlisted, too_deep)
+
+
+def _walk_notes(unnamed: int, unlisted: int, too_deep: bool) -> list[str]:
+    notes = []
+    if too_deep:
+        notes.append(f"folders more than {MAX_DEPTH} levels below the root were not entered")
+    if unlisted:
+        notes.append(f"{unlisted} folder(s) could not be listed")
+    if unnamed:
+        notes.append(f"{unnamed} file names that are not UTF-8 were skipped")
+    return notes
 
 
 def _within(folders: tuple[str, ...], sequence: tuple[str, ...]) -> bool:
@@ -210,14 +266,39 @@ def _classify(rel: str) -> str | None:
 def _read(root: Path, rel: str) -> tuple[str | None, bool, str]:
     """The file as text, whether it was cut at MAX_FILE_BYTES, and — when the text is None —
     why it could not be read. Only regular files are opened: never a link, pipe or device."""
-    path = root / rel
+    refused = "not a regular file (links and devices are not followed)"
     try:
-        if not stat.S_ISREG(path.lstat().st_mode):
-            return None, False, "not a regular file (links and devices are not followed)"
-        with path.open("rb") as handle:
-            data = handle.read(MAX_FILE_BYTES + 1)
+        # Each step of the way is looked at, not through: a link anywhere on it is refused.
+        current, checked = str(root), None
+        for part in PurePosixPath(rel).parts:
+            current = os.path.join(current, part)
+            checked = os.lstat(current)
+            if stat.S_ISLNK(checked.st_mode):
+                return None, False, refused
+        if checked is None or not stat.S_ISREG(checked.st_mode):
+            return None, False, refused
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        descriptor = os.open(current, flags)
+        try:
+            # And what is opened is the file that was looked at, not one swapped in since.
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
+                checked.st_dev, checked.st_ino
+            ):
+                return None, False, refused
+            chunks: list[bytes] = []
+            left = MAX_FILE_BYTES + 1
+            while left > 0:
+                chunk = os.read(descriptor, min(left, 1 << 16))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                left -= len(chunk)
+        finally:
+            os.close(descriptor)
     except OSError as exc:
         return None, False, f"could not be read ({type(exc).__name__})"
+    data = b"".join(chunks)
     truncated = len(data) > MAX_FILE_BYTES
     data = data[:MAX_FILE_BYTES]
     if b"\x00" in data:
@@ -230,7 +311,8 @@ def _read(root: Path, rel: str) -> tuple[str | None, bool, str]:
             continue
     else:
         return None, truncated, "not UTF-8 text"
-    return text.removeprefix("﻿").replace("\r\n", "\n"), truncated, ""
+    # Universal newlines, as Python reads text: a lone CR ends a line as much as LF does.
+    return text.removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n"), truncated, ""
 
 
 def _lines(text: str) -> list[str]:
@@ -307,7 +389,7 @@ def _scalar(value: str, more: list[str]) -> str:
 
 @dataclass
 class _Block:
-    kind: str           # "heading", "item", "paragraph" or "break"
+    kind: str           # "heading", "item", "paragraph", "code" (a fence outside an item) or "break"
     start: int          # 1-based, inclusive
     end: int
     lines: list[str] = field(default_factory=list)
@@ -323,11 +405,13 @@ def _heading_text(text: str) -> str:
 
 
 def _blocks(lines: list[str], first: int) -> list[_Block]:
-    """Headings, list items (with their continuation lines, fenced code included), paragraphs
-    and breaks, from lines[first:]. Nothing inside a fence is taken for a heading or an item."""
+    """Headings, list items (with their continuation lines, fenced code included), paragraphs,
+    fenced code outside an item, and breaks (dividers), from lines[first:]. Nothing inside a
+    fence is taken for a heading or an item."""
     blocks: list[_Block] = []
     item: _Block | None = None
     paragraph: _Block | None = None
+    code: _Block | None = None
     fence: str | None = None
     fence_in_item = False
     blank = False
@@ -337,6 +421,8 @@ def _blocks(lines: list[str], first: int) -> list[_Block]:
             if item is not None and fence_in_item:
                 item.end = number
                 item.lines.append(line)
+            elif code is not None:
+                code.end = number
             closing = line.strip()
             if closing.startswith(fence) and set(closing) == {fence[0]}:
                 fence = None
@@ -351,7 +437,8 @@ def _blocks(lines: list[str], first: int) -> list[_Block]:
                 item.lines.append(line)
             else:
                 item = None
-                blocks.append(_Block("break", number, number))
+                code = _Block("code", number, number)
+                blocks.append(code)
             blank = False
             continue
         if not line.strip():
@@ -422,39 +509,45 @@ def _item_kinds(text: str, section: str) -> tuple[str, ...]:
 
 def _guidance(lines: list[str], first: int, units: _Units, rel: str, context: str,
               tags: tuple[str, ...]) -> None:
-    """Procedures, rules and checks from the markdown in lines[first:]."""
-    blocks = _blocks(lines, first)
+    """Procedures, rules and checks from the markdown in lines[first:], a section (the blocks
+    under one heading) at a time."""
     heading: str | None = None
-    section = ""
-    index = 0
-    while index < len(blocks):
-        block = blocks[index]
-        if block.kind == "item":
-            run: list[_Block] = []
-            while index < len(blocks) and blocks[index].kind == "item":
-                run.append(blocks[index])
-                index += 1
-            _list_units(lines, run, heading, section, units, rel, context, tags)
-            continue
+    section: list[_Block] = []
+    for block in _blocks(lines, first):
         if block.kind == "heading":
-            heading, section = block.text, _section(block.text)
+            _section_units(lines, section, heading, units, rel, context, tags)
+            heading, section = block.text, []
+        else:
+            section.append(block)
+    _section_units(lines, section, heading, units, rel, context, tags)
+
+
+def _section_units(lines: list[str], blocks: list[_Block], heading: str | None, units: _Units,
+                   rel: str, context: str, tags: tuple[str, ...]) -> None:
+    """A section's Units in the order they begin. Its steps are one procedure, from its first
+    item to its last item or code block — so the commands fenced between or after the steps
+    are part of it — however often prose, code or a divider breaks the list; and every item
+    and sentence that is a rule or a check is that as well."""
+    section = _section(heading)
+    items = {id(block): _item_text(block) for block in blocks if block.kind == "item"}
+    kinds = {key: _item_kinds(text, section) for key, text in items.items()}
+    steps = bool(heading and _STEPS_HEADING.search(heading))    # a steps section, whatever its items
+    procedure = bool(items) and (steps or (not section and (
+        any(block.numbered for block in blocks if block.kind == "item") or () in kinds.values()
+    )))
+    for block in blocks:
+        if block.kind == "item":
+            if procedure:
+                procedure = False
+                start = block.start
+                end = max(b.end for b in blocks if b.kind in ("item", "code") and b.start >= start)
+                body = "\n".join(lines[start - 1:end])
+                units.add("procedure", heading or f"{context}: steps", body, rel, (start, end), tags)
+            text = items[id(block)]
+            for kind in kinds[id(block)]:
+                units.add(kind, text, text, rel, (block.start, block.end), tags)
         elif block.kind == "paragraph":
             _paragraph_units(block, section, units, rel, tags)
-        index += 1
-
-
-def _list_units(lines: list[str], run: list[_Block], heading: str | None, section: str,
-                units: _Units, rel: str, context: str, tags: tuple[str, ...]) -> None:
-    items = [(block, _item_text(block)) for block in run]
-    kinds = [_item_kinds(text, section) for _, text in items]
-    steps = bool(heading and _STEPS_HEADING.search(heading))    # a steps section, whatever its items
-    if steps or (not section and (any(block.numbered for block in run) or () in kinds)):
-        start, end = run[0].start, run[-1].end
-        body = "\n".join(lines[start - 1:end])
-        units.add("procedure", heading or f"{context}: steps", body, rel, (start, end), tags)
-    for (block, text), found in zip(items, kinds, strict=True):
-        for kind in found:
-            units.add(kind, text, text, rel, (block.start, block.end), tags)
 
 
 def _paragraph_units(block: _Block, section: str, units: _Units, rel: str,
@@ -592,11 +685,15 @@ def _harness(root: Path, rel: str, units: _Units, documents: dict[str, str]) -> 
     lines = _lines(text)
     tags = ("harness",)
     fields, taken, problem = _front_matter(lines)
+    # Front matter is optional here, and a leading '---' is as often a divider: when it opens
+    # no front matter that can be read, that is said, and the whole file is read as markdown,
+    # so that none of its rules are lost with it.
     if fields is None and problem:
-        units.unparsed(rel, (1, 1), f"{problem}; the file is not read")
-        return
-    if problem:
-        units.unparsed(rel, (1, taken), problem)
+        units.unparsed(rel, (1, 1), f"{problem}; the file is read as markdown from its first line")
+        taken = 0
+    elif problem:
+        units.unparsed(rel, (1, taken), f"{problem}; the file is read as markdown from its first line")
+        taken = 0
     elif fields:
         title = fields.get("name") or fields.get("description") or rel
         body = "\n".join(f"{key}: {value}" for key, value in fields.items())
@@ -623,6 +720,8 @@ def _prompts(root: Path, rel: str, units: _Units, documents: dict[str, str]) -> 
         _json_prompts(text, rel, units, tags)
     elif suffix == ".jsonl":
         _jsonl_prompts(_lines(text), rel, units, tags)
+    elif suffix in (".csv", ".tsv"):
+        _table_prompts(text, rel, units, tags, "," if suffix == ".csv" else "\t")
     else:
         folders = tuple(part.lower() for part in PurePosixPath(rel).parts[:-1])
         whole = any(_within(folders, f) for f in COMMAND_FOLDERS)
@@ -753,6 +852,36 @@ def _json_prompts(text: str, rel: str, units: _Units, tags: tuple[str, ...]) -> 
         units.add("example", title or prompt, prompt, rel, (first, last), tags)
 
 
+def _table_prompts(text: str, rel: str, units: _Units, tags: tuple[str, ...],
+                   delimiter: str) -> None:
+    """A table of prompts (prompts.csv: "act","prompt"): one example per row, from the column
+    named for the prompt, titled by the column named for its name. A quoted cell may run over
+    several lines, and the row's span says so."""
+    reader = csv.reader(io.StringIO(text, newline="\n"), delimiter=delimiter, strict=True)
+    try:
+        header = next(reader, None)
+        columns = [cell.strip().lower() for cell in header or ()]
+        column = next((columns.index(key) for key in PROMPT_KEYS if key in columns), None)
+        if column is None:
+            units.unparsed(rel, (1, max(1, reader.line_num)),
+                           f"a prompt table needs a column named one of: {', '.join(PROMPT_KEYS)}")
+            return
+        titled = next((columns.index(key) for key in PROMPT_TITLE_KEYS if key in columns), None)
+        first = reader.line_num + 1
+        for row in reader:
+            last, start, first = reader.line_num, first, reader.line_num + 1
+            if not any(cell.strip() for cell in row):
+                continue
+            prompt = row[column] if column < len(row) else ""
+            if not prompt.strip():
+                units.unparsed(rel, (start, last), f"the row at line {start} has no prompt text")
+                continue
+            title = row[titled] if titled is not None and titled < len(row) else ""
+            units.add("example", title.strip() or prompt, prompt, rel, (start, last), tags)
+    except csv.Error as exc:
+        units.unparsed(rel, None, f"the table cannot be read past line {reader.line_num}: {exc}")
+
+
 def _jsonl_prompts(lines: list[str], rel: str, units: _Units, tags: tuple[str, ...]) -> None:
     for number, line in enumerate(lines, 1):
         if not line.strip():
@@ -782,10 +911,13 @@ def decompose(root: Path, artifact_id: str) -> list[Unit]:
         raise ValueError(f"not an artifact id: {artifact_id!r}")
     units = _Units(artifact_id)
     root = Path(root)
+    if os.path.islink(root):
+        units.unparsed(".", None, "the artifact is a link, and links are not followed")
+        return units.units
     if not os.path.isdir(root):
         units.unparsed(".", None, "the artifact is not a directory of files")
         return units.units
-    files, stopped, unnamed = _walk(root)
+    files, notes = _walk(root)
     documents = {rel: kind for rel in files if (kind := _classify(rel)) is not None}
     for rel, kind in documents.items():
         if units.full:
@@ -794,8 +926,6 @@ def decompose(root: Path, artifact_id: str) -> list[Unit]:
             _READERS[kind](root, rel, units, documents)
         except Exception as exc:  # whatever is in what is read: say so, and never raise
             units.unparsed(rel, None, f"could not be read: {type(exc).__name__}: {str(exc)[:200]}")
-    if stopped:
-        units.unparsed(".", None, f"only the first {MAX_FILES} files were looked at")
-    if unnamed:
-        units.unparsed(".", None, f"{unnamed} file names that are not UTF-8 were skipped")
+    for note in notes:
+        units.unparsed(".", None, note)
     return units.units
