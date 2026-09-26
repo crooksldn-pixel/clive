@@ -72,7 +72,8 @@ The GPT Director must be able to determine from GitHub-visible state, without SS
 - candidate exact SHA;
 - review mechanism/verdict;
 - accepted/integrated exact SHA;
-- evidence summary sufficient to decide the next engineering action.
+- evidence summary sufficient to decide the next engineering action;
+- from loop update part 2 on, the GitHub acceptance gate's answer and the exact SHA it was about.
 
 A read-only status projection file/ref may be published if necessary, but it is explicitly a projection of kernel records, never authority. Do not expose transcripts containing secrets.
 
@@ -121,6 +122,17 @@ Journal-safe adapter records and admitted id length (successor of `4c32bb3d`):
 
 - claims and receipts live under the **adapter root**, `--adapter-root` (default `<store>/remote_engineering`, the location existing hosts already hold their records in). The kernel's journal refuses every verb while the store holds untracked files, and intake writes its claim before the canonical door, so adapter records that are untracked in the store would have every request refused with its id already claimed. **Chosen: refuse to start.** With a journalled store (anything but `--no-journal`), `poll` and `run` refuse to start, with one fixed message and before anything is claimed, when the adapter root is inside the store's git work tree and its `claims/` and `receipts/` directories themselves are not ignored by that work tree's rules. The directories are what is checked, never a sample record: git cannot re-include anything beneath an ignored directory, so only that covers every request id and every temporary file, and a rule matching only some file names (say `claims/*.json`) is refused. The supported configuration is an `--adapter-root` outside the store's work tree, which needs no ignore rule of any kind. An ignore rule also satisfies the check, but only a committed `.gitignore` goes with a clone: a host-local `.git/info/exclude` line satisfies it on that host only, and a new host without it refuses to start rather than burning ids. The message never repeats a path. `status` only reads and is not checked;
 - the slug pattern alone admits up to 135 characters, but the id becomes the objective id (the canonical pattern caps it at 80), the task id, the claim and the receipt (120 each). The request schema therefore also caps `request_id` at 80 (`REQUEST_ID_MAX_LENGTH`), the shortest of those. The longest admitted id reaches a durable accepted receipt in `run` and in one-shot `poll`, and a longer one is refused by the schema before any claim, without being echoed.
+
+## Loop update part 2 (owner-approved 2026-09-25; in force only at the owner-gated re-pin)
+
+The owner approved one reviewed change to the loop ([OWNER_DECISIONS_2026-09-25.md](./OWNER_DECISIONS_2026-09-25.md), "Loop update"). Part 1, builders running their declared checks (`run_checks`), landed as PR #22. Part 2 is built in the repository and described in full in [ENGINEERING_DISPATCHER_V1.md](./ENGINEERING_DISPATCHER_V1.md), "Loop update part 2". **Neither part is in force on a host until the owner re-pins that host's loop** to a trunk commit that carries it, after that commit's green GitHub acceptance run and exact-SHA review. What part 2 changes for this adapter:
+
+- **Acceptance and integration wait for GitHub.** The Dispatcher this loop advances reviews a candidate, submits a READY verdict (which is when the kernel records an acceptance) and integrates only while GitHub's `acceptance` run is green on that exact SHA. Waiting is bounded and fails closed; red or no green within the bound blocks the task with the reason. The loop never publishes a candidate onto `clive/trunk`; landing into the trunk stays the Director's step, and only a green SHA that already contains the trunk head lands as itself.
+- **The projection shows the gate.** Each request with a task carries `github_acceptance`: the exact SHA asked about, its state (`green`, `pending`, `missing`, `red`, `unavailable`), a sentence the gate built itself, the acceptance run ids with GitHub's status and conclusion words, and when it was asked. `status` shows the same. It is a projection of the Dispatcher's recorded answer, never authority.
+- **Review findings text is never published.** A verdict appears only as its outcome, its verdict word, the reviewer principal and the kernel's reason codes. Findings, their evidence references, required repairs and the reviewer's summary stay in the engineering store (a test pins this).
+- **This adapter is protected.** `crooks-assistant/app/remote_engineering/` and `crooks-assistant/scripts/remote_engineering.py` joined `PROTECTED_PATHS`, with the product safety core and the evidence tools, so no request can put them in scope; a request recorded earlier that did is blocked before it advances.
+- **Product memory from the trunk.** `--product-memory-ref` is no longer required and defaults to `origin/clive/trunk`.
+- **No new credential.** The gate asks GitHub with the credential git already holds for the publish remote (else `--remote`).
 
 ## Safety and process execution
 

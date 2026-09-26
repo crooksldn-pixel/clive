@@ -23,7 +23,7 @@ The execution machinery can be replaced. That covers the worker process, its fla
 It writes `objectives/<id>.json` (an immutable `clive.engineering_objective.v1`) under the kernel's store root, using the kernel's writer lock and git journal. Then `Kernel.create_task` records task revision 1. The owner's words are stored verbatim as `requested_outcome` and are never parsed. Everything that decides authority is a structured field:
 
 - base SHA (resolved from the ref at intake), target branch (default `clive/objective/<id>`) and product-memory SHA;
-- allowed paths: required and non-empty. They may never cover the frozen kernel, the dispatcher itself, the principal registry, the roster, launchd/secrets scripts, `.github` or the `engineering/` store;
+- allowed paths: required and non-empty. They may never cover the frozen kernel, the dispatcher itself, the principal registry, the roster, launchd/secrets scripts, `.github` or the `engineering/` store, nor, since the loop update (see "Loop update part 2" below), the product safety core, the evidence tools and the loop's own code;
 - prohibited actions: the defaults cannot be removed;
 - `authority_class: repository_only`, the only value that exists;
 - checks as argv without a shell;
@@ -42,10 +42,10 @@ Owner provenance is recorded as declared (`os_user`, `host`, `channel: cli`) wit
 | READY | Check the retry budget and backoff (from the kernel's cancellation records) and the concurrency limit. Create a fresh workspace at the base, assign with a CLIVE-chosen session id, launch. | `assign` |
 | ASSIGNED | Wait for the worker's own `system/init` event and check it against the launch policy. A pass is the acknowledgement. A widened surface kills the worker and blocks. No init within `init_timeout_s` cancels (transient). | `ack` / `block` / `cancel` |
 | RUNNING | Stream events renew the lease. A successful Edit/Write is progress, and edits seen before a result are flushed as progress before the candidate. No event for `stall_s`: kill, cancel (transient). Process gone with no result: diagnose; authentication is deterministic, anything else transient. On a result, see below. | `heartbeat`, `heartbeat --progress`, `evidence`, `candidate`, `cancel`, `block` |
-| EVIDENCE_READY | Choose the first configured reviewer that is registered `may_review`, is not the author principal, and whose driver says it can actually be reached. If none: block with every gap named, and dispatch nothing. | `dispatch` / `block` |
-| REVIEWING | Read the typed result. A result naming another task, revision or attempt is refused at the door. Everything else goes to the kernel, which admits, rejects or refuses it. | `verdict` |
+| EVIDENCE_READY | Wait (bounded) for a green GitHub acceptance run on the exact candidate SHA; red, or no green within the bound, blocks. Then choose the first configured reviewer that is registered `may_review`, is not the author principal, and whose driver says it can actually be reached. If none: block with every gap named, and dispatch nothing. | `dispatch` / `block` |
+| REVIEWING | Read the typed result. A result naming another task, revision or attempt is refused at the door. A READY is submitted only while the candidate SHA is green on GitHub (otherwise it waits unconsumed, or the task blocks). Everything else goes to the kernel, which admits, rejects or refuses it. | `verdict` / `block` |
 | REJECTED | Route a repair revision (`kind: repair`, same base, scope and evidence) that names the admitted verdict record. After `max_repair_rounds`, block and leave the next move to the owner. | `task` r+1 / `block` |
-| ACCEPTED | Verify the target ref resolves to the accepted SHA (the remote's with `--publish-remote`). If it has moved, block. | `integrate` (fast-forward) / `block` |
+| ACCEPTED | Verify the accepted SHA is green on GitHub, then that the target ref resolves to it (the remote's with `--publish-remote`). If it has moved, block. The gate's answer is the integration's `gates_evidence`. | `integrate` (fast-forward) / `block` |
 | DONE | Nothing. The projection says COMPLETE only when acceptance and integration agree. | — |
 | BLOCKED, OWNER_GATE | Nothing. The dispatcher never lifts either. | — |
 
@@ -54,10 +54,10 @@ When a worker result arrives (`completed`), these steps run in order, and nothin
 1. CLIVE commits whatever the worker left in the tree (the worker has no git and cannot commit).
 2. The candidate is `git rev-parse HEAD`. If the tree is unchanged, the result is refused.
 3. The candidate is fetched into the dispatcher's repository as `refs/clive/candidates/<attempt>` and verified to be exactly that SHA.
-4. The changed paths are read from `git diff --no-renames` and must fall inside scope.
+4. The changed paths are read from `git diff --no-renames`. None may be a protected path, whatever the task's scope says, and all must fall inside scope.
 5. Each check runs in the check sandbox (see "Check sandbox") on a fresh export of exactly the committed candidate, never on the live workspace, and its output is evidence. If the sandbox cannot be established, the task blocks and no check runs.
 6. The transcript and report are recorded as evidence.
-7. The target branch moves fast-forward only (and is pushed, with `--publish-remote`).
+7. The target branch moves fast-forward only (and is pushed, with `--publish-remote`). It is never the trunk (`clive/trunk`): a candidate is not yet green, reviewed or accepted, so the loop refuses to publish one onto a landing branch.
 8. `candidate` records the exact SHA with every required evidence name.
 
 An out-of-scope tree, a failed check or an empty tree cancels the attempt (`result_refused:`) and never becomes a candidate. The next attempt's prompt says why. After `max_result_refusals` the task blocks.
@@ -67,6 +67,34 @@ Worker outcomes map to lifecycle outcomes like this:
 - `blocked` → BLOCKED (deterministic);
 - `owner_decision_required` → OWNER_GATE (OWNER_ONLY). This is the safe direction: the worker can stop work, never start it;
 - a structured error → transient or deterministic, by its API status and subtype, never by prose.
+
+## Loop update part 2: the GitHub acceptance gate, protected paths, product memory from the trunk
+
+Status: built in the repository for the owner's loop update ([OWNER_DECISIONS_2026-09-25.md](./OWNER_DECISIONS_2026-09-25.md), "Loop update"; part 1, the builder's `run_checks`, landed as PR #22). **It is not in force on any host.** It takes effect only through the owner-gated re-pin of a loop to a trunk commit that carries it, after that commit's own green GitHub acceptance run and exact-SHA review. A loop still running an older pin behaves as before.
+
+### The GitHub acceptance gate
+
+The owner's rule: an objective counts as accepted, and a landing may happen, only after a green GitHub acceptance run on that exact SHA. Code: `app/orchestrator/github_acceptance.py` (the gate) and three calls in `app/orchestrator/dispatcher.py`.
+
+- **What is asked.** `GET /repos/{repository}/commits/{sha}/check-runs?check_name=acceptance&filter=latest`: the check run of the `acceptance` job of `.github/workflows/acceptance.yml`, which checks out and tests exactly the commit it runs for. `repository` is the objective's; `sha` is the kernel's candidate or accepted SHA, never a reviewer's claim.
+- **Green, and only green:** at least one `acceptance` run created by GitHub Actions exists for the SHA, every one has completed, and every one concluded `success`. Anything else fails closed and is named: `missing` (no run yet), `pending` (a run not completed), `red` (any completed run with another conclusion, including `cancelled` and `skipped`, even beside a green duplicate), `unavailable` (GitHub unreachable or refusing, an answer of the wrong shape, a run listed for another commit, a list shorter than GitHub's own count, or a gate that raised). A push and a pull-request run on one SHA are both counted; `filter=latest` means a re-run replaces the earlier attempt of its own run. Check runs created by any other app are ignored: they can neither make a SHA green nor stand in for the workflow.
+- **Where it is applied.** (1) Before review dispatch: nothing is reviewed until its exact SHA is green, and the review packet carries the gate's answer. (2) Before a READY verdict is submitted to the kernel, which is the moment the kernel records an acceptance: a READY waits unconsumed while the SHA is not green; a CHANGES_REQUIRED is admitted at once, since a rejection accepts nothing. (3) Before integration, on the accepted SHA; this also holds any acceptance recorded before the gate existed.
+- **Bounded waiting.** GitHub is asked about a SHA at most every `acceptance_poll_s` (60 s). `red` blocks the task at once. `missing`, `pending` and `unavailable` wait; a step that has waited `acceptance_timeout_s` (3600 s) for its SHA blocks the task with the last answer. The start of each wait is an execution note, so it survives a restart. A blocked task is resumed with the kernel's `resume`; the wait then starts again, and a remembered answer is never reused across a resume. Every waiting tick logs `<step> waits for a green GitHub acceptance run on <sha> (<state>: <detail>)`. A dispatcher built without a gate blocks every candidate before review: there is no "off".
+- **Where the answer is recorded.** Each answer, with the SHA it is about, its state, a sentence the gate built itself, the run ids and GitHub's status and conclusion words, and when it was asked, goes to the attempt's runtime notes (`github_acceptance`) and to `<runtime>/evidence/<attempt>/github-acceptance.json`. The green answer is in the review packet (whose digest the kernel's dispatch record holds) and is the integration's `gates_evidence` (the kernel's integration record holds its digest). The remote loop's status projection publishes it per request as `github_acceptance`, and `status` shows it. Nothing GitHub wrote (titles, summaries, URLs) and no credential is ever recorded or published.
+- **Credential.** None of its own. The gate reuses the credential git already holds for the publish remote (`--publish-remote`, else `origin`; for the remote loop, else `--remote`): `git credential fill` with prompts and askpass programs off, answered from the remote URL or a configured credential helper. It is sent only to `api.github.com`, only as a bearer header, and only when the remote is an https URL of exactly the objective's repository on github.com. With an ssh remote, or no stored credential, the gate asks without one: that reads a public repository (60 requests an hour per address, so about one waiting SHA at a time) and fails closed on a private one.
+- **Head SHA, not merge result.** The workflow checks out `github.event.pull_request.head.sha || github.sha` and refuses any other commit, so a green run on SHA X means X's own tree passed, never a merge result. The loop's integration is fast-forward only: the kernel refuses a fast-forward integration unless the integrated SHA is exactly the accepted SHA, and the gate runs on that same SHA, so what the loop integrates is exactly what was green. The loop never moves `clive/trunk`: an objective's candidate lives on its own branch, a task targeting the trunk is blocked before any work, and `_publish` refuses the trunk as a target. Landing into the trunk is the Director's step, outside the loop. For it to meet the owner's rule, the green SHA must be what lands: land it only when the current trunk head is an ancestor of the green SHA (a fast-forward lands exactly that SHA; a merge commit then has exactly its tree). When the trunk has moved on and the candidate does not contain it, the merge is a new SHA that has not been tested: integrate first (an `integrate` objective, whose merge is its own candidate, gated and reviewed like any other) or merge on a branch and land that SHA only once it is green itself.
+
+### Protected paths
+
+`PROTECTED_PATHS` (repository-root relative; a directory entry protects everything beneath it) now also holds the product safety core (`crooks-assistant/app/tools/gate.py`, `crooks-assistant/app/readonly.py`, `crooks-assistant/app/tools/shopify_writes.py`, `crooks-assistant/app/tools/gmail_writes.py`, `crooks-assistant/app/actions`), the evidence tools (`crooks-assistant/scripts/acceptance_provenance.py`, `.gitleaks.toml`, `.gitleaks-baseline.json` at the repository root, `crooks-assistant/pyproject.toml`) and the loop's own code (`crooks-assistant/app/remote_engineering`, `crooks-assistant/scripts/remote_engineering.py`, and the new gate, `crooks-assistant/app/orchestrator/github_acceptance.py`). The owner's decision names them relative to `crooks-assistant/`, except the two gitleaks files, which live at the repository root.
+
+- Intake refuses any objective whose allowed paths are, contain or lie beneath one of them, as before, through the same `Objective` door the remote inbox and the bridge use.
+- An objective recorded before its scope became protected still loads (the store reads records without that one rule, so one old record cannot stop the dispatcher reading every objective), but the dispatcher blocks it before it can launch, dispatch, admit, route a repair or integrate, naming the protected paths.
+- A candidate that changes a protected path is refused (`result_refused:`) whatever the task's scope says; this covers a worker that was already running when the update took effect.
+
+### Product memory from the trunk
+
+The default `--product-memory-ref` of `engineering_dispatcher.py objective` and `integrate`, and of `remote_engineering.py poll` and `run` (where it was a required flag), is `origin/clive/trunk`, where canonical product memory has lived since the 2026-09-25 consolidation. A host's unit file that passes the old ref explicitly keeps it until the re-pin changes it.
 
 ## Builder driver: Claude Code CLI (verified 2026-09-23, CLI 2.1.280)
 
@@ -193,7 +221,7 @@ Failure classes:
 - The store is a dedicated checkout of `clive/engineering-state`, whose journal is pushed fast-forward. That is the existing operating rule: one writer clone.
 - `--repo` is a dedicated dispatcher clone. The dispatcher refuses to move a target branch that the clone has checked out. It is never the production checkout and never the canonical Builder checkout.
 - `--workspace-root` defaults to `/opt/crooks-workers`.
-- Use `--publish-remote origin` when the reviewer must fetch the candidate from GitHub.
+- Use `--publish-remote origin` when the reviewer must fetch the candidate from GitHub. From the loop update on, it is also how a candidate reaches GitHub at all: a candidate that is never pushed never gets an acceptance run, waits `missing` and blocks when the wait runs out.
 - `run` ticks until every objective is COMPLETE, BLOCKED or at OWNER_GATE.
 
 ## Declared, not verified

@@ -19,11 +19,14 @@ from app.orchestrator.lifecycle import (
 )
 from app.orchestrator.objectives import (
     DEFAULT_PROHIBITED_ACTIONS,
+    PROTECTED_PATHS,
+    RECORDED,
     Check,
     Objective,
     ObjectiveStore,
     OwnerEntry,
     intake,
+    protected_paths_in,
 )
 from app.orchestrator.store import RecordConflictError
 
@@ -113,6 +116,85 @@ def test_scope_can_never_cover_an_authority_or_runtime_surface(repo, path):
     _, base = repo
     with pytest.raises(ValidationError, match="no objective may put in scope"):
         objective(base, allowed_paths=(path,))
+
+
+# The owner's loop update (OWNER_DECISIONS_2026-09-25.md) names these relative to crooks-assistant/, except
+# the secret-scan rules and baseline, which live at the repository root; PROTECTED_PATHS is root-relative.
+OWNER_PROTECTED_2026_09_25 = (
+    "crooks-assistant/app/tools/gate.py",
+    "crooks-assistant/app/readonly.py",
+    "crooks-assistant/app/tools/shopify_writes.py",
+    "crooks-assistant/app/tools/gmail_writes.py",
+    "crooks-assistant/app/actions",
+    "crooks-assistant/scripts/acceptance_provenance.py",
+    ".gitleaks.toml",
+    ".gitleaks-baseline.json",
+    "crooks-assistant/pyproject.toml",
+    "crooks-assistant/app/remote_engineering",
+    "crooks-assistant/scripts/remote_engineering.py",
+)
+
+
+def test_every_path_the_owner_protected_is_listed_where_it_really_lives():
+    root = Path(__file__).resolve().parents[2]
+    for path in (*OWNER_PROTECTED_2026_09_25, "crooks-assistant/app/orchestrator/github_acceptance.py"):
+        assert path in PROTECTED_PATHS
+        assert (root / path).exists(), path
+    assert (root / "crooks-assistant/app/actions").is_dir() and (root / "crooks-assistant/app/remote_engineering").is_dir()
+
+
+@pytest.mark.parametrize("path", [
+    *OWNER_PROTECTED_2026_09_25,
+    "crooks-assistant/app/orchestrator/github_acceptance.py",
+    "crooks-assistant/app/actions/engine.py",               # beneath a protected directory
+    "crooks-assistant/app/actions/new_module.py",
+    "crooks-assistant/app/remote_engineering/status.py",
+    "crooks-assistant/app/tools",                           # a directory that contains one
+    "crooks-assistant/scripts",
+    "crooks-assistant/app",
+    "crooks-assistant/app/actions/",                        # a trailing slash changes nothing
+])
+def test_the_safety_core_evidence_tools_and_loop_code_are_out_of_every_scope(repo, path):
+    _, base = repo
+    with pytest.raises(ValidationError, match="no objective may put in scope"):
+        objective(base, allowed_paths=(path,))
+
+
+@pytest.mark.parametrize("path", [
+    "crooks-assistant/app/tools/batch_tools.py",
+    "crooks-assistant/app/actionsx",
+    "crooks-assistant/scripts/remote_engineering_notes.md",
+    "crooks-assistant/tests/test_gate.py",
+    "crooks-assistant/app/support",
+    "gitleaks.toml",
+])
+def test_neighbours_of_protected_paths_stay_in_reach(repo, path):
+    _, base = repo
+    assert objective(base, allowed_paths=(path,)).allowed_paths == (path,)
+    assert protected_paths_in((path,)) == ()
+
+
+def test_protected_paths_in_names_what_a_path_set_touches():
+    assert protected_paths_in(("pkg", "crooks-assistant/app/actions/engine.py", ".gitleaks.toml")) == (
+        "crooks-assistant/app/actions", ".gitleaks.toml")
+    assert protected_paths_in(("crooks-assistant/app/tools/",)) == (
+        "crooks-assistant/app/tools/gate.py", "crooks-assistant/app/tools/shopify_writes.py",
+        "crooks-assistant/app/tools/gmail_writes.py")
+
+
+def test_a_recorded_objective_still_loads_after_its_scope_became_protected(repo, tmp_path):
+    root, base = repo
+    kernel, objectives = kernel_for(tmp_path / "engineering", root)
+    fields = objective(base).model_dump()
+    fields["allowed_paths"] = ("crooks-assistant/app/remote_engineering",)
+    with pytest.raises(ValidationError):
+        Objective.model_validate(fields)                    # a new objective: refused at the door
+    legacy = Objective.model_validate(fields, context=RECORDED)
+    objectives.put(legacy, operator="test")
+    assert objectives.read("support-queue") == legacy       # one old record never stops the reader
+    assert objectives.read_all() == (legacy,)
+    with pytest.raises(ValidationError):                    # only the protected-path rule is relaxed
+        Objective.model_validate({**fields, "allowed_paths": ("/etc",)}, context=RECORDED)
 
 
 @pytest.mark.parametrize("path", ["", "/etc", "../x", "a/../b", "a//b"])

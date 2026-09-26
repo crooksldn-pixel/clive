@@ -29,7 +29,7 @@ Where anything further down this file disagrees with this section, this section 
   - `clive-worker-01`, an HPE server, eight builders;
   - the owner's Mac, being set up.
   Each loop has its own inbox and status branch under `clive/control/` ([INFRASTRUCTURE_2026-09-25.md](./INFRASTRUCTURE_2026-09-25.md)). Candidates pass declared checks and an independent exact-SHA review; the frozen lifecycle kernel `18c3153a` is unchanged.
-- **Approved on 2026-09-25, not yet in force until the owner-gated re-pin:** the loop update (builders run declared checks in the check sandbox; acceptance and landing require a green GitHub acceptance run on the exact SHA; the product safety core, the evidence tools and the loop's own code join the protected paths), and moving engineering off the production host once clive-worker-01 has proven itself ([OWNER_DECISIONS_2026-09-25.md](./OWNER_DECISIONS_2026-09-25.md)).
+- **Approved on 2026-09-25, built in the repository, not in force until the owner-gated re-pin:** the loop update ([OWNER_DECISIONS_2026-09-25.md](./OWNER_DECISIONS_2026-09-25.md)). Part 1 (builders run declared checks in the check sandbox) landed as PR #22. Part 2 ([ENGINEERING_DISPATCHER_V1.md](./ENGINEERING_DISPATCHER_V1.md), "Loop update part 2"): review, acceptance and integration wait for a green GitHub acceptance run on the exact SHA, the loop never publishes a candidate onto the trunk, the product safety core, the evidence tools and the loop's own code join the protected paths, and the default product-memory ref is the trunk. A loop runs whatever its host is pinned to, so none of this governs a loop until the owner re-pins it. Also approved, not yet done: moving engineering off the production host once clive-worker-01 has proven itself.
 - **Retired:** the bridge watcher on 2026-09-25 (its job is done by the remote loop); `engineering-team-activation-v1` is superseded by the remote loop; also the competing alpha fix `claude/release-secret-baseline-2026-09-24` and the ChatGPT orchestrator-freeze and control-plane-progress streams. The old hourly supervisor stays disabled and the unrestricted prose-freeze loop stays parked.
 - The runtime GPT Director is still not implemented; the Director acts only while the owner is in a chat (IDEA-065).
 - The trunk was red from PR #8 onwards on 2026-09-25 ([EXTERNAL_REVIEW_2026-09-25.md](./EXTERNAL_REVIEW_2026-09-25.md) §1.1); the trunk repair is on the finish list.
@@ -38,7 +38,7 @@ Where anything further down this file disagrees with this section, this section 
 
 - Canonical product memory is this directory on `clive/trunk` (`crooks-assistant/docs/product-memory`). The truth branch (`claude/product-memory-truth-2026-09-23`, PM-01 to PM-04 on the 2026-09-23 reconciliation) and the Opus 5.5 handoff branch were consolidated into it on 2026-09-25; the older product-memory branches are history.
 - The staging copies under `_incoming/` are left byte-identical to their sources for the Director to remove after this lands; they are not canonical and are not indexed.
-- Builders read product memory from the trunk (part of the approved loop update).
+- The loop's default product-memory ref is `origin/clive/trunk` (loop update part 2); it reaches a loop at the owner-gated re-pin, and a host unit file that still names the old truth branch keeps that until it is changed.
 
 ### What comes next
 

@@ -76,7 +76,8 @@ class RemoteEngineeringLoop:
 
         dispatcher_events = list(self.dispatcher.tick())
 
-        status = build_status(store=self.store, receipts=self.receipts, now=self.clock(), refusals=refusals)
+        status = build_status(store=self.store, receipts=self.receipts, now=self.clock(), refusals=refusals,
+                              gates=self._acceptance_gates())
         status["adapter"] = {"intake_error": intake_error}
         publish_error: str | None = None
         try:
@@ -92,3 +93,15 @@ class RemoteEngineeringLoop:
             "intake_error": intake_error,
             "publish_error": publish_error,
         }
+
+    def _acceptance_gates(self) -> dict[str, dict]:
+        """The dispatcher's recorded GitHub acceptance answers, for the projection only: a dispatcher that
+        keeps none, or notes that cannot be read, publish none, and never stop the cycle."""
+        read = getattr(self.dispatcher, "acceptance_gates", None)
+        if not callable(read):
+            return {}
+        try:
+            gates = read()
+        except (OSError, ValueError):
+            return {}
+        return gates if isinstance(gates, dict) else {}

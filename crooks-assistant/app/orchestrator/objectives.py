@@ -32,7 +32,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 
 from .contracts import (
     EngineeringTask,
@@ -58,8 +58,10 @@ __all__ = [
     "ObjectiveStore",
     "OwnerEntry",
     "PROTECTED_PATHS",
+    "RECORDED",
     "intake",
     "owner_entry_from_host",
+    "protected_paths_in",
     "required_evidence_for",
     "task_from_objective",
 ]
@@ -70,6 +72,14 @@ _SAFE_ID = r"^[a-z0-9][a-z0-9.-]{2,79}$"
 # dispatcher must never be able to change on its own: the frozen kernel and the
 # records it reads, who may review, how CI judges, and anything that installs or
 # runs services. The owner changes these by hand, outside this door.
+#
+# Entries are repository-root relative; a directory entry protects everything beneath
+# it (``_overlaps``). The block after ``set_secrets.py`` joined on the owner's loop
+# update (OWNER_DECISIONS_2026-09-25.md): the product safety core (the action gate, the
+# read-only guard, the Shopify and Gmail write funnels, ``app/actions``), the evidence
+# tools (acceptance provenance, the secret-scan rules and baseline, the package and
+# test configuration) and the loop's own code (the remote inbox adapter and its CLI,
+# and the GitHub acceptance gate).
 PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/orchestrator/lifecycle.py",
     "crooks-assistant/app/orchestrator/contracts.py",
@@ -92,9 +102,27 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/launchd",
     "crooks-assistant/scripts/install_launchd.py",
     "crooks-assistant/scripts/set_secrets.py",
+    "crooks-assistant/app/tools/gate.py",
+    "crooks-assistant/app/readonly.py",
+    "crooks-assistant/app/tools/shopify_writes.py",
+    "crooks-assistant/app/tools/gmail_writes.py",
+    "crooks-assistant/app/actions",
+    "crooks-assistant/scripts/acceptance_provenance.py",
+    ".gitleaks.toml",
+    ".gitleaks-baseline.json",
+    "crooks-assistant/pyproject.toml",
+    "crooks-assistant/app/remote_engineering",
+    "crooks-assistant/scripts/remote_engineering.py",
+    "crooks-assistant/app/orchestrator/github_acceptance.py",
     ".github",
     "engineering",
 )
+
+# ``ObjectiveStore`` reads records with this validation context. An objective recorded
+# before a path joined PROTECTED_PATHS must still load, or one old record would stop the
+# dispatcher reading any objective at all; the dispatcher then refuses to advance it
+# (``protected_paths_in``). Every new objective is validated without it.
+RECORDED = {"recorded_objective": True}
 
 DEFAULT_PROHIBITED_ACTIONS: tuple[str, ...] = (
     "deploy, promote to production, restart services or change systemd/launchd/watchers",
@@ -189,7 +217,8 @@ class Objective(StrictRecord):
 
     @field_validator("allowed_paths")
     @classmethod
-    def bounded_scope(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+    def bounded_scope(cls, value: tuple[str, ...], info: ValidationInfo) -> tuple[str, ...]:
+        recorded = bool(info.context and info.context.get("recorded_objective"))
         cleaned: list[str] = []
         for raw in value:
             path = raw.strip().rstrip("/")
@@ -197,7 +226,7 @@ class Objective(StrictRecord):
                 part in {"", ".", ".."} for part in path.split("/")
             ):
                 raise ValueError(f"allowed path {raw!r} is not a repository-relative path")
-            for protected in PROTECTED_PATHS:
+            for protected in () if recorded else PROTECTED_PATHS:
                 if _overlaps(path, protected):
                     raise ValueError(
                         f"allowed path {path!r} covers {protected!r}, an authority or runtime surface "
@@ -227,6 +256,12 @@ class Objective(StrictRecord):
 def _overlaps(a: str, b: str) -> bool:
     """Either path is the other or contains it."""
     return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def protected_paths_in(paths: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    """The PROTECTED_PATHS entries any of ``paths`` is, contains or lies beneath, in list order."""
+    cleaned = [p.strip().rstrip("/") for p in paths]
+    return tuple(protected for protected in PROTECTED_PATHS if any(_overlaps(p, protected) for p in cleaned if p))
 
 
 def owner_entry_from_host() -> OwnerEntry:
@@ -283,13 +318,14 @@ class ObjectiveStore:
         path = self.path(objective_id)
         if not path.exists():
             return None
-        return Objective.model_validate_json(path.read_text(encoding="utf-8"))
+        return Objective.model_validate_json(path.read_text(encoding="utf-8"), context=RECORDED)
 
     def read_all(self) -> tuple[Objective, ...]:
         if not self.dir.exists():
             return ()
         return tuple(
-            Objective.model_validate_json(p.read_text(encoding="utf-8")) for p in sorted(self.dir.glob("*.json"))
+            Objective.model_validate_json(p.read_text(encoding="utf-8"), context=RECORDED)
+            for p in sorted(self.dir.glob("*.json"))
         )
 
     def digest(self, objective_id: str) -> str:
