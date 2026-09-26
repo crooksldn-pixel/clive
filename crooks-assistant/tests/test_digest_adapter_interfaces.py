@@ -517,6 +517,138 @@ def test_mcp_tools_are_tagged_from_their_own_annotations(tmp_path):
     assert "tool 2 is not an object with a name" in unparsed[0].body
 
 
+def test_a_tool_list_with_no_well_formed_tool_is_said_so_of_tool_by_tool(tmp_path):
+    text = (
+        '{"tools": [\n'
+        '  {"name": 7, "inputSchema": {}},\n'
+        '  {"name": " ", "inputSchema": {}},\n'
+        '  {"name": "bad_schema", "inputSchema": "none"},\n'
+        '  {"name": "bad_annotations", "inputSchema": {}, "annotations": ["readOnlyHint"]},\n'
+        '  {"inputSchema": {}}\n'
+        "]}\n"
+    )
+    units = _units(_write(tmp_path, {"mcp/tools.json": text}))
+    assert [(unit.kind, unit.tags, unit.location) for unit in units] == [
+        ("knowledge", ("unparsed",), Location("mcp/tools.json", line, line))
+        for line in range(2, 7)
+    ]
+    for unit, reason in zip(units, (
+        "tool 1 has a name that is not text", "tool 2 has a name that is not text",
+        "tool 3 has an input schema that is not an object",
+        "tool 4 has annotations that are not an object", "tool 5 is not an object with a name",
+    ), strict=True):
+        assert reason in unit.body, (reason, unit.body)
+    assert units == _units(tmp_path)
+
+
+def test_malformed_tools_beside_well_formed_ones_do_not_hide_them(tmp_path):
+    text = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"tools": [
+        {"name": 7, "inputSchema": {}},
+        {"name": "ping", "inputSchema": {"type": "object"}, "annotations": {"readOnlyHint": True}},
+    ]}}, indent=2)
+    units = _units(_write(tmp_path, {"tools.json": text}))
+    assert [(unit.kind, unit.title) for unit in units] == [
+        ("knowledge", "Unparsed: tools.json"), ("capability", "MCP tool ping"),
+    ]
+    assert units[0].location == Location(
+        "tools.json", _line(text, '"name": 7') - 1, _line(text, '"name": "ping"') - 2
+    )
+    assert _access(units[1]) == "read"
+
+
+@pytest.mark.parametrize("tools", [
+    '{"list_orders": {"inputSchema": {}}}', '"list_orders"', "null", "7",
+])
+def test_a_server_whose_tools_are_not_a_list_is_said_so_of(tmp_path, tools):
+    text = '{\n  "name": "io.example/orders",\n  "tools": ' + tools + '\n}\n'
+    units = _units(_write(tmp_path, {"mcp/server.json": text}))
+    assert [(unit.kind, unit.title) for unit in units] == [
+        ("capability", "MCP server io.example/orders"), ("knowledge", "Unparsed: mcp/server.json"),
+    ]
+    assert _access(units[0]) == "unknown" and "Tools listed: unreadable" in units[0].body
+    assert units[1].tags == ("unparsed",) and "'tools' is not a list of tools" in units[1].body
+    assert units[1].location == Location("mcp/server.json", 3, 3)
+
+
+def test_the_malformed_tools_said_of_one_by_one_are_bounded(tmp_path, monkeypatch):
+    monkeypatch.setattr(interfaces, "MAX_SKIPPED", 2)
+    tools = [{"name": number, "inputSchema": {}} for number in range(5)]
+    tools.append({"name": "ok", "inputSchema": {}})
+    units = _units(_write(tmp_path, {"tools.json": json.dumps(tools)}))
+    assert [(unit.kind, unit.title) for unit in units] == [
+        ("knowledge", "Unparsed: tools.json"), ("knowledge", "Unparsed: tools.json"),
+        ("capability", "MCP tool ok"), ("knowledge", "Unparsed: tools.json"),
+    ]
+    assert "tool 1 " in units[0].body and "tool 2 " in units[1].body
+    assert "3 more tools" in units[3].body and "first 2" in units[3].body
+
+
+BOOLEAN_SCHEMAS = [
+    ("api.json",
+     "{\n"
+     '  "openapi": "3.1.0",\n'
+     '  "paths": {},\n'
+     '  "components": {\n'
+     '    "schemas": {\n'
+     '      "Anything": true,\n'
+     '      "Nothing":\n'
+     "        false,\n"
+     '      "Pet": {"type": "object"}\n'
+     "    }\n"
+     "  }\n"
+     "}\n",
+     [("schema Anything", 6, 6), ("schema Nothing", 7, 8), ("schema Pet", 9, 9)]),
+    ("api.yaml",
+     "openapi: 3.1.0\n"
+     "paths: {}\n"
+     "components:\n"
+     "  schemas:\n"
+     "    Anything: true\n"
+     "    Nothing: false\n"
+     "    Pet:\n"
+     "      type: object\n",
+     [("schema Anything", 5, 5), ("schema Nothing", 6, 6), ("schema Pet", 7, 8)]),
+    ("swagger.yaml",
+     'swagger: "2.0"\n'
+     "paths: {}\n"
+     "definitions: {Anything: true, Nothing: false}\n",
+     [("schema Anything", 3, 3), ("schema Nothing", 3, 3)]),
+]
+
+
+@pytest.mark.parametrize(("name", "content", "expected"), BOOLEAN_SCHEMAS,
+                         ids=[name for name, _, _ in BOOLEAN_SCHEMAS])
+def test_boolean_openapi_schemas_are_placed_at_their_own_lines(tmp_path, name, content, expected):
+    units = _units(_write(tmp_path, {name: content}))
+    assert [(unit.kind, unit.title, unit.location) for unit in units] == [
+        ("interface", title, Location(name, start, end)) for title, start, end in expected
+    ]
+    assert units[0].body.endswith("true") and units[1].body.endswith("false")
+
+
+def test_nested_boolean_json_schemas_are_placed_at_their_own_lines(tmp_path):
+    text = (
+        "{\n"
+        '  "$schema": "https://json-schema.org/draft/2020-12/schema",\n'
+        '  "title": "Wrapper",\n'
+        '  "$defs": {\n'
+        '    "Any": true,\n'
+        '    "None":\n'
+        "      false\n"
+        "  },\n"
+        '  "definitions": {"Old": false}\n'
+        "}\n"
+    )
+    units = _units(_write(tmp_path, {"wrapper.json": text}))
+    assert [(unit.kind, unit.title, unit.location) for unit in units] == [
+        ("interface", "JSON Schema Wrapper", Location("wrapper.json", 1, 10)),
+        ("interface", "JSON Schema Wrapper: Any", Location("wrapper.json", 5, 5)),
+        ("interface", "JSON Schema Wrapper: None", Location("wrapper.json", 6, 7)),
+        ("interface", "JSON Schema Wrapper: Old", Location("wrapper.json", 9, 9)),
+    ]
+    assert units[1].body.endswith("true") and units[2].body.endswith("false")
+
+
 def test_every_capability_is_tagged_read_write_or_unknown(tmp_path):
     units = _units(_write(tmp_path, FIXTURE))
     capabilities = [unit for unit in units if unit.kind == "capability"]
@@ -565,13 +697,54 @@ def test_a_file_over_the_size_bound_is_not_read_and_says_so(tmp_path, monkeypatc
     assert units[0].tags == ("unparsed",) and "larger than 200 bytes" in units[0].body
 
 
-def test_the_bytes_read_from_one_artifact_are_bounded(tmp_path, monkeypatch):
+def _counted_reads(monkeypatch) -> list[int]:
+    """The bytes each file read hands back, in the order the files are read."""
+    counted: list[int] = []
+    read = interfaces._read
+
+    def counting(path, limit):
+        data = read(path, limit)
+        counted.append(len(data))
+        return data
+
+    monkeypatch.setattr(interfaces, "_read", counting)
+    return counted
+
+
+def test_a_first_file_past_the_bytes_bound_of_the_artifact_is_not_taken(tmp_path, monkeypatch):
     monkeypatch.setattr(interfaces, "MAX_TOTAL_BYTES", 10)
+    reads = _counted_reads(monkeypatch)
     units = _units(_write(tmp_path, {"a.json": _schema(), "b.json": _schema()}))
-    assert [(unit.location.path, unit.kind) for unit in units] == [
-        ("a.json", "interface"), ("b.json", "knowledge"),
+    assert [(unit.location.path, unit.kind, unit.tags) for unit in units] == [
+        ("a.json", "knowledge", ("unparsed",)), ("b.json", "knowledge", ("unparsed",)),
     ]
-    assert "unparsed" in units[1].tags and "already came to 10 bytes" in units[1].body
+    assert "past 10 bytes" in units[0].body
+    assert "already came to 10 bytes" in units[1].body
+    assert reads == [11]                    # one byte past the bound, and nothing after it
+
+
+@pytest.mark.parametrize(("spare", "third", "read"), [
+    (5, "past", 6),                         # the third file would cross the bound
+    (0, "already came to", None),           # the first two fill it exactly
+])
+def test_a_later_file_that_would_cross_the_bytes_bound_is_not_taken(
+    tmp_path, monkeypatch, spare, third, read
+):
+    size = len(_schema().encode("utf-8"))
+    monkeypatch.setattr(interfaces, "MAX_TOTAL_BYTES", 2 * size + spare)
+    reads = _counted_reads(monkeypatch)
+    names = ("a.json", "b.json", "c.json", "d.json")
+    units = _units(_write(tmp_path, {name: _schema() for name in names}))
+    assert [(unit.location.path, unit.kind) for unit in units] == [
+        ("a.json", "interface"), ("b.json", "interface"), ("c.json", "knowledge"),
+        ("d.json", "knowledge"),
+    ]
+    assert units[2].tags == ("unparsed",) and third in units[2].body
+    assert units[3].tags == ("unparsed",) and "already came to" in units[3].body
+    assert reads == [size, size] + ([read] if read else [])
+    assert sum(reads) <= interfaces.MAX_TOTAL_BYTES + 1
+    taken = sum(reads[:2])
+    assert taken <= interfaces.MAX_TOTAL_BYTES
 
 
 def test_the_files_read_from_one_artifact_are_bounded(tmp_path, monkeypatch):
@@ -673,6 +846,10 @@ MALFORMED = [
     ("string.graphql", '"""never ends\ntype A { a: Int }\n', "does not end"),
     ("deep.graphql", "type A { a: " + "[" * 500 + "Int" + "]" * 500 + " }\n", "deeper than"),
     ("tools.json", '[{"name": "a", "inputSchema": {}}, 7]', "tool 2"),
+    ("names.json", '{"tools":[{"name":7,"inputSchema":{}}]}', "tool 1 has a name that is not text"),
+    ("server.json", '{"name": "io.example/x", "tools": "none"}', "'tools' is not a list"),
+    ("result.json", '{"jsonrpc": "2.0", "id": 1, "result": {"tools": {"name": "a"}}}',
+     "'result.tools' is not a list"),
 ]
 
 
@@ -692,6 +869,17 @@ def test_malformed_input_becomes_an_unparsed_unit(tmp_path, name, content, reaso
      "'components.schemas'", (11, 13)),
     ("api.yaml", 'swagger: "2.0"\npaths:\n  /y:\n    post:\n      summary: Make\n'
                  "definitions:\n  - Pet\n", "'definitions'", (6, 7)),
+    # Scalars where a mapping of schemas belongs, placed at their own lines.
+    ("scalar.json", '{\n  "openapi": "3.0.0",\n  "paths": {"/y": {"post": {"summary": "Make"}}},\n'
+                    '  "components": {\n    "schemas":\n      5\n  }\n}\n',
+     "'components.schemas'", (5, 6)),
+    ("components.json", '{\n  "openapi": "3.0.0",\n'
+                        '  "paths": {"/y": {"post": {"summary": "Make"}}},\n'
+                        '  "components": "none"\n}\n', "'components'", (4, 4)),
+    ("scalar.yaml", 'swagger: "2.0"\npaths:\n  /y:\n    post:\n      summary: Make\n'
+                    "definitions: none\n", "'definitions'", (6, 6)),
+    ("components.yaml", "openapi: 3.0.0\npaths:\n  /y:\n    post:\n      summary: Make\n"
+                        "components:\n  schemas: 7\n", "'components.schemas'", (7, 7)),
 ])
 def test_a_schema_section_that_is_not_a_mapping_is_said_so_and_operations_still_read(
     tmp_path, name, content, section, lines

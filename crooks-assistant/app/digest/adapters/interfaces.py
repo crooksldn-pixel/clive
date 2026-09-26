@@ -39,6 +39,7 @@ MAX_TOTAL_BYTES = 20_000_000    # all of them
 MAX_UNITS = 5_000               # units returned for one artifact
 MAX_DEPTH = 64                  # nesting, in every format
 MAX_TOKENS = 200_000            # one GraphQL file
+MAX_SKIPPED = 100               # malformed tools said of one by one in one list; more are counted
 
 _JSON = (".json",)
 _YAML = (".yaml", ".yml")
@@ -63,15 +64,23 @@ class _Unparsed(Exception):
 
 
 class _Map(dict):
-    """A mapping read from a file, with the lines it spans."""
+    """A mapping read from a file, with the lines it spans and those each of its entries does."""
 
-    __slots__ = ("lines",)
+    __slots__ = ("lines", "spans")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.spans: dict[str, tuple[int, int]] = {}
 
 
 class _Seq(list):
-    """A list read from a file, with the lines it spans."""
+    """A list read from a file, with the lines it spans and those each of its items does."""
 
-    __slots__ = ("lines",)
+    __slots__ = ("lines", "spans")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.spans: dict[int, tuple[int, int]] = {}
 
 
 # --- units -------------------------------------------------------------------------------------
@@ -99,6 +108,15 @@ def _dump(value: Any) -> str:
 def _lines(node: Any) -> tuple[int | None, int | None]:
     lines = getattr(node, "lines", None)
     return lines if lines else (None, None)
+
+
+def _entry(container: Any, key: Any) -> tuple[int | None, int | None]:
+    """The lines of one entry of a mapping or list read from a file: its value's own, if the
+    value is a mapping or a list, and otherwise the entry's — so a scalar is placed too."""
+    own = _lines(container[key])
+    if own[0] is not None:
+        return own
+    return getattr(container, "spans", {}).get(key, (None, None))
 
 
 def _unit(artifact_id: str, kind: str, title: str, body: str, path: str,
@@ -129,12 +147,12 @@ class _File:
         self.units: list[Unit] = []
         self.whole: tuple[int | None, int | None] = (None, None)    # every line of the file
 
-    def add(self, kind: str, title: str, body: str, node: Any,
+    def add(self, kind: str, title: str, body: str, lines: tuple[int | None, int | None],
             tags: tuple[str, ...] | list[str]) -> None:
-        self.units.append(_unit(self.artifact_id, kind, title, body, self.path, _lines(node), tags))
+        self.units.append(_unit(self.artifact_id, kind, title, body, self.path, lines, tags))
 
-    def unparsed(self, reason: str, node: Any = None) -> None:
-        self.units.append(_unparsed(self.artifact_id, self.path, reason, _lines(node)))
+    def unparsed(self, reason: str, lines: tuple[int | None, int | None] = (None, None)) -> None:
+        self.units.append(_unparsed(self.artifact_id, self.path, reason, lines))
 
 
 # --- JSON, with lines --------------------------------------------------------------------------
@@ -194,12 +212,14 @@ class _Json:
                 position = self._space(position)
                 if not self.text.startswith('"', position):
                     raise _Unparsed(f"line {self._line(position)}: expected a quoted key")
+                first = self._line(position)
                 key, position = scanstring(self.text, position + 1)
                 position = self._space(position)
                 if not self.text.startswith(":", position):
                     raise _Unparsed(f"line {self._line(position)}: expected ':'")
                 value, position = self._value(position + 1, depth + 1)
                 node[key] = value
+                node.spans[key] = (first, self._line(position - 1))
                 position = self._space(position)
                 if not self.text.startswith(",", position):
                     break
@@ -214,7 +234,9 @@ class _Json:
         position = self._space(start + 1)
         if not self.text.startswith("]", position):
             while True:
+                first = self._line(self._space(position))
                 value, position = self._value(position, depth + 1)
+                node.spans[len(node)] = (first, self._line(position - 1))
                 node.append(value)
                 position = self._space(position)
                 if not self.text.startswith(",", position):
@@ -426,7 +448,9 @@ class _Flow:
                     raise _Unparsed(f"line {self.number}: expected ':' in a flow mapping")
                 self.position += 1
                 node[name] = self._node(depth + 1, key=False)
+                node.spans[name] = (self.number, self.number)
             else:
+                node.spans[len(node)] = (self.number, self.number)
                 node.append(self._node(depth + 1, key=False))
             self._space()
             char = self.text[self.position:self.position + 1]
@@ -506,6 +530,7 @@ class _Yaml:
             if isinstance(value, (_Map, _Seq)):
                 value.lines = (line.number, value.lines[1])    # a value spans from its key
             node[key] = value
+            node.spans[key] = (line.number, self.last)
         node.lines = (first or self.last, self.last)
         return node
 
@@ -524,14 +549,16 @@ class _Yaml:
                 # so the line is read again as that block at the column it begins in.
                 column = line.indent + len(line.text) - len(rest)
                 self.lines[self.index] = " " * column + rest
-                node.append(self._block(indent, depth + 1))
-                continue
-            self.index += 1
-            self.last = line.number
-            if rest:
-                node.append(self._value(rest, indent, line.number, depth + 1))
+                item = self._block(indent, depth + 1)
             else:
-                node.append(self._block(indent, depth + 1))
+                self.index += 1
+                self.last = line.number
+                if rest:
+                    item = self._value(rest, indent, line.number, depth + 1)
+                else:
+                    item = self._block(indent, depth + 1)
+            node.spans[len(node)] = (line.number, self.last)
+            node.append(item)
         node.lines = (first or self.last, self.last)
         return node
 
@@ -884,7 +911,7 @@ def _graphql(out: _File, schema: _Sdl, roots: dict[str, str]) -> None:
                     lines += ["", "Arguments:"]
                     lines += [f"- {text}" + (f" — {about}" if about else "")
                               for text, about in field.arguments]
-                out.add("capability", f"{operation} {field.name}", "\n".join(lines), field,
+                out.add("capability", f"{operation} {field.name}", "\n".join(lines), field.lines,
                         ("graphql", operation, access))
             continue
         lines = [kind.header]
@@ -899,7 +926,7 @@ def _graphql(out: _File, schema: _Sdl, roots: dict[str, str]) -> None:
             lines += ["", "Values: " + ", ".join(kind.members)]
         elif kind.members:
             lines += ["", "Members: " + " | ".join(kind.members)]
-        out.add("interface", kind.header, "\n".join(lines), kind, ("graphql", kind.keyword))
+        out.add("interface", kind.header, "\n".join(lines), kind.lines, ("graphql", kind.keyword))
 
 
 # --- OpenAPI and Swagger -----------------------------------------------------------------------
@@ -1022,7 +1049,7 @@ def _operation(out: _File, doc: dict, heading: str, path: str, method: str,
     tags = ["openapi", access]
     if operation.get("deprecated") is True:
         tags.append("deprecated")
-    out.add("capability", f"{method.upper()} {path}", "\n".join(lines), operation, tags)
+    out.add("capability", f"{method.upper()} {path}", "\n".join(lines), _lines(operation), tags)
 
 
 def _openapi(out: _File, doc: dict) -> None:
@@ -1034,34 +1061,38 @@ def _openapi(out: _File, doc: dict) -> None:
         paths = {}
     if not isinstance(paths, dict):
         out.unparsed("'paths' is not a mapping of paths to operations, so no operation was read",
-                     paths)
+                     _entry(doc, "paths"))
         paths = {}
     for path, item in paths.items():
         if not isinstance(item, dict):
-            out.unparsed(f"path {path} is not a mapping of methods to operations", paths)
+            out.unparsed(f"path {path} is not a mapping of methods to operations",
+                         _entry(paths, path))
             continue
         shared = item.get("parameters") if isinstance(item.get("parameters"), list) else []
         for method, operation in item.items():
             if method.lower() not in _HTTP_METHODS:
                 continue
             if not isinstance(operation, dict):
-                out.unparsed(f"{method.upper()} {path} is not a mapping, so it was not read", item)
+                out.unparsed(f"{method.upper()} {path} is not a mapping, so it was not read",
+                             _entry(item, method))
                 continue
             _operation(out, doc, heading, path, method.lower(), operation, shared)
     components = doc.get("components")
     if components is not None and not isinstance(components, dict):
-        out.unparsed("'components' is not a mapping, so no schema in it was read", components)
-    section = "components.schemas"
+        out.unparsed("'components' is not a mapping, so no schema in it was read",
+                     _entry(doc, "components"))
+    section, holder = "components.schemas", components
     schemas = components.get("schemas") if isinstance(components, dict) else None
     if schemas is None:
-        section, schemas = "definitions", doc.get("definitions")       # Swagger 2
+        section, holder, schemas = "definitions", doc, doc.get("definitions")     # Swagger 2
     if schemas is not None and not isinstance(schemas, dict):
         out.unparsed(f"'{section}' is not a mapping of names to schemas, so no schema in it "
-                     "was read", schemas)
+                     "was read", _entry(holder, section.rsplit(".", 1)[-1]))
     elif isinstance(schemas, dict):
         for name, schema in schemas.items():
             lines = [f"schema {name}"] + ([heading] if heading else []) + ["", _dump(schema)]
-            out.add("interface", f"schema {name}", "\n".join(lines), schema, ("openapi", "schema"))
+            out.add("interface", f"schema {name}", "\n".join(lines), _entry(schemas, name),
+                    ("openapi", "schema"))
 
 
 # --- MCP tool manifests and JSON Schema --------------------------------------------------------
@@ -1082,31 +1113,63 @@ def _tool_access(annotations: dict) -> str:
     return "unknown"
 
 
-def _tool_list(doc: Any) -> list | None:
-    """A list of MCP tools: the document itself, its 'tools', or a tools/list result's."""
-    candidates = [doc]
-    if isinstance(doc, dict):
-        candidates.append(doc.get("tools"))
-        if isinstance(doc.get("result"), dict):
-            candidates.append(doc["result"].get("tools"))
-    for candidate in candidates:
-        if isinstance(candidate, list) and any(
-            isinstance(item, dict) and isinstance(item.get("name"), str)
-            and ("inputSchema" in item or "input_schema" in item)
-            for item in candidate
-        ):
-            return candidate
+def _has_tool(candidate: Any) -> bool:
+    return isinstance(candidate, list) and any(
+        isinstance(item, dict) and ("inputSchema" in item or "input_schema" in item)
+        for item in candidate
+    )
+
+
+def _tool_list(doc: Any) -> tuple[Any, tuple[int | None, int | None], str] | None:
+    """Where a list of MCP tools is — the document itself, its 'tools', or a tools/list
+    result's — as that value, its lines and its name. A list is one when any entry carries an
+    input schema, whether or not that entry is otherwise well formed; a JSON-RPC result's
+    'tools' is one whatever it holds. So a malformed list is still found, and said so of."""
+    if _has_tool(doc):
+        return doc, _lines(doc), "the document"
+    if not isinstance(doc, dict):
+        return None
+    if _has_tool(doc.get("tools")):
+        return doc["tools"], _entry(doc, "tools"), "'tools'"
+    result = doc.get("result")
+    if isinstance(result, dict) and "tools" in result and (
+        "jsonrpc" in doc or _has_tool(result["tools"])
+    ):
+        return result["tools"], _entry(result, "tools"), "'result.tools'"
     return None
 
 
-def _mcp_tools(out: _File, tools: list) -> None:
+def _tool_problem(tool: Any) -> str:
+    """Why an entry of a tool list cannot be read as a tool; nothing if it can."""
+    if not isinstance(tool, dict) or "name" not in tool:
+        return "is not an object with a name"
+    if not isinstance(tool["name"], str) or not _word(tool["name"]):
+        return "has a name that is not text"
+    schema = tool.get("inputSchema", tool.get("input_schema"))
+    if schema is not None and not isinstance(schema, dict):
+        return "has an input schema that is not an object"
+    if tool.get("annotations") is not None and not isinstance(tool["annotations"], dict):
+        return "has annotations that are not an object"
+    return ""
+
+
+def _mcp_tools(out: _File, tools: Any, at: tuple[int | None, int | None], where: str) -> None:
+    """The tools in a list, each checked on its own: a malformed entry is said so of, up to
+    MAX_SKIPPED of them and then counted, and the well-formed ones beside it are still read."""
+    if not isinstance(tools, list):
+        out.unparsed(f"{where} is not a list of tools, so no tool in it was read", at)
+        return
+    skipped = 0
     for number, tool in enumerate(tools, 1):
-        if not isinstance(tool, dict) or not _word(tool.get("name")):
-            out.unparsed(f"tool {number} is not an object with a name, so it was not read",
-                         tool if isinstance(tool, dict) else tools)
+        problem = _tool_problem(tool)
+        if problem:
+            skipped += 1
+            if skipped <= MAX_SKIPPED:
+                out.unparsed(f"tool {number} {problem}, so it was not read",
+                             _entry(tools, number - 1))
             continue
         name = _word(tool.get("name"))
-        annotations = tool.get("annotations") if isinstance(tool.get("annotations"), dict) else {}
+        annotations = tool.get("annotations") or {}
         access = _tool_access(annotations)
         schema = tool.get("inputSchema", tool.get("input_schema"))
         lines = [f"MCP tool {name}"]
@@ -1123,24 +1186,30 @@ def _mcp_tools(out: _File, tools: list) -> None:
         tags = ["mcp", access]
         if annotations.get("destructiveHint") is True:
             tags.append("destructive")
-        out.add("capability", f"MCP tool {name}", "\n".join(lines), tool, tags)
+        out.add("capability", f"MCP tool {name}", "\n".join(lines), _lines(tool), tags)
+    if skipped > MAX_SKIPPED:
+        out.unparsed(f"{skipped - MAX_SKIPPED} more tools in {where} were not read either: each "
+                     f"is malformed, and only the first {MAX_SKIPPED} are said of one by one", at)
 
 
 def _mcp_server(out: _File, doc: dict) -> None:
     name = _word(doc.get("name")) or out.path
-    tools = doc.get("tools") if isinstance(doc.get("tools"), list) else []
+    tools = doc.get("tools", [])
     lines = [f"MCP server {name}"]
     if _word(doc.get("version")):
         lines.append(f"Version: {_word(doc.get('version'))}")
     if _prose(doc.get("description")):
         lines.append(f"Description: {_prose(doc.get('description'))}")
     lines.append("Access: unknown (a server does what its tools do; each is tagged on its own)")
-    lines.append(f"Tools listed: {len(tools)}")
+    lines.append(f"Tools listed: {len(tools)}" if isinstance(tools, list)
+                 else "Tools listed: unreadable, 'tools' is not a list")
     for key in ("packages", "remotes"):
         if isinstance(doc.get(key), list) and doc[key]:
             lines += [f"{key.capitalize()}:", _dump(doc[key])]
-    out.add("capability", f"MCP server {name}", "\n".join(lines), doc, ("mcp", "server", "unknown"))
-    _mcp_tools(out, tools)
+    out.add("capability", f"MCP server {name}", "\n".join(lines), _lines(doc),
+            ("mcp", "server", "unknown"))
+    if "tools" in doc:
+        _mcp_tools(out, tools, _entry(doc, "tools"), "'tools'")
 
 
 def _is_json_schema(path: str, doc: Any) -> bool:
@@ -1168,13 +1237,14 @@ def _json_schema(out: _File, doc: dict | bool) -> None:
     if _prose(doc.get("description")):
         lines.append(_prose(doc.get("description")))
     lines += ["", _dump(doc)]
-    out.add("interface", f"JSON Schema {name}", "\n".join(lines), doc, ("json_schema",))
+    out.add("interface", f"JSON Schema {name}", "\n".join(lines), _lines(doc), ("json_schema",))
     for key in ("$defs", "definitions"):
         definitions = doc.get(key)
         if isinstance(definitions, dict):
             for part, schema in definitions.items():
                 body = f"{key}/{part} in JSON Schema {name}\n\n{_dump(schema)}"
-                out.add("interface", f"JSON Schema {name}: {part}", body, schema, ("json_schema",))
+                out.add("interface", f"JSON Schema {name}: {part}", body,
+                        _entry(definitions, part), ("json_schema",))
 
 
 def _document(out: _File, doc: Any) -> None:
@@ -1183,12 +1253,13 @@ def _document(out: _File, doc: Any) -> None:
         _openapi(out, doc)
     elif isinstance(doc, dict) and PurePosixPath(out.path).name == "server.json":
         _mcp_server(out, doc)
-    elif (tools := _tool_list(doc)) is not None:
-        _mcp_tools(out, tools)
+    elif (found := _tool_list(doc)) is not None:
+        _mcp_tools(out, *found)
     elif _is_json_schema(out.path, doc):
         _json_schema(out, doc)
     elif out.path.lower().endswith(".schema.json"):
-        out.unparsed("not a JSON Schema: its root is neither an object nor a boolean", doc)
+        out.unparsed("not a JSON Schema: its root is neither an object nor a boolean",
+                     _lines(doc))
 
 
 # --- reading -----------------------------------------------------------------------------------
@@ -1245,15 +1316,14 @@ def _find(root: Path) -> tuple[list[str], list[str]]:
     return found, notes
 
 
-def _read(path: Path) -> bytes:
+def _read(path: Path, limit: int) -> bytes:
+    """At most limit + 1 bytes of a regular file: one more than may be taken, so that a file
+    past the limit is known to be without reading the rest of it."""
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     with os.fdopen(os.open(path, flags), "rb") as handle:
         if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
             raise _Unparsed("not read: not a regular file")
-        data = handle.read(MAX_FILE_BYTES + 1)
-    if len(data) > MAX_FILE_BYTES:
-        raise _Unparsed(f"not read: larger than {MAX_FILE_BYTES} bytes")
-    return data
+        return handle.read(limit + 1)
 
 
 def _decode(data: bytes) -> str:
@@ -1302,16 +1372,25 @@ def decompose(root: Path, artifact_id: str) -> list[Unit]:
         return [_unparsed(artifact_id, ".", "not read: the artifact is not a directory")]
     paths, notes = _find(root)
     files: list[tuple[_File, _Sdl | None]] = []
+    # Every byte read counts, whether or not its file is taken: no file is read past what is
+    # left of MAX_TOTAL_BYTES, and one that would cross it ends the reading, so no more than
+    # MAX_TOTAL_BYTES + 1 bytes are ever read and no more than MAX_TOTAL_BYTES are taken.
     total = 0
     for path in paths:
         out = _File(artifact_id, path)
         schema = None
         try:
-            if total >= MAX_TOTAL_BYTES:
-                raise _Unparsed("not read: the artifact's specification files already came to "
-                                f"{MAX_TOTAL_BYTES} bytes")
-            data = _read(root / path)
+            allowance = MAX_TOTAL_BYTES - total
+            if allowance <= 0:
+                raise _Unparsed("not read: the bytes read from the artifact's specification "
+                                f"files already came to {MAX_TOTAL_BYTES} bytes")
+            data = _read(root / path, min(MAX_FILE_BYTES, allowance))
             total += len(data)
+            if len(data) > MAX_FILE_BYTES:
+                raise _Unparsed(f"not read: larger than {MAX_FILE_BYTES} bytes")
+            if len(data) > allowance:
+                raise _Unparsed("not read: it would take the artifact's specification files "
+                                f"past {MAX_TOTAL_BYTES} bytes")
             schema = _parse(out, _decode(data))
         except Exception as exc:  # noqa: BLE001 — what an artifact contains is never an error
             out.units = []
