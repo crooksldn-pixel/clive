@@ -97,7 +97,10 @@ _RULE_HEADING = re.compile(
     r"|requirements?|don['’]?ts|never|always|must|important)\b",
     re.I,
 )
-_LINK = re.compile(r"\]\(\s*<?([^()<>\s]+)>?(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
+_STEPS_HEADING = re.compile(
+    r"\b(?:steps?|procedures?|workflows?|process(?:es)?|how[ -]to)\b", re.I
+)
+_LINK =re.compile(r"\]\(\s*<?([^()<>\s]+)>?(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
 _PATH = re.compile(
     r"(?<![\w/.~$-])((?:\./)?[\w-][\w.-]*(?:/[\w.-]+)*\.[A-Za-z0-9]{1,10})(?![\w/-])"
 )
@@ -437,7 +440,8 @@ def _list_units(lines: list[str], run: list[_Block], heading: str | None, sectio
                 units: _Units, rel: str, context: str, tags: tuple[str, ...]) -> None:
     items = [(block, _item_text(block)) for block in run]
     kinds = [_item_kind(text, section) for _, text in items]
-    if not section and (any(block.numbered for block in run) or None in kinds):
+    steps = bool(heading and _STEPS_HEADING.search(heading))    # a steps section, whatever its items
+    if steps or (not section and (any(block.numbered for block in run) or None in kinds)):
         start, end = run[0].start, run[-1].end
         body = "\n".join(lines[start - 1:end])
         units.add("procedure", heading or f"{context}: steps", body, rel, (start, end), tags)

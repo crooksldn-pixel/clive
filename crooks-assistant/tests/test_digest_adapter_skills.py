@@ -191,6 +191,23 @@ def test_a_folder_of_skills_yields_every_skill(tmp_path):
     assert units[-3].body == "Sort incoming issues by severity."
 
 
+def test_a_steps_section_of_rules_and_checks_is_still_a_procedure(tmp_path):
+    skill = "skills/pin/SKILL.md"
+    units = _digest(_write(tmp_path / "artifact", {
+        skill: (
+            "---\nname: pin\ndescription: Pin dependencies.\n---\n"
+            "## Steps\n\n- Always pin dependencies.\n- Verify the result.\n"
+        ),
+    }))
+    assert _summary(units) == [
+        ("knowledge", "pin", skill, 1, 4),
+        ("procedure", "Steps", skill, 7, 8),
+        ("rule", "Always pin dependencies.", skill, 7, 7),
+        ("check", "Verify the result.", skill, 8, 8),
+    ]
+    assert units[1].body == "- Always pin dependencies.\n- Verify the result."
+
+
 # --- harness configuration -----------------------------------------------------------------------
 
 
@@ -216,6 +233,22 @@ def test_harness_configuration_yields_rules_and_procedures(tmp_path):
         ("rule", "Never commit secrets.", ".cursorrules", 1, 1),
     ]
     assert all("harness" in u.tags for u in units)
+
+
+def test_a_harness_workflow_of_rules_and_checks_is_still_a_procedure(tmp_path):
+    units = _digest(_write(tmp_path / "artifact", {
+        "CLAUDE.md": (
+            "## Workflow\n\n- Always run the linter.\n- Check that the build passes.\n\n"
+            "## Verification\n\n- Verify the release notes.\n"
+        ),
+    }))
+    assert _summary(units) == [
+        ("procedure", "Workflow", "CLAUDE.md", 3, 4),
+        ("rule", "Always run the linter.", "CLAUDE.md", 3, 3),
+        ("check", "Check that the build passes.", "CLAUDE.md", 4, 4),
+        ("check", "Verify the release notes.", "CLAUDE.md", 8, 8),
+    ]
+    assert units[0].body == "- Always run the linter.\n- Check that the build passes."
 
 
 # --- prompt libraries ------------------------------------------------------------------------------
