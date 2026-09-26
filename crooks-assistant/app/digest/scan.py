@@ -32,6 +32,7 @@ import base64
 import bisect
 import configparser
 import functools
+import hashlib
 import html
 import json
 import os
@@ -41,7 +42,7 @@ import tomllib
 import unicodedata
 from collections import deque
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import NamedTuple
 
 INFO = "info"
@@ -77,20 +78,38 @@ class Finding:
     message: str
 
 
+@dataclass
+class Reading:
+    """What one scan read, for the stages after it. ``text`` holds every file the scanner read
+    and scanned as text, by its path relative to the root, with the SHA-256 of the bytes it
+    scanned: anything else — binary, too large, hard-linked, unreadable, past a limit, or in the
+    parts of a git directory it does not read — it cannot vouch for. ``secrets`` holds every
+    credential value it found, so that nothing built from the artifact repeats one; they are
+    kept in memory only, never written or shown, and ``overflowed`` says there were more than
+    it keeps."""
+
+    text: dict[str, str] = field(default_factory=dict)
+    secrets: frozenset[str] = frozenset()
+    overflowed: bool = False
+
+
 def scan_tree(
     root: str | os.PathLike[str],
     *,
     max_files: int = MAX_FILES,
     max_file_bytes: int = MAX_FILE_BYTES,
     max_total_bytes: int = MAX_TOTAL_BYTES,
+    reading: Reading | None = None,
 ) -> list[Finding]:
-    """Every finding for the quarantined directory at ``root``, most severe first, then by path."""
+    """Every finding for the quarantined directory at ``root``, most severe first, then by path.
+    Given a Reading, it is filled with what the scan read as text and the credentials found."""
     base = os.fspath(root)
     if not os.path.isdir(base):
         raise NotADirectoryError(base)
     findings: list[Finding] = []
     exposed = _Exposed()  # credential values found, so no path can repeat one
     budget = _Budget(max_total_bytes)
+    seen: dict[bytes, list[Finding]] = {}  # content findings by the digest of the bytes read
     licensed = False
     for entry in _walk(base, max_files):
         path = _display(entry.rel)
@@ -107,7 +126,8 @@ def scan_tree(
         elif entry.kind == "other":
             findings.append(_special(path))
         else:
-            found, has_licence = _scan_file(base, entry, path, max_file_bytes, budget, exposed)
+            found, has_licence = _scan_file(base, entry, path, max_file_bytes, budget, exposed, seen,
+                                            reading.text if reading is not None else None)
             findings.extend(found)
             # Only a licence at the top of the artifact is the artifact's: one further down belongs
             # to whatever is vendored or bundled there.
@@ -126,6 +146,9 @@ def scan_tree(
             "The licence is 'unknown', and without one nothing grants the right to reuse it.",
         ))
     findings = _withhold(findings, exposed)
+    if reading is not None:
+        reading.secrets = frozenset(exposed.values)
+        reading.overflowed = exposed.overflowed
     return sorted(set(findings), key=_order)
 
 
@@ -401,6 +424,7 @@ _NATIVE = (
 
 def _scan_file(
     base: str, entry: _Entry, path: str, max_bytes: int, budget: _Budget, exposed: _Exposed,
+    seen: dict[bytes, list[Finding]] | None = None, read: dict[str, str] | None = None,
 ) -> tuple[list[Finding], bool]:
     rel = entry.rel
     found: list[Finding] = []
@@ -413,7 +437,7 @@ def _scan_file(
     text: str | None = None
     if not budget.exhausted(path):
         try:
-            data, oversized = _read(base, entry, max_bytes)
+            data, oversized = _read(base, entry, max_bytes, rel)
         except _NotRegular:
             return [*found, _special(path)], False
         except _HardLinked:
@@ -437,12 +461,52 @@ def _scan_file(
                 ))
             else:
                 text = _decode(data)
+                if read is not None:
+                    read[rel] = hashlib.sha256(data).hexdigest()
     found.extend(_execution_findings(rel, path, text))
     licence, has_licence = _licence_findings(rel, path, text)
     found.extend(licence)
     if text is not None:
-        found.extend(_content_findings(path, text, exposed))
+        # The same bytes give the same content findings wherever they are (vendored copies,
+        # templates repeated per folder), so they are worked out once and given each path.
+        key = hashlib.sha256(data).digest() + (b"source" if _is_source(rel) else b"")
+        if seen is not None and key in seen:
+            content = [replace(finding, path=path) for finding in seen[key]]
+        else:
+            content = _content_findings(path, text, exposed)
+            if seen is not None:
+                seen[key] = content
+        found.extend(_as_fixture(content) if _is_test_source(rel) else content)
     return found, has_licence
+
+
+# --- test source ------------------------------------------------------------------------------
+#
+# In a Python or Go test file, an instruction to an AI, a credential or a deceptive character is
+# almost always a fixture: it is how a scanner, a redactor or a prompt guard is tested (CLIVE's
+# own tests are full of them). There it is reported as a warning, not a block. That is safe only
+# because nothing of such a file's text reaches a Unit: the code adapter reads a Python test file
+# for its test names and imports alone, and no adapter reads Go. JavaScript tests are not
+# included, because the code adapter keeps their test titles, which are strings. A file name
+# that deceives is judged as ever: it is not the file's content.
+_TEST_SOURCE = re.compile(r"(?:^|/)(?:test_[^/]*\.py|[^/]*_test\.py|[^/]*_test\.go)$")
+_FIXTURE_FAMILIES = ("injection.", "deceptive.", "secret.")
+_FIXTURE_NOTE = (
+    " It is in test source code, where such text is almost always a test fixture, and nothing of "
+    "a test file's text is read into a Unit, so it is reported rather than blocking."
+)
+
+
+def _is_test_source(rel: str) -> bool:
+    return bool(_TEST_SOURCE.search(rel))
+
+
+def _as_fixture(found: list[Finding]) -> list[Finding]:
+    return [
+        replace(finding, severity=WARN, message=finding.message + _FIXTURE_NOTE)
+        if finding.severity == BLOCK and finding.rule.startswith(_FIXTURE_FAMILIES) else finding
+        for finding in found
+    ]
 
 
 def _binary_findings(rel: str, path: str, data: bytes) -> list[Finding]:
@@ -472,8 +536,10 @@ def _binary_findings(rel: str, path: str, data: bytes) -> list[Finding]:
     return found
 
 
-def _read(base: str, entry: _Entry, max_bytes: int) -> tuple[bytes, bool]:
-    """The file's bytes (only a probe's worth if it is over the limit) and whether it is. Opened
+def _read(base: str, entry: _Entry, max_bytes: int, rel: str = "") -> tuple[bytes, bool]:
+    """The file's bytes (only a probe's worth if it is over the limit, or if the probe is
+    binary: whether a file is binary is decided on its probe alone, so reading the rest of a
+    binary would only spend the scan's byte budget) and whether it is over the limit. Opened
     relative to the directory it was listed in, without following a link and without blocking,
     and checked to be the regular file that was listed, with no other name, before a byte is
     read: a link, a pipe or another file swapped in after the walk cannot be read through."""
@@ -492,12 +558,20 @@ def _read(base: str, entry: _Entry, max_bytes: int) -> tuple[bytes, bool]:
             raise _HardLinked(entry.rel)
         oversized = info.st_size > max_bytes
         remaining = _BINARY_PROBE if oversized else max_bytes + 1
+        probed = 0
         while remaining > 0:
-            chunk = os.read(fd, min(remaining, 1 << 16))
+            want = min(remaining, 1 << 16)
+            if probed < _BINARY_PROBE:
+                want = min(want, _BINARY_PROBE - probed)
+            chunk = os.read(fd, want)
             if not chunk:
                 break
             chunks.append(chunk)
             remaining -= len(chunk)
+            if probed < _BINARY_PROBE:
+                probed += len(chunk)
+                if probed >= _BINARY_PROBE and _looks_binary(b"".join(chunks), rel):
+                    break
     finally:
         os.close(fd)
     data = b"".join(chunks)
@@ -546,6 +620,18 @@ def _decode(data: bytes) -> str:
     return data.replace(b"\x00", b"").decode("utf-8", errors="replace")
 
 
+# Source code, where a line "name: value" is a typed name or an argument, not a chat turn.
+_SOURCE_SUFFIXES = frozenset((
+    "py pyi js mjs cjs ts tsx jsx mts cts swift kt kts java go rs rb php cs scala c h cc cpp hpp "
+    "m mm dart lua ex exs vue svelte"
+).split())
+
+
+def _is_source(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1]
+    return "." in name and name.rsplit(".", 1)[-1].lower() in _SOURCE_SUFFIXES
+
+
 def _content_findings(path: str, text: str, exposed: _Exposed) -> list[Finding]:
     # Characters are judged on the text as written; phrases and secrets on the text as a model
     # would read it, with invisible characters gone and tag characters spelled out, so neither
@@ -553,7 +639,7 @@ def _content_findings(path: str, text: str, exposed: _Exposed) -> list[Finding]:
     clean = _clean(text)
     starts = _line_starts(clean)
     found = _character_findings(path, text)
-    found.extend(_injection_findings(path, clean, starts))
+    found.extend(_injection_findings(path, clean, starts, code=_is_source(path)))
     found.extend(_secret_findings(path, clean, starts, exposed))
     return _capped(path, found)
 
@@ -767,6 +853,9 @@ class _Phrase:
     severity: str
     patterns: tuple[re.Pattern[str], ...]
     explanation: str
+    # Patterns (by index) that are only read in prose: in source code, "tool: str = ''" and
+    # "ASSISTANT: frozenset(...)" are typed names, not a turn of conversation.
+    prose_only: frozenset[int] = frozenset()
 
     def search(self, text: str) -> re.Match[str] | None:
         for pattern in self.patterns:
@@ -775,9 +864,10 @@ class _Phrase:
                 return match
         return None
 
-    def finditer(self, text: str) -> Iterator[re.Match[str]]:
-        for pattern in self.patterns:
-            yield from pattern.finditer(text)
+    def finditer(self, text: str, *, code: bool = False) -> Iterator[re.Match[str]]:
+        for index, pattern in enumerate(self.patterns):
+            if not (code and index in self.prose_only):
+                yield from pattern.finditer(text)
 
 
 _PHRASES = (
@@ -843,9 +933,10 @@ _PHRASES = (
     _Phrase("marker", WARN, (
         re.compile(r"<\|(?:im_start|im_end|im_sep|system|user|assistant|endoftext|eot_id|start_header_id|end_header_id)\|>", re.I),
         re.compile(r"\[/?(?:INST|SYS)\]|<</?SYS>>"),
+        # Not inside a path or a template name ("blocks/<name>--<system>.md"), which a tag is not.
         re.compile(
-            r"</?(?:system|system[-_]reminder|system[-_]prompt|tool[-_]call|tool[-_]use|tool[-_]result"
-            r"|function[-_]calls|function[-_]results|antml:[a-z_]+)\b[^<>\n]{0,200}>",
+            r"(?<![\w/.-])</?(?:system|system[-_]reminder|system[-_]prompt|tool[-_]call|tool[-_]use"
+            r"|tool[-_]result|function[-_]calls|function[-_]results|antml:[a-z_]+)\b[^<>\n]{0,200}>",
             re.I,
         ),
         re.compile(
@@ -855,7 +946,8 @@ _PHRASES = (
         ),
         # Role words that are also ordinary keys ("user: root" in a compose file) count only
         # when followed by words, as a turn of conversation is.
-        re.compile(r"^[ \t>*#]*(?:system|developer|user|tool|function)[ \t]*:[ \t]*\S+[ \t]+\S", re.I | re.M),
+        # Not Go's short declaration ("user := users.Current()"), which is code, not a turn.
+        re.compile(r"^[ \t>*#]*(?:system|developer|user|tool|function)[ \t]*:(?!=)[ \t]*\S+[ \t]+\S", re.I | re.M),
         # Or by one word that obeys, approves or answers, as no ordinary value ("Linux", "root") does.
         re.compile(
             r"^[ \t>*#]*(?:system|developer|user|tool|function)[ \t]*:[ \t]*"
@@ -864,7 +956,8 @@ _PHRASES = (
             r"|unlock(?:ed)?|yes|sure)\b",
             re.I | re.M,
         ),
-    ),"imitates a system-prompt, chat-role or tool-call marker that a model could mistake for real conversation structure"),
+    ), "imitates a system-prompt, chat-role or tool-call marker that a model could mistake for real conversation structure",
+       frozenset((3, 4, 5))),
 )
 
 _LINK_TITLE = re.compile(r"""\]\([^()\s]*\s+(?:"([^"\n]{1,2000})"|'([^'\n]{1,2000})')\s*\)""")
@@ -890,7 +983,7 @@ _FENCE_CLOSE = {
 }
 
 
-def _injection_findings(path: str, text: str, starts: list[int]) -> list[Finding]:
+def _injection_findings(path: str, text: str, starts: list[int], *, code: bool = False) -> list[Finding]:
     found: list[Finding] = []
     hidden_lines: set[int] = set()
     for offset, body, carrier in _hidden_carriers(text):
@@ -904,9 +997,19 @@ def _injection_findings(path: str, text: str, starts: list[int]) -> list[Finding
                     f"{phrase.explanation}.",
                 ))
     for phrase in _PHRASES:
-        for match in phrase.finditer(text):
+        for match in phrase.finditer(text, code=code):
             line = _line_at(starts, match.start())
-            if line not in hidden_lines:
+            if line in hidden_lines:
+                continue
+            if phrase.severity == BLOCK and _mentioned(text, match.start(), match.end()):
+                found.append(Finding(
+                    WARN, "injection.mentioned", path, line,
+                    f"Text here quotes words that {phrase.explanation}, shown as an example of what "
+                    "not to write or of what an attack looks like rather than said as an "
+                    "instruction; documentation about AI safety quotes such words, so it is "
+                    "reported rather than blocking.",
+                ))
+            else:
                 found.append(Finding(
                     phrase.severity, f"injection.{phrase.name}", path, line,
                     f"Text here {phrase.explanation}.",
@@ -930,6 +1033,51 @@ def _injection_findings(path: str, text: str, starts: list[int]) -> list[Finding
                 "decodes them, while the patterns a reviewer searches for do not match.",
             ))
     return found
+
+
+# --- use and mention ------------------------------------------------------------------------
+#
+# A phrase that would block is *mentioned*, not said, when it sits inside a short quotation on
+# one line, makes up nearly all of it, and the words before the quotation on that line mark it
+# as an example: 'avoid override-style language ("disregard the previous instruction")'. Text
+# hidden from the reader, encoded or escaped is never taken as mentioned — hiding it is the tell
+# — and a quotation carrying more than the phrase (a payload after it) is not an example.
+_QUOTES = (('"', '"'), ("`", "`"), ("\u201c", "\u201d"), ("\u2018", "\u2019"), ("\u00ab", "\u00bb"))
+_MENTION_CUE = re.compile(
+    r"\b(?:avoid\w*|don[\u2019']?t|do\s+not|never|such\s+as|like|e\.g\.|for\s+(?:example|instance)"
+    r"|examples?|phrases?|phrasings?|patterns?|wording|language|strings?|words|detect\w*|flag\w*"
+    r"|block\w*|refus\w*|reject\w*|watch(?:ing)?\s+(?:out\s+)?for|look(?:ing)?\s+for|attacks?"
+    r"|injections?|jailbreaks?|malicious|adversarial|beware|warn\w*|recogni[sz]\w*|classic|typical)\b",
+    re.I,
+)
+_MAX_QUOTED = 200         # characters inside the quotation
+_MAX_QUOTED_EXTRA = 40    # characters of it beyond the phrase itself
+
+
+def _mentioned(text: str, start: int, end: int) -> bool:
+    """Whether the phrase at text[start:end] is quoted as an example (see above)."""
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", end)
+    before = text[line_start:start]
+    after = text[end:line_end if line_end >= 0 else len(text)]
+    for opening, closing in _QUOTES:
+        opened = before.rfind(opening)
+        if opened < 0:
+            continue
+        if opening == closing:
+            if before.count(opening) % 2 == 0:
+                continue                       # every quotation before the phrase is closed
+        elif before.rfind(closing) > opened:
+            continue
+        closed = after.find(closing)
+        if closed < 0:
+            continue
+        inside = (len(before) - opened - 1) + (end - start) + closed
+        if inside > _MAX_QUOTED or inside - (end - start) > _MAX_QUOTED_EXTRA:
+            continue
+        if _MENTION_CUE.search(before[:opened]):
+            return True
+    return False
 
 
 _ESCAPE = re.compile(
@@ -1197,41 +1345,45 @@ class _Secret:
     severity: str = BLOCK
     group: int = 0
     generic: bool = False  # a guess from context, so placeholders are not reported
+    # Literals of which every match holds at least one, compared case for case: where none is
+    # in the text the pattern cannot match, and is not run. Only for case-sensitive patterns —
+    # a case-insensitive one also matches letters that fold onto ASCII ('ſ', 'ı', 'K').
+    requires: tuple[str, ...] = ()
 
 
 # Specific shapes first: a line that has one does not also get the generic guess.
 _SECRETS = (
-    _Secret("aws_access_key", "an AWS access key ID", re.compile(r"\b(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b")),
+    _Secret("aws_access_key", "an AWS access key ID", re.compile(r"\b(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b"), requires=('AKIA', 'ASIA', 'ABIA', 'ACCA')),
     _Secret("aws_secret_key", "an AWS secret access key",
             re.compile(r"(?i)aws.{0,20}secret.{0,20}[:=][ \t]*[\"']?([A-Za-z0-9/+=]{40})(?![A-Za-z0-9/+=])"), group=1),
-    _Secret("google_api_key", "a Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])")),
+    _Secret("google_api_key", "a Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])"), requires=('AIza',)),
     _Secret("azure_storage_key", "an Azure storage account key",
-            re.compile(r"AccountKey=([A-Za-z0-9+/]{80,}={0,2})"), group=1),
-    _Secret("stripe_key", "a Stripe secret or restricted key", re.compile(r"\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}")),
-    _Secret("stripe_webhook_secret", "a Stripe webhook signing secret", re.compile(r"\bwhsec_[0-9A-Za-z]{24,}")),
-    _Secret("shopify_token", "a Shopify access token", re.compile(r"\bshp(?:at|ca|pa|ss)_[0-9a-fA-F]{32}\b")),
-    _Secret("slack_token", "a Slack token", re.compile(r"\bxox[abposr]-[0-9A-Za-z-]{10,}")),
+            re.compile(r"AccountKey=([A-Za-z0-9+/]{80,}={0,2})"), group=1, requires=('AccountKey=',)),
+    _Secret("stripe_key", "a Stripe secret or restricted key", re.compile(r"\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}"), requires=('k_live_', 'k_test_')),
+    _Secret("stripe_webhook_secret", "a Stripe webhook signing secret", re.compile(r"\bwhsec_[0-9A-Za-z]{24,}"), requires=('whsec_',)),
+    _Secret("shopify_token", "a Shopify access token", re.compile(r"\bshp(?:at|ca|pa|ss)_[0-9a-fA-F]{32}\b"), requires=('shpat_', 'shpca_', 'shppa_', 'shpss_')),
+    _Secret("slack_token", "a Slack token", re.compile(r"\bxox[abposr]-[0-9A-Za-z-]{10,}"), requires=('xox',)),
     _Secret("slack_webhook", "a Slack incoming-webhook URL",
-            re.compile(r"hooks\.slack\.com/services/T[0-9A-Z]+/B[0-9A-Z]+/[0-9A-Za-z]+")),
+            re.compile(r"hooks\.slack\.com/services/T[0-9A-Z]+/B[0-9A-Z]+/[0-9A-Za-z]+"), requires=('hooks.slack.com/services/T',)),
     _Secret("discord_webhook", "a Discord webhook URL",
-            re.compile(r"discord(?:app)?\.com/api/webhooks/\d+/[0-9A-Za-z_-]{20,}")),
-    _Secret("telegram_bot_token", "a Telegram bot token", re.compile(r"\b\d{8,10}:AA[0-9A-Za-z_-]{33}(?![0-9A-Za-z_-])")),
-    _Secret("github_token", "a GitHub token", re.compile(r"\b(?:gh[pousr]_[0-9A-Za-z]{36,}|github_pat_[0-9A-Za-z_]{50,})")),
-    _Secret("gitlab_token", "a GitLab token", re.compile(r"\bglpat-[0-9A-Za-z_-]{20,}")),
-    _Secret("npm_token", "an npm access token", re.compile(r"\bnpm_[0-9A-Za-z]{36}\b")),
-    _Secret("pypi_token", "a PyPI upload token", re.compile(r"\bpypi-AgEIcHlwaS5vcmc[0-9A-Za-z_-]{20,}")),
-    _Secret("anthropic_key", "an Anthropic API key", re.compile(r"\bsk-ant-[0-9A-Za-z_-]{20,}")),
+            re.compile(r"discord(?:app)?\.com/api/webhooks/\d+/[0-9A-Za-z_-]{20,}"), requires=('/api/webhooks/',)),
+    _Secret("telegram_bot_token", "a Telegram bot token", re.compile(r"\b\d{8,10}:AA[0-9A-Za-z_-]{33}(?![0-9A-Za-z_-])"), requires=(':AA',)),
+    _Secret("github_token", "a GitHub token", re.compile(r"\b(?:gh[pousr]_[0-9A-Za-z]{36,}|github_pat_[0-9A-Za-z_]{50,})"), requires=('ghp_', 'gho_', 'ghu_', 'ghs_', 'ghr_', 'github_pat_')),
+    _Secret("gitlab_token", "a GitLab token", re.compile(r"\bglpat-[0-9A-Za-z_-]{20,}"), requires=('glpat-',)),
+    _Secret("npm_token", "an npm access token", re.compile(r"\bnpm_[0-9A-Za-z]{36}\b"), requires=('npm_',)),
+    _Secret("pypi_token", "a PyPI upload token", re.compile(r"\bpypi-AgEIcHlwaS5vcmc[0-9A-Za-z_-]{20,}"), requires=('pypi-AgEIcHlwaS5vcmc',)),
+    _Secret("anthropic_key", "an Anthropic API key", re.compile(r"\bsk-ant-[0-9A-Za-z_-]{20,}"), requires=('sk-ant-',)),
     _Secret("openai_key", "an OpenAI API key",
-            re.compile(r"\bsk-(?:proj|svcacct|admin)-[0-9A-Za-z_-]{20,}|\bsk-[0-9A-Za-z]{20}T3BlbkFJ[0-9A-Za-z]{20}")),
-    _Secret("sendgrid_key", "a SendGrid API key", re.compile(r"\bSG\.[0-9A-Za-z_-]{22}\.[0-9A-Za-z_-]{43}(?![0-9A-Za-z_-])")),
-    _Secret("twilio_key", "a Twilio API key", re.compile(r"\bSK[0-9a-f]{32}\b")),
-    _Secret("private_key", "a private key", re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----")),
+            re.compile(r"\bsk-(?:proj|svcacct|admin)-[0-9A-Za-z_-]{20,}|\bsk-[0-9A-Za-z]{20}T3BlbkFJ[0-9A-Za-z]{20}"), requires=('sk-',)),
+    _Secret("sendgrid_key", "a SendGrid API key", re.compile(r"\bSG\.[0-9A-Za-z_-]{22}\.[0-9A-Za-z_-]{43}(?![0-9A-Za-z_-])"), requires=('SG.',)),
+    _Secret("twilio_key", "a Twilio API key", re.compile(r"\bSK[0-9a-f]{32}\b"), requires=('SK',)),
+    _Secret("private_key", "a private key", re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----"), requires=('-----BEGIN ',)),
     _Secret("jwt", "a JSON web token",
-            re.compile(r"\beyJ[0-9A-Za-z_-]{10,}\.eyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}"), severity=WARN),
-    _Secret("npm_auth", "an npm registry credential", re.compile(r"_auth(?:Token)?[ \t]*=[ \t]*([^\s$'\"{]{8,})"), group=1),
+            re.compile(r"\beyJ[0-9A-Za-z_-]{10,}\.eyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}"), severity=WARN, requires=('eyJ',)),
+    _Secret("npm_auth", "an npm registry credential", re.compile(r"_auth(?:Token)?[ \t]*=[ \t]*([^\s$'\"{]{8,})"), group=1, requires=('_auth',)),
     _Secret("url_password", "a password inside a connection URL",
             re.compile(r"\b[a-z][a-z0-9+.-]{1,20}://[^\s:/@'\"]{1,64}:([^\s@/'\"]{3,128})@[\w.-]+"),
-            severity=WARN, group=1, generic=True),
+            severity=WARN, group=1, generic=True, requires=('://',)),
     _Secret("assignment", "a hard-coded password or secret",
             re.compile(
                 r"(?i)(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token"
@@ -1265,6 +1417,8 @@ def _secret_findings(path: str, text: str, starts: list[int], exposed: _Exposed)
     specific_lines: set[int] = set()
     pem_end = 0  # a header inside the block before is not read again, so parsing stays linear
     for secret in _SECRETS:
+        if secret.requires and not any(literal in text for literal in secret.requires):
+            continue
         for match in secret.pattern.finditer(text):
             value = match.group(secret.group) or ""
             line = _line_at(starts, match.start())
@@ -1288,6 +1442,49 @@ def _secret_findings(path: str, text: str, starts: list[int], exposed: _Exposed)
                 "Treat it as exposed: it is never digested, and its owner should revoke it.",
             ))
     return found
+
+
+# --- redaction -----------------------------------------------------------------------------
+
+REDACTED = "[redacted]"
+MIN_REDACTED_VALUE = 8   # a value found elsewhere is replaced wherever it appears from this long
+# The same shapes as the scanner looks for, without word boundaries (a credential often follows
+# a letter or an underscore in a name built from a path), and a private key with its body.
+_REDACT_SHAPES = tuple(
+    (re.compile(secret.pattern.pattern.replace(r"\b", ""), secret.pattern.flags), secret)
+    for secret in _SECRETS if secret.slug != "private_key"
+)
+_PEM_BLOCK = re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----(?:" + _PEM_BODY.pattern + ")?")
+
+
+def redact(text: str, values: Iterable[str] = ()) -> str:
+    """The text with every credential of a shape the scanner knows replaced by
+    '[redacted <kind>]', and every one of the values given — credentials found in the artifact,
+    such as a Reading's secrets — by '[redacted]' wherever it appears, a value shorter than
+    MIN_REDACTED_VALUE only where a shape finds it. For text built from an artifact (a title
+    quoting a heading, a parser error quoting a line, a name made from a path) before anything
+    keeps or shows it: the scanner's findings never quote a value, and neither may anything else."""
+    for value in sorted({v for v in values if len(v) >= MIN_REDACTED_VALUE}, key=lambda v: (-len(v), v)):
+        if value in text:
+            text = text.replace(value, REDACTED)
+    if "-----BEGIN " in text:
+        text = _PEM_BLOCK.sub("[redacted private_key]", text)
+    for pattern, secret in _REDACT_SHAPES:
+        if secret.requires and not any(literal in text for literal in secret.requires):
+            continue
+        marker = f"[redacted {secret.slug}]"
+        if secret.group:
+            def keep_context(match: re.Match[str], group: int = secret.group, marker: str = marker) -> str:
+                start, end = match.span(group)
+                if start < 0:
+                    return match.group(0)
+                offset = match.start()
+                whole = match.group(0)
+                return whole[: start - offset] + marker + whole[end - offset:]
+            text = pattern.sub(keep_context, text)
+        else:
+            text = pattern.sub(marker, text)
+    return text
 
 
 # --- things that would run ----------------------------------------------------------------
@@ -1385,6 +1582,10 @@ _PYPROJECT_HOOKS = (
 )
 
 
+# A shell tool in a skill's allowed-tools: "Bash", "Bash(npm:*)", "Shell(...)", "PowerShell".
+_SHELL_TOOL = re.compile(r"\b(?:Bash|Shell|PowerShell|Terminal)\b(?:\([^)\n]{0,200}\))?", re.I)
+
+
 def _execution_findings(rel: str, path: str, text: str | None) -> list[Finding]:
     """Findings that come from what a file is: its name and place say it would run."""
     name = rel.rsplit("/", 1)[-1]
@@ -1405,6 +1606,16 @@ def _execution_findings(rel: str, path: str, text: str | None) -> list[Finding]:
     if name == ".pre-commit-config.yaml":
         flag(WARN, "execute.git_hook",
              "pre-commit configuration: once installed, it fetches and runs the listed hooks on every commit.")
+    if lower == "skill.md" and text is not None:
+        tools = _front_matter_field(text, "allowed-tools") or _front_matter_field(text, "allowed_tools")
+        shell = _SHELL_TOOL.findall(tools or "")
+        if shell:
+            wildcard = any("*" in grant for grant in shell)
+            flag(WARN, "execute.agent_permissions",
+                 f"The skill's allowed-tools grant the agent {len(shell)} shell-command permission(s)"
+                 f"{', including a wildcard,' if wildcard else ''} to use without asking while the "
+                 "skill is active: installed as it is, it widens what the agent may run.",
+                 _line_of(text, r"(?m)^allowed[-_]tools[ \t]*:"))
     if _GIT_CONFIG.search(rel):
         line = _git_config_command(text) if text is not None else 0
         if line or text is None:
@@ -1939,17 +2150,167 @@ def _licence_finding(path: str, line: int, expression: str, source: str) -> Find
 def _licence_findings(rel: str, path: str, text: str | None) -> tuple[list[Finding], bool]:
     """The licence this file declares, if it is a licence file or a manifest that names one, and
     whether it is a licence source at all."""
-    name = rel.rsplit("/", 1)[-1]
-    if _LICENCE_FILE.fullmatch(name) and name.rsplit(".", 1)[-1].lower() not in _NOT_LICENCE_SUFFIXES:
-        expression = identify_licence_text(text) if text is not None else UNKNOWN
-        return [_licence_finding(path, 0, expression, "licence file")], True
-    if text is None:
-        return [], False
-    declared = _declared_licence(name, text)
+    declared = _licence_of(rel, text)
     if declared is None:
         return [], False
+    expression, line, source = declared
+    return [_licence_finding(path, line, expression, source)], True
+
+
+def _is_licence_file(name: str) -> bool:
+    return bool(_LICENCE_FILE.fullmatch(name)) and name.rsplit(".", 1)[-1].lower() not in _NOT_LICENCE_SUFFIXES
+
+
+def _licence_of(rel: str, text: str | None) -> tuple[str, int, str] | None:
+    """(expression, line, what declared it) for a licence file or a manifest naming a licence;
+    None for any other file."""
+    name = rel.rsplit("/", 1)[-1]
+    if _is_licence_file(name):
+        return (identify_licence_text(text) if text is not None else UNKNOWN), 0, "licence file"
+    if text is None:
+        return None
+    declared = _declared_licence(name, text)
+    if declared is None:
+        return None
     expression, line = declared
-    return [_licence_finding(path, line, expression, name)], True
+    return expression, line, name
+
+
+_MAX_TOP_ENTRIES = 2000   # names looked at when finding the artifact's own licence
+
+
+def artifact_licence(root: str | os.PathLike[str]) -> str | None:
+    """The artifact's own licence, as scan_tree judges it: read from the licence files and the
+    package manifests at the top of the tree (one further down covers only what is bundled with
+    it). An SPDX expression when they agree; 'unknown' when there is a licence file whose text is
+    not recognised; each expression with the file that declares it, joined by '; ', when they
+    differ (LICENSE-MIT and LICENSE-APACHE, say); None when there is no licence at the top at all.
+
+    Reading as scan_tree reads: regular files only, never through a link, never a hard-linked
+    file, at most MAX_FILE_BYTES of each."""
+    base = os.fspath(root)
+    if not os.path.isdir(base):
+        raise NotADirectoryError(base)
+    names: list[str] = []
+    with os.scandir(base) as listing:
+        for count, entry in enumerate(listing):
+            if count >= _MAX_TOP_ENTRIES:
+                break
+            if entry.is_file(follow_symlinks=False):
+                names.append(entry.name)
+    found: list[tuple[str, str]] = []
+    for name in sorted(names):
+        if not _is_licence_file(name) and name not in _MANIFESTS:
+            continue
+        text = _read_top(base, name)
+        declared = _licence_of(name, text)
+        if declared is not None and all(expression != declared[0] for expression, _ in found):
+            found.append((declared[0], name))
+    if not found:
+        return None
+    if len(found) == 1:
+        return found[0][0]
+    return "; ".join(f"{expression} ({_display(name)})" for expression, name in found)
+
+
+_MANIFESTS = frozenset(("package.json", "composer.json", "pyproject.toml", "Cargo.toml", "setup.cfg"))
+_MAX_LICENCE_FOLDERS = 2000   # folders looked in for a licence of their own
+
+
+def licence_map(root: str | os.PathLike[str]) -> dict[str, tuple[str, str]]:
+    """Each folder of the artifact that declares a licence of its own — by a licence file or a
+    package manifest in it — as {folder: (expression, the file that declares it)}. "" is the
+    top of the artifact. A folder's licence covers what is under it until a deeper folder
+    declares its own; see licence_for. Read as artifact_licence reads the top, never through a
+    link, and bounded."""
+    base = os.fspath(root)
+    if not os.path.isdir(base):
+        raise NotADirectoryError(base)
+    found: dict[str, tuple[str, str]] = {}
+    pending = [""]
+    looked = 0
+    while pending and looked < _MAX_LICENCE_FOLDERS:
+        folder = pending.pop()
+        looked += 1
+        full = os.path.join(base, folder) if folder else base
+        try:
+            with os.scandir(full) as listing:
+                entries = sorted(listing, key=lambda entry: entry.name)[:_MAX_TOP_ENTRIES]
+        except OSError:
+            continue
+        declared: list[tuple[str, str]] = []
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if entry.name not in (".git", "node_modules"):
+                        pending.append(f"{folder}/{entry.name}" if folder else entry.name)
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+            except OSError:
+                continue
+            if not _is_licence_file(entry.name) and entry.name not in _MANIFESTS:
+                continue
+            rel = f"{folder}/{entry.name}" if folder else entry.name
+            of = _licence_of(entry.name, _read_top(full, entry.name))
+            if of is not None and all(expression != of[0] for expression, _ in declared):
+                declared.append((of[0], rel))
+        if declared:
+            expression = declared[0][0] if len(declared) == 1 else "; ".join(e for e, _ in declared)
+            found[folder] = (expression, declared[0][1])
+    return found
+
+
+def licence_for(path: str, licences: dict[str, tuple[str, str]]) -> tuple[str, str] | None:
+    """The licence covering the artifact path given, from licence_map: the nearest folder above
+    it that declares one; None when nothing does."""
+    folder = path.rsplit("/", 1)[0] if "/" in path else ""
+    while True:
+        if folder in licences:
+            return licences[folder]
+        if not folder:
+            return None
+        folder = folder.rsplit("/", 1)[0] if "/" in folder else ""
+
+
+def licence_rank(expression: str | None) -> int | None:
+    """0 when the licence allows reuse, 1 when only on conditions (copyleft, share-alike,
+    source-available, or not recognised), 2 when it forbids reuse; None when there is none.
+    Several licences joined by '; ' (as artifact_licence gives them) are as closed as the most
+    closed."""
+    if not expression:
+        return None
+    parts = [part.split(" (")[0].strip() for part in expression.split(";")]
+    return max(_licence_rank(part) for part in parts if part)
+
+
+def holds_secret(text: str) -> bool:
+    """Whether the text holds anything shaped like a credential, by the scanner's own rules."""
+    if not text:
+        return False
+    clean = _clean(text[:MAX_FILE_BYTES])
+    return bool(_secret_findings("", clean, _line_starts(clean), _Exposed()))
+
+
+def _read_top(base: str, name: str) -> str | None:
+    try:
+        fd = os.open(os.path.join(base, name), _FILE_FLAGS)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1 or info.st_size > MAX_FILE_BYTES:
+            return None
+        data = b""
+        while len(data) <= MAX_FILE_BYTES and (chunk := os.read(fd, 65536)):
+            data += chunk
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    if len(data) > MAX_FILE_BYTES or _looks_binary(data, name):
+        return None
+    return _decode(data)
 
 
 def _declared_licence(name: str, text: str) -> tuple[str, int] | None:

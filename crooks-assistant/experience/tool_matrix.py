@@ -7,8 +7,17 @@ cannot be decided it says so rather than being filled in optimistically:
     REGISTERED        the tool is in app/tools/registry.py
     ROUTABLE          something other than the model's free choice reaches it — a fast-path
                       recipe's read primitives, a semantic command, or a capability family
-    DIRECTLY TESTED   a test or a golden scenario NAMES this tool. The citation is printed;
-                      a tool with no citation is reported untested, which is honest
+    DIRECTLY TESTED   a test CALLS this tool: its code — not a comment, not a docstring —
+                      passes the tool's name to a call (registry.get, dispatch, classify, the
+                      action engine; directly, through a variable or loop variable holding it,
+                      or inside a literal argument such as a tool-call fixture), or calls the
+                      tool's handler function by name. The citation is printed; a test that
+                      only mentions a tool — in a comment, a docstring, an assertion about a
+                      list of names, or a monkeypatch that replaces it — does not count, and a
+                      tool with no citation is reported untested, which is honest. For an
+                      intent family, which a test reaches by routing a sentence to it rather
+                      than by calling it, the column is NAMED IN TEST CODE: its name in a
+                      test's code, not in a comment or a docstring
     AUTH-SCOPE        the Shopify or Gmail scope its capability family declares
     READ-WRITE        read, write or batch, from the spec
     STAGING           a write's WriteSpec is complete: prepare, observe, execute, present
@@ -22,16 +31,21 @@ Nothing here runs a tool. The audit is a read of registries and of source text �
 able to run against a shop it may not touch, and a matrix that had to execute a mutation to
 fill a column would be a matrix that mutates production to describe itself.
 
-The citation columns are text SEARCHES rather than a hand-kept mapping, which has one honest
-weakness and one honest strength. The weakness: a test that exercises a tool without naming
-it is not counted. The strength: nothing here can claim coverage that is not written down
-somewhere a person can open.
+The citation columns are read from source text rather than a hand-kept mapping, which has one
+honest weakness and one honest strength. The weakness: a test that exercises a tool without
+naming it — through a recipe, a scenario or a sentence the model answers — is not counted.
+The strength: nothing here can claim coverage that is not written down somewhere a person can
+open. Tests are read as Python syntax trees and never imported or run.
 """
 
 from __future__ import annotations
 
+import ast
 import pathlib
 import re
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
@@ -53,6 +67,203 @@ ANALYTICS_PRESENT = ROOT / "app" / "analytics" / "present.py"
 # writing the name down, which is the claim being made.
 def _named(name: str, text: str) -> bool:
     return re.search(rf"\b{re.escape(name)}\b", text) is not None
+
+
+# ------------------------------------------------------------------ what a test's code does
+
+# Calls that hold, count or compare names rather than call what they name — and a monkeypatch
+# that REPLACES a tool, which is the opposite of testing it.
+_NOT_CALLING = frozenset({
+    "setattr", "delattr", "setitem", "delitem", "patch", "object",
+    "len", "set", "frozenset", "sorted", "list", "tuple", "dict", "isinstance", "print",
+    "str", "repr", "format", "join", "startswith", "endswith",
+})
+
+
+@dataclass
+class Citations:
+    """What one test file's code does with names, read from its syntax tree: the strings that
+    reach a call as an argument, the functions it calls (as module and name), and every string
+    and identifier in its code, docstrings and comments left out."""
+
+    call_strings: set[str] = field(default_factory=set)
+    calls: set[tuple[str, str]] = field(default_factory=set)
+    code_words: set[str] = field(default_factory=set)
+
+    def calls_tool(self, name: str, module: str, function: str) -> bool:
+        """Whether the test calls the tool: passes its name to a call, or calls its handler."""
+        return name in self.call_strings or (module, function) in self.calls
+
+    def names(self, name: str) -> bool:
+        """Whether the test's code — not a comment, not a docstring — names it."""
+        return name in self.code_words or any(_named(name, word) for word in self.code_words
+                                              if name in word)
+
+
+def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> Citations:
+    """Read a test file's source into its Citations. Nothing in it is imported or run. A file
+    that is not valid Python cites nothing.
+
+    A test often holds a tool's name in a constant of the app module that defines the tool
+    (`WRITE = discounts.WRITE_TOOL`, then `dispatch(WRITE, ...)`); `constant(module, name)`
+    gives the value of such a constant, or None, and is how those names are followed."""
+    code = Citations()
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return code
+    docstrings = {
+        id(node.body[0].value) for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.body and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant) and isinstance(node.body[0].value.value, str)
+    }
+    nodes = list(ast.walk(tree))
+
+    imported: dict[str, tuple[str, str]] = {}   # alias -> (module, name)
+    modules: dict[str, str] = {}                # alias -> module
+    for node in nodes:
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            for alias in node.names:
+                as_name = alias.asname or alias.name
+                imported[as_name] = (node.module, alias.name)
+                modules[as_name] = f"{node.module}.{alias.name}"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    modules[alias.asname] = alias.name
+                else:
+                    top = alias.name.split(".")[0]
+                    modules[top] = top
+
+    def module_of(node: ast.AST) -> str | None:
+        dotted = _dotted(node)
+        if dotted is None:
+            return None
+        head, _, rest = dotted.partition(".")
+        if head not in modules:
+            return None
+        return modules[head] + (f".{rest}" if rest else "")
+
+    def held(module: str, name: str) -> set[str]:
+        """An app constant holding ONE name. A constant holding many — a registry's list of
+        tool names — passed to a call is counted, compared or checked, not each tool called."""
+        value = constant(module, name) if constant is not None else None
+        return {value} if isinstance(value, str) else set()
+
+    # Names bound to strings, anywhere in the file. A name holds one string at a time
+    # (NAME = "tool", NAME = module.CONSTANT, a loop variable, a parametrize argument) or a
+    # collection of them (NAMES = ("a", "b")), which counts only where it is iterated.
+    one: dict[str, set[str]] = {}
+    many: dict[str, set[str]] = {}
+
+    def strings(node: ast.AST | None, *, iterated: bool = False) -> set[str]:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return {node.value}
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            return set().union(*(strings(item) for item in node.elts)) if node.elts else set()
+        if isinstance(node, ast.Dict):
+            return set().union(*(strings(v) for v in node.values)) if node.values else set()
+        if isinstance(node, ast.Name):
+            found = set(one.get(node.id, ()))
+            if iterated:
+                found |= many.get(node.id, set())
+            if node.id in imported and node.id not in one:
+                found |= held(*imported[node.id])
+            return found
+        if isinstance(node, ast.Attribute):
+            module = module_of(node.value)
+            return held(module, node.attr) if module is not None else set()
+        return set()
+
+    def bind(target: ast.AST, value: ast.AST | None, *, iterated: bool = False) -> None:
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for item in target.elts:
+                bind(item, value, iterated=iterated)
+            return
+        if not isinstance(target, ast.Name):
+            return
+        if iterated:
+            found = strings(value, iterated=True)
+            if found:
+                one.setdefault(target.id, set()).update(found)
+        elif isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+            found = strings(value)
+            if found:
+                many.setdefault(target.id, set()).update(found)
+        elif isinstance(value, ast.Name) and value.id in many:
+            many.setdefault(target.id, set()).update(many[value.id])
+        else:
+            found = strings(value)
+            if found:
+                one.setdefault(target.id, set()).update(found)
+
+    for _ in range(2):       # twice, so a name bound from another bound name is followed
+        for node in nodes:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    bind(target, node.value)
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                bind(node.target, node.value)
+            elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+                bind(node.target, node.iter, iterated=True)
+            elif (isinstance(node, ast.Call) and _callee(node.func) == "parametrize"
+                  and len(node.args) >= 2 and isinstance(node.args[0], ast.Constant)
+                  and isinstance(node.args[0].value, str)):
+                values = strings(node.args[1], iterated=True)
+                for argname in node.args[0].value.split(","):
+                    if argname.strip() and values:
+                        one.setdefault(argname.strip(), set()).update(values)
+
+    for node in nodes:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+            code.code_words.add(node.value)
+        elif isinstance(node, ast.Name):
+            code.code_words.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            code.code_words.add(node.attr)
+        if not isinstance(node, ast.Call):
+            continue
+        if _callee(node.func) not in _NOT_CALLING:
+            for argument in [*node.args, *(keyword.value for keyword in node.keywords)]:
+                code.call_strings.update(strings(argument))
+        if isinstance(node.func, ast.Name) and node.func.id in imported:
+            code.calls.add(imported[node.func.id])
+        elif isinstance(node.func, ast.Attribute):
+            module = module_of(node.func.value)
+            if module is not None:
+                code.calls.add((module, node.func.attr))
+    return code
+
+
+def _callee(func: ast.AST) -> str:
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return ""
+
+
+def _dotted(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted(node.value)
+        return f"{base}.{node.attr}" if base is not None else None
+    return None
+
+
+def _loaded_constant(module: str, name: str) -> Any:
+    """A constant of an app module that load() has already imported, or None: nothing is
+    imported to find it."""
+    loaded = sys.modules.get(module)
+    return getattr(loaded, name, None) if loaded is not None else None
+
+
+@lru_cache(maxsize=1)
+def _test_code() -> dict[str, Citations]:
+    """Every test file, read once into what its code does."""
+    return {path: read_test(text, _loaded_constant) for path, text in _sources()["test"].items()}
 
 
 @lru_cache(maxsize=1)
@@ -211,7 +422,7 @@ def tools() -> list[dict[str, Any]]:
 
     by_recipe, by_command, by_family = _recipe_tools(), _command_tools(), _family_tools()
     by_scenario = _scenario_tools()
-    sources = _sources()
+    sources, tests = _sources(), _test_code()
     rows: list[dict[str, Any]] = []
     for spec in registry.all_specs():
         name = spec.name
@@ -219,7 +430,8 @@ def tools() -> list[dict[str, Any]]:
         reached = [f"recipe:{r}" for r in by_recipe.get(name, ())] + \
                   [f"command:{c}" for c in by_command.get(name, ())] + \
                   ([f"family:{family['family']}"] if family else [])
-        tested_by = sorted(path for path, text in sources["test"].items() if _named(name, text))
+        handler = (getattr(spec.handler, "__module__", ""), getattr(spec.handler, "__name__", ""))
+        tested_by = sorted(path for path, code in tests.items() if code.calls_tool(name, *handler))
         scenarios = sorted(by_scenario.get(name, ()))
         kind = "batch" if spec.batch is not None else ("write" if spec.write is not None else "read")
         rows.append({
@@ -299,13 +511,13 @@ def families() -> list[dict[str, Any]]:
     from app.fastpath.intent import all_families
     from app.fastpath.recipes import recipe_for
 
-    sources = _sources()
+    sources, tests = _sources(), _test_code()
     covered = _family_scenarios()
     rows: list[dict[str, Any]] = []
     for family in all_families():
         recipe = recipe_for(family.name)
         primitives = list(recipe.read_primitives) if recipe is not None else []
-        tested_by = sorted(path for path, text in sources["test"].items() if _named(family.name, text))
+        named_by = sorted(path for path, code in tests.items() if code.names(family.name))
         scenarios = sorted(set(covered.get(family.name, ())) | {
             path for path, text in sources["scenario"].items() if _named(family.name, text)
         })
@@ -317,8 +529,8 @@ def families() -> list[dict[str, Any]]:
             "recipe": recipe.recipe_id if recipe is not None else "",
             "read_primitives": primitives,
             "serves_mutation_words": family.serves_mutation_words,
-            "directly_tested": bool(tested_by),
-            "tested_by": tested_by,
+            "named_in_tests": bool(named_by),
+            "named_by": named_by,
             "golden_scenario": bool(scenarios),
             "scenarios": scenarios,
         })
@@ -337,7 +549,7 @@ def gaps() -> dict[str, list[str]]:
     job is to look complete is worse than no matrix."""
     rows = tools()
     return {
-        "no test names it": [r["name"] for r in rows if not r["directly_tested"]],
+        "no test calls it": [r["name"] for r in rows if not r["directly_tested"]],
         "no golden scenario names it": [r["name"] for r in rows if not r["golden_scenario"]],
         "nothing but the model reaches it": [r["name"] for r in rows if not r["routable"]],
         "no card is drawn from it": [r["name"] for r in rows if not r["visible_ui"]],
@@ -361,10 +573,15 @@ def markdown() -> str:
         "disagree.",
         "",
         "Every column is read from the thing that decides it. **DIRECTLY TESTED** means a test",
-        "or a golden scenario NAMES the tool, and the file that does is cited; a tool whose",
-        "unit tests pass but which nothing calls by name is reported as untested. Nothing here",
-        "runs a tool, and nothing here can reach a mutation: the audit is a read of registries",
-        "and of source text, so it is safe against a shop it may not touch.",
+        "CALLS the tool — its code passes the tool's name to a call, or calls the tool's handler",
+        "— and the file that does is cited. A test that only mentions the tool, in a comment, a",
+        "docstring, an assertion about a list of names or a monkeypatch that replaces it, does",
+        "not count, so a tool whose unit tests pass but which no test calls is reported as",
+        "untested. An intent family is reached by routing a sentence to it rather than by a",
+        "call, so for a family the column is **NAMED IN TEST CODE**: a test's code, not a",
+        "comment or a docstring, names it. Tests are read as syntax trees and never run; nothing",
+        "here runs a tool, and nothing here can reach a mutation: the audit is a read of",
+        "registries and of source text, so it is safe against a shop it may not touch.",
         "",
         f"{len(rows)} tools — {reads} reads, {writes} writes, {batches} bulk — and "
         f"{len(family_rows)} intent families.",
@@ -385,7 +602,7 @@ def markdown() -> str:
         "",
         "### What cites each tool",
         "",
-        "| Tool | Reached by | Named in tests | Named in scenarios |",
+        "| Tool | Reached by | Called in tests | Named in scenarios |",
         "|---|---|---|---|",
     ]
     for r in rows:
@@ -397,14 +614,14 @@ def markdown() -> str:
         "",
         "## Intent families",
         "",
-        "| Family | For | Recipe | Reads | Serves mutation words | Directly tested | Golden scenario |",
+        "| Family | For | Recipe | Reads | Serves mutation words | Named in test code | Golden scenario |",
         "|---|---|---|---|:-:|:-:|:-:|",
     ]
     for r in family_rows:
         out.append(
             f"| `{r['name']}` | {r['kind']} | {r['recipe'] or '— (the model answers it)'} "
             f"| {', '.join(f'`{t}`' for t in r['read_primitives']) or '—'} "
-            f"| {_tick(r['serves_mutation_words'])} | {_tick(r['directly_tested'])} "
+            f"| {_tick(r['serves_mutation_words'])} | {_tick(r['named_in_tests'])} "
             f"| {_tick(r['golden_scenario'])} |"
         )
     out += ["", "## What this matrix cannot vouch for", ""]

@@ -39,6 +39,7 @@ from app.orchestrator.lifecycle import (  # noqa: E402
 )
 from app.orchestrator.objectives import ObjectiveStore  # noqa: E402
 from app.orchestrator.reviewers import (  # noqa: E402
+    GPT_DEFAULT_EFFORT,
     GPT_DEFAULT_MODEL,
     GptResponsesReviewer,
     GptUnavailable,
@@ -97,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--publish-remote", default=None)
     parser.add_argument("--gpt-api-key-file", default=None)
     parser.add_argument("--gpt-model", default=GPT_DEFAULT_MODEL)
-    parser.add_argument("--gpt-effort", default="high")
+    parser.add_argument("--gpt-effort", default=GPT_DEFAULT_EFFORT)
     parser.add_argument("--worker-cli", default="claude")
     parser.add_argument("--worker-model", default=None)
     parser.add_argument("--worker-effort", default=None)
