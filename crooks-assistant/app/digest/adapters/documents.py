@@ -34,6 +34,7 @@ MAX_ENTRIES = 20_000         # files and folders looked at, in all and in any on
 MAX_DEPTH = 32               # folders nested deeper than this are not entered
 MAX_UNITS = 10_000           # Units returned, besides the one saying the rest were cut
 MAX_SENTENCE = 2_000         # a longer run without a full stop is not read as one claim
+_MAX_PROBLEMS = 20           # malformed places named in one HTML page's report; the rest counted
 
 _FLAVOURS = {
     ".md": "markdown", ".markdown": "markdown", ".mdown": "markdown", ".mkd": "markdown",
@@ -87,19 +88,48 @@ _MODAL = re.compile(
 )
 _LABEL = re.compile(r"\W*[A-Za-z'-]+\W*:")
 _WORDS = re.compile(r"[A-Za-z][A-Za-z']*")
+# Verbs that open a command. The list is a help, not a limit: a word outside it still opens one
+# when it is not shaped like a noun or participle and an object follows it (see _imperative).
 _VERBS = frozenset("""
-    add allow always apply ask avoid build bump call check choose clean close commit configure
-    consider copy create define delete deploy disable do don't enable ensure escape explain
-    export fix follow give handle hide ignore include install keep leave let limit lock log
-    make mark merge move never only open pass pick pin please prefer print publish pull push
-    put quote raise read record reduce refuse reject release remember remove rename replace
-    report request require reset restart return review run save see select send set show sign
-    skip sort split start stop store tag take tell treat try turn update upgrade use validate
-    verify wait watch wrap write
+    accept activate add adjust allow always apply archive ask assign attach audit automate avoid
+    back backup benchmark bring build bump call cancel capture change check choose clean clear
+    clone close collect combine comment commit compare compile comply compress configure confirm
+    connect consider contact convert copy create decide decrypt define delete deploy describe
+    detect disable do document don't download drop edit embed enable encrypt enforce ensure
+    enter escape estimate evaluate examine execute explain export extract fetch fill find fix
+    flag follow format generate get give go grant guard handle hide identify ignore implement
+    import include inform inspect install isolate keep launch leave let limit lock log make
+    mark measure merge migrate minimise minimize mirror monitor mount move never note notify
+    only open organise organize pass patch pause pick pin ping please prefer prepare preserve
+    prevent print prioritise prioritize protect provide publish pull purge push put query quote
+    raise read rebuild record recover reduce refactor refresh refuse register reject release
+    reload rely remember remove rename renew repair repeat replace reply report request require
+    rerun reset resize resolve restart restore restrict resume retain retry return reuse revert
+    review revoke run sanitise sanitize save scan schedule search secure see select send set
+    share show sign simplify skip snapshot sort split start stop store submit summarise summarize
+    supply switch sync tag take tell test throttle track transfer translate treat trim try turn
+    uninstall unlock update upgrade upload use validate verify wait watch wipe wrap write
 """.split())
+# Words after which no command follows: 'Test is flaky' states, 'Test the backup' commands.
 _NOT_AFTER_VERB = frozenset(
     "is are was were has have had can could will would does did may might".split()
 )
+# Words that do not open a command: articles, pronouns, quantifiers, prepositions, conjunctions.
+_NOT_COMMANDS = frozenset("""
+    a an the this that these those it its there here i we you he she they me us them my our your
+    his her their some any all each every no none one many most few several both either neither
+    everything everyone anything anyone nothing nobody something someone when if while because
+    although though since unless until as by for from in of on to with without and or but not
+    what which who whose why how where
+""".split())
+# Words that open the object of a command: 'Rotate the keys', 'Defragment every disk'.
+_OBJECTS = frozenset("""
+    a an the this that these those it its all any each every your our their my them everything
+    anything both either
+""".split())
+# Verbs that take a clause, so a verb soon after them still reads as a command: 'Ensure backups
+# are encrypted'. After any other first word it reads as a statement: 'Release notes are here'.
+_CLAUSAL = frozenset("assume check confirm ensure expect make note remember see verify".split())
 
 _CUT = "\n[… cut: longer than a Unit body allows]"
 
@@ -169,9 +199,12 @@ def _walk(root: Path) -> Iterator[_Document | _Skipped]:
     """The documents under root in a fixed order — a folder's files by name, then its folders
     by name — without following links, with what was passed over said so."""
     try:
-        info = root.stat()
+        info = root.lstat()
     except OSError as exc:
         yield _Skipped(".", f"the artifact could not be read: {_why(exc)}")
+        return
+    if stat.S_ISLNK(info.st_mode):
+        yield _Skipped(".", "the artifact is a symbolic link, not followed")
         return
     if stat.S_ISREG(info.st_mode):
         flavour = _flavour(root.name)
@@ -270,14 +303,24 @@ def _read(artifact_id: str, document: _Document, budget: int) -> tuple[list[Unit
     """One document's Units, and whether the budget cut them short."""
     try:
         text = _load(document.file)
+        problems: list[tuple[int, str]] = []
         if document.flavour == "html":
-            lines = _html_lines(text)
+            lines, problems = _html_lines(text)
         else:
             lines = [(number, number, line) for number, line in enumerate(text.split("\n"), 1)]
             if lines and not lines[-1][2]:
                 lines.pop()
-        reader = _Reader(artifact_id, document.path, lines, document.flavour, budget)
-        return reader.run(), reader.cut
+        reader = _Reader(artifact_id, document.path, lines, document.flavour,
+                         budget - 1 if problems else budget)
+        units = reader.run()
+        if problems:
+            reason = (
+                "The HTML is malformed in ways its parser lets pass, so part of it may be missing "
+                "or misread: " + "; ".join(note for _, note in problems) + "."
+            )
+            units.append(_unparsed(artifact_id, document.path, reason, problems[0][0],
+                                   max(line for line, _ in problems)))
+        return units, reader.cut
     except _Unreadable as exc:
         return [_unparsed(artifact_id, document.path, str(exc))], False
     except Exception as exc:  # noqa: BLE001 — a parser fault is reported as unparsed, never raised
@@ -333,16 +376,28 @@ def _atx(text: str) -> tuple[int, str] | None:
 
 def _imperative(text: str) -> bool:
     """Whether a bullet item tells the reader what to do: it opens with a verb in the imperative,
-    or says what must or should be done. A 'Label: value' item does not."""
+    or says what must or should be done. A 'Label: value' item does not, nor one that opens
+    with a noun and its verb ('Backups run nightly', 'Release notes are in the wiki')."""
     head = text[:300].replace("’", "'")
     if _LABEL.match(head):
         return False
     if _MODAL.search(head):
         return True
-    words = _WORDS.findall(head)[:2]
-    if not words or words[0].lower() not in _VERBS:
+    words = [word.lower() for word in _WORDS.findall(head)[:3]]
+    if not words or words[0] in _NOT_COMMANDS:
         return False
-    return len(words) == 1 or words[1].lower() not in _NOT_AFTER_VERB
+    if len(words) > 1 and words[1] in _NOT_AFTER_VERB:
+        return False
+    if (len(words) > 2 and words[1] not in _OBJECTS and words[2] in _NOT_AFTER_VERB
+            and words[0] not in _CLAUSAL):
+        return False
+    first = words[0]
+    if first in _VERBS:
+        return True
+    if (first.endswith(("ing", "ly")) or (first.endswith("ed") and not first.endswith("eed"))
+            or (first.endswith("s") and not first.endswith(("ss", "us", "is")))):
+        return False   # a gerund, participle, adverb or plural: not a command
+    return len(words) > 1 and words[1] in _OBJECTS
 
 
 def _sentences(text: str) -> list[tuple[int, int, str]]:
@@ -707,11 +762,12 @@ def _html_language(classes: str | None) -> str:
     return ""
 
 
-def _html_lines(text: str) -> list[_Line]:
+def _html_lines(text: str) -> tuple[list[_Line], list[tuple[int, str]]]:
+    """The page's lines, and what was malformed in it: the line and a plain account of each."""
     parser = _HTMLText()
     parser.feed(text)
     parser.close()
-    return parser.finish()
+    return parser.finish(), parser.problems
 
 
 class _HTMLText(HTMLParser):
@@ -738,14 +794,19 @@ class _HTMLText(HTMLParser):
         self._last = 0
         self._prefix = ""
         self._dropped = 0
-        self._lists: list[str] = []
-        self._links: list[tuple[str, int, int]] = []
+        self._dropped_at = ("", 0)                  # the script or style being dropped, and its line
+        self._lists: list[tuple[str, int]] = []
+        self._links: list[tuple[str, int, int, int]] = []
         self._pre: list[str] | None = None
         self._pre_line = 0
         self._pre_language = ""
+        self.problems: list[tuple[int, str]] = []   # malformed markup the parser let pass
+        self._unreported = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in self._DROPPED:
+            if not self._dropped:
+                self._dropped_at = (tag, self.getpos()[0])
             self._dropped += 1
             return
         if self._dropped:
@@ -767,16 +828,17 @@ class _HTMLText(HTMLParser):
             self._prefix = "#" * self._HEADINGS[tag] + " "
         elif tag in self._LISTS:
             self._flush()
-            self._lists.append(tag)
+            self._lists.append((tag, self.getpos()[0]))
         elif tag == "li":
             self._flush()
-            self._prefix = "1. " if self._lists and self._lists[-1] == "ol" else "- "
+            self._prefix = "1. " if self._lists and self._lists[-1][0] == "ol" else "- "
         elif tag == "input":
             if ((attributes.get("type") or "").lower() == "checkbox" and self._prefix == "- "
                     and not "".join(self._words).strip()):
                 self._prefix = "- [x] " if "checked" in attributes else "- [ ] "
         elif tag == "a":
-            self._links.append((attributes.get("href") or "", self._generation, len(self._words)))
+            self._links.append((attributes.get("href") or "", self._generation, len(self._words),
+                                self.getpos()[0]))
         elif tag in ("td", "th"):
             self._words.append(" ")
         elif tag in self._BLOCKS:
@@ -784,7 +846,10 @@ class _HTMLText(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         if tag in self._DROPPED:
-            self._dropped = max(0, self._dropped - 1)
+            if self._dropped:
+                self._dropped -= 1
+            else:
+                self._stray(tag)
             return
         if self._dropped:
             return
@@ -794,6 +859,8 @@ class _HTMLText(HTMLParser):
             return
         if tag == "a":
             self._end_link()
+        elif tag == "pre":
+            self._stray(tag)
         elif tag in self._HEADINGS or tag == "li":
             self._flush()
             self._prefix = ""
@@ -801,6 +868,8 @@ class _HTMLText(HTMLParser):
             self._flush()
             if self._lists:
                 self._lists.pop()
+            else:
+                self._stray(tag)
         elif tag in self._BLOCKS:
             self._flush()
 
@@ -821,15 +890,45 @@ class _HTMLText(HTMLParser):
         self._words.append(data)
 
     def finish(self) -> list[_Line]:
+        """The page's lines, once all of it has been fed and closed. What is still open at the
+        end, which the parser lets pass without complaint, is noted in problems."""
+        if self._dropped:
+            tag, line = self._dropped_at
+            self._problem(line, f"<{tag}> opened at line {line} is never closed, so everything "
+                                "after it was dropped unread")
         if self._pre is not None:
+            self._problem(self._pre_line, f"<pre> opened at line {self._pre_line} is never "
+                                          "closed, so everything after it was read as code")
             self._end_pre()
+        for *_, line in self._links:
+            self._problem(line, f"<a> opened at line {line} is never closed, so its target was not kept")
+        for tag, line in self._lists:
+            self._problem(line, f"<{tag}> opened at line {line} is never closed")
+        if self.rawdata.strip() and not self._dropped:
+            line = self.getpos()[0]
+            self._problem(line, f"the page ends at line {line} inside markup that is never "
+                                "finished, which was not read")
         self._flush()
+        self.problems.sort()
+        if self._unreported:
+            self.problems.append((self.problems[-1][0], f"and {self._unreported} more"))
         return self.lines
+
+    def _problem(self, line: int, note: str) -> None:
+        if len(self.problems) < _MAX_PROBLEMS:
+            self.problems.append((max(line, 1), note))
+        else:
+            self._unreported += 1
+
+    def _stray(self, tag: str) -> None:
+        line = self.getpos()[0]
+        self._problem(line, f"</{tag}> at line {line} closes nothing that is open")
 
     def _end_link(self) -> None:
         if not self._links:
+            self._stray("a")
             return
-        href, generation, at = self._links.pop()
+        href, generation, at, _ = self._links.pop()
         if generation != self._generation or not href.strip():
             return
         inner = "".join(self._words[at:])

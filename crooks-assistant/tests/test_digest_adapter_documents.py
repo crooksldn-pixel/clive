@@ -214,6 +214,26 @@ def test_html_is_read_as_text_with_links_kept_and_scripts_dropped(tmp_path):
         assert unread not in text
 
 
+def test_bullets_that_give_commands_are_rules_and_statements_are_not(tmp_path):
+    units = _one(tmp_path, "ops.md", "\n".join([
+        "# Ops",                                                                 # 1
+        "",
+        "- Test the backup.",                                                    # 3
+        "- Document the API.",
+        "- Monitor disk usage.",                                                 # 5
+        "- Archive old logs.",
+        "- Defragment every disk.",                                              # 7
+        "- Backups run nightly.",
+        "- The cache lives in memory",                                           # 9
+        "- Monitoring covers the API.",
+        "- Release notes are in the wiki.",                                      # 11
+    ]) + "\n")
+    assert [(u.body, u.location.line_start) for u in units if u.kind == "rule"] == [
+        ("Test the backup.", 3), ("Document the API.", 4), ("Monitor disk usage.", 5),
+        ("Archive old logs.", 6), ("Defragment every disk.", 7),
+    ]
+
+
 def test_questions_link_targets_and_code_are_not_claims(tmp_path):
     units = _one(tmp_path, "faq.md", "\n".join([
         "# FAQ",
@@ -377,6 +397,34 @@ def test_malformed_input_is_reported_as_unparsed_never_raised(tmp_path):
     assert not any(unit.location.path == "empty.md" for unit in units)
 
 
+@pytest.mark.parametrize(("tail", "said"), [
+    ("<script>\nsteal()\n<p>Lost words</p>\n", "<script> opened at line 3 is never closed"),
+    ("<style>\np { color: red }\n<p>Lost words</p>\n", "<style> opened at line 3 is never closed"),
+    ('<p>See <a href="https://example.invalid/x">the page</p>\n', "<a> opened at line 3 is never closed"),
+    ("<pre>\nx = 1\n", "<pre> opened at line 3 is never closed"),
+    ("<ul>\n<li>Test the backup.</li>\n", "<ul> opened at line 3 is never closed"),
+    ("<p>More text.</p></script></a>\n", "</script> at line 3 closes nothing that is open"),
+])
+def test_malformed_html_the_parser_lets_pass_is_reported_as_unparsed(tmp_path, tail, said):
+    units = _one(tmp_path, "page.html", "<h1>Top</h1>\n<p>Kept text.</p>\n" + tail)
+    assert (units[0].kind, units[0].title) == ("knowledge", "Top")
+    assert units[0].body.startswith("Kept text.")
+    report = units[-1]
+    assert [unit for unit in units if "unparsed" in unit.tags] == [report]
+    assert report.kind == "knowledge" and report.location == Location("page.html", 3, 3)
+    assert said in report.body
+    read = "\n".join(unit.body for unit in units[:-1])
+    for unread in ("steal", "Lost", "color"):
+        assert unread not in read
+
+
+def test_the_report_on_malformed_html_is_bounded(tmp_path):
+    units = _one(tmp_path, "page.html", "<p>Text.</p>" + "</a>" * 50 + "\n")
+    report = units[-1]
+    assert "unparsed" in report.tags and report.location == Location("page.html", 1, 1)
+    assert report.body.count("closes nothing") == 20 and report.body.endswith("and 30 more.")
+
+
 def test_a_missing_root_is_reported_and_a_single_file_is_read(tmp_path):
     assert _rows(documents.decompose(tmp_path / "absent", ARTIFACT)) == [
         ("knowledge", "Unparsed: the artifact",
@@ -400,6 +448,19 @@ def test_links_on_disk_are_not_followed(tmp_path):
     assert _rows(documents.decompose(root, ARTIFACT)) == [
         ("knowledge", "Unparsed: link.md", "a symbolic link, not followed", "link.md", None, None, ("unparsed",)),
     ]
+
+
+def test_a_root_that_is_a_link_is_not_followed(tmp_path):
+    outside = _write(tmp_path / "outside", {"secret.md": "# Secret\n\nThe vault code is 1234.\n"})
+    folder = tmp_path / "art"
+    folder.symlink_to(outside, target_is_directory=True)
+    single = tmp_path / "one.md"
+    single.symlink_to(outside / "secret.md")
+    for root in (folder, single):
+        assert _rows(documents.decompose(root, ARTIFACT)) == [
+            ("knowledge", "Unparsed: the artifact", "the artifact is a symbolic link, not followed",
+             ".", None, None, ("unparsed",)),
+        ]
 
 
 def test_a_name_that_is_not_utf8_is_reported_not_read(tmp_path):
