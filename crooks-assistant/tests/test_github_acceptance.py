@@ -25,13 +25,14 @@ from app.orchestrator.github_acceptance import (
     evaluate,
     git_remote_token,
 )
+from tests.fake_credentials import github_token
 
 REPO = Path(__file__).resolve().parents[2]
 SHA = "a" * 40
 OTHER = "b" * 40
 REPOSITORY = "crooksldn-pixel/clive"
 # A fake GitHub token, assembled here so no literal in this file has a real token's shape.
-FAKE_TOKEN = "gh" + "p_" + "x" * 36
+FAKE_TOKEN = github_token("github-acceptance")
 
 
 def run(run_id: int = 1, *, status: str = "completed", conclusion: str | None = "success", sha: str = SHA,
