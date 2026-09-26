@@ -97,6 +97,17 @@ def _text(value: Any, name: str, *, limit: int | None = None, optional: bool = F
         raise ValueError(f"{name} must be a non-empty string")
     if limit is not None and len(value) > limit:
         raise ValueError(f"{name} is longer than {limit} characters")
+    _utf8(value, name)
+
+
+def _utf8(value: str, name: str) -> None:
+    """Every stored string must be writable as UTF-8: ids are derived from it and the store
+    writes it. A lone surrogate (from a JSON or Python escape, or a file name that is not
+    UTF-8) is refused here with a ValueError, never a UnicodeEncodeError later."""
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError(f"{name} contains text that cannot be written as UTF-8") from None
 
 
 def _choice(value: Any, name: str, vocabulary: tuple[str, ...] | frozenset[str]) -> None:

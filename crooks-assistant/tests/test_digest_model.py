@@ -438,3 +438,20 @@ def test_the_store_refuses_ids_that_are_not_artifact_ids(tmp_path):
             store.path_for(bad)
     with pytest.raises(FileNotFoundError):
         store.load(_source().artifact_id)
+
+
+def test_text_that_cannot_be_written_as_utf8_is_refused_as_a_value_error():
+    """A lone surrogate (from a JSON or Python escape, or a file name that is not UTF-8)
+    would make the unit's id and the store's write raise UnicodeEncodeError later. The
+    model refuses it at construction, as the ValueError every other bad field raises."""
+    from app.digest.model import Location, Unit
+
+    lone = "before \ud800 after"
+    with pytest.raises(ValueError, match="UTF-8"):
+        Unit(artifact_id="art-" + "0" * 24, kind="knowledge", title=lone, body="b",
+             location=Location(path="a.md"))
+    with pytest.raises(ValueError, match="UTF-8"):
+        Unit(artifact_id="art-" + "0" * 24, kind="knowledge", title="t", body=lone,
+             location=Location(path="a.md"))
+    with pytest.raises(ValueError, match="UTF-8"):
+        Location(path=lone)
