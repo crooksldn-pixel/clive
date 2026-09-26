@@ -569,7 +569,15 @@ _PHRASES = (
         # Role words that are also ordinary keys ("user: root" in a compose file) count only
         # when followed by words, as a turn of conversation is.
         re.compile(r"^[ \t>*#]*(?:system|developer|user|tool|function)[ \t]*:[ \t]*\S+[ \t]+\S", re.I | re.M),
-    ), "imitates a system-prompt, chat-role or tool-call marker that a model could mistake for real conversation structure"),
+        # Or by one word that obeys, approves or answers, as no ordinary value ("Linux", "root") does.
+        re.compile(
+            r"^[ \t>*#]*(?:system|developer|user|tool|function)[ \t]*:[ \t]*"
+            r"(?:obey|comply|proceed|continue|approved?|granted|allow(?:ed)?|permitted|authori[sz]ed"
+            r"|accept(?:ed)?|confirm(?:ed)?|ignore|disregard|override|execute|bypass|jailbreak"
+            r"|unlock(?:ed)?|yes|sure)\b",
+            re.I | re.M,
+        ),
+    ),"imitates a system-prompt, chat-role or tool-call marker that a model could mistake for real conversation structure"),
 )
 
 _LINK_TITLE = re.compile(r"""\]\([^()\s]*\s+(?:"([^"\n]{1,2000})"|'([^'\n]{1,2000})')\s*\)""")
@@ -703,6 +711,82 @@ def _decodings(text: str) -> Iterator[tuple[int, str, str]]:
             decoded = decode(match.group())
             if decoded is not None:
                 yield match.start(), decoded, encoding
+    for offset, decoded in _wrapped_base64(text):
+        yield offset, decoded, "base64"
+
+
+# Chunks of the base64 alphabet separated by the whitespace encoders wrap with. The classes
+# are disjoint and a match always succeeds once started, so runs are found in one pass.
+_WRAPPED = re.compile(r"[A-Za-z0-9+/_-]+={0,2}(?:[ \t\r\n]+[A-Za-z0-9+/_-]+={0,2})*")
+_WRAPPED_CHUNK = re.compile(r"[A-Za-z0-9+/_-]+={0,2}")
+_URLSAFE = str.maketrans("-_", "+/")
+_FIRST_WINDOW = 32
+
+
+def _wrapped_base64(text: str) -> Iterator[tuple[int, str]]:
+    """(offset, decoded) for base64 wrapped onto short lines or split into spaced chunks, as MIME
+    and many encoders write it, so that no one piece is long enough to be read on its own. The
+    wrapping is stripped before decoding and the offset is that of the chunk the blob starts at,
+    so the finding is on its first line. A blob ends at its padding."""
+    for run in _WRAPPED.finditer(text):
+        body = run.group()
+        if not (_UPPER.search(body) and _LOWER.search(body)):
+            continue  # identifiers and hex digests, not base64 of text
+        group: list[tuple[int, str]] = []
+        for chunk in _WRAPPED_CHUNK.finditer(body):
+            group.append((run.start() + chunk.start(), chunk.group()))
+            if chunk.group().endswith("=") or chunk.end() == len(body):
+                if len(group) > 1:  # one unbroken piece is the plain base64 pattern's to read
+                    yield from _wrapped_group(group)
+                group = []
+
+
+def _wrapped_group(group: list[tuple[int, str]]) -> Iterator[tuple[int, str]]:
+    """Decoding is tried from each chunk in turn, so words of prose run into the blob are passed
+    over. A try that finds text resumes after it; one that does not reads only a small window, so
+    the work stays linear in the size of the run."""
+    joined = "".join(chunk for _offset, chunk in group).rstrip("=")
+    begins: list[int] = []
+    size = 0
+    for _offset, chunk in group:
+        begins.append(size)
+        size += len(chunk)
+    index = 0
+    while index < len(group) and len(joined) - begins[index] >= 20:
+        begin = begins[index]
+        decoded, used = _from_wrapped(joined, begin)
+        if decoded is None:
+            index += 1
+            continue
+        yield group[index][0], decoded
+        index = max(index + 1, bisect.bisect_left(begins, begin + used))
+
+
+def _from_wrapped(joined: str, begin: int) -> tuple[str | None, int]:
+    """The text ``joined`` decodes to from ``begin`` until it stops being text (prose after a
+    blob decodes to noise), and how many characters that took. The window read doubles only
+    while all of it decodes cleanly, so a try costs in proportion to the text it finds."""
+    window = _FIRST_WINDOW
+    while True:
+        end = min(len(joined), begin + window)
+        core = joined[begin:end].translate(_URLSAFE)
+        raw = base64.b64decode(core[:len(core) - len(core) % 4])
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError as error:
+            # A character cut in two by the window's edge is not the end of the text.
+            if error.reason != "unexpected end of data" or end == len(joined):
+                raw = raw[:error.start]
+                break
+        else:
+            if end == len(joined):
+                break
+        window *= 2
+    used = -(-len(raw) * 4 // 3)
+    blob = joined[begin:begin + used]
+    if not (_UPPER.search(blob) and _LOWER.search(blob)):
+        return None, used
+    return _as_text(raw), used
 
 
 def _decoded_instruction(decoded: str, depth: int) -> _Phrase | None:
@@ -1108,40 +1192,46 @@ _ALIASES.update({
     "all rights reserved": _PROPRIETARY,
 })
 # Checked in order, against the text lowercased with its whitespace collapsed: the more
-# specific of two texts that share wording comes first (AGPL and LGPL before GPL, say).
-_LICENCE_TEXTS = tuple((spdx, re.compile(pattern)) for spdx, pattern in (
-    (_COMMONS_CLAUSE, r"commons clause"),
-    ("BUSL-1.1", r"business source license"),
-    ("SSPL-1.0", r"server side public license"),
-    ("Elastic-2.0", r"elastic license 2\.0|elastic license, version 2"),
-    ("PolyForm-Noncommercial-1.0.0", r"polyform noncommercial license"),
-    ("PolyForm-Strict-1.0.0", r"polyform strict license"),
-    ("CC-BY-NC-ND-4.0", r"attribution-noncommercial-noderivatives 4\.0"),
-    ("CC-BY-NC-SA-4.0", r"attribution-noncommercial-sharealike 4\.0"),
-    ("CC-BY-NC-4.0", r"attribution-noncommercial 4\.0"),
-    ("CC-BY-ND-4.0", r"attribution-noderivatives 4\.0"),
-    ("CC-BY-SA-4.0", r"attribution-sharealike 4\.0"),
-    ("CC-BY-4.0", r"attribution 4\.0 international"),
-    ("CC0-1.0", r"cc0 1\.0 universal"),
-    ("AGPL-3.0-only", r"gnu affero general public license.*version 3"),
-    ("LGPL-3.0-only", r"gnu lesser general public license.*version 3"),
-    ("LGPL-2.1-only", r"gnu lesser general public license.*version 2\.1"),
-    ("LGPL-2.0-only", r"gnu library general public license"),
-    ("GPL-3.0-only", r"gnu general public license.*version 3"),
-    ("GPL-2.0-only", r"gnu general public license.*version 2"),
-    ("MPL-2.0", r"mozilla public license,? (?:version|v\.?) ?2\.0"),
-    ("EPL-2.0", r"eclipse public license(?: -)? v(?:ersion)? ?2\.0"),
-    ("EPL-1.0", r"eclipse public license(?: -)? v(?:ersion)? ?1\.0"),
-    ("Apache-2.0", r"apache license,? version 2\.0"),
-    ("BSL-1.0", r"boost software license - version 1\.0"),
-    ("Unlicense", r"this is free and unencumbered software released into the public domain"),
-    ("ISC", r"distribute this software for any purpose with or without fee is hereby granted, provided that"),
-    ("0BSD", r"distribute this software for any purpose with or without fee is hereby granted"),
-    ("MIT", r"permission is hereby granted, free of charge, to any person obtaining a copy"),
-    ("BSD-3-Clause", r"redistribution and use in source and binary forms.*neither the name"),
-    ("BSD-2-Clause", r"redistribution and use in source and binary forms"),
-    ("Zlib", r"altered source versions must be plainly marked as such"),
-))
+# specific of two texts that share wording comes first (AGPL and LGPL before GPL, say). A
+# fingerprint in two parts matches when its second part comes anywhere after its first. No
+# pattern has an unbounded span: the second part is searched for once, from the end of the first
+# part's first occurrence (if any later occurrence is followed by it, so is the first), so each
+# fingerprint costs a pass or two over the text, however often the first part repeats.
+_LICENCE_TEXTS = tuple(
+    (spdx, re.compile(head), re.compile(tail) if tail else None) for spdx, head, tail in (
+        (_COMMONS_CLAUSE, r"commons clause", None),
+        ("BUSL-1.1", r"business source license", None),
+        ("SSPL-1.0", r"server side public license", None),
+        ("Elastic-2.0", r"elastic license 2\.0|elastic license, version 2", None),
+        ("PolyForm-Noncommercial-1.0.0", r"polyform noncommercial license", None),
+        ("PolyForm-Strict-1.0.0", r"polyform strict license", None),
+        ("CC-BY-NC-ND-4.0", r"attribution-noncommercial-noderivatives 4\.0", None),
+        ("CC-BY-NC-SA-4.0", r"attribution-noncommercial-sharealike 4\.0", None),
+        ("CC-BY-NC-4.0", r"attribution-noncommercial 4\.0", None),
+        ("CC-BY-ND-4.0", r"attribution-noderivatives 4\.0", None),
+        ("CC-BY-SA-4.0", r"attribution-sharealike 4\.0", None),
+        ("CC-BY-4.0", r"attribution 4\.0 international", None),
+        ("CC0-1.0", r"cc0 1\.0 universal", None),
+        ("AGPL-3.0-only", r"gnu affero general public license", r"version 3"),
+        ("LGPL-3.0-only", r"gnu lesser general public license", r"version 3"),
+        ("LGPL-2.1-only", r"gnu lesser general public license", r"version 2\.1"),
+        ("LGPL-2.0-only", r"gnu library general public license", None),
+        ("GPL-3.0-only", r"gnu general public license", r"version 3"),
+        ("GPL-2.0-only", r"gnu general public license", r"version 2"),
+        ("MPL-2.0", r"mozilla public license,? (?:version|v\.?) ?2\.0", None),
+        ("EPL-2.0", r"eclipse public license(?: -)? v(?:ersion)? ?2\.0", None),
+        ("EPL-1.0", r"eclipse public license(?: -)? v(?:ersion)? ?1\.0", None),
+        ("Apache-2.0", r"apache license,? version 2\.0", None),
+        ("BSL-1.0", r"boost software license - version 1\.0", None),
+        ("Unlicense", r"this is free and unencumbered software released into the public domain", None),
+        ("ISC", r"distribute this software for any purpose with or without fee is hereby granted, provided that", None),
+        ("0BSD", r"distribute this software for any purpose with or without fee is hereby granted", None),
+        ("MIT", r"permission is hereby granted, free of charge, to any person obtaining a copy", None),
+        ("BSD-3-Clause", r"redistribution and use in source and binary forms", r"neither the name"),
+        ("BSD-2-Clause", r"redistribution and use in source and binary forms", None),
+        ("Zlib", r"altered source versions must be plainly marked as such", None),
+    )
+)
 _PROPRIETARY_TEXT = re.compile(
     r"all rights reserved|proprietary|confidential|may not be (?:copied|reproduced|distributed|modified|used)"
     r"|no licen[cs]e is granted"
@@ -1160,8 +1250,9 @@ _FRONT_MATTER_BLOCK = re.compile(r"---[ \t]*\r?\n(.*?)^---[ \t\r]*$", re.S | re.
 def identify_licence_text(text: str) -> str:
     """The SPDX identifier for a licence file's text, or 'unknown'."""
     flat = " ".join(text.lower().split())
-    for spdx, pattern in _LICENCE_TEXTS:
-        if pattern.search(flat):
+    for spdx, head, tail in _LICENCE_TEXTS:
+        match = head.search(flat)
+        if match and (tail is None or tail.search(flat, match.end())):
             return spdx
     return _PROPRIETARY if _PROPRIETARY_TEXT.search(flat) else UNKNOWN
 
