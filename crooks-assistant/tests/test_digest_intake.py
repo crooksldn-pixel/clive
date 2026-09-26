@@ -46,12 +46,13 @@ from app.digest.intake import (
     shown,
 )
 from app.digest.intakes import git as git_handler
+from app.digest.intakes import package as package_handler
 from app.digest.intakes import url as url_handler
 from app.digest.pipeline import digest, tree_digest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "digest_intake.py"
 TAKEN_AT = "2026-09-26T10:00:00+00:00"
-HANDLERS = ("archive", "directory", "file", "git", "url")
+HANDLERS = ("archive", "directory", "file", "git", "package", "url")
 MIT = (
     "MIT License\n\nCopyright (c) 2026 Example\n\n"
     "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
@@ -677,6 +678,140 @@ def test_a_download_past_its_limit_is_refused(tmp_path):
     _clean_root(tmp_path / "q")
 
 
+# --- a published package, offline ---------------------------------------------------------------
+
+
+def _npm_tarball(tmp_path: Path, top: str = "package") -> bytes:
+    manifest = b'{"name": "tally", "version": "1.0.0", "license": "MIT"}\n'
+    tree = {f"{top}/package.json": manifest, f"{top}/LICENSE": MIT.encode(),
+            f"{top}/index.js": b"module.exports = (xs) => xs.length;\n"}
+    return _tar(tmp_path / "npm.tgz", _tree_members(tree), "w:gz").read_bytes()
+
+
+def _registry(docs: dict[str, dict], asked: list[str] | None = None):
+    def fetch(url, limits):
+        if asked is not None:
+            asked.append(url)
+        if url not in docs:
+            raise FetchFailed("the server answered 404")
+        return __import__("json").dumps(docs[url]).encode()
+    return fetch
+
+
+def _npm_doc(tarball: bytes, *, name: str = "tally", version: str = "1.0.0", **dist) -> dict:
+    import base64
+    import hashlib
+    integrity = "sha512-" + base64.b64encode(hashlib.sha512(tarball).digest()).decode()
+    return {"name": name, "version": version,
+            "dist": {"tarball": f"https://registry.npmjs.org/{name}/-/{name.rsplit('/', 1)[-1]}-{version}.tgz",
+                     "integrity": integrity, **dist}}
+
+
+def test_an_npm_package_is_fetched_by_name_checked_against_its_integrity_and_unwrapped(tmp_path):
+    tarball = _npm_tarball(tmp_path)
+    asked: list[str] = []
+    fetchers = {"registry": _registry({"https://registry.npmjs.org/tally/1.0.0": _npm_doc(tarball)}, asked),
+                "package": _serve(tarball)}
+    taken = intake("npm:tally@1.0.0", tmp_path / "q", fetchers=fetchers, taken_at=TAKEN_AT)
+    assert taken.handler == "package" and taken.source.origin_kind == "package"
+    assert taken.source.origin == "npm:tally@1.0.0" and taken.source.licence == "MIT"
+    assert sorted(_files(taken.path)) == ["LICENSE", "index.js", "package.json"]   # package/ taken off
+    assert taken.source.pinned_ref == "sha256:" + __import__("hashlib").sha256(tarball).hexdigest()
+    assert any("matched the sha512 digest" in note for note in taken.notes)
+    assert asked == ["https://registry.npmjs.org/tally/1.0.0"]
+    _assert_read_only(taken.path)
+    # the version as ref=, the same package; with none, the latest, and the notes say which
+    again = intake("npm:tally", tmp_path / "q", ref="1.0.0", fetchers=fetchers)
+    assert again.path == taken.path
+    latest = {"https://registry.npmjs.org/tally/latest": _npm_doc(tarball)}
+    newest = intake("npm:tally", tmp_path / "q", fetchers={**fetchers, "registry": _registry(latest)})
+    assert newest.source.origin == "npm:tally@1.0.0" and any("latest, 1.0.0" in n for n in newest.notes)
+
+
+def test_a_scoped_npm_package_is_asked_for_by_its_escaped_name_and_its_own_folder_taken_off(tmp_path):
+    tarball = _npm_tarball(tmp_path, top="node")                  # as @types packages wrap theirs
+    asked: list[str] = []
+    doc = _npm_doc(tarball, name="@types/node", version="20.1.0")
+    taken = intake("npm:@types/node@20.1.0", tmp_path / "q", fetchers={
+        "registry": _registry({"https://registry.npmjs.org/@types%2Fnode/20.1.0": doc}, asked),
+        "package": _serve(tarball)})
+    assert asked == ["https://registry.npmjs.org/@types%2Fnode/20.1.0"]
+    assert sorted(_files(taken.path)) == ["LICENSE", "index.js", "package.json"]
+
+
+def test_a_package_that_is_not_what_the_registry_published_is_refused(tmp_path):
+    tarball = _npm_tarball(tmp_path)
+    doc = _npm_doc(tarball)
+    tampered = tarball[:-8] + b"\0" * 8
+    with pytest.raises(UnsafeArtifact, match="not what was published"):
+        intake("npm:tally@1.0.0", tmp_path / "q", fetchers={
+            "registry": _registry({"https://registry.npmjs.org/tally/1.0.0": doc}),
+            "package": _serve(tampered)})
+    # no digest at all: nothing can be checked, so nothing is taken
+    bare = {"name": "tally", "version": "1.0.0", "dist": {"tarball": doc["dist"]["tarball"]}}
+    with pytest.raises(SourceRefused, match="no digest"):
+        intake("npm:tally@1.0.0", tmp_path / "q", fetchers={
+            "registry": _registry({"https://registry.npmjs.org/tally/1.0.0": bare}),
+            "package": _serve(tarball)})
+    # an archive URL the registry names off public https is refused like any intake URL
+    for where in ("http://registry.npmjs.org/tally.tgz", "https://127.0.0.1/tally.tgz",
+                  "file:///etc/passwd"):
+        moved = {**doc, "dist": {**doc["dist"], "tarball": where}}
+        with pytest.raises(SourceRefused):
+            intake("npm:tally@1.0.0", tmp_path / "q", fetchers={
+                "registry": _registry({"https://registry.npmjs.org/tally/1.0.0": moved}),
+                "package": _serve(tarball)})
+    # the registry answering for another version, or another package, is not believed
+    for wrong in ({**doc, "version": "9.9.9"}, {**doc, "name": "other"}):
+        with pytest.raises(FetchFailed):
+            intake("npm:tally@1.0.0", tmp_path / "q", fetchers={
+                "registry": _registry({"https://registry.npmjs.org/tally/1.0.0": wrong}),
+                "package": _serve(tarball)})
+    _clean_root(tmp_path / "q")
+
+
+def test_a_pypi_package_prefers_its_source_distribution_and_checks_its_sha256(tmp_path):
+    import hashlib
+    sdist = _tar(tmp_path / "s.tar.gz", _tree_members({f"tally-1.0/{k}": v for k, v in TREE.items()}),
+                 "w:gz").read_bytes()
+    doc = {"info": {"version": "1.0"}, "urls": [
+        {"filename": "tally-1.0-cp312-cp312-manylinux.whl", "packagetype": "bdist_wheel",
+         "url": "https://files.pythonhosted.org/x/tally-1.0-cp312.whl", "digests": {"sha256": "0" * 64}},
+        {"filename": "tally-1.0.tar.gz", "packagetype": "sdist",
+         "url": "https://files.pythonhosted.org/x/tally-1.0.tar.gz",
+         "digests": {"sha256": hashlib.sha256(sdist).hexdigest()}},
+    ]}
+    asked: list[str] = []
+    taken = intake("pypi:tally==1.0", tmp_path / "q", fetchers={
+        "registry": _registry({"https://pypi.org/pypi/tally/1.0/json": doc}, asked),
+        "package": _serve(sdist)})
+    assert asked == ["https://pypi.org/pypi/tally/1.0/json"]
+    assert taken.source.origin == "pypi:tally==1.0" and _files(taken.path) == TREE
+    assert taken.source.licence == "MIT"
+    # only a wheel that needs building: nothing intake can read
+    compiled = {**doc, "urls": doc["urls"][:1]}
+    with pytest.raises(SourceRefused, match="without building"):
+        intake("pypi:tally==1.0", tmp_path / "q2", fetchers={
+            "registry": _registry({"https://pypi.org/pypi/tally/1.0/json": compiled}),
+            "package": _serve(sdist)})
+    _clean_root(tmp_path / "q2")
+
+
+def test_a_package_source_is_named_exactly_or_refused():
+    parse = package_handler.parse
+    assert parse("npm:left-pad@1.3.0") == ("npm", "left-pad", "1.3.0")
+    assert parse("npm:@scope/name") == ("npm", "@scope/name", None)
+    assert parse("pypi:Requests==2.32.3") == ("pypi", "Requests", "2.32.3")
+    assert parse("pypi:six@1.16.0") == ("pypi", "six", "1.16.0")
+    assert parse("pypi:six", "1.16.0") == ("pypi", "six", "1.16.0")
+    for bad in ("npm:", "npm:../etc", "npm:Tally", "npm:a/b", "pypi:-x", "pypi:a b",
+                "npm:tally@1.0 ; rm", "pypi:six==../1", "cargo:serde", "npm:" + "a" * 300):
+        with pytest.raises(SourceRefused):
+            parse(bad)
+    with pytest.raises(SourceRefused, match="give one"):
+        parse("npm:tally@1.0.0", "2.0.0")
+
+
 # --- the quarantine itself ----------------------------------------------------------------------
 
 
@@ -856,4 +991,17 @@ def test_the_command_line_takes_in_digests_and_exits_as_digest_does(tmp_path):
     assert not (SCRIPT.parent / "quarantine-here").exists()
     usage = _cli(source, cwd=tmp_path)
     assert usage.returncode == 1 and "--quarantine" in usage.stderr
+
+
+def test_the_command_line_relates_by_default_and_can_take_clive_as_itself(tmp_path):
+    source = _make_tree(tmp_path / "src", TREE)
+    related = _cli(source, "--quarantine", tmp_path / "q", cwd=tmp_path)
+    assert related.returncode == 0, related.stderr
+    assert "; relations: " in related.stdout and "; proposals: " in related.stdout
+    bare = _cli(source, "--quarantine", tmp_path / "q", "--no-relate", cwd=tmp_path)
+    assert bare.returncode == 0 and "; relations: " not in bare.stdout
+    itself = _cli(source, "--quarantine", tmp_path / "q", "--self", cwd=tmp_path)
+    assert itself.returncode == 0 and "; self: " in itself.stdout and "proposals" not in itself.stdout
+    both = _cli(source, "--quarantine", tmp_path / "q", "--self", "--no-relate", cwd=tmp_path)
+    assert both.returncode == 1 and "not allowed with" in both.stderr
 
