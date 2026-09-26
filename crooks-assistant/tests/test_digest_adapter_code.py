@@ -560,6 +560,10 @@ def test_malformed_input_is_reported_as_unparsed_not_raised(tmp_path):
         "shapes/package.json": json.dumps({"scripts": ["not", "a", "map"], "dependencies": "no"}),
         "setup.cfg": "no section header here\n",
         "weird.js": "export function (((\nexport class {\n",
+        "stray.js": "export function f() {}\n}\n",
+        "open.ts": "export function f() {}\n/* never closed\nexport function g() {}\n",
+        "nameless.js": "export function () {}\nexport class {}\nexport fnction f() {}\n"
+                       "export const = 1;\nexport function ok() {}\n",
         "wrongtypes/pyproject.toml": '[project]\ndependencies = "requests"\nscripts = 3\n',
     })
     units = _units(root)
@@ -567,6 +571,7 @@ def test_malformed_input_is_reported_as_unparsed_not_raised(tmp_path):
     for path in (
         "broken.py", "latin1.py", "nul.py", "pyproject.toml", "package.json",
         "list/package.json", "shapes/package.json", "setup.cfg", "wrongtypes/pyproject.toml",
+        "weird.js", "stray.js", "open.ts", "nameless.js",
     ):
         assert path in unparsed, path
     assert all(
@@ -577,9 +582,110 @@ def test_malformed_input_is_reported_as_unparsed_not_raised(tmp_path):
     assert "UTF-8" in unparsed["latin1.py"][0].body
     assert len(unparsed["shapes/package.json"]) == 2
     assert len(unparsed["wrongtypes/pyproject.toml"]) == 2
+    # JavaScript that does not hold together is said where it breaks, and nothing in it is read.
+    assert [_span(unit) for unit in unparsed["weird.js"]] == [("weird.js", 1, 1)]
+    assert "( that is never closed" in unparsed["weird.js"][0].body
+    assert [_span(unit) for unit in unparsed["stray.js"]] == [("stray.js", 2, 2)]
+    assert "} that closes nothing" in unparsed["stray.js"][0].body
+    assert [_span(unit) for unit in unparsed["open.ts"]] == [("open.ts", 2, 2)]
+    assert "comment that is never closed" in unparsed["open.ts"][0].body
+    assert not [
+        unit for unit in units
+        if unit.location.path in ("weird.js", "stray.js", "open.ts") and "unparsed" not in unit.tags
+    ]
+    # An export that cannot be made out is skipped and said, and the rest of the file is read.
+    assert [_span(unit)[1] for unit in unparsed["nameless.js"]] == [1, 2, 3, 4]
+    assert "function with no name" in unparsed["nameless.js"][0].body
+    assert "class with no name" in unparsed["nameless.js"][1].body
+    assert "export fnction f()" in unparsed["nameless.js"][2].body
+    assert "export const = 1;" in unparsed["nameless.js"][3].body
+    ok = _titled(units, "function ok (nameless.js)")
+    assert ok.kind == "capability" and _span(ok) == ("nameless.js", 5, 5)
+    assert [unit for unit in units if unit.location.path == "nameless.js"
+            and "unparsed" not in unit.tags] == [ok]
     # What could be read still is.
     assert _titled(units, "function good.fine").kind == "capability"
     assert units[0].title == "repository map"
+
+
+def test_regular_expressions_and_jsx_text_are_not_taken_for_broken_code(tmp_path):
+    root = _write(tmp_path / "valid", {
+        "strip.js": 'export const strip = (s) => s.replace(/[({"]/g, "");\n',
+        "view.jsx": "export function View({ name }) {\n  return <p>Don't forget {name}</p>;\n}\n",
+    })
+    units = _units(root)
+    assert not _unparsed(units)
+    assert _span(_titled(units, "function strip (strip.js)")) == ("strip.js", 1, 1)
+    assert _span(_titled(units, "function View (view.jsx)")) == ("view.jsx", 1, 3)
+
+
+BAD_VALUES = json.dumps({
+    "name": "bad-values",
+    "bin": {"good-cli": "bin/good.js", "list-cli": ["bin/a.js"], "": "bin/empty.js"},
+    "scripts": {"build": "tsc", "object": {"run": "touch SCRIPT_RAN"}, "number": 3},
+    "dependencies": {"left-pad": "^1.3.0", "nested": {"version": "1"}, "nothing": None},
+}, indent=2) + "\n"
+
+
+def test_malformed_package_json_entries_are_skipped_and_reported_where_they_are(tmp_path):
+    units = _units(_write(tmp_path / "values", {"package.json": BAD_VALUES}))
+    good = _titled(units, "command good-cli")
+    assert good.kind == "capability" and _span(good) == ("package.json", 4, 4)
+    assert _span(_titled(units, "script build")) == ("package.json", 11, 11)
+    assert _span(_titled(units, "dependency left-pad")) == ("package.json", 18, 18)
+    bad = _unparsed(units)["package.json"]
+    assert [_span(unit)[1:] for unit in bad] == [(5, 5), (8, 8), (12, 12), (15, 15), (19, 19), (22, 22)]
+    assert all(unit.kind == "knowledge" and "skipped" in unit.body for unit in bad)
+    assert "'list-cli' is a list" in bad[0].body
+    assert "'object' is an object" in bad[2].body and "'number' is a number" in bad[3].body
+    assert "'nested' is an object" in bad[4].body and "'nothing' is null" in bad[5].body
+    # Only the well-formed entries became Units: no false commands, scripts or dependencies.
+    assert sorted(unit.title for unit in units if "unparsed" not in unit.tags) == [
+        "command good-cli", "dependency left-pad", "repository map", "script build",
+    ]
+    assert "list-cli" not in units[0].body and "bin/empty.js" not in units[0].body
+
+
+# Namesakes of the sections and entries the adapter reads, nested elsewhere and written first,
+# and a section key spelled with an escape: the lines asserted are the top-level entries'.
+NESTED_KEYS = '''\
+{
+  "name": "nested-keys",
+  "config": {
+    "scripts": {"build": "not this one"},
+    "bin": {"tool": "not/this.js"},
+    "dependencies": {"lodash": "0.0.1"}
+  },
+  "workspaces": [{"scripts": {"test": "nor this"}}],
+  "b\\u0069n": {
+    "tool": "bin/tool.js"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "nested": "echo \\"scripts\\": {}",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "react": "^18.0.0",
+    "lodash": "^4.17.21"
+  }
+}
+'''
+
+
+def test_package_json_locations_are_the_top_level_entries_not_nested_namesakes(tmp_path):
+    units = _units(_write(tmp_path / "nested", {"package.json": NESTED_KEYS}))
+    assert not _unparsed(units)
+    tool = _titled(units, "command tool")
+    assert _span(tool) == ("package.json", 10, 10) and "bin/tool.js" in tool.body
+    assert _span(_titled(units, "script lint")) == ("package.json", 13, 13)
+    assert _span(_titled(units, "script nested")) == ("package.json", 14, 14)
+    test = _titled(units, "script test")
+    assert _span(test) == ("package.json", 15, 15) and "vitest" in test.body
+    assert _span(_titled(units, "dependency react")) == ("package.json", 18, 18)
+    lodash = _titled(units, "dependency lodash")
+    assert _span(lodash) == ("package.json", 19, 19) and "^4.17.21" in lodash.body
+    assert not [unit for unit in units if unit.title == "script build"]
 
 
 def test_a_missing_root_is_reported_not_raised(tmp_path):

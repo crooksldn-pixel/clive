@@ -3,10 +3,13 @@ beside them — read into Units.
 
 Reading is all it does. Python is parsed with the ast module, which reads source without
 importing or running a line of it; JavaScript and TypeScript are read by pattern, with comments
-set aside first so that commented-out code is not mistaken for code; pyproject.toml, setup.cfg,
-requirements files and package.json are parsed as the data they are. Nothing found is imported,
-installed or run — a package.json script is recorded as a script and left there — and nothing
-outside the artifact is followed: symbolic links are noted, never walked.
+set aside first so that commented-out code is not mistaken for code, and a file whose comments,
+template strings or brackets do not close, or an export that cannot be made out, is reported
+rather than guessed at; pyproject.toml, setup.cfg, requirements files and package.json are
+parsed as the data they are, and an entry of the wrong shape is reported, not recorded as one.
+Nothing found is imported, installed or run — a package.json script is recorded as a script and
+left there — and nothing outside the artifact is followed: symbolic links are noted, never
+walked.
 
 What comes out:
   capability  a public module, function or command that can be called from outside: a
@@ -119,6 +122,23 @@ _JS_TEST_CALL = re.compile(
     r"""(?P<q>['"`])(?P<title>(?:\\.|(?!(?P=q)).)*)(?P=q)"""
 )
 _JS_IMPORT = re.compile(r"""(?:\bfrom|\bimport|\brequire)\s*\(?\s*(?P<q>['"])(?P<spec>[^'"\n]+)(?P=q)""")
+# What a well-formed export must have after its name: a parameter list, a class body.
+_JS_PARAMETERS = re.compile(r"\s*(?:<[^()\n;]*>\s*)?\(")
+_JS_CLASS_BODY = re.compile(r"[^;{}]{0,2000}\{")
+# An export by keyword; the keywords an export may begin with; what a const, let or var binds.
+_JS_EXPORT_WORD = re.compile(rf"^[ \t]*export[ \t]+(?P<word>{_JS_NAME})(?P<after>[^\n]*)", re.M)
+_JS_EXPORT_WORDS = frozenset((
+    "default", "function", "async", "class", "abstract", "declare", "interface", "type", "enum",
+    "namespace", "module", "import", "as", "const", "let", "var",
+))
+_JS_BINDING = re.compile(r"[ \t]*$|[ \t]+[A-Za-z_$\[{]")
+_BRACKETS = {"(": ")", "[": "]", "{": "}"}
+# A / after one of these, or after one of these words, opens a regular expression; else it divides.
+_REGEX_AFTER = frozenset("(,=:[!&|?{};+-*%>~^")
+_REGEX_KEYWORDS = frozenset((
+    "return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw",
+    "yield", "await", "instanceof",
+))
 
 
 class _Malformed(ValueError):
@@ -526,9 +546,19 @@ class _Digest:
     # --- JavaScript and TypeScript ---------------------------------------------------------
 
     def _javascript(self, path: str, text: str) -> None:
-        code, skeleton, blocks = _set_aside_comments(text)
+        code, skeleton, blocks, unclosed = _set_aside_comments(text)
         starts = _line_starts(text)
-        tag = _LANGUAGES[_suffix(path)].lower()
+        language = _LANGUAGES[_suffix(path)]
+        tag = language.lower()
+        # A file cut short or broken — a comment or template string left open, brackets that do
+        # not pair — cannot be measured by its brackets: said where it breaks, and not read.
+        broken = unclosed or _unbalanced(skeleton)
+        if broken is not None:
+            offset, what = broken
+            self.units.unparsed(
+                path, f"not well-formed {language}: {what}; skipped", _line_of(starts, offset)
+            )
+            return
         if _is_js_test(path):
             tests = [
                 f"- {match.group('fn')}: {match.group('title')} "
@@ -546,18 +576,36 @@ class _Digest:
             for start, end in blocks if text.startswith("/**", start)
         }
         found: list[tuple[int, int, str, str, str, str]] = []
+        problems: list[tuple[int, str]] = []
         for match in _JS_FUNCTION.finditer(skeleton):
             name = match.group("name") or ("default" if match.group("default") else "")
-            if name:
+            if not name:
+                problems.append((match.start(), "an exported function with no name"))
+            elif not _JS_PARAMETERS.match(skeleton, match.end()):
+                problems.append((match.start(), f"exported function {name} has no parameter list"))
+            else:
                 end, signature = _function_extent(code, skeleton, pairs, match.start(), match.end())
                 found.append((match.start(), end, "function", name, signature, _default_note(match)))
         for match in _JS_CLASS.finditer(skeleton):
             name = match.group("name")
             if name in (None, "extends", "implements"):
                 name = "default" if match.group("default") else ""
-            if name:
+            if not name:
+                problems.append((match.start(), "an exported class with no name"))
+            elif not _JS_CLASS_BODY.match(skeleton, match.end()):
+                problems.append((match.start(), f"exported class {name} has no body"))
+            else:
                 end, signature = _class_extent(code, skeleton, pairs, match.start(), match.end())
                 found.append((match.start(), end, "class", name, signature, _default_note(match)))
+        for match in _JS_EXPORT_WORD.finditer(skeleton):
+            word = match.group("word")
+            if word not in _JS_EXPORT_WORDS or (
+                word in ("const", "let", "var") and not _JS_BINDING.match(match.group("after"))
+            ):
+                written = _one_line(code[match.start():_end_of_line(code, match.start())])
+                problems.append((match.start(), f"an export this reader cannot make out: {written}"))
+        for offset, what in sorted(problems):
+            self.units.unparsed(path, f"{what}; skipped", _line_of(starts, offset))
         for pattern in (_JS_CONST, _JS_COMMONJS):
             for match in pattern.finditer(skeleton):
                 extent = _bound_extent(code, skeleton, pairs, match)
@@ -596,7 +644,7 @@ class _Digest:
         data = json.loads(text)
         if not isinstance(data, dict):
             raise _Malformed("package.json is not a JSON object")
-        lines = text.split("\n")
+        keys = _json_keys(text)
         last = _line_count(text)
         name = data.get("name")
         package = name.strip() if isinstance(name, str) and name.strip() else (
@@ -605,42 +653,56 @@ class _Digest:
 
         bins = data.get("bin")
         if isinstance(bins, str):
-            self._bin(path, package, package.rpartition("/")[2], bins, _json_line(lines, "bin"), last)
+            self._bin(path, package, package.rpartition("/")[2], bins, _json_line(keys, "bin"), last)
         elif isinstance(bins, dict):
             for command, target in bins.items():
-                self._bin(path, package, command, target, _json_line(lines, "bin", command), last)
+                self._bin(path, package, command, target, _json_line(keys, "bin", command), last)
         elif bins is not None:
             self.units.unparsed(
-                path, "bin is neither a path nor an object of paths; skipped", _json_line(lines, "bin")
+                path, "bin is neither a path nor an object of paths; skipped", _json_line(keys, "bin")
             )
 
         scripts = data.get("scripts")
         if isinstance(scripts, dict):
             for script, command in scripts.items():
-                start, end = _at(_json_line(lines, "scripts", script), last)
+                line = _json_line(keys, "scripts", script)
+                if not isinstance(command, str):
+                    self.units.unparsed(
+                        path, f"script {script!r} is {_json_shape(command)}, not a command; "
+                        "skipped", line,
+                    )
+                    continue
+                start, end = _at(line, last)
                 self.units.add(
                     "script", f"script {script}",
-                    f"{_as_text(command)}\n\nnpm script `{script}` of {package} in {path}: "
+                    f"{command}\n\nnpm script `{script}` of {package} in {path}: "
                     "recorded as written, never run.",
                     path, start, end, ("javascript", "npm-script"),
                 )
         elif scripts is not None:
-            self.units.unparsed(path, "scripts is not an object; skipped", _json_line(lines, "scripts"))
+            self.units.unparsed(path, "scripts is not an object; skipped", _json_line(keys, "scripts"))
 
         for section in _NPM_DEPENDENCIES:
             declared = data.get(section)
             if isinstance(declared, dict):
                 for dependency, constraint in declared.items():
-                    start, end = _at(_json_line(lines, section, dependency), last)
+                    line = _json_line(keys, section, dependency)
+                    if not dependency.strip() or not isinstance(constraint, str):
+                        self.units.unparsed(
+                            path, f"{section} entry {dependency!r} is {_json_shape(constraint)}, "
+                            "not a package name and its version constraint; skipped", line,
+                        )
+                        continue
+                    start, end = _at(line, last)
                     self.units.add(
                         "dependency", f"dependency {dependency}",
-                        f"{dependency} {_as_text(constraint)}\n\nDeclared in {path} under "
+                        f"{dependency} {constraint}\n\nDeclared in {path} under "
                         f"{section}. Recorded, not installed.",
                         path, start, end, ("javascript", section),
                     )
             elif declared is not None:
                 self.units.unparsed(
-                    path, f"{section} is not an object; skipped", _json_line(lines, section)
+                    path, f"{section} is not an object; skipped", _json_line(keys, section)
                 )
 
         main = data.get("main")
@@ -649,12 +711,17 @@ class _Digest:
 
     def _bin(self, path: str, package: str, command: str, target: object, line: int | None,
              last: int) -> None:
+        if not command.strip() or not isinstance(target, str) or not target.strip():
+            self.units.unparsed(
+                path, f"bin entry {command!r} is {_json_shape(target)}, not a command name and "
+                "the path it runs; skipped", line,
+            )
+            return
         start, end = _at(line, last)
-        runs = _as_text(target)
-        self.entry_points.append(f"{command}: bin → {runs} ({path})")
+        self.entry_points.append(f"{command}: bin → {target} ({path})")
         self.units.add(
             "capability", f"command {command}",
-            f"`{command}` runs {runs}: a bin entry of {package} in {path}. Recorded, not run.",
+            f"`{command}` runs {target}: a bin entry of {package} in {path}. Recorded, not run.",
             path, start, end, ("javascript", "cli", "bin"),
         )
 
@@ -1101,15 +1168,20 @@ def _python_subjects(tree: ast.Module) -> list[str]:
 # --- JavaScript and TypeScript, read by pattern ------------------------------------------------
 
 
-def _set_aside_comments(text: str) -> tuple[str, str, list[tuple[int, int]]]:
+def _set_aside_comments(
+    text: str,
+) -> tuple[str, str, list[tuple[int, int]], tuple[int, str] | None]:
     """Two copies of the text with every offset and newline kept: code, with comments blanked,
-    and a skeleton that also blanks the inside of strings — so neither a commented-out export
-    nor a brace in a string is taken for code. And the block comments, as offsets."""
+    and a skeleton that also blanks the inside of strings and regular expressions — so neither
+    a commented-out export nor a brace in a string is taken for code. And the block comments,
+    as offsets; and the first comment or template string left open, as (offset, what)."""
     code = list(text)
     skeleton = list(text)
     blocks: list[tuple[int, int]] = []
+    unclosed: tuple[int, str] | None = None
     size = len(text)
     index = 0
+    last = -1                     # the last character of code before index
     while index < size:
         char = text[index]
         if text.startswith("//", index):
@@ -1120,25 +1192,111 @@ def _set_aside_comments(text: str) -> tuple[str, str, list[tuple[int, int]]]:
             index = end
         elif text.startswith("/*", index):
             end = text.find("*/", index + 2)
-            end = size if end == -1 else end + 2
+            if end == -1:
+                unclosed = unclosed or (index, "a /* comment that is never closed")
+                end = size
+            else:
+                end += 2
             blocks.append((index, end))
             _blank(code, index, end)
             _blank(skeleton, index, end)
             index = end
         elif char in "'\"`":
-            close = index + 1
-            while close < size and text[close] != char:
-                if text[close] == "\\":
-                    close += 1
-                elif text[close] == "\n" and char != "`":
-                    break
-                close += 1
-            close = min(close, size)
-            _blank(skeleton, index + 1, close)
-            index = close + 1
-        else:
+            close = _string_end(text, index)
+            if close is not None:
+                _blank(skeleton, index + 1, close)
+                last = close
+                index = close + 1
+            elif char == "`":
+                unclosed = unclosed or (index, "a ` template string that is never closed")
+                _blank(skeleton, index + 1, size)
+                index = size
+            else:                 # a quote alone on its line: an apostrophe in JSX text, say
+                last = index
+                index += 1
+        elif char == "/" and _regex_may_follow(text, last):
+            close = _regex_end(text, index)
+            if close is not None:
+                _blank(skeleton, index + 1, close)
+                index = close
+            last = index
             index += 1
-    return "".join(code), "".join(skeleton), blocks
+        else:
+            if not char.isspace():
+                last = index
+            index += 1
+    return "".join(code), "".join(skeleton), blocks, unclosed
+
+
+def _string_end(text: str, start: int) -> int | None:
+    """The offset of the quote closing the string opened at start; None when a quoted string
+    meets the end of its line, or a template string the end of the text, first."""
+    quote = text[start]
+    index = start + 1
+    while index < len(text):
+        char = text[index]
+        if char == quote:
+            return index
+        if char == "\\":
+            index += 2
+            continue
+        if char == "\n" and quote != "`":
+            return None
+        index += 1
+    return None
+
+
+def _regex_may_follow(text: str, last: int) -> bool:
+    """Whether a / after the code character at last opens a regular expression rather than
+    divides: at the start, after an operator or an opening bracket, or after a word such as
+    return."""
+    if last < 0 or text[last] in _REGEX_AFTER:
+        return True
+    start = last
+    while start > 0 and last - start < 12 and (text[start - 1].isalnum() or text[start - 1] in "_$"):
+        start -= 1
+    return text[start:last + 1] in _REGEX_KEYWORDS
+
+
+def _regex_end(text: str, start: int) -> int | None:
+    """The offset of the / closing a regular expression opened at start; None when its line,
+    or a thousand characters, end first — a division after all."""
+    in_class = False
+    index = start + 1
+    stop = min(len(text), start + 1_000)
+    while index < stop:
+        char = text[index]
+        if char == "\n":
+            return None
+        if char == "\\":
+            index += 2
+            continue
+        if char == "[":
+            in_class = True
+        elif char == "]":
+            in_class = False
+        elif char == "/" and not in_class:
+            return index
+        index += 1
+    return None
+
+
+def _unbalanced(skeleton: str) -> tuple[int, str] | None:
+    """The first bracket that does not pair, as (offset, what): the file is broken or cut
+    short there. None when every bracket pairs."""
+    stack: list[int] = []
+    for index, char in enumerate(skeleton):
+        if char in _BRACKETS:
+            stack.append(index)
+        elif char in ")]}":
+            if not stack:
+                return index, f"a {char} that closes nothing"
+            expected = _BRACKETS[skeleton[stack.pop()]]
+            if char != expected:
+                return index, f"a {char} where {expected} was expected"
+    if stack:
+        return stack[0], f"a {skeleton[stack[0]]} that is never closed"
+    return None
 
 
 def _blank(chars: list[str], start: int, end: int) -> None:
@@ -1277,15 +1435,68 @@ def _first(lines: list[str], pattern: re.Pattern, start: int = 0) -> int | None:
     return None
 
 
-def _json_key(key: str) -> re.Pattern:
-    return re.compile(re.escape(json.dumps(key, ensure_ascii=False)) + r"\s*:")
+def _json_shape(value: object) -> str:
+    if isinstance(value, str):
+        return "a string" if value.strip() else "an empty string"
+    if isinstance(value, bool):
+        return "a boolean"
+    if value is None:
+        return "null"
+    if isinstance(value, (int, float)):
+        return "a number"
+    return "a list" if isinstance(value, list) else "an object"
 
 
-def _json_line(lines: list[str], section: str, key: str | None = None) -> int | None:
-    anchor = _first(lines, _json_key(section))
-    if anchor is None or key is None:
-        return anchor
-    return _first(lines, _json_key(key), anchor - 1) or anchor
+def _json_keys(text: str) -> dict[str, tuple[int, dict[str, int]]]:
+    """Where the keys of a JSON object are written: each top-level key's line, with the line of
+    each key of the object it holds, if it holds one. One pass over text that has already
+    parsed, following the nesting, so a namesake deeper down is never taken for one of these,
+    and keys are read as json reads them, escapes and all. A key written twice keeps its last
+    line, as json.loads keeps its last value."""
+    found: dict[str, tuple[int, dict[str, int]]] = {}
+    open_: list[str] = []                 # the brackets open at this point, outermost first
+    section: dict[str, int] = {}          # the keys under the top-level key last read
+    wants_key = False
+    line = 1
+    index, size = 0, len(text)
+    while index < size:
+        char = text[index]
+        if char == "\n":
+            line += 1
+        elif char == '"':
+            end = index + 1
+            while end < size and text[end] != '"':
+                end += 2 if text[end] == "\\" else 1
+            if wants_key:
+                key = json.loads(text[index:end + 1])
+                if open_ == ["{"]:
+                    section = {}
+                    found[key] = (line, section)
+                elif open_ == ["{", "{"]:
+                    section[key] = line
+                wants_key = False
+            index = end
+        elif char in "{[":
+            open_.append(char)
+            wants_key = char == "{"
+        elif char in "}]":
+            if open_:
+                open_.pop()
+            wants_key = False
+        elif char == ",":
+            wants_key = bool(open_) and open_[-1] == "{"
+        index += 1
+    return found
+
+
+def _json_line(keys: dict[str, tuple[int, dict[str, int]]], section: str,
+               key: str | None = None) -> int | None:
+    """The line of a top-level key, or of a key directly under it; the top-level key's line when
+    the one under it is not found."""
+    if section not in keys:
+        return None
+    line, children = keys[section]
+    return line if key is None else children.get(key, line)
 
 
 def _toml_key(key: str) -> str:
