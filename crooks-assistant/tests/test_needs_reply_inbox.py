@@ -541,6 +541,21 @@ def test_a_reply_check_that_was_not_complete_is_said_in_the_answer_and_on_the_ca
     assert "may already have been answered" not in complete.answer
 
 
+def test_asking_again_still_says_the_reply_check_was_not_complete():
+    """F-02's repeat branch (the deploy review of 9c37973f): "Still Person 0 and Person 1." dropped
+    the caveat with the scope sentence, so the answer the owner acts on no longer said the list
+    may name people already answered. The caveat is said again; the answer is partial either way."""
+    session = Session(session_id="nr-sent-again")
+    first = library._needs_reply_render(_ctx(session), ReadResult(values={"mail": _waiting_body(2, sent_checked="partial")}))
+    again = library._needs_reply_render(_ctx(session), ReadResult(values={"mail": _waiting_body(2, sent_checked="partial")}))
+    assert again.trace["repeat"] is True and again.answer.startswith("Still ")
+    assert "may already have been answered" in again.answer
+    assert first.partial and again.partial
+    complete = library._needs_reply_render(_ctx(Session(session_id="nr-sent-all-again")),
+                                           ReadResult(values={"mail": _waiting_body(2, sent_checked="all")}))
+    assert not complete.partial
+
+
 async def test_the_scan_says_how_far_the_sent_check_reached(inbox, monkeypatch):
     for listing, expected in (({"available": True, "latest": {}, "full": True}, "partial"),
                               ({"available": False, "latest": {}}, "none"),
