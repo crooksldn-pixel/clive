@@ -1,6 +1,6 @@
 # Knowledge Digester: the first real digestions (2026-09-26)
 
-**Status:** wave 4 of KNOWLEDGE_DIGESTER_V1.md section 9, built on `claude/digester-wave4-intake`. This is a summary: the quarantined copies, full reports, units and proposals stay on the engineering host (quarantine outside the repository, at `/tmp/claude-0/quarantine`), and third-party text appears here only as short fragments. Every artifact below is public.
+**Status:** wave 4 of KNOWLEDGE_DIGESTER_V1.md section 9, built on `claude/digester-wave4-intake`, with a second pass the same day that makes the proposals worth reading and adds CLIVE's self mode (section 7). This is a summary: the quarantined copies, full reports, units and proposals stay on the engineering host (quarantine outside the repository, at `/tmp/claude-0/quarantine`), and third-party text appears here only as short fragments. Every artifact below is public.
 
 ## 1. What ran
 
@@ -121,13 +121,13 @@ Found while building intake:
 For the agent wiring relation and proposals into the pipeline (pipeline.py, relate.py, propose.py, selfmodel.py, report.py, model.py). Repro for each: `scripts/digest_intake.py URL --quarantine DIR`, then `relate.relate(result.units, selfmodel.build_self_model(<worktree>))` and `propose.propose(...)`.
 
 - **R1 (pipeline.py) A block anywhere stops the whole artifact.** anthropics/skills at `33375500`: four sub-folder LICENSE.txt files block all 19 skills, 14 of them Apache-2.0. A block whose location is below the root (a nested licence, first of all) could exclude its subtree from decomposition instead: without the four folders the rest gives 4,312 units.
-- **R2 (relate.py / selfmodel.py) CLIVE cannot recognise itself.** `clive/trunk` at `54b34378`: 1,269 tool-connector and 882 native-objective proposals for CLIVE's own code (for example `trapFocus` in `assets/focus.js`), because the self-model has no code entries. Relate needs a self mode (a unit at a path the repository has is an overlap), or propose a why-index mode, when the artifact is CLIVE.
-- **R3 (propose.py) One proposal per Unit, unranked and unbounded.** CLIVE 10,434 proposals; taste 1,761 (1,402 review checks); Vercel 310 for about a hundred rules. Principle 5 (mass has a cost) needs grouping, de-duplication, ranking by relation score and a budget per target.
-- **R4 (propose.py) Builder skills proposed per procedure, not per skill.** Taste: 126 builder-skill proposals from 13 skills, each a folder named after one procedure (for example `.claude/skills/the-anti-slop-manifesto-for-copilot-...`). For a skill collection the unit of absorption is the skill folder; the units carry `skill:<name>` tags to group by.
-- **R5 (propose.py, pipeline.py) Licences are never consulted after scan.** Artifacts with no licence (anthropics/skills at the top, CLIVE) and units under a per-folder licence still get adding proposals. An unknown or forbidding licence should make the target `reference_only`, and a unit should carry the licence of its folder.
-- **R6 (relate.py) Two shared words make a relation.** Playwright's "Navigation" commands extend the `navigation_back` intent family; taste's "premium card" rule extends `image-to-code` on "image" and "card". MIN_SHARED_TERMS = 2 lets coincidences through.
+- **R2 (relate.py / selfmodel.py) CLIVE cannot recognise itself.** *Second pass: self mode, section 7.4.* `clive/trunk` at `54b34378`: 1,269 tool-connector and 882 native-objective proposals for CLIVE's own code (for example `trapFocus` in `assets/focus.js`), because the self-model has no code entries. Relate needs a self mode (a unit at a path the repository has is an overlap), or propose a why-index mode, when the artifact is CLIVE.
+- **R3 (propose.py) One proposal per Unit, unranked and unbounded.** *Second pass: ranked and bounded, section 7.1.* CLIVE 10,434 proposals; taste 1,761 (1,402 review checks); Vercel 310 for about a hundred rules. Principle 5 (mass has a cost) needs grouping, de-duplication, ranking by relation score and a budget per target.
+- **R4 (propose.py) Builder skills proposed per procedure, not per skill.** *Second pass: one per skill.* Taste: 126 builder-skill proposals from 13 skills, each a folder named after one procedure (for example `.claude/skills/the-anti-slop-manifesto-for-copilot-...`). For a skill collection the unit of absorption is the skill folder; the units carry `skill:<name>` tags to group by.
+- **R5 (propose.py, pipeline.py) Licences are never consulted after scan.** *Second pass: each folder's licence decides.* Artifacts with no licence (anthropics/skills at the top, CLIVE) and units under a per-folder licence still get adding proposals. An unknown or forbidding licence should make the target `reference_only`, and a unit should carry the licence of its folder.
+- **R6 (relate.py) Two shared words make a relation.** *Second pass: tuned evidence rule.* Playwright's "Navigation" commands extend the `navigation_back` intent family; taste's "premium card" rule extends `image-to-code` on "image" and "card". MIN_SHARED_TERMS = 2 lets coincidences through.
 - **R7 (pipeline.py, report.py) Intake's notes have nowhere to go.** Withheld entries (links leading out, devices, version-control folders), submodules not fetched and Git LFS pointers are printed by `digest_intake.py` on standard error but reach neither the DigestResult nor the report. `digest(..., intake=...)` could turn them into quality findings.
-- **R8 (model.py) Future kinds of source.** `ORIGIN_KINDS` has no kind for a package-registry fetch (npm, PyPI) with the registry's own integrity hash; a handler for it is a new module in `app/digest/intakes/` plus that one word.
+- **R8 (model.py) Future kinds of source.** *Second pass: the `package` origin kind and handler.* `ORIGIN_KINDS` has no kind for a package-registry fetch (npm, PyPI) with the registry's own integrity hash; a handler for it is a new module in `app/digest/intakes/` plus that one word.
 - **Coupling to note:** `scripts/digest_intake.py` imports `summary` and the exit codes from `scripts/digest.py`, so that the two print the same line. A change to `summary`'s signature must be followed there.
 
 ## 6. What the digester is and is not good at yet
@@ -141,9 +141,144 @@ It is good at:
 
 It is not good at yet:
 
-- **Knowing what matters.** Every Unit is proposed; nothing is ranked, grouped or budgeted, and a thousand review-check proposals are noise to the owner (R3, R4).
+- **Knowing what matters.** Every Unit was proposed, unranked (R3, R4). Since the second pass proposals are grouped, ranked and bounded, and the first few of each artifact are mostly worth reading; below them, word coincidences still surface (section 7.3).
 - **Understanding.** Classification is deterministic heuristics: a rule, claim or procedure is guessed from words and layout, and relation is word overlap (R6). The model-assisted understanding stage of the design is not built.
-- **Knowing itself.** Pointed at CLIVE it sees CLIVE's code as gaps (R2).
+- **Knowing itself.** Pointed at CLIVE it saw CLIVE's code as gaps (R2). With `--self` it now traces a fifth of CLIVE's code to the product memory and names real drift, but by words only (section 7.4).
 - **Scoping.** One blocked folder blocks the whole artifact (R1); licences stop at scan (R5).
 - **Breadth.** No adapters yet for Swift, Kotlin, Go, Rust or Java code, for PDF or Office documents, for images, audio or video, for the page composition in Shopify JSON templates, or for live websites. Claude Code command files outside `.claude/commands/` are read as documents.
 - **Speed at scale.** Scan reads about 1.3 MB of text a second and stops, with a warning, at 32 MB; a repository much larger than CLIVE is only partly scanned.
+
+## 7. Second pass: proposals worth reading, and CLIVE as itself
+
+Same five artifacts at the same pins (CLIVE's trunk had moved to `7ac748d1`, wave 3 landed), re-digested after the changes below. The self-model now has 370 entries: 55 tools, 50 intent families, 10 scene primitives, 5 review checks (the acceptance gates), 27 design-token families (web/style.css), 4 builder skills, 70 features, 89 ideas and 60 decisions, plus decided absorptions when a store is given.
+
+### 7.1 What changed
+
+- **Ranked and bounded (R3).** Each candidate is scored: target value x (0.4 + 0.6 x relation strength) x substance x cost, where a gap counts 0.3 of strength, and cost falls when the owner must decide, when there is no licence or an unrecognised one, when a licence sets conditions, when a claim must be verified, and when a skill is the artifact's own maintainers' tool. Near-repeats are folded into the best of them. Each target keeps a budget (builder skills 5, connectors 5, review checks 15, design system 5, native objectives 5, product memory 10, pointers 5). The rest are held back, counted in the report and listed by Unit, and `budget=None` records every one. Each proposal's reasoning ends with its rank and why.
+- **One proposal for a whole (R4).** A skill (every Unit from its folder, whichever adapter read it) is one builder skill. So are a file's procedures. A file's rules and checks (three or more) are one review-check set, and a file's code is one native objective. A lone rule ranks as thin. Housekeeping (changelogs, licences, contribution guides) and the artifact's own tests are only pointed at.
+- **Licences (R5).** `scan.licence_map` gives each folder its licence. A licence that forbids reuse makes a proposal a pointer. No licence, an unrecognised one or one with conditions makes the proposal the owner's to decide. A permissive licence travels as a "Licence:" part: keep the notice, from the file named.
+- **Evidence (R6).** A relation needs the unit to name the entry, or three shared words, or two at a score of at least 0.35 (below that, nine in ten were coincidences on these artifacts). A generic-word stoplist was added, and extends moved from 0.2 to 0.25. A mixed-case word is compared whole and in parts (GitHub is "github" as a path spells it) but counts as one word. The artifact's own vocabulary, matched as one text, is evidence for its actionable units when it matches something CLIVE has at 0.45 or more: that is how Vercel's rules extend the `web-design-guidelines` skill.
+- **Review items.** A remote API's read capability is now a connector with a client module that the owner approves (#7). A partly profiled dataset is not fed anywhere (#6, and the data adapter tags it `partial`). No title is quoted from a Unit whose title, path or file carries a credential (#5, propose side). The camel-case split is linear (#9). The self-model says when it stops short and never cuts a row (#14), and reads review checks, design tokens and the absorption ledger (#15). A foreign builder skill needs the owner. A gap is only a pointer when the self-model could not read CLIVE's registries. The relation tests run against a fixture product memory.
+- **Packages (R8).** `npm:<name>[@<version>]` and `pypi:<name>[==<version>]` are taken in by a new `package` handler. The archive must match the registry's published digest (npm sha512, PyPI sha256), and the wrapper folder is taken off. Checked live on `left-pad@1.3.0`, `six==1.16.0` and `@types/node@20.11.0`.
+
+### 7.2 Before and after: proposals by target
+
+| Artifact | Before (one per Unit) | After (kept; held back) |
+|---|---|---|
+| Vercel guidelines | 310: review_check 264, product_memory 24, reference_only 22 | 8: review_check 3, reference_only 5; held reference_only 40 |
+| Playwright CLI | 418: reference_only 348, review_check 51, product_memory 16, tool_connector 3 | 13: builder_skill 2, native_objective 2, product_memory 2, review_check 2, reference_only 5; held reference_only 97 |
+| Taste Skill | 1,761: review_check 1,402, reference_only 163, builder_skill 126, product_memory 70 | 31: builder_skill 5, review_check 11, product_memory 10, reference_only 5; held builder_skill 6, product_memory 1, reference_only 151 |
+| anthropics/skills (open subset) | 4,312: reference_only 2,803, review_check 979, product_memory 370, tool_connector 85, builder_skill 56, native_objective 19 | 13: builder_skill 5, review_check 2, product_memory 1, reference_only 5; held builder_skill 11, reference_only 178 |
+| CLIVE, as an artifact | 10,434: product_memory 3,459, review_check 2,799, reference_only 1,969, tool_connector 1,269, native_objective 882, builder_skill 56 | 40: review_check 15, product_memory 10, native_objective 5, design_system 5, reference_only 5 (no tool connectors) |
+| CLIVE, `--self` | (none) | 0: traced instead (7.4) |
+
+anthropics/skills itself is still blocked as a whole by its four proprietary folders (R1, the other agent's).
+
+### 7.3 The top proposals, and whether I would want them
+
+Pointers are left out below, since they add nothing. "Owner" means the proposal says the owner must decide it.
+
+**Vercel guidelines.** Three proposals add something. All three extend `web-design-guidelines` through the artifact as a whole (0.62), MIT, rank 0.54.
+
+| # | Proposal | Want it? |
+|---|---|---|
+| 1 | Review-check set from README.md (121 rules) | No: the same list as #3, in prose |
+| 2 | Review-check set from AGENTS.md (108 rules, 3 checks) | No: the same list again |
+| 3 | Review-check set from command.md (33 rules) | Yes, pinned at `e3d624ba`, replacing the skill's live fetch of `main/command.md` |
+
+The three are one list rendered three ways. They are paraphrases, so word overlap does not fold them. The deeper miss is that CLIVE already consumes this artifact live, but its self-model holds only the skill's description, not the URL it fetches, so relate cannot see that. Follow-up: record what a builder skill fetches. An artifact CLIVE already fetches is then an overlap, and the proposal becomes "pin it".
+
+**Playwright CLI** (Apache-2.0).
+
+| # | Proposal | Rank | Want it? |
+|---|---|---|---|
+| 1 | Builder skill `playwright-cli`, whole (owner) | 0.49 | Yes: the proving ground's browser evidence; the owner decides the install |
+| 2 | Native objective: the code of skillCheck.js | 0.35 | No: it checks the skill's own installation |
+| 3 | Native objective: the `playwright-cli` command | 0.35 | No: the skill already covers it |
+| 4 | Product memory: "Commands > Tabs" | 0.29 | No: extends `order_tab_show` on "tab" and "list", a coincidence |
+| 5-6 | Review-check sets of CLAUDE.md and README.md (4 rules each) | 0.14 | No: the project's own commit and install rules |
+| 7 | Product memory: "Installing skills" (extends IDEA-045) | 0.13 | Marginal |
+| 8 | Builder skill `dev`, the maintainers' own (owner) | 0.10 | No, and it now ranks last among the skills |
+
+**Taste Skill** (MIT). All five builder skills are owner decisions.
+
+| # | Proposal | Rank | Want it? |
+|---|---|---|---|
+| 1 | Builder skill `imagegen-frontend-web` (extends `image-to-code`) | 0.55 | Only if CLIVE generates design images |
+| 2 | Builder skill `imagegen-frontend-mobile` | 0.55 | Same |
+| 3 | Builder skill `design-taste-frontend-v1` (extends `design-taste-frontend`, 0.40) | 0.54 | No: the superseded version of the skill CLIVE has; its different name hides that |
+| 4 | Builder skill `stitch-design-taste` | 0.54 | No: tied to one design tool |
+| 5 | Builder skill `redesign-existing-projects` | 0.49 | Yes: the storefront overhaul |
+| 6 | Review-check set of README.md (9 rules) | 0.35 | No: install notes |
+| 7-10 | Product memory from the README's skill list | 0.30-0.32 | No: a catalogue |
+
+The three skills CLIVE already carries are now pointers (644 units overlap by skill name). Six more builder skills are held back.
+
+**anthropics/skills, the open fifteen** (Apache-2.0 per skill; no licence at the top).
+
+| # | Proposal | Rank | Want it? |
+|---|---|---|---|
+| 1 | Builder skill `slack-gif-creator` (owner) | 0.53 | No; it ranks first on a coincidence ("ease", "cubic" against the ease tokens) |
+| 2 | Builder skill `claude-api` (owner) | 0.51 | As knowledge for the model gateway, not as a skill |
+| 3 | Builder skill `frontend-design` (owner) | 0.49 | Maybe: overlaps what CLIVE's design skills do |
+| 4 | Builder skill `mcp-builder` (owner) | 0.49 | Yes: every future connector |
+| 5 | Builder skill `skill-creator` (owner) | 0.49 | Yes: writing and evaluating CLIVE's own skills |
+| 6-8 | Product memory and two README rules, marked "no licence" | 0.06-0.16 | No |
+
+`webapp-testing`, one of the three I picked by hand in section 3.2, is among the 11 builder skills held back.
+
+**CLIVE as an artifact** (no licence). The top 10 are review-check sets made of CLIVE's own product-memory documents, each extending one of its own decisions or ideas. None is wanted. It is the wrong mode: section 7.4 is the right one.
+
+**Verdict.** Of the 29 proposals that would add something in these four top-ten lists, I would take 6: command.md pinned, `playwright-cli`, `redesign-existing-projects`, `mcp-builder`, `skill-creator`, and `claude-api` as knowledge. Two more are maybes. Before this pass, those six were buried among 6,801 proposals. The first proposal is right in two of the four artifacts (Playwright's skill, and Vercel's rule set if not its rendering) and wrong in two (Slack GIFs, image generation). What still gets through:
+
+- a coincidence scoring 0.35 to 0.45 lifts a weak candidate (Slack GIFs, "Tabs");
+- paraphrased repeats are not folded;
+- a renamed old version of a skill CLIVE has reads as new.
+
+### 7.4 CLIVE as itself: the why-index and drift
+
+`scripts/digest.py --self` and `scripts/digest_intake.py --self` (or `digest(..., purpose="self")`) relate everything, propose nothing, and trace each Unit to the feature, idea or decision it serves. A Unit traces by one of three routes:
+
+- **citation:** it cites the entry's id (FEAT-nnn, IDEA-nnn, DEC-nnn);
+- **resemblance:** it resembles the entry by the relation's evidence rule;
+- **file:** it is code whose file carries the entry's name. The name's words must weigh 0.75 of it, weighted by rarity across the code files, with at least two of them present and one rare.
+
+On `7ac748d1`, in 30 seconds:
+
+- **Coverage:** 4,150 of 10,463 Units traced. That is 512 of 2,458 code units (21%), in 104 of 705 code files. Before this pass: 0; with the per-unit rule alone, 75.
+- **What the code serves most:**
+  - FEAT-033 Anticipation engine (9 files)
+  - FEAT-066 Voice-credits wording (8)
+  - IDEA-071 clive-worker-01 as the engineering host (7)
+  - FEAT-020 Event Ledger (6)
+  - DEC-007 Unknown writes fail closed (5)
+- **Real drift it names:**
+  - FEAT-033 Anticipation engine is PLANNED / LATER in FEATURES.md, but `app/anticipation/` exists (engine, rules, signals, learning).
+  - FEAT-020 Event Ledger is PLANNED, with code carrying it.
+  - FEAT-013 is SUPERSEDED, but the bridge's code is still in the tree.
+  - FEAT-069 Source Assimilation V1 is APPROVED, and code already carries it (the digester itself).
+  - Eight approved or captured ideas have code, and so do FEAT-022 Attention engine (PLANNED), FEAT-043 GPT Director (CAPTURED) and FEAT-068 Generative UI V1 (BUILDING).
+- **Shipped features with no code carrying them (9):**
+  - Samsung PWA client, Hetzner deployment, iPhone responsive access, the GPT and Claude loop, Live Experience V0.5, mobile alpha, derived truth V1, mobile voice rules, and the microphone fix.
+  - Most are deployment, device or front-end work that no code file names in words. It is a list to check, not a verdict. Before the file route it wrongly included Shopify and Gmail.
+- **Decisions linked to the code that carries them out:**
+  - DEC-007 to `app/actions/rows.py`
+  - DEC-010 "Models are replaceable" to the reviewers package
+  - DEC-028 and DEC-029 to the engineering bridge
+  - DEC-024 to `app/secrets/linux_store.py`
+  - DEC-026 to `scripts/provision_secrets.py`
+  - DEC-023 to the Whisper-disabled tests
+  - At least one of the twelve links is wrong: DEC-020 "Private-first networking" to `app/routes/pad.py`.
+- **Code with nothing in memory:**
+  - `scripts/` (245 of 357 code units) and `tests/` (166 of 191);
+  - the Shopify theme (`snippets`, `assets`, `sections`: 285 units, none traced), because no feature row names the storefront;
+  - `app/observability` (100 of 111) and `app/tools` (99 of 124).
+
+**Would I use it?** Yes, as the start of the why-index. The anticipation and event-ledger rows are exactly the kind of FEATURES.md drift DRIFT_REVIEW_2026-09-26.md chases by hand. Its limits:
+
+- it traces by words, so four fifths of the code is unexplained;
+- a module whose name shares nothing with its feature is invisible;
+- about one wrong decision link in ten.
+
+A model-assisted understanding stage, or FEATURES.md rows that name their code folders, would close most of it.
+
