@@ -37,7 +37,7 @@ import tomllib
 import unicodedata
 from collections import deque
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 INFO = "info"
 WARN = "warn"
@@ -77,6 +77,7 @@ def scan_tree(
     if not os.path.isdir(base):
         raise NotADirectoryError(base)
     findings: list[Finding] = []
+    exposed: set[str] = set()  # every credential value found, so no path can repeat one
     licensed = False
     for kind, rel in _walk(base, max_files):
         path = _display(rel)
@@ -93,7 +94,7 @@ def scan_tree(
         elif kind == "other":
             findings.append(_special(path))
         else:
-            found, has_licence = _scan_file(base, rel, path, max_file_bytes)
+            found, has_licence = _scan_file(base, rel, path, max_file_bytes, exposed)
             findings.extend(found)
             licensed = licensed or has_licence
     if not licensed:
@@ -102,7 +103,18 @@ def scan_tree(
             "No licence found: no LICENSE or COPYING file and no licence in a package manifest. "
             "The licence is 'unknown', and without one nothing grants the right to reuse it.",
         ))
+    if exposed:
+        findings = [_withhold(finding, exposed) for finding in findings]
     return sorted(set(findings), key=_order)
+
+
+def _withhold(finding: Finding, values: set[str]) -> Finding:
+    """The finding with any credential value found anywhere in the tree taken out of its path —
+    one a name alone does not give away by its shape, such as a password."""
+    path = finding.path
+    for value in sorted(values, key=len, reverse=True):
+        path = path.replace(value, "[redacted]")
+    return finding if path == finding.path else replace(finding, path=path)
 
 
 def _order(finding: Finding) -> tuple:
@@ -177,8 +189,11 @@ def _is_real_dir(path: str) -> bool:
 
 
 def _display(rel: str) -> str:
-    """The path as it can be shown: anything unprintable (a bidi override in a file name, say)
-    is written as an escape so the path cannot rearrange the report it appears in."""
+    """The path as it can be shown: anything shaped like a credential, in any component, is
+    replaced by the kind of credential it is, and anything unprintable (a bidi override in a
+    file name, say) is written as an escape so the path cannot rearrange the report it appears in."""
+    for pattern, slug in _PATH_SECRETS:
+        rel = pattern.sub(f"[redacted {slug}]", rel)
     if rel.isprintable():
         return rel
     return "".join(ch if ch.isprintable() else _escape(ch) for ch in rel)
@@ -226,7 +241,9 @@ class _NotRegular(OSError):
     """The path turned out not to be a regular file by the time it was opened."""
 
 
-def _scan_file(base: str, rel: str, path: str, max_bytes: int) -> tuple[list[Finding], bool]:
+def _scan_file(
+    base: str, rel: str, path: str, max_bytes: int, exposed: set[str],
+) -> tuple[list[Finding], bool]:
     found: list[Finding] = []
     if any(_is_hidden_char(ch) for ch in rel):
         found.append(Finding(
@@ -256,7 +273,7 @@ def _scan_file(base: str, rel: str, path: str, max_bytes: int) -> tuple[list[Fin
     licence, has_licence = _licence_findings(rel, path, text)
     found.extend(licence)
     if text is not None:
-        found.extend(_content_findings(path, text))
+        found.extend(_content_findings(path, text, exposed))
     return found, has_licence
 
 
@@ -304,7 +321,7 @@ def _decode(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def _content_findings(path: str, text: str) -> list[Finding]:
+def _content_findings(path: str, text: str, exposed: set[str]) -> list[Finding]:
     # Characters are judged on the text as written; phrases and secrets on the text as a model
     # would read it, with invisible characters gone and tag characters spelled out, so neither
     # can be split or smuggled past the patterns. Both keep every newline, so lines agree.
@@ -312,7 +329,7 @@ def _content_findings(path: str, text: str) -> list[Finding]:
     starts = _line_starts(clean)
     found = _character_findings(path, text)
     found.extend(_injection_findings(path, clean, starts))
-    found.extend(_secret_findings(path, clean, starts))
+    found.extend(_secret_findings(path, clean, starts, exposed))
     return _capped(path, found)
 
 
@@ -522,6 +539,19 @@ _PHRASES = (
         re.compile(r"\b(?:ai|llm)\s+(?:agents?|assistants?|models?)\s+(?:reading|processing|parsing|summari[sz]ing|ingesting|digesting)\s+(?:this|these)\b", re.I),
         re.compile(r"\byou\s+are\s+now\s+(?:an?\s+)?(?:\w+\s+){0,2}?(?:ai|assistant|model|agent|bot|jailbroken|unrestricted|unfiltered|dan)\b", re.I),
         re.compile(r"\bfrom\s+now\s+on,?\s+you\s+(?:are|will|must|should)\b", re.I),
+        # A bare vocative opening a sentence: "Assistant, perform this", "Claude: run make".
+        re.compile(
+            r"(?:^|[.!?][ \t]+)[ \t>*#_(\[-]*(?:(?:hey|hi|hello|ok|okay|attention|yo)[ \t,]+)?(?:the[ \t]+)?"
+            r"(?:ai|llms?|(?:ai[ \t]+)?(?:assistants?|agents?|models?)|(?:large[ \t]+)?language[ \t]+models?"
+            r"|chatbots?|claude|chatgpt|gpt|copilot|gemini)[ \t]*(?:[,!:]|—|--)[ \t]*(?:now[ \t]+|also[ \t]+|first[ \t]+)?"
+            r"(?:please|ignore|disregard|forget|do|don[’']?t|never|always|stop|start|run|execute|perform"
+            r"|install|open|send|email|upload|download|fetch|delete|remove|write|print|output|reveal|show|tell"
+            r"|say|reply|respond|answer|summari[sz]e|recommend|rate|approve|grant|give|call|invoke|use|add"
+            r"|include|make|follow|obey|read|visit|click|copy|create|set|change|update|report|treat|trust"
+            r"|pretend|act|remember|ensure|you[ \t]+(?:must|should|shall|will|need|have|are|may|can)"
+            r"|(?:when|if|once|before|after|while)[ \t]+you)\b",
+            re.I | re.M,
+        ),
     ), "speaks directly to an AI assistant or model rather than to a human reader"),
     _Phrase("marker", WARN, (
         re.compile(r"<\|(?:im_start|im_end|im_sep|system|user|assistant|endoftext|eot_id|start_header_id|end_header_id)\|>", re.I),
@@ -531,7 +561,14 @@ _PHRASES = (
             r"|function[-_]calls|function[-_]results|antml:[a-z_]+)\b[^<>\n]{0,200}>",
             re.I,
         ),
-        re.compile(r"^[ \t>*#]*(?:Human|Assistant|SYSTEM|System prompt)[ \t]*:", re.M),
+        re.compile(
+            r"^[ \t>*#]*(?:human|assistant|system[ \t]+(?:prompt|message)|developer[ \t]+message"
+            r"|tool[ \t]+(?:call|result|output))[ \t]*:",
+            re.I | re.M,
+        ),
+        # Role words that are also ordinary keys ("user: root" in a compose file) count only
+        # when followed by words, as a turn of conversation is.
+        re.compile(r"^[ \t>*#]*(?:system|developer|user|tool|function)[ \t]*:[ \t]*\S+[ \t]+\S", re.I | re.M),
     ), "imitates a system-prompt, chat-role or tool-call marker that a model could mistake for real conversation structure"),
 )
 
@@ -738,9 +775,15 @@ _PLACEHOLDER = re.compile(
     r"example|sample|dummy|placeholder|changeme|change[_-]me|your[_-]|xxxx|\*{3}|\.\.\.|[<>{}$%]|redacted|fake|password",
     re.I,
 )
+# The same shapes for paths, where a credential often follows a letter or an underscore
+# ("backup_ghp_..."): without the word boundaries, a name is redacted rather than shown.
+_PATH_SECRETS = tuple(
+    (re.compile(secret.pattern.pattern.replace(r"\b", ""), secret.pattern.flags), secret.slug)
+    for secret in _SECRETS
+)
 
 
-def _secret_findings(path: str, text: str, starts: list[int]) -> list[Finding]:
+def _secret_findings(path: str, text: str, starts: list[int], exposed: set[str]) -> list[Finding]:
     found: list[Finding] = []
     specific_lines: set[int] = set()
     for secret in _SECRETS:
@@ -752,6 +795,8 @@ def _secret_findings(path: str, text: str, starts: list[int]) -> list[Finding]:
                     continue
             else:
                 specific_lines.add(line)
+            if value:
+                exposed.add(value)
             found.append(Finding(
                 secret.severity, f"secret.{secret.slug}", path, line,
                 f"Looks like {secret.label} ({len(value)} characters; the value is withheld). "
