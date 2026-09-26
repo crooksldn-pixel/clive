@@ -280,7 +280,13 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # for and gave up its base, id and checks as required fields (the Mac fills them in), and
     # its descriptions were pared to pay for most of it. What it buys is a build objective the
     # model can file at all: until now it had to know a commit SHA and the builders' checks.
-    assert total <= 35_680, f"the tool block is {total} bytes"
+    #
+    # 35_765 is the capability-gap record (tests/test_capability_gaps.py), +85 bytes measured
+    # (35,676 before, 35,761 after): objective_note's `capability`, the few words a
+    # missing_capability blocker names what CLIVE lacks by. What it buys is the same gap
+    # counted under one name each time it comes up, which is how the owner sees which gaps come
+    # up most and whether the builds CLIVE proposes are for those.
+    assert total <= 35_765, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

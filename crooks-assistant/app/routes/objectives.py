@@ -4,8 +4,8 @@ These are the only callers that act as the owner (``by="owner"``): authorising a
 closing an objective are refused to the model's tools by the store itself. Access is the
 application's: the tailnet allow-list middleware in app/main.py has already refused any caller
 who is not one of the owner's logins. Nothing here reaches a store, an inbox or the outside world,
-with one read-only exception: /objectives/builds reads the engineering loop's published status
-(at most once a minute) to say where each build objective's requests are.
+with one read-only exception: /objectives/builds and /objectives/gaps read the engineering loop's
+published status and compare built candidates with the trunk (each at most once a minute).
 """
 
 from __future__ import annotations
@@ -59,6 +59,20 @@ async def builds() -> dict:
     recent = {o.id: [str(e.get("request_id") or "") for e in o.engineering[-3:]] for o in live}
     rows = await build_progress([rid for ids in recent.values() for rid in ids])
     return {"builds": {oid: [rows[rid] for rid in ids if rid in rows] for oid, ids in recent.items()}}
+
+
+@router.get("/gaps")
+async def gaps() -> dict:
+    """What CLIVE cannot do yet, the most frequent first, with what became of each gap: the
+    builds proposed, filed, built and merged, and whether the gap came back after its fix."""
+    from app.objectives import gaps as gap_record
+    from app.tools.engineering_tools import refresh_gaps
+
+    record = gap_record.ledger()
+    if record is None:
+        return {"summary": {"gaps": 0}, "gaps": [], "misjudged": []}
+    await refresh_gaps()
+    return record.report()
 
 
 @router.get("/{objective_id}", response_model=None)

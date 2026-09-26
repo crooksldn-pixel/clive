@@ -286,7 +286,16 @@ async def _execute(execution: dict) -> dict:
         # Nothing was written: the file was already there, or GitHub refused the create.
         raise PreconditionFailed(outcome.reason)
     _link(execution)
+    record = _gaps()
+    if record is not None:
+        record.filed(str(execution["request_id"]))
     return {"commit_id": outcome.commit_sha}
+
+
+def _gaps():
+    from app.objectives import gaps
+
+    return gaps.ledger()
 
 
 def _link(execution: dict) -> None:
@@ -441,6 +450,7 @@ async def submit_engineering_request(
     except RequestRefused as exc:
         raise ToolError(str(exc)) from None
 
+    _proposed(request.request_id, objective_id)
     record = request.record
     checks_words = [f"{c['name']}: {' '.join(c['argv'])} (in {c['cwd']})" for c in record["checks"]]
     base = f"{TRUNK_REF} at {record['base_sha'][:12]}" if record["base_ref"] == record["base_sha"] else (
@@ -474,6 +484,20 @@ async def submit_engineering_request(
             "payload_len": len(request.content),
         },
     )
+
+
+def _proposed(request_id: str, objective_id: str) -> None:
+    """CLIVE proposed a build for an objective: the gaps its missing_capability blockers name
+    now have a build proposed for them (app/objectives/gaps.py). Filing is the owner's tap."""
+    record = _gaps()
+    if record is None or not objective_id:
+        return
+    from app.objectives.store import store
+
+    try:
+        record.proposed(request_id, objective_id, store().gap_keys(objective_id))
+    except Exception:  # noqa: BLE001 - bookkeeping; the card is what matters
+        log.warning("build %s not recorded against its gaps", request_id, exc_info=True)
 
 
 def _objective(objective_id: str | None) -> str:
@@ -604,7 +628,11 @@ _progress_cache: dict[str, Any] = {}
 
 
 def _remember(status: LoopStatus) -> None:
-    _progress_cache.update(at=time.monotonic(), rows=_rows(status))
+    rows = _rows(status)
+    _progress_cache.update(at=time.monotonic(), rows=rows)
+    record = _gaps()
+    if record is not None:
+        record.progressed(rows)
 
 
 def _rows(status: LoopStatus) -> dict[str, dict]:
@@ -636,3 +664,58 @@ async def build_progress(request_ids: list[str]) -> dict[str, dict]:
         out[rid] = rows.get(rid) or {"request_id": rid, "progress": "queued",
                                      "words": f"{rid} is filed; the loop has not picked it up yet."}
     return out
+
+
+MAX_MERGE_CHECKS = 5
+
+
+async def refresh_gaps() -> None:
+    """Bring the gap record's builds up to date: the loop's progress (read at most once a
+    minute, by build_progress) and, for builds the loop finished, whether their candidate is
+    on the trunk yet (at most once a minute, a few at a time). GitHub unreachable: unchanged."""
+    record = _gaps()
+    if record is None:
+        return
+    ids = list(record.load()["builds"])
+    if ids:
+        await build_progress(ids)
+    last = _progress_cache.get("merge_checked_at")
+    if last is not None and time.monotonic() - last < PROGRESS_TTL_S:
+        return
+    _progress_cache["merge_checked_at"] = time.monotonic()
+    running = running_sha()
+    checks = [(rid, sha, TRUNK_REF, record.merged) for rid, sha in record.unmerged_builds()]
+    if running:
+        checks += [(rid, sha, running, record.live) for rid, sha in record.unlive_builds()]
+    for request_id, sha, ref, mark in checks[:MAX_MERGE_CHECKS]:
+        try:
+            on = await _client().on_trunk(sha, ref)
+        except GitHubError:
+            log.info("could not compare build %s with %s", request_id, ref, exc_info=True)
+            return
+        if isinstance(on, NotConnected):
+            return
+        if on:
+            mark(request_id)
+
+
+_HEX40 = re.compile(r"^[0-9a-f]{40}$")
+
+
+def running_sha(root: Path | None = None) -> str:
+    """The commit this CLIVE runs, read from its checkout's own git files (no git command):
+    how a merged fix is known to be live. Empty when it cannot be told."""
+    git = (root or APP_ROOT.parent) / ".git"
+    try:
+        head = (git / "HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref: "):
+            ref = head[5:].strip()
+            path = git / ref
+            if path.is_file():
+                head = path.read_text(encoding="utf-8").strip()
+            else:
+                packed = (git / "packed-refs").read_text(encoding="utf-8").splitlines()
+                head = next((line.split(" ", 1)[0] for line in packed if line.endswith(" " + ref)), "")
+    except OSError:
+        return ""
+    return head if _HEX40.fullmatch(head) else ""

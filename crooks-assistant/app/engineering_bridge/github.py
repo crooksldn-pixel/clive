@@ -188,6 +188,22 @@ class EngineeringInbox:
             raise GitHubError(f"GitHub did not name {what}'s head commit.")
         return InboxHead(sha=sha)
 
+    async def on_trunk(self, sha: str, ref: str = TRUNK_REF) -> bool | NotConnected:
+        """Whether a commit is on the trunk: the trunk is it, or has it behind it. How a built
+        candidate is known to have been merged; the trunk is merged into, never squashed."""
+        if not isinstance(sha, str) or not _SHA.fullmatch(sha):
+            return False
+        token = self._token()
+        if token is None:
+            return NotConnected()
+        response = await self._call(token, "GET", f"/repos/{self.repository}/compare/{sha}...{ref}")
+        if response.status_code == 404:
+            return False
+        if response.status_code != 200:
+            raise self._failed(response, "compare a build with the trunk")
+        body = self._json(response, "the comparison")
+        return isinstance(body, dict) and body.get("status") in ("ahead", "identical")
+
     async def request_file(self, request_id: str) -> RequestFile | NotConnected:
         """requests/<request_id>.json on the inbox branch: whether it is there, and its bytes."""
         token = self._token()
