@@ -39,18 +39,79 @@
   const footer = document.querySelector('.bottom');
   footer.parentNode.insertBefore(home, footer);
 
+  // Icons are drawn as stroke paths, sized by the stylesheet, never as text glyphs.
+  const NS = 'http://www.w3.org/2000/svg';
+  function icon(paths, size = 20) {
+    const node = document.createElementNS(NS, 'svg');
+    node.setAttribute('viewBox', '0 0 24 24');
+    node.setAttribute('width', String(size));
+    node.setAttribute('height', String(size));
+    node.setAttribute('aria-hidden', 'true');
+    node.setAttribute('class', 'alpha-icon');
+    for (const d of paths) {
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', d);
+      node.append(path);
+    }
+    return node;
+  }
+  const ICON = {
+    wave: ['M4 10v4', 'M8 7v10', 'M12 4v16', 'M16 7v10', 'M20 10v4'],
+    up: ['M12 19V5', 'm5 12 7-7 7 7'],
+    close: ['M6 6l12 12', 'M18 6 6 18'],
+    chev: ['m9 6 6 6-6 6'],
+    ask: ['M4 5h16v11H10l-5 4v-4H4z', 'M8 9.5h8', 'M8 12.5h5'],
+    wait: ['M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18', 'M12 7v5l3 2'],
+    search: ['M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14', 'm20 20-4-4'],
+    plus: ['M12 5v14', 'M5 12h14'],
+    tick: ['m5 12.5 4.5 4.5L19 7.5'],
+  };
+
+  // The one bar. A tap opens the keyboard (here); a hold is the microphone, and that is decided
+  // in app.js (its ask bar section), the only file that reaches it. The bar's faces follow the
+  // stage's own state through the stylesheet, so an orb hold lights the bar the same way.
+  const bars = h('span', { class: 'ask-bars', 'aria-hidden': 'true' },
+    ...Array.from({ length: 28 }, (_, i) => h('span', { style: `height:${10 + ((i * 37) % 26)}px;animation-delay:${(i * 53) % 700}ms` })));
+  const bar = h('button', { id: 'ask-bar', class: 'ask-bar', type: 'button', 'aria-label': 'Ask CLIVE. Tap to type, hold to speak.' },
+    h('span', { class: 'ask-face ask-idle' }, h('span', { class: 'ask-text', text: 'Ask CLIVE' }), h('span', { class: 'ask-voice' }, icon(ICON.wave))),
+    h('span', { class: 'ask-face ask-listen' },
+      h('span', { class: 'ask-head' }, h('span', { class: 'ask-dot' }), 'Listening'),
+      bars,
+      h('span', { class: 'ask-hint', text: 'Release to send · slide away to cancel' })),
+    h('span', { class: 'ask-face ask-drop', text: 'Release to cancel' }),
+    h('span', { class: 'ask-face ask-busy', text: 'Working on it' }));
   const input = h('input', { id: 'alpha-input', class: 'alpha-input', type: 'text', placeholder: 'Ask CLIVE…',
     autocomplete: 'off', enterkeyhint: 'send', 'aria-label': 'Ask CLIVE' });
-  const send = h('button', { class: 'alpha-send', type: 'submit', 'aria-label': 'Send', text: '↑' });
-  const composer = h('form', { id: 'alpha-composer', class: 'alpha-composer' }, input, send);
+  const send = h('button', { class: 'alpha-send', type: 'submit', 'aria-label': 'Send' }, icon(ICON.up, 18));
+  const stopTyping = h('button', { class: 'alpha-close', type: 'button', 'aria-label': 'Stop typing', onclick: () => closeTyping() }, icon(ICON.close, 16));
+  const typeRow = h('div', { class: 'alpha-typerow' }, stopTyping, input, send);
+  typeRow.inert = true;
+  const composer = h('form', { id: 'alpha-composer', class: 'alpha-composer' }, bar, typeRow);
   document.getElementById('app').append(composer);
+  function openTyping() {
+    typeRow.inert = false;
+    composer.classList.add('is-typing');
+    input.focus();
+  }
+  function closeTyping() {
+    composer.classList.remove('is-typing');
+    typeRow.inert = true;
+    input.blur();
+  }
+  bar.addEventListener('click', openTyping);
+  bar.addEventListener('contextmenu', (event) => event.preventDefault());   // a long press is a question, not a menu
+  input.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeTyping(); });
+  // Tapping away from an empty field puts the bar back; a half-written question stays open.
+  input.addEventListener('blur', () => {
+    setTimeout(() => { if (!input.value.trim() && document.activeElement !== input) closeTyping(); }, 160);
+  });
   composer.addEventListener('submit', async (event) => {
     event.preventDefault();
     const text = input.value.trim();
     if (!text || !window.CliveAlpha) return;
     if (window.CliveAlpha.isBusy()) { flash('CLIVE is still answering; one moment.'); return; }
     input.value = '';
-    input.blur();
+    closeTyping();
     closeSheet();
     await window.CliveAlpha.ask(text);
     refresh();
@@ -88,30 +149,65 @@
     }
   }
 
+  const OWNER = 'George';
+  let firstRender = true;
+  function whenFor(o) {
+    if (o.attention === 'done') return 'Done';
+    if (o.days_left == null) return null;
+    return o.days_left < 0 ? 'past the date' : o.days_left === 0 ? 'today' : `${o.days_left} day${o.days_left === 1 ? '' : 's'} left`;
+  }
+  function rowMain(title, sub, meta) {
+    return h('span', { class: 'alpha-row-main' },
+      h('span', { class: 'alpha-row-title', text: title }),
+      sub || meta ? h('span', { class: 'alpha-row-sub' },
+        meta ? h('span', { class: 'alpha-row-meta', text: meta }) : null,
+        meta && sub ? ' · ' : null,
+        sub || null) : null);
+  }
+
   function renderHome(needsYou, problem) {
-    const cards = objectives.map((o) => {
-      const lines = [];
-      if (o.needs_you.length) lines.push(h('p', { class: 'alpha-needs', text: `Needs you: ${o.needs_you[0]}` }));
-      else if (o.blocked_by.length) lines.push(h('p', { class: 'alpha-blocked', text: `Waiting for: ${o.blocked_by[0]}` }));
-      if (o.doing) lines.push(h('p', { class: 'alpha-line', text: o.doing }));
-      else if (o.next.length) lines.push(h('p', { class: 'alpha-line', text: `Next: ${o.next[0]}` }));
-      const when = o.days_left == null ? null : (o.days_left < 0 ? 'past the date' : o.days_left === 0 ? 'today' : `${o.days_left} day${o.days_left === 1 ? '' : 's'} left`);
-      return h('button', { class: 'alpha-card', type: 'button', onclick: () => openObjective(o.id) },
-        h('span', { class: 'alpha-kicker', text: [labelFor(o.attention), when].filter(Boolean).join(' · ') }),
-        h('span', { class: 'alpha-title', text: o.title }),
-        ...lines);
-    });
-    const support = h('button', { class: 'alpha-card alpha-support', type: 'button', onclick: openSupport },
-      h('span', { class: 'alpha-kicker', text: 'Crooks support' }),
-      h('span', { class: 'alpha-title', text: 'Investigate a customer enquiry' }),
-      h('p', { class: 'alpha-line', text: 'Paste a message: order, what happened, a reply to approve. Read-only.' }));
-    const newObjective = h('button', { class: 'alpha-link', type: 'button', text: '+ New objective', onclick: openNewObjective });
+    const now = new Date();
+    const hour = now.getHours();
+    const part = hour < 12 ? 'Morning' : hour < 18 ? 'Afternoon' : 'Evening';
+    const needs = objectives.filter((o) => o.attention === 'needs_you' || o.attention === 'blocked');
+    const moving = objectives.filter((o) => needs.indexOf(o) < 0 && o.attention !== 'dropped');
+    const summary = needs.length
+      ? `${needs.length === 1 ? 'One thing needs' : `${needs.length} things need`} you.${moving.length ? ' The rest is in motion.' : ''}`
+      : (moving.length ? 'Nothing needs you. The rest is in motion.' : 'Nothing needs you right now.');
+
+    const row = (o) => {
+      const blocked = o.attention === 'blocked';
+      const sub = o.attention === 'needs_you' && o.needs_you.length ? o.needs_you[0]
+        : o.blocked_by.length ? `Waiting for: ${o.blocked_by[0]}`
+        : o.doing || (o.next.length ? `Next: ${o.next[0]}` : '');
+      const when = whenFor(o);
+      const lead = needs.indexOf(o) >= 0
+        ? h('span', { class: `alpha-tile${blocked ? ' is-blocked' : ''}` }, icon(blocked ? ICON.wait : ICON.ask, 18))
+        : h('span', { class: `alpha-state is-${o.attention}` }, o.attention === 'done' ? icon(ICON.tick, 15) : null);
+      return h('button', { class: 'alpha-row', type: 'button', onclick: () => openObjective(o.id) },
+        lead, rowMain(o.title, sub, when), icon(ICON.chev, 16));
+    };
+
+    home.classList.toggle('is-first', firstRender);
+    firstRender = false;
     home.replaceChildren(...[
-      h('p', { class: 'alpha-section', text: needsYou ? `What needs your attention · ${needsYou}` : 'What CLIVE is keeping alive' }),
+      h('div', { class: 'alpha-hello' },
+        h('p', { class: 'alpha-date', text: now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) }),
+        h('h1', { class: 'alpha-h1', text: `${part}, ${OWNER}.` }),
+        h('p', { class: 'alpha-summary', text: summary })),
       problem ? h('p', { class: 'alpha-blocked', text: `Objectives could not be read: ${problem}` }) : null,
-      ...(cards.length ? cards : [h('p', { class: 'alpha-muted', text: 'Nothing ongoing. Tell CLIVE about something you want handled, and it stays here.' })]),
-      support,
-      newObjective,
+      needs.length ? h('h2', { class: 'alpha-h2', text: 'Needs you' }) : null,
+      needs.length ? h('div', { class: 'alpha-group' }, ...needs.map(row)) : null,
+      moving.length ? h('h2', { class: 'alpha-h2', text: 'In motion' }) : null,
+      moving.length ? h('div', { class: 'alpha-group' }, ...moving.map(row)) : null,
+      !objectives.length && !problem ? h('p', { class: 'alpha-muted', text: 'Nothing ongoing. Tell CLIVE about something you want handled, and it stays here.' }) : null,
+      h('div', { class: 'alpha-group alpha-tools' },
+        h('button', { class: 'alpha-row', type: 'button', onclick: openSupport },
+          h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.search, 18)),
+          rowMain('Investigate a customer enquiry', 'Paste their message. Read-only.'), icon(ICON.chev, 16)),
+        h('button', { class: 'alpha-row', type: 'button', onclick: openNewObjective },
+          h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.plus, 18)),
+          rowMain('New objective', 'Something for CLIVE to keep alive'), icon(ICON.chev, 16))),
     ].filter(Boolean));
   }
 

@@ -57,3 +57,228 @@ body.alpha .sheet.alpha-sheet{background:#111114;-webkit-backdrop-filter:none;ba
 
 /* a card is a glance: the sheet holds the full text */
 .alpha-card .alpha-needs,.alpha-card .alpha-blocked,.alpha-card .alpha-line{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+
+/* ================================================================== CLIVE design v1
+   Obsidian ground, CLIVE's own orb, one lilac accent, and iOS type and materials: grouped cells
+   for content, liquid glass only on controls. The tokens restyle every card, chip and sheet at
+   once; the rules after them place the home, the bar and what the bar shows in each state.
+   The owner chose this as design v1 (the "D" board of the CLIVE Design canvas). */
+html{background:#060607}
+body.alpha{
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",system-ui,"Helvetica Neue",Helvetica,sans-serif;
+  --ink:#ffffff; --ink-2:rgba(235,235,245,.74); --ink-3:rgba(235,235,245,.62); --ink-4:rgba(235,235,245,.52);
+  --bg-0:#060607; --bg-1:#0d0e11; --bg-2:#111216;
+  --glass:rgba(255,255,255,.06); --glass-2:rgba(255,255,255,.09);
+  --glass-surface:rgba(118,118,128,.17); --glass-surface-strong:rgba(118,118,128,.28);
+  --glass-control:rgba(255,255,255,.10); --glass-control-active:rgba(255,255,255,.20);
+  --border-subtle:rgba(255,255,255,.09); --border-rest:rgba(255,255,255,.13); --border-active:rgba(196,161,240,.6);
+  --radius-panel:26px; --radius-control:18px;
+  --shadow-active:0 0 0 1px rgba(196,161,240,.45),0 0 18px rgba(157,107,200,.3);
+  --acc:196,161,240; --acc-glow:157,107,200; --acc-f1:122,85,189; --acc-f2:93,58,152; --acc-t1:150,110,214; --acc-t2:104,66,170;
+  --spring:cubic-bezier(.32,.72,0,1);
+  font-family:var(--font);
+}
+body.alpha .app{
+  isolation:isolate;
+  background:
+    radial-gradient(64% 30% at 50% 8%, rgba(176,190,208,.17), rgba(176,190,208,.05) 55%, rgba(176,190,208,0) 76%),
+    linear-gradient(180deg,#16181c 0%,#0d0e11 46%,#060607 100%);
+}
+/* Listening: a lilac glow rises from under the bar, wherever the hold began. */
+body.alpha .app::after{
+  content:"";position:absolute;left:-25%;right:-25%;bottom:-230px;height:460px;border-radius:50%;z-index:-1;
+  background:radial-gradient(closest-side,rgba(var(--acc-glow),.6),rgba(var(--acc-glow),.22) 55%,rgba(var(--acc-glow),0));
+  filter:blur(30px);opacity:0;transform:translateY(90px);pointer-events:none;
+  transition:opacity 600ms,transform 720ms var(--spring);
+}
+body.alpha:has(#stage[data-state="LISTENING"]) .app::after{opacity:1;transform:none}
+
+/* liquid glass: a translucent body with a lit rim, for controls only */
+body.alpha .icon-btn,.ask-bar,.alpha-typerow,body.alpha .chip,body.alpha .context-nav{
+  position:relative;border:0;
+  background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.04));
+  -webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.26),inset 0 -1px 1px rgba(255,255,255,.05),0 12px 32px -10px rgba(0,0,0,.6);
+}
+body.alpha .icon-btn::before,.ask-bar::before,.alpha-typerow::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;
+  background:linear-gradient(140deg,rgba(255,255,255,.62),rgba(255,255,255,.1) 30%,rgba(255,255,255,0) 55%,rgba(255,255,255,.24));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;
+}
+body.alpha .icon-btn{width:44px;height:44px;color:#fff}
+body.alpha .icon-btn:active{transform:scale(.94)}
+body.alpha .chip{color:var(--ink-2);font-size:14px;letter-spacing:0;min-height:40px}
+body.alpha .chip[aria-pressed="true"],body.alpha .chip.is-active{color:#fff;background:linear-gradient(180deg,rgba(var(--acc),.34),rgba(var(--acc-f2),.3));box-shadow:var(--shadow-active)}
+body.alpha .context-nav{border-radius:26px;background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.02))}
+html[data-lite] body.alpha .icon-btn,html[data-lite] .ask-bar,html[data-lite] .alpha-typerow,html[data-lite] body.alpha .chip,html[data-lite] body.alpha .context-nav{
+  -webkit-backdrop-filter:none;backdrop-filter:none;background:#24252b;
+}
+
+/* buttons: the primary action is the accent; everything else stays glass */
+body.alpha .btn{border-radius:22px;border:0;background:rgba(255,255,255,.1);box-shadow:inset 0 1px 0 rgba(255,255,255,.14);font-size:15px;letter-spacing:0}
+body.alpha .btn.primary{background:linear-gradient(180deg,rgb(var(--acc-f1)),rgb(var(--acc-f2)));color:#fff;border:0;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 6px 18px -6px rgba(var(--acc-glow),.55)}
+body.alpha .btn.primary:active{filter:brightness(.92)}
+
+/* cards and sheets: grouped cells */
+body.alpha .card{border:0;background:var(--glass-surface);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.08);
+  -webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%)}
+html[data-lite] body.alpha .card{-webkit-backdrop-filter:none;backdrop-filter:none;background:#18191d}
+body.alpha .sheet{border:0;border-radius:38px 38px 0 0;background:linear-gradient(180deg,rgba(40,39,46,.96),rgba(22,22,26,.98));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.18),0 -10px 40px rgba(0,0,0,.45)}
+body.alpha .sheet h2{font-size:22px;letter-spacing:-.01em;text-transform:none;color:#fff;font-weight:700}
+body.alpha .sheet h3{font-size:13px;letter-spacing:.02em;text-transform:uppercase;color:var(--ink-3)}
+body.alpha .sheet .sheet-grip{width:36px;height:5px;border-radius:3px;background:rgba(255,255,255,.3)}
+body.alpha.alpha .sheet.alpha-sheet{background:linear-gradient(180deg,rgba(40,39,46,.98),rgba(22,22,26,1))}
+.alpha-item,.alpha-ask{border:0;border-radius:18px;background:rgba(255,255,255,.07)}
+.alpha-field,.alpha-text{border:0;border-radius:16px;background:rgba(255,255,255,.08);font-size:17px}
+.alpha-needs{color:rgb(var(--acc))}
+
+/* the footer's two buttons, when they are drawn, are cells too; with the dock gone on a phone
+   the footer reserves no band for it */
+body.alpha[data-mode="orb"] .bottom{padding:0 16px}
+body.alpha .attention,body.alpha .recent{border:0;border-radius:26px;background:var(--glass-surface);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.08)}
+body.alpha .attention .n{color:rgb(var(--acc))}
+
+/* the orb band */
+body.alpha .top{position:absolute;top:env(safe-area-inset-top,0px);left:0;right:0;padding:12px 16px 0;pointer-events:none}
+body.alpha .top > *{pointer-events:auto}
+body.alpha .wordmark{visibility:hidden}
+body.alpha[data-mode="orb"] .orb-zone{padding:14px 0 0}
+/* the bar and the orb say listening, working and speaking; the line under the orb is kept for
+   what they cannot say — something went wrong, or it is done */
+body.alpha .stage:not([data-state="ERROR"]):not([data-state="SUCCESS"]) .state-label{display:none}
+body.alpha .state-label{font-size:13px;letter-spacing:.02em;text-transform:none;font-weight:600;color:var(--ink-2)}
+body.alpha .stage[data-state="LISTENING"] .state-label{color:rgb(var(--acc))}
+body.alpha .orb-caption{margin-top:2px}
+body.alpha .answer{font-size:19px;line-height:1.35;font-weight:500}
+body.alpha .talk{display:none}
+body.alpha[data-mode="context"] .orb-zone{height:72px;padding:0 16px 0 4px}
+body.alpha[data-mode="context"] .orb-frame{transform:scale(.4);margin:calc(var(--orb) * -.3)}
+
+/* the home: a greeting, then what needs him, then what is moving */
+.alpha-home{padding:6px 16px 20px;gap:0;transition:opacity 460ms var(--spring),filter 460ms,transform 460ms var(--spring)}
+.alpha-home.is-first > *{animation:alpha-rise 680ms var(--spring) both}
+.alpha-home.is-first > :nth-child(2){animation-delay:60ms}
+.alpha-home.is-first > :nth-child(3){animation-delay:110ms}
+.alpha-home.is-first > :nth-child(4){animation-delay:160ms}
+.alpha-home.is-first > :nth-child(5){animation-delay:210ms}
+.alpha-home.is-first > :nth-child(n+6){animation-delay:260ms}
+@keyframes alpha-rise{from{opacity:0;transform:translateY(14px);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+.alpha-hello{padding:0 4px}
+.alpha-date{margin:0;font-size:13px;font-weight:600;letter-spacing:.01em;text-transform:uppercase;color:var(--ink-3)}
+.alpha-h1{margin:4px 0 0;font-size:34px;font-weight:700;line-height:1.12;letter-spacing:-.015em;color:#fff}
+.alpha-summary{margin:6px 0 0;font-size:17px;line-height:1.35;color:rgba(235,235,245,.64)}
+.alpha-h2{margin:24px 4px 10px;font-size:22px;font-weight:700;letter-spacing:-.01em;color:#fff}
+.alpha-group{border-radius:26px;overflow:hidden;background:var(--glass-surface);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.08);
+  -webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%)}
+html[data-lite] .alpha-group{-webkit-backdrop-filter:none;backdrop-filter:none;background:#18191d}
+.alpha-tools{margin-top:24px}
+.alpha-row{all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:14px;min-height:64px;padding:0 16px;
+  cursor:pointer;color:#fff;-webkit-tap-highlight-color:transparent;transition:background-color 180ms;position:relative}
+.alpha-row + .alpha-row::before{content:"";position:absolute;top:0;left:62px;right:0;border-top:.5px solid rgba(255,255,255,.12)}
+.alpha-row:active{background-color:rgba(255,255,255,.08)}
+.alpha-row:focus-visible{outline:2px solid rgb(var(--acc));outline-offset:-2px;border-radius:26px}
+.alpha-row > .alpha-icon:last-child{flex:none;color:rgba(235,235,245,.38)}
+.alpha-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:11px 0}
+.alpha-row-title{font-size:17px;font-weight:600;letter-spacing:-.01em;line-height:1.3;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.alpha-row-sub{font-size:15px;line-height:1.3;color:rgba(235,235,245,.64);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.alpha-row-meta{color:rgba(235,235,245,.86);font-variant-numeric:tabular-nums}
+.alpha-tile{width:32px;height:32px;border-radius:9px;flex:none;display:grid;place-items:center;color:#fff;
+  background:linear-gradient(180deg,rgb(var(--acc-t1)),rgb(var(--acc-t2)));box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
+.alpha-tile.is-blocked{background:linear-gradient(180deg,#6e6e76,#4a4a52)}
+.alpha-tile.is-quiet{background:rgba(255,255,255,.12)}
+.alpha-state{width:32px;height:32px;border-radius:16px;flex:none;display:grid;place-items:center;background:rgba(255,255,255,.08)}
+.alpha-state::after{content:"";width:8px;height:8px;border-radius:4px;background:rgba(235,235,245,.5)}
+.alpha-state.is-doing::after{background:rgb(var(--acc));box-shadow:0 0 10px rgba(var(--acc),.9);animation:alpha-pulse 1.6s ease-in-out infinite}
+.alpha-state.is-done{background:rgba(48,209,88,.18);color:#30d158}
+.alpha-state.is-done::after{display:none}
+@keyframes alpha-pulse{50%{opacity:.45}}
+.alpha-icon{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.alpha-muted{padding:0 4px}
+.alpha-flash{background:var(--glass-surface);border-radius:18px}
+
+/* the bar: tap to type, hold to speak */
+body.alpha .alpha-composer{display:block;height:78px;padding:0;background:transparent;border:0;z-index:5}
+.ask-bar,.alpha-typerow{position:absolute;left:16px;right:16px;bottom:12px;height:56px;border-radius:28px;box-sizing:border-box;
+  transition:opacity 280ms,transform 440ms var(--spring),height 520ms var(--spring),border-radius 520ms,background 400ms,box-shadow 400ms}
+.ask-bar{all:unset;position:absolute;left:16px;right:16px;bottom:12px;height:56px;border-radius:28px;box-sizing:border-box;
+  display:block;overflow:hidden;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+  color:#fff;-webkit-tap-highlight-color:transparent;
+  background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.04));
+  -webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.26),inset 0 -1px 1px rgba(255,255,255,.05),0 12px 32px -10px rgba(0,0,0,.6);
+  transition:opacity 280ms,transform 440ms var(--spring),height 520ms var(--spring),border-radius 520ms,background 400ms,box-shadow 400ms}
+.ask-bar:active{transform:scale(.975)}
+.ask-bar:focus-visible{outline:2px solid rgb(var(--acc));outline-offset:3px}
+.ask-face{display:none;position:absolute;inset:0;box-sizing:border-box}
+.ask-idle{display:flex;align-items:center;gap:12px;padding:0 8px 0 22px}
+.ask-text{flex:1;font-size:17px;color:rgba(235,235,245,.64)}
+.ask-voice{width:40px;height:40px;border-radius:20px;flex:none;display:grid;place-items:center;color:rgb(var(--acc));
+  background:rgba(var(--acc),.16);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 0 14px rgba(var(--acc-glow),.28)}
+.ask-listen{flex-direction:column;justify-content:space-between;padding:16px 22px 14px}
+.ask-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600}
+.ask-dot{width:8px;height:8px;border-radius:4px;background:rgb(var(--acc));box-shadow:0 0 10px rgba(var(--acc),.9);animation:alpha-pulse 1.2s ease-in-out infinite}
+.ask-bars{display:flex;align-items:center;justify-content:center;gap:4px;height:40px}
+.ask-bars span{width:3px;border-radius:2px;background:#fff;animation:alpha-wave 820ms cubic-bezier(.45,0,.55,1) infinite alternate}
+@keyframes alpha-wave{from{transform:scaleY(.22);opacity:.55}to{transform:scaleY(1);opacity:1}}
+.ask-hint{text-align:center;font-size:13px;color:rgba(255,255,255,.8)}
+.ask-drop,.ask-busy{align-items:center;padding:0 22px;font-size:17px;color:rgba(235,235,245,.72)}
+.ask-drop{justify-content:center}
+.ask-busy::after{content:"";position:absolute;top:0;bottom:0;width:36%;left:-40%;
+  background:linear-gradient(90deg,rgba(255,255,255,0),rgba(var(--acc),.24),rgba(255,255,255,0));animation:alpha-scan 1.5s ease-in-out infinite}
+@keyframes alpha-scan{from{left:-40%}to{left:104%}}
+/* listening, from the bar or the orb: the bar becomes the capsule */
+body.alpha:has(#stage[data-state="LISTENING"]) .ask-bar{height:132px;border-radius:38px;
+  background:linear-gradient(180deg,rgba(var(--acc-glow),.3),rgba(var(--acc-glow),.12));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.3),0 0 40px rgba(var(--acc-glow),.42),0 24px 48px -24px rgba(0,0,0,.8)}
+body.alpha:has(#stage[data-state="LISTENING"]) .ask-idle{display:none}
+body.alpha:has(#stage[data-state="LISTENING"]) .ask-listen{display:flex}
+body.alpha:has(#stage[data-state="LISTENING"]) .ask-bar[data-cancel="true"]{background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,.05));box-shadow:inset 0 1px 1px rgba(255,255,255,.22)}
+body.alpha:has(#stage[data-state="LISTENING"]) .ask-bar[data-cancel="true"] .ask-listen{display:none}
+body.alpha:has(#stage[data-state="LISTENING"]) .ask-bar[data-cancel="true"] .ask-drop{display:flex}
+body.alpha:has(#stage[data-state="LISTENING"]) .alpha-home{opacity:.25;filter:blur(8px)}
+/* working: the same bar says so, and shimmers while it does */
+body.alpha:has(#stage[data-state="TRANSCRIBING"]) .ask-idle,body.alpha:has(#stage[data-state="THINKING"]) .ask-idle{display:none}
+body.alpha:has(#stage[data-state="TRANSCRIBING"]) .ask-busy,body.alpha:has(#stage[data-state="THINKING"]) .ask-busy{display:flex}
+/* typing: the bar gives way to the field */
+.alpha-typerow{display:flex;align-items:center;gap:10px;padding:0 8px;opacity:0;transform:translateY(8px) scale(.98);pointer-events:none}
+.alpha-composer.is-typing .alpha-typerow{opacity:1;transform:none;pointer-events:auto;
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.3),0 0 0 4px rgba(var(--acc),.2),0 12px 32px -10px rgba(0,0,0,.6)}
+.alpha-composer.is-typing .ask-bar{opacity:0;transform:scale(.98);pointer-events:none}
+body.alpha:has(.alpha-composer.is-typing) .alpha-home{opacity:.3;filter:blur(10px);transform:scale(.98)}
+body.alpha .alpha-input{flex:1;min-width:0;height:44px;border:0;border-radius:0;background:transparent;padding:0;font:inherit;font-size:17px;
+  color:#fff;caret-color:rgb(var(--acc));outline:none}
+body.alpha .alpha-input::placeholder{color:rgba(235,235,245,.5)}
+.alpha-close,body.alpha .alpha-send{all:unset;width:40px;height:40px;border-radius:20px;flex:none;display:grid;place-items:center;cursor:pointer;
+  transition:transform 300ms var(--spring)}
+.alpha-close{background:rgba(255,255,255,.12);color:#fff}
+body.alpha .alpha-send{background:linear-gradient(180deg,rgb(var(--acc-f1)),rgb(var(--acc-f2)));color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 6px 18px -6px rgba(var(--acc-glow),.55);animation:alpha-pop 380ms cubic-bezier(.34,1.4,.5,1) both}
+.alpha-close:active,body.alpha .alpha-send:active{transform:scale(.9)}
+.alpha-close:focus-visible,body.alpha .alpha-send:focus-visible{outline:2px solid rgb(var(--acc));outline-offset:2px}
+body.alpha .alpha-input:placeholder-shown ~ .alpha-send{display:none}
+@keyframes alpha-pop{from{transform:scale(.5);opacity:0}to{transform:none;opacity:1}}
+
+/* inside the cards: sentence-case tabs and capsules, and labels tracked like iOS section
+   headers rather than engraved */
+body.alpha .tab{text-transform:none;letter-spacing:0;font-size:15px;font-weight:500}
+body.alpha .tab[aria-selected="true"]{color:#fff;background:linear-gradient(180deg,rgba(var(--acc),.3),rgba(var(--acc-f2),.26));box-shadow:var(--shadow-active)}
+body.alpha .badge{text-transform:none;letter-spacing:0;font-size:13px}
+body.alpha .kv dt,body.alpha .stat-k,body.alpha .sec-kicker,body.alpha .facts dt,body.alpha .rank-k,body.alpha .tbl th,
+body.alpha .compare-k,body.alpha .matrix th,body.alpha .mtable th,body.alpha .tl-label,body.alpha .link-kicker,
+body.alpha .field-label,body.alpha .ws-fact dt,body.alpha .action-meta,body.alpha .action-target,body.alpha .bar-day,
+body.alpha .chip .chip-kind,body.alpha .recent-kicker,body.alpha .attention .t,body.alpha .card-kicker{letter-spacing:.03em}
+body.alpha .link-btn{letter-spacing:0;text-transform:none;font-size:15px}
+body.alpha[data-mode="context"] .orb-zone{padding-right:64px}
+/* the home scrolls under the bar, and fades as it goes */
+.alpha-home{-webkit-mask-image:linear-gradient(180deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(180deg,#000 calc(100% - 28px),transparent)}
+
+@media (max-width:640px){
+  body.alpha{--orb:148px}
+  body.alpha[data-mode="context"] .app{padding-bottom:env(safe-area-inset-bottom,0px)}
+}
+@media (prefers-reduced-motion:reduce){
+  body.alpha .ask-bar,body.alpha .alpha-typerow,body.alpha .alpha-home,body.alpha .app::after{transition-duration:.001ms}
+  .alpha-home.is-first > *,.ask-bars span,.ask-busy::after,.ask-dot,.alpha-state.is-doing::after{animation:none}
+}
