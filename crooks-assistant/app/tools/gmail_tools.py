@@ -11,7 +11,7 @@ import asyncio
 import base64
 import logging
 import re
-from email.utils import parseaddr
+from email.utils import getaddresses, parseaddr
 from typing import Any
 
 from app.clients.gmail import GmailAuthRequired, GmailClient
@@ -196,7 +196,7 @@ def _authenticated(headers: dict[str, str], from_email: str = "") -> bool:
     return authenticated(headers, from_email)
 
 
-async def _list_metadata(client: GmailClient, full_query: str, limit: int) -> list[dict]:
+async def _list_metadata(client: GmailClient, full_query: str, limit: int, headers: list[str] | None = None) -> list[dict]:
     """The listing and the metadata of every message in it, in one batched round trip.
     Raises ToolError with a readable reason; never a raw client exception."""
 
@@ -216,7 +216,7 @@ async def _list_metadata(client: GmailClient, full_query: str, limit: int) -> li
         # metadata format still costs 20 quota units, so the result count is the lever.
         def get_request(stub):
             return service.users().messages().get(
-                userId="me", id=stub["id"], format="metadata", metadataHeaders=_METADATA_HEADERS,
+                userId="me", id=stub["id"], format="metadata", metadataHeaders=headers or _METADATA_HEADERS,
             )
 
         # One round trip for all of them, not one each: a batch request carries every get in
@@ -312,11 +312,50 @@ async def threads_for(*, sender: str = "", terms: list[str] | tuple[str, ...] = 
 # the answer can name what it covered instead of implying the whole inbox.
 INBOX_LIMIT = 50
 
+# The storefront's contact form. Shopify delivers it From its own mailer — "CROOKSLDN
+# (Shopify) <mailer@shopify.com>" — under "New customer message on …", with the customer's
+# address in Reply-To (a Gmail reply goes there) and their details in the body: "You received
+# a new message from your online store's contact form. … Name: … Email: …". Every one of
+# those looked like a machine to the bulk and noise filters, so an enquiry through the shop's
+# own form could never be somebody waiting on us. The same mailer sends order notifications,
+# which are not a customer writing, so only the form's own shape counts.
+_SHOPIFY_MAILER = re.compile(r"@(?:[\w-]+\.)*shopify\.com$", re.I)
+_FORM_EMAIL = re.compile(r"\bE-?mail:\s*([^\s<>,;:]+@[^\s<>,;:]+)", re.I)
+_FORM_NAME = re.compile(r"\bName:\s*(.+?)\s*(?=\b(?:E-?mail|Phone(?: Number)?|Body|Comment|Message|Country Code):|$)", re.I)
+
+
+def contact_form(headers: dict[str, str], snippet: str) -> tuple[str, str] | None:
+    """(name, address) of the customer who filled in the store's contact form, when this
+    message is one; None for anything else, a Shopify order notification included. The
+    address is Reply-To's, or the body's Email field when Reply-To does not name one — read
+    from the body's opening, which Gmail sends as the snippet, so nothing more is fetched."""
+    sender = parseaddr(headers.get("from", ""))[1].strip()
+    text = str(snippet or "")
+    if not _SHOPIFY_MAILER.search(sender):
+        return None
+    if not (headers.get("subject", "").strip().lower().startswith("new customer message") or "contact form" in text.lower()):
+        return None
+    name, address = parseaddr(headers.get("reply-to", ""))
+    address = address.strip().lower()
+    if "@" not in address or _SHOPIFY_MAILER.search(address):
+        found = _FORM_EMAIL.search(text)
+        name, address = "", (found.group(1).strip(".").lower() if found else "")
+    if "@" not in address:
+        return None
+    if not name.strip():
+        found = _FORM_NAME.search(text)
+        name = found.group(1) if found else ""
+    return (" ".join(name.split()) or address.split("@", 1)[0]), address
+
 
 async def inbox_threads(*, days: int = 30, limit: int = INBOX_LIMIT) -> dict[str, Any]:
     """The inbox's recent threads from people, newest first, one summary per thread, bulk mail
     left out. The same query `gmail_search` reads ("the inbox"), for the context layer rather
-    than the model: never raises, and metadata only."""
+    than the model: never raises, and metadata only.
+
+    A contact-form enquiry is a person writing: its summary is the customer's — who filled the
+    form in — marked `via: "contact_form"`, and never `authenticated`, because the address is
+    what was typed into a form and the mailer's signature vouches only for Shopify."""
     if _client is None:
         return {"available": False, "reason": "Gmail is not configured on this backend.", "threads": []}
     days = max(1, min(int(days), 365))
@@ -327,8 +366,53 @@ async def inbox_threads(*, days: int = 30, limit: int = INBOX_LIMIT) -> dict[str
     except ToolError as exc:
         log.warning("inbox listing unavailable: %s", exc)
         return {"available": False, "reason": str(exc)[:160], "threads": []}
-    threads = [_summary(t, h, m) for t, h, m in _one_per_thread(messages, include_bulk=False)]
+    threads = []
+    for thread_id, headers, message in _one_per_thread(messages, include_bulk=True):
+        found = _summary(thread_id, headers, message)
+        customer = contact_form(headers, found["snippet"])
+        if customer is not None:
+            found.update({"from": customer[0], "from_email": customer[1], "via": "contact_form", "relay": found["from_email"],
+                          "likely_bulk": False, "authenticated": False})
+        elif found["likely_bulk"]:
+            continue
+        threads.append(found)
     return {"available": True, "query": query, "threads": threads, "full": len(messages) >= limit}
+
+
+# What we have sent, and to whom: the answer that went out as a new email rather than as a
+# reply in the thread the person wrote in. The inbox listing is `-from:me`, so it cannot see it.
+SENT_LIMIT = 50
+
+
+async def sent_to(addresses: list[str] | tuple[str, ...], *, days: int = 30, limit: int = SENT_LIMIT) -> dict[str, Any]:
+    """When this mailbox last wrote to each of these addresses, in any thread, within the
+    window: {"latest": {address: epoch ms}}. One listing of Sent, metadata only; never raises."""
+    if _client is None:
+        return {"available": False, "reason": "Gmail is not configured on this backend.", "latest": {}}
+    wanted = [a for a in dict.fromkeys(_GMAIL_TERM.sub("", str(a or "").strip().lower()) for a in addresses) if "@" in a][:INBOX_LIMIT]
+    if not wanted:
+        return {"available": True, "latest": {}}
+    days = max(1, min(int(days), 365))
+    query = f"in:sent newer_than:{days}d ({' OR '.join(f'to:{a}' for a in wanted)})"
+    try:
+        messages = await _list_metadata(_c(), query, max(1, min(int(limit), SENT_LIMIT)), headers=["To", "Cc"])
+    except ToolError as exc:
+        log.warning("sent mail unavailable: %s", exc)
+        return {"available": False, "reason": str(exc)[:160], "latest": {}}
+    latest: dict[str, int] = {}
+    for message in messages:
+        if "SENT" not in (message.get("labelIds") or []):
+            continue
+        try:
+            at = int(message.get("internalDate") or 0)
+        except (TypeError, ValueError):
+            continue
+        headers = _headers(message)
+        for _name, address in getaddresses([headers.get("to", ""), headers.get("cc", "")]):
+            address = address.strip().lower()
+            if at and address in wanted:
+                latest[address] = max(latest.get(address, 0), at)
+    return {"available": True, "latest": latest, "full": len(messages) >= limit}
 
 
 async def replied(thread_id: str) -> bool | None:

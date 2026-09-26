@@ -413,6 +413,7 @@ _NOISE_SENDER = re.compile(
 
 
 _inbox_for = None         # gmail_tools.inbox_threads, or a test's stand-in
+_sent_for = None          # gmail_tools.sent_to: when we last wrote to each address, in any thread
 # The inbox itself, for "is anyone waiting on us" (`email_query` with no set). Every thread
 # the listing returns is asked who spoke last, three at a time (Gmail's slots), and the whole
 # read has to land inside the fast lane's five seconds (app/fastpath/runner.py BUDGET_MS) —
@@ -421,13 +422,14 @@ _inbox_for = None         # gmail_tools.inbox_threads, or a test's stand-in
 INBOX_DEADLINE_S = 4.0
 
 
-def bind_email(threads_for=None, replied=None, reply_state=None, own_address=None, inbox_for=None) -> None:
-    global _threads_for, _replied, _reply_state, _own_address, _inbox_for
+def bind_email(threads_for=None, replied=None, reply_state=None, own_address=None, inbox_for=None, sent_for=None) -> None:
+    global _threads_for, _replied, _reply_state, _own_address, _inbox_for, _sent_for
     _threads_for = threads_for
     _replied = replied
     _reply_state = reply_state
     _own_address = own_address
     _inbox_for = inbox_for
+    _sent_for = sent_for
     _email_cache.clear()
 
 
@@ -766,9 +768,11 @@ async def _inbox_waiting(days: int) -> dict[str, Any]:
     listing the 25 most recent customers and checking each one's mail, which is a different
     question — anyone who had not ordered in the last month could not be waiting, however long
     they had been. So this starts from the inbox: the newest threads from people in the window
-    (bulk, automated and our own mail left out), each asked who spoke last, folded per sender
-    WITHOUT merging any thread, then matched to a customer and their orders wherever the order
-    cache knows the address. Read-only, like everything here: a listing and a thread read each.
+    (bulk, automated and our own mail left out; a storefront contact form counts as the
+    customer who filled it in — app/tools/gmail_tools.py `contact_form`), each asked who spoke
+    last, folded per sender WITHOUT merging any thread, checked against what we have sent them
+    as a new email, then matched to a customer and their orders wherever the order cache knows
+    the address. Read-only, like everything here: two listings and a thread read each.
     """
     if _inbox_for is None or _reply_state is None:
         raise ToolError("Gmail is not configured on this backend.")
@@ -787,7 +791,20 @@ async def _inbox_waiting(days: int) -> dict[str, Any]:
             raise TimeoutError
         return await asyncio.wait_for(_reply_state(str(threads[index]["thread_id"])), timeout=left)
 
-    states, _late = await fanout.gather_with_failures(range(len(threads)), state_of, source="gmail", timeout_s=INBOX_DEADLINE_S)
+    async def sent_to_them() -> dict[str, Any] | None:
+        """Beside the thread reads, one listing of what we sent these people in any thread."""
+        addresses = sorted({str(t.get("from_email") or "").strip().lower() for t in threads} - {""})
+        if _sent_for is None or not addresses:
+            return None
+        try:
+            return await asyncio.wait_for(_sent_for(addresses, days=days), timeout=max(0.1, deadline - loop.time()))
+        except Exception as exc:  # noqa: BLE001 — unknown is said as unknown, below
+            log.info("inbox: what we sent could not be read: %s", type(exc).__name__)
+            return {"available": False}
+
+    (states, _late), sent = await asyncio.gather(
+        fanout.gather_with_failures(range(len(threads)), state_of, source="gmail", timeout_s=INBOX_DEADLINE_S), sent_to_them())
+    sent_at = (sent or {}).get("latest") or {}
     people: dict[str, dict[str, Any]] = {}
     for index, t in enumerate(threads):
         sender = str(t.get("from_email") or "").strip().lower()
@@ -799,7 +816,7 @@ async def _inbox_waiting(days: int) -> dict[str, Any]:
     unchecked = sum(1 for index in range(len(threads)) if not isinstance(states[index] if index < len(states) else None, dict))
     rows = []
     for person in people.values():
-        folded = _fold_reply_states(list(person["states"].values()))
+        folded = _answered_elsewhere(_fold_reply_states(list(person["states"].values())), sent_at.get(person["email"]))
         customer = (customers or {}).get(person["email"]) if person["email"] else None
         terms = [str(n).rsplit("-", 1)[-1].lstrip("#") for n in (customer or {}).get("orders", []) if n]
         related = _related_orders(person["threads"], terms if customer is not None else numbers)
@@ -819,7 +836,7 @@ async def _inbox_waiting(days: int) -> dict[str, Any]:
             "latest_direction": folded["latest_direction"] if folded["checked_threads"] else "unknown",
             "has_reply_after_latest_inbound": folded["has_reply_after_latest_inbound"],
             "needs_reply": folded["needs_reply"], "waiting_since": folded["waiting_since"],
-            "related_orders": related, "confidence": confidence,
+            "related_orders": related, "confidence": confidence, "via": str(last.get("via") or ""),
             "provenance": {"threads_checked": folded["checked_threads"], "thread_ids": list(person["states"]), "latest_inbound_at": folded["latest_inbound_at"],
                            "latest_outbound_at": folded["latest_outbound_at"], "latest_direction": folded["latest_direction"], "related_orders": related, "confidence": confidence},
         })
@@ -832,6 +849,8 @@ async def _inbox_waiting(days: int) -> dict[str, Any]:
         notes.append(f"{unchecked} thread(s) could not be checked")
     if customers is None:
         notes.append("the order cache did not answer, so senders are not matched to customers")
+    if sent is not None and not sent.get("available"):
+        notes.append("replies sent as new emails could not be checked, only replies in the same thread")
     result: dict[str, Any] = {
         "scope": "inbox", "set_id": "", "set_label": "The inbox", "kind": "inbox", "days": days,
         "people": len(rows), "customers": sum(1 for r in rows if r["known_customer"]),
@@ -846,6 +865,16 @@ async def _inbox_waiting(days: int) -> dict[str, Any]:
     timeline.emit("cross_source", session_id=getattr(session, "session_id", None), turn_id=getattr(session, "turn_id", None) or None,
                   set_id=None, customers=result["customers"], counts=result["counts"], ms=result["_ms"])
     return result
+
+
+def _answered_elsewhere(folded: dict[str, Any], sent_at: int | None) -> dict[str, Any]:
+    """The fold's rule — anything we sent after they last wrote answers them — carried to the
+    one place the inbox listing cannot see: a new email to their address, not a reply in their
+    thread. A contact-form enquiry is answered either way (a Gmail reply goes to Reply-To)."""
+    if not sent_at or not folded["needs_reply"] or sent_at < (folded["latest_inbound_at"] or 0):
+        return folded
+    return {**folded, "latest_outbound_at": max(sent_at, folded["latest_outbound_at"] or 0), "latest_direction": "outbound",
+            "has_reply_after_latest_inbound": True, "needs_reply": False, "waiting_since": None}
 
 
 async def _shop_people(within_s: float) -> tuple[dict[str, dict[str, Any]] | None, list[str]]:

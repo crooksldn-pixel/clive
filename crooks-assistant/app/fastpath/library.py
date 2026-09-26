@@ -1343,6 +1343,9 @@ def _waiting_surface(waiting: list[dict[str, Any]], *, unchecked: int = 0, scope
             # uncertain one must be visibly uncertain, because the row is a decision to
             # reply and a wrong link is a reply to the wrong question — so it says so.
             "snippet": " · ".join(filter(None, [
+                # Where it came in: the store's contact form, whose subject is Shopify's own
+                # "New customer message on …" and says nothing about what they asked.
+                "contact form" if row.get("via") == "contact_form" else "",
                 (f"maybe {', '.join(orders)}" if confidence == "possible" and orders
                  else ", ".join(orders)),
                 "not sure which order" if confidence == "possible" and not orders else "",

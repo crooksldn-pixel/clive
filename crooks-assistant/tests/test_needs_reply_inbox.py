@@ -357,3 +357,141 @@ def test_the_row_keeps_room_for_its_chevron_and_is_not_a_card():
     assert re.search(r"\.row\.tappable\{[^}]*padding-right:26px", css)
     assert re.search(r"\.rows > \.row\.tappable\{border-radius:0\}", css), (
         "a list row's divider is a border-top; a radius bends it into a card inside the card")
+
+
+# --------------------------------------------------- the storefront's contact form (follow-up)
+#
+# CROOKSLDN's customers write through the shop's contact form, and Shopify delivers that From
+# its own mailer with the customer in Reply-To and in the body — the shape
+# tests/test_gmail_writes.py already replies to. The scan dropped every one of them as bulk,
+# and then as automated, so the most likely enquiry of all could never be somebody waiting.
+
+MAILER = "CROOKSLDN (Shopify) <mailer@shopify.com>"
+FORM_INTRO = "You received a new message from your online store&#39;s contact form."
+JO_FORM, ANN_FORM, FLO_FORM, BEN_ORDER, REPORT = (f"c1000000000000{n:02d}" for n in range(1, 6))
+
+
+def gmail_message(mid: str, thread: str, *, sender: str, subject: str, snippet: str = "", reply_to: str = "", to: str = "",
+                  at: int = 0, labels: tuple[str, ...] = ("INBOX",), **extra: str) -> dict:
+    """A message as `messages.get(format="metadata")` returns it."""
+    headers = {"From": sender, "Subject": subject, **({"Reply-To": reply_to} if reply_to else {}), **({"To": to} if to else {}), **extra}
+    return {"id": mid, "threadId": thread, "labelIds": list(labels), "internalDate": str(at), "snippet": snippet,
+            "payload": {"headers": [{"name": k, "value": v} for k, v in headers.items()]}}
+
+
+INBOX_LISTING = [
+    # Jo is not a customer yet and asked through the form. Nobody has answered.
+    gmail_message("m1", JO_FORM, sender=MAILER, reply_to="Jo Bloggs <jo@example.com>", at=ago(6),
+                  subject="New customer message on September 3, 2026 at 10:14 am",
+                  snippet=f"{FORM_INTRO} Country Code: GB Name: Jo Bloggs Email: jo@example.com Phone Number: Body: Do the joggers run small?"),
+    # Ann asked through the form and we answered in the thread (Gmail's reply goes to Reply-To).
+    gmail_message("m2", ANN_FORM, sender=MAILER, reply_to="Ann Able <ann@example.com>", at=ago(4),
+                  subject="New customer message on September 5, 2026 at 9:02 am",
+                  snippet=f"{FORM_INTRO} Country Code: GB Name: Ann Able Email: ann@example.com Body: Is 1001 on its way?"),
+    # Flo's form came without Reply-To: the body names her. We answered with a new email.
+    gmail_message("m3", FLO_FORM, sender=MAILER, at=ago(5), subject="New customer message on September 4, 2026 at 4:40 pm",
+                  snippet=f"{FORM_INTRO} Country Code: IE Name: Flo Fry Email: flo@example.com Body: Can I change the size on 1007?"),
+    # The same mailer's order notification — Reply-To the buyer — is not the buyer writing.
+    gmail_message("m4", BEN_ORDER, sender="Shopify <mailer@shopify.com>", reply_to="Ben Bold <ben@example.com>", at=ago(7),
+                  subject="[CROOKSLDN] Order #1002 placed by Ben Bold", snippet="Order summary Convict Joggers × 1 Yard Jeans × 1"),
+    gmail_message("m5", REPORT, sender="Shopify <no-reply@shopify.com>", at=ago(1), subject="Your weekly store report",
+                  snippet="Here is how CROOKSLDN did this week", **{"List-Unsubscribe": "<mailto:unsubscribe@shopify.com>"}),
+]
+SENT_LISTING = [
+    gmail_message("s1", "d000000000000001", sender=OURS, to="Flo Fry <flo@example.com>", at=ago(2), labels=("SENT",), subject="Your order 1007"),
+    gmail_message("s2", ANN_FORM, sender=OURS, to="Ann Able <ann@example.com>", at=ago(3), labels=("SENT",), subject="Re: New customer message"),
+    # Written to Jo BEFORE she asked: it cannot have answered her.
+    gmail_message("s3", "d000000000000003", sender=OURS, to="jo@example.com", at=ago(10), labels=("SENT",), subject="Welcome"),
+    # Not ours — a message that merely names her — never counts as us writing.
+    gmail_message("s4", "d000000000000004", sender="Someone <x@else.example>", to="jo@example.com", at=ago(1), subject="fwd"),
+]
+
+
+@pytest.fixture()
+def storefront(cache, monkeypatch):
+    queries: list[tuple[str, int, list[str] | None]] = []
+
+    async def listing(client, query, limit, headers=None):
+        queries.append((query, limit, headers))
+        return [dict(m) for m in (SENT_LISTING if query.startswith("in:sent") else INBOX_LISTING)]
+
+    states = {
+        JO_FORM: state(JO_FORM, inbound=[ago(6)]),
+        ANN_FORM: state(ANN_FORM, inbound=[ago(4)], outbound=[ago(3)]),   # the reply in the thread
+        FLO_FORM: state(FLO_FORM, inbound=[ago(5)]),                      # nothing in HER thread
+    }
+
+    async def reply_state(thread_id: str):
+        return states.get(thread_id)
+
+    monkeypatch.setattr(gmail_tools, "_client", object())
+    monkeypatch.setattr(gmail_tools, "_list_metadata", listing)
+    analytics_tools.bind_email(None, None, reply_state, own_address=OURS, inbox_for=gmail_tools.inbox_threads, sent_for=gmail_tools.sent_to)
+    yield queries
+    analytics_tools.bind_email(None, None)
+
+
+def test_a_contact_form_is_the_customer_who_filled_it_in_and_nothing_else_is():
+    form = {"from": MAILER, "subject": "New customer message on September 3, 2026", "reply-to": "Jo Bloggs <jo@example.com>"}
+    assert gmail_tools.contact_form(form, FORM_INTRO) == ("Jo Bloggs", "jo@example.com")
+    # No Reply-To, or one that is Shopify's own: the body's Email field.
+    body = f"{FORM_INTRO} Country Code: GB Name: Flo Fry Email: flo@example.com Phone Number: Body: hi"
+    assert gmail_tools.contact_form({**form, "reply-to": ""}, body) == ("Flo Fry", "flo@example.com")
+    assert gmail_tools.contact_form({**form, "reply-to": "mailer@shopify.com"}, body) == ("Flo Fry", "flo@example.com")
+    assert gmail_tools.contact_form({**form, "reply-to": ""}, FORM_INTRO) is None, "nobody named: nobody to answer"
+    # The same mailer's order notification, and the same subject from anyone else, are not it.
+    order = {"from": "Shopify <mailer@shopify.com>", "subject": "[CROOKSLDN] Order #1002 placed by Ben Bold", "reply-to": "ben@example.com"}
+    assert gmail_tools.contact_form(order, "Order summary") is None
+    assert gmail_tools.contact_form({**form, "from": "Jo <jo@example.com>"}, FORM_INTRO) is None
+
+
+async def test_the_inbox_listing_keeps_the_contact_form_and_drops_the_mailers_other_mail(storefront):
+    found = await gmail_tools.inbox_threads(days=30)
+    by_thread = {t["thread_id"]: t for t in found["threads"]}
+    assert set(by_thread) == {JO_FORM, ANN_FORM, FLO_FORM}, "the order notification and the store report stay out"
+    jo = by_thread[JO_FORM]
+    assert (jo["from"], jo["from_email"], jo["via"], jo["relay"]) == ("Jo Bloggs", "jo@example.com", "contact_form", "mailer@shopify.com")
+    assert jo["authenticated"] is False and jo["likely_bulk"] is False, "a typed address is a claim; Shopify's signature vouches for Shopify"
+    assert by_thread[FLO_FORM]["from_email"] == "flo@example.com"
+
+
+async def test_a_contact_form_nobody_answered_is_waiting(storefront):
+    body = await analytics_tools.email_query(days=30)
+    rows = {r["customer_email"]: r for r in body["rows"]}
+    assert set(rows) == {"jo@example.com", "ann@example.com", "flo@example.com"}, "Ben's order notification is not Ben writing"
+    jo = rows["jo@example.com"]
+    assert jo["needs_reply"] is True and jo["via"] == "contact_form" and jo["waiting_since"] == ago(6)
+    assert jo["known_customer"] is False, "not a customer yet, and still somebody waiting on us"
+    answer = library._needs_reply_render(_ctx(Session(session_id="nr-form")), ReadResult(values={"mail": body}))
+    assert answer.answer == "1 person is waiting on a reply in the inbox's last 30 days: Jo Bloggs."
+    (row,) = answer.surfaces[0].data["threads"]
+    assert row["thread_id"] == JO_FORM and row["snippet"] == "contact form"
+    # One listing of Sent, for everyone the inbox named, metadata only.
+    sent_queries = [q for q in storefront if q[0].startswith("in:sent")]
+    assert sent_queries == [("in:sent newer_than:30d (to:ann@example.com OR to:flo@example.com OR to:jo@example.com)", gmail_tools.SENT_LIMIT, ["To", "Cc"])]
+
+
+async def test_a_contact_form_answered_in_its_thread_is_not_waiting(storefront, monkeypatch):
+    # Without the Sent listing at all: the reply in the thread answers her on its own.
+    monkeypatch.setattr(analytics_tools, "_sent_for", None)
+    rows = {r["customer_email"]: r for r in (await analytics_tools.email_query(days=30))["rows"]}
+    ann = rows["ann@example.com"]
+    assert ann["needs_reply"] is False and ann["replied"] is True and ann["known_customer"] and ann["customer_name"] == "Ann Able"
+    assert rows["flo@example.com"]["needs_reply"] is True, "and without it, a new email to Flo cannot be seen"
+
+
+async def test_a_contact_form_answered_with_a_new_email_is_not_waiting(storefront):
+    rows = {r["customer_email"]: r for r in (await analytics_tools.email_query(days=30))["rows"]}
+    flo = rows["flo@example.com"]
+    assert flo["needs_reply"] is False and flo["replied"] is True and flo["latest_outbound_at"] == ago(2) and flo["waiting_since"] is None
+    assert rows["jo@example.com"]["needs_reply"] is True, "an email to her from before she asked answers nothing"
+
+
+async def test_what_we_sent_is_read_from_sent_mail_only(monkeypatch):
+    async def listing(client, query, limit, headers=None):
+        return [dict(m) for m in SENT_LISTING]
+
+    monkeypatch.setattr(gmail_tools, "_client", object())
+    monkeypatch.setattr(gmail_tools, "_list_metadata", listing)
+    got = await gmail_tools.sent_to(["Jo@Example.com", "flo@example.com", "not an address"], days=30)
+    assert got["latest"] == {"flo@example.com": ago(2), "jo@example.com": ago(10)}, "s4 names Jo but is not ours"
