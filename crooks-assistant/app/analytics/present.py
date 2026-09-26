@@ -190,9 +190,12 @@ def _ranking(result: dict[str, Any], currency: str) -> dict[str, Any]:
         # The totals under the list are the period's (app/analytics/engine.py). Where the rows
         # are not all of it — a limit, a customer filter — they say so, rather than standing
         # under 25 customers as though those 25 had placed the whole month's 272 orders.
-        "totals_label": f"Whole period ({period}), not just this list" if result.get("totals_scope") == "period" else "",
+        # Rows past MAX_ROWS are not drawn, so totals over more rows than shown are not the drawn
+        # list's either (the 2026-09-26 deploy review, F-03).
+        "totals_label": f"Whole period ({period}), not just this list" if (result.get("totals_scope") == "period" or len(result.get("rows") or []) > MAX_ROWS) else "",
         "measured": [m for m in metrics if m in measured], "derived": [m for m in metrics if m in derived],
-        "note": _note(result), "complete": (result.get("coverage") or {}).get("complete", True) is not False, "truncated": bool(result.get("truncated")),
+        "note": _note(result), "complete": (result.get("coverage") or {}).get("complete", True) is not False,
+        "truncated": bool(result.get("truncated")) or len(result.get("rows") or []) > MAX_ROWS,
     }
 
 
