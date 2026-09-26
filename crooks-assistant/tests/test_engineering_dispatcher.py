@@ -544,6 +544,67 @@ def test_checks_run_in_the_sandbox_on_a_copy_and_cannot_touch_the_candidate_tree
     assert w.store.read_results()[0].clean_worktree
 
 
+class SandboxShapedTreeRunner(NamespaceSandbox):
+    """The dispatcher's runner type (so the builder gets run_checks) with the test double's behaviour."""
+
+    def availability(self):
+        return True, "test double: no isolation"
+
+    def run(self, argv, *, tree, cwd, timeout_s):
+        return TreeRunnerForTests().run(argv, tree=tree, cwd=cwd, timeout_s=timeout_s)
+
+
+RUN_CHECKS_LINE = "run_checks runs your objective's listed checks in your workspace; use it before you report."
+
+
+def test_a_builder_with_declared_checks_gets_run_checks_bound_to_exactly_those_checks(tmp_path):
+    check = Check(name="hello", argv=("grep", "-qx", "hello", "pkg/hello.txt"), timeout_s=45)
+    w = World(tmp_path, checks=(check,), runner=SandboxShapedTreeRunner(ro_paths=(str(tmp_path),)))
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.REVIEWING))
+    attempt = w.store.read_attempts(OBJ)[0]
+    argv = json.loads((w.state / "argv.0.json").read_text())
+    servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]
+    assert list(servers) == ["clive_checks"]
+    config_path = Path(servers["clive_checks"]["args"][-1])
+    assert config_path == tmp_path / "runtime" / "checks" / attempt.attempt_id / "_builder" / "config.json"
+    assert oct(config_path.stat().st_mode & 0o777) == "0o600"
+    config = json.loads(config_path.read_text())
+    assert config["checks"] == [{"name": "hello", "argv": ["grep", "-qx", "hello", "pkg/hello.txt"], "cwd": ".",
+                                 "timeout_s": 45}]
+    assert config["workspace"] == str(tmp_path / "workers" / OBJ / attempt.attempt_id)
+    assert config["sandbox"]["ro_paths"] == [str(tmp_path)]
+    assert "mcp__clive_checks__run_checks" in argv
+    assert RUN_CHECKS_LINE in (w.state / "prompt.0.txt").read_text()
+    # the builder's tool is advisory: the dispatcher ran the check itself, and that run is the evidence
+    evidence = json.loads((tmp_path / "runtime" / "evidence" / attempt.attempt_id / "check-hello.json").read_text())
+    assert evidence["exit_code"] == 0 and evidence["head"] == w.store.read_results()[0].result_sha
+
+
+def test_a_builder_reporting_success_is_still_refused_when_the_dispatchers_own_check_fails(tmp_path):
+    check = Check(name="hello", argv=("grep", "-qx", "hello", "pkg/hello.txt"))
+    w = World(tmp_path, checks=(check,), runner=SandboxShapedTreeRunner())
+    w.scenarios({"edits": [["pkg/hello.txt", "not hello\n"]],
+                 "report": {"status": "completed", "summary": "run_checks passed, all green"}}, EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.REVIEWING))
+    first, second = w.store.read_attempts(OBJ)
+    first_events = w.store.read_events(OBJ, first.attempt_id)
+    assert "checks failed" in [e.note for e in first_events if e.kind is EventKind.CANCELLED][0]
+    assert w.store.read_results()[0].attempt_id == second.attempt_id
+
+
+def test_without_the_namespace_sandbox_or_declared_checks_there_is_no_run_checks(tmp_path):
+    w = World(tmp_path, checks=(Check(name="c", argv=("true",)),))  # the test double is not the sandbox
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(lambda: w.invocations() >= 1 and (w.state / "argv.0.json").exists())
+    argv = json.loads((w.state / "argv.0.json").read_text())
+    assert argv[argv.index("--mcp-config") + 1] == '{"mcpServers":{}}'
+    assert RUN_CHECKS_LINE not in (w.state / "prompt.0.txt").read_text()
+
+
 class NoSandbox:
     kind = "unavailable-for-test"
 
