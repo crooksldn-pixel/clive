@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import acceptance_provenance as provenance  # noqa: E402
 
 from app.actions.models import ActionStatus  # noqa: E402
+from tests.fake_credentials import aws_secret_access_key  # noqa: E402
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "acceptance_provenance.py"
 
@@ -227,12 +228,14 @@ def test_an_absent_secret_scanner_is_an_error_not_a_pass(
 
 def test_the_committed_baseline_holds_no_secret_value() -> None:
     """The baseline is committed, so it must be readable by anyone without
-    handing them anything. Every value in it is the literal 'REDACTED'."""
+    handing them anything. Every value in it is the literal 'REDACTED'.
 
-    findings = provenance.read_baseline()
-    assert findings, "the baseline should record the known pre-existing findings"
+    Since the owner's rule B (2026-09-25) the test suite's fake credentials are
+    assembled at runtime by tests/fake_credentials.py instead of being baselined,
+    so the committed baseline is empty; this still holds for anything a later
+    decision puts in it."""
 
-    for finding in findings:
+    for finding in provenance.read_baseline():
         assert finding["Secret"] == "REDACTED"
         assert "REDACTED" in finding["Match"]
         assert finding["Fingerprint"]
@@ -282,8 +285,35 @@ def test_the_artifact_discloses_how_much_the_baseline_suppressed(
 
     assert real.data is not None
     assert real.data["mode"] == "tree"
-    assert real.data["baseline_suppressed_findings"] == len(provenance.read_baseline())
-    assert real.data["baseline_path"] == ".gitleaks-baseline.json"
+    baseline = provenance.read_baseline()
+    assert real.data["baseline_suppressed_findings"] == len(baseline)
+    assert real.data["baseline_path"] == (".gitleaks-baseline.json" if baseline else None)
+
+
+def test_a_non_empty_baseline_is_handed_to_the_scanner_and_disclosed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The committed baseline is empty under rule B. The day it is not, what it
+    suppresses must still reach the scanner and the artifact."""
+
+    baseline = tmp_path / ".gitleaks-baseline.json"
+    baseline.write_text(json.dumps([{
+        "Fingerprint": "crooks-assistant/tests/x.py:generic-api-key:1",
+        "Match": "REDACTED", "Secret": "REDACTED",
+    }]), encoding="utf-8")
+    monkeypatch.setattr(provenance, "SECRET_BASELINE", baseline)
+    captured: list[list[str]] = []
+
+    def fake_run_gate(name, command, **kwargs):
+        captured.append(command)
+        return provenance.GateResult(name, True, provenance.PASS, 0)
+
+    monkeypatch.setattr(provenance, "_run_gate", fake_run_gate)
+    result = provenance.gate_secret_scan(None)
+
+    assert captured[0][-2:] == ["--baseline-path", ".gitleaks-baseline.json"]
+    assert result.data["baseline_suppressed_findings"] == 1
+    assert result.data["baseline_path"] and result.data["baseline_path"].endswith(".gitleaks-baseline.json")
 
 
 def test_the_scan_command_uses_only_relative_paths(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -325,20 +355,20 @@ def test_the_allowlist_covers_only_generated_paths() -> None:
     for source_dir in ("crooks-assistant/app", "crooks-assistant/config",
                        "crooks-assistant/scripts", "snippets", "sections", "templates"):
         assert source_dir not in config
-    # tests/ in particular must stay in scope — the baseline handles the five
-    # known fixtures individually, one fingerprint at a time.
+    # tests/ in particular must stay in scope — its fake credentials are
+    # assembled at runtime (rule B), so the scan reads the tests and finds none.
     assert "'''(^|/)tests/'''" not in config
 
 
 def test_a_new_secret_still_fails_the_gate(tmp_path: Path, monkeypatch) -> None:
-    """The baseline suppresses five fingerprints, not the rule that found them."""
+    """No rule is relaxed and no path hidden: a new secret anywhere fails the gate."""
 
     if not (provenance._VENDORED_GITLEAKS.is_file() or _on_path("gitleaks")):
         pytest.skip("the pinned scanner is not available on this host")
 
     probe = provenance.REPO / "scratch-leak-probe-test.txt"
     probe.write_text(
-        'aws_secret_access_key = "' + "AKIA" + "J" * 12 + "wJalrXUtnFEMIK7MDENGbPxRfiCY" + '"\n',
+        'aws_secret_access_key = "' + aws_secret_access_key("gate-probe") + '"\n',
         encoding="utf-8",
     )
     try:

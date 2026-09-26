@@ -28,9 +28,9 @@ from app.routes.speak import speak
 from app.speech.normalise import from_terms
 from app.speech.transcribe import Transcriber
 from app.speech.voice_reasons import LISTENING_CREDIT_SPOKEN
+from tests.fake_credentials import elevenlabs_key
 
-# Built in two parts so the repository secret scan does not read the test fixture as a key.
-SECRET = "sk_elevenlabs_" + "test_key_0123456789abcdef"
+SECRET = elevenlabs_key("voice-credits")
 VOICE_ID = "Q0Et7LOU7VpeoeCRQAVS"
 MP3 = b"\xff\xfb\x90\x00" + b"\x00" * 512
 

@@ -49,6 +49,7 @@ from app.digest.intakes import git as git_handler
 from app.digest.intakes import package as package_handler
 from app.digest.intakes import url as url_handler
 from app.digest.pipeline import digest, tree_digest
+from tests.fake_credentials import credential_url, password
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "digest_intake.py"
 TAKEN_AT = "2026-09-26T10:00:00+00:00"
@@ -357,9 +358,9 @@ def test_only_public_https_urls_are_fetched(source):
 
 
 def test_credentials_in_a_url_are_refused_without_being_repeated():
-    secret = "hunter" + "2-" + "not-real"
+    secret = password("intake-url")
     with pytest.raises(SourceRefused) as refused:
-        https_url("https://someone:" + secret + "@github.com/example/tally.git")
+        https_url(credential_url(secret, user="someone", host="github.com", path="/example/tally.git"))
     assert secret not in str(refused.value)
 
 

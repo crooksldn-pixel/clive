@@ -109,7 +109,7 @@ final class HumanisingTests: XCTestCase {
     func testASecretInStderrNeverReachesTheSentence() {
         // stderr is text control.py's own redact() never saw: it is the shell's, or the
         // subprocess's, and it arrives here raw.
-        let token = "shpat_" + String(repeating: "a1b2c3d4", count: 4)
+        let token = FakeCredential.shopifyToken("humanising-stderr")
         let failure = ControlFailure.exited(
             code: 1,
             stderr: "Shopify refused the token \(token): 401 Unauthorized"
@@ -122,16 +122,17 @@ final class HumanisingTests: XCTestCase {
     func testEveryShapeTheControlScriptRedactsIsRedactedHereToo() {
         // The same list as SECRET_SHAPES in scripts/control.py. Two lists that drift apart are
         // worse than one, because whichever side is behind is the side that leaks.
-        // Built from a prefix and a synthetic body at runtime, not as whole literals, so the
-        // source holds no credential-shaped string for the secret scanner to flag.
-        let secretPieces: [(String, String)] = [
-            ("shpat_", "0123456789abcdef"), ("shpca_", "0123456789abcdef"), ("shpss_", "0123456789abcdef"),
-            ("shppa_", "0123456789abcdef"), ("sk-ant-api03-", "Abc123" + "Def456"), ("sk-proj-", "Abc123Def456"),
-            ("ghp_", "0123456789abcdefghij"), ("gho_", "0123456789abcdefghij"),
-            ("github_pat_", "0123456789abcdefghij"), ("xoxb-", "0123-4567-abcdef"), ("xoxp-", "0123-4567-abcdef"),
-            ("ya29.", "A0ARrdaM-abcdef"), ("AIzaSyA-", "abcdefghij"),
+        // Every value comes from FakeCredential, assembled at runtime (the owner's rule B), so
+        // the source holds no credential-shaped string for the secret scanner to flag.
+        let secrets: [String] = [
+            FakeCredential.shopifyToken("shapes", kind: "at"), FakeCredential.shopifyToken("shapes", kind: "ca"),
+            FakeCredential.shopifyToken("shapes", kind: "ss"), FakeCredential.shopifyToken("shapes", kind: "pa"),
+            FakeCredential.anthropicKey("shapes"), FakeCredential.openAIKey("shapes"),
+            FakeCredential.githubToken("shapes", kind: "p"), FakeCredential.githubToken("shapes", kind: "o"),
+            FakeCredential.githubFineGrainedToken("shapes"),
+            FakeCredential.slackToken("shapes", kind: "b"), FakeCredential.slackToken("shapes", kind: "p"),
+            FakeCredential.googleOAuthToken("shapes"), FakeCredential.googleAPIKey("shapes"),
         ]
-        let secrets = secretPieces.map { $0.0 + $0.1 }
         for secret in secrets {
             let scrubbed = Redaction.scrub("it said \(secret) and stopped")
             XCTAssertFalse(scrubbed.contains(secret), "not redacted: \(secret) → \(scrubbed)")
@@ -140,8 +141,9 @@ final class HumanisingTests: XCTestCase {
     }
 
     func testANamedCredentialKeepsItsNameAndLosesItsValue() {
-        let scrubbed = Redaction.scrub("ANTHROPIC_API_KEY=hunter2hunter2 was rejected")
-        XCTAssertFalse(scrubbed.contains("hunter2hunter2"), scrubbed)
+        let value = FakeCredential.password("named-credential")
+        let scrubbed = Redaction.scrub("ANTHROPIC_API_KEY=\(value) was rejected")
+        XCTAssertFalse(scrubbed.contains(value), scrubbed)
         XCTAssertTrue(scrubbed.contains("ANTHROPIC_API_KEY"),
                       "which credential it was is the useful half: \(scrubbed)")
     }

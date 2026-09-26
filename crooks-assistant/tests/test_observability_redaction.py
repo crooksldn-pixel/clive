@@ -46,6 +46,7 @@ import pytest
 
 from app.observability import timeline
 from app.observability.session import TestSessions
+from tests.fake_credentials import bearer_token, shopify_token
 
 try:
     from experience.fixtures.live_states import assert_clean as _assert_clean
@@ -274,13 +275,14 @@ def test_the_ids_counts_and_milliseconds_a_report_is_built_from_survive(recordin
 def test_a_credential_is_still_withheld_and_still_scrubbed(recording):
     """The seam's older job, so redaction cannot have displaced it."""
     line, store, session = recording
+    token = shopify_token("redaction-seam")
     line.emit("tool_requested", session_id="s1", tool="shopify_order_detail",
-              authorization="Bearer abcdefghijklmnopqrst",
-              args={"token": "shpat_0123456789abcdef", "note": "shpat_0123456789abcdef"})
+              authorization=f"Bearer {bearer_token('redaction-seam')}",
+              args={"token": token, "note": token})
     line.flush()
 
     written = store.timeline_path(session).read_text(encoding="utf-8")
-    assert "shpat_0123456789abcdef" not in written
+    assert token not in written
     assert "[withheld]" in written and "[secret]" in written
 
 

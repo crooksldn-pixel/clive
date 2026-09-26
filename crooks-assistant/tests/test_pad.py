@@ -34,6 +34,7 @@ from app.observability.report import reconstruct, render
 from app.observability.session import TestSessions
 from app.observability.timeline import Timeline, read_events
 from app.session.manager import SessionManager
+from tests.fake_credentials import bearer_token, shopify_token
 from tests.test_actions_routes import PROXIED, FakeProvider, configure
 
 
@@ -237,7 +238,7 @@ def test_an_identity_cannot_smuggle_a_secret_or_an_address_onto_health(registry)
     redactor written here."""
     reg, _clock = registry
     reg.heartbeat(
-        app_version="shpat_0123456789abcdef",
+        app_version=shopify_token("pad-identity"),
         device_model="SM-T290 <script>alert(1)</script> george@crooks.example",
         os_version="A" * 500,
     )
@@ -609,16 +610,17 @@ def test_a_pad_event_obeys_the_existing_pii_scrubbing(registry, recording):
     """
     timeline, path = recording
     reg, _clock = registry
+    token = shopify_token("pad-telemetry")
     reg.record([{
         "kind": "pad_webview_error", "code": "ERR_FAILED",
-        "message": "load failed for george@crooks.example, token shpat_0123456789abcdef, ring 07700 900123",
+        "message": f"load failed for george@crooks.example, token {token}, ring 07700 900123",
         "url": "https://crooks.example/?x=1",
-        "authorization": "Bearer abcdefghijklmnop", "device_name": "George's Tab",
+        "authorization": f"Bearer {bearer_token('pad-telemetry')}", "device_name": "George's Tab",
     }])
     timeline.flush()
     written = [e for e in read_events(path) if e["kind"] == "pad_webview_error"][0]
     assert "george@crooks.example" not in written["message"] and "[email]" in written["message"]
-    assert "shpat_0123456789abcdef" not in written["message"] and "[secret]" in written["message"]
+    assert token not in written["message"] and "[secret]" in written["message"]
     assert "07700 900123" not in written["message"]
     # Fields that are not in the appliance's vocabulary never become fields at all, so there is
     # nothing for the scrub to have to catch.

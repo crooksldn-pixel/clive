@@ -33,6 +33,7 @@ from app.tools import gmail_writes, registry
 from app.tools.dispatch import dispatch
 from app.tools.gate import Disposition, Tier, classify
 from app.tools.registry import ToolError
+from tests.fake_credentials import google_oauth_token
 
 ORDER = "gid://shopify/Order/1930"
 THREAD = "18f3a9c2b1d4e5f6"
@@ -574,9 +575,10 @@ def test_effective_scopes_come_from_google_first_and_the_stored_token_last(monke
         return Answer()
 
     monkeypatch.setattr(httpx, "get", fake_get)
-    fresh = SimpleNamespace(granted_scopes=None, token="access-token", scopes=[SCOPE_READONLY])
+    access = google_oauth_token("gmail-tokeninfo")
+    fresh = SimpleNamespace(granted_scopes=None, token=access, scopes=[SCOPE_READONLY])
     assert gmail_client.effective_scopes(fresh) == (frozenset({SCOPE_MODIFY, SCOPE_COMPOSE}), "google")
-    assert asked[0][0] == gmail_client.TOKENINFO_URL and asked[0][1] == {"access_token": "access-token"} and asked[0][2] == gmail_client.TOKENINFO_TIMEOUT_S
+    assert asked[0][0] == gmail_client.TOKENINFO_URL and asked[0][1] == {"access_token": access} and asked[0][2] == gmail_client.TOKENINFO_TIMEOUT_S
 
     def down(url, params=None, timeout=None):
         raise OSError("no network")
