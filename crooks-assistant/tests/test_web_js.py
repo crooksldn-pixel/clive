@@ -119,6 +119,21 @@ def test_only_the_hold_asks_for_the_microphone_under_node():
 
 
 @needs_node
+def test_the_owners_settings_and_contextual_chrome_under_node():
+    """GENERATIVE_UI_V1 §4, objective 2b: the Settings sheet in the owner's order with empty
+    sections left out, diagnostics and fixtures behind an off-by-default Developer view switch,
+    a header that speaks only while something relevant is wrong, and Back, Previous and Next
+    only inside a list or a drill-down (tests/web/settings.test.js, running web/app.js's own
+    text)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / "settings.test.js")],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout
+
+
+@needs_node
 def test_the_one_interaction_state_under_node():
     """V0.5 invariant 2: IDLE → LISTENING → HEARING → UNDERSTOOD → THINKING → WORKING →
     RESPONDING → IDLE, with error, interruption and recovery explicit — and the four

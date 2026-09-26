@@ -219,6 +219,10 @@ a:focus-visible,[role="button"]:focus-visible,[role="tab"]:focus-visible,[tabind
 .conn[data-state="degraded"] .conn-dot{background:var(--warn);box-shadow:none;border-radius:1px;transform:rotate(45deg)}
 .conn[data-state="down"] .conn-dot{background:var(--bad);box-shadow:none;border-radius:1px}
 .conn[data-state="down"]{color:var(--ink-2)}
+/* Contextual: nothing in the header while all is well (web/app.js drawConn). `display:flex`
+   above would otherwise override the attribute, and the settings button keeps the right edge. */
+.conn[hidden]{display:none}
+.conn[hidden] + .icon-btn{margin-left:auto}
 .icon-btn{
   width:var(--tap);height:var(--tap);border-radius:var(--r-pill);border:1px solid var(--line);
   background:var(--glass);color:var(--ink-2);display:grid;place-items:center;cursor:pointer;
@@ -810,8 +814,22 @@ body[data-mode="orb"] .dock{background:linear-gradient(180deg,rgba(7,7,10,0),rgb
 .frow[data-ready="false"] .fstate{color:var(--warn)}
 .frow[data-state="TEMPORARILY_UNAVAILABLE"] .fstate{color:var(--bad)}
 .fdetail{grid-column:1 / -1;color:var(--ink-3);word-break:break-word;font-size:12px;line-height:1.45}
+/* The owner's sections: fewer elements, more air. Rows are words on the sheet, not boxes —
+   a name, a state word where there is one, and the plain reason under it. */
+.set-section{margin:0 0 var(--sp-5)}
+.set-section h3{margin-top:var(--sp-6)}
+.set-list{margin:0}
+.orow{display:grid;grid-template-columns:1fr auto;gap:var(--sp-1) var(--sp-3);align-items:baseline;padding:var(--sp-3) 0;border-top:1px solid var(--line);font-size:15px}
+.orow:first-child{border-top:0}
+.oname{color:var(--ink)}
+.ostate{font-size:12px;color:var(--ink-3);white-space:nowrap}
+.orow[data-state="ok"] .ostate{color:var(--ok)}
+.orow[data-state="attention"] .ostate{color:var(--warn)}
+.odetail{grid-column:1 / -1;color:var(--ink-3);font-size:13px;line-height:1.5;word-break:break-word}
+.dev-switch{margin-top:var(--sp-6);padding-top:var(--sp-2);border-top:1px solid var(--line);color:var(--ink-2)}
 .dev{border:1px dashed rgba(220,178,102,.4);border-radius:var(--r-2);padding:12px 14px;margin-top:20px}
-.dev h3{margin-top:0;color:var(--warn)}
+.dev h3{color:var(--warn)}
+.dev h3:first-child{margin-top:0}
 .dev-grid{display:flex;flex-wrap:wrap;gap:8px}
 .dev-grid .btn{flex:0 1 auto;min-width:0;padding:0 14px;font-size:13px}
 .dev-banner{

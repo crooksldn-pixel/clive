@@ -72,7 +72,9 @@ const el = {
   voiceSelect: $('voice-select'), voiceNote: $('voice-note'), preview: $('preview-voice'),
   micTest: $('mic-test'), speakToggle: $('speak-toggle'), streamToggle: $('stream-toggle'), timingToggle: $('timing-toggle'),
   health: $('health-detail'), families: $('families'), resetSession: $('reset-session'),
-  dev: $('dev'), devGrid: $('dev-grid'), devText: $('dev-text'),
+  setCanDo: $('set-can-do'), canDo: $('can-do'), setReach: $('set-reach'), reach: $('reach'),
+  setNeeds: $('set-needs'), needs: $('needs'),
+  dev: $('dev'), devToggle: $('dev-toggle'), devGrid: $('dev-grid'), devText: $('dev-text'),
 };
 
 const store = {
@@ -80,8 +82,9 @@ const store = {
   set(key, value) { try { localStorage.setItem(key, value); } catch { /* private mode */ } },
 };
 
-// The developer gate. ?dev=1 turns fixtures on for this browser, ?dev=0 turns them off; the
-// choice persists so the URL can be plain afterwards. Nothing else reads this flag.
+// The developer gate: where the Developer view switch at the bottom of the sheet starts. Off
+// unless it was turned on in this browser — by the switch, or by ?dev=1 (?dev=0 turns it off);
+// the choice persists so the URL can be plain afterwards. Nothing else reads this flag.
 const DEV = (() => {
   try {
     const params = new URLSearchParams(location.search);
@@ -324,6 +327,9 @@ const DETAIL_WORDS = {
   commerce_query: ['Reading', 'the shop'], commerce_summary: ['Summarising', 'the shop'],
   commerce_aggregate: ['Adding up', 'the numbers'], commerce_capabilities: ['Checking', 'what the shop allows'],
   email_query: ['Reading', 'the inbox'], inventory_query: ['Checking', 'stock'],
+  // Engineering (the remote build loop)
+  engineering_status: ['Checking', 'the build queue'],
+  submit_engineering_request: ['Preparing', 'a build request', true],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
@@ -341,11 +347,6 @@ function detailWords(detail, state) {
   const waited = turnStartedAt ? Date.now() - turnStartedAt : 0;
   if (state === 'THINKING' && waited > LONG_THINK_MS) return `Still working · ${Math.round(waited / 1000)} s`;
   return undefined;
-}
-
-function setConn(state, text) {
-  el.conn.dataset.state = state;
-  el.connText.textContent = text;
 }
 
 function setMode(mode) {
@@ -758,7 +759,8 @@ function playAudio(blob, text, generation, isError, startAt = 0) {
 // The badge names the thing that is down, in the owner's words, worst first.
 function faultLabel(checks) {
   const down = (k) => checks[k] && checks[k].ok === false;
-  if (down('claude')) return 'Claude offline';
+  // The owner's word for what is down, not the provider's name (GENERATIVE_UI_V1 §4).
+  if (down('claude')) return 'CLIVE cannot answer';
   /* Was "Cannot hear you", and the visual pass was right about it: on the most prominent
      band of the page, in amber, beside an amber diamond, that reads as the assistant
      refusing to listen rather than as a service being down. §27's question is whether an
@@ -835,8 +837,10 @@ async function pollHealth(fresh = false) {
     applyUpdateWhenIdle();
     const checks = data.checks || {};
     const failed = Object.entries(checks).filter(([, c]) => !c.ok).map(([k]) => k);
+    // Whether the header says anything about it is decided against what the owner is doing
+    // (drawConn): the checks travel with the state for that.
     if (!failed.length) setConn('ok', 'Online');
-    else setConn('degraded', faultLabel(checks));
+    else setConn('degraded', faultLabel(checks), checks);
     maybeReloadForNewBuild(data.build);
     setService('shopify', checks.shopify ? checks.shopify.ok : null);
     setService('gmail', checks.gmail ? checks.gmail.ok : null);
@@ -849,12 +853,11 @@ async function pollHealth(fresh = false) {
     setService('changes', writesState === 'ready' ? true : writesState === 'disabled' ? 'off' : writesState ? false : null);
     renderHealthRows(checks);
     renderFamilies(data.families);
+    drawOwnerSettings(data);
     const voice = data.voice || {};
     if (voice.voice) {
-      el.voiceName.textContent = voice.enabled
-        ? `${voice.voice} · ElevenLabs ${voice.model || ''}`.trim() + ' · generated on the server'
-        : 'ElevenLabs voice switched off · the fallback voice below is in use';
-      el.preview.textContent = voice.enabled ? `Preview ${voice.voice}` : 'Preview fallback voice';
+      el.voiceName.textContent = voice.enabled ? voice.voice : "This device's own voice";
+      el.preview.textContent = voice.enabled ? `Preview ${voice.voice}` : 'Preview voice';
     }
     el.voiceStatus.textContent = voice.ok === false ? 'Unavailable' : voice.enabled === false ? 'Off' : 'Ready';
     el.voiceStatus.className = `badge quiet ${voice.ok === false ? 'bad' : voice.enabled === false ? 'warn' : 'ok'}`;
@@ -864,6 +867,9 @@ async function pollHealth(fresh = false) {
     clear(el.health);
     el.health.appendChild(healthRow(false, 'the server', 'Cannot reach the assistant. Is the server up, and is the assistant running on it?'));
     if (el.families) { clear(el.families); el.families.appendChild(familyRow({ label: 'Everything', state: 'TEMPORARILY_UNAVAILABLE', detail: 'the server cannot be reached' })); }
+    // Nothing is known about the services while CLIVE cannot be reached, so the owner's
+    // sections that are drawn from them are left out rather than kept from the last answer.
+    drawOwnerSettings(null);
     el.voiceStatus.textContent = 'Unknown';
     el.voiceStatus.className = 'badge quiet';
     wentOffline();
@@ -941,6 +947,300 @@ function renderHealthRows(checks) {
     if (!c) continue;
     el.health.appendChild(healthRow(c.ok, HEALTH_NAMES[key] || key, c.detail));
   }
+}
+
+/* ----------------------------------------------------- the owner's settings */
+
+// GENERATIVE_UI_V1 §4: the sheet is the owner's. What CLIVE can do for you, who and what it can
+// reach, and what it needs from you — in plain words, drawn from the /health answer the page
+// already polls, and never naming the machine CLIVE runs on. The backend's own detail strings
+// are engineering text, so they stay in the Developer view; these rows use the words the Mac
+// already writes for a person (`what`, `reason`) or say it plainly here. A section with nothing
+// true to say is left out, never filled with a placeholder.
+
+// "voice is paused because …" → "Voice is paused because ….": the backend's plain reasons are
+// clauses, and the sheet prints sentences.
+function plainSentence(words) {
+  const said = String(words || '').trim();
+  if (!said) return '';
+  const first = said.charAt(0).toUpperCase() + said.slice(1);
+  return /[.!?]$/.test(first) ? first : `${first}.`;
+}
+
+// The actions CLIVE may prepare: every family that stages a change and is ready to. Each one
+// is a proposal the owner taps to apply, which the section's own line says once.
+function canDoRows(families) {
+  return Object.keys(families || {}).map((key) => ({ key, ...(families[key] || {}) }))
+    .filter((f) => f.key !== '_error' && !f.hide && f.state === 'READY' && Array.isArray(f.operations) && f.operations.length)
+    .sort((a, b) => String(a.area).localeCompare(String(b.area)) || String(a.label).localeCompare(String(b.label)))
+    .map((f) => ({ name: String(f.label || f.key), detail: plainSentence(f.what) }));
+}
+
+// What a failed Shopify or Gmail check means for the owner. /health sends the check's own words,
+// which are engineering text — an exception name, a status code, a stored credential — so they
+// are sorted here into a few kinds with a plain reason and what to do, and the words themselves
+// stay in the Developer view. Only a kind known to clear by itself says so: access that was
+// refused or never set up waits for a person. First match wins, so the narrower kinds come
+// first: an app and a shop in different Shopify organisations is refused access too, but for a
+// reason reconnecting the same way will not fix.
+const SERVICE_FAULT_KINDS = {
+  shopify: [
+    ['organisation', /shop_not_permitted|different shopify organi[sz]ations?/i],
+    ['setup', /no shopify_static_token|not configured|not stored/i],
+    ['busy', /\b429\b|rate-limit|throttl/i],
+    ['unreachable', /could not reach|timed out|timeout|\b5\d\d\b/i],
+    ['access', /\b40[13]\b|revoked|rejected the token|token request failed|not released|installed/i],
+  ],
+  gmail: [
+    ['setup', /no gmail token stored/i],
+    ['unreachable', /timed out|timeout|could not reach|unable to find the server|\b5\d\d\b/i],
+    ['access', /RefreshError|invalid_grant|refresh|authoris|authoriz|expired|credential|token|\b40[13]\b/i],
+  ],
+};
+const SERVICE_WORDS = {
+  shopify: { name: 'Shopify', place: 'your shop', purpose: 'read your orders, products and sales' },
+  gmail: { name: 'Gmail', place: 'your inbox', purpose: 'read your email' },
+};
+// The kinds that wait for the owner, and the word each has among the owner's steps. The others —
+// busy, unreachable, unknown — establish no step: they clear by themselves or are not the owner's.
+const SERVICE_STEP_WORDS = { setup: 'Not connected', access: 'Needs reconnecting', organisation: 'Needs reconnecting' };
+function serviceFault(key, check) {
+  const said = String((check && check.detail) || '');
+  const found = (SERVICE_FAULT_KINDS[key] || []).find(([, pattern]) => pattern.test(said));
+  const kind = found ? found[0] : 'unknown';
+  const { name, place, purpose } = SERVICE_WORDS[key];
+  const word = 'Needs attention';
+  if (kind === 'setup') {
+    return { kind, word, detail: `${name} is not connected to CLIVE yet. Connect ${name} so CLIVE can ${purpose}.` };
+  }
+  if (kind === 'organisation') {
+    return {
+      kind, word,
+      detail: `CLIVE's Shopify connection belongs to a different Shopify organisation from ${place}, so ${place} will not let it in. `
+        + `Reconnect ${place} to CLIVE through ${place}'s own Shopify organisation so CLIVE can ${purpose}.`,
+    };
+  }
+  if (kind === 'access') {
+    const why = key === 'gmail'
+      ? 'Google has stopped letting CLIVE into your inbox — a Google password change does this, for example.'
+      : 'Shopify has stopped letting CLIVE into your shop — its access was withdrawn or has run out.';
+    return { kind, word, detail: `${why} Reconnect ${name} to CLIVE so it can ${purpose} again.` };
+  }
+  if (kind === 'busy') {
+    return { kind, word: 'Busy', detail: `${name} asked CLIVE to slow down for a moment. It picks up again by itself; there is nothing to do.` };
+  }
+  const why = kind === 'unreachable'
+    ? `CLIVE could not reach ${place} on its last check.`
+    : `${name} did not answer CLIVE as expected on its last check.`;
+  return { kind, word, detail: `${why} If it stays like this for more than a few minutes, ask for CLIVE's connection to ${name} to be checked.` };
+}
+
+// What a failed voice or transcription check means for the owner. /health sends the failure's
+// kind and a plain reason for it; the reason says what happened but not always what to do, so
+// the kind decides the next step. Credits used up wait for a top-up (the owner's step, in
+// needsRows); a slow, busy or unreachable moment clears by itself; a key or voice that is wrong
+// does not, and waits for a person. Anything else — no kind, a kind not listed here, a cooldown
+// after a failure of either sort — is watched for a few minutes and then escalated.
+const SPEECH_FAULT_KINDS = {
+  credit: ['credit'],
+  passing: ['timeout', 'network', 'server_error', 'rate', 'cancelled', 'prefetch', 'bad_response', 'empty', 'truncated'],
+  setup: ['no_key', 'rejected', 'forbidden', 'no_voice', 'off'],
+};
+const SPEECH_WORDS = {
+  voice: {
+    subject: "CLIVE's voice", credit: 'Voice is paused because the ElevenLabs credits are used up.',
+    unknown: "CLIVE's voice is not answering.", retry: '',
+  },
+  transcription: {
+    subject: "CLIVE's listening", credit: 'Speech recognition is paused because the ElevenLabs credits are used up.',
+    unknown: 'CLIVE cannot hear you just now.', retry: ' Try speaking again then.',
+  },
+};
+function speechFault(which, kind, reason) {
+  const words = SPEECH_WORDS[which];
+  const group = Object.keys(SPEECH_FAULT_KINDS).find((g) => SPEECH_FAULT_KINDS[g].indexOf(kind) !== -1) || 'unknown';
+  const why = plainSentence(reason) || (group === 'credit' ? words.credit : words.unknown);
+  const steps = {
+    credit: 'Top up the ElevenLabs plan to bring it back.',
+    passing: `It usually clears by itself within a few minutes; there is nothing to do.${words.retry}`,
+    setup: `This does not clear by itself: ask for ${words.subject} to be checked.`,
+    unknown: `If it stays like this for more than a few minutes, ask for ${words.subject} to be checked.`,
+  };
+  return { kind: group, detail: `${why} ${steps[group]}` };
+}
+
+// Each connected service, as connected or as needing attention with the plain reason and what
+// to do. Only the services /health reports: a check it did not run is not a row.
+function reachRows(data) {
+  const checks = (data && data.checks) || {};
+  const voice = (data && data.voice) || {};
+  const speech = (data && data.speech) || {};
+  const rows = [];
+  const connected = (name) => ({ name, state: 'ok', word: 'Connected' });
+  const attention = (name, detail) => ({ name, state: 'attention', word: 'Needs attention', detail });
+  for (const key of ['shopify', 'gmail']) {
+    if (!checks[key]) continue;
+    const name = SERVICE_WORDS[key].name;
+    if (checks[key].ok) { rows.push(connected(name)); continue; }
+    const fault = serviceFault(key, checks[key]);
+    rows.push({ name, state: 'attention', word: fault.word, detail: fault.detail });
+  }
+  if (checks.tts || (data && data.voice)) {
+    if (voice.enabled === false) {
+      rows.push({ name: 'Voice', state: 'off', word: 'Off', detail: "Answers are spoken in this device's own voice." });
+    } else if (voice.ok === false || (checks.tts && checks.tts.ok === false)) {
+      const fault = speechFault('voice', voice.failure_kind, voice.reason);
+      rows.push(attention('Voice', `${fault.detail} Until then, answers are spoken in this device's own voice.`));
+    } else {
+      rows.push(connected('Voice'));
+    }
+  }
+  if (checks.speech) {
+    rows.push(checks.speech.ok ? connected('Transcription')
+      : attention('Transcription', speechFault('transcription', speech.scribe_failure_kind, speech.scribe_reason).detail));
+  }
+  return rows;
+}
+
+// A family's `what` cut to its first clause and started in lower case, to sit inside a sentence:
+// "Create a discount code — a percentage or …" → "create a discount code".
+function shortWhat(what) {
+  const said = String(what || '').split(/ — |, /)[0].trim().replace(/[.!?]$/, '');
+  return said ? said.charAt(0).toLowerCase() + said.slice(1) : '';
+}
+
+// Which service holds a family's permission, and what must be connected for a family that is
+// not: said as the owner would, never as the scope or the provider's identifier. The exact
+// scope and the backend's reason stay in the Developer view's list of families.
+function permissionHolder(f) {
+  return /gmail|googleapis/i.test(String(f.scope || '')) || f.area === 'email' ? 'Gmail' : 'Shopify';
+}
+// A disconnected family's subject comes from its reported reason where that is narrower than
+// its area (a carrier, not any shipping provider), and otherwise from the area. An area with no
+// service to name has no step to give, so nothing is said rather than "the service it needs".
+const CONNECT_SUBJECTS = {
+  shipping: 'a shipping provider', email: 'Gmail',
+  orders: 'Shopify', customers: 'Shopify', products: 'Shopify', analytics: 'Shopify',
+};
+function connectSubject(f) {
+  const said = String(f.detail || '');
+  if (/\bcarrier\b/i.test(said)) return 'a carrier';
+  if (/\bshipping provider\b/i.test(said)) return 'a shipping provider';
+  if (/\bgmail\b/i.test(said)) return 'Gmail';
+  if (/\bshopify\b/i.test(said)) return 'Shopify';
+  return CONNECT_SUBJECTS[f.area] || '';
+}
+
+// Only the open steps /health already names as the owner's: a service to connect or reconnect,
+// a permission a change is waiting for, a family whose service is not connected, and credits
+// that have run out — each as the task it turns on and the one thing the owner does.
+function needsRows(data) {
+  const checks = (data && data.checks) || {};
+  const families = (data && data.families) || {};
+  const voice = (data && data.voice) || {};
+  const speech = (data && data.speech) || {};
+  const rows = [];
+  for (const key of ['shopify', 'gmail']) {
+    if (!checks[key] || checks[key].ok !== false) continue;
+    const fault = serviceFault(key, checks[key]);
+    const word = SERVICE_STEP_WORDS[fault.kind];
+    if (word) rows.push({ name: SERVICE_WORDS[key].name, state: 'attention', word, detail: fault.detail });
+  }
+  for (const key of Object.keys(families).sort()) {
+    const f = families[key] || {};
+    if (key === '_error' || f.hide) continue;
+    const task = shortWhat(f.what);
+    if (f.state === 'MISSING_SCOPE') {
+      const holder = permissionHolder(f);
+      const detail = task
+        ? `CLIVE does not yet have ${holder}'s permission to ${task}. Allow it in ${holder} to turn this on.`
+        : `CLIVE does not yet have the ${holder} permission this needs. Allow it in ${holder} to turn this on.`;
+      rows.push({ name: String(f.label || key), state: 'attention', word: 'Needs your permission', detail });
+    } else if (f.state === 'DISCONNECTED') {
+      const subject = connectSubject(f);
+      if (!subject) continue;
+      const tell = /^(whether|what|which|when|where|who|how)\b/.test(task) ? ` so CLIVE can tell you ${task}` : ' to turn this on';
+      rows.push({ name: String(f.label || key), state: 'attention', word: 'Not connected', detail: `Connect ${subject}${tell}.` });
+    }
+  }
+  if (voice.failure_kind === 'credit' || speech.scribe_failure_kind === 'credit') {
+    rows.push({
+      name: 'ElevenLabs plan', state: 'attention', word: 'Top up',
+      detail: voice.failure_kind === 'credit'
+        ? speechFault('voice', 'credit', voice.reason).detail
+        : speechFault('transcription', 'credit', speech.scribe_reason).detail,
+    });
+  }
+  return rows;
+}
+
+function ownerRow(row) {
+  const node = document.createElement('div');
+  node.className = 'orow';
+  node.setAttribute('role', 'listitem');
+  node.dataset.state = row.state || 'ok';
+  const name = document.createElement('span'); name.className = 'oname'; name.textContent = row.name;
+  node.appendChild(name);
+  if (row.word) { const word = document.createElement('span'); word.className = 'ostate'; word.textContent = row.word; node.appendChild(word); }
+  if (row.detail) { const line = document.createElement('span'); line.className = 'odetail'; line.textContent = row.detail; node.appendChild(line); }
+  return node;
+}
+
+function fillSection(section, list, rows) {
+  if (!section || !list) return;
+  clear(list);
+  for (const row of rows) list.appendChild(ownerRow(row));
+  section.hidden = !rows.length;
+}
+
+// `null` when nothing is known — CLIVE cannot be reached — and every section drawn from /health
+// is left out rather than kept from the last answer.
+function drawOwnerSettings(data) {
+  fillSection(el.setCanDo, el.canDo, data ? canDoRows(data.families) : []);
+  fillSection(el.setReach, el.reach, data ? reachRows(data) : []);
+  fillSection(el.setNeeds, el.needs, data ? needsRows(data) : []);
+}
+
+// The header says something only while something is wrong AND it matters to what the owner is
+// doing (invariant 8, GENERATIVE_UI_V1 §4). Offline always matters, and so do CLIVE being
+// unable to answer or to hear. A service matters while the screen is reading from it — the shop
+// behind Orders, Sales and Products, the inbox behind Inbox. The voice falls back by itself and
+// a missing offline recogniser changes nothing the owner does, so neither is ever the header's.
+// When all is well the header shows nothing at all.
+const FAULT_REACH = { claude: '*', speech: '*', shopify: ['orders', 'sales', 'products'], gmail: ['email'] };
+function relevantFaults(checks, area) {
+  const out = {};
+  for (const key of Object.keys(checks || {})) {
+    const check = checks[key];
+    const where = FAULT_REACH[key];
+    if (!check || check.ok !== false || !where) continue;
+    if (where === '*' || where.indexOf(area) !== -1) out[key] = check;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+let connState = 'connecting';
+let connText = 'Connecting';
+let connChecks = null;
+function setConn(state, text, checks) {
+  connState = state;
+  connText = text;
+  connChecks = checks || null;
+  drawConn();
+}
+// Drawn again whenever the area on screen changes (lightDock), because a fault that did not
+// matter on the orb screen matters the moment the owner opens the place it breaks.
+function drawConn() {
+  let state = connState;
+  let text = connText;
+  if (state === 'degraded') {
+    const faults = relevantFaults(connChecks, el.body.dataset.area || '');
+    if (faults) text = faultLabel(faults);
+    else state = 'ok';
+  }
+  el.conn.dataset.state = state;
+  el.connText.textContent = text;
+  el.conn.hidden = state !== 'down' && state !== 'degraded';
 }
 
 pollHealth();
@@ -1465,6 +1765,8 @@ function lightDock(nodes) {
     btn.setAttribute('aria-pressed', btn.dataset.area === area ? 'true' : 'false');
   }
   el.body.dataset.area = area;
+  // A service fault is the header's only while the owner is in the place it breaks.
+  drawConn();
 }
 
 // `opts.keep` draws nothing: the nodes for this entry are already the deck's children,
@@ -1506,17 +1808,24 @@ function showHistory(index, opts) {
 // says it belongs to. Back is the TRAIL (`can_back`); Previous and Next are the open LIST
 // (`workflow`), and the two of them appear and disappear together.
 //
-// Every chip keeps its slot for the whole walk and greys out at the ends rather than
-// vanishing. Back used to be `hidden` at the start of a list, so the FIRST Next tap made it
+// None of the three is a permanent strip (GENERATIVE_UI_V1 §4). They appear only while the
+// owner is INSIDE something: a list (Previous and Next, and Back beside them) or a drill-down
+// (Back, because there is somewhere to go back to). On a landing with neither, the row carries
+// none of them.
+//
+// Inside a list, every chip keeps its slot for the whole walk and greys out at the ends rather
+// than vanishing. Back used to be `hidden` at the start of a list, so the FIRST Next tap made it
 // appear — and Next slid 68px (9.1mm) to the right, out from under the thumb that had just
 // pressed it, onto the spot the 60px Back chip now occupied. Driven with real taps at one
 // fixed point, tap one advanced the list and tap two at the identical point hit BACK. Walking
 // a queue one-handed is a repeated press in one place; the control under that place must not
-// change identity between presses.
+// change identity between presses — which is why Back is shown, greyed, for the whole of a
+// list even where the trail has nowhere to go.
 function drawWalkChips(index) {
   const workflow = branchState && branchState.workflow;
-  el.backBtn.hidden = false;
-  el.backBtn.disabled = !canGoBack(index);
+  const back = canGoBack(index);
+  el.backBtn.hidden = !back && !workflow;
+  el.backBtn.disabled = !back;
   if (el.prevBtn) {
     el.prevBtn.hidden = !workflow;
     el.prevBtn.disabled = Boolean(workflow && workflow.at_start);
@@ -3811,12 +4120,28 @@ el.micTest.addEventListener('click', async () => {
 
 /* ------------------------------------------------------------- developer */
 
-if (DEV) {
-  el.dev.hidden = false;
+// Diagnostics and fixtures live behind one clearly labelled switch at the bottom of the sheet,
+// "Developer view", off unless it was turned on (GENERATIVE_UI_V1 §4). Turning it on shows the
+// developer section and, the first time, loads the fixtures; turning it off hides both again
+// and stops the timings line, so nothing of it is left on the owner's screen.
+let devBanner = null;
+function setDeveloperView(on) {
+  el.devToggle.checked = on;
+  el.dev.hidden = !on;
+  store.set('crooks.dev', on ? '1' : '0');
+  if (on) loadDeveloperTools();
+  if (devBanner) devBanner.hidden = !on;
+  if (!on) { el.timingToggle.checked = false; el.timings.hidden = true; }
+}
+el.devToggle.addEventListener('change', () => setDeveloperView(el.devToggle.checked));
+
+function loadDeveloperTools() {
+  if (devBanner) return;
   const banner = document.createElement('div');
   banner.className = 'dev-banner';
-  banner.textContent = 'Developer mode · fixtures are not live data';
+  banner.textContent = 'Developer view · fixtures are not live data';
   document.body.appendChild(banner);
+  devBanner = banner;
   const script = document.createElement('script');
   script.src = '/static/fixtures.js';
   script.onload = () => {
@@ -3853,6 +4178,7 @@ if (DEV) {
     submit({ text, session_id: sessionId, turns, speak: el.speakToggle.checked }, false);
   });
 }
+setDeveloperView(DEV);
 
 /* ------------------------------------------------------------- system layer */
 

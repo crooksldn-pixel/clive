@@ -126,6 +126,12 @@ _KNOWN_TOOLS = frozenset({
     # the store refuses to authorise a work item or close an objective unless the owner's own
     # screen asks (app/routes/objectives.py). Named here one by one, because this is an allow-list.
     "objective_open", "objective_list", "objective_show", "objective_note",
+    # The engineering loop's status (app/tools/engineering_tools.py). It reads what the loop
+    # publishes on GitHub and the inbox branch's head, and nothing else: it stages nothing and
+    # cannot reach a write. The head it returns is issued like any id a read returns, and that
+    # issued id is what the filing tool, a write staged for the owner, must act on. Named here
+    # because this is an allow-list.
+    "engineering_status",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops
