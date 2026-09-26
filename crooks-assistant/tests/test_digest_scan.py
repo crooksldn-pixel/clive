@@ -1015,3 +1015,29 @@ def test_more_things_that_run_on_install_or_open_are_reported(tmp_path):
     assert with_rule(findings, "execute.notebook", "old.ipynb")
     assert with_rule(findings, "execute.binary", "tool")
     assert not [f for f in findings if "/objects/" in f.path]
+
+
+# --- the artifact's own licence, for intake -------------------------------------------------------
+
+
+def test_the_artifacts_licence_is_what_its_top_declares(tmp_path):
+    assert scan.artifact_licence(build(tmp_path / "mit", {"LICENSE": MIT_TEXT})) == "MIT"
+    agree = build(tmp_path / "agree", {"LICENSE": MIT_TEXT, "package.json": json.dumps({"license": "MIT"})})
+    assert scan.artifact_licence(agree) == "MIT"
+    manifest = build(tmp_path / "manifest", {"pyproject.toml": '[project]\nname = "x"\nlicense = "Apache-2.0"\n'})
+    assert scan.artifact_licence(manifest) == "Apache-2.0"
+    dual = build(tmp_path / "dual", {"LICENSE-MIT": MIT_TEXT, "LICENSE-APACHE": "Apache License, Version 2.0\n"})
+    assert scan.artifact_licence(dual) == "Apache-2.0 (LICENSE-APACHE); MIT (LICENSE-MIT)"
+    custom = build(tmp_path / "custom", {"LICENSE": "You may look but not touch, says the author.\n"})
+    assert scan.artifact_licence(custom) == scan.UNKNOWN
+    assert scan.artifact_licence(build(tmp_path / "none", {"README.md": "# x\n"})) is None
+
+
+def test_the_artifacts_licence_is_not_read_through_a_link_or_from_below_the_top(tmp_path):
+    outside = build(tmp_path / "outside", {"LICENSE": MIT_TEXT})
+    root = build(tmp_path / "root", {"vendor/LICENSE": MIT_TEXT, "README.md": "# x\n"})
+    os.symlink(outside / "LICENSE", root / "LICENSE")
+    assert scan.artifact_licence(root) is None
+    hard = build(tmp_path / "hard", {"README.md": "# x\n"})
+    os.link(outside / "LICENSE", hard / "COPYING")
+    assert scan.artifact_licence(hard) == scan.UNKNOWN          # named as one, but not read

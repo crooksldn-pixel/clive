@@ -1939,17 +1939,91 @@ def _licence_finding(path: str, line: int, expression: str, source: str) -> Find
 def _licence_findings(rel: str, path: str, text: str | None) -> tuple[list[Finding], bool]:
     """The licence this file declares, if it is a licence file or a manifest that names one, and
     whether it is a licence source at all."""
-    name = rel.rsplit("/", 1)[-1]
-    if _LICENCE_FILE.fullmatch(name) and name.rsplit(".", 1)[-1].lower() not in _NOT_LICENCE_SUFFIXES:
-        expression = identify_licence_text(text) if text is not None else UNKNOWN
-        return [_licence_finding(path, 0, expression, "licence file")], True
-    if text is None:
-        return [], False
-    declared = _declared_licence(name, text)
+    declared = _licence_of(rel, text)
     if declared is None:
         return [], False
+    expression, line, source = declared
+    return [_licence_finding(path, line, expression, source)], True
+
+
+def _is_licence_file(name: str) -> bool:
+    return bool(_LICENCE_FILE.fullmatch(name)) and name.rsplit(".", 1)[-1].lower() not in _NOT_LICENCE_SUFFIXES
+
+
+def _licence_of(rel: str, text: str | None) -> tuple[str, int, str] | None:
+    """(expression, line, what declared it) for a licence file or a manifest naming a licence;
+    None for any other file."""
+    name = rel.rsplit("/", 1)[-1]
+    if _is_licence_file(name):
+        return (identify_licence_text(text) if text is not None else UNKNOWN), 0, "licence file"
+    if text is None:
+        return None
+    declared = _declared_licence(name, text)
+    if declared is None:
+        return None
     expression, line = declared
-    return [_licence_finding(path, line, expression, name)], True
+    return expression, line, name
+
+
+_MAX_TOP_ENTRIES = 2000   # names looked at when finding the artifact's own licence
+
+
+def artifact_licence(root: str | os.PathLike[str]) -> str | None:
+    """The artifact's own licence, as scan_tree judges it: read from the licence files and the
+    package manifests at the top of the tree (one further down covers only what is bundled with
+    it). An SPDX expression when they agree; 'unknown' when there is a licence file whose text is
+    not recognised; each expression with the file that declares it, joined by '; ', when they
+    differ (LICENSE-MIT and LICENSE-APACHE, say); None when there is no licence at the top at all.
+
+    Reading as scan_tree reads: regular files only, never through a link, never a hard-linked
+    file, at most MAX_FILE_BYTES of each."""
+    base = os.fspath(root)
+    if not os.path.isdir(base):
+        raise NotADirectoryError(base)
+    names: list[str] = []
+    with os.scandir(base) as listing:
+        for count, entry in enumerate(listing):
+            if count >= _MAX_TOP_ENTRIES:
+                break
+            if entry.is_file(follow_symlinks=False):
+                names.append(entry.name)
+    found: list[tuple[str, str]] = []
+    for name in sorted(names):
+        if not _is_licence_file(name) and name not in _MANIFESTS:
+            continue
+        text = _read_top(base, name)
+        declared = _licence_of(name, text)
+        if declared is not None and all(expression != declared[0] for expression, _ in found):
+            found.append((declared[0], name))
+    if not found:
+        return None
+    if len(found) == 1:
+        return found[0][0]
+    return "; ".join(f"{expression} ({_display(name)})" for expression, name in found)
+
+
+_MANIFESTS = frozenset(("package.json", "composer.json", "pyproject.toml", "Cargo.toml", "setup.cfg"))
+
+
+def _read_top(base: str, name: str) -> str | None:
+    try:
+        fd = os.open(os.path.join(base, name), _FILE_FLAGS)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1 or info.st_size > MAX_FILE_BYTES:
+            return None
+        data = b""
+        while len(data) <= MAX_FILE_BYTES and (chunk := os.read(fd, 65536)):
+            data += chunk
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    if len(data) > MAX_FILE_BYTES or _looks_binary(data, name):
+        return None
+    return _decode(data)
 
 
 def _declared_licence(name: str, text: str) -> tuple[str, int] | None:
