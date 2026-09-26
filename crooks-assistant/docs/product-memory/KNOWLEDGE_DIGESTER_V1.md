@@ -63,7 +63,7 @@ Relating needs an up-to-date picture of what CLIVE already has: the tool registr
 | Tool or connector | a registered tool behind the gate, with tests | the registry entry, module and tests |
 | Product-memory knowledge | an entry citing its Source | the entry id |
 | Objective | a loop request built natively from the idea | the objective's commits |
-| Design tokens or patterns | tokens or components with provenance | the token set or component path |
+| Design tokens or patterns (`design_system`) | a named token set in the Generative UI's token sheet (`web/style.css`), or a component folder beside the scene renderer (`web/components/`), with provenance; a token set needs the owner | the token set or component path |
 | Reference only | a pointer in the digest report | nothing to remove |
 
 ## 7. Authority and safety
@@ -78,7 +78,7 @@ The share of proposals the owner accepts; time from intake to working capability
 
 - **Wave 1, building on 2026-09-26:** the model and absorption ledger; the quarantine scanner; recognition of every artifact kind.
 - **Wave 2:** adapters for skills and agent configuration, documents, code repositories, interface specifications, datasets, and web themes and design tokens; one pipeline call `digest(path)`; a command-line entry and a report renderer.
-- **Wave 3:** the generated self-model, relation and absorption proposals.
+- **Wave 3:** the generated self-model, relation and absorption proposals, as stages of the one `digest(root, source, store, self_model=...)` call: every Unit related to the self-model, one proposal per Unit written once to the ledger (a re-digest appends nothing), and both in the report and the command line (`scripts/digest.py`, related to CLIVE's own repository by default).
 - **Wave 4, on the engineering host:** the intake fetcher and quarantine; the first real digestions (Playwright CLI, Taste Skill, Vercel's interface guidelines, a public skills collection, and CLIVE's own repository).
 - **Wave 5:** absorbers for each target with removal, measurement and the watchlist; digest proposals shown on the phone as Generative UI scenes; "digest this" through Build from CLIVE.
 - **Later:** model-assisted understanding through the model gateway, sandboxed browser digestion of live sites and apps, media, and earned autonomy for low-risk absorption classes.

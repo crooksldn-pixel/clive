@@ -4,8 +4,12 @@
 
 What it says, in order: where the artifact came from and how it is pinned; whether it was
 digested or blocked, and by which adapters; the kinds it was found to be, with detect's
-evidence and the census; the findings, most severe first; and the Units, counted by kind,
-with the first few of each kind by place and whatever the adapters could not read.
+evidence and the census; the findings, most severe first; the Units, counted by kind, with the
+first few of each kind by place — each with its relation to CLIVE when it was related — and
+whatever the adapters could not read; the relations, counted, with every overlap and extension
+up to a bound and the self-model entry it rests on; and CLIVE's proposals grouped by target,
+each with its reasoning, what it would add (which is its removal handle), and whether it needs
+the owner.
 
 The same result gives the same text, byte for byte: nothing here reads the clock, the machine
 or the tree. Everything taken from the artifact — its origin, paths, evidence, titles — is
@@ -14,8 +18,9 @@ zero-width space) are written as escapes, as the scanner writes them, and Markdo
 punctuation is escaped, so a title cannot hide words in an HTML comment or rearrange the
 report around it. Paths are shown as the scanner shows them, with anything shaped like a
 credential replaced by its kind. Findings never quote what they found, and the title of a Unit
-read from a line where the scanner found a credential is withheld, so no secret value reaches
-the report. Every list is bounded."""
+read from a line where the scanner found a credential is withheld — and so are the reasoning of
+its proposal, which quotes the title, and the names of what it would add, which are made from
+it — so no secret value reaches the report. Every list is bounded."""
 
 from __future__ import annotations
 
@@ -23,8 +28,18 @@ import re
 from collections import Counter
 
 from app.digest import scan
-from app.digest.model import SEVERITIES, UNIT_KINDS, Finding, Location, Unit
+from app.digest.model import (
+    ABSORPTION_TARGETS,
+    SEVERITIES,
+    UNIT_KINDS,
+    Absorption,
+    Finding,
+    Location,
+    Unit,
+)
 from app.digest.pipeline import DigestResult, normalise_kind
+from app.digest.propose import NEEDS_OWNER, explain, needs_owner, usual_hypothesis
+from app.digest.relate import RELATIONS, Match, Relation
 
 MAX_SAMPLES = 5            # Units shown for each kind
 MAX_FINDINGS = 50          # findings shown for each severity
@@ -32,6 +47,10 @@ MAX_EVIDENCE = 5           # pieces of evidence shown for each detection
 MAX_UNREAD = 10            # 'unparsed' Units shown
 MAX_EXTENSIONS = 8         # extensions named in the census line
 MAX_TEXT = 200             # characters of any one piece of the artifact's text
+MAX_RELATED = 25           # overlaps, and extensions, listed
+MAX_PROPOSALS = 10         # proposals shown for each target
+MAX_REASONING = 900        # characters of a proposal's reasoning
+MAX_ADDITIONS = 5          # additions named for one proposal
 
 _UNPARSED = "unparsed"
 _MARKDOWN = re.compile(r"([\\`*_\[\]<>|~&!#])")
@@ -41,11 +60,15 @@ _SECRET = "secret."        # pipeline._from_scan starts each explanation with th
 def render(result: DigestResult) -> str:
     artifact = result.artifact
     lines = [f"# Digest of {_text(artifact.source.origin)}", ""]
+    secrets = _secret_places(result.findings)
+    relations = {relation.unit_id: relation for relation in result.relations}
     lines += _source(result)
     lines += _outcome(result)
     lines += _kinds(result)
     lines += _findings(result.findings)
-    lines += _units(artifact.units, result.findings)
+    lines += _units(artifact.units, secrets, relations)
+    lines += _relations(result, secrets)
+    lines += _proposals(result, secrets, relations)
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
@@ -81,6 +104,11 @@ def _outcome(result: DigestResult) -> list[str]:
         )
     else:
         text = "No adapter reads the kinds found, so no Units were read."
+    if result.related:
+        text += (
+            f" Related to CLIVE's self-model, with {len(result.proposals)} proposal(s), of which "
+            f"{sum(1 for p in result.proposals if needs_owner(p))} need the owner."
+        )
     return ["## Outcome", "", text, ""]
 
 
@@ -142,7 +170,8 @@ def _findings(findings: tuple[Finding, ...]) -> list[str]:
     return lines
 
 
-def _units(units: tuple[Unit, ...], findings: tuple[Finding, ...]) -> list[str]:
+def _units(units: tuple[Unit, ...], secrets: dict[str, set[int | None]],
+           relations: dict[str, Relation]) -> list[str]:
     lines = ["## Units", ""]
     if not units:
         return [*lines, "None.", ""]
@@ -150,7 +179,6 @@ def _units(units: tuple[Unit, ...], findings: tuple[Finding, ...]) -> list[str]:
     lines += ["| Kind | Units |", "|---|---:|"]
     lines += [f"| {kind} | {counts[kind]} |" for kind in UNIT_KINDS if counts[kind]]
     lines += [f"| total | {len(units)} |", ""]
-    secrets = _secret_places(findings)
     unread = [unit for unit in units if _UNPARSED in unit.tags]
     for kind in UNIT_KINDS:
         read = [unit for unit in units if unit.kind == kind and _UNPARSED not in unit.tags]
@@ -158,7 +186,9 @@ def _units(units: tuple[Unit, ...], findings: tuple[Finding, ...]) -> list[str]:
             continue
         lines += [f"### {kind} ({len(read)})", ""]
         for unit in read[:MAX_SAMPLES]:
-            lines.append(f"- {_title(unit, secrets)} at {_where(unit.location)}{_tags(unit)}")
+            relation = relations.get(unit.id)
+            related = f" — {_relation(relation)}" if relation is not None else ""
+            lines.append(f"- {_title(unit, secrets)} at {_where(unit.location)}{_tags(unit)}{related}")
         if len(read) > MAX_SAMPLES:
             lines.append(f"- and {len(read) - MAX_SAMPLES} more")
         lines.append("")
@@ -172,6 +202,137 @@ def _units(units: tuple[Unit, ...], findings: tuple[Finding, ...]) -> list[str]:
     return lines
 
 
+def _relations(result: DigestResult, secrets: dict[str, set[int | None]]) -> list[str]:
+    lines = ["## Relations", ""]
+    if not result.related:
+        why = ("the artifact was blocked before decomposition" if result.blocked
+               else "it was digested without CLIVE's self-model")
+        return [*lines, f"Not related to CLIVE: {why}.", ""]
+    counts = Counter(relation.relation for relation in result.relations)
+    by_relation = ", ".join(f"{name} {counts[name]}" for name in RELATIONS)
+    lines += [
+        f"Related to CLIVE's self-model {_code(result.self_model or '')}: {by_relation}. An overlap "
+        "is something CLIVE already has; an extension adds to something CLIVE has, plans or has "
+        "thought of; a gap is something CLIVE lacks; a reference is only pointed at.",
+        "",
+    ]
+    units = {unit.id: unit for unit in result.units}
+    place = {relation.unit_id: index for index, relation in enumerate(result.relations)}
+    for name, heading in (("overlap", "Overlaps"), ("extends", "Extensions")):
+        # the strongest first, then by place: the bound keeps what says most
+        chosen = sorted((r for r in result.relations if r.relation == name),
+                        key=lambda r: (-r.score, place[r.unit_id]))
+        if not chosen:
+            continue
+        lines += [f"### {heading} ({len(chosen)}, strongest first)", ""]
+        for relation in chosen[:MAX_RELATED]:
+            unit = units[relation.unit_id]
+            lines.append(f"- {_title(unit, secrets)} at {_where(unit.location)} — {_relation(relation)}")
+        if len(chosen) > MAX_RELATED:
+            lines.append(f"- and {len(chosen) - MAX_RELATED} more")
+        lines.append("")
+    return lines
+
+
+def _proposals(result: DigestResult, secrets: dict[str, set[int | None]],
+               relations: dict[str, Relation]) -> list[str]:
+    lines = ["## Proposals", ""]
+    if not result.related:
+        return [*lines, "None: nothing was related to CLIVE, so nothing is proposed.", ""]
+    if not result.proposals:
+        return [*lines, "None: there were no Units to propose for.", ""]
+    owner = [p for p in result.proposals if needs_owner(p)]
+    lines += [
+        f"{len(result.proposals)} proposal(s) made against the self-model above, each proposed "
+        f"by CLIVE and decided by no one: the owner decides. {len(owner)} say they need the "
+        "owner. What a proposal would add is its removal handle: taking exactly that out again "
+        "undoes it.",
+        "",
+        "| Target | Proposals | Need the owner |",
+        "|---|---:|---:|",
+    ]
+    by_target: dict[str, list[Absorption]] = {}
+    for proposal in result.proposals:
+        by_target.setdefault(proposal.target, []).append(proposal)
+    for target in ABSORPTION_TARGETS:
+        if target in by_target:
+            group = by_target[target]
+            lines.append(f"| {target} | {len(group)} | {sum(1 for p in group if needs_owner(p))} |")
+    lines.append("")
+    units = {unit.id: unit for unit in result.units}
+    for target in ABSORPTION_TARGETS:
+        group = by_target.get(target)
+        if not group:
+            continue
+        # the ones that need the owner first, then in reading order
+        group = sorted(group, key=lambda p: not needs_owner(p))
+        waiting = sum(1 for p in group if needs_owner(p))
+        lines += [f"### {target} ({len(group)}" + (f"; {waiting} need the owner" if waiting else "") + ")", ""]
+        usual = usual_hypothesis(target)
+        if all(usual):
+            lines += [f"Hypothesis, unless a proposal says otherwise: {_text(usual[0], limit=None)} "
+                      f"Measure: {_text(usual[1], limit=None)}", ""]
+        for proposal in group[:MAX_PROPOSALS]:
+            lines += _proposal(proposal, units[proposal.unit_id], relations.get(proposal.unit_id),
+                               secrets, usual)
+        if len(group) > MAX_PROPOSALS:
+            lines.append(f"- and {len(group) - MAX_PROPOSALS} more {target} proposal(s)")
+        lines.append("")
+    return lines
+
+
+def _proposal(proposal: Absorption, unit: Unit, relation: Relation | None,
+              secrets: dict[str, set[int | None]], usual: tuple[str, str]) -> list[str]:
+    withheld = _withheld(unit, secrets)
+    parts = explain(proposal)
+    head = f"- {_title(unit, secrets)} at {_where(unit.location)}"
+    if relation is not None:
+        head += f" — {relation.relation}"
+    if parts.needs_owner:
+        head += " — **Needs the owner**"
+    if withheld:
+        why = "*(withheld: the reasoning quotes a title read where a credential was found)*"
+    else:
+        why = _text(parts.why, limit=MAX_REASONING)
+    lines = [head, f"  - Why: {why}"]
+    if parts.needs_owner:
+        lines.append(f"  - {NEEDS_OWNER}: {_text(parts.needs_owner, limit=MAX_REASONING)}.")
+    if (parts.hypothesis, parts.measure) != usual and parts.hypothesis:
+        lines.append(f"  - Hypothesis: {_text(parts.hypothesis, limit=MAX_REASONING)} "
+                     f"Measure: {_text(parts.measure, limit=MAX_REASONING)}")
+    additions = proposal.removal.additions
+    if not additions:
+        adds = "Adds nothing, so its removal handle is empty."
+    else:
+        named = [
+            addition.kind if withheld else f"{addition.kind} {_code(addition.ref)}"
+            for addition in additions[:MAX_ADDITIONS]
+        ]
+        more = len(additions) - MAX_ADDITIONS
+        adds = "Would add, and so its removal handle: " + "; ".join(named) + (
+            f"; and {more} more" if more > 0 else "") + (
+            " *(names withheld: they are made from the title)*" if withheld else "") + "."
+    return [*lines, f"  - {adds}"]
+
+
+def _relation(relation: Relation) -> str:
+    """A relation in a few words: what it is and the self-model entry it rests on."""
+    basis = next((m for m in relation.matches if m.key == relation.basis), None)
+    if basis is not None:
+        verb = "overlaps" if relation.relation == "overlap" else "extends"
+        planned = "" if basis.present or relation.relation == "overlap" else ", planned or an idea"
+        return f"{verb} {_entry(basis)}{planned}"
+    if relation.relation == "gap":
+        return "gap: nothing in CLIVE is close"
+    return "reference: only pointed at"
+
+
+def _entry(match: Match) -> str:
+    named = "named; " if match.named else ""
+    terms = f"; shared: {', '.join(_text(term) for term in match.terms)}" if match.terms else ""
+    return f"{_code(match.key)} {_text(match.name, limit=80)} ({named}{match.score:.2f}{terms})"
+
+
 # --- the artifact's text, shown as text -------------------------------------------------------
 
 
@@ -183,12 +344,18 @@ def _secret_places(findings: tuple[Finding, ...]) -> dict[str, set[int | None]]:
     return places
 
 
-def _title(unit: Unit, secrets: dict[str, set[int | None]]) -> str:
+def _withheld(unit: Unit, secrets: dict[str, set[int | None]]) -> bool:
+    """Whether the Unit was read from where the scanner found a credential."""
     lines = secrets.get(unit.location.path)
-    if lines:
-        start, end = unit.location.line_start, unit.location.line_end
-        if start is None or any(line is None or start <= line <= end for line in lines):
-            return "*(title withheld: a credential was found here)*"
+    if not lines:
+        return False
+    start, end = unit.location.line_start, unit.location.line_end
+    return start is None or any(line is None or start <= line <= end for line in lines)
+
+
+def _title(unit: Unit, secrets: dict[str, set[int | None]]) -> str:
+    if _withheld(unit, secrets):
+        return "*(title withheld: a credential was found here)*"
     return f"**{_text(unit.title)}**"
 
 

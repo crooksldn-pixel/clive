@@ -11,9 +11,14 @@ requires of every target outside ADDING_TARGETS.
     unit kind                      target            what it would add
     procedure                      builder_skill     a skill folder
     rule, check                    review_check      a review-check rule id
-    capability tagged read         tool_connector    the registry entry, its module and tests
-    capability tagged write or     tool_connector    the same, and marked as needing the owner:
-      unknown (or untagged)                          behind the action gate, owner-decided
+    capability with an API         tool_connector    the registry entry, its module and tests
+      contract tag (openapi,
+      graphql, mcp), tagged read
+    the same, tagged write or      tool_connector    the same, and marked as needing the owner:
+      unknown (or neither)                           behind the action gate, owner-decided
+    capability read from code      native_objective  an objective built natively (section 4 of
+      (a function, module or                         the design: code is built natively, never
+      command: no contract tag)                      registered as a tool, which would run it)
     interface with an API          tool_connector    a connector, its client module and tests,
       contract tag that extends                      marked as needing the owner
       what CLIVE has
@@ -24,7 +29,12 @@ requires of every target outside ADDING_TARGETS.
     claim that extends             product_memory    the same, verified first
     knowledge or a claim that      reference_only    nothing: it would be mass without a use
       relates to nothing
-    design_token, pattern          native_objective  an objective (there is no design target)
+    design_token                   design_system     a token set in the Generative UI's token
+                                                     sheet (web/style.css), marked as needing
+                                                     the owner: the look is the owner's
+    pattern read by the design     design_system     a component folder beside the scene
+      adapter (tagged design)                        renderer (web/components/<name>)
+    any other pattern              native_objective  an objective built natively
     dependency, script, example    reference_only    nothing
     anything that overlaps         reference_only    nothing: CLIVE already has it
     anything the adapter could     reference_only    nothing
@@ -56,11 +66,16 @@ TOOLS_DIR = "crooks-assistant/app/tools"
 CLIENTS_DIR = "crooks-assistant/app/clients"
 TESTS_DIR = "crooks-assistant/tests"
 GATE = "crooks-assistant/app/tools/gate.py"
+# The Generative UI: every colour, font, radius, space and motion its scenes use is a token in
+# this sheet (web/scenes.css says so), and web/scenes.js draws the scene primitives.
+TOKEN_SHEET = "crooks-assistant/web/style.css"
+COMPONENTS_DIR = "crooks-assistant/web/components"
 
 NEEDS_OWNER = "Needs the owner"
 VERIFY_FIRST = "verify first"
 REFERENCE_KINDS = frozenset({"dependency", "script", "example"})
 CONTRACT_TAGS = frozenset({"openapi", "graphql", "json_schema", "mcp", "asyncapi"})
+DESIGN_TAG = "design"      # the design adapter's NAME, which it tags every Unit it reads with
 MAX_SLUG = 40
 
 _HYPOTHESIS_MEASURE = {
@@ -88,6 +103,12 @@ _HYPOTHESIS_MEASURE = {
         "building this natively makes the surface it touches better than it is now.",
         "the objective's acceptance checks, screenshot review and the owner's verdict; what it "
         "adds is still in use after 30 days.",
+    ),
+    "design_system": (
+        "the scenes that use it read better than they do now, inside the taste rules: no "
+        "colour or font the owner has not approved.",
+        "a before-and-after screenshot review of the scenes gallery (web/scenes-gallery.html) "
+        "and the owner's verdict; removed if no scene uses it after 30 days.",
     ),
     "reference_only": (
         "a pointer costs nothing and lets a later objective, review or digestion find this.",
@@ -132,7 +153,8 @@ def _access(unit: Unit) -> str:
 
 
 def _entry(match: Match) -> str:
-    return f"{match.key} '{match.name[:80]}' (score {match.score:.2f}" + (
+    named = "named by the unit; " if match.named else ""
+    return f"{match.key} '{match.name[:80]}' ({named}score {match.score:.2f}" + (
         f"; shared terms: {', '.join(match.terms)})" if match.terms else ")"
     )
 
@@ -201,6 +223,12 @@ def _plan(unit: Unit, relation: Relation) -> _Plan:
         return _Plan("review_check", f"A {kind} becomes a review check: a rule in the reviewer's "
                      "rubric or an automated check.",
                      (Addition("check", f"review-check:{_slug(unit, '-')}"),))
+    if kind == "capability" and not tags & CONTRACT_TAGS:
+        return _Plan("native_objective", "A capability read from code is built natively as a "
+                     "loop objective citing this unit's Source: another project's function, "
+                     "module or command is never registered as a CLIVE tool, since calling it "
+                     "would run that project's code.",
+                     (Addition("objective", f"objective:{_slug(unit, '-')}"),))
     if kind == "capability":
         access = _access(unit)
         additions = _connector(unit) if "server" in tags else _tool(unit)
@@ -245,11 +273,26 @@ def _plan(unit: Unit, relation: Relation) -> _Plan:
             measure="verified against its source or a test before it is entered; then times it "
                     "is cited in 30 days, and removed if never cited.",
         )
-    if kind in ("design_token", "pattern"):
-        what = "design token" if kind == "design_token" else "pattern"
-        return _Plan("native_objective", f"A {what} is built natively as a loop objective (the "
-                     "model has no design-system target); its tokens or components carry "
-                     "provenance.", (Addition("objective", f"objective:{_slug(unit, '-')}"),))
+    if kind == "design_token":
+        return _Plan(
+            "design_system", "Design tokens become a token set in the Generative UI's token "
+            f"sheet ({TOKEN_SHEET}), in one named block whose header cites this unit's Source.",
+            (Addition("token_set", f"{TOKEN_SHEET}#{_slug(unit, '-')}"),),
+            needs_owner="a token set changes how every scene that uses it looks, and CLIVE's "
+                        "look is the owner's: the sheet takes no new colour or font without "
+                        "the owner's say",
+        )
+    if kind == "pattern" and DESIGN_TAG in tags:
+        return _Plan(
+            "design_system", "A design pattern becomes a Generative UI component: a folder "
+            f"beside the scene renderer ({COMPONENTS_DIR}) with a provenance header citing this "
+            "unit's Source; no scene uses it until one is built to.",
+            (Addition("component", f"{COMPONENTS_DIR}/{_slug(unit, '-')}"),),
+        )
+    if kind == "pattern":
+        return _Plan("native_objective", "A code pattern is built natively as a loop objective, "
+                     "citing this unit's Source.",
+                     (Addition("objective", f"objective:{_slug(unit, '-')}"),))
     return _reference(f"No target takes {_a(kind)}.")   # pragma: no cover — every kind is above
 
 
@@ -276,6 +319,55 @@ def _reasoning(unit: Unit, relation: Relation, plan: _Plan, digest: str) -> str:
     ]
     text = " ".join(parts)
     return text if len(text) <= MAX_REASONING else text[: MAX_REASONING - 1] + "…"
+
+
+@dataclass(frozen=True)
+class Explanation:
+    """A proposal's reasoning in its parts, as _reasoning wrote them: why (the unit, its
+    relation and why this target), why the owner must decide it (empty when nothing says so),
+    the hypothesis, the measure and the removal."""
+
+    why: str
+    needs_owner: str
+    hypothesis: str
+    measure: str
+    removal: str
+
+
+def explain(absorption: Absorption) -> Explanation:
+    """The parts of a proposal's reasoning. They are read from after its target: everything
+    from there on is CLIVE's own words, while the unit's title, which comes first, is the
+    artifact's text and cannot speak for the proposal — a title that says "Needs the owner:"
+    or "Hypothesis:" says it only inside `why`. Reasoning not in _reasoning's shape (clipped,
+    or written by hand) is all `why`."""
+    text = absorption.reasoning
+    marker = text.rfind(f" Target {absorption.target}: ")
+    if marker < 0:
+        return Explanation(text, "", "", "", "")
+    head, tail = text[:marker], text[marker + 1:]
+    found: dict[str, str] = {}
+    for label in ("Self-model ", "Removal: ", "Measure: ", "Hypothesis: ", f"{NEEDS_OWNER}: "):
+        at = tail.rfind(f" {label}")
+        if at >= 0:
+            found[label] = tail[at + 1 + len(label):].strip()
+            tail = tail[:at]
+    if not all(label in found for label in ("Hypothesis: ", "Measure: ", "Removal: ")):
+        return Explanation(text, "", "", "", "")
+    reason = found.get(f"{NEEDS_OWNER}: ", "")
+    return Explanation(
+        why=f"{head} {tail}".strip(), needs_owner=reason.removesuffix("."),
+        hypothesis=found["Hypothesis: "], measure=found["Measure: "], removal=found["Removal: "],
+    )
+
+
+def needs_owner(absorption: Absorption) -> bool:
+    """Whether the proposal says the owner must decide it (see explain)."""
+    return bool(explain(absorption).needs_owner)
+
+
+def usual_hypothesis(target: str) -> tuple[str, str]:
+    """The hypothesis and measure a proposal for this target states unless it says otherwise."""
+    return _HYPOTHESIS_MEASURE.get(target, ("", ""))
 
 
 def _reading_order(unit: Unit) -> tuple:
