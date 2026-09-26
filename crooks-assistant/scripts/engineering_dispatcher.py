@@ -64,6 +64,7 @@ from app.orchestrator.objectives import (  # noqa: E402
     slug,
 )
 from app.orchestrator.reviewers import (  # noqa: E402
+    GPT_DEFAULT_EFFORT,
     GPT_DEFAULT_MODEL,
     GptResponsesReviewer,
     GptUnavailable,
@@ -95,7 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="host-side file (mode 600, outside git and every workspace) holding the OpenAI API key "
                         "for the programmatic GPT reviewer; read only by the reviewer process")
     p.add_argument("--gpt-model", default=GPT_DEFAULT_MODEL)
-    p.add_argument("--gpt-effort", default="high")
+    p.add_argument("--gpt-effort", default=GPT_DEFAULT_EFFORT)
     p.add_argument("--worker-cli", default="claude")
     p.add_argument("--worker-model", default=None)
     p.add_argument("--worker-effort", default=None)
