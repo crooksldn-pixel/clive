@@ -235,6 +235,8 @@ def test_html_end_tags_that_may_be_left_out_are_not_reported(tmp_path):
         "<dl><dt>Term<dd>Meaning</dl>",                                          # 5
         "<table><tr><td>a<td>b<tr><td>c</table>",
         "<p>Line<br>break<br/><img src=x.png><hr>",                              # 7
+        "<table><tr><td>d</tbody></table>",
+        "<table><col></colgroup><tr><td>e</table>",                              # 9
         "</body></html>",
     ]) + "\n")
     assert not [unit for unit in units if "unparsed" in unit.tags]
@@ -274,12 +276,42 @@ def test_bullets_that_give_commands_are_rules_and_statements_are_not(tmp_path):
         "- Offline support",
         "- Configuration files.",                                                # 19
         "- Critical alerts",
+        "- Rotate key",                                                          # 21
+        "- Escalate incident",
+        "- Normalise path",                                                      # 23
+        "- Private key",
+        "- Certificate chain",                                                   # 25
+        "- State machine",
     ]) + "\n")
     assert [(u.body, u.location.line_start) for u in units if u.kind == "rule"] == [
         ("Test the backup.", 3), ("Document the API.", 4), ("Monitor disk usage.", 5),
         ("Archive old logs.", 6), ("Defragment every disk.", 7), ("Rotate keys.", 8),
         ("Escalate incidents", 9), ("Quarantine unknown files.", 10),
-        ("Shut down idle servers.", 11),
+        ("Shut down idle servers.", 11), ("Rotate key", 21), ("Escalate incident", 22),
+        ("Normalise path", 23),
+    ]
+
+
+def test_ascii_comparisons_are_claims_and_markup_is_not(tmp_path):
+    root = _write(tmp_path / "art", {
+        "order.md": "\n".join([
+            "# Order",                                                           # 1
+            "",
+            "Primary > secondary.",                                              # 3
+            "",
+            "Minimum <= maximum.",                                               # 5
+            "",
+            "See <https://example.invalid/a> and <kbd>Ctrl</kbd>; a -> b => c <!-- note -->.",
+            "",
+            "> Quoted words.",                                                   # 9
+        ]) + "\n",
+        "order.txt": "Load >= capacity. Spare < used.\n",
+    })
+    assert [row for row in _rows(documents.decompose(root, ARTIFACT)) if row[0] == "claim"] == [
+        ("claim", "Order", "Primary > secondary.", "order.md", 3, 3, ("comparison",)),
+        ("claim", "Order", "Minimum <= maximum.", "order.md", 5, 5, ("comparison",)),
+        ("claim", "order.txt", "Load >= capacity.", "order.txt", 1, 1, ("comparison",)),
+        ("claim", "order.txt", "Spare < used.", "order.txt", 1, 1, ("comparison",)),
     ]
 
 
@@ -456,6 +488,8 @@ def test_malformed_input_is_reported_as_unparsed_never_raised(tmp_path):
     ("<h2>Unclosed heading\n", "<h2> opened at line 3 is never closed"),
     ("<div><p>More text.</p>\n", "<div> opened at line 3 is never closed"),
     ("<h2>Mismatched</h3>\n", "</h3> at line 3 closes nothing that is open"),
+    ("<p>More text.</p></tbody>\n", "</tbody> at line 3 closes nothing that is open"),
+    ("<p>More text.</p></head>\n", "</head> at line 3 closes nothing that is open"),
     ("<section><h2>Cut short</section>\n",
      "<h2> opened at line 3 is never closed before </section> at line 3"),
 ])

@@ -83,6 +83,11 @@ _COMPARISON = re.compile(
     r"cheapest|largest|smallest|highest|lowest))\b|[≤≥]",
     re.IGNORECASE,
 )
+# An ASCII comparison spaced as prose spaces it ('Primary > secondary', 'Minimum <= maximum'),
+# read once tags, autolinks and comments are taken out; arrows ('->', '=>') and quote markers
+# are not spaced so, and are not read as one.
+_OPERATOR = re.compile(r"(?<=\s)[<>]=?(?=\s)")
+_TAG = re.compile(r"<[A-Za-z/!?][^<>]*>")
 
 _MODAL = re.compile(
     r"\b(?:must|mustn't|should|shouldn't|shall|needs? to|has to|have to)\b", re.IGNORECASE
@@ -91,7 +96,7 @@ _LABEL = re.compile(r"\W*[A-Za-z'-]+\W*:")
 _WORDS = re.compile(r"[A-Za-z][A-Za-z']*")
 # Verbs that open a command. The list is a help, not a limit: a word outside it still opens one
 # when it is not shaped like a noun, adjective or participle and an object follows it, bare or
-# not ('Rotate keys', 'Escalate incidents'; see _imperative).
+# not ('Rotate keys', 'Escalate incident'; see _imperative).
 _VERBS = frozenset("""
     accept activate add adjust allow always apply archive ask assign attach audit automate avoid
     back backup benchmark bring build bump call cancel capture change check choose clean clear
@@ -142,6 +147,16 @@ _DESCRIBING = (
     "tion", "sion", "ment", "ness", "ity", "ship", "hood", "ism", "ogy", "al", "ic", "ous", "ful",
     "less", "able", "ible", "tive", "sive", "ary", "ory",
 )
+# Endings that make a verb, so a word with one commands even a bare singular object: 'Rotate
+# key', 'Escalate incident', 'Normalise path'. The words sharing an ending that name or describe
+# a thing are listed apart: 'Private key', 'Certificate chain', 'State machine'.
+_ACTING = ("ate", "ise", "ize", "ify", "yse", "yze")
+_NOT_ACTING = frozenset("""
+    accurate adequate appropriate candidate certificate climate concise corporate debate delicate
+    desperate enterprise estate exercise expertise franchise immediate intermediate legitimate
+    merchandise otherwise plate precise premise private promise senate separate state surprise
+    template ultimate
+""".split())
 # Verbs that take a clause, so a verb soon after them still reads as a command: 'Ensure backups
 # are encrypted'. After any other first word it reads as a statement: 'Release notes are here'.
 _CLAUSAL = frozenset("assume check confirm ensure expect make note remember see verify".split())
@@ -398,8 +413,9 @@ def _imperative(text: str) -> bool:
     or says what must or should be done. A 'Label: value' item does not, nor one that opens
     with a noun and its verb ('Backups run nightly', 'Release notes are in the wiki'). A word
     not known as a verb opens a command when its object follows: one led by a determiner or a
-    particle, a bare plural ('Rotate keys'), or any when the item is a sentence ('Quarantine
-    unknown files.'); a bare noun phrase ('Offline support') is not a command."""
+    particle, a bare plural ('Rotate keys'), a bare singular after a word with a verb's ending
+    ('Rotate key'), or any when the item is a sentence ('Quarantine unknown files.'); a bare
+    noun phrase ('Offline support', 'Private key') is not a command."""
     head = text[:300].replace("’", "'")
     if _LABEL.match(head):
         return False
@@ -427,6 +443,8 @@ def _imperative(text: str) -> bool:
         return False   # a noun or adjective before a noun
     if _plural(words[1]):
         return len(words) < 3 or words[2] not in _OBJECTS   # 'Cache stores the index' states
+    if len(first) > 4 and first.endswith(_ACTING) and first not in _NOT_ACTING:
+        return True    # a verb by its shape before a bare object: 'Rotate key'
     return text.rstrip().endswith((".", "!"))
 
 
@@ -457,7 +475,8 @@ def _claim(sentence: str) -> tuple[str, ...]:
     for word in ("always", "never"):
         if re.search(rf"\b{word}\b", plain, re.IGNORECASE):
             reasons.append(word)
-    if _COMPARISON.search(plain):
+    unmarked = _CODE_SPAN.sub(" ", _URL.sub(" ", _TAG.sub(" ", _LINK_TARGET.sub("]", sentence))))
+    if _COMPARISON.search(plain) or _OPERATOR.search(unmarked):
         reasons.append("comparison")
     return tuple(reasons)
 
@@ -844,8 +863,13 @@ class _HTMLText(HTMLParser):
         "body": frozenset(),
         "html": frozenset(),
     }
-    # Elements whose start tag HTML lets be left out, so their end tag alone closes nothing amiss.
+    # Elements whose start tag HTML lets be left out, so their end tag alone closes nothing amiss
+    # where the element is implied (see _implied).
     _START_OPTIONAL = frozenset(("body", "colgroup", "head", "html", "tbody"))
+    # Elements that may stand before the body begins.
+    _HEAD_CONTENT = frozenset((
+        "base", "head", "html", "link", "meta", "noscript", "script", "style", "template", "title",
+    ))
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -858,6 +882,8 @@ class _HTMLText(HTMLParser):
         self._dropped_at = ("", 0)                  # the script or style being dropped, and its line
         self._open: list[tuple[str, int]] = []      # the elements open, and the line of each
         self._too_deep = False                      # nesting passed _MAX_OPEN: no longer tracked
+        self._body = False                          # whether the body's content has begun
+        self._ended: set[str] = set()               # the start-optional elements closed
         self._links: list[tuple[str, int]] = []     # each open link's target, and its first word
         self._pre: list[str] | None = None
         self._pre_line = 0
@@ -874,6 +900,8 @@ class _HTMLText(HTMLParser):
         if self._dropped:
             return
         attributes = dict(attrs)
+        if tag not in self._HEAD_CONTENT:
+            self._body = True
         if self._pre is not None:
             if tag == "code" and not self._pre_language:
                 self._pre_language = _html_language(attributes.get("class"))
@@ -939,6 +967,8 @@ class _HTMLText(HTMLParser):
             if self._words:
                 self._words.append(" ")
             return
+        if not self._open or self._open[-1][0] != "title":
+            self._body = True
         line = self.getpos()[0]
         if not self._first:
             self._first = line + data.count("\n", 0, len(data) - len(data.lstrip()))
@@ -1004,11 +1034,15 @@ class _HTMLText(HTMLParser):
         if self._too_deep:
             return
         if all(name != tag for name, _ in self._open):
-            if tag not in self._START_OPTIONAL:
+            if tag in self._START_OPTIONAL and self._implied(tag):
+                self._ended.add(tag)
+            else:
                 self._stray(tag)
             return
         while self._open:
             name, opened = self._open.pop()
+            if name in self._START_OPTIONAL:
+                self._ended.add(name)
             if name == "a":
                 self._end_link()
             if name == tag:
@@ -1017,6 +1051,20 @@ class _HTMLText(HTMLParser):
                 line = self.getpos()[0]
                 self._problem(opened, f"<{name}> opened at line {opened} is never closed before "
                                       f"</{tag}> at line {line}")
+
+    def _implied(self, tag: str) -> bool:
+        """Whether an end tag whose start tag was left out closes an element HTML implies where
+        it stands: a table's body inside a table, its column group right inside one, the head
+        before the body has begun, and the body or the page until they have ended."""
+        if tag == "tbody":
+            return any(name == "table" for name, _ in self._open)
+        if tag == "colgroup":
+            return bool(self._open) and self._open[-1][0] == "table"
+        if tag in self._ended or "html" in self._ended:
+            return False
+        if tag == "head":
+            return not self._body and all(name == "html" for name, _ in self._open)
+        return True
 
     def _list(self) -> str:
         for name, _ in reversed(self._open):
