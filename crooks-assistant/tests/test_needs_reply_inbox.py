@@ -495,3 +495,78 @@ async def test_what_we_sent_is_read_from_sent_mail_only(monkeypatch):
     monkeypatch.setattr(gmail_tools, "_list_metadata", listing)
     got = await gmail_tools.sent_to(["Jo@Example.com", "flo@example.com", "not an address"], days=30)
     assert got["latest"] == {"flo@example.com": ago(2), "jo@example.com": ago(10)}, "s4 names Jo but is not ours"
+
+
+# ------------------------------------------------ the 2026-09-26 deploy review of these fixes
+
+
+def _waiting_body(n: int, **extra) -> dict:
+    now = time.time()
+    rows = [{"customer_name": f"Person {i}", "last_thread_id": f"{i:016x}", "needs_reply": True, "last_subject": "?",
+             "latest_inbound_at": ago(0.1, now=now), "waiting_since": ago(1 + i, now=now)} for i in range(n)]
+    return {"scope": "inbox", "days": 30, "window_complete": True, "threads_listed": n, "threads_checked": n,
+            "rows": rows, "counts": {"unchecked": 0}, **extra}
+
+
+def test_only_the_threads_the_card_draws_are_issued_and_walkable():
+    """F-04: a conversation reaches only a record it was shown. With more people waiting than the
+    card draws, the threads past the card are neither issued nor on the walk."""
+    session = Session(session_id="nr-shown")
+    body = _waiting_body(library.WAITING_SHOWN + 4)
+    ctx = _ctx(session)
+    answer = library._needs_reply_render(ctx, ReadResult(values={"mail": body}))
+    drawn = [r["thread_id"] for r in answer.surfaces[0].data["threads"]]
+    assert len(drawn) == library.WAITING_SHOWN
+    hidden = {r["last_thread_id"] for r in body["rows"]} - set(drawn)
+    assert len(hidden) == 4 and not hidden & session.issued_ids
+    assert set(drawn) <= session.issued_ids
+    if ctx.branch.workflow is not None:
+        assert set(session.sets[ctx.branch.workflow.set_id].members) <= set(drawn)
+    assert f"The {library.WAITING_SHOWN} longest waits are shown." in answer.surfaces[0].data["note"]
+
+
+@pytest.mark.parametrize(("sent", "said"), [
+    ("none", "Replies sent as new emails could not be checked"),
+    ("partial", "Only the newest sent emails were checked for replies"),
+])
+def test_a_reply_check_that_was_not_complete_is_said_in_the_answer_and_on_the_card(sent, said):
+    """F-02: when what we sent as new emails was not read, or only its newest part was, someone
+    shown as waiting may already have been answered, and the owner is told so."""
+    answer = library._needs_reply_render(_ctx(Session(session_id=f"nr-sent-{sent}")),
+                                         ReadResult(values={"mail": _waiting_body(2, sent_checked=sent)}))
+    assert said in answer.answer and "may already have been answered" in answer.answer
+    assert said in answer.surfaces[0].data["note"]
+    complete = library._needs_reply_render(_ctx(Session(session_id="nr-sent-all")),
+                                           ReadResult(values={"mail": _waiting_body(2, sent_checked="all")}))
+    assert "may already have been answered" not in complete.answer
+
+
+async def test_the_scan_says_how_far_the_sent_check_reached(inbox, monkeypatch):
+    for listing, expected in (({"available": True, "latest": {}, "full": True}, "partial"),
+                              ({"available": False, "latest": {}}, "none"),
+                              ({"available": True, "latest": {}, "full": False}, "all")):
+        async def sent_for(addresses, *, days, _listing=listing):
+            return _listing
+        monkeypatch.setattr(analytics_tools, "_sent_for", sent_for)
+        session = Session(session_id=f"nr-scan-{expected}")
+        session.turn_id = "turn_scan"
+        calls: list = []
+        await dispatch("email_query", {"days": 30}, session=session, timeout_s=5, calls=calls)
+        assert calls[-1].result["sent_checked"] == expected
+
+
+def test_a_ranking_with_more_rows_than_it_draws_labels_its_totals_as_not_the_lists():
+    """F-03: the engine's scope says whether its totals are its rows'; the presenter draws at most
+    MAX_ROWS of them, so totals over more rows than drawn are labelled, and the card says it is cut."""
+    from app.analytics import present as analytic
+
+    rows = [{"key": f"c{i}", "label": f"Customer {i}", "revenue": 10.0, "orders": 1} for i in range(analytic.MAX_ROWS + 5)]
+    result = {"entity": "customers", "metrics": ["revenue", "orders"], "rows": rows, "truncated": False,
+              "totals_scope": "rows", "totals": {"revenue": 300.0, "orders": 30},
+              "period": {"label": "last 30 days"}, "currency": "GBP"}
+    card = analytic._ranking(result, "GBP")
+    assert card["totals_label"] == "Whole period (last 30 days), not just this list"
+    assert card["truncated"] is True
+    fits = {**result, "rows": rows[:analytic.MAX_ROWS], "totals": {"revenue": 250.0, "orders": 25}}
+    card = analytic._ranking(fits, "GBP")
+    assert card["totals_label"] == "" and card["truncated"] is False

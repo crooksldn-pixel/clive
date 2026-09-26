@@ -851,13 +851,19 @@ async def _inbox_waiting(days: int) -> dict[str, Any]:
         notes.append("the order cache did not answer, so senders are not matched to customers")
     if sent is not None and not sent.get("available"):
         notes.append("replies sent as new emails could not be checked, only replies in the same thread")
+    # Whether a reply sent as a new email was looked for everywhere it could be: "all", "partial"
+    # (the Sent listing hit its cap) or "none" (it could not be read). The answer says anything
+    # short of "all", because then someone shown as waiting may already have been answered.
+    sent_checked = "all" if sent is None else ("none" if not sent.get("available") else ("partial" if sent.get("full") else "all"))
+    if sent_checked == "partial":
+        notes.append("only the newest sent emails were checked for replies sent as new emails")
     result: dict[str, Any] = {
         "scope": "inbox", "set_id": "", "set_label": "The inbox", "kind": "inbox", "days": days,
         "people": len(rows), "customers": sum(1 for r in rows if r["known_customer"]),
         "threads_listed": len(threads), "threads_checked": len(threads) - unchecked, "window_complete": not found.get("full"),
         "counts": {"people": len(rows), "contacted": len(rows), "not_contacted": 0, "replied": sum(1 for r in rows if r["replied"]),
                    "needs_reply": sum(1 for r in rows if r["needs_reply"]), "unchecked": unchecked},
-        "rows": rows, "note": "; ".join(notes),
+        "rows": rows, "note": "; ".join(notes), "sent_checked": sent_checked,
         "source": f"Gmail: threads from people in the inbox's last {days} days" + (f", the newest {len(threads)}" if found.get("full") else ""),
         "_ms": round((time.perf_counter() - started) * 1000, 1),
     }
