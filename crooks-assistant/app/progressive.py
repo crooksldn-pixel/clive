@@ -84,7 +84,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.render import ADDED, DATA, Patch, RenderLedger, render_id
+from app.render import ADDED, DATA, SHELL_SUFFIX, Patch, RenderLedger, render_id
 
 log = logging.getLogger("crooks.progressive")
 
@@ -521,12 +521,31 @@ class Workspace:
         self._observe(list(items))
         patches = self._record(self.ledger.stage(list(items), at_ms=now))
         self._measure(patches, now)
+        patches += self._record(self._drop_undrawn(items, now))
         patches += self._settle_sections(now)
         patches += self._plan_now(now)
         patches += self._record(self.ledger.drop_shells(at_ms=now))
         self.complete_ms = now
         self.finished = True
         return patches
+
+    def _drop_undrawn(self, items: list[dict[str, Any]], at_ms: float) -> list[Patch]:
+        """The cards a read staged that the turn's own answer does not contain.
+
+        A read's cards go up the moment it lands, before anyone knows whether the answer will
+        show them. A recipe that reads a list only to work from it draws its own card instead
+        (`FastAnswer.drawn`), and the list's card was left standing beneath the answer: "any
+        emails need my attention" put a revenue ranking of the 25 customers it had checked,
+        and the month's totals, under the reply queue. The glass ends as the answer — the
+        workspace's own header and its skeletons are settled by their own rules below.
+        """
+        keep = {render_id(item) for item in items if isinstance(item, dict)}
+        out: list[Patch] = []
+        for identity in list(self.ledger.order):
+            if identity in keep or identity.endswith(f":{SHELL_SUFFIX}") or identity.split(":", 1)[0] == PLAN_TYPE:
+                continue
+            out += self.ledger.drop(identity, at_ms=at_ms)
+        return out
 
     def _measure(self, patches: list[Patch], now: float) -> None:
         """§15's two middle numbers. A shell is not a fact, however well it names itself, and

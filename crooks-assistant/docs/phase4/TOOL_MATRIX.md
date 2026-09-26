@@ -89,9 +89,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `batch_order_tags_remove` | the model only | test_batch.py | — |
 | `commerce_aggregate` | recipe:navigation_back, recipe:navigation_home, recipe:best_sellers_period, recipe:sales_breakdown_period, recipe:landing_sales, recipe:landing_products, recipe:ui_area_workspace, family:analytics | test_analytics_present.py, test_analytics_tools.py, test_council_fixes.py, test_experience_analyser.py, test_flows.py, test_progressive.py, test_scene_payload.py, test_scenes.py, test_working_sets.py | back, landing_products, landing_sales, nav_branch_isolation, nav_click_path, nav_home_landing |
 | `commerce_capabilities` | family:capability_reads | test_analytics_tools.py | — |
-| `commerce_query` | recipe:navigation_back, recipe:navigation_home, recipe:order_list_period, recipe:delayed_orders, recipe:needs_reply, recipe:landing_orders, recipe:landing_inbox, recipe:order_latest, recipe:unfulfilled_orders, recipe:international_waiting_orders, recipe:ui_area_workspace, family:analytics | test_analytics_present.py, test_analytics_tools.py, test_council_fixes.py, test_flows.py, test_n_plus_one.py, test_navigation.py, test_query_engine_p3.py, test_read_budget.py, test_read_dedupe.py, test_recorder.py, test_scene_payload.py, test_scenes.py, test_working_sets.py | back, landing_inbox, landing_orders, nav_branch_isolation, nav_click_path, nav_home_landing, needs_reply, next_previous, query_international_waiting, query_language.py, query_undelivered, spoken_latest, today_orders |
+| `commerce_query` | recipe:navigation_back, recipe:navigation_home, recipe:order_list_period, recipe:delayed_orders, recipe:landing_orders, recipe:order_latest, recipe:unfulfilled_orders, recipe:international_waiting_orders, recipe:ui_area_workspace, family:analytics | test_analytics_present.py, test_analytics_tools.py, test_council_fixes.py, test_flows.py, test_n_plus_one.py, test_navigation.py, test_needs_reply_inbox.py, test_query_engine_p3.py, test_read_budget.py, test_read_dedupe.py, test_recorder.py, test_scene_payload.py, test_scenes.py, test_working_sets.py | back, landing_orders, nav_branch_isolation, nav_click_path, nav_home_landing, next_previous, query_international_waiting, query_language.py, query_undelivered, spoken_latest, today_orders |
 | `commerce_summary` | recipe:returning_customers, recipe:returning_customers_before, recipe:orders_attention, recipe:order_list_summary, family:summary_surfaces | test_n_plus_one.py, test_summaries.py | — |
-| `email_query` | recipe:navigation_back, recipe:navigation_home, recipe:needs_reply, recipe:landing_inbox, recipe:ui_area_workspace, family:email_reads | test_council_fixes.py, test_flows.py, test_graph.py, test_n_plus_one.py, test_scene_payload.py, test_scene_planner.py, test_scenes.py, test_working_sets.py | back, landing_inbox, nav_branch_isolation, nav_click_path, nav_home_landing, needs_reply |
+| `email_query` | recipe:navigation_back, recipe:navigation_home, recipe:needs_reply, recipe:landing_inbox, recipe:ui_area_workspace, family:email_reads | test_council_fixes.py, test_flows.py, test_graph.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_scene_payload.py, test_scene_planner.py, test_scenes.py, test_working_sets.py | back, landing_inbox, nav_branch_isolation, nav_click_path, nav_home_landing, needs_reply |
 | `engineering_status` | family:engineering | test_engineering_bridge.py, test_gate.py | — |
 | `gmail_compose_fill` | family:email_compose | test_compose.py | — |
 | `gmail_compose_open` | family:email_compose | test_compose.py | — |
@@ -159,7 +159,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `sales_breakdown_period` | work | sales_breakdown_period | `commerce_aggregate` | — | yes | — |
 | `delayed_orders` | work | delayed_orders | `commerce_query` | — | yes | yes |
 | `stock_cover_analysis` | work | stock_cover_analysis | `inventory_query` | — | yes | — |
-| `needs_reply` | work | needs_reply | `commerce_query`, `email_query` | — | yes | yes |
+| `needs_reply` | work | needs_reply | `email_query` | — | yes | yes |
 | `inbox_state` | work | inbox_state | `gmail_search` | — | yes | — |
 | `abandoned_checkouts` | work | abandoned_checkouts | `shopify_abandoned_checkouts` | — | yes | yes |
 | `email_compose_any` | work | email_compose_any | — | yes | yes | yes |
@@ -170,7 +170,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `greeting` | status | greeting | — | — | yes | — |
 | `assistant_status` | status | assistant_status | — | — | yes | — |
 | `landing_orders` | work | landing_orders | `commerce_query` | — | yes | yes |
-| `landing_inbox` | work | landing_inbox | `commerce_query`, `email_query`, `gmail_search` | — | yes | yes |
+| `landing_inbox` | work | landing_inbox | `email_query`, `gmail_search` | — | yes | yes |
 | `landing_sales` | work | landing_sales | `commerce_aggregate` | — | — | yes |
 | `landing_products` | work | landing_products | `commerce_aggregate`, `inventory_query` | — | yes | yes |
 | `order_tab_show` | work | order_tab_show | `shopify_order_detail` | — | yes | yes |

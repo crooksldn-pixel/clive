@@ -1620,6 +1620,11 @@ body[data-mode="context"] .branch-chip .branch-bare{display:none}
 /* A row that opens something says so. The chevron sits at the right edge of the row and is
    the only thing on it that is decoration — everything else is the answer. */
 .row.tappable{position:relative;padding-right:26px}
+/* A row in a list is a line on the card, not a card of its own. Its divider is a border-top,
+   and the tappable row's control radius bent that hairline down at both ends — every row of
+   the reply queue read as a rounded card inside the card. The press and the open row are
+   still lit; they are lit square, edge to edge, like the divider they sit between. */
+.rows > .row.tappable{border-radius:0}
 .row-go{
   position:absolute;right:2px;top:50%;transform:translateY(-50%);
   font-size:22px;line-height:1;color:var(--ink-4);transition:color var(--t-1),transform var(--t-1);
@@ -1858,8 +1863,10 @@ body[data-mode="context"] .branch-chip .branch-bare{display:none}
 
 /* Tappable rows, tighter. `compact` is for figures and drops the tap target to nothing,
    which is right for a column of daily revenue and wrong for a list of orders: these keep
-   the full 44 px and take their height out of the padding and the clamped sub-line. */
-.rows.tight .row{padding:9px 0}
+   the full 44 px and take their height out of the padding and the clamped sub-line.
+   Top and bottom only: `padding:9px 0` also zeroed the right padding `.row.tappable` keeps
+   for its chevron, so the chevron sat on the row's time — "11d ag›o" on every row. */
+.rows.tight .row{padding-top:9px;padding-bottom:9px}
 .rows.tight .row-main{font-size:15px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 .rows.tight .row-sub{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 .rows.tight .row.is-open .row-main,.rows.tight .row.is-open .row-sub{-webkit-line-clamp:unset}

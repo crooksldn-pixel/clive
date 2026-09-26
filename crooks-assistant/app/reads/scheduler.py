@@ -93,6 +93,10 @@ class Read:
     # A read the answer can do without. When it fails or is skipped, the plan says so and
     # carries on; a required read failing marks the plan partial.
     optional: bool = True
+    # False for a read whose result the recipe works FROM and draws its own card for: its
+    # cards are not staged on the glass as it lands (app/progressive.py), so they cannot
+    # flash up under the answer and be taken away again when the turn ends.
+    draws: bool = True
 
 
 @dataclass(slots=True)
@@ -286,7 +290,8 @@ async def run_plan(plan: ReadPlan, *, session: Any, timeout_s: float | None = No
         with throttle.holding(read.source, lane), budget.using(lane, key, scope=scope, yielding=False):
             async with limits[read.source]:
                 try:
-                    await dispatch(read.tool, args, session=session, timeout_s=read.timeout_s, calls=own)
+                    with nullcontext() if read.draws else progressive.background():
+                        await dispatch(read.tool, args, session=session, timeout_s=read.timeout_s, calls=own)
                 except Exception as exc:  # noqa: BLE001 — a failed read is a reported read
                     result.errors[read.name] = str(exc)[:200]
         ms = (time.perf_counter() - t0) * 1000
@@ -314,7 +319,7 @@ async def run_plan(plan: ReadPlan, *, session: Any, timeout_s: float | None = No
     # watching an empty screen until the graph resolves. Bookkeeping only, and never for a
     # read nobody asked for.
     if plan.origin != "predicted":
-        progressive.planning(session, [r.tool for r in plan.reads])
+        progressive.planning(session, [r.tool for r in plan.reads if r.draws])
     try:
         # The flag is set before the tasks are made: `asyncio.gather` copies the context at
         # creation, so every read in every wave runs with it.

@@ -182,10 +182,15 @@ def _ranking(result: dict[str, Any], currency: str) -> dict[str, Any]:
             "secondary": ({"key": secondary, "label": LABELS.get(secondary, secondary), "value": fmt(secondary, r.get(secondary), currency)} if secondary and secondary in r else None),
             "pct": pct, "lines": lines, "known": bool(r.get("stock_known", True)),
         })
+    period = _text((result.get("period") if isinstance(result.get("period"), dict) else {}).get("label") or "the period")
     return {
         "title": _title(result, "Restock priority" if restock else "Best sellers"), "subtitle": _subtitle(result),
         "rows": rows, "mode": "restock" if restock else "",
         "totals": [{"key": m, "label": LABELS.get(m, m), "value": fmt(m, totals.get(m), currency)} for m in metrics if m in totals and m not in ("share", "days_cover", "velocity", "stock")][:4],
+        # The totals under the list are the period's (app/analytics/engine.py). Where the rows
+        # are not all of it — a limit, a customer filter — they say so, rather than standing
+        # under 25 customers as though those 25 had placed the whole month's 272 orders.
+        "totals_label": f"Whole period ({period}), not just this list" if result.get("totals_scope") == "period" else "",
         "measured": [m for m in metrics if m in measured], "derived": [m for m in metrics if m in derived],
         "note": _note(result), "complete": (result.get("coverage") or {}).get("complete", True) is not False, "truncated": bool(result.get("truncated")),
     }
@@ -345,6 +350,10 @@ def correlation(result: dict[str, Any]) -> list[dict[str, Any]]:
     """The email query's answer: the counts, then each customer with whether they wrote and
     whether we replied."""
     counts = result.get("counts") if isinstance(result.get("counts"), dict) else {}
+    # The inbox read (no set) has no "no contact": everyone on it wrote. Its three numbers are
+    # who wrote, who is waiting on us, and who we have answered.
+    shown = (("people", "wrote to us"), ("needs_reply", "waiting on us"), ("replied", "we replied")) if result.get("scope") == "inbox" \
+        else (("contacted", "emailed us"), ("not_contacted", "no contact"), ("replied", "we replied"))
     rows = []
     for r in (result.get("rows") or [])[:MAX_ROWS]:
         if not isinstance(r, dict):
@@ -355,7 +364,7 @@ def correlation(result: dict[str, Any]) -> list[dict[str, Any]]:
         ]})
     return [
         _ui("metric_group", {"title": _text(result.get("set_label") or "Email", MAX_TITLE), "subtitle": f"the last {int(result.get('days') or 30)} days of email",
-                             "metrics": [{"key": "contacted", "label": "emailed us", "value": str(int(counts.get("contacted") or 0)), "measured": True}, {"key": "not_contacted", "label": "no contact", "value": str(int(counts.get("not_contacted") or 0)), "measured": True}, {"key": "replied", "label": "we replied", "value": str(int(counts.get("replied") or 0)), "measured": True}],
+                             "metrics": [{"key": key, "label": label, "value": str(int(counts.get(key) or 0)), "measured": True} for key, label in shown],
                              "note": _note(result), "complete": not counts.get("unchecked")}),
         _ui("table", {"title": "Who has written", "subtitle": _text(result.get("set_label") or "", 80), "columns": [{"key": "customer", "label": "Customer", "numeric": False}, {"key": "orders", "label": "Orders", "numeric": False}, {"key": "emailed", "label": "Emailed", "numeric": False}, {"key": "replied", "label": "Replied", "numeric": False}, {"key": "subject", "label": "Last subject", "numeric": False}],
                       "rows": rows, "note": "", "truncated": len(result.get("rows") or []) > MAX_ROWS, "complete": True}),
