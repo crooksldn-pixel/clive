@@ -4,14 +4,17 @@ columns, the type each holds (integer, number, boolean, date, datetime or text),
 it has, how often each column is empty and roughly how many distinct values it holds.
 
 Digesting is reading. Text files are read up to MAX_TEXT_BYTES and scanned up to MAX_ROWS rows;
-a SQLite database is opened through a file URI with mode=ro and immutable=1, only its tables
-are read — never its views, which would run SQL stored in the database — and every statement
-is stopped once it has used its share of work. Nothing is written back.
+a SQLite database is opened through a file URI with mode=ro and immutable=1, at most
+MAX_SCHEMA_ENTRIES of its tables and views are listed, only its tables are read — never its
+views, which would run SQL stored in the database — no value is fetched past its first
+MAX_CELL_CHARS characters or bytes, and every statement is stopped once it has used its share
+of work. Nothing is written back.
 
 A column that looks like personal data — by its name (email, phone, postcode, a person's name)
-or because most of its values look like email addresses, phone numbers or postcodes — is marked
-personal, and none of its values appear in any Unit. Other columns show at most MAX_EXAMPLES
-short example values, and never one that itself looks personal.
+or because at least half its values look like email addresses, phone numbers, postcodes or
+ZIP codes (punctuated or digits alone) or people's names — is marked personal, and none of its
+values appear in any Unit. Other columns show at most MAX_EXAMPLES short example values, and
+never one that itself looks personal.
 
 What cannot be read is skipped and said so, in a knowledge Unit tagged 'unparsed' with the
 reason: decompose never raises on malformed input."""
@@ -50,6 +53,9 @@ MAX_ROWS = 50_000                 # rows scanned per file or table
 MAX_CELLS = 1_000_000             # values scanned per file or table
 MAX_COLUMNS = 100                 # columns profiled per file or table
 MAX_TABLES = 100                  # tables read per database
+MAX_SCHEMA_ENTRIES = 1_000        # tables and views looked at per database
+MAX_CELL_CHARS = 4_096            # of a SQLite text or blob value, fetched for profiling
+MAX_VALUE_BYTES = 4 * 1024 * 1024  # the largest value SQLite itself is let read
 MAX_DISTINCT = 10_000             # distinct values counted per column before "more than"
 MAX_EXAMPLES = 3
 MAX_EXAMPLE_CHARS = 40
@@ -71,6 +77,11 @@ NAME_QUALIFIERS = frozenset((
     "customer", "contact", "person", "client", "owner", "recipient", "sender", "patient",
     "employee", "member", "student", "account", "holder", "billing", "shipping",
 ))
+# lower-case words inside a person's name, and titles before one
+NAME_PARTICLES = frozenset((
+    "al", "bin", "da", "de", "del", "della", "der", "di", "du", "el", "la", "le", "van", "von",
+))
+HONORIFICS = frozenset(("mr", "mrs", "ms", "miss", "mx", "dr", "prof", "sir", "dame"))
 
 _INTEGER = re.compile(r"[+-]?[0-9]+")
 _NUMBER = re.compile(r"[+-]?(?:[0-9]+\.[0-9]*|\.[0-9]+|[0-9]+)(?:[eE][+-]?[0-9]+)?")
@@ -85,7 +96,13 @@ _POSTCODE_WHOLE = re.compile(_POSTCODE, re.IGNORECASE | re.ASCII)
 _POSTCODE_WITHIN = re.compile(rf"\b(?:{_POSTCODE})\b", re.IGNORECASE | re.ASCII)
 _PHONE = re.compile(r"\+?[0-9 ()-]{7,24}")
 _SEPARATED_DIGITS = re.compile(r"[0-9][ ()-]+[0-9]")
+# digits alone: a national number with its leading 0, an international one after 00, or a
+# North American one (area code and exchange each starting 2-9), with or without its 1
+_DIGIT_PHONE = re.compile(r"0[0-9]{9,10}|00[1-9][0-9]{7,13}|1?[2-9][0-9]{2}[2-9][0-9]{6}")
+_ZIP = re.compile(r"[0-9]{5}(?:-[0-9]{4})?")
 _WORDS = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
+_NAME_MARKS = re.compile(r"['’.-]")
+_MC = re.compile(r"^Ma?c(?=[A-Z])")
 
 
 def decompose(root: Path, artifact_id: str) -> list[Unit]:
@@ -186,8 +203,11 @@ def _infer(text: str) -> str:
 
 
 def _personal_value(text: str) -> bool:
-    """Whether a value on its own looks like an email address, a phone number or a postcode."""
+    """Whether a value on its own looks like an email address, a phone number or a postcode —
+    written with punctuation or as digits alone, like "07700900123" or a ZIP code "02139"."""
     if _EMAIL.fullmatch(text) or _POSTCODE_WHOLE.fullmatch(text):
+        return True
+    if _DIGIT_PHONE.fullmatch(text) or _ZIP.fullmatch(text):
         return True
     if not _PHONE.fullmatch(text) or _DATE.fullmatch(text):
         return False
@@ -195,6 +215,27 @@ def _personal_value(text: str) -> bool:
     return 7 <= digits <= 15 and (
         text.startswith(("+", "(")) or _SEPARATED_DIGITS.search(text) is not None
     )
+
+
+def _name_like(text: str) -> bool:
+    """Whether a value reads as a person's name: two to four capitalised words, as in "Ada
+    Lovelace", "Hopper, Grace" or "Dr J. Smith-Jones". A place or a product named the same way
+    is withheld too: a name shown by mistake cannot be taken back."""
+    words = text.replace(",", " ", 1).split()
+    if len(text) > 60 or not 2 <= len(words) <= 4:
+        return False
+    named = 0
+    for word in words:
+        bare = _NAME_MARKS.sub("", word)
+        if not bare.isalpha():
+            return False
+        if word in NAME_PARTICLES:
+            continue
+        if not _MC.sub("", word).istitle():
+            return False
+        if len(bare) > 1 and bare.lower() not in HONORIFICS:
+            named += 1
+    return named > 0
 
 
 def _personal_name(name: str) -> bool:
@@ -226,7 +267,11 @@ def _classify(value: object) -> tuple[str, str, str | None, bool] | None:
         return "boolean", text, text, False
     if isinstance(value, int):
         text = str(value)
-        return "integer", text, text if len(text) <= MAX_EXAMPLE_CHARS else None, False
+        # a phone number may be stored as a number; five digits stored as one are more often
+        # an id than a ZIP code, which is written as text to keep its leading zeros
+        phone = _DIGIT_PHONE.fullmatch(text) is not None
+        shown = len(text) <= MAX_EXAMPLE_CHARS and not phone
+        return "integer", text, text if shown else None, phone
     if isinstance(value, float):
         text = repr(value)
         return "number", text, text if len(text) <= MAX_EXAMPLE_CHARS else None, False
@@ -235,7 +280,9 @@ def _classify(value: object) -> tuple[str, str, str | None, bool] | None:
         if not text or text.lower() in NULL_WORDS:
             return None
         kind = _infer(text)
-        return kind, text, text if _example_safe(text, kind) else None, _personal_value(text)
+        personal = _personal_value(text) or (kind == "text" and _name_like(text))
+        shown = not personal and _example_safe(text, kind)
+        return kind, text, text if shown else None, personal
     if isinstance(value, (bytes, bytearray, memoryview)):
         return "text", "blob:" + hashlib.sha256(bytes(value)).hexdigest(), None, False
     text = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
@@ -405,12 +452,13 @@ def _schema_unit(artifact_id: str, title: str, facts: list[str], profile: _Profi
     )
 
 
-def _unparsed(artifact_id: str, path: str, reason: str, line: int | None = None) -> Unit:
+def _unparsed(artifact_id: str, path: str, reason: str, line: int | None = None,
+              end: int | None = None) -> Unit:
     where = "the artifact" if path == "." else path
     return Unit(
         artifact_id=artifact_id, kind="knowledge", title=_clip(f"Not parsed: {where}", MAX_TITLE),
         body=_clip(reason, MAX_BODY),
-        location=Location(path, line, line) if line else Location(path), tags=("unparsed",),
+        location=Location(path, line, end or line) if line else Location(path), tags=("unparsed",),
     )
 
 
@@ -467,14 +515,17 @@ def _delimited(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
     if not text.strip():
         return [_unparsed(artifact_id, rel, _empty(cut))]
     dialect = _dialect(text, fmt)
-    reader = csv.reader(io.StringIO(text, newline=""), dialect)
+    # strict: malformed quoting, such as a quote never closed, stops the scan and is said so
+    # rather than being read as a row
+    reader = csv.reader(io.StringIO(text, newline=""), dialect, strict=True)
     profile = _Profile()
     profile.truncated = cut
     notes: list[Unit] = []
     started = named = False
-    ragged = last = 0
+    ragged = last = read = 0
     try:
         for row in reader:
+            read = reader.line_num
             if not row:
                 continue
             if not started:
@@ -492,8 +543,12 @@ def _delimited(artifact_id: str, rel: str, path: Path, fmt: str) -> list[Unit]:
             profile.add_row(row)
             last = reader.line_num
     except csv.Error as exc:
-        line = max(reader.line_num, 1)
-        notes.append(_unparsed(artifact_id, rel, f"Stopped reading at line {line}: {exc}.", line))
+        # the record that could not be read begins after the last one that could
+        line = read + 1
+        notes.append(_unparsed(
+            artifact_id, rel, f"Stopped reading at line {line}: {exc}.", line,
+            max(reader.line_num, line),
+        ))
     if not started:
         return notes or [_unparsed(artifact_id, rel, _empty(cut))]
     heading = (
@@ -639,18 +694,24 @@ def _database(artifact_id: str, rel: str, connection: sqlite3.Connection) -> lis
         return spent > SQLITE_STEPS
 
     connection.text_factory = _lenient_text
+    # a larger value is refused by SQLite rather than read, whatever the query asks of it
+    connection.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_VALUE_BYTES)
     connection.set_progress_handler(progress, 1_000)
     connection.execute("PRAGMA query_only = ON")
     connection.execute("PRAGMA trusted_schema = OFF")
+    # listed up to a bound, and only the start of each CREATE statement: enough to tell a
+    # virtual table
     entries = connection.execute(
-        "SELECT type, name, sql FROM sqlite_master WHERE type IN ('table', 'view') ORDER BY name"
+        "SELECT type, name, substr(sql, 1, 32) FROM sqlite_master"
+        " WHERE type IN ('table', 'view') AND substr(name, 1, 7) <> 'sqlite_'"
+        " ORDER BY name LIMIT ?",
+        (MAX_SCHEMA_ENTRIES + 1,),
     ).fetchall()
+    unlisted = len(entries) > MAX_SCHEMA_ENTRIES
     tables: list[str] = []
     skipped: list[str] = []
-    for kind, name, sql in entries:
+    for kind, name, sql in entries[:MAX_SCHEMA_ENTRIES]:
         name = str(name)
-        if name.startswith("sqlite_"):
-            continue
         if kind == "view":
             skipped.append(f"view {_shown(name)} (reading it would run SQL stored in the database)")
         elif str(sql or "").lstrip().upper().startswith("CREATE VIRTUAL"):
@@ -661,7 +722,7 @@ def _database(artifact_id: str, rel: str, connection: sqlite3.Connection) -> lis
     for name in tables[:MAX_TABLES]:
         spent = 0
         try:
-            units.append(_table(artifact_id, rel, connection, name, exhausted))
+            units.extend(_table(artifact_id, rel, connection, name, exhausted))
         except sqlite3.Error as exc:
             units.append(_unparsed(artifact_id, rel, f"Table {_shown(name)} could not be read: {exc}."))
     if len(tables) > MAX_TABLES:
@@ -670,6 +731,12 @@ def _database(artifact_id: str, rel: str, connection: sqlite3.Connection) -> lis
             f"{len(tables) - MAX_TABLES} more tables were not read: at most {MAX_TABLES} are read "
             "per database.",
         ))
+    if unlisted:
+        units.append(_unparsed(
+            artifact_id, rel,
+            f"The database holds more than {MAX_SCHEMA_ENTRIES} tables and views: only the first "
+            f"{MAX_SCHEMA_ENTRIES}, in name order, were looked at.",
+        ))
     if skipped:
         units.append(_unparsed(artifact_id, rel, "Not read: " + "; ".join(skipped) + "."))
     if not tables and not skipped:
@@ -677,35 +744,67 @@ def _database(artifact_id: str, rel: str, connection: sqlite3.Connection) -> lis
     return units
 
 
+def _quote(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
 def _table(artifact_id: str, rel: str, connection: sqlite3.Connection, name: str,
-           exhausted: Callable[[], bool]) -> Unit:
-    declared = dict(
-        connection.execute("SELECT name, type FROM pragma_table_info(?)", (name,)).fetchall()
+           exhausted: Callable[[], bool]) -> list[Unit]:
+    [(width,)] = connection.execute(
+        "SELECT count(*) FROM pragma_table_info(?)", (name,)
+    ).fetchall()
+    declared = connection.execute(
+        "SELECT name, type FROM pragma_table_info(?) ORDER BY cid LIMIT ?", (name, MAX_COLUMNS)
+    ).fetchall()
+    # only the profiled columns, and of a text or blob value only its first MAX_CELL_CHARS
+    # characters or bytes and one more, to know that it was longer
+    fetched = ", ".join(
+        f"CASE WHEN typeof({quoted}) IN ('text', 'blob') "
+        f"THEN substr({quoted}, 1, {MAX_CELL_CHARS + 1}) ELSE {quoted} END"
+        for quoted in (_quote(str(raw)) for raw, _ in declared)
     )
-    quoted = '"' + name.replace('"', '""') + '"'
-    cursor = connection.execute(f"SELECT * FROM {quoted} LIMIT ?", (MAX_ROWS + 1,))
-    names = [str(description[0]) for description in cursor.description]
+    cursor = connection.execute(f"SELECT {fetched} FROM {_quote(name)} LIMIT ?", (MAX_ROWS + 1,))
     profile = _Profile()
-    profile.fixed(names)
-    for column, raw in zip(profile.columns, names, strict=False):
-        kind = declared.get(raw)
+    profile.fixed([str(raw) for raw, _ in declared])
+    profile.width = width
+    for column, (_, kind) in zip(profile.columns, declared, strict=False):
         column.declared = _shown(str(kind)) if kind else None
     facts = [f"Format: SQLite table {_shown(name)}, opened read-only."]
+    cut = 0
     try:
         for row in cursor:
             if profile.full():
                 profile.truncated = True
                 break
-            profile.add_row(row)
+            values = list(row)
+            for index, value in enumerate(values):
+                if isinstance(value, str) and len(value) > MAX_CELL_CHARS:
+                    values[index] = value[:MAX_CELL_CHARS] + "…"
+                elif isinstance(value, bytes) and len(value) > MAX_CELL_CHARS:
+                    values[index] = value[:MAX_CELL_CHARS]
+                else:
+                    continue
+                cut += 1
+            profile.add_row(values)
     except sqlite3.OperationalError:
         if not exhausted():
             raise
         profile.truncated = True
         facts.append("The scan stopped at its work limit.")
-    return _schema_unit(
+    notes: list[Unit] = []
+    if cut:
+        facts.append(f"{cut} values were read only up to {MAX_CELL_CHARS} characters or bytes.")
+        notes.append(_unparsed(
+            artifact_id, rel,
+            f"Table {_shown(name)}: {cut} values longer than {MAX_CELL_CHARS} characters or bytes "
+            "were read only up to that size, so the distinct counts of their columns are "
+            "estimates.",
+        ))
+    schema = _schema_unit(
         artifact_id, f"Data schema: {rel} table {_shown(name)}", facts, profile, Location(rel),
         "sqlite",
     )
+    return [schema, *notes]
 
 
 _READERS: dict[str, Callable[[str, str, Path, str], list[Unit]]] = {

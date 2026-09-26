@@ -293,6 +293,48 @@ def test_a_header_that_looks_personal_is_not_shown(tmp_path):
     assert "@" not in unit.body
 
 
+NEUTRAL_VALUES = (
+    "Ada Lovelace", "Grace Hopper", "Turing", "Hopper, Grace", "07700900123", "02079460000",
+    "4155550123", "2125550188", "6175550199", "0033612345678", "02139", "10001", "94105-1234",
+)
+
+
+def test_names_phones_and_zip_codes_are_found_by_their_values(tmp_path):
+    # neutral column names: only the values say these columns are personal
+    (tmp_path / "contacts.csv").write_text(
+        "ref,contact,value,code,label\n"
+        "1,Ada Lovelace,07700900123,02139,alpha\n"
+        "2,Grace Hopper,02079460000,10001,beta\n"
+        '3,"Turing, Alan",4155550123,94105-1234,gamma\n',
+        encoding="utf-8",
+    )
+    _database(tmp_path / "leads.sqlite", """
+        CREATE TABLE leads (ref INTEGER, who TEXT, reach INTEGER, dial TEXT, area TEXT, tier TEXT);
+        INSERT INTO leads VALUES (1, 'Ada Lovelace', 4155550123, '07700900123', '02139', 'gold'),
+                                 (2, 'Hopper, Grace', 2125550188, '02079460000', '10001', 'silver'),
+                                 (3, 'Dr Alan Turing', 6175550199, '0033612345678', '94105-1234',
+                                  'bronze');
+    """)
+    csv_unit, table = data.decompose(tmp_path, ARTIFACT)
+    everything = json.dumps(
+        [[unit.title, unit.body, list(unit.tags)] for unit in (csv_unit, table)], ensure_ascii=False
+    )
+    for value in NEUTRAL_VALUES:
+        assert value not in everything, value
+    assert csv_unit.tags == ("dataset", "csv", "personal")
+    for column in ("contact", "value", "code"):
+        assert "personal, values withheld" in _line(csv_unit, column), column
+        assert "examples" not in _line(csv_unit, column), column
+    assert _line(csv_unit, "ref").endswith('examples "1", "2", "3"')
+    assert _line(csv_unit, "label").endswith('examples "alpha", "beta", "gamma"')
+    assert table.tags == ("dataset", "sqlite", "personal")
+    for column in ("who", "reach", "dial", "area"):
+        assert "personal, values withheld" in _line(table, column), column
+        assert "examples" not in _line(table, column), column
+    assert _line(table, "ref").endswith('examples "1", "2", "3"')
+    assert _line(table, "tier").endswith('examples "gold", "silver", "bronze"')
+
+
 # --- determinism and bounds --------------------------------------------------------------------
 
 
@@ -374,6 +416,58 @@ def test_files_and_tables_are_counted_up_to_a_limit(tmp_path, monkeypatch):
     assert "1 more dataset files were not read" in units[3].body
 
 
+def test_database_schemas_are_listed_up_to_a_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(data, "MAX_SCHEMA_ENTRIES", 3)
+    _database(
+        tmp_path / "many.sqlite",
+        "".join(f"CREATE TABLE t{i} (x);" for i in range(6)) + "CREATE VIEW v AS SELECT 1;",
+    )
+    units = data.decompose(tmp_path, ARTIFACT)
+    assert [unit.title for unit in units] == [
+        "Data schema: many.sqlite table t0",
+        "Data schema: many.sqlite table t1",
+        "Data schema: many.sqlite table t2",
+        "Not parsed: many.sqlite",
+    ]
+    assert units[-1].tags == ("unparsed",)
+    assert "more than 3 tables and views" in units[-1].body
+
+
+def test_sqlite_values_are_fetched_only_up_to_a_size(tmp_path, monkeypatch):
+    monkeypatch.setattr(data, "MAX_CELL_CHARS", 100)
+    fetched: list[int] = []
+    real_add = data._Column.add
+
+    def spy(self, value):
+        if isinstance(value, (str, bytes)):
+            fetched.append(len(value))
+        real_add(self, value)
+
+    monkeypatch.setattr(data._Column, "add", spy)
+    connection = sqlite3.connect(tmp_path / "big.sqlite")
+    try:
+        connection.execute("CREATE TABLE files (label TEXT, content TEXT, payload BLOB)")
+        connection.executemany("INSERT INTO files VALUES (?, ?, ?)", [
+            ("small", "tiny", b"\x00\x01"),
+            ("large", "z" * 100_000, b"\xff" * 100_000),
+        ])
+        connection.commit()
+    finally:
+        connection.close()
+    schema, note = data.decompose(tmp_path, ARTIFACT)
+    assert fetched and max(fetched) <= 101                  # never a whole oversized value
+    assert schema.kind == "data_schema" and "Rows: 2" in schema.body.splitlines()
+    assert "2 values were read only up to 100 characters or bytes." in schema.body
+    assert _line(schema, "content") == (
+        '- content: text; declared TEXT; nulls 0.0%; distinct ~2; examples "tiny"'
+    )
+    assert _line(schema, "payload") == "- payload: text; declared BLOB; nulls 0.0%; distinct ~2"
+    assert "zzz" not in schema.body
+    assert note.kind == "knowledge" and note.tags == ("unparsed",)
+    assert note.location.path == "big.sqlite"
+    assert "2 values longer than 100 characters or bytes" in note.body
+
+
 # --- malformed input ---------------------------------------------------------------------------
 
 
@@ -407,6 +501,25 @@ def test_an_unreadable_row_stops_the_scan_and_says_where(tmp_path):
     assert schema.kind == "data_schema" and "Rows: 1" in schema.body.splitlines()
     assert note.tags == ("unparsed",) and "Stopped reading at line" in note.body
     assert note.location.line_start == note.location.line_end >= 3
+
+
+@pytest.mark.parametrize(
+    ("name", "content", "end"),
+    [
+        ("open.csv", 'a,b\n1,2\n3,"never closed\n', 3),
+        ("open.tsv", 'a\tb\n1\t2\n3\t"never closed\n4\t5\n', 4),
+    ],
+)
+def test_an_unterminated_quote_is_unparsed_not_read_as_a_row(tmp_path, name, content, end):
+    (tmp_path / name).write_text(content, encoding="utf-8")
+    schema, note = data.decompose(tmp_path, ARTIFACT)
+    assert schema.kind == "data_schema" and "Rows: 1" in schema.body.splitlines()
+    assert schema.location.to_dict() == {"path": name, "line_start": 1, "line_end": 2}
+    assert "never closed" not in schema.body
+    assert note.kind == "knowledge" and note.tags == ("unparsed",)
+    # from the line the unreadable record begins on to the last line read
+    assert note.location.to_dict() == {"path": name, "line_start": 3, "line_end": end}
+    assert note.body.startswith("Stopped reading at line 3: ")
 
 
 def test_a_missing_artifact_is_unparsed_not_raised(tmp_path):
