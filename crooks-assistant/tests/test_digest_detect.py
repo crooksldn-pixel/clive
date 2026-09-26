@@ -281,6 +281,39 @@ def test_a_mislabelled_document_is_reported_with_weaker_evidence(tmp_path):
     assert by_path["fake.pdf"].weight < by_path["real.pdf"].weight
 
 
+def test_a_plain_skill_md_without_front_matter_is_not_an_agent_skill(tmp_path):
+    root = _build(tmp_path / "plain", {"SKILL.md": "# Notes\nJust some notes about a skill.\n"})
+
+    report = detect.detect_kinds(root)
+
+    assert "agent_skill" not in report, report.names()
+    assert "skill_collection" not in report
+
+
+def test_a_plain_skill_md_is_only_weak_evidence_beside_a_real_skill(tmp_path):
+    root = _build(tmp_path / "mixed", {
+        "SKILL.md": _skill("real"),
+        "drafts/SKILL.md": "# Draft\n",
+    })
+
+    skill = detect.detect_kinds(root).get("agent_skill")
+
+    by_path = {evidence.path: evidence for evidence in skill.evidence}
+    assert by_path["drafts/SKILL.md"].weight < by_path["SKILL.md"].weight
+    assert skill.confidence >= 0.9
+
+
+def test_a_graphql_operations_document_is_not_a_schema(tmp_path):
+    root = _build(tmp_path / "ops", {
+        "queries/shop.graphql": "query Shop {\n  shop {\n    name\n    type\n  }\n}\n",
+        "queries/order.gql": "mutation Close($id: ID!) {\n  close(id: $id) {\n    id\n  }\n}\n",
+    })
+
+    report = detect.detect_kinds(root)
+
+    assert "graphql_schema" not in report, report.names()
+
+
 def test_unknown_carries_the_file_type_census(tmp_path):
     root = _build(tmp_path / "blob", {
         "blob.bin": b"\x00\x01\x02",

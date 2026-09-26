@@ -519,7 +519,11 @@ def _skills(tree: Tree) -> list[tuple[str, dict[str, str] | None]]:
 @register("agent_skill", "agent skill")
 def _agent_skill(tree: Tree) -> Match | None:
     found = Findings()
-    for rel, meta in _skills(tree):
+    skills = _skills(tree)
+    # Front matter is the defining signal: a plain SKILL.md is only weak evidence beside one.
+    if all(meta is None for _, meta in skills):
+        return None
+    for rel, meta in skills:
         at_root = "/" not in rel
         if meta is None:
             found.add(rel, "SKILL.md without front matter", 0.3)
@@ -660,7 +664,9 @@ def _json_schema_set(tree: Tree) -> Match | None:
 
 
 _GRAPHQL_SDL = re.compile(
-    r"(?m)^\s*(?:extend\s+)?(?:type|interface|input|enum|union|scalar|schema|directive)\b"
+    r"(?m)^[ \t]*(?:extend[ \t]+)?"
+    r"(?:(?:type|interface|input|enum|union|scalar)[ \t]+[_A-Za-z]"
+    r"|schema[ \t]*\{|directive[ \t]+@)"
 )
 
 
@@ -670,8 +676,6 @@ def _graphql_schema(tree: Tree) -> Match | None:
     for rel in tree.suffixed(".graphql", ".graphqls", ".gql")[:CANDIDATES]:
         if _GRAPHQL_SDL.search(tree.head(rel)):
             found.add(rel, "GraphQL type definitions (SDL)", 0.9)
-        else:
-            found.add(rel, "GraphQL operations document", 0.5)
     for rel in tree.matching(r"(^|/)(schema|introspection)[^/]*\.json$")[:CANDIDATES]:
         if '"__schema"' in tree.head(rel):
             found.add(rel, "GraphQL introspection result", 0.75)
