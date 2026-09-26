@@ -214,6 +214,44 @@ def test_html_is_read_as_text_with_links_kept_and_scripts_dropped(tmp_path):
         assert unread not in text
 
 
+def test_an_html_link_around_blocks_keeps_its_target_in_each(tmp_path):
+    units = _one(tmp_path, "page.html", "\n".join([
+        "<h1>Links</h1>",                                                        # 1
+        '<a href="/guide"><p>Read the guide.</p>',
+        "<p>Then the index.</p></a>",                                            # 3
+    ]) + "\n")
+    assert _rows(units) == [
+        ("knowledge", "Links", "[Read the guide.](/guide)\n\n[Then the index.](/guide)",
+         "page.html", 1, 3, ()),
+    ]
+
+
+def test_html_end_tags_that_may_be_left_out_are_not_reported(tmp_path):
+    units = _one(tmp_path, "page.html", "\n".join([
+        "<html><head><title>Omitted</title>",                                    # 1
+        "<body><h1>Lists</h1>",
+        "<ul><li>Rotate keys<li>Escalate incidents</ul>",                        # 3
+        "<p>First paragraph<p>Second paragraph",
+        "<dl><dt>Term<dd>Meaning</dl>",                                          # 5
+        "<table><tr><td>a<td>b<tr><td>c</table>",
+        "<p>Line<br>break<br/><img src=x.png><hr>",                              # 7
+        "</body></html>",
+    ]) + "\n")
+    assert not [unit for unit in units if "unparsed" in unit.tags]
+    assert [(u.body, u.location.line_start) for u in units if u.kind == "rule"] == [
+        ("Rotate keys", 3), ("Escalate incidents", 3),
+    ]
+
+
+def test_mismatched_html_is_reported_and_what_was_read_is_kept(tmp_path):
+    units = _one(tmp_path, "page.html", "<h1>Heading</h2>\n<p>Body text.</p>\n")
+    assert _rows(units[:-1]) == [("knowledge", "Heading", "Body text.", "page.html", 1, 2, ())]
+    report = units[-1]
+    assert "unparsed" in report.tags and report.location == Location("page.html", 1, 1)
+    assert "</h2> at line 1 closes nothing that is open" in report.body
+    assert "<h1> opened at line 1 is never closed" in report.body
+
+
 def test_bullets_that_give_commands_are_rules_and_statements_are_not(tmp_path):
     units = _one(tmp_path, "ops.md", "\n".join([
         "# Ops",                                                                 # 1
@@ -223,14 +261,25 @@ def test_bullets_that_give_commands_are_rules_and_statements_are_not(tmp_path):
         "- Monitor disk usage.",                                                 # 5
         "- Archive old logs.",
         "- Defragment every disk.",                                              # 7
+        "- Rotate keys.",
+        "- Escalate incidents",                                                  # 9
+        "- Quarantine unknown files.",
+        "- Shut down idle servers.",                                             # 11
         "- Backups run nightly.",
-        "- The cache lives in memory",                                           # 9
+        "- The cache lives in memory",                                           # 13
         "- Monitoring covers the API.",
-        "- Release notes are in the wiki.",                                      # 11
+        "- Release notes are in the wiki.",                                      # 15
+        "- Data lives in memory.",
+        "- Cache stores the index.",                                             # 17
+        "- Offline support",
+        "- Configuration files.",                                                # 19
+        "- Critical alerts",
     ]) + "\n")
     assert [(u.body, u.location.line_start) for u in units if u.kind == "rule"] == [
         ("Test the backup.", 3), ("Document the API.", 4), ("Monitor disk usage.", 5),
-        ("Archive old logs.", 6), ("Defragment every disk.", 7),
+        ("Archive old logs.", 6), ("Defragment every disk.", 7), ("Rotate keys.", 8),
+        ("Escalate incidents", 9), ("Quarantine unknown files.", 10),
+        ("Shut down idle servers.", 11),
     ]
 
 
@@ -404,6 +453,11 @@ def test_malformed_input_is_reported_as_unparsed_never_raised(tmp_path):
     ("<pre>\nx = 1\n", "<pre> opened at line 3 is never closed"),
     ("<ul>\n<li>Test the backup.</li>\n", "<ul> opened at line 3 is never closed"),
     ("<p>More text.</p></script></a>\n", "</script> at line 3 closes nothing that is open"),
+    ("<h2>Unclosed heading\n", "<h2> opened at line 3 is never closed"),
+    ("<div><p>More text.</p>\n", "<div> opened at line 3 is never closed"),
+    ("<h2>Mismatched</h3>\n", "</h3> at line 3 closes nothing that is open"),
+    ("<section><h2>Cut short</section>\n",
+     "<h2> opened at line 3 is never closed before </section> at line 3"),
 ])
 def test_malformed_html_the_parser_lets_pass_is_reported_as_unparsed(tmp_path, tail, said):
     units = _one(tmp_path, "page.html", "<h1>Top</h1>\n<p>Kept text.</p>\n" + tail)

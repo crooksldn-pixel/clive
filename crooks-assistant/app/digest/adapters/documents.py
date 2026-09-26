@@ -35,6 +35,7 @@ MAX_DEPTH = 32               # folders nested deeper than this are not entered
 MAX_UNITS = 10_000           # Units returned, besides the one saying the rest were cut
 MAX_SENTENCE = 2_000         # a longer run without a full stop is not read as one claim
 _MAX_PROBLEMS = 20           # malformed places named in one HTML page's report; the rest counted
+_MAX_OPEN = 256              # HTML elements open at once; markup nested deeper is not checked
 
 _FLAVOURS = {
     ".md": "markdown", ".markdown": "markdown", ".mdown": "markdown", ".mkd": "markdown",
@@ -89,7 +90,8 @@ _MODAL = re.compile(
 _LABEL = re.compile(r"\W*[A-Za-z'-]+\W*:")
 _WORDS = re.compile(r"[A-Za-z][A-Za-z']*")
 # Verbs that open a command. The list is a help, not a limit: a word outside it still opens one
-# when it is not shaped like a noun or participle and an object follows it (see _imperative).
+# when it is not shaped like a noun, adjective or participle and an object follows it, bare or
+# not ('Rotate keys', 'Escalate incidents'; see _imperative).
 _VERBS = frozenset("""
     accept activate add adjust allow always apply archive ask assign attach audit automate avoid
     back backup benchmark bring build bump call cancel capture change check choose clean clear
@@ -127,6 +129,19 @@ _OBJECTS = frozenset("""
     a an the this that these those it its all any each every your our their my them everything
     anything both either
 """.split())
+# Particles that go with a verb before its object: 'Shut down idle servers'.
+_PARTICLES = frozenset("up down out off away over".split())
+# Verbs that follow a bare subject in a statement: 'Data lives in memory', 'Config goes in etc'.
+_FINITE = frozenset("""
+    applies belongs comes depends exists goes happens holds lasts lies lives looks means remains
+    resides runs seems sits stays works
+""".split())
+# Endings of nouns and adjectives, so a word with one names a thing rather than a command:
+# 'Configuration files', 'Critical alerts', 'Traffic spikes at noon'.
+_DESCRIBING = (
+    "tion", "sion", "ment", "ness", "ity", "ship", "hood", "ism", "ogy", "al", "ic", "ous", "ful",
+    "less", "able", "ible", "tive", "sive", "ary", "ory",
+)
 # Verbs that take a clause, so a verb soon after them still reads as a command: 'Ensure backups
 # are encrypted'. After any other first word it reads as a statement: 'Release notes are here'.
 _CLAUSAL = frozenset("assume check confirm ensure expect make note remember see verify".split())
@@ -374,10 +389,17 @@ def _atx(text: str) -> tuple[int, str] | None:
     return len(found.group(1)), title
 
 
+def _plural(word: str) -> bool:
+    return word.endswith("s") and not word.endswith(("ss", "us", "is"))
+
+
 def _imperative(text: str) -> bool:
     """Whether a bullet item tells the reader what to do: it opens with a verb in the imperative,
     or says what must or should be done. A 'Label: value' item does not, nor one that opens
-    with a noun and its verb ('Backups run nightly', 'Release notes are in the wiki')."""
+    with a noun and its verb ('Backups run nightly', 'Release notes are in the wiki'). A word
+    not known as a verb opens a command when its object follows: one led by a determiner or a
+    particle, a bare plural ('Rotate keys'), or any when the item is a sentence ('Quarantine
+    unknown files.'); a bare noun phrase ('Offline support') is not a command."""
     head = text[:300].replace("’", "'")
     if _LABEL.match(head):
         return False
@@ -395,9 +417,17 @@ def _imperative(text: str) -> bool:
     if first in _VERBS:
         return True
     if (first.endswith(("ing", "ly")) or (first.endswith("ed") and not first.endswith("eed"))
-            or (first.endswith("s") and not first.endswith(("ss", "us", "is")))):
+            or _plural(first)):
         return False   # a gerund, participle, adverb or plural: not a command
-    return len(words) > 1 and words[1] in _OBJECTS
+    if len(words) < 2 or words[1] in _FINITE:
+        return False   # a lone word, or a subject and its verb
+    if words[1] in _OBJECTS or words[1] in _PARTICLES:
+        return True
+    if len(first) > 4 and first.endswith(_DESCRIBING) and not first.endswith("eal"):
+        return False   # a noun or adjective before a noun
+    if _plural(words[1]):
+        return len(words) < 3 or words[2] not in _OBJECTS   # 'Cache stores the index' states
+    return text.rstrip().endswith((".", "!"))
 
 
 def _sentences(text: str) -> list[tuple[int, int, str]]:
@@ -784,19 +814,51 @@ class _HTMLText(HTMLParser):
         "header", "hr", "html", "main", "nav", "p", "section", "summary", "table", "tbody",
         "tfoot", "thead", "title", "tr",
     ))
+    _VOID = frozenset((
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "keygen", "link", "meta",
+        "param", "source", "track", "wbr",
+    ))
+    # Elements whose end tag HTML lets be left out, and the start tags that end them when it is.
+    _CELL_ENDS = frozenset(("td", "th", "tr", "tbody", "thead", "tfoot"))
+    _RUBY_ENDS = frozenset(("rb", "rp", "rt", "rtc"))
+    _ENDED_BY = {
+        "p": frozenset((
+            "address", "article", "aside", "blockquote", "dd", "details", "dialog", "div", "dl",
+            "dt", "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4",
+            "h5", "h6", "header", "hgroup", "hr", "li", "main", "menu", "nav", "ol", "p", "pre",
+            "search", "section", "table", "ul",
+        )),
+        "li": frozenset(("li",)),
+        "dt": frozenset(("dd", "dt")),
+        "dd": frozenset(("dd", "dt")),
+        "option": frozenset(("optgroup", "option")),
+        "optgroup": frozenset(("optgroup",)),
+        "rb": _RUBY_ENDS, "rp": _RUBY_ENDS, "rt": _RUBY_ENDS, "rtc": frozenset(("rb", "rtc")),
+        "colgroup": frozenset(("colgroup", "tbody", "tfoot", "thead", "tr")),
+        "td": _CELL_ENDS, "th": _CELL_ENDS,
+        "tr": frozenset(("tbody", "tfoot", "thead", "tr")),
+        "thead": frozenset(("tbody", "tfoot")),
+        "tbody": frozenset(("tbody", "tfoot")),
+        "tfoot": frozenset(("tbody",)),
+        "head": frozenset(("body",)),
+        "body": frozenset(),
+        "html": frozenset(),
+    }
+    # Elements whose start tag HTML lets be left out, so their end tag alone closes nothing amiss.
+    _START_OPTIONAL = frozenset(("body", "colgroup", "head", "html", "tbody"))
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.lines: list[_Line] = []
         self._words: list[str] = []
-        self._generation = 0
         self._first = 0
         self._last = 0
         self._prefix = ""
         self._dropped = 0
         self._dropped_at = ("", 0)                  # the script or style being dropped, and its line
-        self._lists: list[tuple[str, int]] = []
-        self._links: list[tuple[str, int, int, int]] = []
+        self._open: list[tuple[str, int]] = []      # the elements open, and the line of each
+        self._too_deep = False                      # nesting passed _MAX_OPEN: no longer tracked
+        self._links: list[tuple[str, int]] = []     # each open link's target, and its first word
         self._pre: list[str] | None = None
         self._pre_line = 0
         self._pre_language = ""
@@ -818,6 +880,7 @@ class _HTMLText(HTMLParser):
             elif tag == "br":
                 self._pre.append("\n")
             return
+        tracked = self._begin_element(tag)
         if tag == "pre":
             self._flush()
             self._pre = []
@@ -828,17 +891,16 @@ class _HTMLText(HTMLParser):
             self._prefix = "#" * self._HEADINGS[tag] + " "
         elif tag in self._LISTS:
             self._flush()
-            self._lists.append((tag, self.getpos()[0]))
         elif tag == "li":
             self._flush()
-            self._prefix = "1. " if self._lists and self._lists[-1][0] == "ol" else "- "
+            self._prefix = "1. " if self._list() == "ol" else "- "
         elif tag == "input":
             if ((attributes.get("type") or "").lower() == "checkbox" and self._prefix == "- "
                     and not "".join(self._words).strip()):
                 self._prefix = "- [x] " if "checked" in attributes else "- [ ] "
         elif tag == "a":
-            self._links.append((attributes.get("href") or "", self._generation, len(self._words),
-                                self.getpos()[0]))
+            if tracked:
+                self._links.append((attributes.get("href") or "", len(self._words)))
         elif tag in ("td", "th"):
             self._words.append(" ")
         elif tag in self._BLOCKS:
@@ -857,20 +919,14 @@ class _HTMLText(HTMLParser):
             if tag == "pre":
                 self._end_pre()
             return
-        if tag == "a":
-            self._end_link()
-        elif tag == "pre":
+        if tag == "pre":
             self._stray(tag)
-        elif tag in self._HEADINGS or tag == "li":
+        elif tag not in self._VOID:
+            self._end_element(tag)
+        if tag in self._HEADINGS or tag == "li":
             self._flush()
             self._prefix = ""
-        elif tag in self._LISTS:
-            self._flush()
-            if self._lists:
-                self._lists.pop()
-            else:
-                self._stray(tag)
-        elif tag in self._BLOCKS:
+        elif tag in self._LISTS or tag in self._BLOCKS:
             self._flush()
 
     def handle_data(self, data: str) -> None:
@@ -900,10 +956,10 @@ class _HTMLText(HTMLParser):
             self._problem(self._pre_line, f"<pre> opened at line {self._pre_line} is never "
                                           "closed, so everything after it was read as code")
             self._end_pre()
-        for *_, line in self._links:
-            self._problem(line, f"<a> opened at line {line} is never closed, so its target was not kept")
-        for tag, line in self._lists:
-            self._problem(line, f"<{tag}> opened at line {line} is never closed")
+        if not self._too_deep:
+            for tag, line in self._open:
+                if tag not in self._ENDED_BY:
+                    self._problem(line, f"<{tag}> opened at line {line} is never closed")
         if self.rawdata.strip() and not self._dropped:
             line = self.getpos()[0]
             self._problem(line, f"the page ends at line {line} inside markup that is never "
@@ -924,12 +980,57 @@ class _HTMLText(HTMLParser):
         line = self.getpos()[0]
         self._problem(line, f"</{tag}> at line {line} closes nothing that is open")
 
-    def _end_link(self) -> None:
-        if not self._links:
-            self._stray("a")
+    def _begin_element(self, tag: str) -> bool:
+        """Notes tag as open, first ending the open elements whose left-out end tag it implies;
+        whether it is now tracked. Void elements and <pre>, read apart, are never tracked."""
+        if self._too_deep:
+            return False
+        while self._open and tag in self._ENDED_BY.get(self._open[-1][0], ()):
+            self._open.pop()
+        if tag in self._VOID or tag == "pre":
+            return False
+        line = self.getpos()[0]
+        if len(self._open) >= _MAX_OPEN:
+            self._too_deep = True
+            self._problem(line, f"elements nest more than {_MAX_OPEN} deep at line {line}, so the "
+                                "markup from there on was not checked")
+            return False
+        self._open.append((tag, line))
+        return True
+
+    def _end_element(self, tag: str) -> None:
+        """Closes the innermost open tag, and the elements still open inside it: those whose end
+        tag may be left out silently, the rest as never closed."""
+        if self._too_deep:
             return
-        href, generation, at, _ = self._links.pop()
-        if generation != self._generation or not href.strip():
+        if all(name != tag for name, _ in self._open):
+            if tag not in self._START_OPTIONAL:
+                self._stray(tag)
+            return
+        while self._open:
+            name, opened = self._open.pop()
+            if name == "a":
+                self._end_link()
+            if name == tag:
+                return
+            if name not in self._ENDED_BY:
+                line = self.getpos()[0]
+                self._problem(opened, f"<{name}> opened at line {opened} is never closed before "
+                                      f"</{tag}> at line {line}")
+
+    def _list(self) -> str:
+        for name, _ in reversed(self._open):
+            if name in self._LISTS:
+                return name
+        return ""
+
+    def _end_link(self) -> None:
+        if self._links:
+            self._mark_link(*self._links.pop())
+
+    def _mark_link(self, href: str, at: int) -> None:
+        """The words from at on written as a link to href."""
+        if not href.strip():
             return
         inner = "".join(self._words[at:])
         text = " ".join(inner.split())
@@ -939,9 +1040,13 @@ class _HTMLText(HTMLParser):
             self._words[at:] = [f"{lead}[{text}]({href.strip()}){tail}"]
 
     def _flush(self) -> None:
+        # A link still open spans blocks: its text in each line it reaches is marked with it.
+        for index in range(len(self._links) - 1, -1, -1):
+            href, at = self._links[index]
+            self._mark_link(href, at)
+            self._links[index] = (href, 0)
         text = " ".join("".join(self._words).split())
         self._words = []
-        self._generation += 1
         if text:
             first = self._first or self.getpos()[0]
             last = max(self._last, first)
