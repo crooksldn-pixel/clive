@@ -4646,6 +4646,7 @@ document.addEventListener('pointerdown', (event) => {
     acquireWakeLock();
     if (live) live.pointerDown();
     press.live = true;
+    T.record('hold', { phase: 'start', target: 'ask_bar', state: busy ? 'busy' : 'ready' });
     setState('LISTENING');
     startRecording();
   }, ASK_HOLD_MS);
@@ -4666,6 +4667,7 @@ function endAskPress(event) {
   press.bar.dataset.cancel = 'false';
   if (press.held) askSwallowUntil = Date.now() + 700;
   if (press.live) stopRecording(press.cancel || event.type === 'pointercancel');
+  T.record('ask_bar', { outcome: !press.held ? 'type' : !press.live ? 'busy' : press.cancel ? 'slid_away' : event.type === 'pointercancel' ? 'cancelled' : 'sent' });
 }
 document.addEventListener('pointerup', endAskPress);
 document.addEventListener('pointercancel', endAskPress);
@@ -4681,3 +4683,35 @@ document.addEventListener('click', (event) => {
 document.addEventListener('lostpointercapture', (event) => {
   if (askPress && event.pointerId === askPress.id) endAskPress({ pointerId: event.pointerId, type: 'pointercancel' });
 });
+
+// ------------------------------------------------------------------ the phone home, observed
+/* What the owner does on the phone's home and its sheets (web/alpha.js), for a test session:
+ * which row, which shortcut, which control — never a title. web/alpha.js marks its controls
+ * with data attributes and never reaches the telemetry itself; this reads the marks. */
+document.addEventListener('click', (event) => {
+  const node = event.target && event.target.closest ? event.target.closest('[data-alpha]') : null;
+  if (!node) return;
+  T.record('alpha_tap', {
+    target: node.dataset.alpha,
+    attention: node.dataset.attention || undefined,
+    control: node.closest('#alpha-sheet') ? 'sheet' : node.closest('#alpha-home') ? 'home' : 'composer',
+  });
+});
+
+/* A request the server refused or could not answer, whoever made it. The page's own reads
+ * report their failures in their own words; the phone home's (objectives, support) only
+ * flashed a line on the glass, and a test session saw nothing. Path and status only. */
+if (typeof window.fetch === 'function') {
+  const pageFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const request = pageFetch(input, init);
+    request.then((response) => {
+      if (response && !response.ok) {
+        let path = '';
+        try { path = new URL(response.url || String(input), location.href).pathname; } catch { path = ''; }
+        if (path && !path.startsWith('/telemetry')) T.record('http_error', { path: path.slice(0, 80), status: response.status });
+      }
+    }, () => {});
+    return request;
+  };
+}

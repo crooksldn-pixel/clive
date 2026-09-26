@@ -1218,6 +1218,11 @@ def scenes_enabled() -> bool:
     return _SceneSwitch(_env_file=_env_file()).scenes
 
 
+def _writing_id(timeline) -> str | None:
+    session = timeline.active
+    return session.test_session_id if session is not None else None
+
+
 def _turn_scene(question: str, answer: str, calls: list | None, session_id: str) -> dict | None:
     """The turn's scene and its decision trace when CLIVE_SCENES is on, and nothing when it is
     off. Beside the cards, never instead of them, and never at the cost of the turn: a failure
@@ -1409,7 +1414,11 @@ async def _answer(
     payload = {
         "session_id": session_id,
         "turn_id": turn_id,
-        "test_session_id": timeline.current().active_id,
+        # Whatever is being written down — a test session or a production recording — so the page
+        # keeps its telemetry on through the turn. `active_id` names the test session alone, and a
+        # recording answered null here, which switched the page's telemetry off after every turn
+        # until the next /health poll turned it back on.
+        "test_session_id": _writing_id(timeline.current()),
         "turns": turns,
         "answer": answer,
         "question": question or (transcript or {}).get("text", ""),

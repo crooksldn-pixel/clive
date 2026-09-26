@@ -590,7 +590,10 @@ def build(settings: Settings | None = None) -> Runtime:
     from app.observability.timeline import Timeline
     from app.observability.timeline import install as install_timeline
 
-    tests = TestSessions(settings.log_dir)
+    tests = TestSessions(settings.log_dir, always=settings.test_session_always, keep_days=settings.test_session_keep_days)
+    if settings.test_session_always:
+        log.info("test mode is ALWAYS ON: each day is one test session (logs/test-sessions/, kept %s days)%s",
+                 settings.test_session_keep_days, "; screen snapshots on" if settings.screen_snapshots else "")
     timeline = install_timeline(Timeline(tests))
     ledger_module.observe(observe_hooks.ledger_observer)
     # The production experience recorder (brief section 26), if it has been asked for. It hangs

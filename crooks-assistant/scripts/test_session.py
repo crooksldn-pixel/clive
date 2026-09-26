@@ -5,6 +5,8 @@
     make test-session-status                       what is running, and how many events so far
     make test-session-stop                         end it
     make test-session-report [SESSION=ts-…]        write reports/<session>.md from the timeline
+    make test-session-screens [SESSION=ts-…]       draw the screens the page sent (CROOKS_SCREEN_SNAPSHOTS)
+                                                   as reports/<session>-screens/index.html
 
 Start, status and stop talk to the running backend on loopback, so nothing restarts. When the
 backend is not running they work the session file directly (logs/test-sessions/active.json),
@@ -154,6 +156,32 @@ def cmd_proposals(args) -> int:
     return 0
 
 
+def cmd_screens(args) -> int:
+    """Draw the session's screen copies with Playwright (scripts/browser/session_screens.js)."""
+    import subprocess
+
+    from app.observability.session import SCREENS_SUFFIX, TestSessions
+
+    settings = _settings()
+    store = TestSessions(settings.log_dir)
+    path = Path(args.session) if args.session and args.session.endswith(".jsonl") and Path(args.session).exists() else store.find(args.session or "")
+    if path is None:
+        print("no timeline found" + (f" for {args.session!r}" if args.session else ""), file=sys.stderr)
+        return 1
+    screens = path.with_name(path.stem + SCREENS_SUFFIX)
+    if not screens.is_dir() or not any(screens.glob("*.json")):
+        print(f"no screens were kept for {path.stem}: is CROOKS_SCREEN_SNAPSHOTS=true, and has the page been used since?", file=sys.stderr)
+        return 1
+    out_dir = Path(args.out) if args.out else ROOT / "reports" / f"{path.stem}{SCREENS_SUFFIX}"
+    script = ROOT / "scripts" / "browser" / "session_screens.js"
+    done = subprocess.run(["node", str(script), str(screens), str(out_dir), str(ROOT / "web")], check=False)
+    if done.returncode != 0:
+        print("drawing failed: is Playwright installed (npm install -g playwright, then npx playwright install chromium)?", file=sys.stderr)
+        return done.returncode
+    print(out_dir / "index.html")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -167,8 +195,12 @@ def main(argv: list[str] | None = None) -> int:
     proposals = sub.add_parser("proposals", help="write reports/<session>-proposals.md: improvement candidates, cited by turn, never applied")
     proposals.add_argument("session", nargs="?", default="", help="a session id, its prefix, or a .jsonl path; default: the active or last session")
     proposals.add_argument("--out", default="", help="directory for the file (default: reports/)")
+    screens = sub.add_parser("screens", help="draw the session's screens as reports/<session>-screens/index.html")
+    screens.add_argument("session", nargs="?", default="", help="a session id, its prefix, or a .jsonl path; default: the active or last session")
+    screens.add_argument("--out", default="", help="directory for the pictures (default: reports/<session>-screens/)")
     args = parser.parse_args(argv)
-    return {"start": cmd_start, "status": cmd_status, "stop": cmd_stop, "report": cmd_report, "proposals": cmd_proposals}[args.command](args)
+    return {"start": cmd_start, "status": cmd_status, "stop": cmd_stop, "report": cmd_report, "proposals": cmd_proposals,
+            "screens": cmd_screens}[args.command](args)
 
 
 if __name__ == "__main__":

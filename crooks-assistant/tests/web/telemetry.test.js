@@ -181,3 +181,23 @@ test('an image path is kept without its query, and a bad one is empty', () => {
   assert.equal(T.pathOnly('https://cdn.shopify.com/s/files/1/x.jpg?v=1'), '/s/files/1/x.jpg');
   assert.equal(T.pathOnly(null), '/');
 });
+
+test('a copy of the screen is taken only when the Mac asks for one, and never faster than the gap', async () => {
+  T.reset();
+  const sent = [];
+  T._setTransport((body, unloading, endpoint) => sent.push({ endpoint: endpoint || '/telemetry', body }));
+  T.configure({ test_session: 'ts-screens' });
+  T.record('exception', { message: 'boom' });
+  await new Promise((resolve) => setTimeout(resolve, 1300));
+  assert.equal(sent.filter((s) => s.endpoint === '/telemetry/screen').length, 0, 'screens off: no copy');
+  assert.equal(T.status().screens, false);
+  T.configure({ test_session: 'ts-screens', screens: true });
+  T.configure({ test_session: 'ts-screens' });
+  assert.equal(T.status().screens, true, 'a /turn answer, which says nothing of screens, leaves the switch alone');
+  // No #app in this document: there is nothing to copy, so nothing is sent and nothing counted.
+  T.record('exception', { message: 'boom' });
+  await new Promise((resolve) => setTimeout(resolve, 1300));
+  assert.equal(sent.filter((s) => s.endpoint === '/telemetry/screen').length, 0);
+  assert.equal(T.status().screen_count, 0);
+  T.reset();
+});

@@ -215,7 +215,14 @@ def _observability(runtime) -> dict:
     the tablet turns its own telemetry on and off from this, within one poll."""
     timeline = getattr(runtime, "timeline", None)
     session = timeline.active if timeline is not None else None
-    return {"test_session": session.test_session_id if session is not None else None, "name": session.name if session is not None else None}
+    out = {"test_session": session.test_session_id if session is not None else None, "name": session.name if session is not None else None}
+    # Whether the page should send a copy of its screen too (CROOKS_SCREEN_SNAPSHOTS): only for a
+    # test session of this timeline's own, never for a production recording. Said only when it
+    # is so; the route refuses copies whenever it is not, whatever a page still believes.
+    own = timeline.own if timeline is not None else None
+    if own is not None and getattr(getattr(runtime, "settings", None), "screen_snapshots", False):
+        out["screens"] = True
+    return out
 
 
 async def _health(runtime) -> dict:
