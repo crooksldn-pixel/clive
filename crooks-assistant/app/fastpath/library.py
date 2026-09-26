@@ -1167,6 +1167,10 @@ def _waited_since(row: dict[str, Any]) -> float | None:
     return None
 
 
+# How many people the waiting card draws. The same slice is issued and walked, never more.
+WAITING_SHOWN = 10
+
+
 def _longest_waiting_first(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The order the answer names them in, the card lists them in and Next walks them in. The
     queue came out 11d, 13d, 13d, 5d, …, 1d — the read's own order, which is nobody's."""
@@ -1211,11 +1215,25 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     # is built here rather than harvested from a tool result, so nothing else would have
     # issued them — which made every row of this card unopenable by the very check that
     # exists to protect it.
-    _open_waiting_threads(ctx, body, waiting)
+    # Only the threads the card draws are issued and walkable (the 2026-09-26 deploy review, F-04):
+    # the gate's rule is that a conversation reaches only a record it was shown.
+    _open_waiting_threads(ctx, body, waiting[:WAITING_SHOWN])
     waiting_set = _set_id_of(body, "set_needs_reply")
     if waiting_set and ctx.branch.workflow is None:
         _open_workflow(ctx, body, kind="customers", operation="reply", set_id=waiting_set)
     tail = (f" {unchecked} {'thread' if inbox else 'customer'}{'s' if unchecked != 1 else ''} could not be checked." if unchecked else "")
+    # A reply sent as a new email that was not looked for everywhere is said, in the answer and on
+    # the card: someone shown as waiting may already have been answered (the 2026-09-26 deploy
+    # review, F-02). The scan logs why; the owner is told what it means.
+    sent = str(body.get("sent_checked") or "all") if inbox else "all"
+    if waiting and sent != "all":
+        caveat = ("Replies sent as new emails could not be checked, so some of these may already have been answered."
+                  if sent == "none" else
+                  "Only the newest sent emails were checked for replies, so some of these may already have been answered.")
+        tail += " " + caveat
+        scope_note = " ".join(filter(None, [scope_note, caveat]))
+    if len(waiting) > WAITING_SHOWN:
+        scope_note = " ".join(filter(None, [scope_note, f"The {WAITING_SHOWN} longest waits are shown."]))
     if not waiting:
         if again:
             answer = "Still nobody."
@@ -1322,7 +1340,7 @@ def _waiting_surface(waiting: list[dict[str, Any]], *, unchecked: int = 0, scope
     from app.surfaces import Freshness, Surface
 
     threads = []
-    for row in waiting[:10]:
+    for row in waiting[:WAITING_SHOWN]:
         # The order numbers the THREADS name, when the correlation found any — that is what
         # the email is about — and the customer's recent orders otherwise. With how sure the
         # link between this person and these threads is, because the row is a decision to
