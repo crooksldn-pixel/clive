@@ -201,3 +201,16 @@ test('a copy of the screen is taken only when the Mac asks for one, and never fa
   assert.equal(T.status().screen_count, 0);
   T.reset();
 });
+
+test('a copy of the screen never carries what was typed, only that something was', () => {
+  const src = require('node:fs').readFileSync(path.join(__dirname, '..', '..', 'web', 'telemetry.js'), 'utf8');
+  const copy = src.slice(src.indexOf('function copyScreen'), src.indexOf('function takeScreen'));
+  assert.ok(copy.length > 200, 'copyScreen found');
+  assert.ok(!/setAttribute\('value',\s*a\.value/.test(copy), 'an input\'s value is never copied as typed');
+  assert.ok(!/textContent\s*=\s*a\.value(?!\s*\?)/.test(copy), 'a textarea\'s text is never copied as typed');
+  assert.match(copy, /textContent = a\.value \? typedMask\(a\.value\) : ''/);
+  assert.match(copy, /removeAttribute\('value'\)/, 'a value written into the markup itself is dropped too');
+  assert.match(copy, /typedMask\(a\.value\)/);
+  const mask = src.slice(src.indexOf('function typedMask'), src.indexOf('function copyScreen'));
+  assert.match(mask, /'•'\.repeat\(Math\.min\(24,/);
+});

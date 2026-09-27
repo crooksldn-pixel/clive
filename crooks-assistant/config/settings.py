@@ -184,9 +184,11 @@ class Settings(BaseSettings):
     # the owner's own use to be written down. A session started by name still wins while it
     # runs. Everything stays where a test session always wrote it (logs/test-sessions/, 0600),
     # redacted the same way; always-on days older than `test_session_keep_days` are deleted
-    # when the next one starts, named sessions never are.
+    # when the next one starts, and sessions started by name after `test_session_keep_named_days`,
+    # with the reports drawn from them. One timeline stops growing at 64 MB.
     test_session_always: bool = False
     test_session_keep_days: int = 14
+    test_session_keep_named_days: int = 90
     # The screen as it was. On (and only while a test session is running), the page sends a
     # copy of what it is showing at each answer, each question, each failure and each
     # navigation; `make test-session-screens` redraws them as phone-sized pictures with

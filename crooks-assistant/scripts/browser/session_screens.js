@@ -22,6 +22,10 @@
 const fs = require('fs');
 const path = require('path');
 
+// The pictures show what the screen showed, customers included: every file written here is the
+// owner's alone (0600 in a 0700 folder), whatever the shell's umask.
+process.umask(0o077);
+
 function loadChromium() {
   try { return require('playwright').chromium; } catch { /* fall through */ }
   return require('playwright-core').chromium;
@@ -81,7 +85,8 @@ function describe(trigger) {
   const files = fs.existsSync(SCREENS)
     ? fs.readdirSync(SCREENS).filter((name) => name.endsWith('.json')).sort()
     : [];
-  fs.mkdirSync(OUT, { recursive: true });
+  fs.mkdirSync(OUT, { recursive: true, mode: 0o700 });
+  fs.chmodSync(OUT, 0o700);
   const css = stylesheets();
   const chromium = loadChromium();
   const browser = await chromium.launch();

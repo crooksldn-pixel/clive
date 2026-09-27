@@ -64,7 +64,9 @@ def cmd_start(args) -> int:
         return 1
     # No backend: mark the session on disk; the backend reads it when it next writes an event.
     try:
-        session = TestSessions(settings.log_dir).start(name)
+        store = TestSessions.from_settings(settings, always=False)
+        store.prune()
+        session = store.start(name)
     except AlreadyActive as exc:
         print(f"A test session is already running: {exc}. Stop it first.", file=sys.stderr)
         return 1
@@ -79,7 +81,7 @@ def cmd_status(args) -> int:
     settings = _settings()
     answer = _call(settings.port, "GET", "/test-session/status")
     if answer is None:
-        store = TestSessions(settings.log_dir)
+        store = TestSessions.from_settings(settings, always=False)
         active = store.active()
         if active is None:
             last = store.last()
@@ -108,7 +110,7 @@ def cmd_stop(args) -> int:
     settings = _settings()
     answer = _call(settings.port, "POST", "/test-session/stop")
     if answer is None:
-        session = TestSessions(settings.log_dir).stop()
+        session = TestSessions.from_settings(settings, always=False).stop()
         if session is None:
             print("no test session running", file=sys.stderr)
             return 1
@@ -124,17 +126,25 @@ def cmd_stop(args) -> int:
     return 0
 
 
+def _prune_reports(out_dir: Path, settings) -> None:
+    """Reports go when the sessions they were drawn from would (test_session_keep_named_days)."""
+    from app.observability.session import KEEP_NAMED_DAYS, prune_reports
+
+    prune_reports(out_dir, int(getattr(settings, "test_session_keep_named_days", KEEP_NAMED_DAYS) or KEEP_NAMED_DAYS))
+
+
 def cmd_report(args) -> int:
     from app.observability.report import write_report
     from app.observability.session import TestSessions
 
     settings = _settings()
-    store = TestSessions(settings.log_dir)
+    store = TestSessions.from_settings(settings, always=False)
     path = Path(args.session) if args.session and args.session.endswith(".jsonl") and Path(args.session).exists() else store.find(args.session or "")
     if path is None:
         print("no timeline found" + (f" for {args.session!r}" if args.session else ": start and stop a session first"), file=sys.stderr)
         return 1
     out_dir = Path(args.out) if args.out else ROOT / "reports"
+    _prune_reports(out_dir, settings)
     written = write_report(path, out_dir)
     print(written)
     return 0
@@ -145,12 +155,13 @@ def cmd_proposals(args) -> int:
     from app.observability.session import TestSessions
 
     settings = _settings()
-    store = TestSessions(settings.log_dir)
+    store = TestSessions.from_settings(settings, always=False)
     path = Path(args.session) if args.session and args.session.endswith(".jsonl") and Path(args.session).exists() else store.find(args.session or "")
     if path is None:
         print("no timeline found" + (f" for {args.session!r}" if args.session else ": start and stop a session first"), file=sys.stderr)
         return 1
     out_dir = Path(args.out) if args.out else ROOT / "reports"
+    _prune_reports(out_dir, settings)
     written = write_proposals(path, out_dir)
     print(written)
     return 0
@@ -160,10 +171,10 @@ def cmd_screens(args) -> int:
     """Draw the session's screen copies with Playwright (scripts/browser/session_screens.js)."""
     import subprocess
 
-    from app.observability.session import SCREENS_SUFFIX, TestSessions
+    from app.observability.session import SCREENS_SUFFIX, TestSessions, private_dir
 
     settings = _settings()
-    store = TestSessions(settings.log_dir)
+    store = TestSessions.from_settings(settings, always=False)
     path = Path(args.session) if args.session and args.session.endswith(".jsonl") and Path(args.session).exists() else store.find(args.session or "")
     if path is None:
         print("no timeline found" + (f" for {args.session!r}" if args.session else ""), file=sys.stderr)
@@ -173,6 +184,8 @@ def cmd_screens(args) -> int:
         print(f"no screens were kept for {path.stem}: is CROOKS_SCREEN_SNAPSHOTS=true, and has the page been used since?", file=sys.stderr)
         return 1
     out_dir = Path(args.out) if args.out else ROOT / "reports" / f"{path.stem}{SCREENS_SUFFIX}"
+    _prune_reports(out_dir.parent, settings)
+    private_dir(out_dir)   # the drawing script writes its pictures 0600 inside it (umask 077)
     script = ROOT / "scripts" / "browser" / "session_screens.js"
     done = subprocess.run(["node", str(script), str(screens), str(out_dir), str(ROOT / "web")], check=False)
     if done.returncode != 0:
