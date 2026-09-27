@@ -15,6 +15,23 @@
 
 (function (root) {
   const TAU = Math.PI * 2;
+  // The colours dots take in their roles. A screen (web/display.js, the one layout with a dot
+  // clock) is steel and white, as its approved design has it; the app's start-up keeps CLIVE's
+  // lilac. `tint` (1) fades either toward GREY, the neutral light of the start-up's flash.
+  //   back, mid, front: the orb's far side, its rim and its lit face · ring, dust: their dots ·
+  //   seed: a dot before it has a role · spark: the orb's burst · fading: dots on their way out ·
+  //   home: stray dots poured back into the orb · pour: a typed name poured in · done: the check.
+  const PALETTES = {
+    steel: {
+      back: [62, 68, 80], mid: [156, 164, 184], front: [250, 252, 255], ring: [206, 214, 228], dust: [198, 206, 220],
+      seed: [220, 226, 236], spark: [228, 234, 244], fading: [198, 206, 220], home: [232, 236, 244], pour: [240, 244, 250], done: [48, 209, 88],
+    },
+    lilac: {
+      back: [104, 66, 170], mid: [196, 161, 240], front: [248, 243, 255], ring: [212, 196, 252], dust: [205, 196, 238],
+      seed: [210, 200, 245], spark: [226, 214, 255], fading: [200, 190, 240], home: [230, 220, 255], pour: [240, 232, 255], done: [112, 214, 160],
+    },
+  };
+  const GREY = { back: [60, 66, 78], mid: [152, 162, 182], front: [244, 246, 252], ring: [215, 222, 235], dust: [200, 208, 222] };
 
   function create(o) {
     const L = o.L, W = o.W, H = o.H, U = L.u || 1, rnd = Math.random;
@@ -28,6 +45,7 @@
     const DUST_N = Math.min(900, Math.round(N * 0.05));
     const RING_N = Math.min(560, Math.round(N * 0.04));
     const P = [], ORBS = [], RINGS = [], RES = [];
+    const C = PALETTES[o.palette] || (L.clock ? PALETTES.steel : PALETTES.lilac);
     const orbHome = L.orb || { cx: W / 2, cy: H / 2, R: Math.min(W, H) * 0.2 };
     const orb = {
       cx: orbHome.cx, cy: orbHome.cy, R: orbHome.R, e: 0, tcx: orbHome.cx, tcy: orbHome.cy, tR: orbHome.R, te: 1,
@@ -46,7 +64,7 @@
     for (let i = 0; i < N; i++) {
       const home = i < ORB_N ? 'orb' : i < ORB_N + CLOCK_N ? 'clock' : i < ORB_N + CLOCK_N + DUST_N ? 'dust' : 'res';
       const p = {
-        i, home, role: 'gone', x: orbHome.cx, y: orbHome.cy, r: 210, g: 200, b: 245, a: 0, s: 1.4,
+        i, home, role: 'gone', x: orbHome.cx, y: orbHome.cy, r: C.seed[0], g: C.seed[1], b: C.seed[2], a: 0, s: 1.4,
         q: [], seg: null, tx: 0, ty: 0, ta: 0, ts: 1.5, shim: 0, dr: false, ph: rnd(), fade: null, uiT: null,
         keep: false, ring: false, ox: 0, oy: 0, oz: 0, rt: 0, rr: 1.6, ry: 0, _k: 0,
       };
@@ -110,16 +128,10 @@
       out.s = (0.85 + 1.7 * d01) * sc + w * 0.9;
       const mini = orb.R < 60 ? 0.4 + 0.6 * (orb.R / 60) : 1;
       out.a = (0.14 + 0.8 * Math.pow(d01, 1.4)) * (1 + 1.3 * w) * orb.e * mini;
-      let r, g, b, r2, g2, b2;
-      if (d01 < 0.5) {
-        const t = d01 * 2;
-        r = 104 + 92 * t; g = 66 + 95 * t; b = 170 + 70 * t;
-        r2 = 60 + 92 * t; g2 = 66 + 96 * t; b2 = 78 + 104 * t;
-      } else {
-        const t = (d01 - 0.5) * 2;
-        r = 196 + 52 * t; g = 161 + 82 * t; b = 240 + 15 * t;
-        r2 = 152 + 92 * t; g2 = 162 + 84 * t; b2 = 182 + 70 * t;
-      }
+      const lo = d01 < 0.5, t = lo ? d01 * 2 : (d01 - 0.5) * 2;
+      const c0 = lo ? C.back : C.mid, c1 = lo ? C.mid : C.front, n0 = lo ? GREY.back : GREY.mid, n1 = lo ? GREY.mid : GREY.front;
+      const r = c0[0] + (c1[0] - c0[0]) * t, g = c0[1] + (c1[1] - c0[1]) * t, b = c0[2] + (c1[2] - c0[2]) * t;
+      const r2 = n0[0] + (n1[0] - n0[0]) * t, g2 = n0[1] + (n1[1] - n0[1]) * t, b2 = n0[2] + (n1[2] - n0[2]) * t;
       const m = orb.tint;
       out.r = r + (r2 - r) * m; out.g = g + (g2 - g) * m; out.b = b + (b2 - b) * m;
     }
@@ -135,7 +147,7 @@
       out.x = orb.cx + dx + x; out.y = orb.cy + dy + y;
       out.a = a; out.s = (front ? 1.5 : 1.1) * Math.min(1, 0.45 + orb.R / 400);
       const m = orb.tint;
-      out.r = 212 + 3 * m; out.g = 196 + 26 * m; out.b = 252 - 17 * m;
+      out.r = C.ring[0] + (GREY.ring[0] - C.ring[0]) * m; out.g = C.ring[1] + (GREY.ring[1] - C.ring[1]) * m; out.b = C.ring[2] + (GREY.ring[2] - C.ring[2]) * m;
     }
     function dustStep(p, dt) {
       const k = Math.max(0.5, U * 0.42);
@@ -145,7 +157,7 @@
       if (p.x < -20) p.x += W + 40; else if (p.x > W + 20) p.x -= W + 40;
       if (p.y < -20) p.y += H + 40; else if (p.y > H + 20) p.y -= H + 40;
       const m = orb.tint;
-      p.r = 205 - 5 * m; p.g = 196 + 12 * m; p.b = 238 - 16 * m;
+      p.r = C.dust[0] + (GREY.dust[0] - C.dust[0]) * m; p.g = C.dust[1] + (GREY.dust[1] - C.dust[1]) * m; p.b = C.dust[2] + (GREY.dust[2] - C.dust[2]) * m;
       p.a = dustLevel * (0.3 + 0.7 * (0.5 + 0.5 * Math.sin(T * 0.8 + p.ph * 40)));
     }
 
@@ -416,7 +428,7 @@
       if (lv > 0.002 && noise) {
         const front = noiseFront();
         const n = Math.round(3000 * lv * rs * rs * (H - front) / H);
-        for (let j = 0; j < n; j++) splat(rnd() * W * rs, (front + rnd() * (H - front)) * rs, 1.3 * rs, 200, 190, 235, 0.16);
+        for (let j = 0; j < n; j++) splat(rnd() * W * rs, (front + rnd() * (H - front)) * rs, 1.3 * rs, C.dust[0], C.dust[1], C.dust[2], 0.16);
       }
       ctx.putImageData(img, 0, 0);
       // The bloom is blurred here, at a quarter of the size, and scaled up by the page: a CSS
@@ -560,7 +572,7 @@
       if (p.home === 'orb' || p.home === 'res') {
         const ang = rnd() * TAU, rad = L.orb.R * (1.2 + rnd() * 2.2);
         const bx = L.orb.cx + Math.cos(ang) * rad, by = L.orb.cy + Math.sin(ang) * rad * 0.82;
-        const sg = { t0: T0 + 0.3 + rnd() * 0.1, d: 0.55 + rnd() * 0.3, ease: 'out', tx: bx, ty: by, kx: -Math.sin(ang) * rad * 0.4, ky: Math.cos(ang) * rad * 0.4, r1: 226, g1: 214, b1: 255, a1: 0.5, s1: 1.5, then: 'rest' };
+        const sg = { t0: T0 + 0.3 + rnd() * 0.1, d: 0.55 + rnd() * 0.3, ease: 'out', tx: bx, ty: by, kx: -Math.sin(ang) * rad * 0.4, ky: Math.cos(ang) * rad * 0.4, r1: C.spark[0], g1: C.spark[1], b1: C.spark[2], a1: 0.5, s1: 1.5, then: 'rest' };
         if (hidden) {
           const a2 = rnd() * TAU, r2 = rnd() * L.orb.R * 0.7;
           sg.from = [L.orb.cx + Math.cos(a2) * r2, L.orb.cy + Math.sin(a2) * r2];
@@ -584,8 +596,8 @@
       const ang = rnd() * TAU, rad = L.orb.R * (1.4 + rnd() * 3.2);
       const bx = L.orb.cx + Math.cos(ang) * rad, by = L.orb.cy + Math.sin(ang) * rad * 0.82;
       p.q = [
-        { t0: T0 + 0.3 + rnd() * 0.1, d: 0.6 + rnd() * 0.3, ease: 'out', tx: bx, ty: by, kx: -Math.sin(ang) * rad * 0.4, ky: Math.cos(ang) * rad * 0.4, r1: 226, g1: 214, b1: 255, a1: 0.45, s1: 1.4, then: 'rest' },
-        { t0: T0 + 1.0 + rnd() * 1.2, d: 1.4, ease: 'out', tx: bx + (rnd() - 0.5) * 400, ty: by + (rnd() - 0.5) * 300, r1: 200, g1: 190, b1: 240, a1: 0, s1: 1.2, then: 'gone' },
+        { t0: T0 + 0.3 + rnd() * 0.1, d: 0.6 + rnd() * 0.3, ease: 'out', tx: bx, ty: by, kx: -Math.sin(ang) * rad * 0.4, ky: Math.cos(ang) * rad * 0.4, r1: C.spark[0], g1: C.spark[1], b1: C.spark[2], a1: 0.45, s1: 1.4, then: 'rest' },
+        { t0: T0 + 1.0 + rnd() * 1.2, d: 1.4, ease: 'out', tx: bx + (rnd() - 0.5) * 400, ty: by + (rnd() - 0.5) * 300, r1: C.fading[0], g1: C.fading[1], b1: C.fading[2], a1: 0, s1: 1.2, then: 'gone' },
       ];
     }
     // Something is put on the screen: the orb breathes in and bursts, and its dots travel to
@@ -660,7 +672,7 @@
         else if (m > 0 && (i === 0 || Math.floor(i * m / n) !== Math.floor((i - 1) * m / n))) t = pts[Math.floor(i * m / n)];
         if (!t) {
           const a = rnd() * TAU, r = (300 + rnd() * 160) * L.check.k;
-          t = { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, r: 112, g: 214, b: 160, a: 0.07, s: 1.3 };
+          t = { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, r: C.done[0], g: C.done[1], b: C.done[2], a: 0.07, s: 1.3 };
         }
         p.q = [
           { t0: T0, d: 0.28 + rnd() * 0.15, ease: 'out', from: [u.x, u.y], fromA: 0, tx: u.x, ty: u.y, r1: u.r, g1: u.g, b1: u.b, a1: u.a, s1: u.s, then: 'rest' },
@@ -736,14 +748,14 @@
             if (!visible) { sg.from = [t.x + (rnd() - 0.5) * 200, t.y + 80 + rnd() * 160]; sg.fromA = 0; }
             newClock.push(p);
           } else if (visible) {
-            sg = { t0: t1, d: 0.7, ease: 'out', tx: (u ? u.x : p.x) + (rnd() - 0.5) * 120, ty: (u ? u.y : p.y) - 60 - rnd() * 80, r1: 200, g1: 190, b1: 240, a1: 0, s1: 1.2, then: 'gone' };
+            sg = { t0: t1, d: 0.7, ease: 'out', tx: (u ? u.x : p.x) + (rnd() - 0.5) * 120, ty: (u ? u.y : p.y) - 60 - rnd() * 80, r1: C.fading[0], g1: C.fading[1], b1: C.fading[2], a1: 0, s1: 1.2, then: 'gone' };
           }
         } else if (p.home === 'dust') {
-          sg = { t0: t1, d: 1.2, ease: 'out', tx: rnd() * W, ty: rnd() * H, r1: 205, g1: 196, b1: 238, a1: 0.12, s1: 1.3, then: 'dust' };
+          sg = { t0: t1, d: 1.2, ease: 'out', tx: rnd() * W, ty: rnd() * H, r1: C.dust[0], g1: C.dust[1], b1: C.dust[2], a1: 0.12, s1: 1.3, then: 'dust' };
           if (!visible) { sg.from = [sg.tx, sg.ty]; sg.fromA = 0; }
         } else if (visible) {
           const a = rnd() * TAU, r = rnd() * L.orb.R * 0.5;
-          sg = { t0: t1, d: 0.9 + rnd() * 0.3, ease: 'inout', tx: L.orb.cx + Math.cos(a) * r, ty: L.orb.cy + Math.sin(a) * r, kx: (rnd() - 0.5) * 300, ky: (rnd() - 0.5) * 300, r1: 230, g1: 220, b1: 255, a1: 0, s1: 1.2, then: 'gone' };
+          sg = { t0: t1, d: 0.9 + rnd() * 0.3, ease: 'inout', tx: L.orb.cx + Math.cos(a) * r, ty: L.orb.cy + Math.sin(a) * r, kx: (rnd() - 0.5) * 300, ky: (rnd() - 0.5) * 300, r1: C.home[0], g1: C.home[1], b1: C.home[2], a1: 0, s1: 1.2, then: 'gone' };
         }
         if (sg) segs.push(sg);
         p.q = segs; p.fade = null;
@@ -770,7 +782,7 @@
       for (let i = 0; i < n; i++) {
         const p = list[i];
         const a = rnd() * TAU, r = rnd() * L.orb.R * 0.45;
-        p.q = [{ t0: calm ? T0 : T0 + (i / Math.max(1, n)) * 0.45 + rnd() * 0.1, d: calm ? 0.02 : 0.9 + rnd() * 0.3, ease: 'inout', tx: L.orb.cx + Math.cos(a) * r, ty: L.orb.cy + Math.sin(a) * r, kx: (rnd() - 0.5) * 260, ky: -(80 + rnd() * 200), r1: 240, g1: 232, b1: 255, a1: 0, s1: 1.2, then: 'gone' }];
+        p.q = [{ t0: calm ? T0 : T0 + (i / Math.max(1, n)) * 0.45 + rnd() * 0.1, d: calm ? 0.02 : 0.9 + rnd() * 0.3, ease: 'inout', tx: L.orb.cx + Math.cos(a) * r, ty: L.orb.cy + Math.sin(a) * r, kx: (rnd() - 0.5) * 260, ky: -(80 + rnd() * 200), r1: C.pour[0], g1: C.pour[1], b1: C.pour[2], a1: 0, s1: 1.2, then: 'gone' }];
       }
       nameLive = [];
       clockTo(ck, { delay: calm ? 0 : 1.1, fromOrb: true });
