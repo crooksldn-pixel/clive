@@ -60,6 +60,8 @@ PYTHON_SOURCES = (
     "app/runtime.py",
     "app/shipping",
     "app/tools",
+    "app/displays",
+    "app/routes/displays.py",
 )
 WEB_SUFFIXES = (".js", ".html", ".css", ".webmanifest")
 

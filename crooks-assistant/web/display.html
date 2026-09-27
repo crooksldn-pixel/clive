@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#060607">
+<meta name="crooks-build" content="__BUILD__">
+<meta name="color-scheme" content="dark">
+<title>CLIVE · Screen</title>
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+<link rel="stylesheet" href="/static/display.css">
+</head>
+<body>
+<div id="stage" class="stage">
+  <div id="board" class="cs cs-land">
+    <!-- CLIVE's dots (web/dots.js): added over everything, with a bloom beneath and a layer of
+         light (the start-up's flash, the orb's glass) under the page. -->
+    <div class="cs-ground"></div>
+    <div class="cs-grid"></div>
+    <canvas id="fx" class="cs-fx" width="1" height="1" aria-hidden="true"></canvas>
+
+    <!-- Waiting: the screen's name, the date and a line; the clock itself is dots. -->
+    <div id="idle" class="cs-idle is-out">
+      <div class="cs-bar"><span id="online" class="cs-online"></span><span id="bar-name"></span></div>
+      <div id="meta" class="cs-meta">
+        <div id="date" class="cs-date"></div>
+        <div id="line" class="cs-line"></div>
+      </div>
+      <div id="clock-said" class="cs-sr"></div>
+    </div>
+
+    <!-- What CLIVE put here. Built from the screen's own record, as text, never as markup. -->
+    <div id="ui" class="cs-ui is-hidden" aria-live="polite"></div>
+
+    <!-- The first time a device opens this page it names itself. -->
+    <form id="namer" class="cs-namer" hidden autocomplete="off">
+      <div class="cs-namer-card">
+        <h1 class="cs-namer-h">Name this screen</h1>
+        <p class="cs-namer-p">CLIVE puts things on screens by name. Use the name you’ll say out loud.</p>
+        <label class="cs-label" for="name-input">Screen name</label>
+        <div class="cs-namer-row">
+          <input id="name-input" class="cs-input" type="text" maxlength="40" placeholder="Office screen" spellcheck="false">
+          <button id="name-save" class="cs-btn" type="submit" disabled>Save name</button>
+        </div>
+        <div class="cs-examples">
+          <span class="cs-ex-k">Or pick</span>
+          <button class="cs-exbtn" type="button" data-name="Office screen">Office screen</button>
+          <button class="cs-exbtn" type="button" data-name="Packing screen">Packing screen</button>
+          <button class="cs-exbtn" type="button" data-name="Bedroom TV">Bedroom TV</button>
+        </div>
+        <p id="name-error" class="cs-err" role="alert"></p>
+      </div>
+    </form>
+
+    <!-- The start-up's name: an acronym that folds into CLIVE. -->
+    <div id="mark" class="bt-mark" aria-hidden="true">
+      <div id="mark-line" class="bt-line"><span class="bt-fill"></span></div>
+      <div id="mark-wait" class="bt-wait">Waiting for CLIVE to answer</div>
+    </div>
+
+    <canvas id="bloom" class="cs-bloom" width="1" height="1" aria-hidden="true"></canvas>
+    <canvas id="dots" class="cs-canvas" width="1" height="1" aria-hidden="true"></canvas>
+    <div class="cs-vig"></div>
+    <div id="scan" class="cs-scan"></div>
+    <div id="status" class="cs-status" hidden><span class="cs-pdot"></span><span id="status-text"></span><span id="status-pct" class="cs-pct"></span></div>
+    <div id="hint" class="cs-hint" hidden></div>
+  </div>
+</div>
+<script src="/static/dots.js"></script>
+<script src="/static/display.js"></script>
+</body>
+</html>

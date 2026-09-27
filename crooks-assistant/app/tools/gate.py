@@ -132,12 +132,20 @@ _KNOWN_TOOLS = frozenset({
     # issued id is what the filing tool, a write staged for the owner, must act on. Named here
     # because this is an allow-list.
     "engineering_status",
+    # The owner's screens (app/tools/display_tools.py). They put something CLIVE already read —
+    # an order the conversation was shown, an objective, a list — on one of the owner's own
+    # screens (a page on his own devices, app/routes/displays.py), and read what was marked done
+    # there. Nothing leaves this machine through them and nothing in a store or an inbox changes.
+    # The order a slip is drawn from must be an issued id (below). Named here one by one,
+    # because this is an allow-list.
+    "screen_list", "screen_show",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops
 # Claude inventing an order id or a thread id and being told about a stranger's order.
 _ISSUED_ID_ARGS: dict[str, tuple[str, ...]] = {
     "shopify_order_detail": ("order_id",),
+    "screen_show": ("order_id",),
     "shopify_customer_history": ("customer_id",),
     "gmail_read_thread": ("thread_id",),
 }

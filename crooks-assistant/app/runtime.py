@@ -503,6 +503,7 @@ def build(settings: Settings | None = None) -> Runtime:
     from app.tools import (  # noqa: F401
         analytics_tools,
         batch_tools,
+        display_tools,
         engineering_tools,
         gmail_tools,
         gmail_writes,
@@ -517,6 +518,10 @@ def build(settings: Settings | None = None) -> Runtime:
     from app.objectives import gaps as gaps_module
 
     gaps_module.install(settings.objectives_dir / "gaps.json").seed(objectives.all())
+    # The owner's screens, beside the objectives (app/displays/store.py).
+    from app.displays import store as displays_module
+
+    displays_module.install(settings.objectives_dir / "displays.json")
 
     load_families()
 

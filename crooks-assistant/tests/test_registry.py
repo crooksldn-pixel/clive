@@ -130,12 +130,18 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     from app.tools import (  # noqa: F401
         analytics_tools,
         batch_tools,
+        display_tools,
+        engineering_tools,
         gmail_tools,
         gmail_writes,
         shopify_tools,
         shopify_writes,
     )
 
+    # The engineering bridge and the screens are imported here for the same reason as the
+    # families below: app/runtime.py offers them, and the suite counted them or not depending on
+    # which earlier module had imported them (34,188 bytes alone, 36,342 in the suite).
+    #
     # The Phase 3 families' tools are part of the block the model reads (app/runtime.py calls
     # this at boot), and they were being counted or not depending on whether an earlier test
     # module happened to import them: the same assertion produced 24,788 bytes run alone and
@@ -286,7 +292,14 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # missing_capability blocker names what CLIVE lacks by. What it buys is the same gap
     # counted under one name each time it comes up, which is how the owner sees which gaps come
     # up most and whether the builds CLIVE proposes are for those.
-    assert total <= 35_765, f"the tool block is {total} bytes"
+    #
+    # 36_345 is the owner's screens (app/tools/display_tools.py, tests/test_displays.py), +775
+    # bytes measured (35,567 before, 36,342 after): screen_list 260 (no required argument; an
+    # order id asks whether it was packed) and screen_show 515 (the screen by the owner's own
+    # name, and one of an order, an objective or a list). The rules for using them are in the
+    # system prompt once. What it buys is "put 1047 on the office screen" doing exactly that,
+    # and "has 1047 been packed?" answered from what was marked on the screen.
+    assert total <= 36_345, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.
