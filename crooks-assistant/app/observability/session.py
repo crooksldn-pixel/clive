@@ -130,6 +130,20 @@ def write_private_text(path: Path, text: str) -> Path:
     return path
 
 
+def tighten(folder: Path) -> None:
+    """A folder of reports made private, what was already in it included: every folder 0700,
+    every file 0600. Nothing is read or removed."""
+    folder = Path(folder)
+    try:
+        folder.chmod(0o700)
+        for path in folder.rglob("*"):
+            if path.is_symlink():
+                continue
+            path.chmod(0o700 if path.is_dir() else 0o600)
+    except OSError:
+        pass
+
+
 def prune_reports(out_dir: Path, keep_days: int, *, now: float | None = None) -> int:
     """Reports drawn from sessions (ts-….md, ts-…-proposals.md, ts-…-screens/) older than
     `keep_days`: they carry what the sessions carried, so they go when the sessions would."""
@@ -157,7 +171,8 @@ class TestSessions:
     __test__ = False   # not a pytest class, whatever its name says
 
     def __init__(self, log_dir: Path, *, clock=time.time, dir_name: str = DIR_NAME,
-                 always: bool = False, keep_days: int = 14, keep_named_days: int = KEEP_NAMED_DAYS) -> None:
+                 always: bool = False, keep_days: int = 14, keep_named_days: int = KEEP_NAMED_DAYS,
+                 reports_dir: Path | None = None) -> None:
         # `dir_name`, because a production recording is NOT a test session and must not share
         # a directory with one: `make test-session-report` finds the last test session by
         # reading this folder, and a recording landing in it would be reported as one.
@@ -168,6 +183,9 @@ class TestSessions:
         self.always = bool(always)
         self.keep_days = max(1, int(keep_days or 14))
         self.keep_named_days = max(self.keep_days, int(keep_named_days or KEEP_NAMED_DAYS))
+        # The reports drawn from sessions: aged and kept private by the daily roll too, not only
+        # when someone next runs a report command (the 2026-09-26 deploy review, F-04 and F-03).
+        self.reports_dir = Path(reports_dir) if reports_dir else None
         self._cached: TestSession | None = None
         self._checked_at = -1.0
         self._mtime = -1.0
@@ -179,6 +197,7 @@ class TestSessions:
             "always": bool(getattr(settings, "test_session_always", False)),
             "keep_days": int(getattr(settings, "test_session_keep_days", 14) or 14),
             "keep_named_days": int(getattr(settings, "test_session_keep_named_days", KEEP_NAMED_DAYS) or KEEP_NAMED_DAYS),
+            "reports_dir": getattr(settings, "reports_dir", None),
         }
         options.update(kwargs)
         return cls(settings.log_dir, **options)
@@ -248,6 +267,7 @@ class TestSessions:
             _write_private(self.active_path, session.as_dict())
             self._cached, self._mtime = session, self.active_path.stat().st_mtime
             self._prune(now)
+            self.tidy_reports(now)
             return session
         except OSError:
             return current
@@ -272,6 +292,16 @@ class TestSessions:
                 continue
             days = self.keep_days if path.name.startswith("ts-") and f"-{AUTO_NAME}" in path.name else self.keep_named_days
             removed += _remove_if_older(path, now - days * 86_400)
+        return removed
+
+    def tidy_reports(self, now: float | None = None) -> int:
+        """The reports folder, as the sessions are: old reports gone, the rest the owner's alone
+        (files 0600, folders 0700, including any written before that was the rule)."""
+        if self.reports_dir is None or not self.reports_dir.is_dir():
+            return 0
+        when = self.clock() if now is None else now
+        removed = prune_reports(self.reports_dir, self.keep_named_days, now=when)
+        tighten(self.reports_dir)
         return removed
 
     def prune(self) -> int:

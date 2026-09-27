@@ -200,3 +200,56 @@ def test_a_session_started_by_name_ends_by_itself_and_the_day_resumes(tmp_path):
     clock.now += session_module.NAMED_MAX_S + 1
     plain._checked_at = -1.0
     assert plain.active() is None and plain.last().test_session_id == started.test_session_id
+
+
+def test_github_tokens_are_credentials_to_the_shared_rule():
+    from tests.fake_credentials import github_fine_grained_token, github_token
+
+    for token in (github_token("rule"), github_token("rule", kind="s"), github_fine_grained_token("rule")):
+        out = timeline_module.scrub_text(f"token {token} here")
+        assert token not in out and "[secret]" in out
+
+
+def test_the_daily_roll_ages_and_tightens_the_reports_too(tmp_path):
+    """F-04 and F-03, second round: not only when someone runs a report command."""
+    clock = Clock()
+    reports = tmp_path / "reports"
+    reports.mkdir(mode=0o755)
+    os.chmod(reports, 0o755)
+    old = reports / "ts-20260101-000000-walk.md"
+    recent = reports / "ts-20260901-000000-walk.md"
+    pictures = reports / "ts-20260901-000000-walk-screens"
+    for path in (old, recent):
+        path.write_text("x")
+        os.chmod(path, 0o644)
+    pictures.mkdir(mode=0o755)
+    os.chmod(pictures, 0o755)
+    (pictures / "0001-error.png").write_bytes(b"png")
+    os.chmod(pictures / "0001-error.png", 0o644)
+    os.utime(old, (clock.now - 120 * 86_400, clock.now - 120 * 86_400))
+    os.utime(recent, (clock.now - 5 * 86_400, clock.now - 5 * 86_400))
+    store = TestSessions(tmp_path / "logs", clock=clock, always=True, reports_dir=reports)
+    assert store.active() is not None   # the roll: the day's own session starts
+    assert not old.exists() and recent.exists()
+    assert oct(reports.stat().st_mode & 0o777) == "0o700"
+    assert oct(recent.stat().st_mode & 0o777) == "0o600"
+    assert oct(pictures.stat().st_mode & 0o777) == "0o700"
+    assert oct((pictures / "0001-error.png").stat().st_mode & 0o777) == "0o600"
+
+
+def test_a_stalled_writer_cannot_grow_memory_without_end(tmp_path, monkeypatch):
+    """F-09: pending events are bounded where they come in, and a drop is counted there."""
+    monkeypatch.setattr(timeline_module, "MAX_PENDING_EVENTS", 10)
+    clock = Clock()
+    store = TestSessions(tmp_path, clock=clock)
+    timeline = Timeline(store, clock=clock)
+    timeline.start("stalled")
+    monkeypatch.setattr(timeline, "_ensure_writer", lambda: None)   # the writer never runs
+    timeline._queue = __import__("queue").Queue(maxsize=10)
+    kept = [timeline.emit("turn_started", i=i) for i in range(50)]
+    assert sum(1 for e in kept if e is not None) == 10
+    assert timeline._queue.qsize() == 10 and timeline.counts["dropped"] == 40
+    monkeypatch.setattr(timeline_module, "MAX_PENDING_BYTES", 10)
+    timeline._queue = __import__("queue").Queue(maxsize=1000)
+    timeline._pending_bytes = 0
+    assert timeline.emit("turn_started", note="x" * 200) is None, "past the byte bound, dropped at once"

@@ -1222,6 +1222,7 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     if waiting_set and ctx.branch.workflow is None:
         _open_workflow(ctx, body, kind="customers", operation="reply", set_id=waiting_set)
     tail = (f" {unchecked} {'thread' if inbox else 'customer'}{'s' if unchecked != 1 else ''} could not be checked." if unchecked else "")
+    unchecked_tail = tail   # before the sent-check caveat joins it
     # A reply sent as a new email that was not looked for everywhere is said, in the answer and on
     # the card: someone shown as waiting may already have been answered (the 2026-09-26 deploy
     # review, F-02). The scan logs why; the owner is told what it means.
@@ -1237,11 +1238,15 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     partial = bool(unchecked) or bool(caveat) or result.partial
     if len(waiting) > WAITING_SHOWN:
         scope_note = " ".join(filter(None, [scope_note, f"The {WAITING_SHOWN} longest waits are shown."]))
+    # A repeat drops the scope sentence, but never what makes the answer less than whole: the
+    # threads that could not be checked and a window that was cut short are said every time
+    # (the 2026-09-26 deploy reviews, F-08).
+    limits = ""
+    if inbox and body.get("window_complete") is False:
+        limits = f" Only the newest {int(body.get('threads_listed') or 0)} threads were checked."
     if not waiting:
         if again:
-            # Said again, it is still only as sure as the scan: threads that could not be
-            # checked are named every time (the 2026-09-26 deploy review, F-08).
-            answer = f"Still nobody.{tail}"
+            answer = f"Still nobody.{unchecked_tail}{limits}"
         elif inbox:
             answer = f"Nobody is waiting on a reply {scope} — {int(body.get('threads_checked') or 0)} threads from people checked.{tail}"
         else:
@@ -1253,7 +1258,7 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
         # asking whether anything moved, not how wide the check was. The sent-check caveat is
         # NOT the scope, though: it says this list may be wrong, and a repeat is the answer he
         # acts on, so it is said again (the deploy review of 9c37973f, F-02's repeat branch).
-        answer = f"Still {'just ' if len(waiting) == 1 else ''}{_first_names(waiting)}." + (f" {caveat}" if caveat else "")
+        answer = f"Still {'just ' if len(waiting) == 1 else ''}{_first_names(waiting)}.{unchecked_tail}{limits}" + (f" {caveat}" if caveat else "")
     elif inbox:
         who = "person is" if len(waiting) == 1 else "people are"
         answer = f"{len(waiting)} {who} waiting on a reply {scope}: {_first_names(waiting, full=True)}.{tail}"

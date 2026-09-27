@@ -23,7 +23,9 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
+from app.observability.screens import sanitise_markup, sanitise_metadata
 from app.observability.session import AlreadyActive
+from app.observability.timeline import scrub_text
 
 log = logging.getLogger("crooks.observe")
 
@@ -258,10 +260,10 @@ async def telemetry_screen(request: Request) -> Response:
             "reason": reason,
             "t": body.get("t") if isinstance(body.get("t"), (int, float)) else None,
             "session_id": session_id or None,
-            "turn_id": str(body.get("turn_id") or "")[:64] or None,
-            "trigger": _bounded(body.get("trigger")),
-            "viewport": _bounded(body.get("viewport")),
-            "body": _bounded(body.get("body")),
+            "turn_id": scrub_text(str(body.get("turn_id") or "")[:64]) or None,
+            "trigger": sanitise_metadata(_bounded(body.get("trigger"))),
+            "viewport": sanitise_metadata(_bounded(body.get("viewport"))),
+            "body": sanitise_metadata(_bounded(body.get("body"))),
             "lite": bool(body.get("lite")),
             "html": scrub_screen(body["html"]),
         }
@@ -280,28 +282,9 @@ async def telemetry_screen(request: Request) -> Response:
     return Response(status_code=204)
 
 
-# A copy of the screen is redacted here whatever the page sent: what was typed into a field is
-# masked (the page masks it too; this does not rely on that), and every piece of text and every
-# readable attribute passes the timeline's own rule, so an email address, a phone number, a
-# postcode or a customer name this process has been shown is written as the timeline writes it.
-# Markup, classes and drawing paths are left alone, so the picture still draws.
-_INPUT_VALUE = re.compile(r'(<input\b[^>]*?\svalue=")([^"]*)(")', re.I)
-_TEXTAREA = re.compile(r"(<textarea\b[^>]*>)(.*?)(</textarea>)", re.I | re.S)
-_TEXT_NODE = re.compile(r">([^<]+)<")
-_READABLE_ATTR = re.compile(r'\b(aria-label|placeholder|title|alt|data-label)="([^"]*)"', re.I)
-
-
-def _mask(text: str) -> str:
-    return "" if not text else "\u2022" * min(24, len(text))
-
-
 def scrub_screen(html: str) -> str:
-    from app.observability.timeline import scrub_text
-
-    html = _INPUT_VALUE.sub(lambda m: m.group(1) + _mask(m.group(2)) + m.group(3), html)
-    html = _TEXTAREA.sub(lambda m: m.group(1) + _mask(m.group(2)) + m.group(3), html)
-    html = _TEXT_NODE.sub(lambda m: ">" + scrub_text(m.group(1)) + "<", html)
-    return _READABLE_ATTR.sub(lambda m: f'{m.group(1)}="{scrub_text(m.group(2))}"', html)
+    """A copy of the screen, parsed and cleaned whatever the page sent (app/observability/screens.py)."""
+    return sanitise_markup(html)
 
 
 def _bounded(value: Any, depth: int = 0) -> Any:

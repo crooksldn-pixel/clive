@@ -566,6 +566,21 @@ def repo_path(path: object) -> object:
 _TEST_FILE = re.compile(rf"^{re.escape(APP_DIR)}/tests/(?:[a-z0-9_]+/)?test_[a-z0-9_]+\.py$")
 
 
+# Every build is also judged by these, whatever it names and whatever it may change (the
+# 2026-09-26 deploy review, F-06): the tests that hold the product's safety core — the gate, the
+# read-only guard, the action engine and every write funnel. Each is a protected path, so no
+# build can weaken the check it is judged by. About 550 tests, ten seconds. The full suite is
+# still the GitHub acceptance run every merge waits for.
+REGRESSION_TESTS = (
+    "tests/test_gate.py", "tests/test_readonly.py", "tests/test_actions.py", "tests/test_actions_routes.py",
+    "tests/test_engine_hooks.py", "tests/test_batch.py", "tests/test_available.py", "tests/test_judgment.py",
+    "tests/test_judgment_construction.py", "tests/test_judgment_chain.py", "tests/test_judgment_ledger.py",
+    "tests/test_cancel.py", "tests/test_refund.py", "tests/test_address.py", "tests/test_fulfil.py",
+    "tests/test_inventory.py", "tests/test_tracking.py", "tests/test_order_edit.py", "tests/test_gmail_writes.py",
+    "tests/test_compose.py",
+)
+
+
 def default_checks(paths: list, request_id: str, *, python: str | None = None) -> tuple[list, list[dict], str]:
     """Every request's checks, built here and never taken from the request: pytest over the
     test modules the paths name (and the web rules when the phone's files may change), then
@@ -582,8 +597,10 @@ def default_checks(paths: list, request_id: str, *, python: str | None = None) -
         tests = [f"tests/{name}"]
     if any(isinstance(p, str) and p.startswith(f"{APP_DIR}/web") for p in paths) and "tests/test_web.py" not in tests:
         tests.append("tests/test_web.py")
+    regression = [t for t in REGRESSION_TESTS if (APP_ROOT / t).is_file() and t not in tests]
     checks = [
         {"name": "tests", "argv": [python, "-m", "pytest", "-q", *tests], "cwd": APP_DIR},
+        {"name": "regression", "argv": [python, "-m", "pytest", "-q", "-m", "not live", *regression], "cwd": APP_DIR},
         {"name": "ruff", "argv": [python, *RUFF_ARGS], "cwd": APP_DIR},
     ]
     return paths, checks, added
