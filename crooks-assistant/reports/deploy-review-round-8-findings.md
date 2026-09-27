@@ -1251,3 +1251,262 @@ check. The unrun deploy script is there as `deploy.sh`.
 
 The review checkout at the candidate is at `round-8/review/`. No `round-8/stage*` exists, because
 step 3 never ran.
+
+---
+
+# Addendum — the deploy, under George's waiver, 27 September 2026
+
+The round-8 review above refused this SHA in all four parts. George waived that refusal and the
+deploy went ahead the same night. **Production now runs
+`6a29e31013b0b9e543d90434e14ed65deea1ce30`.** Everything the review found is still true; nothing
+below repairs any of it. The 21 material findings are to be fixed after this deploy, in a normal PR,
+and reviewed in round 9.
+
+## The waiver, word for word
+
+George's decision, 27 Sep 2026, 21:41:
+
+> sure - lets waive review - go, we can work on fixing once its deployed go
+
+What he waived, and nothing else:
+
+- the rule that every review part must be READY before a deploy, **for this one deploy of
+  `6a29e310`**;
+- the 21 material findings published at `b55a573a` on `claude/deploy-review-round-8-findings`.
+
+Everything else was kept and run in full: the preflight, both phone checks against a real device,
+the one-operation deploy with automatic rollback, the switches, and the parked credential. The
+four-part review was **not** re-run: round 8 had already reviewed this exact SHA.
+
+## Step 1 — re-check before touching anything (read-only, all passed)
+
+| Check | Result |
+|---|---|
+| `origin/clive/trunk` | still `6a29e31013b0b9e543d90434e14ed65deea1ce30` |
+| production HEAD / dirty | `3e77f215…`, 0 entries |
+| MainPID / NRestarts | **2135565**, unchanged from the round-8 baseline; `NRestarts=0`; up since 01:07:04 UTC |
+| `CROOKS_SCREEN_SNAPSHOTS` | `false` |
+| `CROOKS_LOCAL_OWNER` | unset |
+| `CROOKS_WRITES_LOCAL_OWNER` | `false` |
+| `CROOKS_ENGINEERING_HOST` | unset |
+| `CROOKS_TAILSCALE_VERIFY` | unset |
+| `CROOKS_ALLOWED_LOGINS` | non-empty (value never printed) |
+| `.env` sha256 | `0021c07d…` — matches the round-8 baseline |
+| installed unit sha256 | `e099b167…` — matches the round-8 baseline |
+| rendered candidate unit | `3808af03…`, carries `--no-proxy-headers` |
+| tailscaled exe | `/usr/sbin/tailscaled` exactly; cgroup `0::/system.slice/tailscaled.service` |
+| cgroup + `cgroup.procs` | uid 0, no group-write, no other-write (`0 755`, `0 644`) |
+| IPv4 in `fib_trie` | `100.72.82.24` present as `/32 host LOCAL` |
+| `if_inet6` | exists, holds `fd7a115ca1e0000000000000352b5219 … tailscale0` |
+| reports `-perm /077` | 2, no `.withheld/` |
+| `gaps.json` | `90591f14…`, 4,663 bytes, 0600, 0 backups |
+| parked credential | uid 0, 0600, 292 B, mtime 1790474150 — never opened |
+| port 8799 | free |
+
+## Step 2 — phone check 1, against a staging copy: **PASS**
+
+A staging clone of `6a29e310` was cloned **from the review checkout**, never as a worktree of
+`/opt/crooks-os` (`git -C /opt/crooks-os worktree list` confirmed production was untouched
+throughout). Its tree matched the candidate's `1dedf34d…` with 0 dirty entries.
+
+**Isolation.** `stage-state/{home,secrets}` created 0700 and empty; `stage.env` 0600 holding only
+`CROOKS_ALLOWED_LOGINS` (copied from production without being printed), `CROOKS_WRITES_ENABLED=false`,
+`CROOKS_WRITES_LOCAL_OWNER=false`, `CROOKS_SCREEN_SNAPSHOTS=false` and the three isolated
+`CROOKS_LOG_DIR` / `CROOKS_OBJECTIVES_DIR` / `CROOKS_REPORTS_DIR` paths. No production data path
+appears in it.
+
+**No credentials reached it.** The transient unit `crooks-stage-r8` ran the production venv
+interpreter on `127.0.0.1:8799` with `--no-proxy-headers`. Its process environment contained **no
+`CREDENTIALS_DIRECTORY`**, and no `/run/credentials/crooks-stage-r8.service` was created. The staging
+HOME acquired only a Claude CLI settings scaffold (`.claude.json` and one backup) and **no credential
+file**, so the staging CLI had no login and could not race production's OAuth refresh;
+production's `/root/.claude/.credentials.json` kept its 20:03:43 mtime throughout.
+
+**It was the candidate's code.** `readlink /proc/<pid>/cwd` was the staging path, and
+`import app` from that directory resolved to
+`/root/clive-activation/round-8/stage/crooks-assistant/app/__init__.py` — so the staging copy beat
+the venv's editable install of production.
+
+**Staging `/health`:** `checks.proxy_identity.ok` true with detail
+`uvicorn started with --no-proxy-headers`; `checks.housekeeping.ok` true;
+`withheld: ['pad', 'observability']` with neither key present in the body. Top-level **`degraded`**,
+correctly — `claude`, `gmail`, `shopify`, `scribe`, `speech`, `tts` and `whisper` all failed precisely
+because the copy had no credentials.
+
+**Serve.** `serve-before.json` saved (sha256 `075b5bcb…`); `tailscale serve --bg --https=8443
+http://127.0.0.1:8799` added; the existing `:443 → 127.0.0.1:8000` handler was **byte-identical**
+before and after.
+
+**George's phone, 20:59:24 and 20:59:54 UTC.** Both halves of the gate held:
+
+```
+whoami: through=tailscale owner=true refusal=none
+whoami: through=tailscale owner=true refusal=none
+```
+
+and his phone showed `"owner": true`, `"proxied": true`, `through` `tailscale`. His login is not
+recorded here: the `/whoami` journal line deliberately carries no login, and the value he read back
+is redacted.
+
+**The three negative checks.** Two behaved exactly as specified; the third behaved *better* than
+specified, and that is worth stating rather than glossing.
+
+1. The host's own request through serve → `whoami: through=this_host owner=false
+   refusal=not_authorised_local`. **PASS.**
+2. A request carrying the local command key on `/objectives` → `403`, body code
+   `local_key_misused`, logged as
+   `refused a request carrying the local command key where it does not apply (path=/objectives)`.
+   **PASS.**
+3. Forged forwarding headers (`X-Forwarded-For` + `Tailscale-User-Login`) straight to `:8799`. The
+   step expected a logged `through=forged owner=false`. **That line cannot occur**, because
+   `guard_and_freshness` classifies the request `FORGED` via `proxy_state` and refuses it with
+   `403 {"error":"not allowed","who":"unverified proxy"}` **before any route sees it**, logging
+   `refused a request that claimed to come through Tailscale and did not: the connection was opened
+   by something other than tailscaled (path=/whoami)`. The property under test — a forged
+   forwarding header is not treated as the owner — holds, in the stronger form of refusal at the
+   door rather than a route reporting `owner=false`. **PASS on substance**, with the expectation
+   itself corrected.
+
+**A new observation from the live run, which no reviewer saw.** George also registered a screen on a
+second device (`scr_dce077a78139`), which came up and sat on its idle clock — the first time the
+screens feature has run against a real device. Its polls returned `200` then seven `204`s, and then
+its **final** poll, as the page went away, was refused `403` with *"the connection was opened by
+something other than tailscaled"*. That is the provenance check failing **closed** on a connection
+being torn down while a request is still in flight. A burst of 20 requests through serve immediately
+afterwards returned 20/20 clean with zero forged refusals, so the check is stable rather than
+flapping. Operationally: expect occasional `403`s in the journal when a screen is closed or a device
+sleeps, and the page retries. It belongs with F-05B-AVAIL in round 9; it is the safe direction, but it
+is a real availability wrinkle in the screens path that only a real device exposed.
+
+**Tear-down.** `tailscale serve --https=8443 off`; `tailscale serve status --json` **byte-identical**
+to `serve-before.json` (both sha256 `075b5bcb…`); `crooks-stage-r8` stopped, port 8799 free. The
+staging screen's `displays.json` was written to the isolated `stage-state/objectives/` (378 bytes)
+and **not** to production, which still had no `displays.json` afterwards. `round-8/stage`,
+`round-8/stage-state` and `round-8/stage.env` are kept as evidence.
+
+## Step 3 — the deploy: **DEPLOYED_OK**
+
+`round-8/deploy.sh` was run as written and previously syntax-checked, in one operation, at
+21:18:43 UTC. Full output:
+
+```
+### round 8 deploy  3e77f2157a35a23ba69014c1b0161a9351accd48 -> 6a29e31013b0b9e543d90434e14ed65deea1ce30  2026-09-27T21:18:43Z
+[21:18:43] STEP 0: identity of the pieces this script will install
+  .env sha256 matches preflight; parked credential fingerprint recorded (never opened)
+[21:18:43] fetching candidate into /opt/crooks-os
+  candidate object present
+  journal marker: 2026-09-27 21:18:45
+[21:18:46] STEP 4.1a: stop the service
+  service now: inactive
+[21:18:48] STEP 4.1b: checkout 6a29e31013b0b9e543d90434e14ed65deea1ce30
+  HEAD: 6a29e31013b0b9e543d90434e14ed65deea1ce30
+[21:18:48] STEP 4.1c: dependencies, only if the lock changed
+  no dependency file changed between 3e77f215... and 6a29e310... -> nothing to install
+[21:18:48] STEP 4.1d: install the re-rendered unit and daemon-reload
+  installed ExecStart: ... -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
+[21:18:49] STEP 4.1e: restart
+  service now: active
+[21:18:49] STEP 4.1f: wait for /health to answer
+  /health answered after ~8s
+[21:18:56] STEP 4.2: the running uvicorn's args carry --no-proxy-headers
+  pid 3068091 args: ... -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
+  OK
+[21:18:56] STEP 4.3: active, and stayed up for 30 seconds
+  active for 30s, same MainPID 3068091, NRestarts=0
+[21:19:27] STEP 4.4: /health proxy_identity and housekeeping
+  proxy_identity ok=True detail='uvicorn started with --no-proxy-headers'
+  housekeeping   ok=True detail='last pass 33s ago · 1 pass(es)'
+  top-level status: 'ok'   withheld: ['pad', 'observability']
+  OK
+[21:19:27] STEP 4.5: GEORGE, PHONE CHECK 2 — https://.../whoami on his phone
+  waiting up to 600s for the service journal since 2026-09-27 21:18:45 to show:
+    whoami: through=tailscale owner=true refusal=none
+  FOUND after ~365s
+    21:25:38 INFO crooks.identity  whoami: through=tailscale owner=true refusal=none
+[21:25:39] STEP 4.6: the host's own request through serve is this_host, not the owner
+  OK: 'whoami: through=this_host owner=false' present
+[21:25:41] STEP 4.7: the switches, the .env and the parked credential are exactly as found
+  .env sha256 unchanged: 0021c07d...
+  CROOKS_SCREEN_SNAPSHOTS      = 'false'    OK
+  CROOKS_LOCAL_OWNER           = <unset>    OK
+  CROOKS_WRITES_LOCAL_OWNER    = 'false'    OK
+  CROOKS_ENGINEERING_HOST      = <unset>    OK
+  CROOKS_TAILSCALE_VERIFY      = <unset>    OK
+  CROOKS_ALLOWED_LOGINS        = non-empty:True (value not printed) OK
+  parked credential unchanged (uid mode size mtime identical; never opened or decrypted)
+  /etc/crooks-os/credentials/ still holds exactly 3 .cred files
+  installed unit's LoadCredentialEncrypted lines identical to the saved ones
+
+RESULT: DEPLOYED_OK  HEAD=6a29e31013b0b9e543d90434e14ed65deea1ce30  unit=3808af03...
+```
+
+**Phone check 2: PASS.** The owner's phone got through production at 21:25:38 UTC, 365 s into the
+600 s window. Production journal lines since the restart (no logins recorded):
+
+```
+whoami: through=tailscale owner=true refusal=none      <- George's phone, 21:25:38
+whoami: through=this_host owner=false refusal=not_authorised_local   <- step 4.6, the host itself
+```
+
+**The start-up refusal that F-04-STARTUP is about did not fire.** `NRestarts=0` and the same
+`MainPID 3068091` held for the full 30 seconds, so the reports folder was made private without the
+fail-closed path being reached. Had it fired, step 4.3 would have rolled back rather than logged.
+
+## Post-deploy facts
+
+**1. The gap record's start-up rewrite made exactly one backup.**
+
+```
+-rw------- root:root 4663  gaps.json.20260927T211850Z.before-clean
+-rw------- root:root 4662  gaps.json
+```
+
+One backup, 0600, and its sha256 is
+`90591f143f4eccfc18b01343e877cc350641215b6254149a71b707bfb4c35b60` — **byte-identical to the
+pre-deploy record**. So the F-07-DURABILITY repair's one-backup property held on the owner's live
+record, and the rollback target is recoverable.
+
+The rewrite itself was conservative: all five top-level keys unchanged (`version=1`,
+`seeded="2026-09-27T01:07:06+00:00"`, `builds` and `misjudged` still empty), **all 8 gap keys
+preserved**, no field added or removed on any row, and exactly one row's `label` normalised — which
+is the one-byte size difference.
+
+**2. The vendored `3e77f215` reader still reads the rewritten file.**
+`tests/rollback/gaps_3e77f215.py` was loaded from the deployed checkout and run against the live
+rewritten record: `load()` returned all five keys with 8 gaps, 0 builds, 0 misjudged and the original
+`seeded`; `report()` (run against a byte-identical copy) returned `gaps` (8), `misjudged` (0) and an
+11-field `summary`. The live file's sha256 was identical before and after, so the reader wrote
+nothing. A rollback to `3e77f215` would read this record.
+
+**3. Report paths: 2 tightened, 0 withheld** — exactly as expected.
+
+| path | before | after |
+|---|---|---|
+| `reports/` | `0755` | **`0700`** |
+| `reports/.gitkeep` | `0644` | **`0600`** |
+
+`find reports -perm /077 | wc -l` went from 2 to **0**. No `.withheld/` was created, so nothing was
+moved and nothing was deleted. A3's F-04-STARTUP note is confirmed: `git status --porcelain` on
+`/opt/crooks-os` is **empty**, so chmodding the tracked `.gitkeep` to 0600 does not show up as a
+modification.
+
+**4. `/health` top-level status: `ok`** — 12 checks, all true (`claude`, `gmail`, `knowledge_base`,
+`scribe`, `shopify`, `speech`, `terminology`, `tts`, `whisper`, `writes`, plus the two new
+`proxy_identity` and `housekeeping`), with `withheld: ['pad', 'observability']`.
+
+## What is still true
+
+Every one of the 21 material findings above is unrepaired and now running in production. The two
+that are decisions rather than bugs are live: the offline test suite still grants owner authority by
+default (**F-A2-FIXTURE**), and a twenty-first screen will still evict the least recently seen one
+along with its key and any live customer slip (**NEW-B-CAP**). The screens feature is enabled for the
+first time, so **B-02**, **B-03**, **B-04**, **NEW-B-CAP** and **NEW-B-LOCAL-SLIP** are all live
+paths rather than latent ones. `CROOKS_SCREEN_SNAPSHOTS` stays `false`, so F-02 remains latent.
+
+Rollback remains available and tested in shape: `git -C /opt/crooks-os checkout --detach 3e77f215`
+plus `cp round-8/installed.service /etc/systemd/system/crooks-assistant.service`, `daemon-reload`,
+restart. The gap record's one backup makes that safe for the record too.
+
+Round 9 should review the repairs for all 21, plus the two new observations this run produced: the
+teardown-race `403` on the screens poll path, and the corrected expectation that a forged forwarding
+header is refused at the door rather than logged by `/whoami`.
