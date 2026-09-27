@@ -68,7 +68,8 @@ def test_the_text_on_screen_is_redacted_by_the_timelines_own_rule():
     for leak in ("Priya", "priya@example.com", "07700 900123", "SW1A 1AA"):
         assert leak not in out, leak
     assert "[name]" in out and "[email]" in out and "[phone]" in out and "[postcode]" in out
-    assert 'viewBox="0 0 24 24"' in out and 'd="M4 10v4 M8 7v10 0 0 24 24 12 12 12"' in out, "drawing paths untouched"
+    assert 'viewBox="0 0 24 24"' in out, "a viewBox of four short numbers is kept"
+    assert ' d="' not in out, "a path's free-form value is not kept (F-02, fourth round)"
     assert "3 days left" in out and ">Reply<" in out
 
 
@@ -267,9 +268,71 @@ def test_attribute_names_are_allow_listed_and_drawing_values_are_numbers_only():
     finally:
         timeline_module.forget_names()
     assert 'data-alpha="objective"' in out and 'data-snap-top="12"' in out
-    for leak in ("data-greg-evans", "07700900123", "x-customer", "greg@example.com", 'cx="Greg"'):
+    for leak in ("data-greg-evans", "07700900123", "x-customer", "greg@example.com", 'cx="Greg"', ' d="'):
         assert leak not in out, leak
-    assert 'd="M4 10v4"' in out and 'r="2"' in out
+    assert 'r="2"' in out
+
+
+def test_no_drawing_value_can_carry_a_phone_number_written_as_it_appears():
+    """F-02, fourth round: "M 07700 900123" has no seven-digit run and passed the old rule.
+    Free-form drawing values are not kept at all, and a number is one short number."""
+    html = ('<svg viewBox="0 07700 900123 1" width="07700" height="900123"><path d="M 07700 900123"/>'
+            '<polyline points="07700 900123"/><g transform="translate(07700 900123)"><rect x="07700" y="900123"'
+            ' width="24" height="12.5" rx="2px" stroke-dasharray="07700 900123"/></g>'
+            '<circle cx="-12" cy="0.5" r="1e7"/></svg>')
+    out = scrub_screen(html)
+    for leak in ("07700", "900123", " d=", "points=", "transform=", "viewBox="):
+        assert leak not in out, (leak, out)
+    assert 'width="24"' in out and 'height="12.5"' in out and 'rx="2px"' in out
+    assert 'cx="-12"' in out and 'cy="0.5"' in out and ' r="' not in out, "1e7 is not a short number"
+    assert 'viewBox="0 0 24 24"' in scrub_screen('<svg viewBox="0,0, 24 24"></svg>')
+
+
+def test_aria_names_are_the_wai_aria_list_and_nothing_else():
+    """F-02, fourth round: aria-gregevans matched ^aria-[a-z]{2,20}$ and was kept."""
+    out = scrub_screen('<button aria-label="Reply" aria-expanded="false" aria-gregevans="1" aria-x="1" '
+                       'aria-labelledby="t1">Reply</button>')
+    assert 'aria-label="Reply"' in out and 'aria-expanded="false"' in out and 'aria-labelledby="t1"' in out
+    assert "aria-gregevans" not in out and "aria-x" not in out
+
+
+def test_data_names_are_a_fixed_list_that_covers_every_page_of_clives_own():
+    """F-02, fourth round: the data- names come from a list written in the code, not from reading
+    the web folder at run time (unreadable folder = empty list; a deploy = a stale one). This test
+    reads the pages instead, so a page using a data- name the list lacks fails here, and the name
+    is added on purpose."""
+    from app.observability import screens
+
+    web = Path(__file__).resolve().parent.parent / "web"
+    used: set[str] = set()
+    for path in [*web.glob("*.js"), *web.glob("*.html"), *web.glob("*.css")]:
+        text = path.read_text(encoding="utf-8")
+        used.update(re.findall(r"data-[a-z][a-z0-9-]*", text))
+        for camel in re.findall(r"dataset\.([a-zA-Z]+)", text):
+            used.add("data-" + re.sub(r"([A-Z])", lambda m: "-" + m.group(1).lower(), camel))
+    assert used, "the pages were read"
+    missing = sorted(used - screens.DATA_NAMES)
+    assert not missing, f"add these to app/observability/screens.py DATA_NAMES (or stop using them): {missing}"
+    assert screens.DATA_FREE_TEXT <= screens.DATA_NAMES
+    source = (Path(screens.__file__)).read_text(encoding="utf-8")
+    assert "glob(" not in source and "read_text" not in source and "lru_cache" not in source, \
+        "the rule reads nothing from disk"
+
+
+def test_data_values_that_are_free_text_are_kept_empty_and_the_rest_only_as_tokens():
+    timeline_module.note_names(["Greg Evans"])
+    try:
+        out = scrub_screen(
+            '<li data-label="Greg Evans" data-customer-name="Evans" data-ask="refund Greg" data-said="call him"'
+            ' data-args="order=1047&amp;email=greg@example.com" data-state="held" data-ref="gid://shopify/Order/1047"'
+            ' data-kind="order" data-tone="calm words here">x</li>')
+    finally:
+        timeline_module.forget_names()
+    for leak in ("Evans", "refund", "call him", "greg@example.com", "calm words"):
+        assert leak not in out, leak
+    for kept in ('data-label=""', 'data-customer-name=""', 'data-ask=""', 'data-said=""', 'data-args=""',
+                 'data-state="held"', 'data-ref="gid://shopify/Order/1047"', 'data-kind="order"', 'data-tone=""'):
+        assert kept in out, kept
 
 
 def test_the_counts_call_written_only_what_is_on_disk(tmp_path, monkeypatch):
@@ -286,6 +349,79 @@ def test_the_counts_call_written_only_what_is_on_disk(tmp_path, monkeypatch):
     counts = timeline.counts
     assert counts["written"] == counts["on_disk"] == 1, "only the start event is on disk"
     assert counts["pending"] == 2 and counts["settled"] is False
+
+
+def test_an_event_the_writer_is_holding_is_still_pending(tmp_path, monkeypatch):
+    """F-10, fourth round: between the writer taking a batch off the queue and that batch
+    reaching the file, the queue is empty, and the event must still be in somebody's count.
+    Counts never call that settled and flush waits for it."""
+    import queue
+    import threading
+
+    taken, release = threading.Event(), threading.Event()
+
+    class HoldingQueue(queue.Queue):
+        """The writer's first get: the event leaves the queue, then the writer stalls before it
+        has done anything else with it (the window the review found)."""
+
+        def get(self, *args, **kwargs):
+            item = super().get(*args, **kwargs)
+            if not taken.is_set():
+                taken.set()
+                assert release.wait(5)
+            return item
+
+    clock = Clock()
+    store = TestSessions(tmp_path, clock=clock)
+    timeline = Timeline(store, clock=clock)
+    timeline._queue = HoldingQueue(maxsize=100)
+    timeline.start("held")
+    assert taken.wait(5), "the writer took the start event"
+    assert timeline._queue.qsize() == 0, "the queue is empty: the event is in the writer's hands"
+    held = timeline.counts
+    assert held["pending"] == 1 and held["settled"] is False and held["on_disk"] == 0
+    assert timeline.flush(timeout_s=0.1) is False, "flush does not return early while the writer holds it"
+    release.set()
+    assert timeline.flush(timeout_s=5)
+    after_get = timeline.counts
+    assert after_get["pending"] == 0 and after_get["settled"] and after_get["on_disk"] == 1
+
+    # And while the batch is being written: still pending until the file has it.
+    in_write, let_write = threading.Event(), threading.Event()
+    real_append = timeline._append
+
+    def slow_append(path, lines):
+        in_write.set()
+        assert let_write.wait(5)
+        return real_append(path, lines)
+
+    monkeypatch.setattr(timeline, "_append", slow_append)
+    timeline.emit("turn_started")
+    assert in_write.wait(5)
+    writing = timeline.counts
+    assert writing["pending"] == 1 and writing["settled"] is False and writing["on_disk"] == 1
+    let_write.set()
+    assert timeline.flush(timeout_s=5)
+    done = timeline.counts
+    assert done["pending"] == 0 and done["settled"] is True and done["on_disk"] == 2 and done["this_process"] == 2
+
+
+def test_a_write_that_fails_settles_as_dropped_not_as_written(tmp_path, monkeypatch):
+    clock = Clock()
+    store = TestSessions(tmp_path, clock=clock)
+    timeline = Timeline(store, clock=clock)
+    timeline.start("fails")
+    assert timeline.flush()
+
+    def broken(path, lines):
+        raise RuntimeError("disk gone")
+
+    monkeypatch.setattr(timeline, "_append", broken)
+    for _ in range(3):
+        timeline.emit("turn_started")
+    assert timeline.flush(timeout_s=5)
+    counts = timeline.counts
+    assert counts["pending"] == 0 and counts["settled"] and counts["dropped"] == 3 and counts["on_disk"] == 1
 
 
 def test_housekeeping_runs_on_a_clock_with_nobody_using_the_service(tmp_path):
@@ -306,3 +442,31 @@ def test_housekeeping_runs_on_a_clock_with_nobody_using_the_service(tmp_path):
     housekeep_once(Runtime())
     assert not old.exists() and Runtime.tests.active() is not None
     housekeep_once(object())   # nothing to keep: nothing happens, nothing raises
+
+
+def test_housekeeping_runs_once_at_startup_before_the_first_request(tmp_path, monkeypatch):
+    """F-04, fourth round: periodic was not enough; a restart must not leave a stale day, an aged
+    session or an open report waiting up to HOUSEKEEPING_S for the first tick."""
+    import asyncio
+
+    from app import main as main_module
+    from app.providers import max_agent_sdk
+
+    async def no_start(self):
+        raise RuntimeError("tests never start the real Claude provider")
+
+    monkeypatch.setattr(max_agent_sdk.MaxAgentSDKProvider, "start", no_start)
+    passes: list[object] = []
+    monkeypatch.setattr(main_module, "housekeep_once", lambda runtime: passes.append(runtime))
+
+    async def timer_only(runtime):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(main_module, "_housekeeping", timer_only)
+
+    async def boot():
+        async with main_module.app.router.lifespan_context(main_module.app):
+            assert len(passes) == 1, "one pass ran before the app said it was ready"
+            assert passes[0] is main_module.app.state.runtime
+
+    asyncio.run(boot())

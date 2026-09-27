@@ -15,8 +15,19 @@ survives.
 - Every other piece of text, and every attribute value, passes the timeline's own rule
   (`scrub_text`): credentials (Shopify, Anthropic, Google, Slack, GitHub, JWTs, bearer values),
   email addresses, phone numbers, postcodes, card numbers and the customer names this process
-  has been shown. Drawing attributes (an SVG path's `d`, `points`, `viewBox`, `transform`) are
-  numbers that look like phone numbers to that rule, so they get the credential rule only.
+  has been shown.
+- Attribute NAMES are written down too, so they come only from fixed lists written here: the
+  HTML and SVG names the page draws with, the WAI-ARIA states and properties, and the data-
+  names CLIVE's own pages use (a test holds that list to the pages). Nothing is read from disk
+  to decide it, so the rule cannot change under a running process or go missing with a folder.
+- Free-form drawing values are not kept at all: an SVG path's `d`, `points` and `transform`
+  can spell anything in digits and spaces ("M 07700 900123" is a phone number), so they are
+  dropped, and a copy draws without its icons. What is kept is a single short number
+  (`x`, `r`, `width`…) or a viewBox of four; no leading zeros, at most four digits before
+  the point.
+- data- values that are free text by what they are for (a row's label, a question, a
+  customer, what was said, a command's arguments) are kept empty; the rest are kept only as
+  a short token (a state word, an id, a number).
 
 The result draws as the page did, less what it must not keep.
 """
@@ -24,10 +35,8 @@ The result draws as the page did, less what it must not keep.
 from __future__ import annotations
 
 import re
-from functools import lru_cache
 from html import escape
 from html.parser import HTMLParser
-from pathlib import Path
 from typing import Any
 
 # Dropped with everything inside them.
@@ -38,46 +47,65 @@ _VOID = frozenset({"area", "br", "col", "hr", "img", "input", "wbr", "path", "ci
 # Attributes that carry a URL, and so a place for a token or a tracking address to hide.
 _URL_ATTRS = frozenset({"href", "xlink:href", "action", "formaction", "poster", "ping", "srcset", "background",
                         "cite", "longdesc", "manifest", "codebase", "data", "lowsrc", "dynsrc", "usemap"})
-_DRAWING = frozenset({"d", "points", "viewbox", "transform", "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "r", "rx",
-                      "ry", "width", "height", "stroke-width", "offset"})
+# Free-form drawing values: digits and spaces can spell anything, so these are not kept.
+_FREEFORM_DRAWING = frozenset({"d", "points", "transform"})
+# One number each; kept only as a short number.
+_NUMBER_ATTRS = frozenset({"x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "r", "rx", "ry", "width", "height",
+                           "stroke-width", "offset"})
 # The parser lowers every attribute name; SVG's camel-cased ones are given back their case.
 _SVG_CASE = {n.lower(): n for n in ("viewBox", "preserveAspectRatio", "gradientUnits", "gradientTransform",
                                     "patternUnits", "patternTransform", "clipPathUnits", "maskUnits", "markerWidth",
                                     "markerHeight", "refX", "refY", "stdDeviation", "textLength", "lengthAdjust")}
-# Attribute names are kept only from this list, or as aria-/data- names of letters and hyphens:
-# a name is written down too, and an arbitrary one could carry anything (F-02, third round).
+# Attribute names are kept only from this list and the ARIA and data- lists below: a name is
+# written down too, and an arbitrary one could carry anything (F-02, third and fourth rounds).
 _KNOWN = frozenset({
     "class", "id", "style", "type", "role", "title", "alt", "placeholder", "name", "for", "value", "src", "width",
     "height", "hidden", "disabled", "checked", "selected", "readonly", "tabindex", "rows", "cols", "maxlength",
     "min", "max", "step", "open", "lang", "dir", "colspan", "rowspan", "inert", "autocomplete", "enterkeyhint",
-    "inputmode", "xmlns", "xmlns:xlink", "viewbox", "d", "points", "fill", "stroke", "stroke-width",
+    "inputmode", "xmlns", "xmlns:xlink", "viewbox", "fill", "stroke", "stroke-width",
     "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "fill-rule", "clip-rule",
-    "opacity", "fill-opacity", "stroke-opacity", "transform", "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "r",
+    "opacity", "fill-opacity", "stroke-opacity", "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "r",
     "rx", "ry", "offset", "stop-color", "preserveaspectratio", "focusable", "loading", "decoding", "draggable",
     "contenteditable", "spellcheck", "translate",
 })
-# ARIA names are one word after "aria-"; data- names are only the ones CLIVE's own page uses,
-# read from its source, so a name made up by whoever posted the copy is not kept.
-_ARIA_NAME = re.compile(r"^aria-[a-z]{2,20}$")
-_WEB = Path(__file__).resolve().parents[2] / "web"
-
-
-@lru_cache(maxsize=1)
-def _data_names() -> frozenset[str]:
-    names: set[str] = set()
-    for path in [*_WEB.glob("*.js"), *_WEB.glob("*.html"), *_WEB.glob("*.css")]:
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        names.update(re.findall(r"data-[a-z][a-z0-9-]*", text))
-        for camel in re.findall(r"dataset\.([a-zA-Z]+)", text):
-            names.add("data-" + re.sub(r"([A-Z])", lambda m: "-" + m.group(1).lower(), camel))
-    return frozenset(names)
-# What a drawing attribute may hold: numbers and path or transform words, nothing else; and no
-# run of seven or more digits, which no coordinate has and a phone number does.
-_DRAWING_VALUE = re.compile(r"^(?:[\s,.+\-eE0-9MmLlHhVvCcSsQqTtAaZz()]|matrix|translate|scale|rotate|skewX|skewY)*$")
-_LONG_NUMBER = re.compile(r"\d{7,}")
+# The WAI-ARIA 1.2 states and properties (https://www.w3.org/TR/wai-aria-1.2/#state_prop_def),
+# and no other aria- name: "aria-" followed by anything at all would let a name carry a word.
+_ARIA = frozenset({
+    "aria-activedescendant", "aria-atomic", "aria-autocomplete", "aria-braillelabel", "aria-brailleroledescription",
+    "aria-busy", "aria-checked", "aria-colcount", "aria-colindex", "aria-colindextext", "aria-colspan",
+    "aria-controls", "aria-current", "aria-describedby", "aria-description", "aria-details", "aria-disabled",
+    "aria-dropeffect", "aria-errormessage", "aria-expanded", "aria-flowto", "aria-grabbed", "aria-haspopup",
+    "aria-hidden", "aria-invalid", "aria-keyshortcuts", "aria-label", "aria-labelledby", "aria-level", "aria-live",
+    "aria-modal", "aria-multiline", "aria-multiselectable", "aria-orientation", "aria-owns", "aria-placeholder",
+    "aria-posinset", "aria-pressed", "aria-readonly", "aria-relevant", "aria-required", "aria-roledescription",
+    "aria-rowcount", "aria-rowindex", "aria-rowindextext", "aria-rowspan", "aria-selected", "aria-setsize",
+    "aria-sort", "aria-valuemax", "aria-valuemin", "aria-valuenow", "aria-valuetext",
+})
+# The data- names CLIVE's own pages use, written out (the 2026-09-27 deploy review, F-02: a list
+# read from the web folder at run time is only as sound as that folder, and is stale for the
+# life of the process after a deploy). tests/test_screen_privacy.py reads the pages and fails if
+# one of them uses a data- name that is missing here, so a new one is added deliberately.
+DATA_NAMES = frozenset({
+    "data-action", "data-alpha", "data-archived", "data-area", "data-args", "data-ask", "data-attention",
+    "data-branch", "data-build", "data-busy", "data-cancel", "data-col", "data-command", "data-compose",
+    "data-customer", "data-customer-name", "data-dead", "data-depth", "data-direction", "data-dot", "data-dx",
+    "data-family", "data-field", "data-for", "data-head", "data-job", "data-kind", "data-label",
+    "data-listening-for", "data-lite", "data-mark", "data-mode", "data-name", "data-notify", "data-offer",
+    "data-ok", "data-order", "data-overflow", "data-patched", "data-pending", "data-phase", "data-post",
+    "data-pressed", "data-primed", "data-proposal", "data-ready", "data-recording", "data-ref", "data-render",
+    "data-restored", "data-said", "data-scene-id", "data-set", "data-shell", "data-significance",
+    "data-snap-dialog", "data-snap-left", "data-snap-top", "data-state", "data-tab", "data-task", "data-thread",
+    "data-tone", "data-typable", "data-type", "data-undo-of", "data-unread", "data-unsaved", "data-workspace",
+})
+# data- names whose values are free text by what they are for: kept, but empty.
+DATA_FREE_TEXT = frozenset({"data-args", "data-ask", "data-customer", "data-customer-name", "data-label",
+                            "data-name", "data-said"})
+# Any other data- value: a short token (a state word, an id, a number) or nothing.
+_DATA_TOKEN = re.compile(r"^[A-Za-z0-9_.:/#-]{0,64}$")
+# What a drawing number may be: no leading zero, at most four digits before the point.
+_NUM = r"-?(?:0|[1-9]\d{0,3})(?:\.\d{1,3})?"
+_NUMBER_VALUE = re.compile(rf"^{_NUM}(?:px|%|em|rem)?$")
+_VIEWBOX_VALUE = re.compile(rf"^{_NUM}(?:[\s,]+{_NUM}){{3}}$")
 _NAME = re.compile(r"^[a-zA-Z_:][-a-zA-Z0-9_:.]{0,60}$")
 _TAG = re.compile(r"^[a-zA-Z][a-zA-Z0-9:-]{0,40}$")
 _INLINE_IMAGE = re.compile(r"^data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=\s]+$")
@@ -172,7 +200,9 @@ class _Sanitiser(HTMLParser):
             name = raw_name.lower()
             if not _NAME.fullmatch(raw_name) or name.startswith("on") or name in _URL_ATTRS:
                 continue
-            if name not in _KNOWN and not _ARIA_NAME.fullmatch(name) and name not in _data_names():
+            if name in _FREEFORM_DRAWING:
+                continue
+            if name not in _KNOWN and name not in _ARIA and name not in DATA_NAMES:
                 continue
             value = "" if raw_value is None else str(raw_value)
             if typed and name == "value":
@@ -184,10 +214,21 @@ class _Sanitiser(HTMLParser):
                     continue
             elif name == "style":
                 value = _clean(_CSS_URL.sub("none", value))
-            elif name in _DRAWING:
-                # Numbers only: a drawing value that is anything else is not kept at all.
-                if not _DRAWING_VALUE.fullmatch(value) or _LONG_NUMBER.search(value):
+            elif name in _NUMBER_ATTRS:
+                # One short number, or the attribute is not kept at all.
+                if not _NUMBER_VALUE.fullmatch(value.strip()):
                     continue
+                value = value.strip()
+            elif name == "viewbox":
+                if not _VIEWBOX_VALUE.fullmatch(value.strip()):
+                    continue
+                value = " ".join(value.replace(",", " ").split())
+            elif name in DATA_FREE_TEXT:
+                value = ""
+            elif name.startswith("data-"):
+                value = _clean(value)
+                if not _DATA_TOKEN.fullmatch(value):
+                    value = ""
             else:
                 value = _clean(value)
             parts.append(f' {_SVG_CASE.get(name, raw_name)}="{escape(value, quote=True)}"')

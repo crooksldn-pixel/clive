@@ -150,9 +150,12 @@ def main() -> int:
     env.update({
         "CROOKS_LOG_DIR": str(state_dir / "logs"), "CROOKS_BENCH_AUDIO_DIR": str(state_dir / "bench"),
         "CROOKS_SAVE_CAPTURES": "false", "CROOKS_WRITES_ENABLED": "false",
+        # Its own private backend, asked only from here: the owner-only routes (the test
+        # session) answer the server itself, and nothing on it can apply a change.
+        "CROOKS_ALLOWED_LOGINS": "acceptance@localhost.invalid", "CROOKS_WRITES_LOCAL_OWNER": "true",
     })
     log = open(state_dir / "uvicorn.log", "ab")
-    server = subprocess.Popen([PY, "-m", "uvicorn", "app.main:app", "--port", str(port)], cwd=ROOT, env=env, stdout=log, stderr=log)
+    server = subprocess.Popen([PY, "-m", "uvicorn", "app.main:app", "--port", str(port), "--no-proxy-headers"], cwd=ROOT, env=env, stdout=log, stderr=log)
     try:
         t0 = time.perf_counter()
         up = wait_for(f"{base}/ping", 40)

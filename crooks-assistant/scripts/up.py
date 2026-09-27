@@ -42,6 +42,9 @@ def backend_command(settings: Settings, *, reload: bool = False) -> list[str]:
     cmd = [
         sys.executable, "-m", "uvicorn", "app.main:app",
         "--host", settings.host, "--port", str(settings.port),
+        # The app judges who opened each connection itself (app/identity.py); uvicorn's own
+        # proxy-header handling would replace that address with the forwarded one first.
+        "--no-proxy-headers",
     ]
     if reload:
         cmd.append("--reload")

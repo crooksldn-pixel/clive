@@ -186,6 +186,20 @@ def _no_network(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _identity_seams_are_put_back():
+    """A test that stands in for `tailscale whois`, for the kernel's account of who opened a
+    connection, or for "is this address the server's own" leaves no stand-in behind it."""
+    yield
+    from app import identity
+
+    identity.bind_runner(None)
+    identity.bind_peer_check(None)
+    identity.bind_self_check(None)
+    identity._holdings.clear()
+    identity._proxy_pids.clear()
+
+
+@pytest.fixture(autouse=True)
 def _fresh_read_layer():
     """One test's reads are not another's.
 

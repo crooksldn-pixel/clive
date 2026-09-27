@@ -95,6 +95,10 @@ async def lifespan(app: FastAPI):
         # problem, and each /turn retries start() so fixing it needs no restart.
         log.error("Claude provider did not start: %s", exc)
     app.state.runtime.warm_orders_soon()
+    # One pass before the first request is answered (the 2026-09-27 deploy review, F-04): a
+    # restart never leaves the day's roll, the ages or the report permissions waiting for the
+    # timer, and then the timer keeps them.
+    await asyncio.to_thread(housekeep_once, app.state.runtime)
     housekeeping = asyncio.create_task(_housekeeping(app.state.runtime))
     log.info("CROOKS Assistant ready (bind address is whatever uvicorn was started with)")
     yield
@@ -155,9 +159,18 @@ async def guard_and_freshness(request: Request, call_next):
     # `tailscale serve` adds X-Forwarded-For to everything it proxies and a login only for
     # tailnet users: a proxied request with no login is Funnel or a tagged node, and is
     # refused whether or not an allow-list is set — nobody anonymous asks this assistant.
-    # A request with neither header was made on the Mac itself.
-    proxied = bool(request.headers.get("x-forwarded-for"))
-    if proxied and not login:
+    # A request that carries the header and did not come through tailscaled is something on
+    # the server pretending, and is refused before any route sees it (F-05B; the same decision
+    # the write boundary and the owner-only rule read, app/routes/actions.py proxy_state).
+    # A request with neither header was made on the server itself.
+    from app.routes.actions import FORGED, TAILSCALE, proxy_state
+
+    route, why = proxy_state(request)
+    if route == FORGED:
+        log.warning("refused a request that claimed to come through Tailscale and did not: %s (path=%s)",
+                    why, request.url.path)
+        return JSONResponse(status_code=403, content={"error": "not allowed", "who": "unverified proxy"})
+    if route == TAILSCALE and not login:
         return JSONResponse(status_code=403, content={"error": "not allowed", "who": "unknown"})
     if allowed and login and login.lower() not in allowed:
         return JSONResponse(status_code=403, content={"error": "not allowed", "who": login})

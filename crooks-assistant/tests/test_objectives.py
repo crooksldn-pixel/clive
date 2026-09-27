@@ -237,12 +237,17 @@ def test_the_model_tool_cannot_authorise_or_close(s):
 
 
 def test_the_owners_routes_create_answer_and_authorise(s, monkeypatch):
+    from types import SimpleNamespace
+
     from fastapi import FastAPI
 
     from app.routes import objectives
 
     app = FastAPI()
     app.include_router(objectives.router)
+    # The owner's server, asked from the server itself (writes_local_owner): the rule is below.
+    settings = SimpleNamespace(writes_local_owner=True, tailscale_verify=False, tailscale_cli="")
+    app.state.runtime = SimpleNamespace(allowed_logins=("team@crooksldn.com",), settings=settings)
     client = TestClient(app)
     made = client.post("/objectives", json={"request": "Organise the baptism travel", "deadline": "2026-10-13"}).json()
     s.propose(made["id"], "Buy the ticket", needs_owner=True)
@@ -279,3 +284,11 @@ def test_the_owners_records_are_his_alone_when_an_allow_list_is_set(s, monkeypat
     assert client.get("/objectives", headers=owner).status_code == 200
     settings.writes_local_owner = True
     assert client.get("/objectives").status_code == 200, "the owner said the server is him"
+    # F-05B: with no allow-list the records answer nobody, as the write boundary does, not
+    # everybody; saying the server is the owner does not change that.
+    app.state.runtime = SimpleNamespace(allowed_logins=(), settings=settings)
+    for headers in ({}, owner):
+        refused = client.get("/objectives", headers=headers)
+        assert refused.status_code == 403 and "CROOKS_ALLOWED_LOGINS" in refused.json()["detail"]
+    del app.state.runtime
+    assert client.get("/objectives").status_code == 403, "no runtime at all: nobody"

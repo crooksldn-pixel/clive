@@ -631,7 +631,7 @@ def test_a_pad_event_obeys_the_existing_pii_scrubbing(registry, recording):
 async def test_the_route_takes_events_alongside_a_beat_and_says_what_it_did(client):
     """One call from the appliance rather than two. The pad learns whether a session is running
     from the same answer, so it can turn its own telemetry on within one beat."""
-    configure(client, logins="owner@example.com")
+    configure(client, logins="owner@example.com", local=True)
     await client.post("/test-session/start", json={"name": "appliance"})
     answer = await client.post("/pad/heartbeat", headers=PROXIED, json={
         "app_version": "0.4.2", "device_model": "SM-T290", "os_version": "Android 11",
@@ -719,7 +719,7 @@ async def test_the_web_page_cannot_put_an_appliance_event_on_the_timeline(client
     accepted / rejected counts know nothing about. One event, two doors, two different stories.
     So the appliance's prefix is refused at this door.
     """
-    configure(client, logins="owner@example.com")
+    configure(client, logins="owner@example.com", local=True)
     started = (await client.post("/test-session/start", json={"name": "telemetry"})).json()
     answer = await client.post("/telemetry", headers=PROXIED, json={"events": [
         {"kind": "pad_battery", "state": "84"},
@@ -747,7 +747,7 @@ async def test_a_real_beat_and_its_events_reach_section_17_of_the_report(client)
     and that the three newly admitted kinds are read as this backend's own rather than reported
     as kinds it cannot read.
     """
-    configure(client, logins="owner@example.com")
+    configure(client, logins="owner@example.com", local=True)
     await client.post("/test-session/start", json={"name": "appliance"})
     answer = await client.post("/pad/heartbeat", headers=PROXIED, json={
         "app_version": "0.4.2", "device_model": "SM-T290", "os_version": "Android 11 (API 30)",

@@ -262,3 +262,17 @@ def test_the_installer_keeps_no_second_way_to_run_launchctl(tmp_path):
     source = (SCRIPTS / "install_launchd.py").read_text(encoding="utf-8")
     assert "def launchctl(" not in source
     assert "subprocess.run(" not in source, "every external command goes through service.Runner"
+
+
+def test_every_launcher_leaves_the_connections_own_address_alone(tmp_path):
+    """F-05B: the app decides whether tailscaled opened a connection from the connection's own
+    address; uvicorn's proxy-header handling would overwrite it with the forwarded one."""
+    root = Path(__file__).resolve().parent.parent
+    assert "--no-proxy-headers" in up.backend_command(FakeSettings(tmp_path))
+    plist = plistlib.loads(installer.rendered_plists(values(tmp_path))["com.crooks.assistant"].encode("utf-8"))
+    assert "--no-proxy-headers" in plist["ProgramArguments"]
+    unit = (root / "deploy" / "systemd" / "crooks-assistant.service").read_text()
+    (exec_start,) = [line for line in unit.splitlines() if line.startswith("ExecStart=")]
+    assert exec_start.endswith("--no-proxy-headers")
+    assert "--no-proxy-headers" in (root / "Makefile").read_text().split("\ndev:", 1)[1].split("\n\n", 1)[0]
+    assert '"--no-proxy-headers"' in (root / "scripts" / "accept.py").read_text()

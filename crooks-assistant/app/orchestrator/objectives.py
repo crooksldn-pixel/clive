@@ -79,7 +79,10 @@ _SAFE_ID = r"^[a-z0-9][a-z0-9.-]{2,79}$"
 # read-only guard, the Shopify and Gmail write funnels, ``app/actions``), the evidence
 # tools (acceptance provenance, the secret-scan rules and baseline, the package and
 # test configuration) and the loop's own code (the remote inbox adapter and its CLI,
-# and the GitHub acceptance gate); then the tests that hold all of these.
+# and the GitHub acceptance gate); then the tests that hold all of these. CLIVE's own
+# engineering bridge joined on 2026-09-27 (the deploy review's F-ENG): it decides what a
+# request CLIVE files may name, which checks judge it, which base it starts from and where it
+# is written, so a build CLIVE files must not be able to change it for the next one.
 PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/orchestrator/lifecycle.py",
     "crooks-assistant/app/orchestrator/contracts.py",
@@ -114,6 +117,8 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/remote_engineering",
     "crooks-assistant/scripts/remote_engineering.py",
     "crooks-assistant/app/orchestrator/github_acceptance.py",
+    "crooks-assistant/app/engineering_bridge",
+    "crooks-assistant/app/tools/engineering_tools.py",
     # The tests that hold the protected code, chosen by what each one imports and exercises (not by
     # a glob over tests/, so an objective may still name any ordinary test file): a builder that
     # cannot change the safety core must not be able to weaken what proves it either. conftest.py
@@ -155,6 +160,9 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/tests/test_gpt_reviewer.py",              # reviewers/gpt.py
     "crooks-assistant/tests/test_remote_engineering.py",        # app/remote_engineering, its CLI
     "crooks-assistant/tests/test_github_acceptance.py",         # github_acceptance.py
+    "crooks-assistant/tests/test_engineering_bridge.py",        # app/engineering_bridge, engineering_tools.py
+    "crooks-assistant/tests/test_build_from_clive.py",          # ... the base, the checks, the areas
+    "crooks-assistant/tests/test_engineering_bridge_bounds.py",  # ... what it can and cannot reach
     ".github",
     "engineering",
 )

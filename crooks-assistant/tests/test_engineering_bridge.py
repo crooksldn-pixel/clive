@@ -74,7 +74,8 @@ def fields(**overrides) -> dict:
         "requested_outcome": "The status card lists every request that is waiting, in plain words.",
         "base_ref": "main",
         "base_sha": BASE_SHA,
-        "allowed_paths": ["crooks-assistant/app/engineering_bridge"],
+        # An ordinary part of CLIVE: the bridge itself is protected (F-ENG), so no request names it.
+        "allowed_paths": ["crooks-assistant/app/objectives"],
         "acceptance_criteria": ["the status card lists waiting requests"],
         "checks": [{"name": "bridge", "argv": ["python", "-m", "pytest", "-q"], "cwd": "crooks-assistant"}],
         "max_repair_rounds": 2,
@@ -476,7 +477,7 @@ async def test_the_inbox_id_is_issued_by_the_read_and_the_write_is_staged_for_th
     facts = {fact["label"]: fact["value"] for fact in card["facts"]}
     assert facts["Title"] == "Say which engineering requests are waiting"
     # The paths asked for, and the test module the build must write, which its check runs.
-    assert facts["May change"] == "crooks-assistant/app/engineering_bridge, crooks-assistant/tests/test_bridge_demo_one.py"
+    assert facts["May change"] == "crooks-assistant/app/objectives, crooks-assistant/tests/test_bridge_demo_one.py"
     py = engineering_tools._check_python
     assert facts["Checks"] == "; ".join(f"{c['name']}: {' '.join(c['argv'])} (in {c['cwd']})" for c in served().record["checks"])
     assert facts["Checks"].startswith(f"tests: {py} -m pytest -q tests/test_bridge_demo_one.py (in crooks-assistant); regression: ")

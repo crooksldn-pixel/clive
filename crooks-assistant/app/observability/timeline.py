@@ -181,9 +181,16 @@ class Timeline:
         # bound an event is dropped at once and counted.
         self._queue: queue.Queue = queue.Queue(maxsize=MAX_PENDING_EVENTS)
         self._pending_bytes = 0
-        self._in_flight = 0         # lines taken from the queue and not yet on disk
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        # One count of what is not settled yet (the 2026-09-27 deploy review, F-10): an event
+        # is pending from the moment it is queued until the writer has put it on disk or
+        # counted it dropped, and it moves only under the lock, in the same step as the
+        # written and dropped counts. There is no moment, between the queue and the file, when
+        # an event is in nobody's count. `_settled` wakes flush when it reaches nothing.
+        self._pending = 0
+        self._batches = 0
+        self._settled = threading.Condition(self._lock)
         self._seq = 0
         self._written = 0
         self._dropped = 0
@@ -280,8 +287,9 @@ class Timeline:
             with self._lock:
                 if self._pending_bytes + size <= MAX_PENDING_BYTES:
                     try:
-                        self._queue.put_nowait((path, line))
+                        self._queue.put_nowait((path, line, size))
                         self._pending_bytes += size
+                        self._pending += 1
                         queued = True
                     except queue.Full:
                         pass
@@ -290,7 +298,8 @@ class Timeline:
             self._ensure_writer()
             return event if queued else None
         except Exception as exc:  # noqa: BLE001 — observability never takes a turn down
-            self._dropped += 1
+            with self._lock:
+                self._dropped += 1
             log.debug("timeline event dropped: %s", exc)
             return None
 
@@ -329,28 +338,41 @@ class Timeline:
 
     def _run(self) -> None:
         while True:
-            path, line = self._queue.get()
-            batch: dict[Path, list[str]] = {path: [line]}
+            batch = [self._queue.get()]
             # Whatever else is waiting goes out in the same write.
             while True:
                 try:
-                    more_path, more = self._queue.get_nowait()
+                    batch.append(self._queue.get_nowait())
                 except queue.Empty:
                     break
-                batch.setdefault(more_path, []).append(more)
-            taken = sum(len(one.encode("utf-8")) for lines in batch.values() for one in lines)
-            with self._lock:
-                self._pending_bytes = max(0, self._pending_bytes - taken)
-                self._in_flight = sum(len(lines) for lines in batch.values())
-            for target, lines in batch.items():
-                self._append(target, lines)
-            with self._lock:
-                self._in_flight = 0
+            by_path: dict[Path, list[str]] = {}
+            for path, line, _size in batch:
+                by_path.setdefault(path, []).append(line)
+            written = dropped = 0
+            try:
+                for target, lines in by_path.items():
+                    kept, lost = self._append(target, lines)
+                    written += kept
+                    dropped += lost
+            except Exception:  # noqa: BLE001 — the writer never dies; what it held is dropped
+                log.warning("timeline writer failed on a batch", exc_info=True)
+                dropped = len(batch) - written
+            finally:
+                # Settled in one step: the events leave `pending` as they are counted written
+                # or dropped, never before.
+                with self._lock:
+                    self._written += written
+                    self._dropped += dropped
+                    self._pending_bytes = max(0, self._pending_bytes - sum(size for _p, _l, size in batch))
+                    self._pending = max(0, self._pending - len(batch))
+                    self._batches += 1
+                    if self._pending == 0:
+                        self._settled.notify_all()
 
-    def _append(self, path: Path, lines: list[str]) -> None:
-        """Lines onto a timeline, up to MAX_TIMELINE_BYTES a file. Past that, what follows is
-        counted as dropped and one line says the file is full: test mode is always on, and a
-        day's timeline must not be able to fill the disk."""
+    def _append(self, path: Path, lines: list[str]) -> tuple[int, int]:
+        """Lines onto a timeline, up to MAX_TIMELINE_BYTES a file, as (written, dropped). Past
+        that, what follows is counted as dropped and one line says the file is full: test mode
+        is always on, and a day's timeline must not be able to fill the disk."""
         from app.observability.session import MAX_TIMELINE_BYTES
 
         try:
@@ -358,8 +380,7 @@ class Timeline:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             try:
                 if path in self._full:
-                    self._dropped += len(lines)
-                    return
+                    return 0, len(lines)
                 room = MAX_TIMELINE_BYTES - os.fstat(fd).st_size
                 keep: list[bytes] = []
                 for line in lines:
@@ -375,22 +396,24 @@ class Timeline:
                     self._full.add(path)
                     os.write(fd, (json.dumps({"kind": "timeline_full", "ts": self.clock(),
                                               "max_bytes": MAX_TIMELINE_BYTES}) + "\n").encode("utf-8"))
-                    self._dropped += len(lines) - len(keep)
             finally:
                 os.close(fd)
-            self._written += len(keep)
+            return len(keep), len(lines) - len(keep)
         except OSError as exc:
-            self._dropped += len(lines)
             log.warning("could not write the timeline: %s", exc)
+            return 0, len(lines)
 
     def flush(self, timeout_s: float = 2.0) -> bool:
-        """Wait, briefly, for what is queued to reach disk. For stop, and for tests."""
+        """Wait, briefly, until nothing is pending: every queued event on disk or counted
+        dropped. For stop, and for tests. True when that happened inside the time."""
         deadline = time.monotonic() + timeout_s
-        while (not self._queue.empty() or self._in_flight) and time.monotonic() < deadline:
-            time.sleep(0.005)
-        # The writer may hold the last batch after the queue is empty; give it a moment.
-        time.sleep(0.01)
-        return self._queue.empty() and not self._in_flight
+        with self._lock:
+            while self._pending:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return False
+                self._settled.wait(left)
+            return True
 
     @property
     def counts(self) -> dict[str, Any]:
@@ -406,22 +429,34 @@ class Timeline:
         # The session this is about: the one running, or — just after `stop`, which is when
         # the count is most often asked for — the one that has just ended.
         session = self.own or self.sessions.last()
-        on_disk = count_events(self.sessions.timeline_path(session)) if session is not None else 0
-        queued = self._queue.qsize()
-        pending = queued + self._in_flight
+        path = self.sessions.timeline_path(session) if session is not None else None
         # `written` is only what is on disk (the 2026-09-26 deploy review, F-10): an event still
         # waiting may yet be dropped at the file's cap or by a failed write, so it is counted
-        # apart, as pending, and the figure is final only when nothing is.
+        # apart, as pending, and the figure is final only when nothing is. The counters are read
+        # together under the writer's lock, and on either side of reading the file: `settled`
+        # is claimed only when nothing was pending and no batch landed while the file was read,
+        # so the file's count is the whole of it (the 2026-09-27 review, F-10 again).
+        for _attempt in range(3):
+            before = self._snapshot()
+            on_disk = count_events(path) if path is not None else 0
+            after = self._snapshot()
+            if before == after:
+                break
+        pending, queued, dropped, written, _batches = after
         return {
             "written": on_disk,
             "on_disk": on_disk,
             "pending": pending,
             "queued": queued,
-            "settled": pending == 0,
-            "dropped": self._dropped,
-            "this_process": self._written,
+            "settled": pending == 0 and before == after,
+            "dropped": dropped,
+            "this_process": written,
             "test_session_id": session.test_session_id if session is not None else "",
         }
+
+    def _snapshot(self) -> tuple[int, int, int, int, int]:
+        with self._lock:
+            return self._pending, self._queue.qsize(), self._dropped, self._written, self._batches
 
 
 class NullTimeline(Timeline):
