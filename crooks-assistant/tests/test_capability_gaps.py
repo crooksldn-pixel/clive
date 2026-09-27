@@ -176,12 +176,15 @@ async def test_a_gap_is_followed_from_proposal_to_a_fix_that_held_or_came_back(r
 
     now = [100.0]
     monkeypatch.setattr(engineering_tools.time, "monotonic", lambda: now[0])
+    # The commit this CLIVE runs, fixed before the first refresh reads it: read from the real
+    # checkout it is "" in a git worktree and a real SHA in a clone, and the count below changed
+    # with it (found on clive-worker-01, 2026-09-27).
+    monkeypatch.setattr(engineering_tools, "running_sha", lambda: RUNNING)
     engineering_tools._progress_cache.clear()   # the status read above was on the real clock
     fake.status["requests"] = [{"request_id": rid, "stage": "COMPLETE", "candidate_sha": CANDIDATE}]
     await engineering_tools.refresh_gaps()
     assert gap(record.report(), "web search")["stage"] == "built"
 
-    monkeypatch.setattr(engineering_tools, "running_sha", lambda: RUNNING)
     fake.contains["clive/trunk"].add(CANDIDATE)
     await engineering_tools.refresh_gaps()
     assert fake.compares == 2, "the trunk and the running commit, compared at most once a minute"

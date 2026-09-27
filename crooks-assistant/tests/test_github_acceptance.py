@@ -223,11 +223,62 @@ def test_it_asks_for_exactly_the_acceptance_runs_of_exactly_the_sha_then_each_ru
     runs, first, second = seen
     assert all(r.method == "GET" and r.url.host == "api.github.com" for r in seen)
     assert runs.url.path == RUNS_PATH
-    assert dict(runs.url.params) == {"head_sha": SHA, "per_page": "100", "exclude_pull_requests": "true"}
+    # Only the SHA and a page size: nothing that filters by event or names pull requests (re-pin F-01).
+    assert dict(runs.url.params) == {"head_sha": SHA, "per_page": "100"}
     assert first.url.path == f"/repos/{REPOSITORY}/actions/runs/21/jobs"
     assert second.url.path == f"/repos/{REPOSITORY}/actions/runs/22/jobs"
     assert dict(first.url.params) == {"filter": "latest", "per_page": "100"}
     assert "authorization" not in runs.headers
+
+
+def faithful_github(listed: list[dict], seen: list | None = None):
+    """GitHub's workflow-runs endpoint as documented: `event` filters runs by what triggered them;
+    `exclude_pull_requests` empties each run's `pull_requests` array and drops no run. Every run's
+    acceptance job is green, so only the run list can decide."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request)
+        if request.url.path == RUNS_PATH:
+            params = request.url.params
+            runs = [dict(r, pull_requests=[{"number": 7}] if r["event"] == "pull_request" else []) for r in listed]
+            if params.get("head_sha"):
+                runs = [r for r in runs if r["head_sha"] == params["head_sha"]]
+            if params.get("event"):
+                runs = [r for r in runs if r["event"] == params["event"]]
+            if params.get("exclude_pull_requests") == "true":
+                runs = [dict(r, pull_requests=[]) for r in runs]
+            return httpx.Response(200, json=answer(*runs))
+        prefix = f"/repos/{REPOSITORY}/actions/runs/"
+        if request.url.path.startswith(prefix) and request.url.path.endswith("/jobs"):
+            return httpx.Response(200, json=jobs(job(int(request.url.path[len(prefix):-len("/jobs")]))))
+        return httpx.Response(404)
+    return handler
+
+
+@pytest.mark.parametrize(("pr_status", "pr_conclusion", "state"), [
+    ("in_progress", None, GateState.PENDING),
+    ("queued", None, GateState.PENDING),
+    ("completed", "failure", GateState.RED),
+    ("completed", "cancelled", GateState.RED),
+])
+def test_a_green_push_run_never_hides_a_pull_request_run_that_is_not_green(pr_status, pr_conclusion, state):
+    """The re-pin review's F-01, at the client: a green push run and a pending or failed pull-request
+    run for the same SHA is not green, against a GitHub that filters exactly as its parameters say."""
+    seen: list[httpx.Request] = []
+    listed = [run(31, event="push"),
+              run(32, event="pull_request", status=pr_status, conclusion=pr_conclusion),
+              run(33, event="push", sha=OTHER)]
+    result = client(faithful_github(listed, seen)).check(REPOSITORY, SHA)
+    assert result.state is state and [r.id for r in result.runs] == [31, 32]
+    assert "32" in result.detail
+    (runs_request,) = [r for r in seen if r.url.path == RUNS_PATH]
+    assert "event" not in runs_request.url.params and "exclude_pull_requests" not in runs_request.url.params
+    # Both green: green, and each run's job was confirmed.
+    both = [run(31, event="push"), run(32, event="pull_request")]
+    seen.clear()
+    assert client(faithful_github(both, seen)).check(REPOSITORY, SHA).green
+    assert sorted(r.url.path for r in seen if r.url.path.endswith("/jobs")) == [
+        f"/repos/{REPOSITORY}/actions/runs/31/jobs", f"/repos/{REPOSITORY}/actions/runs/32/jobs"]
 
 
 def test_a_run_that_is_not_green_is_answered_without_asking_for_its_jobs():

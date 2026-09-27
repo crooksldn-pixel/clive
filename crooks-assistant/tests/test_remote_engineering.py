@@ -1588,6 +1588,47 @@ def test_the_adapter_root_guard_admits_only_records_the_journal_cannot_see(tmp_p
     adapter_root_preconditions(store_root, inside)
 
 
+def test_the_hosts_own_exclude_rule_starts_the_loop_on_its_default_layout_and_a_restart_replays_it(
+        env, tmp_path, capsys, no_host_git_config):
+    """The re-pin review of a599a447, F-02: restart with the host's unchanged flags. clive-worker-01's unit
+    passes no --adapter-root, so its claims and receipts live at the default <store>/remote_engineering,
+    where the base loop (4c32bb3d, before this guard) wrote them in the same v1 records; and the host
+    ignores that directory in the store's own .git/info/exclude (line 7 there reads exactly
+    /engineering/remote_engineering/). With that rule, and only it, the default flags start; a restart
+    with the same flags finds what was recorded and neither claims nor admits it again."""
+    state = _journalled_state(tmp_path)
+    store_dir = state / "engineering"
+    exclude = state / ".git" / "info" / "exclude"
+    exclude.write_text((exclude.read_text() if exclude.exists() else "") + "/engineering/remote_engineering/\n")
+    adapter_root_preconditions(store_dir, store_dir / "remote_engineering")   # the guard admits the default
+    commit_request(env.origin, "r-host", valid_request(env, request_id="r-host"))
+    flags = ["--store", str(store_dir), "--repo", str(env.checkout),
+             "poll", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main"]
+
+    assert cli.run(flags) == 0
+    first = capsys.readouterr()
+    assert first.err == "" and [o["outcome"] for o in json.loads(first.out)] == ["accepted"]
+    adapter = store_dir / "remote_engineering"
+    written = sorted(path.relative_to(adapter).as_posix() for path in adapter.rglob("*.json"))
+    assert written == ["claims/r-host.json", "receipts/r-host.json"]
+    assert json.loads((adapter / "claims" / "r-host.json").read_text())["schema_version"] == \
+        "clive.remote_engineering_claim.v1"
+    assert json.loads((adapter / "receipts" / "r-host.json").read_text())["schema_version"] == \
+        "clive.remote_engineering_receipt.v1"
+    claim, receipt = ClaimLog(adapter).get("r-host"), ReceiptLog(adapter).get("r-host")
+    assert receipt.outcome == "accepted" and claim is not None
+    assert _git(state, "status", "--porcelain", "--untracked-files=all") == "", "the records are ignored state"
+
+    # The restart: the same flags, the same store, the records already there.
+    assert cli.run(flags) == 0
+    again = capsys.readouterr()
+    assert again.err == "" and json.loads(again.out) == json.loads(first.out)
+    assert ClaimLog(adapter).get("r-host") == claim and ReceiptLog(adapter).get("r-host") == receipt
+    subjects = _git(state, "log", "--format=%s").splitlines()
+    assert sum(subject.startswith("objective r-host entered") for subject in subjects) == 1
+    assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
+
+
 @pytest.mark.parametrize("rules", [
     "/engineering/remote_engineering/claims/request.json\n/engineering/remote_engineering/receipts/request.json\n",
     "/engineering/remote_engineering/claims/*.json\n/engineering/remote_engineering/receipts/*.json\n",
