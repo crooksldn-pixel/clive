@@ -1,0 +1,38 @@
+/* The start-up (web/startup.js): above everything, the system layer included, until CLIVE is
+   ready; then it fades onto the app with its orb where the app's own orb is. If the script never
+   runs it gets out of the way on its own. */
+.startup{position:fixed;inset:0;z-index:40;overflow:hidden;isolation:isolate;background:#07070a;color:#fff;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",system-ui,"Helvetica Neue",Helvetica,sans-serif;
+  -webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none;touch-action:none;
+  transition:opacity .6s ease;animation:startup-giveway 0s linear 12s forwards}
+.startup.is-live{animation:none}
+.startup.is-gone{opacity:0;pointer-events:none}
+@keyframes startup-giveway{to{opacity:0;visibility:hidden;pointer-events:none}}
+.startup-ground{position:absolute;inset:0;background:radial-gradient(80% 48% at 50% 46%,rgba(150,162,182,.10),rgba(150,162,182,0) 72%),linear-gradient(180deg,#0e0f12 0%,#08090b 55%,#050506 100%)}
+.startup-fx,.startup-bloom,.startup-dots{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.startup-fx{z-index:1}
+.startup .bt-mark{z-index:2}
+.startup-bloom{z-index:3;mix-blend-mode:screen;opacity:.9}
+.startup-dots{z-index:4;mix-blend-mode:screen}
+
+/* the name: an acronym that folds into CLIVE (sizes are set by startup.js) */
+.bt-mark{position:absolute;inset:0;pointer-events:none;transition:opacity .45s ease,filter .45s ease}
+.bt-mark.is-out{opacity:0;filter:blur(8px)}
+.bt-row{position:absolute;display:flex;align-items:baseline;white-space:nowrap;line-height:1;opacity:0;transition:left .75s cubic-bezier(.65,0,.35,1) var(--md,0ms),top .75s cubic-bezier(.65,0,.35,1) var(--md,0ms)}
+.is-acro .bt-row,.is-quick .bt-row{opacity:1}
+.bt-init{display:inline-block;font-weight:600;color:#fff;opacity:0;filter:blur(10px);text-shadow:0 0 14px rgba(220,230,245,.45),0 0 2px rgba(255,255,255,.8)}
+.bt-word{display:inline-block;overflow:hidden;white-space:nowrap;font-weight:500;letter-spacing:.9em;color:rgba(222,228,238,.72);opacity:0;filter:blur(4px)}
+.is-acro .bt-init,.is-quick .bt-init{opacity:1;filter:blur(0);transition:opacity .5s ease var(--id,0ms),filter .6s ease var(--id,0ms),text-shadow .6s ease}
+.is-mark .bt-init{text-shadow:0 0 24px rgba(220,230,245,.7),0 0 3px rgba(255,255,255,.95)}
+.is-acro .bt-word{opacity:1;letter-spacing:.34em;filter:blur(0);transition:opacity .6s ease var(--wd,0ms),letter-spacing .8s cubic-bezier(.2,.7,.2,1) var(--wd,0ms),filter .6s ease var(--wd,0ms)}
+.is-acro.is-collapse .bt-word,.is-quick .bt-word{max-width:0!important;margin-left:0!important;opacity:0;transition:max-width .42s cubic-bezier(.6,0,.4,1) var(--cd,0ms),margin-left .42s cubic-bezier(.6,0,.4,1) var(--cd,0ms),opacity .28s ease var(--cd,0ms)}
+.bt-line{position:absolute;height:2px;border-radius:2px;background:rgba(255,255,255,.12);opacity:0;transition:opacity .4s ease}
+.is-load .bt-line{opacity:1}
+.bt-fill{position:relative;display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,rgba(200,212,232,.45),#fff);box-shadow:0 0 12px rgba(220,230,245,.8)}
+.is-load .bt-fill{width:100%;transition:width .8s cubic-bezier(.3,.6,.2,1) .15s}
+.is-load.is-slow .bt-fill{width:62%}
+.is-slow .bt-fill::after{content:"";position:absolute;inset:-2px 0;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.9),rgba(255,255,255,0));background-size:40% 100%;background-repeat:no-repeat;animation:bt-shimmer 1.4s ease-in-out infinite}
+@keyframes bt-shimmer{from{background-position:-40% 0}to{background-position:140% 0}}
+.bt-wait{position:absolute;left:0;right:0;text-align:center;opacity:0;color:rgba(235,235,245,.56);letter-spacing:.06em;transition:opacity .6s ease}
+.is-slow .bt-wait{opacity:1}
+@media (prefers-reduced-motion:reduce){.startup *,.startup *::before,.startup *::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}

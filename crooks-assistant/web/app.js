@@ -330,6 +330,8 @@ const DETAIL_WORDS = {
   // Engineering (the remote build loop)
   engineering_status: ['Checking', 'the build queue'],
   submit_engineering_request: ['Preparing', 'a build request', true],
+  // The owner's screens
+  screen_list: ['Checking', 'your screens'], screen_show: ['Putting', 'it on the screen'],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;

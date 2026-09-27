@@ -29,6 +29,7 @@ from app.routes import (
     branches,
     command,
     context,
+    displays,
     environment,
     health,
     media,
@@ -205,6 +206,7 @@ app.include_router(observe.router)
 app.include_router(pad.router)
 app.include_router(support.router)
 app.include_router(objectives.router)
+app.include_router(displays.router)
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")
@@ -217,6 +219,16 @@ if WEB_DIR.exists():
         source = (WEB_DIR / "index.html").read_text(encoding="utf-8")
         build = getattr(request.app.state.runtime, "build", "unknown")
         return Response(source.replace("__BUILD__", build), media_type="text/html; charset=utf-8")
+
+    @app.get("/display", include_in_schema=False)
+    async def display_page(request: Request) -> Response:
+        # A screen of the owner's: it names itself and shows what CLIVE puts on it
+        # (app/routes/displays.py). The page holds no data; everything it draws is asked for.
+        # The build id tells the screen when CLIVE has been updated (it plays its whole start-up then).
+        source = (WEB_DIR / "display.html").read_text(encoding="utf-8")
+        build = getattr(request.app.state.runtime, "build", "unknown")
+        return Response(source.replace("__BUILD__", build), media_type="text/html; charset=utf-8",
+                        headers={"Cache-Control": "no-cache"})
 
     @app.get("/manifest.webmanifest", include_in_schema=False)
     async def manifest() -> FileResponse:

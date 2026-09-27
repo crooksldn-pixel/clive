@@ -15,8 +15,23 @@
 <link rel="apple-touch-icon" href="/static/icon-192.png">
 <link rel="stylesheet" href="/static/style.css">
 <link rel="stylesheet" href="/static/alpha.css">
+<link rel="stylesheet" href="/static/startup.css">
 </head>
 <body data-mode="orb">
+
+<!-- The start-up (web/startup.js): a point of light, a flash, CLIVE's orb, then the name. The
+     whole of it the first time the app opens on a day and after CLIVE has been updated; the name
+     alone otherwise. Above the system layer until CLIVE has answered, then it fades onto the app. -->
+<div id="startup" class="startup" aria-hidden="true">
+  <div class="startup-ground"></div>
+  <canvas id="startup-fx" class="startup-fx" width="1" height="1"></canvas>
+  <div id="startup-mark" class="bt-mark">
+    <div id="startup-line" class="bt-line"><span class="bt-fill"></span></div>
+    <div id="startup-wait" class="bt-wait">Waiting for CLIVE to answer</div>
+  </div>
+  <canvas id="startup-bloom" class="startup-bloom" width="1" height="1"></canvas>
+  <canvas id="startup-dots" class="startup-dots" width="1" height="1"></canvas>
+</div>
 
 <!-- The system layer: the branded state between the launcher's splash and the assistant, and
      the only thing on screen while the Mac cannot be reached. Hidden the moment it answers. -->
@@ -292,6 +307,8 @@
   </div>
 </dialog>
 
+<script src="/static/dots.js"></script>
+<script src="/static/startup.js"></script>
 <script src="/static/orb.js"></script>
 <script src="/static/audio-viz.js"></script>
 <script src="/static/collide.js"></script>
