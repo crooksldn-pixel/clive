@@ -990,8 +990,12 @@ def test_the_screen_tools_answer_only_the_owners_own_request(s):
     screen = pair(s, "Office screen")
     waiting = s.register("Packing screen")
     held = owner()
-    service = held.derive("prefetch:screens", 60)
+    # Asking for the screen tools gets a service authority that names none of them (round 8,
+    # F-NEW-TOOLS): only reviewed reads survive derive. The handlers refuse it on their own too.
+    asked = set(authority.SERVICE_READS) | {"screen_list", "screen_show", "screen_pair"}
+    service = held.derive("prefetch:screens", 60, tools=asked)
     assert service is not None and service.kind == authority.SERVICE
+    assert not any(service.permits(name) for name in ("screen_list", "screen_show", "screen_pair"))
 
     def calls():
         return (

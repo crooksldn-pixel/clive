@@ -135,6 +135,8 @@
     E = window.CliveDots.create({
       canvas: $('dots'), bloom: weak ? null : $('bloom'), fx: $('fx'), root: board, W: L.W, H: L.H, L,
       density: weak ? 7000 : 14000, speed: 1, calm, drift: driftAt, onTick,
+      // The screens' own colours (the approved CLIVE Screens design): steel and white, never the app's lilac.
+      palette: 'steel',
     });
   }
 
@@ -160,6 +162,11 @@
         const c = document.createElementNS(NS, 'circle');
         c.setAttribute('cx', d.circle[0]); c.setAttribute('cy', d.circle[1]); c.setAttribute('r', d.circle[2]);
         s.appendChild(c);
+      } else if (d.rect) {
+        const r = document.createElementNS(NS, 'rect');
+        r.setAttribute('x', d.rect[0]); r.setAttribute('y', d.rect[1]); r.setAttribute('width', d.rect[2]);
+        r.setAttribute('height', d.rect[3]); r.setAttribute('rx', d.rect[4] || 0);
+        s.appendChild(r);
       } else {
         const p = document.createElementNS(NS, 'path');
         p.setAttribute('d', d);
@@ -170,6 +177,7 @@
   }
   const ICON_CHECK = ['m5 12.5 4.5 4.5L19 7.5'];
   const ICON_CIRCLE_CHECK = [{ circle: [12, 12, 9] }, 'm8.5 12.2 2.4 2.4 4.6-5'];
+  const ICON_GIFT = [{ rect: [3, 8, 18, 13, 2] }, 'M12 8v13', 'M3 12h18', 'M12 8c-1.5-3-5-3.5-5-1.2C7 8 9.5 8 12 8c2.5 0 5 0 5-1.2C17 4.5 13.5 5 12 8z'];
   const ICON_HANGER = ['M10.2 5.6a1.8 1.8 0 1 1 2.6 1.6c-.5.3-.8.7-.8 1.2V9', 'M12 9 3.6 15c-.8.6-.4 1.7.6 1.7h15.6c1 0 1.4-1.1.6-1.7L12 9z'];
   function pad(n) { return String(n).padStart(2, '0'); }
   function hhmm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
@@ -327,9 +335,12 @@
     if (o.shipping_method) ship.appendChild(el('div', 'cs-method', o.shipping_method));
     if (o.note) {
       const note = el('div', 'cs-note');
-      note.setAttribute('data-dot', 'warn');
+      note.setAttribute('data-dot', 'note');
       const first = String(o.customer || '').split(' ')[0];
-      note.appendChild(el('span', 'cs-note-k', first ? 'Note from ' + first : 'Note on the order'));
+      const label = el('span', 'cs-note-k');
+      label.appendChild(svg(ICON_GIFT, 2));
+      label.appendChild(document.createTextNode(first ? 'Note from ' + first : 'Note on the order'));
+      note.appendChild(label);
       note.appendChild(document.createTextNode(o.note));
       ship.appendChild(note);
     }
@@ -604,7 +615,7 @@
     const needs = (g.needs_you || []).map((t) => t).concat((g.blocked_by || []).map((t) => 'Blocked: ' + t));
     if (needs.length) {
       const panel = el('section', 'cs-panel is-needs');
-      panel.setAttribute('data-dot', 'warn');
+      panel.setAttribute('data-dot', 'need');
       panel.appendChild(el('h2', 'cs-h2', 'Needs you'));
       for (const t of needs.slice(0, 4)) panel.appendChild(el('div', 'cs-need', t));
       stack.appendChild(panel);
@@ -685,12 +696,15 @@
     const fills = {
       panel: ['rgba(160,160,180,.09)', 'rgba(255,255,255,.34)'],
       row: ['rgba(150,150,170,.10)', null],
-      pill: ['rgba(170,130,232,.86)', null],
-      btn: ['rgba(170,130,232,.9)', null],
-      good: ['rgba(112,214,160,.32)', 'rgba(112,214,160,.6)'],
+      // The design's own colours, so the dots arrive in the colours the page resolves into.
+      pill: ['rgba(245,245,247,.9)', null],
+      btn: ['rgba(0,113,227,.92)', null],
+      good: ['rgba(48,209,88,.3)', 'rgba(48,209,88,.6)'],
       chip: ['rgba(160,160,180,.22)', null],
-      warn: ['rgba(255,212,138,.10)', 'rgba(255,212,138,.5)'],
-      ring: [null, 'rgba(196,161,240,.7)'],
+      note: ['rgba(255,255,255,.1)', 'rgba(255,255,255,.28)'],
+      need: ['rgba(10,132,255,.16)', 'rgba(10,132,255,.55)'],
+      warn: ['rgba(255,105,97,.12)', 'rgba(255,105,97,.5)'],
+      ring: ['rgba(255,255,255,.1)', 'rgba(235,235,245,.4)'],
       tile: ['rgba(120,118,140,.75)', 'rgba(255,255,255,.2)'],
     };
     const marked = ui.querySelectorAll('[data-dot]');
@@ -753,9 +767,9 @@
   function checkTargets(label) {
     const c = offscreen(), k = L.check.k, cx = L.check.cx, cy = L.check.cy;
     c.lineCap = 'round'; c.lineJoin = 'round';
-    c.strokeStyle = 'rgb(112,214,160)'; c.lineWidth = 56 * k;
+    c.strokeStyle = 'rgb(48,209,88)'; c.lineWidth = 56 * k;
     c.beginPath(); c.moveTo(cx - 150 * k, cy + 4 * k); c.lineTo(cx - 46 * k, cy + 108 * k); c.lineTo(cx + 162 * k, cy - 118 * k); c.stroke();
-    c.lineWidth = 3 * k; c.strokeStyle = 'rgba(112,214,160,.6)';
+    c.lineWidth = 3 * k; c.strokeStyle = 'rgba(48,209,88,.55)';
     c.beginPath(); c.arc(cx, cy, 250 * k, 0, Math.PI * 2); c.stroke();
     c.fillStyle = '#ffffff'; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
     c.font = '700 ' + L.check.label + 'px ' + FAM;
