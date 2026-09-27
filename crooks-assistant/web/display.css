@@ -1,7 +1,8 @@
 /* A screen of the owner's, read from across a room. The page is laid out on a fixed-height board
    (1080 landscape, 1194 portrait) as wide as the screen's shape, and scaled to fit, so the same
-   design holds on a TV, a desktop window or a portrait display. Obsidian, CLIVE's lilac as the
-   one accent, green only for done. */
+   design holds on a TV, a desktop window or a portrait display. Obsidian with a steel wash, white
+   and Apple blue as the accents, green only for done, and no yellow anywhere. Labels are sentence
+   case, set in the same face as everything else (the approved canvas: Main.dc.html). */
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{margin:0;height:100%;background:#060607;overflow:hidden}
@@ -11,24 +12,24 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
   -webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none}
 .cs-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
-/* ground: obsidian, a faint lilac pool where the orb lives, and a dot lattice the dots belong to */
-.cs-ground{position:absolute;inset:0;z-index:0;background:radial-gradient(52% 62% at 27% 51%,rgba(104,66,170,.17),rgba(104,66,170,0) 70%),radial-gradient(70% 45% at 50% 0%,rgba(176,190,208,.09),rgba(176,190,208,0) 70%),linear-gradient(180deg,#111216 0%,#0a0b0e 55%,#060607 100%)}
-.cs-portrait .cs-ground{background:radial-gradient(85% 42% at 50% 37%,rgba(104,66,170,.17),rgba(104,66,170,0) 70%),linear-gradient(180deg,#111216 0%,#0a0b0e 55%,#060607 100%)}
+/* ground: obsidian, a faint steel-blue pool where the orb lives, and a dot lattice the dots belong to */
+.cs-ground{position:absolute;inset:0;z-index:0;background:radial-gradient(52% 62% at 27% 51%,rgba(96,122,160,.16),rgba(96,122,160,0) 70%),radial-gradient(70% 45% at 50% 0%,rgba(176,190,208,.09),rgba(176,190,208,0) 70%),linear-gradient(180deg,#111216 0%,#0a0b0e 55%,#060607 100%)}
+.cs-portrait .cs-ground{background:radial-gradient(85% 42% at 50% 37%,rgba(96,122,160,.16),rgba(96,122,160,0) 70%),linear-gradient(180deg,#111216 0%,#0a0b0e 55%,#060607 100%)}
 .cs-grid{position:absolute;inset:0;z-index:1;opacity:.55;background-image:radial-gradient(rgba(235,235,245,.10) 1px,transparent 1.5px);background-size:28px 28px;-webkit-mask-image:radial-gradient(75% 70% at 40% 50%,#000 0%,rgba(0,0,0,.35) 55%,transparent 85%);mask-image:radial-gradient(75% 70% at 40% 50%,#000 0%,rgba(0,0,0,.35) 55%,transparent 85%)}
 .cs-fx{position:absolute;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
 .cs-bloom,.cs-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;mix-blend-mode:screen}
-.cs-bloom{z-index:4;opacity:.9}
+.cs-bloom{z-index:4;opacity:.85}
 .cs-canvas{z-index:5}
 .cs-vig{position:absolute;inset:0;z-index:6;pointer-events:none;background:radial-gradient(125% 95% at 50% 45%,rgba(0,0,0,0) 58%,rgba(0,0,0,.55) 100%)}
 
 /* waiting */
 .cs-idle{position:absolute;inset:0;z-index:2;transition:opacity .7s ease,transform 1s linear}
 .cs-idle.is-out{opacity:0;transition:opacity .45s ease,transform 1s linear}
-.cs-bar{position:absolute;display:flex;align-items:center;gap:14px;font-size:20px;letter-spacing:.16em;text-transform:uppercase;color:rgba(235,235,245,.62);font-weight:600}
+.cs-bar{position:absolute;display:flex;align-items:center;gap:12px;font-size:24px;letter-spacing:-.005em;color:rgba(235,235,245,.64);font-weight:600}
 .cs-land .cs-bar{left:72px;top:44px}
-.cs-portrait .cs-bar{left:40px;top:34px;font-size:16px}
-.cs-online{width:10px;height:10px;border-radius:50%;background:rgb(112,214,160);box-shadow:0 0 14px rgba(112,214,160,.75);transition:background .4s ease,box-shadow .4s ease}
-.cs-online.is-away{background:rgb(255,212,138);box-shadow:0 0 14px rgba(255,212,138,.6)}
+.cs-portrait .cs-bar{left:40px;top:34px;font-size:19px}
+.cs-online{flex:none;width:10px;height:10px;border-radius:50%;background:#30d158;transition:background .4s ease}
+.cs-online.is-away{background:#ff6961}
 .cs-meta{position:absolute;display:flex;flex-direction:column;gap:12px}
 .cs-portrait .cs-meta{align-items:center;text-align:center}
 .cs-date{font-size:40px;font-weight:500;letter-spacing:-.005em;color:rgba(235,235,245,.84)}
@@ -49,9 +50,9 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-ui.is-hidden{opacity:0}
 .is-calm .cs-ui.is-revealing{-webkit-mask-image:none;mask-image:none;animation:cs-fade .5s ease both}
 @keyframes cs-fade{from{opacity:0}to{opacity:1}}
-.cs-top{flex:none;display:flex;align-items:center;justify-content:space-between;gap:24px;height:44px;font-size:20px;color:rgba(235,235,245,.6)}
-.cs-portrait .cs-top{font-size:15px}
-.cs-top-l{display:flex;align-items:center;gap:14px;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
+.cs-top{flex:none;display:flex;align-items:center;justify-content:space-between;gap:24px;height:44px;font-size:24px;color:rgba(235,235,245,.64)}
+.cs-portrait .cs-top{font-size:17px}
+.cs-top-l{display:flex;align-items:center;gap:14px;font-weight:600;color:rgba(235,235,245,.64)}
 .cs-slot{flex:none;width:44px;height:44px}
 .cs-portrait .cs-slot{width:36px;height:36px}
 .cs-head{flex:none;display:flex;align-items:flex-end;justify-content:space-between;gap:40px}
@@ -62,14 +63,14 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-portrait .cs-h1.is-long{font-size:48px}
 .cs-sub{margin-top:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:34px;color:rgba(235,235,245,.74)}
 .cs-portrait .cs-sub{margin-top:10px;font-size:21px;gap:10px}
-.cs-chip{display:inline-flex;align-items:center;height:44px;padding:0 18px;border-radius:999px;font-size:22px;font-weight:600;letter-spacing:.04em;background:rgba(118,118,128,.26);color:rgba(235,235,245,.86)}
-.cs-chip.is-good{background:rgba(112,214,160,.16);color:rgb(112,214,160)}
-.cs-chip.is-warn{background:rgba(255,212,138,.14);color:rgb(255,212,138)}
+.cs-chip{display:inline-flex;align-items:center;height:44px;padding:0 18px;border-radius:999px;font-size:24px;font-weight:600;background:rgba(118,118,128,.26);color:rgba(235,235,245,.86)}
+.cs-chip.is-good{background:rgba(48,209,88,.18);color:#30d158}
+.cs-chip.is-warn{background:rgba(10,132,255,.18);color:#409cff}
 .cs-portrait .cs-chip{height:32px;padding:0 12px;font-size:15px}
 .cs-count{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px;text-align:right}
-.cs-count-n{font-size:112px;line-height:1;font-weight:700;letter-spacing:-.03em;color:rgb(196,161,240);font-variant-numeric:tabular-nums}
-.cs-count.is-done .cs-count-n{font-size:88px;color:rgb(112,214,160)}
-.cs-count.is-late .cs-count-n{color:rgb(255,212,138)}
+.cs-count-n{font-size:112px;line-height:1;font-weight:700;letter-spacing:-.03em;color:#fff;font-variant-numeric:tabular-nums}
+.cs-count.is-done .cs-count-n{font-size:88px;color:#30d158}
+.cs-count.is-late .cs-count-n{color:#ff6961}
 .cs-count-l{font-size:26px;color:rgba(235,235,245,.6)}
 .cs-portrait .cs-count-n{font-size:64px}
 .cs-portrait .cs-count.is-done .cs-count-n{font-size:48px}
@@ -79,19 +80,21 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-portrait .cs-cols{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:16px}
 .cs-panel{min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:14px;padding:24px 28px;border-radius:28px;background:rgba(118,118,128,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .cs-portrait .cs-panel{padding:18px 20px;border-radius:22px;gap:8px}
-.cs-h2{margin:0;display:flex;align-items:center;gap:12px;font-size:20px;letter-spacing:.14em;text-transform:uppercase;color:rgba(235,235,245,.56);font-weight:600}
-.cs-portrait .cs-h2{font-size:14px}
+.cs-h2{margin:0;display:flex;align-items:center;gap:12px;font-size:26px;letter-spacing:-.005em;color:rgba(235,235,245,.64);font-weight:600}
+.cs-portrait .cs-h2{font-size:18px}
 .cs-to{font-size:46px;font-weight:700;line-height:1.1;letter-spacing:-.01em}
 .cs-addr{font-size:34px;line-height:1.36;color:rgba(235,235,245,.88)}
 .cs-phone{font-size:28px;color:rgba(235,235,245,.56);font-variant-numeric:tabular-nums}
 .cs-method{font-size:26px;color:rgba(235,235,245,.7)}
-.cs-note{margin-top:auto;padding:18px 22px;border-radius:20px;background:rgba(255,212,138,.08);box-shadow:inset 0 0 0 1px rgba(255,212,138,.3);font-size:28px;line-height:1.35;color:rgb(255,212,138);overflow:hidden;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical}
-.cs-note-k{display:block;margin-bottom:6px;font-size:17px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;opacity:.8}
+.cs-note{margin-top:auto;padding:18px 22px;border-radius:20px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);font-size:30px;line-height:1.35;color:#fff;overflow:hidden;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical}
+.cs-note-k{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:22px;font-weight:600;color:rgba(235,235,245,.64)}
+.cs-note-k svg{flex:none;width:22px;height:22px}
 .cs-portrait .cs-to{font-size:30px}
 .cs-portrait .cs-addr{font-size:22px}
 .cs-portrait .cs-phone,.cs-portrait .cs-method{font-size:18px}
 .cs-portrait .cs-note{margin-top:6px;padding:12px 14px;border-radius:14px;font-size:19px}
-.cs-portrait .cs-note-k{margin-bottom:4px;font-size:12px}
+.cs-portrait .cs-note-k{margin-bottom:4px;font-size:15px}
+.cs-portrait .cs-note-k svg{width:16px;height:16px}
 .cs-items{display:flex;flex-direction:column;gap:12px;min-height:0}
 .cs-items.is-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .cs-portrait .cs-items{gap:8px}
@@ -99,17 +102,17 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-portrait .cs-item{gap:14px;padding:8px 10px 8px 8px;border-radius:16px}
 .cs-item.is-sent{opacity:.42}
 .cs-item.is-packed{opacity:.5}
-.cs-tile{position:relative;width:92px;height:92px;border-radius:16px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:rgba(255,255,255,.62);background:linear-gradient(160deg,rgba(120,118,140,.55),rgba(60,58,72,.4));box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.cs-tile{position:relative;width:92px;height:92px;border-radius:16px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:rgba(255,255,255,.62);background:linear-gradient(160deg,rgb(72,72,80),rgba(72,72,80,.45));box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
 .cs-tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .cs-tile svg{width:40px;height:40px}
 .cs-portrait .cs-tile{width:72px;height:72px;border-radius:12px}
 .cs-what{font-size:34px;font-weight:650;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cs-how{margin-top:2px;font-size:26px;line-height:1.2;color:rgba(235,235,245,.76);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cs-sku{margin-top:4px;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:19px;line-height:1.2;letter-spacing:.02em;color:rgba(235,235,245,.5)}
+.cs-sku{margin-top:4px;font-size:21px;line-height:1.2;font-variant-numeric:tabular-nums;color:rgba(235,235,245,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cs-portrait .cs-what{font-size:24px}
 .cs-portrait .cs-how{font-size:18px}
-.cs-portrait .cs-sku{font-size:14px}
-.cs-qty{min-width:124px;padding:8px 22px;border-radius:20px;text-align:center;font-size:52px;line-height:1.1;font-weight:700;font-variant-numeric:tabular-nums;background:linear-gradient(180deg,rgb(150,110,214),rgb(104,66,170));box-shadow:inset 0 1px 0 rgba(255,255,255,.26)}
+.cs-portrait .cs-sku{font-size:15px}
+.cs-qty{min-width:124px;padding:8px 22px;border-radius:20px;text-align:center;font-size:52px;line-height:1.1;font-weight:700;font-variant-numeric:tabular-nums;background:#f5f5f7;color:#000}
 .cs-portrait .cs-qty{min-width:78px;padding:6px 14px;border-radius:14px;font-size:34px}
 .cs-sentl{padding:0 14px;font-size:24px;color:rgba(235,235,245,.62)}
 .cs-portrait .cs-sentl{padding:0 8px;font-size:16px}
@@ -119,27 +122,43 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-items.is-dense .cs-tile svg{width:28px;height:28px}
 .cs-items.is-dense .cs-what{font-size:26px}
 .cs-items.is-dense .cs-how{font-size:20px}
-.cs-items.is-dense .cs-sku{font-size:15px}
+.cs-items.is-dense .cs-sku{font-size:16px}
 .cs-items.is-dense .cs-qty{min-width:84px;padding:4px 14px;border-radius:14px;font-size:36px}
-.cs-more{font-size:22px;color:rgb(255,212,138);padding:4px 8px}
+/* On a portrait screen four rows keep the tablet's sizes (the design's tablet slip has four); only
+   a page of five is drawn smaller, where the browser can tell (:has), so it fits the panel. */
+.cs-portrait .cs-items.is-dense .cs-item{gap:14px;padding:8px 10px 8px 8px;border-radius:16px}
+.cs-portrait .cs-items.is-dense .cs-tile{width:72px;height:72px;border-radius:12px}
+.cs-portrait .cs-items.is-dense .cs-tile svg{width:40px;height:40px}
+.cs-portrait .cs-items.is-dense .cs-what{font-size:24px}
+.cs-portrait .cs-items.is-dense .cs-how{font-size:18px}
+.cs-portrait .cs-items.is-dense .cs-sku{font-size:15px}
+.cs-portrait .cs-items.is-dense .cs-qty{min-width:78px;padding:6px 14px;border-radius:14px;font-size:34px}
+.cs-portrait .cs-items.is-dense:has(> :nth-child(5)){gap:6px}
+.cs-portrait .cs-items.is-dense:has(> :nth-child(5)) .cs-item{gap:12px;padding:6px 10px 6px 6px;border-radius:14px}
+.cs-portrait .cs-items.is-dense:has(> :nth-child(5)) .cs-tile{width:56px;height:56px;border-radius:10px}
+.cs-portrait .cs-items.is-dense:has(> :nth-child(5)) .cs-tile svg{width:30px;height:30px}
+.cs-portrait .cs-items.is-dense:has(> :nth-child(5)) .cs-what{font-size:20px}
+.cs-portrait .cs-items.is-dense:has(> :nth-child(5)) .cs-how{font-size:15px}
+.cs-portrait .cs-items.is-dense:has(> :nth-child(5)) .cs-sku{font-size:13px}
+.cs-portrait .cs-items.is-dense:has(> :nth-child(5)) .cs-qty{min-width:64px;padding:4px 12px;border-radius:12px;font-size:28px}
 .cs-foot{flex:none;display:flex;align-items:center;justify-content:space-between;gap:28px;height:84px}
 .cs-portrait .cs-foot{height:auto;flex-direction:column;align-items:stretch;gap:12px}
 .cs-foot-l{display:flex;align-items:center;gap:14px;font-size:26px;color:rgba(235,235,245,.56)}
 .cs-foot-l svg{width:28px;height:28px;flex:none}
 .cs-portrait .cs-foot-l{justify-content:center;font-size:17px}
-.cs-btn{display:inline-flex;align-items:center;justify-content:center;gap:14px;height:84px;padding:0 52px;border:0;border-radius:999px;font:inherit;font-size:32px;font-weight:650;color:#fff;cursor:pointer;background:linear-gradient(180deg,rgb(150,110,214),rgb(98,60,164));box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 18px 44px -18px rgba(104,66,170,.95);transition:transform .12s ease,opacity .2s ease}
-.cs-btn:active{transform:scale(.98)}
-.cs-btn:focus-visible{outline:3px solid rgba(196,161,240,.85);outline-offset:4px}
+.cs-btn{display:inline-flex;align-items:center;justify-content:center;gap:14px;height:84px;padding:0 52px;border:0;border-radius:999px;font:inherit;font-size:32px;font-weight:650;color:#fff;cursor:pointer;background:#0071e3;box-shadow:inset 0 1px 0 rgba(255,255,255,.22);transition:transform .38s cubic-bezier(.32,.72,0,1),background-color .2s ease,opacity .2s ease}
+.cs-btn:active{transform:scale(.96);background-color:#0062c4;transition-duration:.11s}
+.cs-btn:focus-visible{outline:3px solid rgba(64,156,255,.9);outline-offset:4px}
 .cs-btn:disabled{opacity:.45;cursor:default}
-.cs-page{height:84px;margin-left:auto;margin-right:18px;padding:0 40px;border-radius:999px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.06);color:#fff;font:inherit;font-size:30px;font-weight:600;cursor:pointer;white-space:nowrap}
+.cs-page{height:84px;margin-left:auto;margin-right:18px;padding:0 40px;border:0;border-radius:999px;background:rgba(118,118,128,.28);color:#fff;font:inherit;font-size:30px;font-weight:600;cursor:pointer;white-space:nowrap;transition:transform .38s cubic-bezier(.32,.72,0,1)}
 .cs-portrait .cs-page{height:64px;padding:0 24px;font-size:22px;margin-right:12px}
-.cs-page:active{transform:scale(.98)}
-.cs-page:focus-visible{outline:3px solid rgba(196,161,240,.85);outline-offset:4px}
+.cs-page:active{transform:scale(.96);transition-duration:.11s}
+.cs-page:focus-visible{outline:3px solid rgba(64,156,255,.9);outline-offset:4px}
 .cs-portrait .cs-btn{width:100%;height:92px;font-size:30px}
-.cs-done{display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600;color:rgb(112,214,160)}
+.cs-done{display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600;color:#30d158}
 .cs-done svg{width:30px;height:30px;flex:none}
 .cs-portrait .cs-done{justify-content:center;font-size:19px}
-.cs-donechip{display:inline-flex;align-items:center;justify-content:center;height:84px;padding:0 52px;border-radius:999px;font-size:32px;font-weight:650;color:rgb(112,214,160);background:rgba(112,214,160,.14);box-shadow:inset 0 0 0 2px rgba(112,214,160,.5)}
+.cs-donechip{display:inline-flex;align-items:center;justify-content:center;height:84px;padding:0 52px;border-radius:999px;font-size:32px;font-weight:650;color:#30d158;background:rgba(48,209,88,.16)}
 .cs-portrait .cs-donechip{width:100%;height:92px;font-size:30px}
 /* a list */
 .cs-tasks{flex:1;min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:18px}
@@ -148,7 +167,7 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-portrait .cs-tasks{grid-template-columns:minmax(0,1fr)}
 .cs-task{min-height:0;display:flex;align-items:center;gap:26px;padding:0 32px;border-radius:24px;background:rgba(118,118,128,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07);transition:opacity .4s ease;overflow:hidden}
 .cs-task.is-packed{opacity:.5}
-.cs-task-n{flex:none;width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;color:rgb(196,161,240);box-shadow:inset 0 0 0 2px rgba(196,161,240,.6)}
+.cs-task-n{flex:none;width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums;background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)}
 .cs-task-t{font-size:40px;line-height:1.2;font-weight:600;letter-spacing:-.005em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .cs-tasks.is-three .cs-task{gap:18px;padding:0 22px}
 .cs-tasks.is-three .cs-task-n{width:48px;height:48px;font-size:22px}
@@ -158,19 +177,29 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-portrait .cs-task-t{font-size:24px}
 /* an objective */
 .cs-stack{min-height:0;display:flex;flex-direction:column;gap:28px}
-.cs-panel.is-now{flex:1;background:linear-gradient(180deg,rgba(150,110,214,.22),rgba(104,66,170,.10));box-shadow:inset 0 0 0 1px rgba(196,161,240,.36)}
-.cs-live{width:12px;height:12px;border-radius:50%;background:rgb(196,161,240);box-shadow:0 0 14px rgba(196,161,240,.9);animation:cs-blink 1.6s ease-in-out infinite}
+.cs-panel.is-now{flex:1;background:rgba(118,118,128,.22);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+/* the design's spinner (.cs-spin: eight white spokes, 2.5 by 8, the leading one brightest); until
+   display.js draws it, the one element it has (.cs-live) draws the same eight, four on each of its
+   pseudo-elements, and is turned a spoke at a time */
+.cs-live{position:relative;flex:none;width:26px;height:26px;border-radius:50%;animation:cs-turn .8s steps(8) infinite}
+.cs-live::before,.cs-live::after{content:"";position:absolute;inset:0;background-repeat:no-repeat}
+.cs-live::before{background-image:linear-gradient(#fff,#fff),linear-gradient(rgba(255,255,255,.4),rgba(255,255,255,.4)),linear-gradient(rgba(255,255,255,.6),rgba(255,255,255,.6)),linear-gradient(rgba(255,255,255,.8),rgba(255,255,255,.8));background-position:11.75px 0,18px 11.75px,11.75px 18px,0 11.75px;background-size:2.5px 8px,8px 2.5px,2.5px 8px,8px 2.5px}
+.cs-live::after{transform:rotate(45deg);background-image:linear-gradient(rgba(255,255,255,.3),rgba(255,255,255,.3)),linear-gradient(rgba(255,255,255,.5),rgba(255,255,255,.5)),linear-gradient(rgba(255,255,255,.7),rgba(255,255,255,.7)),linear-gradient(rgba(255,255,255,.9),rgba(255,255,255,.9));background-position:11.75px 0,18px 11.75px,11.75px 18px,0 11.75px;background-size:2.5px 8px,8px 2.5px,2.5px 8px,8px 2.5px}
+@keyframes cs-turn{to{transform:rotate(360deg)}}
+.cs-spin{position:relative;width:26px;height:26px;flex:none}
+.cs-spin span{position:absolute;left:12px;top:0;width:2.5px;height:8px;border-radius:2px;background:#fff;transform-origin:1.25px 13px;opacity:.2;animation:cs-spoke .8s linear infinite}
+@keyframes cs-spoke{0%{opacity:1}100%{opacity:.2}}
 @keyframes cs-blink{50%{opacity:.35}}
 .cs-nowt{font-size:48px;line-height:1.18;font-weight:650;letter-spacing:-.01em}
 .cs-nowt.is-quiet{color:rgba(235,235,245,.6)}
-.cs-panel.is-needs{background:rgba(255,212,138,.07);box-shadow:inset 0 0 0 1px rgba(255,212,138,.3)}
-.cs-panel.is-needs .cs-h2{color:rgba(255,212,138,.85)}
-.cs-need{font-size:32px;line-height:1.3;color:rgb(255,226,176)}
+.cs-panel.is-needs{background:rgba(10,132,255,.14);box-shadow:inset 0 0 0 1px rgba(10,132,255,.42)}
+.cs-panel.is-needs .cs-h2{color:#409cff}
+.cs-need{font-size:34px;line-height:1.3;font-weight:600;color:#fff}
 .cs-next{flex:1;min-height:0;display:flex;flex-direction:column;gap:14px}
 .cs-step{flex:1;min-height:0;display:flex;align-items:center;gap:24px;padding:0 24px;border-radius:22px;background:rgba(0,0,0,.24)}
 .cs-step-t{font-size:34px;line-height:1.25;font-weight:600;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .cs-portrait .cs-nowt{font-size:30px}
-.cs-portrait .cs-need{font-size:20px}
+.cs-portrait .cs-need{font-size:21px}
 .cs-portrait .cs-step-t{font-size:22px}
 .cs-empty{font-size:28px;color:rgba(235,235,245,.5)}
 
@@ -181,33 +210,41 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-namer-card{width:min(1000px,100%);display:flex;flex-direction:column;gap:20px}
 .cs-namer-h{margin:0;font-size:64px;line-height:1.05;font-weight:700;letter-spacing:-.02em}
 .cs-namer-p{margin:0;max-width:780px;font-size:28px;line-height:1.4;color:rgba(235,235,245,.72)}
-.cs-label{margin-top:8px;font-size:18px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:rgba(235,235,245,.62)}
+.cs-label{margin-top:8px;font-size:24px;font-weight:600;color:rgba(235,235,245,.64)}
 .cs-namer-row{display:flex;align-items:center;gap:18px}
 .cs-portrait .cs-namer-row{flex-direction:column;align-items:stretch}
-.cs-input{flex:1;min-width:0;height:84px;padding:0 26px;border-radius:22px;border:1px solid rgba(196,161,240,.5);outline:none;background:rgba(0,0,0,.4);font:inherit;font-size:38px;color:#fff;user-select:text;-webkit-user-select:text}
+.cs-input{flex:1;min-width:0;height:84px;padding:0 26px;border-radius:22px;border:1px solid rgba(255,255,255,.18);caret-color:#0a84ff;outline:none;background:rgba(0,0,0,.4);font:inherit;font-size:38px;color:#fff;user-select:text;-webkit-user-select:text}
 .cs-input::placeholder{color:rgba(235,235,245,.34)}
-.cs-input:focus{box-shadow:0 0 0 4px rgba(196,161,240,.3)}
+.cs-input:focus{border-color:rgba(10,132,255,.9);box-shadow:0 0 0 4px rgba(10,132,255,.25)}
 .cs-examples{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .cs-ex-k{margin-right:4px;font-size:22px;color:rgba(235,235,245,.5)}
-.cs-exbtn{height:52px;padding:0 22px;border:0;border-radius:999px;font:inherit;font-size:22px;color:rgba(235,235,245,.88);background:rgba(118,118,128,.24);cursor:pointer}
-.cs-exbtn:focus-visible{outline:3px solid rgba(196,161,240,.8);outline-offset:3px}
-.cs-err{margin:0;min-height:1.3em;font-size:22px;color:rgb(255,212,138)}
+.cs-exbtn{height:56px;padding:0 24px;border:0;border-radius:999px;font:inherit;font-size:24px;color:#fff;background:rgba(118,118,128,.28);cursor:pointer;transition:transform .38s cubic-bezier(.32,.72,0,1)}
+.cs-exbtn:active{transform:scale(.96);transition-duration:.11s}
+.cs-exbtn:focus-visible{outline:3px solid rgba(64,156,255,.9);outline-offset:3px}
+.cs-err{margin:0;font-size:24px;color:#ff6961}
+/* no line is kept for an error that is not there (it stays in the page, for the alert) */
+.cs-err:empty{position:absolute}
 .cs-replace{align-self:flex-start}
 .cs-replace[hidden]{display:none}
 
 /* forming: the scan line and the progress line */
-.cs-scan{position:absolute;left:0;right:0;top:-10px;z-index:7;height:2px;margin-top:-1px;pointer-events:none;opacity:0;background:linear-gradient(90deg,rgba(196,161,240,0),rgba(214,196,255,.85) 25%,#fff 50%,rgba(214,196,255,.85) 75%,rgba(196,161,240,0));box-shadow:0 0 28px 8px rgba(160,120,230,.32)}
+/* The approved design draws no scan line (its .cs-scan is display:none); the dots alone sharpen. */
+.cs-scan{display:none;position:absolute;left:0;right:0;top:-10px;z-index:7;height:2px;margin-top:-1px;pointer-events:none;opacity:0;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.85) 25%,#fff 50%,rgba(255,255,255,.85) 75%,rgba(255,255,255,0));box-shadow:0 0 28px 8px rgba(200,212,232,.3)}
 .cs-scan.is-run{animation:cs-scan 900ms linear 2000ms both}
 @keyframes cs-scan{0%{top:0;opacity:0}8%{opacity:.95}90%{opacity:.95}100%{top:100%;opacity:0}}
-.cs-status{position:absolute;z-index:8;display:flex;align-items:center;gap:14px;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:22px;letter-spacing:.02em;color:rgba(235,235,245,.7);animation:cs-in .5s ease both}
+.cs-status{position:absolute;z-index:8;display:flex;align-items:center;gap:16px;font-size:24px;font-weight:500;color:rgba(235,235,245,.72);animation:cs-in .5s ease both}
 .cs-land .cs-status{left:72px;bottom:48px}
-.cs-portrait .cs-status{left:40px;bottom:36px;font-size:16px}
-.cs-pdot{width:9px;height:9px;border-radius:50%;background:rgb(196,161,240);box-shadow:0 0 12px rgba(196,161,240,.9);animation:cs-blink 1s ease-in-out infinite}
-.cs-pct{min-width:4ch;color:rgb(196,161,240);font-variant-numeric:tabular-nums}
-.cs-hint{position:absolute;z-index:8;pointer-events:none;padding:10px 18px;border-radius:999px;border:1px solid rgba(235,235,245,.18);background:rgba(20,21,26,.7);font-size:19px;color:rgba(235,235,245,.7)}
+.cs-portrait .cs-status{left:40px;bottom:36px;font-size:17px}
+/* the design's line has no dot before it; its progress is a track (.cs-track), not yet drawn */
+.cs-pdot{display:none}
+.cs-track{position:relative;width:160px;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,.14)}
+.cs-portrait .cs-track{width:110px;height:4px}
+.cs-trackfill{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:#fff;transition:width .3s linear}
+.cs-pct{min-width:4ch;color:rgba(235,235,245,.64);font-variant-numeric:tabular-nums}
+.cs-hint{position:absolute;z-index:8;pointer-events:none;padding:12px 22px;border-radius:999px;font-size:20px;font-weight:500;color:rgba(235,235,245,.72);background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,.04));-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);box-shadow:inset 0 1px 1px rgba(255,255,255,.24),inset 0 0 0 1px rgba(255,255,255,.08)}
 .cs-land .cs-hint{right:72px;bottom:48px}
 .cs-portrait .cs-hint{left:40px;right:40px;bottom:36px;text-align:center;font-size:15px}
-.cs-hint.is-warn{color:rgb(255,212,138);border-color:rgba(255,212,138,.35)}
+.cs-hint.is-warn{color:#fff;background:rgba(10,132,255,.22);box-shadow:inset 0 0 0 1px rgba(10,132,255,.5)}
 
 /* the start-up's name: an acronym that folds into CLIVE (sizes are set by display.js) */
 .bt-mark{position:absolute;inset:0;z-index:3;pointer-events:none;transition:opacity .45s ease,filter .45s ease}
