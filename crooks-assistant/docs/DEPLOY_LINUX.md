@@ -179,7 +179,9 @@ What every deploy must hold:
   operation, with a rollback to the previous SHA and the saved unit if any step fails. The unit
   must start uvicorn with `--no-proxy-headers`: the app judges who opened each connection
   itself, and uvicorn's own handling would replace that address first. `/health`
-  `checks.proxy_identity` says whether the running process has the flag.
+  `checks.proxy_identity` says whether the running process has the flag. `make install` checks
+  both after the restart — the running process's own command line
+  (`/proc/<MainPID>/cmdline`) and that check — and exits non-zero, saying which, if either fails.
 - **The switches stay as they are.** The table is in CURRENT_TRUTH. A deploy changes no `.env`
   line and no credential.
 - **Tailscale is what the proxy check trusts.** These must all hold, or every owner device is
@@ -188,16 +190,26 @@ What every deploy must hold:
   - it runs in `system.slice/tailscaled.service`;
   - that cgroup's folder and its `cgroup.procs` are root's alone;
   - this server's tailnet address is in the kernel's own tables (`/proc/net/fib_trie`, and
-    `/proc/net/if_inet6` for IPv6).
+    `/proc/net/if_inet6` for IPv6), each read whole or not believed at all. A missing
+    `if_inet6` counts as "no IPv6" only when `net.ipv6.conf.all.disable_ipv6` reads `1`;
+    otherwise every forwarded request is refused.
 - **Reports must be private, or it will not start.** At start-up every report is set to 0600
   and every folder to 0700. Anything that cannot be fixed is moved into `reports/.withheld/`;
   nothing is deleted. If the reports folder itself cannot be made private or read, the service
   refuses to start. A rollback, not a retry, is the answer to that.
 - **A real phone gets through.** Opening `/whoami` on the owner's phone writes one line to the
   service's journal, without the login:
-  `whoami: through=tailscale owner=true refusal=none`. The deploy is kept only once that line
-  appears. A request the server makes to itself through `tailscale serve` logs
-  `through=this_host owner=false`.
+  `whoami: id=<check> through=tailscale owner=true refusal=none`, where `<check>` is the
+  eight-character token that same answer shows as `"check"` — so the line is matched to the
+  phone that asked, and to no other request. The deploy is kept only once that line appears
+  with the phone's own token. A request the server makes to itself through `tailscale serve`
+  logs `through=this_host owner=false`.
+- **`/health` is liveness to anyone but the owner.** A caller the owner rule refuses gets the
+  overall status, the build, the uptime and two verdicts (`proxy_identity` with its detail,
+  `housekeeping` without), marked `"limited": true`. The server's own status readers
+  (`make health`, `crooks-status`, `make install`) read the whole document on loopback with the
+  server's local key; run as a user who cannot read that key, they say the detail is the
+  owner's and exit 1.
 
 ## The capability-gap record, cleaned at start-up
 

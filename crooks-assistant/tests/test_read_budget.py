@@ -120,18 +120,27 @@ def test_starting_owner_work_stands_the_lower_lanes_down():
 
 
 async def _speculate(stage, times: int, session_id: str = "s1") -> None:
-    """Run the anticipation layer's own read shape until its bound stops it."""
+    """Run the anticipation layer's own read shape until its bound stops it, under the authority
+    that layer holds when it runs: a service authority derived from the owner's for its reads
+    alone (app/memory/prefetch.py; round 8, F-NEW-TOOLS), not the owner's own."""
+    from app.memory.prefetch import current as prefetcher
+    from app.tools import authority
+
+    owner = authority.current()
+    service = owner.derive("prefetch:test", 30, tools=prefetcher().readable_tools()) if owner is not None else None
     session = stage.runtime.sessions.get_or_create(session_id)
-    for n in range(times):
-        plan = ReadPlan(
-            [Read("guess", "commerce_query", {
-                "entity": "orders", "period": "today", "limit": 10, "title": f"guess {n}",
-            }, source="shopify", cost=120.0)],
-            label="anticipate:test", origin="predicted", why="a hunch",
-        )
-        await run_plan(plan, session=session, turn_id=getattr(session, "turn_id", ""))
+    with authority.acting_as(service):
+        for n in range(times):
+            plan = ReadPlan(
+                [Read("guess", "commerce_query", {
+                    "entity": "orders", "period": "today", "limit": 10, "title": f"guess {n}",
+                }, source="shopify", cost=120.0)],
+                label="anticipate:test", origin="predicted", why="a hunch",
+            )
+            await run_plan(plan, session=session, turn_id=getattr(session, "turn_id", ""))
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_speculation_at_its_cap_does_not_refuse_the_owners_dock_command(stage):
     """The D-4 regression, in the order the live session hit it."""
     await stage.say("show me today's orders")
@@ -142,6 +151,7 @@ async def test_speculation_at_its_cap_does_not_refuse_the_owners_dock_command(st
     assert tap.surfaces, "the landing came back with nothing on it"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_read_heavy_turn_does_not_refuse_the_tap_that_follows_it(stage):
     """Opening Sales after exploring orders must get Sales."""
     from app.tools.dispatch import dispatch
@@ -164,6 +174,7 @@ async def test_a_read_heavy_turn_does_not_refuse_the_tap_that_follows_it(stage):
     assert tap.raw.get("changed", {}).get("area") == "sales"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_speculation_never_spends_the_owners_turn_budget(stage):
     from app.tools.dispatch import dispatch
 
@@ -216,6 +227,7 @@ async def test_a_landing_that_really_cannot_be_drawn_still_says_so(stage, monkey
     assert tap.raw.get("code") == "landing_unavailable", tap.raw
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_owner_asking_stands_the_speculative_lane_down(stage):
     """`run_plan` already did this for speculation; now it does it for background work too,
     and it is the budget layer that decides which lanes are below the one asking."""
@@ -332,6 +344,7 @@ async def test_a_speculative_plan_is_in_the_speculative_lane():
     assert ReadPlan([], lane=budget.NAVIGATION).lane == budget.NAVIGATION
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_two_lanes_run_at_once_without_one_starving_the_other(stage):
     """The whole point: speculation in flight must not delay the owner's read behind it."""
     session = stage.runtime.sessions.get_or_create("s1")

@@ -556,8 +556,18 @@ async def test_health_route_reports_the_kind_and_the_reason_then_ok_again(mock_h
     assert up["checks"]["tts"]["ok"] is True and up["checks"]["speech"]["ok"] is True
 
 
-def route_request(runtime: SimpleNamespace) -> SimpleNamespace:
-    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(runtime=runtime)))
+def route_request(runtime: SimpleNamespace):
+    """GET /health as the owner asks it on his own server — the offline world's (tests/conftest.py):
+    his login the one allowed, a request made on the server speaking for him — and so answered
+    with the whole document. A caller the owner rule refuses gets liveness alone (the 2026-09-27
+    deploy review, round 8, F-NEW-PAD), and the voice's detail is not in that."""
+    from starlette.requests import Request
+
+    runtime.allowed_logins = ("owner@example.com",)
+    runtime.settings.local_owner, runtime.settings.writes_local_owner = True, False
+    return Request({"type": "http", "method": "GET", "path": "/health", "headers": [], "query_string": b"",
+                    "client": ("127.0.0.1", 50000), "server": ("127.0.0.1", 8000),
+                    "app": SimpleNamespace(state=SimpleNamespace(runtime=runtime))})
 
 
 @pytest.mark.parametrize("whisper_enabled", [False, True])

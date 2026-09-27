@@ -23,6 +23,11 @@ from app.tools.dispatch import dispatch
 from app.tools.gate import Disposition, Tier, classify
 from app.tools.registry import ToolSpec, WriteSpec
 
+# The admitted owner calling tools directly, as a request the door let through would: every tool
+# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
+# and every test's that does not say this, is no authority at all.
+pytestmark = pytest.mark.usefixtures("owner_asking")
+
 ORDER = "gid://shopify/Order/1930"
 TOOL = "shopify_order_note_append"
 

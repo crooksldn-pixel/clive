@@ -265,9 +265,16 @@ def test_the_kernel_refuses_a_real_process_renamed_tailscaled(monkeypatch):
                 s.close()
 
 
-def _addresses(root: Path, v4: list[str], v6: list[str] | None) -> Path:
-    """A /proc/net/fib_trie and if_inet6 holding these as the host's own (None: no IPv6)."""
+def _addresses(root: Path, v4: list[str], v6: list[str] | None, *, ipv6_off: str | None = None) -> Path:
+    """A /proc/net/fib_trie and if_inet6 holding these as the host's own (None: no if_inet6), and
+    the kernel's IPv6 switch reading `ipv6_off` (None: no switch at all)."""
     (root / "net").mkdir(parents=True, exist_ok=True)
+    switch = root / "sys" / "net" / "ipv6" / "conf" / "all" / "disable_ipv6"
+    if ipv6_off is None:
+        switch.unlink(missing_ok=True)
+    else:
+        switch.parent.mkdir(parents=True, exist_ok=True)
+        switch.write_text(ipv6_off)
     trie = ["Main:", "  +-- 0.0.0.0/0 3 0 5", "     |-- 0.0.0.0", "        /0 universe UNICAST"]
     for address in ["127.0.0.1", *v4]:
         trie += [f"     |-- {address}", "        /32 host LOCAL"]
@@ -297,8 +304,9 @@ def test_this_servers_own_addresses_are_the_kernels_read_fresh_every_time(tmp_pa
     # The server's tailnet address changes: the very next request knows it.
     _addresses(root, ["100.101.102.200"], ["fd7a:115c:a1e0::abcd"])
     assert identity.is_this_host("100.101.102.200") is True and identity.is_this_host("100.101.102.103") is False
-    # IPv6 switched off on the host: no IPv6 address is its own, and IPv4 still answers.
-    _addresses(root, ["100.101.102.200"], None)
+    # IPv6 switched off on the host: no IPv6 address is its own, and IPv4 still answers. Off is
+    # the kernel's switch saying so (round 8, F-05B-AVAIL), not the table being absent.
+    _addresses(root, ["100.101.102.200"], None, ipv6_off="1\n")
     assert identity.is_this_host("fd7a:115c:a1e0::abcd") is False and identity.is_this_host("100.101.102.200") is True
     # The IPv4 table unreadable: it cannot say.
     (root / "net" / "fib_trie").unlink()
@@ -308,8 +316,23 @@ def test_this_servers_own_addresses_are_the_kernels_read_fresh_every_time(tmp_pa
 
 @pytest.mark.skipif(not LINUX, reason="the kernel's own address tables are Linux /proc files")
 def test_on_this_machine_the_kernels_tables_name_its_loopback():
-    mine = identity.local_addresses()
-    assert mine is not None and "127.0.0.1" in mine
+    """The strict readers take this kernel's own tables as they are: the IPv4 table names the
+    loopback address, the socket table parses whole, and so does the IPv6 table where there is
+    one. Where this kernel says nothing of IPv6 at all — no if_inet6 and no switch reading 1, as on
+    a kernel built without it — the answer is "cannot say", never "no IPv6" (round 8,
+    F-05B-AVAIL)."""
+    trie = Path("/proc/net/fib_trie").read_text(encoding="ascii")
+    assert "127.0.0.1" in identity._ipv4_local(trie)
+    assert identity._tcp_rows("net/tcp", Path("/proc/net/tcp").read_text(encoding="ascii"))
+    inet6, switch = Path("/proc/net/if_inet6"), Path("/proc/sys/net/ipv6/conf/all/disable_ipv6")
+    mine, why = identity.this_hosts_addresses()
+    if inet6.exists():
+        identity._ipv6_local(inet6.read_text(encoding="ascii"))
+        assert mine is not None and "127.0.0.1" in mine
+    elif switch.exists() and switch.read_text() == "1\n":
+        assert mine is not None and "127.0.0.1" in mine
+    else:
+        assert mine is None and "if_inet6 is missing" in why
 
 
 # ------------------------------------------------------------------ one decision, read by every gate
@@ -616,12 +639,15 @@ async def test_whoami_says_whether_the_request_is_the_owners(client, caplog):  #
     answer — through tailscale, his login, and the owner by the one rule — and one line in the
     service's own log, without the login, that the deploy reads (round 7)."""
     import logging
+    import re
 
     caplog.set_level(logging.INFO, logger="crooks.identity")
     configure(client, logins=OWNER, local=False)
     _settings(client, local_owner=False)
     mine = (await client.get("/whoami", headers=PROXIED)).json()
-    assert "whoami: through=tailscale owner=true refusal=none" in caplog.text and OWNER not in caplog.text
+    # Round 8, F-05B-AVAIL-PREFLIGHT: the line carries the token the answer carries.
+    assert re.fullmatch(r"[0-9a-f]{8}", mine["check"])
+    assert f"whoami: id={mine['check']} through=tailscale owner=true refusal=none" in caplog.text and OWNER not in caplog.text
     assert mine["through"] == "tailscale" and mine["login"] == OWNER and mine["owner"] is True and mine["owner_refusal"] is None
     here = (await client.get("/whoami")).json()
     assert here["owner"] is False and here["owner_refusal"] == "not_authorised_local"
@@ -715,3 +741,291 @@ def test_on_this_kernel_root_ownership_is_read_from_stat(tmp_path):
     os.chmod(held, 0o666)
     assert identity.root_only(held) is False, "writable by others is never root's alone"
     assert identity.root_only(tmp_path / "missing") is False
+
+
+# ------------------------------------------------ round 8, F-05B: a listing or a row wrong in part
+
+
+def _why(port: int = 40001) -> str:
+    return identity._proc_peer_check(("127.0.0.1", port), SERVER)[1]
+
+
+@pytest.mark.parametrize("listing", ["100\nabc\n", "100 300\n", "100\n\n", "100", "100\n-5\n", "0100\n",
+                                     "100\n\x00\n", "100\n0\n", " 100\n", "100\t\n", "\n"])
+async def test_at_both_gates_a_malformed_cgroup_listing_is_trusted_for_nothing(owner_world, tmp_path, monkeypatch, listing):
+    """cgroup.procs is one pid per line. A listing with anything else in it is not read as the
+    pids that happened to parse: nothing in it is believed, and both gates refuse."""
+    _point_at(monkeypatch, tmp_path, {100: ("tailscaled", [777]), 300: ("helper", [666])})
+    assert _gates(_from(40001)) == ("", ""), "the well-formed listing: the owner"
+    procs = tmp_path / "cgroup" / "system.slice" / "tailscaled.service" / "cgroup.procs"
+    procs.write_text(listing)
+    assert identity.unit_pids(cgroup=tmp_path / "cgroup") is None
+    assert "list of processes could not be read whole" in _why()
+    assert _gates(_from(40001)) == REFUSED
+
+
+def _rows(proc: Path, table: str = "tcp") -> list[str]:
+    return (proc / "net" / table).read_text().splitlines()
+
+
+def _write_rows(proc: Path, lines: list[str], table: str = "tcp") -> None:
+    (proc / "net" / table).write_text("\n".join(lines) + "\n")
+
+
+async def test_at_both_gates_a_malformed_socket_row_is_no_match_and_a_malformed_table_is_believed_in_no_part(owner_world, tmp_path, monkeypatch):
+    """/proc/net/tcp is read row by row whole — field count, the hex address:port pairs, the
+    state, the numbers — and a table with one row the kernel would not write is not believed at
+    all, even where its other rows would have said yes."""
+    proc = _point_at(monkeypatch, tmp_path, {100: ("tailscaled", [777])})
+    assert _gates(_from(40001)) == ("", "")
+    good = _rows(proc)
+    mine = next(i for i, line in enumerate(good) if line.split()[1:2] == [_hex4("127.0.0.1", 40001)])
+    fields = good[mine].split()
+    assert fields[9] == "777" and fields[1] != fields[1].lower(), "tailscaled's own end of the connection"
+
+    def with_row(i: int, replaced: list[str]) -> list[str]:
+        return [*good[:i], "   " + " ".join(replaced), *good[i + 1:]]
+
+    malformed = {
+        "a state that is not hex": with_row(mine, [*fields[:3], "ZZ", *fields[4:]]),
+        "a field missing": with_row(mine, fields[:-1]),
+        "a field too many": with_row(mine, [*fields, "0"]),
+        "an address in lower case": with_row(mine, [fields[0], fields[1].lower(), *fields[2:]]),
+        "an address without its port": with_row(mine, [fields[0], fields[1].split(":")[0], *fields[2:]]),
+        "an inode that is not a number": with_row(mine, [*fields[:9], "777x", *fields[10:]]),
+        "a negative inode": with_row(mine, [*fields[:9], "-777", *fields[10:]]),
+        "another row that is not the kernel's": [*good, "   9: garbage"],
+        "no header": good[1:],
+    }
+    for what, lines in malformed.items():
+        _write_rows(proc, lines)
+        with pytest.raises(identity.MalformedTable):
+            identity.socket_inode(("127.0.0.1", 40001), SERVER, proc=proc)
+        assert "socket table could not be read whole" in _why(), what
+        assert _gates(_from(40001)) == REFUSED, what
+    # Well-formed rows that are still no match: not established, or two sockets for one connection.
+    _write_rows(proc, with_row(mine, [*fields[:3], "06", *fields[4:]]))
+    assert identity.socket_inode(("127.0.0.1", 40001), SERVER, proc=proc) is None
+    assert _gates(_from(40001)) == REFUSED
+    _write_rows(proc, [*good, "   " + " ".join([fields[0], fields[1], fields[2], fields[3], *fields[4:9], "778", *fields[10:]])])
+    assert identity.socket_inode(("127.0.0.1", 40001), SERVER, proc=proc) is None, "two sockets, no answer"
+    assert _gates(_from(40001)) == REFUSED
+    _write_rows(proc, good)
+    assert _gates(_from(40001)) == ("", ""), "and the kernel's own table is believed again"
+
+
+# ------------------------------------------------ round 8, F-05B-AVAIL: this host's own addresses, whole or not at all
+
+
+V6_OWNER = {"Tailscale-User-Login": OWNER, "X-Forwarded-For": "fd7a:115c:a1e0::9"}
+FORGED_REFUSED = ("identity_unverified", "identity_unverified")
+LOCAL_REFUSED = ("not_authorised_local", "not_authorised_local")
+
+
+@pytest.fixture()
+def kernel_world(owner_world, tmp_path, monkeypatch):
+    """Production's switches, tailscaled really holding the connection (the fake /proc's own
+    account of it), and this host's addresses read from the fake /proc's own tables — not stood
+    in for — so each gate's answer below is the kernel tables' answer."""
+    proc = _point_at(monkeypatch, tmp_path, {100: ("tailscaled", [777])})
+    identity.bind_self_check(None)
+    _addresses(proc, [], [])
+    return proc
+
+
+def _v6() -> Request:
+    return _request(V6_OWNER, peer=("127.0.0.1", 40001))
+
+
+async def test_at_both_gates_an_address_this_host_gains_is_its_own_on_the_next_request(kernel_world):
+    assert _gates(_from(40001)) == ("", "") and _gates(_v6()) == ("", ""), "a device's addresses: the owner"
+    _addresses(kernel_world, ["100.64.0.9"], [])
+    assert _gates(_from(40001)) == LOCAL_REFUSED, "the IPv4 address is the server's own now"
+    _addresses(kernel_world, ["100.64.0.9"], ["fd7a:115c:a1e0::9"])
+    assert _gates(_v6()) == LOCAL_REFUSED, "and so is the IPv6 one"
+    assert actions_route.proxy_state(_v6())[0] == actions_route.THIS_HOST
+
+
+@pytest.mark.parametrize("switch", [None, "0\n", "", " 1\n", "01\n", "1 1\n", "true\n", "1\n\n"])
+async def test_at_both_gates_a_missing_ipv6_table_with_ipv6_not_switched_off_refuses(kernel_world, switch):
+    """No if_inet6 is not proof of no IPv6: with the switch absent, on, or anything but the
+    kernel's own "1", this host's IPv6 addresses cannot be known, and a request it might have
+    sent itself is not taken for the owner's — at either gate, on either family."""
+    _addresses(kernel_world, ["100.101.102.103"], None, ipv6_off=switch)
+    assert _gates(_from(40001)) == FORGED_REFUSED and _gates(_v6()) == FORGED_REFUSED
+    request = _from(40001)
+    route, why = actions_route.proxy_state(request)
+    assert route == actions_route.FORGED and "if_inet6 is missing and IPv6 is not switched off" in why
+    assert "if_inet6 is missing" in actions_route.principal_verdict(_from(40001))[2]
+
+
+async def test_at_both_gates_a_missing_ipv6_table_with_ipv6_switched_off_is_no_ipv6(kernel_world):
+    _addresses(kernel_world, ["100.101.102.103"], None, ipv6_off="1\n")
+    assert _gates(_from(40001)) == ("", "") and _gates(_v6()) == ("", "")
+    _addresses(kernel_world, ["100.64.0.9"], None, ipv6_off="1\n")
+    assert _gates(_from(40001)) == LOCAL_REFUSED, "IPv4 is still read, and read whole"
+
+
+_TRIE_BAD = {
+    "a line the kernel does not write": "this is not a trie line",
+    "an entry with no leaf above it": "Local:\n        /32 host LOCAL",
+    "an address that is not one": "     |-- 999.64.0.9\n        /32 host LOCAL",
+    "a leaf with a zero-padded address": "     |-- 100.064.0.9\n        /32 host LOCAL",
+    "an entry of an unknown shape": "     |-- 100.64.0.9\n        /32 host local",
+}
+_INET6_BAD = {
+    "a short address": "fd7a115ca1e0000000000000352b52 03 80 00 80 tailscale0",
+    "an upper-case address": "FD7A115CA1E0000000000000352B5219 03 80 00 80 tailscale0",
+    "a field missing": "fd7a115ca1e0000000000000352b5219 03 80 00 tailscale0",
+    "a field too many": "fd7a115ca1e0000000000000352b5219 03 80 00 80 tailscale0 extra",
+    "no interface": "fd7a115ca1e0000000000000352b5219 03 80 00 80",
+}
+
+
+@pytest.mark.parametrize("what", sorted(_TRIE_BAD) + ["no loopback address"])
+async def test_at_both_gates_a_malformed_ipv4_table_is_believed_in_no_part(kernel_world, what):
+    trie = kernel_world / "net" / "fib_trie"
+    if what == "no loopback address":
+        trie.write_text("Local:\n  +-- 0.0.0.0/0 3 0 5\n     |-- 100.101.102.103\n        /32 host LOCAL\n")
+    else:
+        trie.write_text(trie.read_text() + _TRIE_BAD[what] + "\n")
+    assert identity.local_addresses(proc=kernel_world) is None
+    assert _gates(_from(40001)) == FORGED_REFUSED and _gates(_v6()) == FORGED_REFUSED, what
+    assert "fib_trie" in actions_route.proxy_state(_from(40001))[1]
+
+
+@pytest.mark.parametrize("what", sorted(_INET6_BAD))
+async def test_at_both_gates_a_malformed_ipv6_table_is_believed_in_no_part(kernel_world, what):
+    inet6 = kernel_world / "net" / "if_inet6"
+    inet6.write_text(inet6.read_text() + _INET6_BAD[what] + "\n")
+    assert identity.local_addresses(proc=kernel_world) is None
+    assert _gates(_from(40001)) == FORGED_REFUSED and _gates(_v6()) == FORGED_REFUSED, what
+    assert "if_inet6" in actions_route.proxy_state(_from(40001))[1]
+
+
+@pytest.mark.parametrize("table", ["fib_trie", "if_inet6"])
+async def test_at_both_gates_a_read_that_fails_once_is_tried_again_before_anyone_is_refused(kernel_world, monkeypatch, table):
+    """Availability: a table read that fails for an instant is read once more at once, and the
+    owner's device is answered on what the second read says — which is still the whole truth, so
+    an address of this host's own is still refused as the server. Failing twice refuses, and says
+    it tried twice."""
+    _addresses(kernel_world, ["100.101.102.103"], ["fd7a:115c:a1e0::abcd"])
+    real = identity._read_table
+    failures = {"left": 0}
+
+    def flaky(path):
+        if path.name == table and failures["left"] > 0:
+            failures["left"] -= 1
+            raise OSError("Resource temporarily unavailable")
+        return real(path)
+
+    monkeypatch.setattr(identity, "_read_table", flaky)
+    for request in (_from(40001), _v6()):
+        # One decision per request, read by both gates (proxy_state): its first read fails.
+        failures["left"] = 1
+        assert _gates(request) == ("", ""), table
+        assert failures["left"] == 0, "the first read failed and the second was believed"
+    failures["left"] = 1
+    self_request = _request({"Tailscale-User-Login": OWNER, "X-Forwarded-For": "100.101.102.103"}, peer=("127.0.0.1", 40001))
+    assert _gates(self_request) == LOCAL_REFUSED, "a retried read is not a weaker one"
+    failures["left"] = 2
+    assert _gates(_from(40001)) == FORGED_REFUSED
+    failures["left"] = 2
+    route, why = actions_route.proxy_state(_from(40001))
+    assert route == actions_route.FORGED and "could not be read (read twice)" in why and table in why
+
+
+# ------------------------------------------------ round 8, F-05B-AVAIL-PREFLIGHT: the phone's answer and the install's
+
+
+async def test_every_whoami_carries_its_own_token_and_the_line_that_says_so(client, caplog):  # noqa: F811
+    """A phone's /whoami answer and the one journal line it produced can be matched, and told
+    apart from any other request's: each request makes its own token, and the line carries it
+    beside the route, the verdict and the refusal."""
+    import logging
+    import re
+
+    caplog.set_level(logging.INFO, logger="crooks.identity")
+    configure(client, logins=OWNER, local=False)
+    _settings(client, local_owner=False)
+    phone = (await client.get("/whoami", headers=PROXIED)).json()
+    here = (await client.get("/whoami")).json()
+    assert phone["check"] != here["check"]
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("whoami:")]
+    assert [line for line in lines if f"id={phone['check']} " in line] == [
+        f"whoami: id={phone['check']} through=tailscale owner=true refusal=none"]
+    assert [line for line in lines if f"id={here['check']} " in line] == [
+        f"whoami: id={here['check']} through=direct owner=false refusal=not_authorised_local"]
+    assert all(re.fullmatch(r"whoami: id=[0-9a-f]{8} through=\w+ owner=(true|false) refusal=\w+", line) for line in lines)
+
+
+def _installer():
+    import importlib.util
+
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    spec = importlib.util.spec_from_file_location("install_systemd_under_test", scripts / "install_systemd.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("argv,main_pid,proxy_ok,expect", [
+    (["/opt/crooks/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--no-proxy-headers"], "2135565", True, 0),
+    (["/opt/crooks/.venv/bin/python", "-m", "uvicorn", "app.main:app"], "2135565", True, 1),
+    (["/opt/crooks/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--no-proxy-headers", "--proxy-headers"], "2135565", True, 1),
+    (["/opt/crooks/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--no-proxy-headers=1"], "2135565", True, 1),
+    (["/opt/crooks/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--no-proxy-headers"], "0", True, 1),
+    (["/opt/crooks/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--no-proxy-headers"], "", True, 1),
+    (["/opt/crooks/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--no-proxy-headers"], "2135565", False, 1),
+    (["/opt/crooks/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--no-proxy-headers"], "2135565", None, 1),
+])
+def test_the_install_is_done_only_when_the_running_service_has_the_flag_and_health_agrees(tmp_path, monkeypatch, capsys,
+                                                                                         argv, main_pid, proxy_ok, expect):
+    """`make install` on the server restarts the service and then asserts, of the process now
+    running, that its own command line (/proc/<MainPID>/cmdline) says --no-proxy-headers and that
+    /health's proxy_identity check is ok — exiting non-zero, saying which, when either is not so.
+    The unit file saying so is not the running process doing so."""
+    import subprocess
+
+    installer = _installer()
+    proc = tmp_path / "proc"
+    (proc / "2135565").mkdir(parents=True)
+    (proc / "2135565" / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+    ran: list[tuple[str, ...]] = []
+
+    def systemctl(*args):
+        ran.append(args)
+        out = main_pid if args[:1] == ("show",) else ""
+        return subprocess.CompletedProcess(["systemctl", *args], 0, stdout=out + "\n", stderr="")
+
+    checks = {} if proxy_ok is None else {"proxy_identity": {"ok": proxy_ok, "detail": "uvicorn started with --no-proxy-headers"}}
+    monkeypatch.setattr(installer, "PROC", proc)
+    monkeypatch.setattr(installer, "systemctl", systemctl)
+    monkeypatch.setattr(installer, "preflight", lambda: [])
+    monkeypatch.setattr(installer, "rendered_unit", lambda values=None: "[Unit]\n")
+    monkeypatch.setattr(installer.lc, "SYSTEMD_UNIT_PATH", tmp_path / "crooks-assistant.service")
+    monkeypatch.setattr(installer.lc, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(installer.lc, "ensure_serve", lambda port: ("crooks.example.com", "serving"))
+    monkeypatch.setattr(installer.lc, "wait_for_health", lambda url, timeout_s=90: {"status": "ok", "checks": checks})
+    assert installer.install(8000) == expect
+    out = capsys.readouterr().out
+    assert ("show", "-p", "MainPID", "--value", "crooks-assistant.service") in ran
+    assert ran.index(("restart", "crooks-assistant.service")) < ran.index(("show", "-p", "MainPID", "--value", "crooks-assistant.service"))
+    if expect:
+        assert "FAIL" in out and "the install is not done" in out
+    else:
+        assert "running with --no-proxy-headers" in out and "Done." in out
+
+
+def test_the_last_of_the_two_proxy_header_flags_is_the_one_believed(monkeypatch):
+    """uvicorn obeys the last of --proxy-headers and --no-proxy-headers, so /health's check and the
+    install's both read the command line that way, word by word."""
+    monkeypatch.setattr(identity, "rewritten_seen", 0)
+    uvicorn = ["/opt/crooks/.venv/bin/python", "-m", "uvicorn", "app.main:app"]
+    assert identity.served_without_proxy_headers([*uvicorn, "--no-proxy-headers"])[0] is True
+    assert identity.served_without_proxy_headers([*uvicorn, "--no-proxy-headers", "--proxy-headers"])[0] is False
+    assert identity.served_without_proxy_headers([*uvicorn, "--proxy-headers", "--no-proxy-headers"])[0] is True
+    assert identity.served_without_proxy_headers([*uvicorn, "--no-proxy-headers=true"])[0] is False
+    assert not identity.proxy_headers_off([]) and not identity.proxy_headers_off(["--no-proxy-headers-x"])

@@ -13,6 +13,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -208,11 +209,70 @@ def _proc_forms(ip, port: int) -> dict[str, str]:
     return forms
 
 
+class MalformedTable(ValueError):
+    """A kernel table that is not in the shape the kernel writes: nothing in it is believed."""
+
+
+# One row of /proc/net/tcp or /proc/net/tcp6, as the kernel writes it (net/ipv4/tcp_ipv4.c
+# get_tcp4_sock, get_openreq4, get_timewait4_sock, and their tcp6 twins): a slot, the two
+# address:port pairs in upper-case hex, the state, the queues, the timer, the retransmits, the uid,
+# the timeout, the inode, and then either the full socket's seven fields or a request or
+# time-wait socket's two (round 8, F-05B). Anything else is not a row the kernel wrote.
+_TCP_ADDRESS = {"net/tcp": re.compile(r"[0-9A-F]{8}:[0-9A-F]{4}"), "net/tcp6": re.compile(r"[0-9A-F]{32}:[0-9A-F]{4}")}
+_TCP_FIXED = (
+    re.compile(r"\d+:"),                          # sl
+    None, None,                                   # local and remote address:port, per table
+    re.compile(r"[0-9A-F]{2}"),                   # st
+    re.compile(r"[0-9A-F]{8}:[0-9A-F]{8}"),       # tx_queue:rx_queue
+    re.compile(r"[0-9A-F]{2}:[0-9A-F]{8,16}"),    # tr:tm->when
+    re.compile(r"[0-9A-F]{8}"),                   # retrnsmt
+    re.compile(r"\d+"),                           # uid
+    re.compile(r"-?\d+"),                         # timeout
+    re.compile(r"\d+"),                           # inode
+)
+_TCP_TAIL = {
+    2: (re.compile(r"-?\d+"), re.compile(r"[0-9a-fA-F]{8,16}")),
+    7: (re.compile(r"-?\d+"), re.compile(r"[0-9a-fA-F]{8,16}"), re.compile(r"\d+"), re.compile(r"\d+"),
+        re.compile(r"\d+"), re.compile(r"\d+"), re.compile(r"-?\d+")),
+}
+_ESTABLISHED = "01"
+
+
+def _tcp_rows(table: str, text: str) -> list[list[str]]:
+    """Every row of one socket table, each checked whole; MalformedTable if any row, or the
+    header, is not what the kernel writes. A table that cannot be trusted in part is not trusted
+    in any part (round 8, F-05B)."""
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    if not lines or not lines[0].split() or lines[0].split()[:2] != ["sl", "local_address"]:
+        raise MalformedTable(f"/proc/{table} has no header")
+    address = _TCP_ADDRESS[table]
+    rows: list[list[str]] = []
+    for line in lines[1:]:
+        parts = line.split()
+        tail = _TCP_TAIL.get(len(parts) - len(_TCP_FIXED))
+        if tail is None:
+            raise MalformedTable(f"/proc/{table} has a row of {len(parts)} fields")
+        for index, word in enumerate(parts):
+            if index in (1, 2):
+                rule = address
+            elif index < len(_TCP_FIXED):
+                rule = _TCP_FIXED[index]
+            else:
+                rule = tail[index - len(_TCP_FIXED)]
+            if not rule.fullmatch(word):
+                raise MalformedTable(f"/proc/{table} has a row that is not the kernel's")
+        rows.append(parts)
+    return rows
+
+
 def socket_inode(client: tuple[str, int] | None, server: tuple[str, int] | None, *, proc: Path | None = None) -> int | None:
     """The inode of the socket at the CLIENT end of the connection client -> server: the one
-    the process that opened the connection holds. None when the kernel lists no such socket.
-    The tables are searched as text for the two addresses in the kernel's own form, so a busy
-    server's thousands of rows cost one pass, not one parse each."""
+    the process that opened the connection holds. None when the kernel lists no such socket,
+    lists it with no inode or not established, or lists two sockets for it. Every row of every
+    table read is checked whole (round 8, F-05B): a table with a row the kernel would not have
+    written raises MalformedTable, and nothing in it is believed."""
     root = proc or PROC
     if not client or not server:
         return None
@@ -221,28 +281,23 @@ def socket_inode(client: tuple[str, int] | None, server: tuple[str, int] | None,
     if local_ip is None or remote_ip is None or not local_port or not remote_port:
         return None
     local, remote = _proc_forms(local_ip, local_port), _proc_forms(remote_ip, remote_port)
+    found: set[int] = set()
     for table in ("net/tcp", "net/tcp6"):
         if table not in local or table not in remote:
             continue
         try:
             text = (root / table).read_text(encoding="ascii", errors="replace")
         except OSError:
-            continue
-        needle = f" {local[table]} {remote[table]} "
-        at = text.find(needle)
-        while at != -1:
-            line_start = text.rfind("\n", 0, at) + 1
-            line_end = text.find("\n", at)
-            parts = text[line_start:line_end if line_end != -1 else None].split()
-            if len(parts) >= 10 and parts[1] == local[table] and parts[2] == remote[table]:
-                try:
-                    inode = int(parts[9])
-                except ValueError:
-                    inode = 0
-                if inode:
-                    return inode
-            at = text.find(needle, at + 1)
-    return None
+            continue        # a table that is not there lists nothing: never a yes
+        for parts in _tcp_rows(table, text):
+            if parts[1] != local[table] or parts[2] != remote[table]:
+                continue
+            inode = int(parts[9])
+            if parts[3] == _ESTABLISHED and inode:
+                found.add(inode)
+    # One socket for one connection, or no answer: two would mean the tables were read across a
+    # change, and which one is the request's is not something to guess.
+    return next(iter(found)) if len(found) == 1 else None
 
 
 def unit_cgroup(unit: str = PROXY_UNIT, *, cgroup: Path | None = None) -> Path | None:
@@ -255,16 +310,31 @@ def unit_cgroup(unit: str = PROXY_UNIT, *, cgroup: Path | None = None) -> Path |
     return None
 
 
-def unit_pids(unit: str = PROXY_UNIT, *, cgroup: Path | None = None) -> list[int]:
-    """The processes in a systemd service's own cgroup, as the kernel lists them."""
-    folder = unit_cgroup(unit, cgroup=cgroup)
+_PID = re.compile(r"[1-9][0-9]*")
+
+
+def unit_pids(unit: str = PROXY_UNIT, *, cgroup: Path | None = None, folder: Path | None = None) -> list[int] | None:
+    """The processes in a systemd service's own cgroup, as the kernel lists them: one pid per
+    line. None when the listing cannot be read or any line of it is not a pid (round 8, F-05B):
+    a listing that is wrong in part is not trusted in any part, never read as the pids that
+    happened to parse."""
+    folder = folder if folder is not None else unit_cgroup(unit, cgroup=cgroup)
     if folder is None:
         return []
     try:
         text = (folder / "cgroup.procs").read_text(encoding="ascii", errors="replace")
     except OSError:
-        return []
-    return [int(word) for word in text.split() if word.isdigit()]
+        return None
+    if text and not text.endswith("\n"):
+        return None
+    pids: list[int] = []
+    for line in text.split("\n")[:-1]:
+        if not _PID.fullmatch(line):
+            return None
+        pid = int(line)
+        if pid not in pids:
+            pids.append(pid)
+    return pids
 
 
 def root_only(path: Path | str) -> bool:
@@ -364,6 +434,17 @@ def socket_inodes(pid: int, *, proc: Path | None = None) -> frozenset[int]:
 rewritten_seen = 0
 
 
+def proxy_headers_off(argv: list[str]) -> bool:
+    """Whether a uvicorn command line leaves the connection's own address alone: it says
+    --no-proxy-headers, and says it after any --proxy-headers, since the last of the two is the
+    one uvicorn obeys (round 8, F-05B-AVAIL-PREFLIGHT). Whole words only."""
+    last = None
+    for word in argv:
+        if word in ("--no-proxy-headers", "--proxy-headers"):
+            last = word
+    return last == "--no-proxy-headers"
+
+
 def served_without_proxy_headers(cmdline: list[str] | None = None) -> tuple[bool, str]:
     """Whether this process was started so that the connection's own address reaches the app:
     uvicorn with --no-proxy-headers. (ok, why). A process that is not uvicorn started from the
@@ -378,7 +459,7 @@ def served_without_proxy_headers(cmdline: list[str] | None = None) -> tuple[bool
         "-m" in cmdline[:3] and "uvicorn" in cmdline[:4])
     if not started_by_uvicorn:
         return True, "not started by uvicorn from the command line: nothing to check"
-    if "--no-proxy-headers" not in cmdline:
+    if not proxy_headers_off(cmdline):
         return False, "uvicorn was started without --no-proxy-headers: every forwarded request is refused"
     if rewritten_seen:
         return False, f"{rewritten_seen} forwarded request(s) arrived with their address already replaced"
@@ -394,7 +475,10 @@ def _proc_peer_check(client, server) -> tuple[bool, str]:
             rewritten_seen += 1
         return False, ("the connection's own address was replaced by a forwarded one before it reached "
                        "the app: start uvicorn with --no-proxy-headers (make install)")
-    inode = socket_inode(client, server)
+    try:
+        inode = socket_inode(client, server)
+    except MalformedTable:
+        return False, "the kernel's socket table could not be read whole"
     if inode is None:
         return False, "the connection was not opened on this server"
     folder = unit_cgroup(PROXY_UNIT)
@@ -402,8 +486,11 @@ def _proc_peer_check(client, server) -> tuple[bool, str]:
         return False, f"no tailscaled process is running in {PROXY_UNIT}"
     if not cgroup_guarded(folder):
         return False, f"{PROXY_UNIT}'s cgroup could be joined by a process that is not root"
+    pids = unit_pids(folder=folder)
+    if pids is None:
+        return False, f"{PROXY_UNIT}'s list of processes could not be read whole"
     found = False
-    for pid in unit_pids():
+    for pid in pids:
         try:
             pinned = pin(pid)
         except (ProcessLookupError, OSError):
@@ -436,56 +523,141 @@ def peer_is_tailscaled(client: tuple[str, int] | None, server: tuple[str, int] |
         return False, f"who opened the connection could not be read: {type(exc).__name__}"
 
 
-def local_addresses(*, proc: Path | None = None) -> frozenset[str] | None:
-    """Every address this host's interfaces own, read from the kernel's own tables now, never
-    remembered (round 7, F-05B-AVAIL): IPv4 from /proc/net/fib_trie (the host's LOCAL routes),
-    IPv6 from /proc/net/if_inet6 (absent when IPv6 is off, and then there are none). An address the
-    host gains or loses is in or out on the very next request. Not inferred from what a socket may bind to (round 6: net.ipv4.ip_nonlocal_bind makes
-    that "every address"), and not asked of a CLI that can be slow or fail. None when either table
-    cannot be read."""
-    root = proc or PROC
+IPV6_OFF = Path("sys/net/ipv6/conf/all/disable_ipv6")    # under /proc
+_TRIE_TABLE = re.compile(r"(?:Main|Local|Id \d+):")
+_TRIE_NODE = re.compile(r"\s*\+-- (\d{1,3}(?:\.\d{1,3}){3})/\d{1,2} \d+ \d+ \d+")
+_TRIE_LEAF = re.compile(r"\s*\|-- (\d{1,3}(?:\.\d{1,3}){3})")
+_TRIE_ALIAS = re.compile(r"\s*/(\d{1,2}) (universe|site|link|host|nowhere|scope=\d+) ([A-Z]+|type \d+)(?: tos=\d+)?")
+_INET6_ROW = re.compile(r"([0-9a-f]{32}) [0-9a-f]{2,8} [0-9a-f]{2} [0-9a-f]{2} [0-9a-f]{2} +\S+")
+
+
+def _read_table(path: Path) -> str:
+    """One kernel table, read whole. Tests stand in for a read that fails once."""
+    return path.read_text(encoding="ascii", errors="replace")
+
+
+def _ipv4_local(trie: str) -> frozenset[str]:
+    """The addresses /proc/net/fib_trie lists as this host's own (a /32 host LOCAL entry under
+    its leaf). Every line must be one the kernel writes (net/ipv4/fib_trie.c fib_trie_seq_show):
+    a table name, a node, a leaf or one of a leaf's entries; anything else, an entry with no leaf
+    above it, or a table without the loopback address, raises MalformedTable (round 8,
+    F-05B-AVAIL). A line that cannot be read is never skipped."""
     found: set[str] = set()
-    try:
-        trie = (root / "net" / "fib_trie").read_text(encoding="ascii", errors="replace")
-    except OSError:
-        return None
-    try:
-        inet6 = (root / "net" / "if_inet6").read_text(encoding="ascii", errors="replace")
-    except FileNotFoundError:
-        inet6 = ""          # IPv6 switched off on this host: it owns no IPv6 address
-    except OSError:
-        return None
-    last = ""
-    for line in trie.splitlines():
-        text = line.strip()
-        if text.startswith("|--"):
-            last = text[3:].strip()
-        elif text.startswith("/32 host LOCAL") and last:
-            ip = _ip(last)
-            if ip is not None:
-                found.add(str(ip))
-    for line in inet6.splitlines():
-        word = line.split()[0] if line.split() else ""
-        if len(word) == 32:
+    leaf = None
+    for line in trie.split("\n"):
+        if not line.strip():
+            continue
+        if _TRIE_TABLE.fullmatch(line) or _TRIE_NODE.fullmatch(line):
+            leaf = None
+            continue
+        match = _TRIE_LEAF.fullmatch(line)
+        if match:
             try:
-                found.add(str(ipaddress.IPv6Address(int(word, 16))))
+                leaf = str(ipaddress.IPv4Address(match.group(1)))
             except ValueError:
-                continue
+                raise MalformedTable("/proc/net/fib_trie names an address that is not one") from None
+            continue
+        match = _TRIE_ALIAS.fullmatch(line)
+        if not match or leaf is None:
+            raise MalformedTable("/proc/net/fib_trie has a line the kernel does not write")
+        if match.group(1) == "32" and match.group(2) == "host" and match.group(3) == "LOCAL":
+            found.add(leaf)
+    if "127.0.0.1" not in found:
+        # Every host that serves this app on loopback has it: a table without it is not whole.
+        raise MalformedTable("/proc/net/fib_trie does not list the loopback address")
     return frozenset(found)
 
 
-def is_this_host(address: str) -> bool | None:
-    """Whether a forwarded address is this server's own. The server is on the owner's tailnet
-    login, so a request it sends through its own `tailscale serve` arrives stamped with the
-    owner's login; it is still a request made on the server, and is judged as one. None when this
-    host's addresses cannot be read, which the caller refuses."""
+def _ipv6_local(inet6: str) -> frozenset[str]:
+    """The addresses /proc/net/if_inet6 lists (net/ipv6/addrconf.c if6_seq_show: the address in
+    32 lower-case hex digits, the interface index, prefix length, scope and flags, and the
+    interface's name). Any other line raises MalformedTable (round 8, F-05B-AVAIL)."""
+    found: set[str] = set()
+    for line in inet6.split("\n"):
+        if not line:
+            continue
+        match = _INET6_ROW.fullmatch(line)
+        if not match:
+            raise MalformedTable("/proc/net/if_inet6 has a line the kernel does not write")
+        found.add(str(ipaddress.IPv6Address(int(match.group(1), 16))))
+    return frozenset(found)
+
+
+def _addresses_once(root: Path) -> tuple[frozenset[str] | None, str]:
+    try:
+        trie = _read_table(root / "net" / "fib_trie")
+    except OSError:
+        return None, "/proc/net/fib_trie could not be read"
+    try:
+        inet6: str | None = _read_table(root / "net" / "if_inet6")
+    except FileNotFoundError:
+        inet6 = None
+    except OSError:
+        return None, "/proc/net/if_inet6 could not be read"
+    if inet6 is None:
+        # No table is not proof that there are no IPv6 addresses: only the kernel's own switch
+        # saying IPv6 is off is (round 8, F-05B-AVAIL). A missing or renamed table with IPv6 on,
+        # or with the switch unreadable, is "cannot say".
+        try:
+            switch = _read_table(root / IPV6_OFF)
+        except OSError:
+            switch = ""
+        if switch.removesuffix("\n") != "1":
+            return None, "/proc/net/if_inet6 is missing and IPv6 is not switched off (net.ipv6.conf.all.disable_ipv6 is not 1)"
+        inet6 = ""
+    try:
+        return _ipv4_local(trie) | _ipv6_local(inet6), ""
+    except MalformedTable as exc:
+        return None, str(exc)
+
+
+def this_hosts_addresses(*, proc: Path | None = None) -> tuple[frozenset[str] | None, str]:
+    """Every address this host's interfaces own, read from the kernel's own tables now, never
+    remembered (round 7, F-05B-AVAIL): IPv4 from /proc/net/fib_trie (the host's LOCAL routes),
+    IPv6 from /proc/net/if_inet6. An address the host gains or loses is in or out on the very
+    next request. Not inferred from what a socket may bind to (round 6: net.ipv4.ip_nonlocal_bind
+    makes that "every address"), and not asked of a CLI that can be slow or fail.
+
+    (addresses, "") or (None, why): None when either table cannot be read, is not whole or is
+    not the kernel's shape, and when the IPv6 table is missing without IPv6 switched off (round
+    8, F-05B-AVAIL) — never a partial set. A failed read is tried once more at once before the
+    answer is None, so a read that fails for an instant does not refuse the owner's devices."""
+    root = proc or PROC
+    found, why = _addresses_once(root)
+    if found is not None:
+        return found, ""
+    found, why = _addresses_once(root)
+    if found is not None:
+        return found, ""
+    return None, f"{why} (read twice)"
+
+
+def local_addresses(*, proc: Path | None = None) -> frozenset[str] | None:
+    """this_hosts_addresses without the reason."""
+    return this_hosts_addresses(proc=proc)[0]
+
+
+_UNREADABLE_SELF = "this server's own addresses could not be read from the kernel"
+
+
+def this_host(address: str) -> tuple[bool | None, str]:
+    """Whether a forwarded address is this server's own, and why not when it cannot say. The
+    server is on the owner's tailnet login, so a request it sends through its own `tailscale
+    serve` arrives stamped with the owner's login; it is still a request made on the server, and
+    is judged as one. (None, why) when this host's addresses cannot be read, which the caller
+    refuses."""
     ip = _ip(forwarded_address(address))
     if ip is None:
-        return False
+        return False, ""
     if _self_check is not None:
         answer = _self_check(str(ip))
-        return None if answer is None else bool(answer)
-    mine = local_addresses()
+        return (None, _UNREADABLE_SELF) if answer is None else (bool(answer), "")
+    mine, why = this_hosts_addresses()
     if mine is None:
-        return None
-    return str(ip) in mine
+        return None, f"{_UNREADABLE_SELF}: {why}"
+    return str(ip) in mine, ""
+
+
+def is_this_host(address: str) -> bool | None:
+    """this_host without the reason: True, False, or None when it cannot say."""
+    return this_host(address)[0]

@@ -109,6 +109,7 @@ def inbox(cache):
 # ---------------------------------------------------------------- 1. the inbox is the question
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_inbox_itself_is_read_and_everyone_who_wrote_is_judged(inbox):
     session = Session(session_id="nr-inbox")
     session.turn_id = "turn_nr"
@@ -230,6 +231,7 @@ def _ctx(session: Session) -> Ctx:
                text="any emails need my attention")
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_answer_is_the_queue_longest_waiting_first_and_nothing_else(inbox):
     session = Session(session_id="nr-answer")
     session.turn_id = "turn_answer"
@@ -286,6 +288,7 @@ def test_a_card_the_answer_does_not_contain_is_taken_off_the_glass():
     assert workspace.ledger.order == ["email_list:Waiting on a reply"]
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_read_that_does_not_draw_never_reaches_the_glass(cache):
     session = Session(session_id="s-quiet")
     session.turn_id = "turn_quiet"
@@ -309,6 +312,7 @@ def _money(value: float) -> str:
     return f"£{value:,.2f}"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_list_states_the_sum_of_its_own_rows_or_says_whose_totals_it_shows(cache):
     session = Session(session_id="s-totals")
     session.turn_id = "turn_totals"
@@ -334,6 +338,7 @@ async def test_a_list_states_the_sum_of_its_own_rows_or_says_whose_totals_it_sho
             assert result["totals"]["revenue"] == own and ranking["data"]["totals_label"] == ""
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_an_order_listing_of_a_number_is_worth_those_orders(cache):
     session = Session(session_id="s-orders")
     session.turn_id = "turn_orders"
@@ -556,6 +561,7 @@ def test_asking_again_still_says_the_reply_check_was_not_complete():
     assert not complete.partial
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_scan_says_how_far_the_sent_check_reached(inbox, monkeypatch):
     for listing, expected in (({"available": True, "latest": {}, "full": True}, "partial"),
                               ({"available": False, "latest": {}}, "none"),

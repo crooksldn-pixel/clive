@@ -428,6 +428,11 @@ class MaxAgentSDKProvider(ClaudeProvider):
         if held is None or not held.active:
             log.warning("tool call %s refused: no owner authority for this turn (%s)", tool_name, conv.key)
             return "REFUSED: this was not asked for by the owner, so no tool runs for it. Do not retry."
+        if not held.permits(tool_name):
+            # A turn carried under bounded service authority calls only the reads that work was
+            # given (round 8, F-NEW-TOOLS), refused here before dispatch as dispatch refuses it.
+            log.warning("tool call %s refused: outside this turn's %s authority (%s)", tool_name, held.kind, conv.key)
+            return "REFUSED: this work was not given that tool, so it does not run. Do not retry."
         if conv.moved_on():
             log.info("tool call %s refused: the owner moved on (%s)", tool_name, conv.key)
             return "REFUSED: the owner has moved on to another question. Do not act on this one; answer briefly."

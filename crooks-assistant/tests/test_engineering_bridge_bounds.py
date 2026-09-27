@@ -103,6 +103,7 @@ def test_the_loops_own_door_refuses_them_even_if_the_bridge_did_not():
             )
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_through_the_tool_a_protected_path_prepares_nothing_and_sends_no_write(fake, bound):  # noqa: F811 - fixtures imported from the suite they belong to
     session = Session(session_id="eng-widen")
     await dispatch("engineering_status", {}, session=session, timeout_s=5)
@@ -124,6 +125,7 @@ def test_the_tool_has_no_argument_for_a_base_a_check_a_branch_or_a_repository():
     assert spec.write.interaction == "tap_commit" and spec.write.reversible is False
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_base_is_the_trunks_head_read_at_preparation_by_sha(fake, bound):  # noqa: F811 - fixtures imported from the suite they belong to
     session = Session(session_id="eng-base")
     await dispatch("engineering_status", {}, session=session, timeout_s=5)
@@ -140,6 +142,7 @@ async def test_the_base_is_the_trunks_head_read_at_preparation_by_sha(fake, boun
 # ------------------------------------------------------------------ it cannot reach production
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_everything_the_bridge_sends_is_a_read_or_one_create_on_its_inbox(fake, bound, engine, clock):  # noqa: F811 - fixtures imported from the suite they belong to
     """Every HTTP request of a whole filing, from status to the owner's tap to the read-back:
     reads of the status, the inbox and trunk heads, and the request file; one PUT of a new

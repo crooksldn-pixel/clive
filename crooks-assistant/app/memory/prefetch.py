@@ -22,6 +22,8 @@ import logging
 import time
 from typing import Any
 
+from app.tools.authority import SERVICE_READS
+
 log = logging.getLogger("crooks.memory")
 
 # Per scope (a login and a conversation). Six: the anticipation layer's own bound is four reads
@@ -34,12 +36,9 @@ TIMEOUT_S = 6.0
 
 # The only tools a prefetch may call. Read tools, by name, checked against the registry at
 # call time as well: a tool that gained a write later must not become prefetchable silently.
-_READABLE = frozenset({
-    "shopify_find_order", "shopify_order_detail", "shopify_find_customer",
-    "shopify_customer_history", "shopify_product_info", "shopify_inventory",
-    "gmail_search", "gmail_read_thread", "commerce_query", "commerce_aggregate",
-    "inventory_query", "email_query",
-})
+# The list is the service reads' own (app/tools/authority.py SERVICE_READS, round 8,
+# F-NEW-TOOLS), so what a prefetch asks for and what its authority allows are one list.
+_READABLE = SERVICE_READS
 
 
 class Prefetcher:
@@ -60,6 +59,10 @@ class Prefetcher:
         except Exception:  # noqa: BLE001 — an unregistered tool is not prefetchable
             return False
         return spec.write is None and spec.batch is None
+
+    def readable_tools(self) -> frozenset[str]:
+        """Every tool readable() allows now: the whole of what a prefetch's authority may call."""
+        return frozenset(tool for tool in _READABLE if self.readable(tool))
 
     def start(self, key: str, factory, *, branch_id: str = "", scope: str = "", lane: str = "", source: str = "") -> bool:
         """Begin one speculative read. False when a bound says no.
@@ -88,14 +91,17 @@ class Prefetcher:
 
         # A speculative read may finish after the owner's request that started it has been
         # answered, when that request's own authority is revoked. It carries its own instead: a
-        # service authority derived from the owner's, named, read-only by construction (the read
-        # scheduler refuses writes) and expiring with the read's own timeout (app/tools/
-        # authority.py, the 2026-09-27 deploy review round 7). Started without an owner's
-        # authority, it gets none, and any tool it reaches is refused.
+        # service authority derived from the owner's, named, able to call only this module's
+        # reads (round 8, F-NEW-TOOLS: the set is fixed on the authority and held by the
+        # dispatcher, whatever `factory` reaches for) and expiring with the read's own timeout
+        # (app/tools/authority.py). Revoked the moment the read ends, however it ends, so nothing
+        # it left running holds it afterwards. Started without an owner's authority, it gets none,
+        # and any tool it reaches is refused.
         from app.tools import authority as tool_authority
 
         parent = tool_authority.current()
-        derived = parent.derive(f"prefetch:{key}", TIMEOUT_S + 5.0) if parent is not None else None
+        derived = (parent.derive(f"prefetch:{key}", TIMEOUT_S + 5.0, tools=self.readable_tools())
+                   if parent is not None else None)
 
         async def guarded() -> Any:
             try:
@@ -106,8 +112,14 @@ class Prefetcher:
             except Exception as exc:  # noqa: BLE001 — a speculative read that fails costs nothing
                 log.debug("prefetch %s failed: %s", key, exc)
                 return None
+            finally:
+                if derived is not None:
+                    derived.revoke()
 
         task = loop.create_task(guarded())
+        if derived is not None:
+            # A task cancelled before it first runs never reaches guarded's finally.
+            task.add_done_callback(lambda _done: derived.revoke())
         task.crooks_branch = branch_id      # type: ignore[attr-defined]
         task.crooks_scope = scope           # type: ignore[attr-defined]
         task.crooks_lane = lane             # type: ignore[attr-defined]

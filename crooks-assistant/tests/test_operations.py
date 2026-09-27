@@ -268,6 +268,7 @@ def test_the_commands_are_the_ones_the_brief_asked_for():
 
 # ------------------------------------------------------------------- the bench
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_lane_bench_runs_offline_and_every_row_is_measured(capsys):
     """The bench is a test as well as a bench: it fails if a recipe stops answering, and it
     never reaches a network — the sources are the suite's own doubles."""
@@ -282,6 +283,7 @@ async def test_the_lane_bench_runs_offline_and_every_row_is_measured(capsys):
     assert "OVER" not in out, "a recipe missed its own latency target"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_lane_bench_puts_the_clock_back_when_it_is_done(capsys):
     """It runs in THIS process, so what it patches is what every later test reads.
 

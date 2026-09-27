@@ -98,6 +98,7 @@ def test_missing_capability_blockers_are_counted_and_other_blockers_are_not(reco
     assert objectives.gap_keys(shoot.id) == ["web search"]
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_tool_the_model_reaches_for_and_clive_lacks_is_a_gap(record):
     session = Session(session_id="gap-tool")
     out = await dispatch("web_search", {"query": "flights"}, session=session, timeout_s=5)
@@ -150,6 +151,7 @@ def test_nothing_is_recorded_before_the_runtime_installs_the_record(objectives, 
 # ------------------------------------------------------------------ what became of it
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_gap_is_followed_from_proposal_to_a_fix_that_held_or_came_back(record, objectives, fake, bound, monkeypatch):
     obj = objectives.create(title="Display", request="Show a task on the big screen")
     objectives.add_blocker(obj.id, "No big-screen display", kind="missing_capability", capability="big-screen display")

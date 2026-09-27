@@ -3,6 +3,8 @@ re-reading, and the undo puts back exactly those."""
 
 from __future__ import annotations
 
+import pytest
+
 from app.actions.models import ActionStatus
 from app.clients.shopify import REVIEWED_MUTATIONS
 from app.tools import registry
@@ -10,6 +12,11 @@ from app.tools.dispatch import dispatch
 from app.tools.gate import Disposition, Tier, classify
 from tests.test_actions import ORDER
 from tests.test_tags import TagStore, engine, lookup, session  # noqa: F401 — the fixtures
+
+# The admitted owner calling tools directly, as a request the door let through would: every tool
+# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
+# and every test's that does not say this, is no authority at all.
+pytestmark = pytest.mark.usefixtures("owner_asking")
 
 TOOL = "shopify_order_tags_remove"
 

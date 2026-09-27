@@ -231,12 +231,66 @@ def url_port(url: str, default: int) -> int:
 # --------------------------------------------------------------------------- health
 
 
-def fetch_health(url: str, timeout_s: float = 8.0) -> dict | None:
+def _loopback(url: str) -> bool:
+    """A plain-HTTP URL on this machine's own loopback address, by literal address only."""
+    from urllib.parse import urlsplit
+
     try:
-        with urllib.request.urlopen(url, timeout=timeout_s) as response:  # noqa: S310 — loopback
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+    except ValueError:
+        return False
+    return parts.scheme == "http" and host in ("127.0.0.1", "::1")
+
+
+def _server_key(url: str) -> dict[str, str]:
+    """The server's own key (app/local_cli.py), for a request to it on loopback, when this user
+    can read it; nothing otherwise, and never for any other address."""
+    if not _loopback(url):
+        return {}
+    try:
+        from app import local_cli
+
+        return local_cli.headers()
+    except Exception:  # noqa: BLE001 — no key readable here: the reader gets what anyone gets
+        return {}
+
+
+def _open(request: urllib.request.Request, timeout_s: float):
+    """Straight to the address, never through an HTTP proxy the environment names: a request that
+    carries the server's key must not hand it to anything in between."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return opener.open(request, timeout=timeout_s)  # noqa: S310 — loopback
+
+
+def _read(url: str, headers: dict[str, str], timeout_s: float) -> dict | None:
+    try:
+        with _open(urllib.request.Request(url, headers=headers), timeout_s) as response:
             return json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, ValueError):
         return None
+
+
+def fetch_health(url: str, timeout_s: float = 8.0) -> dict | None:
+    """/health, or None when nothing answers. Asked plainly first. If the answer is liveness
+    alone — this reader is not the owner (round 8, F-NEW-PAD) — and it is on loopback and this
+    user can read the server's own key (app/local_cli.py), it is asked once more with the key, so
+    the host's own readers keep the whole document; the key goes nowhere else and only when it is
+    needed. Without the key, or if the server will not take it (a build from before it opened
+    /health to it), the limited answer is what comes back, and the readers say so rather than
+    read an absent check as a working one."""
+    plain = _read(url, {}, timeout_s)
+    if not health_limited(plain):
+        return plain
+    keyed = _server_key(url)
+    whole = _read(url, keyed, timeout_s) if keyed else None
+    return whole if whole is not None and not health_limited(whole) else plain
+
+
+def health_limited(data: dict | None) -> bool:
+    """Whether /health answered with liveness alone: this reader is not the owner and could not
+    read the server's key (app/routes/health.py _liveness)."""
+    return isinstance(data, dict) and data.get("limited") is True
 
 
 def wait_for_health(url: str, timeout_s: float = 45.0, still_starting=None) -> dict | None:
@@ -265,6 +319,9 @@ def summarise_health(data: dict | None) -> str:
     sheet and the log."""
     if not data:
         return "the assistant is not answering"
+    if health_limited(data):
+        return (f"answering ({data.get('status') or '?'}), but the detail is the owner's: "
+                "run this as the service's user (root on the server) to read it")
     checks = data.get("checks") or {}
     name = lambda k: PLAIN_NAMES.get(k, k)  # noqa: E731
     ok = [name(k) for k, check in checks.items() if check.get("ok")]

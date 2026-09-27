@@ -351,6 +351,7 @@ async def test_a_thread_from_another_address_that_names_their_order_is_possible_
     assert (await tools._customer_threads(MIA, ["1938"], 30, clock=lambda: NOW + 1))["confidence"] == "possible"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_email_query_rows_carry_the_provenance(unbound, monkeypatch):
     """The row the queue is built from says how it was decided, not only what it decided."""
     from datetime import UTC, datetime
