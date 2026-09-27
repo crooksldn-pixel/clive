@@ -2,15 +2,67 @@
 
 **Purpose:** compact active context for GPT/Claude/Fable/engineering workers  
 **Status:** ACTIVE — update whenever a material product/architecture state changes  
-**As of:** 2026-09-25 (product-memory consolidation; earlier states from 2026-09-21 and 2026-09-23 are kept below as history)
+**As of:** 2026-09-27 (the deploy pipeline; the 2026-09-25 state and earlier ones are kept below as history)
 
 This file is intentionally not a historical transcript. It answers: **what is true and important now?**
 
 For historical rationale, use Git and DECISIONS.md. For release evolution rules, use EVOLUTION_POLICY.md.
 
-## Now — 2026-09-25
+## Now — 2026-09-27
 
 Where anything further down this file disagrees with this section, this section is the current truth and the text below is history.
+
+### Where the deploy is
+
+| | SHA | What it is |
+|---|---|---|
+| **Production** (`/opt/crooks-os`) | `3e77f215` (PR #42) | Running, unchanged. |
+| **Candidate** | the `clive/trunk` head | PRs #43 to #49 (below). The code is `aeda0dd8`, PR #49's merge; anything after it on the trunk is documentation only. |
+| **Last review** | round 7, of `1d7a934a` | All four parts CHANGES_REQUIRED, 22 findings (19 material). Findings on `claude/deploy-review-round-7-findings` (`5b6e67bb`). PR #49 fixes all 19. |
+
+**Next:** the round-8 exact-SHA review on the production host, in four bounded parts. If every part is READY: a real phone check against a staging copy of the candidate, then the deploy, code and unit in one operation with automatic rollback. The owner starts it with one prompt and is asked to open `/whoami` on his phone twice. Anything short of READY publishes findings on `claude/deploy-review-round-8-findings` and changes nothing.
+
+**What the candidate brings to production:**
+
+- the screens feature (PR #45): an order, an objective or a list on the owner's own screens;
+- six rounds of security review repairs:
+  - PRs #43, #44, #46, #48 and #49;
+  - PR #47, the loop re-pin review answers.
+
+In plain terms, the repairs are:
+
+- **Tool boundary.** Tools run only inside a request the owner rule admitted, and refuse by default.
+- **Proxy.** The check that a request came through Tailscale is strict: the root-owned `/usr/sbin/tailscaled`, pinned with a pidfd.
+- **Server's own requests.** Recognised from the kernel's address tables.
+- **Local command key.** Opens only the server's own test-session commands.
+- **Public `/health`.** Keeps the pad and the session to the owner.
+- **Reports.** Never deleted to fix permissions, and the service refuses to start if it cannot keep them private.
+- **Gap record.** Cleaned and validated at start-up, keeping the original.
+- **Screens.**
+  - A screen's name never passes to another device.
+  - "Mark packed" needs every page to have been shown on the screen.
+
+**Production switches, held for this deploy:**
+
+| Switch | Value | Why |
+|---|---|---|
+| `CROOKS_SCREEN_SNAPSHOTS` | `false` | Snapshots copy what the screen showed, customer names included. |
+| `CROOKS_LOCAL_OWNER` | unset | The server itself is not the owner. |
+| `CROOKS_WRITES_LOCAL_OWNER` | `false` | Nothing on the server can apply a business write. |
+| `CROOKS_ENGINEERING_HOST` | unset | Filing build objectives from CLIVE (F-ENG) is deferred. |
+| `CROOKS_TAILSCALE_VERIFY` | unset (default `true`) | Every proxied request is checked against Tailscale itself. |
+
+The engineering inbox credential stays parked in `/etc/crooks-os/credentials-parked/`. The unit runs uvicorn with `--no-proxy-headers`. Code and the re-rendered unit always land together.
+
+**The owner's, now:**
+
+- run the round-8 prompt on the production host;
+- re-pin the worker loop: `sudo bash /home/george/clive-review/repin/root-repin.sh`;
+- decide where deploy-review reports live. The recommendation is their own `claude/deploy-review-round-N-findings` branches, because `reports/` is not tracked on the trunk.
+
+The trunk stays unprotected: the owner decided against GitHub Pro. A SHA's place on the trunk and a green run therefore carry no review weight; only the exact-SHA review does.
+
+## 2026-09-25 (history)
 
 ### Production
 
