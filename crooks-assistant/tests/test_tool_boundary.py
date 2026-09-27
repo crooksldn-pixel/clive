@@ -84,6 +84,7 @@ def world(client, tmp_path):  # noqa: F811
     app.state.allowed_logins = client.runtime.allowed_logins
     screens = displays_store.install(tmp_path / "objectives" / "displays.json")
     screen = screens.register("Office screen")
+    screens.approve("Office screen", screen["code"])   # approved with its code (round 8, B-02)
     provider = ToolingProvider(client.runtime)
     client.runtime.provider = provider
     return client, provider, screens, screen

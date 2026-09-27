@@ -16,7 +16,7 @@ comment or a docstring, names it. Tests are read as syntax trees and never run; 
 here runs a tool, and nothing here can reach a mutation: the audit is a read of
 registries and of source text, so it is safe against a shop it may not touch.
 
-57 tools — 33 reads, 19 writes, 5 bulk — and 50 intent families.
+58 tools — 34 reads, 19 writes, 5 bulk — and 50 intent families.
 
 ## Tools
 
@@ -49,6 +49,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `objective_open` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `objective_show` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `screen_list` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
+| `screen_pair` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `screen_show` | AMBER | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `shopify_abandoned_checkouts` | AMBER | yes | yes | yes | read_orders | read | — | — | — | shopify | yes |
 | `shopify_customer_history` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | shopify | yes |
@@ -111,6 +112,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `objective_open` | family:objectives | test_objectives.py | — |
 | `objective_show` | family:objectives | test_objectives.py | — |
 | `screen_list` | family:screens | test_displays.py, test_tool_boundary.py | — |
+| `screen_pair` | family:screens | test_displays.py | — |
 | `screen_show` | family:screens | test_displays.py, test_tool_boundary.py | — |
 | `shopify_abandoned_checkouts` | recipe:abandoned_checkouts, family:abandoned_checkouts | test_abandoned.py | abandoned_checkouts, abandoned_window |
 | `shopify_customer_history` | recipe:navigation_back, recipe:working_set_next, recipe:working_set_previous, recipe:customer_history_lookup, recipe:customer_purchase_lookup, recipe:customer_workspace, command:cursor:customers, family:customer_reads | test_anticipation.py, test_branches.py, test_context.py, test_entities.py, test_n_plus_one.py, test_observability.py, test_reads.py, test_workspaces.py | back, customer_history, nav_branch_isolation, nav_click_path, nav_next_position, next_previous |
@@ -203,21 +205,21 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 none
 
-**no golden scenario names it (37)**
+**no golden scenario names it (38)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_compose_open`, `gmail_find_in_email`, `gmail_send_new`, `gmail_send_reply`, `gmail_thread_archive`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_show`, `shopify_discount_open`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_list_orders`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_open`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `shopify_store_credit`, `submit_engineering_request`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_compose_open`, `gmail_find_in_email`, `gmail_send_new`, `gmail_send_reply`, `gmail_thread_archive`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_pair`, `screen_show`, `shopify_discount_open`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_list_orders`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_open`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `shopify_store_credit`, `submit_engineering_request`
 
 **nothing but the model reaches it (5)**
 
 `batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`
 
-**no card is drawn from it (13)**
+**no card is drawn from it (14)**
 
-`commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_find_in_email`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_show`, `shopify_abandoned_checkouts`, `shopify_discount_check`, `shopify_order_address`
+`commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_find_in_email`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_pair`, `screen_show`, `shopify_abandoned_checkouts`, `shopify_discount_check`, `shopify_order_address`
 
-**no named error card (19)**
+**no named error card (20)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `inventory_query`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_show`, `submit_engineering_request`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `inventory_query`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_pair`, `screen_show`, `submit_engineering_request`
 
 **intent families with no scenario (20)**
 

@@ -231,3 +231,16 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .is-slow .bt-wait{opacity:1}
 
 @media (prefers-reduced-motion:reduce){.cs *,.cs *::before,.cs *::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
+
+/* round 8: pairing and refused states */
+.cs-pair{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;justify-content:flex-end;padding:0 120px 104px;margin:0;transition:opacity .6s ease}
+.cs-portrait .cs-pair{padding:0 40px 80px}
+.cs-pair.is-leaving{opacity:0;pointer-events:none}
+.cs-pair-card{width:min(1100px,100%);display:flex;flex-direction:column;gap:18px}
+.cs-pair-code{font-size:168px;line-height:1;font-weight:700;letter-spacing:.06em;font-variant-numeric:tabular-nums;white-space:nowrap;color:rgb(196,161,240);user-select:text;-webkit-user-select:text}
+.cs-portrait .cs-pair-code{font-size:112px}
+.cs-pair-say{margin:0;max-width:1000px;font-size:34px;line-height:1.35;color:rgba(235,235,245,.9)}
+.cs-portrait .cs-pair-say{font-size:24px}
+.cs-pair-note{margin:0;font-size:22px;line-height:1.4;color:rgba(235,235,245,.56)}
+.cs-portrait .cs-pair-note{font-size:17px}
+.cs-line.is-gone{color:rgb(255,212,138)}

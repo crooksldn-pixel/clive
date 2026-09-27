@@ -299,7 +299,13 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # name, and one of an order, an objective or a list). The rules for using them are in the
     # system prompt once. What it buys is "put 1047 on the office screen" doing exactly that,
     # and "has 1047 been packed?" answered from what was marked on the screen.
-    assert total <= 36_345, f"the tool block is {total} bytes"
+    #
+    # 36_670 is approving a screen (app/tools/display_tools.py screen_pair, the 2026-09-27
+    # deploy review round 8, B-02), +320 bytes measured (36,345 before, 36,665 after): the
+    # screen's full name and the six-digit code it shows. What it buys is a newly named screen
+    # bound to the device the owner read the code from, instead of to whichever device asked for
+    # the name first; the rule for using it is one line of the system prompt.
+    assert total <= 36_670, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

@@ -53,6 +53,17 @@
       </div>
     </form>
 
+    <!-- A named screen shows nothing until the owner approves it: he reads this code off it and
+         tells CLIVE (round 8, B-02). -->
+    <section id="pairing" class="cs-pair" hidden aria-live="polite">
+      <div class="cs-pair-card">
+        <h1 class="cs-namer-h">Approve this screen</h1>
+        <div id="pair-code" class="cs-pair-code"></div>
+        <p id="pair-say" class="cs-pair-say"></p>
+        <p id="pair-note" class="cs-pair-note"></p>
+      </div>
+    </section>
+
     <!-- The start-up's name: an acronym that folds into CLIVE. -->
     <div id="mark" class="bt-mark" aria-hidden="true">
       <div id="mark-line" class="bt-line"><span class="bt-fill"></span></div>
