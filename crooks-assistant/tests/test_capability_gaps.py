@@ -713,3 +713,341 @@ def test_a_clean_tried_again_uses_the_copy_it_already_made(tmp_path, monkeypatch
     gaps_module.install(path)
     copies = list(path.parent.glob("gaps.json.*.before-clean"))
     assert len(copies) == 1 and copies[0].read_bytes() == raw and path.read_bytes() != raw
+
+
+# --------------------------------------------------------------------------- round 8, F-07
+
+
+def _hostile_known_values(path) -> None:
+    """A record whose known fields hold every kind of JSON value that is not what the field says:
+    digits int() refuses, booleans, lists and objects nested where a value goes, times that are
+    valid but cannot be put in UTC, and text UTF-8 cannot write."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    edge = "0001-01-01T00:00:00+01:00"      # a real time, before year 1 in UTC
+    late = "9999-12-31T23:59:59-01:00"      # a real time, after 9999 in UTC
+    good = "2026-09-26T21:30:20+00:00"
+    path.write_text(json.dumps({
+        "version": [1], "seeded": edge,
+        "gaps": {
+            "web search": {"label": "\ud800", "name": {"x": 1}, "hits": "²", "sources": {"blocker": "٣", "tool": True},
+                           "objectives": [["obj_00000001"], {"obj": 1}, "obj_00000001"], "requests": [["find-web-search"]],
+                           "seen": [edge, late, [good], {"t": good}, good, True], "first_seen": [good], "last_seen": edge,
+                           "dropped": {"seen": "²", "requests": False, "objectives": {"n": 1}}, "seen_dropped_last": late,
+                           "uncertain": [["links"], {"history": 1}, True]},
+            "maps": {"label": ["No maps"], "hits": True, "sources": [["blocker", 2]], "objectives": {"a": 1},
+                     "requests": {"find-web-search": 1}, "seen": {"t": good}, "first_seen": {"t": good},
+                     "last_seen": late, "dropped": [["seen", 3]], "uncertain": "links"},
+        },
+        "builds": {"find-web-search": {"objective_id": ["obj_00000001"], "gaps": [["web search"], {"k": 1}, "web search"],
+                                       "proposed_at": edge, "filed_at": [good], "built_at": {"t": good}, "merged_at": late,
+                                       "live_at": True, "progress": ["done"], "candidate_sha": {"sha": "c" * 40}}},
+        "misjudged": {"best_sellers": {"count": "²", "first_seen": edge, "last_seen": late},
+                      "comparison": {"count": True, "first_seen": [good], "last_seen": {"t": good}},
+                      "other": {"count": [3], "first_seen": good}},
+    }, ensure_ascii=True))
+
+
+def test_counts_and_times_that_are_not_what_they_say_never_raise_through_the_report_or_the_rewrite(tmp_path, monkeypatch, caplog):
+    """Round 8, F-07-VALUES: `_count` took any text isdigit() said yes to and int() refused '²';
+    `_strict_iso` let a valid time near year 1 with a positive offset raise OverflowError on its
+    way to UTC. The start-up rewrite caught the failure and left the file, and every report()
+    after it failed on the same value. Both are total now: each such value is dropped."""
+    path = tmp_path / "objectives" / "gaps.json"
+    _hostile_known_values(path)
+    before = path.read_bytes()
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+
+    # The report, on the file as it is, before anything has rewritten it.
+    first = gaps_module.GapLedger(path).report()
+    json.dumps(first, allow_nan=False)
+    assert path.read_bytes() == before, "a report reads; it never writes"
+
+    # The start-up rewrite: it completes, and what it keeps is what each field says it is.
+    ledger = gaps_module.install(path)
+    assert "not cleaned at startup" not in caplog.text and "left exactly as it was" not in caplog.text
+    (kept_copy,) = path.parent.glob("gaps.json.*.before-clean")
+    assert kept_copy.read_bytes() == before, "the original, byte for byte, before the rewrite"
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert stored["version"] == gaps_module.VERSION and "seeded" not in stored
+    web = stored["gaps"]["web search"]
+    assert web["hits"] == 0 and web["sources"] == {} and web["objectives"] == ["obj_00000001"]
+    assert web["requests"] == [] and web["seen"] == ["2026-09-26T21:30:20+00:00"]
+    assert web["label"] == "web search" and "name" not in web
+    assert web["last_seen"] == "2026-09-26T21:30:20+00:00", "a last hit that was not a time is the newest kept"
+    for field in ("first_seen", "seen_dropped_last", "dropped", "uncertain"):
+        assert field not in web, field
+    maps = stored["gaps"]["maps"]
+    assert maps["label"] == "maps" and maps["hits"] == 0 and maps["seen"] == [] and maps["objectives"] == []
+    for field in ("first_seen", "last_seen", "dropped", "uncertain"):
+        assert field not in maps, field
+    # With no time of its own at all it is not known to be stale, so it is not forgotten either.
+    build = stored["builds"]["find-web-search"]
+    assert build["gaps"] == [], "the gap does not name it back: no link"
+    for field in ("objective_id", "proposed_at", "filed_at", "built_at", "merged_at", "live_at", "progress", "candidate_sha"):
+        assert field not in build, field
+    assert stored["misjudged"] == {
+        "best_sellers": {"count": 0, "first_seen": None, "last_seen": None},
+        "comparison": {"count": 0, "first_seen": None, "last_seen": None},
+        "other": {"count": 0, "first_seen": "2026-09-26T21:30:20+00:00", "last_seen": None},
+    }
+
+    # The report after the rewrite says what the report before it said, and neither raised.
+    after = ledger.report()
+    assert after == first
+    assert [(g["key"], g["hits"], g["stage"]) for g in after["gaps"]] == [("web search", 0, "open"), ("maps", 0, "open")] \
+        or [(g["key"], g["hits"], g["stage"]) for g in after["gaps"]] == [("maps", 0, "open"), ("web search", 0, "open")]
+    assert gaps_module.GapLedger(path).repair() is None, "idempotent"
+
+    # And a blocker whose own time cannot be put in UTC is still counted, at the time it was noticed.
+    ledger.note_blocker("obj_00000002", "No web search", "web search", at="0001-01-01T00:00:00+01:00")
+    assert "gap record not updated" not in caplog.text
+    web = json.loads(path.read_text(encoding="utf-8"))["gaps"]["web search"]
+    assert web["hits"] == 1 and len(web["seen"]) == 2 and all(t > "2026-01-01" for t in web["seen"])
+
+
+def test_a_count_is_ascii_digits_or_a_whole_number_and_nothing_else():
+    count = gaps_module._count
+    for value in ("²", "٣", "１２", "1 ", " 1", "+1", "-1", "1.0", "0x10", "", "123456789", True, False, None, 1.0,
+                  [1], {"n": 1}, "1\n"):
+        assert count(value) == 0, repr(value)
+    assert count("12") == 12 and count("00000007") == 7 and count("99999999") == gaps_module._MAX_COUNT
+    assert count(5) == 5 and count(-5) == 0 and count(10**30) == gaps_module._MAX_COUNT
+    for value in ("0001-01-01T00:00:00+01:00", "9999-12-31T23:59:59-01:00", "2026-02-30T00:00:00", [], {}, 7, "x" * 41):
+        assert gaps_module._strict_iso(value) is None, repr(value)
+    assert gaps_module._strict_iso("0001-01-01T00:00:00-01:00") == "0001-01-01T01:00:00+00:00"
+
+
+def test_json_nested_deeper_than_the_parser_goes_is_unreadable_not_a_raise(tmp_path, monkeypatch):
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    deep = "[" * 200_000 + "]" * 200_000
+    raw = ('{"version": 1, "gaps": {"web search": {"hits": ' + deep + '}}, "builds": {}, "misjudged": {}}').encode()
+    path.write_bytes(raw)
+    assert gaps_module.GapLedger(path).report()["gaps"] == []
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    ledger = gaps_module.install(path)
+    (kept,) = path.parent.glob("gaps.json.*.unreadable")
+    assert kept.read_bytes() == raw and ledger.report()["gaps"] == []
+
+
+def _row(report: dict, key: str) -> dict:
+    return next(g for g in report["gaps"] if g["key"] == key)
+
+
+def test_the_first_live_fix_is_kept_when_two_merged_gaps_hold_twenty_one_live_builds(tmp_path, monkeypatch):
+    """Round 8, F-07-LINKS: _keep_requests kept the last twenty of equally ranked live builds, so
+    with twenty-one the first to go live could be the one let go; the count after the fix then
+    started at a later fix, and was called exact. Two legacy keys that clean to one, each with
+    live builds, and the earliest fix placed where "the last twenty" would drop it."""
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+
+    def at(hour: int, minute: int = 0) -> str:
+        return f"2026-09-20T{hour:02d}:{minute:02d}:00+00:00"
+
+    builds, sides = {}, (("Web  Search", range(0, 11)), ("web search", range(11, 21)))
+    gaps = {}
+    for key, numbers in sides:
+        requests = [f"live-fix-{n}" for n in numbers]
+        for n in numbers:
+            # live-fix-0 went live first, at 01:00; every other at 10:00 or later.
+            live = at(1) if n == 0 else at(10, n)
+            builds[f"live-fix-{n}"] = {"objective_id": "obj_00000001", "gaps": [key], "proposed_at": at(0),
+                                       "merged_at": live, "live_at": live}
+        gaps[key] = {"label": "No web search", "hits": 3, "sources": {"blocker": 3}, "objectives": [], "requests": requests,
+                     # Three hits between the first fix and the others, none after them.
+                     "seen": [at(2), at(3), at(4)] if key == "web search" else [], "first_seen": at(2), "last_seen": at(4)}
+    path.write_text(json.dumps({"version": 1, "gaps": gaps, "builds": builds, "misjudged": {}}))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    ledger = gaps_module.install(path)
+    kept = json.loads(path.read_text())["gaps"]["web search"]
+    assert len(kept["requests"]) == gaps_module.MAX_LINKS and "live-fix-0" in kept["requests"], kept["requests"]
+    assert kept["dropped"] == {"requests": 1} and "uncertain" not in kept, "a live fix kept: nothing let go matters"
+    row = ledger.report()["gaps"][0]
+    assert row["stage"] == "live" and row["stage_exact"] is True
+    assert row["hits_after_fix"] == 3 and row["hits_after_fix_exact"] is True, "counted from the first fix, 01:00"
+    assert row["not_kept"] == {"requests": 1} and row["uncertain"] == []
+    assert gaps_module.GapLedger(path).repair() is None, "idempotent"
+
+
+def test_links_let_go_with_no_live_fix_kept_leave_the_stage_uncertain(tmp_path, monkeypatch):
+    """Round 8, F-07-LINKS: with no live build among those kept, one let go could go live later
+    without the gap seeing it."""
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    builds = {f"find-web-{n}": {"objective_id": "obj_00000001", "gaps": ["web search"],
+                                "proposed_at": "2026-09-20T00:00:00+00:00"} for n in range(25)}
+    path.write_text(json.dumps({"version": 1, "misjudged": {}, "builds": builds, "gaps": {"web search": {
+        "label": "No web search", "hits": 1, "sources": {"blocker": 1}, "objectives": [], "requests": list(builds),
+        "seen": ["2026-09-21T00:00:00+00:00"]}}}))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    row = gaps_module.install(path).report()["gaps"][0]
+    assert row["stage"] == "proposed" and row["stage_exact"] is False
+    assert row["hits_after_fix"] is None and row["hits_after_fix_exact"] is False
+    assert row["not_kept"] == {"requests": 5} and row["uncertain"] == ["links"]
+
+
+def test_every_list_past_the_read_limit_is_counted_and_makes_what_it_could_change_uncertain(tmp_path, monkeypatch):
+    """Round 8, F-07-LINKS: requests past _MAX_READ, seen times past it and objectives past it
+    were let go without a count; a fix among the requests not read, or a hit among the times not
+    read, changed the report without it saying so."""
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    limit = gaps_module._MAX_READ
+    fix = {"objective_id": "obj_00000001", "proposed_at": "2026-09-20T00:00:00+00:00",
+           "merged_at": "2026-09-20T01:00:00+00:00", "live_at": "2026-09-20T01:00:00+00:00"}
+    builds = {"early-fix": {**fix, "gaps": ["web search"]}, "late-fix": {**fix, "gaps": ["maps"]}}
+    seen = [f"2026-09-{1 + n // 1440:02d}T{(n // 60) % 24:02d}:{n % 60:02d}:00+00:00" for n in range(limit + 200)]
+    row = {"label": "x", "hits": 5, "sources": {"blocker": 5}, "first_seen": seen[0], "last_seen": seen[-1]}
+    path.write_text(json.dumps({"version": 1, "misjudged": {}, "builds": builds, "gaps": {
+        # The fix is read; what follows it past the limit is not, and neither are the oldest times.
+        "web search": {**row, "requests": ["early-fix", *(f"never-built-{n}" for n in range(limit + 99))],
+                       "seen": seen, "objectives": [f"obj_{n:08d}" for n in range(limit + 7)]},
+        # The fix is the one entry past the limit: never read.
+        "maps": {**row, "requests": [*(f"never-built-{n}" for n in range(limit)), "late-fix"], "seen": seen[-3:],
+                 "objectives": []},
+    }}))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    ledger = gaps_module.install(path)
+    report = ledger.report()
+    web, maps = _row(report, "web search"), _row(report, "maps")
+
+    # Every entry let go is counted: past the limit, not linked back, beyond what is kept.
+    assert web["not_kept"] == {"requests": limit + 99, "seen": limit + 200 - 50, "objectives": limit + 7 - gaps_module.MAX_LINKS}
+    assert web["uncertain"] == ["history", "links"]
+    assert web["stage"] == "live" and web["stage_exact"] is True, "live is as far as it goes"
+    assert web["hits_after_fix_exact"] is False, "requests and times went unread"
+
+    assert maps["not_kept"] == {"requests": limit + 1} and maps["uncertain"] == ["links"]
+    assert maps["stage"] == "open" and maps["stage_exact"] is False
+    assert maps["hits_after_fix"] is None and maps["hits_after_fix_exact"] is False, "a fix may have been let go"
+    assert gaps_module.GapLedger(path).repair() is None, "idempotent: what was let go is said once, and kept said"
+
+
+def test_a_fix_whose_count_after_it_is_a_floor_of_nought_is_not_called_held(tmp_path, monkeypatch):
+    """Round 8, F-07-LINKS: the summary counted every live fix reading nought as held, the ones
+    whose nought is only a floor included."""
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    fix = {"objective_id": "obj_00000001", "gaps": ["web search"], "proposed_at": "2026-09-20T00:00:00+00:00",
+           "merged_at": "2026-09-20T01:00:00+00:00", "live_at": "2026-09-20T01:00:00+00:00"}
+    path.write_text(json.dumps({"version": 1, "misjudged": {}, "builds": {"early-fix": fix}, "gaps": {"web search": {
+        "label": "x", "hits": 2, "sources": {"blocker": 2}, "objectives": [],
+        "requests": ["early-fix", *(f"never-built-{n}" for n in range(gaps_module._MAX_READ))],
+        "seen": ["2026-09-19T00:00:00+00:00"], "first_seen": "2026-09-19T00:00:00+00:00",
+        "last_seen": "2026-09-19T00:00:00+00:00"}}}))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    report = gaps_module.install(path).report()
+    row = report["gaps"][0]
+    assert row["stage"] == "live" and row["hits_after_fix"] == 0 and row["hits_after_fix_exact"] is False
+    assert report["summary"]["live"] == 1 and report["summary"]["fixes_held"] == 0 and report["summary"]["fixes_recurred"] == 0
+
+
+def test_a_build_naming_more_than_two_hundred_gap_keys_keeps_the_links_it_can_read(tmp_path, monkeypatch):
+    """Round 8, F-07-LINKS: _only_known_build cut a build's gap keys at MAX_GAPS before they were
+    cleaned, so a gap whose legacy key came 201st lost the build that fixed it, and nothing said
+    so. The keys are read to _MAX_READ now; past that, the gaps it may name are marked."""
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    limit = gaps_module._MAX_READ
+    live = {"objective_id": "obj_00000001", "proposed_at": "2026-09-20T00:00:00+00:00",
+            "merged_at": "2026-09-20T01:00:00+00:00", "live_at": "2026-09-20T01:00:00+00:00"}
+    # Legacy spellings of one key, 240 of them, then the one that names the gap as it is stored.
+    spellings = [("Web" + " " * (n % 7 + 1) + "Search" + "!" * (n // 7)) for n in range(240)]
+    many = [f"other gap {n}" for n in range(limit + 5)]
+    builds = {"wide-fix": {**live, "gaps": [*spellings, "maps"]},
+              "wider-fix": {**live, "gaps": [*many, "carrier tracking"]}}
+    row = {"label": "x", "hits": 1, "sources": {"blocker": 1}, "objectives": [], "seen": ["2026-09-21T00:00:00+00:00"],
+           "first_seen": "2026-09-21T00:00:00+00:00", "last_seen": "2999-01-01T00:00:00+00:00"}
+    path.write_text(json.dumps({"version": 1, "misjudged": {}, "builds": builds, "gaps": {
+        "web search": {**row, "requests": ["wide-fix"]}, "maps": {**row, "requests": ["wide-fix"]},
+        "carrier tracking": {**row, "requests": ["wider-fix"]}}}))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    report = gaps_module.install(path).report()
+    for key in ("web search", "maps"):
+        got = _row(report, key)
+        assert got["stage"] == "live" and got["hits_after_fix"] == 1 and got["hits_after_fix_exact"] is True, key
+        assert got["not_kept"] == {} and got["uncertain"] == [], key
+    carrier = _row(report, "carrier tracking")
+    assert carrier["stage"] == "open" and carrier["stage_exact"] is False and carrier["hits_after_fix_exact"] is False
+    assert carrier["not_kept"] == {"requests": 1} and carrier["uncertain"] == ["links"]
+    assert sorted(json.loads(path.read_text())["builds"]["wide-fix"]["gaps"]) == ["maps", "web search"]
+    assert gaps_module.GapLedger(path).repair() is None, "idempotent"
+
+
+def _second_dir_flush_fails(monkeypatch, *, fail_on: int) -> list[str]:
+    """_fsync_dir fails on its `fail_on`th call only; every call is recorded."""
+    calls: list[str] = []
+    real = gaps_module._fsync_dir
+
+    def flaky(folder):
+        calls.append("dir")
+        if len(calls) == fail_on:
+            raise OSError(5, "I/O error", str(folder))
+        return real(folder)
+
+    monkeypatch.setattr(gaps_module, "_fsync_dir", flaky)
+    return calls
+
+
+def test_a_clean_whose_folder_flush_fails_after_the_replace_never_says_the_record_was_left_as_it_was(tmp_path, monkeypatch, caplog):
+    """Round 8, F-07-DURABILITY: _save replaced the file and then flushed its folder; when only
+    that second flush failed, start-up logged that the record was "left exactly as it was" though
+    the clean record had replaced it. That outcome is its own now: written, not confirmed on
+    disk, with the original's copy (flushed before the replace) named."""
+    from tests.fake_credentials import github_token
+
+    token = github_token("second-fsync")
+    path = tmp_path / "objectives" / "gaps.json"
+    raw = _legacy_record(path, token)
+    calls = _second_dir_flush_fails(monkeypatch, fail_on=2)
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    ledger = gaps_module.install(path)
+    assert calls == ["dir", "dir"], "the copy's folder, then the clean record's"
+    (copy,) = path.parent.glob("gaps.json.*.before-clean")
+    assert copy.read_bytes() == raw and token not in path.read_text(), "the replace happened"
+    assert "left exactly as it was" not in caplog.text and "not cleaned" not in caplog.text
+    assert "not confirmed on disk" in caplog.text and copy.name in caplog.text
+    assert not list(path.parent.glob(".*.tmp"))
+    # The clean record is not cleaned again over itself, and the next change saves normally.
+    caplog.clear()
+    ledger.note_blocker("obj_00000003", "No web search", "web search")
+    assert "not updated" not in caplog.text and "not confirmed" not in caplog.text
+    assert len(list(path.parent.glob("gaps.json.*.before-clean"))) == 1
+    assert json.loads(path.read_text())["gaps"]["web search"]["hits"] == 2
+
+
+def test_a_later_save_whose_folder_flush_fails_says_it_was_written_never_that_it_was_not(tmp_path, monkeypatch, caplog):
+    path = tmp_path / "objectives" / "gaps.json"
+    ledger = gaps_module.GapLedger(path)
+    ledger.note_blocker("obj_00000001", "No web search", "web search")   # clean from the start
+    calls = _second_dir_flush_fails(monkeypatch, fail_on=1)
+    ledger.note_blocker("obj_00000002", "No web search", "web search")
+    assert calls == ["dir"]
+    assert "gap record not updated" not in caplog.text
+    assert "gap record updated, but not confirmed on disk" in caplog.text
+    assert json.loads(path.read_text())["gaps"]["web search"]["hits"] == 2, "the update is what the file holds"
+    # A failure before the replace is still "not updated", and leaves no half-written file.
+    caplog.clear()
+    real_replace = gaps_module.os.replace
+    monkeypatch.setattr(gaps_module.os, "replace", lambda a, b: (_ for _ in ()).throw(OSError(28, "No space left")))
+    ledger.note_blocker("obj_00000003", "No web search", "web search")
+    assert "gap record not updated" in caplog.text and "not confirmed" not in caplog.text
+    assert json.loads(path.read_text())["gaps"]["web search"]["hits"] == 2
+    assert not list(path.parent.glob(".*.tmp"))
+    monkeypatch.setattr(gaps_module.os, "replace", real_replace)
+
+
+def test_a_change_on_a_record_cleaned_but_not_confirmed_goes_on_and_says_both(tmp_path, monkeypatch, caplog):
+    """The first change on a record not yet cleaned cleans it first; when that clean's second
+    flush fails, the clean is said as written and the change is still made."""
+    from tests.fake_credentials import github_token
+
+    path = tmp_path / "objectives" / "gaps.json"
+    _legacy_record(path, github_token("change-second-fsync"))
+    ledger = gaps_module.GapLedger(path)
+    _second_dir_flush_fails(monkeypatch, fail_on=2)
+    ledger.note_blocker("obj_00000003", "No web search", "web search")
+    assert "cleaned before this change and written, but not confirmed on disk" in caplog.text
+    assert "gap record not updated" not in caplog.text
+    assert json.loads(path.read_text())["gaps"]["web search"]["hits"] == 2

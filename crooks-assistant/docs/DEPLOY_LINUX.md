@@ -191,7 +191,10 @@ What every deploy must hold:
     `/proc/net/if_inet6` for IPv6).
 - **Reports must be private, or it will not start.** At start-up every report is set to 0600
   and every folder to 0700. Anything that cannot be fixed is moved into `reports/.withheld/`;
-  nothing is deleted. If the reports folder itself cannot be made private or read, the service
+  nothing is deleted to get it private. What is in `.withheld/` ages out like any report, by its
+  own time, after `test_session_keep_named_days`; a report folder goes only once everything in
+  it has. If the reports folder itself cannot be made private, looked at or read, or a report
+  in it cannot be withheld, the service checks three times, half a second apart, and then
   refuses to start. A rollback, not a retry, is the answer to that.
 - **A real phone gets through.** Opening `/whoami` on the owner's phone writes one line to the
   service's journal, without the login:
@@ -218,6 +221,12 @@ systemctl start crooks-assistant
 ```
 
 A newer build started afterwards cleans it again, keeping a fresh copy first.
+
+If the journal says `gap record cleaned at startup: the clean record has replaced the original,
+but is not confirmed on disk`, the folder could not be flushed after the replace: `gaps.json`
+holds the cleaned record, and the original named in that line was flushed before it. The steps
+above put it back. A later `gap record updated, but not confirmed on disk` means the same of an
+ordinary update; `gap record not updated` means the file was not replaced.
 
 ## Rolling back to the Mac
 
