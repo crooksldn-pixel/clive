@@ -42,6 +42,23 @@ _DRAWING = frozenset({"d", "points", "viewbox", "transform", "x", "y", "x1", "x2
 _SVG_CASE = {n.lower(): n for n in ("viewBox", "preserveAspectRatio", "gradientUnits", "gradientTransform",
                                     "patternUnits", "patternTransform", "clipPathUnits", "maskUnits", "markerWidth",
                                     "markerHeight", "refX", "refY", "stdDeviation", "textLength", "lengthAdjust")}
+# Attribute names are kept only from this list, or as aria-/data- names of letters and hyphens:
+# a name is written down too, and an arbitrary one could carry anything (F-02, third round).
+_KNOWN = frozenset({
+    "class", "id", "style", "type", "role", "title", "alt", "placeholder", "name", "for", "value", "src", "width",
+    "height", "hidden", "disabled", "checked", "selected", "readonly", "tabindex", "rows", "cols", "maxlength",
+    "min", "max", "step", "open", "lang", "dir", "colspan", "rowspan", "inert", "autocomplete", "enterkeyhint",
+    "inputmode", "xmlns", "xmlns:xlink", "viewbox", "d", "points", "fill", "stroke", "stroke-width",
+    "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "fill-rule", "clip-rule",
+    "opacity", "fill-opacity", "stroke-opacity", "transform", "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "r",
+    "rx", "ry", "offset", "stop-color", "preserveaspectratio", "focusable", "loading", "decoding", "draggable",
+    "contenteditable", "spellcheck", "translate",
+})
+_OPEN_NAME = re.compile(r"^(?:aria|data)-[a-z]+(?:-[a-z]+){0,5}$")
+# What a drawing attribute may hold: numbers and path or transform words, nothing else; and no
+# run of seven or more digits, which no coordinate has and a phone number does.
+_DRAWING_VALUE = re.compile(r"^(?:[\s,.+\-eE0-9MmLlHhVvCcSsQqTtAaZz()]|matrix|translate|scale|rotate|skewX|skewY)*$")
+_LONG_NUMBER = re.compile(r"\d{7,}")
 _NAME = re.compile(r"^[a-zA-Z_:][-a-zA-Z0-9_:.]{0,60}$")
 _TAG = re.compile(r"^[a-zA-Z][a-zA-Z0-9:-]{0,40}$")
 _INLINE_IMAGE = re.compile(r"^data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=\s]+$")
@@ -56,12 +73,6 @@ def _clean(text: str) -> str:
     from app.observability.timeline import scrub_text
 
     return scrub_text(text)
-
-
-def _credentials_only(text: str) -> str:
-    from app.observability.timeline import _SECRET
-
-    return _SECRET.sub("[secret]", text)
 
 
 class _Sanitiser(HTMLParser):
@@ -142,6 +153,8 @@ class _Sanitiser(HTMLParser):
             name = raw_name.lower()
             if not _NAME.fullmatch(raw_name) or name.startswith("on") or name in _URL_ATTRS:
                 continue
+            if name not in _KNOWN and not (_OPEN_NAME.fullmatch(name) and len(name) <= 40 and _clean(name) == name):
+                continue
             value = "" if raw_value is None else str(raw_value)
             if typed and name == "value":
                 if kind in ("hidden", "password"):
@@ -151,9 +164,11 @@ class _Sanitiser(HTMLParser):
                 if not _INLINE_IMAGE.fullmatch(value):
                     continue
             elif name == "style":
-                value = _credentials_only(_CSS_URL.sub("none", value))
+                value = _clean(_CSS_URL.sub("none", value))
             elif name in _DRAWING:
-                value = _credentials_only(value)
+                # Numbers only: a drawing value that is anything else is not kept at all.
+                if not _DRAWING_VALUE.fullmatch(value) or _LONG_NUMBER.search(value):
+                    continue
             else:
                 value = _clean(value)
             parts.append(f' {_SVG_CASE.get(name, raw_name)}="{escape(value, quote=True)}"')

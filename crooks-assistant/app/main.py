@@ -131,6 +131,14 @@ async def guard_and_freshness(request: Request, call_next):
         return JSONResponse(status_code=403, content={"error": "not allowed", "who": "unknown"})
     if allowed and login and login.lower() not in allowed:
         return JSONResponse(status_code=403, content={"error": "not allowed", "who": login})
+    # A request made on the host itself names nobody. With an allow-list it is not the owner
+    # (the 2026-09-26 deploy review, F-05): other processes run on this host — an engineering
+    # loop among them — so it may reach only what the host's own tools need, health and the
+    # test-session switch, unless the owner has said the host is him (CROOKS_WRITES_LOCAL_OWNER,
+    # the same switch the write boundary reads).
+    if allowed and not proxied and not login and not _local_may(request):
+        return JSONResponse(status_code=403, content={"error": "not allowed", "who": "local",
+                                                      "detail": "requests made on this host reach health and test sessions only"})
     response = await call_next(request)
     path = request.url.path
     if path in ("/", "/sw.js", "/manifest.webmanifest") or path.startswith("/static/"):
@@ -139,6 +147,20 @@ async def guard_and_freshness(request: Request, call_next):
 
 
 _STATE_CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# What a request made on the host itself may reach when an allow-list is set: `make status`,
+# the installer's health wait, and `make test-session-*`.
+_LOCAL_PATHS = ("/health", "/test-session/")
+
+
+def _local_may(request: Request) -> bool:
+    runtime = getattr(request.app.state, "runtime", None)
+    settings = getattr(runtime, "settings", None)
+    if settings is not None and getattr(settings, "writes_local_owner", False):
+        return True
+    path = request.url.path
+    if path == "/health" or path.startswith("/health/"):
+        return request.method in ("GET", "HEAD")
+    return path.startswith("/test-session/")
 
 
 def _cross_site(request: Request) -> bool:
