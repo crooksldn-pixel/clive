@@ -235,15 +235,15 @@ def test_harvest_records_personal_strings_but_not_order_names(session):
 
 def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else():
     """The changes the engineering bridge and the owner's screens made to the gate. The bridge
-    added one read; the screens added two tools (app/tools/display_tools.py) and one issued-id
-    rule, so a slip is only ever drawn from an order this conversation looked up. Every other
-    table is as it was: the same mutation verbs, the same personal-data reads, the same id
-    kinds, the same bounds."""
+    added one read; the screens added three tools (app/tools/display_tools.py; screen_pair in
+    round 8, B-02) and one issued-id rule, so a slip is only ever drawn from an order this
+    conversation looked up. Every other table is as it was: the same mutation verbs, the same
+    personal-data reads, the same id kinds, the same bounds."""
     from app.tools import gate
 
     assert "engineering_status" in gate._KNOWN_TOOLS
-    assert {"screen_list", "screen_show"} <= gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 36, "33 before, engineering_status, then screen_list and screen_show"
+    assert {"screen_list", "screen_show", "screen_pair"} <= gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 37, "33 before, engineering_status, then screen_list, screen_show and screen_pair"
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",

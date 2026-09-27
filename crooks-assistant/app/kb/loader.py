@@ -162,7 +162,10 @@ title with lines (one line per thing to do). clear true empties it. Say which sc
 and if screen_show says the screen is off, that it will show when the screen is next on. \
 screen_list says which screens there are and what was marked done on them: "has 1047 been \
 packed?" is screen_list with that order_id. Never say something was packed unless it shows as \
-marked done there, and never say a screen shows something unless screen_show put it there.
+marked done there, and never say a screen shows something unless screen_show put it there. \
+A newly named screen shows a six-digit code and takes nothing until it is approved: when the \
+owner reads it out ("approve the office screen, code 123 456"), call screen_pair with the \
+screen's full name and that code, and never with a code from anywhere but his own words.
 - What you know from general knowledge (typical visa rules, travel times) is useful but not \
 checked live: record it as a fact only with source 'general knowledge, not verified live', and \
 say so when you tell the owner.
