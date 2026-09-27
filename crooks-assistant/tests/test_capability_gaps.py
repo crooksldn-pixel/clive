@@ -330,3 +330,89 @@ def test_a_record_written_before_keys_were_cleaned_is_cleaned_when_read(record):
     assert token not in record.path.read_text()
     web = [g for g in report["gaps"] if g["key"].startswith("web search")]
     assert web, report["gaps"]
+
+
+def _legacy_record(path, token: str) -> bytes:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    raw = json.dumps({
+        "version": 1,
+        "gaps": {
+            f"web search {token}": {"label": f"No web search ({token})", "hits": 2, "sources": {"blocker": 2},
+                                    "objectives": ["obj_00000001"], "requests": [], "seen": ["2026-09-26T21:30:20+00:00"],
+                                    "first_seen": "2026-09-26T21:30:20+00:00", "last_seen": "2026-09-26T21:30:20+00:00"},
+            "Web  Search": {"label": "No web search", "hits": 1, "sources": {"blocker": 1}, "objectives": ["obj_00000002"],
+                            "requests": [], "seen": ["2026-09-26T23:00:00+00:00"],
+                            "first_seen": "2026-09-26T23:00:00+00:00", "last_seen": "2026-09-26T23:00:00+00:00"},
+        },
+        "builds": {}, "misjudged": {},
+    }, indent=1).encode("utf-8")
+    path.write_bytes(raw)
+    return raw
+
+
+def test_the_record_on_disk_is_cleaned_at_startup_and_the_original_kept_first(tmp_path, monkeypatch):
+    """F-07, fourth round: load() cleaned only in memory, so the live file stayed dirty until an
+    unrelated change saved it, and that save was one way. Now install() cleans the file on disk
+    at startup, after copying the exact original aside (0600, beside it, never overwritten)."""
+    from tests.fake_credentials import github_token
+
+    token = github_token("startup-gap")
+    path = tmp_path / "objectives" / "gaps.json"
+    raw = _legacy_record(path, token)
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    ledger = gaps_module.install(path)
+    assert token not in path.read_text(), "the file on disk is clean with no change having happened"
+    kept = sorted(path.parent.glob("gaps.json.*.before-clean"))
+    assert len(kept) == 1 and kept[0].read_bytes() == raw, "the original, byte for byte"
+    assert oct(kept[0].stat().st_mode & 0o777) == "0o600"
+    assert oct(path.parent.stat().st_mode & 0o777) == "0o700"
+    cleaned = json.loads(path.read_text())["gaps"]
+    assert "Web  Search" not in cleaned and cleaned["web search"]["hits"] == 1
+    assert sum(g["hits"] for g in cleaned.values()) == 3 and not any(token in k for k in cleaned)
+    # Rolling back is putting the copy back: nothing in it was lost.
+    assert json.loads(kept[0].read_text())["gaps"][f"web search {token}"]["hits"] == 2
+    # Idempotent: a clean record is left alone, and no second copy is made.
+    assert ledger.repair() is None and gaps_module.install(path).repair() is None
+    assert len(list(path.parent.glob("gaps.json.*.before-clean"))) == 1
+
+
+def test_a_clean_record_is_never_rewritten_or_copied(tmp_path, monkeypatch):
+    path = tmp_path / "objectives" / "gaps.json"
+    ledger = gaps_module.GapLedger(path)
+    ledger.note_blocker("obj_00000001", "No web search", "web search")
+    before = path.read_bytes()
+    mtime = path.stat().st_mtime_ns
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    assert gaps_module.install(path).repair() is None
+    assert path.read_bytes() == before and path.stat().st_mtime_ns == mtime
+    assert not list(path.parent.glob("gaps.json.*"))
+
+
+def test_nothing_is_saved_over_the_record_unless_the_original_could_be_kept(tmp_path, monkeypatch, caplog):
+    from tests.fake_credentials import github_token
+
+    token = github_token("no-copy")
+    path = tmp_path / "objectives" / "gaps.json"
+    raw = _legacy_record(path, token)
+
+    def cannot_copy(self, data, why):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(gaps_module.GapLedger, "_keep_original", cannot_copy)
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    ledger = gaps_module.install(path)
+    assert "left exactly as it was" in caplog.text
+    ledger.note_blocker("obj_00000003", "No web search", "web search")
+    assert path.read_bytes() == raw, "no copy, no save: the change is dropped, not made one way"
+    assert "gap record not updated" in caplog.text
+
+
+def test_an_unreadable_record_is_kept_aside_before_a_fresh_one_is_started(tmp_path):
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    path.write_bytes(b'{"version": 1, "gaps": {')   # cut off mid-write by something else
+    ledger = gaps_module.GapLedger(path)
+    ledger.note_blocker("obj_00000004", "No web search", "web search")
+    (kept,) = path.parent.glob("gaps.json.*.unreadable")
+    assert kept.read_bytes() == b'{"version": 1, "gaps": {'
+    assert json.loads(path.read_text())["gaps"]["web search"]["hits"] == 1

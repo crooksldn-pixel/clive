@@ -1,18 +1,21 @@
 """The test session, controlled from the Mac, and the tablet's own account of what it did.
 
-  POST /test-session/start   {name}   begin a named session (the Mac itself only)
-  GET  /test-session/status           the session in progress, if any (the Mac itself only)
-  POST /test-session/stop             end it (the Mac itself only)
+  POST /test-session/start   {name}   begin a named session (the owner only)
+  GET  /test-session/status           the session in progress, if any (the owner only)
+  POST /test-session/stop             end it (the owner only)
   POST /telemetry            {session_id, events: [...]}   the tablet's batch; always 204
   POST /telemetry/screen     {session_id, reason, html, …}  a copy of the screen; always 204
-  GET  /anticipation                  why anything was prefetched (the Mac itself only)
-  POST /anticipation/reset            forget every learned pattern (the Mac itself only)
+  GET  /anticipation                  why anything was prefetched (the owner only)
+  POST /anticipation/reset            forget every learned pattern (the owner only)
 
-The control routes answer only requests made on the Mac (no X-Forwarded-For: nothing
-`tailscale serve` proxied), so a tablet cannot start or stop a session. Telemetry is taken
-from any login the Mac admits, bounded, and dropped without a word when it names a
-conversation that belongs to another login. Nothing is ever waited for by the tablet: the
-answer is 204 before the events are written."""
+Every route here is the owner's alone (the 2026-09-27 deploy review, F-05A), by the same rule
+as his objectives and screens (app/routes/actions.py principal_check): one of his own devices,
+confirmed by Tailscale, or the server itself when CROOKS_WRITES_LOCAL_OWNER says it is him.
+Nothing else starts, reads or stops a session, reads or resets what anticipation learned, or
+puts an event in the record, whatever it can reach the port from. Telemetry from anyone else
+is dropped without a word (the page never learns anything from that route), bounded, and
+dropped too when it names a conversation that belongs to another login. Nothing is ever
+waited for by the tablet: the answer is 204 before the events are written."""
 
 from __future__ import annotations
 
@@ -68,8 +71,15 @@ MAX_SCREENS = 600          # per session: a day of heavy use is a few hundred
 _REASON = re.compile(r"[^a-z0-9_]+")
 
 
-def _local(request: Request) -> bool:
-    return not request.headers.get("x-forwarded-for")
+def _refused(request: Request) -> JSONResponse | None:
+    """The owner-only rule, as a 403 with its reason; None when the caller is the owner."""
+    from app.routes.actions import principal_check
+
+    who, why = principal_check(request)
+    if why:
+        log.warning("observe route refused: %s (path=%s)", why, request.url.path)
+        return JSONResponse(status_code=403, content={"code": "not_owner", "detail": why})
+    return None
 
 
 def _summary(session) -> dict[str, Any]:
@@ -78,8 +88,8 @@ def _summary(session) -> dict[str, Any]:
 
 @router.post("/test-session/start", response_model=None)
 async def start(request: Request) -> JSONResponse | dict:
-    if not _local(request):
-        return JSONResponse(status_code=403, content={"code": "not_local", "detail": "A test session is started on the Mac itself."})
+    if (refused := _refused(request)) is not None:
+        return refused
     runtime = request.app.state.runtime
     try:
         body = await request.json()
@@ -96,8 +106,8 @@ async def start(request: Request) -> JSONResponse | dict:
 
 @router.get("/test-session/status", response_model=None)
 async def status(request: Request) -> JSONResponse | dict:
-    if not _local(request):
-        return JSONResponse(status_code=403, content={"code": "not_local", "detail": "Asked on the Mac itself."})
+    if (refused := _refused(request)) is not None:
+        return refused
     runtime = request.app.state.runtime
     session = runtime.timeline.active
     if session is None:
@@ -108,8 +118,8 @@ async def status(request: Request) -> JSONResponse | dict:
 
 @router.post("/test-session/stop", response_model=None)
 async def stop(request: Request) -> JSONResponse | dict:
-    if not _local(request):
-        return JSONResponse(status_code=403, content={"code": "not_local", "detail": "A test session is stopped on the Mac itself."})
+    if (refused := _refused(request)) is not None:
+        return refused
     runtime = request.app.state.runtime
     session = runtime.timeline.stop()
     if session is None:
@@ -124,11 +134,11 @@ async def anticipation(request: Request, scope: str = "") -> JSONResponse | dict
 
     Every prediction the layer has made — the rule or the learned transition behind it, its
     confidence, how many observations were behind that, and whether it landed — beside the
-    learned table itself with its arithmetic shown. The Mac itself only: this is the owner's
-    view of what his machine has been guessing about him, and it is not the tablet's business.
+    learned table itself with its arithmetic shown. The owner only: this is his view of what
+    his machine has been guessing about him, and it is nobody else's business.
     """
-    if not _local(request):
-        return JSONResponse(status_code=403, content={"code": "not_local", "detail": "Asked on the Mac itself."})
+    if (refused := _refused(request)) is not None:
+        return refused
     from app.anticipation import engine as anticipation_mod
 
     return anticipation_mod.current().report(scope=str(scope or "")[:120])
@@ -136,10 +146,10 @@ async def anticipation(request: Request, scope: str = "") -> JSONResponse | dict
 
 @router.post("/anticipation/reset", response_model=None)
 async def anticipation_reset(request: Request) -> JSONResponse | dict:
-    """Forget every learned pattern. The Mac itself only; §19 asks for resettable and this is
-    it — the table goes, its file goes, and nothing that was learned survives."""
-    if not _local(request):
-        return JSONResponse(status_code=403, content={"code": "not_local", "detail": "Reset on the Mac itself."})
+    """Forget every learned pattern. The owner only; §19 asks for resettable and this is it —
+    the table goes, its file goes, and nothing that was learned survives."""
+    if (refused := _refused(request)) is not None:
+        return refused
     from app.anticipation import engine as anticipation_mod
 
     dropped = anticipation_mod.current().learner.reset()
@@ -154,6 +164,11 @@ async def telemetry(request: Request) -> Response:
     runtime = request.app.state.runtime
     timeline = runtime.timeline
     if timeline.active is None:
+        return Response(status_code=204)
+    from app.routes.actions import principal_check
+
+    # The owner's devices only put events in the record (F-05A): anything else is dropped here.
+    if principal_check(request)[1]:
         return Response(status_code=204)
     raw = await request.body()
     if len(raw) > MAX_BODY_BYTES:

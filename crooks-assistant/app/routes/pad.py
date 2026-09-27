@@ -58,7 +58,11 @@ MAX_BODY_BYTES = 16_000
 
 
 def _local(request: Request) -> bool:
-    return not request.headers.get("x-forwarded-for")
+    """Made on the server itself, by the one decision every gate reads (app/routes/actions.py
+    proxy_state): a forwarding header alone never makes a request remote or local."""
+    from app.routes.actions import made_on_this_server
+
+    return made_on_this_server(request)
 
 
 @router.post("/pad/heartbeat", response_model=None)

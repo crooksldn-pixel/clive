@@ -74,6 +74,16 @@ def configure(client, *, writes=True, logins=OWNER, local=False):
     app.state.allowed_logins = runtime.allowed_logins
 
 
+def as_owner(runtime, *, logins=OWNER, local=True):
+    """The server is the owner's, for the owner-only routes: his login is on the list and, by
+    default, a request made on the server itself speaks for him (CROOKS_WRITES_LOCAL_OWNER).
+    Writes are left as they are. With no allow-list those routes answer nobody (F-05B)."""
+    runtime.settings = runtime.settings.model_copy(
+        update={"allowed_logins": logins, "writes_local_owner": local, "tailscale_verify": False}
+    )
+    app.state.allowed_logins = runtime.allowed_logins
+
+
 async def staged(client, session_id="s1", note="Customer asked for an exchange"):
     session = client.runtime.sessions.get_or_create(session_id)
     session.issue(ORDER)
@@ -299,10 +309,16 @@ async def test_a_turn_response_carries_the_confirmation_card_not_a_result(client
 
 
 async def test_whoami_reports_the_tailscale_login_or_says_there_is_none(client):
+    configure(client)   # the check that tailscaled opened the connection is off here; see below
     body = (await client.get("/whoami", headers=PROXIED)).json()
-    assert body["login"] == OWNER and body["proxied"] is True
+    assert body["login"] == OWNER and body["proxied"] is True and body["through"] == "tailscale"
     body = (await client.get("/whoami")).json()
-    assert body["login"] is None and body["proxied"] is False
+    assert body["login"] is None and body["proxied"] is False and body["through"] == "direct"
+    # With it on (production), the same headers from something that is not tailscaled are refused
+    # before any route answers (F-05B; tests/test_proxy_identity.py).
+    client.runtime.settings = client.runtime.settings.model_copy(update={"tailscale_verify": True})
+    refused = await client.get("/whoami", headers=PROXIED)
+    assert refused.status_code == 403 and refused.json() == {"error": "not allowed", "who": "unverified proxy"}
 
 
 async def test_a_commit_never_reaches_claude(client):
@@ -857,6 +873,10 @@ async def test_a_login_header_tailscale_does_not_vouch_for_applies_nothing(clien
     configure(client)
     client.runtime.settings = client.runtime.settings.model_copy(update={"tailscale_verify": True})
     monkeypatch.setattr(identity, "cli_path", lambda configured="": "/usr/bin/tailscale")
+    # The connection itself came from tailscaled, from another device (F-05B's half of the
+    # check, tested on its own in tests/test_proxy_identity.py); the question here is whose.
+    identity.bind_peer_check(lambda client_, server: (True, "opened by tailscaled"))
+    identity.bind_self_check(lambda address: False)
     holders = {"100.64.0.9": "intruder@example.com"}
     identity.bind_runner(lambda cli, address: {"UserProfile": {"LoginName": holders.get(address, "")}})
     try:
@@ -880,6 +900,8 @@ async def test_a_login_header_tailscale_does_not_vouch_for_applies_nothing(clien
         assert proposal.caller == OWNER
     finally:
         identity.bind_runner(None)
+        identity.bind_peer_check(None)
+        identity.bind_self_check(None)
 
 
 async def test_a_gmail_change_the_credential_does_not_allow_is_refused_by_name(client, monkeypatch):

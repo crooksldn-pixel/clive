@@ -188,6 +188,8 @@ async def test_back_and_forward_restore_the_tab_and_the_scroll(client):
 
 
 async def test_another_logins_session_gets_nothing_of_it(client):
+    # Whose session it is, not whether tailscaled opened the connection (tests/test_proxy_identity.py).
+    client.runtime.settings = client.runtime.settings.model_copy(update={"tailscale_verify": False})
     session = client.runtime.sessions.get("br")
     session.login = "someone-else@example.com"
     refused = await client.post(

@@ -34,7 +34,9 @@ StartLimitBurst=5
 [Service]
 Type=exec
 WorkingDirectory={{ROOT}}
-ExecStart={{PYTHON}} -m uvicorn app.main:app --host {{HOST}} --port {{PORT}}
+# --no-proxy-headers: the app judges who opened each connection itself (app/identity.py);
+# uvicorn's own handling would replace that address with the forwarded one first.
+ExecStart={{PYTHON}} -m uvicorn app.main:app --host {{HOST}} --port {{PORT}} --no-proxy-headers
 
 Environment=HOME={{HOME}}
 Environment=PATH={{PATH}}

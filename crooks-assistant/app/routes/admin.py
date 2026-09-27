@@ -54,12 +54,19 @@ async def tools() -> dict:
 async def whoami(request: Request) -> dict:
     """Who Tailscale says is asking. Open this on the device to see the exact login to put in
     CROOKS_ALLOWED_LOGINS; nothing is guessed. A request made on the server itself has no login."""
+    from app.routes.actions import TAILSCALE, proxy_state
+
     login = request.headers.get("tailscale-user-login", "")
+    route, why = proxy_state(request)
     return {
         "login": login or None,
-        "proxied": bool(request.headers.get("x-forwarded-for")),
+        "proxied": route == TAILSCALE,
+        # How the request reached the app: direct, tailscale, this_host (the server through its
+        # own `tailscale serve`) — the answer every gate reads, shown so it can be checked.
+        "through": route,
+        "why": why or None,
         "note": (
             "This is the login to put in CROOKS_ALLOWED_LOGINS."
-            if login else "No Tailscale login on this request: it was made on the server itself."
+            if login and route == TAILSCALE else "No Tailscale device on this request: it was made on the server itself."
         ),
     }

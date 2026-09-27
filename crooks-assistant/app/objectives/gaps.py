@@ -112,6 +112,7 @@ class GapLedger:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self._lock = threading.Lock()
+        self._repaired = False
 
     # ---- reading and writing --------------------------------------------------------
     def load(self) -> dict[str, Any]:
@@ -122,14 +123,65 @@ class GapLedger:
         except (OSError, ValueError):
             log.warning("gap record unreadable at %s; starting a fresh one in memory", self.path)
             data = {}
-        if not isinstance(data, dict):
-            data = {}
-        data.setdefault("version", VERSION)
-        for name in ("gaps", "builds", "misjudged"):
-            if not isinstance(data.get(name), dict):
-                data[name] = {}
+        data = _shaped(data)
         _sanitise(data)
         return data
+
+    def repair(self) -> Path | None:
+        """Bring the file on disk up to today's rule, keeping the original first (the 2026-09-27
+        deploy review, F-07). load() cleans only in memory; without this the live file stayed
+        as it was until some unrelated change happened to save it, and that save was one way:
+        merged keys and dropped history could not be had back by rolling the code back.
+
+        When cleaning would change what is on disk, the file's exact bytes are copied first to
+        `<name>.<UTC time>.before-clean` beside it (0600 in the same 0700 folder, never
+        overwritten, so it holds what the file already held and nothing more), and only then is
+        the clean record saved. A file that cannot be parsed is copied the same way before
+        anything is written over it. Returns the copy's path, or None when nothing needed
+        doing. Raises if the copy cannot be made, so nothing is saved without one."""
+        with self._lock:
+            return self._repair_locked()
+
+    def _repair_locked(self) -> Path | None:
+        try:
+            raw = self.path.read_bytes()
+        except FileNotFoundError:
+            self._repaired = True
+            return None
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            parsed = None
+        if parsed is None or not isinstance(parsed, dict):
+            # Unreadable: kept aside before a change would start a fresh record over it.
+            copy = self._keep_original(raw, "unreadable")
+            self._repaired = True
+            return copy
+        shaped = _shaped(json.loads(json.dumps(parsed)))
+        clean = json.loads(json.dumps(shaped))
+        _sanitise(clean)
+        if clean == shaped:
+            self._repaired = True
+            return None
+        copy = self._keep_original(raw, "before-clean")
+        self._save(clean)
+        self._repaired = True
+        log.warning("gap record cleaned to today's rule; the original is kept at %s", copy.name)
+        return copy
+
+    def _keep_original(self, raw: bytes, why: str) -> Path:
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        copy = self.path.with_name(f"{self.path.name}.{stamp}.{why}")
+        n = 1
+        while copy.exists():
+            n += 1
+            copy = self.path.with_name(f"{self.path.name}.{stamp}-{n}.{why}")
+        fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return copy
 
     def _save(self, data: dict[str, Any]) -> None:
         folder = self.path.parent
@@ -151,6 +203,9 @@ class GapLedger:
         gap is the owner's, and a bookkeeping error must not cost him his answer."""
         try:
             with self._lock:
+                if not self._repaired:
+                    # Nothing is saved over a record that has not been kept aside first.
+                    self._repair_locked()
                 data = self.load()
                 fn(data)
                 self._save(data)
@@ -331,10 +386,22 @@ def _clean_key(key: str) -> str:
     return tool_key(key[6:]) if str(key).startswith("tool: ") else key_for(key)
 
 
+def _shaped(data: Any) -> dict[str, Any]:
+    """A record with its version and its three sections, whatever was read."""
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("version", VERSION)
+    for name in ("gaps", "builds", "misjudged"):
+        if not isinstance(data.get(name), dict):
+            data[name] = {}
+    return data
+
+
 def _sanitise(data: dict[str, Any]) -> None:
     """Every key, name and label the record holds, cleaned by today's rule, whatever wrote it:
-    a record written before keys were redacted is cleaned the first time it is read, and saved
-    clean with the next change (the 2026-09-26 deploy review, F-07). Idempotent."""
+    a record written before keys were redacted is cleaned in memory the first time it is read,
+    and on disk at startup by GapLedger.repair, which keeps the original first (the 2026-09-26
+    and 2026-09-27 deploy reviews, F-07). Idempotent."""
     renamed: dict[str, str] = {}
     gaps: dict[str, dict] = {}
     for key, gap in data["gaps"].items():
@@ -425,8 +492,15 @@ _LEDGER: GapLedger | None = None
 
 
 def install(path: Path) -> GapLedger:
+    """The process's record. Brought up to today's rule on disk now, with the original kept
+    aside first (GapLedger.repair); a repair that cannot keep the original leaves the file
+    untouched and says so, and the first change tries again before it saves."""
     global _LEDGER
     _LEDGER = GapLedger(path)
+    try:
+        _LEDGER.repair()
+    except Exception:  # noqa: BLE001 - never stops the process; nothing was written
+        log.warning("gap record not cleaned at startup; left exactly as it was", exc_info=True)
     return _LEDGER
 
 

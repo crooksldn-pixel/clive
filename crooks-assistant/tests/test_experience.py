@@ -437,16 +437,34 @@ async def test_a_record_reached_by_tapping_is_still_held_a_moment_later(stage):
     it away. So the record was gone a second later: Back onto it missed `replay()` and read
     Shopify again, and `open.entity` refused a record the owner had been looking at moments
     before — "I no longer have that one to hand" — for the one thing he had just tapped.
-    """
-    await stage.say("show me today's orders", session_id="held")
-    moved = await stage.touch("workflow.next", session_id="held")
-    ref = (moved.entity or {}).get("ref") or ""
-    assert ref, moved.raw
 
-    reopened = await stage.touch("open.entity", session_id="held", kind="order", ref=ref)
-    assert reopened.raw.get("ok") is True, reopened.raw
-    assert reopened.surfaces, "the record the owner just tapped onto drew nothing"
-    assert not reopened.reads, f"it was read again instead of replayed: {reopened.reads}"
+    The anticipation layer is switched off here, with a fresh one of its own: opening an order
+    is a signal it may prefetch on (the customer's history, the next order), and those reads
+    land in the same window as the tap's. Whether they finish inside it is scheduling, not the
+    defect (on 2026-09-27 they did on every run, on the trunk as well), and the layer is shared
+    by every test before this one. What is asserted is the tap's own read, which is the defect
+    this is about, and that the record was replayed; the layer's prefetches have tests of their
+    own (tests/test_anticipation.py).
+    """
+    from app.anticipation import engine as anticipation_mod
+    from app.anticipation.learning import Learner
+    from app.memory.prefetch import Prefetcher
+
+    anticipation_mod.install(anticipation_mod.Anticipator(
+        learner=Learner(), prefetcher=Prefetcher(), max_anticipated=0, max_speculative=0))
+    try:
+        await stage.say("show me today's orders", session_id="held")
+        moved = await stage.touch("workflow.next", session_id="held")
+        ref = (moved.entity or {}).get("ref") or ""
+        assert ref, moved.raw
+
+        reopened = await stage.touch("open.entity", session_id="held", kind="order", ref=ref)
+        assert reopened.raw.get("ok") is True, reopened.raw
+        assert reopened.raw["changed"].get("replayed") is True, "the record the Mac held was replayed"
+        assert reopened.surfaces, "the record the owner just tapped onto drew nothing"
+        assert not reopened.reads, f"it was read again instead of replayed: {reopened.reads}"
+    finally:
+        anticipation_mod.install(None)
 
 
 async def test_a_recipe_that_offers_nothing_does_not_wait_for_the_write_preflight(stage):

@@ -125,7 +125,7 @@ health:
 	@$(PY) scripts/healthcheck.py $(if $(V),-v,) $(if $(JSON),--json,)
 
 dev:
-	$(PY) -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+	$(PY) -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers --reload
 
 whisper-server:
 	$(PY) scripts/whisper_server.py

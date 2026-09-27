@@ -644,21 +644,34 @@ async def macs_client(monkeypatch):
             yield c
 
 
-async def test_the_debug_view_is_the_macs_own_and_the_reset_empties_the_table(macs_client):
-    """Inspectable and resettable (§19), and not from the tablet: this is the owner's view of
-    what his machine has been guessing about him."""
+async def test_the_debug_view_is_the_owners_own_and_the_reset_empties_the_table(macs_client):
+    """Inspectable and resettable (§19), and the owner's alone (the 2026-09-27 deploy review,
+    F-05A): this is his view of what his machine has been guessing about him."""
     engine_mod.install(engine_mod.Anticipator(learner=Learner(), prefetcher=Prefetcher(), memory=Memory()))
     try:
         learned = engine_mod.current().learner
         for _ in range(6):
             learned.observe("order_opened[old,unfulfilled]", "tracking_checked")
+        from app.main import app
+        from tests.test_actions_routes import as_owner
+
+        # A server nobody has said is anyone's answers nobody (F-05A/B): not the server itself.
+        assert (await macs_client.get("/anticipation")).status_code == 403
+        assert (await macs_client.post("/anticipation/reset")).status_code == 403
+        # The owner's: his own device may look, another login may not, and the server itself
+        # only when he has said it is him.
+        runtime = app.state.runtime
+        as_owner(runtime, logins="owner@example.com", local=False)
+        tablet = {"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"}
+        stranger = {"Tailscale-User-Login": "other@example.com", "X-Forwarded-For": "100.64.0.3"}
+        assert (await macs_client.get("/anticipation", headers=tablet)).status_code == 200
+        assert (await macs_client.get("/anticipation", headers=stranger)).status_code == 403
+        assert (await macs_client.post("/anticipation/reset", headers=stranger)).status_code == 403
+        assert (await macs_client.post("/anticipation/reset")).status_code == 403
+        as_owner(runtime, logins="owner@example.com", local=True)
         body = (await macs_client.get("/anticipation")).json()
         assert body["learned"]["rows"] and body["learned"]["rows"][0]["next"] == "tracking_checked"
         assert body["counts"]["max_per_source"] >= 1
-        # Anything that came through the proxy — a tablet — is refused both routes.
-        tablet = {"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"}
-        assert (await macs_client.get("/anticipation", headers=tablet)).status_code == 403
-        assert (await macs_client.post("/anticipation/reset", headers=tablet)).status_code == 403
         reset = await macs_client.post("/anticipation/reset")
         assert reset.status_code == 200 and reset.json()["transitions_dropped"] >= 1
         assert reset.json()["learned"]["rows"] == []

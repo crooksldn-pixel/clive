@@ -70,11 +70,14 @@ def caller_check(request: Request) -> tuple[str, str, str, str]:
     if not allowed:
         return "", "allow_list_missing", "No allowed Tailscale logins are configured (CROOKS_ALLOWED_LOGINS).", "allow_list_missing"
     login = request.headers.get("tailscale-user-login", "").strip()
-    # Only `tailscale serve` stamps an identity, and it stamps X-Forwarded-For on everything
-    # it proxies. A login header without it is a claim made by something on the Mac itself,
-    # and is worth nothing: that request is judged as what it is, a local one.
-    proxied = bool(request.headers.get("x-forwarded-for"))
-    if proxied:
+    # Only `tailscale serve` stamps an identity. A login header on a request that did not come
+    # through it is a claim made by something on the server itself, and is worth nothing: that
+    # request is judged as what it is, a local one. One that claims to have come through it and
+    # did not is refused outright (proxy_state).
+    route, why = proxy_state(request)
+    if route == FORGED:
+        return "", "identity_unverified", f"This request did not come through Tailscale: {why}.", "identity_unverified"
+    if route == TAILSCALE:
         if login and login.lower() in allowed:
             if settings.tailscale_verify:
                 # The header is a claim; Tailscale is asked who holds the forwarded address.
@@ -92,20 +95,26 @@ def caller_check(request: Request) -> tuple[str, str, str, str]:
 
 
 def principal_check(request: Request) -> tuple[str, str]:
-    """Who may read or change the owner's own records — objectives, builds, the gap record,
-    copies of the screen — as (who, why refused). The write boundary's rule without the writes
-    switch (the 2026-09-26 deploy review, F-05): with an allow-list, a proxied caller must be on
-    it and, when CROOKS_TAILSCALE_VERIFY is on, Tailscale must confirm the device is theirs;
-    a request made on the server itself is refused unless CROOKS_WRITES_LOCAL_OWNER says the
-    server is the owner. Other processes run on that host. With no allow-list (a private
-    development machine) everyone who can reach the port may, as before."""
+    """Who may read or change the owner's own records — objectives, builds, the gap record, his
+    screens, the test session and its telemetry, the anticipation table — as (who, why refused).
+    The write boundary's rule without the writes switch, failing the same way it does (the
+    2026-09-26 and 2026-09-27 deploy reviews, F-05): no allow-list, nobody; a request that
+    came through `tailscale serve` must carry a login on the list and, when
+    CROOKS_TAILSCALE_VERIFY is on, Tailscale must confirm the device is theirs; one that claims
+    to have come through it and did not is refused; a request made on the server itself is
+    refused unless CROOKS_WRITES_LOCAL_OWNER says the server is the owner. Other processes run
+    on that host."""
     runtime = getattr(request.app.state, "runtime", None)
     allowed = getattr(runtime, "allowed_logins", ()) if runtime is not None else ()
     if not allowed:
-        return "local", ""
+        # As caller_check: an empty list is a server nobody has said is anyone's.
+        return "", "No allowed logins are set on the server (CROOKS_ALLOWED_LOGINS)."
     settings = runtime.settings
     login = request.headers.get("tailscale-user-login", "").strip()
-    if request.headers.get("x-forwarded-for"):
+    route, why = proxy_state(request)
+    if route == FORGED:
+        return "", f"This request did not come through Tailscale: {why}."
+    if route == TAILSCALE:
         if not login or login.lower() not in allowed:
             return "", "This login may not use this."
         if settings.tailscale_verify:
@@ -129,13 +138,61 @@ async def require_principal(request: Request) -> None:
         raise HTTPException(status_code=403, detail=why)
 
 
+# How a request reached the app. One answer, used by the middleware, the write boundary and the
+# owner-only rule alike, so that the three can never disagree about it.
+DIRECT = "direct"          # made on this server: no forwarding header
+TAILSCALE = "tailscale"    # came through `tailscale serve` from one of the tailnet's devices
+THIS_HOST = "this_host"    # came through `tailscale serve`, sent by this server to itself
+FORGED = "forged"          # carries forwarding headers and did not come through tailscaled
+_PROXY_KEY = "crooks.proxy_state"
+
+
+def proxy_state(request: Request) -> tuple[str, str]:
+    """(route, why) for this request; worked out once and kept on the request.
+
+    `tailscale serve` stamps X-Forwarded-For on everything it proxies, but so can any process
+    on the server (the 2026-09-27 deploy review, F-05B). With CROOKS_TAILSCALE_VERIFY on (the
+    default, and production), a forwarded request counts as proxied only when the kernel says
+    tailscaled opened the connection it arrived on (app/identity.py), and not when the address
+    it was forwarded for is this server's own. With the check off (a development machine, the
+    offline tests) the header is taken as it always was."""
+    cached = request.scope.get(_PROXY_KEY)
+    if cached is not None:
+        return cached
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if not forwarded:
+        result = (DIRECT, "")
+    else:
+        runtime = getattr(request.app.state, "runtime", None)
+        settings = getattr(runtime, "settings", None)
+        if not bool(getattr(settings, "tailscale_verify", True)):
+            result = (TAILSCALE, "")
+        else:
+            from app import identity
+
+            ok, why = identity.peer_is_tailscaled(request.scope.get("client"), request.scope.get("server"))
+            if not ok:
+                result = (FORGED, why)
+            elif identity.is_this_host(forwarded):
+                result = (THIS_HOST, "sent through tailscale serve by this server itself")
+            else:
+                result = (TAILSCALE, "")
+    request.scope[_PROXY_KEY] = result
+    return result
+
+
+def made_on_this_server(request: Request) -> bool:
+    """A request made on the server itself: no forwarding header, or sent by the server to
+    itself through `tailscale serve`. Never one that only claims a forwarding header."""
+    return proxy_state(request)[0] in (DIRECT, THIS_HOST)
+
+
 def caller_identity(request: Request) -> str:
     """Who is asking, for binding a conversation to them: the proxied login, or "local" for
-    a request made on the Mac itself. The middleware has already refused a proxied request
-    with no login, so this is never empty."""
+    a request made on the server itself. The middleware has already refused a proxied request
+    with no login, and one that only claims to be proxied, so this is never empty."""
     login = request.headers.get("tailscale-user-login", "").strip().lower()
-    proxied = bool(request.headers.get("x-forwarded-for"))
-    return login if proxied and login else "local"
+    return login if proxy_state(request)[0] == TAILSCALE and login else "local"
 
 
 def session_matches(session, request: Request) -> bool:

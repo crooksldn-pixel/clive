@@ -199,7 +199,8 @@ async def client(monkeypatch, tmp_path):
     london_now(monkeypatch)
     async with app.router.lifespan_context(app):
         runtime = app.state.runtime
-        configure(runtime_client := type("C", (), {"runtime": runtime})())
+        # The owner's server: the test session is started from the server itself (F-05A).
+        configure(runtime_client := type("C", (), {"runtime": runtime})(), local=True)
         store = FlowStore()
         box = FakeGmail()
         inbox = Inbox()

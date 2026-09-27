@@ -223,7 +223,9 @@ async def test_the_watchdog_and_the_dismissal_reach_the_record_with_their_fields
     from pathlib import Path
 
     from app.observability.timeline import read_events
+    from tests.test_actions_routes import as_owner
 
+    as_owner(client.runtime)   # the test session is the owner's to start (F-05A)
     await client.post("/test-session/start", json={"name": "watchdog"})
     conversation, _done, undo = await note_applied(client)
     assert conversation is not None
@@ -232,7 +234,7 @@ async def test_the_watchdog_and_the_dismissal_reach_the_record_with_their_fields
         {"kind": "undo_dismissed", "proposal_id": undo.proposal_id, "reason": "expired"},
     ]}, headers=PROXIED)
     assert posted.status_code == 204 and posted.headers["x-crooks-telemetry"] == "2"
-    stopped = (await client.post("/test-session/stop")).json()
+    stopped = (await client.post("/test-session/stop", headers=PROXIED)).json()   # from his device
     client.runtime.timeline.flush()
     events = read_events(Path(stopped["path"]))
     watchdog = next(e for e in events if e["kind"] == "tablet_action_watchdog")

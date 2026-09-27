@@ -150,10 +150,24 @@ async def client(monkeypatch, tmp_path):
         runtime.timeline.stop()
 
 
-async def test_the_session_is_controlled_from_the_mac_only_and_seen_by_every_poll(client):
-    assert (await client.post("/test-session/start", json={"name": "x"}, headers=PROXIED)).status_code == 403
-    assert (await client.get("/test-session/status", headers=PROXIED)).status_code == 403
-    assert (await client.post("/test-session/stop", headers=PROXIED)).status_code == 403
+async def test_the_session_is_controlled_by_the_owner_only_and_seen_by_every_poll(client):
+    """The 2026-09-27 deploy review, F-05A: these answered any unproxied caller on the server
+    and refused every one of the owner's own devices. Now the owner-only rule decides."""
+    from tests.test_actions_routes import OWNER, as_owner
+
+    # No allow-list: a server nobody has said is anyone's answers nobody, here or proxied.
+    for headers in (PROXIED, {}):
+        assert (await client.post("/test-session/start", json={"name": "x"}, headers=headers)).status_code == 403
+        assert (await client.get("/test-session/status", headers=headers)).status_code == 403
+        assert (await client.post("/test-session/stop", headers=headers)).status_code == 403
+    # His list, and the server itself not said to be him: his device may, the server may not,
+    # and another login is refused before the route is reached.
+    as_owner(client.runtime, logins=f"{OWNER}, other@example.com", local=False)
+    assert (await client.get("/test-session/status", headers=PROXIED)).status_code == 200
+    local = await client.get("/test-session/status")
+    assert local.status_code == 403 and "CROOKS_WRITES_LOCAL_OWNER" in local.json()["detail"]
+    as_owner(client.runtime, logins=OWNER, local=True)
+    assert (await client.post("/test-session/stop", headers=STRANGER)).status_code == 403
     status = (await client.get("/test-session/status")).json()
     assert status == {"active": False, "last": None}
     health = (await client.get("/health")).json()
@@ -177,7 +191,7 @@ async def test_the_session_is_controlled_from_the_mac_only_and_seen_by_every_pol
 async def test_the_tablet_reports_are_bounded_owned_and_never_waited_for(client):
     from tests.test_actions_routes import OWNER
 
-    configure(client, logins=f"{OWNER}, other@example.com")
+    configure(client, logins=f"{OWNER}, other@example.com", local=True)
     assert (await client.post("/telemetry", json={"events": [{"kind": "render"}]}, headers=PROXIED)).status_code == 204, "no session: dropped, still 204"
     await client.post("/test-session/start", json={"name": "telemetry"})
     # A conversation belongs to its first login; a stranger's report about it is dropped.
@@ -324,7 +338,7 @@ def render(t: int, screen: str, *cards: dict, **extra) -> dict:
 async def mocked_hour(client, monkeypatch) -> tuple[Path, dict]:
     """Ten interactions, through the real routes, with fakes behind them. Returns the timeline's
     path and the turns' ids by scenario."""
-    configure(client)
+    configure(client, local=True)
     runtime = client.runtime
     store = Store()
     runtime.shopify = store
@@ -575,7 +589,7 @@ async def test_the_live_marks_survive_the_allow_list_and_carry_no_words(client):
     ON it, or the evidence the gate asks for would be stripped in silence."""
     from tests.test_actions_routes import OWNER
 
-    configure(client, logins=OWNER)
+    configure(client, logins=OWNER, local=True)
     await client.post("/test-session/start", json={"name": "live marks"})
     assert (await client.post("/turn", json={"text": "hello", "session_id": "mine"}, headers=PROXIED)).status_code == 200
     response = await client.post("/telemetry", json={"session_id": "mine", "events": [{
@@ -650,7 +664,7 @@ def test_test_mode_always_on_keeps_one_session_a_day_and_yields_to_a_named_one(t
 async def test_screen_copies_are_kept_only_when_switched_on_and_only_for_a_test_session(client):
     from tests.test_actions_routes import OWNER
 
-    configure(client, logins=f"{OWNER}, other@example.com")
+    configure(client, logins=f"{OWNER}, other@example.com", local=True)
     runtime = client.runtime
     copy_ = {"session_id": "mine", "reason": "error", "html": "<div id=\"app\">hello</div>", "turn_id": "turn_1",
              "viewport": {"w": 390, "h": 844, "dpr": 3}, "trigger": {"kind": "exception", "message": "boom"}}
@@ -687,7 +701,7 @@ async def test_a_screen_copy_is_kept_only_for_the_callers_own_conversation(clien
     not know, is dropped, not kept for whoever happens to be on the allow-list."""
     from tests.test_actions_routes import OWNER
 
-    configure(client, logins=f"{OWNER}, other@example.com")
+    configure(client, logins=f"{OWNER}, other@example.com", local=True)
     runtime = client.runtime
     runtime.settings = replace(runtime.settings, screen_snapshots=True) if hasattr(runtime.settings, "__dataclass_fields__") else runtime.settings.model_copy(update={"screen_snapshots": True})
     await client.post("/test-session/start", json={"name": "screens-auth"})
@@ -711,7 +725,7 @@ async def test_a_hostile_screen_copy_posted_directly_keeps_nothing_it_must_not(c
     from tests.fake_credentials import github_fine_grained_token, github_token
     from tests.test_actions_routes import OWNER
 
-    configure(client, logins=f"{OWNER}, other@example.com")
+    configure(client, logins=f"{OWNER}, other@example.com", local=True)
     runtime = client.runtime
     runtime.settings = replace(runtime.settings, screen_snapshots=True) if hasattr(runtime.settings, "__dataclass_fields__") else runtime.settings.model_copy(update={"screen_snapshots": True})
     await client.post("/test-session/start", json={"name": "hostile"})
@@ -742,6 +756,6 @@ async def test_a_hostile_screen_copy_posted_directly_keeps_nothing_it_must_not(c
                  "tracker.example", "example.com/?t=", "<script", "<!--", "onclick", '"leak"'):
         assert leak not in stored, leak
     body = json.loads(stored)
-    assert 'viewBox="0 0 24 24"' in body["html"] and 'd="M4 10v4 M8 7v10 0 0 24 24 12 12 12"' in body["html"]
+    assert 'viewBox="0 0 24 24"' in body["html"] and " d=" not in body["html"], "a path's value is never kept"
     assert 'src="data:image/png;base64,iVBORw0KGgo="' in body["html"], "a canvas the page drew is kept"
     assert "•" in body["html"] and body["body"]["mode"] == "orb"

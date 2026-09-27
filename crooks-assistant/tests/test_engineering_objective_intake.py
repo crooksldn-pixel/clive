@@ -184,6 +184,9 @@ PROTECTED_TESTS = {
     "test_gpt_reviewer.py": "app.orchestrator.reviewers.gpt",
     "test_remote_engineering.py": "app.remote_engineering",
     "test_github_acceptance.py": "app.orchestrator.github_acceptance",
+    "test_engineering_bridge.py": "app.engineering_bridge",
+    "test_build_from_clive.py": "engineering_tools",
+    "test_engineering_bridge_bounds.py": "app.engineering_bridge",
 }
 
 
@@ -215,7 +218,7 @@ def test_the_tests_that_hold_protected_code_are_out_of_every_scope(repo, path):
     "crooks-assistant/tests/test_support_queue.py",
     "crooks-assistant/tests/test_gaps.py",
     "crooks-assistant/tests/test_gate_wording.py",          # a new file beside a protected one
-    "crooks-assistant/tests/test_engineering_bridge.py",
+    "crooks-assistant/tests/test_displays.py",
     "crooks-assistant/tests/fixtures",
 ])
 def test_an_objective_may_still_name_ordinary_tests(repo, path):
@@ -259,7 +262,9 @@ def test_protected_paths_in_names_what_a_path_set_touches():
         "crooks-assistant/app/actions", ".gitleaks.toml")
     assert protected_paths_in(("crooks-assistant/app/tools/",)) == (
         "crooks-assistant/app/tools/gate.py", "crooks-assistant/app/tools/shopify_writes.py",
-        "crooks-assistant/app/tools/gmail_writes.py")
+        "crooks-assistant/app/tools/gmail_writes.py", "crooks-assistant/app/tools/engineering_tools.py")
+    # CLIVE's engineering bridge (the 2026-09-27 deploy review, F-ENG), and the tests that hold it.
+    assert protected_paths_in(("crooks-assistant/app/engineering_bridge/github.py",)) == ("crooks-assistant/app/engineering_bridge",)
 
 
 def test_a_recorded_objective_still_loads_after_its_scope_became_protected(repo, tmp_path):
