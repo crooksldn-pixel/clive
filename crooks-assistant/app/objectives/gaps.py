@@ -19,8 +19,13 @@ trunk), live (its candidate is in the commit this CLIVE is running), and how oft
 back once its fix was live. The gaps that recur most should be the ones CLIVE proposes to
 build, and a live fix should stop its gap recurring.
 
-One JSON file beside the objectives, written atomically. Nothing here is sent anywhere, and
-nothing here ever raises into a turn: a record that cannot be written is logged and dropped.
+One JSON file beside the objectives, written atomically, 0600 in a 0700 folder like the
+objectives themselves (the 2026-09-26 deploy review, F-07). What it keeps is the least that
+answers the question: a label per gap, passed through the timeline's own redaction (contact
+details and the customer names this process has been shown are gone before it is written), the
+objective ids, the build ids and times. A gap nobody has hit for KEEP_DAYS and nothing was built
+for is forgotten. Nothing here is sent anywhere, and nothing here ever raises into a turn: a
+record that cannot be written is logged and dropped.
 """
 
 from __future__ import annotations
@@ -31,7 +36,7 @@ import os
 import re
 import threading
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +44,7 @@ log = logging.getLogger("crooks.objectives.gaps")
 
 VERSION = 1
 MAX_GAPS = 200
+KEEP_DAYS = 180
 MAX_LABEL = 200
 MAX_KEY = 60
 MAX_LINKS = 20
@@ -110,9 +116,18 @@ class GapLedger:
         return data
 
     def _save(self, data: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        folder = self.path.parent
+        folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            if folder.stat().st_mode & 0o077:
+                folder.chmod(0o700)
+        except OSError:
+            pass
+        _forget_stale(data)
         tmp = self.path.with_name(f".{self.path.name}.{uuid.uuid4().hex[:8]}.tmp")
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, indent=2, ensure_ascii=False))
         os.replace(tmp, self.path)
 
     def _change(self, fn) -> None:
@@ -283,7 +298,7 @@ def _hit(data: dict[str, Any], key: str, source: str, text: str, objective_id: s
             # The least recently seen gap makes room: an old one-off is worth less than a new one.
             oldest = min(gaps, key=lambda k: gaps[k].get("last_seen") or "")
             del gaps[oldest]
-        gap = gaps[key] = {"label": " ".join(str(text or key).split())[:MAX_LABEL], "hits": 0, "sources": {},
+        gap = gaps[key] = {"label": _minimal(text or key), "hits": 0, "sources": {},
                            "objectives": [], "requests": [], "seen": [], "first_seen": at}
     if name and not gap.get("name"):
         gap["name"] = name[:1].upper() + name[1:]
@@ -294,6 +309,21 @@ def _hit(data: dict[str, Any], key: str, source: str, text: str, objective_id: s
     gap["seen"] = sorted(gap.get("seen", []) + [at])[-50:]
     if objective_id and objective_id not in gap["objectives"]:
         gap["objectives"] = (gap["objectives"] + [objective_id])[-MAX_LINKS:]
+
+
+def _minimal(text: str) -> str:
+    """A label as little as it can be: one line, bounded, with contact details and known
+    customer names taken out by the same rule every event on the timeline passes."""
+    from app.observability.timeline import scrub_text
+
+    return " ".join(scrub_text(str(text or "")).split())[:MAX_LABEL]
+
+
+def _forget_stale(data: dict[str, Any], now: datetime | None = None) -> None:
+    """Gaps nobody has hit for KEEP_DAYS, with no build ever proposed for them, are forgotten."""
+    cutoff = ((now or datetime.now(UTC)) - timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
+    for key in [k for k, g in data["gaps"].items() if (g.get("last_seen") or "") < cutoff and not g.get("requests")]:
+        del data["gaps"][key]
 
 
 def _stage(builds: list[dict]) -> str:

@@ -240,3 +240,43 @@ def test_the_running_commit_is_read_from_the_checkout(tmp_path):
     (git / "refs" / "heads" / "clive" / "trunk").write_text(TRUNK_SHA + "\n")
     assert engineering_tools.running_sha(tmp_path) == TRUNK_SHA
     assert engineering_tools.running_sha(tmp_path / "nowhere") == ""
+
+
+def test_the_record_is_private_minimal_and_forgets_what_nobody_hits(record, objectives):
+    """The 2026-09-26 deploy review, F-07."""
+    import os
+    import stat
+    from datetime import UTC, datetime, timedelta
+
+    from app.observability import timeline as timeline_module
+
+    timeline_module.note_names(["Greg Evans"])
+    try:
+        old = os.umask(0o022)
+        try:
+            record.note_blocker("obj_00000001", "Greg Evans (greg@example.com, 07700 900123) needs a custom price", "custom line price")
+        finally:
+            os.umask(old)
+    finally:
+        timeline_module.forget_names()
+    assert stat.S_IMODE(record.path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(record.path.parent.stat().st_mode) == 0o700
+    text = record.path.read_text()
+    for leak in ("Greg", "greg@example.com", "07700 900123"):
+        assert leak not in text, leak
+    assert not list(record.path.parent.glob(".*.tmp"))
+
+    import json
+
+    record.note_blocker("obj_00000002", "No carrier tracking", "carrier tracking")
+    record.note_blocker("obj_00000003", "No web search", "web search")
+    record.proposed("add-web-search", "obj_00000003", ["web search"])
+    stale = (datetime.now(UTC) - timedelta(days=gaps_module.KEEP_DAYS + 1)).isoformat(timespec="seconds")
+    data = json.loads(record.path.read_text())
+    for key in ("carrier tracking", "web search"):
+        data["gaps"][key]["last_seen"] = stale
+    record.path.write_text(json.dumps(data))
+    record.note_misjudged(["best_sellers"])   # any write applies the age
+    keys = {g["key"] for g in record.report()["gaps"]}
+    assert "carrier tracking" not in keys, "unhit for half a year, nothing built: forgotten"
+    assert {"web search", "custom line price"} <= keys, "a gap with a build proposed is kept"

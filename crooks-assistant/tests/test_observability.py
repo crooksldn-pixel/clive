@@ -680,3 +680,24 @@ async def test_screen_copies_are_kept_only_when_switched_on_and_only_for_a_test_
     client.runtime.timeline.flush()
     screens = [e for e in read_events(Path(stopped["path"])) if e["kind"] == "tablet_screen"]
     assert [(e["reason"], e["file"]) for e in screens] == [("error", "0001-error.json")]
+
+
+async def test_a_screen_copy_is_kept_only_for_the_callers_own_conversation(client):
+    """The 2026-09-26 deploy review, F-05: a copy naming no conversation, or one this server does
+    not know, is dropped, not kept for whoever happens to be on the allow-list."""
+    from tests.test_actions_routes import OWNER
+
+    configure(client, logins=f"{OWNER}, other@example.com")
+    runtime = client.runtime
+    runtime.settings = replace(runtime.settings, screen_snapshots=True) if hasattr(runtime.settings, "__dataclass_fields__") else runtime.settings.model_copy(update={"screen_snapshots": True})
+    await client.post("/test-session/start", json={"name": "screens-auth"})
+    folder = runtime.tests.screens_dir(runtime.timeline.own)
+    copy_ = {"reason": "error", "html": "<div id=\"app\">hello</div>", "viewport": {"w": 390, "h": 844, "dpr": 3}}
+    for body in (copy_, dict(copy_, session_id=""), dict(copy_, session_id="never-seen")):
+        assert (await client.post("/telemetry/screen", json=body, headers=PROXIED)).status_code == 204
+    assert not folder.exists() or not list(folder.glob("*.json")), "no conversation of the caller's: nothing kept"
+    assert (await client.post("/turn", json={"text": "hello", "session_id": "mine"}, headers=PROXIED)).status_code == 200
+    assert (await client.post("/telemetry/screen", json=dict(copy_, session_id="mine"), headers=STRANGER)).status_code == 204
+    assert not folder.exists() or not list(folder.glob("*.json")), "someone else's conversation: nothing kept"
+    assert (await client.post("/telemetry/screen", json=dict(copy_, session_id="mine"), headers=PROXIED)).status_code == 204
+    assert [p.name for p in folder.glob("*.json")] == ["0001-error.json"]

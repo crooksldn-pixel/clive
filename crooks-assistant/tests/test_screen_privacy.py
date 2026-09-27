@@ -179,3 +179,24 @@ def test_the_settings_carry_both_ages():
     assert settings.test_session_keep_named_days == 90
     store = TestSessions.from_settings(settings, always=False)
     assert store.keep_days == settings.test_session_keep_days and store.keep_named_days == 90 and not store.always
+
+
+def test_a_session_started_by_name_ends_by_itself_and_the_day_resumes(tmp_path):
+    """The 2026-09-26 deploy review, F-04: a named session left running would never end and never
+    age out, and with test mode always on it would stop the day's own session from rolling."""
+    clock = Clock()
+    store = TestSessions(tmp_path, clock=clock, always=True)
+    named = store.start("walkthrough")
+    clock.now += 2 * 3600
+    store._checked_at = -1.0
+    assert store.active().test_session_id == named.test_session_id, "hours in, it is still running"
+    clock.now += session_module.NAMED_MAX_S
+    store._checked_at = -1.0
+    current = store.active()
+    assert current is not None and current.name == AUTO_NAME, "past its day, the day's own takes over"
+    assert store.last().test_session_id == named.test_session_id and store.last().stopped_at == clock.now
+    plain = TestSessions(tmp_path / "plain", clock=clock)
+    started = plain.start("left-on")
+    clock.now += session_module.NAMED_MAX_S + 1
+    plain._checked_at = -1.0
+    assert plain.active() is None and plain.last().test_session_id == started.test_session_id
