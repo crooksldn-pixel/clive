@@ -53,6 +53,9 @@ from app.observability.session import TestSession, TestSessions
 log = logging.getLogger("crooks.observe")
 
 MAX_STRING = 6_000
+# What may wait for the writer at once: past either, an event is dropped as it arrives.
+MAX_PENDING_EVENTS = 5_000
+MAX_PENDING_BYTES = 8 * 1024 * 1024
 MAX_DEPTH = 6
 MAX_LIST = 400
 # How many recent correlation ids are kept in memory for `recent()`, and which kinds count as
@@ -80,6 +83,7 @@ _names: deque[str] = deque(maxlen=MAX_NAMES)
 _SECRET = re.compile(
     r"(shpat_[A-Za-z0-9]{8,}|shpca_[A-Za-z0-9]{8,}|shpss_[A-Za-z0-9]{8,}|sk-ant-[A-Za-z0-9_\-]{8,}|sk_[A-Za-z0-9]{20,}"
     r"|ya29\.[A-Za-z0-9_\-]{8,}|1//[A-Za-z0-9_\-]{20,}|xoxb-[A-Za-z0-9\-]{8,}"
+    r"|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_\-]{20,}"
     r"|eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"
     r"|(?i:bearer)\s+[A-Za-z0-9._\-]{16,})"
 )
@@ -172,7 +176,11 @@ class Timeline:
         # test session already writes reaches the recorder too, minimised on the way in. A
         # mirror never has a mirror of its own.
         self.mirror: Timeline | None = None
-        self._queue: queue.SimpleQueue = queue.SimpleQueue()
+        # Bounded where events come in, not only where they go out (the 2026-09-26 deploy
+        # review, F-09): a writer that stalls must not let memory grow without end. Past either
+        # bound an event is dropped at once and counted.
+        self._queue: queue.Queue = queue.Queue(maxsize=MAX_PENDING_EVENTS)
+        self._pending_bytes = 0
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._seq = 0
@@ -265,9 +273,21 @@ class Timeline:
             event = scrub(event)
             self._note(event)
             line = json.dumps(event, ensure_ascii=False, default=str)
-            self._queue.put((self.sessions.timeline_path(session), line))
+            size = len(line.encode("utf-8"))
+            path = self.sessions.timeline_path(session)
+            queued = False
+            with self._lock:
+                if self._pending_bytes + size <= MAX_PENDING_BYTES:
+                    try:
+                        self._queue.put_nowait((path, line))
+                        self._pending_bytes += size
+                        queued = True
+                    except queue.Full:
+                        pass
+                if not queued:
+                    self._dropped += 1
             self._ensure_writer()
-            return event
+            return event if queued else None
         except Exception as exc:  # noqa: BLE001 — observability never takes a turn down
             self._dropped += 1
             log.debug("timeline event dropped: %s", exc)
@@ -317,6 +337,9 @@ class Timeline:
                 except queue.Empty:
                     break
                 batch.setdefault(more_path, []).append(more)
+            taken = sum(len(one.encode("utf-8")) for lines in batch.values() for one in lines)
+            with self._lock:
+                self._pending_bytes = max(0, self._pending_bytes - taken)
             for target, lines in batch.items():
                 self._append(target, lines)
 

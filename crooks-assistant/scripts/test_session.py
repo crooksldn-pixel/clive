@@ -143,7 +143,7 @@ def cmd_report(args) -> int:
     if path is None:
         print("no timeline found" + (f" for {args.session!r}" if args.session else ": start and stop a session first"), file=sys.stderr)
         return 1
-    out_dir = Path(args.out) if args.out else ROOT / "reports"
+    out_dir = Path(args.out) if args.out else Path(getattr(settings, "reports_dir", ROOT / "reports"))
     _prune_reports(out_dir, settings)
     written = write_report(path, out_dir)
     print(written)
@@ -160,7 +160,7 @@ def cmd_proposals(args) -> int:
     if path is None:
         print("no timeline found" + (f" for {args.session!r}" if args.session else ": start and stop a session first"), file=sys.stderr)
         return 1
-    out_dir = Path(args.out) if args.out else ROOT / "reports"
+    out_dir = Path(args.out) if args.out else Path(getattr(settings, "reports_dir", ROOT / "reports"))
     _prune_reports(out_dir, settings)
     written = write_proposals(path, out_dir)
     print(written)
@@ -183,7 +183,7 @@ def cmd_screens(args) -> int:
     if not screens.is_dir() or not any(screens.glob("*.json")):
         print(f"no screens were kept for {path.stem}: is CROOKS_SCREEN_SNAPSHOTS=true, and has the page been used since?", file=sys.stderr)
         return 1
-    out_dir = Path(args.out) if args.out else ROOT / "reports" / f"{path.stem}{SCREENS_SUFFIX}"
+    out_dir = Path(args.out) if args.out else Path(getattr(settings, "reports_dir", ROOT / "reports")) / f"{path.stem}{SCREENS_SUFFIX}"
     _prune_reports(out_dir.parent, settings)
     private_dir(out_dir)   # the drawing script writes its pictures 0600 inside it (umask 077)
     script = ROOT / "scripts" / "browser" / "session_screens.js"

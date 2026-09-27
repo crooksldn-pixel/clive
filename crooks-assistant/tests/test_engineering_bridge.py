@@ -292,10 +292,20 @@ async def test_a_caller_can_name_neither_its_base_nor_its_checks(fake, bound):
     paths, checks, _ = engineering_tools.default_checks(
         ["crooks-assistant/tests/test_ok.py", "crooks-assistant/tests/../x.py", "crooks-assistant/tests/test_$(x).py",
          "crooks-assistant/tests/web/ui.test.js", "crooks-assistant/app/fastpath"], "bridge-demo-one", python="/p")
+    regression = {"name": "regression", "argv": ["/p", "-m", "pytest", "-q", "-m", "not live", *engineering_tools.REGRESSION_TESTS],
+                  "cwd": "crooks-assistant"}
     assert checks == [
         {"name": "tests", "argv": ["/p", "-m", "pytest", "-q", "tests/test_ok.py"], "cwd": "crooks-assistant"},
+        regression,
         {"name": "ruff", "argv": ["/p", "-m", "ruff", "check", "app", "config", "scripts", "tests"], "cwd": "crooks-assistant"},
     ]
+    # F-06, second round: the regression check does not depend on what the request names.
+    _, other, _ = engineering_tools.default_checks(["crooks-assistant/web/alpha.js"], "bridge-demo-two", python="/p")
+    assert other[1] == regression
+    from app.orchestrator.objectives import PROTECTED_PATHS
+
+    assert all(f"crooks-assistant/{t}" in PROTECTED_PATHS for t in engineering_tools.REGRESSION_TESTS), \
+        "every regression module is protected, so no build can weaken what judges it"
 
 
 # ------------------------------------------------------------------ not connected
@@ -468,8 +478,9 @@ async def test_the_inbox_id_is_issued_by_the_read_and_the_write_is_staged_for_th
     # The paths asked for, and the test module the build must write, which its check runs.
     assert facts["May change"] == "crooks-assistant/app/engineering_bridge, crooks-assistant/tests/test_bridge_demo_one.py"
     py = engineering_tools._check_python
-    assert facts["Checks"] == (f"tests: {py} -m pytest -q tests/test_bridge_demo_one.py (in crooks-assistant); "
-                               f"ruff: {py} -m ruff check app config scripts tests (in crooks-assistant)")
+    assert facts["Checks"] == "; ".join(f"{c['name']}: {' '.join(c['argv'])} (in {c['cwd']})" for c in served().record["checks"])
+    assert facts["Checks"].startswith(f"tests: {py} -m pytest -q tests/test_bridge_demo_one.py (in crooks-assistant); regression: ")
+    assert facts["Checks"].endswith(f"ruff: {py} -m ruff check app config scripts tests (in crooks-assistant)")
     assert facts["Base"] == f"clive/trunk at {BASE_SHA[:12]}"
 
     result = await _authorise(engine, clock, session, proposal)

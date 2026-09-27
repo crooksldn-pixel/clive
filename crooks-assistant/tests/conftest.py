@@ -24,6 +24,8 @@ os.environ.setdefault("CROOKS_SECRET_DIR", os.path.join(_TEST_STATE, "secrets"))
 # every runtime a test builds installs both, and the gap record counts each unregistered tool
 # a gate test reaches for.
 os.environ.setdefault("CROOKS_OBJECTIVES_DIR", os.path.join(_TEST_STATE, "objectives"))
+# And the reports folder, which the always-on roll now ages and tightens.
+os.environ.setdefault("CROOKS_REPORTS_DIR", os.path.join(_TEST_STATE, "reports"))
 
 # The environment every offline test is given, whatever the Mac it runs on has in its own.
 # Built from the ones above so a deliberate override on the command line still works, and
@@ -32,7 +34,7 @@ _TEST_ENV = {
     name: os.environ[name]
     for name in (
         "CROOKS_LOG_DIR", "CROOKS_BENCH_AUDIO_DIR", "CROOKS_SAVE_CAPTURES",
-        "CROOKS_ANALYTICS_WARM_DAYS", "CROOKS_SECRET_DIR", "CROOKS_OBJECTIVES_DIR",
+        "CROOKS_ANALYTICS_WARM_DAYS", "CROOKS_SECRET_DIR", "CROOKS_OBJECTIVES_DIR", "CROOKS_REPORTS_DIR",
     )
 }
 # No .env. This is the one that matters: `.env` is the owner's own configuration and

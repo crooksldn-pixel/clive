@@ -280,3 +280,22 @@ def test_the_record_is_private_minimal_and_forgets_what_nobody_hits(record, obje
     keys = {g["key"] for g in record.report()["gaps"]}
     assert "carrier tracking" not in keys, "unhit for half a year, nothing built: forgotten"
     assert {"web search", "custom line price"} <= keys, "a gap with a build proposed is kept"
+
+
+def test_every_key_and_name_it_writes_is_redacted_or_allow_listed(record):
+    """F-07, second round: not only the label."""
+    from app.observability import timeline as timeline_module
+    from tests.fake_credentials import github_token
+
+    token = github_token("gap-keys")
+    timeline_module.note_names(["Greg Evans"])
+    try:
+        record.note_blocker("obj_00000001", "needs a custom price", f"custom price for Greg Evans {token}")
+        record.note_missing_tool(f"lookup_{token}")
+        record.note_misjudged([f"leak {token}", "best_sellers"])
+    finally:
+        timeline_module.forget_names()
+    text = record.path.read_text()
+    assert token not in text and "Greg" not in text
+    report = record.report()
+    assert {m["capability"] for m in report["misjudged"]} == {"other", "best_sellers"}

@@ -205,6 +205,8 @@ async def test_the_model_gives_the_want_and_the_rest_is_filled_in(fake, bound, o
     assert record["checks"] == [
         {"name": "tests", "argv": [CHECK_PYTHON, "-m", "pytest", "-q", "tests/test_show_task_expanded_big_screen.py",
                                    "tests/test_web.py"], "cwd": "crooks-assistant"},
+        {"name": "regression", "argv": [CHECK_PYTHON, "-m", "pytest", "-q", "-m", "not live", *engineering_tools.REGRESSION_TESTS],
+         "cwd": "crooks-assistant"},
         {"name": "ruff", "argv": [CHECK_PYTHON, "-m", "ruff", "check", "app", "config", "scripts", "tests"],
          "cwd": "crooks-assistant"},
     ]

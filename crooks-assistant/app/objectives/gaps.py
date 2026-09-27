@@ -82,7 +82,8 @@ def key_for(capability: str = "", text: str = "") -> str:
     """The key a gap is counted under: the capability the model named, or the first
     meaningful words of what it wrote. Lowercase words, at most 60 characters."""
     source = capability if str(capability or "").strip() else text
-    words = re.findall(r"[a-z0-9]+(?:'[a-z]+)?", str(source or "").lower())
+    # Redacted before anything is taken from it: a key is written down too (F-07).
+    words = re.findall(r"[a-z0-9]+(?:'[a-z]+)?", _scrubbed(source).lower())
     if not str(capability or "").strip():
         words = [w for w in words if w not in _FILLER][:6]
     key = " ".join(words)
@@ -90,7 +91,21 @@ def key_for(capability: str = "", text: str = "") -> str:
 
 
 def tool_key(name: str) -> str:
-    return "tool: " + (_TOOL.sub("", str(name or "").lower())[:MAX_KEY - 6] or "unnamed")
+    return "tool: " + (_TOOL.sub("", _scrubbed(name).lower())[:MAX_KEY - 6] or "unnamed")
+
+
+def _scrubbed(text: object) -> str:
+    """Credentials, contact details and known customer names out, by the timeline's own rule."""
+    from app.observability.timeline import scrub_text
+
+    return scrub_text(str(text or ""))
+
+
+def _misjudged_key(cap: object) -> str:
+    """Only the capabilities the claims map names are kept as keys; anything else is "other"."""
+    from app.observability.claims import CAPABILITIES
+
+    return str(cap) if str(cap) in {c.key for c in CAPABILITIES} else "other"
 
 
 class GapLedger:
@@ -143,7 +158,7 @@ class GapLedger:
 
     # ---- the signals ------------------------------------------------------------------
     def note_blocker(self, objective_id: str, text: str, capability: str = "", *, at: str | None = None) -> None:
-        name = " ".join(str(capability or "").split())[:MAX_KEY]
+        name = _minimal(capability)[:MAX_KEY]
         self._change(lambda data: _hit(data, key_for(capability, text), "blocker", text, objective_id, at or _now(), name))
 
     def note_missing_tool(self, name: str, *, at: str | None = None) -> None:
@@ -160,7 +175,7 @@ class GapLedger:
 
         def fn(data):
             for cap in capabilities or ["unnamed"]:
-                row = data["misjudged"].setdefault(str(cap)[:MAX_KEY], {"count": 0, "first_seen": when})
+                row = data["misjudged"].setdefault(_misjudged_key(cap), {"count": 0, "first_seen": when})
                 row["count"] = int(row.get("count", 0)) + 1
                 row["last_seen"] = when
         self._change(fn)
@@ -177,7 +192,7 @@ class GapLedger:
                     if blocker.get("kind") == "missing_capability":
                         _hit(data, key_for(blocker.get("capability", ""), blocker.get("text", "")), "blocker",
                              blocker.get("text", ""), obj.id, str(blocker.get("at") or _now()),
-                             str(blocker.get("capability") or ""))
+                             _minimal(blocker.get("capability") or "")[:MAX_KEY])
         self._change(fn)
 
     # ---- what became of a gap -----------------------------------------------------------

@@ -189,6 +189,9 @@ class Settings(BaseSettings):
     test_session_always: bool = False
     test_session_keep_days: int = 14
     test_session_keep_named_days: int = 90
+    # Where `make test-session-report`, `-proposals` and `-screens` write; the backend's daily
+    # roll ages what is there out with the sessions and keeps it private.
+    reports_dir: Path = REPO_ROOT / "reports"
     # The screen as it was. On (and only while a test session is running), the page sends a
     # copy of what it is showing at each answer, each question, each failure and each
     # navigation; `make test-session-screens` redraws them as phone-sized pictures with

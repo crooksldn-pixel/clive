@@ -431,6 +431,28 @@ def test_said_again_it_still_names_what_could_not_be_checked():
     assert again.answer == "Still nobody. 3 threads could not be checked." and again.partial
 
 
+def test_said_again_with_people_waiting_it_still_says_what_went_unchecked_and_how_far_it_looked():
+    """F-08, second round: the repeat that names people waiting keeps both qualifications too."""
+    from app.fastpath.library import _needs_reply_render
+    from app.fastpath.models import Ctx
+    from app.reads.scheduler import ReadResult
+    from app.session.branch import Branch
+
+    session = Session(session_id="s-again-waiting")
+
+    def ask():
+        ctx = Ctx(runtime=None, session=session, branch=Branch(branch_id="b", session_id=session.session_id), intent=None, text="who needs replying to")
+        result = ReadResult(values={"mail": {"scope": "inbox", "days": 30, "window_complete": False, "threads_listed": 50,
+                                             "threads_checked": 48, "sent_checked": "all",
+                                             "rows": [MIA_ROW], "counts": {"people": 1, "unchecked": 2}}})
+        return _needs_reply_render(ctx, result)
+
+    ask()
+    again = ask()
+    assert again.answer == "Still just Mia. 2 threads could not be checked. Only the newest 50 threads were checked."
+    assert again.partial
+
+
 MIA_ROW = {"customer_id": "gid://shopify/Customer/7001", "customer_name": "Mia Jones", "customer_email": MIA, "orders": ["#1938", "#1912"],
            "emailed": True, "threads": 1, "replied": False, "last_subject": "Order 1938 — can I add to it?", "last_thread_id": "aa70d3f83dbef06e",
            "checked": True, "thread_count": 1, "latest_inbound_at": 1_000, "latest_outbound_at": None, "latest_direction": "inbound",
