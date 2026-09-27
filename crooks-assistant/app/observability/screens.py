@@ -7,8 +7,10 @@ survives.
 
 - Nothing that runs or fetches survives: script, iframe, object, embed, link, meta, base,
   style, template and noscript are dropped with everything inside them, every `on…` handler
-  is dropped, `href` and every other URL-bearing attribute is dropped, and `src` survives only
-  as an inline image (a canvas the page drew). Comments, doctypes and processing
+  is dropped, `href` and every other URL-bearing attribute is dropped, and so is every `src`,
+  inline images included: an image's pixels cannot be read here, and a picture of a label or a
+  customer's message is as much the customer's as its text (the 2026-09-27 deploy review, round
+  6, F-02). An image is kept as an empty box of its size. Comments, doctypes and processing
   instructions are dropped.
 - What was typed never survives: an input's value and a textarea's text become a run of dots
   as long as what was there (at most 24); a hidden input's value is dropped.
@@ -30,6 +32,10 @@ survives.
   a short token (a state word, an id, a number).
 
 The result draws as the page did, less what it must not keep.
+
+What a copy carries beside the markup — what triggered it, the viewport, the page's own mode —
+is not scrubbed but rebuilt (screen_metadata): only the keys the page is known to send, each to
+its own kind of value, so no key and no value the page did not mean to send is ever written down.
 """
 
 from __future__ import annotations
@@ -108,7 +114,6 @@ _NUMBER_VALUE = re.compile(rf"^{_NUM}(?:px|%|em|rem)?$")
 _VIEWBOX_VALUE = re.compile(rf"^{_NUM}(?:[\s,]+{_NUM}){{3}}$")
 _NAME = re.compile(r"^[a-zA-Z_:][-a-zA-Z0-9_:.]{0,60}$")
 _TAG = re.compile(r"^[a-zA-Z][a-zA-Z0-9:-]{0,40}$")
-_INLINE_IMAGE = re.compile(r"^data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=\s]+$")
 _CSS_URL = re.compile(r"url\s*\([^)]*\)", re.I)
 
 
@@ -210,8 +215,7 @@ class _Sanitiser(HTMLParser):
                     continue
                 value = _mask(value)
             elif name == "src":
-                if not _INLINE_IMAGE.fullmatch(value):
-                    continue
+                continue
             elif name == "style":
                 value = _clean(_CSS_URL.sub("none", value))
             elif name in _NUMBER_ATTRS:
@@ -246,9 +250,72 @@ def sanitise_markup(html: str) -> str:
     return "".join(parser.out)
 
 
-def sanitise_metadata(value: Any) -> Any:
-    """Everything else a copy carries (what triggered it, the body's class, the viewport), by
-    the rule every timeline event passes: withheld keys, credentials and contact details out."""
-    from app.observability.timeline import scrub
+# What the page sends beside the markup (web/telemetry.js wantScreen and copyScreen), key by key.
+# Anything else is not written down, whatever it is called.
+_TRIGGER_TOKENS = ("kind", "status", "target", "control", "outcome", "reason", "code")
+_TRIGGER_PLACES = ("file", "src", "path")
+_TOKEN = re.compile(r"^[A-Za-z0-9_.:#-]{1,64}$")
 
-    return scrub(value)
+
+def _token(value: Any) -> str | None:
+    """A short word the page uses as a label (a state, a code), and only one the timeline's
+    rule would keep as it is: a token-shaped credential is a word too."""
+    text = str(value) if isinstance(value, (str, int)) and not isinstance(value, bool) else ""
+    return text if _TOKEN.fullmatch(text) and _clean(text) == text else None
+
+
+def _place(value: Any) -> str | None:
+    """Where an error happened, as a path on this app: never a host, a query or a fragment."""
+    from urllib.parse import urlsplit
+
+    if not isinstance(value, str):
+        return None
+    try:
+        path = urlsplit(value[:400]).path
+    except ValueError:
+        return None
+    path = _clean(path)[:120]
+    return path if re.fullmatch(r"[A-Za-z0-9_./-]{1,120}", path or "") else None
+
+
+def _number(value: Any, top: float) -> float | int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value:
+        return None
+    return max(0, min(value, top))
+
+
+def screen_metadata(kind: str, value: Any) -> dict[str, Any] | None:
+    """One of a copy's metadata blocks, rebuilt from the keys the page sends and nothing else
+    (round 6, F-02): `trigger` (what event it was, where), `viewport` (three numbers) or `body`
+    (the page's class words and mode). Values are tokens, numbers or an app path; a message is
+    scrubbed text. None for anything else."""
+    if not isinstance(value, dict):
+        return None
+    out: dict[str, Any] = {}
+    if kind == "trigger":
+        for key in _TRIGGER_TOKENS:
+            token = _token(value.get(key))
+            if token is not None:
+                out[key] = token
+        for key in _TRIGGER_PLACES:
+            place = _place(value.get(key))
+            if place is not None:
+                out[key] = place
+        line = _number(value.get("line"), 10_000_000)
+        if line is not None:
+            out["line"] = int(line)
+        if isinstance(value.get("message"), str):
+            out["message"] = _clean(" ".join(value["message"][:1200].split()))[:300]
+    elif kind == "viewport":
+        for key, top in (("w", 20_000), ("h", 20_000), ("dpr", 8)):
+            number = _number(value.get(key), top)
+            if number is not None:
+                out[key] = number
+    elif kind == "body":
+        words = str(value.get("class") or "")[:400].split() if isinstance(value.get("class"), str) else []
+        out["class"] = " ".join(w for w in words[:24] if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,31}", w) and _clean(w) == w)
+        mode = _token(value.get("mode"))
+        out["mode"] = mode or ""
+    else:
+        return None
+    return out

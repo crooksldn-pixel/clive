@@ -39,7 +39,9 @@
   function loadScreen() {
     try {
       const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (raw && /^scr_[0-9a-f]{12}$/.test(raw.id) && typeof raw.name === 'string') return raw;
+      // A screen is the device holding its key (app/displays/store.py); one kept before keys
+      // existed names itself again.
+      if (raw && /^scr_[0-9a-f]{12}$/.test(raw.id) && typeof raw.name === 'string' && typeof raw.key === 'string' && raw.key) return raw;
     } catch (e) { /* nothing kept */ }
     return null;
   }
@@ -179,6 +181,9 @@
     const s = S.showing;
     if (!s) return null;
     if (s.done_at && Date.now() - Date.parse(s.done_at) > DONE_HOLD_MS) return null;
+    // Once done, CLIVE keeps only what was done, not the slip (the customer's details go). The
+    // screen that drew it shows its own copy as packed; one that never drew it rests.
+    if (s.done_at && keyOf(s) !== S.drawnKey) return null;
     return s;
   }
   function whatOf(v) {
@@ -226,6 +231,14 @@
     const chip = el('div', 'cs-donechip', label);
     chip.setAttribute('data-dot', 'good');
     foot.appendChild(chip);
+    return foot;
+  }
+  function noteFoot(note) {
+    const foot = el('div', 'cs-foot');
+    const left = el('div', 'cs-foot-l');
+    left.appendChild(svg(ICON_CIRCLE_CHECK, 1.6));
+    left.appendChild(document.createTextNode(note));
+    foot.appendChild(left);
     return foot;
   }
   function actionFoot(note, label) {
@@ -295,12 +308,108 @@
 
     const box = el('section', 'cs-panel');
     box.setAttribute('data-dot', 'panel');
-    box.appendChild(el('h2', 'cs-h2', 'In the box'));
+    const head = el('h2', 'cs-h2', 'In the box');
+    box.appendChild(head);
     const list = el('div', 'cs-items');
-    const max = L.portrait ? 6 : 12;
+    // A page is what fits the panel: five dense rows, in two columns when the screen is wide —
+    // fewer once it is on the screen if a long address or a note leaves less room (fitPage).
+    const two = !L.portrait && items.length > 6;
     if (items.length > (L.portrait ? 3 : 4)) list.classList.add('is-dense');
-    if (!L.portrait && items.length > 6) list.classList.add('is-two');
-    for (const it of items.slice(0, max)) {
+    if (two) list.classList.add('is-two');
+    // More items than fit are shown a page at a time, and "Mark packed" waits until every page
+    // has been on the screen: nobody attests to a box they were shown half of (round 6, B-04).
+    PAGE.index = 0; PAGE.per = L.portrait ? 5 : 10; PAGE.step = two ? 2 : 1; PAGE.box = list;
+    PAGE.pages = Math.max(1, Math.ceil(items.length / PAGE.per)); PAGE.seen = new Set([0]); PAGE.total = items.length;
+    PAGE.fill = (index) => {
+      PAGE.index = index;
+      PAGE.seen.add(index);
+      list.textContent = '';
+      itemRows(list, items.slice(index * PAGE.per, (index + 1) * PAGE.per), packed);
+      head.textContent = PAGE.pages > 1
+        ? 'In the box · ' + (index * PAGE.per + 1) + '–' + Math.min(items.length, (index + 1) * PAGE.per) + ' of ' + items.length
+        : 'In the box';
+      pageControls();
+      lockPacked(ui);
+    };
+    box.appendChild(list);
+    cols.appendChild(box);
+    frag.appendChild(cols);
+
+    const where = S.screen ? S.screen.name.toLowerCase() : 'this screen';
+    // More items than a screen takes (views.MAX_ITEMS): shown as far as it goes, and never
+    // marked packed from here — the server refuses it too (round 6, B-04).
+    const partial = !!o.partial && !packed;
+    const foot = packed
+      ? doneFoot('Packed', 'Packed at ' + timeOf(v.done_at) + ' on the ' + where + '. CLIVE has noted it.')
+      : partial
+        ? noteFoot('This order has ' + (o.total_items || 'more') + ' items, more than a screen shows. Check it off in Shopify.')
+        : actionFoot('CLIVE notes who packed it and when.', 'Mark packed');
+    if (!packed && !partial) PAGE.note = { el: foot.querySelector('.cs-foot-l'), one: 'CLIVE notes who packed it and when.', many: 'Show every item, then mark it packed.' };
+    pageButton(foot, 'Next items');
+    frag.appendChild(foot);
+    PAGE.fill(0);
+    lockPacked(frag);
+    return frag;
+  }
+  // Which page of a long order is up, and which have been. `per` shrinks by `step` (a row, or
+  // two in two columns) until a page fits `box` as drawn.
+  const PAGE = { index: 0, pages: 1, seen: new Set([0]), total: 0, fill: null, per: 0, step: 1, box: null, more: null, note: null };
+  function resetPage() { PAGE.box = null; PAGE.more = null; PAGE.note = null; }
+  // The page button shows only when there is more than one page, and the foot's words say which.
+  function pageControls() {
+    if (PAGE.more) {
+      PAGE.more.hidden = PAGE.pages <= 1;
+      PAGE.more.textContent = (PAGE.index + 1) % PAGE.pages === 0 && PAGE.pages > 1 ? 'Back to the first' : PAGE.more.dataset.label;
+    }
+    if (PAGE.note && PAGE.note.el) {
+      const icon = PAGE.note.el.firstChild;
+      PAGE.note.el.textContent = '';
+      if (icon) PAGE.note.el.appendChild(icon);
+      PAGE.note.el.appendChild(document.createTextNode(PAGE.pages > 1 ? PAGE.note.many : PAGE.note.one));
+    }
+  }
+  // Once the page is on the screen: if its rows do not all fit the panel, fewer to a page, and
+  // the count of pages (and so what must be seen before "Mark packed") grows with it.
+  function fitPage() {
+    const box = PAGE.box;
+    if (!box || !PAGE.fill) return;
+    for (let guard = 0; guard < 30 && PAGE.per > PAGE.step && box.scrollHeight > box.clientHeight + 2; guard++) {
+      PAGE.per -= PAGE.step;
+      PAGE.pages = Math.max(1, Math.ceil(PAGE.total / PAGE.per));
+      PAGE.seen = new Set([0]);
+      PAGE.fill(0);
+    }
+  }
+  function itemsSeen() {
+    if (PAGE.pages <= 1) return PAGE.total;
+    return PAGE.seen.size >= PAGE.pages ? PAGE.total : 0;
+  }
+  // The control that turns the page, beside the foot's own button so it never covers a row.
+  function pageButton(foot, label) {
+    const more = el('button', 'cs-page', label);
+    more.type = 'button';
+    more.dataset.label = label;
+    more.hidden = PAGE.pages <= 1;
+    more.setAttribute('data-dot', 'btn');
+    more.addEventListener('click', (event) => {
+      event.stopPropagation();
+      PAGE.fill((PAGE.index + 1) % PAGE.pages);
+    });
+    const main = foot.querySelector('.cs-btn, .cs-donechip');
+    foot.insertBefore(more, main || null);
+    PAGE.more = more;
+  }
+  function packedLocked() { return PAGE.pages > 1 && PAGE.seen.size < PAGE.pages; }
+  function lockPacked(root) {
+    const btn = (root || ui).querySelector('.cs-btn');
+    if (!btn) return;
+    const locked = packedLocked();
+    btn.disabled = locked;
+    btn.classList.toggle('is-locked', locked);
+    btn.setAttribute('aria-disabled', locked ? 'true' : 'false');
+  }
+  function itemRows(list, items, packed) {
+    for (const it of items) {
       const n = toSendOf(it);
       const sent = n <= 0;
       const row = el('div', 'cs-item' + (sent ? ' is-sent' : '') + (packed && !sent ? ' is-packed' : ''));
@@ -332,16 +441,6 @@
       }
       list.appendChild(row);
     }
-    box.appendChild(list);
-    if (items.length > max) box.appendChild(el('div', 'cs-more', '+ ' + (items.length - max) + ' more on the order. Ask CLIVE for the rest.'));
-    cols.appendChild(box);
-    frag.appendChild(cols);
-
-    const where = S.screen ? S.screen.name.toLowerCase() : 'this screen';
-    frag.appendChild(packed
-      ? doneFoot('Packed', 'Packed at ' + timeOf(v.done_at) + ' on the ' + where + '. CLIVE has noted it.')
-      : actionFoot('CLIVE notes who packed it and when.', 'Mark packed'));
-    return frag;
   }
   function renderList(v, packed) {
     const lines = (v.list && Array.isArray(v.list.lines)) ? v.list.lines : [];
@@ -353,20 +452,31 @@
     frag.appendChild(headBlock(v.title || 'List', [], count));
     const grid = el('div', 'cs-tasks' + (L.portrait || lines.length <= 4 ? ' is-one' : lines.length > 8 ? ' is-three' : ''));
     const max = L.portrait ? 8 : 12;
-    lines.slice(0, max).forEach((line, i) => {
-      const row = el('div', 'cs-task' + (packed ? ' is-packed' : ''));
-      row.setAttribute('data-dot', 'row');
-      const n = el('span', 'cs-task-n', String(i + 1));
-      n.setAttribute('data-dot', 'ring');
-      row.appendChild(n);
-      row.appendChild(el('span', 'cs-task-t', line));
-      grid.appendChild(row);
-    });
-    if (!lines.length) grid.appendChild(el('div', 'cs-empty', 'Nothing on this list'));
+    // As an order's items: a long list a page at a time, and done only once all of it was up.
+    const pages = Math.max(1, Math.ceil(lines.length / max));
+    const taskRows = (index) => {
+      grid.textContent = '';
+      lines.slice(index * max, (index + 1) * max).forEach((line, i) => {
+        const row = el('div', 'cs-task' + (packed ? ' is-packed' : ''));
+        row.setAttribute('data-dot', 'row');
+        const n = el('span', 'cs-task-n', String(index * max + i + 1));
+        n.setAttribute('data-dot', 'ring');
+        row.appendChild(n);
+        row.appendChild(el('span', 'cs-task-t', line));
+        grid.appendChild(row);
+      });
+      if (!lines.length) grid.appendChild(el('div', 'cs-empty', 'Nothing on this list'));
+    };
+    PAGE.index = 0; PAGE.pages = pages; PAGE.seen = new Set([0]); PAGE.total = lines.length;
+    PAGE.fill = (index) => { PAGE.index = index; PAGE.seen.add(index); taskRows(index); pageControls(); lockPacked(ui); };
+    taskRows(0);
     frag.appendChild(grid);
-    frag.appendChild(packed
+    const foot = packed
       ? doneFoot('Done', 'Done at ' + timeOf(v.done_at) + '. CLIVE has noted it.')
-      : actionFoot(lines.length > max ? 'Showing ' + max + ' of ' + lines.length + '. Ask CLIVE for the rest.' : 'Ask CLIVE to change anything on it.', 'Mark done'));
+      : actionFoot(pages > 1 ? 'Show every page, then mark it done.' : 'Ask CLIVE to change anything on it.', 'Mark done');
+    if (pages > 1) pageButton(foot, 'Next page');
+    frag.appendChild(foot);
+    lockPacked(frag);
     return frag;
   }
   function renderObjective(v) {
@@ -431,9 +541,11 @@
   }
   function draw(v, packed) {
     while (ui.firstChild) ui.removeChild(ui.firstChild);
+    resetPage();
     if (!v) return;
     const node = v.kind === 'order' ? renderOrder(v, packed) : v.kind === 'objective' ? renderObjective(v) : renderList(v, packed);
     ui.appendChild(node);
+    fitPage();
   }
   function uiState(name) {
     ui.classList.remove('is-hidden', 'is-revealing', 'is-shown', 'is-dissolving');
@@ -577,7 +689,7 @@
     if (S.phase === 'shown') {
       if (!want) { clearScreen(); return; }
       if (keyOf(want) !== S.drawnKey) { S.pending = true; clearScreen(); return; }
-      if (want.done_at && !S.drawnPacked) { markedDone(want); return; }
+      if (want.done_at && !S.drawnPacked) { markedDone(Object.assign({}, S.drawnView || {}, { done_at: want.done_at })); return; }
     }
   }
   function push(v) {
@@ -668,16 +780,24 @@
   async function markDone(event) {
     if (event) event.stopPropagation();
     if (marking || S.phase !== 'shown' || S.drawnPacked || !S.screen) return;
+    if (S.drawnView && (S.drawnView.kind === 'order' || S.drawnView.kind === 'list') && packedLocked()) {
+      hint(S.drawnView.kind === 'order' ? 'Show every item first: tap Next items.' : 'Show every page first: tap Next page.', true);
+      return;
+    }
     marking = true;
     const btn = event && event.currentTarget;
     if (btn) btn.disabled = true;
     try {
+      const body = { version: S.version };
+      if (S.drawnView && (S.drawnView.kind === 'order' || S.drawnView.kind === 'list')) body.items_seen = itemsSeen();
       const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '/done', {
-        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version: S.version }),
+        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
+        body: JSON.stringify(body),
       });
       if (response.ok) {
         receive(await response.json());
+      } else if (await notThisScreen(response)) {
+        return;
       } else if (response.status === 409) {
         hint('This changed before the tap, so nothing was marked. Look again.', true);
         poll();
@@ -713,12 +833,22 @@
     $('online').classList.toggle('is-away', !on);
     showLine(true);
   }
+  // Another device has since been named this screen, or this one's key was lost: name it again.
+  async function notThisScreen(response) {
+    if (response.status !== 403) return false;
+    const data = await response.clone().json().catch(() => ({}));
+    if (!data || data.code !== 'not_this_screen') return false;
+    forgetScreen(); S.screen = null; toNaming();
+    return true;
+  }
   async function poll() {
     clearTimeout(pollTimer);
     if (!S.screen) return;
     try {
-      const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '?v=' + S.version, { cache: 'no-store' });
+      const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '?v=' + S.version,
+        { cache: 'no-store', headers: { 'X-Screen-Key': S.screen.key } });
       if (response.status === 404) { forgetScreen(); S.screen = null; toNaming(); return; }
+      if (await notThisScreen(response)) return;
       if (response.status === 403) {
         if (S.online !== false || !S.refused) setOnline(false, true);
         pollTimer = setTimeout(poll, REFUSED_MS);
@@ -808,8 +938,8 @@
       });
       const data = await response.json().catch(() => ({}));
       if (response.status === 403) throw new Error('This screen’s login is not allowed to use CLIVE.');
-      if (!response.ok || !data.id) throw new Error(data.detail || 'CLIVE did not take that name. Try another.');
-      S.screen = { id: data.id, name: data.name || name };
+      if (!response.ok || !data.id || !data.key) throw new Error(data.detail || 'CLIVE did not take that name. Try another.');
+      S.screen = { id: data.id, name: data.name || name, key: data.key };
       saveScreen(S.screen);
       $('bar-name').textContent = S.screen.name;
       namer.classList.add('is-leaving');

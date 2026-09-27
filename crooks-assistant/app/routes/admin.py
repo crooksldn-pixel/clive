@@ -54,13 +54,19 @@ async def tools() -> dict:
 async def whoami(request: Request) -> dict:
     """Who Tailscale says is asking. Open this on the device to see the exact login to put in
     CROOKS_ALLOWED_LOGINS; nothing is guessed. A request made on the server itself has no login."""
-    from app.routes.actions import TAILSCALE, proxy_state
+    from app.routes.actions import TAILSCALE, principal_verdict, proxy_state
 
     login = request.headers.get("tailscale-user-login", "")
     route, why = proxy_state(request)
+    _who, code, _detail = principal_verdict(request)
     return {
         "login": login or None,
         "proxied": route == TAILSCALE,
+        # Whether this request, as it arrived, is the owner's by the one rule every owner route
+        # reads — so opening /whoami on his phone proves the whole path end to end (round 6,
+        # F-05B-AVAIL). Only a yes or the refusal's code: never what the allow-list holds.
+        "owner": not code,
+        "owner_refusal": code or None,
         # How the request reached the app: direct, tailscale, this_host (the server through its
         # own `tailscale serve`) — the answer every gate reads, shown so it can be checked.
         "through": route,

@@ -656,11 +656,12 @@ async def test_the_debug_view_is_the_owners_own_and_the_reset_empties_the_table(
         from tests.test_actions_routes import as_owner
 
         # A server nobody has said is anyone's answers nobody (F-05A/B): not the server itself.
+        runtime = app.state.runtime
+        as_owner(runtime, logins="", local=True)
         assert (await macs_client.get("/anticipation")).status_code == 403
         assert (await macs_client.post("/anticipation/reset")).status_code == 403
         # The owner's: his own device may look, another login may not, and the server itself
         # only when he has said it is him.
-        runtime = app.state.runtime
         as_owner(runtime, logins="owner@example.com", local=False)
         tablet = {"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"}
         stranger = {"Tailscale-User-Login": "other@example.com", "X-Forwarded-For": "100.64.0.3"}

@@ -95,14 +95,23 @@ async def lifespan(app: FastAPI):
         # problem, and each /turn retries start() so fixing it needs no restart.
         log.error("Claude provider did not start: %s", exc)
     app.state.runtime.warm_orders_soon()
+    # The key the server's own `make test-session-*` commands carry (app/local_cli.py): made once
+    # and kept, so they work with the production switches without widening anything else.
+    from app import local_cli
+
+    await asyncio.to_thread(local_cli.ensure_key)
     # One pass before the first request is answered (the 2026-09-27 deploy review, F-04): a
-    # restart never leaves the day's roll, the ages or the report permissions waiting for the
-    # timer, and then the timer keeps them.
-    await asyncio.to_thread(housekeep_once, app.state.runtime)
-    housekeeping = asyncio.create_task(_housekeeping(app.state.runtime))
+    # restart never leaves the day's roll, the ages, the report permissions or a screen's old
+    # slip waiting for the timer, and then the timer keeps them. What that pass could not put
+    # right is logged as an error and shown on /health (checks.housekeeping).
+    keeper = app.state.housekeeper = Housekeeper(app.state.runtime)
+    await keeper.first_pass()
+    keeper.start()
     log.info("CROOKS Assistant ready (bind address is whatever uvicorn was started with)")
     yield
-    housekeeping.cancel()
+    # Nothing new is scheduled, and a pass already running in its thread (which cancelling does
+    # not stop) finishes before the runtime it works on is closed (round 6, F-04).
+    await keeper.stop()
     await app.state.runtime.aclose()
 
 
@@ -112,24 +121,135 @@ async def lifespan(app: FastAPI):
 HOUSEKEEPING_S = 15 * 60
 
 
-def housekeep_once(runtime) -> None:
-    """One pass: let the always-on session roll if the day has turned, then age the sessions
-    and the reports and make the reports private. Never raises."""
+def housekeep_once(runtime) -> str:
+    """One pass: let the always-on session roll if the day has turned, age the sessions and the
+    reports and make the reports private, and take down whatever a screen has shown too long.
+    Never raises: what it could not do is returned, in words that name no file ('' when it did
+    everything)."""
+    problems: list[str] = []
     tests = getattr(runtime, "tests", None)
-    if tests is None:
-        return
+    if tests is not None:
+        try:
+            tests.active()
+            tests.prune()
+            tests.tidy_reports()
+            if getattr(tests, "tidy_problem", ""):
+                problems.append(tests.tidy_problem)
+        except Exception as exc:  # noqa: BLE001 - housekeeping never takes the service down
+            log.warning("test-mode housekeeping did not complete", exc_info=True)
+            problems.append(f"test-mode housekeeping did not complete ({type(exc).__name__})")
     try:
-        tests.active()
-        tests.prune()
-        tests.tidy_reports()
-    except Exception:  # noqa: BLE001 - housekeeping never takes the service down
-        log.warning("test-mode housekeeping did not complete", exc_info=True)
+        from app.displays.store import store as displays
+
+        displays().sweep()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("screens housekeeping did not complete", exc_info=True)
+        problems.append(f"screens housekeeping did not complete ({type(exc).__name__})")
+    return "; ".join(problems)
 
 
-async def _housekeeping(runtime) -> None:
-    while True:
-        await asyncio.sleep(HOUSEKEEPING_S)
-        await asyncio.to_thread(housekeep_once, runtime)
+class Housekeeper:
+    """The housekeeping timer, supervised (the 2026-09-27 deploy review, round 6, F-04).
+
+    One pass runs before the service answers anything, then one every HOUSEKEEPING_S. If the
+    timer ends for any reason but a shutdown — a pass that raised, a cancellation nobody asked
+    for — it is started again, and the restart is counted and shown. A pass runs in a thread
+    holding `_running` for its whole length, so shutdown can stop scheduling and then wait for a
+    pass already under way to finish before the runtime is closed under it. /health reads
+    check(): whether a pass has run lately and whether the last one left anything undone."""
+
+    def __init__(self, runtime, *, interval_s: float | None = None, pass_fn=None) -> None:
+        import threading
+
+        self.runtime = runtime
+        self.interval_s = float(HOUSEKEEPING_S if interval_s is None else interval_s)
+        self._fn = pass_fn
+        self._running = threading.Lock()
+        self._stopping = False
+        self._task: asyncio.Task | None = None
+        self.passes = 0
+        self.restarts = 0
+        self.last_at: float | None = None
+        self.last_problem = ""
+        self.last_stop = ""
+
+    def run_pass(self) -> str:
+        """One pass, in the calling thread. Nothing once shutdown has begun."""
+        import time
+
+        with self._running:
+            if self._stopping:
+                return ""
+            fn = self._fn if self._fn is not None else housekeep_once
+            problem = fn(self.runtime) or ""
+            self.passes += 1
+            self.last_at = time.time()
+            self.last_problem = str(problem)
+            if problem:
+                log.error("housekeeping left something undone: %s", problem)
+            return self.last_problem
+
+    async def first_pass(self) -> str:
+        return await asyncio.to_thread(self.run_pass)
+
+    def start(self) -> None:
+        self._task = asyncio.get_running_loop().create_task(self._loop(), name="housekeeping")
+        self._task.add_done_callback(self._ended)
+
+    async def _loop(self) -> None:
+        while not self._stopping:
+            await asyncio.sleep(self.interval_s)
+            if self._stopping:
+                return
+            await asyncio.to_thread(self.run_pass)
+
+    def _ended(self, task: asyncio.Task) -> None:
+        if self._stopping:
+            return
+        why = "cancelled" if task.cancelled() else type(task.exception()).__name__ if task.exception() else "returned"
+        self.restarts += 1
+        self.last_stop = why
+        log.error("housekeeping timer stopped (%s); starting it again", why)
+        try:
+            self.start()
+        except RuntimeError:   # the event loop itself is closing: nothing to restart on
+            log.warning("housekeeping timer not restarted: no running event loop")
+
+    async def stop(self, timeout_s: float = 60.0) -> bool:
+        """Stop scheduling, then wait for a pass already running. True when none is left."""
+        self._stopping = True
+        task, self._task = self._task, None
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except BaseException:  # noqa: BLE001 - its own cancellation, or whatever ended it
+                pass
+        finished = await asyncio.to_thread(self._running.acquire, True, timeout_s)
+        if finished:
+            self._running.release()
+        else:
+            log.error("a housekeeping pass was still running after %ss at shutdown", timeout_s)
+        return finished
+
+    def check(self) -> dict:
+        import time
+
+        if self.last_at is None:
+            return {"ok": False, "detail": "no housekeeping pass has completed"}
+        age = time.time() - self.last_at
+        late = age > 2 * self.interval_s + 60
+        ok = not self.last_problem and not late
+        if self.last_problem:
+            detail = self.last_problem
+        elif late:
+            detail = f"no housekeeping pass for {int(age // 60)} minutes"
+        else:
+            detail = f"last pass {int(age)}s ago"
+        detail += f" · {self.passes} pass(es)"
+        if self.restarts:
+            detail += f" · timer restarted {self.restarts} time(s), last because it was {self.last_stop}"
+        return {"ok": ok, "detail": detail}
 
 
 app = FastAPI(title="CROOKS Assistant", version="0.1.0", lifespan=lifespan)
@@ -139,11 +259,12 @@ app = FastAPI(title="CROOKS Assistant", version="0.1.0", lifespan=lifespan)
 async def guard_and_freshness(request: Request, call_next):
     """Two small things every request passes through.
 
-    Who may ask: by default anyone who can reach the port — the tailnet is the owner's own
-    private network and the backend binds to loopback behind it. When CROOKS_ALLOWED_LOGINS
-    names Tailscale logins, `tailscale serve` tags every proxied request with the caller's
-    login and only those callers are answered; a request that reaches the port without the
-    header (curl on the Mac itself) is still allowed, because it is on the Mac.
+    Who may ask: `tailscale serve` tags every proxied request with the caller's login, and when
+    CROOKS_ALLOWED_LOGINS names logins only those callers are answered at all. Beyond the public
+    paths (liveness, /whoami, the page shells), every route is the owner's by the one rule
+    (principal_verdict): his device, or the server itself only when CROOKS_LOCAL_OWNER says the
+    server speaks for him. A request made on the server with that switch off gets the public
+    paths and nothing else.
 
     What the tablet keeps: the page and its scripts are served with no-cache, so a page open
     for a week picks up a new build on its next load rather than in a fortnight.
@@ -174,7 +295,37 @@ async def guard_and_freshness(request: Request, call_next):
         return JSONResponse(status_code=403, content={"error": "not allowed", "who": "unknown"})
     if allowed and login and login.lower() not in allowed:
         return JSONResponse(status_code=403, content={"error": "not allowed", "who": login})
-    response = await call_next(request)
+    # Everything that is not public is the owner's, by the one rule (principal_check): a turn and
+    # every tool the model reaches through it, every command, record and card, the pad's heartbeat
+    # and whatever route is added next (the 2026-09-27 deploy review, round 6: gating routers one
+    # by one had left /turn, and so the model's whole tool surface, open to any caller on the
+    # server). tests/test_proxy_identity.py walks every route the app serves to keep it so.
+    # The one exception, and not an owner: the server's own test-session commands with their key
+    # (app/local_cli.py, round 6 F-05A), on those three routes only.
+    from app import local_cli
+    from app.tools.context import OWNER_REQUEST
+
+    owners = False
+    if not is_public(request.url.path) and not local_cli.admits(request):
+        from app.routes.actions import SPOKEN_REFUSALS, principal_verdict
+
+        who, code, why = principal_verdict(request)
+        if code:
+            log.warning("refused a request that is not the owner's: %s — %s (path=%s)", code, why, request.url.path)
+            # The write boundary's own codes and spoken lines, so the tablet says the same thing
+            # whichever door refused it.
+            return JSONResponse(status_code=403, content={
+                "error": "not allowed", "who": "not the owner", "code": code, "detail": why,
+                "spoken": SPOKEN_REFUSALS.get(code, "")})
+        owners = True
+    # What the tools see (app/tools/context.py OWNER_REQUEST): only a request that passed the
+    # owner rule may have a tool run for it. Set before the route runs, so every task it starts
+    # inherits it, and put back after, so it never outlives the request in a shared task.
+    stamped = OWNER_REQUEST.set(owners)
+    try:
+        response = await call_next(request)
+    finally:
+        OWNER_REQUEST.reset(stamped)
     path = request.url.path
     if path in ("/", "/sw.js", "/manifest.webmanifest") or path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-cache"
@@ -182,6 +333,18 @@ async def guard_and_freshness(request: Request, call_next):
 
 
 _STATE_CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# Answered for anyone who can reach the port, and nothing else is: liveness (the service manager,
+# the watchdog and `make status` read /health on the server), "who am I" (what a device shows to
+# be put on the allow-list), and the page shells and their static files (code, never data). The
+# pad's routes are the owner's like everything else (the 2026-09-27 review, F-NEW-PAD).
+PUBLIC_PATHS = frozenset({"/health", "/ping", "/whoami", "/", "/display", "/sw.js", "/manifest.webmanifest",
+                          "/favicon.ico"})
+PUBLIC_PREFIXES = ("/static/",)
+
+
+def is_public(path: str) -> bool:
+    return path in PUBLIC_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
 
 
 def _cross_site(request: Request) -> bool:

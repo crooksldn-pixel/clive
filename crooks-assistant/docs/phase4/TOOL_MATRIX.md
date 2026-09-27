@@ -106,12 +106,12 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_send_reply` | command:a tapped control, family:email_sends | test_actions_routes.py, test_compose.py, test_email_workspace.py, test_gmail_writes.py, test_owner_feedback.py, test_watch_lines.py | — |
 | `gmail_thread_archive` | command:a tapped control, family:email_archive | test_action_state.py, test_council_fixes.py, test_email_workspace.py, test_experience_analyser.py, test_gmail_writes.py | — |
 | `inventory_query` | recipe:navigation_back, recipe:navigation_home, recipe:stock_cover_analysis, recipe:landing_products, recipe:ui_area_workspace, family:product_reads | test_analytics_present.py, test_analytics_tools.py, test_flows.py | back, landing_products, nav_branch_isolation, nav_click_path, nav_home_landing |
-| `objective_list` | family:objectives | test_objectives.py | — |
+| `objective_list` | family:objectives | test_displays.py, test_objectives.py, test_tool_boundary.py | — |
 | `objective_note` | family:objectives | test_objectives.py | — |
 | `objective_open` | family:objectives | test_objectives.py | — |
 | `objective_show` | family:objectives | test_objectives.py | — |
-| `screen_list` | family:screens | test_displays.py | — |
-| `screen_show` | family:screens | test_displays.py | — |
+| `screen_list` | family:screens | test_displays.py, test_tool_boundary.py | — |
+| `screen_show` | family:screens | test_displays.py, test_tool_boundary.py | — |
 | `shopify_abandoned_checkouts` | recipe:abandoned_checkouts, family:abandoned_checkouts | test_abandoned.py | abandoned_checkouts, abandoned_window |
 | `shopify_customer_history` | recipe:navigation_back, recipe:working_set_next, recipe:working_set_previous, recipe:customer_history_lookup, recipe:customer_purchase_lookup, recipe:customer_workspace, command:cursor:customers, family:customer_reads | test_anticipation.py, test_branches.py, test_context.py, test_entities.py, test_n_plus_one.py, test_observability.py, test_reads.py, test_workspaces.py | back, customer_history, nav_branch_isolation, nav_click_path, nav_next_position, next_previous |
 | `shopify_discount_check` | recipe:discount_code, family:discount_create | test_discounts.py | discount_code_taken, discount_new_code |

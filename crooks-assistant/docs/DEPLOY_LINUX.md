@@ -166,6 +166,25 @@ python scripts/healthcheck.py -v     # every check
 
 `/ping` is the cheap one — no external call, never cached — and `/health` is the real one.
 
+## The capability-gap record, cleaned at start-up
+
+The first start of a build with the round-6 gap rule rewrites
+`/var/lib/crooks-assistant/objectives/gaps.json` to that rule (every key and label redacted,
+only known fields kept, links checked), keeping the exact original first as
+`gaps.json.<UTC time>.before-clean` beside it (0600, never overwritten). The code before it
+(3e77f215) reads the cleaned file as it is — `tests/test_capability_gaps.py` runs that code
+against it — so rolling the code back needs nothing else. To put the original back as well:
+
+```
+systemctl stop crooks-assistant
+cd /var/lib/crooks-assistant/objectives
+cp -p gaps.json "gaps.json.$(date -u +%Y%m%dT%H%M%SZ).after-clean"   # keep the cleaned one
+install -m 0600 gaps.json.<time>.before-clean gaps.json
+systemctl start crooks-assistant
+```
+
+A newer build started afterwards cleans it again, keeping a fresh copy first.
+
 ## Rolling back to the Mac
 
 Nothing to undo here, but if the server is to stop answering:

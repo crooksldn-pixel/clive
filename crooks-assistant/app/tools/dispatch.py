@@ -17,7 +17,7 @@ from app.actions.models import Prepared
 from app.observability import timeline
 from app.session.models import Session
 from app.tools import registry
-from app.tools.context import CURRENT_SESSION
+from app.tools.context import CURRENT_SESSION, OWNER_REQUEST
 from app.tools.gate import Disposition, Tier, classify
 from app.tools.registry import BatchPlan, ToolError
 
@@ -114,6 +114,13 @@ async def dispatch(
     from app.providers.base import ToolCall
 
     name = registry.normalise_tool_name(tool_name)
+    if OWNER_REQUEST.get() is False:
+        # Asked for by a request that is not the owner's: no tool runs for it, whatever it is.
+        log.warning("REFUSED tool=%s: the request it runs for is not the owner's", name)
+        if calls is not None:
+            calls.append(ToolCall(name=name, args=args, ok=False, error="not the owner's request"))
+        return ("REFUSED: this request is not the owner's, so no tool runs for it. "
+                "Tell the user plainly that you could not do this. Do not retry.")
     decision = classify(name, args, session.issued_ids)
     log.info(
         "tool=%s tier=%s disposition=%s args=%s",

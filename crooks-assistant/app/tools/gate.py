@@ -136,7 +136,8 @@ _KNOWN_TOOLS = frozenset({
     # an order the conversation was shown, an objective, a list — on one of the owner's own
     # screens (a page on his own devices, app/routes/displays.py), and read what was marked done
     # there. Nothing leaves this machine through them and nothing in a store or an inbox changes.
-    # The order a slip is drawn from must be an issued id (below). Named here one by one,
+    # The order a slip is drawn from, and the objective put up, must be issued ids (below), and
+    # the screen must be named exactly (app/tools/display_tools.py). Named here one by one,
     # because this is an allow-list.
     "screen_list", "screen_show",
 })
@@ -145,7 +146,9 @@ _KNOWN_TOOLS = frozenset({
 # Claude inventing an order id or a thread id and being told about a stranger's order.
 _ISSUED_ID_ARGS: dict[str, tuple[str, ...]] = {
     "shopify_order_detail": ("order_id",),
-    "screen_show": ("order_id",),
+    # An order's slip and an objective alike (the 2026-09-27 deploy review, B-05): only one this
+    # conversation has been shown (objective_list, objective_show, objective_open) may go up.
+    "screen_show": ("order_id", "objective_id"),
     "shopify_customer_history": ("customer_id",),
     "gmail_read_thread": ("thread_id",),
 }
@@ -166,6 +169,8 @@ _ID_KIND = {
     "thread_id": re.compile(r"^[0-9a-f]{6,}$", re.I),
     "evidence_message_id": re.compile(r"^[0-9a-f]{6,}$", re.I),
     "set_id": re.compile(r"^set_[0-9a-f]{6,}$"),
+    # One of CLIVE's own objectives (app/objectives/store.py _ID).
+    "objective_id": re.compile(r"^obj_[0-9a-f]{8}$"),
     # A workspace on the Mac — a discount being written, an order being built, a credit being
     # decided (app/families/_workspace.py). Not a Shopify id: the thing does not exist yet,
     # and the workspace is what the owner is authorising the creation of. Held to its shape

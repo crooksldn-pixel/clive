@@ -14,6 +14,13 @@ CURRENT_SESSION: ContextVar[Any] = ContextVar("crooks_current_session", default=
 # holds whichever spoke last. Empty outside a model turn — the request task's own
 # `acting_branch` is right there.
 CURRENT_BRANCH: ContextVar[str] = ContextVar("crooks_current_branch", default="")
+# Whether the HTTP request this work is being done for passed the owner rule at the door
+# (app/main.py): True for the owner's, False for any other request (a public path, the server's
+# own test-session command). None outside a request — the service's own start-up and timers.
+# dispatch refuses every tool when it is False (the 2026-09-27 deploy review, round 6,
+# F-NEW-TOOLS and B-01): the door is the rule, and this is the same rule at the tools themselves,
+# so a route added later that reached a tool without being the owner's would still reach none.
+OWNER_REQUEST: ContextVar[bool | None] = ContextVar("crooks_owner_request", default=None)
 
 
 def current_session() -> Any:

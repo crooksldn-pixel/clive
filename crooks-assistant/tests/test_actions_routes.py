@@ -76,10 +76,11 @@ def configure(client, *, writes=True, logins=OWNER, local=False):
 
 def as_owner(runtime, *, logins=OWNER, local=True):
     """The server is the owner's, for the owner-only routes: his login is on the list and, by
-    default, a request made on the server itself speaks for him (CROOKS_WRITES_LOCAL_OWNER).
-    Writes are left as they are. With no allow-list those routes answer nobody (F-05B)."""
+    default, a request made on the server itself speaks for him (CROOKS_LOCAL_OWNER and
+    CROOKS_WRITES_LOCAL_OWNER alike). Writes are left as they are. With no allow-list those
+    routes answer nobody (F-05B)."""
     runtime.settings = runtime.settings.model_copy(
-        update={"allowed_logins": logins, "writes_local_owner": local, "tailscale_verify": False}
+        update={"allowed_logins": logins, "writes_local_owner": local, "local_owner": local, "tailscale_verify": False}
     )
     app.state.allowed_logins = runtime.allowed_logins
 
@@ -395,7 +396,6 @@ async def test_a_turn_time_refusal_is_logged_and_the_local_case_is_named(client,
 
 @pytest.mark.parametrize("setup, headers, code, phrase", [
     (dict(writes=False), PROXIED, "writes_disabled", "switched off"),
-    (dict(writes=True, logins=""), PROXIED, "allow_list_missing", "allowed logins aren't set"),
     (dict(writes=True, local=False), {}, "not_authorised_local", "from the server itself"),
 ])
 async def test_a_proposal_this_tablet_cannot_apply_says_so_at_once(client, setup, headers, code, phrase):
@@ -411,6 +411,18 @@ async def test_a_proposal_this_tablet_cannot_apply_says_so_at_once(client, setup
     assert card["data"]["commit"]["reason"]
     assert phrase in body["answer"], body["answer"]
     assert body["answer"].startswith("The note's ready.")
+    assert client.store.mutations == []
+
+
+async def test_with_no_allow_list_nobody_can_even_ask(client):
+    """Round 6: a server nobody has said is anyone's answers no turn at all, from a device or from
+    itself, and says so with the write boundary's own code and line, rather than drawing a card a
+    tap could not apply."""
+    configure(client, writes=True, logins="", local=True)
+    for headers in (PROXIED, {}):
+        refused = await client.post("/turn", json={"text": "add a note to order 1938", "session_id": "t3"}, headers=headers)
+        assert refused.status_code == 403 and refused.json()["code"] == "allow_list_missing"
+        assert refused.json()["spoken"] == "Nobody is allowed to apply changes yet: the allowed logins aren't set on the server."
     assert client.store.mutations == []
 
 
@@ -887,11 +899,11 @@ async def test_a_login_header_tailscale_does_not_vouch_for_applies_nothing(clien
         assert response.json()["spoken"] == "I couldn't confirm which device this is with Tailscale, so I can't apply that."
         assert client.store.mutations == [] and proposal.status.value == "PENDING"
         assert (await client.post(f"/actions/{proposal.proposal_id}/arm", data={"session_id": "s1"}, headers=PROXIED)).status_code == 403
-        # A card recovered after a lost connection is shown as one a tap here cannot apply.
+        # Nor may it read the card back: a device Tailscale does not vouch for is refused at the
+        # door, before any route, with the same code and line (round 6: every route is the owner's).
         state = await client.get(f"/actions/{proposal.proposal_id}?session_id=s1", headers=PROXIED)
-        assert state.status_code == 200 and state.json()["status"] == "pending"
-        card = next(i for i in state.json()["ui"] if i["type"] == "confirmation")["data"]
-        assert card["commit"] == {"allowed": False, "code": "identity_unverified", "reason": "The server could not confirm this device's identity with Tailscale."}
+        assert state.status_code == 403 and state.json()["code"] == "identity_unverified"
+        assert state.json()["spoken"] == "I couldn't confirm which device this is with Tailscale, so I can't apply that."
         # Tailscale names the login on the header: the same tap applies.
         holders["100.64.0.9"] = OWNER
         identity.bind_runner(lambda cli, address: {"UserProfile": {"LoginName": holders.get(address, "")}})

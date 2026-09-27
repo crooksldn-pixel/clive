@@ -35,8 +35,13 @@ def _settings():
 
 def _call(port: int, method: str, path: str, body: dict | None = None) -> dict | None:
     """The backend on loopback, or None when it is not running."""
+    from app import local_cli
+
     data = json.dumps(body or {}).encode("utf-8") if method == "POST" else None
-    request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method=method, headers={"content-type": "application/json"})
+    # The server's own key for these commands (app/local_cli.py), when this user can read it:
+    # root on the server. Without it the backend refuses them, and says so.
+    headers = {"content-type": "application/json", **local_cli.headers()}
+    request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=5) as response:  # noqa: S310 — loopback only
             return json.loads(response.read().decode("utf-8") or "{}")
@@ -121,10 +126,23 @@ def cmd_stop(args) -> int:
         print(answer.get("detail") or "no test session running", file=sys.stderr)
         return 1
     print(answer["test_session_id"])
-    counts = answer.get("events") or {}
-    print(f"{counts.get('written', '?')} events in {answer.get('path')}", file=sys.stderr)
+    print(stopped_line(answer), file=sys.stderr)
     print(f"next: make test-session-report SESSION={answer['test_session_id']}", file=sys.stderr)
     return 0
+
+
+def stopped_line(answer: dict) -> str:
+    """What a stop says about the count: final only when the backend said nothing was still being
+    written (the 2026-09-27 deploy review, round 6, F-10). Otherwise the file's count so far, and
+    how many events were still pending, which may yet land or be dropped."""
+    counts = answer.get("events") or {}
+    on_disk = counts.get("on_disk", counts.get("written", "?"))
+    path = answer.get("path")
+    if counts.get("settled") is True:
+        return f"{on_disk} events in {path} (final; {counts.get('dropped', 0)} dropped)"
+    pending = counts.get("pending", "?")
+    return (f"{on_disk} events in {path} so far, not final: {pending} still being written when it stopped, "
+            "which may yet land or be dropped. Run make test-session-status to see it settle.")
 
 
 def _prune_reports(out_dir: Path, settings) -> None:

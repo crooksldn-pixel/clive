@@ -17,6 +17,20 @@
   const root = document.getElementById('startup');
   if (!root) return;
   if (!window.CliveDots) { root.remove(); return; }
+  // The way out comes first (the 2026-09-27 deploy review, round 6, B-06): before anything that
+  // can fail, a timer that takes the start-up away whatever happens, and every step after it
+  // runs inside a guard that takes it away at once if that step throws. `is-live` (which stops
+  // the stylesheet's own give-way) is added only once the dots are running.
+  let gone = false;
+  let E = null;
+  function bail() {
+    if (gone) return;
+    gone = true;
+    root.classList.add('is-gone');
+    setTimeout(() => { try { if (E) E.destroy(); } catch (e) { /* going anyway */ } root.remove(); }, 700);
+  }
+  setTimeout(bail, 20000);
+  try {
   const $ = (id) => document.getElementById(id);
   const FAM = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, "Helvetica Neue", Helvetica, sans-serif';
   const KEY = 'clive.startup';
@@ -43,7 +57,6 @@
   if (kind === 'full') {
     try { localStorage.setItem(KEY, JSON.stringify({ day: today, build: BUILD })); } catch (e) { /* plays again next time */ }
   }
-  root.classList.add('is-live');
 
   // ---- the page, in its own pixels ----
   const W = Math.max(320, window.innerWidth || 390), H = Math.max(480, window.innerHeight || 844);
@@ -57,10 +70,11 @@
   const B = { S: { x: W / 2, y: H * 0.46 }, R: 104 * s, init: 30 * s, gap: 46 * s, word: 12 * s, wordGap: 10 * s, line: 64 * s, glint: 240 * s };
   B.markTop = B.S.y - B.init / 2;
 
-  const E = window.CliveDots.create({
+  E = window.CliveDots.create({
     canvas: $('startup-dots'), bloom: $('startup-bloom'), fx: $('startup-fx'), root, W, H, L,
     density: lite ? 5000 : 11000, speed: 1, calm: reduced, maxScale: lite ? 1 : 2,
   });
+  root.classList.add('is-live');
 
   // ---- the name ----
   const ACRONYM = [['C', 'OMPUTER'], ['L', 'ANGUAGE'], ['I', 'NTERFACE'], ['V', 'IRTUAL'], ['E', 'NVIRONMENT']];
@@ -176,8 +190,7 @@
   function finish() {
     if (finished) return;
     finished = true;
-    root.classList.add('is-gone');
-    setTimeout(() => { E.destroy(); root.remove(); }, 700);
+    bail();
   }
   function handoff() {
     if (handedOff || finished) return;
@@ -208,8 +221,6 @@
       if (ready()) handoff(); else if (failed()) finish();
     }).observe(systemEl, { attributes: true, attributeFilter: ['data-phase'] });
   }
-  // If nothing moves for this long the page must be usable anyway.
-  setTimeout(finish, 20000);
 
   function runFull() {
     const tg = sampleInits(2, 1.3);
@@ -238,8 +249,15 @@
   }
   root.addEventListener('pointerdown', () => {
     if (finished) return;
-    if (kind === 'full' && !loadAt && E.time() < T0 + 5.1) { E.simulate(T0 + 5.15); return; }
+    try {
+      if (kind === 'full' && !loadAt && E.time() < T0 + 5.1) { E.simulate(T0 + 5.15); return; }
+    } catch (e) { bail(); return; }
     if (failed()) finish();
   });
-  requestAnimationFrame(() => requestAnimationFrame(() => { if (kind === 'full') runFull(); else runQuick(); }));
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    try { if (kind === 'full') runFull(); else runQuick(); } catch (e) { bail(); }
+  }));
+  } catch (e) {
+    bail();
+  }
 })();

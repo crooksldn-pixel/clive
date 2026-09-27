@@ -208,11 +208,45 @@ async def test_the_pad_block_is_never_served_from_the_health_cache(client):
     assert second["pad"]["connected"] is False and second["pad"]["state"] == "stale"
 
 
-async def test_reading_the_pad_directly_is_the_macs_own_business(client):
-    """The tablet has no use for this and the route is not its business: the Control app runs on
-    the Mac, like every other control route in `app/routes/observe.py`."""
-    assert (await client.get("/pad", headers=PROXIED)).status_code == 403
+async def test_reading_the_pad_directly_is_the_owners_business(client):
+    """The pad's status is the owner's, like every observe route (the 2026-09-27 deploy review,
+    F-NEW-PAD): his own device may read it, and so may the server itself when CROOKS_LOCAL_OWNER
+    says the server speaks for him. Nobody else — not a stranger's device, and not a process on
+    the server with that switch off, as it is in production."""
+    configure(client, logins="owner@example.com")
+    assert (await client.get("/pad", headers=PROXIED)).status_code == 200
     assert (await client.get("/pad")).status_code == 200
+    stranger = {"Tailscale-User-Login": "other@example.com", "X-Forwarded-For": "100.64.0.3"}
+    assert (await client.get("/pad", headers=stranger)).status_code == 403
+    client.runtime.settings = client.runtime.settings.model_copy(update={"local_owner": False})
+    refused = await client.get("/pad")
+    assert refused.status_code == 403 and refused.json()["code"] == "not_authorised_local"
+
+
+async def test_a_heartbeat_from_the_server_with_the_production_switches_is_refused_before_it_is_read(client):
+    """F-NEW-PAD: POST /pad/heartbeat had no check of its own, so a process on the server could
+    write pad events into a running test session and learn whether one was recording. With the
+    production switches (no CROOKS_LOCAL_OWNER, no CROOKS_WRITES_LOCAL_OWNER) it is refused, and
+    the registry never hears of it — at the door, and again by the route itself."""
+    from app.routes import pad as pad_route
+
+    clock = Clock()
+    pad_module.install(pad_module.PadRegistry(clock=clock))
+    configure(client, logins="owner@example.com", local=False)
+    client.runtime.settings = client.runtime.settings.model_copy(update={"local_owner": False})
+    refused = await client.post("/pad/heartbeat", json={"app_version": "9.9.9", "device_model": "forged"})
+    assert refused.status_code == 403 and refused.json()["code"] == "not_authorised_local"
+    assert "recording" not in refused.text
+    assert pad_module.current().status()["connected"] is False
+
+    # And the route's own check stands without the door: called directly with the same request.
+    from starlette.requests import Request
+
+    scope = {"type": "http", "method": "POST", "path": "/pad/heartbeat", "headers": [], "app": app,
+             "client": ("127.0.0.1", 50000), "server": ("127.0.0.1", 8000), "query_string": b""}
+    direct = await pad_route.heartbeat(Request(scope))
+    assert direct.status_code == 403
+    assert pad_module.current().status()["connected"] is False
 
 
 # ------------------------------------------------------------------------ what a pad may say

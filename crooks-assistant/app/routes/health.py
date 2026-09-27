@@ -35,7 +35,7 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
     state = request.app.state
     cached = getattr(state, "health_cache", None)
     if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-        return {**_live(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)}
+        return _guarded(state, {**_live(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
     lock = getattr(state, "health_lock", None)
     if lock is None:
         lock = state.health_lock = asyncio.Lock()
@@ -44,10 +44,32 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
         # doubling the work.
         cached = getattr(state, "health_cache", None)
         if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-            return {**_live(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)}
+            return _guarded(state, {**_live(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
         result = await _health(runtime)
         state.health_cache = (time.time(), result)
-        return {**result, "observability": _observability(runtime), "pad": _pad(), "cached": False, "age_s": 0.0}
+        return _guarded(state, {**result, "observability": _observability(runtime), "pad": _pad(), "cached": False, "age_s": 0.0})
+
+
+def _guarded(state, result: dict) -> dict:
+    """Two checks read at answer time, never cached, that say whether the server's own guards are
+    working (the 2026-09-27 deploy review, round 6):
+
+    proxy_identity — the server was started so it can tell who opened each connection (uvicorn
+    with --no-proxy-headers, F-05B-AVAIL). Without it every request from the owner's devices is
+    refused, so a deploy that did not update the service file shows here at once.
+    housekeeping — the pass that ages the records and keeps the reports private ran, and the last
+    one found nothing it could not put right (F-04). Neither carries anything but a verdict."""
+    if "checks" not in result:
+        return result
+    from app import identity
+
+    checks = dict(result["checks"])
+    ok, detail = identity.served_without_proxy_headers()
+    checks["proxy_identity"] = {"ok": ok, "detail": detail}
+    keeper = getattr(state, "housekeeper", None)
+    if keeper is not None:
+        checks["housekeeping"] = keeper.check()
+    return {**result, "checks": checks, "status": "ok" if all(c.get("ok") for c in checks.values()) else "degraded"}
 
 
 def _live(runtime, result: dict) -> dict:

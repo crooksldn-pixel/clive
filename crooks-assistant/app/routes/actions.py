@@ -95,6 +95,12 @@ def caller_check(request: Request) -> tuple[str, str, str, str]:
 
 
 def principal_check(request: Request) -> tuple[str, str]:
+    """(who, why refused): principal_verdict without its code."""
+    who, _code, why = principal_verdict(request)
+    return who, why
+
+
+def principal_verdict(request: Request) -> tuple[str, str, str]:
     """Who may read or change the owner's own records — objectives, builds, the gap record, his
     screens, the test session and its telemetry, the anticipation table — as (who, why refused).
     The write boundary's rule without the writes switch, failing the same way it does (the
@@ -108,25 +114,26 @@ def principal_check(request: Request) -> tuple[str, str]:
     allowed = getattr(runtime, "allowed_logins", ()) if runtime is not None else ()
     if not allowed:
         # As caller_check: an empty list is a server nobody has said is anyone's.
-        return "", "No allowed logins are set on the server (CROOKS_ALLOWED_LOGINS)."
+        return "", "allow_list_missing", "No allowed logins are set on the server (CROOKS_ALLOWED_LOGINS)."
     settings = runtime.settings
     login = request.headers.get("tailscale-user-login", "").strip()
     route, why = proxy_state(request)
     if route == FORGED:
-        return "", f"This request did not come through Tailscale: {why}."
+        return "", "identity_unverified", f"This request did not come through Tailscale: {why}."
     if route == TAILSCALE:
         if not login or login.lower() not in allowed:
-            return "", "This login may not use this."
+            return "", "not_authorised", "This login may not use this."
         if settings.tailscale_verify:
             from app import identity
 
             ok, why = identity.verify(request.headers.get("x-forwarded-for", ""), login, cli=identity.cli_path(settings.tailscale_cli))
             if not ok:
-                return "", f"Tailscale could not confirm this device's identity: {why}."
-        return login.lower(), ""
-    if settings.writes_local_owner:
-        return "local", ""
-    return "", "Requests made on the server itself may not use this (CROOKS_WRITES_LOCAL_OWNER)."
+                return "", "identity_unverified", f"Tailscale could not confirm this device's identity: {why}."
+        return login.lower(), "", ""
+    if settings.writes_local_owner or getattr(settings, "local_owner", False):
+        return "local", "", ""
+    return "", "not_authorised_local", ("Requests made on the server itself may not use this "
+                                        "(CROOKS_LOCAL_OWNER or CROOKS_WRITES_LOCAL_OWNER).")
 
 
 async def require_principal(request: Request) -> None:
@@ -171,9 +178,14 @@ def proxy_state(request: Request) -> tuple[str, str]:
             from app import identity
 
             ok, why = identity.peer_is_tailscaled(request.scope.get("client"), request.scope.get("server"))
+            mine = identity.is_this_host(forwarded, cli=identity.cli_path(getattr(settings, "tailscale_cli", ""))) if ok else False
             if not ok:
                 result = (FORGED, why)
-            elif identity.is_this_host(forwarded):
+            elif mine is None:
+                # Which addresses are this server's own could not be read, so a request it sent
+                # itself could not be told from one of the owner's devices: refused, not guessed.
+                result = (FORGED, "this server's own tailnet addresses could not be read (tailscale ip)")
+            elif mine:
                 result = (THIS_HOST, "sent through tailscale serve by this server itself")
             else:
                 result = (TAILSCALE, "")

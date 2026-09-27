@@ -114,28 +114,37 @@ def verify(address: str, login: str, *, cli: str | None, now: float | None = Non
 
 # ------------------------------------------------------------------ did it come through tailscaled
 #
-# A header is a claim, and so is its absence of doubt: X-Forwarded-For and Tailscale-User-Login
-# can be written by any process on this server that can reach the port, and `tailscale whois`
-# says who holds the forwarded ADDRESS, not that the request came from that device (the
-# 2026-09-27 deploy review, F-05B). What cannot be written by a header is who opened the TCP
-# connection the request arrived on. On Linux the kernel says: /proc/net/tcp names the socket
-# at the other end of this connection by inode, and only the process holding that inode has it
-# among its open files. The connection is judged to have come through `tailscale serve` only
-# when that process is tailscaled.
+# A header is a claim: X-Forwarded-For and Tailscale-User-Login can be written by any process on
+# this server that can reach the port, and `tailscale whois` says who holds the forwarded ADDRESS,
+# not that the request came from that device (the 2026-09-27 deploy reviews, F-05B). What a header
+# cannot write is who opened the TCP connection the request arrived on, and on Linux the kernel
+# says: /proc/net/tcp names the socket at the other end of this connection by inode, and only the
+# process holding that inode has it among its open files.
 #
-# uvicorn must be started with --no-proxy-headers for this: otherwise it replaces the
-# connection's own address with the forwarded one before the app sees it, and there is nothing
-# left to check. Every launcher here passes it; a server started without it refuses every
-# forwarded request rather than trusting one (`peer_is_tailscaled` below says why).
+# Which process is tailscaled is also the kernel's answer, never a name a process gives itself
+# (round 6: any process can set its own comm with prctl(PR_SET_NAME)). It is a process in the
+# tailscaled.service unit's own cgroup, which only root can move a process into, as listed by that
+# cgroup's cgroup.procs and confirmed by the process's own /proc/<pid>/cgroup, whose executable
+# (/proc/<pid>/exe, which only exec can set) is a file named tailscaled. Its open files are read
+# afresh for every check: nothing positive is ever remembered, so a socket inode the kernel later
+# gives to something else cannot inherit a yes. Root on this server can defeat any of this, as it
+# can read every credential the service holds; this stops everything that is not root.
+#
+# uvicorn must be started with --no-proxy-headers for this: otherwise it replaces the connection's
+# own address with the forwarded one before the app sees it, and there is nothing left to check.
+# Every launcher passes it; a server started without it refuses every forwarded request.
 
-PROXY_PROCESS = "tailscaled"
+PROXY_UNIT = "tailscaled.service"
+PROXY_EXE = "tailscaled"
 PROC = Path("/proc")
+CGROUP = Path("/sys/fs/cgroup")
+# Where a system service's cgroup lives: the unified hierarchy (cgroup v2, Ubuntu 24.04), then the
+# named systemd hierarchy of a v1 or hybrid host.
+_UNIT_CGROUPS = ("system.slice/{unit}", "systemd/system.slice/{unit}", "unified/system.slice/{unit}")
 _peer_check = None      # tests hand in a fake
 _self_check = None      # tests hand in a fake
-_holdings: dict[int, frozenset[int]] = {}
-_proxy_pids: list[int] = []     # tailscaled's pids as last found; checked by name before use
-_self_cache: dict[str, tuple[bool, float]] = {}
-SELF_CACHE_S = 60.0
+_self_cache: dict[str, tuple[frozenset[str] | None, float]] = {}
+SELF_CACHE_S = 600.0
 
 
 def bind_peer_check(check) -> None:
@@ -145,7 +154,8 @@ def bind_peer_check(check) -> None:
 
 
 def bind_self_check(check) -> None:
-    """Tests: `check(address) -> bool` in place of asking this machine whether it holds it."""
+    """Tests: `check(address) -> bool | None` in place of asking Tailscale for this node's own
+    addresses (None: it could not say)."""
     global _self_check
     _self_check = check
     with _lock:
@@ -216,25 +226,40 @@ def socket_inode(client: tuple[str, int] | None, server: tuple[str, int] | None,
     return None
 
 
-def pids_named(name: str, *, proc: Path | None = None) -> list[int]:
-    root = proc or PROC
-    found: list[int] = []
-    try:
-        entries = [p for p in root.iterdir() if p.name.isdigit()]
-    except OSError:
-        return found
-    for entry in entries:
+def unit_pids(unit: str = PROXY_UNIT, *, cgroup: Path | None = None) -> list[int]:
+    """The processes in a systemd service's own cgroup, as the kernel lists them. Only root can
+    move a process into another service's cgroup."""
+    root = cgroup or CGROUP
+    for pattern in _UNIT_CGROUPS:
+        procs = root / pattern.format(unit=unit) / "cgroup.procs"
         try:
-            if (entry / "comm").read_text(encoding="utf-8", errors="replace").strip() == name:
-                found.append(int(entry.name))
+            text = procs.read_text(encoding="ascii", errors="replace")
         except OSError:
             continue
-    return found
+        return [int(word) for word in text.split() if word.isdigit()]
+    return []
+
+
+def is_proxy_process(pid: int, *, proc: Path | None = None, unit: str = PROXY_UNIT, exe: str = PROXY_EXE) -> bool:
+    """Whether a process is the tailscaled service, by what only the kernel writes: the cgroup
+    it is in (/proc/<pid>/cgroup) and the file it was exec'd from (/proc/<pid>/exe; a binary
+    replaced by an upgrade reads "<path> (deleted)" until the restart). Never by its name."""
+    root = proc or PROC
+    try:
+        groups = (root / str(pid) / "cgroup").read_text(encoding="utf-8", errors="replace").splitlines()
+        target = os.readlink(root / str(pid) / "exe")
+    except PermissionError:
+        raise
+    except OSError:
+        return False
+    in_unit = any(line.rsplit(":", 1)[-1].rstrip("/").endswith(f"/{unit}") for line in groups)
+    path = target[: -len(" (deleted)")] if target.endswith(" (deleted)") else target
+    return in_unit and Path(path).name == exe
 
 
 def socket_inodes(pid: int, *, proc: Path | None = None) -> frozenset[int]:
-    """The socket inodes a process holds open. Reading another process's open files needs the
-    rights this service runs with (root on the server, today). Without them this raises
+    """The socket inodes a process holds open, read now. Reading another process's open files
+    needs the rights this service runs with (root on the server, today). Without them this raises
     PermissionError, which `peer_is_tailscaled` turns into a refusal that says so: moving the
     service to its own user (docs/DEPLOY_LINUX.md) must bring a way to keep this answer, or
     every forwarded request is refused, never waved through."""
@@ -260,51 +285,53 @@ def socket_inodes(pid: int, *, proc: Path | None = None) -> frozenset[int]:
     return frozenset(held)
 
 
+# Forwarded requests refused because uvicorn had already put the forwarded address in place of
+# the connection's own (a port of 0): the sign of a server started without --no-proxy-headers,
+# counted so /health can say so (round 6, F-05B-AVAIL).
+rewritten_seen = 0
+
+
+def served_without_proxy_headers(cmdline: list[str] | None = None) -> tuple[bool, str]:
+    """Whether this process was started so that the connection's own address reaches the app:
+    uvicorn with --no-proxy-headers. (ok, why). A process that is not uvicorn started from the
+    command line (the test suite, another ASGI host) has nothing here to check, and says so."""
+    if cmdline is None:
+        try:
+            raw = (PROC / "self" / "cmdline").read_bytes()
+        except OSError:
+            return False, "this process's command line could not be read"
+        cmdline = [part.decode("utf-8", "replace") for part in raw.split(b"\0") if part]
+    started_by_uvicorn = any(Path(part).name in ("uvicorn", "uvicorn.exe") for part in cmdline[:3]) or (
+        "-m" in cmdline[:3] and "uvicorn" in cmdline[:4])
+    if not started_by_uvicorn:
+        return True, "not started by uvicorn from the command line: nothing to check"
+    if "--no-proxy-headers" not in cmdline:
+        return False, "uvicorn was started without --no-proxy-headers: every forwarded request is refused"
+    if rewritten_seen:
+        return False, f"{rewritten_seen} forwarded request(s) arrived with their address already replaced"
+    return True, "uvicorn started with --no-proxy-headers"
+
+
 def _proc_peer_check(client, server) -> tuple[bool, str]:
+    global rewritten_seen
     if not (PROC / "net" / "tcp").exists():
         return False, "this server cannot say who opened the connection (no /proc)"
     if client and not int(client[1] or 0):
+        with _lock:
+            rewritten_seen += 1
         return False, ("the connection's own address was replaced by a forwarded one before it reached "
                        "the app: start uvicorn with --no-proxy-headers (make install)")
     inode = socket_inode(client, server)
     if inode is None:
         return False, "the connection was not opened on this server"
-    checked: set[int] = set()
-    for fresh in (False, True):
-        # The pids found last time, if they are still tailscaled; every process only when that
-        # finds nothing (tailscaled restarted), so a request costs no scan of the process table.
-        pids = _tailscaled_pids(fresh=fresh)
-        for pid in pids:
-            if pid in checked:
-                continue
-            checked.add(pid)
-            held = _holdings.get(pid)
-            if held is None or inode not in held:
-                held = socket_inodes(pid)
-                _holdings[pid] = held
-            if inode in held:
-                return True, f"opened by tailscaled (pid {pid})"
-    if not checked:
-        return False, "tailscaled is not running on this server"
+    pids = [pid for pid in unit_pids() if is_proxy_process(pid)]
+    if not pids:
+        return False, f"no tailscaled process is running in {PROXY_UNIT}"
+    for pid in pids:
+        # Read afresh every time: a remembered yes could outlive the socket it was about.
+        if inode in socket_inodes(pid):
+            return True, f"opened by tailscaled (pid {pid})"
     return False, "the connection was opened by something other than tailscaled"
-
-
-def _tailscaled_pids(*, fresh: bool) -> list[int]:
-    if not fresh:
-        alive = []
-        for pid in list(_proxy_pids):
-            try:
-                if (PROC / str(pid) / "comm").read_text(encoding="utf-8", errors="replace").strip() == PROXY_PROCESS:
-                    alive.append(pid)
-            except OSError:
-                continue
-        if alive:
-            return alive
-    found = pids_named(PROXY_PROCESS)
-    _proxy_pids[:] = found
-    for gone in [pid for pid in _holdings if pid not in found]:
-        _holdings.pop(gone, None)
-    return found
 
 
 def peer_is_tailscaled(client: tuple[str, int] | None, server: tuple[str, int] | None) -> tuple[bool, str]:
@@ -316,32 +343,48 @@ def peer_is_tailscaled(client: tuple[str, int] | None, server: tuple[str, int] |
         return False, f"who opened the connection could not be read: {type(exc).__name__}"
 
 
-def is_this_host(address: str) -> bool:
-    """Whether a forwarded address belongs to this server itself. The server is on the owner's
-    tailnet login, so a request it sends through its own `tailscale serve` arrives stamped
-    with the owner's login; it is still a request made on the server, and is judged as one.
-    Asked of the kernel: an address this machine holds can be bound to."""
-    import socket
+def _run_ip(cli: str) -> str:
+    completed = subprocess.run([cli, "ip"], capture_output=True, text=True, timeout=TIMEOUT_S, check=False)
+    if completed.returncode != 0:
+        raise RuntimeError(f"exit {completed.returncode}")
+    return completed.stdout
 
+
+def own_addresses(*, cli: str | None, now: float | None = None) -> frozenset[str] | None:
+    """This node's own tailnet addresses, as Tailscale itself lists them (`tailscale ip`), cached
+    briefly; None when it cannot say. Asked of Tailscale rather than inferred from what the kernel
+    lets a socket bind to, which a sysctl (net.ipv4.ip_nonlocal_bind) can turn into "every
+    address" (round 6, F-05B-AVAIL)."""
+    now = time.time() if now is None else now
+    with _lock:
+        cached = _self_cache.get("")
+        if cached is not None and now - cached[1] < (SELF_CACHE_S if cached[0] is not None else NEGATIVE_S):
+            return cached[0]
+    found: frozenset[str] | None = None
+    if cli:
+        try:
+            listed = _run_ip(cli)
+            addresses = frozenset(str(ip) for ip in (_ip(word) for word in listed.split()) if ip is not None)
+            found = addresses if addresses and all(on_tailnet(a) for a in addresses) else None
+        except Exception as exc:  # noqa: BLE001 — every failure is "cannot say"
+            log.warning("tailscale ip failed: %s", type(exc).__name__)
+    with _lock:
+        _self_cache[""] = (found, now)
+    return found
+
+
+def is_this_host(address: str, *, cli: str | None = None) -> bool | None:
+    """Whether a forwarded address is this server's own. The server is on the owner's tailnet
+    login, so a request it sends through its own `tailscale serve` arrives stamped with the
+    owner's login; it is still a request made on the server, and is judged as one. None when
+    this node's addresses cannot be read, which the caller refuses."""
     ip = _ip(forwarded_address(address))
     if ip is None:
         return False
-    key = str(ip)
-    now = time.time()
-    with _lock:
-        cached = _self_cache.get(key)
-        if cached is not None and now - cached[1] < SELF_CACHE_S:
-            return cached[0]
     if _self_check is not None:
-        mine = bool(_self_check(key))
-    else:
-        family = socket.AF_INET6 if ip.version == 6 else socket.AF_INET
-        try:
-            with socket.socket(family, socket.SOCK_STREAM) as probe:
-                probe.bind((key, 0))
-            mine = True
-        except OSError:
-            mine = False
-    with _lock:
-        _self_cache[key] = (mine, now)
-    return mine
+        answer = _self_check(str(ip))
+        return None if answer is None else bool(answer)
+    mine = own_addresses(cli=cli)
+    if mine is None:
+        return None
+    return str(ip) in mine

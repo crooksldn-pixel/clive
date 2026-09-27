@@ -457,16 +457,198 @@ def test_housekeeping_runs_once_at_startup_before_the_first_request(tmp_path, mo
 
     monkeypatch.setattr(max_agent_sdk.MaxAgentSDKProvider, "start", no_start)
     passes: list[object] = []
-    monkeypatch.setattr(main_module, "housekeep_once", lambda runtime: passes.append(runtime))
-
-    async def timer_only(runtime):
-        await asyncio.sleep(3600)
-
-    monkeypatch.setattr(main_module, "_housekeeping", timer_only)
+    monkeypatch.setattr(main_module, "housekeep_once", lambda runtime: passes.append(runtime) and "")
+    monkeypatch.setattr(main_module, "HOUSEKEEPING_S", 3600)
 
     async def boot():
         async with main_module.app.router.lifespan_context(main_module.app):
             assert len(passes) == 1, "one pass ran before the app said it was ready"
             assert passes[0] is main_module.app.state.runtime
+            assert main_module.app.state.housekeeper.check()["ok"] is True
 
     asyncio.run(boot())
+
+
+def test_a_stop_that_did_not_settle_never_presents_its_count_as_final(tmp_path, monkeypatch, caplog):
+    """F-10, round 6: Timeline.stop dropped flush's answer and `make test-session-stop` printed
+    the file's count as the session's. The stop keeps whether it settled, the stop route carries
+    the counts, and the CLI line says "not final" unless the backend said nothing was pending."""
+    import threading
+
+    from scripts.test_session import stopped_line
+
+    clock = Clock()
+    store = TestSessions(tmp_path, clock=clock)
+    timeline = Timeline(store, clock=clock)
+    timeline.start("stop")
+    assert timeline.flush()
+    hold = threading.Event()
+    real_append = timeline._append
+
+    def held(path, lines):
+        assert hold.wait(10)
+        return real_append(path, lines)
+
+    monkeypatch.setattr(timeline, "_append", held)
+    monkeypatch.setattr(timeline, "flush", lambda timeout_s=2.0: Timeline.flush(timeline, timeout_s=0.05))
+    timeline.emit("turn_started")
+    session = timeline.stop()
+    assert session is not None and timeline.stop_settled is False
+    assert "count is not final" in caplog.text
+    counts = timeline.counts
+    assert counts["settled"] is False and counts["pending"] >= 1
+    line = stopped_line({"events": counts, "path": "/x.jsonl"})
+    assert "not final" in line and "still being written" in line
+    hold.set()
+    assert Timeline.flush(timeline, timeout_s=5)
+    final = timeline.counts
+    assert final["settled"] is True
+    assert stopped_line({"events": final, "path": "/x.jsonl"}).endswith("(final; 0 dropped)")
+    assert "not final" in stopped_line({"events": {"written": 3}, "path": "/x.jsonl"}), "an older backend's answer is not final"
+
+
+# --------------------------------------------------------------------------- round 6, F-04
+
+
+def test_a_report_that_cannot_be_made_private_is_withheld_and_what_is_left_is_said(tmp_path, monkeypatch):
+    """F-04, round 6: tighten() swallowed every failure, so a report the service could not make
+    private stayed readable and nothing said so. Now what is still open afterwards is found by
+    the kernel's own answer, taken out of reach (a 0700 folder of its own, or removed), and what
+    even that cannot close is logged as an error and turns /health's housekeeping check red."""
+    from pathlib import Path
+
+    from app.observability import session as session_module
+
+    clock = Clock()
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    stuck = reports / "ts-20260927-000000-walk.md"
+    fine = reports / "ts-20260927-000000-other.md"
+    for path in (stuck, fine):
+        path.write_text("owner's words")
+        os.chmod(path, 0o644)
+    real_chmod = Path.chmod
+
+    def chmod(self, mode, *args, **kwargs):
+        if self.name == stuck.name:
+            raise PermissionError("not the owner of this file")
+        return real_chmod(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "chmod", chmod)
+    store = TestSessions(tmp_path / "logs", clock=clock, always=False, reports_dir=reports)
+    store.tidy_reports()
+    assert not stuck.exists(), "left where anyone could read it"
+    withheld = list((reports / session_module.WITHHELD).iterdir())
+    assert [p.name.split("-", 1)[1] for p in withheld] == [stuck.name]
+    assert oct((reports / session_module.WITHHELD).stat().st_mode & 0o777) == "0o700"
+    assert oct(fine.stat().st_mode & 0o777) == "0o600" and store.tidy_problem == ""
+
+    # Now nothing can be moved or removed either: it stays, and that is said, in counts.
+    stuck.write_text("owner's words")
+    os.chmod(stuck, 0o644)
+    monkeypatch.setattr(session_module.os, "replace", lambda *a, **k: (_ for _ in ()).throw(PermissionError("no")))
+    monkeypatch.setattr(session_module, "_remove_if_older", lambda path, cutoff: 0)
+    store.tidy_reports()
+    assert stuck.exists() and store.tidy_problem == "1 report path(s) are readable by others and could not be withheld"
+    assert "walk" not in store.tidy_problem, "a problem that reaches /health names no file"
+
+    from app.main import Housekeeper, housekeep_once
+
+    class Runtime:
+        tests = store
+
+    assert housekeep_once(Runtime()) == store.tidy_problem
+    keeper = Housekeeper(Runtime())
+    keeper.run_pass()
+    check = keeper.check()
+    assert check["ok"] is False and "could not be withheld" in check["detail"]
+
+
+def test_the_housekeeping_timer_is_started_again_whatever_stops_it():
+    """F-04, round 6: the periodic pass was a bare task; one exception or a stray cancel ended it
+    for good and nothing noticed. The keeper starts it again, counts it, and /health says so."""
+    import asyncio
+
+    from app.main import Housekeeper
+
+    ran: list[int] = []
+
+    def flaky(runtime):
+        ran.append(len(ran))
+        if len(ran) == 2:
+            raise RuntimeError("a pass that broke")
+        return ""
+
+    async def scenario():
+        keeper = Housekeeper(object(), interval_s=0.01, pass_fn=flaky)
+        await keeper.first_pass()
+        keeper.start()
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if len(ran) >= 4:
+                break
+        assert keeper.restarts >= 1 and len(ran) >= 4, (keeper.restarts, ran)
+        assert "RuntimeError" in keeper.check()["detail"]
+        # A cancel nobody asked for is a stop too.
+        before = keeper.restarts
+        keeper._task.cancel()
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if keeper.restarts > before and len(ran) >= 6:
+                break
+        assert keeper.restarts == before + 1 and "cancelled" in keeper.check()["detail"]
+        assert await keeper.stop() is True
+        count = len(ran)
+        await asyncio.sleep(0.05)
+        assert len(ran) == count, "nothing is scheduled once it is stopped"
+
+    asyncio.run(scenario())
+
+
+def test_shutdown_waits_for_a_pass_already_running_before_the_runtime_is_closed(monkeypatch):
+    """F-04, round 6: cancelling a task awaiting asyncio.to_thread does not stop the thread, so a
+    pass could still be running while runtime.aclose() tore down what it was using. Shutdown now
+    stops scheduling and waits for that pass; the runtime is closed after it, never during it."""
+    import asyncio
+    import threading
+
+    from app import main as main_module
+    from app.providers import max_agent_sdk
+
+    async def no_start(self):
+        raise RuntimeError("tests never start the real Claude provider")
+
+    monkeypatch.setattr(max_agent_sdk.MaxAgentSDKProvider, "start", no_start)
+    order: list[str] = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_pass(runtime):
+        if order:                     # the first pass, before serving, is quick
+            started.set()
+            release.wait(5)
+            order.append("pass finished")
+        else:
+            order.append("first pass")
+        return ""
+
+    monkeypatch.setattr(main_module, "housekeep_once", slow_pass)
+    monkeypatch.setattr(main_module, "HOUSEKEEPING_S", 0.01)
+
+    async def boot():
+        async with main_module.app.router.lifespan_context(main_module.app):
+            runtime = main_module.app.state.runtime
+            real_aclose = runtime.aclose
+
+            async def aclose():
+                order.append("runtime closed")
+                await real_aclose()
+
+            runtime.aclose = aclose
+            while not started.is_set():
+                await asyncio.sleep(0.01)
+            threading.Timer(0.2, release.set).start()
+        # (leaving the block is the shutdown)
+
+    asyncio.run(boot())
+    assert order == ["first pass", "pass finished", "runtime closed"], order
