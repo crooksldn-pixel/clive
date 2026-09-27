@@ -59,6 +59,13 @@ async def whoami(request: Request) -> dict:
     login = request.headers.get("tailscale-user-login", "")
     route, why = proxy_state(request)
     _who, code, _detail = principal_verdict(request)
+    # One line in the service's own log for every /whoami, without the login: the deploy reads it
+    # to know that a real owner device got through end to end before it keeps a new build
+    # (the 2026-09-27 deploy review, round 7, F-05B-AVAIL-PREFLIGHT).
+    import logging
+
+    logging.getLogger("crooks.identity").info(
+        "whoami: through=%s owner=%s refusal=%s", route, "true" if not code else "false", code or "none")
     return {
         "login": login or None,
         "proxied": route == TAILSCALE,

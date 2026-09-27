@@ -888,3 +888,18 @@ def test_a_session_with_no_appliance_events_is_reported_exactly_as_before():
     markdown = render(reconstruct(events), tools_registered=[])
     assert "## 17." not in markdown and "appliance event(s)" not in markdown
     assert "## 16. Two outcomes per turn" in markdown
+
+
+async def test_the_public_health_check_keeps_the_pads_status_and_the_session_to_the_owner(client):
+    """Round 7, F-NEW-PAD: GET /pad was the owner's, but public /health served the same pad block
+    — and the test session's name and whether it was recording — to anyone who could reach the
+    port. Liveness stays public; those two blocks are the owner's."""
+    configure(client, logins="owner@example.com", local=False)
+    client.runtime.settings = client.runtime.settings.model_copy(update={"local_owner": False})
+    await client.post("/pad/heartbeat", headers=PROXIED, json={"app_version": "0.4.2", "device_model": "SM-T290"})
+    here = (await client.get("/health")).json()
+    assert "pad" not in here and "observability" not in here and here["withheld"] == ["pad", "observability"]
+    assert here["status"] in ("ok", "degraded") and "checks" in here, "liveness is still everyone's"
+    assert (await client.get("/pad")).status_code == 403
+    mine = (await client.get("/health", headers=PROXIED)).json()
+    assert mine["pad"]["connected"] is True and "observability" in mine and "withheld" not in mine

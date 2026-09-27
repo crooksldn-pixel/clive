@@ -46,9 +46,10 @@ async def test_the_servers_own_commands_work_with_the_production_switches(client
 async def test_without_the_key_or_with_a_wrong_one_they_are_refused_as_before(client):  # noqa: F811
     production(client)
     local_cli.bind_key(KEY)
-    for headers in ({}, {local_cli.HEADER: "k" * 42}, {local_cli.HEADER: KEY + "x"}, {local_cli.HEADER: ""}):
+    for headers, code in (({}, "not_authorised_local"), ({local_cli.HEADER: ""}, "not_authorised_local"),
+                          ({local_cli.HEADER: "k" * 42}, "local_key_misused"), ({local_cli.HEADER: KEY + "x"}, "local_key_misused")):
         refused = await client.get("/test-session/status", headers=headers)
-        assert refused.status_code == 403 and refused.json()["code"] == "not_authorised_local", headers
+        assert refused.status_code == 403 and refused.json()["code"] == code, headers
     local_cli.bind_key(None)   # no key made on this server: nothing it could be compared with
     refused = await client.get("/test-session/status", headers=WITH_KEY)
     assert refused.status_code == 403
@@ -83,7 +84,7 @@ async def test_the_key_opens_nothing_but_the_three_routes(client):  # noqa: F811
         if is_public(path) or (method, path) in local_cli.ROUTES:
             continue
         response = await client.request(method, path, headers=WITH_KEY, json={})
-        assert response.status_code == 403 and response.json().get("code") == "not_authorised_local", (method, path)
+        assert response.status_code == 403 and response.json().get("code") == "local_key_misused", (method, path)
         checked += 1
     assert checked > 50
     # The three paths, with any other method, are no better.
@@ -174,3 +175,25 @@ def test_the_backend_makes_the_key_once_and_keeps_it(monkeypatch):
 def test_a_key_too_short_to_be_one_opens_nothing(value):
     local_cli.bind_key(value)
     assert local_cli.read_key() is None and local_cli.headers() == {}
+
+
+async def test_a_verified_owner_device_carrying_the_key_is_refused_and_without_it_is_admitted(client, monkeypatch):  # noqa: F811
+    """Round 7, F-05A: the key is the server's own command or nothing. The owner's own device,
+    verified end to end by Tailscale, is refused when it presents it — on the three routes and
+    anywhere else — and admitted as the owner without it."""
+    from app import identity
+
+    production(client)
+    local_cli.bind_key(KEY)
+    client.runtime.settings = client.runtime.settings.model_copy(update={"tailscale_verify": True})
+    identity.bind_peer_check(lambda client_, server: (True, "opened by tailscaled (pid 1)"))
+    identity.bind_self_check(lambda address: False)
+    identity.bind_runner(lambda cli, address: {"UserProfile": {"LoginName": OWNER}})
+    monkeypatch.setattr(identity, "cli_path", lambda configured="": "/usr/bin/tailscale")
+    assert (await client.get("/whoami", headers=PROXIED)).json()["owner"] is True, "a verified owner device"
+    for method, path in (("GET", "/test-session/status"), ("POST", "/test-session/start"), ("GET", "/objectives"), ("GET", "/health")):
+        refused = await client.request(method, path, headers={**PROXIED, **WITH_KEY}, json={"name": "x"})
+        assert refused.status_code == 403 and refused.json()["code"] == "local_key_misused", (path, refused.text)
+    assert (await client.get("/test-session/status", headers=PROXIED)).status_code == 200
+    # And on the server, the key on any route but its own is refused too.
+    assert (await client.get("/objectives", headers=WITH_KEY)).json()["code"] == "local_key_misused"

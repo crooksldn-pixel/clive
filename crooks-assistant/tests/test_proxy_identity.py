@@ -14,6 +14,7 @@ review, F-05A and F-05B).
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import socket
 import sys
@@ -102,7 +103,24 @@ def _fake_proc(root: Path, *, tcp: list[str], tcp6: list[str],
 SERVER = ("127.0.0.1", 8000)
 
 
+class _Alive:
+    """A pidfd stand-in for the fake /proc: the pinned process stays alive unless told."""
+
+    def __init__(self, pid, *, dies=False):
+        self.pid, self.dies, self.closed = pid, dies, False
+
+    def alive(self):
+        return not self.dies
+
+    def close(self):
+        self.closed = True
+
+
 def _world(tmp_path, processes, **kw):
+    # The fake /proc's pids are not this machine's: pinning and root ownership are stood in for,
+    # and the tests that are about them say so themselves.
+    identity.bind_pinner(lambda pid: _Alive(pid))
+    identity.bind_root_only(lambda path: True)
     return _fake_proc(
         tmp_path / "proc", cgroup=tmp_path / "cgroup", processes=processes,
         tcp=[
@@ -247,32 +265,51 @@ def test_the_kernel_refuses_a_real_process_renamed_tailscaled(monkeypatch):
                 s.close()
 
 
-def test_this_servers_own_addresses_are_tailscales_answer_not_a_bind(monkeypatch):
-    """Round 6, F-05B-AVAIL: bind() succeeds for any address once net.ipv4.ip_nonlocal_bind is
-    set, which would have made every owner device "this server". Tailscale lists the node's own
-    addresses; anything it cannot say is None, and the caller refuses."""
-    calls: list[str] = []
+def _addresses(root: Path, v4: list[str], v6: list[str] | None) -> Path:
+    """A /proc/net/fib_trie and if_inet6 holding these as the host's own (None: no IPv6)."""
+    (root / "net").mkdir(parents=True, exist_ok=True)
+    trie = ["Main:", "  +-- 0.0.0.0/0 3 0 5", "     |-- 0.0.0.0", "        /0 universe UNICAST"]
+    for address in ["127.0.0.1", *v4]:
+        trie += [f"     |-- {address}", "        /32 host LOCAL"]
+    trie += ["     |-- 100.64.0.9", "        /32 link UNICAST"]          # a route, not an address held
+    (root / "net" / "fib_trie").write_text("\n".join(trie) + "\n")
+    inet6 = root / "net" / "if_inet6"
+    if v6 is None:
+        inet6.unlink(missing_ok=True)
+    else:
+        rows = [f"{ipaddress.IPv6Address(a).exploded.replace(':', '')} 02 40 00 80 tailscale0" for a in ["::1", *v6]]
+        inet6.write_text("\n".join(rows) + "\n")
+    return root
 
-    def listed(cli):
-        calls.append(cli)
-        return "100.101.102.103\nfd7a:115c:a1e0::abcd\n"
 
-    monkeypatch.setattr(identity, "_run_ip", listed)
+def test_this_servers_own_addresses_are_the_kernels_read_fresh_every_time(tmp_path, monkeypatch):
+    """Round 6 took this from bind(), which net.ipv4.ip_nonlocal_bind turns into "every
+    address"; round 7 found `tailscale ip`'s ten-minute cache let an address the server gained
+    in that window pass as a device's. The kernel's own tables of the host's addresses are read
+    on every request: gained, it is this host at once; unreadable, the caller refuses."""
+    root = _addresses(tmp_path / "proc", ["100.101.102.103"], ["fd7a:115c:a1e0::abcd"])
+    monkeypatch.setattr(identity, "PROC", root)
     monkeypatch.setattr(socket.socket, "bind", lambda self, address: None)   # as if nonlocal bind were on
-    assert identity.is_this_host("100.101.102.103", cli="/usr/bin/tailscale") is True
-    assert identity.is_this_host("fd7a:115c:a1e0::abcd", cli="/usr/bin/tailscale") is True
-    assert identity.is_this_host("100.64.0.9, 10.0.0.1", cli="/usr/bin/tailscale") is False
-    assert identity.is_this_host("not an address", cli="/usr/bin/tailscale") is False
-    assert calls == ["/usr/bin/tailscale"], "asked once, then cached"
+    assert identity.is_this_host("100.101.102.103") is True
+    assert identity.is_this_host("fd7a:115c:a1e0::abcd") is True
+    assert identity.is_this_host("100.64.0.9, 10.0.0.1") is False, "a route through the host is not an address it holds"
+    assert identity.is_this_host("not an address") is False
+    # The server's tailnet address changes: the very next request knows it.
+    _addresses(root, ["100.101.102.200"], ["fd7a:115c:a1e0::abcd"])
+    assert identity.is_this_host("100.101.102.200") is True and identity.is_this_host("100.101.102.103") is False
+    # IPv6 switched off on the host: no IPv6 address is its own, and IPv4 still answers.
+    _addresses(root, ["100.101.102.200"], None)
+    assert identity.is_this_host("fd7a:115c:a1e0::abcd") is False and identity.is_this_host("100.101.102.200") is True
+    # The IPv4 table unreadable: it cannot say.
+    (root / "net" / "fib_trie").unlink()
+    assert identity.is_this_host("100.101.102.200") is None
+    assert not hasattr(identity, "own_addresses") and not hasattr(identity, "SELF_CACHE_S"), "nothing is remembered"
 
-    identity.bind_self_check(None)                       # clears the cache
-    monkeypatch.setattr(identity, "_run_ip", lambda cli: (_ for _ in ()).throw(RuntimeError("down")))
-    assert identity.is_this_host("100.64.0.9", cli="/usr/bin/tailscale") is None
-    identity.bind_self_check(None)
-    assert identity.is_this_host("100.64.0.9", cli=None) is None, "no CLI: cannot say"
-    identity.bind_self_check(None)
-    monkeypatch.setattr(identity, "_run_ip", lambda cli: "192.168.0.150\n")
-    assert identity.is_this_host("100.64.0.9", cli="/usr/bin/tailscale") is None, "not a tailnet answer"
+
+@pytest.mark.skipif(not LINUX, reason="the kernel's own address tables are Linux /proc files")
+def test_on_this_machine_the_kernels_tables_name_its_loopback():
+    mine = identity.local_addresses()
+    assert mine is not None and "127.0.0.1" in mine
 
 
 # ------------------------------------------------------------------ one decision, read by every gate
@@ -419,7 +456,7 @@ async def test_when_this_servers_own_addresses_cannot_be_read_a_forwarded_reques
     refused = await client.get("/whoami", headers=PROXIED)
     assert refused.status_code == 403 and refused.json() == {"error": "not allowed", "who": "unverified proxy"}
     request = _request(PROXIED)
-    assert actions_route.proxy_state(request) == (actions_route.FORGED, "this server's own tailnet addresses could not be read (tailscale ip)")
+    assert actions_route.proxy_state(request) == (actions_route.FORGED, "this server's own addresses could not be read from the kernel")
 
 
 async def test_every_route_the_app_serves_is_the_owners_unless_it_is_named_public(client):  # noqa: F811 - fixtures imported from the suite they belong to
@@ -574,13 +611,107 @@ async def test_health_carries_the_identity_check_and_turns_red_without_the_flag(
     assert "housekeeping" in health["checks"]
 
 
-async def test_whoami_says_whether_the_request_is_the_owners(client):  # noqa: F811
+async def test_whoami_says_whether_the_request_is_the_owners(client, caplog):  # noqa: F811
     """What George opens on his phone after the deploy: the whole path, end to end, in one
-    answer — through tailscale, his login, and the owner by the one rule."""
+    answer — through tailscale, his login, and the owner by the one rule — and one line in the
+    service's own log, without the login, that the deploy reads (round 7)."""
+    import logging
+
+    caplog.set_level(logging.INFO, logger="crooks.identity")
     configure(client, logins=OWNER, local=False)
     _settings(client, local_owner=False)
     mine = (await client.get("/whoami", headers=PROXIED)).json()
+    assert "whoami: through=tailscale owner=true refusal=none" in caplog.text and OWNER not in caplog.text
     assert mine["through"] == "tailscale" and mine["login"] == OWNER and mine["owner"] is True and mine["owner_refusal"] is None
     here = (await client.get("/whoami")).json()
     assert here["owner"] is False and here["owner_refusal"] == "not_authorised_local"
     assert "allowed" not in str(here).lower() or OWNER not in str(here), "never what the allow-list holds"
+
+
+# ------------------------------------------------ round 7, F-05B: pinned, attested, and a cgroup only root can join
+
+
+async def test_at_both_gates_a_process_that_exits_during_the_check_is_not_believed(owner_world, tmp_path, monkeypatch):
+    """The race round 7 named: tailscaled's identity is read, it exits, its pid goes to another
+    process holding the very socket, and the fds are read from that one. The process was pinned
+    with a pidfd before anything was read, and it is not alive afterwards, so none of it counts."""
+    proc = _point_at(monkeypatch, tmp_path / "a", {100: ("tailscaled", [555])})
+    assert _gates(_from(40001)) == REFUSED, "tailscaled does not hold 777 here"
+    impostor = _world(tmp_path / "b", {100: ("curl", [777])}, unit_pids=[100])
+    real_inodes = identity.socket_inodes
+    pins: list[_Alive] = []
+
+    def pinned(pid):
+        pins.append(_Alive(pid, dies=True))        # it exits while being looked at
+        return pins[-1]
+
+    def swapped(pid, *, proc=None):
+        # Between reading who it is and reading its files, the pid became another process.
+        monkeypatch.setattr(identity, "PROC", impostor)
+        return real_inodes(pid)
+
+    _point_at(monkeypatch, tmp_path / "c", {100: ("tailscaled", [555])})
+    identity.bind_pinner(pinned)
+    monkeypatch.setattr(identity, "socket_inodes", swapped)
+    assert identity.socket_inode(("127.0.0.1", 40001), SERVER, proc=impostor) == 777
+    assert _gates(_from(40001)) == REFUSED
+    assert pins and all(p.closed for p in pins), "every pin is let go"
+    # The same swap with the pinned process still alive cannot happen (a live process keeps its
+    # pid); the control is the honest case: alive, and its own socket.
+    monkeypatch.setattr(identity, "socket_inodes", real_inodes)
+    _point_at(monkeypatch, tmp_path / "d", {100: ("tailscaled", [777])})
+    assert _gates(_from(40001)) == ("", "")
+    assert proc.exists()
+
+
+async def test_at_both_gates_the_binary_must_be_the_distributions_tailscaled(owner_world, tmp_path, monkeypatch):
+    """Not a file that is called tailscaled: the path the package installs, and a file only root
+    can write. A copy run from elsewhere, inside the service's own cgroup, is still refused."""
+    proc = _point_at(monkeypatch, tmp_path, {100: ("tailscaled", [777])})
+    os.unlink(proc / "100" / "exe")
+    os.symlink("/tmp/tailscaled", proc / "100" / "exe")
+    assert not identity.is_proxy_process(100) and _gates(_from(40001)) == REFUSED
+    os.unlink(proc / "100" / "exe")
+    os.symlink("/usr/sbin/tailscaled", proc / "100" / "exe")
+    assert _gates(_from(40001)) == ("", "")
+    identity.bind_root_only(lambda path: str(path) != "/usr/sbin/tailscaled")   # the binary is writable by others
+    assert _gates(_from(40001)) == REFUSED
+    os.unlink(proc / "100" / "exe")
+    os.symlink("/usr/sbin/tailscaled (deleted)", proc / "100" / "exe")        # replaced by an upgrade, not yet restarted
+    assert identity.is_proxy_process(100), "judged by the path it was exec'd from, which only root could write"
+
+
+async def test_at_both_gates_a_cgroup_anyone_could_join_is_trusted_by_no_one(owner_world, tmp_path, monkeypatch):
+    _point_at(monkeypatch, tmp_path, {100: ("tailscaled", [777])})
+    assert _gates(_from(40001)) == ("", "")
+    identity.bind_root_only(lambda path: path.name != "cgroup.procs")
+    ok, why = identity._proc_peer_check(("127.0.0.1", 40001), SERVER)
+    assert not ok and "could be joined by a process that is not root" in why
+    assert _gates(_from(40001)) == REFUSED
+
+
+@pytest.mark.skipif(not LINUX or not hasattr(os, "pidfd_open"), reason="pidfd is Linux 5.3+")
+def test_on_this_kernel_a_pin_knows_when_its_process_has_gone():
+    import subprocess
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    pinned = identity.pin(child.pid)
+    try:
+        assert pinned.alive()
+        child.kill()
+        child.wait(timeout=10)
+        assert not pinned.alive(), "exited: nothing read under its pid after this is believed"
+    finally:
+        pinned.close()
+    with pytest.raises(ProcessLookupError):
+        identity.pin(child.pid)
+
+
+def test_on_this_kernel_root_ownership_is_read_from_stat(tmp_path):
+    held = tmp_path / "file"
+    held.write_text("x")
+    os.chmod(held, 0o644)
+    assert identity.root_only(held) is (os.geteuid() == 0)
+    os.chmod(held, 0o666)
+    assert identity.root_only(held) is False, "writable by others is never root's alone"
+    assert identity.root_only(tmp_path / "missing") is False

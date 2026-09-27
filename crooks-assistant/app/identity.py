@@ -23,7 +23,9 @@ log = logging.getLogger("crooks.identity")
 
 TAILNET_V4 = ipaddress.ip_network("100.64.0.0/10")
 TAILNET_V6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
-CACHE_S = 600.0        # a confirmed pairing is good for this long
+# A confirmed pairing of address and login is good for this long: short, because a yes that
+# outlives what it was about is the one kind of mistake these checks exist to prevent (round 7).
+CACHE_S = 60.0
 NEGATIVE_S = 30.0      # a refusal is remembered this long, so a busy tablet is not a whois storm
 TIMEOUT_S = 2.5
 MAC_APP_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
@@ -123,19 +125,26 @@ def verify(address: str, login: str, *, cli: str | None, now: float | None = Non
 #
 # Which process is tailscaled is also the kernel's answer, never a name a process gives itself
 # (round 6: any process can set its own comm with prctl(PR_SET_NAME)). It is a process in the
-# tailscaled.service unit's own cgroup, which only root can move a process into, as listed by that
-# cgroup's cgroup.procs and confirmed by the process's own /proc/<pid>/cgroup, whose executable
-# (/proc/<pid>/exe, which only exec can set) is a file named tailscaled. Its open files are read
+# tailscaled.service unit's own cgroup, as listed by that cgroup's cgroup.procs and confirmed by
+# the process's own /proc/<pid>/cgroup, whose executable (/proc/<pid>/exe, which only exec can
+# set) is the distribution's tailscaled binary (PROXY_BINARIES) — the path itself, not a name that
+# looks like it — and, unless an upgrade has replaced it since, a file only root can write. The
+# unit's cgroup must itself be one only root can move a process into: its directory and its
+# cgroup.procs owned by root and writable by nobody else (round 7). Its open files are read
 # afresh for every check: nothing positive is ever remembered, so a socket inode the kernel later
-# gives to something else cannot inherit a yes. Root on this server can defeat any of this, as it
-# can read every credential the service holds; this stops everything that is not root.
+# gives to something else cannot inherit a yes. And the process is pinned for the length of the
+# check with a pidfd (round 7): if it exits while it is being looked at, and its pid is given to
+# another, nothing read under that pid is believed. Root on this server can defeat any of this,
+# as it can read every credential the service holds; this stops everything that is not root.
 #
 # uvicorn must be started with --no-proxy-headers for this: otherwise it replaces the connection's
 # own address with the forwarded one before the app sees it, and there is nothing left to check.
 # Every launcher passes it; a server started without it refuses every forwarded request.
 
 PROXY_UNIT = "tailscaled.service"
-PROXY_EXE = "tailscaled"
+# Where the distribution's package installs the service's binary. A process in the unit's cgroup
+# exec'd from anywhere else is not the proxy.
+PROXY_BINARIES = ("/usr/sbin/tailscaled",)
 PROC = Path("/proc")
 CGROUP = Path("/sys/fs/cgroup")
 # Where a system service's cgroup lives: the unified hierarchy (cgroup v2, Ubuntu 24.04), then the
@@ -143,8 +152,8 @@ CGROUP = Path("/sys/fs/cgroup")
 _UNIT_CGROUPS = ("system.slice/{unit}", "systemd/system.slice/{unit}", "unified/system.slice/{unit}")
 _peer_check = None      # tests hand in a fake
 _self_check = None      # tests hand in a fake
-_self_cache: dict[str, tuple[frozenset[str] | None, float]] = {}
-SELF_CACHE_S = 600.0
+_pinner = None          # tests hand in a fake pidfd
+_root_only = None       # tests hand in a fake ownership check
 
 
 def bind_peer_check(check) -> None:
@@ -154,12 +163,22 @@ def bind_peer_check(check) -> None:
 
 
 def bind_self_check(check) -> None:
-    """Tests: `check(address) -> bool | None` in place of asking Tailscale for this node's own
-    addresses (None: it could not say)."""
+    """Tests: `check(address) -> bool | None` in place of reading this host's own addresses from
+    the kernel (None: it could not say)."""
     global _self_check
     _self_check = check
-    with _lock:
-        _self_cache.clear()
+
+
+def bind_pinner(pinner) -> None:
+    """Tests: `pinner(pid)` returning an object with alive() and close(), in place of a pidfd."""
+    global _pinner
+    _pinner = pinner
+
+
+def bind_root_only(check) -> None:
+    """Tests: `check(path) -> bool` in place of stat()ing for root ownership."""
+    global _root_only
+    _root_only = check
 
 
 def _ip(value: str):
@@ -226,24 +245,52 @@ def socket_inode(client: tuple[str, int] | None, server: tuple[str, int] | None,
     return None
 
 
-def unit_pids(unit: str = PROXY_UNIT, *, cgroup: Path | None = None) -> list[int]:
-    """The processes in a systemd service's own cgroup, as the kernel lists them. Only root can
-    move a process into another service's cgroup."""
+def unit_cgroup(unit: str = PROXY_UNIT, *, cgroup: Path | None = None) -> Path | None:
+    """The directory of a systemd service's own cgroup, or None when there is none."""
     root = cgroup or CGROUP
     for pattern in _UNIT_CGROUPS:
-        procs = root / pattern.format(unit=unit) / "cgroup.procs"
-        try:
-            text = procs.read_text(encoding="ascii", errors="replace")
-        except OSError:
-            continue
-        return [int(word) for word in text.split() if word.isdigit()]
-    return []
+        folder = root / pattern.format(unit=unit)
+        if (folder / "cgroup.procs").exists():
+            return folder
+    return None
 
 
-def is_proxy_process(pid: int, *, proc: Path | None = None, unit: str = PROXY_UNIT, exe: str = PROXY_EXE) -> bool:
+def unit_pids(unit: str = PROXY_UNIT, *, cgroup: Path | None = None) -> list[int]:
+    """The processes in a systemd service's own cgroup, as the kernel lists them."""
+    folder = unit_cgroup(unit, cgroup=cgroup)
+    if folder is None:
+        return []
+    try:
+        text = (folder / "cgroup.procs").read_text(encoding="ascii", errors="replace")
+    except OSError:
+        return []
+    return [int(word) for word in text.split() if word.isdigit()]
+
+
+def root_only(path: Path | str) -> bool:
+    """Owned by root and writable by nobody else."""
+    if _root_only is not None:
+        return bool(_root_only(Path(path)))
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    return st.st_uid == 0 and not st.st_mode & 0o022
+
+
+def cgroup_guarded(folder: Path) -> bool:
+    """Whether only root can move a process into this cgroup: a process joins one by writing its
+    pid to the cgroup's cgroup.procs, so that file and the folder it is in must be root's alone."""
+    return root_only(folder) and root_only(folder / "cgroup.procs")
+
+
+def is_proxy_process(pid: int, *, proc: Path | None = None, unit: str = PROXY_UNIT,
+                     binaries: tuple[str, ...] | None = None) -> bool:
     """Whether a process is the tailscaled service, by what only the kernel writes: the cgroup
-    it is in (/proc/<pid>/cgroup) and the file it was exec'd from (/proc/<pid>/exe; a binary
-    replaced by an upgrade reads "<path> (deleted)" until the restart). Never by its name."""
+    it is in (/proc/<pid>/cgroup) and the file it was exec'd from (/proc/<pid>/exe). The file must
+    be one of PROXY_BINARIES by its path, and root's alone; a binary an upgrade has since replaced
+    reads "<path> (deleted)" and is judged by the path it had, which only root could write to.
+    Never by the name a process gives itself."""
     root = proc or PROC
     try:
         groups = (root / str(pid) / "cgroup").read_text(encoding="utf-8", errors="replace").splitlines()
@@ -253,8 +300,34 @@ def is_proxy_process(pid: int, *, proc: Path | None = None, unit: str = PROXY_UN
     except OSError:
         return False
     in_unit = any(line.rsplit(":", 1)[-1].rstrip("/").endswith(f"/{unit}") for line in groups)
-    path = target[: -len(" (deleted)")] if target.endswith(" (deleted)") else target
-    return in_unit and Path(path).name == exe
+    deleted = target.endswith(" (deleted)")
+    path = target[: -len(" (deleted)")] if deleted else target
+    if path not in (binaries if binaries is not None else PROXY_BINARIES):
+        return False
+    return in_unit and (deleted or root_only(path))
+
+
+class _Pin:
+    """A pidfd: the one process that had this pid when it was opened, whatever the pid comes to
+    mean later. Readable once that process has exited, which is how alive() knows."""
+
+    def __init__(self, pid: int) -> None:
+        self.fd = os.pidfd_open(pid)
+
+    def alive(self) -> bool:
+        import select
+
+        poller = select.poll()
+        poller.register(self.fd, select.POLLIN)
+        return not poller.poll(0)
+
+    def close(self) -> None:
+        os.close(self.fd)
+
+
+def pin(pid: int):
+    """Pin a process for the length of a check (raises if it has already gone)."""
+    return (_pinner or _Pin)(pid)
 
 
 def socket_inodes(pid: int, *, proc: Path | None = None) -> frozenset[int]:
@@ -324,13 +397,33 @@ def _proc_peer_check(client, server) -> tuple[bool, str]:
     inode = socket_inode(client, server)
     if inode is None:
         return False, "the connection was not opened on this server"
-    pids = [pid for pid in unit_pids() if is_proxy_process(pid)]
-    if not pids:
+    folder = unit_cgroup(PROXY_UNIT)
+    if folder is None:
         return False, f"no tailscaled process is running in {PROXY_UNIT}"
-    for pid in pids:
-        # Read afresh every time: a remembered yes could outlive the socket it was about.
-        if inode in socket_inodes(pid):
-            return True, f"opened by tailscaled (pid {pid})"
+    if not cgroup_guarded(folder):
+        return False, f"{PROXY_UNIT}'s cgroup could be joined by a process that is not root"
+    found = False
+    for pid in unit_pids():
+        try:
+            pinned = pin(pid)
+        except (ProcessLookupError, OSError):
+            continue          # gone before it could be pinned
+        try:
+            if not is_proxy_process(pid):
+                continue
+            found = True
+            # Read afresh every time: a remembered yes could outlive the socket it was about.
+            held = socket_inodes(pid)
+            # Everything above was read under a pid. If the process it was pinned to is still
+            # alive now, the pid meant that process throughout; if not, none of it is believed.
+            if not pinned.alive():
+                continue
+            if inode in held:
+                return True, f"opened by tailscaled (pid {pid})"
+        finally:
+            pinned.close()
+    if not found:
+        return False, f"no tailscaled process is running in {PROXY_UNIT}"
     return False, "the connection was opened by something other than tailscaled"
 
 
@@ -343,48 +436,56 @@ def peer_is_tailscaled(client: tuple[str, int] | None, server: tuple[str, int] |
         return False, f"who opened the connection could not be read: {type(exc).__name__}"
 
 
-def _run_ip(cli: str) -> str:
-    completed = subprocess.run([cli, "ip"], capture_output=True, text=True, timeout=TIMEOUT_S, check=False)
-    if completed.returncode != 0:
-        raise RuntimeError(f"exit {completed.returncode}")
-    return completed.stdout
+def local_addresses(*, proc: Path | None = None) -> frozenset[str] | None:
+    """Every address this host's interfaces own, read from the kernel's own tables now, never
+    remembered (round 7, F-05B-AVAIL): IPv4 from /proc/net/fib_trie (the host's LOCAL routes),
+    IPv6 from /proc/net/if_inet6 (absent when IPv6 is off, and then there are none). An address the
+    host gains or loses is in or out on the very next request. Not inferred from what a socket may bind to (round 6: net.ipv4.ip_nonlocal_bind makes
+    that "every address"), and not asked of a CLI that can be slow or fail. None when either table
+    cannot be read."""
+    root = proc or PROC
+    found: set[str] = set()
+    try:
+        trie = (root / "net" / "fib_trie").read_text(encoding="ascii", errors="replace")
+    except OSError:
+        return None
+    try:
+        inet6 = (root / "net" / "if_inet6").read_text(encoding="ascii", errors="replace")
+    except FileNotFoundError:
+        inet6 = ""          # IPv6 switched off on this host: it owns no IPv6 address
+    except OSError:
+        return None
+    last = ""
+    for line in trie.splitlines():
+        text = line.strip()
+        if text.startswith("|--"):
+            last = text[3:].strip()
+        elif text.startswith("/32 host LOCAL") and last:
+            ip = _ip(last)
+            if ip is not None:
+                found.add(str(ip))
+    for line in inet6.splitlines():
+        word = line.split()[0] if line.split() else ""
+        if len(word) == 32:
+            try:
+                found.add(str(ipaddress.IPv6Address(int(word, 16))))
+            except ValueError:
+                continue
+    return frozenset(found)
 
 
-def own_addresses(*, cli: str | None, now: float | None = None) -> frozenset[str] | None:
-    """This node's own tailnet addresses, as Tailscale itself lists them (`tailscale ip`), cached
-    briefly; None when it cannot say. Asked of Tailscale rather than inferred from what the kernel
-    lets a socket bind to, which a sysctl (net.ipv4.ip_nonlocal_bind) can turn into "every
-    address" (round 6, F-05B-AVAIL)."""
-    now = time.time() if now is None else now
-    with _lock:
-        cached = _self_cache.get("")
-        if cached is not None and now - cached[1] < (SELF_CACHE_S if cached[0] is not None else NEGATIVE_S):
-            return cached[0]
-    found: frozenset[str] | None = None
-    if cli:
-        try:
-            listed = _run_ip(cli)
-            addresses = frozenset(str(ip) for ip in (_ip(word) for word in listed.split()) if ip is not None)
-            found = addresses if addresses and all(on_tailnet(a) for a in addresses) else None
-        except Exception as exc:  # noqa: BLE001 — every failure is "cannot say"
-            log.warning("tailscale ip failed: %s", type(exc).__name__)
-    with _lock:
-        _self_cache[""] = (found, now)
-    return found
-
-
-def is_this_host(address: str, *, cli: str | None = None) -> bool | None:
+def is_this_host(address: str) -> bool | None:
     """Whether a forwarded address is this server's own. The server is on the owner's tailnet
     login, so a request it sends through its own `tailscale serve` arrives stamped with the
-    owner's login; it is still a request made on the server, and is judged as one. None when
-    this node's addresses cannot be read, which the caller refuses."""
+    owner's login; it is still a request made on the server, and is judged as one. None when this
+    host's addresses cannot be read, which the caller refuses."""
     ip = _ip(forwarded_address(address))
     if ip is None:
         return False
     if _self_check is not None:
         answer = _self_check(str(ip))
         return None if answer is None else bool(answer)
-    mine = own_addresses(cli=cli)
+    mine = local_addresses()
     if mine is None:
         return None
     return str(ip) in mine

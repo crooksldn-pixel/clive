@@ -207,7 +207,26 @@ def _identity_seams_are_put_back(request):
     identity.bind_runner(None)
     identity.bind_peer_check(None)
     identity.bind_self_check(None)
+    identity.bind_pinner(None)
+    identity.bind_root_only(None)
     local_cli.bind_key()
+
+
+@pytest.fixture(autouse=True)
+def _the_owner_is_asking(request):
+    """The offline world is the owner's server with the owner asking: a test that calls a tool
+    directly does so as the owner would through a request the door let through. The dispatcher
+    refuses every tool without an owner's authority (app/tools/authority.py); the tests about
+    that boundary say so themselves, with `acting_as(None)` or through the real door
+    (tests/test_tool_boundary.py)."""
+    if request.node.get_closest_marker("live"):
+        yield
+        return
+    from app.tools import authority
+
+    token = authority.TOOL_AUTHORITY.set(authority.for_owner("owner@example.com"))
+    yield
+    authority.TOOL_AUTHORITY.reset(token)
 
 
 @pytest.fixture(autouse=True)

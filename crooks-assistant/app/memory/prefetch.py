@@ -86,9 +86,21 @@ class Prefetcher:
         except RuntimeError:
             return False
 
+        # A speculative read may finish after the owner's request that started it has been
+        # answered, when that request's own authority is revoked. It carries its own instead: a
+        # service authority derived from the owner's, named, read-only by construction (the read
+        # scheduler refuses writes) and expiring with the read's own timeout (app/tools/
+        # authority.py, the 2026-09-27 deploy review round 7). Started without an owner's
+        # authority, it gets none, and any tool it reaches is refused.
+        from app.tools import authority as tool_authority
+
+        parent = tool_authority.current()
+        derived = parent.derive(f"prefetch:{key}", TIMEOUT_S + 5.0) if parent is not None else None
+
         async def guarded() -> Any:
             try:
-                return await asyncio.wait_for(factory(), timeout=TIMEOUT_S)
+                with tool_authority.acting_as(derived):
+                    return await asyncio.wait_for(factory(), timeout=TIMEOUT_S)
             except (TimeoutError, asyncio.CancelledError):
                 raise
             except Exception as exc:  # noqa: BLE001 — a speculative read that fails costs nothing

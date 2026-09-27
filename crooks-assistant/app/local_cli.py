@@ -18,7 +18,9 @@ server itself, straight to the port (never through `tailscale serve`, which a de
 
 It is not an owner. It opens no other route, no turn, no tool, no record and no write:
 principal_verdict and caller_check never read it, and a test walks every other route to hold
-that (tests/test_proxy_identity.py).
+that (tests/test_local_cli.py). A request that carries it where it does not apply — through the
+proxy, or on any other route — is refused at the door outright, even from a device that would
+pass the owner rule without it (round 7): the key means "the server's own command" or nothing.
 """
 
 from __future__ import annotations
@@ -78,6 +80,11 @@ def ensure_key() -> bool:
         log.warning("the local command key could not be made (%s): make test-session-* will be refused", type(exc).__name__)
         return False
     return bool(read_key())
+
+
+def presented(request) -> bool:
+    """Whether the request carries the key at all, valid or not."""
+    return bool(request.headers.get(HEADER, ""))
 
 
 def admits(request) -> bool:

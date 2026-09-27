@@ -192,6 +192,8 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-exbtn{height:52px;padding:0 22px;border:0;border-radius:999px;font:inherit;font-size:22px;color:rgba(235,235,245,.88);background:rgba(118,118,128,.24);cursor:pointer}
 .cs-exbtn:focus-visible{outline:3px solid rgba(196,161,240,.8);outline-offset:3px}
 .cs-err{margin:0;min-height:1.3em;font-size:22px;color:rgb(255,212,138)}
+.cs-replace{align-self:flex-start}
+.cs-replace[hidden]{display:none}
 
 /* forming: the scan line and the progress line */
 .cs-scan{position:absolute;left:0;right:0;top:-10px;z-index:7;height:2px;margin-top:-1px;pointer-events:none;opacity:0;background:linear-gradient(90deg,rgba(196,161,240,0),rgba(214,196,255,.85) 25%,#fff 50%,rgba(214,196,255,.85) 75%,rgba(196,161,240,0));box-shadow:0 0 28px 8px rgba(160,120,230,.32)}

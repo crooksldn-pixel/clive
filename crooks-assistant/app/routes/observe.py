@@ -131,7 +131,10 @@ async def stop(request: Request) -> JSONResponse | dict:
     if session is None:
         return {"stopped": False, "detail": "No test session is running."}
     log.info("test session stopped: %s", session.test_session_id)
-    return {"stopped": True, **_summary(session), "path": str(runtime.tests.timeline_path(session)), "events": runtime.timeline.counts}
+    # Whether the stop's own flush settled, beside the counts read after it: a count is final only
+    # when both say so (app/observability/timeline.py stop_is_final; round 7, F-10).
+    return {"stopped": True, **_summary(session), "path": str(runtime.tests.timeline_path(session)),
+            "stop_settled": getattr(runtime.timeline, "stop_settled", None), "events": runtime.timeline.counts}
 
 
 @router.get("/anticipation", response_model=None)
