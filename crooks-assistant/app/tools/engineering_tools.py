@@ -20,7 +20,8 @@ wants: a title, the outcome, what done looks like and which parts of CLIVE the w
 trunk's head read now (named by its SHA, which is how every request so far has named it, so a
 trunk that moves before the loop's next fetch cannot unresolve it); the id is the title's words;
 the checks are the named test files and ruff, run with the builders' own interpreter. A build
-with no test file named is given one to write, and its check fails until it exists.
+with no test file named is given one to write, and its check fails until it exists. The base
+and the checks are never taken from the caller: the tool has no such arguments.
 
 Filed for an objective (`objective_id`), the request is linked to it once GitHub has confirmed
 the file was created (app/objectives/store.py `link_engineering`), and the objective becomes a build objective whose
@@ -350,8 +351,8 @@ def _present(proposal) -> dict:
     name=SUBMIT_TOOL,
     description=(
         "Prepare a build of CLIVE itself for the engineering loop's builders; the owner approves "
-        "filing it. Call engineering_status (areas true) first and pass its inbox id. The base, "
-        "id and checks are filled in."
+        "filing it. Call engineering_status (areas true) first and pass its inbox id. The base "
+        "and the checks are CLIVE's own, never chosen here."
     ),
     input_schema={
         "type": "object",
@@ -363,10 +364,7 @@ def _present(proposal) -> dict:
             "acceptance_criteria": {"type": "array", "items": {"type": "string"}, "description": "Checkable by a reviewer."},
             "objective_id": {"type": "string"},
             "request_id": {"type": "string", "maxLength": 80},
-            "checks": {"type": "array", "items": {"type": "object"}},
             "max_repair_rounds": {"type": "integer", "minimum": 0, "maximum": 5},
-            "base_ref": {"type": "string", "maxLength": 200, "description": "Leave out."},
-            "base_sha": {"type": "string", "maxLength": 40, "description": "Leave out."},
         },
         "required": ["inbox_id", "title", "requested_outcome", "allowed_paths"],
     },
@@ -397,23 +395,19 @@ async def submit_engineering_request(
     acceptance_criteria: list[str] | None = None,
     objective_id: str | None = None,
     request_id: str | None = None,
-    checks: list[dict] | None = None,
     max_repair_rounds: int = 2,
-    base_ref: str | None = None,
-    base_sha: str | None = None,
 ) -> Prepared:
     """Prepare, never file: fill in what the model cannot know, build the request, hold it to
     the loop's rules, and read the inbox it will be filed into. The engine is handed the state
-    it must see again before it writes."""
+    it must see again before it writes.
+
+    The base and the checks are never the caller's (the 2026-09-26 deploy review, F-06): a
+    request that could name its own checks would choose the gate it is judged by, and one that
+    could name its own base could start from anywhere. The base is the trunk's head, read here;
+    the checks are built here, from fixed commands, over the test files the paths name."""
     objective_id = _objective(objective_id)
     paths = [repo_path(p) for p in allowed_paths] if isinstance(allowed_paths, (list, tuple)) else allowed_paths
     criteria = list(acceptance_criteria or [])
-    if not checks and isinstance(paths, list):
-        paths, check_list, added = default_checks(paths, _slug(title) if request_id is None else str(request_id))
-        if added:
-            criteria.append(f"The change is proven by tests in {added}, and they pass.")
-    else:
-        check_list = checks or []
 
     inbox = _client()
     try:
@@ -427,23 +421,27 @@ async def submit_engineering_request(
                 "The engineering inbox has moved since it was read. Call engineering_status again "
                 "and use the inbox id it returns."
             )
-        if not base_sha:
-            trunk = await inbox.trunk_head()
-            if isinstance(trunk, NotConnected):
-                raise ToolError(trunk.reason)
-            if not trunk.sha:
-                raise ToolError(f"{TRUNK_REF} could not be read, so there is nothing to build from.")
-            # Named by its SHA: a branch name would stop resolving to it the moment the trunk moves.
-            base_sha, base_ref = trunk.sha, trunk.sha
+        trunk = await inbox.trunk_head()
+        if isinstance(trunk, NotConnected):
+            raise ToolError(trunk.reason)
+        if not trunk.sha:
+            raise ToolError(f"{TRUNK_REF} could not be read, so there is nothing to build from.")
+        # Named by its SHA: a branch name would stop resolving to it the moment the trunk moves.
+        base_sha = trunk.sha
         chosen, existing = await _free_id(inbox, request_id, title)
     except GitHubError as exc:
         raise ToolError(str(exc)) from None
     if existing:
         raise ToolError("A request with that id is already on the engineering inbox. An id is used once: choose a new one.")
 
+    check_list: list[dict] = []
+    if isinstance(paths, list):
+        paths, check_list, added = default_checks(paths, chosen)
+        if added:
+            criteria.append(f"The change is proven by tests in {added}, and they pass.")
     try:
         request = build_request(
-            request_id=chosen, title=title, requested_outcome=requested_outcome, base_ref=base_ref or base_sha,
+            request_id=chosen, title=title, requested_outcome=requested_outcome, base_ref=base_sha,
             base_sha=base_sha, allowed_paths=paths, acceptance_criteria=criteria,
             checks=check_list, max_repair_rounds=max_repair_rounds,
         )
@@ -563,14 +561,19 @@ def repo_path(path: object) -> object:
     return text
 
 
+# The only test files a check may name: a pytest module under tests/, by its plain name. They
+# go into an argv (no shell), and nothing else a request says reaches a command.
+_TEST_FILE = re.compile(rf"^{re.escape(APP_DIR)}/tests/(?:[a-z0-9_]+/)?test_[a-z0-9_]+\.py$")
+
+
 def default_checks(paths: list, request_id: str, *, python: str | None = None) -> tuple[list, list[dict], str]:
-    """The checks for a request the model left them off: pytest over the named test files (and
-    the web rules when the phone's files may change), then ruff, as the builders run them. With
-    no test file named, one is added to the paths for the build to write; its name is returned."""
+    """Every request's checks, built here and never taken from the request: pytest over the
+    test modules the paths name (and the web rules when the phone's files may change), then
+    ruff over the whole package, as the builders run them. With no test module named, one is
+    added to the paths for the build to write; its check fails until it exists."""
     python = python or _check_python
     prefix = f"{APP_DIR}/tests/"
-    tests = [p[len(APP_DIR) + 1:] for p in paths
-             if isinstance(p, str) and p.startswith(prefix) and p.endswith(".py") and Path(p).name.startswith("test_")]
+    tests = [p[len(APP_DIR) + 1:] for p in paths if isinstance(p, str) and _TEST_FILE.fullmatch(p)]
     added = ""
     if not tests:
         name = "test_" + re.sub(r"[^a-z0-9]+", "_", str(request_id).lower()).strip("_")[:60] + ".py"

@@ -47,6 +47,26 @@ SUBMIT_TOOL = "submit_engineering_request"
 PATH = "requests/bridge-demo-one.json"
 
 
+def ask(**overrides) -> dict:
+    """What the model may say: never a base and never checks (the 2026-09-26 deploy review,
+    F-06). Those are the Mac's own."""
+    out = {k: v for k, v in fields(**overrides).items() if k not in ("base_ref", "base_sha", "checks")}
+    return out
+
+
+def served(request_id: str = "bridge-demo-one"):
+    """The exact request the tool files for ask(request_id=…): the trunk's head as its base, and
+    the checks the tool builds itself."""
+    a = ask(request_id=request_id)
+    paths, checks, added = engineering_tools.default_checks(
+        [engineering_tools.repo_path(p) for p in a["allowed_paths"]], request_id)
+    return build_request(
+        request_id=request_id, title=a["title"], requested_outcome=a["requested_outcome"], base_ref=BASE_SHA,
+        base_sha=BASE_SHA, allowed_paths=paths, checks=checks, max_repair_rounds=a["max_repair_rounds"],
+        acceptance_criteria=[*a["acceptance_criteria"], f"The change is proven by tests in {added}, and they pass."],
+    )
+
+
 def fields(**overrides) -> dict:
     base = {
         "request_id": "bridge-demo-one",
@@ -93,6 +113,8 @@ class FakeGitHub:
         assert request.url.path.startswith(prefix), request.url.path
         path = request.url.path[len(prefix):]
         ref = request.url.params.get("ref")
+        if request.method == "GET" and path == "/git/ref/heads/clive/trunk":
+            return httpx.Response(200, json={"ref": "refs/heads/clive/trunk", "object": {"type": "commit", "sha": BASE_SHA}})
         if request.method == "GET" and path == f"/git/ref/heads/{INBOX_BRANCH}":
             if self.head is None:
                 return httpx.Response(404, json={"message": "Not Found"})
@@ -168,7 +190,7 @@ def engine(monkeypatch, clock) -> ActionEngine:
 
 async def _staged(session: Session) -> str:
     await dispatch(STATUS_TOOL, {}, session=session, timeout_s=5)
-    return await dispatch(SUBMIT_TOOL, {"inbox_id": HEAD, **fields()}, session=session, timeout_s=5)
+    return await dispatch(SUBMIT_TOOL, {"inbox_id": HEAD, **ask()}, session=session, timeout_s=5)
 
 
 async def _authorise(engine: ActionEngine, clock: Clock, session: Session, proposal):
@@ -251,9 +273,29 @@ def test_invalid_fields_are_refused_without_echo(override, field):
 async def test_the_tool_refuses_a_bad_field_without_echo(fake, bound):
     session = Session(session_id="eng-bad")
     await dispatch(STATUS_TOOL, {}, session=session, timeout_s=5)
-    out = await dispatch(SUBMIT_TOOL, {"inbox_id": HEAD, **fields(base_sha=MARK)}, session=session, timeout_s=5)
-    assert out.startswith("ERROR: The request was refused") and "base_sha" in out
+    out = await dispatch(SUBMIT_TOOL, {"inbox_id": HEAD, **ask(request_id=MARK)}, session=session, timeout_s=5)
+    assert out.startswith("ERROR: The request was refused") and "request_id" in out
     assert MARK not in out and session.proposals == [] and fake.puts == []
+
+
+async def test_a_caller_can_name_neither_its_base_nor_its_checks(fake, bound):
+    """F-06: a request that chose its own checks would choose the gate it is judged by."""
+    session = Session(session_id="eng-own-gate")
+    await dispatch(STATUS_TOOL, {}, session=session, timeout_s=5)
+    for extra in ({"checks": [{"name": "ok", "argv": ["true"], "cwd": "."}]}, {"base_sha": "b" * 40}, {"base_ref": "main"}):
+        out = await dispatch(SUBMIT_TOOL, {"inbox_id": HEAD, **ask(), **extra}, session=session, timeout_s=5)
+        assert out.startswith("REFUSED") and "does not take an argument" in out, out
+    with pytest.raises(TypeError):
+        await engineering_tools.submit_engineering_request(inbox_id=HEAD, **ask(), checks=[])
+    assert session.proposals == [] and fake.puts == []
+    # And what the tool builds names only real test modules, through fixed commands.
+    paths, checks, _ = engineering_tools.default_checks(
+        ["crooks-assistant/tests/test_ok.py", "crooks-assistant/tests/../x.py", "crooks-assistant/tests/test_$(x).py",
+         "crooks-assistant/tests/web/ui.test.js", "crooks-assistant/app/fastpath"], "bridge-demo-one", python="/p")
+    assert checks == [
+        {"name": "tests", "argv": ["/p", "-m", "pytest", "-q", "tests/test_ok.py"], "cwd": "crooks-assistant"},
+        {"name": "ruff", "argv": ["/p", "-m", "ruff", "check", "app", "config", "scripts", "tests"], "cwd": "crooks-assistant"},
+    ]
 
 
 # ------------------------------------------------------------------ not connected
@@ -292,7 +334,7 @@ async def test_the_tools_say_not_connected_and_send_nothing(fake, monkeypatch):
     assert '"connected": false' in out and "not connected" in out
     assert HEAD not in session.issued_ids
     with pytest.raises(ToolError, match="not connected"):
-        await engineering_tools.submit_engineering_request(inbox_id=HEAD, **fields())
+        await engineering_tools.submit_engineering_request(inbox_id=HEAD, **ask())
     assert fake.calls == [] and inbox.requests_made == 0
 
 
@@ -405,7 +447,7 @@ def test_the_two_tools_are_registered_as_a_read_and_a_reviewed_write():
 
 async def test_the_inbox_id_is_issued_by_the_read_and_the_write_is_staged_for_the_owner(fake, bound, engine, clock):
     session = Session(session_id="eng")
-    args = {"inbox_id": HEAD, **fields()}
+    args = {"inbox_id": HEAD, **ask()}
     early = classify(SUBMIT_TOOL, args, session.issued_ids)
     assert early.disposition is Disposition.DENY and early.recoverable, "read the inbox first"
     await dispatch(STATUS_TOOL, {}, session=session, timeout_s=5)
@@ -423,14 +465,17 @@ async def test_the_inbox_id_is_issued_by_the_read_and_the_write_is_staged_for_th
     card = registry.get(SUBMIT_TOOL).write.present(proposal)
     facts = {fact["label"]: fact["value"] for fact in card["facts"]}
     assert facts["Title"] == "Say which engineering requests are waiting"
-    assert facts["May change"] == "crooks-assistant/app/engineering_bridge"
-    assert facts["Checks"] == "bridge: python -m pytest -q (in crooks-assistant)"
-    assert facts["Base"] == f"main at {BASE_SHA[:12]}"
+    # The paths asked for, and the test module the build must write, which its check runs.
+    assert facts["May change"] == "crooks-assistant/app/engineering_bridge, crooks-assistant/tests/test_bridge_demo_one.py"
+    py = engineering_tools._check_python
+    assert facts["Checks"] == (f"tests: {py} -m pytest -q tests/test_bridge_demo_one.py (in crooks-assistant); "
+                               f"ruff: {py} -m ruff check app config scripts tests (in crooks-assistant)")
+    assert facts["Base"] == f"clive/trunk at {BASE_SHA[:12]}"
 
     result = await _authorise(engine, clock, session, proposal)
     assert result.code == "verified", result
     assert result.spoken == "Filed bridge-demo-one with the engineering loop."
-    assert fake.files[PATH] == build_request(**fields()).content and len(fake.puts) == 1
+    assert fake.files[PATH] == served().content and len(fake.puts) == 1
 
 
 async def test_an_inbox_that_moved_before_the_tap_files_nothing(fake, bound, engine, clock):
@@ -507,7 +552,7 @@ async def test_the_owner_approval_path_admits_the_engineering_write(fake, owner_
         session = runtime.sessions.get_or_create(session_id)
         session.epoch = max(session.epoch, 1)
         await dispatch(STATUS_TOOL, {}, session=session, timeout_s=5)
-        text = await dispatch(SUBMIT_TOOL, {"inbox_id": HEAD, **fields(request_id=request_id)}, session=session, timeout_s=5)
+        text = await dispatch(SUBMIT_TOOL, {"inbox_id": HEAD, **ask(request_id=request_id)}, session=session, timeout_s=5)
         assert text.startswith("PROPOSED ("), text
         (proposals[session_id],) = session.proposals
     assert fake.puts == []
@@ -526,7 +571,7 @@ async def test_the_owner_approval_path_admits_the_engineering_write(fake, owner_
     done = await hold_and_commit("eng-yes")
     assert done.status_code == 200, done.text
     assert done.json()["code"] == "verified" and done.json()["status"] == "verified"
-    assert fake.files[PATH] == build_request(**fields()).content and len(fake.puts) == 1
+    assert fake.files[PATH] == served().content and len(fake.puts) == 1
 
     # The token goes before the second tap: not connected, and nothing is sent to GitHub.
     calls, sent = len(fake.calls), owner_app.inbox.requests_made
@@ -543,10 +588,10 @@ async def test_the_owner_approval_path_admits_the_engineering_write(fake, owner_
 
 async def test_preparing_refuses_a_moved_inbox_or_an_id_already_used(fake, bound):
     with pytest.raises(ToolError, match="moved since it was read"):
-        await engineering_tools.submit_engineering_request(inbox_id="2" * 40, **fields())
+        await engineering_tools.submit_engineering_request(inbox_id="2" * 40, **ask())
     fake.files[PATH] = b"{}\n"
     with pytest.raises(ToolError, match="already on the engineering inbox"):
-        await engineering_tools.submit_engineering_request(inbox_id=HEAD, **fields())
+        await engineering_tools.submit_engineering_request(inbox_id=HEAD, **ask())
     assert fake.puts == []
 
 
@@ -574,7 +619,7 @@ async def test_the_token_appears_in_no_log_error_result_or_card(fake, bound, eng
         await bound.inbox_head()
     outputs.append(str(failed.value))
     with pytest.raises(ToolError) as refused:
-        await engineering_tools.submit_engineering_request(inbox_id=HEAD, **fields(request_id="bridge-demo-two"))
+        await engineering_tools.submit_engineering_request(inbox_id=HEAD, **ask(request_id="bridge-demo-two"))
     outputs.append(str(refused.value))
 
     # The token did go to GitHub, as a header and nowhere else, so its absence below means something.

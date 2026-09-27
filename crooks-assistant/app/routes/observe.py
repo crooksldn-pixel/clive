@@ -231,16 +231,20 @@ async def telemetry_screen(request: Request) -> Response:
         return Response(status_code=204)
     if not isinstance(body, dict) or not isinstance(body.get("html"), str):
         return Response(status_code=204)
+    # Kept only for a conversation this caller holds (the 2026-09-26 deploy review, F-05): a copy
+    # that names no conversation, or one this server does not know, or someone else's, is
+    # dropped. Being on the tailnet's allow-list is not enough to put a picture in the record.
     session_id = str(body.get("session_id") or "")[:64]
-    if session_id:
-        from app.routes.actions import session_matches
+    if not session_id:
+        return Response(status_code=204)
+    from app.routes.actions import session_matches
 
-        try:
-            owner = runtime.sessions.peek(session_id)
-        except KeyError:
-            owner = None
-        if owner is not None and not session_matches(owner, request):
-            return Response(status_code=204)
+    try:
+        owner = runtime.sessions.peek(session_id)
+    except KeyError:
+        owner = None
+    if owner is None or not session_matches(owner, request):
+        return Response(status_code=204)
     folder = runtime.tests.screens_dir(session)
     try:
         folder.mkdir(parents=True, exist_ok=True)

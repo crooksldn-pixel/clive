@@ -270,9 +270,11 @@ def test_filing_is_staged_by_the_existing_issued_id_rule_and_never_executed():
     from app.tools import engineering_tools  # noqa: F401
 
     head = "1" * 40
+    # No base and no checks: those are the Mac's own, and a request naming either is denied
+    # (the 2026-09-26 deploy review, F-06).
     args = {
         "inbox_id": head, "request_id": "bridge-gate-one", "title": "t", "requested_outcome": "o",
-        "base_ref": "main", "base_sha": "a" * 40, "allowed_paths": ["crooks-assistant/app/engineering_bridge"],
+        "allowed_paths": ["crooks-assistant/app/engineering_bridge"],
     }
     unread = classify("submit_engineering_request", args, issued_ids=[])
     assert unread.disposition is Disposition.DENY and unread.recoverable, "the inbox has not been read yet"
@@ -284,6 +286,8 @@ def test_filing_is_staged_by_the_existing_issued_id_rule_and_never_executed():
     assert classify("submit_engineering_request", {**args, "force": True}, issued_ids=[head]).disposition is Disposition.DENY
     too_long = {**args, "requested_outcome": "o" * 20001}
     assert classify("submit_engineering_request", too_long, issued_ids=[head]).disposition is Disposition.DENY
+    for own_gate in ({"base_ref": "main"}, {"base_sha": "a" * 40}, {"checks": [{"name": "ok", "argv": ["true"]}]}):
+        assert classify("submit_engineering_request", {**args, **own_gate}, issued_ids=[head]).disposition is Disposition.DENY
 
 
 def test_the_other_decisions_are_unchanged():

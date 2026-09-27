@@ -1239,7 +1239,9 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
         scope_note = " ".join(filter(None, [scope_note, f"The {WAITING_SHOWN} longest waits are shown."]))
     if not waiting:
         if again:
-            answer = "Still nobody."
+            # Said again, it is still only as sure as the scan: threads that could not be
+            # checked are named every time (the 2026-09-26 deploy review, F-08).
+            answer = f"Still nobody.{tail}"
         elif inbox:
             answer = f"Nobody is waiting on a reply {scope} — {int(body.get('threads_checked') or 0)} threads from people checked.{tail}"
         else:

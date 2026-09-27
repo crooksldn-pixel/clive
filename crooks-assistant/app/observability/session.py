@@ -24,6 +24,10 @@ SCREENS_SUFFIX = "-screens"
 # A session started by name is the owner's, and is kept longer than a day of always-on test
 # mode, but not for ever (CROOKS_TEST_SESSION_KEEP_NAMED_DAYS).
 KEEP_NAMED_DAYS = 90
+# A session started by name ends by itself after this long (the 2026-09-26 deploy review, F-04):
+# left running, it would never end, never be pruned, and with test mode always on it would stop
+# the day's own session from ever rolling. A walkthrough is hours, not days.
+NAMED_MAX_S = 24 * 3600
 # One timeline file stops growing here (app/observability/timeline.py): a day of always-on test
 # mode holds a few megabytes; this is the bound on a runaway.
 MAX_TIMELINE_BYTES = 64 * 1024 * 1024
@@ -208,6 +212,13 @@ class TestSessions:
             return self._cached
         self._checked_at = now
         current = self._read_active()
+        if current is not None and current.name != AUTO_NAME and now - current.started_at > NAMED_MAX_S:
+            try:
+                self._ensure_root()
+                self._close(current, now)
+            except OSError:
+                pass
+            current = None
         if self.always:
             current = self._keep_alive(current, now)
         return current
