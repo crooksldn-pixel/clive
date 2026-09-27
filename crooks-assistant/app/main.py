@@ -7,6 +7,7 @@ LAN IP looks like it works and then fails on the browser API that actually matte
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import mimetypes
 from contextlib import asynccontextmanager
@@ -93,9 +94,37 @@ async def lifespan(app: FastAPI):
         # problem, and each /turn retries start() so fixing it needs no restart.
         log.error("Claude provider did not start: %s", exc)
     app.state.runtime.warm_orders_soon()
+    housekeeping = asyncio.create_task(_housekeeping(app.state.runtime))
     log.info("CROOKS Assistant ready (bind address is whatever uvicorn was started with)")
     yield
+    housekeeping.cancel()
     await app.state.runtime.aclose()
+
+
+# How often test mode's records are aged and tightened with nobody using the service (the
+# 2026-09-26 deploy review, F-04): the day's roll, the sessions past their keep and the reports
+# drawn from them happen on a clock, not only when the next event asks.
+HOUSEKEEPING_S = 15 * 60
+
+
+def housekeep_once(runtime) -> None:
+    """One pass: let the always-on session roll if the day has turned, then age the sessions
+    and the reports and make the reports private. Never raises."""
+    tests = getattr(runtime, "tests", None)
+    if tests is None:
+        return
+    try:
+        tests.active()
+        tests.prune()
+        tests.tidy_reports()
+    except Exception:  # noqa: BLE001 - housekeeping never takes the service down
+        log.warning("test-mode housekeeping did not complete", exc_info=True)
+
+
+async def _housekeeping(runtime) -> None:
+    while True:
+        await asyncio.sleep(HOUSEKEEPING_S)
+        await asyncio.to_thread(housekeep_once, runtime)
 
 
 app = FastAPI(title="CROOKS Assistant", version="0.1.0", lifespan=lifespan)
@@ -131,14 +160,6 @@ async def guard_and_freshness(request: Request, call_next):
         return JSONResponse(status_code=403, content={"error": "not allowed", "who": "unknown"})
     if allowed and login and login.lower() not in allowed:
         return JSONResponse(status_code=403, content={"error": "not allowed", "who": login})
-    # A request made on the host itself names nobody. With an allow-list it is not the owner
-    # (the 2026-09-26 deploy review, F-05): other processes run on this host — an engineering
-    # loop among them — so it may reach only what the host's own tools need, health and the
-    # test-session switch, unless the owner has said the host is him (CROOKS_WRITES_LOCAL_OWNER,
-    # the same switch the write boundary reads).
-    if allowed and not proxied and not login and not _local_may(request):
-        return JSONResponse(status_code=403, content={"error": "not allowed", "who": "local",
-                                                      "detail": "requests made on this host reach health and test sessions only"})
     response = await call_next(request)
     path = request.url.path
     if path in ("/", "/sw.js", "/manifest.webmanifest") or path.startswith("/static/"):
@@ -147,20 +168,6 @@ async def guard_and_freshness(request: Request, call_next):
 
 
 _STATE_CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-# What a request made on the host itself may reach when an allow-list is set: `make status`,
-# the installer's health wait, and `make test-session-*`.
-_LOCAL_PATHS = ("/health", "/test-session/")
-
-
-def _local_may(request: Request) -> bool:
-    runtime = getattr(request.app.state, "runtime", None)
-    settings = getattr(runtime, "settings", None)
-    if settings is not None and getattr(settings, "writes_local_owner", False):
-        return True
-    path = request.url.path
-    if path == "/health" or path.startswith("/health/"):
-        return request.method in ("GET", "HEAD")
-    return path.startswith("/test-session/")
 
 
 def _cross_site(request: Request) -> bool:

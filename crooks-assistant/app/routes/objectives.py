@@ -10,13 +10,15 @@ published status and compare built candidates with the trunk (each at most once 
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.objectives.store import ObjectiveError, store
+from app.routes.actions import require_principal
 
-router = APIRouter(prefix="/objectives")
+# The owner's records: every route here is his alone (app/routes/actions.py principal_check).
+router = APIRouter(prefix="/objectives", dependencies=[Depends(require_principal)])
 
 
 class CreateBody(BaseModel):

@@ -255,3 +255,27 @@ def test_the_owners_routes_create_answer_and_authorise(s, monkeypatch):
     assert listing["objectives"][0]["title"] == "Organise the baptism travel" and listing["needs_you"] == 0
     assert client.get("/objectives/obj_00000000").status_code == 404
     assert client.post(f"/objectives/{obj.id}/status", json={"status": "done"}).json()["status"] == "done"
+
+
+def test_the_owners_records_are_his_alone_when_an_allow_list_is_set(s, monkeypatch):
+    """The 2026-09-26 deploy review, F-05: with an allow-list, a request made on the server
+    itself reaches no objective, build or gap unless CROOKS_WRITES_LOCAL_OWNER says the server
+    is the owner; a proxied caller must be on the list (and, with verification on, confirmed)."""
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+
+    from app.routes import objectives
+
+    app = FastAPI()
+    app.include_router(objectives.router)
+    settings = SimpleNamespace(writes_local_owner=False, tailscale_verify=False, tailscale_cli="")
+    app.state.runtime = SimpleNamespace(allowed_logins=("team@crooksldn.com",), settings=settings)
+    client = TestClient(app)
+    owner = {"Tailscale-User-Login": "team@crooksldn.com", "X-Forwarded-For": "100.64.0.9"}
+    assert client.get("/objectives").status_code == 403, "made on the server itself"
+    assert client.get("/objectives/gaps").status_code == 403
+    assert client.get("/objectives", headers={**owner, "Tailscale-User-Login": "other@example.com"}).status_code == 403
+    assert client.get("/objectives", headers=owner).status_code == 200
+    settings.writes_local_owner = True
+    assert client.get("/objectives").status_code == 200, "the owner said the server is him"

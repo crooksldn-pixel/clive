@@ -253,3 +253,56 @@ def test_a_stalled_writer_cannot_grow_memory_without_end(tmp_path, monkeypatch):
     timeline._queue = __import__("queue").Queue(maxsize=1000)
     timeline._pending_bytes = 0
     assert timeline.emit("turn_started", note="x" * 200) is None, "past the byte bound, dropped at once"
+
+
+def test_attribute_names_are_allow_listed_and_drawing_values_are_numbers_only():
+    """F-02, third round: an arbitrary attribute NAME is written down too, and a drawing value
+    is not a place for a phone number."""
+    timeline_module.note_names(["Greg Evans"])
+    try:
+        out = scrub_screen(
+            '<div id="app" data-alpha="objective" data-snap-top="12" data-greg-evans="x" data-07700900123="y" '
+            'x-customer="greg@example.com" style="color: red; content: \'greg@example.com\'">'
+            '<svg viewBox="0 0 24 24"><path d="M 07700900123 1"/><path d="M4 10v4"/><circle cx="Greg" r="2"/></svg></div>')
+    finally:
+        timeline_module.forget_names()
+    assert 'data-alpha="objective"' in out and 'data-snap-top="12"' in out
+    for leak in ("data-greg-evans", "07700900123", "x-customer", "greg@example.com", 'cx="Greg"'):
+        assert leak not in out, leak
+    assert 'd="M4 10v4"' in out and 'r="2"' in out
+
+
+def test_the_counts_call_written_only_what_is_on_disk(tmp_path, monkeypatch):
+    """F-10: an event still waiting may yet be dropped, so it is pending, not written."""
+    clock = Clock()
+    store = TestSessions(tmp_path, clock=clock)
+    timeline = Timeline(store, clock=clock)
+    timeline.start("counts")
+    assert timeline.flush()
+    # The writer stays blocked on the queue it was reading; what comes now waits in a new one.
+    timeline._queue = __import__("queue").Queue(maxsize=100)
+    timeline.emit("turn_started")
+    timeline.emit("turn_started")
+    counts = timeline.counts
+    assert counts["written"] == counts["on_disk"] == 1, "only the start event is on disk"
+    assert counts["pending"] == 2 and counts["settled"] is False
+
+
+def test_housekeeping_runs_on_a_clock_with_nobody_using_the_service(tmp_path):
+    """F-04, third round: the roll, the ages and the reports, from a timer in the backend."""
+    from app.main import HOUSEKEEPING_S, housekeep_once
+
+    assert HOUSEKEEPING_S <= 3600
+    clock = Clock()
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    old = reports / "ts-20260101-000000-walk.md"
+    old.write_text("x")
+    os.utime(old, (clock.now - 120 * 86_400, clock.now - 120 * 86_400))
+
+    class Runtime:
+        tests = TestSessions(tmp_path / "logs", clock=clock, always=True, reports_dir=reports)
+
+    housekeep_once(Runtime())
+    assert not old.exists() and Runtime.tests.active() is not None
+    housekeep_once(object())   # nothing to keep: nothing happens, nothing raises

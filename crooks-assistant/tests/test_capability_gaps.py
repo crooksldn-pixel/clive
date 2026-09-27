@@ -299,3 +299,34 @@ def test_every_key_and_name_it_writes_is_redacted_or_allow_listed(record):
     assert token not in text and "Greg" not in text
     report = record.report()
     assert {m["capability"] for m in report["misjudged"]} == {"other", "best_sellers"}
+
+
+def test_a_record_written_before_keys_were_cleaned_is_cleaned_when_read(record):
+    """F-07, third round: the file on the server was written by the build before; its keys,
+    names and labels are cleaned on load, duplicates merged, and saved clean with the next
+    change."""
+    import json
+
+    from tests.fake_credentials import github_token
+
+    token = github_token("legacy-gap")
+    record.path.parent.mkdir(parents=True, exist_ok=True)
+    record.path.write_text(json.dumps({
+        "version": 1, "seeded": "2026-09-27T00:07:00+00:00",
+        "gaps": {
+            f"web search {token}": {"label": f"No web search ({token})", "hits": 2, "sources": {"blocker": 2},
+                                    "objectives": ["obj_00000001"], "requests": [], "seen": ["2026-09-26T21:30:20+00:00"],
+                                    "first_seen": "2026-09-26T21:30:20+00:00", "last_seen": "2026-09-26T21:30:20+00:00",
+                                    "name": f"Web search {token}"},
+            "Web  Search": {"label": "No web search", "hits": 1, "sources": {"blocker": 1}, "objectives": ["obj_00000002"],
+                            "requests": [], "seen": ["2026-09-26T23:00:00+00:00"],
+                            "first_seen": "2026-09-26T23:00:00+00:00", "last_seen": "2026-09-26T23:00:00+00:00"},
+        },
+        "builds": {}, "misjudged": {f"x {token}": {"count": 1}},
+    }))
+    report = record.report()
+    assert token not in json.dumps(report)
+    record.note_misjudged(["best_sellers"])   # any change saves the cleaned record
+    assert token not in record.path.read_text()
+    web = [g for g in report["gaps"] if g["key"].startswith("web search")]
+    assert web, report["gaps"]

@@ -24,8 +24,10 @@ The result draws as the page did, less what it must not keep.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from html import escape
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any
 
 # Dropped with everything inside them.
@@ -54,7 +56,24 @@ _KNOWN = frozenset({
     "rx", "ry", "offset", "stop-color", "preserveaspectratio", "focusable", "loading", "decoding", "draggable",
     "contenteditable", "spellcheck", "translate",
 })
-_OPEN_NAME = re.compile(r"^(?:aria|data)-[a-z]+(?:-[a-z]+){0,5}$")
+# ARIA names are one word after "aria-"; data- names are only the ones CLIVE's own page uses,
+# read from its source, so a name made up by whoever posted the copy is not kept.
+_ARIA_NAME = re.compile(r"^aria-[a-z]{2,20}$")
+_WEB = Path(__file__).resolve().parents[2] / "web"
+
+
+@lru_cache(maxsize=1)
+def _data_names() -> frozenset[str]:
+    names: set[str] = set()
+    for path in [*_WEB.glob("*.js"), *_WEB.glob("*.html"), *_WEB.glob("*.css")]:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        names.update(re.findall(r"data-[a-z][a-z0-9-]*", text))
+        for camel in re.findall(r"dataset\.([a-zA-Z]+)", text):
+            names.add("data-" + re.sub(r"([A-Z])", lambda m: "-" + m.group(1).lower(), camel))
+    return frozenset(names)
 # What a drawing attribute may hold: numbers and path or transform words, nothing else; and no
 # run of seven or more digits, which no coordinate has and a phone number does.
 _DRAWING_VALUE = re.compile(r"^(?:[\s,.+\-eE0-9MmLlHhVvCcSsQqTtAaZz()]|matrix|translate|scale|rotate|skewX|skewY)*$")
@@ -153,7 +172,7 @@ class _Sanitiser(HTMLParser):
             name = raw_name.lower()
             if not _NAME.fullmatch(raw_name) or name.startswith("on") or name in _URL_ATTRS:
                 continue
-            if name not in _KNOWN and not (_OPEN_NAME.fullmatch(name) and len(name) <= 40 and _clean(name) == name):
+            if name not in _KNOWN and not _ARIA_NAME.fullmatch(name) and name not in _data_names():
                 continue
             value = "" if raw_value is None else str(raw_value)
             if typed and name == "value":
