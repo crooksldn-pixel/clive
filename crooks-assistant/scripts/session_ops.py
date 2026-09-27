@@ -55,9 +55,13 @@ def settings():
 def call(port: int, method: str, path: str, body: dict | None = None, *, timeout_s: float = 5.0) -> dict | None:
     """The backend on loopback, or None when it is not running. The same two endpoints the
     typed CLI uses, so a button and a command cannot start different things."""
+    from app import local_cli
+
     data = json.dumps(body or {}).encode("utf-8") if method == "POST" else None
+    # The server's own key for the test-session routes (app/local_cli.py), when readable here.
+    headers = {"content-type": "application/json", **(local_cli.headers() if path.startswith("/test-session/") else {})}
     request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method=method,
-                                     headers={"content-type": "application/json"})
+                                     headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout_s) as response:  # noqa: S310 — loopback only
             return json.loads(response.read().decode("utf-8") or "{}")

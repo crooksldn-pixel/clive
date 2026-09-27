@@ -419,3 +419,155 @@ def test_an_unreadable_record_is_kept_aside_before_a_fresh_one_is_started(tmp_pa
     (kept,) = path.parent.glob("gaps.json.*.unreadable")
     assert kept.read_bytes() == b'{"version": 1, "gaps": {'
     assert json.loads(path.read_text())["gaps"]["web search"]["hits"] == 1
+
+
+def test_a_stored_row_cannot_stand_in_for_its_cleaned_key_or_carry_fields_of_its_own(tmp_path, monkeypatch):
+    """Round 6, F-07: the report spread each misjudged row after its key, so a legacy row carrying
+    its own "capability" overrode the cleaned one. Only the fields the record writes survive a
+    read, and the report names the cleaned key last."""
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    path.write_text(json.dumps({
+        "version": 1, "seeded": "2026-09-20T00:00:00+00:00", "customer": "Greg Evans",
+        "gaps": {"web search": {"label": "No web search", "hits": 2, "sources": {"blocker": 2, "Greg": 1},
+                                "objectives": ["obj_00000001", "Greg Evans"], "requests": ["find-web-search", "../x"],
+                                "seen": ["2026-09-26T21:30:20+00:00", "not a time"],
+                                "first_seen": "2026-09-26T21:30:20+00:00", "last_seen": "2026-09-26T21:30:20+00:00",
+                                "note": "call Greg on 07700 900123"}},
+        "builds": {"find-web-search": {"objective_id": "obj_00000001", "gaps": ["web search"],
+                                       "proposed_at": "2026-09-26T22:00:00+00:00", "email": "greg@example.com",
+                                       "candidate_sha": "not-a-sha", "progress": "done"},
+                   "Greg Evans": {"gaps": []}},
+        "misjudged": {"best_sellers": {"count": 3, "capability": "Greg Evans", "note": "x"}},
+    }))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    ledger = gaps_module.install(path)
+    report = ledger.report()
+    assert report["misjudged"] == [{"count": 3, "first_seen": None, "last_seen": None, "capability": "best_sellers"}]
+    stored = path.read_text()
+    for leak in ("Greg", "07700", "greg@example.com", "not-a-sha", "../x", "not a time", "customer", "note"):
+        assert leak not in stored, leak
+    kept = json.loads(stored)
+    assert set(kept) == {"version", "seeded", "gaps", "builds", "misjudged"}
+    assert set(kept["gaps"]["web search"]) <= set(gaps_module._GAP_FIELDS)
+    assert kept["gaps"]["web search"]["objectives"] == ["obj_00000001"]
+    assert kept["gaps"]["web search"]["requests"] == ["find-web-search"]
+    assert list(kept["builds"]) == ["find-web-search"]
+    assert kept["builds"]["find-web-search"]["progress"] == "done"
+    assert "candidate_sha" not in kept["builds"]["find-web-search"]
+    assert len(list(path.parent.glob("gaps.json.*.before-clean"))) == 1, "the original was kept first"
+
+
+def test_links_between_gaps_and_builds_point_only_at_what_is_still_there(tmp_path, monkeypatch):
+    """Round 6, F-07: a build's gap keys were remapped with no check that the gap survived, and a
+    gap could name a build the record no longer held. Merging two legacy keys into one sums their
+    counts and joins their links; every link left points at something in the record."""
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    path.write_text(json.dumps({
+        "version": 1,
+        "gaps": {
+            "Web  Search": {"label": "No web search", "hits": 2, "sources": {"blocker": 2}, "objectives": ["obj_00000001"],
+                            "requests": ["find-web-search", "gone-away"], "seen": ["2026-09-26T21:00:00+00:00"],
+                            "first_seen": "2026-09-26T21:00:00+00:00", "last_seen": "2026-09-26T21:00:00+00:00"},
+            "web search": {"label": "No web search", "hits": 3, "sources": {"blocker": 1, "tool": 2},
+                           "objectives": ["obj_00000002"], "requests": [], "seen": ["2026-09-26T22:00:00+00:00"],
+                           "first_seen": "2026-09-26T22:00:00+00:00", "last_seen": "2026-09-26T22:00:00+00:00"},
+        },
+        "builds": {"find-web-search": {"objective_id": "obj_00000001", "gaps": ["Web  Search", "never-a-gap", "web search"],
+                                       "proposed_at": "2026-09-26T22:30:00+00:00"}},
+        "misjudged": {},
+    }))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    kept = json.loads(gaps_module.install(path) and path.read_text())
+    assert list(kept["gaps"]) == ["web search"]
+    gap = kept["gaps"]["web search"]
+    assert gap["hits"] == 5 and gap["sources"] == {"blocker": 3, "tool": 2}
+    assert sorted(gap["objectives"]) == ["obj_00000001", "obj_00000002"] and gap["requests"] == ["find-web-search"]
+    assert kept["builds"]["find-web-search"]["gaps"] == ["web search"]
+    assert gap["first_seen"] == "2026-09-26T21:00:00+00:00" and gap["last_seen"] == "2026-09-26T22:00:00+00:00"
+
+
+def test_the_copy_and_the_clean_record_are_flushed_folder_and_all(tmp_path, monkeypatch):
+    """Round 6, F-07: the copy was fsynced but its folder was not, so a power cut could lose the
+    copy's name after the clean record had replaced the original. The folder is flushed after
+    the copy and after every save."""
+    from tests.fake_credentials import github_token
+
+    path = tmp_path / "objectives" / "gaps.json"
+    _legacy_record(path, github_token("fsync-dir"))
+    synced: list[str] = []
+    real = gaps_module._fsync_dir
+    monkeypatch.setattr(gaps_module, "_fsync_dir", lambda folder: (synced.append("dir"), real(folder)))
+    real_replace = gaps_module.os.replace
+    monkeypatch.setattr(gaps_module.os, "replace", lambda a, b: (synced.append("replace"), real_replace(a, b)))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    gaps_module.install(path)
+    assert synced == ["dir", "replace", "dir"], "copy, its folder; then the clean record, its folder"
+
+
+def _old_code():
+    """The gap record's code as production runs it before this change (3e77f215), vendored
+    verbatim in tests/rollback."""
+    import hashlib
+    from pathlib import Path
+
+    from tests.rollback import gaps_3e77f215 as old
+
+    source = Path(old.__file__).read_text(encoding="utf-8").split("\n", 5)[5]
+    assert hashlib.sha256(source.encode()).hexdigest() == "b6bfba90973a1647659e4d3e24e61a006d8aaffbb03e52236ddc992c9f24c26f", \
+        "the vendored copy is 3e77f215's file, byte for byte"
+    return old
+
+
+def test_the_code_a_rollback_returns_to_reads_writes_and_reports_the_cleaned_record(tmp_path, monkeypatch):
+    """Round 6, F-07: the rollback check read the backup with json.loads, which says nothing
+    about whether the code a rollback returns to can use the cleaned file. This runs that code —
+    3e77f215's gaps.py, vendored verbatim — against it: it reads it, reports it the same way, and
+    can go on writing to it, and what it writes the new code reads. Putting the backup back (the
+    documented restoration) gives it the original, byte for byte."""
+    from tests.fake_credentials import github_token
+
+    old = _old_code()
+    token = github_token("rollback")
+    path = tmp_path / "objectives" / "gaps.json"
+    raw = _legacy_record(path, token)
+    data = json.loads(raw)
+    data["gaps"]["web search"] = {"label": "No web search", "hits": 1, "sources": {"tool": 1}, "objectives": [],
+                                  "requests": ["find-web-search"], "seen": ["2026-09-26T23:30:00+00:00"],
+                                  "first_seen": "2026-09-26T23:30:00+00:00", "last_seen": "2026-09-26T23:30:00+00:00"}
+    data["builds"] = {"find-web-search": {"objective_id": "obj_00000001", "gaps": ["web search"],
+                                          "proposed_at": "2026-09-26T23:40:00+00:00", "filed_at": "2026-09-26T23:41:00+00:00"}}
+    data["misjudged"] = {"best_sellers": {"count": 2, "first_seen": "2026-09-26T20:00:00+00:00",
+                                          "last_seen": "2026-09-26T20:30:00+00:00"}}
+    raw = json.dumps(data, indent=1).encode()
+    path.write_bytes(raw)
+
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    new = gaps_module.install(path)
+    (backup,) = path.parent.glob("gaps.json.*.before-clean")
+    assert token not in path.read_text()
+
+    # The old code, on the cleaned file: it reads it, and says what the new code says.
+    before = old.GapLedger(path)
+    old_report, new_report = before.report(), new.report()
+    assert old_report["summary"] == new_report["summary"]
+    assert [(g["key"], g["hits"], g["stage"]) for g in old_report["gaps"]] == \
+           [(g["key"], g["hits"], g["stage"]) for g in new_report["gaps"]]
+    assert old_report["gaps"][0]["key"] == "web search" and old_report["gaps"][0]["stage"] == "filed"
+
+    # It can go on writing to it, and the new code reads what it wrote.
+    before.note_blocker("obj_00000003", "No web search", "web search")
+    before.note_missing_tool("mcp__fetch__web")
+    before.note_misjudged(["best_sellers"])
+    after = gaps_module.GapLedger(path).report()
+    hits = {g["key"]: g["hits"] for g in after["gaps"]}
+    was = {g["key"]: g["hits"] for g in new_report["gaps"]}
+    assert hits["web search"] == was["web search"] + 1 and after["summary"]["misjudged"] == 3
+    assert any(k.startswith("tool: ") for k in hits)
+
+    # And the documented restoration gives it the original back, which it reads as it always did.
+    path.write_bytes(backup.read_bytes())
+    assert path.read_bytes() == raw
+    restored = old.GapLedger(path).report()
+    assert any(token in g["key"] for g in restored["gaps"]), "the original, as it was"

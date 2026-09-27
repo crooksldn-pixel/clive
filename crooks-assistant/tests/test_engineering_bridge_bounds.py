@@ -1,6 +1,10 @@
-"""What CLIVE's engineering bridge can and cannot do, now that its token is in the store (the
-2026-09-27 deploy review, F-ENG). One test per bound, each against the code as it is, and the
-rest of the evidence named where it already lives:
+"""What CLIVE's engineering bridge's own code can and cannot do (the 2026-09-27 deploy review,
+F-ENG). One test per bound, each against the code as it is, and the rest of the evidence named
+where it already lives. What these tests cannot show is what the token could do outside this
+code: clive/trunk has no branch protection (the repository's plan does not offer it on a private
+repository), so a Contents-write token could reach the trunk if it were used by anything else.
+That is why the bridge stays out of production, its credential parked, until the token cannot
+write to the repository the trunk lives in (round 6); nothing here claims otherwise.
 
 - It cannot widen its own paths. A request naming anything the loop protects is refused here and
   again by the loop's own door; and the bridge's own code (what it may name, which checks it
@@ -10,11 +14,11 @@ rest of the evidence named where it already lives:
   `test_a_caller_can_name_neither_its_base_nor_its_checks`); the checks are built from fixed
   commands and always include the protected regression modules; the base is the trunk's head
   read at preparation, by SHA.
-- It cannot reach production. The only write it can make is one new file, requests/<id>.json,
+- Its code sends one write only. The only write it makes is one new file, requests/<id>.json,
   on its inbox branch, create-only, after the owner's tap; everything else it sends is a read.
-  The loop publishes the work to clive/objective/<id> and nowhere else; a build reaches the
-  trunk only through a pull request that the GitHub acceptance run and the owner merge, and
-  production only by an exact trunk SHA after review. It has no HTTP route of its own.
+  The loop publishes the work to clive/objective/<id> and nowhere else, and production takes
+  only an exact trunk SHA after review. It has no HTTP route of its own. (Not claimed: that the
+  trunk itself refuses a direct push. It does not; see above.)
 """
 
 from __future__ import annotations

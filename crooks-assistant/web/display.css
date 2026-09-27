@@ -131,6 +131,10 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-btn:active{transform:scale(.98)}
 .cs-btn:focus-visible{outline:3px solid rgba(196,161,240,.85);outline-offset:4px}
 .cs-btn:disabled{opacity:.45;cursor:default}
+.cs-page{height:84px;margin-left:auto;margin-right:18px;padding:0 40px;border-radius:999px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.06);color:#fff;font:inherit;font-size:30px;font-weight:600;cursor:pointer;white-space:nowrap}
+.cs-portrait .cs-page{height:64px;padding:0 24px;font-size:22px;margin-right:12px}
+.cs-page:active{transform:scale(.98)}
+.cs-page:focus-visible{outline:3px solid rgba(196,161,240,.85);outline-offset:4px}
 .cs-portrait .cs-btn{width:100%;height:92px;font-size:30px}
 .cs-done{display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600;color:rgb(112,214,160)}
 .cs-done svg{width:30px;height:30px;flex:none}

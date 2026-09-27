@@ -55,6 +55,10 @@ KNOWN_KEYS = (
     # bridge answered "not connected" whatever was provisioned, and the provisioning scripts
     # refused to store it at all.
     "github_engineering_inbox_token",
+    # The key the server's own `make test-session-*` commands carry (app/local_cli.py): made by
+    # the backend the first time it starts, read by the command line, opening the three
+    # test-session routes and nothing else (the 2026-09-27 deploy review, round 6, F-05A).
+    "local_cli_key",
 )
 
 

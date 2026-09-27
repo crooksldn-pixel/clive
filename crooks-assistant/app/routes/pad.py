@@ -1,7 +1,10 @@
 """The CROOKS PAD's own two routes.
 
   POST /pad/heartbeat  {app_version, device_model, os_version, at, boot_id, events?}
-  GET  /pad            what this Mac knows about the pad (the Mac itself only)
+  GET  /pad            what the server knows about the pad
+
+Both are the owner's (the 2026-09-27 deploy review, F-NEW-PAD): the door in app/main.py refuses
+anyone else before either runs, and each checks again itself, so neither rests on the other.
 
 Why a route of its own rather than another field on /telemetry
 --------------------------------------------------------------
@@ -28,14 +31,12 @@ within one beat without a second request.
 
 How far the heartbeat can be trusted
 ------------------------------------
-Exactly as far as the tailnet, and no further: anyone the middleware in `app/main.py` admits
-could post one and be believed. That is the same trust model /telemetry has had since Phase 5
-and it is the right one here — the honest claim this route supports is "something on the
-owner's private network, speaking the appliance's protocol, is checking in", which is a very
-great deal more than "a Tailscale route resolves" and rather less than a signed device
-identity. Nothing is authorised by it: it moves no money, stages no action and unlocks no
-route. If a reason ever appears to make it stronger, the place to do it is the middleware, not
-a secret in this file.
+As far as the owner rule (app/routes/actions.py principal_verdict): a heartbeat is believed
+only from a device Tailscale says is one of the owner's, or — when CROOKS_LOCAL_OWNER is set —
+from the server itself. A process on the server that is not him, with that switch off (as in
+production), is refused: it can neither write pad events into a test session nor learn whether
+one is recording. Nothing is authorised by a heartbeat either way: it moves no money, stages no
+action and unlocks no route.
 """
 
 from __future__ import annotations
@@ -57,12 +58,16 @@ router = APIRouter()
 MAX_BODY_BYTES = 16_000
 
 
-def _local(request: Request) -> bool:
-    """Made on the server itself, by the one decision every gate reads (app/routes/actions.py
-    proxy_state): a forwarding header alone never makes a request remote or local."""
-    from app.routes.actions import made_on_this_server
+def _refused(request: Request) -> JSONResponse | None:
+    """The owner rule, as a 403 with its code; None when the caller is the owner. The same rule
+    the door applies — kept here as well so this route does not depend on the door's list."""
+    from app.routes.actions import principal_verdict
 
-    return made_on_this_server(request)
+    _who, code, why = principal_verdict(request)
+    if code:
+        log.warning("pad route refused: %s (path=%s)", code, request.url.path)
+        return JSONResponse(status_code=403, content={"code": code, "detail": why})
+    return None
 
 
 @router.post("/pad/heartbeat", response_model=None)
@@ -74,6 +79,8 @@ async def heartbeat(request: Request) -> JSONResponse | dict:
     connection failure here is precisely how the pad learns the backend has gone, which is what
     `pad_backend_unreachable` is reporting when it arrives.
     """
+    if (refused := _refused(request)) is not None:
+        return refused
     raw = await request.body()
     if len(raw) > MAX_BODY_BYTES:
         return JSONResponse(status_code=400, content={"code": "too_large", "detail": "A heartbeat is small."})
@@ -120,12 +127,12 @@ async def heartbeat(request: Request) -> JSONResponse | dict:
 
 @router.get("/pad", response_model=None)
 async def pad(request: Request) -> JSONResponse | dict:
-    """What this Mac knows about the pad, with no network call and no cache behind it.
+    """What the server knows about the pad, with no network call and no cache behind it.
 
-    The Mac itself only. /health carries the same block for the Control app's ordinary poll;
+    The owner's only. /health carries the same block for the Control app's ordinary poll;
     this is here for when something wants the liveness answer on its own, without paying for a
     Shopify query and a Gmail profile to get it.
     """
-    if not _local(request):
-        return JSONResponse(status_code=403, content={"code": "not_local", "detail": "Asked on the Mac itself."})
+    if (refused := _refused(request)) is not None:
+        return refused
     return pad_module.current().status()

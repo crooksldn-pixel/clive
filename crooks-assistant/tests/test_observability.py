@@ -156,6 +156,7 @@ async def test_the_session_is_controlled_by_the_owner_only_and_seen_by_every_pol
     from tests.test_actions_routes import OWNER, as_owner
 
     # No allow-list: a server nobody has said is anyone's answers nobody, here or proxied.
+    as_owner(client.runtime, logins="", local=True)
     for headers in (PROXIED, {}):
         assert (await client.post("/test-session/start", json={"name": "x"}, headers=headers)).status_code == 403
         assert (await client.get("/test-session/status", headers=headers)).status_code == 403
@@ -757,5 +758,49 @@ async def test_a_hostile_screen_copy_posted_directly_keeps_nothing_it_must_not(c
         assert leak not in stored, leak
     body = json.loads(stored)
     assert 'viewBox="0 0 24 24"' in body["html"] and " d=" not in body["html"], "a path's value is never kept"
-    assert 'src="data:image/png;base64,iVBORw0KGgo="' in body["html"], "a canvas the page drew is kept"
+    assert "data:image" not in body["html"] and " src=" not in body["html"], "no image is kept (round 6, F-02)"
     assert "•" in body["html"] and body["body"]["mode"] == "orb"
+
+
+async def test_a_screen_copy_keeps_no_image_and_only_the_metadata_the_page_means_to_send(client):
+    """The 2026-09-27 deploy review, round 6, F-02: an inline image was kept uninspected (a
+    picture of a label is the customer's as much as its text), and the metadata passed the
+    timeline's scrub, which keeps any key it does not withhold — so a key shaped like a
+    credential, or a value hidden under an unexpected key, was written down. Through the real
+    route, with snapshots on: images go, and trigger, viewport and body are rebuilt key by key."""
+    import base64
+
+    from tests.fake_credentials import github_token, shopify_token
+    from tests.test_actions_routes import OWNER
+
+    configure(client, logins=OWNER, local=True)
+    runtime = client.runtime
+    runtime.settings = runtime.settings.model_copy(update={"screen_snapshots": True})
+    await client.post("/test-session/start", json={"name": "f02-round6"})
+    assert (await client.post("/turn", json={"text": "hello", "session_id": "mine"}, headers=PROXIED)).status_code == 200
+    token, shop = github_token("f02-r6"), shopify_token("f02-r6")
+    label = base64.b64encode(b"\x89PNG SHIP TO Sam Carter 14 Sample Road E8 1AA " + token.encode()).decode()
+    copy_ = {
+        "session_id": "mine", "reason": "error",
+        "html": f"<div><img width='120' height='40' src='data:image/png;base64,{label}'>"
+                f"<canvas src='data:image/jpeg;base64,{label}'></canvas><p>hi</p></div>",
+        "trigger": {"kind": "exception", "message": f"failed near {token}", "file": f"https://host.ts.net/static/app.js?k={shop}#x",
+                    "line": 42, "status": "not a token!", "shopify_access_token": shop, "Authorization": f"Bearer {token}",
+                    "nested": {"secret": token}, "src": "data:text/plain,Sam Carter"},
+        "viewport": {"w": 390, "h": 844, "dpr": 3, "api_key": shop, "note": "Sam Carter"},
+        "body": {"class": f"alpha is-live {token} <b>", "mode": "orb", "x-token": shop, "customer": "Sam Carter"},
+    }
+    assert (await client.post("/telemetry/screen", json=copy_, headers=PROXIED)).status_code == 204
+    folder = runtime.tests.screens_dir(runtime.timeline.own)
+    (kept,) = folder.glob("*.json")
+    stored = kept.read_text()
+    for leak in (label, label[:40], token, shop, "Sam Carter", "Sample Road", "api_key", "shopify_access_token",
+                 "Authorization", "x-token", "customer", "nested", "\"secret\"", "note", "data:", "?k=", "host.ts.net"):
+        assert leak not in stored, leak
+    body = json.loads(stored)
+    assert '<img width="120" height="40">' in body["html"] and "<p>hi</p>" in body["html"]
+    assert body["trigger"] == {"kind": "exception", "file": "/static/app.js", "line": 42,
+                               "message": body["trigger"]["message"]}
+    assert body["trigger"]["message"].startswith("failed near") and token not in body["trigger"]["message"]
+    assert body["viewport"] == {"w": 390, "h": 844, "dpr": 3}
+    assert body["body"] == {"class": "alpha is-live", "mode": "orb"}

@@ -14,7 +14,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const ORIGIN = 'https://crooks.test';
-const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'sw.js'), 'utf8').replace('__BUILD__', 'testbuild');
+const RAW = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'sw.js'), 'utf8');
+const SOURCE = RAW.replace('__BUILD__', 'testbuild');
 
 // A Response of our own rather than Node's. Node's comes from its bundled undici, and loading
 // that starts compiling an HTTP parser as WebAssembly in the background; a checker with a
@@ -51,11 +52,14 @@ class FakeResponse {
   }
 }
 
-function boot() {
+// One browser can run one worker after another: `shared` is the browser's own cache storage,
+// kept across builds, and `build` is the id the Mac wrote into the worker it served.
+function boot(options) {
+  const opts = options || {};
   const handlers = {};
   const fetched = [];
-  const network = { mode: 'ok' };     // 'ok' | 'fail' | 'hang' | a numeric status
-  const cacheStore = new Map();
+  const network = opts.network || { mode: 'ok' };     // 'ok' | 'fail' | 'hang' | a numeric status
+  const cacheStore = opts.shared || new Map();
   class FakeCache {
     constructor() { this.entries = new Map(); }
     async addAll(paths) { for (const p of paths) { const r = await sandbox.fetch({ url: ORIGIN + p, method: 'GET' }); if (!r.ok) throw new Error(`addAll ${p}`); this.entries.set(p, r); } }
@@ -88,11 +92,12 @@ function boot() {
       if (network.mode === 'hang') return new Promise(() => {});
       const status = typeof network.mode === 'number' ? network.mode : 200;
       const type = network.type || (p.endsWith('.js') ? 'text/javascript' : 'text/html');
-      return new FakeResponse(`${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
+      const tag = network.tag ? `${network.tag}:` : '';
+      return new FakeResponse(`${tag}${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
     },
   };
   sandbox.self = sandbox;
-  vm.runInNewContext(SOURCE, sandbox, { filename: 'sw.js' });
+  vm.runInNewContext(opts.build ? RAW.replace('__BUILD__', opts.build) : SOURCE, sandbox, { filename: 'sw.js' });
   const fire = (type, request) => {
     const event = { request, response: null, waited: null, respondWith(p) { this.response = p; }, waitUntil(p) { this.waited = p; } };
     handlers[type](event);
@@ -245,4 +250,110 @@ test('a page of its own — /whoami, /health, /docs — is never the shell, and 
   w.network.mode = 'fail';
   const offline = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
   assert.equal(offline.headers.get('content-type').indexOf('text/html'), 0, 'the shell slot still holds the app');
+});
+
+
+// --- the screens, a new build, and a change of login (the 2026-09-27 deploy review, B-07) ---
+
+test('a screen is never the worker\'s business: /display, its files and every /displays call go to the Mac', async () => {
+  const w = await installed();
+  await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
+  const before = w.fetched.length;
+  const untouched = [
+    { method: 'GET', url: `${ORIGIN}/display`, mode: 'navigate' },
+    { method: 'GET', url: `${ORIGIN}/display?name=office`, mode: 'navigate' },
+    { method: 'GET', url: `${ORIGIN}/static/display.js` },
+    { method: 'GET', url: `${ORIGIN}/static/display.css` },
+    { method: 'GET', url: `${ORIGIN}/static/display-dots.js` },
+    { method: 'GET', url: `${ORIGIN}/displays` },
+    { method: 'POST', url: `${ORIGIN}/displays/register` },
+    { method: 'GET', url: `${ORIGIN}/displays/scr_000000000000/poll`, headers: { 'X-Screen-Key': 'k' } },
+    { method: 'POST', url: `${ORIGIN}/displays/scr_000000000000/done`, headers: { 'X-Screen-Key': 'k' } },
+    { method: 'GET', url: `${ORIGIN}/objectives` },
+    { method: 'POST', url: `${ORIGIN}/pad/heartbeat` },
+    { method: 'GET', url: `${ORIGIN}/pad` },
+  ];
+  for (const request of untouched) {
+    const event = w.fire('fetch', request);
+    assert.equal(event.response, null, `${request.method} ${request.url} must go straight to the network`);
+  }
+  assert.equal(w.fetched.length, before, 'the worker itself fetched none of them');
+  const cache = await w.sandbox.caches.open('crooks-shell-testbuild');
+  for (const key of cache.keys()) assert.ok(SHELL.includes(key), `${key} must never be cached`);
+  assert.ok(!SHELL.some((p) => p.includes('display')), 'nothing of the screens is in the shell');
+  assert.ok(!/display/.test(RAW.slice(RAW.indexOf('const SHELL'), RAW.indexOf('];', RAW.indexOf('const SHELL')))),
+    'the worker as served lists no screen file');
+});
+
+test('a new build replaces the old shell: the old copy is dropped and never served again', async () => {
+  const shared = new Map();
+  const network = { mode: 'ok', tag: 'build-a' };
+  const a = boot({ build: 'a', shared, network });
+  await a.fire('install').waited;
+  await a.fire('activate').waited;
+  assert.equal(await (await a.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response).text(), 'build-a:fresh:/');
+
+  // The Mac moves on. The browser installs the new worker beside the old one...
+  network.tag = 'build-b';
+  const b = boot({ build: 'b', shared, network });
+  await b.fire('install').waited;
+  assert.deepEqual([...shared.keys()].sort(), ['crooks-shell-a', 'crooks-shell-b']);
+  // ...and when it takes over, only its own shell is left.
+  await b.fire('activate').waited;
+  assert.deepEqual([...shared.keys()], ['crooks-shell-b']);
+  network.mode = 'fail';
+  for (const p of ['/', '/static/app.js', '/static/startup.js']) {
+    const request = p === '/' ? { method: 'GET', url: ORIGIN + p, mode: 'navigate' } : { method: 'GET', url: ORIGIN + p };
+    const text = await (await b.fire('fetch', request).response).text();
+    assert.ok(text.startsWith('build-b:'), `${p} offline is the new build's copy, not the old one's (${text})`);
+  }
+  // An unrelated cache the page might hold is not the worker's to delete.
+  shared.set('someone-elses', new Map());
+  await b.fire('activate').waited;
+  assert.ok(shared.has('someone-elses'));
+});
+
+test('offline, the shell opens and nothing else is answered from the cache', async () => {
+  const w = await installed();
+  await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
+  w.network.mode = 'fail';
+  const page = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
+  assert.equal(await page.text(), 'fresh:/');
+  for (const p of ['/displays/scr_000000000000/poll', '/state/s1', '/health', '/whoami', '/objectives']) {
+    assert.equal(w.fire('fetch', { method: 'GET', url: ORIGIN + p }).response, null, `${p} is not answered offline by the worker`);
+  }
+  // A shell file that was never cached is an error, not something made up.
+  const cache = await w.sandbox.caches.open('crooks-shell-testbuild');
+  cache.entries.delete('/static/orb.js');
+  const missing = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/static/orb.js` }).response;
+  assert.equal(missing.type, 'error');
+});
+
+test('a change of login on the same browser: nothing the last login saw is kept or replayed', async () => {
+  // The owner uses the app: the shell is kept, and his calls go to the Mac and are not kept.
+  const w = await installed();
+  w.network.tag = 'owner';
+  await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
+  for (const p of ['/state/s1', '/displays', '/objectives', '/whoami']) w.fire('fetch', { method: 'GET', url: ORIGIN + p });
+  await new Promise((r) => setTimeout(r, 10));
+
+  // The browser is now signed in to the tailnet as someone who is not on the allow-list. The Mac
+  // refuses every call of theirs; the worker neither answers for the Mac nor softens a refusal.
+  w.network.tag = 'stranger';
+  w.network.mode = 403;
+  for (const p of ['/state/s1', '/displays', '/objectives', '/displays/scr_000000000000/poll']) {
+    assert.equal(w.fire('fetch', { method: 'GET', url: ORIGIN + p }).response, null, `${p} is the Mac's to answer`);
+  }
+  // The page itself: the Mac's answer is passed through, and a refusal is never kept as the app.
+  const refused = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
+  assert.equal(refused.status, 403);
+  const cache = await w.sandbox.caches.open('crooks-shell-testbuild');
+  assert.equal(await (await cache.match('/')).text(), 'owner:fresh:/', 'the kept page is the code the owner was served');
+  for (const store of w.cacheStore.values()) {
+    for (const key of store.keys()) assert.ok(SHELL.includes(key), `${key} must never be cached`);
+  }
+  // What is kept is code: the page, its scripts and styles, its icons. The Mac's side of this —
+  // that the page served at '/' is the same for every login — is tests/test_displays.py.
+  assert.ok(SHELL.every((p) => p === '/' || p === '/manifest.webmanifest' || p.startsWith('/static/')));
+  assert.ok(!/credentials|Authorization|Tailscale-User/i.test(RAW), 'the worker never looks at who is asking');
 });

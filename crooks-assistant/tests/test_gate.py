@@ -253,11 +253,13 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     assert len(gate._PII_TOOLS) == 6 and "engineering_status" not in gate._PII_TOOLS
     assert not {"screen_list", "screen_show"} & gate._PII_TOOLS
     assert len(gate._ISSUED_ID_ARGS) == 4 and "engineering_status" not in gate._ISSUED_ID_ARGS
-    assert gate._ISSUED_ID_ARGS["screen_show"] == ("order_id",)
+    # Round 6, B-05: an objective put on a screen is an issued id too, of its own kind.
+    assert gate._ISSUED_ID_ARGS["screen_show"] == ("order_id", "objective_id")
     assert set(gate._ID_KIND) == {
         "order_id", "customer_id", "line_item_id", "variant_id", "thread_id",
-        "evidence_message_id", "set_id", "workspace_id",
+        "evidence_message_id", "set_id", "workspace_id", "objective_id",
     }
+    assert gate._ID_KIND["objective_id"].pattern == r"^obj_[0-9a-f]{8}$"
     assert (gate._MAX_LIMIT, gate._MAX_DAYS) == (50, 365)
 
 

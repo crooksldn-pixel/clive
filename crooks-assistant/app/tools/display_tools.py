@@ -1,8 +1,11 @@
 """The owner's screens, from the conversation: put something on one, and read what was done.
 
-Two tools. `screen_show` puts an order's fulfilment slip (an order the conversation was shown:
-its id is an issued one, app/tools/gate.py), an objective, or a titled list on a screen the
-owner named when he opened `/display` on it ("office screen", "bedroom screen"). `screen_list`
+Two tools. `screen_show` puts an order's fulfilment slip or an objective (each one the
+conversation was shown: its id is an issued one, app/tools/gate.py), or a titled list, on a
+screen the owner named when he opened `/display` on it ("office screen", "bedroom screen").
+The screen is named in full — a slip carries a customer's name and address, so it never goes to
+the nearest match — and a list is bounded before anything is done with it (the 2026-09-27
+deploy review, B-05). `screen_list`
 says which screens there are, whether each is on and what it shows, and what was last marked
 done on them — "has 2048 been packed?" is `screen_list` with the order's id.
 
@@ -52,8 +55,8 @@ async def screen_list(order_id: str | None = None) -> dict[str, Any]:
 @tool(
     name=SHOW_TOOL,
     description=(
-        "Put an order's packing slip (order_id), an objective (objective_id) or a list (title, "
-        "lines) on one of the owner's screens, by the name he gave it. clear empties it."
+        "Put an order's packing slip (order_id), objective (objective_id) or list (title, lines) "
+        "on the screen named in full; clear empties it."
     ),
     input_schema={
         "type": "object",
@@ -61,20 +64,30 @@ async def screen_list(order_id: str | None = None) -> dict[str, Any]:
             "screen": {"type": "string"},
             "order_id": {"type": "string"},
             "objective_id": {"type": "string"},
-            "title": {"type": "string", "maxLength": 120},
-            "lines": {"type": "array", "items": {"type": "string"}},
+            "title": {"type": "string", "maxLength": views.MAX_TITLE},
+            "lines": {"type": "array", "maxItems": views.MAX_LINES, "items": {"type": "string", "maxLength": views.MAX_LINE}},
             "clear": {"type": "boolean"},
         },
         "required": ["screen"],
     },
     tier=Tier.AMBER,
-    issued_id_args=("order_id",),
+    issued_id_args=("order_id", "objective_id"),
 )
 async def screen_show(screen: str, order_id: str | None = None, objective_id: str | None = None,
                       title: str | None = None, lines: list[str] | None = None, clear: bool = False) -> dict[str, Any]:
+    # Bounds first, before a screen is looked for or a line is looked at.
+    if not isinstance(screen, str) or not screen.strip() or len(screen) > 200:
+        raise ToolError("Name the screen.")
+    if title is not None and (not isinstance(title, str) or len(title) > views.MAX_TITLE):
+        raise ToolError(f"A title is one line of at most {views.MAX_TITLE} characters.")
+    if lines is not None:
+        if not isinstance(lines, list) or len(lines) > views.MAX_LINES:
+            raise ToolError(f"A list on a screen is at most {views.MAX_LINES} lines.")
+        if any(not isinstance(line, str) or len(line) > views.MAX_LINE for line in lines):
+            raise ToolError(f"Each line on a screen is short text, at most {views.MAX_LINE} characters.")
     s = store()
     try:
-        target = s.find(screen)
+        target = s.find(screen, exact=True)
     except DisplayError as exc:
         raise ToolError(str(exc)) from None
     chosen = [bool(order_id), bool(objective_id), bool(lines) or bool(title), bool(clear)]

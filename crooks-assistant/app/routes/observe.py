@@ -12,9 +12,10 @@ Every route here is the owner's alone (the 2026-09-27 deploy review, F-05A), by 
 as his objectives and screens (app/routes/actions.py principal_check): one of his own devices,
 confirmed by Tailscale, or the server itself when CROOKS_WRITES_LOCAL_OWNER says it is him.
 Nothing else starts, reads or stops a session, reads or resets what anticipation learned, or
-puts an event in the record, whatever it can reach the port from. Telemetry from anyone else
-is dropped without a word (the page never learns anything from that route), bounded, and
-dropped too when it names a conversation that belongs to another login. Nothing is ever
+puts an event in the record, whatever it can reach the port from: the door refuses it first
+(app/main.py, every route but the public ones), and each route here checks again. Telemetry
+is bounded, and dropped without a word when it names a conversation that belongs to another
+login. Nothing is ever
 waited for by the tablet: the answer is 204 before the events are written."""
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
-from app.observability.screens import sanitise_markup, sanitise_metadata
+from app.observability.screens import sanitise_markup, screen_metadata
 from app.observability.session import AlreadyActive
 from app.observability.timeline import scrub_text
 
@@ -72,9 +73,14 @@ _REASON = re.compile(r"[^a-z0-9_]+")
 
 
 def _refused(request: Request) -> JSONResponse | None:
-    """The owner-only rule, as a 403 with its reason; None when the caller is the owner."""
+    """The owner-only rule, as a 403 with its reason; None when the caller is the owner, or is
+    the server's own test-session command with its key (app/local_cli.py: those three routes
+    only, and never an owner anywhere else)."""
+    from app import local_cli
     from app.routes.actions import principal_check
 
+    if local_cli.admits(request):
+        return None
     who, why = principal_check(request)
     if why:
         log.warning("observe route refused: %s (path=%s)", why, request.url.path)
@@ -281,9 +287,10 @@ async def telemetry_screen(request: Request) -> Response:
             "t": body.get("t") if isinstance(body.get("t"), (int, float)) else None,
             "session_id": session_id or None,
             "turn_id": scrub_text(str(body.get("turn_id") or "")[:64]) or None,
-            "trigger": sanitise_metadata(_bounded(body.get("trigger"))),
-            "viewport": sanitise_metadata(_bounded(body.get("viewport"))),
-            "body": sanitise_metadata(_bounded(body.get("body"))),
+            # Rebuilt from the keys the page sends, never copied (round 6, F-02).
+            "trigger": screen_metadata("trigger", body.get("trigger")),
+            "viewport": screen_metadata("viewport", body.get("viewport")),
+            "body": screen_metadata("body", body.get("body")),
             "lite": bool(body.get("lite")),
             "html": scrub_screen(body["html"]),
         }

@@ -194,6 +194,7 @@ class Timeline:
         self._seq = 0
         self._written = 0
         self._dropped = 0
+        self.stop_settled: bool | None = None   # whether the last stop saw every event settle
         self._full: set[Path] = set()
         # The last few CORRELATION ids to go past, so something being written down now can say
         # what was happening around it without reading the file back. Owner feedback is the
@@ -243,7 +244,13 @@ class Timeline:
         if current is None:
             return None
         self.emit("session_stopped", name=current.name, duration_s=round(self.clock() - current.started_at, 3))
-        self.flush()
+        # Whether everything reached the file is kept and said, never assumed (the 2026-09-27
+        # deploy review, round 6, F-10): `counts` after this reports what is still pending, and a
+        # stop that could not settle in time is logged as such.
+        self.stop_settled = self.flush()
+        if not self.stop_settled:
+            log.warning("test session %s stopped with events still being written; its count is not final",
+                        current.test_session_id)
         return self.sessions.stop()
 
     # ------------------------------------------------------------------ emit

@@ -41,6 +41,13 @@ _TEST_ENV = {
 # pydantic-settings reads it in every process, so without this line the offline suite is
 # testing his allow-list, his voice and whether his changes are switched on. See settings.py.
 _TEST_ENV["CROOKS_ENV_FILE"] = ""
+# The offline world is the owner's server, asked from the server itself: his login is the one
+# allowed, and a request made there may ask and read (CROOKS_LOCAL_OWNER) but never apply a
+# change, which stays CROOKS_WRITES_LOCAL_OWNER's alone. Every route but the public ones is the
+# owner's (app/main.py); a test about a server nobody has set up, or a caller who is not him,
+# says so itself (tests/test_actions_routes.py configure, tests/test_proxy_identity.py).
+_TEST_ENV["CROOKS_ALLOWED_LOGINS"] = "owner@example.com"
+_TEST_ENV["CROOKS_LOCAL_OWNER"] = "true"
 
 from app.clients.shopify import ShopifyClient  # noqa: E402 — after the environment above
 from app.secrets import keychain  # noqa: E402
@@ -186,17 +193,21 @@ def _no_network(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _identity_seams_are_put_back():
+def _identity_seams_are_put_back(request):
     """A test that stands in for `tailscale whois`, for the kernel's account of who opened a
-    connection, or for "is this address the server's own" leaves no stand-in behind it."""
-    yield
-    from app import identity
+    connection, or for "is this address the server's own" leaves no stand-in behind it. And the
+    server's local command key (app/local_cli.py) is absent unless a test hands one in: the
+    backend's start-up never tries to make one in the secret store, which a test must not write."""
+    from app import identity, local_cli
 
+    live = request.node.get_closest_marker("live") is not None
+    if not live:
+        local_cli.bind_key(None)
+    yield
     identity.bind_runner(None)
     identity.bind_peer_check(None)
     identity.bind_self_check(None)
-    identity._holdings.clear()
-    identity._proxy_pids.clear()
+    local_cli.bind_key()
 
 
 @pytest.fixture(autouse=True)

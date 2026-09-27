@@ -337,7 +337,7 @@ def main() -> int:
         # means the assistant cannot be spoken to at all — so it is required here, and saying
         # otherwise would be repeating the Mac's reassurance on a machine it is not true of.
         deaf_without_scribe = whisper_disabled()
-        optional_keys = {"claude_oauth_token", "shopify_static_token", "gmail_token", "elevenlabs_api_key"}
+        optional_keys = {"claude_oauth_token", "shopify_static_token", "gmail_token", "elevenlabs_api_key", "local_cli_key"}
         if deaf_without_scribe:
             optional_keys.discard("elevenlabs_api_key")
 
@@ -352,6 +352,7 @@ def main() -> int:
                 ),
                 "claude_oauth_token": "not stored (fine: the login you made with `claude` is what is used)",
                 "media_signing_key": "not stored — generate once: python scripts/provision_secrets.py media_signing_key --generate",
+                "local_cli_key": "not stored yet — the backend makes it when it starts; until then make test-session-* is refused",
             }.get(key, "not stored (fallback only)")
             # Which tier holds it, never the value. On the Mac this is always "keychain"; on
             # the server it is the difference between an encrypted credential and a file.

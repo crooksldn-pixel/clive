@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     # A request made on the Mac itself carries no Tailscale login. It may commit only when
     # this is on — for the owner at the keyboard, deliberately, never by default.
     writes_local_owner: bool = False
+    # A request made on the server itself may ask CLIVE and read the owner's records (a turn and
+    # every tool behind it, the test session, the screens) only when this is on, or the one above
+    # is: the server is the owner's keyboard. It never lets the server apply a change. Off by
+    # default: other processes run on a server (the 2026-09-27 deploy review, round 6).
+    local_owner: bool = False
     # Before a change is applied, the login `tailscale serve` stamped is confirmed against
     # `tailscale whois` for the forwarded address: a header is a claim, and anything on the
     # Mac can write one. Off only on a machine without the CLI, knowingly.
