@@ -200,6 +200,7 @@ async def test_nothing_here_can_hold_a_write(fresh):
 # ------------------------------------------------------------------ through the real path
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_one_order_asked_for_twice_is_one_shopify_request(stage):
     """Through `dispatch`, which is the only path from the model or a recipe to a tool.
 
@@ -224,6 +225,7 @@ async def test_one_order_asked_for_twice_is_one_shopify_request(stage):
     assert dedupe.current().stats()["provider_calls_saved"] >= 1
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_turn_that_read_twice_now_reads_once(stage):
     """turn_6089e7517986's shape: a search, then the same search from another path."""
     from app.tools.dispatch import dispatch
@@ -242,6 +244,7 @@ async def test_what_was_avoided_is_measured_not_claimed(stage):
         assert field in stats, f"{field} is not measured"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_whole_scenario_suite_reads_less_than_it_used_to(stage):
     """The measurement over the golden scenarios rather than one contrived pair.
 

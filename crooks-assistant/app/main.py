@@ -320,9 +320,10 @@ async def guard_and_freshness(request: Request, call_next):
     # by one had left /turn, and so the model's whole tool surface, open to any caller on the
     # server). tests/test_proxy_identity.py walks every route the app serves to keep it so.
     # The one exception, and not an owner: the server's own test-session commands with their key
-    # (app/local_cli.py, round 6 F-05A), on those three routes only, straight to the port. The key
-    # anywhere else — through the proxy, on another route — is refused outright (round 7), even
-    # from a device that would pass the owner rule without it.
+    # (app/local_cli.py, round 6 F-05A), on its own routes only (local_cli.ROUTES), straight to the
+    # port. The key anywhere else — through the proxy, on another route — is refused outright
+    # (round 7), even from a device that would pass the owner rule without it; and carrying the
+    # header at all is carrying the key, an empty value included (round 8, F-05A).
     from app import local_cli
     from app.tools import authority as tool_authority
 

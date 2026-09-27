@@ -19,7 +19,7 @@ from app.session.models import Session
 from app.tools import authority as tool_authority
 from app.tools import registry
 from app.tools.context import CURRENT_SESSION
-from app.tools.gate import Disposition, Tier, classify
+from app.tools.gate import Decision, Disposition, Tier, classify
 from app.tools.registry import BatchPlan, ToolError
 
 log = logging.getLogger("crooks.tools")
@@ -115,7 +115,8 @@ async def dispatch(
     from app.providers.base import ToolCall
 
     name = registry.normalise_tool_name(tool_name)
-    if tool_authority.current() is None:
+    held = tool_authority.current()
+    if held is None:
         # Refused by default (the 2026-09-27 deploy review, round 7, F-NEW-TOOLS): a tool runs
         # only for work that holds an active authority — an owner request the door let through,
         # or bounded service work derived from one (app/tools/authority.py). No authority, an
@@ -125,7 +126,16 @@ async def dispatch(
             calls.append(ToolCall(name=name, args=args, ok=False, error="no owner authority"))
         return ("REFUSED: this was not asked for by the owner, so no tool runs for it. "
                 "Tell the user plainly that you could not do this. Do not retry.")
+    if not held.permits(name):
+        # Bounded service work may call the reads it was given and nothing else — never a write,
+        # a bulk change or one of the owner's screens, whatever it asks for (round 8,
+        # F-NEW-TOOLS). Refused before the gate is asked, and so before any handler.
+        return _outside_service(name, args, held, calls, "not one of the reads this work was given")
     decision = classify(name, args, session.issued_ids)
+    if held.kind != tool_authority.OWNER and decision.disposition not in (Disposition.EXECUTE_NOW, Disposition.DENY):
+        # And of those reads, only a call the gate would run at once or refuse: service work never
+        # stages a change for the owner, whatever the gate would do with the call.
+        return _outside_service(name, args, held, calls, "not a read the gate would run now")
     log.info(
         "tool=%s tier=%s disposition=%s args=%s",
         name, decision.tier.value, decision.disposition.value, sorted(args) if args else [],
@@ -243,6 +253,18 @@ async def dispatch(
             "same record back; then do not repeat it.\n" + text
         )
     return text
+
+
+def _outside_service(name: str, args: dict[str, Any], held, calls: list[Any] | None, why: str) -> str:
+    """A tool refused to bounded service work (round 8, F-NEW-TOOLS), said and recorded like the
+    refusal of work with no authority at all."""
+    from app.providers.base import ToolCall
+
+    log.warning("REFUSED tool=%s: %s (%s authority, %s)", name, why, held.kind, held.purpose or "-")
+    if calls is not None:
+        calls.append(ToolCall(name=name, args=args, ok=False, error=f"outside this work's authority: {why}"))
+    return ("REFUSED: this work was not given that tool, so it does not run. "
+            "Tell the user plainly that you could not do this. Do not retry.")
 
 
 async def _read_once(name: str, args: dict[str, Any], *, session: Session, timeout_s: float) -> Any:
@@ -567,6 +589,10 @@ def make_pretooluse_hook(session_getter, on_event=None, authority_getter=None):
                 }
             }
         decision = classify(name, args, session.issued_ids if session else ())
+        if not held.permits(name) or (held.kind != tool_authority.OWNER and decision.disposition
+                                      not in (Disposition.EXECUTE_NOW, Disposition.DENY)):
+            # A service authority's scope, as dispatch holds it (round 8, F-NEW-TOOLS).
+            decision = Decision(Tier.RED, "This work was not given that tool.", Disposition.DENY)
         log.info("PreToolUse tool=%s tier=%s disposition=%s", name, decision.tier.value, decision.disposition.value)
         if on_event is not None:
             on_event(name, decision.tier.value, decision.disposition.value)

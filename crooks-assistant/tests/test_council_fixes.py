@@ -27,6 +27,11 @@ from tests.test_analytics import HOODIE, JEANS, JOGGERS, NOW, node
 from tests.test_analytics_tools import ORDER_NODES, Store, london_now
 from tests.test_batch import gesture, gid, lookup, orders_set, stage, store_of
 
+# The admitted owner calling tools directly, as a request the door let through would: every tool
+# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
+# and every test's that does not say this, is no authority at all.
+pytestmark = pytest.mark.usefixtures("owner_asking")
+
 # The batch suite's fixtures, under their own names.
 clock = tb.clock
 engine = tb.engine

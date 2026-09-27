@@ -303,6 +303,7 @@ def test_a_date_window_in_the_filters_becomes_the_period():
 # ------------------------------------------------------------------ what the model is handed
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_tools_refusal_carries_the_schema_and_stays_short_enough_to_read(bound, monkeypatch):
     from app.observability import timeline
 
@@ -327,6 +328,7 @@ async def test_the_tools_refusal_carries_the_schema_and_stays_short_enough_to_re
     assert rejected and rejected[-1]["tool"] == "commerce_query"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_rejected_names_reach_the_timeline(bound, monkeypatch):
     from app.observability import timeline
 
@@ -339,6 +341,7 @@ async def test_the_rejected_names_reach_the_timeline(bound, monkeypatch):
     assert rejected and rejected[-1]["unknown"] == ["filter:undelivered"], rejected
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_international_listing_runs_through_the_tool_oldest_first(bound):
     session = Session(session_id="q3")
     session.turn_id = "turn_query"
@@ -435,6 +438,7 @@ def test_a_change_is_still_a_change_and_a_state_is_not():
     assert not mutating(("find", "an", "order", "that", "has", "not", "been", "fulfilled"))
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_recipe_answers_from_the_cache_oldest_first_with_a_set_to_walk(bound):
     from app.families import load_all
     from app.fastpath import runner
@@ -462,6 +466,7 @@ async def test_the_recipe_answers_from_the_cache_oldest_first_with_a_set_to_walk
     assert answer.trace["delivery_asked"] is True
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_international_recipe_narrows_to_what_is_going_abroad(bound):
     from app.families import load_all
     from app.fastpath import runner

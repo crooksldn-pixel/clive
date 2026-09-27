@@ -402,6 +402,7 @@ def test_one_halfs_state_changes_never_touch_the_others():
 # --------------------------------------- a half put aside may prepare; it may never apply
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_half_put_aside_may_read_and_stage_and_can_never_apply(writes):
     """The hard invariant, driven rather than grepped.
 
@@ -483,6 +484,7 @@ async def test_a_finished_aside_says_ready_and_gives_up_its_work_when_it_is_tapp
 # -------------------------------------------------------------------------- the merge
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_merge_brings_state_and_never_a_transcript_or_an_unresolved_change(writes):
     """Structured results and structured state; never a conversation, and never a change
     somebody has not looked at. A proposal staged over there stays over there, exact, PENDING

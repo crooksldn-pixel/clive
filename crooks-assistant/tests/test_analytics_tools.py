@@ -237,6 +237,7 @@ def test_the_read_tools_are_green_or_amber_reads_never_writes():
         assert registry.get(name).write is None
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_best_sellers_through_the_tool(store, cache, session, monkeypatch):
     london_now(monkeypatch)
     calls = []
@@ -248,6 +249,7 @@ async def test_best_sellers_through_the_tool(store, cache, session, monkeypatch)
     assert result["source"].startswith("Shopify orders created in the period")
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_comparison_and_a_customer_ranking_through_the_tool(store, cache, session, monkeypatch):
     london_now(monkeypatch)
     calls = []
@@ -261,6 +263,7 @@ async def test_a_comparison_and_a_customer_ranking_through_the_tool(store, cache
     assert "gid://shopify/Customer/3" in session.issued_ids, "the customers in the answer are issued to the conversation"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_restock_priority_through_the_tool(store, cache, session, monkeypatch):
     london_now(monkeypatch)
     black_l = ORDER_NODES[0]["lineItems"]["edges"][0]["node"]["variant"]["id"]
@@ -278,6 +281,7 @@ async def test_restock_priority_through_the_tool(store, cache, session, monkeypa
     assert '"Yard Jeans' in only and "Joggers" not in only
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_listing_becomes_rows_the_tablet_can_show_and_ids_the_conversation_may_use(store, cache, session, monkeypatch):
     london_now(monkeypatch)
     calls = []
@@ -289,6 +293,7 @@ async def test_a_listing_becomes_rows_the_tablet_can_show_and_ids_the_conversati
     assert refused.startswith("ERROR") and "commerce_aggregate" in refused
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_queries_outside_the_language_are_refused_with_the_reason(store, cache, session, monkeypatch):
     london_now(monkeypatch)
     calls = []
@@ -298,6 +303,7 @@ async def test_queries_outside_the_language_are_refused_with_the_reason(store, c
     assert "no working set set_deadbeef" in text
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_turns_queries_are_bounded_and_the_same_one_is_not_run_twice(store, cache, session, monkeypatch):
     london_now(monkeypatch)
     calls = []

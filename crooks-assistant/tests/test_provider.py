@@ -152,18 +152,26 @@ async def test_health_reports_cli_auth_caveat():
     assert "NOT" not in detail
 
 
-def _live_conversation(session, branch_id: str = ""):
-    """A conversation with a turn in flight for `session`, the way _turn_locked leaves it."""
+OWNER = "owner@example.com"
+
+
+def _owner():
+    """An admitted owner's authority, as the door makes one for his request (app/main.py)."""
+    from app.tools import authority
+
+    return authority.for_owner(OWNER)
+
+
+def _live_conversation(session, branch_id: str = "", *, authority):
+    """A conversation with a turn in flight for `session`, the way _turn_locked leaves it: with
+    the authority of the request that asked for it, which each test states (round 8,
+    F-A2-FIXTURE: the suite no longer stamps one on every test, as production never does)."""
     from app.providers.max_agent_sdk import _Conversation, _Holder, conversation_key
 
     holder = _Holder()
     conv = _Conversation(key=conversation_key(session.session_id, branch_id), session_id=session.session_id, branch_id=branch_id, client=object(), holder=holder)
     holder.conversation = conv
-    # As _turn_locked does: the turn takes the authority of the request that asked for it (here,
-    # the test world's owner; app/tools/authority.py).
-    from app.tools import authority
-
-    conv.begin(session, authority=authority.current())
+    conv.begin(session, authority=authority)
     return conv
 
 
@@ -173,7 +181,7 @@ def test_red_hook_events_are_recorded_as_tool_calls():
     p = MaxAgentSDKProvider(system_prompt="sys")
     session = Session(session_id="s")
     session.refuse("mock_danger", {}, "refused by gate")
-    conv = _live_conversation(session)
+    conv = _live_conversation(session, authority=None)     # nothing is dispatched here
     p._on_tool_event("mock_danger", "RED", "DENY", holder=conv.holder)
     assert conv.calls and conv.calls[0].name == "mock_danger" and not conv.calls[0].ok
     assert session.state == "THINKING" and "refused" in session.state_detail
@@ -184,7 +192,7 @@ def test_tool_events_drive_live_state():
 
     p = MaxAgentSDKProvider(system_prompt="sys")
     session = Session(session_id="s")
-    conv = _live_conversation(session)
+    conv = _live_conversation(session, authority=None)     # nothing is dispatched here
     p._on_tool_event("shopify_list_orders", "GREEN", holder=conv.holder)
     assert session.state == "CHECKING SHOPIFY"
     p._on_tool_event("gmail_search", "GREEN", holder=conv.holder)
@@ -326,10 +334,15 @@ async def test_a_tool_call_from_a_turn_the_owner_has_left_is_refused(monkeypatch
     provider = max_agent_sdk.MaxAgentSDKProvider(system_prompt="sys")
     session = Session(session_id="left")
     session.epoch = 2
-    conv = _live_conversation(session)
+    # The owner's own turn: the refusal is for moving on, not for want of an authority.
+    conv = _live_conversation(session, authority=_owner())
     session.epoch = 3
     text = await provider._dispatch("shopify_find_order", {"query": "1930"}, holder=conv.holder)
     assert text.startswith("REFUSED") and "moved on" in text
+    # Without an authority it is refused for that first, before anything else is asked.
+    bare = _live_conversation(Session(session_id="bare"), authority=None)
+    text = await provider._dispatch("shopify_find_order", {"query": "1930"}, holder=bare.holder)
+    assert text.startswith("REFUSED") and "not asked for by the owner" in text and "moved on" not in text
 
 
 async def test_the_other_halfs_instruction_does_not_refuse_this_halfs_tool_calls(monkeypatch):
@@ -350,7 +363,7 @@ async def test_the_other_halfs_instruction_does_not_refuse_this_halfs_tool_calls
     session = Session(session_id="two")
     left = session.branch()
     left.instruction_seq = 4
-    conv = _live_conversation(session, left.branch_id)
+    conv = _live_conversation(session, left.branch_id, authority=_owner())
     # The right half speaks: the session epoch moves.
     session.epoch += 1
     assert (await provider._dispatch("shopify_find_order", {"query": "1930"}, holder=conv.holder)) == "ok"
@@ -390,10 +403,10 @@ async def test_a_tool_call_carries_its_own_half_into_the_engine(monkeypatch):
 
     session.branches[right] = Branch(branch_id=right, session_id="two")
     session.acting_branch = right          # the right half spoke last
-    conv = _live_conversation(session, left)
+    conv = _live_conversation(session, left, authority=_owner())
     await asyncio.gather(
         provider._dispatch("shopify_find_order", {}, holder=conv.holder),
-        provider._dispatch("shopify_find_order", {}, holder=_live_conversation(session, right).holder),
+        provider._dispatch("shopify_find_order", {}, holder=_live_conversation(session, right, authority=_owner()).holder),
     )
     # Each call saw its own half, before and after yielding to the other one.
     assert sorted(seen) == sorted([(left, left), (right, right)])

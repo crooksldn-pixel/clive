@@ -724,6 +724,7 @@ def _tool_session():
     return Session(session_id="screens-b05")
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 def test_an_objective_goes_up_only_once_this_conversation_was_shown_it(s, tmp_path):
     """Round 6, B-05, through the real dispatcher: objective_id had no issued-id rule, so any
     objective could be put on any screen. Now it is refused until the conversation has been
@@ -767,6 +768,7 @@ def test_a_slip_goes_only_to_the_screen_named_in_full(s, monkeypatch):
     assert out["screen"] == "Office screen" and s._data["screens"][office["id"]]["showing"]["kind"] == "order"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 def test_a_list_is_refused_before_anything_is_done_with_it(s, monkeypatch):
     """Round 6, B-05: `lines` had no bounds and was walked whole before 40 were kept. The schema
     now says so, and the tool refuses before it looks for a screen or reads a line."""

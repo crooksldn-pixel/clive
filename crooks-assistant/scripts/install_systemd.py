@@ -32,6 +32,8 @@ sys.path.insert(0, str(HERE))
 
 import launch_common as lc  # noqa: E402
 
+PROC = Path("/proc")
+
 
 def systemctl(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["systemctl", *args], capture_output=True, text=True, timeout=60)
@@ -133,8 +135,49 @@ def install(port: int) -> int:
     if health is None:
         print(f"         look in: journalctl -u {lc.SERVICE_UNIT} -n 50")
         return 1
+    problems = running_problems(health)
+    for problem in problems:
+        print(f"  FAIL   {problem}")
+    if problems:
+        print(f"         the install is not done; look in: journalctl -u {lc.SERVICE_UNIT} -n 50")
+        return 1
+    print("  ok     running with --no-proxy-headers, and /health says it can tell who opened each connection")
     print("\n  Done. It starts on boot and restarts on failure. Open the address above.")
     return 0
+
+
+def running_argv(unit: str = lc.SERVICE_UNIT) -> list[str] | None:
+    """The command line of the process systemd says is the service now: /proc/<MainPID>/cmdline.
+    None when there is no such process or it cannot be read."""
+    out = systemctl("show", "-p", "MainPID", "--value", unit)
+    pid = (out.stdout or "").strip()
+    if out.returncode != 0 or not pid.isdigit() or int(pid) <= 0:
+        return None
+    try:
+        raw = (PROC / pid / "cmdline").read_bytes()
+    except OSError:
+        return None
+    return [part.decode("utf-8", "replace") for part in raw.split(b"\0") if part]
+
+
+def running_problems(health: dict | None) -> list[str]:
+    """What must be true of the service that is running now, read after it has answered, or the
+    install has not done its job (round 8, F-05B-AVAIL-PREFLIGHT): its own command line says
+    --no-proxy-headers (the unit file saying so is not the process running it), and /health's
+    proxy_identity check is ok. Every forwarded request is refused without both."""
+    from app import identity
+
+    problems = []
+    argv = running_argv()
+    if argv is None:
+        problems.append(f"the running {lc.SERVICE_UNIT} could not be found or its command line read (MainPID)")
+    elif not identity.proxy_headers_off(argv):
+        problems.append(f"the running {lc.SERVICE_UNIT} was not started with --no-proxy-headers: {' '.join(argv)[:200]}")
+    check = ((health or {}).get("checks") or {}).get("proxy_identity")
+    if not isinstance(check, dict) or check.get("ok") is not True:
+        detail = check.get("detail") if isinstance(check, dict) else "no proxy_identity check in the answer"
+        problems.append(f"/health checks.proxy_identity is not ok: {detail}")
+    return problems
 
 
 def uninstall() -> int:

@@ -195,6 +195,7 @@ def test_the_model_reads_the_town_and_the_facts_never_the_street_or_the_image():
     assert o["shipping_address"]["lines"] == ["12 Somewhere Street", "Flat 3"]
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_model_never_sees_the_street_through_dispatch():
     store = Store()
     shopify_tools.bind(store, threads_for=inbox())
@@ -250,6 +251,7 @@ async def test_the_search_by_number_carries_the_whole_order_and_the_detail_that_
     assert sum(1 for q, _ in store.queries if "CrooksOrderContext" in q) == 1
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_models_own_detail_call_waits_only_a_moment_for_the_rest():
     import time as _time
 
@@ -302,6 +304,7 @@ async def test_an_unknown_order_is_a_tool_error():
         await h.order("gid://shopify/Order/999")
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_customer_history_tool_is_amber_needs_an_issued_customer_id_and_reads_the_inbox():
     store = Store()
     shopify_tools.bind(store, threads_for=inbox())

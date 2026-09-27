@@ -186,6 +186,7 @@ async def test_status_names_the_host_the_base_and_the_parts_a_build_may_change(f
 # ------------------------------------------------------------------ what is filled in
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_model_gives_the_want_and_the_rest_is_filled_in(fake, bound, objectives, engine):
     obj = objectives.create(title="Expanded task display", request="Show a task large on the Mac")
     session = Session(session_id="build")
@@ -231,6 +232,7 @@ async def test_the_model_gives_the_want_and_the_rest_is_filled_in(fake, bound, o
     assert any(e["kind"] == "engineering" for e in linked.events)
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_named_tests_are_the_ones_run(fake, bound):
     session = Session(session_id="named")
     await _prepare(session, allowed_paths=["app/fastpath", "tests/test_fastpath.py"])
@@ -241,6 +243,7 @@ async def test_named_tests_are_the_ones_run(fake, bound):
     assert not any("proven by tests" in c for c in record["acceptance_criteria"])
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_title_asked_again_steps_to_the_next_id(fake, bound):
     fake.files["requests/show-task-expanded-big-screen.json"] = b"{}\n"
     session = Session(session_id="again")
@@ -249,6 +252,7 @@ async def test_a_title_asked_again_steps_to_the_next_id(fake, bound):
     assert proposal.execution["request_id"] == "show-task-expanded-big-screen-2"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_an_id_the_model_chose_is_used_once(fake, bound):
     fake.files["requests/big-screen-slips.json"] = b"{}\n"
     session = Session(session_id="taken")
@@ -257,6 +261,7 @@ async def test_an_id_the_model_chose_is_used_once(fake, bound):
     assert session.proposals == [] and fake.puts == []
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_an_unknown_objective_or_a_protected_path_prepares_nothing(fake, bound, objectives):
     session = Session(session_id="refused")
     out = await _prepare(session, objective_id="obj_00000000")
@@ -266,6 +271,7 @@ async def test_an_unknown_objective_or_a_protected_path_prepares_nothing(fake, b
     assert session.proposals == [] and fake.puts == []
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_failed_link_never_undoes_the_filing(fake, bound, objectives, engine, monkeypatch):
     obj = objectives.create(title="Expanded task display", request="Show a task large on the Mac")
     session = Session(session_id="link")
