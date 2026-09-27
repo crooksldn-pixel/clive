@@ -135,14 +135,21 @@ def stopped_line(answer: dict) -> str:
     """What a stop says about the count: final only when the backend said nothing was still being
     written (the 2026-09-27 deploy review, round 6, F-10). Otherwise the file's count so far, and
     how many events were still pending, which may yet land or be dropped."""
+    from app.observability.timeline import stop_is_final
+
     counts = answer.get("events") or {}
     on_disk = counts.get("on_disk", counts.get("written", "?"))
     path = answer.get("path")
-    if counts.get("settled") is True:
+    if stop_is_final(answer):
         return f"{on_disk} events in {path} (final; {counts.get('dropped', 0)} dropped)"
     pending = counts.get("pending", "?")
-    return (f"{on_disk} events in {path} so far, not final: {pending} still being written when it stopped, "
-            "which may yet land or be dropped. Run make test-session-status to see it settle.")
+    reasons = []
+    if answer.get("stop_settled") is not True:
+        reasons.append("the stop's own flush did not settle")
+    if pending != 0 or counts.get("settled") is not True:
+        reasons.append(f"{pending} still being written")
+    return (f"{on_disk} events in {path} so far, not final: {' and '.join(reasons)} when it stopped, "
+            "and more may yet land or be dropped. Run make test-session-status to see it settle.")
 
 
 def _prune_reports(out_dir: Path, settings) -> None:

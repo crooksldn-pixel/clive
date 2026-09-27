@@ -27,7 +27,9 @@ from app.providers.base import ClaudeProvider, ToolCall, TurnResult
 from app.secrets import keychain
 from app.secrets.keychain import SecretMissing
 from app.session.models import Session
+from app.tools import authority as tool_authority
 from app.tools import registry
+from app.tools.authority import Authority, acting_as
 from app.tools.context import CURRENT_BRANCH
 from app.tools.dispatch import dispatch, make_pretooluse_hook
 from app.tools.gate import Tier
@@ -78,9 +80,16 @@ class _Conversation:
     # instruction to THIS half moves it; one to the other half does not — which is the whole
     # difference between a divided orb and a queue.
     turn_seq: int | None = None
+    # The authority the turn runs under (app/tools/authority.py), taken from the request that
+    # asked for it. The SDK calls tools back on tasks of its own, which the request did not start
+    # and so cannot see its context: this is how its authority crosses that boundary, and a
+    # tool call arriving with none — before a turn, after one, or after the request that asked
+    # has ended — is refused (the 2026-09-27 deploy review, round 7, F-NEW-TOOLS-PATH).
+    authority: Authority | None = None
 
-    def begin(self, session: Session | None) -> None:
+    def begin(self, session: Session | None, authority: Authority | None = None) -> None:
         self.session = session
+        self.authority = authority
         self.calls = []
         self.states = []
         self.steps = []
@@ -120,6 +129,10 @@ class _Holder:
     def current_session(self) -> Session | None:
         conv = self.conversation
         return conv.session if conv is not None and conv.running else None
+
+    def current_authority(self):
+        conv = self.conversation
+        return conv.authority if conv is not None and conv.running else None
 
 
 # Every route by which the claude CLI could bill somewhere other than the subscription: a raw
@@ -361,6 +374,7 @@ class MaxAgentSDKProvider(ClaudeProvider):
         return make_pretooluse_hook(
             holder.current_session,
             on_event=lambda name, tier, disposition="EXECUTE_NOW": self._on_tool_event(name, tier, disposition, holder=holder),
+            authority_getter=holder.current_authority,
         )
 
     def _on_tool_event(self, name: str, tier: str, disposition: str = "EXECUTE_NOW", *, holder: _Holder | None = None) -> None:
@@ -410,6 +424,10 @@ class MaxAgentSDKProvider(ClaudeProvider):
         session = conv.session if conv is not None and conv.running else None
         if session is None or conv is None:
             return "ERROR: no active session for this tool call."
+        held = conv.authority
+        if held is None or not held.active:
+            log.warning("tool call %s refused: no owner authority for this turn (%s)", tool_name, conv.key)
+            return "REFUSED: this was not asked for by the owner, so no tool runs for it. Do not retry."
         if conv.moved_on():
             log.info("tool call %s refused: the owner moved on (%s)", tool_name, conv.key)
             return "REFUSED: the owner has moved on to another question. Do not act on this one; answer briefly."
@@ -419,13 +437,14 @@ class MaxAgentSDKProvider(ClaudeProvider):
         # the right half's id. The context variable is per task, so it cannot be.
         token = CURRENT_BRANCH.set(conv.branch_id)
         try:
-            return await dispatch(
-                tool_name,
-                args,
-                session=session,
-                timeout_s=self._tool_timeout_s,
-                calls=conv.calls,
-            )
+            with acting_as(held):
+                return await dispatch(
+                    tool_name,
+                    args,
+                    session=session,
+                    timeout_s=self._tool_timeout_s,
+                    calls=conv.calls,
+                )
         finally:
             CURRENT_BRANCH.reset(token)
             conv.step(f"tool:{tool_name}")
@@ -538,7 +557,9 @@ class MaxAgentSDKProvider(ClaudeProvider):
         # The conversation position this turn answers. A /cancel or a later question to this
         # half moves it past this turn; a tool call arriving after that acts for nobody and
         # is refused (_Conversation.moved_on).
-        conv.begin(session)
+        # The request's authority, read here because this runs on the request's own task
+        # (app/tools/authority.py): the SDK's callbacks will not see it any other way.
+        conv.begin(session, authority=tool_authority.current())
         started = conv.turn_started
         if session is not None:
             session.set_state("THINKING")
@@ -589,6 +610,7 @@ class MaxAgentSDKProvider(ClaudeProvider):
         finally:
             conv.running = False
             conv.session = None
+            conv.authority = None
 
         # The SDK reports many failures as a ResultMessage rather than an exception — a usage
         # limit, max_turns, an API error. Read it, or a silent failure becomes a blank answer.

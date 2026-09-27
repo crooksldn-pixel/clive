@@ -571,3 +571,145 @@ def test_the_code_a_rollback_returns_to_reads_writes_and_reports_the_cleaned_rec
     assert path.read_bytes() == raw
     restored = old.GapLedger(path).report()
     assert any(token in g["key"] for g in restored["gaps"]), "the original, as it was"
+
+
+# --------------------------------------------------------------------------- round 7, F-07
+
+
+def test_every_kept_value_is_what_its_field_says_it_is(tmp_path, monkeypatch):
+    """Round 7, F-07-VALUES: field names were whitelisted but not their values, so an email in a
+    misjudged row's first_seen survived the rewrite into the report, and a count that was not a
+    number broke it. Every value is now checked for what it must be, and a time that is not a time
+    is dropped, never replaced by now."""
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    hostile = "greg@example.com"
+    path.write_text(json.dumps({
+        "version": "Greg Evans", "seeded": hostile,
+        "gaps": {"web search": {"label": "No web search", "hits": "lots", "sources": {"blocker": "2", "tool": hostile},
+                                "objectives": ["obj_00000001", 7], "requests": "find-web-search",
+                                "seen": [hostile, "2026-09-26T21:30:20+00:00", 5], "first_seen": hostile,
+                                "last_seen": "2026-09-26T21:30:20+00:00", "dropped": {"seen": hostile, "Greg": 3},
+                                "seen_dropped_last": hostile}},
+        "builds": {"find-web-search": {"objective_id": "obj_00000001", "gaps": ["web search", 3, None],
+                                       "proposed_at": hostile, "filed_at": "2026-09-26T22:00:00Z", "progress": "done"}},
+        "misjudged": {"best_sellers": {"count": "lots", "first_seen": hostile, "last_seen": "2026-09-26T20:00:00+00:00"},
+                      "other": {"count": 10**30, "first_seen": None}},
+    }))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    ledger = gaps_module.install(path)
+    stored = path.read_text()
+    for leak in ("greg@example.com", "Greg", "lots", "1000000000000000000000000000000"):
+        assert leak not in stored, leak
+    kept = json.loads(stored)
+    assert kept["version"] == gaps_module.VERSION and "seeded" not in kept
+    gap = kept["gaps"]["web search"]
+    assert gap["hits"] == 0 and gap["sources"] == {"blocker": 2} and gap["objectives"] == ["obj_00000001"]
+    assert gap["seen"] == ["2026-09-26T21:30:20+00:00"] and "first_seen" not in gap and "seen_dropped_last" not in gap
+    assert "dropped" not in gap
+    build = kept["builds"]["find-web-search"]
+    assert "proposed_at" not in build and build["filed_at"] == "2026-09-26T22:00:00+00:00"
+    report = ledger.report()
+    assert [(m["capability"], m["count"], m["first_seen"]) for m in report["misjudged"]] == [
+        ("other", gaps_module._MAX_COUNT, None), ("best_sellers", 0, None)]
+    assert gaps_module._sanitise is not None and gaps_module.GapLedger(path).repair() is None, "idempotent"
+
+
+def test_a_link_counts_only_when_both_sides_name_each_other(tmp_path, monkeypatch):
+    """Round 7, F-07-LINKS: the link pass checked only that the other end existed, so a gap could
+    report the stage of a build that was never for it."""
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+    row = {"label": "x", "hits": 1, "sources": {"blocker": 1}, "objectives": [], "seen": ["2026-09-26T21:00:00+00:00"],
+           "first_seen": "2026-09-26T21:00:00+00:00", "last_seen": "2026-09-26T21:00:00+00:00"}
+    path.write_text(json.dumps({
+        "version": 1,
+        "gaps": {"web search": {**row, "requests": ["find-web-search"]}, "maps": {**row, "requests": ["find-web-search"]}},
+        "builds": {"find-web-search": {"objective_id": "obj_00000001", "gaps": ["maps"], "proposed_at": "2026-09-26T22:00:00+00:00",
+                                       "live_at": "2026-09-27T09:00:00+00:00", "merged_at": "2026-09-27T08:00:00+00:00"}},
+        "misjudged": {},
+    }))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    report = {g["key"]: g for g in gaps_module.install(path).report()["gaps"]}
+    assert report["web search"]["stage"] == "open" and report["web search"]["not_kept"] == {"requests": 1}
+    assert report["maps"]["stage"] == "live" and report["maps"]["not_kept"] == {}
+
+
+def test_two_gaps_that_are_one_past_every_limit_keep_their_stage_and_say_what_they_could_not_keep(tmp_path, monkeypatch):
+    """Round 7, F-07-LINKS: _merge truncated links and history silently, so a merged gap could lose
+    the build that fixed it (and report the wrong stage) or the hits that came back after it. Now
+    the builds kept are the furthest along, the rest are counted, and a count after the fix that
+    forgotten history could add to says it is a floor."""
+    path = tmp_path / "objectives" / "gaps.json"
+    path.parent.mkdir(parents=True, mode=0o700)
+
+    def stamp(day, n):
+        return f"2026-09-{day:02d}T{n // 60:02d}:{n % 60:02d}:00+00:00"
+
+    builds, gaps = {}, {}
+    for side, key in ((0, "Web  Search"), (1, "web search")):
+        requests = [f"find-web-{side}-{i}" for i in range(15)]
+        for i, r in enumerate(requests):
+            builds[r] = {"objective_id": "obj_00000001", "gaps": [key], "proposed_at": stamp(1, i)}
+        gaps[key] = {"label": "No web search", "hits": 40, "sources": {"blocker": 40}, "objectives": [],
+                     "requests": requests, "seen": [stamp(10 + side * 10, i) for i in range(40)],
+                     "first_seen": stamp(10 + side * 10, 0), "last_seen": stamp(10 + side * 10, 39)}
+    # The oldest build of the first side is the one that went live, on the 5th: every hit since
+    # came back after it.
+    builds["find-web-0-0"].update(merged_at=stamp(5, 0), live_at=stamp(5, 0))
+    path.write_text(json.dumps({"version": 1, "gaps": gaps, "builds": builds, "misjudged": {}}))
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    ledger = gaps_module.install(path)
+    kept = json.loads(path.read_text())["gaps"]["web search"]
+    assert kept["hits"] == 80 and len(kept["requests"]) == gaps_module.MAX_LINKS
+    assert "find-web-0-0" in kept["requests"], "the build that went live is never the one let go"
+    assert kept["dropped"]["requests"] == 30 - gaps_module.MAX_LINKS and kept["dropped"]["seen"] == 30
+    row = ledger.report()["gaps"][0]
+    assert row["stage"] == "live" and row["not_kept"] == {"requests": 10, "seen": 30}
+    # 80 hits after the fix; the 30 oldest times were forgotten, and they too came after it: the
+    # count is what is known, and it says it is a floor.
+    assert row["hits_after_fix"] == 50 and row["hits_after_fix_exact"] is False
+    assert gaps_module.GapLedger(path).repair() is None, "idempotent"
+
+
+def test_a_copy_whose_folder_could_not_be_flushed_leaves_the_live_record_untouched(tmp_path, monkeypatch, caplog):
+    """Round 7, F-07-DURABILITY: _fsync_dir passed over its own failures, so the live file could be
+    replaced while the copy's name was not yet durable. It raises now, before the save."""
+    from tests.fake_credentials import github_token
+
+    path = tmp_path / "objectives" / "gaps.json"
+    raw = _legacy_record(path, github_token("dir-fsync"))
+
+    def cannot(folder):
+        raise OSError(5, "I/O error", str(folder))
+
+    monkeypatch.setattr(gaps_module, "_fsync_dir", cannot)
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    gaps_module.install(path)
+    assert path.read_bytes() == raw, "the live record is exactly as it was"
+    assert "gap record not cleaned at startup" in caplog.text
+
+
+def test_a_clean_tried_again_uses_the_copy_it_already_made(tmp_path, monkeypatch):
+    """Round 7, F-07-DURABILITY: a save that failed after the copy was made meant another copy
+    on the next try, and another after that. The copy already made, verified byte for byte, is
+    used instead."""
+    from tests.fake_credentials import github_token
+
+    path = tmp_path / "objectives" / "gaps.json"
+    raw = _legacy_record(path, github_token("retry"))
+    real_save = gaps_module.GapLedger._save
+
+    def failing(self, data):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(gaps_module.GapLedger, "_save", failing)
+    monkeypatch.setattr(gaps_module, "_LEDGER", None)
+    gaps_module.install(path)
+    gaps_module.install(path)
+    assert path.read_bytes() == raw
+    assert len(list(path.parent.glob("gaps.json.*.before-clean"))) == 1
+    monkeypatch.setattr(gaps_module.GapLedger, "_save", real_save)
+    gaps_module.install(path)
+    copies = list(path.parent.glob("gaps.json.*.before-clean"))
+    assert len(copies) == 1 and copies[0].read_bytes() == raw and path.read_bytes() != raw

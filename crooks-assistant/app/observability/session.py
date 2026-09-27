@@ -136,13 +136,24 @@ def write_private_text(path: Path, text: str) -> Path:
 WITHHELD = ".withheld"
 
 
-def tighten(folder: Path) -> list[Path]:
+@dataclass
+class Exposure:
+    """What tighten() found: what is still open to anyone else, and what it could not look at."""
+
+    exposed: list[Path]
+    unread: list[str]
+
+
+def tighten(folder: Path) -> Exposure:
     """A folder of reports made private, what was already in it included: every folder 0700,
-    every file 0600. Nothing is read or removed. Returns what is still open to anyone else
+    every file 0600. Nothing is read or removed. Says what is still open to anyone else
     afterwards (the folder itself first, if it is one), each checked by the kernel's own answer
-    rather than assumed from a chmod that did not complain (the 2026-09-27 deploy review, F-04)."""
+    rather than assumed from a chmod that did not complain (the 2026-09-27 deploy review, F-04);
+    and what could not be looked at, so that "nothing is exposed" and "could not look" are never
+    the same answer (round 7)."""
     folder = Path(folder)
     exposed: list[Path] = []
+    unread: list[str] = []
     try:
         folder.chmod(0o700)
     except OSError:
@@ -150,32 +161,43 @@ def tighten(folder: Path) -> list[Path]:
     try:
         if folder.stat().st_mode & 0o077:
             exposed.append(folder)
-    except OSError:
-        return exposed
+    except OSError as exc:
+        return Exposure(exposed, [str(getattr(exc, "filename", folder) or folder)])
+    for here, dirs, files in os.walk(folder, onerror=lambda exc: unread.append(str(exc.filename or ""))):
+        for name in [*dirs, *files]:
+            path = Path(here) / name
+            if path.is_symlink():
+                continue
+            try:
+                path.chmod(0o700 if path.is_dir() else 0o600)
+            except OSError:
+                pass
+            try:
+                if path.stat().st_mode & 0o077:
+                    exposed.append(path)
+            except FileNotFoundError:
+                continue   # gone meanwhile: nothing left to expose
+            except OSError:
+                unread.append(str(path))
+    return Exposure(exposed, unread)
+
+
+def _private(folder: Path) -> bool:
     try:
-        paths = list(folder.rglob("*"))
+        return not folder.stat().st_mode & 0o077 and folder.is_dir() and not folder.is_symlink()
     except OSError:
-        paths = []
-    for path in paths:
-        if path.is_symlink():
-            continue
-        try:
-            path.chmod(0o700 if path.is_dir() else 0o600)
-        except OSError:
-            pass
-        try:
-            if path.stat().st_mode & 0o077:
-                exposed.append(path)
-        except OSError:
-            continue   # gone meanwhile: nothing left to expose
-    return exposed
+        return False
 
 
 def withhold(folder: Path, exposed: list[Path]) -> tuple[int, list[Path]]:
-    """What tighten() could not make private is taken out of reach: moved into a 0700 folder of
-    its own inside the reports folder, or, if even that is refused, removed — a report is drawn
-    from a session and can be drawn again; one that anyone can read cannot be left (F-04: fail
-    closed). Returns (how many were withheld, what is still exposed)."""
+    """What tighten() could not make private is taken out of reach without being destroyed: moved,
+    under a name nothing else has, into a 0700 folder of its own inside the reports folder, where
+    no one else can reach it whatever its own mode (F-04). Never removed (round 7, F-04-REPORT-
+    LOSS: a report is the owner's, and a permission problem is not a reason to lose it). What
+    cannot be moved is left where it is and returned as still exposed, for the caller to refuse
+    to go on with. Returns (how many were withheld, what is still exposed)."""
+    import uuid
+
     folder = Path(folder)
     kept = folder / WITHHELD
     left: list[Path] = []
@@ -185,22 +207,29 @@ def withhold(folder: Path, exposed: list[Path]) -> tuple[int, list[Path]]:
             left.append(path)   # the folder itself: nowhere to move it to
             continue
         if not path.exists() and not path.is_symlink():
-            continue
+            continue            # moved already, inside a folder withheld before it
         try:
             kept.mkdir(mode=0o700, exist_ok=True)
             kept.chmod(0o700)
-            if kept.stat().st_mode & 0o077:
-                raise PermissionError("the withheld folder is not private")
-            os.replace(path, kept / f"{int(time.time())}-{path.name}")
-            withheld += 1
-            continue
         except OSError:
             pass
-        _remove_if_older(path, float("inf"))
-        if path.exists() or path.is_symlink():
+        if not _private(kept):
             left.append(path)
-        else:
+            continue
+        try:
+            path.relative_to(kept)
+            continue            # already inside the private folder: out of reach as it is
+        except ValueError:
+            pass
+        target = kept / f"{uuid.uuid4().hex}-{path.name}"
+        if target.exists() or target.is_symlink():
+            left.append(path)           # never over anything
+            continue
+        try:
+            os.rename(path, target)     # a name nothing has: nothing is replaced
             withheld += 1
+        except OSError:
+            left.append(path)
     return withheld, left
 
 
@@ -247,6 +276,7 @@ class TestSessions:
         # when someone next runs a report command (the 2026-09-26 deploy review, F-04 and F-03).
         self.reports_dir = Path(reports_dir) if reports_dir else None
         self.tidy_problem = ""   # what the last tidy_reports could not put right, in counts
+        self.tidy_contained = True   # False when a report is left exposed or could not be checked
         self._cached: TestSession | None = None
         self._checked_at = -1.0
         self._mtime = -1.0
@@ -359,18 +389,27 @@ class TestSessions:
         """The reports folder, as the sessions are: old reports gone, the rest the owner's alone
         (files 0600, folders 0700, including any written before that was the rule)."""
         self.tidy_problem = ""
+        self.tidy_contained = True
         if self.reports_dir is None or not self.reports_dir.is_dir():
             return 0
         when = self.clock() if now is None else now
         removed = prune_reports(self.reports_dir, self.keep_named_days, now=when)
         removed += prune_reports(self.reports_dir / WITHHELD, self.keep_named_days, now=when)
-        withheld, left = withhold(self.reports_dir, tighten(self.reports_dir))
+        found = tighten(self.reports_dir)
+        withheld, left = withhold(self.reports_dir, found.exposed)
         if withheld:
             _log.warning("%d report(s) could not be made private and were withheld", withheld)
+        problems = []
         if left:
-            # Said in counts, never names: this line reaches /health.
-            self.tidy_problem = f"{len(left)} report path(s) are readable by others and could not be withheld"
+            problems.append(f"{len(left)} report path(s) are readable by others and could not be withheld")
             _log.error("reports left readable by others: %s", ", ".join(str(p) for p in left))
+        if found.unread:
+            problems.append(f"{len(found.unread)} report path(s) could not be checked")
+            _log.error("reports that could not be checked: %s", ", ".join(found.unread))
+        # Said in counts, never names: this line reaches /health. Not contained means the start-up
+        # refuses to go on (app/main.py).
+        self.tidy_problem = "; ".join(problems)
+        self.tidy_contained = not problems
         return removed
 
     def prune(self) -> int:

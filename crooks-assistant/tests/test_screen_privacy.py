@@ -503,7 +503,12 @@ def test_a_stop_that_did_not_settle_never_presents_its_count_as_final(tmp_path, 
     assert Timeline.flush(timeline, timeout_s=5)
     final = timeline.counts
     assert final["settled"] is True
-    assert stopped_line({"events": final, "path": "/x.jsonl"}).endswith("(final; 0 dropped)")
+    # Round 7, F-10: the flush the stop did timed out, so even counts that settled afterwards are
+    # not the stop's total unless the stop itself settled.
+    late = stopped_line({"events": final, "stop_settled": False, "path": "/x.jsonl"})
+    assert "not final" in late and "the stop's own flush did not settle" in late
+    assert stopped_line({"events": final, "stop_settled": True, "path": "/x.jsonl"}).endswith("(final; 0 dropped)")
+    assert "not final" in stopped_line({"events": final, "path": "/x.jsonl"}), "an answer that does not say is not final"
     assert "not final" in stopped_line({"events": {"written": 3}, "path": "/x.jsonl"}), "an older backend's answer is not final"
 
 
@@ -543,13 +548,13 @@ def test_a_report_that_cannot_be_made_private_is_withheld_and_what_is_left_is_sa
     assert oct((reports / session_module.WITHHELD).stat().st_mode & 0o777) == "0o700"
     assert oct(fine.stat().st_mode & 0o777) == "0o600" and store.tidy_problem == ""
 
-    # Now nothing can be moved or removed either: it stays, and that is said, in counts.
+    # Now nothing can be moved either: it stays, and that is said, in counts.
     stuck.write_text("owner's words")
     os.chmod(stuck, 0o644)
-    monkeypatch.setattr(session_module.os, "replace", lambda *a, **k: (_ for _ in ()).throw(PermissionError("no")))
-    monkeypatch.setattr(session_module, "_remove_if_older", lambda path, cutoff: 0)
+    monkeypatch.setattr(session_module.os, "rename", lambda *a, **k: (_ for _ in ()).throw(PermissionError("no")))
     store.tidy_reports()
     assert stuck.exists() and store.tidy_problem == "1 report path(s) are readable by others and could not be withheld"
+    assert store.tidy_contained is False
     assert "walk" not in store.tidy_problem, "a problem that reaches /health names no file"
 
     from app.main import Housekeeper, housekeep_once
@@ -652,3 +657,216 @@ def test_shutdown_waits_for_a_pass_already_running_before_the_runtime_is_closed(
 
     asyncio.run(boot())
     assert order == ["first pass", "pass finished", "runtime closed"], order
+
+
+# --------------------------------------------------------------------------- round 7, F-04
+
+
+def _exposed_reports(tmp_path, monkeypatch, *, names):
+    """A reports folder where chmod is refused for `names` (files or folders)."""
+    from pathlib import Path
+
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    real_chmod = Path.chmod
+
+    def chmod(self, mode, *args, **kwargs):
+        if self.name in names:
+            raise PermissionError("not the owner of this file")
+        return real_chmod(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "chmod", chmod)
+    return reports
+
+
+def test_a_report_that_cannot_be_moved_is_never_deleted_whatever_its_age(tmp_path, monkeypatch):
+    """Round 7, F-04-REPORT-LOSS: when a report could not be moved out of reach, withhold()
+    removed it — any age, a folder of screen copies by rmtree. It now leaves it where it is, says
+    so, and the service will not start with it that way. A fresh report and a fresh folder."""
+    from app.observability import session as session_module
+
+    fresh = "ts-20260927-000000-walk.md"
+    pictures = "ts-20260927-000000-walk-screens"
+    reports = _exposed_reports(tmp_path, monkeypatch, names={fresh, pictures})
+    (reports / fresh).write_text("the owner's report")
+    os.chmod(reports / fresh, 0o644)
+    (reports / pictures).mkdir()
+    os.chmod(reports / pictures, 0o755)
+    (reports / pictures / "0001.json").write_text("{}")
+    monkeypatch.setattr(session_module.os, "rename", lambda *a, **k: (_ for _ in ()).throw(PermissionError("no")))
+    store = TestSessions(tmp_path / "logs", clock=Clock(), always=False, reports_dir=reports)
+    store.tidy_reports()
+    assert (reports / fresh).read_text() == "the owner's report", "never deleted"
+    assert (reports / pictures / "0001.json").exists(), "a folder is never removed either"
+    assert store.tidy_contained is False and "2 report path(s)" in store.tidy_problem
+    assert "shutil" not in session_module.withhold.__code__.co_names and "_remove_if_older" not in session_module.withhold.__code__.co_names
+
+
+def test_moving_a_report_out_of_reach_never_overwrites_anything(tmp_path, monkeypatch):
+    from app.observability import session as session_module
+
+    reports = _exposed_reports(tmp_path, monkeypatch, names={"ts-a.md"})
+    (reports / "ts-a.md").write_text("new")
+    os.chmod(reports / "ts-a.md", 0o644)
+    kept = reports / session_module.WITHHELD
+    kept.mkdir(mode=0o700)
+    import uuid
+
+    monkeypatch.setattr(uuid, "uuid4", lambda: type("U", (), {"hex": "same"})())
+    (kept / "same-ts-a.md").write_text("already withheld")
+    withheld, left = session_module.withhold(reports, [reports / "ts-a.md"])
+    assert (kept / "same-ts-a.md").read_text() == "already withheld", "never over anything"
+    assert withheld == 0 and left == [reports / "ts-a.md"] and (reports / "ts-a.md").read_text() == "new"
+
+
+def test_a_reports_folder_that_cannot_be_made_private_or_read_is_not_contained(tmp_path, monkeypatch):
+    """Round 7, F-04-STARTUP: the folder itself left open, or a walk that could not finish, is
+    not "nothing exposed"."""
+    from app.observability import session as session_module
+
+    reports = _exposed_reports(tmp_path, monkeypatch, names={"reports"})
+    os.chmod(reports, 0o755)
+    store = TestSessions(tmp_path / "logs", clock=Clock(), always=False, reports_dir=reports)
+    store.tidy_reports()
+    assert store.tidy_contained is False and "readable by others" in store.tidy_problem
+
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "deep").mkdir()
+    real_walk = os.walk
+
+    def broken_walk(top, onerror=None, **kwargs):
+        if onerror is not None:
+            onerror(PermissionError(13, "denied", str(other / "deep")))
+        yield from real_walk(top, onerror=onerror, **kwargs)
+
+    monkeypatch.setattr(session_module.os, "walk", broken_walk)
+    found = session_module.tighten(other)
+    assert found.unread == [str(other / "deep")] and found.exposed == []
+    store2 = TestSessions(tmp_path / "logs2", clock=Clock(), always=False, reports_dir=other)
+    store2.tidy_reports()
+    assert store2.tidy_contained is False and "could not be checked" in store2.tidy_problem
+
+
+def test_the_service_will_not_start_with_reports_it_cannot_keep_private(monkeypatch):
+    import asyncio
+
+    from app import main as main_module
+    from app.observability.session import TestSessions as Sessions
+    from app.providers import max_agent_sdk
+
+    async def no_start(self):
+        raise RuntimeError("tests never start the real Claude provider")
+
+    monkeypatch.setattr(max_agent_sdk.MaxAgentSDKProvider, "start", no_start)
+
+    def exposed(self, now=None):
+        self.tidy_problem = "1 report path(s) are readable by others and could not be withheld"
+        self.tidy_contained = False
+        return 0
+
+    monkeypatch.setattr(Sessions, "tidy_reports", exposed)
+    served: list[bool] = []
+
+    async def boot():
+        async with main_module.app.router.lifespan_context(main_module.app):
+            served.append(True)
+
+    with pytest.raises(RuntimeError, match="will not start with reports it cannot keep private"):
+        asyncio.run(boot())
+    assert served == [], "it never answered anything"
+
+
+def test_shutdown_never_closes_the_runtime_under_a_pass_that_outlasts_the_wait(monkeypatch):
+    """Round 7, F-04-SHUTDOWN: stop() waited 60 s and then the runtime was closed regardless.
+    Now a pass still running when the wait is over keeps its runtime: aclose is not called."""
+    import asyncio
+    import threading
+
+    from app import main as main_module
+    from app.providers import max_agent_sdk
+
+    async def no_start(self):
+        raise RuntimeError("tests never start the real Claude provider")
+
+    monkeypatch.setattr(max_agent_sdk.MaxAgentSDKProvider, "start", no_start)
+    monkeypatch.setattr(main_module, "SHUTDOWN_WAIT_S", 0.2)
+    monkeypatch.setattr(main_module, "HOUSEKEEPING_S", 0.01)
+    started, release = threading.Event(), threading.Event()
+    order: list[str] = []
+
+    def stuck_pass(runtime):
+        if not order:
+            order.append("first pass")
+            return ""
+        started.set()
+        release.wait(10)
+        order.append("pass finished")
+        return ""
+
+    monkeypatch.setattr(main_module, "housekeep_once", stuck_pass)
+
+    async def boot():
+        async with main_module.app.router.lifespan_context(main_module.app):
+            runtime = main_module.app.state.runtime
+
+            async def aclose():
+                order.append("runtime closed")
+
+            runtime.aclose = aclose
+            while not started.is_set():
+                await asyncio.sleep(0.01)
+            # The pass outlasts the 0.2 s wait, finishing only at 0.6 s.
+            threading.Timer(0.6, release.set).start()
+
+    try:
+        asyncio.run(boot())    # the loop's own close waits for the thread; the runtime is never closed
+    finally:
+        release.set()
+    assert order == ["first pass", "pass finished"], order
+    assert "runtime closed" not in order, "never closed under the pass, not even after it"
+
+
+def test_the_control_apps_stop_never_calls_a_snapshot_recorded(tmp_path, monkeypatch):
+    """Round 7, F-10: scripts/session_ops.py said "Recorded N event(s)" once two reads of the file
+    agreed, which a stalled writer produces exactly. It now reads the backend's own answer."""
+    from scripts import session_ops
+
+    path = tmp_path / "ts.jsonl"
+    path.write_text('{"kind":"a"}\n{"kind":"b"}\n')
+    answers = {
+        "held": {"stopped": True, "test_session_id": "ts-x", "path": str(path), "stop_settled": False,
+                 "events": {"on_disk": 2, "pending": 3, "settled": False}},
+        "settled": {"stopped": True, "test_session_id": "ts-x", "path": str(path), "stop_settled": True,
+                    "events": {"on_disk": 2, "pending": 0, "settled": True}},
+    }
+    for which, expect_final in (("held", False), ("settled", True)):
+        monkeypatch.setattr(session_ops, "call", lambda port, method, route, body=None, which=which, **k: answers[which])
+        out = session_ops.stop_and_analyse(8000, log_dir=tmp_path / "logs", analyse=False,
+                                           sleep=lambda s: None, now=iter(range(100)).__next__)
+        assert out["final"] is expect_final, which
+        if expect_final:
+            assert out["human"] == "Recorded 2 event(s) in ts-x."
+        else:
+            assert "not final" in out["human"] and "3 were still being written" in out["human"]
+            assert "Recorded" not in out["human"]
+
+
+async def test_the_stop_route_says_whether_its_flush_settled(tmp_path, monkeypatch):
+    import httpx
+
+    from app.main import app
+    from tests.test_actions_routes import as_owner
+
+    async with app.router.lifespan_context(app):
+        runtime = app.state.runtime
+        as_owner(runtime)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as http:
+            assert (await http.post("/test-session/start", json={"name": "route-settle"})).json()["started"]
+            monkeypatch.setattr(runtime.timeline, "flush", lambda timeout_s=2.0: False)
+            stopped = (await http.post("/test-session/stop")).json()
+    assert stopped["stopped"] is True and stopped["stop_settled"] is False
+    from app.observability.timeline import stop_is_final
+
+    assert stop_is_final(stopped) is False

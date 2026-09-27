@@ -16,8 +16,9 @@ from app import progressive
 from app.actions.models import Prepared
 from app.observability import timeline
 from app.session.models import Session
+from app.tools import authority as tool_authority
 from app.tools import registry
-from app.tools.context import CURRENT_SESSION, OWNER_REQUEST
+from app.tools.context import CURRENT_SESSION
 from app.tools.gate import Disposition, Tier, classify
 from app.tools.registry import BatchPlan, ToolError
 
@@ -114,12 +115,15 @@ async def dispatch(
     from app.providers.base import ToolCall
 
     name = registry.normalise_tool_name(tool_name)
-    if OWNER_REQUEST.get() is False:
-        # Asked for by a request that is not the owner's: no tool runs for it, whatever it is.
-        log.warning("REFUSED tool=%s: the request it runs for is not the owner's", name)
+    if tool_authority.current() is None:
+        # Refused by default (the 2026-09-27 deploy review, round 7, F-NEW-TOOLS): a tool runs
+        # only for work that holds an active authority — an owner request the door let through,
+        # or bounded service work derived from one (app/tools/authority.py). No authority, an
+        # expired one or a revoked one, and the handler is never reached.
+        log.warning("REFUSED tool=%s: no owner authority for this work", name)
         if calls is not None:
-            calls.append(ToolCall(name=name, args=args, ok=False, error="not the owner's request"))
-        return ("REFUSED: this request is not the owner's, so no tool runs for it. "
+            calls.append(ToolCall(name=name, args=args, ok=False, error="no owner authority"))
+        return ("REFUSED: this was not asked for by the owner, so no tool runs for it. "
                 "Tell the user plainly that you could not do this. Do not retry.")
     decision = classify(name, args, session.issued_ids)
     log.info(
@@ -533,11 +537,14 @@ def _note_gap(name: str, reason: str) -> None:
         record.note_missing_tool(missing)
 
 
-def make_pretooluse_hook(session_getter, on_event=None):
+def make_pretooluse_hook(session_getter, on_event=None, authority_getter=None):
     """Build the Agent SDK PreToolUse hook.
 
     The hook exists because auto-approved tools never reach `can_use_tool`, which is exactly how
     a permission gate ends up logging nothing and blocking nothing. This fires on every call.
+    `authority_getter` says what authority the turn holds (the provider passes its
+    conversation's; by default, this task's); none, or none active, and the call is denied
+    before the gate is even asked (round 7, F-NEW-TOOLS-PATH).
     """
 
     async def hook(input_data: dict[str, Any], tool_use_id: str | None, context: Any):
@@ -545,6 +552,20 @@ def make_pretooluse_hook(session_getter, on_event=None):
         name = registry.normalise_tool_name(raw_name)
         args = input_data.get("tool_input", {}) or {}
         session = session_getter()
+        held = authority_getter() if authority_getter is not None else tool_authority.current()
+        if held is None or not held.active:
+            log.warning("PreToolUse tool=%s denied: no owner authority for this turn", name)
+            if session is not None:
+                session.refuse(name, args, "This was not asked for by the owner.")
+            if on_event is not None:
+                on_event(name, Tier.RED.value, Disposition.DENY.value)
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "This was not asked for by the owner.",
+                }
+            }
         decision = classify(name, args, session.issued_ids if session else ())
         log.info("PreToolUse tool=%s tier=%s disposition=%s", name, decision.tier.value, decision.disposition.value)
         if on_event is not None:

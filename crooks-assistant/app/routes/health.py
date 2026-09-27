@@ -35,7 +35,7 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
     state = request.app.state
     cached = getattr(state, "health_cache", None)
     if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-        return _guarded(state, {**_live(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
+        return _guarded(request, {**_live(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
     lock = getattr(state, "health_lock", None)
     if lock is None:
         lock = state.health_lock = asyncio.Lock()
@@ -44,13 +44,34 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
         # doubling the work.
         cached = getattr(state, "health_cache", None)
         if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-            return _guarded(state, {**_live(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
+            return _guarded(request, {**_live(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
         result = await _health(runtime)
         state.health_cache = (time.time(), result)
-        return _guarded(state, {**result, "observability": _observability(runtime), "pad": _pad(), "cached": False, "age_s": 0.0})
+        return _guarded(request, {**result, "observability": _observability(runtime), "pad": _pad(), "cached": False, "age_s": 0.0})
 
 
-def _guarded(state, result: dict) -> dict:
+# What /health says only to the owner (the 2026-09-27 deploy review, round 7, F-NEW-PAD). /health
+# is public — the service manager, the watchdog and `make status` read it on the server with no
+# device behind them — so it keeps liveness for everyone and withholds the pad's status (GET /pad
+# is the owner's) and the test session's name and recording state (the observe routes are the
+# owner's) from anyone the owner rule refuses.
+OWNER_ONLY_BLOCKS = ("pad", "observability")
+
+
+def _guarded(request: Request, result: dict) -> dict:
+    """The answer as this caller may see it: _checked, less the owner's own blocks unless the
+    caller is the owner."""
+    from app.routes.actions import principal_verdict
+
+    out = _checked(request.app.state, result)
+    _who, code, _detail = principal_verdict(request)
+    if code:
+        out = {k: v for k, v in out.items() if k not in OWNER_ONLY_BLOCKS}
+        out["withheld"] = list(OWNER_ONLY_BLOCKS)
+    return out
+
+
+def _checked(state, result: dict) -> dict:
     """Two checks read at answer time, never cached, that say whether the server's own guards are
     working (the 2026-09-27 deploy review, round 6):
 

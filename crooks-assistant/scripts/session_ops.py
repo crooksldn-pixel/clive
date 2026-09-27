@@ -229,7 +229,13 @@ def stop_and_analyse(port: int, *, log_dir: Path | None = None, analyse: bool = 
         ident = str(answer.get("test_session_id") or "")
         path = Path(answer.get("path") or sessions.timeline_path(ident))
         where = "backend"
+    from app.observability.timeline import stop_is_final
+
     held = _settle(path, sleep=sleep, now=now)
+    # The file's count is the session's total only when the backend said the stop settled and
+    # nothing was pending (round 7, F-10); two equal counts of the file are not that — a stalled
+    # writer gives exactly two equal counts. With no backend running, nothing is writing: final.
+    final = stop_is_final(answer) if answer is not None else True
     reports = Path(out_dir) if out_dir else ROOT / "reports"
     paths = {"raw": str(path), "folder": str(reports), "report": "", "proposals": ""}
     artefacts: list[dict] = []
@@ -245,10 +251,15 @@ def stop_and_analyse(port: int, *, log_dir: Path | None = None, analyse: bool = 
     else:
         artefacts.append({"name": "analysis", "ok": False, "path": "", "detail": "not asked for"})
     failed = [a["name"] for a in artefacts if not a["ok"] and a["detail"] != "not asked for"]
-    human = f"Recorded {held} event(s) in {ident}."
+    if final:
+        human = f"Recorded {held} event(s) in {ident}."
+    else:
+        pending = ((answer or {}).get("events") or {}).get("pending", "some")
+        human = (f"{held} event(s) on disk in {ident} so far, not final: {pending} were still being written when it "
+                 "stopped, and more may yet land or be dropped. The report is of what was on disk.")
     if failed:
         human += " The session is saved; " + ", ".join(failed) + " could not be written."
-    return {"ok": True, "stopped": True, "test_session_id": ident, "where": where, "events": held,
+    return {"ok": True, "stopped": True, "test_session_id": ident, "where": where, "events": held, "final": final,
             "paths": paths, "artefacts": artefacts, "human": human}
 
 

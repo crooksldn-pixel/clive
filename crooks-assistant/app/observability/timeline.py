@@ -504,6 +504,19 @@ class NullTimeline(Timeline):
                 "test_session_id": ""}
 
 
+def stop_is_final(answer: dict[str, Any]) -> bool:
+    """Whether a stop's answer (the /test-session/stop route's) makes its count the session's
+    total: the stop's own flush settled, the counts read afterwards settled, and nothing was still
+    pending (the 2026-09-27 deploy review, round 7, F-10). Anything missing — an older backend's
+    answer — is not final. Every owner-facing stop reads this one rule."""
+    counts = answer.get("events") if isinstance(answer.get("events"), dict) else {}
+    try:
+        pending = int(counts.get("pending", 1))
+    except (TypeError, ValueError):
+        pending = 1
+    return answer.get("stop_settled") is True and counts.get("settled") is True and pending == 0
+
+
 _current: Timeline = NullTimeline()
 
 

@@ -380,10 +380,6 @@
       PAGE.fill(0);
     }
   }
-  function itemsSeen() {
-    if (PAGE.pages <= 1) return PAGE.total;
-    return PAGE.seen.size >= PAGE.pages ? PAGE.total : 0;
-  }
   // The control that turns the page, beside the foot's own button so it never covers a row.
   function pageButton(foot, label) {
     const more = el('button', 'cs-page', label);
@@ -394,12 +390,28 @@
     more.addEventListener('click', (event) => {
       event.stopPropagation();
       PAGE.fill((PAGE.index + 1) % PAGE.pages);
+      ackPage();
     });
     const main = foot.querySelector('.cs-btn, .cs-donechip');
     foot.insertBefore(more, main || null);
     PAGE.more = more;
   }
   function packedLocked() { return PAGE.pages > 1 && PAGE.seen.size < PAGE.pages; }
+  // The page now up, told to CLIVE (round 7, B-04): "done" is taken only once CLIVE has heard,
+  // page by page, that every item of the version showing was on this screen. Never more than a
+  // page at a time, and only once it is shown, not while it is still forming.
+  function ackPage() {
+    const v = S.drawnView;
+    if (!S.screen || S.phase !== 'shown' || S.drawnPacked || !v || (v.kind !== 'order' && v.kind !== 'list')) return;
+    if (!PAGE.total || !PAGE.per || typeof S.drawnVersion !== 'number' || S.drawnVersion < 0) return;
+    const start = PAGE.index * PAGE.per;
+    const end = Math.min(PAGE.total, start + PAGE.per);
+    if (end <= start) return;
+    fetch('/displays/' + encodeURIComponent(S.screen.id) + '/seen', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
+      body: JSON.stringify({ version: S.drawnVersion, start, end }),
+    }).catch(() => { /* told again when the page is next turned; done is refused until it is */ });
+  }
   function lockPacked(root) {
     const btn = (root || ui).querySelector('.cs-btn');
     if (!btn) return;
@@ -467,7 +479,7 @@
       });
       if (!lines.length) grid.appendChild(el('div', 'cs-empty', 'Nothing on this list'));
     };
-    PAGE.index = 0; PAGE.pages = pages; PAGE.seen = new Set([0]); PAGE.total = lines.length;
+    PAGE.index = 0; PAGE.per = max; PAGE.pages = pages; PAGE.seen = new Set([0]); PAGE.total = lines.length;
     PAGE.fill = (index) => { PAGE.index = index; PAGE.seen.add(index); taskRows(index); pageControls(); lockPacked(ui); };
     taskRows(0);
     frag.appendChild(grid);
@@ -696,6 +708,7 @@
     S.busy = true;
     S.phase = 'forming';
     S.drawnKey = keyOf(v); S.drawnView = v; S.drawnPacked = !!v.done_at;
+    S.drawnVersion = S.version;
     S.what = whatOf(v);
     draw(v, S.drawnPacked);
     uiState('is-hidden');
@@ -711,7 +724,7 @@
         E.simulate(T0 + 4.8);
         E.sweepOut(E.time(), 0.01);
         S.phase = 'revealing'; uiState('is-revealing');
-        later(0.6, () => { S.phase = 'shown'; uiState('is-shown'); status(false); settle(); });
+        later(0.6, () => { S.phase = 'shown'; uiState('is-shown'); status(false); ackPage(); settle(); });
         return;
       }
       status(true);
@@ -719,7 +732,7 @@
       void scanEl.offsetWidth;
       scanEl.classList.add('is-run');
       E.at(T0 + 3.1, () => { E.sweepOut(T0 + 3.1, 1.3); S.phase = 'revealing'; uiState('is-revealing'); });
-      E.at(T0 + 4.5, () => { S.phase = 'shown'; uiState('is-shown'); status(false); scanEl.classList.remove('is-run'); settle(); });
+      E.at(T0 + 4.5, () => { S.phase = 'shown'; uiState('is-shown'); status(false); scanEl.classList.remove('is-run'); ackPage(); settle(); });
     });
   }
   function markedDone(v) {
@@ -789,7 +802,6 @@
     if (btn) btn.disabled = true;
     try {
       const body = { version: S.version };
-      if (S.drawnView && (S.drawnView.kind === 'order' || S.drawnView.kind === 'list')) body.items_seen = itemsSeen();
       const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '/done', {
         method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
         body: JSON.stringify(body),
@@ -799,9 +811,21 @@
       } else if (await notThisScreen(response)) {
         return;
       } else if (response.status === 409) {
-        hint('This changed before the tap, so nothing was marked. Look again.', true);
-        poll();
-        if (btn) btn.disabled = false;
+        const why = await response.json().catch(() => ({}));
+        if (why && why.code === 'not_seen') {
+          // CLIVE has not heard every page of this (a restart, a lost acknowledgement): show
+          // them again, from this one.
+          PAGE.seen = new Set([PAGE.index]);
+          pageControls();
+          lockPacked(ui);
+          ackPage();
+          hint(PAGE.pages > 1 ? 'CLIVE needs to see every page again: tap through them, then mark it.' : 'Tap again.', true);
+          if (btn && !packedLocked()) btn.disabled = false;
+        } else {
+          hint('This changed before the tap, so nothing was marked. Look again.', true);
+          poll();
+          if (btn) btn.disabled = false;
+        }
       } else {
         throw new Error('done ' + response.status);
       }
@@ -901,7 +925,7 @@
   setInterval(() => { lineN++; showLine(false); }, LINE_MS);
 
   // ---- naming this screen ---------------------------------------------------------------
-  const input = $('name-input'), saveBtn = $('name-save'), nameError = $('name-error');
+  const input = $('name-input'), saveBtn = $('name-save'), nameError = $('name-error'), replaceBtn = $('name-replace');
   let nameTimer = 0;
   function toNaming() {
     S.phase = 'naming';
@@ -918,6 +942,7 @@
     const value = input.value.slice(0, 40);
     saveBtn.disabled = !value.trim();
     nameError.textContent = '';
+    replaceBtn.hidden = true;
     clearTimeout(nameTimer);
     nameTimer = setTimeout(() => { if (E && S.phase === 'naming') E.nameTo(nameTargets(value)); }, 80);
   }
@@ -926,11 +951,34 @@
     const pick = event.target && event.target.closest ? event.target.closest('[data-name]') : null;
     if (pick) { input.value = pick.getAttribute('data-name'); typed(); }
   });
+  // A name another screen already has is never simply taken over (round 7, B-02): the owner
+  // removes the old screen first — here, with one deliberate tap — which clears whatever it was
+  // showing, and this device then gets a new screen of that name, with nothing on it.
+  replaceBtn.addEventListener('click', async () => {
+    const name = input.value.trim();
+    if (!name) return;
+    replaceBtn.disabled = true;
+    try {
+      const response = await fetch('/displays/forget', {
+        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!response.ok && response.status !== 404) throw new Error('forget ' + response.status);
+      replaceBtn.hidden = true;
+      nameError.textContent = '';
+      namer.requestSubmit ? namer.requestSubmit() : namer.dispatchEvent(new Event('submit', { cancelable: true }));
+    } catch (e) {
+      nameError.textContent = 'CLIVE could not remove the old screen. Try again.';
+    } finally {
+      replaceBtn.disabled = false;
+    }
+  });
   namer.addEventListener('submit', async (event) => {
     event.preventDefault();
     const name = input.value.trim();
     if (!name) { nameError.textContent = 'Type a name first, like office screen.'; return; }
     saveBtn.disabled = true;
+    replaceBtn.hidden = true;
     try {
       const response = await fetch('/displays/register', {
         method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
@@ -938,6 +986,10 @@
       });
       const data = await response.json().catch(() => ({}));
       if (response.status === 403) throw new Error('This screen’s login is not allowed to use CLIVE.');
+      if (response.status === 409 && data.code === 'name_taken') {
+        replaceBtn.hidden = false;
+        throw new Error(data.detail || 'There is already a screen with that name.');
+      }
       if (!response.ok || !data.id || !data.key) throw new Error(data.detail || 'CLIVE did not take that name. Try another.');
       S.screen = { id: data.id, name: data.name || name, key: data.key };
       saveScreen(S.screen);
@@ -1159,6 +1211,7 @@
       if (S.phase === 'naming') { E.nameIntro(); E.nameTo(nameTargets(input.value)); return; }
       if (S.drawnView && (S.phase === 'shown' || S.phase === 'forming' || S.phase === 'revealing' || S.phase === 'packing')) {
         draw(S.drawnView, S.drawnPacked);
+        ackPage();
         uiState('is-shown');
         status(false);
         afterPaint(() => { E.place(sampleUi()); S.phase = 'shown'; settle(); });

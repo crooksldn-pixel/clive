@@ -106,19 +106,36 @@ async def lifespan(app: FastAPI):
     # right is logged as an error and shown on /health (checks.housekeeping).
     keeper = app.state.housekeeper = Housekeeper(app.state.runtime)
     await keeper.first_pass()
+    # Fail closed (round 7, F-04-STARTUP): a report left readable by others, or one that could
+    # not even be checked, stops the service here, before it answers anything. Nothing is
+    # deleted to get past it; the owner puts the permissions right and starts it again.
+    tests = getattr(app.state.runtime, "tests", None)
+    if tests is not None and not getattr(tests, "tidy_contained", True):
+        log.error("refusing to start: %s", getattr(tests, "tidy_problem", "") or "reports are not private")
+        await app.state.runtime.aclose()
+        raise RuntimeError(f"CROOKS will not start with reports it cannot keep private: {tests.tidy_problem}")
     keeper.start()
     log.info("CROOKS Assistant ready (bind address is whatever uvicorn was started with)")
     yield
     # Nothing new is scheduled, and a pass already running in its thread (which cancelling does
-    # not stop) finishes before the runtime it works on is closed (round 6, F-04).
-    await keeper.stop()
-    await app.state.runtime.aclose()
+    # not stop) finishes before the runtime it works on is closed (round 6, F-04). If it has not
+    # finished in time, the runtime is NOT closed under it (round 7, F-04-SHUTDOWN): the process
+    # exits with it open, which loses at most what the close would have flushed, rather than
+    # pull clients and files out from under a pass still using them.
+    if await keeper.stop(timeout_s=SHUTDOWN_WAIT_S):
+        await app.state.runtime.aclose()
+    else:
+        log.error("shutdown: a housekeeping pass was still running after %ss; the runtime is left "
+                  "open rather than closed under it", SHUTDOWN_WAIT_S)
 
 
 # How often test mode's records are aged and tightened with nobody using the service (the
 # 2026-09-26 deploy review, F-04): the day's roll, the sessions past their keep and the reports
 # drawn from them happen on a clock, not only when the next event asks.
 HOUSEKEEPING_S = 15 * 60
+# How long shutdown waits for a housekeeping pass already running: inside systemd's
+# TimeoutStopSec (30 s in deploy/systemd/crooks-assistant.service), so the decision is ours.
+SHUTDOWN_WAIT_S = 20.0
 
 
 def housekeep_once(runtime) -> str:
@@ -141,7 +158,9 @@ def housekeep_once(runtime) -> str:
     try:
         from app.displays.store import store as displays
 
-        displays().sweep()
+        left = displays().sweep()
+        if left:
+            problems.append(left)
     except Exception as exc:  # noqa: BLE001
         log.warning("screens housekeeping did not complete", exc_info=True)
         problems.append(f"screens housekeeping did not complete ({type(exc).__name__})")
@@ -301,11 +320,18 @@ async def guard_and_freshness(request: Request, call_next):
     # by one had left /turn, and so the model's whole tool surface, open to any caller on the
     # server). tests/test_proxy_identity.py walks every route the app serves to keep it so.
     # The one exception, and not an owner: the server's own test-session commands with their key
-    # (app/local_cli.py, round 6 F-05A), on those three routes only.
+    # (app/local_cli.py, round 6 F-05A), on those three routes only, straight to the port. The key
+    # anywhere else — through the proxy, on another route — is refused outright (round 7), even
+    # from a device that would pass the owner rule without it.
     from app import local_cli
-    from app.tools.context import OWNER_REQUEST
+    from app.tools import authority as tool_authority
 
-    owners = False
+    if local_cli.presented(request) and not local_cli.admits(request):
+        log.warning("refused a request carrying the local command key where it does not apply (path=%s)", request.url.path)
+        return JSONResponse(status_code=403, content={
+            "error": "not allowed", "who": "not the owner", "code": "local_key_misused",
+            "detail": "The server's command key opens its own test-session commands, on the server, and nothing else."})
+    granted = None
     if not is_public(request.url.path) and not local_cli.admits(request):
         from app.routes.actions import SPOKEN_REFUSALS, principal_verdict
 
@@ -317,19 +343,34 @@ async def guard_and_freshness(request: Request, call_next):
             return JSONResponse(status_code=403, content={
                 "error": "not allowed", "who": "not the owner", "code": code, "detail": why,
                 "spoken": SPOKEN_REFUSALS.get(code, "")})
-        owners = True
-    # What the tools see (app/tools/context.py OWNER_REQUEST): only a request that passed the
-    # owner rule may have a tool run for it. Set before the route runs, so every task it starts
-    # inherits it, and put back after, so it never outlives the request in a shared task.
-    stamped = OWNER_REQUEST.set(owners)
+        # The only place an owner authority is made (app/tools/authority.py). Without it no
+        # tool runs: public paths, the local command key and anything else get none.
+        granted = tool_authority.for_owner(who)
+    stamped = tool_authority.TOOL_AUTHORITY.set(granted)
     try:
         response = await call_next(request)
+    except BaseException:
+        if granted is not None:
+            granted.revoke()
+        raise
     finally:
-        OWNER_REQUEST.reset(stamped)
+        tool_authority.TOOL_AUTHORITY.reset(stamped)
+    if granted is not None:
+        # Revoked once the answer has been sent, on the object itself, so a task this request
+        # left running (a copy of this context) holds nothing from then on.
+        response.body_iterator = _revoking(response.body_iterator, granted)
     path = request.url.path
     if path in ("/", "/sw.js", "/manifest.webmanifest") or path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-cache"
     return response
+
+
+async def _revoking(body, granted):
+    try:
+        async for chunk in body:
+            yield chunk
+    finally:
+        granted.revoke()
 
 
 _STATE_CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE"})

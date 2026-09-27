@@ -66,6 +66,20 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _strict_iso(at: object) -> str | None:
+    """A time kept here, in the one form, or None when it is not a time at all: a value that is
+    not a time is dropped, never replaced by now (round 7, F-07-VALUES)."""
+    if not isinstance(at, str) or not at or len(at) > 40:
+        return None
+    try:
+        when = datetime.fromisoformat(at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return when.astimezone(UTC).isoformat(timespec="seconds")
+
+
 def _iso(at: object) -> str:
     """One form for every time kept here, UTC to the second, so they compare as text: a
     blocker's own time may carry microseconds or another offset."""
@@ -169,7 +183,7 @@ class GapLedger:
             parsed = None
         if parsed is None or not isinstance(parsed, dict):
             # Unreadable: kept aside before a change would start a fresh record over it.
-            copy = self._keep_original(raw, "unreadable")
+            copy = self._existing_original(raw, "unreadable") or self._keep_original(raw, "unreadable")
             self._repaired = True
             return copy
         shaped = _shaped(json.loads(json.dumps(parsed)))
@@ -178,11 +192,35 @@ class GapLedger:
         if clean == shaped:
             self._repaired = True
             return None
-        copy = self._keep_original(raw, "before-clean")
+        # A clean that failed after its copy was made (a failed save, a crash) is tried again
+        # with the copy it already has, verified byte for byte, not with another (round 7).
+        copy = self._existing_original(raw, "before-clean") or self._keep_original(raw, "before-clean")
         self._save(clean)
         self._repaired = True
         log.warning("gap record cleaned to today's rule; the original is kept at %s", copy.name)
         return copy
+
+    def _existing_original(self, raw: bytes, why: str) -> Path | None:
+        """A copy already kept of exactly these bytes, made durable again, or None."""
+        import hashlib
+
+        want = hashlib.sha256(raw).hexdigest()
+        for copy in sorted(self.path.parent.glob(f"{self.path.name}.*.{why}")):
+            try:
+                if copy.is_symlink() or copy.stat().st_mode & 0o077:
+                    continue
+                if hashlib.sha256(copy.read_bytes()).hexdigest() != want:
+                    continue
+                fd = os.open(copy, os.O_RDONLY)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+            except OSError:
+                continue
+            _fsync_dir(copy.parent)
+            return copy
+        return None
 
     def _keep_original(self, raw: bytes, why: str) -> Path:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -282,7 +320,7 @@ class GapLedger:
             for key in keys:
                 gap = data["gaps"].get(key)
                 if gap is not None and request_id not in gap["requests"]:
-                    gap["requests"] = (gap["requests"] + [request_id])[-MAX_LINKS:]
+                    _keep_requests(gap, [*gap["requests"], request_id], data["builds"])
         self._change(fn)
 
     def filed(self, request_id: str) -> None:
@@ -344,6 +382,11 @@ class GapLedger:
             linked = [dict(builds[r], request_id=r) for r in gap.get("requests", []) if r in builds]
             live_at = min((b["live_at"] for b in linked if b.get("live_at")), default=None)
             after = [t for t in gap.get("seen", []) if live_at and t > live_at]
+            dropped = gap.get("dropped") or {}
+            # A count that some forgotten history could add to is said to be a floor, not the
+            # figure (round 7, F-07-LINKS): seen times kept are the newest, so it is exact
+            # unless one of those forgotten came after the fix.
+            exact = not (live_at and dropped.get("seen") and (gap.get("seen_dropped_last") or "") > live_at)
             rows.append({
                 "key": key,
                 # What to call it: the capability as CLIVE named it, or what it wrote.
@@ -358,6 +401,9 @@ class GapLedger:
                 "builds": [{k: b.get(k) for k in ("request_id", "progress", "proposed_at", "filed_at", "built_at",
                                                   "merged_at", "live_at")} for b in linked],
                 "hits_after_fix": len(after) if live_at else None,
+                "hits_after_fix_exact": bool(exact) if live_at else None,
+                # Links and history the record could not keep, counted rather than lost silently.
+                "not_kept": {k: int(v) for k, v in dropped.items() if v},
             })
         rows.sort(key=lambda r: r["last_seen"] or "", reverse=True)
         rows.sort(key=lambda r: r["hits"], reverse=True)   # stable: equal counts stay newest first
@@ -399,9 +445,9 @@ def _hit(data: dict[str, Any], key: str, source: str, text: str, objective_id: s
     gap["sources"][source] = int(gap["sources"].get(source, 0)) + 1
     gap["first_seen"] = min(gap.get("first_seen") or at, at)
     gap["last_seen"] = max(gap.get("last_seen") or at, at)
-    gap["seen"] = sorted(gap.get("seen", []) + [at])[-50:]
+    _keep_seen(gap, [*gap.get("seen", []), at])
     if objective_id and objective_id not in gap["objectives"]:
-        gap["objectives"] = (gap["objectives"] + [objective_id])[-MAX_LINKS:]
+        _keep_objectives(gap, [*gap["objectives"], objective_id])
 
 
 def _clean_key(key: str) -> str:
@@ -420,12 +466,21 @@ def _shaped(data: Any) -> dict[str, Any]:
 
 
 def _sanitise(data: dict[str, Any]) -> None:
-    """Every key, name and label the record holds, cleaned by today's rule, whatever wrote it:
-    a record written before keys were redacted is cleaned in memory the first time it is read,
-    and on disk at startup by GapLedger.repair, which keeps the original first (the 2026-09-26
-    and 2026-09-27 deploy reviews, F-07). Idempotent."""
+    """Every key, name, label and value the record holds, cleaned or rebuilt by today's rule,
+    whatever wrote it: a record written before keys were redacted is cleaned in memory the first
+    time it is read, and on disk at startup by GapLedger.repair, which keeps the original first
+    (the 2026-09-26 and 2026-09-27 deploy reviews, F-07). Only fields the record writes survive
+    (round 6), and each of their values is checked for what it must be (round 7): times are
+    times, counts are counts, ids are ids; anything else is dropped. Links between gaps and
+    builds are kept only when both sides name each other. Idempotent."""
     for name in [k for k in data if k not in _TOP_FIELDS]:
         del data[name]
+    data["version"] = VERSION
+    seeded = _strict_iso(data.get("seeded"))
+    if seeded is None:
+        data.pop("seeded", None)
+    else:
+        data["seeded"] = seeded
     renamed: dict[str, str] = {}
     gaps: dict[str, dict] = {}
     for key, raw in data["gaps"].items():
@@ -447,45 +502,41 @@ def _sanitise(data: dict[str, Any]) -> None:
         if not isinstance(raw, dict) or not _REQUEST_ID.fullmatch(str(request_id)):
             continue
         build = _only_known_build(raw)
-        if isinstance(build.get("gaps"), list):
-            build["gaps"] = sorted({renamed.get(str(k), _clean_key(str(k))) for k in build["gaps"]})
+        build["gaps"] = sorted({renamed.get(k, _clean_key(k)) for k in build["gaps"]})
         builds[str(request_id)] = build
     data["builds"] = builds
     misjudged: dict[str, dict] = {}
     for cap, raw in data["misjudged"].items():
         if not isinstance(raw, dict):
             continue
-        row = {field: raw[field] for field in _MISJUDGED_FIELDS if field in raw}
+        row = _only_known_misjudged(raw)
         key = _misjudged_key(cap)
         if key in misjudged:
             into = misjudged[key]
-            into["count"] = int(into.get("count", 0)) + int(row.get("count", 0))
+            into["count"] = into["count"] + row["count"]
             into["first_seen"] = min(filter(None, [into.get("first_seen"), row.get("first_seen")]), default=None)
             into["last_seen"] = max(filter(None, [into.get("last_seen"), row.get("last_seen")]), default=None)
         else:
             misjudged[key] = row
     data["misjudged"] = misjudged
-    # Links, both ways, only to what the record still holds (the 2026-09-27 deploy review, round
-    # 6, F-07): a build names only gaps that are here once keys are cleaned and merged, and a gap
-    # only builds that are here. A link to nothing would count a build or a stage for a gap that
-    # it never touched.
-    for build in builds.values():
-        build["gaps"] = [key for key in build["gaps"] if key in gaps]
-    for gap in gaps.values():
-        gap["requests"] = [request for request in gap["requests"] if request in builds]
+    # Both sides of every link (round 7, F-07-LINKS): a gap's request counts only when that build
+    # names the gap, and a build's gap only when that gap names the build, so no gap reports the
+    # stage of a build that was never for it. A link dropped here is counted on the gap.
+    for key, gap in gaps.items():
+        kept = [r for r in gap["requests"] if r in builds and key in builds[r]["gaps"]]
+        _count_dropped(gap, "requests", len(gap["requests"]) - len(kept))
+        _keep_requests(gap, kept, builds)
+    for request_id, build in builds.items():
+        build["gaps"] = [key for key in build["gaps"] if key in gaps and request_id in gaps[key]["requests"]]
 
 
 def _fsync_dir(folder: Path) -> None:
-    """A rename or a new file is durable only once its folder is. Where a folder cannot be opened
-    for this (not POSIX), the file's own fsync is what there is."""
-    try:
-        fd = os.open(folder, os.O_RDONLY)
-    except OSError:
-        return
+    """A rename or a new file is durable only once its folder is. A failure is raised, never
+    passed over (round 7, F-07-DURABILITY): after the copy, it stops the clean before the live
+    file is touched; after a save, it is the save's failure."""
+    fd = os.open(folder, os.O_RDONLY)
     try:
         os.fsync(fd)
-    except OSError:
-        pass
     finally:
         os.close(fd)
 
@@ -494,32 +545,101 @@ def _fsync_dir(folder: Path) -> None:
 # round 6, F-07): a row carrying a field of its own, "capability" in a misjudged row for one,
 # could otherwise override the cleaned key where the report spreads the row.
 _TOP_FIELDS = frozenset({"version", "gaps", "builds", "misjudged", "seeded"})
-_GAP_FIELDS = ("label", "name", "hits", "sources", "objectives", "requests", "seen", "first_seen", "last_seen")
+_GAP_FIELDS = ("label", "name", "hits", "sources", "objectives", "requests", "seen", "first_seen", "last_seen",
+               "dropped", "seen_dropped_last")
 _BUILD_FIELDS = ("objective_id", "gaps", "proposed_at", "filed_at", "built_at", "merged_at", "live_at",
                  "progress", "candidate_sha")
 _MISJUDGED_FIELDS = ("count", "first_seen", "last_seen")
 _SOURCES = frozenset({"blocker", "tool"})
+_DROPPED = ("requests", "objectives", "seen")
 _OBJECTIVE_ID = re.compile(r"^obj_[a-z0-9]{4,40}$")
 _REQUEST_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+){1,7}$")
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 _WORDS = re.compile(r"^[a-z ]{1,40}$")
+_KEEP_SEEN = 50
+_MAX_COUNT = 10_000_000
+_MAX_READ = 1000      # entries read from any one list of a stored record, hostile or not
 
 
 def _stamp(value: object) -> str | None:
-    return _iso(value) if isinstance(value, str) and value else None
+    return _strict_iso(value)
+
+
+def _count(value: object) -> int:
+    """A count: a whole number, nought or more, bounded; anything else is nought."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(0, min(value, _MAX_COUNT))
+    if isinstance(value, str) and value.isdigit() and len(value) <= 8:
+        return int(value)
+    return 0
+
+
+def _count_dropped(gap: dict, what: str, n: int) -> None:
+    if n > 0:
+        dropped = gap.setdefault("dropped", {})
+        dropped[what] = min(_MAX_COUNT, int(dropped.get(what, 0)) + n)
+
+
+def _keep_seen(gap: dict, seen: list[str]) -> None:
+    """The newest _KEEP_SEEN times; how many older ones went, and the latest of them, are kept so
+    the report can say when its count after a fix is a floor rather than the figure."""
+    ordered = sorted(seen)
+    gone = ordered[:-_KEEP_SEEN] if len(ordered) > _KEEP_SEEN else []
+    gap["seen"] = ordered[-_KEEP_SEEN:]
+    if gone:
+        _count_dropped(gap, "seen", len(gone))
+        gap["seen_dropped_last"] = max(filter(None, [gap.get("seen_dropped_last"), gone[-1]]))
+
+
+def _keep_objectives(gap: dict, objectives: list[str]) -> None:
+    ordered = list(dict.fromkeys(objectives))
+    _count_dropped(gap, "objectives", max(0, len(ordered) - MAX_LINKS))
+    gap["objectives"] = ordered[-MAX_LINKS:]
+
+
+_STAGE_RANK = {"proposed": 0, "filed": 1, "building": 2, "built": 3, "merged": 4, "live": 5}
+
+
+def _keep_requests(gap: dict, requests: list[str], builds: dict[str, dict]) -> None:
+    """At most MAX_LINKS builds per gap, and never at the cost of the report's stage: the ones
+    kept are the furthest along, then the newest; how many went is counted on the gap."""
+    ordered = list(dict.fromkeys(requests))
+    if len(ordered) > MAX_LINKS:
+        position = {r: i for i, r in enumerate(ordered)}
+        ranked = sorted(ordered, key=lambda r: (_STAGE_RANK[_stage([builds.get(r) or {}])] if r in builds else -1, position[r]))
+        keep = set(ranked[-MAX_LINKS:])
+        _count_dropped(gap, "requests", len(ordered) - MAX_LINKS)
+        ordered = [r for r in ordered if r in keep]
+    gap["requests"] = ordered
 
 
 def _only_known_gap(raw: dict) -> dict:
     gap: dict[str, Any] = {field: raw[field] for field in _GAP_FIELDS if field in raw}
-    gap["hits"] = int(gap.get("hits") or 0) if str(gap.get("hits") or 0).isdigit() else 0
+    gap["hits"] = _count(gap.get("hits"))
     sources = gap.get("sources") if isinstance(gap.get("sources"), dict) else {}
-    gap["sources"] = {k: int(v) for k, v in sources.items() if k in _SOURCES and str(v).isdigit()}
-    gap["objectives"] = [o for o in (gap.get("objectives") or []) if isinstance(o, str) and _OBJECTIVE_ID.fullmatch(o)][-MAX_LINKS:]
-    gap["requests"] = [r for r in (gap.get("requests") or []) if isinstance(r, str) and _REQUEST_ID.fullmatch(r)][-MAX_LINKS:]
-    gap["seen"] = sorted(filter(None, (_stamp(t) for t in (gap.get("seen") or []))))[-50:]
-    for field in ("first_seen", "last_seen"):
-        if field in gap:
-            gap[field] = _stamp(gap[field])
+    gap["sources"] = {k: _count(v) for k, v in sources.items() if k in _SOURCES and _count(v)}
+    objectives = gap.get("objectives") if isinstance(gap.get("objectives"), list) else []
+    gap["objectives"] = [o for o in objectives[-_MAX_READ:] if isinstance(o, str) and _OBJECTIVE_ID.fullmatch(o)]
+    requests = gap.get("requests") if isinstance(gap.get("requests"), list) else []
+    # Bounded here only against a hostile record; which MAX_LINKS are kept is settled once the
+    # builds are known (_sanitise, _keep_requests), so the stage the report shows is not lost.
+    gap["requests"] = list(dict.fromkeys(r for r in requests[:_MAX_READ] if isinstance(r, str) and _REQUEST_ID.fullmatch(r)))
+    seen = gap.get("seen") if isinstance(gap.get("seen"), list) else []
+    gap["seen"] = sorted(filter(None, (_stamp(t) for t in seen[-_MAX_READ:])))
+    for field in ("first_seen", "last_seen", "seen_dropped_last"):
+        stamped = _stamp(gap.get(field))
+        if stamped is None:
+            gap.pop(field, None)
+        else:
+            gap[field] = stamped
+    dropped = gap.get("dropped") if isinstance(gap.get("dropped"), dict) else {}
+    gap["dropped"] = {k: _count(v) for k, v in dropped.items() if k in _DROPPED and _count(v)}
+    if not gap["dropped"]:
+        gap.pop("dropped")
+    _keep_objectives(gap, gap["objectives"])
+    _keep_seen(gap, gap["seen"])
     return gap
 
 
@@ -531,8 +651,8 @@ def _only_known_build(raw: dict) -> dict:
         build.pop("candidate_sha", None)
     if not (isinstance(build.get("progress"), str) and _WORDS.fullmatch(build["progress"])):
         build.pop("progress", None)
-    if not isinstance(build.get("gaps"), list):
-        build["gaps"] = []
+    gaps = build.get("gaps") if isinstance(build.get("gaps"), list) else []
+    build["gaps"] = [str(k) for k in gaps if isinstance(k, str) and k][:MAX_GAPS]
     for field in ("proposed_at", "filed_at", "built_at", "merged_at", "live_at"):
         if field in build:
             stamped = _stamp(build[field])
@@ -543,18 +663,33 @@ def _only_known_build(raw: dict) -> dict:
     return build
 
 
+def _only_known_misjudged(raw: dict) -> dict:
+    return {"count": _count(raw.get("count")), "first_seen": _stamp(raw.get("first_seen")),
+            "last_seen": _stamp(raw.get("last_seen"))}
+
+
 def _merge(into: dict, other: dict) -> None:
-    """Two gaps that turn out to be one, once cleaned."""
-    into["hits"] = int(into.get("hits", 0)) + int(other.get("hits", 0))
+    """Two gaps that turn out to be one, once cleaned. Counts add up; links and history join, and
+    whatever the bounds cannot keep is counted, never lost without trace (round 7, F-07-LINKS).
+    Which builds are kept is settled when the record's builds are known (_sanitise)."""
+    into["hits"] = into["hits"] + other["hits"]
     sources = dict(into.get("sources") or {})
     for source, count in (other.get("sources") or {}).items():
         sources[source] = int(sources.get(source, 0)) + int(count)
     into["sources"] = sources
-    for field in ("objectives", "requests"):
-        into[field] = list(dict.fromkeys([*(into.get(field) or []), *(other.get(field) or [])]))[-MAX_LINKS:]
-    into["seen"] = sorted([*(into.get("seen") or []), *(other.get("seen") or [])])[-50:]
+    for what, n in (other.get("dropped") or {}).items():
+        _count_dropped(into, what, n)
+    if other.get("seen_dropped_last"):
+        into["seen_dropped_last"] = max(filter(None, [into.get("seen_dropped_last"), other["seen_dropped_last"]]))
+    _keep_objectives(into, [*into["objectives"], *other["objectives"]])
+    into["requests"] = list(dict.fromkeys([*into["requests"], *other["requests"]]))
+    _keep_seen(into, [*into["seen"], *other["seen"]])
     into["first_seen"] = min(filter(None, [into.get("first_seen"), other.get("first_seen")]), default=None)
     into["last_seen"] = max(filter(None, [into.get("last_seen"), other.get("last_seen")]), default=None)
+    if into["first_seen"] is None:
+        into.pop("first_seen")
+    if into["last_seen"] is None:
+        into.pop("last_seen")
     if not into.get("name") and other.get("name"):
         into["name"] = other["name"]
 

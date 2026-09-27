@@ -159,7 +159,11 @@ def _live_conversation(session, branch_id: str = ""):
     holder = _Holder()
     conv = _Conversation(key=conversation_key(session.session_id, branch_id), session_id=session.session_id, branch_id=branch_id, client=object(), holder=holder)
     holder.conversation = conv
-    conv.begin(session)
+    # As _turn_locked does: the turn takes the authority of the request that asked for it (here,
+    # the test world's owner; app/tools/authority.py).
+    from app.tools import authority
+
+    conv.begin(session, authority=authority.current())
     return conv
 
 

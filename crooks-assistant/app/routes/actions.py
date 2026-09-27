@@ -178,13 +178,13 @@ def proxy_state(request: Request) -> tuple[str, str]:
             from app import identity
 
             ok, why = identity.peer_is_tailscaled(request.scope.get("client"), request.scope.get("server"))
-            mine = identity.is_this_host(forwarded, cli=identity.cli_path(getattr(settings, "tailscale_cli", ""))) if ok else False
+            mine = identity.is_this_host(forwarded) if ok else False
             if not ok:
                 result = (FORGED, why)
             elif mine is None:
                 # Which addresses are this server's own could not be read, so a request it sent
                 # itself could not be told from one of the owner's devices: refused, not guessed.
-                result = (FORGED, "this server's own tailnet addresses could not be read (tailscale ip)")
+                result = (FORGED, "this server's own addresses could not be read from the kernel")
             elif mine:
                 result = (THIS_HOST, "sent through tailscale serve by this server itself")
             else:

@@ -27,6 +27,8 @@ from app.displays.store import (
     SHOWING_KEEP_S,
     DisplayError,
     DisplayStore,
+    NameTaken,
+    NotSeen,
     NotThisScreen,
 )
 from app.tools import gate
@@ -47,32 +49,58 @@ def s(tmp_path):
     return store_module.install(tmp_path / "objectives" / "displays.json")
 
 
+def ack_all(store, screen_id, key, *, version=None, upto=None):
+    """The screen puts up every page of what it shows (or the first `upto` items), a page at a
+    time, as web/display.js does."""
+    now = store.poll(screen_id, key)
+    version = now["version"] if version is None else version
+    count = store_module._shown_count(now["showing"] or {}) or 0
+    end = count if upto is None else upto
+    for start in range(0, end, store_module.MAX_ACK):
+        store.acknowledge(screen_id, version, screen_key=key, start=start, end=min(end, start + store_module.MAX_ACK))
+
+
 # --------------------------------------------------------------------------- the record
 
 
-def test_a_name_is_one_screen_however_it_is_typed_and_the_device_that_named_it_holds_it(tmp_path):
-    """Round 6, B-02: knowing a screen's name is not being that screen. Naming hands the device a
-    key; the name cannot be taken while its screen is on; once it has gone quiet it can be named
-    again from another device, and the old device's key stops fitting."""
+def test_a_name_is_one_screen_however_it_is_typed_and_never_passes_to_another_device(tmp_path):
+    """Rounds 6 and 7, B-02: knowing a screen's name is not being that screen, and neither is
+    waiting until it goes quiet or the service restarts. Naming hands the device a key; the name
+    is refused to anyone else, whenever they ask; the device holding the key may name it again (and
+    gets a new key); and only the owner removing the old screen frees the name — for a new screen
+    with nothing on it."""
     clock = Clock()
-    s = DisplayStore(tmp_path / "displays.json", clock=clock)
+    path = tmp_path / "displays.json"
+    s = DisplayStore(path, clock=clock)
     first = s.register("Office screen")
     key = first["screen_key"]
     assert len(key) >= 24 and "secret" not in first
-    with pytest.raises(DisplayError, match="A screen called Office screen is on right now"):
-        s.register("  office   SCREEN! ")
+    s.show(first["id"], views.order_view(ORDER))
     assert s.poll(first["id"], key)["name"] == "Office screen"
     for wrong in ("", "guess", first["id"]):
         with pytest.raises(NotThisScreen):
             s.poll(first["id"], wrong)
-    stored = (tmp_path / "displays.json").read_text()
-    assert key not in stored, "only the key's hash is kept"
-    clock.now += ONLINE_S + 1                       # the device lost its storage and went quiet
-    again = s.register("  office   SCREEN! ")
-    assert again["id"] == first["id"] and again["name"] == "Office screen" and again["screen_key"] != key
+    assert key not in path.read_text(), "only the key's hash is kept"
+    # Quiet for a long time, and then a restart (the memory of when it was last seen is gone):
+    # the name is still not anyone's for the asking.
+    clock.now += ONLINE_S * 100
+    for store in (s, DisplayStore(path, clock=clock)):
+        with pytest.raises(NameTaken, match="already a screen called Office screen"):
+            store.register("  office   SCREEN! ")
+        with pytest.raises(NameTaken):
+            store.register("Office screen", screen_key="guess")
+    # The device that holds the key may name it again, and is given a new one.
+    again = s.register("Office screen", screen_key=key)
+    assert again["id"] == first["id"] and again["screen_key"] != key
     with pytest.raises(NotThisScreen):
         s.poll(first["id"], key)
-    assert s.poll(first["id"], again["screen_key"]) is not None
+    assert s.poll(first["id"], again["screen_key"])["showing"]["kind"] == "order", "the same screen, still showing"
+    # The owner removes it: its key and what it showed go with it, and the name is free again —
+    # for a NEW screen, with nothing on it.
+    assert s.forget(first["id"]) is True
+    fresh = s.register("Office screen")
+    assert fresh["id"] != first["id"] and s.poll(fresh["id"], fresh["screen_key"])["showing"] is None
+    assert "Sam Carter" not in path.read_text()
     assert [x["name"] for x in s.screens()] == ["Office screen"]
     with pytest.raises(DisplayError, match="Give the screen a name"):
         s.register("  !!  ")
@@ -101,21 +129,21 @@ def test_what_a_screen_shows_moves_forward_and_a_late_tap_marks_nothing(s):
     assert shown["version"] == 1 and shown["showing"]["title"] == "Today" and shown["showing"]["at"]
     # A tap on what the screen drew before the change is refused, and nothing is recorded.
     with pytest.raises(DisplayError, match="changed before that tap"):
-        s.mark_done(screen["id"], 0, screen_key=key, items_seen=2, by="team@crooksldn.com")
-    # Nor from a device without the key, nor having seen only part of the list.
+        s.mark_done(screen["id"], 0, screen_key=key, by="team@crooksldn.com")
+    # Nor from a device without the key, nor with only part of the list put up.
     with pytest.raises(NotThisScreen):
-        s.mark_done(screen["id"], 1, screen_key="guess", items_seen=2)
-    with pytest.raises(DisplayError, match="Not every line of the list was on the screen"):
-        s.mark_done(screen["id"], 1, screen_key=key, items_seen=1)
-    with pytest.raises(DisplayError, match="Not every line"):
+        s.mark_done(screen["id"], 1, screen_key="guess")
+    ack_all(s, screen["id"], key, upto=1)
+    with pytest.raises(NotSeen, match="Not every line of the list has been on the screen"):
         s.mark_done(screen["id"], 1, screen_key=key)
     assert s.done() == []
-    s.mark_done(screen["id"], 1, screen_key=key, items_seen=2, by="team@crooksldn.com")
+    ack_all(s, screen["id"], key)
+    s.mark_done(screen["id"], 1, screen_key=key, by="team@crooksldn.com")
     after = s.poll(screen["id"], key)
     assert after["version"] == 2 and after["showing"]["done_at"]
-    assert after["last_done"]["title"] == "Today"
+    assert after["last_done"]["title"] == "List", "a list's own title is the owner's words and is not kept"
     # A second tap on the same thing is the same record, not another.
-    s.mark_done(screen["id"], 2, screen_key=key, items_seen=2)
+    s.mark_done(screen["id"], 2, screen_key=key)
     assert len(s.done()) == 1 and s.done()[0]["by"] == "team@crooksldn.com"
     # Clearing empties it.
     s.show(screen["id"], None)
@@ -126,12 +154,12 @@ def test_the_done_record_is_per_screen_and_bounded(s):
     a = s.register("Office screen")
     b = s.register("Packing screen")
     s.show(a["id"], {"kind": "order", "ref": "gid://shopify/Order/1", "title": "Order 1001"})
-    s.mark_done(a["id"], 1, screen_key=a["screen_key"], items_seen=0)
+    s.mark_done(a["id"], 1, screen_key=a["screen_key"])
     assert s.poll(b["id"], b["screen_key"])["last_done"] is None, "done on one screen is not done on another"
     assert s.done(ref="gid://shopify/Order/1")[0]["screen"] == "Office screen"
     for i in range(MAX_DONE + 5):
         s.show(b["id"], {"kind": "list", "ref": "", "title": f"List {i}"})
-        s.mark_done(b["id"], s.poll(b["id"], b["screen_key"])["version"], screen_key=b["screen_key"], items_seen=0)
+        s.mark_done(b["id"], s.poll(b["id"], b["screen_key"])["version"], screen_key=b["screen_key"])
     assert len(s._data["done"]) == MAX_DONE
 
 
@@ -297,7 +325,7 @@ def test_screen_list_says_what_is_up_and_what_was_packed(s):
     screen = s.register("Packing screen")
     s.show(screen["id"], {"kind": "order", "ref": "gid://shopify/Order/1047", "title": "Order #1047"})
     s.poll(screen["id"], screen["screen_key"])   # the screen asked: it is on
-    s.mark_done(screen["id"], 1, screen_key=screen["screen_key"], items_seen=0, by="team@crooksldn.com")
+    s.mark_done(screen["id"], 1, screen_key=screen["screen_key"], by="team@crooksldn.com")
     out = run(display_tools.screen_list(order_id="gid://shopify/Order/1047"))
     assert out["screens"][0]["online"] is True and out["screens"][0]["showing"] == "Order #1047"
     assert out["done"][0]["ref"] == "gid://shopify/Order/1047" and out["done"][0]["screen"] == "Packing screen"
@@ -344,7 +372,9 @@ def test_every_screen_route_is_the_owners_alone(s):
         ("get", "/displays", None),
         ("post", "/displays/register", {"name": "Kitchen"}),
         ("get", f"/displays/{screen['id']}", None),
-        ("post", f"/displays/{screen['id']}/done", {"version": 0, "items_seen": 0}),
+        ("post", f"/displays/{screen['id']}/done", {"version": 0}),
+        ("post", f"/displays/{screen['id']}/seen", {"version": 0, "start": 0, "end": 1}),
+        ("post", "/displays/forget", {"name": "Office screen"}),
     ):
         kwargs = {"json": body} if body is not None else {}
         assert getattr(client, method)(path, **kwargs).status_code == 403, f"{path} from the server itself"
@@ -369,17 +399,28 @@ def test_a_screen_names_itself_asks_and_marks_done(s):
         refused = client.get(f"/displays/{made['id']}?v=-1", headers=headers)
         assert refused.status_code == 403 and refused.json()["code"] == "not_this_screen"
     taken = client.post("/displays/register", json={"name": "packing SCREEN"}, headers=OWNER)
-    assert taken.status_code == 409 and "on right now" in taken.json()["detail"]
+    assert taken.status_code == 409 and taken.json()["code"] == "name_taken"
     s.show(made["id"], views.list_view("Today", ["One"]))
     now = client.get(f"/displays/{made['id']}?v=0", headers=mine).json()
     assert now["version"] == 1 and now["showing"]["title"] == "Today"
-    stale = client.post(f"/displays/{made['id']}/done", json={"version": 0, "items_seen": 1}, headers=mine)
+    stale = client.post(f"/displays/{made['id']}/done", json={"version": 0}, headers=mine)
     assert stale.status_code == 409 and stale.json()["code"] == "stale"
-    keyless = client.post(f"/displays/{made['id']}/done", json={"version": 1, "items_seen": 1}, headers=OWNER)
+    keyless = client.post(f"/displays/{made['id']}/done", json={"version": 1}, headers=OWNER)
     assert keyless.status_code == 403 and keyless.json()["code"] == "not_this_screen"
-    done = client.post(f"/displays/{made['id']}/done", json={"version": 1, "items_seen": 1}, headers=mine).json()
-    assert done["version"] == 2 and done["showing"]["done_at"] and done["last_done"]["title"] == "Today"
+    # Round 7, B-04: a "done" that claims everything was seen, with nothing acknowledged, is refused.
+    claimed = client.post(f"/displays/{made['id']}/done", json={"version": 1, "items_seen": 1}, headers=mine)
+    assert claimed.status_code == 409 and claimed.json()["code"] == "not_seen"
+    assert client.post(f"/displays/{made['id']}/seen", json={"version": 1, "start": 0, "end": 1}, headers=OWNER).status_code == 403
+    assert client.post(f"/displays/{made['id']}/seen", json={"version": 1, "start": 0, "end": 1}, headers=mine).json() == {"seen": 1}
+    done = client.post(f"/displays/{made['id']}/done", json={"version": 1}, headers=mine).json()
+    assert done["version"] == 2 and done["showing"]["done_at"] and done["last_done"]["title"] == "List"
     assert s.done()[0]["by"] == "team@crooksldn.com"
+    # The owner frees the name, explicitly; a device named it afresh gets a new, empty screen.
+    assert client.post("/displays/forget", json={"name": "Packing Screen"}, headers=OWNER).json() == {"forgotten": "Packing screen"}
+    anew = client.post("/displays/register", json={"name": "Packing screen"}, headers=OWNER).json()
+    assert anew["id"] != made["id"]
+    assert client.get(f"/displays/{made['id']}?v=-1", headers=mine).status_code == 404
+    assert client.post("/displays/forget", json={"name": "Kitchen"}, headers=OWNER).status_code == 404
     assert client.get("/displays/scr_000000000000", headers=mine).status_code == 404
     assert client.post("/displays/register", json={"name": "!!!"}, headers=OWNER).status_code == 409
 
@@ -478,7 +519,8 @@ def test_a_packed_slip_keeps_nothing_about_the_customer(tmp_path):
     key = screen["screen_key"]
     s.show(screen["id"], views.order_view(ORDER))
     assert "Sam Carter" in path.read_text(), "while it is up, the slip is the slip"
-    s.mark_done(screen["id"], 1, screen_key=key, items_seen=len(views.order_view(ORDER)["order"]["items"]))
+    ack_all(s, screen["id"], key)
+    s.mark_done(screen["id"], 1, screen_key=key)
     kept = path.read_text()
     for gone in ("Sam Carter", "07700", "E8 1AA", "Sample Road", "gift", "HW-TEE"):
         assert gone not in kept, gone
@@ -487,25 +529,59 @@ def test_a_packed_slip_keeps_nothing_about_the_customer(tmp_path):
     assert showing["title"] == "Order #1047" and showing["ref"] == ORDER["order_id"]
 
 
-def test_an_order_is_marked_packed_only_once_every_item_was_on_the_screen(s):
-    """Round 6, B-04: the screen showed 6 or 12 items and "+N more", with Mark packed live."""
+def test_an_order_is_marked_packed_only_once_every_item_was_acknowledged_on_the_screen(s):
+    """Round 6, B-04: the screen showed 6 or 12 items and "+N more", with Mark packed live. Round
+    7: the page then asserted a count the server took on trust. Now the server keeps which items
+    the screen acknowledged putting up, a page at a time, for the version showing now."""
     screen = s.register("Packing screen")
     key = screen["screen_key"]
     many = dict(ORDER, items=[dict(ORDER["items"][1], title=f"Tee {i}", sku=f"SKU-{i}") for i in range(20)])
     slip = views.order_view(many)
     s.show(screen["id"], slip)
     n = len(slip["order"]["items"])
-    assert n > 12
-    for seen in (None, 0, 12, n - 1):
-        with pytest.raises(DisplayError, match="Not every item on the order was on the screen"):
-            s.mark_done(screen["id"], 1, screen_key=key, items_seen=seen)
+    assert n > store_module.MAX_ACK
+    # A direct "done" that has acknowledged nothing, or part: refused.
+    with pytest.raises(NotSeen, match="Not every item on the order has been on the screen"):
+        s.mark_done(screen["id"], 1, screen_key=key)
+    ack_all(s, screen["id"], key, upto=10)
+    with pytest.raises(NotSeen):
+        s.mark_done(screen["id"], 1, screen_key=key)
+    # Not the whole order in one word: an acknowledgement is a page at most, and inside the slip.
+    for start, end in ((0, n), (0, store_module.MAX_ACK + 1), (15, n + 1), (5, 5)):
+        with pytest.raises(DisplayError, match="A page is at most"):
+            s.acknowledge(screen["id"], 1, screen_key=key, start=start, end=end)
+    with pytest.raises(NotThisScreen):
+        s.acknowledge(screen["id"], 1, screen_key="guess", start=10, end=20)
+    with pytest.raises(DisplayError, match="changed before that"):
+        s.acknowledge(screen["id"], 0, screen_key=key, start=10, end=20)
     assert s.done() == []
-    s.mark_done(screen["id"], 1, screen_key=key, items_seen=n)
+    s.acknowledge(screen["id"], 1, screen_key=key, start=10, end=20)
+    s.mark_done(screen["id"], 1, screen_key=key)
     assert len(s.done()) == 1
+    # Acknowledgements belong to a version: a new slip starts from none.
+    s.show(screen["id"], slip)
+    with pytest.raises(NotSeen):
+        s.mark_done(screen["id"], 3, screen_key=key)
     src = (Path(__file__).resolve().parent.parent / "web" / "display.js").read_text()
     assert "+ ' more on the order" not in src and "Ask CLIVE for the rest" not in src
-    assert "items_seen" in src and "packedLocked()" in src and "'Next items'" in src and "'Next page'" in src
-    assert "X-Screen-Key" in src
+    assert "items_seen" not in src and "'/seen'" in src and "packedLocked()" in src
+    assert "'Next items'" in src and "'Next page'" in src and "X-Screen-Key" in src
+
+
+def test_after_a_restart_every_page_must_be_shown_again_before_done(tmp_path):
+    """Acknowledgements are held in memory: a restart between them and the tap means the pages go
+    up again first."""
+    path = tmp_path / "displays.json"
+    s = DisplayStore(path)
+    screen = s.register("Packing screen")
+    key = screen["screen_key"]
+    s.show(screen["id"], views.list_view("Today", ["One", "Two"]))
+    ack_all(s, screen["id"], key)
+    restarted = DisplayStore(path)
+    with pytest.raises(NotSeen):
+        restarted.mark_done(screen["id"], 1, screen_key=key)
+    ack_all(restarted, screen["id"], key)
+    restarted.mark_done(screen["id"], 1, screen_key=key)
 
 
 def test_whatever_is_left_up_comes_down_by_itself(tmp_path):
@@ -553,9 +629,9 @@ def test_a_slip_cut_at_the_screens_limit_is_never_marked_packed(s):
     assert o["partial"] is True and o["total_items"] == views.MAX_ITEMS + 15 and len(o["items"]) == views.MAX_ITEMS
     assert "partial" not in views.order_view(ORDER)["order"]
     s.show(screen["id"], slip)
-    for seen in (views.MAX_ITEMS, views.MAX_ITEMS + 15, 10_000):
-        with pytest.raises(DisplayError, match="more items than a screen shows"):
-            s.mark_done(screen["id"], 1, screen_key=key, items_seen=seen)
+    ack_all(s, screen["id"], key)       # every item it has, acknowledged: still not the whole order
+    with pytest.raises(DisplayError, match="more items than a screen shows"):
+        s.mark_done(screen["id"], 1, screen_key=key)
     assert s.done() == [] and s.poll(screen["id"], key)["showing"].get("done_at") is None
     src = (WEB / "display.js").read_text(encoding="utf-8")
     assert "const partial = !!o.partial && !packed;" in src and "noteFoot(" in src
@@ -599,7 +675,7 @@ def test_every_field_of_a_view_is_bounded_and_the_record_stays_small(tmp_path):
         s.show(made["id"], order)
     s._data["done"] = [{"at": "2999-01-01T00:00:00+00:00", "screen": "S" * 40, "screen_id": "scr_000000000000",
                         "kind": "order", "ref": "r" * 200, "title": "t" * 120, "by": "b" * 80}] * MAX_DONE
-    s._save()
+    s._write()
     assert (tmp_path / "displays.json").stat().st_size < store_module.MAX_FILE_BYTES
 
 
@@ -633,7 +709,7 @@ def test_housekeeping_takes_a_slip_down_with_no_screen_asking_and_at_start_up(tm
                         "screen": "Packing screen", "ref": "gid://shopify/Order/1", "title": "Order #1", "kind": "order"},
                        {"at": dt.datetime.fromtimestamp(clock.now, dt.UTC).isoformat(timespec="seconds"),
                         "screen": "Packing screen", "ref": "gid://shopify/Order/2", "title": "Order #2", "kind": "order"}]
-    s._save()
+    s._write()
     fresh = store_module.install(path, clock=lambda: clock.now + SHOWING_KEEP_S + 60)   # the start: read and swept at once
     kept = path.read_text()
     assert "Sam Carter" not in kept and "Order #1" not in kept and "Order #2" in kept
@@ -718,3 +794,100 @@ def test_a_list_is_refused_before_anything_is_done_with_it(s, monkeypatch):
         assert text.startswith("ERROR") and why in text, text
     text = run(dispatch("screen_show", {"screen": "Office screen", "title": "t" * 500, "lines": ["a"]}, session=session, timeout_s=5))
     assert text.startswith("ERROR") and "at most 120 characters" in text
+
+
+# --------------------------------------------------------------------------- round 7, B-03
+
+
+def test_the_done_record_keeps_no_ones_words(tmp_path):
+    """Round 7, B-03: a done row and the slip it leaves kept the view's title and reference, and
+    a list's or objective's title is the owner's own text, which can name a customer. Only an
+    order's number, or the kind, is kept."""
+    path = tmp_path / "displays.json"
+    s = DisplayStore(path)
+    screen = s.register("Office screen")
+    key = screen["screen_key"]
+    for view, title, ref in (
+        (views.list_view("Sam Carter's alterations", ["Hem the trousers"]), "List", ""),
+        (views.objective_view({"id": "obj_0123abcd", "title": "Call Sam Carter back"}, []), "Objective", "obj_0123abcd"),
+        (views.order_view(ORDER), "Order #1047", "gid://shopify/Order/1047"),
+        ({"kind": "order", "ref": "Sam Carter", "title": "Order for Sam Carter"}, "Order", ""),
+    ):
+        s.show(screen["id"], view)
+        ack_all(s, screen["id"], key)
+        s.mark_done(screen["id"], s.poll(screen["id"], key)["version"], screen_key=key)
+        row = s.done()[0]
+        assert (row["title"], row["ref"]) == (title, ref)
+        assert s.poll(screen["id"], key)["showing"]["title"] == title
+    stored = path.read_text()
+    assert "Sam Carter" not in stored and "Hem the trousers" not in stored
+
+
+def test_a_change_that_could_not_be_written_is_not_made(tmp_path, monkeypatch):
+    """Round 7, B-03: _save swallowed every failure and did not flush the folder, so a change
+    could look made in memory while the disk said otherwise. The folder is flushed, and a failed
+    write puts the record back and refuses the change."""
+    path = tmp_path / "displays.json"
+    s = DisplayStore(path)
+    screen = s.register("Office screen")
+    flushed: list[str] = []
+    real = store_module._fsync_dir
+    real_replace = store_module.os.replace
+    monkeypatch.setattr(store_module, "_fsync_dir", lambda folder: (flushed.append(str(folder)), real(folder)))
+    s.show(screen["id"], views.list_view("Today", ["One"]))
+    assert flushed == [str(path.parent)], "the folder is flushed after the file is renamed into place"
+    before = path.read_bytes()
+
+    # The record could not be put in place: nothing changed, in memory or on disk.
+    monkeypatch.setattr(store_module.os, "replace", lambda *a: (_ for _ in ()).throw(OSError(28, "No space left")))
+    with pytest.raises(store_module.NotSaved):
+        s.show(screen["id"], views.order_view(ORDER))
+    assert s.poll(screen["id"], screen["screen_key"])["showing"]["title"] == "Today", "memory put back as it was"
+    assert path.read_bytes() == before and not list(path.parent.glob(".displays.json.*.tmp")), "no temporary left behind"
+    monkeypatch.setattr(store_module.os, "replace", real_replace)
+
+    # In place, but the folder could not be flushed: the change stands (it is the file), and
+    # that it may not survive a power cut is said and put right on the next pass.
+    def broken(folder):
+        raise OSError(5, "I/O error")
+
+    monkeypatch.setattr(store_module, "_fsync_dir", broken)
+    s.show(screen["id"], None)
+    assert s.unsaved and s.sweep() == "the screens record could not be made durable on disk yet"
+    monkeypatch.setattr(store_module, "_fsync_dir", real)
+    assert s.sweep() == "" and not s.unsaved
+
+
+def test_a_slip_taken_down_stays_down_and_its_removal_is_retried_until_it_is_on_disk(tmp_path, monkeypatch):
+    """Round 7, B-03: expiry could appear to succeed in memory while the slip stayed on disk. A slip
+    past its time is never shown again; if its removal cannot be written, the store says so (the
+    housekeeping pass reports it on /health) and writes it on the next pass that can."""
+    import datetime as dt
+
+    from app.main import housekeep_once
+
+    clock = Clock()
+    monkeypatch.setattr(store_module, "_now_iso", lambda: dt.datetime.fromtimestamp(clock.now, dt.UTC).isoformat(timespec="seconds"))
+    path = tmp_path / "objectives" / "displays.json"
+    s = store_module.install(path, clock=clock)
+    screen = s.register("Packing screen")
+    s.show(screen["id"], views.order_view(ORDER))
+    clock.now += SHOWING_KEEP_S + 60
+    real_write = DisplayStore._write
+    monkeypatch.setattr(DisplayStore, "_write", lambda self: (_ for _ in ()).throw(OSError(28, "No space left")))
+    assert s.poll(screen["id"], screen["screen_key"])["showing"] is None, "down, even though the disk could not be told"
+    problem = housekeep_once(object())
+    assert "could not yet be removed from disk" in problem and s.unsaved
+    assert "Sam Carter" in path.read_text(), "still on disk: which is exactly what is being reported"
+    monkeypatch.setattr(DisplayStore, "_write", real_write)
+    assert housekeep_once(object()) == "" and not s.unsaved
+    assert "Sam Carter" not in path.read_text()
+
+
+def test_the_screens_route_says_a_change_was_not_saved(s, monkeypatch):
+    client = app_with(s, local_owner=True)
+    made = client.post("/displays/register", json={"name": "Packing screen"}, headers=OWNER).json()
+    monkeypatch.setattr(DisplayStore, "_write", lambda self: (_ for _ in ()).throw(OSError(28, "No space left")))
+    refused = client.post("/displays/register", json={"name": "Kitchen screen"}, headers=OWNER)
+    assert refused.status_code == 503 and refused.json()["code"] == "not_saved"
+    assert [x["name"] for x in s.screens()] == ["Packing screen"] and made["id"]
