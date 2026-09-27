@@ -30,6 +30,13 @@ the re-run. A commit pushed to a branch and also opened as a pull request carrie
 event; both must be green. A run of any other workflow is not listed under this workflow and could
 not stand in for it.
 
+The list is asked for with the SHA and a page size and nothing else: no ``event``, and no
+``exclude_pull_requests`` (the re-pin review of a599a447, F-01). GitHub documents that parameter as
+emptying each run's ``pull_requests`` association array, never as dropping a run a pull request
+triggered, but a query that names pull requests at all invites exactly that reading, and the gate
+has no use for the array. So every run of the workflow for the SHA is listed, whatever triggered
+it, and each one must be green.
+
 The credential is the one git already uses for the loop's remote (``git_remote_token``); no new
 credential exists. It is read at the moment of each request, held in a local for that request,
 and never logged, stored or put into an error. Nothing this module reports carries GitHub's own
@@ -279,7 +286,7 @@ class GitHubAcceptance:
             workflow = ACCEPTANCE_WORKFLOW.rsplit("/", 1)[-1]
             result = evaluate(sha, self._get(
                 f"/repos/{repository}/actions/workflows/{workflow}/runs",
-                {"head_sha": sha, "per_page": str(MAX_RUNS), "exclude_pull_requests": "true"}, headers, "workflow-runs"))
+                {"head_sha": sha, "per_page": str(MAX_RUNS)}, headers, "workflow-runs"))
             if not result.green:
                 return result
             for run in result.runs:
