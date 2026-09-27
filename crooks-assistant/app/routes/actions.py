@@ -91,6 +91,44 @@ def caller_check(request: Request) -> tuple[str, str, str, str]:
     return "", "not_authorised_local", "Requests made on the server itself may not apply changes (CROOKS_WRITES_LOCAL_OWNER).", "not_authorised_local"
 
 
+def principal_check(request: Request) -> tuple[str, str]:
+    """Who may read or change the owner's own records — objectives, builds, the gap record,
+    copies of the screen — as (who, why refused). The write boundary's rule without the writes
+    switch (the 2026-09-26 deploy review, F-05): with an allow-list, a proxied caller must be on
+    it and, when CROOKS_TAILSCALE_VERIFY is on, Tailscale must confirm the device is theirs;
+    a request made on the server itself is refused unless CROOKS_WRITES_LOCAL_OWNER says the
+    server is the owner. Other processes run on that host. With no allow-list (a private
+    development machine) everyone who can reach the port may, as before."""
+    runtime = getattr(request.app.state, "runtime", None)
+    allowed = getattr(runtime, "allowed_logins", ()) if runtime is not None else ()
+    if not allowed:
+        return "local", ""
+    settings = runtime.settings
+    login = request.headers.get("tailscale-user-login", "").strip()
+    if request.headers.get("x-forwarded-for"):
+        if not login or login.lower() not in allowed:
+            return "", "This login may not use this."
+        if settings.tailscale_verify:
+            from app import identity
+
+            ok, why = identity.verify(request.headers.get("x-forwarded-for", ""), login, cli=identity.cli_path(settings.tailscale_cli))
+            if not ok:
+                return "", f"Tailscale could not confirm this device's identity: {why}."
+        return login.lower(), ""
+    if settings.writes_local_owner:
+        return "local", ""
+    return "", "Requests made on the server itself may not use this (CROOKS_WRITES_LOCAL_OWNER)."
+
+
+async def require_principal(request: Request) -> None:
+    """A route dependency: principal_check, refused as 403 with its reason."""
+    from fastapi import HTTPException
+
+    who, why = principal_check(request)
+    if why:
+        raise HTTPException(status_code=403, detail=why)
+
+
 def caller_identity(request: Request) -> str:
     """Who is asking, for binding a conversation to them: the proxied login, or "local" for
     a request made on the Mac itself. The middleware has already refused a proxied request

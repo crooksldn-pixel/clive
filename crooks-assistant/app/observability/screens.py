@@ -24,8 +24,10 @@ The result draws as the page did, less what it must not keep.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from html import escape
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any
 
 # Dropped with everything inside them.
@@ -42,6 +44,40 @@ _DRAWING = frozenset({"d", "points", "viewbox", "transform", "x", "y", "x1", "x2
 _SVG_CASE = {n.lower(): n for n in ("viewBox", "preserveAspectRatio", "gradientUnits", "gradientTransform",
                                     "patternUnits", "patternTransform", "clipPathUnits", "maskUnits", "markerWidth",
                                     "markerHeight", "refX", "refY", "stdDeviation", "textLength", "lengthAdjust")}
+# Attribute names are kept only from this list, or as aria-/data- names of letters and hyphens:
+# a name is written down too, and an arbitrary one could carry anything (F-02, third round).
+_KNOWN = frozenset({
+    "class", "id", "style", "type", "role", "title", "alt", "placeholder", "name", "for", "value", "src", "width",
+    "height", "hidden", "disabled", "checked", "selected", "readonly", "tabindex", "rows", "cols", "maxlength",
+    "min", "max", "step", "open", "lang", "dir", "colspan", "rowspan", "inert", "autocomplete", "enterkeyhint",
+    "inputmode", "xmlns", "xmlns:xlink", "viewbox", "d", "points", "fill", "stroke", "stroke-width",
+    "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "fill-rule", "clip-rule",
+    "opacity", "fill-opacity", "stroke-opacity", "transform", "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "r",
+    "rx", "ry", "offset", "stop-color", "preserveaspectratio", "focusable", "loading", "decoding", "draggable",
+    "contenteditable", "spellcheck", "translate",
+})
+# ARIA names are one word after "aria-"; data- names are only the ones CLIVE's own page uses,
+# read from its source, so a name made up by whoever posted the copy is not kept.
+_ARIA_NAME = re.compile(r"^aria-[a-z]{2,20}$")
+_WEB = Path(__file__).resolve().parents[2] / "web"
+
+
+@lru_cache(maxsize=1)
+def _data_names() -> frozenset[str]:
+    names: set[str] = set()
+    for path in [*_WEB.glob("*.js"), *_WEB.glob("*.html"), *_WEB.glob("*.css")]:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        names.update(re.findall(r"data-[a-z][a-z0-9-]*", text))
+        for camel in re.findall(r"dataset\.([a-zA-Z]+)", text):
+            names.add("data-" + re.sub(r"([A-Z])", lambda m: "-" + m.group(1).lower(), camel))
+    return frozenset(names)
+# What a drawing attribute may hold: numbers and path or transform words, nothing else; and no
+# run of seven or more digits, which no coordinate has and a phone number does.
+_DRAWING_VALUE = re.compile(r"^(?:[\s,.+\-eE0-9MmLlHhVvCcSsQqTtAaZz()]|matrix|translate|scale|rotate|skewX|skewY)*$")
+_LONG_NUMBER = re.compile(r"\d{7,}")
 _NAME = re.compile(r"^[a-zA-Z_:][-a-zA-Z0-9_:.]{0,60}$")
 _TAG = re.compile(r"^[a-zA-Z][a-zA-Z0-9:-]{0,40}$")
 _INLINE_IMAGE = re.compile(r"^data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=\s]+$")
@@ -56,12 +92,6 @@ def _clean(text: str) -> str:
     from app.observability.timeline import scrub_text
 
     return scrub_text(text)
-
-
-def _credentials_only(text: str) -> str:
-    from app.observability.timeline import _SECRET
-
-    return _SECRET.sub("[secret]", text)
 
 
 class _Sanitiser(HTMLParser):
@@ -142,6 +172,8 @@ class _Sanitiser(HTMLParser):
             name = raw_name.lower()
             if not _NAME.fullmatch(raw_name) or name.startswith("on") or name in _URL_ATTRS:
                 continue
+            if name not in _KNOWN and not _ARIA_NAME.fullmatch(name) and name not in _data_names():
+                continue
             value = "" if raw_value is None else str(raw_value)
             if typed and name == "value":
                 if kind in ("hidden", "password"):
@@ -151,9 +183,11 @@ class _Sanitiser(HTMLParser):
                 if not _INLINE_IMAGE.fullmatch(value):
                     continue
             elif name == "style":
-                value = _credentials_only(_CSS_URL.sub("none", value))
+                value = _clean(_CSS_URL.sub("none", value))
             elif name in _DRAWING:
-                value = _credentials_only(value)
+                # Numbers only: a drawing value that is anything else is not kept at all.
+                if not _DRAWING_VALUE.fullmatch(value) or _LONG_NUMBER.search(value):
+                    continue
             else:
                 value = _clean(value)
             parts.append(f' {_SVG_CASE.get(name, raw_name)}="{escape(value, quote=True)}"')

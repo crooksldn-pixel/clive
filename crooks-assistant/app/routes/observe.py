@@ -222,6 +222,11 @@ async def telemetry_screen(request: Request) -> Response:
     session = timeline.own
     if session is None or not getattr(runtime.settings, "screen_snapshots", False):
         return Response(status_code=204)
+    from app.routes.actions import principal_check
+
+    # Only the owner's own devices, confirmed, put a picture in the record (F-05).
+    if principal_check(request)[1]:
+        return Response(status_code=204)
     raw = await request.body()
     if not raw or len(raw) > MAX_SCREEN_BYTES:
         return Response(status_code=204)

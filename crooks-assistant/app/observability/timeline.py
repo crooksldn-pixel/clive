@@ -181,6 +181,7 @@ class Timeline:
         # bound an event is dropped at once and counted.
         self._queue: queue.Queue = queue.Queue(maxsize=MAX_PENDING_EVENTS)
         self._pending_bytes = 0
+        self._in_flight = 0         # lines taken from the queue and not yet on disk
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._seq = 0
@@ -340,8 +341,11 @@ class Timeline:
             taken = sum(len(one.encode("utf-8")) for lines in batch.values() for one in lines)
             with self._lock:
                 self._pending_bytes = max(0, self._pending_bytes - taken)
+                self._in_flight = sum(len(lines) for lines in batch.values())
             for target, lines in batch.items():
                 self._append(target, lines)
+            with self._lock:
+                self._in_flight = 0
 
     def _append(self, path: Path, lines: list[str]) -> None:
         """Lines onto a timeline, up to MAX_TIMELINE_BYTES a file. Past that, what follows is
@@ -382,11 +386,11 @@ class Timeline:
     def flush(self, timeout_s: float = 2.0) -> bool:
         """Wait, briefly, for what is queued to reach disk. For stop, and for tests."""
         deadline = time.monotonic() + timeout_s
-        while not self._queue.empty() and time.monotonic() < deadline:
+        while (not self._queue.empty() or self._in_flight) and time.monotonic() < deadline:
             time.sleep(0.005)
         # The writer may hold the last batch after the queue is empty; give it a moment.
         time.sleep(0.01)
-        return self._queue.empty()
+        return self._queue.empty() and not self._in_flight
 
     @property
     def counts(self) -> dict[str, Any]:
@@ -404,10 +408,16 @@ class Timeline:
         session = self.own or self.sessions.last()
         on_disk = count_events(self.sessions.timeline_path(session)) if session is not None else 0
         queued = self._queue.qsize()
+        pending = queued + self._in_flight
+        # `written` is only what is on disk (the 2026-09-26 deploy review, F-10): an event still
+        # waiting may yet be dropped at the file's cap or by a failed write, so it is counted
+        # apart, as pending, and the figure is final only when nothing is.
         return {
-            "written": on_disk + queued,          # what the session holds once the queue lands
+            "written": on_disk,
             "on_disk": on_disk,
+            "pending": pending,
             "queued": queued,
+            "settled": pending == 0,
             "dropped": self._dropped,
             "this_process": self._written,
             "test_session_id": session.test_session_id if session is not None else "",
@@ -448,7 +458,8 @@ class NullTimeline(Timeline):
 
     @property
     def counts(self) -> dict[str, Any]:
-        return {"written": 0, "on_disk": 0, "queued": 0, "dropped": 0, "this_process": 0, "test_session_id": ""}
+        return {"written": 0, "on_disk": 0, "pending": 0, "queued": 0, "settled": True, "dropped": 0, "this_process": 0,
+                "test_session_id": ""}
 
 
 _current: Timeline = NullTimeline()

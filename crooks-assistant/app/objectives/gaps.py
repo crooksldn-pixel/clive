@@ -128,6 +128,7 @@ class GapLedger:
         for name in ("gaps", "builds", "misjudged"):
             if not isinstance(data.get(name), dict):
                 data[name] = {}
+        _sanitise(data)
         return data
 
     def _save(self, data: dict[str, Any]) -> None:
@@ -324,6 +325,63 @@ def _hit(data: dict[str, Any], key: str, source: str, text: str, objective_id: s
     gap["seen"] = sorted(gap.get("seen", []) + [at])[-50:]
     if objective_id and objective_id not in gap["objectives"]:
         gap["objectives"] = (gap["objectives"] + [objective_id])[-MAX_LINKS:]
+
+
+def _clean_key(key: str) -> str:
+    return tool_key(key[6:]) if str(key).startswith("tool: ") else key_for(key)
+
+
+def _sanitise(data: dict[str, Any]) -> None:
+    """Every key, name and label the record holds, cleaned by today's rule, whatever wrote it:
+    a record written before keys were redacted is cleaned the first time it is read, and saved
+    clean with the next change (the 2026-09-26 deploy review, F-07). Idempotent."""
+    renamed: dict[str, str] = {}
+    gaps: dict[str, dict] = {}
+    for key, gap in data["gaps"].items():
+        if not isinstance(gap, dict):
+            continue
+        new = _clean_key(str(key))
+        renamed[str(key)] = new
+        gap["label"] = _minimal(gap.get("label") or new)
+        if gap.get("name"):
+            gap["name"] = _minimal(gap["name"])[:MAX_KEY]
+        if new in gaps:
+            _merge(gaps[new], gap)
+        else:
+            gaps[new] = gap
+    data["gaps"] = gaps
+    for build in data["builds"].values():
+        if isinstance(build, dict) and isinstance(build.get("gaps"), list):
+            build["gaps"] = sorted({renamed.get(str(k), _clean_key(str(k))) for k in build["gaps"]})
+    misjudged: dict[str, dict] = {}
+    for cap, row in data["misjudged"].items():
+        if not isinstance(row, dict):
+            continue
+        key = _misjudged_key(cap)
+        if key in misjudged:
+            into = misjudged[key]
+            into["count"] = int(into.get("count", 0)) + int(row.get("count", 0))
+            into["first_seen"] = min(filter(None, [into.get("first_seen"), row.get("first_seen")]), default=None)
+            into["last_seen"] = max(filter(None, [into.get("last_seen"), row.get("last_seen")]), default=None)
+        else:
+            misjudged[key] = row
+    data["misjudged"] = misjudged
+
+
+def _merge(into: dict, other: dict) -> None:
+    """Two gaps that turn out to be one, once cleaned."""
+    into["hits"] = int(into.get("hits", 0)) + int(other.get("hits", 0))
+    sources = dict(into.get("sources") or {})
+    for source, count in (other.get("sources") or {}).items():
+        sources[source] = int(sources.get(source, 0)) + int(count)
+    into["sources"] = sources
+    for field in ("objectives", "requests"):
+        into[field] = list(dict.fromkeys([*(into.get(field) or []), *(other.get(field) or [])]))[-MAX_LINKS:]
+    into["seen"] = sorted([*(into.get("seen") or []), *(other.get("seen") or [])])[-50:]
+    into["first_seen"] = min(filter(None, [into.get("first_seen"), other.get("first_seen")]), default=None)
+    into["last_seen"] = max(filter(None, [into.get("last_seen"), other.get("last_seen")]), default=None)
+    if not into.get("name") and other.get("name"):
+        into["name"] = other["name"]
 
 
 def _minimal(text: str) -> str:

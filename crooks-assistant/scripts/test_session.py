@@ -97,9 +97,10 @@ def cmd_status(args) -> int:
         print("no test session running" + (f"; last: {last.get('test_session_id')}" if last else ""))
         return 0
     counts = answer.get("events") or {}
-    written, queued = counts.get("written", "?"), counts.get("queued", "?")
+    written, pending = counts.get("written", "?"), counts.get("pending", counts.get("queued", "?"))
     dropped, mine = counts.get("dropped", "?"), counts.get("this_process", "?")
-    print(f"{answer['test_session_id']}  name={answer.get('name')!r}  events={written} (on disk {counts.get('on_disk', '?')}, queued {queued}, dropped {dropped}; {mine} written by the backend running now)")
+    print(f"{answer['test_session_id']}  name={answer.get('name')!r}  events on disk={written} (still to write {pending}, "
+          f"which may yet be dropped; dropped {dropped}; {mine} written by the backend running now)")
     print(f"timeline: {answer.get('path')}")
     return 0
 

@@ -7,6 +7,7 @@ LAN IP looks like it works and then fails on the browser API that actually matte
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import mimetypes
 from contextlib import asynccontextmanager
@@ -93,9 +94,37 @@ async def lifespan(app: FastAPI):
         # problem, and each /turn retries start() so fixing it needs no restart.
         log.error("Claude provider did not start: %s", exc)
     app.state.runtime.warm_orders_soon()
+    housekeeping = asyncio.create_task(_housekeeping(app.state.runtime))
     log.info("CROOKS Assistant ready (bind address is whatever uvicorn was started with)")
     yield
+    housekeeping.cancel()
     await app.state.runtime.aclose()
+
+
+# How often test mode's records are aged and tightened with nobody using the service (the
+# 2026-09-26 deploy review, F-04): the day's roll, the sessions past their keep and the reports
+# drawn from them happen on a clock, not only when the next event asks.
+HOUSEKEEPING_S = 15 * 60
+
+
+def housekeep_once(runtime) -> None:
+    """One pass: let the always-on session roll if the day has turned, then age the sessions
+    and the reports and make the reports private. Never raises."""
+    tests = getattr(runtime, "tests", None)
+    if tests is None:
+        return
+    try:
+        tests.active()
+        tests.prune()
+        tests.tidy_reports()
+    except Exception:  # noqa: BLE001 - housekeeping never takes the service down
+        log.warning("test-mode housekeeping did not complete", exc_info=True)
+
+
+async def _housekeeping(runtime) -> None:
+    while True:
+        await asyncio.sleep(HOUSEKEEPING_S)
+        await asyncio.to_thread(housekeep_once, runtime)
 
 
 app = FastAPI(title="CROOKS Assistant", version="0.1.0", lifespan=lifespan)
