@@ -166,11 +166,45 @@ python scripts/healthcheck.py -v     # every check
 
 `/ping` is the cheap one — no external call, never cached — and `/health` is the real one.
 
+## Deploying a new build
+
+A production deploy is an exact `clive/trunk` SHA, and it happens only after an independent
+exact-SHA review of that SHA. Neither a green acceptance run nor the SHA's place on the trunk
+counts as review, because the trunk is unprotected. Where the pipeline stands now is in
+[CURRENT_TRUTH.md](product-memory/CURRENT_TRUTH.md), "Where the deploy is".
+
+What every deploy must hold:
+
+- **Code and unit together.** The checkout and the re-rendered unit are installed in one
+  operation, with a rollback to the previous SHA and the saved unit if any step fails. The unit
+  must start uvicorn with `--no-proxy-headers`: the app judges who opened each connection
+  itself, and uvicorn's own handling would replace that address first. `/health`
+  `checks.proxy_identity` says whether the running process has the flag.
+- **The switches stay as they are.** The table is in CURRENT_TRUTH. A deploy changes no `.env`
+  line and no credential.
+- **Tailscale is what the proxy check trusts.** These must all hold, or every owner device is
+  refused:
+  - tailscaled runs as `/usr/sbin/tailscaled`, owned by root;
+  - it runs in `system.slice/tailscaled.service`;
+  - that cgroup's folder and its `cgroup.procs` are root's alone;
+  - this server's tailnet address is in the kernel's own tables (`/proc/net/fib_trie`, and
+    `/proc/net/if_inet6` for IPv6).
+- **Reports must be private, or it will not start.** At start-up every report is set to 0600
+  and every folder to 0700. Anything that cannot be fixed is moved into `reports/.withheld/`;
+  nothing is deleted. If the reports folder itself cannot be made private or read, the service
+  refuses to start. A rollback, not a retry, is the answer to that.
+- **A real phone gets through.** Opening `/whoami` on the owner's phone writes one line to the
+  service's journal, without the login:
+  `whoami: through=tailscale owner=true refusal=none`. The deploy is kept only once that line
+  appears. A request the server makes to itself through `tailscale serve` logs
+  `through=this_host owner=false`.
+
 ## The capability-gap record, cleaned at start-up
 
-The first start of a build with the round-6 gap rule rewrites
-`/var/lib/crooks-assistant/objectives/gaps.json` to that rule (every key and label redacted,
-only known fields kept, links checked), keeping the exact original first as
+The first start of a build with the current gap rule (deploy review rounds 6 and 7) rewrites
+`/var/lib/crooks-assistant/objectives/gaps.json` to that rule: every key and label redacted,
+only known fields kept, every kept value validated, and links kept only when both sides agree.
+It keeps the exact original first as
 `gaps.json.<UTC time>.before-clean` beside it (0600, never overwritten). The code before it
 (3e77f215) reads the cleaned file as it is — `tests/test_capability_gaps.py` runs that code
 against it — so rolling the code back needs nothing else. To put the original back as well:
