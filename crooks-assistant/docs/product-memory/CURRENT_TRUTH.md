@@ -15,9 +15,14 @@ Where anything further down this file disagrees with this section, this section 
 | | SHA | What it is |
 |---|---|---|
 | **Production** (`/opt/crooks-os`) | `6a29e310` | Deployed on 27 Sep under the owner's waiver of the round-8 findings ("sure - lets waive review - go"). Both phone checks passed. Record: `claude/deploy-review-round-8-findings` (`74bd8301`). |
-| **Candidate** | the `clive/trunk` head | PR #51: the 21 round-8 findings fixed and the screens restyled. PR #52: iOS blue, live voice, no fast lane or speech terms, and the TV remote. Then YouTube on the screens (below). |
+| **Candidate** | the `clive/trunk` head | PR #51 (the round-8 findings, the screens restyled), PR #52 (iOS blue, live voice, no fast lane, the TV remote), PR #53 (YouTube on the screens), PR #54 (round 10: round 9's findings), and round 11's PR (round 10's findings, and the evidence below). |
+| **Last review** | round 10, of `81c78948` | Not deployed. The reviewer's API account ran out of credits after 19 of 29 parts. Record: `claude/deploy-review-round-10-findings` (`7510202c`). Round 9 (of `c6c640d7`): not deployed; `claude/deploy-review-round-9-findings`. |
 
-**Next:** the round-9 prompt on the production host. It reviews the candidate under the owner's ship rule: only a finding that can be exploited, would lose data or would leak data, on production as configured, blocks the deploy; every other finding is a follow-up. The switches, the parked engineering credential and "code and unit in one operation" are as in the 27 Sep section below.
+**Next:** the owner tops up the reviewer's API account; then the round-11 prompt on the production host reviews the candidate under his ship rule — only a finding that can be exploited, would lose data or would leak data, on production as configured, blocks the deploy; every other finding is a follow-up. The switches, the parked engineering credential and "code and unit in one operation" are as in the 27 Sep section below. The unit changes in this deploy (`--timeout-graceful-shutdown 10`), and each TV is reloaded once after it (`docs/DEPLOY_LINUX.md`).
+
+**Why rounds 9 and 10 did not converge, and what changed.** Most of their blocking findings were a reviewer saying "I cannot settle this from my files": each part held one slice of the tree. Round 11 fixed the real defects (eight in round 10, three of them on the TVs) and wrote, for every open finding, the files and tests that settle it: `docs/review/evidence/` (README there). The next review hands a reviewer those files with the question, instead of a slice.
+
+**Still the owner's to rule:** whether a TV's own "Mark packed" counts as packed (B-04; each done row records how it was marked); the regression-only ship rule (proposed 28 Sep, unanswered); whether "open the inbox" after binding Add a note should be held only by his tap (as now) or also by a check on the words (round 9, I-tests5 I-01).
 
 **YouTube on the screens.** "Play the Heat trailer on the TV" finds the video on YouTube and plays it on a screen, in YouTube's own privacy-enhanced embedded player; the owner's app becomes its remote (play, pause, ten seconds either way, where it is, the volume), and so does the TV's own remote. "Pause the TV", "turn it up" and "back thirty seconds" work through CLIVE.
 
