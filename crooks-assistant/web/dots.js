@@ -10,6 +10,11 @@
  *
  * Nothing here reads or sends anything: the pages decide what the dots form (web/display.js,
  * web/startup.js). Paused when off screen or hidden; cheaper when shown small.
+ *
+ * Round 11. On a screen the page the dots form can carry a customer's details, as the shapes of
+ * its letters. So what a page drew can be let go of at once (forget); the check for a slip
+ * marked packed comes out of the orb rather than out of the slip (packOut); and an engine
+ * destroyed forgets every dot's place and empties its canvases there and then (destroy).
  */
 'use strict';
 
@@ -413,7 +418,7 @@
       fctx.globalCompositeOperation = 'source-over';
     }
     function render() {
-      if (!u32) return;
+      if (!u32 || !alive) return;   // destroyed: never drawn again, not even the frame it was destroyed in
       u32.fill(0xff000000);
       for (let i = 0; i < P.length; i++) {
         const p = P[i];
@@ -652,30 +657,52 @@
         uiSet.push(p);
       }
     }
-    // Marked done: the page comes apart into its dots, which swirl into a check.
+    // What a page drew is let go of, now (round 11: NEW-B-LOCAL-SLIP and B2-04). Every dot that
+    // holds a place sampled from a page — which, on a screen, can be a customer's name, address or
+    // note, as the shape of its letters — is taken out of it where it is: gone at once, with no
+    // place, no flight queued back to it and none of its colour. The canvas is drawn again at
+    // once without them, not at the next frame. Nothing sampled from that page is drawn again.
+    function forgetPage() {
+      const inUi = new Set(uiSet);
+      for (let i = 0; i < P.length; i++) {
+        const p = P[i];
+        if (!p.uiT && !inUi.has(p)) continue;
+        p.uiT = null; p.q = []; p.seg = null; p.fade = null; p.shim = 0; p.dr = false;
+        p.role = 'gone'; p.a = 0; p.r = C.seed[0]; p.g = C.seed[1]; p.b = C.seed[2];
+      }
+      uiSet = []; noise = null;
+    }
+    function forget() {
+      forgetPage();
+      if (alive && u32) render();
+    }
+    // The canvases emptied now: what they last showed is not left on them (destroy).
+    function blank() {
+      try {
+        if (u32) { u32.fill(0xff000000); ctx.putImageData(img, 0, 0); }
+        if (bctx) bctx.clearRect(0, 0, bloomEl.width, bloomEl.height);
+        if (fctx) { fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, fxEl.width, fxEl.height); }
+      } catch (e) { /* a canvas already gone holds nothing */ }
+    }
+    // Marked done: the check. The dots that drew the page let go of it first, at once (forget),
+    // so they never form it again on their way — what it showed of a customer is not drawn a
+    // moment longer (round 11, B2-04) — and the check swirls out of the orb instead, in a sweep
+    // around its centre. packIn then takes these dots from the check into the page's done state.
     function packOut(ck) {
+      forget();
       const T0 = T, cx = L.check.cx, cy = L.check.cy;
       shimC = { x: cx, y: cy, t0: T0 + 1.3 };
-      const angOf = (x, y) => Math.atan2(y - cy, x - cx);
-      const set = uiSet.filter((p) => p.uiT);
-      for (let i = 0; i < set.length; i++) set[i]._k = angOf(set[i].uiT.x, set[i].uiT.y) + rnd() * 0.3;
-      set.sort((a, b) => a._k - b._k);
-      const pts = ck.map((t) => ({ t, k: angOf(t.x, t.y) + rnd() * 0.3 })).sort((a, b) => a.k - b.k).map((x) => x.t);
-      const n = set.length, m = pts.length;
+      const pool = moversList().filter((p) => p.role === 'gone' && !p.q.length);
+      const pts = fit(ck, pool.length).map((t) => ({ t, k: Math.atan2(t.y - cy, t.x - cx) + rnd() * 0.3 })).sort((a, b) => a.k - b.k).map((x) => x.t);
+      const n = pts.length, set = [];
       for (let i = 0; i < n; i++) {
-        const p = set[i], u = p.uiT;
-        let t = null;
-        if (m >= n) t = pts[Math.floor(i * m / n)];
-        else if (m > 0 && (i === 0 || Math.floor(i * m / n) !== Math.floor((i - 1) * m / n))) t = pts[Math.floor(i * m / n)];
-        if (!t) {
-          const a = rnd() * TAU, r = (300 + rnd() * 160) * L.check.k;
-          t = { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, r: C.done[0], g: C.done[1], b: C.done[2], a: 0.07, s: 1.3 };
-        }
-        p.q = [
-          { t0: T0, d: 0.28 + rnd() * 0.15, ease: 'out', from: [u.x, u.y], fromA: 0, tx: u.x, ty: u.y, r1: u.r, g1: u.g, b1: u.b, a1: u.a, s1: u.s, then: 'rest' },
-          { t0: T0 + 0.5 + (i / Math.max(1, n)) * 0.35 + rnd() * 0.1, d: 0.85 + rnd() * 0.25, ease: 'inout', tx: t.x, ty: t.y, kx: (rnd() - 0.5) * 200, ky: (rnd() - 0.5) * 200, r1: t.r, g1: t.g, b1: t.b, a1: t.a, s1: t.s, then: 'rest', shim: 2 },
-        ];
+        const p = pool[i], t = pts[i];
+        const a = rnd() * TAU, r = rnd() * Math.max(4, orb.R);
+        p.q = [{ t0: T0 + 0.2 + (i / Math.max(1, n)) * 0.45 + rnd() * 0.1, d: 0.85 + rnd() * 0.25, ease: 'inout',
+          from: [orb.cx + Math.cos(a) * r, orb.cy + Math.sin(a) * r], fromA: 0, tx: t.x, ty: t.y,
+          kx: (rnd() - 0.5) * 200, ky: (rnd() - 0.5) * 200, r1: t.r, g1: t.g, b1: t.b, a1: t.a, s1: t.s, then: 'rest', shim: 2 }];
         p.fade = null;
+        set.push(p);
       }
       uiSet = set;
     }
@@ -894,13 +921,16 @@
       time: () => T,
       setSpeed: (s) => { speed = Math.max(0.2, Math.min(3, s || 1)); },
       at,
-      idleIntro, idleNow, clockTo, push, sweepOut, place, packOut, packIn, clear,
+      idleIntro, idleNow, clockTo, push, sweepOut, place, packOut, packIn, clear, forget,
       nameIntro, nameTo, nameToOrb,
       boot, quick, handoff: (B) => (B.quick ? quickHandoff(B) : handoff(B)), setHome,
       simulate,
       stillGlint: (g) => { stillGlint = g; dirty = true; fxDirty = true; },
       freeze: (b) => { frozen = !!b; dirty = true; },
-      destroy: () => { alive = false; cancelAnimationFrame(raf); if (io) io.disconnect(); cbs.length = 0; },
+      // Stopped for good (round 11, NEW-B-LOCAL-SLIP): nothing it was asked to do later happens,
+      // every dot lets go of whatever it was drawing (reset: no place, no flight, no page), and its
+      // canvases are emptied now rather than left showing the last frame.
+      destroy: () => { alive = false; cancelAnimationFrame(raf); if (io) io.disconnect(); reset(); blank(); },
     };
   }
 

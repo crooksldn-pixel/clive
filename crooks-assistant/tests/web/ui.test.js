@@ -1117,6 +1117,51 @@ test('a weighed rail draws one chip loud and the rest behind a disclosure that n
   }
 });
 
+// Round 11, W1-01: an order card's rail is given the order, so a staged chip on it is drawn and
+// posts that order's ref. It was called without one, and railChip drops an enabled "stage" chip
+// that has no record behind it, so every staged order action vanished from the card.
+test('an order card draws its enabled staged chip and posts the order’s ref with it (W1-01)', () => {
+  const staged = [];
+  const node = UI.renderItem({ type: 'order', data: {
+    detail: true, order_id: 'gid://shopify/Order/1938', order_number: '#1938', items: [], pending: [],
+    actions: [
+      { id: 'order_hold', label: 'Hold it', mode: 'stage', enabled: true, priority: 'primary', detail: 'Holds the order; nothing is sent.' },
+      { id: 'fulfil', label: 'Fulfil', mode: 'ask', enabled: true, instruction: 'Fulfil order 1938', priority: 'secondary' },
+    ],
+  } }, { onRowAction: (action, ref) => staged.push([action, ref]) });
+  const chip = node.querySelector('.rail-primary').querySelector('.rail-chip');
+  assert.ok(chip, 'the staged chip is drawn');
+  assert.equal(chip.dataset.action, 'order_hold');
+  assert.equal(chip.dataset.mode, 'stage');
+  assert.equal(chip.dataset.ref, 'gid://shopify/Order/1938', 'it knows which order it is on');
+  assert.equal(chip.getAttribute('aria-disabled'), 'false');
+  chip.dispatch('click', { stopPropagation() {} });
+  assert.deepEqual(staged, [['order_hold', 'gid://shopify/Order/1938']], 'the id and the order, and nothing else');
+  assert.ok(chip.disabled, 'and it cannot be pressed twice while it is being prepared');
+});
+
+// Round 10 part TW, F-01: the screen_remote card is drawn safely — every string as text, the
+// screen's id on the button only when it is a screen's id, and no more than it carries.
+test('the screen_remote card draws its strings as text, and names a screen only by a real screen id (TW F-01)', () => {
+  const node = UI.renderItem({ type: 'screen_remote', data: {
+    screen_id: 'scr_0123456789ab', name: HOSTILE, showing: [HOSTILE, 'Order #1047', 'a third that is not drawn'],
+  } }, {});
+  assert.equal(node.dataset.type, 'screen_remote');
+  assert.ok(textOf(node).includes(HOSTILE), 'the hostile name arrives as the literal text');
+  assert.equal(node.querySelectorAll('img').length + node.querySelectorAll('script').length, 0, 'and never as markup');
+  assert.ok(!textOf(node).includes('a third that is not drawn'), 'two things shown at most');
+  const open = node.querySelector('.remote-open');
+  assert.equal(open.textContent, 'Open the remote');
+  assert.equal(open.dataset.remoteScreen, 'scr_0123456789ab');
+  assert.equal(open.dataset.remoteName, HOSTILE, 'the name travels as data, as text');
+  // Anything that is not a screen's id is not put on the button, so the remote is never opened for it.
+  for (const bad of ['../../displays/x', 'scr_XYZ', 'javascript:alert(1)', '', null, 12]) {
+    const card = UI.renderItem({ type: 'screen_remote', data: { screen_id: bad, name: 'Packing screen', showing: [] } }, {});
+    assert.equal(card.querySelector('.remote-open').dataset.remoteScreen, undefined, String(bad));
+    assert.ok(textOf(card).includes('Showing nothing'));
+  }
+});
+
 test('a staged chip with no record to act on is not drawn at all, whatever the Mac said', () => {
   /* CHANGED IN PHASE 5 (§19/§25). It used to render, dimmed, with `aria-disabled="true"` —
      and with NOTHING SAYING WHY, because `reason` is empty exactly when the Mac believes the

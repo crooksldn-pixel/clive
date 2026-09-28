@@ -910,7 +910,9 @@
         class: `attn-line ${a.level === 'red' ? 'bad' : a.level === 'green' ? 'ok' : 'warn'}`,
       }, [h('span', { class: 'attn-dot', 'aria-hidden': 'true' }), h('span', { text: text(a.title) })]))) : null,
       d.cancelled_at ? h('p', { class: 'card-note bad', text: `Cancelled ${formatDate(d.cancelled_at)}${d.cancel_reason ? ' · ' + text(d.cancel_reason) : ''}` }) : null,
-      rail(d.actions, opts),
+      // The order is the record a staged chip on its rail acts on (round 11, W1-01): without
+      // its ref, railChip drops an enabled "stage" chip as having nothing behind it.
+      rail(d.actions, opts, d.order_id),
       tabs(panels, { initial: tabFor('order', d, opts), onChange: tabReporter('order', d, opts) }),
     ], opts);
     full.dataset.ref = text(d.order_id);

@@ -1,0 +1,256 @@
+[
+  {
+    "finding": "S3P-F-01",
+    "parts": [
+      "S3P"
+    ],
+    "status": "FIXED",
+    "question": "On the remote, does a customer pane that passes CLIVE's 12-hour limit leave the panel's DOM and the page's retained data at once while a finger holds the redraw?",
+    "files": [
+      "crooks-assistant/web/remote.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/remote.test.js::a pane that passes CLIVE’s limit under a finger leaves at once, from the panel and from what the page holds",
+      "crooks-assistant/tests/web/remote.test.js::a pane that passes CLIVE’s limit under a finger leaves at once while the ask is still on its way",
+      "crooks-assistant/tests/web/remote.test.js::under a finger a tick waits for the lift, but a pane CLIVE took off leaves at once",
+      "crooks-assistant/tests/web/remote.test.js::a pane that passes CLIVE’s own limit while it is up leaves at the next ask, answered or not"
+    ],
+    "answer": "It did not: a successful sync called render() without `now`, and render returned under a hold (R.held, 2 s lapse) before filtering expired panes, so the old DOM and R.shown kept them. Now render() first runs expire(), which drops panes past SHOW_KEEP_MS (fresh) from both R.data and R.shown, and leaving(), which compares the pane keys drawn (R.drawn: pane, v, done) with what R.data still shows; either being true redraws at once whatever the hold (the hold still defers a redraw of what may stay, e.g. a tick, until the lift). watchExpiry() sets a timer for the soonest drawn pane's limit, so the pane leaves at its time even when no ask is answered (a hung fetch). close() clears the timer and R.drawn. The three new tests fail on 81c78948 and pass here."
+  },
+  {
+    "finding": "R9-B1-NEW-B-LOCAL-SLIP",
+    "parts": [
+      "S3P",
+      "S3T1"
+    ],
+    "status": "FIXED",
+    "question": "Does an open TV remove a customer's slip — DOM, pane data and the dots sampled from it — at once on local expiry, on a 403 and after two minutes out of reach, including mid-animation?",
+    "files": [
+      "crooks-assistant/web/display.js",
+      "crooks-assistant/web/dots.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/display.test.js::a slip whose time runs out while its dots are still forming it comes down at once, dots and all (the real engine)",
+      "crooks-assistant/tests/web/display.test.js::a slip past its time comes down within a second of it, at once, while the screen is mid-dissolve or mid-journey",
+      "crooks-assistant/tests/web/display.test.js::a refusal, and two minutes out of reach, take a slip down at once while its dots are still forming it",
+      "crooks-assistant/tests/web/display.test.js::a slip older than CLIVE keeps anything comes down even while CLIVE says nothing new",
+      "crooks-assistant/tests/web/display.test.js::a slip past CLIVE’s own limit comes down even while CLIVE cannot be reached at all",
+      "crooks-assistant/tests/web/display.test.js::a 403 takes the customer off the screen at once: page, dots and memory, and says why",
+      "crooks-assistant/tests/web/display.test.js::two minutes out of reach takes the slip down, and not a moment before",
+      "crooks-assistant/tests/web/display.test.js::a refusal of any call of the screen’s own takes the slip down as the ask’s own refusal does",
+      "crooks-assistant/tests/web/dots.test.js::destroy: the canvases are emptied there and then, and nothing is drawn by it again",
+      "crooks-assistant/tests/web/dots.test.js::destroyed from inside its own frame, that frame is not drawn"
+    ],
+    "answer": "Local expiry was the gap: the 5-second check called reconcile(), which deferred while S.busy (mid-journey, mid-pack) and otherwise ran clearScreen(), a dissolve that kept the DOM for 1.3 s and re-formed the page in dots. Now expireDrawn() (called first in reconcile() and by the interval, now every second) takes any drawn pane past SHOW_KEEP_MS down through wipe(''), the same immediate path as a 403 or two minutes out of reach: S.gen bumped (in-flight answers and engine callbacks dropped), DOM drawn empty, videos dropped, S.showing/S.beside/drawnView cleared, version -1 so the next ask starts afresh, and makeEngine() destroys the old dots engine. dots.js destroy() now reset()s every dot (no uiT, no queued flight) and blank()s its three canvases at once, and render() never draws after destroy, even inside its own frame. receive() no longer takes in a pane already past its time. The real-engine test runs display.js with web/dots.js and a canvas that paints the customer's text in pure red: frames before expiry show it, none after. 403 and offline already wiped at once; their mid-animation tests pass before and after (evidence)."
+  },
+  {
+    "finding": "R9-B2-B2-01",
+    "parts": [
+      "S3P"
+    ],
+    "status": "FIXED",
+    "question": "When a screen named before round 10 opens, is its reusable key off script-readable storage the moment the page reads it, whether or not the hand-back to /displays/register succeeds?",
+    "files": [
+      "crooks-assistant/web/display.js",
+      "crooks-assistant/app/routes/displays.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/display.test.js::an old key leaves the device’s storage the moment the page reads it, whether CLIVE answers, refuses or cannot be reached",
+      "crooks-assistant/tests/web/display.test.js::reloaded before CLIVE took the old key back, the screen is named again and never hands a key it no longer has",
+      "crooks-assistant/tests/web/display.test.js::an old key is handed back from memory once CLIVE answers; one CLIVE no longer takes is named again",
+      "crooks-assistant/tests/web/display.test.js::a screen named before round 10 hands its key back once, stays approved, and forgets it"
+    ],
+    "answer": "The round-10 claim was wrong: loadScreen() lifted raw.key into memory and left the record, key and all, until migrate() succeeded. Now loadScreen() rewrites any record carrying more than {id, name} to exactly {id, name} (saveScreen, which returns false on failure, in which case forgetStored() removes the record), before poll()/migrate() run; the key lives only in `legacyKey` for this page's hand-back attempts (migrate retries from memory while CLIVE is away or refusing). If the page is reloaded first, the key is gone: the next GET /displays/{id} carries no cookie and no X-Screen-Key, the server's _holder raises NotThisScreen (app/routes/displays.py _not_this_screen answers not_this_screen), and notThisScreen() forgets the record and names the screen again — the safe outcome, said in the loadScreen comment. Tested with register never answering, unreachable, 500, 503 and a 403 refusal: storage holds {id, name} immediately after load and every write the page ever made is {id, name}. Rotating the previously issued key on migration is server-side (screens-server fixer), not changed here."
+  },
+  {
+    "finding": "R9-B2-B2-04",
+    "parts": [
+      "S3P"
+    ],
+    "status": "FIXED",
+    "question": "After a slip is marked packed, is anything of the customer left: in the DOM, in the pane data, or as dots sampled from the slip that the dots engine draws during pack-out?",
+    "files": [
+      "crooks-assistant/web/display.js",
+      "crooks-assistant/web/dots.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/display.test.js::marked packed, no frame after the tap shows the customer in dots, and the dots keep nothing of the slip (the real engine)",
+      "crooks-assistant/tests/web/display.test.js::marked packed, the dots are told to forget the slip before anything else is drawn, calm or not",
+      "crooks-assistant/tests/web/display.test.js::a slip marked packed shows only its number and when, from the moment it is marked",
+      "crooks-assistant/tests/web/display.test.js::a slip marked packed shows only its number and when, from the moment it is marked (with the dots)",
+      "crooks-assistant/tests/web/dots.test.js::packOut: marked done, the check comes out of the orb and not one frame after shows the page again",
+      "crooks-assistant/tests/web/dots.test.js::forget: the dots let go of the page at once, in the frame drawn there and then and every one after"
+    ],
+    "answer": "They did remain: the old packOut() queued every page dot to reappear at its sampled place (from: [uiT.x, uiT.y], fading in to its colour) for 0.3–0.5 s before flying to the check, redrawing the slip's letters — name, address — in dots after the DOM had been cut to the done summary. Now markedDone() calls E.forget() first (calm or not), and dots.js packOut() starts with forget(): forgetPage() takes every dot holding a page target (uiT or in uiSet) out of it at once (gone, no queue, seed colour) and render() redraws the canvas there and then; the check then forms from dots poured out of the orb, and packIn() takes those into the done page sampled anew from renderDone (CLIVE's done summary: kind, ref, title, at, by, v, done_at). The real-engine test paints customer text pure red and fails on 81c78948's dots.js (red frames after the tap), passes here; the DOM and drawnView checks (round 10) still hold."
+  },
+  {
+    "finding": "R9-B2-B2-02",
+    "parts": [
+      "S3P",
+      "S3T2"
+    ],
+    "status": "EVIDENCED",
+    "question": "On a 403 while a finger holds the remote's panel, is the sensitive DOM cleared synchronously, independent of the redraw hold?",
+    "files": [
+      "crooks-assistant/web/remote.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/remote.test.js::a refusal takes what the remote shows away at once, even with a finger on the panel",
+      "crooks-assistant/tests/web/remote.test.js::a refused change under the finger that made it takes everything away at once, and nothing of it is kept",
+      "crooks-assistant/tests/web/remote.test.js::an answer to an ask made before a refusal never puts anything back; a fresh ask can"
+    ],
+    "answer": "Yes. wipe(why) (web/remote.js) bumps R.gen, aborts the ask in flight, sets R.data = null and calls render(true); `now` bypasses the hold (`if (!now && !privacy && R.held …)`), so clear(U.panes) runs synchronously and R.shown becomes null. sync() calls wipe('refused') on a 403 and post() does on a 403 to any change (tick, done, page, video, off). Both tests are behavioural: a pointerdown is dispatched on the panel and kept down, the 403 arrives (from the ask, and from the owner's own tick), and the panel, R.data and R.shown are empty at once with the finger still down."
+  },
+  {
+    "finding": "R9-B2-B-07",
+    "parts": [
+      "S3P"
+    ],
+    "status": "EVIDENCED",
+    "question": "Is GET / the same data-free HTML for every login, so the service worker's cached shell can hold nothing of anyone's?",
+    "files": [
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/web/index.html",
+      "crooks-assistant/web/sw.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_pages.py::test_the_page_at_the_root_is_the_same_data_free_file_for_every_login_and_session",
+      "crooks-assistant/tests/test_worker_page_mark.py::test_the_page_at_the_root_carries_the_mark_the_served_worker_keeps_it_by",
+      "crooks-assistant/tests/test_displays.py::test_the_pages_a_browser_may_keep_are_the_same_for_every_login",
+      "crooks-assistant/tests/web/sw.test.js::the page kept at / is only ever this build’s own: nothing else that answers there is kept or opened offline",
+      "crooks-assistant/tests/web/sw.test.js::the page the Mac really serves at / is the page the worker keeps"
+    ],
+    "answer": "Yes. app/main.py `index` reads web/index.html and replaces __BUILD__ with the runtime build id — it reads no request field, cookie or session; '/' is in PUBLIC_PATHS, so guard_and_freshness runs no principal check for it and only adds Cache-Control: no-cache, or refuses a login not on the list / an anonymous proxied caller with a JSON 403. web/index.html's only placeholder is the crooks-build meta. The new test serves '/' to two different allowed logins and the server itself, with and without a screen cookie and with gzip or identity, after the owner has used CLIVE: every answer is byte for byte the file with the build written in, with no Set-Cookie; the stranger and anonymous caller get application/json 403. web/sw.js keeps an answer at '/' only if isShell (200, HTML, not redirected, this build's PAGE_MARK) and serves it offline; sw.test.js drives an owner load, then refusals, sign-in pages and another build's page (none kept), then an offline load that gets the owner's shell — which is the same bytes any login would get."
+  },
+  {
+    "finding": "R9-G-G-01",
+    "parts": [
+      "S3P"
+    ],
+    "status": "EVIDENCED",
+    "question": "What is the live-words token's lifetime and destination, and where do live words and telemetry go from the page?",
+    "files": [
+      "crooks-assistant/web/live-voice.js",
+      "crooks-assistant/web/telemetry.js",
+      "crooks-assistant/web/app.js",
+      "crooks-assistant/app/routes/voice.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/live-words-page.test.js::the live words and the key reach no telemetry, storage, console, request or address bar (C-03, G-01)",
+      "crooks-assistant/tests/web/live-words-page.test.js::the callbacks the page hands live-voice.js let it ask for its key, and record its own words, and nothing else (G-01)",
+      "crooks-assistant/tests/web/live-voice.test.js::a key is used within the life the Mac gave it, counted from the ask, or not at all (C-02)",
+      "crooks-assistant/tests/web/live-voice.test.js::an answer with no life the page can honour opens nothing, and a long one is held to a minute (C-02)",
+      "crooks-assistant/tests/web/live-voice.test.js::one key, one socket, one hold: every hold asks afresh and no socket is ever opened twice (C-02)",
+      "crooks-assistant/tests/web/live-voice.test.js::nothing the socket says reaches telemetry: not its message type, its error text or its close reason (C-04)"
+    ],
+    "answer": "Page side, settled. The key: live-voice.js connect() POSTs /voice/live once per hold, keyLife() honours expires_in_s capped at MAX_LIFE_S (60 s) counted from the ask, socketUrl() accepts only a wss: base the Mac gave (app/routes/voice.py socket_url, from elevenlabs_base_url) and a key-shaped token, the token is put only in that socket's URL and `data` is dropped; close() lets socket and controller go. app.js hands LiveVoice.create a fetch that refuses everything but '/voice/live' and a record that passes only 'live_transcript' through telemetryFields (fixed OUTCOMES/REASONS words and whole numbers). The words: onWords → showLiveWords → three data-spoken text nodes only; telemetry.js sends to same-origin /telemetry (and /telemetry/screen, whose copyScreen masks data-spoken nodes like a typed field). The page tests run app.js's real text with the real live-voice.js and telemetry.js and find neither words nor key in telemetry, storage, console, requests or the address bar; the key is in each socket's URL only. Whether ElevenLabs' token is single-use and expires as stated is the provider contract (R9-C-C-02), outside the page. Note: app.js alone is 260 KB; the deciding lines are the live-words section (~1322–1427) and submit()/sendAudio (~3597–3760)."
+  },
+  {
+    "finding": "R9-G-G-02",
+    "parts": [
+      "G"
+    ],
+    "status": "EVIDENCED",
+    "question": "When /turn returns before any /state poll saw `heard`, does the ask bar show the question asked (or clear) instead of the differing live words?",
+    "files": [
+      "crooks-assistant/web/app.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/live-words-page.test.js::when /turn answers before any /state poll saw the transcript, the bar shows the question asked (G-02)",
+      "crooks-assistant/tests/web/live-words-page.test.js::a spoken turn that heard nothing clears the live words from the bar rather than keep them (G-02)",
+      "crooks-assistant/tests/web/live-words-page.test.js::when a /state poll sees the transcript first, the bar shows it at once, and the answer keeps it (G-02)"
+    ],
+    "answer": "Yes (repaired in round 10, unreviewed then). In submit(), an audio turn's answer calls settleLiveWords(data.question, hold): it marks liveHeardFinal, drops the live-voice session, empties #ask-words and puts the Mac's question on #ask-heard via showHeardWords(words, true), or clears it when no question was heard; the `finally` clears the hold's words on every other ending. The /state poll's settleLiveWords(data.heard) does the same when it sees the transcript first. The tests run app.js's own submit/poll text: the bar shows the asked question with no poll, is cleared for an empty question, and keeps the poll's transcript through the answer."
+  },
+  {
+    "finding": "R9-G-G-03",
+    "parts": [
+      "G"
+    ],
+    "status": "EVIDENCED",
+    "question": "Is the move from lilac to iOS blue an appearance change only?",
+    "files": [
+      "crooks-assistant/web/alpha.css",
+      "crooks-assistant/web/index.html"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/accent.test.js::the accent is iOS systemBlue, set once on body.alpha, and the lilac is gone (G-03)",
+      "crooks-assistant/tests/web/accent.test.js::the app’s stylesheets reach nothing: a colour is all they can change (G-03)"
+    ],
+    "answer": "Yes. The change (commit 0bdfe58c) rewrote the colour values of the accent tokens on body.alpha in web/alpha.css (--acc, --acc-glow, --acc-f1/f2, --acc-t1/t2, --border-active, --shadow-active) to iOS systemBlue #0A84FF and its filled-button blues, and comments; no selector, layout or behaviour changed. The test parses the stylesheets web/index.html links: the tokens are the blue values, the six lilac triples appear in no page file, and no stylesheet contains url(), @import, image-set() or expression(), so a stylesheet here can change appearance and nothing else."
+  },
+  {
+    "finding": "R9-C-C-03",
+    "parts": [
+      "W1",
+      "C"
+    ],
+    "status": "EVIDENCED",
+    "question": "Are live words display-only — never submitted, never in telemetry or retained context — and cleared on every turn-ending path (done, error, cancel, refusal, navigation)?",
+    "files": [
+      "crooks-assistant/web/app.js",
+      "crooks-assistant/web/live-voice.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/live-words-page.test.js::answered, refused or failed, a turn keeps nothing of the live words: not on the page, in its state or anything sent (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::a hold cancelled mid-word leaves the live words nowhere and sends nothing (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::the app going out of sight, mid-hold or while the question is out, takes the live words off (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::a question the network drops leaves no live words anywhere (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::a turn that fails leaves no live words on the bar (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::a hold too short to be a question leaves no live words on the bar (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::the live words and the key reach no telemetry, storage, console, request or address bar (C-03, G-01)",
+      "crooks-assistant/tests/web/live-voice.test.js::the words go to onWords and nowhere else, and are forgotten when the hold is over (C-03)",
+      "crooks-assistant/tests/web/live-voice.test.js::drop(): once the Mac has said what it heard, the live words are cleared and their socket let go (C-03)"
+    ],
+    "answer": "Yes. live-voice.js hands words only to onWords and forgets them in close(); app.js's onWords is showLiveWords (text nodes #ask-words, #ask-heard, and the tablet's sub-line while held, all data-spoken). sendAudio posts audio, session_id, turns, speak — never the words; record passes only live_transcript through telemetryFields. Ending paths: answered → settleLiveWords(data.question, hold); refused/failed/aborted/answered on the other half → submit's finally settleLiveWords('', hold); cancelled hold → stopRecording(true) → liveEnd → liveWords.cancel() (onWords('')); too short → settleLiveWords(''); app hidden (navigation away) → visibilitychange → liveWords.cancel(). The new page tests drive each path with app.js's own text and search every text node of the page, its state (history, glass, chunks, turn and session ids) and everything it sent for the live words: found while held (the search works), nowhere after. Note: app.js alone is 260 KB; see the G-01 entry for the deciding line ranges."
+  },
+  {
+    "finding": "R9-C-C-05",
+    "parts": [
+      "C"
+    ],
+    "status": "EVIDENCED",
+    "question": "Does releasing before the WebSocket opens still commit the buffered audio for the live words once it opens?",
+    "files": [
+      "crooks-assistant/web/live-voice.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/live-voice.test.js::released before the socket opens, which then takes longer than the finish: the words are still committed (C-05)",
+      "crooks-assistant/tests/web/live-voice.test.js::after the commit the words have a second and a half, however late the socket opened (C-05)",
+      "crooks-assistant/tests/web/live-voice.test.js::a socket that never opens is let go OPEN_WAIT_MS after the release, quietly (C-05)"
+    ],
+    "answer": "Yes (repaired in round 10, never reviewed). handle.release() closes the tap but keeps s.pending; with the socket not yet open it sets only an OPEN_WAIT_MS (5 s) timer to stop('slow', 'open_wait'). socket.onopen with the thumb up calls finish(), which clears that timer, pumps every buffered chunk with the commit, and only then starts the FINISH_MS (1.5 s) wait. The tests release, advance past 1.5 s, open the socket, and find all 8000 bytes sent with commit: true and the committed words shown."
+  },
+  {
+    "finding": "W1-01",
+    "parts": [
+      "W1"
+    ],
+    "status": "FIXED",
+    "question": "Does renderOrder give rail() the order's ref, so an enabled staged order chip is drawn and posts that ref?",
+    "files": [
+      "crooks-assistant/web/ui.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/ui.test.js::an order card draws its enabled staged chip and posts the order’s ref with it (W1-01)"
+    ],
+    "answer": "It did not: renderOrder called rail(d.actions, opts) with no ref, and railChip drops an enabled 'stage' chip whose ref is empty. renderOrder now calls rail(d.actions, opts, d.order_id) (the same id the card carries as data-ref). The test renders an order with an enabled primary stage action: the chip is drawn with data-ref set to the order's id, and a tap calls onRowAction(action id, order id) and disables the chip; it fails on 81c78948. No order row action is offered by the server today (app/actions/rows.py BY_KIND lists email_thread only), so nothing new appears on the owner's cards until one is."
+  },
+  {
+    "finding": "F-01",
+    "parts": [
+      "TW"
+    ],
+    "status": "EVIDENCED",
+    "question": "Is the screen_remote card type implemented in web/ui.js and rendered safely (text via textContent, not HTML)?",
+    "files": [
+      "crooks-assistant/web/ui.js",
+      "crooks-assistant/web/remote.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/ui.test.js::the screen_remote card draws its strings as text, and names a screen only by a real screen id (TW F-01)",
+      "crooks-assistant/tests/web/remote.test.js::it opens only for CLIVE’s screen_remote card, never for anything else"
+    ],
+    "answer": "Yes. web/ui.js renderScreenRemote builds the card with h(), which sets strings only through textContent (`text`) and dataset; the name, and at most two titles of what the screen shows, are text; the button carries data-remote-screen only when screen_id matches ^scr_[0-9a-f]{12}$. The DOM stand-in has no innerHTML (it throws), and the test renders hostile markup as name and title: it arrives as literal text, no img or script element is made, a third title is not drawn, and ids that are not a screen's leave the button without data-remote-screen. web/remote.js fromTurn/open re-check the id against the same pattern before anything is asked."
+  }
+]

@@ -19,6 +19,9 @@
  *   (B2-03); turning the whole screen off names the version of the screen it was chosen from, and
  *   a screen that changed since is refused and shown as it is; and a pane that passes CLIVE's own
  *   limit while it is up leaves at the next ask, answered or not (NEW-B-LOCAL-SLIP).
+ * - Round 11 (S3P-F-01): a pane that passes CLIVE's limit, or that CLIVE no longer shows, leaves
+ *   the panel and what the page holds at once even with a finger on the panel, answered or not;
+ *   the finger still holds back a redraw of what may stay (a tick) until it lifts.
  */
 'use strict';
 
@@ -516,4 +519,86 @@ test('a pane that passes CLIVE’s own limit while it is up leaves at the next a
   await pg.advance(5000);
   assert.ok(!ui.allText().includes('Heavyweight Tee'), 'gone although CLIVE could not be asked');
   assert.ok(ui.allText().includes('Get the drop live'), 'the other pane, within its time, stays');
+});
+
+/* Round 11 of the deploy review (S3P-F-01): a finger on the panel holds back a redraw of what may
+ * still be shown, never the removal of what may not. */
+
+// Nothing the page holds, drawn or answered, carries the words.
+function keeps(pg, words) {
+  const R = pg.R.state();
+  return [R.data, R.shown].some((d) => d && JSON.stringify(d).includes(words));
+}
+
+// Closes S3P-F-01 (round 11): a pane that passes CLIVE's limit while a finger is on the panel.
+test('a pane that passes CLIVE’s limit under a finger leaves at once, from the panel and from what the page holds', async () => {
+  const put = Date.UTC(2026, 8, 28, 12, 0, 0) - 12 * 3600 * 1000 + 3000;   // three seconds left when opened
+  // CLIVE's answer still lists it (its own clock a moment behind): the remote does not wait for CLIVE.
+  const pg = await opened((p) => view(p, [order(p, { at: new Date(put).toISOString() }), objective(p)]));
+  const ui = pg.panel();
+  const shows = () => ui.allText().includes('Heavyweight Tee');
+  assert.ok(shows());
+  await pg.advance(2500);
+  ui.dispatch('pointerdown');                  // a finger goes on the panel just before its time is up, and stays
+  await pg.advance(600);                       // its time passes under the finger
+  assert.ok(!shows(), 'gone at once, not when the finger lifts');
+  assert.equal(all(ui, '.rm-group').length, 1);
+  assert.ok(ui.allText().includes('Get the drop live'), 'the other pane, within its time, stays');
+  assert.ok(!keeps(pg, 'Heavyweight Tee') && !keeps(pg, 'Order #1047'), 'and nothing of it is kept in the page');
+  assert.equal(pg.R.state().held, true, 'the finger is still down');
+});
+
+// Closes S3P-F-01 (round 11): the same while the ask is still on its way, so nothing redraws the panel.
+test('a pane that passes CLIVE’s limit under a finger leaves at once while the ask is still on its way', async () => {
+  const put = Date.UTC(2026, 8, 28, 12, 0, 0) - 12 * 3600 * 1000 + 3000;
+  let hang = false;
+  const pg = await opened((p) => view(p, [order(p, { at: new Date(put).toISOString() }), objective(p)]),
+    (request) => (hang && request.url.endsWith('/remote') ? held().promise : null));
+  const ui = pg.panel();
+  assert.ok(ui.allText().includes('Heavyweight Tee'));
+  hang = true;                                 // every ask from here is never answered
+  await pg.advance(2500);
+  ui.dispatch('pointerdown');
+  await pg.advance(600);
+  assert.ok(!ui.allText().includes('Heavyweight Tee'), 'gone at its time, answered or not, finger or not');
+  assert.ok(!keeps(pg, 'Heavyweight Tee'));
+  assert.ok(ui.allText().includes('Get the drop live'));
+});
+
+// Closes S3P-F-01 (round 11): a pane CLIVE no longer shows leaves at once too; a tick still waits.
+test('under a finger a tick waits for the lift, but a pane CLIVE took off leaves at once', async () => {
+  let panes = null;
+  const pg = await opened((p) => view(p, panes ? panes(p) : [order(p), objective(p)]));
+  const ui = pg.panel();
+  ui.dispatch('pointerdown');
+  // The owner's tick from the screen itself: the rows do not move under the finger...
+  panes = (p) => [order(p, { items: order(p).items.map((it) => Object.assign({}, it, { ticked: it.i === 0 })) }), objective(p)];
+  await pg.advance(1100);
+  assert.equal(all(ui, '.is-ticked').length, 0, 'held: not redrawn under the finger');
+  ui.dispatch('pointerup');
+  assert.equal(all(ui, '.is-ticked').length, 1, 'drawn the moment it lifts');
+  // ...but the order taken off (elsewhere, or by CLIVE) leaves the panel at once, finger or not.
+  ui.dispatch('pointerdown');
+  panes = (p) => [objective(p)];
+  await pg.advance(1100);
+  assert.ok(!ui.allText().includes('Heavyweight Tee'), 'gone at once');
+  assert.ok(!keeps(pg, 'Heavyweight Tee'));
+  assert.equal(all(ui, '.rm-group').length, 1);
+});
+
+// Closes B2-02 (rounds 10 and 11): a refusal of the owner's own change, under the finger that made it.
+test('a refused change under the finger that made it takes everything away at once, and nothing of it is kept', async () => {
+  const pg = await opened((p) => view(p, [order(p), objective(p)]),
+    (request) => (request.url.endsWith('/remote/tick') ? { status: 403, body: { detail: 'no' } } : null));
+  const ui = pg.panel();
+  assert.ok(ui.allText().includes('Heavyweight Tee'));
+  ui.dispatch('pointerdown');                       // the finger that taps the row stays on the panel
+  all(ui, '.rm-tick')[0].listeners.click[0]({ stopPropagation() {} });
+  await pg.flush();                                 // CLIVE refuses the tick: this device may no longer do this
+  assert.equal(pg.R.state().held, true, 'the finger is still down');
+  assert.equal(all(ui, '.rm-group').length, 0, 'gone at once, not when the finger lifts');
+  assert.ok(!ui.allText().includes('Heavyweight Tee') && !ui.allText().includes('Get the drop live'));
+  assert.equal(pg.R.state().data, null);
+  assert.equal(pg.R.state().shown, null, 'nor kept as what was drawn');
+  assert.ok(ui.querySelector('.rm-state').textContent.includes('isn’t allowed'));
 });

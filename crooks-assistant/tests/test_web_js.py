@@ -192,11 +192,13 @@ def test_the_scene_renderer_under_node():
 
 
 @needs_node
-@pytest.mark.parametrize("name", ["display.test.js", "remote.test.js"])
+@pytest.mark.parametrize("name", ["display.test.js", "remote.test.js", "dots.test.js"])
 def test_the_screens_and_their_remote_under_node(name):
     """The screen page and the owner's remote for it (round 9): two panes, ticks shown in place,
     pages the remote turns, a screen turned off, and each letting go of what it showed on a 403,
-    out of reach and past CLIVE's own limit (tests/web/display.test.js, tests/web/remote.test.js)."""
+    out of reach and past CLIVE's own limit (tests/web/display.test.js, tests/web/remote.test.js).
+    Round 11: at once, mid-animation and under a finger too, and the dots that drew a customer's
+    slip let go of it, frame by frame, with the real engine (tests/web/dots.test.js)."""
     result = subprocess.run(
         [NODE, "--test", str(ROOT / "tests" / "web" / name)],
         capture_output=True, text=True, timeout=120, cwd=ROOT,
@@ -213,6 +215,19 @@ def test_the_live_words_under_node(name):
     provider's error reaches telemetry only as a fixed word (C-02 to C-05, G-01, G-02)."""
     result = subprocess.run(
         [NODE, "--test", str(ROOT / "tests" / "web" / name)],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout
+
+
+@needs_node
+def test_the_accent_is_ios_blue_and_appearance_only_under_node():
+    """G-03 (rounds 9 and 11): the owner's move from lilac to iOS blue is one set of colour tokens
+    on body.alpha, and the app's stylesheets can reach nothing — no url(), no @import — so the
+    change is appearance and nothing else (tests/web/accent.test.js)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / "accent.test.js")],
         capture_output=True, text=True, timeout=120, cwd=ROOT,
     )
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
