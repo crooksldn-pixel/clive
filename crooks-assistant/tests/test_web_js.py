@@ -192,11 +192,13 @@ def test_the_scene_renderer_under_node():
 
 
 @needs_node
-@pytest.mark.parametrize("name", ["display.test.js", "remote.test.js"])
+@pytest.mark.parametrize("name", ["display.test.js", "remote.test.js", "dots.test.js"])
 def test_the_screens_and_their_remote_under_node(name):
     """The screen page and the owner's remote for it (round 9): two panes, ticks shown in place,
     pages the remote turns, a screen turned off, and each letting go of what it showed on a 403,
-    out of reach and past CLIVE's own limit (tests/web/display.test.js, tests/web/remote.test.js)."""
+    out of reach and past CLIVE's own limit (tests/web/display.test.js, tests/web/remote.test.js).
+    Round 11: at once, mid-animation and under a finger too, and the dots that drew a customer's
+    slip let go of it, frame by frame, with the real engine (tests/web/dots.test.js)."""
     result = subprocess.run(
         [NODE, "--test", str(ROOT / "tests" / "web" / name)],
         capture_output=True, text=True, timeout=120, cwd=ROOT,

@@ -130,6 +130,16 @@ function boot(options) {
   const track = { readyState: 'live', addEventListener() {}, stop() {} };
   const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
 
+  // The page's clock, from a fixed moment and a millisecond a look: a timestamp in a telemetry
+  // payload is then never one that happens to hold a customer's order number among its digits (a
+  // real clock made the no-leak check below fail now and then, round 11), and nothing here waits
+  // on real time.
+  const EPOCH = Date.UTC(2026, 8, 28, 9, 0, 0);
+  let looks = 0;
+  class PageDate extends Date {
+    constructor(...args) { if (args.length) super(...args); else super(EPOCH + looks); }
+    static now() { looks += 1; return EPOCH + looks; }
+  }
   const recordingConsole = {};
   for (const level of ['log', 'info', 'warn', 'error', 'debug']) recordingConsole[level] = (...args) => out.logged.push(args.map(String).join(' '));
   const storage = () => ({ setItem: (k, v) => out.stored.push(`${k}=${v}`), getItem: () => null, removeItem() {} });
@@ -145,7 +155,7 @@ function boot(options) {
     createElement: make,
   };
   const sandbox = {
-    console: recordingConsole, Uint8Array, Int16Array, Float32Array, DataView, Map, Set, WeakMap, Promise, JSON, Math, Date, Number, String, Object, Array, Error, TypeError, URLSearchParams,
+    console: recordingConsole, Uint8Array, Int16Array, Float32Array, DataView, Map, Set, WeakMap, Promise, JSON, Math, Date: PageDate, Number, String, Object, Array, Error, TypeError, URLSearchParams,
     AbortController, Buffer, btoa: (text) => Buffer.from(text, 'binary').toString('base64'),
     setTimeout: (fn, ms) => addTimer(fn, ms, false), clearTimeout: dropTimer,
     setInterval: (fn, ms) => addTimer(fn, ms, true), clearInterval: dropTimer,
