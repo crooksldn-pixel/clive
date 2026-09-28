@@ -201,7 +201,7 @@ def _run_gate(
 
     duration = time.monotonic() - started
     tail = (completed.stdout or completed.stderr or "").strip().split("\n")
-    detail = tail[-1][:400] if tail else ""
+    detail = " | ".join(tail[-14:])[:6000] if tail else ""  # DIAGNOSTIC BRANCH ONLY: never merged
 
     data = None
     if parse_json:
