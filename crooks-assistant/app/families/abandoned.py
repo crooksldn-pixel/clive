@@ -2,7 +2,7 @@
 
 "How many people abandoned their basket this week, and what were they trying to buy?" was
 answered in Phase 2 with "I don't have a tool for that". This is the read, and the most
-important thing in the file is not the query — it is the sentence the card carries, because
+important thing in the file is not the query — it is the sentence the result carries, because
 three different things get called the same thing and only one of them is in this data.
 
     a CART abandoned          somebody put things in a basket and left. NOT HERE, and not
@@ -16,9 +16,8 @@ three different things get called the same thing and only one of them is in this
 
 Conflating them is not a rounding error: "twelve people abandoned their baskets" said of
 twelve abandoned checkouts understates the first number and overstates what the shop can
-know. So every card and every spoken line here names the middle one, and
-`shopify_abandoned_checkouts` returns the limitation as a field rather than leaving it to
-whoever reads the number.
+know. So `shopify_abandoned_checkouts` returns the limitation as a field (`note`) rather than
+leaving it to whoever reads the number.
 
 The ranking is by OCCURRENCES, not by value: what is being asked is which garment people
 keep failing to buy, and a £200 checkout with one hoodie in it does not make that hoodie
@@ -35,10 +34,6 @@ from zoneinfo import ZoneInfo
 from app.capabilities.families import CapabilityFamily
 from app.capabilities.families import register as register_family
 from app.clients.shopify import ShopifyClient
-from app.fastpath.intent import Family, extend, signal
-from app.fastpath.models import Ctx, FastAnswer
-from app.fastpath.recipes import CACHE_NONE, Recipe, register
-from app.reads.scheduler import Read, ReadPlan, ReadResult
 from app.surfaces import Freshness, Surface
 from app.tools.gate import Tier
 from app.tools.registry import ToolError, tool
@@ -56,8 +51,8 @@ MAX_LIMIT = 50
 MAX_RANKED = 8
 MAX_DRILLDOWN = 6
 
-# The one sentence this family exists to keep saying. Held once, so the card, the spoken
-# line and the model's copy of the result cannot drift into three different claims.
+# The one sentence this family exists to keep saying. Held once, on the result the model
+# reads, so what it says cannot drift from what the data is.
 WHAT_IT_IS = (
     "Checkouts begun and not paid for — not baskets left on the site, which Shopify's Admin "
     "API does not expose at all, and not orders waiting to go out."
@@ -256,6 +251,9 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
     }
 
 
+# --------------------------------------------------------------------------- the capability
+
+
 # --------------------------------------------------------------------------- the cards
 
 
@@ -272,7 +270,8 @@ def cards(body: dict[str, Any]) -> list[Surface]:
 
     Both are built here, key by key, from the tool's own result — the same discipline
     app/presentation.py keeps — and both name what the data is in their own words, because a
-    card read on its own must not be able to say the wrong thing.
+    card read on its own must not be able to say the wrong thing. Drawn for the model's call
+    of `shopify_abandoned_checkouts` (app/presentation.py `_family_cards`).
     """
     days = int(body.get("days") or DEFAULT_DAYS)
     count = int(body.get("count") or 0)
@@ -331,79 +330,6 @@ def cards(body: dict[str, Any]) -> list[Surface]:
     return [figures, ranking]
 
 
-def spoken(body: dict[str, Any]) -> str:
-    """The grounded half of the answer: every number in it was read, and the sentence says
-    which of the three abandonment questions this one is."""
-    count = int(body.get("count") or 0)
-    when = _window_words(int(body.get("days") or DEFAULT_DAYS))
-    if not count:
-        return f"No checkouts were begun and left unpaid {when}. {WHAT_IT_IS}"
-    lead = f"{count} checkout{'s' if count != 1 else ''} begun and not paid for {when}, worth {body.get('value_display')}."
-    items = [i for i in (body.get("items") or []) if isinstance(i, dict)]
-    if items:
-        first = items[0]
-        variant = f" ({first['variant']})" if first.get("variant") else ""
-        lead += f" The one that keeps appearing is {first.get('item')}{variant}, in {first.get('checkouts')} of them."
-    return f"{lead} {WHAT_IT_IS}"
-
-
-# --------------------------------------------------------------------------- the fast lane
-
-
-def _plan(ctx: Ctx) -> ReadPlan | None:
-    slots = ctx.intent.slots or {}
-    try:
-        days = int(slots.get("days") or DEFAULT_DAYS)
-    except (TypeError, ValueError):
-        days = DEFAULT_DAYS
-    return ReadPlan([
-        Read("abandoned", READ_TOOL, {"days": max(1, min(days, MAX_DAYS)), "limit": DEFAULT_LIMIT},
-             source="shopify", cost=120.0, optional=False),
-    ], label="abandoned_checkouts")
-
-
-def _render(ctx: Ctx, result: ReadResult) -> FastAnswer:
-    body = result.values.get("abandoned")
-    if not isinstance(body, dict):
-        return FastAnswer(answer="", defer="Shopify did not answer about abandoned checkouts")
-    drawn = cards(body)
-    return FastAnswer(
-        answer=spoken(body), calls=list(result.calls), drawn=[],
-        surfaces=drawn, partial=result.partial,
-        trace={"count": int(body.get("count") or 0), "ranked": len(body.get("items") or []),
-               "days": int(body.get("days") or 0)},
-    )
-
-
-register(Recipe(
-    recipe_id="abandoned_checkouts", intent_family="abandoned_checkouts",
-    read_primitives=(READ_TOOL,), parallel_nodes=(("abandoned",),), ui="metric_group",
-    # Never cached: it is asked about the last few days and the answer moves hour by hour.
-    cache_policy=CACHE_NONE, min_confidence=0.72, target_ms=1400,
-    plan=_plan, render=_render,
-))
-
-# The family's own word. "Abandoned" and "abandon" are the only ones that mean this, and
-# "basket"/"cart" are here on purpose: the owner says them, the router recognises them, and
-# the ANSWER is what corrects the vocabulary — a router that refused the word would send the
-# question to a model that would answer it about the wrong thing.
-_ABANDONED = frozenset({"abandoned", "abandon", "abandonment", "abandons", "unpaid"})
-_BASKET = frozenset({"basket", "baskets", "cart", "carts", "checkout", "checkouts"})
-
-signal("abandoned", lambda sig: bool(set(sig.words) & _ABANDONED))
-signal("basket_words", lambda sig: bool(set(sig.words) & _BASKET))
-
-extend([
-    # "What's been abandoned this week", "how many abandoned baskets", "abandoned checkouts".
-    # `mutation` is a block, not a need: this is a read and asking for it is a question.
-    Family("abandoned_checkouts", needs=("abandoned",), boosts=("basket_words", "period", "metric", "ranking"),
-           blocks=("mutation", "email", "address", "status"), base=0.8, floor=0.72, max_words=12),
-])
-
-
-# --------------------------------------------------------------------------- the capability
-
-
 async def _probe(runtime: Any) -> dict[str, Any]:
     """Whether this shop's abandoned checkouts can be read at all.
 
@@ -440,4 +366,4 @@ register_family(CapabilityFamily(
     probe=_probe,
 ))
 
-__all__ = ["READ_TOOL", "WHAT_IT_IS", "cards", "display", "rank", "spoken"]
+__all__ = ["READ_TOOL", "WHAT_IT_IS", "cards", "display", "rank"]

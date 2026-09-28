@@ -1,7 +1,8 @@
-"""The tool and intent-family audit (§32).
+"""The tool audit (§32).
 
-Every registered tool and every routable intent family gets a row, and every column is read
-from the thing that decides it rather than from a claim. The two rules this file exists to
+Every registered tool gets a row, and every column is read from the thing that decides it
+rather than from a claim. (There are no intent families any more: every sentence is a model
+turn since 28 September 2026.) The two rules this file exists to
 keep:
 
 * a tool is not "tested" because a test imports it or mentions it — DIRECTLY TESTED means a
@@ -29,14 +30,6 @@ def test_every_registered_tool_has_a_row():
         assert row["registered"] is True
         for column in tool_matrix.COLUMNS:
             assert column in row, f"{row['name']} has no {column!r}"
-
-
-def test_every_routable_intent_family_has_a_row():
-    from app.fastpath.intent import all_families
-
-    tool_matrix.load()
-    rows = {row["name"]: row for row in tool_matrix.families()}
-    assert set(rows) == {f.name for f in all_families()}
 
 
 def test_a_write_tool_declares_staging_and_verification():
@@ -114,17 +107,6 @@ def test_a_test_that_calls_a_tool_tests_it():
     ''')
     assert parametrized.calls_tool(PROBE, "app.tools.probes", PROBE)
     assert not _reads("this is not python (").calls_tool(PROBE, "m", PROBE)
-
-
-def test_a_family_counts_only_when_test_code_names_it():
-    assert _reads('assert route("where is my order") == "probe_family"').names("probe_family")
-    assert _reads('assert "intent_family:probe_family" in keys').names("probe_family")
-    mentioned = _reads('''
-        """probe_family, in a docstring."""
-        # probe_family, in a comment
-        FAMILY = "probe_" + "family_not"
-    ''')
-    assert not mentioned.names("probe_family")
 
 
 def test_the_matrix_does_not_cite_a_test_that_only_looks_tools_up():

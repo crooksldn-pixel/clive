@@ -56,7 +56,20 @@ async def slow(monkeypatch):
         async def reset_session(self, session_id): pass
         async def set_system_prompt(self, prompt): pass
         async def interrupt(self, session_id): return True
-        async def turn(self, session_id, text): return TurnResult(text="the model answered", session_id=session_id)
+
+        async def turn(self, session_id, text):
+            # Claude, as far as the route is concerned: every sentence is the model's, and it
+            # reads the order it was asked about through the gate, one call after another, so
+            # the cards reach the glass as each read lands.
+            from app.tools.dispatch import dispatch
+
+            session = runtime.sessions.get_or_create(session_id)
+            calls: list = []
+            await dispatch("shopify_find_order", {"query": "1938"}, session=session, timeout_s=5, calls=calls)
+            found = ((calls[-1].result or {}).get("orders") or [{}])[0] if calls and calls[-1].ok else {}
+            await dispatch("shopify_order_detail", {"order_id": found.get("order_id") or ""}, session=session,
+                           timeout_s=5, calls=calls)
+            return TurnResult(text="the model answered", tool_calls=calls, session_id=session_id)
 
     async with app.router.lifespan_context(app):
         runtime = app.state.runtime

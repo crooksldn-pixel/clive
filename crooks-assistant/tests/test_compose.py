@@ -7,9 +7,9 @@ The two things these hold, because everything else in the family follows from th
   reply's recipient is still read from the thread; a dictated address cannot be staged at all
   until a finger has corrected it; and the arguments that reach Gmail are built on the Mac
   from the Mac's own copy of the email, never from what the tablet posted.
-* A mutation sentence still leaves the fast lane unless a family has declared it answers such
-  a sentence with a read. "Cancel it" is unchanged; "write an email to <address>" reaches the
-  composer; "email them all" still goes to the model.
+* Said out loud, every one of these is a model turn: the model opens the composer with
+  `gmail_compose_open` and fills it with `gmail_compose_fill` (the word-matching lane that
+  used to open it was removed on 28 September 2026).
 """
 
 from __future__ import annotations
@@ -23,9 +23,6 @@ import pytest
 
 from app.actions.models import ActionStatus
 from app.families import compose as family
-from app.fastpath import recipes as recipe_mod
-from app.fastpath.intent import resolve
-from app.fastpath.models import Ctx as RecipeCtx
 from app.session.branch import Branch
 from app.session.models import Session
 from app.tools import registry
@@ -118,83 +115,7 @@ def test_the_date_is_the_shops_day_not_utcs():
     assert family.resolve_when("tomorrow", now=late)["date"] == "2026-07-03"
 
 
-# --------------------------------------------------------------------------- routing
-
-
-def test_the_bench_sentence_reaches_the_composer_and_not_the_model(branch):
-    intent = resolve(BENCH, branch=branch)
-    assert intent.family == "email_compose_any"
-    assert recipe_mod.recipe_for(intent.family).recipe_id == "email_compose_any"
-    assert intent.confidence >= recipe_mod.recipe_for(intent.family).min_confidence
-
-
-def test_a_mutation_sentence_with_no_address_is_still_the_models(branch):
-    """The exception is scoped to the families that declared it, so nothing else moved. If
-    this fails, the guard in `intent.resolve` has been widened rather than narrowed."""
-    for text in ("cancel it", "refund the lot", "archive them", "fulfil 1938",
-                 "tag these as vip", "email them all", "reply to millie", "send the draft"):
-        got = resolve(text, branch=branch)
-        assert got.family == "", f"{text!r} reached {got.family!r}"
-        assert got.reason == "asks for a change", text
-
-
-def test_send_instead_is_narrow_enough_to_leave_cancel_alone(branch):
-    for text in ("send it instead", "no, send it", "don't save a draft, send it",
-                 "actually send that", "we want this sent"):
-        assert resolve(text, branch=branch).family == "draft_send_instead", text
-    for text in ("send it", "send the draft", "cancel it"):
-        assert resolve(text, branch=branch).family != "draft_send_instead", text
-
-
-def test_a_rewrite_needs_a_composer_and_a_rewriting_word(branch):
-    assert resolve("make it shorter", branch=branch).family == ""
-    branch.compose = {"compose_id": "cmp_1", "kind": "new", "at": family._now()}
-    assert resolve("make it shorter", branch=branch).family == "compose_rewrite"
-    assert resolve("make it more apologetic", branch=branch).family == "compose_rewrite"
-    # A sentence about something else, said over an open composer, is not a rewrite of it.
-    for text in ("cancel order 1938", "archive them", "how many orders today"):
-        assert resolve(text, branch=branch).family != "compose_rewrite", text
-
-
-def test_every_compose_recipe_is_still_structurally_unable_to_write():
-    """`serves_mutation_words` withdraws the refusal to SCORE a sentence and nothing else.
-    A recipe that named a write tool would crash at import; these name no tool at all."""
-    ours = [r for r in recipe_mod.RECIPES.values()
-            if r.recipe_id in ("email_compose_any", "compose_rewrite", "draft_send_instead")]
-    assert len(ours) == 3
-    assert all(r.read_primitives == () for r in ours)
-    recipe_mod.assert_read_only({r.recipe_id: r for r in ours})
-
-
 # --------------------------------------------------------------------------- the composer
-
-
-def test_opening_a_composer_reads_nothing_and_stages_nothing(branch, session):
-    intent = resolve(BENCH, branch=branch)
-    ctx = RecipeCtx(runtime=None, session=session, branch=branch, intent=intent, text=BENCH)
-    answer = family._open_render(ctx, None)
-    assert not answer.deferred and answer.partial
-    assert not answer.calls and not session.proposals, "the composer prepared a change"
-    card = answer.surfaces[0].as_ui()
-    assert card["type"] == "email_compose"
-    data = card["data"]
-    assert data["to"] == {"value": ADDRESS, "status": "ok", "hint": "", "editable": True}
-    assert data["kind"] == "new" and not data["thread_id"]
-    assert "shoot" in data["about"].lower() and "sunday" in data["about"].lower()
-    assert ADDRESS not in data["about"], "the address is addressing, not what it is about"
-    assert data["body"]["value"] == "" and data["body"]["status"] == "uncertain"
-    # The one copy that matters is the Mac's, and its id is now this conversation's.
-    assert branch.compose["to"] == ADDRESS
-    assert data["compose_id"] in session.issued_ids
-    assert ADDRESS in session.pii_seen
-
-
-def test_a_dictated_address_opens_the_composer_marked(branch, session):
-    intent = resolve(DICTATED, branch=branch)
-    ctx = RecipeCtx(runtime=None, session=session, branch=branch, intent=intent, text=DICTATED)
-    data = family._open_render(ctx, None).surfaces[0].as_ui()["data"]
-    assert data["to"] == {"value": ADDRESS, "status": "uncertain", "editable": True,
-                          "hint": "heard, not typed — check it before this goes anywhere"}
 
 
 def test_the_composer_summary_on_the_branch_is_bounded(branch, session):
@@ -677,45 +598,6 @@ async def test_filling_a_composer_that_is_not_open_is_refused(branch, session):
 
 
 # --------------------------------------------------------------------------- rewriting
-
-
-def test_a_rewrite_hands_the_model_the_words_it_has_and_the_instruction(branch, session):
-    family.open_compose(branch, to=ADDRESS, subject="Free for a shoot on Sunday?",
-                        body="Hi, I wondered whether you might conceivably be free.")
-    intent = resolve("make it shorter", branch=branch)
-    ctx = RecipeCtx(runtime=None, session=session, branch=branch, intent=intent, text="make it shorter")
-    answer = family._rewrite_render(ctx, None)
-    assert not answer.deferred and answer.partial and not answer.calls
-    data = answer.surfaces[0].as_ui()["data"]
-    # On the ANSWER, not on the card: the continuation is an instruction to the model and
-    # `app/routes/turn.py` hands it over inside this same turn (brief section 16). It used to
-    # ride on the card's data and be relayed back by the tablet, which made the owner's own
-    # instruction a round trip through the screen for no reason.
-    prompt = answer.continuation
-    assert "continue_prompt" not in data, "the prompt must not reach the tablet at all"
-    assert "make it shorter" in prompt
-    assert "conceivably" in prompt, "the model needs the words it is being asked to change"
-    assert f'gmail_compose_fill(compose_id="{branch.compose["compose_id"]}"' in prompt
-    assert "Do not stage anything" in prompt
-    # And it is still the same composer: a rewrite does not start a second one.
-    assert data["compose_id"] == branch.compose["compose_id"]
-    assert not session.proposals
-
-
-def test_a_rewrite_with_no_composer_defers_rather_than_guessing(branch, session):
-    intent = resolve("make it shorter", branch=branch)
-    ctx = RecipeCtx(runtime=None, session=session, branch=branch, intent=intent, text="make it shorter")
-    assert family._rewrite_render(ctx, None).defer
-
-
-def test_a_composer_sentence_the_mac_cannot_read_an_address_out_of_defers(branch, session):
-    """The family matches on the shape; the recipe is what refuses to guess. Both halves have
-    to hold, or "email them all" would open a composer addressed to nobody."""
-    intent = resolve("email them all", branch=branch)
-    ctx = RecipeCtx(runtime=None, session=session, branch=branch, intent=intent, text="email them all")
-    answer = family._open_render(ctx, None)
-    assert answer.defer == "no address in the words", answer
-    assert branch.compose is None
 
 
 # --------------------------------------------------------------------------- the route

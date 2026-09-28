@@ -2,9 +2,8 @@
 
 A family is one thing the shop can do — edit an order's lines, create a discount code, read
 the abandoned checkouts, compose to any address — and everything that goes with it: its tools
-(`@tool`, into the registry), its commands (`app.commands.register`), its recipes
-(`app.fastpath.recipes.register`), its intent families (`app.fastpath.intent.extend`) and its
-capability state (`app.capabilities.families.register`). Each module registers its own on
+(`@tool`, into the registry), its commands (`app.commands.register`), the recipes its taps
+name (`app.recipes.register`) and its capability state (`app.capabilities.families.register`). Each module registers its own on
 import; this package imports every module it contains, so adding a family is adding a file,
 and two families never edit the same line of a shared table.
 

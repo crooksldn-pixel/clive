@@ -68,11 +68,9 @@ from app.digest.selfmodel import MEMORY_KINDS, SELF_KINDS, SelfModel, build_self
 
 # This file names tools only to look them up in the self-model; it never calls one, and the tool
 # matrix (experience/tool_matrix.py), which counts a test for a tool only when it calls it, does
-# not cite it (tests/test_tool_matrix.py checks that). An intent family is cited when a test's
-# code names it, so the family's name is assembled here rather than written out.
+# not cite it (tests/test_tool_matrix.py checks that).
 READ_TOOL = "shopify_find_order"
 WRITE_TOOL = "shopify_order_cancel"
-FAMILY = "order_" + "lookup"
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = APP_ROOT.parent
@@ -268,8 +266,9 @@ def test_the_self_model_is_generated_from_this_repository(live):
     model = live
     assert model.get(f"tool:{READ_TOOL}").access == "read"
     assert model.get(f"tool:{WRITE_TOOL}").access == "write"
-    assert model.get(f"intent_family:{FAMILY}").kind == "intent_family"
-    assert READ_TOOL in model.get(f"intent_family:{FAMILY}").description
+    # The word-matching lane's families went with it on 28 September 2026: every sentence is
+    # the model's, so CLIVE has none to describe.
+    assert list(model.of_kind("intent_family")) == []
     assert {"scene_primitive:answer", "scene_primitive:trend", "scene_primitive:proposal"} <= {
         entry.key for entry in model.of_kind("scene_primitive")}
     feature = model.get("feature:FEAT-001")
@@ -289,7 +288,7 @@ def test_the_self_model_is_generated_from_this_repository(live):
     assert {e.key for e in model.of_kind("feature")} == {f"feature:{i}" for i in features}
     assert {e.key for e in model.of_kind("idea")} == {f"idea:{i}" for i in ideas}
     assert {e.key for e in model.of_kind("decision")} == {f"decision:{i}" for i in decisions}
-    assert all(model.counts()[kind] for kind in SELF_KINDS if kind != "absorption")
+    assert all(model.counts()[kind] for kind in SELF_KINDS if kind not in ("absorption", "intent_family"))
     notes = {source.name: source.note for source in model.sources}
     assert notes.pop("absorption ledger").startswith("none given")
     assert not any(notes.values()) and model.unread == ()
@@ -341,7 +340,7 @@ def test_a_repository_without_skills_or_this_code_is_read_honestly(tmp_path):
     assert notes["builder skills"] == "no skills directory"
     assert "repeated" in notes["features"]
     # relating against it cannot tell a gap from something CLIVE has, and it says so
-    assert bare.unread == ("tool registry", "intent families", "scene primitives")
+    assert bare.unread == ("tool registry", "scene primitives")
 
     skill = tmp_path / ".claude" / "skills" / "star-charts"
     skill.mkdir(parents=True)

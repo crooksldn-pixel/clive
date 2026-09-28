@@ -18,7 +18,7 @@ LOGS      := tail -n 40 -F logs/assistant.out.log logs/assistant.err.log logs/wh
 SECRETS   := scripts/set_secrets.py --all
 endif
 
-.PHONY: help doctor venv up install uninstall status restart logs health dev bench test test-live experience experience-ui experience-live experience-list screens matrix tool-matrix lint chat acceptance accept write-check whisper-server secrets shopify gmail gmail-verify voice check test-session-start test-session-status test-session-stop test-session-report test-session-proposals test-session-screens record-start record-status record-stop record-list record-save-test bench-intelligence bench-lanes commands commands-remove update watch control control-app
+.PHONY: help doctor venv up install uninstall status restart logs health dev bench test test-live experience experience-ui experience-live experience-list screens matrix tool-matrix lint chat acceptance accept write-check whisper-server secrets shopify gmail gmail-verify voice check test-session-start test-session-status test-session-stop test-session-report test-session-proposals test-session-screens record-start record-status record-stop record-list record-save-test bench-intelligence commands commands-remove update watch control control-app
 
 help:
 	@echo "The steps you take, in order. Every one is: open Terminal, cd into this folder, type the line."
@@ -57,7 +57,7 @@ help:
 	@echo "  make experience-list what there is to run    (SCENARIO=back runs one)"
 	@echo "  make screens         §32's 34 named surfaces into docs/screens/phase5/ (a shot whose surface is missing is written .MISSING.png)"
 	@echo "  make matrix          which operations are reachable by voice, by touch, and tested"
-	@echo "  make tool-matrix     every tool and intent family audited; writes docs/phase4/TOOL_MATRIX.md"
+	@echo "  make tool-matrix     every tool audited; writes docs/phase4/TOOL_MATRIX.md"
 	@echo "  make dev             the backend alone, with auto-reload, for working on the code"
 	@echo "  make whisper-server  speech recognition alone (prints build steps if not built yet)"
 	@echo "  make bench           choose the Whisper model from your tablet recordings"
@@ -79,7 +79,6 @@ help:
 	@echo "  make record-save-test [RECORDING=… TURN=…]    save one interaction as a fixture and a manifest"
 	@echo ""
 	@echo "  make bench-intelligence                       time the read layer, the working sets and batch staging against a fake store"
-	@echo "  make bench-lanes                              time the fast lane against the 9 September session's own figures"
 	@echo "  make watch [SESSION=ts-…] [V=1]               follow what it is doing, live, one line per thing (V=1 for everything)"
 	@echo ""
 	@echo "Three words on the PATH, so none of this needs a folder or a make:"
@@ -201,9 +200,6 @@ control-app:
 
 watch:
 	@$(PY) scripts/watch.py $(SESSION) $(if $(V),--verbose,)
-
-bench-lanes:
-	@$(PY) scripts/bench_lanes.py $(if $(ORDERS),--orders $(ORDERS),) $(if $(LATENCY),--latency-ms $(LATENCY),)
 
 bench-intelligence:
 	$(PY) scripts/bench_intelligence.py

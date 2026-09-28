@@ -1,13 +1,14 @@
 # Terminology
 
 # Product names, customer names and in-house shorthand, written the way they are SAID. This file
-# seeds the speech normaliser at M3; from M7 the live Shopify catalogue is merged in on top of it
-# every hour. It is also part of the knowledge base, so the assistant reads it too — which is how
-# it knows to say "cross stars tee" rather than trying to pronounce "CRXST★RZ".
+# is part of the knowledge base: the assistant reads it, which is how it knows that "cross stars
+# tee" means CRXST★RZ T-Shirt and to say "cross stars tee" rather than trying to pronounce the
+# title. It no longer changes what the speech recogniser hears or rewrites the transcript: this
+# file and the live catalogue's names were sent to the recogniser as words to expect, which is
+# how "Clive" was heard as "Plaid", and that was removed on 28 September 2026.
 
 # Format: one term per line. `#` starts a comment. `spoken form => Canonical Name` declares how
-# something is said when the Shopify title is not pronounceable. Put the terms you most need
-# recognised at the BOTTOM of a section — Whisper's prompt is truncated from the front.
+# something is said when the Shopify title is not pronounceable.
 
 # The products below are the live CROOKSLDN catalogue as of 7 Sept 2026. Correct the spoken forms
 # to match how you actually say them; that is the five-minute job that makes this work.

@@ -387,116 +387,15 @@ def test_the_mac_says_out_loud_that_delivery_is_not_connected():
     assert any("no carrier is connected" in line for line in lines), lines
 
 
-# ------------------------------------------------------------------------ the fast lane
-
-# The sentences this family owns, and — just as important — the ones it must leave alone.
-# `landings.py` claims the short "open orders" shapes and `order_list_period` claims a period,
-# so both are checked here rather than being discovered by a scenario failing somewhere else.
-ROUTES = [
-    ("Can you see if any of our orders are undelivered or unfulfilled?", "unfulfilled_orders"),
-    ("which orders are unfulfilled", "unfulfilled_orders"),
-    ("orders waiting longest", "unfulfilled_orders"),
-    ("are any orders undelivered", "unfulfilled_orders"),
-    ("Find a real international order that has been waiting too long and hasn't been fulfilled", "international_orders"),
-    ("old international unfulfilled orders", "international_orders"),
-    ("international orders waiting too long", "international_orders"),
-    # Not ours.
-    ("open orders", "landing_orders"),
-    ("open the inbox", "landing_inbox"),
-    ("show me today's orders", "order_list_period"),
-    ("which orders are late", "delayed_orders"),
-    ("who needs replying to", "needs_reply"),
-    ("what is running out", "stock_cover_analysis"),
-    ("order 1938", "order_lookup"),
-]
-
-
-@pytest.mark.parametrize(("text", "family"), ROUTES)
-def test_the_families_do_not_collide_and_every_one_takes_the_fast_lane(text, family):
-    from app.families import load_all
-    from app.fastpath.intent import resolve
-    from app.fastpath.lanes import choose_lane
-    from app.fastpath.recipes import recipe_for
-
-    load_all()
-    intent = resolve(text)
-    assert intent.family == family, f"{text!r} resolved to {intent.family!r} (runner-up {intent.runner_up!r})"
-    recipe = recipe_for(intent.family)
-    assert recipe is not None, f"no recipe for {family}"
-    lane, why = choose_lane(intent, recipe=recipe, text=text)
-    assert lane == "FAST", f"{text!r} took {lane} ({why})"
-
+# ------------------------------------------------------------------ what the words ask for
 
 def test_a_change_is_still_a_change_and_a_state_is_not():
     """"fulfilled" moved from the strong mutation words to the soft ones so that "hasn't been
-    fulfilled" could be read as a description. The imperatives must still be instructions."""
-    from app.fastpath.intent import mutating
+    fulfilled" could be read as a description. The imperatives must still be instructions.
+    The rule lives in the report's request contract now that nothing routes by words."""
+    from app.observability.contract import mutating
 
     assert mutating(("fulfil", "1938")) and mutating(("mark", "1938", "fulfilled"))
     assert mutating(("cancel", "it")) and mutating(("what", "should", "i", "cancel"))
     assert not mutating(("has", "1938", "been", "fulfilled"))
     assert not mutating(("find", "an", "order", "that", "has", "not", "been", "fulfilled"))
-
-
-@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
-async def test_the_recipe_answers_from_the_cache_oldest_first_with_a_set_to_walk(bound):
-    from app.families import load_all
-    from app.fastpath import runner
-    from app.fastpath.intent import resolve
-    from app.fastpath.models import Ctx
-    from app.fastpath.recipes import recipe_for
-    from app.session.branch import Branch
-
-    load_all()
-    session = Session(session_id="fast1")
-    session.turn_id = "turn_fast"
-    branch = Branch(branch_id="br1", session_id="fast1")
-    text = "Can you see if any of our orders are undelivered or unfulfilled?"
-    intent = resolve(text, branch=branch)
-    answer = await runner.run(recipe_for(intent.family), Ctx(runtime=None, session=session, branch=branch, intent=intent, text=text))
-    assert not answer.deferred, answer.defer
-    # The words: the state that IS known, the oldest one by name, and — because the question
-    # said "undelivered" — that the other half of it cannot be known here.
-    assert "unfulfilled" in answer.answer and "2003" in answer.answer
-    assert "tracking status is not available here" in answer.answer, answer.answer
-    assert "undelivered" not in answer.answer, "never claim to have answered the delivery question"
-    body = next(c.result for c in answer.calls if isinstance(getattr(c, "result", None), dict))
-    assert [r["order_number"] for r in body["rows"]] == ["CROOKS-2003", "CROOKS-2004", "CROOKS-2002"], "oldest first"
-    assert branch.workflow is not None and branch.workflow.total == 3, "a set to walk, in the order it should go out"
-    assert answer.trace["delivery_asked"] is True
-
-
-@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
-async def test_the_international_recipe_narrows_to_what_is_going_abroad(bound):
-    from app.families import load_all
-    from app.fastpath import runner
-    from app.fastpath.intent import resolve
-    from app.fastpath.models import Ctx
-    from app.fastpath.recipes import recipe_for
-    from app.session.branch import Branch
-
-    load_all()
-    session = Session(session_id="fast2")
-    session.turn_id = "turn_fast2"
-    branch = Branch(branch_id="br2", session_id="fast2")
-    text = "Find a real international order that has been waiting too long and hasn't been fulfilled"
-    intent = resolve(text, branch=branch)
-    answer = await runner.run(recipe_for(intent.family), Ctx(runtime=None, session=session, branch=branch, intent=intent, text=text))
-    assert not answer.deferred, answer.defer
-    assert "international" in answer.answer and "2003" in answer.answer and "20 days" in answer.answer
-    assert "tracking status" not in answer.answer, "delivery was not asked about in this one"
-    body = next(c.result for c in answer.calls if isinstance(getattr(c, "result", None), dict))
-    assert [r["order_number"] for r in body["rows"]] == ["CROOKS-2003"]
-    assert body["filters"]["international"] is True
-
-
-def test_the_recipes_read_only_and_never_call_a_model():
-    from app.families import load_all
-    from app.fastpath.recipes import RECIPES, assert_read_only
-
-    load_all()
-    mine = {k: v for k, v in RECIPES.items() if k in ("unfulfilled_orders", "international_waiting_orders")}
-    assert len(mine) == 2
-    assert_read_only(mine)
-    for recipe in mine.values():
-        assert recipe.read_primitives == ("commerce_query",) and recipe.cache_policy == "analytics"

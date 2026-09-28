@@ -83,7 +83,6 @@ def _runtime(
         scribe=scribe,
         voice=voice,
         kb=SimpleNamespace(empty=False, files=["a.md"], chars=10),
-        normaliser=SimpleNamespace(catalogue=["term"]),
         sessions=SimpleNamespace(count=lambda: 0),
         write_status=lambda: ok_writes(),
         capabilities=lambda: _async({}),
@@ -224,14 +223,11 @@ def _transcriber(*, whisper_enabled: bool):
     calls = []
 
     class Client:
-        async def transcribe(self, wav, prompt=""):
+        async def transcribe(self, wav):
             calls.append(wav)
             raise AssertionError("whisper must not be called on a host without it")
 
-    normaliser = SimpleNamespace(
-        catalogue=SimpleNamespace(prompt_terms=lambda: [], external_terms=lambda: [])
-    )
-    return Transcriber(Client(), normaliser, whisper_enabled=whisper_enabled), calls
+    return Transcriber(Client(), whisper_enabled=whisper_enabled), calls
 
 
 def test_the_transcriber_does_not_reach_for_a_fallback_it_does_not_have():

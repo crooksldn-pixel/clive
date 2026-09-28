@@ -28,10 +28,9 @@ workspace has (app/families/_workspace.py):
 * Nothing here can apply anything. The write tool re-reads the order, merges, prints the
   difference, and the owner's hold on the card that comes back is what sends it.
 
-WHY THERE IS NO `address.open` ON THE FAST LANE. There is no spoken way in, and that is
-deliberate: a sentence that changes an address carries a mutation verb, and the fast lane
-declines every one of those. The way in is a finger on the chip the Mac put on the order
-card, which is the point.
+The way in is a finger on the chip the Mac put on the order card. A sentence asking to
+change an address is a model turn like every other, and the model stages the same write tool
+itself.
 """
 
 from __future__ import annotations
@@ -351,9 +350,7 @@ def _discard(ctx: CommandCtx) -> Outcome:
                    changed={"workspace": None, "discarded": str(workspace["workspace_id"])})
 
 
-# Touch only, all four. There is no sentence that reaches them: an instruction to change an
-# address carries a mutation verb and the fast lane declines every one of those, which is
-# why the way in has to be a control the owner can see.
+# Touch only, all four: controls the owner can see on the card.
 register_command(Command("address.open", "Open the delivery address to correct it", _open, voice=False))
 register_command(Command("address.field", "Type into the delivery address", _field, voice=False))
 register_command(Command("address.stage", "Prepare the address change for authorising", _stage, voice=False))

@@ -25,7 +25,6 @@ from app.clients.elevenlabs_tts import VoiceClient, VoiceUnavailable
 from app.clients.whisper import WhisperClient, WhisperUnavailable
 from app.routes.health import _health, _live, health
 from app.routes.speak import speak
-from app.speech.normalise import from_terms
 from app.speech.transcribe import Transcriber
 from app.speech.voice_reasons import LISTENING_CREDIT_SPOKEN
 from tests.fake_credentials import elevenlabs_key
@@ -129,7 +128,7 @@ async def test_an_empty_account_is_credit_for_scribe(mock_http, status, body):
     mock_http(lambda request: httpx.Response(status, json=body))
     client = scribe()
     with pytest.raises(ScribeUnavailable) as caught:
-        await client.transcribe(b"wav", keyterms=[])
+        await client.transcribe(b"wav")
     assert caught.value.kind == "credit"
     assert client._key == SECRET
 
@@ -153,7 +152,7 @@ async def test_a_quota_detail_late_in_the_body_is_still_credit_for_scribe(mock_h
     body = late_marker()
     mock_http(lambda request: httpx.Response(401, text=body))
     with pytest.raises(ScribeUnavailable) as caught:
-        await scribe().transcribe(b"wav", keyterms=[])
+        await scribe().transcribe(b"wav")
     assert caught.value.kind == "credit"
     assert "credits remaining" not in str(caught.value), "only the text shown is truncated"
 
@@ -168,7 +167,7 @@ async def test_an_invalid_key_is_still_rejected_by_the_voice(mock_http):
 async def test_an_invalid_key_is_still_rejected_by_scribe(mock_http):
     mock_http(lambda request: httpx.Response(401, json=INVALID_KEY))
     with pytest.raises(ScribeUnavailable) as caught:
-        await scribe().transcribe(b"wav", keyterms=[])
+        await scribe().transcribe(b"wav")
     assert caught.value.kind == "rejected"
 
 
@@ -216,7 +215,7 @@ async def test_a_host_that_cannot_hear_says_the_credits_are_used_up(mock_http):
 
     mock_http(lambda request: httpx.Response(401, json=QUOTA))
     transcriber = Transcriber(
-        WhisperClient("http://fake"), from_terms(["Blue Wash Yard Jeans"]),
+        WhisperClient("http://fake"),
         scribe=scribe(cooldown_s=300.0), primary="scribe", whisper_enabled=False,
     )
     result = await transcriber.from_blob(webm_opus(tone_pcm(1.0)))
@@ -229,7 +228,7 @@ async def test_a_host_that_cannot_hear_says_the_credits_are_used_up(mock_http):
 def test_a_scribe_that_is_not_out_of_credit_keeps_its_own_words():
     client = scribe()
     client.failing, client.last_error_kind = True, "server_error"
-    transcriber = Transcriber(WhisperClient("http://fake"), from_terms([]), scribe=client, primary="scribe")
+    transcriber = Transcriber(WhisperClient("http://fake"), scribe=client, primary="scribe")
     exc = WhisperUnavailable("down")
     assert transcriber._unheard_reason(exc) == exc.spoken
 
@@ -325,13 +324,13 @@ async def test_the_newest_evidence_wins_whichever_product_gave_it(mock_http, tmp
     voice_client, scribe_client, runtime = await fresh_pair(tmp_path)
 
     with pytest.raises(ScribeUnavailable):
-        await scribe_client.transcribe(b"wav", keyterms=[])
+        await scribe_client.transcribe(b"wav")
     assert voice_client.health()[0] is False, "Scribe's refusal answers for the voice as well"
 
     account["empty"] = False
     scribe_client.clear_cooldown()
     voice_client.clear_cooldown()
-    await scribe_client.transcribe(b"wav", keyterms=[])
+    await scribe_client.transcribe(b"wav")
     assert voice_client.health()[0] is True, "a transcription is evidence the plan has credit"
 
     account["empty"] = True
@@ -443,7 +442,6 @@ def runtime_with(voice_client: VoiceClient, scribe_client: ScribeClient, tmp_pat
         scribe=scribe_client,
         voice=voice_client,
         kb=SimpleNamespace(empty=False, files=["a.md"], chars=10),
-        normaliser=SimpleNamespace(catalogue=["term"]),
         sessions=SimpleNamespace(count=lambda: 0),
         write_status=writes,
         capabilities=empty,
@@ -494,7 +492,7 @@ async def test_scribe_health_is_not_ok_while_the_account_is_empty_and_recovers(m
     mock_http(elevenlabs(account))
     client = scribe(cooldown_s=300.0)
     with pytest.raises(ScribeUnavailable):
-        await client.transcribe(b"wav", keyterms=[])
+        await client.transcribe(b"wav")
     ok, detail = await client.health()
     assert not ok, "the key still lists models, but nothing can be transcribed"
     assert "(credit)" in detail and "credits are used up" in detail and "topped up" in detail
@@ -502,7 +500,7 @@ async def test_scribe_health_is_not_ok_while_the_account_is_empty_and_recovers(m
 
     account["empty"] = False
     client.clear_cooldown()
-    assert (await client.transcribe(b"wav", keyterms=[])).text == "twelve orders today"
+    assert (await client.transcribe(b"wav")).text == "twelve orders today"
     ok, detail = await client.health()
     assert ok and detail.startswith("key ok")
 
@@ -523,7 +521,7 @@ async def test_health_route_reports_the_kind_and_the_reason_then_ok_again(mock_h
     with pytest.raises(VoiceUnavailable):
         await voice_client.synthesise("Twelve orders today.")
     with pytest.raises(ScribeUnavailable):
-        await scribe_client.transcribe(b"wav", keyterms=[])
+        await scribe_client.transcribe(b"wav")
 
     down = await _health(runtime)
     assert down["status"] == "degraded"
@@ -549,7 +547,7 @@ async def test_health_route_reports_the_kind_and_the_reason_then_ok_again(mock_h
     assert cached["voice"]["failure_kind"] is None and cached["voice"]["reason"] is None
     assert down["voice"]["ok"] is False, "the cached result itself is not changed"
 
-    await scribe_client.transcribe(b"wav", keyterms=[])
+    await scribe_client.transcribe(b"wav")
     up = await _health(runtime)
     assert up["voice"]["ok"] is True and up["voice"]["failure_kind"] is None and up["voice"]["reason"] is None
     assert up["speech"]["scribe_ok"] is True and up["speech"]["scribe_reason"] is None
@@ -585,7 +583,7 @@ async def test_a_cached_health_shows_a_scribe_failure_since_it_was_filled(mock_h
 
     account["empty"] = True
     with pytest.raises(ScribeUnavailable):
-        await scribe_client.transcribe(b"wav", keyterms=[])
+        await scribe_client.transcribe(b"wav")
 
     down = await health(request, fresh=0)
     assert down["cached"] is True, "answered from the cache filled while Scribe was well"
@@ -621,7 +619,7 @@ async def test_a_cached_health_shows_scribe_well_again_after_a_success(mock_http
     request = route_request(runtime)
 
     with pytest.raises(ScribeUnavailable):
-        await scribe_client.transcribe(b"wav", keyterms=[])
+        await scribe_client.transcribe(b"wav")
     down = await health(request, fresh=0)
     assert down["cached"] is False and down["status"] == "degraded"
     assert down["checks"]["scribe"]["ok"] is False and down["checks"]["speech"]["ok"] is False
@@ -630,7 +628,7 @@ async def test_a_cached_health_shows_scribe_well_again_after_a_success(mock_http
     # The plan is topped up: the next recording is heard.
     account["empty"] = False
     scribe_client.clear_cooldown()
-    assert (await scribe_client.transcribe(b"wav", keyterms=[])).text == "twelve orders today"
+    assert (await scribe_client.transcribe(b"wav")).text == "twelve orders today"
 
     up = await health(request, fresh=0)
     assert up["cached"] is True, "answered from the cache filled while Scribe was failing"
@@ -668,7 +666,7 @@ async def test_a_cached_failed_probe_gives_way_to_a_later_success_but_not_to_a_n
     plainly_credit(down["checks"]["speech"]["detail"])
 
     account["empty"] = False
-    assert (await scribe_client.transcribe(b"wav", keyterms=[])).text == "twelve orders today"
+    assert (await scribe_client.transcribe(b"wav")).text == "twelve orders today"
 
     up = await health(request, fresh=0)
     assert up["cached"] is True, "answered from the cache filled while the probe failed"

@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""M3's benchmark: small.en vs medium.en, on YOUR tablet audio, with YOUR vocabulary.
+"""M3's benchmark: small.en vs medium.en, on YOUR tablet audio.
 
 The point of this script is to make the model choice a measurement rather than a preference.
 It applies the decision rule from the build plan to the numbers it collects and prints the
 answer, so the decision is recorded rather than remembered.
+
+It measures what production sends and keeps: the audio and nothing else, and the words as
+they were heard. No initial prompt biases the decoder and no normaliser rewrites the result —
+both were removed on 28 September 2026, after a term list turned "Clive" into "Plaid".
 """
 
 from __future__ import annotations
@@ -20,12 +24,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.clients.whisper import WhisperClient  # noqa: E402
 from app.speech.decode import DecodeError, decode, read_wav  # noqa: E402
-from app.speech.normalise import from_file  # noqa: E402
-from app.speech.transcribe import build_prompt  # noqa: E402
 from config.settings import get_settings  # noqa: E402
 
 # The plan's rule, in one place so it cannot drift: medium only wins if it fixes at least two
-# CROOKS-term errors AND stays inside the latency budget.
+# phrases AND stays inside the latency budget.
 MEDIUM_MIN_FIXES = 2
 MEDIUM_MAX_MS = 700
 
@@ -48,9 +50,8 @@ def similar(a: str, b: str) -> bool:
     return strip(a) == strip(b)
 
 
-async def bench_model(model: str, files: list[Path], normaliser, iterations: int, url: str):
-    client = WhisperClient(url, model=model)
-    prompt = build_prompt(normaliser.catalogue.prompt_terms())  # exactly what production sends
+async def bench_model(model: str, files: list[Path], iterations: int, url: str):
+    client = WhisperClient(url, model=model)   # exactly what production sends: the audio
     rows = []
     for path in files:
         try:
@@ -62,10 +63,9 @@ async def bench_model(model: str, files: list[Path], normaliser, iterations: int
         times, raw = [], ""
         for _ in range(iterations):
             started = time.perf_counter()
-            transcript = await client.transcribe(wav, prompt=prompt)
+            transcript = await client.transcribe(wav)
             times.append((time.perf_counter() - started) * 1000)
             raw = transcript.text
-        normalised = normaliser.normalise(raw)
         rows.append(
             {
                 "file": path.name,
@@ -74,22 +74,14 @@ async def bench_model(model: str, files: list[Path], normaliser, iterations: int
                 "rms_dbfs": round(audio.stats.rms_dbfs, 1),
                 "median_ms": round(statistics.median(times), 1),
                 "raw": raw.strip(),
-                "normalised": normalised.text.strip(),
-                "matches": [f"{m.heard}→{m.replaced_with}" for m in normalised.matches],
             }
         )
     return rows
 
 
-def score(rows: list[dict], expected: dict[str, str]) -> tuple[int, int]:
-    raw_ok = norm_ok = 0
-    for row in rows:
-        want = expected.get(row["stem"])
-        if want is None:
-            continue
-        raw_ok += similar(row["raw"], want)
-        norm_ok += similar(row["normalised"], want)
-    return raw_ok, norm_ok
+def score(rows: list[dict], expected: dict[str, str]) -> int:
+    """How many phrases were heard right, word for word."""
+    return sum(similar(row["raw"], expected[row["stem"]]) for row in rows if row["stem"] in expected)
 
 
 def report(model: str, rows: list[dict], expected: dict[str, str]) -> None:
@@ -97,18 +89,13 @@ def report(model: str, rows: list[dict], expected: dict[str, str]) -> None:
     print(f"{'file':<18}{'audio':>7}{'median':>9}  transcript")
     for row in rows:
         want = expected.get(row["stem"])
-        mark = "" if want is None else ("  ok" if similar(row["normalised"], want) else "  MISS")
-        print(f"{row['file'][:17]:<18}{row['audio_s']:>6.1f}s{row['median_ms']:>8.0f}ms  {row['normalised'][:44]}{mark}")
-        if row["raw"].strip() != row["normalised"].strip():
-            print(f"{'':<18}{'':>16}  raw: {row['raw'][:44]}")
-        if row["matches"]:
-            print(f"{'':<18}{'':>16}  fixed: {', '.join(row['matches'])[:60]}")
+        mark = "" if want is None else ("  ok" if similar(row["raw"], want) else "  MISS")
+        print(f"{row['file'][:17]:<18}{row['audio_s']:>6.1f}s{row['median_ms']:>8.0f}ms  {row['raw'][:44]}{mark}")
     if rows:
         print(f"\nmedian across corpus: {statistics.median(r['median_ms'] for r in rows):.0f} ms")
     if expected:
-        raw_ok, norm_ok = score(rows, expected)
         scored = sum(1 for r in rows if r["stem"] in expected)
-        print(f"correct: {raw_ok}/{scored} raw, {norm_ok}/{scored} after normalisation")
+        print(f"correct: {score(rows, expected)}/{scored} as heard")
 
 
 async def main() -> int:
@@ -135,9 +122,7 @@ async def main() -> int:
         return 1
 
     expected = load_expected(Path(settings.bench_audio_dir).parent / "phrases.txt")
-    normaliser = from_file(settings.kb_dir / "terminology.md")
-    print(f"corpus: {len(files)} file(s) · terminology: {len(normaliser.catalogue)} term(s) "
-          f"· {args.iterations} iteration(s) each")
+    print(f"corpus: {len(files)} file(s) · {args.iterations} iteration(s) each")
 
     results = {}
     for model in args.models:
@@ -147,7 +132,7 @@ async def main() -> int:
         except (EOFError, KeyboardInterrupt):
             print(f"skipping {model}")
             continue
-        rows = await bench_model(model, files, normaliser, args.iterations, url)
+        rows = await bench_model(model, files, args.iterations, url)
         results[model] = rows
         report(model, rows, expected)
 
@@ -167,20 +152,20 @@ def decide(results: dict, expected: dict) -> dict:
     if not small:
         return {"model": "unknown", "why": "small.en was not benchmarked."}
 
-    _, small_ok = score(small, expected)
+    small_ok = score(small, expected)
     scored = sum(1 for r in small if r["stem"] in expected)
     small_ms = statistics.median(r["median_ms"] for r in small)
 
     if scored and small_ok == scored:
         return {
             "model": "small.en",
-            "why": f"small.en got all {scored} phrases right after normalisation "
+            "why": f"small.en got all {scored} phrases right as heard "
                    f"({small_ms:.0f} ms median). No argument for a bigger model.",
         }
     if not medium:
         return {"model": "small.en", "why": "medium.en was not benchmarked; keep small.en."}
 
-    _, medium_ok = score(medium, expected)
+    medium_ok = score(medium, expected)
     medium_ms = statistics.median(r["median_ms"] for r in medium)
     fixes = medium_ok - small_ok
 
@@ -193,8 +178,7 @@ def decide(results: dict, expected: dict) -> dict:
     return {
         "model": "small.en",
         "why": f"medium.en fixed {fixes} phrase(s) at {medium_ms:.0f} ms — the rule needs "
-               f"{MEDIUM_MIN_FIXES}+ fixes within {MEDIUM_MAX_MS} ms. Remaining errors are the "
-               "normaliser's job: add the terms to kb/terminology.md rather than buying 300 ms.",
+               f"{MEDIUM_MIN_FIXES}+ fixes within {MEDIUM_MAX_MS} ms, so keep small.en and the 300 ms.",
     }
 
 

@@ -51,10 +51,8 @@ class Settings(BaseSettings):
     scribe_model: str = "scribe_v2"
     scribe_language: str = "eng"  # ISO-639-3, as the ElevenLabs API expects
     scribe_timeout_s: float = 10.0   # Scribe answers in one to two seconds; past this, whisper takes the turn
-    # Bias Scribe with the live/seed product catalogue. Product words only — never customers.
-    scribe_keyterms: bool = True
-    # ElevenLabs bills a 20-second minimum for requests carrying 100 or more keyterms.
-    scribe_max_keyterms: int = 99
+    # No keyterms setting: nothing biases what Scribe hears (app/clients/elevenlabs.py). A
+    # CROOKS_SCRIBE_KEYTERMS left in an old .env is ignored, as every unknown key is.
     # After a rejected key or an exhausted account, stop calling Scribe for this long and go
     # straight to Whisper, so a broken account does not add a round trip to every sentence.
     scribe_cooldown_s: float = 300.0

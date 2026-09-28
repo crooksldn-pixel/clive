@@ -9,9 +9,9 @@ Two things it does not do, learned from the report of the September live hour, w
 useful and wrong in five places:
 
 It does not read the owner's words with rules of its own. Whether a change was asked for is
-the ROUTER's answer, taken off the turn's `lane` event, because the router is what decided the
-lane and a second reading that disagrees with it is a second bug
-(`app/observability/semantics.py`). And what to DO about a change asked for is the capability
+the ROUTER's answer on a timeline that has one — a `lane` event, written before the
+word-matching router was removed on 28 September 2026 — and otherwise the one rule
+`app/observability/contract.py` keeps (`app/observability/semantics.py`). And what to DO about a change asked for is the capability
 table's answer (`app/capabilities/families.py`): no family is a family to build, a family that
 is not READY is a scope to grant, and a READY one declined anyway is the assistant being wrong
 about itself. Reporting all three as one class is how a capability that has since been built
@@ -97,9 +97,9 @@ COMPONENT = {
     "PARTIAL_COVERAGE": "the read that reported a subset without the answer saying so",
     "VERIFICATION_ERROR": "the action engine's proof (app/actions/engine.py)", "TOOL_SELECTION_ERROR": "the model's tool use (system prompt, tool descriptions)",
     "UI_RENDER_ERROR": "the tablet renderer (web/ui.js, app/presentation.py)", "UI_NAVIGATION_PROBLEM": "the tablet's screens (web/app.js)",
-    "CONTEXT_INCOMPLETE": "context hydration (app/context/order.py, /context route)", "INTENT_ERROR": "the model's reading of the request (system prompt, normaliser)",
+    "CONTEXT_INCOMPLETE": "context hydration (app/context/order.py, /context route)", "INTENT_ERROR": "the model's reading of the request (system prompt, what was heard)",
     "UNKNOWN": "unclassified — read the turn's events",
-    "OWNER_FEEDBACK": "owner feedback (app/observability/feedback.py, app/families/owner_feedback.py): working, and the most valuable evidence in the session",
+    "OWNER_FEEDBACK": "owner feedback (app/observability/feedback.py): working, and the most valuable evidence in the session",
     **visible.COMPONENT,
 }
 PERMISSION_CODES = frozenset({
@@ -312,8 +312,9 @@ class Turn:
     stt: dict[str, Any] | None = None
     prefetch: dict[str, Any] | None = None
     model: dict[str, Any] | None = None
-    # Which lane answered (app/fastpath): FAST is the Mac's own procedure with no model on
-    # the critical path, NORMAL is Claude, DEEP is work that outlives one answer.
+    # Which lane answered, on a timeline recorded before 28 September 2026 (FAST was a canned
+    # procedure with no model, NORMAL was Claude). Kept so those timelines still read; a
+    # newer one has no `lane` or `fast_path` events and these stay None.
     lane: dict[str, Any] | None = None
     fast: dict[str, Any] | None = None
     read_plans: list[dict[str, Any]] = field(default_factory=list)
@@ -923,7 +924,7 @@ def _collisions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     §27A. Six turns of the live session were filed under STT_ERROR. What happened was that two
     fingers went down on the orb, the recorder stopped, and the recogniser was handed silence —
-    a multitouch, not a mis-hearing, and a fix in `web/app.js` rather than in the keyterms. The
+    a multitouch, not a mis-hearing, and a fix in `web/app.js` rather than in the recogniser. The
     tablet reports the touch itself (`hold` with `phase: "multitouch"`, and the finger count),
     and a split posts `navigate {nav: "split"}` and forks a branch on the Mac. Any of those
     within `GESTURE_WINDOW_S` of a recording that produced nothing is what produced nothing.
@@ -1467,20 +1468,6 @@ def _no_family() -> str:
     return semantics.NO_FAMILY
 
 
-def _uncovered_families(reached: list[str]) -> list[str]:
-    """Of the intent families this session actually reached, the ones no golden scenario
-    exercises. Read from `experience/matrix.py`, which derives it from the registries rather
-    than from a list kept by hand — so a family added in this pass is on it the same day.
-    Empty when the matrix cannot be built (a report written without the repository beside it)."""
-    try:
-        from experience import matrix
-
-        gaps = set(matrix.uncovered())
-    except Exception:  # noqa: BLE001 — the report still reads without the scenario list
-        return []
-    return sorted(name for name in reached if name in gaps)
-
-
 def _branch_failures(rec: Reconstruction) -> list[tuple[str, str, str]]:
     """Where the two halves of the orb cost the owner something.
 
@@ -1567,7 +1554,7 @@ def _precision_input(turns: list[Turn]) -> list[tuple[str, str, str]]:
 
 def _cross_source_workflows(turns: list[Turn]) -> list[tuple[str, int, list[str]]]:
     """Reads that crossed Shopify and Gmail in one turn, by the sequence of tools. Counted so
-    a shape the owner keeps asking for can become one recipe instead of four calls."""
+    a shape the owner keeps asking for can become one read tool instead of four calls."""
     shapes: Counter = Counter()
     where: dict[tuple[str, ...], list[str]] = defaultdict(list)
     for turn in turns:
@@ -1672,28 +1659,13 @@ def intelligence(rec: Reconstruction, registered: list[str], *, capability_state
     for key, entry in sorted(spoken.items(), key=lambda kv: -kv[1]["n"]):
         if entry["state"] != _no_family():
             continue
-        # A change nothing claims AND no intent family takes: a family to add, not a scope
-        # to grant. `verdict.unplaced` is the router's own answer to "is there a family".
-        unplaced = [t.turn_id for t in turns if t.verdict is not None and t.verdict.change is not None
-                    and t.verdict.change.key == key and t.verdict.unplaced]
-        new_actions.append((key, entry["n"], entry["turns"][:5], f"{entry['what']}; no intent family took {len(unplaced)} of {entry['n']} request(s)"))
-    read_gaps: dict[str, dict[str, Any]] = {}
-    for t in turns:
-        v = t.verdict
-        if v is None or v.mutation or not v.unplaced or not (t.question or "").strip():
-            continue
-        shape = f"{t.cluster}: " + " ".join((t.question or "").lower().split()[:4])
-        why = v.disagreement or v.reason or "no family matched"
-        entry = read_gaps.setdefault(shape, {"n": 0, "turns": [], "reason": why})
-        entry["n"] += 1
-        entry["turns"].append(t.turn_id)
+        # A change nothing on this Mac claims: a family to add, not a scope to grant.
+        new_actions.append((key, entry["n"], entry["turns"][:5], entry["what"]))
     relations = [(t.turn_id, sig) for t in turns for sig in t.signals if "surface drew no order" in sig]
     branch_rows = _branch_failures(rec)
     corrections = _corrections(turns)
     precision = _precision_input(turns)
     cross_rows = _cross_source_workflows(turns)
-    reached = sorted({str((t.lane or {}).get("family") or "") for t in turns if (t.lane or {}).get("family")})
-    uncovered = _uncovered_families(reached)
     return {
         "false_unsupported": false_rows,
         "composable_failed": failed_rows,
@@ -1702,14 +1674,11 @@ def intelligence(rec: Reconstruction, registered: list[str], *, capability_state
         "new_actions": [(name, n, action_turns[name][:5]) for name, n in actions.most_common(10)],
         "spoken_capabilities": [(key, e["n"], e["turns"][:5], e["state"], e["scope"], e["what"]) for key, e in sorted(spoken.items(), key=lambda kv: -kv[1]["n"])],
         "new_action_families": new_actions,
-        "new_read_families": [(shape, e["n"], e["turns"][:5], e["reason"]) for shape, e in sorted(read_gaps.items(), key=lambda kv: -kv[1]["n"])],
         "relation_gaps": relations,
         "branch_failures": branch_rows,
         "corrections": corrections,
         "precision_input": precision,
         "cross_source_workflows": cross_rows,
-        "families_reached": reached,
-        "families_uncovered": uncovered,
         "bulk": [(op, e["n"], e["turns"][:5], e["supported"] and e["served"] > 0) for op, e in sorted(bulk.items(), key=lambda kv: -kv[1]["n"])],
         "follow_ups": [(shape, n, follow_up_turns[shape][:6]) for shape, n in follow_ups.most_common()],
         "ui_types": [(kind, n, ui_turns[kind][:5]) for kind, n in ui_types.most_common(10)],
@@ -2096,14 +2065,9 @@ def render(rec: Reconstruction, *, tools_registered: list[str] | None = None,
     ]))
     add("### Possible new action families")
     add("")
-    add("A change nothing on this Mac claims AND no intent family takes: a family to add (`app/families/`), not a scope to grant.")
+    add("A change nothing on this Mac claims: a family to add (`app/families/`), not a scope to grant.")
     add("")
-    lines.extend(_table(["Change", "Times", "Turns", "What the router did with it"], [[name, n, ", ".join(ids), why] for name, n, ids, why in intel["new_action_families"]]))
-    add("### Possible new read families")
-    add("")
-    add("A question the router placed in no family, so the model took it. Grouped by what was asked; the reason is the router's own.")
-    add("")
-    lines.extend(_table(["Request shape", "Times", "Turns", "Why no family"], [[shape, n, ", ".join(ids), why] for shape, n, ids, why in intel["new_read_families"]]))
+    lines.extend(_table(["Change", "Times", "Turns", "What was asked for"], [[name, n, ", ".join(ids), what] for name, n, ids, what in intel["new_action_families"]]))
     add("### UI component gaps")
     add("")
     lines.extend(_table(["Gap", "Turn"], [["an email surface drew no order though the turn held one", tid] for tid, _sig in intel["relation_gaps"]]))
@@ -2119,11 +2083,6 @@ def render(rec: Reconstruction, *, tools_registered: list[str] | None = None,
     add("### Repeated cross-source workflows")
     add("")
     lines.extend(_table(["Workflow", "Times", "Turns"], [[shape, n, ", ".join(ids)] for shape, n, ids in intel["cross_source_workflows"]]))
-    if intel["families_reached"]:
-        add(f"Intent families this session reached: {', '.join(intel['families_reached'])}. "
-            + (f"**Reached and covered by no golden scenario:** {', '.join(intel['families_uncovered'])}." if intel["families_uncovered"] else "Every one of them is covered by a golden scenario.")
-            )
-        add("")
     add("### Bulk workflows requested")
     add("")
     lines.extend(_table(["Change, in bulk", "Times", "Turns", "A batch exists and was staged"], [[op, n, ", ".join(ids), "yes" if served else "no"] for op, n, ids, served in intel["bulk"]]))
@@ -2421,7 +2380,7 @@ def _opportunities(rec: Reconstruction, turns: list[Turn], registered: list[str]
             by_class[c].append(t)
     tasks = {
         "FALSE_UNSUPPORTED": "the assistant declined a question the read layer or a batch tool composes: add the example to commerce_capabilities or the prompt's guidance so the composition is reached for.",
-        "STT_ERROR": "replay the failing recordings through `make bench`; check the keyterms and the VAD padding for the words that were lost.",
+        "STT_ERROR": "replay the failing recordings through `make bench`; check the VAD padding for the words that were lost.",
         "TIMEOUT": "raise or split the budget that expired, and make the slow step visible on the tablet while it runs.",
         "PERMISSION_ERROR": "grant the scope or login the refusal names (the card and /health say which) before the next session.",
         "MISSING_CAPABILITY": "decide whether to build the capability (see section 6) or to have the assistant say plainly what the nearest existing one is.",
@@ -2502,18 +2461,13 @@ def _opportunities(rec: Reconstruction, turns: list[Turn], registered: list[str]
             out.append({"problem": f"Asked for out loud and {state}: {what}", "frequency": f"{n} time(s)", "severity": 4, "examples": ids[:3],
                         "component": "the write boundary and the store's scopes",
                         "task": f"the capability exists; grant {scope or 'the scope it names'} (or connect the provider) rather than building it again.", "weight": rank(4, n), "basis": f"severity 4 × {min(n, RANK_CAP)} request(s)"})
-    for shape, n, ids, why in intel["new_read_families"]:
-        if n >= 2:
-            out.append({"problem": f"A read the router places in no family, asked {n} times: {shape}", "frequency": f"{n} time(s)", "severity": 2, "examples": ids[:3],
-                        "component": "the intent families and the fast lane (app/families/, app/fastpath)",
-                        "task": f"a family and a recipe would answer this without the model ({why}).", "weight": rank(2, n), "basis": f"severity 2 × {min(n, RANK_CAP)} request(s)"})
     if intel["branch_failures"]:
         out.append({"problem": "The split orb cost the owner something", "frequency": f"{len(intel['branch_failures'])} occurrence(s)", "severity": 3,
                     "examples": sorted({b for b, _w, _d in intel["branch_failures"]})[:3], "component": "the branches (app/routes/branches.py, web/app.js)",
                     "task": "read the rows in section 13: a focus that redraws nothing, or a half put aside and never returned to, is a control the glass does not have.", "weight": rank(3, len(intel["branch_failures"])), "basis": f"severity 3 × {min(len(intel['branch_failures']), RANK_CAP)} occurrence(s)"})
     if len(intel["corrections"]) >= 2:
         out.append({"problem": "The same request said again", "frequency": f"{len(intel['corrections'])} pair(s) of turns", "severity": 2,
-                    "examples": [tid for tid, _w, _s in intel["corrections"]][:3], "component": "speech, the normaliser and the answer's own wording",
+                    "examples": [tid for tid, _w, _s in intel["corrections"]][:3], "component": "speech (app/speech) and the answer's own wording",
                     "task": "read each pair: the first question is whether the first ANSWER was wrong rather than unheard — see WRONG_ENTITY_ANSWERED, which is what one of these pairs turned out to be.", "weight": rank(2, len(intel["corrections"])), "basis": f"severity 2 × {min(len(intel['corrections']), RANK_CAP)} pair(s)"})
     # §21. This row was the 11 September report's number one candidate at 2 × 62 = 124, and
     # 61 of the 62 were control taps the voice layer swallowed. It is now ranked on the TURNS
@@ -2527,7 +2481,7 @@ def _opportunities(rec: Reconstruction, turns: list[Turn], registered: list[str]
     for shape, n, ids in intel["cross_source_workflows"]:
         if n >= 2:
             out.append({"problem": f"A cross-source read repeated: {shape}", "frequency": f"{n} time(s)", "severity": 2, "examples": ids[:3],
-                        "component": "the read layer and the fast lane's recipes", "task": "one recipe would do this in one pass with the ids issued once.", "weight": rank(2, n), "basis": f"severity 2 × {min(n, RANK_CAP)} time(s)"})
+                        "component": "the read layer (app/tools/analytics_tools.py)", "task": "one read tool would do this in one call with the ids issued once.", "weight": rank(2, n), "basis": f"severity 2 × {min(n, RANK_CAP)} time(s)"})
     for name, n, ids in intel["dimensions"]:
         out.append({"problem": f"Query dimension asked for and unknown: {name}", "frequency": f"{n} time(s)", "severity": 3, "examples": ids[:3],
                     "component": "the query language (app/analytics/query.py)", "task": f"decide whether `{name}` is a filter, a group or a metric, and add it with a bound; or teach the prompt the nearest existing one.", "weight": rank(3, n), "basis": f"severity 3 × {min(n, RANK_CAP)} time(s)"})

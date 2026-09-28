@@ -28,13 +28,11 @@ owner's number.** `DiscountPercentageInput.percentage` is between 0 and 1 — 0.
 per cent — and the reviewed shape in app/clients/shopify.py refuses anything else, because
 "15" there is a fifteen-hundred-per-cent discount. The owner types 15 and reads 15%.
 
-**It cannot be reached by voice as a fast-lane turn, and this says so rather than pretending.**
-`intent.resolve` returns no family for a sentence carrying a mutation signal, and "create",
-"set up" and "make" are all one. That is right, and it is not a gap: the sentence goes to
-Claude, whose job here is exactly the parse a language model is good at — "fifteen per cent
-off until the end of the month" — and its parse lands in a workspace where the owner can see
-and correct it, instead of becoming the arguments of a change. The touch route
-(`discount.open` and the recipe below) needs no model at all.
+**Said out loud, it is the model's.** "Create a code for fifteen per cent off until the end
+of the month" goes to Claude like every other sentence, whose job here is exactly the parse a
+language model is good at — and its parse lands in a workspace where the owner can see and
+correct it, instead of becoming the arguments of a change. The touch route (`discount.open`
+and the recipe below) needs no model at all.
 """
 
 from __future__ import annotations
@@ -59,10 +57,8 @@ from app.commands import Command, Outcome
 from app.commands import Ctx as CommandCtx
 from app.commands import register as register_command
 from app.families import _workspace as ws
-from app.fastpath.intent import Family, extend, signal
-from app.fastpath.models import Ctx, FastAnswer
-from app.fastpath.recipes import CACHE_NONE, Recipe, register
 from app.reads.scheduler import Read, ReadPlan, ReadResult
+from app.recipes import CACHE_NONE, Ctx, Recipe, RecipeAnswer, register
 from app.tools.gate import Tier
 from app.tools.registry import ToolError, WriteSpec, tool
 from app.tools.shopify_tools import _c
@@ -73,21 +69,6 @@ KIND = "discount"
 WORKSPACE_PREFIX = "dsc"
 CHECK_TOOL = "shopify_discount_check"
 OPEN_TOOL = "shopify_discount_open"
-
-# This family's own word, through the `signal()` seam. "Code" is not enough on its own — an
-# order number is a code and so is a tracking number — so it counts only beside a discount
-# word or a percentage. "Off" is deliberately absent: "take it off the order" is an edit.
-DISCOUNT_WORDS = frozenset({"discount", "discounts", "promo", "promotion", "voucher", "coupon"})
-
-
-def _discount_sentence(sig: Any) -> bool:
-    words = set(sig.words)
-    if words & DISCOUNT_WORDS:
-        return True
-    return bool(words & {"code", "codes"}) and any("%" in w for w in words)
-
-
-_SAYS_DISCOUNT = signal("says_discount", _discount_sentence)
 WRITE_TOOL = "shopify_discount_create"
 OPERATION = "discount_code_create"
 SCOPE = "write_discounts"
@@ -769,7 +750,7 @@ def _field(ctx: CommandCtx) -> Outcome:
 
     When the CODE changes, the answer needs a read — is that code taken? — and a command
     cannot read. So this names the recipe below and `app/routes/command.py` runs it through
-    the same read scheduler a sentence would use, with no model on the path.
+    the read scheduler, with no model on the path.
     """
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id") or ctx.arg("compose_id"))
     if workspace is None:
@@ -834,9 +815,8 @@ def _discard(ctx: CommandCtx) -> Outcome:
                    changed={"workspace": None, "discarded": str(workspace["workspace_id"])})
 
 
-# Touch only, all five. There is no sentence that reaches them: a spoken instruction to make
-# a discount carries a mutation signal, and the fast lane declines every one of those — the
-# sentence goes to Claude, which calls `shopify_discount_open`.
+# Touch only, all five. A spoken instruction to make a discount is a model turn, and Claude
+# calls `shopify_discount_open`.
 register_command(Command("discount.open", "Start a discount code", _open, voice=False))
 register_command(Command("discount.field", "Type into the discount being written", _field, voice=False))
 register_command(Command("discount.choose", "Pick what the discount takes off", _choose, voice=False))
@@ -848,7 +828,7 @@ register_command(Command("discount.discard", "Throw away the discount being writ
 #
 # One read, run for a tap: is the code that has just been typed taken? It redraws the same
 # workspace with what the shop said, and it stages nothing and cannot — a recipe naming a
-# write tool is a crash at start-up (app/fastpath/recipes.py assert_read_only).
+# write tool is a crash at start-up (app/recipes.py assert_read_only).
 
 
 def _plan(ctx: Ctx) -> ReadPlan | None:
@@ -862,10 +842,10 @@ def _plan(ctx: Ctx) -> ReadPlan | None:
                     label="discount_code")
 
 
-def _render(ctx: Ctx, result: ReadResult) -> FastAnswer:
+def _render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     workspace = ws.held(ctx.branch, KIND)
     if workspace is None:
-        return FastAnswer(answer="", defer="the discount was closed while the shop was being read")
+        return RecipeAnswer(answer="", defer="the discount was closed while the shop was being read")
     body = result.values.get("discount")
     if isinstance(body, dict) and str(body.get("code") or "") == ws.value(workspace, "code"):
         workspace["facts"]["checked_code"] = str(body["code"])
@@ -873,7 +853,7 @@ def _render(ctx: Ctx, result: ReadResult) -> FastAnswer:
             workspace["facts"]["taken_by"] = str(body.get("title") or "a discount")[:MAX_TITLE_CHARS]
         else:
             workspace["facts"].pop("taken_by", None)
-    return FastAnswer(
+    return RecipeAnswer(
         answer=_spoken(workspace), calls=list(result.calls), drawn=[],
         surfaces=[workspace_surface(workspace)], partial=result.partial,
         trace={"code": ws.value(workspace, "code"), "taken": bool(ws.fact(workspace, "taken_by"))},
@@ -881,39 +861,13 @@ def _render(ctx: Ctx, result: ReadResult) -> FastAnswer:
 
 
 register(Recipe(
-    recipe_id="discount_code", intent_family="discount_code",
+    recipe_id="discount_code",
     read_primitives=(CHECK_TOOL,), parallel_nodes=(("discount",),), ui="workspace",
     # Never cached: whether a code is taken is exactly what must not be stale on the card the
     # owner is about to authorise a creation from.
-    cache_policy=CACHE_NONE, min_confidence=0.75, target_ms=900,
+    cache_policy=CACHE_NONE, target_ms=900,
     plan=_plan, render=_render,
 ))
-
-# Declared so its unreachability by voice is a fact with a test rather than a comment.
-# `mutation` is in `needs` on purpose: making a discount is an instruction, and
-# `intent.resolve` returns no family at all for a sentence carrying that signal — so this
-# scores only when scoring is never reached. It is registered anyway, because a family whose
-# reachability is written down is a family whose reachability can be tested, and because the
-# recipe it names IS reached, by a tap, through `app/routes/command.py`.
-extend([
-    # Two things had to change together for the brief's own section 12 example — "create a
-    # 15%% discount code called TEST15" — to reach this family at all.
-    #
-    # `serves_mutation_words`, because `intent.resolve` narrows a mutation sentence to the
-    # families that have opted in, and this family's sentence is nothing BUT a mutation
-    # sentence. Safe, because the recipe cannot write: its one read primitive is
-    # `shopify_discount_check`, which has no write spec, and `recipes.assert_read_only` runs
-    # over it before every fast-lane turn. The creation still happens on a gesture.
-    #
-    # And `says_discount`, because `mutation` alone is every change the owner can ask for.
-    # Opting in with `needs=("mutation",)` made this family answer "cancel it", "refund them
-    # the postage" and "mark 1938 fulfilled" at 0.86 — measured. Being unreachable had hidden
-    # how broad the `needs` was; the guard was doing this family a favour.
-    Family("discount_code", needs=("mutation", _SAYS_DISCOUNT), boosts=(),
-           blocks=("question", "metric", "email", "ranking"),
-           base=0.8, floor=0.75, max_words=14, serves_mutation_words=True),
-])
-
 
 # --------------------------------------------------------------------------- the capability
 

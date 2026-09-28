@@ -104,13 +104,12 @@ def test_the_tab_a_record_was_left_on_comes_back_with_that_record():
 
 
 def test_the_tab_a_recipe_arrives_on_is_that_records_tab():
-    """The task-implied tab, from the lane that already knew it.
+    """The task-implied tab belongs to the record it was implied for.
 
-    `app/fastpath/library.py` has always said which part of a record its recipes land on —
-    `_remember(ctx, "customer", ref, name, tab="orders")` for a customer history lookup,
-    `tab="shipping"` for an address lookup. That annotation reached `Branch.tab` and was then
-    handed to every card on the half; now it reaches the RECORD, which is what makes "see his
-    orders and his history" open on Orders for that customer and on nothing for any other.
+    A move that arrives on a tab — a customer opened on Orders, an address change on
+    Shipping — used to set `Branch.tab`, which was then handed to every card on the half; now
+    it reaches the RECORD, which is what makes "see his orders and his history" open on Orders
+    for that customer and on nothing for any other.
     """
     branch = Branch(branch_id="br_1", session_id="s1")
     branch.visit("customer", "cus_6343", "Ada", tab="orders")
@@ -334,7 +333,8 @@ def test_a_named_section_shell_carries_identity_on_its_own():
     """One read, one card: the titled skeleton names the section, so the workspace identity
     is on the glass without a header card over a single card."""
     clock = Clock()
-    workspace = progressive.begin("s1", turn_id="t1", family="order_list_period", clock=clock)
+    workspace = progressive.begin("s1", turn_id="t1", clock=clock)
+    workspace.starting("shopify_list_orders")
     assert [p.type for p in workspace.patches] == ["order_list"], "a one-section task got a header card"
     assert workspace.patches[0].item["data"]["title"] == "Orders"
     assert workspace.timings()["time_to_visible_shell"] == 0.0
@@ -458,7 +458,7 @@ def test_one_turn_does_not_draw_the_same_surface_seven_times():
     through #7 at 0.0 s apart, one at 2.5 s — and each redraw cost the scroll position while
     he was scrolling. The same three cards staged seven times are three cards."""
     clock = Clock()
-    workspace = progressive.begin("s1", turn_id="t1", family="order_list_period", clock=clock)
+    workspace = progressive.begin("s1", turn_id="t1", clock=clock)
     trio = [orders(3), {"type": "working_set", "data": {"set_id": "set_1", "label": "Today's orders", "total": 3}}]
     drawn = []
     for i in range(7):
@@ -515,11 +515,11 @@ def test_both_sides_know_the_same_five_states():
 
 def test_every_planned_section_names_a_card_the_renderer_can_draw():
     renderers = set(re.findall(r"^\s{4}(\w+): render\w+,$", UI_JS, re.M))
-    for family, (title, kinds) in progressive.PLAN_OF_FAMILY.items():
-        assert title, f"{family} plans a workspace with no name"
-        for kind in kinds:
-            assert kind in progressive.SECTION_OF_KIND, f"{family} plans {kind}, which has no section"
-            assert kind in renderers, f"{family} plans {kind}, which the tablet cannot draw"
+    # A section is planned from the reads that are about to run (`progressive.planning`), so
+    # every card a read can promise must have a section and a renderer.
+    for tool, kind in progressive.SHELL_OF_TOOL.items():
+        assert kind in progressive.SECTION_OF_KIND, f"{tool} plans {kind}, which has no section"
+        assert kind in renderers, f"{tool} plans {kind}, which the tablet cannot draw"
     for kind in progressive.SECTION_OF_KIND:
         assert kind in UI_TYPES, f"{kind} has a section and is not in the vocabulary"
 

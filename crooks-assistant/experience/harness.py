@@ -4,13 +4,14 @@ The one rule this file exists to keep: a scenario must go through the same code 
 voice goes through. `POST /turn` with a `text` body is not a shortcut around the application —
 it is the exact point the audio path arrives at once Scribe or whisper has finished, and
 everything after it (the affirmation check, the revocation of pending cards, the epoch, the
-branch, the lane router, the recipe, the presenters, the timeline) is shared. So a scenario
-injects a transcript there, and nothing here reaches past the HTTP boundary to help it along.
+branch, the model turn, the presenters, the timeline) is shared. So a scenario injects a
+transcript there, and nothing here reaches past the HTTP boundary to help it along.
 
 What is swapped is what the Mac talks to: Shopify and Gmail become the golden world, and the
-model provider becomes one that records what it was asked and answers in a fixed sentence. Those
-are the same three seams the runtime itself uses. Nothing else is faked, and in particular no
-part of the presentation, routing or action layer is — those are what is being measured.
+model provider becomes one that records what it was asked and, where the scenario says what
+Claude would read for a sentence, calls those tools through the real gate. Those are the same
+three seams the runtime itself uses. Nothing else is faked, and in particular no part of the
+presentation, gate or action layer is — those are what is being measured.
 
 Timing is recorded in three pieces, because they are three different experiences:
 
@@ -54,16 +55,28 @@ BOOKKEEPING = frozenset({"context_stack"})
 
 
 class RecordingProvider:
-    """A model that never thinks and always remembers being asked.
+    """A model that thinks only as far as a scenario tells it to, and always remembers being asked.
 
-    A scenario asserting "this was answered without the model" needs the model to be countable,
-    not absent: a provider that raises would make a deferral look like a crash, and one that is
-    missing would let a recipe quietly stop deferring without any test noticing.
+    Every sentence reaches it: nothing on the Mac answers a sentence before the model does
+    (app/routes/turn.py). What it does with one is the scenario's to say —
+    `h.provider.will("show me order 1938", ("shopify_find_order", {"query": "1938"}), ...)`
+    makes the next time it is asked those words call those tools, in order, through the real
+    gate as the owner, exactly as Claude's tool calls arrive. So the cards a scenario asserts on
+    are drawn by the real presenters from real tool results, and nothing here decides what a
+    sentence means. A sentence nobody scripted is answered in a fixed sentence and reads nothing.
+
+    Countable, not absent: a provider that raised would make a model turn look like a crash.
     """
 
     def __init__(self, reply: str = "[model answer]") -> None:
         self.reply = reply
         self.calls: list[str] = []
+        self.runtime: Any = None
+        self._scripts: dict[str, tuple[list[tuple[str, dict[str, Any]]], str]] = {}
+
+    def will(self, said: str, *tools: tuple[str, dict[str, Any]], reply: str = "") -> None:
+        """When asked `said`, call `tools` in order and answer `reply`."""
+        self._scripts[_key(said)] = (list(tools), reply or self.reply)
 
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
@@ -77,7 +90,59 @@ class RecordingProvider:
 
     async def turn(self, session_id: str, text: str) -> TurnResult:
         self.calls.append(text)
-        return TurnResult(text=self.reply, session_id=session_id)
+        script = self._scripts.get(_key(said_in(text)))
+        if script is None or self.runtime is None:
+            return TurnResult(text=self.reply, session_id=session_id)
+        from app.tools.dispatch import dispatch
+
+        tools, reply = script
+        session = self.runtime.sessions.get_or_create(session_id)
+        calls: list[Any] = []
+        for name, args in tools:
+            # An argument can depend on what an earlier call in the same turn returned — an
+            # order_id comes from the search, as it does for Claude — so it may be a function
+            # of the calls so far.
+            given = args(calls) if callable(args) else args
+            await dispatch(name, dict(given or {}), session=session, timeout_s=10, calls=calls)
+        return TurnResult(text=reply, tool_calls=calls, session_id=session_id)
+
+
+# ------------------------------------------------------------------- what Claude reads for...
+
+
+def _found_order(calls: list[Any]) -> dict[str, Any]:
+    """The order a search in this turn found, as the next call's argument."""
+    for call in calls:
+        orders = (getattr(call, "result", None) or {}).get("orders") if call.name == "shopify_find_order" else None
+        if orders and isinstance(orders[0], dict) and orders[0].get("order_id"):
+            return {"order_id": orders[0]["order_id"]}
+    return {"order_id": ""}
+
+
+def order_reads(number: str | int) -> tuple[tuple[str, Any], ...]:
+    """...one order, asked for by its number: find it, then read it whole."""
+    return (("shopify_find_order", {"query": str(number).lstrip("#")}),
+            ("shopify_order_detail", _found_order))
+
+
+def todays_orders_reads() -> tuple[tuple[str, Any], ...]:
+    """...today's orders."""
+    return (("shopify_list_orders", {"days": 1}),)
+
+
+def customer_reads(customer_id: str) -> tuple[tuple[str, Any], ...]:
+    """...a customer the conversation has already been shown."""
+    return (("shopify_customer_history", {"customer_id": customer_id}),)
+
+
+def said_in(prompt: str) -> str:
+    """The owner's own words in what the model is handed: the line after the clock."""
+    lines = str(prompt or "").split("\n")
+    return lines[1] if len(lines) > 1 and lines[0].startswith("[Now: ") else str(prompt or "")
+
+
+def _key(said: str) -> str:
+    return " ".join(str(said or "").lower().split())
 
 
 @dataclass
@@ -91,10 +156,8 @@ class Capture:
     branch_id: str = ""
     status: int = 0
 
-    lane: str = ""
-    recipe_id: str = ""
-    intent_family: str = ""
-    confidence: float | None = None
+    lane: str = ""                      # NORMAL for every sentence, TOUCH for a tap
+    recipe_id: str = ""                 # the read a tap named, when it named one
     model_calls: int = 0
     tools: list[str] = field(default_factory=list)
 
@@ -162,7 +225,6 @@ class Capture:
             "scenario": self.scenario, "kind": self.kind, "command": self.command,
             "session_id": self.session_id, "branch_id": self.branch_id, "status": self.status,
             "lane": self.lane, "recipe_id": self.recipe_id,
-            "intent_family": self.intent_family, "confidence": self.confidence,
             "model_calls": self.model_calls, "tools": list(self.tools), "reads": list(self.reads),
             "answer": self.answer,
             "surfaces": self.surface_types,
@@ -233,6 +295,28 @@ class Harness:
         self.captures.append(capture)
         return capture
 
+    async def ask(self, text: str, *tools: tuple[str, Any], reply: str = "", **kwargs: Any) -> Capture:
+        """Say `text`, with the model calling `tools` for it through the gate, as Claude would.
+
+        The sentence goes to the model like every sentence; what is scripted is only what the
+        model then reads, so the cards are drawn by the real presenters from real results.
+        """
+        self.provider.will(text, *tools, reply=reply)
+        return await self.say(text, **kwargs)
+
+    async def open_order(self, number: str | int, *, said: str = "", **kwargs: Any) -> Capture:
+        """"Show me order N", and the two reads Claude makes for it."""
+        number = str(number).lstrip("#")
+        return await self.ask(said or f"show me order {number}", *order_reads(number),
+                              reply=f"Order {number}.", **kwargs)
+
+    async def list_todays_orders(self, *, said: str = "show me today's orders", **kwargs: Any) -> Capture:
+        return await self.ask(said, *todays_orders_reads(), reply="Today's orders.", **kwargs)
+
+    async def customer_history(self, customer_id: str, *, said: str = "what else has this customer ordered?",
+                               **kwargs: Any) -> Capture:
+        return await self.ask(said, *customer_reads(customer_id), reply="Their history.", **kwargs)
+
     # ---------------------------------------------------------------- tapping
 
     async def touch(self, command: str, *, scenario: str = "", session_id: str = "s1",
@@ -292,7 +376,8 @@ class Harness:
         capture = Capture(
             scenario=scenario, kind=kind, command=command, session_id=session_id,
             branch_id=str(payload.get("branch_id") or ""), status=response.status_code,
-            lane=str(payload.get("lane") or ""), recipe_id=str(payload.get("recipe_id") or ""),
+            lane=str(payload.get("lane") or ""),
+            recipe_id=str(payload.get("recipe_id") or (payload.get("changed") or {}).get("recipe_id") or ""),
             model_calls=model_calls, ui=ui, answer=str(payload.get("answer") or ""),
             tools=[str((t or {}).get("name") or "") for t in (payload.get("tools") or []) if isinstance(t, dict)],
             reads=reads, total_ms=elapsed, raw=payload,
@@ -324,11 +409,6 @@ class Harness:
                               "label": str(entity.get("label") or "")}
         workflow = getattr(branch, "workflow", None)
         capture.set_id = str(getattr(workflow, "set_id", "") or "") if workflow is not None else ""
-        intent = payload.get("intent")
-        if isinstance(intent, dict):
-            capture.intent_family = str(intent.get("family") or "")
-            confidence = intent.get("confidence")
-            capture.confidence = float(confidence) if isinstance(confidence, (int, float)) else None
         return capture
 
 
@@ -356,6 +436,7 @@ async def harness(*, live: bool = False, writes: bool = True):
         async with app.router.lifespan_context(app):
             runtime = app.state.runtime
             provider = RecordingProvider()
+            provider.runtime = runtime
             runtime.provider = provider
             if live:
                 from experience.live import arm_read_only

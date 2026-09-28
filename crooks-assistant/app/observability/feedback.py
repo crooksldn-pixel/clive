@@ -13,9 +13,12 @@
 He did the most valuable thing a tester can do — narrate defects as they happen — and the
 machine discarded all of it, twice, and then produced a report that did not mention them.
 
-So: while a TEST SESSION is running, a sentence of that shape is recognised as local
-development feedback and appended to the timeline as an `owner_feedback` event. What it is,
-and what it is not:
+So a sentence of that shape is recognised as local development feedback, and `record` appends
+it to the timeline as an `owner_feedback` event while a TEST SESSION is running. Nothing calls
+`record` at turn time any more: the word-matching lane that did so answered the sentence
+itself instead of letting the model hear it, and it was removed on 28 September 2026. A
+spoken report now reaches the model like every other sentence, and the report finds it in the
+transcript with `recognise` (OWNER_FEEDBACK_IGNORED). What an event is, and what it is not:
 
 * It is **observability metadata**, written to the same append-only timeline as everything
   else, and it is what `app/observability/report.py` reads to print OWNER-REPORTED DEFECTS
@@ -114,13 +117,10 @@ KINDS: tuple[tuple[str, Any], ...] = (
     # `\bwhat is (?:it|this) doing\b` was the sixth alternative here and had to come out.
     #
     # It is the only one in a "why" shape that is not a why, and it collided head-on with
-    # D-11. "What is it doing?" is step 7 of docs/phase5/PHYSICAL_SAMSUNG_ACCEPTANCE.md and
-    # one of the three sentences the `screen_state` family (app/families/self_knowledge.py)
-    # exists to answer — which that family does with no read and no model, from what is
-    # actually on the glass. Because recognised feedback takes a turn before anything else
-    # gets it, the shape won, `screen_state` blocks on `reports_a_defect`, and the question
-    # went to Claude: the owner asked what the screen was doing and was told his complaint
-    # had been recorded.
+    # D-11. "What is it doing?" is step 7 of docs/phase5/PHYSICAL_SAMSUNG_ACCEPTANCE.md, a
+    # question about what is on the glass. When recognised feedback took a turn before
+    # anything else got it, the shape won and the owner asked what the screen was doing and
+    # was told his complaint had been recorded.
     #
     # The tie-break is not in the words — both readings of that sentence are fair — it is
     # that ONE OF THEM CAN BE ANSWERED. A product able to say what is in front of him should

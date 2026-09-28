@@ -258,8 +258,8 @@ make test-session-proposals                 # writes reports/<session>-proposals
 The timeline is `logs/test-sessions/<session>.jsonl`, one JSON line per event, each with the
 time, a sequence number, the test session, its source (`mac` or `tablet`) and the ids that
 join it to the rest: `session_id`, `turn_id`, `tool_call_id`, `proposal_id`,
-`context_request_id`. The Mac writes what it heard (raw and normalised, which recogniser,
-how long), what Claude answered and how long it took, every tool it asked for and what came
+`context_request_id`. The Mac writes what it heard (as the recogniser returned it, which
+recogniser, how long), what Claude answered and how long it took, every tool it asked for and what came
 back (shape and timing, never content), every proposal's life on the action engine, every
 context read, every voice line's first byte. The tablet writes what it actually showed —
 screen, card types, sections, rail chips and whether they were enabled, viewport and scroll
@@ -389,14 +389,16 @@ that test ever fails, stop and fix it before anything else.
 ### Hearing you
 
 Two recognisers, one job. Every recording is decoded and level-checked here first — silence and
-distortion never reach a paid API — then sent to **ElevenLabs Scribe v2**, biased with keyterms
-drawn from the same live Shopify catalogue that biases Whisper's prompt. Product words only:
-customer names correct transcripts on this Mac and are held back from anything that leaves it.
+distortion never reach a paid API — then sent to **ElevenLabs Scribe v2**, audio and nothing
+else. Nothing tells either recogniser which words to expect: a term list drawn from the Shopify
+catalogue used to, and it made "Clive" come back as "Plaid", so it was removed on 28 September
+2026.
 
 Every way Scribe can fail — no key, a rejected key, no credit, a timeout, no network, a reply
 that is not a transcript — falls through to **whisper.cpp** on port 8910 and the speaker is
-never told. What comes back from either engine goes through the same hallucination blocklist,
-the same CROOKS normaliser, the same order-number and ambiguity handling as before. A rejected
+never told. What comes back from either engine goes through the same hallucination blocklist
+and is trimmed, never rewritten: the words reach Claude exactly as they were heard, and every
+sentence is Claude's to answer. A rejected
 key or an exhausted account also opens a five-minute cooldown, so a broken account costs one
 round trip rather than one per sentence.
 
@@ -526,8 +528,7 @@ logs a warning at start while the list is empty.
 
 Recordings are not kept: the tablet's audio is decoded, recognised and dropped. Set
 `CROOKS_SAVE_CAPTURES=true` to keep them under `bench/audio/` while diagnosing a mis-hearing.
-The operational log records how long a transcript was and what the normaliser changed, never
-the words.
+The operational log records how long a transcript was, never the words.
 
 ### Layout
 
@@ -545,7 +546,7 @@ app/
   tools/             registry · gate · dispatch · shopify_tools · shopify_writes · gmail_tools ·
                      gmail_writes · mock
   clients/           shopify · gmail · whisper · elevenlabs (Scribe) · elevenlabs_tts (Derek)
-  speech/            decode · transcribe · normalise · speakable (text for a mouth)
+  speech/            decode · transcribe · speakable (text for a mouth)
   session/           manager · models (issued-id ledger)
   kb/                loader + the system prompt
   secrets/           keyring wrapper
@@ -557,7 +558,7 @@ web/                 the tablet client: index.html · style.css (tokens) · app.
 scripts/             up (one window) · install_launchd (login-time agents) · launch_common
                      doctor · set_secrets · gmail_auth · shopify_check · whisper_server
                      bench_whisper · chat · acceptance
-tests/               gate · normalise · turnlog · shopify_tools · gmail_tools · bench_decision
+tests/               gate · turnlog · shopify_tools · gmail_tools · bench_decision
 launchd/             templates for the login-time agents; `make install` fills them in
 ```
 

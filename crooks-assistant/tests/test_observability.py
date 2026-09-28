@@ -6,7 +6,6 @@ from which the report is written and every interaction is reconstructed field by
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import json
 from dataclasses import replace
@@ -265,7 +264,7 @@ class ScriptedProvider(FakeProvider):
         session = self.runtime.sessions.get_or_create(session_id)
         session.turns += 1
         calls: list = []
-        # The owner's own line: after the clock line, before the Mac's prefetch note.
+        # The owner's own line: after the clock line, before the Mac's context lines.
         lines = text.split("\n")
         words = (lines[1] if len(lines) > 1 and lines[0].startswith("[Now:") else lines[0]).lower()
         steps = [("model", 80.0)]
@@ -276,8 +275,9 @@ class ScriptedProvider(FakeProvider):
             return out
 
         if "order 1938" in words and "note" not in words and "cancel" not in words:
-            await asyncio.sleep(0.05)   # the Mac's own read of the order lands beside the model
-            answer = "Order 1938: paid, not shipped yet. One pair of Yard Jeans, sixty pounds, for Daniel Sear."
+            await call("shopify_find_order", {"query": "1938"})
+            await call("shopify_order_detail", {"order_id": ORDER})
+            answer = "CROOKS-1938: paid, not shipped yet. One pair of Yard Jeans, sixty pounds, for Daniel Sear."
         elif "jeans" in words and "stock" not in words:
             await call("shopify_product_info", {"product": "Yard Jeans", "size": "medium"})
             answer = "The Yard Jeans in a medium have a thirty-two inch inseam."
@@ -292,6 +292,7 @@ class ScriptedProvider(FakeProvider):
             await call("gmail_search", {"query": "1938", "days": 7})
             answer = "One email from Daniel about order 1938, asking to send it to his work address."
         elif "note" in words:
+            await call("shopify_find_order", {"query": "1938"})
             await call("shopify_order_note_append", {"order_id": ORDER, "note": "Customer asked for an exchange"})
             answer = "The note is ready on the tablet; tapping the card applies it."
         elif "stock" in words:
@@ -363,9 +364,9 @@ async def mocked_hour(client, monkeypatch) -> tuple[Path, dict]:
         await client.post("/telemetry", json={"session_id": session_id, "events": [{"kind": "turn_response", "turn_id": data["turn_id"], "ms": 900, "items": [i["type"] for i in data["ui"]], "answer_chars": len(data["answer"])}]}, headers=PROXIED)
         return data
 
-    # 1. a successful order lookup: the Mac's own procedure, no model on the critical path
+    # 1. a successful order lookup: the model's, like every sentence, reading the order
     data = await turn("show me order 1938")
-    assert data["lane"] == "FAST" and data["recipe_id"] == "order_lookup", data["lane"]
+    assert data["lane"] == "NORMAL" and "recipe_id" not in data, data["lane"]
     ids["order"] = data["turn_id"]
     assert "order" in [i["type"] for i in data["ui"]], data["ui"]
     await tablet(client, session_id, ids["order"],
@@ -457,15 +458,14 @@ async def test_the_mocked_hour_is_reconstructed_interaction_by_interaction_and_r
     assert [t.turn_id for t in rec.turns] == list(ids.values()), "every turn, in order, and no other"
     by = {name: rec.turn(turn_id) for name, turn_id in ids.items()}
 
-    # 1. the order lookup: the fast lane's own procedure — the reads, the card, the voice,
-    # the scroll, and NO model call at all. The timeline says which lane and which recipe.
+    # 1. the order lookup: the model's turn — its two reads, the card, the voice, the scroll.
+    # No lane or recipe is written any more (every sentence is the model's since 28 September
+    # 2026), and a reader of the timeline finds them absent rather than wrong.
     order = by["order"]
     assert order.input == "text" and order.question == "show me order 1938" and order.outcome == "successful" and order.classes == []
-    assert order.lane["lane"] == "FAST" and order.lane["family"] == "order_lookup"
-    assert order.fast["recipe_id"] == "order_lookup" and order.fast["hit"] is True and order.fast["ms"] > 0
-    assert order.model is None and order.latency("claude") is None, "the fast lane does not call the model"
-    assert order.performance["fast_path_hit"] is True and order.performance["model_calls"] == 0
-    assert order.read_plans and order.read_plans[0]["label"] == "order_lookup"
+    assert not order.lane and not order.fast, "no lane or recipe is recorded for a model turn"
+    assert order.model is not None and order.latency("claude") is not None
+    assert order.performance["model_calls"] == 1 and "fast_path_hit" not in order.performance
     assert [x.tool for x in order.tools] == ["shopify_find_order", "shopify_order_detail"]
     assert order.tools[0].outcome == "ok" and order.tools[0].result["orders"] == {"count": 1, "ids": [ORDER, CUSTOMER_NODE["id"]]}
     assert order.tools[0].tool_call_id.startswith("tc_") and order.tools[0].ms is not None
@@ -505,7 +505,7 @@ async def test_the_mocked_hour_is_reconstructed_interaction_by_interaction_and_r
     assert withdrawn.staged_at and withdrawn.delivered and not withdrawn.committed and withdrawn.status == "REVOKED" and withdrawn.reason == "new instruction"
     assert [e["event"] for e in withdrawn.events] == ["PROPOSED", "DELIVERED", "REVOKED"]
     staged = next(x for x in proposal.tools if x.outcome == "staged")
-    assert staged.tool == "shopify_order_note_append" and staged.proposal_id == withdrawn.proposal_id and [x.tool for x in proposal.tools][0] == "shopify_find_order", "the Mac's own lookup ran first"
+    assert staged.tool == "shopify_order_note_append" and staged.proposal_id == withdrawn.proposal_id and [x.tool for x in proposal.tools][0] == "shopify_find_order", "the model looked the order up first"
     assert withdrawn.tablet and withdrawn.tablet[0]["kind"] == "tablet_render"
     assert by["withdrawn_by"].finished["revoked"] == [withdrawn.proposal_id] and proposal.cluster == "actions"
     # 7. the proposal committed and proven

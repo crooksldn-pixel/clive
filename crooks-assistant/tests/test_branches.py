@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from app.session.branch import MAX_BRANCHES, Branch, Workflow
@@ -125,15 +127,11 @@ async def test_a_merge_brings_back_a_summary_not_a_transcript(client):
     other = session.branches[body["branch_id"]]
     other.visit("customer", "c1", "Millie Rogers")
     other.remember_result("shopify_customer_history", summary="shopify_customer_history: Millie Rogers", ref="c1", ms=120.0)
-    other.learn("millie", "customer", "c1", "Millie Rogers")
     merged = (await client.post(f"/branches/{other.branch_id}/merge", data={"session_id": "br"})).json()
     summary = merged["merged"]
     assert summary["looked_at"][0]["ref"] == "c1"
     assert summary["read"][0]["tool"] == "shopify_customer_history"
-    assert summary["resolved"][0]["said"] == "millie"
     assert "answer" not in summary and "question" not in summary, "structure, not a conversation"
-    keeper = session.branch()
-    assert keeper.resolve("millie")["ref"] == "c1", "what it learned comes back"
     assert len(merged["branches"]) == 1
 
 
@@ -333,10 +331,16 @@ def test_a_branch_says_what_it_is_doing_in_words_and_never_in_a_percentage(sessi
 def test_nothing_in_a_branchs_words_is_a_number_out_of_a_number(session):
     from pathlib import Path
 
-    source = Path("app/routes/turn.py").read_text(encoding="utf-8")
-    words = source[source.index("_WORKING = {"): source.index("def _working_words")]
-    assert "%" not in words and "percent" not in words
-    assert all(not any(ch.isdigit() for ch in line) for line in words.splitlines())
+    # What a half says it is doing while a turn or a tap runs: the words passed to
+    # `begin_turn`, wherever a turn starts.
+    words = []
+    for path in ("app/routes/turn.py", "app/routes/command.py"):
+        source = Path(path).read_text(encoding="utf-8")
+        words += re.findall(r"begin_turn\(([^)]*)\)", source)
+    assert words, "no half says what it is doing; the test proves nothing"
+    for said in words:
+        assert "%" not in said and "percent" not in said, said
+        assert not any(ch.isdigit() for ch in said), said
 
 
 async def test_the_half_being_talked_to_goes_quiet_and_the_one_aside_says_ready(client):

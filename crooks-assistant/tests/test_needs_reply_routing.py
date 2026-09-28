@@ -1,29 +1,20 @@
-"""Every way of asking who needs a reply is the inbox answer, and no way of asking is a change.
+"""No way of asking who needs a reply reads as a change, and every instruction to reply does.
 
-On 2026-09-24 the owner asked "any customers who need a reply" twice and once got an answer
-about orders to go out. On the trunk "anyone waiting on a reply" fell below needs_reply's floor
-and went to the model, and "customers who need a reply?" was refused as "asks for a change",
-because "reply" was read as an instruction to send one. The instructions themselves — "reply
-to Mia", "send a reply to order 2044" — must still be the change they are.
+On 2026-09-24 "customers who need a reply?" was filed as "asks for a change", because "reply"
+was read as an instruction to send one. The instructions themselves — "reply to Mia", "send a
+reply to order 2044" — must still be the change they are.
+
+The rule that tells them apart lived in the word-matching router until that was removed on
+28 September 2026 (every sentence is now a model turn). It stays in one place, the report's
+request contract (app/observability/contract.py), because the report still grades a turn by
+whether a change was asked for — and these are the sentences that hold it.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from app.families import load_all
-from app.fastpath import choose_lane, recipe_for
-from app.fastpath.intent import family, resolve
-from app.session.branch import Branch
-
-load_all()
-import app.fastpath.library  # noqa: E402, F401 — registers the core recipes
-
-
-@pytest.fixture()
-def branch():
-    return Branch(branch_id="br_test", session_id="s1")
-
+from app.observability import contract
 
 QUESTIONS = [
     "any customers who need a reply",
@@ -33,7 +24,6 @@ QUESTIONS = [
     "does anyone need an answer from us",
     "any emails I haven't replied to",
     "is anyone waiting on me",
-    # What already worked on the trunk, held so the fix cannot trade one for another.
     "who needs a reply",
     "who needs replying to",
     "which customers are waiting on a reply",
@@ -41,16 +31,9 @@ QUESTIONS = [
 
 
 @pytest.mark.parametrize("said", QUESTIONS)
-def test_every_way_of_asking_who_needs_a_reply_is_the_inbox_answer(said, branch):
-    intent = resolve(said, branch=branch)
-    assert not intent.signals.mutation, f"{said!r} was read as a change"
-    assert intent.reason != "asks for a change", said
-    assert intent.family == "needs_reply", (said, intent.public())
-    assert intent.confidence > family("needs_reply").floor, (said, intent.confidence)
-    recipe = recipe_for(intent.family)
-    assert recipe is not None
-    lane, why = choose_lane(intent, recipe=recipe, text=said)
-    assert lane == "FAST", (said, why)
+def test_no_way_of_asking_who_needs_a_reply_is_a_change(said):
+    assert not contract._is_change(said), f"{said!r} was read as a change"
+    assert contract.contract_of(said) != contract.WRITE_INTENT, said
 
 
 INSTRUCTIONS = [
@@ -63,7 +46,6 @@ INSTRUCTIONS = [
 
 
 @pytest.mark.parametrize("said", INSTRUCTIONS)
-def test_an_instruction_to_reply_is_still_the_change_it_is(said, branch):
-    intent = resolve(said, branch=branch)
-    assert intent.signals.mutation, f"{said!r} lost its instruction"
-    assert intent.family == "" and intent.reason == "asks for a change", (said, intent.public())
+def test_an_instruction_to_reply_is_still_the_change_it_is(said):
+    assert contract._is_change(said), f"{said!r} lost its instruction"
+    assert contract.contract_of(said) == contract.WRITE_INTENT, said

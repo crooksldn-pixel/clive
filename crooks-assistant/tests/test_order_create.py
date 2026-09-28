@@ -376,17 +376,14 @@ async def test_choosing_one_of_them_is_only_ever_one_the_mac_found(store, sessio
 
 
 async def test_the_recipe_chooses_the_one_that_was_picked_and_uses_no_model(store, session, branch):
-    from app.fastpath import RECIPES
-    from app.fastpath.intent import Intent, signals_for
-    from app.fastpath.models import Ctx as RecipeCtx
     from app.reads.scheduler import run_plan
+    from app.recipes import RECIPES
+    from app.recipes import Ctx as RecipeCtx
 
     workspace = await open_workspace(session, customer="Jones")
     workspace["facts"]["chose_customer"] = MIA_TWIN
     recipe = RECIPES["order_customer"]
-    ctx = RecipeCtx(runtime=None, session=session, branch=branch,
-                    intent=Intent(family="order_new", confidence=1.0, signals=signals_for("", branch=branch)),
-                    text="", memory=None)
+    ctx = RecipeCtx(runtime=None, session=session, branch=branch)
     plan = recipe.plan(ctx)
     assert plan is not None and [r.tool for r in plan.reads] == ["shopify_find_customer"]
     result = await run_plan(plan, session=session, timeout_s=5.0)
@@ -401,17 +398,13 @@ async def test_the_recipe_chooses_the_one_that_was_picked_and_uses_no_model(stor
 
 
 async def test_an_item_that_matches_several_variants_is_not_added(store, session, branch):
-    from app.fastpath import RECIPES
-    from app.fastpath.intent import Intent, signals_for
-    from app.fastpath.models import Ctx as RecipeCtx
     from app.reads.scheduler import run_plan
+    from app.recipes import RECIPES
+    from app.recipes import Ctx as RecipeCtx
 
     workspace = await open_workspace(session, customer="Poppy", item="hoodie")
     recipe = RECIPES["order_line"]
-    ctx = RecipeCtx(runtime=None, session=session, branch=branch,
-                    intent=Intent(family="order_new_line", confidence=1.0, signals=signals_for("", branch=branch),
-                                  slots={"product": "hoodie"}),
-                    text="", memory=None)
+    ctx = RecipeCtx(runtime=None, session=session, branch=branch, slots={"product": "hoodie"})
     result = await run_plan(recipe.plan(ctx), session=session, timeout_s=5.0)
     recipe.render(ctx, result)
     assert oc._lines(workspace) == [], "four hoodies match; choosing one for him is the same mistake as choosing a Jones"
@@ -421,17 +414,13 @@ async def test_an_item_that_matches_several_variants_is_not_added(store, session
 
 
 async def test_an_item_that_matches_one_variant_is_added_at_the_catalogues_price(store, session, branch):
-    from app.fastpath import RECIPES
-    from app.fastpath.intent import Intent, signals_for
-    from app.fastpath.models import Ctx as RecipeCtx
     from app.reads.scheduler import run_plan
+    from app.recipes import RECIPES
+    from app.recipes import Ctx as RecipeCtx
 
     workspace = await open_workspace(session, customer="Poppy", item="cap", quantity=2)
     recipe = RECIPES["order_line"]
-    ctx = RecipeCtx(runtime=None, session=session, branch=branch,
-                    intent=Intent(family="order_new_line", confidence=1.0, signals=signals_for("", branch=branch),
-                                  slots={"product": "cap"}),
-                    text="", memory=None)
+    ctx = RecipeCtx(runtime=None, session=session, branch=branch, slots={"product": "cap"})
     result = await run_plan(recipe.plan(ctx), session=session, timeout_s=5.0)
     answer = recipe.render(ctx, result)
     lines = oc._lines(workspace)
@@ -738,32 +727,13 @@ def test_every_command_of_this_family_is_touch_only():
 # --------------------------------------------------------------------------- the fast lane
 
 
-def test_the_sentence_the_brief_names_reaches_this_family_and_can_only_draw_the_form():
-    from app.fastpath import RECIPES
-    from app.fastpath.intent import resolve
-    from app.fastpath.recipes import assert_read_only
+def test_what_a_tap_may_do_here_is_read():
+    """The form's two recipes name read tools only: a recipe naming a write tool is a crash."""
+    from app.recipes import RECIPES, assert_read_only
 
-    branch = type("B", (), {"entity": None, "set_id": "", "workflow": None, "resolutions": {}})()
-    for sentence in ("create an order for Poppy De-Witt", "make a new order for Mia Jones"):
-        assert resolve(sentence, branch=branch).family == "order_new", sentence
-    # A change that is not this one still leaves the lane unscored, which is the guard the
-    # exception narrows rather than lifts.
-    assert resolve("cancel it", branch=branch).family == ""
-    assert resolve("refund order 1930", branch=branch).family == ""
-    # And what the lane may DO here is read: a recipe naming a write tool is a crash.
     assert_read_only(RECIPES)
     assert RECIPES["order_customer"].read_primitives == ("shopify_find_customer",)
     assert RECIPES["order_line"].read_primitives == (oc.SEARCH_TOOL,)
-
-
-def test_the_line_recipes_family_can_never_win_a_spoken_turn():
-    from app.fastpath.intent import family as intent_family
-    from app.fastpath.intent import resolve
-
-    line = intent_family("order_new_line")
-    assert line is not None and line.serves_mutation_words is False
-    branch = type("B", (), {"entity": None, "set_id": "", "workflow": None, "resolutions": {}})()
-    assert resolve("add the item", branch=branch).family != "order_new_line"
 
 
 # ------------------------------------------------------------------ the capability state

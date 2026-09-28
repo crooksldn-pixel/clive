@@ -215,12 +215,11 @@ async def test_a_landing_that_really_cannot_be_drawn_still_says_so(stage, monkey
     still `landing_unavailable`, and narrowing the code to budgets only must not swallow it."""
     import dataclasses
 
-    from app.fastpath import RECIPES
-    from app.fastpath.models import FastAnswer
+    from app.recipes import RECIPES, RecipeAnswer
 
     monkeypatch.setitem(RECIPES, "landing_orders", dataclasses.replace(
         RECIPES["landing_orders"],
-        render=lambda ctx, result: FastAnswer(answer="", defer="the order reads did not answer"),
+        render=lambda ctx, result: RecipeAnswer(answer="", defer="the order reads did not answer"),
     ))
     tap = await stage.touch("open.area", area="orders")
     assert tap.raw.get("ok") is False
