@@ -564,10 +564,12 @@ def test_the_screen_page_keeps_nothing_but_its_name():
     source = (WEB / "display.js").read_text(encoding="utf-8")
     stored = set(re.findall(r"localStorage\.setItem\((\w+)", source))
     assert stored == {"KEY", "BOOT_KEY"}
-    assert "JSON.stringify(s)" in source and "{ day: new Date().toDateString(), build: BUILD }" in source
-    # Round 8, B-02: the approval code is shown, never written down on the device.
-    assert "S.screen = { id: data.id, name: data.name || name, key: data.key };" in source
-    assert "pairCode" not in source[source.index("function saveScreen"):source.index("function forgetScreen")]
+    assert "JSON.stringify({ id: s.id, name: s.name })" in source and "{ day: new Date().toDateString(), build: BUILD }" in source
+    # Round 8, B-02: the approval code is shown, never written down on the device. Round 10, B2-01:
+    # nor is the screen's key, which is CLIVE's HttpOnly cookie (tests/web/display.test.js runs it).
+    assert "S.screen = { id: data.id, name: data.name || name };" in source
+    kept = source[source.index("function saveScreen"):source.index("function forgetScreen")]
+    assert "pairCode" not in kept and "key" not in kept
 
 
 # --------------------------------------------------------------------------- round 6
