@@ -2,15 +2,15 @@
 
 While the owner holds the ask bar, the phone shows what ElevenLabs hears as he speaks
 (web/live-voice.js). The phone opens ElevenLabs' realtime speech-to-text socket itself, so the
-words reach the screen without a hop through this server, and it opens it with a key that is
-good for one session and fifteen minutes. This route mints that key with the server's own
-ElevenLabs key, which never leaves the server.
+words reach the screen without a hop through this server, and it opens it with a single-use key
+this route mints with the server's own ElevenLabs key, which never leaves the server.
 
 What it answers
 ---------------
-200 {"token", "url", "params"}, with Cache-Control: no-store: the key, the socket's address and
-the query it takes, so the page carries no address of its own. The params never carry keyterms:
-the owner had them removed because they rewrote his words.
+200 {"token", "url", "params", "expires_in_s"}, with Cache-Control: no-store: the key, the
+socket's address, the query it takes, and how long the page may hold the key before it must drop
+it unused (EXPIRES_IN_S, seconds). The page carries no address of its own. The params never carry
+keyterms: the owner had them removed because they rewrote his words.
 
 503 {"live": false, "why": "<plain reason>"} when there are no live words to be had: the setting
 is off (CROOKS_LIVE_TRANSCRIPT), no key is stored, or ElevenLabs did not give a key within five
@@ -19,11 +19,31 @@ forty in ten minutes, in this process. The page treats all of them alike: no liv
 hold goes on exactly as before. The words are display only; the recording sent on release is
 still the one CLIVE answers.
 
+The key's life
+--------------
+What ElevenLabs says of a single-use key, as this module has said since it was written from
+ElevenLabs' documentation for the endpoint below (TOKEN_PATH): it opens one realtime session and
+no more, and it lapses fifteen minutes after it is minted. That is ElevenLabs' promise, and this
+server cannot check it: it never sees the key used, and the tests cannot reach ElevenLabs. So
+nothing here rests on it.
+
+What this server does decide: a key is handed on only when it is a string of token characters of
+a bearer token's length (TOKEN_SHAPE) that does not hold the server's own key, and it is never
+logged and never stored. The answer tells the page to use it within EXPIRES_IN_S of asking or not
+at all, and the page opens one socket with it, for the hold that asked, and keeps no copy once
+that socket is closed (web/live-voice.js, `connect`). A key the page did not use is left to lapse
+where ElevenLabs keeps it.
+
 What it never does
 ------------------
 Return or log the server's key, or log the key it minted. Its log lines name the refusal in its
-own fixed words, never ElevenLabs' answer. It is the owner's: the door in app/main.py refuses
-anyone else before it runs, and it checks again itself, as the pad's routes do.
+own fixed words, never ElevenLabs' answer. It is the owner's: the door in app/main.py
+(guard_and_freshness) refuses anyone else before it runs, and it checks again itself, as the
+pad's routes do; both read the one owner rule, app/routes/actions.py principal_verdict. With
+CROOKS_TAILSCALE_VERIFY on (production), its account of how a request arrived (proxy_state)
+believes a forwarding header only when the kernel says tailscaled opened the connection
+(app/identity.py peer_is_tailscaled), and a login only when `tailscale whois` says the forwarded
+address is that login's device (identity.verify). tests/test_live_voice_owner.py proves it here.
 """
 
 from __future__ import annotations
@@ -31,6 +51,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 import threading
 import time
 from collections import deque
@@ -59,6 +80,15 @@ PARAMS = {
 }
 TIMEOUT_S = 5.0
 NO_STORE = {"Cache-Control": "no-store"}
+# How long, from asking, the page may hold a key before it must drop it unused. The page opens
+# the socket the moment the key arrives, and a hold's words are no use after a few seconds, so
+# this is short: the mint may take TIMEOUT_S and the phone's network a little more.
+EXPIRES_IN_S = 10
+# What a key must look like to be handed on: URL-safe token characters (base64url, JWT's dots,
+# standard base64's + / =), sixteen to 2048 of them. Anything else ElevenLabs might put in the
+# field (an object, a number, an empty or enormous string, whitespace, quotes, markup, a
+# sentence) is not a key, and the hold goes on without live words.
+TOKEN_SHAPE = re.compile(r"[A-Za-z0-9._~+/=-]{16,2048}")
 
 
 class Pace:
@@ -170,7 +200,12 @@ async def _mint(key: str, base_url: str) -> tuple[str, str]:
         token = None
     if not isinstance(token, str) or not token.strip():
         return "", "ElevenLabs answered without a key."
-    return token.strip(), ""
+    token = token.strip()
+    # Said in fixed words: what was in the field goes nowhere, not even into this line. The
+    # server's own key is key-shaped too, and is never handed on, whoever sent it back.
+    if not TOKEN_SHAPE.fullmatch(token) or token == key or key in token:
+        return "", "ElevenLabs answered with something that is not a key."
+    return token, ""
 
 
 @router.post("/live", response_model=None)
@@ -197,4 +232,7 @@ async def live(request: Request) -> JSONResponse:
     if not token:
         log.warning("live words unavailable: %s", why)
         return _unavailable(why)
-    return JSONResponse(content={"token": token, "url": socket_url(base_url), "params": dict(PARAMS)}, headers=NO_STORE)
+    return JSONResponse(
+        content={"token": token, "url": socket_url(base_url), "params": dict(PARAMS), "expires_in_s": EXPIRES_IN_S},
+        headers=NO_STORE,
+    )

@@ -105,17 +105,20 @@ test('a chunk is the documented message and nothing more', () => {
   assert.equal(LV.CHUNK_BYTES, 3200, '100 ms of 16 kHz mono PCM16');
 });
 
+// A stand-in for the single-use key, as long as a key is and named for what it is.
+const KEY = 'single-use-stand-in-key';
+
 test('the socket address is the one the Mac gave, with its query and the key, and never a keyterm', () => {
   const url = LV.socketUrl({
-    token: 'single-use', url: 'wss://example.test/v1/speech-to-text/realtime',
+    token: KEY, url: 'wss://example.test/v1/speech-to-text/realtime',
     params: { model_id: 'scribe_v2_realtime', audio_format: 'pcm_16000', language_code: 'en', commit_strategy: 'manual', keyterms: 'CROOKS' },
   });
   const parsed = new URL(url);
   assert.equal(`${parsed.protocol}//${parsed.host}${parsed.pathname}`, 'wss://example.test/v1/speech-to-text/realtime');
   assert.deepEqual(Object.fromEntries(parsed.searchParams), {
-    model_id: 'scribe_v2_realtime', audio_format: 'pcm_16000', language_code: 'en', commit_strategy: 'manual', token: 'single-use',
+    model_id: 'scribe_v2_realtime', audio_format: 'pcm_16000', language_code: 'en', commit_strategy: 'manual', token: KEY,
   });
-  assert.equal(LV.socketUrl({ token: 'x', url: 'https://example.test/', params: {} }), '', 'only a wss: address is opened');
+  assert.equal(LV.socketUrl({ token: KEY, url: 'https://example.test/', params: {} }), '', 'only a wss: address is opened');
   assert.equal(LV.socketUrl({ url: 'wss://example.test/' }), '', 'no key, no socket');
   assert.equal(LV.socketUrl(null), '');
 });
@@ -193,8 +196,9 @@ function fakeFetch(answer) {
 const GRANTED = {
   status: 200,
   body: {
-    token: 'single-use', url: 'wss://example.test/v1/speech-to-text/realtime',
+    token: KEY, url: 'wss://example.test/v1/speech-to-text/realtime',
     params: { model_id: 'scribe_v2_realtime', audio_format: 'pcm_16000', language_code: 'en', commit_strategy: 'manual' },
+    expires_in_s: 10,
   },
 };
 
@@ -206,7 +210,7 @@ function harness(options) {
   const records = [];
   const timers = [];
   let t = 10000;
-  const fetch = fakeFetch(opts.answer || GRANTED);
+  const fetch = opts.fetch || fakeFetch(opts.answer || GRANTED);
   const live = LV.create({
     audio: fake.audio,
     fetch,
@@ -215,7 +219,7 @@ function harness(options) {
     Blob: class { constructor(parts, init) { this.parts = parts; this.type = init && init.type; } },
     URL: { createObjectURL: () => 'blob:crooks-live-tap', revokeObjectURL() {} },
     now: () => t,
-    setTimeout: (fn, ms) => { timers.push({ fn, ms, live: true }); return timers.length; },
+    setTimeout: (fn, ms) => { timers.push({ fn, ms, at: t + ms, live: true }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].live = false; },
     onWords: (text) => words.push(text),
     record: (kind, fields) => records.push({ kind, fields }),
@@ -224,6 +228,18 @@ function harness(options) {
     live, fake, net, words, records, timers, fetch,
     tick(ms) { t += ms; },
     fireTimers() { for (const timer of timers.splice(0)) if (timer.live) timer.fn(); },
+    // The clock moved on by `ms`, and every timer that fell due on the way ran, in order.
+    advance(ms) {
+      const until = t + ms;
+      for (;;) {
+        const due = timers.filter((timer) => timer.live && timer.at <= until).sort((a, b) => a.at - b.at)[0];
+        if (!due) break;
+        t = Math.max(t, due.at);
+        due.live = false;
+        due.fn();
+      }
+      t = until;
+    },
     get socket() { return net.made[net.made.length - 1]; },
     // What the microphone says, through whichever tap was built.
     speak(seconds) {
@@ -293,7 +309,7 @@ test('what is said while the socket opens is kept, and sent the moment it opens'
   assert.equal(h.fetch.calls[0].init.method, 'POST');
   assert.ok(h.socket, 'the socket is being opened');
   assert.match(h.socket.url, /^wss:\/\/example\.test\/v1\/speech-to-text\/realtime\?/);
-  assert.equal(new URL(h.socket.url).searchParams.get('token'), 'single-use');
+  assert.equal(new URL(h.socket.url).searchParams.get('token'), KEY);
   h.speak(0.5);                        // half a second before it opens
   assert.equal(h.socket.sent.length, 0, 'nothing can be sent before it opens');
   h.socket.open();
@@ -389,11 +405,13 @@ test('with no committed words the release lets go after a second and a half, kee
   assert.equal(h.records[0].fields.outcome, 'timeout');
 });
 
-for (const [name, message] of [
-  ['quota', { message_type: 'quota_exceeded_error', error: 'Quota exceeded' }],
-  ['auth', { message_type: 'authentication_error', error: 'Invalid token' }],
-  ['silence', { message_type: 'insufficient_audio_activity_error', error: 'No audio' }],
-  ['unknown', { message_type: 'something_new_error', error: 'x' }],
+// The reason telemetry gets is this file's own word for the error, looked up, never the
+// socket's message_type itself (round 9, C-04; it was the message_type before).
+for (const [name, message, word] of [
+  ['quota', { message_type: 'quota_exceeded_error', error: 'Quota exceeded' }, 'quota'],
+  ['auth', { message_type: 'authentication_error', error: 'Invalid token' }, 'auth'],
+  ['silence', { message_type: 'insufficient_audio_activity_error', error: 'No audio' }, 'no_audio'],
+  ['unknown', { message_type: 'something_new_error', error: 'x' }, 'provider_error'],
 ]) {
   test(`an error from the socket (${name}) stops the words quietly and takes the tap down`, async () => {
     const h = harness();
@@ -406,7 +424,7 @@ for (const [name, message] of [
     assert.equal(h.socket.closed, true);
     assert.equal(h.fake.log.untapped.length, 1);
     assert.equal(h.records[0].fields.outcome, 'error');
-    assert.equal(h.records[0].fields.reason, message.message_type);
+    assert.equal(h.records[0].fields.reason, word);
     const sent = h.socket.sent.length;
     h.live.release();
     assert.equal(h.socket.sent.length, sent, 'nothing is sent after it stopped');
@@ -418,7 +436,7 @@ for (const [name, answer, reason] of [
   ['a 503', { status: 503, body: { live: false, why: 'No ElevenLabs key is stored on the server.' } }, 'http_503'],
   ['a 429', { status: 429, body: { live: false, why: 'too often' } }, 'http_429'],
   ['no network', new TypeError('Failed to fetch'), 'fetch'],
-  ['an answer with no socket', { status: 200, body: { token: 'x', url: 'http://example.test/' } }, 'bad_answer'],
+  ['an answer with no socket', { status: 200, body: { token: KEY, url: 'http://example.test/', expires_in_s: 10 } }, 'bad_answer'],
 ]) {
   test(`${name} from the Mac means no words, quietly, and no socket`, async () => {
     const h = harness({ answer });
@@ -633,4 +651,264 @@ test('the words are kept out of a copy of the screen, as a typed field is', () =
   for (const name of ['localStorage', 'sessionStorage', 'indexedDB', 'console.']) {
     assert.ok(!SOURCE.includes(name), `web/live-voice.js uses ${name}`);
   }
+});
+
+// ------------------------------------------------------------------ round 9: the key's life (C-02)
+
+// A fetch whose answer the test lets go of when it chooses: the Mac taking its time.
+function heldFetch(body) {
+  const calls = [];
+  let letGo = null;
+  const fn = async (url, init) => {
+    calls.push({ url, init });
+    await new Promise((resolve) => { letGo = resolve; });
+    return { ok: true, status: 200, json: async () => body };
+  };
+  fn.calls = calls;
+  fn.answer = () => letGo();
+  return fn;
+}
+
+test('a key is used within the life the Mac gave it, counted from the ask, or not at all (C-02)', async () => {
+  for (const [waited, opened] of [[9999, true], [10001, false]]) {
+    const fetch = heldFetch(GRANTED.body);
+    const h = harness({ fetch });
+    h.live.begin();
+    await settle();
+    h.tick(waited);          // the answer took this long to come back
+    fetch.answer();
+    await settle();
+    assert.equal(h.net.made.length, opened ? 1 : 0, `after ${waited} ms`);
+    if (!opened) {
+      assert.equal(h.records[0].fields.outcome, 'unavailable');
+      assert.equal(h.records[0].fields.reason, 'expired');
+    }
+    h.live.cancel();
+  }
+});
+
+test('an answer with no life the page can honour opens nothing, and a long one is held to a minute (C-02)', async () => {
+  for (const life of [undefined, 0, -5, '10', null, Number.NaN]) {
+    const body = Object.assign({}, GRANTED.body, { expires_in_s: life });
+    const h = harness({ answer: { status: 200, body } });
+    h.live.begin();
+    await settle();
+    assert.equal(h.net.made.length, 0, `expires_in_s ${String(life)}`);
+    assert.equal(h.records[0].fields.reason, 'bad_answer');
+  }
+  assert.equal(LV.keyLife({ expires_in_s: 3600 }), LV.MAX_LIFE_S);
+  const fetch = heldFetch(Object.assign({}, GRANTED.body, { expires_in_s: 3600 }));
+  const h = harness({ fetch });
+  h.live.begin();
+  await settle();
+  h.tick(LV.MAX_LIFE_S * 1000 + 1);
+  fetch.answer();
+  await settle();
+  assert.equal(h.net.made.length, 0, 'an hour was asked for; a minute is the most the page gives');
+});
+
+test('an answer whose key is not key-shaped opens nothing (C-02)', async () => {
+  for (const token of ['Jane Doe said hello there', 'short', 'x'.repeat(2049), 'a&b=c&d=e&f=g&h=i', 12345]) {
+    const h = harness({ answer: { status: 200, body: Object.assign({}, GRANTED.body, { token }) } });
+    h.live.begin();
+    await settle();
+    assert.equal(h.net.made.length, 0, String(token));
+    assert.equal(h.records[0].fields.reason, 'bad_answer');
+  }
+});
+
+test('one key, one socket, one hold: every hold asks afresh and no socket is ever opened twice (C-02)', async () => {
+  let n = 0;
+  const calls = [];
+  const fetch = async (url, init) => {
+    calls.push({ url, init });
+    n += 1;
+    return { ok: true, status: 200, json: async () => Object.assign({}, GRANTED.body, { token: `single-use-stand-in-key-${n}` }) };
+  };
+  fetch.calls = calls;
+  const h = harness({ fetch });
+  h.live.begin();
+  await settle();
+  const first = h.socket;
+  first.open();
+  first.onclose({ code: 1006 });           // it drops while he holds: the words end, and nothing reconnects
+  await settle();
+  assert.equal(h.net.made.length, 1);
+  assert.equal(first.closed, true);
+  h.live.begin();
+  await settle();
+  assert.equal(h.net.made.length, 2);
+  assert.equal(calls.length, 2, 'each hold asks for its own key');
+  const tokens = h.net.made.map((socket) => new URL(socket.url).searchParams.get('token'));
+  assert.deepEqual(tokens, ['single-use-stand-in-key-1', 'single-use-stand-in-key-2']);
+  h.live.cancel();
+  assert.equal(h.net.made[1].closed, true);
+  assert.equal(h.net.made.length, 2);
+});
+
+// ------------------------------------------------------------------ round 9: fixed words for telemetry (C-04)
+
+test('nothing the socket says reaches telemetry: not its message type, its error text or its close reason (C-04)', async () => {
+  const Telemetry = require(path.join(__dirname, '..', '..', 'web', 'telemetry.js'));
+  Telemetry.reset();
+  const bodies = [];
+  Telemetry._setTransport((body) => bodies.push(body));
+  Telemetry.configure({ test_session: 'ts_live_words' });
+  const NAME = 'Jane Doe';
+  const errors = [
+    { message_type: `${NAME} order 1042_error`, error: `${NAME}, 12 High Street` },
+    { message_type: 'error', error: `${NAME} said something`, detail: NAME },
+    { message_type: 'authentication_error', error: `the key for ${NAME}` },
+    { message_type: { nested: NAME }, error: NAME },
+    { error: { text: NAME } },
+  ];
+  const records = [];
+  for (const message of errors) {
+    const h = harness();
+    h.live.begin();
+    await settle();
+    h.socket.open();
+    h.socket.say({ message_type: 'partial_transcript', text: `Refund ${NAME}` });
+    h.socket.say(message);
+    assert.equal(h.socket.closed, true, JSON.stringify(message));
+    records.push(...h.records);
+  }
+  // A close, while he holds, with the provider's own code and reason.
+  for (const code of [4001, 1008, 999, undefined]) {
+    const h = harness();
+    h.live.begin();
+    await settle();
+    h.socket.open();
+    h.socket.onclose({ code, reason: `closed on ${NAME}` });
+    records.push(...h.records);
+  }
+  for (const { kind, fields } of records) {
+    assert.equal(kind, 'live_transcript');
+    assert.ok(LV.OUTCOMES.has(fields.outcome), fields.outcome);
+    assert.ok(fields.reason === undefined || LV.REASONS.has(fields.reason), fields.reason);
+    for (const [key, value] of Object.entries(fields)) {
+      assert.ok(['outcome', 'reason', 'ms', 'partials', 'count'].includes(key), key);
+      if (key !== 'outcome' && key !== 'reason' && value !== undefined) assert.ok(Number.isInteger(value), key);
+    }
+    Telemetry.record(kind, LV.telemetryFields(fields));
+  }
+  assert.deepEqual(records.slice(0, 5).map((r) => r.fields.reason), ['provider_error', 'provider_error', 'auth', 'provider_error', 'provider_error']);
+  assert.deepEqual(records.slice(5).map((r) => r.fields.reason), ['code_app', 'code_1008', 'code_other', 'code_other']);
+  Telemetry.flush(false);
+  const sent = bodies.join('\n');
+  assert.ok(sent.includes('live_transcript'), 'the events were sent');
+  assert.ok(!sent.includes('Jane') && !sent.includes('High Street') && !sent.includes('1042'), sent);
+  Telemetry.reset();
+});
+
+test('telemetryFields keeps its own words and whole numbers, and nothing else', () => {
+  assert.deepEqual(LV.telemetryFields({ outcome: 'committed', reason: 'code_1000', ms: 420, partials: 3, count: 8 }),
+    { outcome: 'committed', reason: 'code_1000', ms: 420, partials: 3, count: 8 });
+  assert.deepEqual(LV.telemetryFields({ outcome: 'Jane Doe', reason: 'Jane Doe_error', ms: 'Jane', partials: 1.5, count: -1, text: 'Jane Doe', words: 'x' }),
+    { outcome: 'other', reason: 'other', ms: undefined, partials: undefined, count: undefined });
+  assert.deepEqual(LV.telemetryFields(null), { outcome: 'other', reason: undefined, ms: undefined, partials: undefined, count: undefined });
+  for (const word of [...LV.OUTCOMES, ...LV.REASONS]) assert.match(word, /^[a-z0-9_]{2,24}$/, word);
+});
+
+// ------------------------------------------------------------------ round 9: a release before the socket opens (C-05)
+
+test('released before the socket opens, which then takes longer than the finish: the words are still committed (C-05)', async () => {
+  const h = harness();
+  h.live.begin();
+  await settle();
+  h.speak(0.25);
+  h.live.release();
+  h.advance(LV.FINISH_MS + 100);         // the old finish timer had fired by now and thrown the audio away
+  assert.equal(h.socket.closed, false, 'still waiting for the socket');
+  assert.equal(h.records.length, 0);
+  h.socket.open();
+  const sent = h.socket.sent;
+  assert.ok(sent.length >= 2, 'what was said while it opened went, and then the commit');
+  assert.equal(sent[sent.length - 1].commit, true);
+  const bytes = sent.reduce((total, message) => total + Buffer.from(message.audio_base_64, 'base64').length, 0);
+  assert.equal(bytes, 8000, 'a quarter of a second of 16 kHz PCM16, all of it');
+  // The finish is counted from the commit: a second and a half from the open, not from the release.
+  h.advance(LV.FINISH_MS - 100);
+  assert.equal(h.socket.closed, false);
+  h.socket.say({ message_type: 'committed_transcript', text: 'Show me the orders.' });
+  assert.equal(h.words[h.words.length - 1], 'Show me the orders.');
+  assert.equal(h.socket.closed, true);
+  assert.equal(h.records[0].fields.outcome, 'committed');
+});
+
+test('after the commit the words have a second and a half, however late the socket opened (C-05)', async () => {
+  const h = harness();
+  h.live.begin();
+  await settle();
+  h.speak(0.1);
+  h.live.release();
+  h.advance(3000);
+  h.socket.open();
+  h.advance(LV.FINISH_MS - 1);
+  assert.equal(h.socket.closed, false);
+  h.advance(1);
+  assert.equal(h.socket.closed, true);
+  assert.equal(h.records[0].fields.outcome, 'timeout');
+});
+
+test('a socket that never opens is let go OPEN_WAIT_MS after the release, quietly (C-05)', async () => {
+  const h = harness();
+  h.live.begin();
+  await settle();
+  h.speak(0.1);
+  h.live.release();
+  h.advance(LV.OPEN_WAIT_MS - 1);
+  assert.equal(h.socket.closed, false);
+  h.advance(1);
+  assert.equal(h.socket.closed, true);
+  assert.deepEqual([h.records[0].fields.outcome, h.records[0].fields.reason], ['slow', 'open_wait']);
+  h.socket.open();                        // a late open changes nothing
+  assert.equal(h.socket.sent.length, 0);
+});
+
+// ------------------------------------------------------------------ round 9: the words are display only (C-03)
+
+test('the words go to onWords and nowhere else, and are forgotten when the hold is over (C-03)', async () => {
+  const h = harness();
+  const handle = h.live.begin();
+  await settle();
+  h.socket.open();
+  h.speak(0.2);
+  h.socket.say({ message_type: 'partial_transcript', text: 'Refund Jane Doe' });
+  assert.equal(handle.words, 'Refund Jane Doe');
+  h.live.release();
+  h.socket.say({ message_type: 'committed_transcript', text: 'Refund Jane Doe, order 1042.' });
+  assert.equal(handle.done, true);
+  assert.equal(handle.words, '', 'nothing of them is kept here once the hold is over');
+  assert.equal(h.words[h.words.length - 1], 'Refund Jane Doe, order 1042.', 'they were shown');
+  // Nowhere else: not back up the socket, not to the Mac, not to telemetry.
+  for (const message of h.socket.sent) assert.deepEqual(Object.keys(message).sort(), ['audio_base_64', 'commit', 'message_type']);
+  assert.ok(h.socket.sent.every((message) => message.message_type === 'input_audio_chunk'));
+  assert.deepEqual(h.fetch.calls.map((call) => [call.url, call.init.body]), [['/voice/live', '{}']]);
+  assert.ok(!JSON.stringify(h.records).includes('Jane') && !JSON.stringify(h.records).includes('1042'));
+});
+
+test('drop(): once the Mac has said what it heard, the live words are cleared and their socket let go (C-03)', async () => {
+  const h = harness();
+  h.live.begin();
+  await settle();
+  h.socket.open();
+  h.socket.say({ message_type: 'partial_transcript', text: 'Show me' });
+  h.live.release();
+  h.live.drop();
+  assert.equal(h.words[h.words.length - 1], '');
+  assert.equal(h.socket.closed, true);
+  assert.equal(h.records[0].fields.outcome, 'superseded');
+  assert.equal(h.live.active, false);
+  h.socket.say({ message_type: 'committed_transcript', text: 'Show me the orders.' });
+  assert.equal(h.words[h.words.length - 1], '', 'a late word changes nothing');
+});
+
+test('this file reaches no storage, no address bar, no cookie, no console and no other endpoint', () => {
+  for (const name of ['localStorage', 'sessionStorage', 'indexedDB', 'console.', 'history.', 'location', 'document.cookie', 'sendBeacon', 'caches.']) {
+    assert.ok(!SOURCE.includes(name), `web/live-voice.js uses ${name}`);
+  }
+  // Its one request is to the Mac, for the key; its one socket is the address the Mac gave.
+  assert.deepEqual(SOURCE.match(/deps\.fetch\('[^']*'/g), ["deps.fetch('/voice/live'"]);
+  assert.equal(SOURCE.split('new deps.WebSocket(').length - 1, 1);
 });
