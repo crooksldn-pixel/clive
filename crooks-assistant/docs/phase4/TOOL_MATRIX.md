@@ -102,7 +102,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `commerce_query` | recipe:landing_orders, family:analytics | test_analytics_present.py, test_analytics_tools.py, test_council_fixes.py, test_flows.py, test_n_plus_one.py, test_n_plus_one_turn.py, test_navigation.py, test_needs_reply_inbox.py, test_query_engine_p3.py, test_read_budget.py, test_read_dedupe.py, test_recorder.py, test_scene_payload.py, test_scenes.py, test_tool_args_redaction.py, test_working_sets.py | landing_orders, next_previous |
 | `commerce_summary` | family:summary_surfaces | test_n_plus_one.py, test_n_plus_one_turn.py, test_summaries.py, test_turn_surfaces.py | — |
 | `email_query` | recipe:landing_inbox, family:email_reads | test_council_fixes.py, test_flows.py, test_graph.py, test_landings_unread.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_scene_payload.py, test_scene_planner.py, test_scenes.py, test_working_sets.py | graph_thread_to_order, landing_inbox, needs_reply |
-| `engineering_status` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_engineering_bridge_bounds.py, test_gate.py | — |
+| `engineering_status` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_engineering_bridge_bounds.py, test_gate.py, test_r11_engineering_off.py | — |
 | `gmail_compose_fill` | family:email_compose | test_compose.py | — |
 | `gmail_compose_open` | family:email_compose | test_compose.py, test_compose_provenance.py | compose_dictated, compose_open, compose_send_instead, compose_send_spoken, compose_stage |
 | `gmail_draft_new` | command:a tapped control, family:email_compose | test_compose.py, test_compose_provenance.py, test_gmail_writes.py | compose_send_instead, compose_send_spoken, compose_stage |
@@ -153,7 +153,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_store_credit` | family:store_credit | test_store_credit.py, test_visible_privacy.py | store_credit_give, store_credit_not_on_this_store |
 | `shopify_store_credit_add` | command:a tapped control, family:store_credit | test_store_credit.py, test_tap_reads_only.py | store_credit_give |
 | `shopify_variant_search` | recipe:order_line, recipe:order_add_item, family:order_edit | test_order_edit.py | order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers |
-| `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_gate.py | — |
+| `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_gate.py, test_r11_engineering_off.py | — |
 
 ## What this matrix cannot vouch for
 

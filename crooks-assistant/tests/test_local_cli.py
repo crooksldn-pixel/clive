@@ -4,7 +4,6 @@ those three routes and nothing else — not the write boundary, not the owner ru
 
 from __future__ import annotations
 
-import json
 import re
 
 import pytest
@@ -114,41 +113,35 @@ async def test_the_key_is_never_an_owner_to_the_write_boundary_or_the_owner_rule
     assert local_cli.admits(_request(WITH_KEY, "/actions/prop_1/commit")) is False
 
 
-def test_the_command_line_sends_the_key_when_it_can_read_it(monkeypatch):
-    import sys
-    import urllib.request
-    from pathlib import Path
+def test_the_command_line_sends_the_key_when_it_can_read_it():
+    """Round 10 (S1-KEY-SENDER) moved how: the commands no longer send with urllib, which this test
+    stood in for, but down launch_common.call_service's checked connection — so they are asked of
+    a real listener here, with the kernel's answer about who took the connection given as "the
+    service". The intent is the same: the key goes with the test-session commands when this user
+    can read it, on the key's own routes only, and not at all when it cannot be read.
+    tests/test_r11_key_senders.py holds the competitor, redirect and proxy cases."""
+    from tests.test_r11_key_senders import Server, scripts
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    lc = scripts()
     import session_ops
     import test_session
 
-    sent: list[dict[str, str]] = []
-
-    class Answer:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-        def read(self):
-            return json.dumps({"ok": True}).encode()
-
-    def urlopen(request, timeout=0):
-        sent.append({k.lower(): v for k, v in request.header_items()})
-        return Answer()
-
-    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
-    local_cli.bind_key(KEY)
-    test_session._call(8000, "GET", "/test-session/status")
-    session_ops.call(8000, "POST", "/test-session/stop")
-    session_ops.call(8000, "GET", "/health")
-    assert sent[0][local_cli.HEADER.lower()] == KEY and sent[1][local_cli.HEADER.lower()] == KEY
-    assert local_cli.HEADER.lower() not in sent[2], "only the test-session routes are sent the key"
-    local_cli.bind_key(None)   # a user who cannot read it (not root): nothing is sent
-    test_session._call(8000, "GET", "/test-session/status")
-    assert local_cli.HEADER.lower() not in sent[3]
+    server = Server({"ok": True})
+    lc.bind_listener_check(lambda sock: (True, "taken by crooks-assistant.service (pid 1)"))
+    try:
+        local_cli.bind_key(KEY)
+        test_session._call(server.port, "GET", "/test-session/status")
+        session_ops.call(server.port, "POST", "/test-session/stop")
+        session_ops.call(server.port, "GET", "/objectives")
+        sent = [request["headers"] for request in server.seen]
+        assert sent[0][local_cli.HEADER.lower()] == KEY and sent[1][local_cli.HEADER.lower()] == KEY
+        assert local_cli.HEADER.lower() not in sent[2], "only the key's own routes are sent the key"
+        local_cli.bind_key(None)   # a user who cannot read it (not root): nothing is sent
+        test_session._call(server.port, "GET", "/test-session/status")
+        assert local_cli.HEADER.lower() not in server.seen[3]["headers"]
+    finally:
+        lc.bind_listener_check(None)
+        server.close()
 
 
 def test_the_backend_makes_the_key_once_and_keeps_it(monkeypatch):

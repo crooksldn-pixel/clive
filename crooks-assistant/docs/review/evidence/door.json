@@ -1,0 +1,422 @@
+[
+  {
+    "finding": "S1T-01",
+    "parts": ["S1T"],
+    "status": "FIXED",
+    "question": "When a well-formed reading of this host's addresses leaves out its own tailnet address but holds another tailnet-range address, is the server's own request through its own tailscale serve refused at both gates, with the owner's genuinely remote phone still admitted on a whole reading?",
+    "files": [
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/tests/test_host_addresses.py",
+      "crooks-assistant/tests/test_proxy_identity.py",
+      "crooks-assistant/tests/test_r11_production_door.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_host_addresses.py::test_a_socket_on_this_host_holding_the_address_makes_it_this_hosts",
+      "crooks-assistant/tests/test_host_addresses.py::test_the_tailscale_interfaces_own_ipv4_address_decides_whether_a_reading_is_whole",
+      "crooks-assistant/tests/test_host_addresses.py::test_a_tailnet_ipv6_address_on_another_interface_is_not_this_hosts_tailnet_address",
+      "crooks-assistant/tests/test_host_addresses.py::test_with_a_decoy_on_another_interface_no_omission_ever_admits_the_servers_own_request",
+      "crooks-assistant/tests/test_host_addresses.py::test_whatever_a_whole_looking_reading_leaves_out_the_servers_own_request_is_never_the_owner",
+      "crooks-assistant/tests/test_host_addresses.py::test_on_this_machine_the_interface_is_asked_of_the_kernel_itself",
+      "crooks-assistant/tests/test_r11_production_door.py::test_the_servers_own_request_on_a_reading_missing_its_address_never_reaches_the_model"
+    ],
+    "answer": "FIXED. identity.this_host used to call a reading whole when it held ANY address in 100.64.0.0/10 of the forwarded family, so a reading that left out the server's own tailnet address but held a carrier-grade NAT address on another interface said 'not this host', proxy_state said TAILSCALE and the server's own request (stamped with the owner's login, whois confirming it) was the owner at principal_verdict and caller_check; the test pinned that as ADMITTED. Now 'not this host' requires identity._holds_own_tailnet_address: for IPv4 the reading must hold the very address the kernel says TAILSCALE_INTERFACE ('tailscale0', tailscaled's Linux default) holds, asked by identity.interface_ipv4 (the SIOCGIFADDR ioctl, one answer under the kernel's address lock, read apart from /proc/net/fib_trie); for IPv6 the if_inet6 reading (identity._ipv6_rows keeps each row's interface) must list a tailnet address on tailscale0 (HostAddresses.tailnet6). The interface unreadable, holding no tailnet address, or its address missing from the reading is None ('cannot say'), which proxy_state turns into FORGED and both gates refuse (identity_unverified). Evidence toward 'this host' (the address in the reading, or bound_here's socket-table match) is unchanged and still decides first. The pinning test now requires FORGED_REFUSED for the server's own request and for the phone while the reading is incomplete, LOCAL_REFUSED once a socket holds the address, and ADMITTED for the phone once the reading is whole. The exhaustive walk with a tailnet-range decoy on another interface in both families never admits any of the server's own addresses and admits the phone exactly when the reading holds tailscale0's address of the phone's family. The same case is driven through HTTP and the real turn route with production's settings. Every one of these fails on 81c78948."
+  },
+  {
+    "finding": "R9-A1a-F-05B-AVAIL",
+    "parts": ["S1"],
+    "status": "FIXED",
+    "question": "Can a well-formed address snapshot that omits this host's own address — IPv4 or enabled IPv6 — let a request the server sent itself through tailscale serve be classified as an owner device at either gate under production flags?",
+    "files": [
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/tests/test_host_addresses.py",
+      "crooks-assistant/tests/test_proxy_identity.py",
+      "crooks-assistant/scripts/install_systemd.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_host_addresses.py::test_the_servers_own_request_with_its_tailnet_address_left_out_is_never_the_owner",
+      "crooks-assistant/tests/test_host_addresses.py::test_the_servers_own_ipv6_request_with_its_tailnet_address_left_out_is_never_the_owner",
+      "crooks-assistant/tests/test_host_addresses.py::test_an_empty_ipv6_table_with_ipv6_on_is_not_whole_for_either_family",
+      "crooks-assistant/tests/test_host_addresses.py::test_a_reading_that_changes_under_it_is_not_believed_until_it_holds_still",
+      "crooks-assistant/tests/test_host_addresses.py::test_with_a_decoy_on_another_interface_no_omission_ever_admits_the_servers_own_request",
+      "crooks-assistant/tests/test_host_addresses.py::test_a_tailnet_ipv6_address_on_another_interface_is_not_this_hosts_tailnet_address",
+      "crooks-assistant/tests/test_host_addresses.py::test_the_install_can_ask_whether_this_host_can_tell_its_own_requests_apart",
+      "crooks-assistant/tests/test_proxy_identity.py::test_at_both_gates_a_missing_ipv6_table_with_ipv6_not_switched_off_refuses",
+      "crooks-assistant/tests/test_r11_install_gate.py::test_a_failed_gate_puts_the_unit_and_the_service_back_as_they_were"
+    ],
+    "answer": "FIXED (with S1T-01). A forwarded source is called not-this-host only when: two consecutive readings agree (identity.host_addresses, ADDRESS_READS); fib_trie lists 127.0.0.1 and, with IPv6 on, if_inet6 lists ::1 (identity._addresses_once); no socket on the host has the address as its own end (identity.bound_here, the socket tables read whole); and the reading holds the Tailscale interface's own address of that family (identity._holds_own_tailnet_address: interface_ipv4 for IPv4, HostAddresses.tailnet6 for IPv6). Enabled IPv6 is excused only by the kernel's own disable_ipv6 switch reading exactly 1. Any omission of this host's tailnet address — alone, with other addresses, with a tailnet-range decoy on another interface, in either family, an empty IPv6 table — is None, which actions.proxy_state makes FORGED and principal_verdict and caller_check refuse; the tests walk every subset of omissions through both gates with production's flags (tailscale_verify on, local_owner and writes_local_owner off) and nothing about the addresses stood in for but the interface ioctl. New: `make install` refuses and rolls back (install_systemd.running_problems via identity.tailnet_self_check) on a host whose tables do not hold tailscale0's own addresses, so a host where the check cannot pass is caught before the owner's phone is."
+  },
+  {
+    "finding": "R9-A1b-F-05B-AVAIL",
+    "parts": ["S1T"],
+    "status": "EVIDENCED",
+    "question": "S1T's BLOCKS doubt under this id (not S1's FOLLOW-UP availability ruling, which is the next entry): do identity.py and actions.py implement the bounded retry the tests assert, and is the locality decision fail-closed after it?",
+    "files": [
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/tests/test_host_addresses.py",
+      "crooks-assistant/tests/test_proxy_identity.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_host_addresses.py::test_a_failure_that_outlasts_an_immediate_reread_is_waited_out_within_a_bound",
+      "crooks-assistant/tests/test_host_addresses.py::test_a_reading_that_changes_under_it_is_not_believed_until_it_holds_still",
+      "crooks-assistant/tests/test_proxy_identity.py::test_at_both_gates_a_read_that_fails_once_is_tried_again_before_anyone_is_refused",
+      "crooks-assistant/tests/test_proxy_identity.py::test_when_this_servers_own_addresses_cannot_be_read_a_forwarded_request_is_refused"
+    ],
+    "answer": "EVIDENCED. This entry answers the S1T part's BLOCKS — it could not see identity.py or actions.py and asked for them to check the retry and the refusal after it. The S1 part's FOLLOW-UP under the same id (an availability strategy for failures that outlast the retry) is a different question, answered LEFT in the next entry. identity.host_addresses reads the tables at most ADDRESS_READS (4) times, pausing ADDRESS_PAUSES_S (10, 20, 40 ms; 70 ms in all) only after a reading that failed or differed, and returns a reading only when two consecutive readings agree; otherwise (None, why), never the last reading. identity.this_host returns (None, why) for that, and actions.proxy_state turns None into (FORGED, why), which the middleware (app/main.py guard_and_freshness), principal_verdict and caller_check all refuse. The tests drive the real readers against a fake /proc through both gates: a table failing twice is waited out and the phone admitted on two agreeing readings, the server's own address still LOCAL_REFUSED; four failures refuse with 'read 4 times' in the reason and at most 70 ms waited."
+  },
+  {
+    "finding": "R9-A1b-F-05B-AVAIL",
+    "parts": ["S1"],
+    "status": "LEFT",
+    "question": "S1's FOLLOW-UP availability ruling under this id (not S1T's BLOCKS doubt, which is the entry above): is there a bounded availability strategy for an address-table failure lasting beyond the retries that never treats uncertain locality as remote-owner traffic?",
+    "files": [
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/tests/test_host_addresses.py",
+      "crooks-assistant/tests/test_proxy_identity.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_host_addresses.py::test_a_failure_that_outlasts_an_immediate_reread_is_waited_out_within_a_bound",
+      "crooks-assistant/tests/test_proxy_identity.py::test_at_both_gates_a_read_that_fails_once_is_tried_again_before_anyone_is_refused",
+      "crooks-assistant/tests/test_proxy_identity.py::test_when_this_servers_own_addresses_cannot_be_read_a_forwarded_request_is_refused"
+    ],
+    "answer": "LEFT (follow-up; still fails closed). This entry answers the S1 part's FOLLOW-UP (STILL PRESENT — FOLLOW-UP: owner requests are denied, not exploited, while a table failure outlasts the retries); the S1T part's BLOCKS under the same id — whether the retry and the refusal after it are really in the code — is the entry above, EVIDENCED. Every answer the door could give during a failure that outlasts the bounded rereads would rest on a reading not taken now — a remembered set of addresses, or an assumption about which addresses are this host's — and that is exactly the uncertain locality the finding forbids treating as a device's (round 7 removed a ten-minute cache of `tailscale ip` for letting an address the host gained pass as a device's). What is safe is already in place: a failure lasting up to about 70 ms is waited out (four readings, two of which must agree), each request reads afresh so the next request after the failure ends is answered, and a failure that lasts is refused with a reason naming the table (visible in /whoami's `why` and the journal). The only further lever is a longer bound, which only adds latency to requests that are then refused anyway on a real outage; not done without evidence of failures of that length on the server."
+  },
+  {
+    "finding": "CFG-01",
+    "parts": ["CFG"],
+    "status": "FIXED",
+    "question": "With CROOKS_ENGINEERING_HOST unset in production, can any engineering filing path reach GitHub, whatever token the host holds?",
+    "files": [
+      "crooks-assistant/config/settings.py",
+      "crooks-assistant/app/engineering_switch.py",
+      "crooks-assistant/app/runtime.py",
+      "crooks-assistant/app/engineering_bridge/github.py",
+      "crooks-assistant/app/tools/engineering_tools.py",
+      "crooks-assistant/deploy/env.production.example",
+      "crooks-assistant/scripts/provision_secrets.py",
+      "crooks-assistant/tests/test_r11_engineering_off.py",
+      "crooks-assistant/tests/test_build_from_clive.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_engineering_off.py::test_with_the_setting_unset_no_filing_path_reaches_github_whatever_token_is_held",
+      "crooks-assistant/tests/test_r11_engineering_off.py::test_unset_empty_or_off_is_off_and_only_a_named_host_files",
+      "crooks-assistant/tests/test_r11_engineering_off.py::test_the_setting_is_read_from_its_environment_name",
+      "crooks-assistant/tests/test_build_from_clive.py::test_the_runtime_files_with_the_configured_host"
+    ],
+    "answer": "FIXED. Settings.engineering_host now defaults to 'off' (it was 'worker-01'), so unset resolves to a disabled value; engineering_switch.filing_host treats unset, empty and 'off' (any case) as off. app/runtime.py binds engineering_tools with engineering_switch.inbox_for(settings.engineering_host), which for off is engineering_switch.FilingOff: an EngineeringInbox whose status, inbox_head, trunk_head, on_trunk, request_file and create_request all return NotConnected(OFF_REASON) without reading a token, whose _token is None, and whose _call (the one HTTP call every method goes through) raises GitHubError before any client exists. No protected file changed for this except the one assertion noted below. The test builds the runtime through the real lifespan with the setting unset and changes on, has the secret store hand out a GitHub token and watches httpx.AsyncClient.send: engineering_status says filing is switched off; submit_engineering_request (with its inbox id issued so the gate lets the prepare run) returns ERROR with the reason and stages nothing; the write (_execute), the look before and after it (_observe), build_progress and refresh_gaps, and every inbox method, refuse; no token is read and no request is sent — while a named host's inbox, under the same fakes, does reach httpx. The filing credential itself stays parked (template comment); scripts/provision_secrets.py only stores it. Protected test changed: tests/test_build_from_clive.py::test_the_runtime_files_with_the_configured_host asserted the old default equals 'worker-01'; it now asserts unset is off and a named worker-01 files to worker-01's inbox."
+  },
+  {
+    "finding": "S1-KEY-SENDER",
+    "parts": ["S1"],
+    "status": "FIXED",
+    "question": "Does every place that sends the local CLI key check the connected far end (far_end_held_by) before sending, never follow a redirect and never go through a proxy?",
+    "files": [
+      "crooks-assistant/scripts/launch_common.py",
+      "crooks-assistant/scripts/session_ops.py",
+      "crooks-assistant/scripts/test_session.py",
+      "crooks-assistant/scripts/healthcheck.py",
+      "crooks-assistant/scripts/status.py",
+      "crooks-assistant/scripts/install_systemd.py",
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/app/local_cli.py",
+      "crooks-assistant/tests/test_r11_key_senders.py",
+      "crooks-assistant/tests/test_health_key.py",
+      "crooks-assistant/tests/test_local_cli.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_key_senders.py::test_a_competitor_holding_the_port_is_never_sent_the_key_by_the_session_commands",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_the_key_goes_down_the_very_connection_the_kernel_was_asked_about",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_a_redirect_is_an_answer_and_never_a_place_to_send_the_key",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_the_commands_never_go_through_a_proxy_the_environment_names",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_the_key_goes_only_on_its_own_routes_and_only_where_it_can_be_read_and_checked",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_every_status_reader_asks_a_competitor_plainly_and_never_with_the_key",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_the_key_leaves_through_one_function_only",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_the_session_commands_still_tell_no_backend_from_a_backend_that_did_not_answer",
+      "crooks-assistant/tests/test_local_cli.py::test_the_command_line_sends_the_key_when_it_can_read_it"
+    ],
+    "answer": "FIXED. The senders, all of them: (1) launch_common.fetch_health (-> _server_key, _read_keyed), used by scripts/healthcheck.py main (make health), scripts/status.py show (crooks-status), scripts/install_systemd.py install (via launch_common.wait_for_health) and status (make status), scripts/control.py read_health (CROOKS Control), scripts/service.py's health reader and scripts/up.py; (2) scripts/session_ops.py call, used by scripts/test_session.py _call (make test-session-start/-status/-stop) and CROOKS Control's session buttons. (1) already checked; (2) did not: it sent local_cli.headers() through urllib.request.urlopen, which never asked who held the port, read HTTP_PROXY from the environment, and followed 301/302/303/307/308 with the key still on the request. Now both go through one path: launch_common._server_key (the key only for http on literal 127.0.0.1/::1, only where this user can read it, and only on Linux or with a bound check, where the far end can be shown), launch_common._keyed_route (only the key's own routes, local_cli.ROUTES), and launch_common._one_connection (the connection opened by the sender, launch_common._taken_by_the_service -> identity.far_end_held_by asked about that very socket, the request sent down that same connection only on a yes; http.client, which reads no proxy and follows no redirect, so a 3xx is returned as an answer). session_ops.call now calls launch_common.call_service; when the far end cannot be shown to be crooks-assistant.service the request goes plainly on a fresh connection and the key stays unsent. test_the_key_leaves_through_one_function_only holds that nothing else in app/, scripts/ or experience/ reads the key to send it. The competitor tests use the real kernel check (this test's listener is in no crooks-assistant.service cgroup)."
+  },
+  {
+    "finding": "R9-A1b-A1B-KEY",
+    "parts": ["S1T"],
+    "status": "EVIDENCED",
+    "question": "Does scripts/launch_common.py fetch_health send the key only down a connection the kernel says the service took, and never on a redirect?",
+    "files": [
+      "crooks-assistant/scripts/launch_common.py",
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/tests/test_health_key.py",
+      "crooks-assistant/tests/test_r11_key_senders.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_health_key.py::test_a_competitor_answering_limited_on_the_port_is_never_sent_the_key",
+      "crooks-assistant/tests/test_health_key.py::test_the_key_is_decided_before_anything_is_asked_never_on_a_limited_answer",
+      "crooks-assistant/tests/test_health_key.py::test_a_redirect_is_never_followed_with_the_key_or_without_it",
+      "crooks-assistant/tests/test_health_key.py::test_the_key_is_read_only_for_the_servers_own_loopback_and_never_goes_through_a_proxy",
+      "crooks-assistant/tests/test_health_key.py::test_the_kernel_says_who_took_the_connection_and_only_the_units_own_process_counts",
+      "crooks-assistant/tests/test_health_key.py::test_a_connection_nobody_has_accepted_is_nobodys",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_every_status_reader_asks_a_competitor_plainly_and_never_with_the_key"
+    ],
+    "answer": "EVIDENCED. launch_common.fetch_health decides on the key before anything is asked (_server_key), then _read_keyed -> _one_connection opens the socket itself, asks _taken_by_the_service -> identity.far_end_held_by(sock's own ends, 'crooks-assistant.service'), and sends the keyed GET down that same socket only on a yes; otherwise nothing is sent and the question is asked plainly (_read, urllib with ProxyHandler({}) and _NoRedirect). identity.far_end_held_by finds the far end's socket inode in /proc/net/tcp{,6} (waiting up to ACCEPT_WAIT_S for accept), requires the unit's cgroup to be root-only (cgroup_guarded), reads cgroup.procs whole (unit_pids), confirms each pid's own cgroup is exactly /system.slice/crooks-assistant.service (in_unit_cgroup), pins it with a pidfd and believes its open files only if it is still alive, and says no on any failure. http.client follows no redirect: a 302 from the service's own connection is None, and the Location's target receives nothing. The competitor and the redirect are real loopback listeners; the competitor case and the kernel-check cases use the real /proc."
+  },
+  {
+    "finding": "R9-A1a-F-05A",
+    "parts": ["S1"],
+    "status": "DEPLOY-TIME",
+    "question": "Do all three CLI routes refuse a correct, wrong or empty key through the proxy and admit the key only straight to the port, and does the real owner device behave so at this SHA?",
+    "files": [
+      "crooks-assistant/app/local_cli.py",
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/tests/test_local_cli.py",
+      "crooks-assistant/tests/test_r11_production_door.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_production_door.py::test_the_command_key_is_the_servers_own_command_or_nothing_under_production_settings",
+      "crooks-assistant/tests/test_local_cli.py::test_through_the_proxy_a_right_wrong_or_empty_key_is_refused_on_each_command_route",
+      "crooks-assistant/tests/test_local_cli.py::test_an_empty_key_header_is_refused_wherever_the_key_does_not_apply",
+      "crooks-assistant/tests/test_local_cli.py::test_the_key_opens_nothing_but_the_three_routes",
+      "crooks-assistant/tests/test_local_cli.py::test_the_key_is_never_an_owner_to_the_write_boundary_or_the_owner_rule"
+    ],
+    "answer": "Code EVIDENCED; the real device is DEPLOY-TIME. main.guard_and_freshness refuses (403 local_key_misused) any request where local_cli.presented (the header at all, empty included, read from the raw header list) and not local_cli.admits; admits needs exactly one non-empty header, (method, path) in local_cli.ROUTES, actions.proxy_state == DIRECT and only then hmac.compare_digest with the stored key. The new test builds the settings from deploy/env.production.example with CROOKS_TAILSCALE_VERIFY and CROOKS_LOCAL_OWNER unset, reads the kernel's account of each connection and this host's address tables with the real readers on a fake /proc (stood in for: `tailscale whois`, what tailscale0 holds — an ioctl — and the fake pids' pinning), and on each of the three test-session routes: the owner's verified phone with the right, a wrong or an empty key -> 403 local_key_misused; the server's own request through tailscale serve with the right key -> 403 local_key_misused; straight to the port, wrong or empty -> 403, no key -> 403, right key -> 200; the phone without the header is the owner. Deploy check that settles the rest (phone check 1, against the staging copy's tailnet address, before the deploy): from the owner's own tailnet device — his phone (iOS Shortcuts' 'Get contents of URL' can add a header) or his Mac signed in to Tailscale as him — (a) GET /whoami: 'owner': true, 'through': 'tailscale', and `journalctl -u <the staging unit> | grep 'whoami: id=<its check>'` shows `whoami: id=<its check> through=tailscale owner=true refusal=none`; (b) GET /test-session/status with `X-Crooks-Local-Key: wrong` and again with the header present and empty: each 403 with code local_key_misused; (c) the same GET with no such header: 200. The real key never leaves the server and need not: local_cli.admits refuses on proxy_state before it compares the key, so through the proxy the right key takes the same branch as (b) — the right key itself is the tests'. Phone check 2 repeats (a) against production after `make install`."
+  },
+  {
+    "finding": "R9-A1b-F-05A",
+    "parts": ["S1", "S1T"],
+    "status": "DEPLOY-TIME",
+    "question": "Without substituted provenance answers, does the owner's device get correct-key refusal and headerless admission at this SHA?",
+    "files": [
+      "crooks-assistant/app/local_cli.py",
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/tests/test_r11_production_door.py",
+      "crooks-assistant/tests/test_turn_authority_path.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_production_door.py::test_the_command_key_is_the_servers_own_command_or_nothing_under_production_settings",
+      "crooks-assistant/tests/test_turn_authority_path.py::test_the_command_key_through_the_real_door_is_the_servers_own_command_or_nothing"
+    ],
+    "answer": "As R9-A1a-F-05A. What the S1T reviewer called substituted is now narrower: the peer check, the address tables and bound_here run as real code on a fake /proc; the settings are the production template's as they resolve (not a model_copy forcing verify on); only `tailscale whois`, the tailscale0 ioctl and the fake pids' pinning are stood in for. A genuinely verified device cannot exist in a test. Deploy check that settles the rest (phone check 1, against the staging copy's tailnet address, before the deploy): from the owner's own tailnet device — his phone (iOS Shortcuts' 'Get contents of URL' can add a header) or his Mac signed in to Tailscale as him — (a) GET /whoami: 'owner': true, 'through': 'tailscale', and `journalctl -u <the staging unit> | grep 'whoami: id=<its check>'` shows `whoami: id=<its check> through=tailscale owner=true refusal=none`; (b) GET /test-session/status with `X-Crooks-Local-Key: wrong` and again with the header present and empty: each 403 with code local_key_misused; (c) the same GET with no such header: 200. The real key never leaves the server and need not: local_cli.admits refuses on proxy_state before it compares the key, so through the proxy the right key takes the same branch as (b) — the right key itself is the tests'. Phone check 2 repeats (a) against production after `make install`."
+  },
+  {
+    "finding": "R9-A1a-F-05B",
+    "parts": ["S1"],
+    "status": "EVIDENCED",
+    "question": "Do malformed cgroup listings and socket rows refuse through principal_verdict and caller_check?",
+    "files": [
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/tests/test_proxy_identity.py",
+      "crooks-assistant/tests/test_r11_production_door.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_proxy_identity.py::test_at_both_gates_a_malformed_cgroup_listing_is_trusted_for_nothing",
+      "crooks-assistant/tests/test_proxy_identity.py::test_at_both_gates_a_malformed_socket_row_is_no_match_and_a_malformed_table_is_believed_in_no_part",
+      "crooks-assistant/tests/test_proxy_identity.py::test_at_both_gates_a_malformed_ipv4_table_is_believed_in_no_part",
+      "crooks-assistant/tests/test_proxy_identity.py::test_at_both_gates_a_malformed_ipv6_table_is_believed_in_no_part",
+      "crooks-assistant/tests/test_r11_production_door.py::test_a_malformed_kernel_listing_or_socket_row_refuses_the_phone_at_both_gates_and_the_door"
+    ],
+    "answer": "EVIDENCED. identity.unit_pids returns None for a listing with any line that is not a pid (or no trailing newline), and _proc_peer_check turns that into a refusal; identity._tcp_rows raises MalformedTable for a missing header or any row not of the kernel's shape (field count, upper-case hex address:port pairs, state, queues, numbers), which socket_inode propagates and _proc_peer_check refuses; two sockets for one connection, or one not established, is no match. Both gates read one decision, actions.proxy_state, so a refusal there is identity_unverified at principal_verdict and caller_check alike. The parametrised tests walk eleven malformed listings and nine malformed row/table shapes through both gates; the new test does the same through HTTP and the turn route with production's settings as they resolve, and the kernel's own shape is believed again at once."
+  },
+  {
+    "finding": "R9-A1a-F-05B-AVAIL-PREFLIGHT",
+    "parts": ["S1", "AC3"],
+    "status": "DEPLOY-TIME",
+    "question": "Does install_systemd's launch-and-health gate check the running argv and health and abort or roll back on failure, and does a correlated real-phone /whoami pass at this SHA?",
+    "files": [
+      "crooks-assistant/scripts/install_systemd.py",
+      "crooks-assistant/app/routes/admin.py",
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/app/routes/health.py",
+      "crooks-assistant/scripts/launch_common.py",
+      "crooks-assistant/tests/test_r11_install_gate.py",
+      "crooks-assistant/tests/test_proxy_identity.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_install_gate.py::test_a_failed_gate_puts_the_unit_and_the_service_back_as_they_were",
+      "crooks-assistant/tests/test_r11_install_gate.py::test_a_first_install_that_fails_a_gate_leaves_no_unit_and_nothing_running",
+      "crooks-assistant/tests/test_r11_install_gate.py::test_a_service_that_was_stopped_and_disabled_is_left_so",
+      "crooks-assistant/tests/test_r11_install_gate.py::test_a_rollback_step_that_fails_is_said_and_the_rest_are_still_tried",
+      "crooks-assistant/tests/test_r11_install_gate.py::test_every_gate_passed_keeps_the_new_unit_and_says_what_the_phone_must_show",
+      "crooks-assistant/tests/test_proxy_identity.py::test_the_install_is_done_only_when_the_running_service_has_the_flag_and_health_agrees",
+      "crooks-assistant/tests/test_proxy_identity.py::test_every_whoami_carries_its_own_token_and_the_line_that_says_so",
+      "crooks-assistant/tests/test_proxy_identity.py::test_the_last_of_the_two_proxy_header_flags_is_the_one_believed"
+    ],
+    "answer": "Gate FIXED; the phone is DEPLOY-TIME. install_systemd.install now reads the state it will change first (install_systemd.Before: the unit file's bytes or none, is-enabled, is-active) and every gate after writing the unit — daemon-reload, enable, restart, /health answering (launch_common.wait_for_health), and install_systemd.running_problems (the running process's own /proc/<MainPID>/cmdline says --no-proxy-headers last, by identity.proxy_headers_off; /health's checks.proxy_identity is ok, from health._checked -> identity.served_without_proxy_headers; and, new, identity.tailnet_self_check: this host's tables hold tailscale0's own addresses) — calls install_systemd.roll_back and returns 1: the old unit put back (or the new one removed), systemd reloaded, disabled if it was not enabled, restarted on the old unit if it was running or stopped if not; each step printed, a failed step said and the rest still tried. Before, a failed gate returned 1 and left the new unit written, enabled and running. The code in the checkout is the deploy's to roll back, not this command's. admin.whoami makes one token per request (secrets.token_hex(4)), logs 'whoami: id=<token> through=<route> owner=<bool> refusal=<code>' without the login and returns the same token as `check`. Deploy checks that settle the rest: (1) phone check 1 — the owner's phone opens /whoami at the staging copy's tailnet address: 'owner': true, 'through': 'tailscale', and the staging unit's journal holds `whoami: id=<its check> through=tailscale owner=true refusal=none` for the `check` the phone shows; (2) `make install` of the deploy exits 0 — it now fails, and rolls back, on the running argv, /health's proxy_identity and tailnet_self_check — and `tr '\\0' ' ' < /proc/$(systemctl show -p MainPID --value crooks-assistant.service)/cmdline` ends with --no-proxy-headers; (3) phone check 2 — the same /whoami on the phone against production, matched by its `check` to `journalctl -u crooks-assistant.service | grep 'whoami: id=<its check>'` (install prints this instruction on success). A failure at (2) is already rolled back for the unit; the deploy's own rollback restores the code; a failure at (3) is the deploy's rollback of both."
+  },
+  {
+    "finding": "R9-A1b-F-05B-AVAIL-PREFLIGHT",
+    "parts": ["S1", "S1T", "AC3"],
+    "status": "DEPLOY-TIME",
+    "question": "Do failed running-process, health or device checks abort or roll back deployment, and is there a correlated real-phone /whoami under the rendered unit at this SHA?",
+    "files": [
+      "crooks-assistant/scripts/install_systemd.py",
+      "crooks-assistant/app/routes/admin.py",
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/tests/test_r11_install_gate.py",
+      "crooks-assistant/tests/test_proxy_identity.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_install_gate.py::test_a_failed_gate_puts_the_unit_and_the_service_back_as_they_were",
+      "crooks-assistant/tests/test_r11_install_gate.py::test_a_first_install_that_fails_a_gate_leaves_no_unit_and_nothing_running",
+      "crooks-assistant/tests/test_proxy_identity.py::test_every_whoami_carries_its_own_token_and_the_line_that_says_so"
+    ],
+    "answer": "As R9-A1a-F-05B-AVAIL-PREFLIGHT: every failed gate after the unit is written (daemon-reload, enable, restart, /health answering, the running argv, /health's proxy_identity, and the new host-address gate identity.tailnet_self_check) now rolls back the unit, its enabled state and the service before exit 1 (install_systemd.roll_back from install_systemd.Before); the tests stand in systemctl, the MainPID cmdline and the /health answer, as those are the host's, but the gates' own code and the rollback run. The device check cannot be a test. Deploy checks that settle the rest: (1) phone check 1 — the owner's phone opens /whoami at the staging copy's tailnet address: 'owner': true, 'through': 'tailscale', and the staging unit's journal holds `whoami: id=<its check> through=tailscale owner=true refusal=none` for the `check` the phone shows; (2) `make install` of the deploy exits 0 — it now fails, and rolls back, on the running argv, /health's proxy_identity and tailnet_self_check — and `tr '\\0' ' ' < /proc/$(systemctl show -p MainPID --value crooks-assistant.service)/cmdline` ends with --no-proxy-headers; (3) phone check 2 — the same /whoami on the phone against production, matched by its `check` to `journalctl -u crooks-assistant.service | grep 'whoami: id=<its check>'` (install prints this instruction on success). A failure at (2) is already rolled back for the unit; the deploy's own rollback restores the code; a failure at (3) is the deploy's rollback of both."
+  },
+  {
+    "finding": "R9-A1b-A1B-STATUS",
+    "parts": ["S1T"],
+    "status": "EVIDENCED",
+    "question": "Does install_systemd.status return non-zero for limited health?",
+    "files": [
+      "crooks-assistant/scripts/install_systemd.py",
+      "crooks-assistant/scripts/launch_common.py",
+      "crooks-assistant/tests/test_r11_install_gate.py",
+      "crooks-assistant/tests/test_health_key.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_install_gate.py::test_make_status_exits_0_only_for_an_active_unit_whose_health_carries_its_checks",
+      "crooks-assistant/tests/test_health_key.py::test_make_status_is_well_only_on_a_health_answer_that_carries_its_checks"
+    ],
+    "answer": "EVIDENCED. install_systemd.status returns 0 only when `systemctl is-active` says active AND install_systemd.health_known(health): the answer is a dict, not launch_common.health_limited (limited: true, the liveness a refused reader gets), and carries a non-empty checks map. A limited answer, one with no or empty checks, no answer, or a unit that is inactive, failed or not installed is 1; the new test crosses every health shape with every unit state."
+  },
+  {
+    "finding": "R9-A2-F-NEW-TOOLS-PATH",
+    "parts": ["S1", "S1T"],
+    "status": "EVIDENCED",
+    "question": "With production's settings as they resolve (CROOKS_TAILSCALE_VERIFY unset), can a refused caller reach the model or owner tool authority on the path HTTP -> middleware -> turn -> authority stamping -> provider?",
+    "files": [
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/tools/authority.py",
+      "crooks-assistant/app/providers/max_agent_sdk.py",
+      "crooks-assistant/config/settings.py",
+      "crooks-assistant/deploy/env.production.example",
+      "crooks-assistant/tests/test_r11_production_door.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_production_door.py::test_production_resolves_the_switches_it_leaves_unset_to_their_defaults",
+      "crooks-assistant/tests/test_r11_production_door.py::test_a_refused_caller_never_reaches_the_model_or_a_tool",
+      "crooks-assistant/tests/test_r11_production_door.py::test_the_servers_own_request_on_a_reading_missing_its_address_never_reaches_the_model",
+      "crooks-assistant/tests/test_r11_production_door.py::test_the_owners_phone_is_answered_by_the_real_provider_under_his_authority_alone"
+    ],
+    "answer": "EVIDENCED. Settings are built from deploy/env.production.example with CROOKS_TAILSCALE_VERIFY, CROOKS_LOCAL_OWNER and CROOKS_ENGINEERING_HOST absent from the environment; the test asserts they are not in model_fields_set and resolve to tailscale_verify True (Settings default), local_owner False, engineering_host 'off'. Path: main.guard_and_freshness computes actions.proxy_state once per request (FORGED -> 403 before any route; TAILSCALE without a login -> 403; a login not on the list -> 403), refuses a misplaced local key, and for every non-public path calls actions.principal_verdict; only when it returns no code does it call authority.for_owner(who) and set TOOL_AUTHORITY for the request, revoking it when the body has been sent. turn.py's /turn is not public, so a refused caller never reaches turn.py at all; for the owner, turn._provider_turn calls MaxAgentSDKProvider.turn_on_branch/turn, whose _turn_locked reads authority.current() on the request's own task into the conversation (conv.begin), and the SDK's tool callback (_options -> registry.build_mcp_server -> _dispatch) refuses any call without an active authority that permits the tool. The test drives the REAL provider with a scripted SDK client that calls tools back through the MCP server from its own task: for eight non-owner callers (server direct, stranger's device, owner's login on a stranger's device, a process forging the headers, the server's own IPv4 and IPv6 requests through tailscale serve, Funnel with no login, the command key on /turn) and the server's own request on a reading missing its address, the response is 403, no SDK client is made or queried, no dispatch handler is reached and nothing is mutated; the owner's phone is answered, both tool calls ran under one OWNER authority for his login, the change was staged not applied, and that authority is revoked after the answer."
+  },
+  {
+    "finding": "R9-C-C-01",
+    "parts": ["S1"],
+    "status": "EVIDENCED",
+    "question": "Can a forged identity mint a live-voice token through the real door, with production's settings?",
+    "files": [
+      "crooks-assistant/app/routes/voice.py",
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/config/settings.py",
+      "crooks-assistant/deploy/env.production.example",
+      "crooks-assistant/tests/test_r11_production_door.py",
+      "crooks-assistant/tests/test_live_voice_owner.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_production_door.py::test_nobody_but_the_owners_phone_mints_a_live_voice_key_through_the_real_door",
+      "crooks-assistant/tests/test_r11_production_door.py::test_the_live_voice_route_refuses_on_its_own_if_the_door_were_ever_opened",
+      "crooks-assistant/tests/test_live_voice_owner.py::test_nobody_but_the_owners_device_mints_a_key",
+      "crooks-assistant/tests/test_live_voice_owner.py::test_refused_callers_never_spend_the_owners_pace"
+    ],
+    "answer": "EVIDENCED. POST /voice/live is not public, so main.guard_and_freshness applies proxy_state and principal_verdict before the route; voice.live then calls voice._refused (principal_verdict again) before reading the ElevenLabs key, taking PACE or minting. A forged identity (a local process writing Tailscale-User-Login and X-Forwarded-For on a connection tailscaled did not open) is FORGED in identity._proc_peer_check -> 403 'unverified proxy' at the door. With production's settings as they resolve and this host's addresses read by the real readers, every caller in the test's NOT_THE_OWNER table and the server's own request on a reading missing its address get 403, no token, and ElevenLabs is never asked; the owner's phone gets the key. With the door's owner rule taken off /voice/live, the route's own check still refuses the server's own request, a device Tailscale does not confirm, and the server itself."
+  },
+  {
+    "finding": "R9-C-C-02",
+    "parts": ["C"],
+    "status": "DEPLOY-TIME",
+    "question": "Is the browser's live-voice key single-use and short-lived, and does the route refuse to hand on anything that is not a key?",
+    "files": [
+      "crooks-assistant/app/routes/voice.py",
+      "crooks-assistant/web/live-voice.js",
+      "crooks-assistant/scripts/live_key_check.py",
+      "crooks-assistant/scripts/provision_secrets.py",
+      "crooks-assistant/app/secrets/linux_store.py",
+      "crooks-assistant/tests/test_live_voice.py",
+      "crooks-assistant/tests/test_r11_live_key_check.py",
+      "crooks-assistant/tests/web/live-voice.test.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_live_voice.py::test_a_key_shaped_answer_is_handed_on_exactly_with_a_short_life",
+      "crooks-assistant/tests/test_live_voice.py::test_anything_else_in_the_token_field_is_not_handed_on_or_logged",
+      "crooks-assistant/tests/test_live_voice.py::test_the_servers_own_key_sent_back_as_the_token_is_never_handed_on",
+      "crooks-assistant/tests/test_r11_live_key_check.py::test_a_key_that_keeps_its_word_passes_both_questions",
+      "crooks-assistant/tests/test_r11_live_key_check.py::test_a_key_that_opens_a_second_socket_fails",
+      "crooks-assistant/tests/test_r11_live_key_check.py::test_a_key_that_outlives_its_fifteen_minutes_fails",
+      "crooks-assistant/tests/web/live-voice.test.js::one key, one socket, one hold: every hold asks afresh and no socket is ever opened twice (C-02)",
+      "crooks-assistant/tests/web/live-voice.test.js::a key is used within the life the Mac gave it, counted from the ask, or not at all (C-02)",
+      "crooks-assistant/tests/test_r11_live_key_check.py::test_a_key_only_the_units_credential_holds_is_asked_for_inside_a_unit_that_loads_it",
+      "crooks-assistant/tests/test_r11_live_key_check.py::test_a_run_under_the_credential_that_did_not_finish_is_not_asked_never_a_pass_or_a_fail",
+      "crooks-assistant/tests/test_r11_live_key_check.py::test_without_systemd_run_a_key_only_a_unit_can_read_is_not_asked",
+      "crooks-assistant/tests/test_r11_live_key_check.py::test_inside_the_unit_the_key_is_the_credential_systemd_loaded_and_it_asks_no_unit_of_its_own",
+      "crooks-assistant/tests/test_r11_live_key_check.py::test_a_check_that_could_not_be_asked_is_never_a_pass"
+    ],
+    "answer": "Server side EVIDENCED; ElevenLabs' own promise is DEPLOY-TIME. voice._mint hands on a token only when it is a str matching TOKEN_SHAPE (16-2048 URL-safe token characters) that neither equals nor contains the server's key; anything else is a 503 in fixed words, never logged. The answer carries expires_in_s = EXPIRES_IN_S (10), and web/live-voice.js keyLife caps it (MAX_LIFE_S) and opens one socket per key, for the hold that asked, keeping no copy after. Whether ElevenLabs refuses a second socket on a used key and lapses it after fifteen minutes cannot be seen from the server or a test, so scripts/live_key_check.py asks ElevenLabs itself with the route's own voice._mint, voice.socket_url and voice.PARAMS: it opens one socket with a fresh key (no audio), closes it, and tries the same key again; --expiry also holds a fresh key unused for 16 minutes. Exit 0 both hold, 1 either fails, 2 not asked; fixed words only. It is tested against a loopback realtime socket that keeps or breaks its word in each way. FIXED in the check itself: on the server the ElevenLabs key is an encrypted systemd credential (linux_store tier A) that systemd decrypts for the service's unit alone, so the check as first written, run from a root shell, could never read it and would only ever have said NOT ASKED. Now, when that credential is on disk (provision_secrets.encrypted_path) and it is not already in a unit, live_key_check.main reruns itself under `systemd-run --quiet --wait --pipe --collect --property=LoadCredentialEncrypted=elevenlabs_api_key:<blob> --property=WorkingDirectory=<checkout> <this interpreter> -u scripts/live_key_check.py --in-unit [--expiry]` (unit_command, under_the_units_credential), echoes its lines and returns its exit code only when its own words back it (0 after its passing VERDICT, 1 after a FAIL, 2 after NOT ASKED); systemd-run missing, refused, cut short or crashed is 2, never a pass or a fail; inside the unit the key is read by the route's own reader and no unit is asked again. Deploy check: on the server, as root, from the checkout being deployed, with the interpreter the unit's ExecStart names (<checkout>/.venv/bin/python scripts/live_key_check.py --expiry, about 17 minutes). Exit 0: live words stay on. Exit 1: set CROOKS_LIVE_TRANSCRIPT=false in the server's .env and restart before the deploy is kept — the browser must stop receiving a bearer key. Exit 2: nothing was settled — C-02 stays open, and whether live words stay on until it is asked is George's decision."
+  },
+  {
+    "finding": "R9-C-C-04",
+    "parts": ["C"],
+    "status": "EVIDENCED",
+    "question": "Can a provider socket error's text (message_type, error text, close reason) reach the telemetry timeline?",
+    "files": [
+      "crooks-assistant/web/live-voice.js",
+      "crooks-assistant/web/telemetry.js",
+      "crooks-assistant/app/routes/observe.py",
+      "crooks-assistant/tests/web/live-voice.test.js",
+      "crooks-assistant/tests/test_live_transcript_telemetry.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/live-voice.test.js::nothing the socket says reaches telemetry: not its message type, its error text or its close reason (C-04)",
+      "crooks-assistant/tests/web/live-voice.test.js::telemetryFields keeps its own words and whole numbers, and nothing else",
+      "crooks-assistant/tests/test_live_transcript_telemetry.py::test_words_in_an_outcome_or_a_reason_and_every_other_field_are_dropped",
+      "crooks-assistant/tests/test_live_transcript_telemetry.py::test_the_word_shape_is_the_pages_own"
+    ],
+    "answer": "EVIDENCED. The page settles it: web/live-voice.js maps a socket error only through lookups — providerReason looks message_type up in PROVIDER_ERRORS (else 'provider_error'), closeReason looks the close code up in CLOSE_CODES (else code_app/code_other), httpReason looks the status up in HTTP_STATUSES — so the text is never copied, and telemetryFields admits only an outcome from OUTCOMES, a reason from REASONS and three whole numbers before `record` is called; web/app.js passes every live_transcript event through telemetryFields again before telemetry sees it. The page test feeds an error whose message_type, error text and close reason carry a customer's name and checks every recorded payload. The server is a second, coarser line: app/routes/observe.py keeps a live_transcript event's outcome and reason only when each is one short lower-case token (_LIVE_WORD, ^[a-z0-9_]{2,24}$), its counts only as numbers, and drops every other field, so a sentence, a capitalised name, an error text or any other field never reaches the timeline whatever a page sends; the route test sends such events through the real /telemetry route and reads the timeline file. That shape alone would admit a single lower-case word, so it is the page's fixed lists, not the server's shape, that exclude a name written that way."
+  },
+  {
+    "finding": "R9-E-app2-E-01",
+    "parts": ["E-app2"],
+    "status": "EVIDENCED",
+    "question": "Does status.show() detect and summarise a limited health answer correctly, through the real health_limited and summarise_health?",
+    "files": [
+      "crooks-assistant/scripts/status.py",
+      "crooks-assistant/scripts/launch_common.py",
+      "crooks-assistant/scripts/control.py",
+      "crooks-assistant/tests/test_health_key.py",
+      "crooks-assistant/tests/test_local_cli.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_health_key.py::test_crooks_status_reads_limited_whole_and_partial_answers_honestly",
+      "crooks-assistant/tests/test_local_cli.py::test_a_status_reader_given_liveness_alone_says_so_and_never_calls_it_well"
+    ],
+    "answer": "EVIDENCED. launch_common.health_limited is true exactly for a dict with limited: true (what health._liveness returns to a reader the owner rule refuses); summarise_health says 'answering (<status>), but the detail is the owner's' for it. status.show prints that line and returns 1 on a limited answer; on a whole one it returns 0 only when every name in control.ESSENTIAL is reported and ok, printing an 'Unknown' line that names each essential not reported. The test drives status.show with the real helpers over whole, limited, partial and empty answers (only fetch_health and serve_status stood in for)."
+  },
+  {
+    "finding": "SC-GAPCHECK-DEFAULT",
+    "parts": ["SC"],
+    "status": "FIXED",
+    "question": "Run with no argument, does scripts/gap_clean_check.py check the configured record, and does a missing record ever exit 0?",
+    "files": [
+      "crooks-assistant/scripts/gap_clean_check.py",
+      "crooks-assistant/config/settings.py",
+      "crooks-assistant/tests/test_r11_gap_check.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_gap_check.py::test_with_nothing_configured_a_bare_run_checks_nothing_and_says_so",
+      "crooks-assistant/tests/test_r11_gap_check.py::test_a_bare_run_checks_the_configured_record_from_the_environment",
+      "crooks-assistant/tests/test_r11_gap_check.py::test_a_bare_run_reads_the_checkouts_own_env_as_the_service_does",
+      "crooks-assistant/tests/test_r11_gap_check.py::test_a_record_that_is_not_there_is_never_a_pass",
+      "crooks-assistant/tests/test_r11_gap_check.py::test_the_real_check_still_runs_on_a_record_that_is_there"
+    ],
+    "answer": "FIXED. gap_clean_check.main used get_settings().objectives_dir, which with nothing configured is <checkout>/.state/objectives (and reads .env relative to the working directory), and printed 'no gap record at …' with exit 0. Now a missing record, given or configured, prints 'NOTHING CHECKED: no gap record at <path>' and exits NOTHING_CHECKED (2). With no path, gap_clean_check.configured_record reads settings as the service does (the environment, then this checkout's own .env, or the file CROOKS_ENV_FILE names) and uses CROOKS_OBJECTIVES_DIR only when one of them sets it (Settings.model_fields_set), resolving a relative folder beside the checkout as the service's working directory would; with none set it says so, names the fix (give the record's path) and exits 2 — never the checkout's own .state, even when a record is there. Deploy: run it with the live record named, as round 10 did (`python scripts/gap_clean_check.py /var/lib/crooks-assistant/objectives/gaps.json`, as root, on the server); a bare run checks the record CROOKS_OBJECTIVES_DIR names in the environment or the checkout's .env, and exits 2 when none does."
+  }
+]
