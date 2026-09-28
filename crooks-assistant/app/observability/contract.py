@@ -33,8 +33,9 @@ META_CAPABILITY_INTENT = "META_CAPABILITY_INTENT"
 CONTRACTS = (READ_INTENT, WRITE_INTENT, UI_INTENT, NAVIGATION_INTENT, WORKFLOW_CONTINUATION, META_CAPABILITY_INTENT)
 
 # Asking for something on the screen to change: a button, a column, a card, a list.
+# A gift card is not a card on the screen (round 11): "issue her a £20 gift card" is a grant.
 _UI = re.compile(
-    r"\b(?:button|buttons|tab|tabs|column|columns|card|cards|screen|list view|checkbox|"
+    r"\b(?:button|buttons|tab|tabs|column|columns|(?<!gift )cards?|screen|list view|checkbox|"
     r"tick box|next to (?:them|it|each)|on the card|show me a|put a|give me a way to)\b", re.I,
 )
 _NAV = re.compile(r"^\s*(?:go |take me )?(?:back|home|up|forward)\b|^\s*(?:next|previous|the one before)\b", re.I)
@@ -103,10 +104,53 @@ def _as_a_noun(words: tuple[str, ...], index: int) -> bool:
     return words[index] in _NOUN_READING and index > 0 and words[index - 1] in _DETERMINER
 
 
+# Store credit is GIVEN, and "give" is not a mutation verb: "give me the sales" is a read, so
+# "Give Alice £15 of store credit" found no change word and was graded a read, and the store
+# credit it asked for — a live write — was never set against the family that serves it (round 11,
+# R9-F-observability1-F-03, O2-F-02). A grant is recognised by its shape instead: the sentence
+# opens (after an optional "please") with a verb that grants — give, issue, grant, award, credit,
+# top up, load — and what it grants is credit or a gift card. "Give me …" / "give us …" fetch, and
+# the credit's balance, history or what is left of it is a question about it, not a grant.
+_GRANTS = frozenset({"give", "issue", "grant", "award", "credit", "load", "top"})
+_TO_THE_ASKER = frozenset({"me", "us"})
+_CREDIT_STATE = frozenset({"balance", "balances", "history", "left", "remaining", "total", "limit", "status",
+                           "used", "value", "amount", "card", "cards", "note", "notes", "policy"})
+_CARD_STATE = frozenset({"balance", "balances", "history", "left", "remaining", "value", "code", "codes", "number",
+                         "status", "used"})
+
+
+def grants_credit(words: tuple[str, ...]) -> bool:
+    """Whether this request grants store credit (or a gift card) to someone."""
+    at = 1 if words[:1] == ("please",) else 0
+    verb = words[at] if len(words) > at else ""
+    if verb not in _GRANTS:
+        return False
+    rest = words[at + 1:]
+    if verb == "top":
+        if rest[:1] != ("up",):
+            return False
+        rest = rest[1:]
+    if verb == "give" and rest[:1] and rest[0] in _TO_THE_ASKER:
+        return False
+    if verb == "credit":
+        # The verb itself grants: "credit Alice's account with £15", "credit her £10". "Credit card
+        # payments today?" and "credit note for 1938" are nouns.
+        return bool(rest) and rest[0] not in _CREDIT_STATE
+    for i, word in enumerate(rest):
+        after = rest[i + 1] if i + 1 < len(rest) else ""
+        if word == "credit" and after not in _CREDIT_STATE:
+            return True
+        if word == "card" and i and rest[i - 1] == "gift" and after not in _CARD_STATE:
+            return True
+    return False
+
+
 def mutating(words: tuple[str, ...]) -> bool:
     """Whether this request asks for a change."""
     have = set(words)
     if have & MUTATION_STRONG:
+        return True
+    if grants_credit(words):
         return True
     if not any(w in MUTATION_SOFT and not _as_a_noun(words, i) for i, w in enumerate(words)):
         return False

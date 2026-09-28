@@ -485,15 +485,22 @@ def taps_in(touches: list[Touch], name: str) -> int:
 # Evidence that a value had to be got exactly right. Each is a positive record of exact entry;
 # none of them is a short recording, which is the whole point of this module.
 def precision_evidence(turn: Any) -> list[tuple[str, str]]:
-    """What this turn shows about a value that had to be exact, as (what, detail) pairs."""
+    """What this turn shows about a value that had to be exact, as (what, detail) pairs. A field's
+    name and a reason are a page's words, so each is given as an identifier or withheld (round 11,
+    F-OBS2-01: screens.page_identifier)."""
+    from app.observability.screens import page_identifier as as_identifier
+
     out: list[tuple[str, str]] = []
     for event in turn.tablet_events("compose_field"):
-        out.append((f"a value was typed into the composer ({event.get('name') or event.get('label') or 'a field'})",
-                    f"{event.get('chars') or '?'} character(s)"))
+        field = as_identifier(event.get("name")) or as_identifier(event.get("label")) or "a field"
+        chars = event.get("chars")     # a count; a page could put words there too
+        chars = chars if isinstance(chars, (int, float)) and not isinstance(chars, bool) else None
+        out.append((f"a value was typed into the composer ({field})",
+                    f"{chars or '?'} character(s)"))
     for event in turn.tablet_events("keyboard"):
         if str(event.get("state") or "") in ("shown", "open"):
-            out.append((f"the keyboard was opened on {event.get('name') or 'a field'}",
-                        str(event.get("reason") or "typing")))
+            out.append((f"the keyboard was opened on {as_identifier(event.get('name')) or 'a field'}",
+                        as_identifier(event.get("reason")) or "typing"))
     stt = turn.stt or {}
     raw, text = str(stt.get("raw_text") or ""), str(stt.get("text") or "")
     # Only a timeline recorded while a normaliser rewrote transcripts can show this: the

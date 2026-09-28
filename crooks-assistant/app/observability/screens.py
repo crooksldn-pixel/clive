@@ -115,9 +115,11 @@ DATA_NAMES = frozenset({
 })
 # data- names whose values are free text by what they are for: kept, but empty. `data-words` is
 # the ask bar's account of the live words it shows (round 9, F-02): whatever the page puts there,
-# it is about what was said, so it is kept as a name and nothing more.
+# it is about what was said, so it is kept as a name and nothing more. So is `data-spoken`, the
+# mark itself (round 11): the page writes it bare or "true", and a word written there instead is
+# on the element that holds his words, so the mark is kept and its value never.
 DATA_FREE_TEXT = frozenset({"data-args", "data-ask", "data-customer", "data-customer-name", "data-label",
-                            "data-name", "data-said", "data-remote-name", "data-words"})
+                            "data-name", "data-said", "data-remote-name", "data-words", "data-spoken"})
 # The mark the page puts on an element whose text is what the owner is saying, word by word (the
 # ask bar's live words, web/live-voice.js): everything written inside it is masked like a
 # textarea's, whatever it holds (round 9, F-02) — dictation is not a credential or a contact
@@ -137,6 +139,25 @@ _VIEWBOX_VALUE = re.compile(rf"^{_NUM}(?:[\s,]+{_NUM}){{3}}$")
 _NAME = re.compile(r"^[a-zA-Z_:][-a-zA-Z0-9_:.]{0,60}$")
 _TAG = re.compile(r"^[a-zA-Z][a-zA-Z0-9:-]{0,40}$")
 _CSS_URL = re.compile(r"url\s*\([^)]*\)", re.I)
+
+
+# An identifier as CLIVE's pages write one where a field, a control, a card or a state is named:
+# lower-case letters and digits joined by . _ : / # or - (`composer-subject`, `ask_bar`,
+# `order.add_note`, `br_left`, `1938`), or a Shopify id; at most 64 characters. A page's value in
+# such a field that is not one is withheld wherever the report would print it (round 11,
+# F-OBS2-01: app/observability/visible.py, report.py, touch.py): a customer's name is not an
+# identifier, and nothing that names a thing needs to be anything else.
+PAGE_IDENTIFIER = re.compile(r"[a-z0-9]+(?:[_.:/#-][a-z0-9]+)*|gid://shopify/[A-Za-z]+/[0-9]+")
+WITHHELD = "[withheld]"
+
+
+def page_identifier(value: Any) -> str:
+    """A value a page sent, as the report may name it: an identifier as it is, anything else
+    WITHHELD ('' stays '')."""
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return ""
+    return text if len(text) <= 64 and PAGE_IDENTIFIER.fullmatch(text) else WITHHELD
 
 
 def _mask(text: str) -> str:
