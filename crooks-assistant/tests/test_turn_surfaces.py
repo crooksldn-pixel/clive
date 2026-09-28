@@ -62,7 +62,9 @@ async def summarising(monkeypatch):
 async def test_the_returning_customers_question_draws_one_compact_surface_and_no_profiles(summarising):
     """The owner's sentence through /turn, the model's one summary read, and the WHOLE screen:
     exactly one summary card, carrying the one returning customer as a row, and not one
-    customer, order or product profile — whatever the read touched to find him."""
+    customer, order or product profile — whatever the read touched to find him. The model's
+    read is scripted (`Scripted`, tests/test_turn_boundary.py): what is proved is the glass the
+    Mac draws for that choice, not that Claude makes it."""
     said = "Has anyone bought today that has bought before, a returning customer?"
     summarising.model.steps = [reads(("commerce_summary", {"task": "returning_customers", "period": "today", "limit": 12}))]
     response = await summarising.post("/turn", json={"text": said, "session_id": "returning"}, headers=PROXIED)
@@ -75,6 +77,15 @@ async def test_the_returning_customers_question_draws_one_compact_surface_and_no
     cards = [item for item in body["ui"] if item["type"] != "context_stack"]
     assert [item["type"] for item in cards] == ["summary_list"], [item["type"] for item in cards]
     assert not [item for item in body["ui"] if item["type"] in PROFILE_KINDS or item["type"].endswith("_workspace")]
+    # And the other way cards reach the glass: the workspace the turn staged as its read landed
+    # (app/progressive.py), which the tablet draws from its patches before the answer arrives.
+    # Every card it put up is the one summary — no profile went up there and came down again.
+    from app.render import ADDED, DATA, VISUAL
+
+    patches = (body.get("workspace") or {}).get("patches") or []
+    drawn = [p for p in patches if p.get("op") in (ADDED, DATA, VISUAL) and p.get("type") != "context_stack"]
+    assert drawn and {p["type"] for p in drawn} == {"summary_list"}, [(p.get("op"), p.get("type")) for p in patches]
+    assert not [p for p in patches if p.get("type") in PROFILE_KINDS or str(p.get("type") or "").endswith("_workspace")], patches
     (summary,) = cards
     assert summary["data"]["count"] == 1 and len(summary["data"]["rows"]) == 1
     (row,) = summary["data"]["rows"]

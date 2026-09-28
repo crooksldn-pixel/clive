@@ -17,10 +17,16 @@ from app.tools.dispatch import dispatch
 from app.tools.gate import Disposition, Tier, classify
 from tests.test_analytics_tools import NOW, Clock, Store, london_now
 
-# The admitted owner calling tools directly, as a request the door let through would: every tool
-# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
-# and every test's that does not say this, is no authority at all.
-pytestmark = pytest.mark.usefixtures("owner_asking")
+# The admitted owner calling tools directly, as a request the door let through would — granted
+# per test, to the tests that call a tool, and to no others (the 2026-09-28 deploy review, round
+# 9, F-A2-FIXTURE and I-tests5 I-04). A refusal asserted under it is one the OWNER meets, so it
+# cannot pass for want of authority; the tests of the store and the gate run with none, which
+# is production's default; and `test_with_no_authority_stamped_nothing_runs` holds what a call
+# with none gets.
+AS_THE_OWNER = pytest.mark.usefixtures("owner_asking")
+# What the dispatcher answers a call made with no authority (app/tools/dispatch.py). The gate's
+# own refusals carry a refusal id — "REFUSED (ref_…):" — and this does not.
+NO_AUTHORITY = "REFUSED: this was not asked for by the owner"
 
 
 @pytest.fixture()
@@ -120,6 +126,7 @@ def session():
     return s
 
 
+@AS_THE_OWNER
 async def test_a_listing_makes_a_set_and_a_follow_up_narrows_it(store, cache, session, monkeypatch):
     london_now(monkeypatch)
     calls = []
@@ -149,6 +156,7 @@ async def test_a_listing_makes_a_set_and_a_follow_up_narrows_it(store, cache, se
     assert session.focus["set"] in line and "customers" in line
 
 
+@AS_THE_OWNER
 async def test_a_set_from_another_conversation_or_a_stale_one_is_refused(store, cache, session, monkeypatch):
     london_now(monkeypatch)
     calls = []
@@ -163,6 +171,7 @@ async def test_a_set_from_another_conversation_or_a_stale_one_is_refused(store, 
     assert "no working set" in text
 
 
+@AS_THE_OWNER
 async def test_the_set_is_a_card_after_the_listing(store, cache, session, monkeypatch):
     london_now(monkeypatch)
     calls = []
@@ -201,6 +210,7 @@ def inbox():
     analytics_tools.bind_email(None, None)
 
 
+@AS_THE_OWNER
 async def test_the_inbox_is_cross_referenced_with_the_set_and_makes_derived_sets(store, cache, inbox, session, monkeypatch):
     london_now(monkeypatch)
     calls = []
@@ -242,6 +252,7 @@ async def test_the_inbox_is_cross_referenced_with_the_set_and_makes_derived_sets
     assert len(inbox.calls) == before
 
 
+@AS_THE_OWNER
 async def test_a_set_too_large_for_the_inbox_or_of_the_wrong_kind_is_refused(store, cache, inbox, session, monkeypatch):
     london_now(monkeypatch)
     calls = []
@@ -254,7 +265,45 @@ async def test_a_set_too_large_for_the_inbox_or_of_the_wrong_kind_is_refused(sto
     text = await dispatch("email_query", {"set_id": calls[-1].result["set"]["set_id"]}, session=session, timeout_s=5, calls=calls)
     assert "at most 2 at a time" in text
     text = await dispatch("email_query", {"set_id": "set_000000000000"}, session=session, timeout_s=5, calls=calls)
-    assert text.startswith("REFUSED") or text.startswith("NOT YET"), "an id the conversation was never given"
+    # The gate's refusal, which carries its id — not the one a call with no authority gets.
+    assert text.startswith(("REFUSED (", "NOT YET (")) and not text.startswith(NO_AUTHORITY), "an id the conversation was never given"
+
+
+async def test_with_no_authority_stamped_nothing_runs(store, cache, inbox, session, monkeypatch):
+    """F-A2-FIXTURE's regression for these tools, with NO `owner_asking` (I-tests5 I-04): the
+    listing that makes a set, the inbox read beside it and a follow-up about it, made with no
+    authority as a call that did not come through the owner's door is. The dispatcher refuses
+    each before the gate: no read handler runs, neither the shop nor the inbox is asked, no set
+    is made and no id is handed out. Then the owner asks, and the same listing makes its set,
+    so the refusal was for want of authority and for nothing else."""
+    from app.tools import authority
+    from app.tools import dispatch as dispatch_module
+
+    london_now(monkeypatch)
+    reached: list[str] = []
+    real = dispatch_module._read_once
+
+    async def read_once(name, args, **kwargs):
+        reached.append(name)
+        return await real(name, args, **kwargs)
+
+    monkeypatch.setattr(dispatch_module, "_read_once", read_once)
+    assert authority.current() is None, "this test was given no authority"
+    issued = set(session.issued_ids)
+    calls: list = []
+    for tool, args in (("commerce_query", {"entity": "orders", "period": "last_90_days", "filters": {"fulfillment": "unfulfilled"}}),
+                       ("email_query", {"set_id": "set_abcdef123456", "days": 30}),
+                       ("commerce_aggregate", {"entity": "orders", "period": "last_90_days", "metrics": ["orders"]})):
+        text = await dispatch(tool, args, session=session, timeout_s=5, calls=calls)
+        assert text.startswith(NO_AUTHORITY), (tool, text)
+    assert [(c.name, c.ok, c.error) for c in calls] == [(t, False, "no owner authority") for t in ("commerce_query", "email_query", "commerce_aggregate")]
+    assert reached == [] and store.queries == [] and inbox.calls == []
+    assert session.sets == {} and set(session.issued_ids) == issued
+
+    with authority.acting_as(authority.for_owner("owner@example.com")):
+        await dispatch("commerce_query", {"entity": "orders", "period": "last_90_days", "filters": {"fulfillment": "unfulfilled"}},
+                       session=session, timeout_s=5, calls=calls)
+    assert reached == ["commerce_query"] and calls[-1].ok and calls[-1].result["set"]["count"] == 3
 
 
 def test_a_stand_in_clock_is_the_tests_own():

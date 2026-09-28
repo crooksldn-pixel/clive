@@ -1,0 +1,318 @@
+[
+  {
+    "finding": "R9-I-tests1-F-A2-FIXTURE",
+    "parts": ["T2"],
+    "status": "EVIDENCED",
+    "question": "Is tests/conftest.py::owner_asking opt-in only, with no autouse fixture granting owner authority, and is a dispatch made in a fresh context with no owner fixture refused before any handler?",
+    "files": [
+      "crooks-assistant/tests/conftest.py",
+      "crooks-assistant/app/tools/authority.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/tests/test_r11_no_authority.py",
+      "crooks-assistant/tests/test_tool_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_no_authority.py::test_the_owner_is_asked_for_by_name_and_this_file_never_asks",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_every_registered_tool_is_refused_to_no_authority_whatever_it_is_asked",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_a_change_the_owner_would_be_offered_is_refused_to_no_authority_before_anything[shopify_order_note_append]",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_a_note_is_refused_with_no_authority_and_prepared_for_the_owner",
+      "crooks-assistant/tests/test_tool_boundary.py::test_a_dispatch_with_no_authority_stamped_at_all_reaches_no_handler"
+    ],
+    "answer": "tests/conftest.py::owner_asking is declared @pytest.fixture() (not autouse): it sets app.tools.authority.TOOL_AUTHORITY to authority.for_owner(...) for one test and revokes it on the way out. The only autouse fixture that asks for it, _the_protected_gate_tests_that_ask_as_the_owner, does so for six named tests of the protected tests/test_gate.py and nothing else; the other autouse fixtures (_offline_environment, _no_secrets, _no_network, _identity_seams_are_put_back, _fresh_read_layer) touch no authority. app/tools/dispatch.py::dispatch refuses before the gate when authority.current() is None (\"REFUSED: this was not asked for by the owner\"), and authority.current() is None for an unset, revoked or expired authority. test_the_owner_is_asked_for_by_name_and_this_file_never_asks reads pytest's own marker for the fixture (autouse False) and shows a test that does not ask for it holds no authority after every autouse fixture has run. test_every_registered_tool_is_refused_to_no_authority_whatever_it_is_asked dispatches every registered tool in a brand-new contextvars.Context started from code that holds the owner's authority, and nothing reaches _read_once, _stage or registry.invoke. test_actions.py's module-wide grant (protected) is the owner calling test_actions' own tool; the no-authority half of that same call, and the owner's PROPOSED half on the real FakeStore, is test_a_note_is_refused_with_no_authority_and_prepared_for_the_owner."
+  },
+  {
+    "finding": "R9-I-tests2-I-04",
+    "parts": ["T4"],
+    "status": "EVIDENCED",
+    "question": "Do tests that do not opt in have neither owner authority nor default write permission, and is the module-wide grant in test_cancel, test_council_fixes, test_discounts and test_engine_hooks honest?",
+    "files": [
+      "crooks-assistant/tests/conftest.py",
+      "crooks-assistant/app/tools/authority.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/tests/test_r11_no_authority.py",
+      "crooks-assistant/tests/test_council_fixes.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_no_authority.py::test_the_owner_is_asked_for_by_name_and_this_file_never_asks",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_the_suites_own_server_lets_itself_ask_and_never_apply_a_change",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_a_change_the_owner_would_be_offered_is_refused_to_no_authority_before_anything[shopify_order_cancel]",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_the_calls_here_are_ones_the_gate_would_prepare_for_the_owner",
+      "crooks-assistant/tests/test_discounts.py::test_with_no_authority_stamped_nothing_runs"
+    ],
+    "answer": "Direct tool calls: no authority unless a test asks for owner_asking by name (see R9-I-tests1-F-A2-FIXTURE). Through the application there is ONE default, stated in tests/conftest.py _TEST_ENV and now pinned by test_the_suites_own_server_lets_itself_ask_and_never_apply_a_change: the offline server is the owner's, asked from the server itself (CROOKS_ALLOWED_LOGINS=owner@example.com, CROOKS_LOCAL_OWNER=true), so a request made on the server that app/main.py::guard_and_freshness admits via principal_verdict holds owner authority for its length. No write permission comes with it: writes_enabled, writes_local_owner are False and tailscale_verify True by default, and app/routes/actions.py::caller_check refuses the commit as writes_disabled, then (writes on) as not_authorised_local, and the owner's login claimed through Tailscale is refused at the door. Module grants: test_discounts is per test since round 10 (AS_THE_OWNER) with test_with_no_authority_stamped_nothing_runs; test_council_fixes is now per test (8 of 15 tests call a tool); test_cancel and test_engine_hooks are protected and keep their module grant — none of their tests is about absent authority, every refusal they assert is one the owner meets — and the cancel no-authority refusal is asserted in tests/test_r11_no_authority.py (the gate is shown to prepare the same call for the owner, so the refusal is for want of authority only). test_engine_hooks stages only its own mock tool."
+  },
+  {
+    "finding": "R9-I-tests3-F-A2-FIXTURE",
+    "parts": ["T4", "S2T"],
+    "status": "EVIDENCED",
+    "question": "With test_fulfil.py and test_gmail_writes.py granting the owner module-wide, is the suite-wide default grant gone, and is a dispatch with no authority stamped refused for those tools?",
+    "files": [
+      "crooks-assistant/tests/conftest.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/tests/test_r11_no_authority.py",
+      "crooks-assistant/tests/test_tool_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_no_authority.py::test_the_owner_is_asked_for_by_name_and_this_file_never_asks",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_a_change_the_owner_would_be_offered_is_refused_to_no_authority_before_anything[shopify_order_fulfil]",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_a_change_the_owner_would_be_offered_is_refused_to_no_authority_before_anything[gmail_send_reply]",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_a_change_the_owner_would_be_offered_is_refused_to_no_authority_before_anything[gmail_draft_reply]",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_every_registered_tool_is_refused_to_no_authority_whatever_it_is_asked"
+    ],
+    "answer": "There is no suite-wide grant: owner_asking is not autouse (tests/conftest.py). test_fulfil.py and test_gmail_writes.py are protected and keep their module-wide opt-in, which is honest — none of their tests is about absent authority, so every refusal they assert is one the owner meets. What they cannot say is asserted in tests/test_r11_no_authority.py with no owner_asking anywhere in the file: for shopify_order_fulfil and every Gmail write (gmail_draft_reply, gmail_send_reply, gmail_thread_archive, gmail_draft_new, gmail_send_new), a call that app/tools/gate.py::classify would STAGE_FOR_OWNER (test_the_calls_here_are_ones_the_gate_would_prepare_for_the_owner) is refused by app/tools/dispatch.py::dispatch in a never-stamped context and under a revoked owner authority; nothing reaches _read_once, _stage or registry.invoke, no proposal is made and no id is issued; the ToolCall is recorded with error \"no owner authority\"."
+  },
+  {
+    "finding": "R9-I-tests4-I-04",
+    "parts": ["T4", "S2T"],
+    "status": "EVIDENCED",
+    "question": "test_refund.py and test_store_credit.py grant the owner to their tests: is there no default authority grant, and is a dispatch with no authority stamped refused for refunds and store credit?",
+    "files": [
+      "crooks-assistant/tests/conftest.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/tests/test_r11_no_authority.py",
+      "crooks-assistant/tests/test_store_credit.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_no_authority.py::test_a_change_the_owner_would_be_offered_is_refused_to_no_authority_before_anything[shopify_refund_create]",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_the_owner_is_asked_for_by_name_and_this_file_never_asks",
+      "crooks-assistant/tests/test_store_credit.py::test_with_no_authority_stamped_nothing_runs"
+    ],
+    "answer": "test_store_credit.py has granted per test since round 10 (AS_THE_OWNER) and holds its own no-authority regression, test_with_no_authority_stamped_nothing_runs (no form opened, no credit prepared, no handler, no read). test_refund.py is protected and keeps its module-wide opt-in: none of its tests is about absent authority. The refund no-authority refusal is in tests/test_r11_no_authority.py: {order_id, amount: \"20\"} is a call the gate prepares for the owner, and with no authority — never stamped, or revoked — dispatch refuses it before the gate, reaches no handler, reads nothing and prepares nothing. owner_asking is not autouse (tests/conftest.py), so no test holds authority it did not ask for."
+  },
+  {
+    "finding": "R9-I-tests5-I-04",
+    "parts": ["T5"],
+    "status": "FIXED",
+    "question": "Where a module grants the owner module-wide and also tests refusals (test_tags, test_tags_remove, test_tracking, test_working_sets), is the grant restricted to the tests that need it and the refusal without authority asserted explicitly?",
+    "files": [
+      "crooks-assistant/tests/conftest.py",
+      "crooks-assistant/tests/test_tags.py",
+      "crooks-assistant/tests/test_tags_remove.py",
+      "crooks-assistant/tests/test_working_sets.py",
+      "crooks-assistant/tests/test_r11_no_authority.py",
+      "crooks-assistant/tests/test_tracking.py",
+      "crooks-assistant/app/tools/dispatch.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_tags.py::test_with_no_authority_stamped_nothing_runs",
+      "crooks-assistant/tests/test_tags.py::test_a_tag_that_is_not_a_tag_is_refused_before_anything_is_read",
+      "crooks-assistant/tests/test_tags_remove.py::test_with_no_authority_stamped_nothing_runs",
+      "crooks-assistant/tests/test_working_sets.py::test_with_no_authority_stamped_nothing_runs",
+      "crooks-assistant/tests/test_working_sets.py::test_a_set_too_large_for_the_inbox_or_of_the_wrong_kind_is_refused",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_a_tracking_number_that_is_not_one_is_refused_to_the_owner_for_what_it_is[AB1]",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_a_tracking_number_is_refused_with_no_authority_and_prepared_for_the_owner",
+      "crooks-assistant/tests/test_r11_no_authority.py::test_a_quantity_out_of_bounds_is_refused_to_the_owner_for_what_it_is"
+    ],
+    "answer": "Found by running all eighteen module-granted files with the grant neutralised: three refusal tests (eleven parametrised cases) would pass on the dispatcher's no-authority refusal alone, because they accepted any \"ERROR\" or \"REFUSED\" — test_tags' bad-tag test, test_tracking's bad-number test and test_order_edit's bad-quantity test — and test_working_sets' never-issued set-id assertion had the same shape. Changed: test_tags.py, test_tags_remove.py and test_working_sets.py (and test_council_fixes.py, test_n_plus_one.py) no longer grant module-wide; AS_THE_OWNER is on each test that dispatches, and the declaration, gate and store tests run with no authority. The tag refusals now require the tool's \"ERROR\" or the gate's own refusal with its id (\"REFUSED (ref_…)\"), and the never-issued set id the gate's \"REFUSED (ref_…)\" or \"NOT YET (ref_…)\" — each no wider than the assertion it replaces — and both reject the no-authority text, so they fail without the owner. Each of those modules gains test_with_no_authority_stamped_nothing_runs: the owner's own well-formed call made with no authority is refused, no handler, no read, no card, no id — then the identical call as the owner is PROPOSED (or makes its set), so the refusal was for want of authority only. test_tracking.py and test_order_edit.py are protected and keep the grant (their refusals are the owner's); tests/test_r11_no_authority.py pins those refusals as the owner's for what was asked, and pairs the tracking call with its no-authority refusal on the real TrackingStore. The one unprotected module that keeps a module-wide grant, tests/test_action_state.py, keeps it because every test in it begins by staging or applying the owner's own change and uses the proposal that came of it, so a call refused for want of authority fails each of them at once."
+  },
+  {
+    "finding": "R9-H-experience1-F-A2-FIXTURE",
+    "parts": ["X", "T2"],
+    "status": "FIXED",
+    "question": "harness() defaults to writes on and Harness.configure puts a fixture owner on the allow-list with Tailscale verification off: can anything outside the harness inherit that, and does the harness say what it grants?",
+    "files": [
+      "crooks-assistant/experience/harness.py",
+      "crooks-assistant/tests/test_experience.py",
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/runtime.py",
+      "crooks-assistant/tests/test_support_investigator.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_experience.py::test_nothing_the_harness_grants_outlives_it_or_reaches_the_code_that_drives_it",
+      "crooks-assistant/tests/test_experience.py::test_the_harness_admits_nobody_unless_the_owner_is_asked_for_by_name",
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[store_credit_give]",
+      "crooks-assistant/tests/test_support_investigator.py::test_the_route_replays_a_bundle_and_refuses_an_empty_message"
+    ],
+    "answer": "Demonstrated: after `async with harness(admitted=True)` exited, app.state.runtime was still the harness's runtime (allowed_logins naming the fixture owner, tailscale_verify False, writes_enabled True), app.state.allowed_logins still named him, and the write policies and fixture clients bound into the tool modules were still the harness's — so a later test in the same process that used the shared app without its own lifespan met an admitted fixture owner. The new test fails on the old harness with exactly that. Fixed in experience/harness.py::harness: it records app.state.runtime and app.state.allowed_logins, and every tool-module binding that it or the start-up it runs (app/runtime.py::build) makes — experience/harness.py::_TOOL_BINDINGS: the shopify_tools client and hydrator, the gmail_tools client and customer lookup, the gmail_writes client, customer and policy, the shopify_writes policy, and the analytics_tools order cache and inbox helpers — before it starts, and puts them back in `finally`. The test puts a marker of its own in each of those places first, requires the harness to have bound its own in every one inside (both write modules then read changes on) and every marker to be back afterwards. Its docstring now says what it grants: writes on in its own runtime (nothing can apply — the fixture refuses every mutation), owner admission only with admitted=True (default is the production identity check), and tool authority to nobody directly — only requests the door admits hold it; the test shows a dispatch from the driving code inside an admitted harness is refused. Admitted is still opt-in (round 10) and test_the_harness_admits_nobody_unless_the_owner_is_asked_for_by_name holds the refusal of the forged headers. The same inheritance made tests/test_support_investigator.py::test_the_route_replays_a_bundle_and_refuses_an_empty_message fail when run on its own (it relied on a runtime a previous test left); it now states its own owner configuration and puts it back."
+  },
+  {
+    "finding": "R9-I-tests1-I-01",
+    "parts": ["S2T"],
+    "status": "EVIDENCED",
+    "question": "Are the privacy assertions in test_state_can_be_asked_after_a_lost_connection and test_a_write_tools_note_is_logged_by_length_only_even_when_refused real, and do they hold against actual outputs?",
+    "files": [
+      "crooks-assistant/tests/test_actions_routes.py",
+      "crooks-assistant/tests/test_r11_tests.py",
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/logging/turnlog.py",
+      "crooks-assistant/app/tools/dispatch.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_actions_routes.py::test_state_can_be_asked_after_a_lost_connection",
+      "crooks-assistant/tests/test_actions_routes.py::test_a_write_tools_note_is_logged_by_length_only_even_when_refused",
+      "crooks-assistant/tests/test_r11_tests.py::test_the_turn_log_keeps_a_reads_arguments_redacted_and_a_refused_writes_words_by_length_only"
+    ],
+    "answer": "Both `or True` branches were removed in round 10 (the protected file carries a comment at each). test_state_can_be_asked_after_a_lost_connection asserts on the real GET /actions/{id} response: no \"execution\", \"before\", \"expected_after\" or \"model_args\" on the card or the answer, and no orderUpdate anywhere in it. The read-argument half is now also held against the application's actual output: tests/test_r11_tests.py drives a real /turn (admitted harness) whose model reads by email, looks the customer up by name, then tries a note carrying her name and street on an order never shown, which the gate refuses; the record app/routes/turn.py::_answer writes through TurnLog.write (names = session.pii_seen) keeps the find_order query as \"[email]\", the find_customer query as \"[name]\", the refused note as \"<34 chars>\" (app/routes/turn.py::_loggable_args), and her name, email and street appear nowhere in the record. Stated limit, not asserted away: a name no read has returned has no shape to find and stays in a read's arguments in the turn log (the owner-only 0600 file that also keeps his question); the always-on timeline keeps such words by length (app/tools/dispatch.py::loggable_args)."
+  },
+  {
+    "finding": "R9-I-tests3-I-04",
+    "parts": ["T2"],
+    "status": "EVIDENCED",
+    "question": "Beyond test_n_plus_one.py's direct-tool and inventory checks, does a spoken turn count the source and per-customer reads that follow from the model's choice?",
+    "files": [
+      "crooks-assistant/tests/test_n_plus_one_turn.py",
+      "crooks-assistant/tests/test_n_plus_one.py",
+      "crooks-assistant/experience/harness.py",
+      "crooks-assistant/app/tools/analytics_tools.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_n_plus_one_turn.py::test_the_summary_read_costs_no_customer_read_on_a_spoken_turn",
+      "crooks-assistant/tests/test_n_plus_one_turn.py::test_the_per_buyer_pattern_costs_one_customer_read_per_buyer",
+      "crooks-assistant/tests/test_n_plus_one.py::test_the_returning_customers_answer_reads_the_period_once",
+      "crooks-assistant/tests/test_n_plus_one.py::test_the_one_inventory_read_answers_exactly_what_the_per_product_reads_did"
+    ],
+    "answer": "tests/test_n_plus_one_turn.py (added in round 10, in part T5, not T2's packet) sends \"has anyone bought today that has bought before?\" through POST /turn on an admitted harness, with the model's reads scripted in the two shapes a model can choose, and counts what went to the fixture shop by operation: the summary shape (commerce_summary) sends no CrooksCustomerOrders read and at most one read of the day; the D-4 shape (commerce_query then one shopify_customer_history per buyer) sends exactly one per-customer read per buyer. The model's choice is scripted (Harness.ask) and said to be; what is measured is what the gate, the read layer and the shop do with it. The corrected direct-tool bound and the equivalent-products inventory comparison stay in tests/test_n_plus_one.py, whose owner grant is now per test (the spoken-turn file takes none: the door stamps it)."
+  },
+  {
+    "finding": "R9-I-tests5-I-02",
+    "parts": ["T3"],
+    "status": "EVIDENCED",
+    "question": "Does the owner's returning-customer question, sent through a model turn, put exactly one summary and no customer profiles on the whole rendered glass?",
+    "files": [
+      "crooks-assistant/tests/test_turn_surfaces.py",
+      "crooks-assistant/tests/test_summaries.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/app/summaries.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_turn_surfaces.py::test_the_returning_customers_question_draws_one_compact_surface_and_no_profiles"
+    ],
+    "answer": "tests/test_turn_surfaces.py (round 10, part T5 — not T3's packet) posts the owner's sentence to /turn; the scripted model makes the one commerce_summary read; the test asserts the prompt carried the owner's words, the only tool call was that read, the turn's cards (`ui`, context stack aside) are exactly [\"summary_list\"] with no order, customer, product, email_thread or *_workspace card, and the summary carries the one returning customer as a row that opens him by ref. Strengthened this round to the WHOLE glass: the workspace the turn staged as the read landed (app/progressive.py patches, which the tablet draws before the answer) put up only that summary — no profile went up there either. tests/test_summaries.py now points to it from answer_for, which holds the surface's shape given the call."
+  },
+  {
+    "finding": "R9-I-tests5-I-05",
+    "parts": ["T5", "X"],
+    "status": "FIXED",
+    "question": "Does the tool audit count only an actual dispatch or handler invocation as directly testing a tool, with registry lookup, classification and synthetic presentation as negative cases?",
+    "files": [
+      "crooks-assistant/experience/tool_matrix.py",
+      "crooks-assistant/tests/test_tool_matrix.py",
+      "crooks-assistant/docs/phase4/TOOL_MATRIX.md"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_tool_matrix.py::test_a_test_that_runs_a_tool_tests_it",
+      "crooks-assistant/tests/test_tool_matrix.py::test_looking_a_tool_up_asking_the_gate_or_drawing_a_made_up_call_does_not_test_it",
+      "crooks-assistant/tests/test_tool_matrix.py::test_a_test_that_only_mentions_a_tool_does_not_test_it",
+      "crooks-assistant/tests/test_tool_matrix.py::test_the_matrix_does_not_cite_a_test_that_only_looks_tools_up",
+      "crooks-assistant/tests/test_tool_matrix.py::test_the_checked_in_document_is_the_generated_one"
+    ],
+    "answer": "Changed experience/tool_matrix.py::read_test: a string now counts only when it is the tool argument (first positional, or tool_name=/name=) of a call that RUNS a tool — app.tools.dispatch.dispatch, app.tools.registry.invoke (by name, through the module or an alias) or the SDK provider's _dispatch callback — or of a module-level helper of the test's own that hands that parameter on to one (followed through helpers of helpers); or the tool's handler function is called. Every other call (registry.get, classify, present, len/sorted, monkeypatch) no longer counts, and a tool's name among another tool's arguments does not either. test_a_test_that_calls_a_tool_tests_it is replaced by test_a_test_that_runs_a_tool_tests_it (dispatch by name, constant, loop, list, app constant, module, keyword, own helper; invoke; provider callback; handler three ways) and test_looking_a_tool_up_asking_the_gate_or_drawing_a_made_up_call_does_not_test_it (registry lookup, classify, synthetic presentation, name in another call's arguments, a helper that only looks up, a local function named dispatch, a monkeypatch, and the provider's callback in a test function that replaced the dispatcher behind it — found this round: tests/test_provider.py's cancelled-turn tests monkeypatch max_agent_sdk.dispatch and were cited for shopify_find_order; experience/tool_matrix.py::_replaced now drops those calls). docs/phase4/TOOL_MATRIX.md regenerated: 58 of 62 tools are put through the dispatcher or their handler by a test; commerce_capabilities, objective_open, objective_show and shopify_order_address are reported under \"no test calls it\", which is true (their tests only classify them or look them up). Stated limit: the analysis is static, so a call handed to the real dispatcher counts whether the dispatcher runs the handler or refuses it (tests/test_tool_boundary.py is the one citation for batch_email_send, whose call there is refused for want of the owner's authority); the column says a test put the tool through the dispatcher, not that the call succeeded."
+  },
+  {
+    "finding": "R9-H-experience1-H-06",
+    "parts": ["X"],
+    "status": "EVIDENCED",
+    "question": "Is golden-scenario coverage derived from what a scenario's code actually runs, not from a tool named in a comment, description or assertion, and are staged writes distinguished from applied ones?",
+    "files": [
+      "crooks-assistant/experience/tool_matrix.py",
+      "crooks-assistant/experience/matrix.py",
+      "crooks-assistant/tests/test_tool_matrix.py",
+      "crooks-assistant/tests/test_experience.py",
+      "crooks-assistant/experience/scenario_packs/commerce.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_tool_matrix.py::test_a_scenario_counts_only_what_its_code_hands_on",
+      "crooks-assistant/tests/test_tool_matrix.py::test_a_write_a_scenario_reaches_is_reported_staged_and_the_scenario_is_named",
+      "crooks-assistant/tests/test_tool_matrix.py::test_posting_a_staging_command_is_not_evidence_that_its_write_was_staged",
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[store_credit_give]"
+    ],
+    "answer": "experience/tool_matrix.py::scenario_strings reads each scenario function's syntax tree and keeps only strings its code hands on — to the scripted model (h.ask tuples), to a call, or through a same-file helper — dropping docstrings, a check's description, anything inside a comparison and f-strings; comments are not in the tree. _scenario_tools credits a tap's reads through experience/matrix.py COVERAGE and a tap-staged write only when TAP_STAGED declares it and the scenario posts a STAGES command that can prepare it, names the scenario rather than the file, and reports every write as \"staged, never applied\". And the static claim is held to a real run: tests/test_experience.py::test_the_golden_scenarios wraps the dispatcher for each scenario and asserts every tool the audit credits reached it, and that the writes credited as staged are exactly the ones that came back PROPOSED. store_credit_give is credited with shopify_store_credit_add because its Prepare tap stages it in that run, not because the operation name appears in an assertion."
+  },
+  {
+    "finding": "R9-H-experience1-H-02",
+    "parts": ["X"],
+    "status": "EVIDENCED",
+    "question": "Are scenarios whose model choices are scripted described as scripted gate-and-presenter tests, everywhere their results are read?",
+    "files": [
+      "crooks-assistant/experience/harness.py",
+      "crooks-assistant/experience/scenarios.py",
+      "crooks-assistant/experience/report.py",
+      "crooks-assistant/experience/scenario_packs/abandoned.py",
+      "crooks-assistant/tests/test_r11_tests.py",
+      "crooks-assistant/tests/test_experience.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_tests.py::test_a_scripted_model_choice_is_labelled_as_one_on_the_capture_and_in_the_report",
+      "crooks-assistant/tests/test_experience.py::test_a_call_claude_could_not_make_is_named_as_such",
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[abandoned_window]"
+    ],
+    "answer": "Harness.ask records the tools it scripted on Capture.scripted (as_dict \"scripted_model\"), and model_could_make names on Capture.unmakeable any scripted call Claude could not make on this runtime (not offered, or arguments its schema does not admit); test_the_golden_scenarios fails a scenario that scripts one outside BEYOND_THE_MODEL. scenarios.py::a_model_turn and the Harness.ask/RecordingProvider docstrings say a scripted capture proves what the gate and presenters do with the call, never that Claude would make it; experience/report.py prints a Scripted model column under a paragraph saying exactly that. The new test runs the reviewer's own example (abandoned_window, days=7) and a tapped scenario, and reads the capture and the written report.md: the scripted tool is named there, the tap shows none. Whether Claude WILL choose these calls cannot be shown offline; that is the deploy's live spoken check on the owner's phone."
+  },
+  {
+    "finding": "R9-H-experience1-H-03",
+    "parts": ["X"],
+    "status": "EVIDENCED",
+    "question": "Do the change-request scenarios (discount_sentence_defers, order_add_item_sentence_defers, unsupported_edit) exercise a model that tries the tool, so their 'nothing prepared / nothing changed / no false claim' checks can fail?",
+    "files": [
+      "crooks-assistant/experience/scenario_packs/discounts.py",
+      "crooks-assistant/experience/scenario_packs/order_edit.py",
+      "crooks-assistant/experience/scenarios.py",
+      "crooks-assistant/experience/harness.py",
+      "crooks-assistant/tests/test_r11_tests.py",
+      "crooks-assistant/tests/test_experience.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[discount_sentence_defers]",
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[order_add_item_sentence_defers]",
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[unsupported_edit]",
+      "crooks-assistant/tests/test_r11_tests.py::test_a_spoken_change_scenario_fails_when_the_model_attempts_nothing[discount_sentence_defers]",
+      "crooks-assistant/tests/test_r11_tests.py::test_a_spoken_change_scenario_fails_when_the_model_attempts_nothing[order_add_item_sentence_defers]",
+      "crooks-assistant/tests/test_r11_tests.py::test_a_spoken_change_scenario_fails_when_the_model_attempts_nothing[unsupported_edit]"
+    ],
+    "answer": "Since round 10 each scripts the model's attempt: discount_sentence_defers opens the form and calls shopify_discount_create (asserts a pending confirmation that a spoken yes cannot apply, exactly one PENDING proposal for the said code, mutations_sent == 0, and not contract.reports_success(answer)); order_add_item_sentence_defers searches and stages shopify_order_add_item (the priced hold_to_arm card, only order_edit_begin/order_edit_add_variant calculated, nothing executed, no success claim); unsupported_edit reaches for the non-existent shopify_order_remove_item (the limitation line in the prompt, the gate's refusal, nothing staged or sent, no success card, and the FALSE_SUCCESS rule on the answer, itself shown to fire on \"I've removed the jeans\"). New this round: with a model that attempts nothing, each of the three FAILS — so their checks are about what the Mac did with the attempt, not trivially true of an empty turn."
+  },
+  {
+    "finding": "R9-H-experience1-H-04",
+    "parts": ["X"],
+    "status": "EVIDENCED",
+    "question": "Is the spoken 'no, don't save a draft, send it' scenario restored on the model path, asserting the exact recipient and words, the graver gesture and no send before it?",
+    "files": [
+      "crooks-assistant/experience/scenario_packs/compose.py",
+      "crooks-assistant/tests/test_experience.py",
+      "crooks-assistant/tests/test_r11_tests.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[compose_send_spoken]",
+      "crooks-assistant/tests/test_r11_tests.py::test_a_spoken_change_scenario_fails_when_the_model_attempts_nothing[compose_send_spoken]"
+    ],
+    "answer": "experience/scenario_packs/compose.py::compose_send_spoken (registered in SCENARIOS) drafts an email to an address nobody in the shop knows, then says \"no, don't save a draft, send it\" through /turn; the scripted model first reaches for a different address, then the card's own. Asserted: the other address prepares nothing; exactly one gmail_send_* proposal with the draft's recipient, subject and body; RED, hold_to_arm, PENDING; the draft's card REVOKED by the new instruction; a following spoken \"yes\" is answered by the Mac (model_calls 0) and applies nothing; no proposal executed. It runs in the golden suite, and fails with a model that attempts nothing."
+  },
+  {
+    "finding": "R9-H-experience1-H-05",
+    "parts": ["X"],
+    "status": "EVIDENCED",
+    "question": "Does the needs_reply oracle compare the queue with the fixture world's threads and hold the answer to naming exactly those waiting and nobody answered?",
+    "files": [
+      "crooks-assistant/experience/scenarios.py",
+      "crooks-assistant/experience/fixtures/data.py",
+      "crooks-assistant/app/families/landings.py",
+      "crooks-assistant/tests/test_r11_tests.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[needs_reply]",
+      "crooks-assistant/tests/test_r11_tests.py::test_the_needs_reply_oracle_fails_a_queue_that_offers_an_answered_thread",
+      "crooks-assistant/tests/test_r11_tests.py::test_the_needs_reply_oracle_fails_an_answer_that_names_someone_not_waiting"
+    ],
+    "answer": "experience/scenarios.py::needs_reply matches the queue's rows to world.needs_reply() by thread id (exactly those, no other), requires each row to name who wrote last in its own thread, requires the card's count to be its own rows, requires the answer's waiting clause to name everyone on the card and how many, and requires it to name nobody the world says is not waiting (and never the newsletter sender). New this round, the oracle is shown to catch what the old one missed: a queue doctored (landings._waiting_surface) to also offer a thread the world says was answered fails \"the queue holds exactly the threads…\", and an answer doctored (landings._needs_reply_render) to name someone not waiting fails \"the answer names nobody the world says is not waiting\"."
+  },
+  {
+    "finding": "R9-H-experience1-H-07",
+    "parts": ["X"],
+    "status": "EVIDENCED",
+    "question": "Do the store-credit scenarios open the credit form through /turn with the door's own authority, rather than setting CURRENT_SESSION and dispatching directly?",
+    "files": [
+      "crooks-assistant/experience/scenario_packs/commerce.py",
+      "crooks-assistant/experience/harness.py",
+      "crooks-assistant/tests/test_experience.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[store_credit_give]",
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[store_credit_not_on_this_store]",
+      "crooks-assistant/tests/test_experience.py::test_nothing_the_harness_grants_outlives_it_or_reaches_the_code_that_drives_it"
+    ],
+    "answer": "store_credit_give and store_credit_not_on_this_store ask \"put twenty pounds of store credit on Mia's account\" with h.ask, so the harness's model calls shopify_store_credit through the dispatcher inside the /turn request, under the authority app/main.py stamped for it; each asserts from the turn's own tool_calls that the read ran (or, on a shop without store credit, failed with the stated reason) and that no mutation was sent. No scenario pack calls dispatch or sets CURRENT_SESSION (the only dispatch in experience/ is RecordingProvider.turn, inside a request), and a direct call could not pass anyway: the harness stamps no authority on the code that drives it, so a dispatch from scenario code inside an admitted harness is refused (shown by the harness test). The capability probe in store_credit_not_on_this_store stays, labelled a unit-level check of sc._probe."
+  }
+]

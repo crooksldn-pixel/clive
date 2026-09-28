@@ -544,6 +544,12 @@ async def test_the_harness_admits_nobody_unless_the_owner_is_asked_for_by_name()
     """F-A2-FIXTURE (the 2026-09-28 deploy review, round 9): the harness's default is the
     production identity check, under which its own owner headers are a claim nobody confirmed.
     A sentence and a tap are refused at the door, and nothing behind it runs."""
+    from app import identity
+
+    # Nothing in this process is tailscaled, and that is the answer the kernel would give; the
+    # seam says so instead of reading other processes' /proc entries (tests/conftest.py puts it
+    # back).
+    identity.bind_peer_check(lambda _client, _server: (False, "no tailscaled on the test machine"))
     async with harness() as unadmitted:
         assert unadmitted.admitted is False and unadmitted.runtime.settings.tailscale_verify is True
         said = await unadmitted.say("show me order 1938", session_id="nobody")
@@ -551,3 +557,72 @@ async def test_the_harness_admits_nobody_unless_the_owner_is_asked_for_by_name()
         assert said.status == 403 and tapped.status == 403, (said.raw, tapped.raw)
         assert unadmitted.provider.calls == [], "the model was never asked"
         assert not unadmitted.runtime.sessions.exists("nobody")
+
+
+async def test_nothing_the_harness_grants_outlives_it_or_reaches_the_code_that_drives_it(monkeypatch):
+    """F-A2-FIXTURE (the 2026-09-28 deploy review, round 9, H-experience1 and I-tests1/3/4/5;
+    round 10, T2 and T5): what an admitted harness grants — its runtime's allow-list naming the
+    fixture owner, Tailscale's confirmation off, changes on, the fixture clients and write
+    policies bound into the tool modules — is its own and ends with it.
+
+    Inside, the grant is to requests through the door and to nothing else: a tool the test's
+    own code calls, outside a request, is refused like any other call with no authority. After
+    it, the shared app is as it was before — here, an app whose runtime names nobody — so the
+    same tablet headers the harness sent are refused at the door, and every place in the tool
+    modules where the harness, or the start-up it runs, binds a client, a helper or a write
+    policy holds again exactly what it held before, not the harness's."""
+    from types import SimpleNamespace
+
+    import httpx
+
+    from app import identity
+    from app.main import app
+    from app.session.models import Session
+    from app.tools import (
+        analytics_tools,
+        authority,
+        gmail_tools,
+        gmail_writes,
+        shopify_tools,
+        shopify_writes,
+    )
+    from app.tools.dispatch import dispatch
+    from experience.harness import TABLET_HEADERS
+
+    nobody = SimpleNamespace(allowed_logins=(), settings=SimpleNamespace(
+        tailscale_verify=True, local_owner=False, writes_local_owner=False, writes_enabled=False, tailscale_cli=""))
+    monkeypatch.setattr(app.state, "runtime", nobody, raising=False)
+    monkeypatch.setattr(app.state, "allowed_logins", (), raising=False)
+    # A marker of this test's own in each of those places, so that "put back" means put back —
+    # not merely "left as None" — and a binding the harness forgot would still be the harness's.
+    held = {(module, name): object() for module, names in (
+        (shopify_tools, ("_client", "_hydrator")),
+        (gmail_tools, ("_client", "_customer_lookup")),
+        (gmail_writes, ("_client", "_customer", "_policy")),
+        (shopify_writes, ("_policy",)),
+        (analytics_tools, ("_cache", "_threads_for", "_replied", "_reply_state", "_own_address", "_inbox_for",
+                           "_sent_for")),
+    ) for name in names}
+    for (module, name), marker in held.items():
+        monkeypatch.setattr(module, name, marker)
+
+    async with harness(admitted=True) as h:
+        assert app.state.runtime is h.runtime and app.state.runtime is not nobody
+        assert h.runtime.settings.writes_enabled is True and h.runtime.settings.tailscale_verify is False
+        kept = [f"{module.__name__}.{name}" for (module, name), marker in held.items() if getattr(module, name) is marker]
+        assert kept == [], f"the harness bound its own in every one of them, and not in {kept}"
+        assert shopify_writes.policy().writes_enabled is True and gmail_writes._settings().writes_enabled is True, \
+            "inside, both write modules read the harness's policy: changes on"
+        answered = await h.say("hello", session_id="inside")
+        assert answered.status == 200, answered.raw
+        assert authority.current() is None, "the harness stamps no authority on the code that drives it"
+        refused = await dispatch("shopify_find_order", {"query": "1938"}, session=Session(session_id="outside"), timeout_s=5)
+        assert refused.startswith("REFUSED: this was not asked for by the owner"), refused
+
+    assert app.state.runtime is nobody and app.state.allowed_logins == ()
+    left = [f"{module.__name__}.{name}" for (module, name), marker in held.items() if getattr(module, name) is not marker]
+    assert left == [], f"the harness left its own behind in {left}"
+    identity.bind_peer_check(lambda _client, _server: (False, "no tailscaled on the test machine"))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://tablet") as after:
+        turned = await after.post("/turn", json={"text": "show me order 1938", "session_id": "after"}, headers=TABLET_HEADERS)
+    assert turned.status_code == 403, turned.text
