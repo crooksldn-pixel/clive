@@ -34,10 +34,13 @@ from app.tools.dispatch import dispatch
 from app.tools.gate import Disposition, Tier, classify
 from tests.test_actions import FakeStore
 
-# The admitted owner calling tools directly, as a request the door let through would: every tool
-# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
-# and every test's that does not say this, is no authority at all.
-pytestmark = pytest.mark.usefixtures("owner_asking")
+# The admitted owner calling tools directly, as a request the door let through would — granted
+# per test, to the tests that call a tool, and to no others (the 2026-09-28 deploy review, round
+# 9, F-A2-FIXTURE). A refusal asserted under it is a refusal the OWNER meets, so it cannot pass
+# for want of authority; a test about a declaration, the gate's table or a probe runs with none,
+# which is production's default; and `test_with_no_authority_stamped_nothing_runs` holds what a
+# tool call with none gets.
+AS_THE_OWNER = pytest.mark.usefixtures("owner_asking")
 
 OPEN = oc.OPEN_TOOL
 WRITE = oc.WRITE_TOOL
@@ -318,6 +321,7 @@ def test_the_reviewed_shape_refuses_a_price_of_ours_and_an_empty_order():
 # --------------------------------------------------------------------------- ambiguity
 
 
+@AS_THE_OWNER
 async def test_one_customer_of_that_name_is_resolved_and_nothing_is_staged(store, session):
     workspace = await open_workspace(session, customer="Poppy")
     assert oc._chosen_customer(workspace)["customer_id"] == POPPY
@@ -327,6 +331,7 @@ async def test_one_customer_of_that_name_is_resolved_and_nothing_is_staged(store
     assert str(workspace["workspace_id"]) in session.issued_ids
 
 
+@AS_THE_OWNER
 async def test_two_customers_of_the_same_name_are_named_and_neither_is_guessed(store, session):
     workspace = await open_workspace(session, customer="Jones")
     assert oc._chosen_customer(workspace) is None
@@ -344,6 +349,7 @@ async def test_two_customers_of_the_same_name_are_named_and_neither_is_guessed(s
     assert "2 customers match" in said and "will not guess" in said
 
 
+@AS_THE_OWNER
 async def test_a_name_nobody_has_says_so_rather_than_offering_the_nearest(store, session):
     workspace = await open_workspace(session, customer="Nobody At All")
     assert ws.fact(workspace, "candidates") == []
@@ -351,6 +357,7 @@ async def test_a_name_nobody_has_says_so_rather_than_offering_the_nearest(store,
     assert "make the customer in Admin first" in oc._blocked(workspace)
 
 
+@AS_THE_OWNER
 async def test_an_ambiguous_customer_cannot_be_prepared_by_the_model_either(store, session, branch):
     from app import commands
 
@@ -363,6 +370,7 @@ async def test_an_ambiguous_customer_cannot_be_prepared_by_the_model_either(stor
     assert store.mutations == [] and session.proposals == []
 
 
+@AS_THE_OWNER
 async def test_choosing_one_of_them_is_only_ever_one_the_mac_found(store, session, branch):
     from app import commands
 
@@ -375,6 +383,7 @@ async def test_choosing_one_of_them_is_only_ever_one_the_mac_found(store, sessio
     assert not stranger.ok and stranger.code == "unknown_customer"
 
 
+@AS_THE_OWNER
 async def test_the_recipe_chooses_the_one_that_was_picked_and_uses_no_model(store, session, branch):
     from app.reads.scheduler import run_plan
     from app.recipes import RECIPES
@@ -397,6 +406,7 @@ async def test_the_recipe_chooses_the_one_that_was_picked_and_uses_no_model(stor
 # --------------------------------------------------------------------------- the items
 
 
+@AS_THE_OWNER
 async def test_an_item_that_matches_several_variants_is_not_added(store, session, branch):
     from app.reads.scheduler import run_plan
     from app.recipes import RECIPES
@@ -413,6 +423,7 @@ async def test_an_item_that_matches_several_variants_is_not_added(store, session
     assert "It has nothing on it" in oc._blocked(workspace)
 
 
+@AS_THE_OWNER
 async def test_an_item_that_matches_one_variant_is_added_at_the_catalogues_price(store, session, branch):
     from app.reads.scheduler import run_plan
     from app.recipes import RECIPES
@@ -438,6 +449,7 @@ async def test_an_item_that_matches_one_variant_is_added_at_the_catalogues_price
     assert len(oc._lines(workspace)) == 1 and oc._lines(workspace)[0]["quantity"] == 3
 
 
+@AS_THE_OWNER
 async def test_a_line_can_be_taken_off_again(store, session, branch):
     from app import commands
 
@@ -453,6 +465,7 @@ async def test_a_line_can_be_taken_off_again(store, session, branch):
 # --------------------------------------------------------------------------- preparing
 
 
+@AS_THE_OWNER
 async def test_the_draft_is_made_and_priced_and_no_order_exists(store, engine, session):
     workspace = await open_workspace(session, customer="Poppy")
     add_line(workspace, HOODIE, 1)
@@ -485,6 +498,7 @@ async def test_the_draft_is_made_and_priced_and_no_order_exists(store, engine, s
     assert facts["Going to"] == "no address on file", "Poppy has never ordered; the card says so"
 
 
+@AS_THE_OWNER
 async def test_a_discount_is_shopifys_arithmetic_and_the_payment_state_is_the_owners(store, engine, session, branch):
     from app import commands
 
@@ -506,6 +520,7 @@ async def test_a_discount_is_shopifys_arithmetic_and_the_payment_state_is_the_ow
     assert facts["Going to"] == "12 Kiln Road, Windsor, SL4 1AA", "Mia has ordered; her address is read at prepare"
 
 
+@AS_THE_OWNER
 async def test_preparing_twice_reuses_the_draft_rather_than_leaving_two_in_admin(store, engine, session):
     workspace = await open_workspace(session, customer="Poppy")
     add_line(workspace, HOODIE, 1)
@@ -524,6 +539,7 @@ async def test_preparing_twice_reuses_the_draft_rather_than_leaving_two_in_admin
     assert dict(third.execution)["draft_id"] != dict(first.execution)["draft_id"]
 
 
+@AS_THE_OWNER
 async def test_an_item_withdrawn_since_it_was_added_is_refused_before_the_draft(store, engine, session):
     workspace = await open_workspace(session, customer="Poppy")
     add_line(workspace, HOODIE, 1)
@@ -533,6 +549,7 @@ async def test_an_item_withdrawn_since_it_was_added_is_refused_before_the_draft(
     assert store.mutations == [] and session.proposals == []
 
 
+@AS_THE_OWNER
 async def test_a_customer_gone_between_the_card_and_the_prepare_refuses_it(store, engine, session):
     """Deleted, merged, or erased on request between the workspace opening and the prepare.
     The order must not be made for an id the shop no longer has."""
@@ -545,6 +562,7 @@ async def test_a_customer_gone_between_the_card_and_the_prepare_refuses_it(store
     assert store.mutations == [] and session.proposals == []
 
 
+@AS_THE_OWNER
 async def test_a_name_that_now_means_several_other_people_refuses_the_prepare(store, engine, session):
     """The guard on the prepare-time re-read: the typed name matches several people and the
     one on the card is not among them, so the workspace's resolution is no longer a
@@ -563,6 +581,7 @@ async def test_a_name_that_now_means_several_other_people_refuses_the_prepare(st
 # --------------------------------------------------------------------------- applying
 
 
+@AS_THE_OWNER
 async def test_a_drag_completes_the_draft_once_and_proves_it_by_re_reading_it(store, engine, session):
     workspace = await open_workspace(session, customer="Poppy")
     add_line(workspace, HOODIE, 1)
@@ -580,6 +599,7 @@ async def test_a_drag_completes_the_draft_once_and_proves_it_by_re_reading_it(st
     assert len([1 for n, _ in store.mutations if n == "draft_order_complete"]) == 1
 
 
+@AS_THE_OWNER
 async def test_a_tap_without_the_gesture_sends_nothing(store, engine, session):
     workspace = await open_workspace(session, customer="Poppy")
     add_line(workspace, HOODIE, 1)
@@ -589,6 +609,7 @@ async def test_a_tap_without_the_gesture_sends_nothing(store, engine, session):
     assert not any(n == "draft_order_complete" for n, _ in store.mutations)
 
 
+@AS_THE_OWNER
 async def test_a_draft_changed_in_admin_between_the_card_and_the_gesture_is_stale(store, engine, session):
     workspace = await open_workspace(session, customer="Poppy")
     add_line(workspace, HOODIE, 1)
@@ -600,6 +621,7 @@ async def test_a_draft_changed_in_admin_between_the_card_and_the_gesture_is_stal
     assert not any(n == "draft_order_complete" for n, _ in store.mutations)
 
 
+@AS_THE_OWNER
 async def test_a_draft_already_completed_is_stale_rather_than_completed_twice(store, engine, session):
     workspace = await open_workspace(session, customer="Poppy")
     add_line(workspace, HOODIE, 1)
@@ -611,6 +633,7 @@ async def test_a_draft_already_completed_is_stale_rather_than_completed_twice(st
     assert not any(n == "draft_order_complete" for n, _ in store.mutations)
 
 
+@AS_THE_OWNER
 async def test_a_completion_that_leaves_no_order_is_not_proven(store, engine, session):
     store.complete_without_order = True
     workspace = await open_workspace(session, customer="Poppy")
@@ -620,6 +643,7 @@ async def test_a_completion_that_leaves_no_order_is_not_proven(store, engine, se
     assert result.code == "unverified" and proposal.verified is False
 
 
+@AS_THE_OWNER
 async def test_a_lost_answer_is_settled_by_re_reading_the_draft(store, engine, session):
     workspace = await open_workspace(session, customer="Poppy")
     add_line(workspace, HOODIE, 1)
@@ -641,6 +665,7 @@ def test_the_verification_is_the_order_and_not_merely_a_completed_draft():
     assert ok is True and "not the figure on the card" in note
 
 
+@AS_THE_OWNER
 async def test_the_ledger_keeps_the_numbers_and_not_the_customer(store, engine, session):
     workspace = await open_workspace(session, customer="Poppy")
     add_line(workspace, HOODIE, 1)
@@ -654,6 +679,7 @@ async def test_the_ledger_keeps_the_numbers_and_not_the_customer(store, engine, 
 # --------------------------------------------------------------------- the tablet's path
 
 
+@AS_THE_OWNER
 async def test_the_tablet_posts_one_id_and_never_a_value_of_the_change(store, session, branch):
     from app import commands
 
@@ -666,6 +692,7 @@ async def test_the_tablet_posts_one_id_and_never_a_value_of_the_change(store, se
     assert staged["tool"] == WRITE and staged["args"] == {"workspace_id": ident}
 
 
+@AS_THE_OWNER
 async def test_a_field_the_family_did_not_declare_is_refused(store, session, branch):
     from app import commands
 
@@ -679,6 +706,7 @@ async def test_a_field_the_family_did_not_declare_is_refused(store, session, bra
         assert not outcome.ok and outcome.code == "unknown_choice", (field, option)
 
 
+@AS_THE_OWNER
 async def test_changing_anything_the_draft_was_built_from_makes_the_stored_draft_stale(store, engine, session, branch):
     from app import commands
 
@@ -691,6 +719,7 @@ async def test_changing_anything_the_draft_was_built_from_makes_the_stored_draft
     assert ws.fact(workspace, "draft") is None, "the draft priced without postage is not this order any more"
 
 
+@AS_THE_OWNER
 async def test_discarding_says_the_draft_is_still_in_admin(store, engine, session, branch):
     from app import commands
 
@@ -775,3 +804,35 @@ async def test_a_shopify_that_does_not_answer_is_not_a_missing_grant():
 
     probed = await oc._probe(Broken())
     assert probed["state"] == "TEMPORARILY_UNAVAILABLE" and "ShopifyError" in probed["detail"]
+
+
+async def test_with_no_authority_stamped_nothing_runs(store, engine, session, monkeypatch):
+    """F-A2-FIXTURE's regression, with NO `owner_asking`: the dispatch a call gets when it did
+    not come through the owner's door. The form is opened as the owner first, so its id is one
+    this conversation really holds; then his authority goes, and the same conversation's call
+    to prepare it — or to open another — runs no handler, reads nothing from the shop and
+    prepares nothing."""
+    from app.tools import authority
+
+    granted = authority.for_owner("owner@example.com")
+    token = authority.TOOL_AUTHORITY.set(granted)
+    try:
+        workspace = await open_workspace(session, customer="Poppy")
+    finally:
+        authority.TOOL_AUTHORITY.reset(token)
+        granted.revoke()
+    assert workspace.get("workspace_id"), "opened as the owner"
+    ran: list[str] = []
+    real = registry.invoke
+
+    async def invoke(name, args, *, timeout_s):
+        ran.append(name)
+        return await real(name, args, timeout_s=timeout_s)
+
+    monkeypatch.setattr(registry, "invoke", invoke)
+    reads = store.reads
+    staged = await dispatch(WRITE, {"workspace_id": str(workspace["workspace_id"])}, session=session, timeout_s=5)
+    opened = await dispatch(OPEN, {"customer": "Jones"}, session=session, timeout_s=5)
+    assert staged.startswith(("REFUSED", "NOT YET")) and opened.startswith(("REFUSED", "NOT YET")), (staged, opened)
+    assert ran == [] and store.reads == reads and not store.mutations, ran
+    assert not session.proposals
