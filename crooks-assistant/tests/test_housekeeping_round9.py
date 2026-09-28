@@ -43,22 +43,30 @@ def _aged(path: Path, days: float, now: float = NOW) -> Path:
     return path
 
 
-def _replace_after_the_look(monkeypatch, target: Path, *, on_look: int, text: str) -> list[int]:
-    """A writer that renames a fresh report into `target` just after the pruner's `on_look`th look
-    at that name — the window between a check and an unlink."""
-    real = os.lstat
-    looks = [0]
+def _replace_just_before_it_is_moved(monkeypatch, target: Path, *, text: str) -> None:
+    """A writer that renames a fresh report into `target` in the window between the pruner's look
+    at that name and its move (or, in a pruner that removes by name, its unlink) of it. Keyed to that
+    rename rather than to a count of looks, so it lands in the same window however many times the
+    walk happens to look at a name on this filesystem (CI's differs from a developer's)."""
+    real_rename, real_unlink = os.rename, os.unlink
+    done = [False]
 
-    def lstat(path, *args, **kwargs):
-        answer = real(path, *args, **kwargs)
-        if Path(path) == target:
-            looks[0] += 1
-            if looks[0] == on_look:
-                write_private_text(target, text)
-        return answer
+    def land(path) -> None:
+        if not done[0] and Path(path) == target:
+            done[0] = True
+            write_private_text(target, text)
 
-    monkeypatch.setattr(session_module.os, "lstat", lstat)
-    return looks
+    def rename(src, dst, *args, **kwargs):
+        land(src)
+        return real_rename(src, dst, *args, **kwargs)
+
+    def unlink(path, *args, **kwargs):
+        # A pruner that removes by the name it looked at (round 9's) meets the writer here.
+        land(path)
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(session_module.os, "rename", rename)
+    monkeypatch.setattr(session_module.os, "unlink", unlink)
 
 
 # ------------------------------------------------------------------ F-04-REPORT-LOSS
@@ -68,7 +76,7 @@ def test_a_report_renamed_into_place_while_it_was_being_aged_out_is_kept(tmp_pat
     reports = tmp_path / "reports"
     reports.mkdir(mode=0o700)
     report = _aged(write_private_text(reports / "ts-20260101-000000-walk.md", "last spring's report"), 120)
-    _replace_after_the_look(monkeypatch, report, on_look=1, text="today's report")
+    _replace_just_before_it_is_moved(monkeypatch, report, text="today's report")
     assert prune_reports(reports, 90, now=NOW) == 0
     assert report.read_text() == "today's report", "the fresh report is where it was written"
     assert sorted(p.name for p in reports.iterdir()) == [report.name], "nothing left beside it"
@@ -83,8 +91,8 @@ def test_a_report_renamed_into_an_old_folder_while_it_was_being_aged_out_is_kept
     first = _aged(write_private_text(screens / "0001.json", "{}"), 120)
     later = _aged(write_private_text(screens / "0002.json", '{"old": true}'), 120)
     _aged(screens, 120)
-    # Its second look is the last before it goes (the first is the walk over the folder).
-    _replace_after_the_look(monkeypatch, later, on_look=2, text='{"fresh": true}')
+    # The walk found the folder and all in it old; the fresh copy lands just before its removal.
+    _replace_just_before_it_is_moved(monkeypatch, later, text='{"fresh": true}')
     assert prune_reports(reports, 90, now=NOW) == 0
     assert later.read_text() == '{"fresh": true}' and screens.is_dir(), "the fresh copy and its folder stay"
     assert not first.exists(), "what was old and untouched went"
@@ -111,7 +119,7 @@ def test_a_name_taken_again_while_a_report_is_put_back_keeps_both(tmp_path, monk
     reports = tmp_path / "reports"
     reports.mkdir(mode=0o700)
     report = _aged(write_private_text(reports / "ts-20260101-000000-walk.md", "old"), 120)
-    _replace_after_the_look(monkeypatch, report, on_look=1, text="first writer")
+    _replace_just_before_it_is_moved(monkeypatch, report, text="first writer")
     real_link = os.link
 
     def link(src, dst, *args, **kwargs):
