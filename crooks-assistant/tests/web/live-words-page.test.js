@@ -13,6 +13,9 @@
  *   - When /turn answers before any /state poll has seen the Mac's transcript, the bar shows
  *     the question actually asked, not the live words; a turn that heard nothing clears them
  *     (G-02).
+ *   - Round 11 (C-03): on every path a turn ends by — answered, refused, failed, dropped by the
+ *     network, a hold cancelled, the app going out of sight mid-hold or mid-turn — the live words
+ *     are nowhere afterwards: not on the page, in the page's own state, or anything it sent.
  *
  * app.js is one page script with no module boundary, so, as tests/web/mic.test.js does, this
  * runs the real text of the parts that matter, cut out by their own markers: the microphone and
@@ -85,7 +88,7 @@ function boot(options) {
 
   // The Mac. /turn answers when the test says so.
   const mac = { turn: null, state: { known: true, state: 'TRANSCRIBING', detail: null } };
-  function deferred() { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; }
+  function deferred() { let resolve; let reject; const promise = new Promise((r, j) => { resolve = r; reject = j; }); return { promise, resolve, reject }; }
   const fetch = async (url, init) => {
     out.requests.push({ url: String(url), init: init || {} });
     if (url === '/voice/live') {
@@ -130,6 +133,16 @@ function boot(options) {
   const track = { readyState: 'live', addEventListener() {}, stop() {} };
   const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
 
+  // The page's clock, from a fixed moment and a millisecond a look: a timestamp in a telemetry
+  // payload is then never one that happens to hold a customer's order number among its digits (a
+  // real clock made the no-leak check below fail now and then, round 11), and nothing here waits
+  // on real time.
+  const EPOCH = Date.UTC(2026, 8, 28, 9, 0, 0);
+  let looks = 0;
+  class PageDate extends Date {
+    constructor(...args) { if (args.length) super(...args); else super(EPOCH + looks); }
+    static now() { looks += 1; return EPOCH + looks; }
+  }
   const recordingConsole = {};
   for (const level of ['log', 'info', 'warn', 'error', 'debug']) recordingConsole[level] = (...args) => out.logged.push(args.map(String).join(' '));
   const storage = () => ({ setItem: (k, v) => out.stored.push(`${k}=${v}`), getItem: () => null, removeItem() {} });
@@ -138,14 +151,15 @@ function boot(options) {
     Object.defineProperty(location, part, { get: () => '/', set: (value) => out.addressBar.push(String(value)) });
   }
 
+  const docListeners = {};
   const document = {
     hidden: false, visibilityState: 'visible',
     getElementById: (id) => nodes[id] || null,
-    addEventListener() {}, removeEventListener() {},
+    addEventListener(type, fn) { (docListeners[type] = docListeners[type] || []).push(fn); }, removeEventListener() {},
     createElement: make,
   };
   const sandbox = {
-    console: recordingConsole, Uint8Array, Int16Array, Float32Array, DataView, Map, Set, WeakMap, Promise, JSON, Math, Date, Number, String, Object, Array, Error, TypeError, URLSearchParams,
+    console: recordingConsole, Uint8Array, Int16Array, Float32Array, DataView, Map, Set, WeakMap, Promise, JSON, Math, Date: PageDate, Number, String, Object, Array, Error, TypeError, URLSearchParams,
     AbortController, Buffer, btoa: (text) => Buffer.from(text, 'binary').toString('base64'),
     setTimeout: (fn, ms) => addTimer(fn, ms, false), clearTimeout: dropTimer,
     setInterval: (fn, ms) => addTimer(fn, ms, true), clearInterval: dropTimer,
@@ -205,6 +219,10 @@ function boot(options) {
       await settle();
     },
     async answer(body, status) { mac.turn.resolve({ body, status }); await settle(); },
+    // The Mac never answers: the network drops the question.
+    async drop() { mac.turn.reject(new TypeError('Failed to fetch')); await settle(); },
+    // The app goes out of sight: another app, the lock screen, a navigation away.
+    async hide() { document.hidden = true; document.visibilityState = 'hidden'; for (const fn of docListeners.visibilitychange || []) fn(); await settle(); },
     // One look at /state, as the poll's interval would take it.
     async poll() {
       for (const timer of timers.filter((t) => t.live && t.repeat)) timer.fn();
@@ -382,5 +400,87 @@ test('in the whole page, no script puts the live words or the key into storage, 
   for (const file of fs.readdirSync(WEB).filter((name) => name.endsWith('.js'))) {
     const text = fs.readFileSync(path.join(WEB, file), 'utf8');
     assert.ok(!/history\.(pushState|replaceState)\(/.test(text), `${file} writes the address bar`);
+  }
+});
+
+// ------------------------------------------------------------------ round 11: C-03 on every path a turn ends by
+
+// Where live words the Mac never heard could still be: every text node and piece of the page's
+// own state this file can see, and everything that left the page.
+const MISHEARD = 'Refund Jayne Dough';
+function traces(h, words) {
+  const found = [];
+  const seen = (where, value) => { if (String(value || '').includes(words)) found.push(where); };
+  for (const [name, node] of Object.entries(h.nodes)) seen(`#${name}`, node.textContent);
+  for (const [name, node] of Object.entries(h.el)) if (node && typeof node.allText === 'function') seen(`el.${name}`, node.allText());
+  for (const name of ['history', 'glass', 'chunks', 'currentTurnId', 'sessionId', 'lastErrorTitle']) seen(name, JSON.stringify(h.sandbox[name]));
+  for (const [where, text] of Object.entries(h.leaked())) seen(where, text);
+  return found;
+}
+async function misheard(h) {
+  await h.press();
+  h.socket.onopen();
+  h.speak(0.3);
+  h.say({ message_type: 'partial_transcript', text: MISHEARD });
+  assert.equal(h.bar().words, MISHEARD, 'on the capsule while he holds');
+  assert.deepEqual(traces(h, 'Jayne'), ['#ask-words', '#ask-heard'], 'and the search finds them where they are');
+}
+
+// Closes C-03 (round 11): a cancelled hold.
+test('a hold cancelled mid-word leaves the live words nowhere and sends nothing (C-03)', async () => {
+  const h = boot();
+  await misheard(h);
+  h.sandbox.stopRecording(true);                  // a palm, an edge swipe, the notification shade
+  h.recorders[h.recorders.length - 1].onstop();
+  await settle();
+  assert.deepEqual(h.bar(), { words: '', wordsLines: 'false', heard: '', heardShown: 'false' });
+  assert.equal(h.out.requests.filter((r) => r.url === '/turn').length, 0, 'nothing was asked');
+  assert.equal(h.socket.closed, true);
+  assert.deepEqual(traces(h, 'Jayne'), []);
+});
+
+// Closes C-03 (round 11): the app going out of sight, mid-hold and mid-turn.
+test('the app going out of sight, mid-hold or while the question is out, takes the live words off (C-03)', async () => {
+  const h = boot();
+  await misheard(h);
+  await h.hide();                                  // mid-hold
+  assert.equal(h.bar().words, '');
+  assert.equal(h.socket.closed, true);
+  assert.deepEqual(traces(h, 'Jayne'), []);
+  const again = boot();
+  await misheard(again);
+  await again.release(6000);
+  assert.equal(again.bar().heard, `“${MISHEARD}”`, 'released: they stand for what was heard while the question is out');
+  await again.hide();                              // while the question is out
+  assert.deepEqual(again.bar(), { words: '', wordsLines: 'false', heard: '', heardShown: 'false' });
+  await again.answer({ session_id: 's1', turns: 1, question: ASKED, answer: 'Done.', ui: [] });
+  assert.equal(again.bar().heard, `“${ASKED}”`, 'and the Mac’s own words take the bar when it answers');
+  assert.deepEqual(traces(again, 'Jayne'), []);
+});
+
+// Closes C-03 (round 11): a question the network drops.
+test('a question the network drops leaves no live words anywhere (C-03)', async () => {
+  const h = boot();
+  await misheard(h);
+  await h.release(6000);
+  await h.drop();
+  assert.deepEqual(h.bar(), { words: '', wordsLines: 'false', heard: '', heardShown: 'false' });
+  assert.deepEqual(traces(h, 'Jayne'), []);
+});
+
+// Closes C-03 (round 11): done, refused and failed turns — the words are not kept anywhere.
+test('answered, refused or failed, a turn keeps nothing of the live words: not on the page, in its state or anything sent (C-03)', async () => {
+  for (const [how, status, body] of [['answered', undefined, { session_id: 's1', turns: 1, question: ASKED, answer: 'Done.', ui: [] }],
+    ['refused', 403, { error: 'not allowed', spoken: 'This device is not allowed to ask.' }], ['failed', 500, {}]]) {
+    const h = boot();
+    await misheard(h);
+    await h.release(6000);
+    await h.answer(body, status);
+    await h.poll();
+    assert.equal(h.bar().words, '', how);
+    assert.deepEqual(traces(h, 'Jayne'), [], how);
+    // The question sent was the recording and nothing more.
+    const turn = h.out.requests.find((r) => r.url === '/turn');
+    assert.deepEqual(turn.init.body.entries.map(([name]) => name), ['audio', 'session_id', 'turns', 'speak'], how);
   }
 });

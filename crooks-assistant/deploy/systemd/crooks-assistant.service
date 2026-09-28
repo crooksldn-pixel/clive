@@ -35,8 +35,12 @@ StartLimitBurst=5
 Type=exec
 WorkingDirectory={{ROOT}}
 # --no-proxy-headers: the app judges who opened each connection itself (app/identity.py);
-# uvicorn's own handling would replace that address with the forwarded one first.
-ExecStart={{PYTHON}} -m uvicorn app.main:app --host {{HOST}} --port {{PORT}} --no-proxy-headers
+# uvicorn's own handling would replace that address with the forwarded one first. It stays the
+# last word on the line: uvicorn obeys the last of it and --proxy-headers.
+# --timeout-graceful-shutdown 10: at a stop, requests still running after 10 s are cancelled and
+# the app's own shutdown begins (round 11, CFG-02). Without it one connection held open kept that
+# shutdown — the runtime's close, the timeline's drain — from starting before SIGKILL.
+ExecStart={{PYTHON}} -m uvicorn app.main:app --host {{HOST}} --port {{PORT}} --timeout-graceful-shutdown 10 --no-proxy-headers
 
 Environment=HOME={{HOME}}
 Environment=PATH={{PATH}}
@@ -49,6 +53,10 @@ Environment=CROOKS_CLAUDE_CLI_PATH={{CLAUDE}}
 # scripts/provision_secrets.py, and this block is regenerated from what it has stored.
 {{CREDENTIALS}}
 # uvicorn shuts down cleanly on SIGINT; SIGTERM leaves the lifespan's aclose() unrun.
+# 30 s is the whole stop, planned in app/main.py (UNIT_STOP_S and the SHUTDOWN_* budget): the
+# 10 s graceful drain above, then at most 13 s of the app's own shutdown (housekeeping stopped,
+# the runtime closed, the timeline's accepted events written), and the rest for the process to
+# exit. tests/test_r11_records.py holds this line and ExecStart's to those numbers.
 KillSignal=SIGINT
 TimeoutStopSec=30
 Restart=always

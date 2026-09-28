@@ -1,0 +1,417 @@
+[
+  {
+    "finding": "R9-A3b-F-04-SHUTDOWN",
+    "parts": [
+      "AC2",
+      "O1",
+      "S1"
+    ],
+    "status": "FIXED",
+    "question": "Can an overlong housekeeping operation keep shutdown from closing the runtime or draining the timeline's accepted events inside the unit's deadline, on the normal path and the timed-out one?",
+    "files": [
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/app/runtime.py",
+      "crooks-assistant/deploy/systemd/crooks-assistant.service",
+      "crooks-assistant/tests/test_r11_records.py",
+      "crooks-assistant/tests/test_housekeeping_round9.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_records.py::test_an_overlong_housekeeping_step_is_stopped_inside_it_so_the_runtime_closes_and_the_timeline_drains",
+      "crooks-assistant/tests/test_r11_records.py::test_a_stop_asked_of_a_walk_ends_it_before_the_next_entry_and_nothing_else_is_ever_stopped",
+      "crooks-assistant/tests/test_r11_records.py::test_a_connection_held_open_at_a_stop_no_longer_keeps_the_apps_shutdown_from_running",
+      "crooks-assistant/tests/test_r11_records.py::test_the_units_stop_and_the_apps_shutdown_budget_are_one_plan",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_accepted_events_are_on_disk_when_a_pass_outruns_the_shutdown_deadline",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_accepted_events_are_on_disk_after_a_normal_shutdown_too",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_the_drain_is_bounded_and_says_what_it_could_not_write"
+    ],
+    "answer": "Round 10 read the stop only between housekeeping's steps (main.housekeep_once), so one step over a big folder ran past SHUTDOWN_DEADLINE_S and lifespan left the runtime open under it. Now the stop is set for the whole pass in session.HOUSEKEEPING_STOP (main._PASS_STOP is the same variable; housekeep_once sets it for a direct call too), and session.checkpoint() raises Interrupted before every entry of every walk: _remove_if_older (per top entry and per removal), _expired_tree, tighten and withhold, which prune_reports, prune_withheld, TestSessions._prune and tidy_reports run through. It is never read between _unlink_if_aged's move and its check, so nothing is left half moved. tidy_reports turns Interrupted into tidy_contained=False and 'the report check stopped early for shutdown', and _housekeep returns 'housekeeping stopped early for shutdown'. A pass asked to stop therefore ends within one filesystem call, Housekeeper.stop returns True well inside SHUTDOWN_WAIT_S, and lifespan closes the runtime (Runtime.aclose: provider.stop and each client's aclose, bounded by SHUTDOWN_CLOSE_BY_S) and then drain_timelines flushes every timeline (runtime.timeline, timeline.current(), each mirror) until SHUTDOWN_EXIT_BY_S. The drain runs on both paths: after the close, and when a pass is still running at the deadline (now possible only for one filesystem call that has not returned), with the runtime left open. The whole stop is planned inside the unit's unchanged TimeoutStopSec=30 (see CFG-02): uvicorn's tick and pause (0.2 s), its graceful drain bounded at 10 s, then the lifespan ends by 13 s at the latest (housekeeping waited 2 s, then to 5 s; the close by 9 s; the drain by 13 s) — 23.2 s in all, 6.8 s left for the interpreter to exit. The overlong test fails on round 10's code (runtime never closed) and passes now; the held-connection test runs the real lifespan under a real uvicorn server with a request that never finishes."
+  },
+  {
+    "finding": "CFG-02",
+    "parts": [
+      "CFG"
+    ],
+    "status": "FIXED",
+    "question": "Is uvicorn's graceful drain bounded, and does the app's shutdown budget fit inside systemd's TimeoutStopSec, so a held connection cannot keep the lifespan's shutdown from running?",
+    "files": [
+      "crooks-assistant/deploy/systemd/crooks-assistant.service",
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/scripts/install_systemd.py",
+      "crooks-assistant/scripts/service_linux.py",
+      "crooks-assistant/tests/test_r11_records.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_records.py::test_the_units_stop_and_the_apps_shutdown_budget_are_one_plan",
+      "crooks-assistant/tests/test_r11_records.py::test_the_installer_renders_the_bounded_drain_into_the_unit_it_installs",
+      "crooks-assistant/tests/test_r11_records.py::test_a_connection_held_open_at_a_stop_no_longer_keeps_the_apps_shutdown_from_running",
+      "crooks-assistant/tests/test_launch.py::test_every_launcher_leaves_the_connections_own_address_alone"
+    ],
+    "answer": "Yes, now. The unit change is one flag: ExecStart becomes '{{PYTHON}} -m uvicorn app.main:app --host {{HOST}} --port {{PORT}} --timeout-graceful-shutdown 10 --no-proxy-headers' (everything else as it was; --no-proxy-headers stays the last word, and identity.proxy_headers_off / served_without_proxy_headers still read it), and TimeoutStopSec stays 30, the value the Control app's own `systemctl stop` (scripts/service_linux.py Systemd.stop, a 30 s wait) was built around. uvicorn's Server.shutdown notices the signal at its next 0.1 s tick, pauses 0.1 s, waits at most timeout_graceful_shutdown for connections, cancels what is still running, then runs lifespan.shutdown. app/main.py plans the rest: UNIT_STOP_S=30, SHUTDOWN_UVICORN_TICKS_S=0.2, SHUTDOWN_GRACEFUL_S=10, SHUTDOWN_WAIT_S=2, SHUTDOWN_DEADLINE_S=5, SHUTDOWN_CLOSE_BY_S=9, SHUTDOWN_FLUSH_S=4 (at least SHUTDOWN_FLUSH_MIN_S=0.5), SHUTDOWN_EXIT_BY_S=13 and SHUTDOWN_EXIT_MARGIN_S=5: the lifespan ends by 13 s at the latest, the whole stop by 23.2 s, 6.8 s before SIGKILL. The budget test holds the unit's two lines to those numbers and the sum, worst case included (a close given its minimum 1 s, a drain its minimum), to the margin; the installer test renders the unit through scripts/install_systemd.py rendered_unit and checks both lines and that the proxy check still reads the new command line. The held-connection test drives the real lifespan under uvicorn.Server with a request that never ends and the stop SIGINT asks for: the request is cancelled, the runtime is closed and the held request's pending event is on disk. The deploy installs the new unit: it re-renders the unit from the template with the code, and the post-restart argv check will show the new flag."
+  },
+  {
+    "finding": "O1-F-01",
+    "parts": [
+      "O1"
+    ],
+    "status": "FIXED",
+    "question": "Can Timeline.emit accept an event while a command holds the writer lock, so that the command lets go, finds no writer and calls a count final that the event then lands in?",
+    "files": [
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/scripts/session_ops.py",
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/tests/test_r11_records.py",
+      "crooks-assistant/tests/test_housekeeping_round9.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_records.py::test_an_event_emitted_while_a_command_holds_the_writer_lock_never_lands_in_a_count_it_called_final",
+      "crooks-assistant/tests/test_r11_records.py::test_a_command_holding_the_writer_lock_too_long_costs_one_bounded_wait_and_no_accepted_event",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_writer_that_cannot_hold_the_lock_writes_nothing_a_command_would_miss"
+    ],
+    "answer": "Timeline.emit no longer accepts on _LOCK_BUSY. Before anything is built or queued it calls _take_writer_lock: held already (the hold is kept for the life of the process) is one attribute read; otherwise a non-blocking shared flock, and if a command holds the lock exclusively (writer_alive's instant look) it polls every WRITER_LOCK_POLL_S for at most WRITER_LOCK_WAIT_S (0.25 s), and a lock still held or one that fails is False: the event is counted dropped and nothing is pending. After a timed-out wait it does not wait again for WRITER_LOCK_BACKOFF_S, so a stuck command cannot slow every event on a turn's path. _hold_writer_lock is guarded so a process takes one hold however many threads ask. Once the hold is taken the session is looked up again (self.own): session_ops.no_backend_verdict stops the session on disk and looks only after RECHECK_S + 0.2 s, and TestSessions.active re-reads active.json once RECHECK_S has passed, so an event taken after the command's look is never one for the session it stopped. Hence when writer_alive returns False no process holds the lock, no event is pending anywhere, and none for that session can be accepted later: the count it calls final is the file's last. The interleaving test (command stops the session, holds EX, backend meets it, command lets go, looks, counts) fails on round 10's code — the event was accepted and landed — and passes now. test_housekeeping_round9's busy-then-failing case was changed to assert the event is NOT accepted, which is the corrected behaviour."
+  },
+  {
+    "finding": "R9-A3b-F-10",
+    "parts": [
+      "SC"
+    ],
+    "status": "FIXED",
+    "question": "After a writer-side lock failure or a busy lock, can the writer still hold pending events or write them, so that no_backend_verdict calls a count final that then changes?",
+    "files": [
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/scripts/session_ops.py",
+      "crooks-assistant/tests/test_r11_records.py",
+      "crooks-assistant/tests/test_housekeeping_round9.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_writer_that_cannot_hold_the_lock_writes_nothing_a_command_would_miss",
+      "crooks-assistant/tests/test_r11_records.py::test_an_event_emitted_while_a_command_holds_the_writer_lock_never_lands_in_a_count_it_called_final",
+      "crooks-assistant/tests/test_r11_records.py::test_a_command_holding_the_writer_lock_too_long_costs_one_bounded_wait_and_no_accepted_event"
+    ],
+    "answer": "No event is accepted, and none is written, without this process's shared hold on WRITER_LOCK: emit takes the hold first (Timeline._take_writer_lock) and drops the event, counted, if it cannot; _run still drops a batch whose hold is not held (a defence that can no longer be reached, since nothing is queued without it). A failed lock acquisition therefore leaves nothing pending; a busy lock is waited for briefly and the session is looked up after the hold is taken. writer_alive's False therefore means no writer has anything to write, and no_backend_verdict's 'final' holds. See O1-F-01 for the interleaving and its test; the writer-side failure followed by the command's successful look is test_a_writer_that_cannot_hold_the_lock_writes_nothing_a_command_would_miss."
+  },
+  {
+    "finding": "O1-F-02",
+    "parts": [
+      "O1"
+    ],
+    "status": "EVIDENCED",
+    "question": "Do executable tests exist for concurrent replacement of an aged report and of a descendant, and for a short os.write followed by stop, asserting retained files and final counts?",
+    "files": [
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/tests/test_housekeeping_round9.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_report_renamed_into_place_while_it_was_being_aged_out_is_kept",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_report_renamed_into_an_old_folder_while_it_was_being_aged_out_is_kept",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_the_removal_goes_in_the_same_order_however_the_disk_lists_a_folder",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_name_taken_again_while_a_report_is_put_back_keeps_both",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_an_old_report_nobody_touches_still_ages_out",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_short_write_is_finished_and_every_line_is_whole",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_write_that_fails_part_way_counts_only_whole_lines_and_leaves_no_part_line"
+    ],
+    "answer": "They exist at this commit and are behavioural: the replacement tests land a real write_private_text (a rename into place) inside the pruner's own window — keyed to the pruner's move of that very name (os.rename / os.unlink patched to run the writer first) — for a top-level aged report and for an aged file inside an aged ts-…-screens folder, and assert the fresh report is on disk with its own contents, nothing beside it, and the untouched old file gone; a reversed directory listing gives the same result. test_a_short_write_is_finished_and_every_line_is_whole makes os.write take a third at a time, emits 20 events, then stops the session and asserts every line whole, 21 then 22 events on disk, stop_settled True and counts on_disk=22, pending=0, dropped=0, this_process=22. The failing-part-way test asserts only whole lines are counted written, the part-line is taken back, and dropped + written add up. The code they hold: session._unlink_if_aged (move to a unique name, check device/inode/age, unlink only the very file looked at, otherwise link back without replacing), _expired_tree, _remove_if_older; timeline._write_all, _take_back, Timeline._append, _run, flush, stop, counts."
+  },
+  {
+    "finding": "R9-A3b-F-04-REPORT-LOSS",
+    "parts": [
+      "S3T2"
+    ],
+    "status": "EVIDENCED",
+    "question": "Can pruning delete a report that a writer atomically replaced (at the top level or inside an aged folder) between the pruner's look and its removal?",
+    "files": [
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/tests/test_housekeeping_round9.py",
+      "crooks-assistant/tests/test_screen_privacy.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_report_renamed_into_place_while_it_was_being_aged_out_is_kept",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_report_renamed_into_an_old_folder_while_it_was_being_aged_out_is_kept",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_name_taken_again_while_a_report_is_put_back_keeps_both",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_the_removal_goes_in_the_same_order_however_the_disk_lists_a_folder",
+      "crooks-assistant/tests/test_screen_privacy.py::test_a_fresh_report_inside_an_old_folder_keeps_the_whole_folder"
+    ],
+    "answer": "No. session._unlink_if_aged never unlinks by the name it looked at: it renames the name to a unique '<name>.pruning-<uuid>' in one step, lstat's what it moved, and unlinks it only if it is the same device and inode it looked at and still past the cutoff; anything else (a report renamed into place meanwhile, or the old one written since) is put back with os.link, which never replaces, and if the name has been taken again it stays beside it under a name that begins with its own. _remove_if_older removes a folder only when _expired_tree found every descendant past the cutoff, goes file by file through _unlink_if_aged, and removes folders with rmdir, which refuses a non-empty one; a file that is no longer the old one stops the folder's removal. The tests run a real atomic replacement in that window for a top-level report and a descendant and assert the fresh report is kept, byte for byte. Round 11's shutdown checkpoint is read only between whole removals, never inside _unlink_if_aged, so an interrupted prune leaves nothing half moved (tests/test_r11_records.py::test_an_overlong_housekeeping_step_is_stopped_inside_it_so_the_runtime_closes_and_the_timeline_drains asserts no .pruning- name is left)."
+  },
+  {
+    "finding": "R9-A3b-F-A3B-SHORT-WRITE",
+    "parts": [
+      "O1"
+    ],
+    "status": "EVIDENCED",
+    "question": "Can a short os.write lose bytes of an accepted event while its line is counted written, and does a subsequent stop report a final count over an incomplete line?",
+    "files": [
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/tests/test_housekeeping_round9.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_short_write_is_finished_and_every_line_is_whole",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_write_that_fails_part_way_counts_only_whole_lines_and_leaves_no_part_line"
+    ],
+    "answer": "No. Timeline._append writes a batch with _write_all, which loops os.write until every byte is down (a zero-byte write or an OSError stops it and says how far it got); on a failure only the lines whose every byte went down are counted written, the part of a line that did not finish is cut off again (_take_back: ftruncate, or a newline if the file cannot be cut) and the rest are counted dropped. _run moves the batch out of pending in the same locked step as the written and dropped counts, and flush/stop wait for pending to reach nought. The short-write test forces a third of a buffer per os.write, then stops the session and asserts every line whole and the final counts (22 on disk, 0 pending, 0 dropped, stop_settled True)."
+  },
+  {
+    "finding": "R9-A3b-F-04-STARTUP",
+    "parts": [
+      "S1"
+    ],
+    "status": "EVIDENCED",
+    "question": "Does start-up refuse when report privacy cannot be established — a differently owned reports path, or a symlink among the reports or as the reports folder?",
+    "files": [
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/tests/test_r11_records.py",
+      "crooks-assistant/tests/test_housekeeping_round9.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_records.py::test_start_up_refuses_with_a_link_among_the_reports",
+      "crooks-assistant/tests/test_r11_records.py::test_start_up_refuses_with_a_reports_folder_that_is_a_link",
+      "crooks-assistant/tests/test_r11_records.py::test_start_up_refuses_with_a_reports_folder_another_user_owns",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_report_owned_by_someone_else_is_not_private_whatever_its_mode",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_reports_folder_someone_else_owns_is_not_contained",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_link_among_the_reports_is_not_called_private"
+    ],
+    "answer": "Yes. session.tighten treats a path as open to others by mode or by owner (_open_to_others: st_uid != geteuid), returns the reports folder itself as a link when it is one, and lists every link inside apart (neither chmod'ed nor followed). TestSessions._tidy_reports withholds what it can (withhold: moved into a 0700 .withheld folder that must be a real folder of ours before and after the move, never deleted); the folder itself cannot be withheld, and any link or unreadable path is a problem; tidy_contained is True only when the whole check ran and found nothing. main.lifespan runs the first pass, then _reports_contained (re-runs a check that never ran, retries REPORT_CHECK_ATTEMPTS times) and raises 'CROOKS will not start with reports it cannot keep private' before serving, after closing the runtime and draining the timeline. The round-11 tests boot the real lifespan with CROOKS_REPORTS_DIR set to a folder holding a symlink to a 0644 file elsewhere, to a folder that is itself a symlink, and to a 0700 folder another user owns (lstat reporting another uid), and each start-up raises with nothing served; the link is left as it was."
+  },
+  {
+    "finding": "R9-F-observability1-F-01",
+    "parts": [
+      "O1",
+      "O2"
+    ],
+    "status": "EVIDENCED",
+    "question": "Do both report writers (report.py and proposals.py) name their file only by a validated single-component session id and stay inside the reports folder once links are resolved?",
+    "files": [
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/app/observability/proposals.py",
+      "crooks-assistant/app/observability/report.py",
+      "crooks-assistant/tests/test_visible_privacy.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_visible_privacy.py::test_a_session_id_that_is_not_one_names_no_file_anywhere",
+      "crooks-assistant/tests/test_visible_privacy.py::test_a_real_session_id_names_its_report_inside_its_folder",
+      "crooks-assistant/tests/test_visible_privacy.py::test_a_report_name_that_resolves_outside_its_folder_is_refused"
+    ],
+    "answer": "Yes. report.write_report and proposals.write_proposals both call session.report_target(out_dir, rec.session['test_session_id'], Path(path).stem, suffix) and write through session.write_private_text. report_target admits only an id matching SESSION_ID in full ('ts-' or 'rec-', eight digits, six digits, an optional lower-case slug of at most 24 characters — no '/', '.', NUL or '..'), taking the timeline file's own stem only when the events carry no id, and raises ValueError unless realpath(target).parent == realpath(out_dir) (a symlink at the report's name that points elsewhere is refused). write_private_text creates the file 0600 in a 0700 folder and renames it into place (os.replace does not follow a link at the destination). The traversal test runs both writers with ten hostile ids ('../web/exposed', '../../etc/cron.d/x', '/tmp/elsewhere', 'ts-…/../../x', NUL, upper case, over-long slugs …) and asserts ValueError and that no file was written anywhere under the test folder."
+  },
+  {
+    "finding": "R9-F-observability1-F-03",
+    "parts": [
+      "O1",
+      "O2"
+    ],
+    "status": "FIXED",
+    "question": "Is a successfully executed store-credit request classified against the live store_credit family (READY), not NO_FAMILY, including when the request says 'give … store credit'?",
+    "files": [
+      "crooks-assistant/app/observability/contract.py",
+      "crooks-assistant/app/observability/semantics.py",
+      "crooks-assistant/app/observability/report.py",
+      "crooks-assistant/app/capabilities/families.py",
+      "crooks-assistant/app/families/store_credit.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_observability.py::test_a_successful_store_credit_turn_is_set_against_the_live_family_not_no_family",
+      "crooks-assistant/tests/test_r11_observability.py::test_a_grant_of_store_credit_is_a_change_to_the_contract_and_to_the_semantic_verdict",
+      "crooks-assistant/tests/test_r11_observability.py::test_a_question_about_store_credit_is_still_a_read",
+      "crooks-assistant/tests/test_visible_privacy.py::test_a_store_credit_request_that_was_carried_out_is_not_a_capability_to_build",
+      "crooks-assistant/tests/test_r11_records.py::test_every_capability_and_every_change_the_report_names_is_one_this_build_has"
+    ],
+    "answer": "semantics.CHANGES maps store_credit to the capability 'store_credit', which app/families/store_credit.py registers with state READY (semantics.capability_state reads that declared state, or the live one when the report is given a runtime's states; the capability test checks every CHANGES capability is registered). What was still wrong (O2-F-02) was the reading of the request: contract.mutating found no mutation word in 'Give Alice £15 of store credit', so read_request left mutation False, change None, and _spoken_capability returned None. contract.grants_credit now recognises a grant by its shape — the sentence opens (after an optional 'please') with give/issue/grant/award/credit/top up/load and what it grants is credit or a gift card — and mutating returns True for it; 'give me'/'give us' still fetch and credit followed by balance, history, left, used … is a question. The store-credit change pattern also takes a leading 'credit' verb ('Credit Alice's account with £15'), and contract._UI no longer reads 'gift card' as a screen card. The report test builds a turn as turns are written today (no router lane event) with the owner's hold applying and verifying the credit, and asserts verdict.change == store_credit, contract WRITE_INTENT, _spoken_capability state READY (never NO_FAMILY), and no MISSING_CAPABILITY in the classes or the markdown."
+  },
+  {
+    "finding": "O2-F-02",
+    "parts": [
+      "O2"
+    ],
+    "status": "FIXED",
+    "question": "Is 'Give Alice £15 of store credit' read as a write (the store-credit change) through the contract and the semantic verdict, without reading balance questions as writes?",
+    "files": [
+      "crooks-assistant/app/observability/contract.py",
+      "crooks-assistant/app/observability/semantics.py",
+      "crooks-assistant/tests/test_r11_observability.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_observability.py::test_a_grant_of_store_credit_is_a_change_to_the_contract_and_to_the_semantic_verdict",
+      "crooks-assistant/tests/test_r11_observability.py::test_a_question_about_store_credit_is_still_a_read",
+      "crooks-assistant/tests/test_r11_observability.py::test_give_still_fetches_when_what_it_gives_is_not_credit",
+      "crooks-assistant/tests/test_r11_observability.py::test_a_successful_store_credit_turn_is_set_against_the_live_family_not_no_family"
+    ],
+    "answer": "contract.grants_credit (called first thing in contract.mutating, which both contract_of and semantics.read_request use) reads seven grant forms as writes — 'Give Alice £15 of store credit', 'Please give her fifteen pounds store credit', 'Give Alice store credit', 'Issue Alice a £20 gift card', 'Credit Alice's account with £15', 'Top up Alice's store credit by £10', and the already-working 'Add £15 store credit to Alice' — each WRITE_INTENT with change store_credit; and nine balance questions ('How much store credit does Alice have?', 'Give me Alice's store credit balance', 'Show me the gift cards', …) stay READ_INTENT with no change. Nothing a request says decides anything at turn time: this is the report's reading after the turn."
+  },
+  {
+    "finding": "R9-F-observability2-F-OBS2-01",
+    "parts": [
+      "O1"
+    ],
+    "status": "FIXED",
+    "question": "Can telemetry values a page sent (tablet_focus.name, cause, a control's name) reach findings and so the report's tables with a customer's name or other words in them?",
+    "files": [
+      "crooks-assistant/app/observability/visible.py",
+      "crooks-assistant/app/observability/report.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_observability.py::test_a_customers_name_a_page_put_in_its_telemetry_never_leaves_visible",
+      "crooks-assistant/tests/test_r11_observability.py::test_the_report_built_from_that_timeline_carries_none_of_it_either",
+      "crooks-assistant/tests/test_r11_observability.py::test_a_name_in_every_field_a_page_may_send_reaches_neither_the_report_nor_the_proposals",
+      "crooks-assistant/tests/test_r11_observability.py::test_the_screens_section_and_the_top_problems_print_what_a_page_sent_only_as_identifiers",
+      "crooks-assistant/tests/test_r11_observability.py::test_every_string_a_page_sent_is_withheld_however_many_it_sent",
+      "crooks-assistant/tests/test_r11_observability.py::test_a_page_string_in_any_script_is_withheld_where_it_stands_whole_and_nowhere_else",
+      "crooks-assistant/tests/test_r11_observability.py::test_what_is_left_holds_no_page_string_standing_whole_and_no_more_than_the_first_rule_left",
+      "crooks-assistant/tests/test_r11_observability.py::test_a_page_string_as_deep_as_telemetry_keeps_one_is_withheld_too",
+      "crooks-assistant/tests/test_visible_privacy.py::test_what_leaves_visible_is_scrubbed_and_holds_only_the_fields_the_report_prints",
+      "crooks-assistant/tests/test_visible_privacy.py::test_nothing_that_answers_a_request_or_feeds_a_screen_reads_the_owners_reports"
+    ],
+    "answer": "Not any more. Two gates, both in these two files. (1) Signals: visible.read passes every finding through _leaving before a row, a turn or the report sees it, and report.reconstruct does the same to the classifier's own signals (section 5): page_words(events) collects every string a page sent (source 'tablet' or a tablet_ kind; the event frame and the free-text fields message/detail/text/question aside), at any depth /telemetry keeps (_PAGE_DEPTH 8 against observe.MAX_DEPTH 6), that is not an identifier — screens.PAGE_IDENTIFIER, lower-case letters and digits joined by . _ : / # -, or a Shopify gid, at most 64 characters — and withheld() replaces each where it stands whole with '[withheld]' (PageWords.withhold: every string standing whole, the longest where two begin at one place, overlapping ones as one mark, then looked at again between the marks until none is left), then applies timeline.scrub_text. There is no cap on the count any more (the first round-11 rule stopped collecting at 20,000, so a name sent after those was not withheld) and a string in any script is found (PageWords files each by its first ASCII run or, failing one, its first character). (2) Everything report.py prints straight from a page event goes through visible.as_identifier, as_number or as_path: section 5's 'UI displayed' column, section 7's counts, failed image paths, clipped cards, long scrolls, viewports, deepest scroll, connectivity, section 27's cards the page could not draw, the top problems' unused rail actions, the attention count, the cards on screen in an ignored defect's row (visible._feedback), touch.precision_evidence's field and character count, and _collisions; and a proposal id a page sent names a proposal only when it is an identifier (report._page_id), so section 8 prints no page words either. The every-field test fills every field /telemetry keeps (observe.ALLOWED_FIELDS) of all 26 page event kinds the report reads with a customer's name, flat and nested (cards, actions, entities, viewport, document), and asserts neither the report's markdown nor the proposals file's candidates or markdown carries it; the property test runs 4,000 made-up cases and asserts no page string stands whole in what is left and that nothing is left that the first rule withheld. Left as text, scrubbed by the timeline's rule and bounded: a frontend exception's message, which is read by its words. Who can read the result is unchanged: the report is written 0600 in a 0700 folder by the command line and the Control app, and nothing under app/routes, app/displays or app/tools imports its readers (test_nothing_that_answers_a_request_or_feeds_a_screen_reads_the_owners_reports)."
+  },
+  {
+    "finding": "R9-F-observability1-F-02",
+    "parts": [],
+    "status": "FIXED",
+    "question": "Does sanitise_markup keep the text under a data-spoken element, or a token-shaped data-words value, in a screen copy?",
+    "files": [
+      "crooks-assistant/app/observability/screens.py",
+      "crooks-assistant/tests/test_spoken_screen_copy.py",
+      "crooks-assistant/tests/test_r11_observability.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_spoken_screen_copy.py::test_the_live_words_are_masked_however_the_mark_is_written",
+      "crooks-assistant/tests/test_spoken_screen_copy.py::test_everything_inside_a_spoken_element_is_masked_and_nothing_after_it",
+      "crooks-assistant/tests/test_spoken_screen_copy.py::test_words_in_a_spoken_elements_attributes_are_kept_empty",
+      "crooks-assistant/tests/test_spoken_screen_copy.py::test_data_words_is_kept_empty_whatever_it_holds",
+      "crooks-assistant/tests/test_r11_observability.py::test_the_live_words_mark_is_kept_and_its_value_never_is"
+    ],
+    "answer": "Round 10 already masked the text of a data-spoken element and of everything inside it (_Sanitiser._open tracks spoken elements; handle_data masks like a textarea; _WORDS_ATTRS are kept empty inside one) and kept data-words empty (DATA_FREE_TEXT). The one piece left, and fixed now: the data-spoken attribute's own value passed the data- token rule, so data-spoken=\"rowan-mitcham-1930\" was kept. data-spoken is now in DATA_FREE_TEXT: the mark is kept (so the element is still masked) and its value never is. With CROOKS_SCREEN_SNAPSHOTS=false production does not collect screen copies at all."
+  },
+  {
+    "finding": "O2-F-01",
+    "parts": [
+      "O2"
+    ],
+    "status": "FIXED",
+    "question": "Does feedback.recognise('Show me the log for order #1938') record a false defect because the bare 'log' rule matches?",
+    "files": [
+      "crooks-assistant/app/observability/feedback.py",
+      "crooks-assistant/tests/test_r11_observability.py",
+      "crooks-assistant/tests/test_owner_feedback.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_observability.py::test_reading_a_log_is_not_feedback",
+      "crooks-assistant/tests/test_r11_observability.py::test_an_instruction_to_log_is_still_feedback",
+      "crooks-assistant/tests/test_r11_observability.py::test_asking_for_an_order_log_during_a_test_session_records_nothing_and_tells_the_model_nothing",
+      "crooks-assistant/tests/test_owner_feedback.py::test_the_sentences_a_tester_uses_are_recognised",
+      "crooks-assistant/tests/test_owner_feedback.py::test_a_sentence_about_the_shop_is_not_a_bug_report"
+    ],
+    "answer": "Not any more. KINDS['log'] now matches only an instruction: 'log' at the head of the sentence (after fillers such as 'okay, uh,', an optional 'please' and 'can/could/would/will you') and not followed by says/said/file/in/into/on/out/off/for/of/entries/shows, or 'log' with what is to be logged straight after it (that, this, it, these, those, the bug/error/defect/issue/problem/fault, a bug/defect/fault, an error/issue, your error, my complaint/feedback). 'Show me the log for order #1938', 'Read me the order log for 1938', 'What does the log say for 1938?', 'Pull up the audit log', 'log into Shopify' and six more are None; the live hour's own sentences ('please log that…', 'Log--a lot of your functions are broken…', 'Log your error there…') and 'log that the refund did not go through' are still 'log'. feedback.recognise returns None for the order-log request, so during a test session neither held_at_turn (which the route calls) nor at_turn records anything or gives the model a line."
+  },
+  {
+    "finding": "R9-E-families1-E-03",
+    "parts": [
+      "F",
+      "O2"
+    ],
+    "status": "EVIDENCED",
+    "question": "During a test session, does recognised owner feedback said through POST /turn produce an owner_feedback event against that turn and appear in the report as recorded?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/observability/feedback.py",
+      "crooks-assistant/app/observability/visible.py",
+      "crooks-assistant/tests/test_owner_feedback_turn.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_observability.py::test_a_defect_said_through_the_turn_route_is_recorded_against_it_and_reported_as_recorded",
+      "crooks-assistant/tests/test_owner_feedback_turn.py::test_a_spoken_defect_through_the_turn_route_is_recorded_before_the_model_answers",
+      "crooks-assistant/tests/test_owner_feedback_turn.py::test_a_spoken_defect_through_the_turn_route_reaches_the_report_in_his_words",
+      "crooks-assistant/tests/test_owner_feedback_turn.py::test_the_routes_held_recorder_writes_only_when_asked_and_keeps_the_time_he_said_it",
+      "crooks-assistant/tests/test_owner_feedback_turn.py::test_the_routes_held_recorder_tells_the_model_the_same_truth",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_defect_report_is_written_even_when_the_model_fails"
+    ],
+    "answer": "Yes. app/routes/turn.py _turn hands the owner's words to feedback.held_at_turn(text, branch=branch, session_id=session_id, turn_id=turn_id) after the new instruction's epoch and before _context_lines and the model turn. held_at_turn recognises the sentence (feedback.recognise, the same rule at_turn uses) and, when timeline.current().own is a test session, takes the screen and entity refs of that half and the nearby ids at that moment (feedback.context), and returns RECORDED_LINE, which turn.py appends to the model's prompt, with a writer; with no test session it returns NOT_RECORDED_LINE and a writer that writes nothing. The route calls the writer in the finally around _provider_turn, after timeline.note_names(live.pii_seen) — so the owner_feedback event (shape, the words verbatim, the screen, entities, nearby) is written even when the model raises, and after this turn's reads have named whoever they found (round 9, D1-01) — with ts the time he said it, before the model's. visible._feedback reads owner_feedback events back as recorded (only a recognised sentence with no event is OWNER_FEEDBACK_IGNORED), and report.render prints them in section 15. The end-to-end tests drive POST /turn through the experience harness with nothing calling the recorder in the route's place, and assert exactly one owner_feedback event with that turn_id, text and shape, its ts no later than the model event's, RECORDED_LINE in the model's prompt, the report's (recorded, ignored) == (1, 0), no OWNER_FEEDBACK_IGNORED, and the words in the markdown. One limit, stated: the model is told it is logged when the line is given, before the write; emit refuses an event only if the writer lock cannot be held (round 11, O1-F-01), which is the one case in which he could hear 'logged' for an event not written."
+  },
+  {
+    "finding": "R9-I-tests4-I-02",
+    "parts": [],
+    "status": "FIXED",
+    "question": "Do tests/test_owner_feedback*.py say truthfully whether anything records feedback at turn time, and does a test send a spoken defect through /turn without calling feedback.record in its place?",
+    "files": [
+      "crooks-assistant/tests/test_owner_feedback_turn.py",
+      "crooks-assistant/tests/test_owner_feedback.py",
+      "crooks-assistant/app/observability/feedback.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_owner_feedback_turn.py::test_a_spoken_defect_through_the_turn_route_is_recorded_before_the_model_answers",
+      "crooks-assistant/tests/test_owner_feedback_turn.py::test_a_spoken_defect_through_the_turn_route_reaches_the_report_in_his_words",
+      "crooks-assistant/tests/test_r11_observability.py::test_a_defect_said_through_the_turn_route_is_recorded_against_it_and_reported_as_recorded"
+    ],
+    "answer": "test_owner_feedback_turn.py's module docstring still said the /turn test needed a line in app/routes/turn.py and was a strict expected failure until it landed; the line landed in round 10 and the marker had gone, but the words had not. It now says the route hands the words to feedback.held_at_turn before the model and writes the event once the turn's names are known, keeping the time he said it, so a defect is recorded at turn time; the /turn test now also asserts that time is before the model's. Its last test accepted either reading — recorded (1, 0) or ignored (0, 1) — while the hook was pending; it now asserts (1, 0), no OWNER_FEEDBACK_IGNORED and '1 recorded during the session'. test_owner_feedback.py's docstring already said at_turn records at turn time and was left as it is."
+  },
+  {
+    "finding": "R9-E-families1-E-05",
+    "parts": [
+      "F",
+      "O1"
+    ],
+    "status": "EVIDENCED",
+    "question": "Does any module — including app/observability/visible.py and app/routes/turn.py — still import or name a module deleted with the fast lane, or hold an import that does not resolve, so that startup or test-session capture could fail?",
+    "files": [
+      "crooks-assistant/tests/test_r11_records.py",
+      "crooks-assistant/tests/test_no_dangling_imports.py",
+      "crooks-assistant/app/families/__init__.py",
+      "crooks-assistant/app/capabilities/families.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_records.py::test_every_module_imports_and_every_import_in_them_resolves_and_nothing_names_a_deleted_one",
+      "crooks-assistant/tests/test_r11_records.py::test_every_capability_and_every_change_the_report_names_is_one_this_build_has",
+      "crooks-assistant/tests/test_no_dangling_imports.py::test_every_module_under_app_imports",
+      "crooks-assistant/tests/test_no_dangling_imports.py::test_every_import_of_our_own_code_resolves_to_something_that_exists",
+      "crooks-assistant/tests/test_no_dangling_imports.py::test_no_dotted_name_in_the_code_points_at_a_deleted_module",
+      "crooks-assistant/tests/test_no_dangling_imports.py::test_a_deleted_module_is_really_gone"
+    ],
+    "answer": "No. Two executable checks, SHA-exact, every run. tests/test_no_dangling_imports.py (round 10): every module under app/ imports, app.observability.visible, app.observability.report, app.routes.turn and app.main by name among them; every import statement in app/, experience/, scripts/, tests/ and bench/ — at the top of a file or inside a function — names a module that exists in this tree and every name it imports from one of our modules is there; no dotted string names a deleted module; and each deleted module is really gone. tests/test_r11_records.py adds, in a fresh interpreter under the test configuration: every module under app/, scripts/ and config/ (287 at this commit) is imported; every import of our own modules in them (1,037 statements, the lazy ones inside functions that importing never runs included) resolves to a module that exists and a name it has (hasattr or a submodule spec); no import and no string in the code (docstrings and comments excepted, as history) names a module deleted with the fast lane — the one list, test_no_dangling_imports.DELETED: app.fastpath, app.capabilities.ask/screen/ui_intent, app.families.navigation_extras/order_email/owner_feedback/query_language/self_knowledge/ui_intent, app.speech.normalise, the two experience scenario packs and scripts.bench_lanes (deleted in 4411adde); and app.families.load_all() returns every family module the package holds (load_all only logs a failed family, so this comparison is what would show one). A second test checks every tool the capability table names is registered and every change the report sets against a family names one the table has. Found and left alone, not references: comments in app/presentation.py, app/surfaces.py, app/families/landings.py, app/families/shipping.py, app/tools/gmail_writes.py and web/ui.js still mention the deleted files as history. Start-up under the production configuration is the deploy's own restart and /health (deploy time)."
+  },
+  {
+    "finding": "R9-D1-D1-01",
+    "parts": [
+      "O1"
+    ],
+    "status": "FIXED",
+    "question": "Are customer names redacted from the very first events a turn writes — before any read of the turn has returned them?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/app/observability/feedback.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/tests/test_turn_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_customer_named_aloud_is_redacted_from_what_the_turn_writes_even_before_a_read_names_her",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_defect_report_naming_a_customer_only_this_turns_reads_find_is_written_redacted",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_defect_report_is_written_even_when_the_model_fails"
+    ],
+    "answer": "For the turn's own events, yes. turn._turn calls timeline.note_names(live.pii_seen) before turn_started (the names the conversation has already been shown); the words heard are not emitted when heard but held in heard_event and written by written_heard() only after timeline.note_names(live.pii_seen) has run again with what this turn's reads returned (it keeps the time it was heard); the model event and turn_finished are written after that same call. Timeline.emit scrubs every event (scrub → _redact → turnlog.redact_text with the noted names and by shape) before it is queued, so what is on disk is redacted as written. A read's own arguments are written before the read returns (tool_requested), so dispatch.loggable_args writes the owner's words in them (query, name, customer …) by length and a keyed digest, never as words. The test drives POST /turn with audio heard as 'What has Mia Kowalski ordered?', the model's reads returning her, and asserts no turn_started, stt, model, turn_performance, turn_finished or unsupported_claim event carries 'Kowalski', the stt text carries [name], and the order of times is kept. The owner_feedback event follows the same rule: feedback.held_at_turn recognises a spoken defect and takes the screen he was on before the model is asked (and the model is told it was logged), but returns a writer that the route calls in the finally around _provider_turn, after timeline.note_names(live.pii_seen) has run with what this turn's reads returned; the event keeps the time he said it. So a customer named for the first time inside a defect report ('log that the card for Mia Kowalski shows the wrong order'), whom only this turn's reads find, is written as [name]; the test asserts it, and fails on the round-10 route, which wrote the event before the model. The second test shows the report is written even when the model raises."
+  },
+  {
+    "finding": "R9-A3a-A3a-LIVE-CLEAN",
+    "parts": [
+      "S5"
+    ],
+    "status": "EVIDENCED",
+    "question": "Can the gap ledger's start-up clean lose any of the owner's rows or fields on a record of the live record's shape?",
+    "files": [
+      "crooks-assistant/app/objectives/gaps.py",
+      "crooks-assistant/scripts/gap_clean_check.py",
+      "crooks-assistant/tests/test_r11_records.py",
+      "crooks-assistant/tests/test_gap_clean_property.py",
+      "crooks-assistant/tests/rollback/gaps_3e77f215.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_records.py::test_the_live_gap_records_shape_comes_through_the_real_start_up_byte_for_byte",
+      "crooks-assistant/tests/test_gap_clean_property.py::test_the_ten_row_shape_of_the_live_record_is_cleaned_without_losing_a_row_or_a_field",
+      "crooks-assistant/tests/test_gap_clean_property.py::test_over_odd_records_the_clean_keeps_every_row_or_the_original_and_writes_nothing_it_cannot",
+      "crooks-assistant/tests/test_gap_clean_property.py::test_over_odd_records_the_whole_start_up_forgets_nothing_and_rewrites_nothing_clean",
+      "crooks-assistant/tests/test_gap_clean_property.py::test_the_deploys_check_says_row_by_row_what_start_up_would_do_without_touching_the_record"
+    ],
+    "answer": "No. GapLedger._repair_locked compares the cleaned record with the stored one and writes nothing, and keeps no copy, when they are equal; seed() does not write a record already seeded (_change with forget=False). The live record, by the round-10 deploy check (scripts/gap_clean_check.py against a copy of /var/lib/crooks-assistant/objectives/gaps.json): version 1, ten rows, no builds, no misjudged rows, file unchanged, rows 1–10 'kept as it was', one existing before-clean copy, rollback reader reads it. The new test builds that shape (ten rows under cleaned keys, two with names, seeded, one before-clean copy already beside it) and runs the real start-up — runtime.build's gaps.install(...).seed(objectives.all()) inside main.lifespan, then shutdown — and asserts the file is the same bytes and mtime, there is still exactly one copy, GapLedger.load equals the record field for field, and the vendored 3e77f215 reader loads all ten rows. The property tests hold the same over four hundred odd records."
+  }
+]

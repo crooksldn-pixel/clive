@@ -38,18 +38,25 @@ tap on an older view moves nothing: a pane or screen that has moved on is 409 (`
 screen still waiting for approval is 409 (`not_approved`), and a deletion not yet durable is
 503.
 
-What a screen can have from here (round 9, F-A3B-SCREEN-EVIDENCE; tests/test_screen_paths.py).
-With its cookie, its own record and nothing else: what it shows (both panes, the customer's
-details on an order slip included), its version, its name and its last done row's title and
-time. A key is in no answer at all, only in the cookie, and no answer carries any screen's key
-hash or approval-code hash; an approval code is in the answer to its own naming, for that screen
-to show, and nowhere else. Another screen's record needs that screen's key. What every one of
-the owner's devices has from the owner's routes here, a screen too — it is one of his devices by
-its Tailscale login — is the list of screens (names, whether each is on, the titles up), the
-done record (kind, reference, title, screen, time, login, how), and the remote's view of a
-screen, pane by pane: an order's items (title, variant, quantity, image), a list's lines, an
-objective's words, a video's id and how it plays — never who an order goes to, where, their
-phone or their note. Nothing here reads a conversation, its words or live voice."""
+What a screen can have from here (round 9, F-A3B-SCREEN-EVIDENCE; tests/test_screen_paths.py and
+tests/test_r11_screens_server.py). With its cookie, its own record and nothing else: what it
+shows (both panes, the customer's details on an order slip included), its version, its name and
+its last done row's title and time — each pane cut to the fields its kind has and nothing more,
+whatever the record on disk holds (round 11, DisplayStore._for_screen). A key is in no answer at
+all, only in the cookie, and no answer carries any screen's key hash or approval-code hash; an
+approval code is in the answer to its own naming, for that screen to show, and nowhere else.
+Another screen's record needs that screen's key. What every one of the owner's devices has from
+the owner's routes here, a screen too — it is one of his devices by its Tailscale login — is the
+list of screens (names, whether each is on, the titles up), the done record (kind, reference,
+title, screen, time, login, how), and the remote's view of a screen, pane by pane: an order's
+items (title, variant, quantity, image), a list's lines, an objective's words, a video's id and
+how it plays — never who an order goes to, where, their phone or their note. Nothing here reads
+a conversation, its words or live voice. (What else a device on the owner's login can reach is
+every other owner route of the app: the screens do not change that, app/main.py.)
+
+A screen using the remote's routes is still a screen (round 11, B-04): a done it marks there is
+recorded as a screen's word, not the owner's remote (DisplayStore.screen_device, told by the key
+it carries or the tailnet address its key-holder asks from)."""
 
 from __future__ import annotations
 
@@ -79,7 +86,8 @@ from app.displays.store import (
     TooSoon,
     store,
 )
-from app.routes.actions import principal_check, require_principal
+from app.identity import forwarded_address
+from app.routes.actions import TAILSCALE, principal_check, proxy_state, require_principal
 
 router = APIRouter(prefix="/displays", dependencies=[Depends(require_principal)])
 
@@ -148,12 +156,18 @@ class VideoBody(BaseModel):
 
 
 class PlayingBody(BaseModel):
-    """The screen's own word on how the video on one pane is playing (round 9, YouTube)."""
+    """The screen's own word on how the video on one pane is playing (round 9, YouTube): a
+    state from YouTube's own list, numbers in their bounds, and true or false — strictly, and
+    nothing else at all (round 11: a field the page does not send is refused, 422, so no word
+    of a screen's reaches CLIVE or the remote through here)."""
+
+    model_config = ConfigDict(extra="forbid")
+
     pane: int = Field(ge=0, le=MAX_PANES - 1, strict=True)
     version: int = Field(ge=0, strict=True)
     state: Literal["unstarted", "cued", "buffering", "playing", "paused", "ended"]
-    at: float = Field(ge=0, le=MAX_JUMP_S * 2)
-    duration: float | None = Field(default=None, ge=0, le=MAX_JUMP_S * 2)
+    at: float = Field(ge=0, le=MAX_JUMP_S * 2, strict=True)
+    duration: float | None = Field(default=None, ge=0, le=MAX_JUMP_S * 2, strict=True)
     volume: int | None = Field(default=None, ge=0, le=100, strict=True)
     muted: bool = Field(default=False, strict=True)
     # The screen could play it only muted until someone there presses a button (a browser's rule).
@@ -191,6 +205,17 @@ def _old_screen_key(request: Request) -> str:
     """A key a page kept in its own storage from before the key became a cookie. Read by
     /register alone, and only so that screen can name itself again and be handed the cookie."""
     return request.headers.get("x-screen-key", "")[:200]
+
+
+def _device(request: Request) -> str:
+    """The tailnet address of the device asking, for a request that came through Tailscale
+    (proxy_state, the same decision the owner rule read to let it in); "" for any other. What
+    the store tells a screen from the owner's other devices by, in the remote's routes (round
+    11, B-04, app/displays/store.py screen_device): a page can leave its cookie out, but not
+    change the address Tailscale says it asks from."""
+    if proxy_state(request)[0] != TAILSCALE:
+        return ""
+    return forwarded_address(request.headers.get("x-forwarded-for", ""))[:64]
 
 
 def _handed(content: dict, key: str) -> JSONResponse:
@@ -264,7 +289,8 @@ async def register(body: RegisterBody, request: Request) -> dict | JSONResponse:
     and for one still waiting, a new code). The key it holds is its cookie, or, once, a key a
     page kept from before the cookie (`X-Screen-Key`, round 9, B2-01)."""
     try:
-        screen = store().register(body.name, screen_key=_screen_key(request), old_key=_old_screen_key(request))
+        screen = store().register(body.name, screen_key=_screen_key(request), old_key=_old_screen_key(request),
+                                  device=_device(request))
     except NameTaken as exc:
         return JSONResponse(status_code=409, content={"code": "name_taken", "detail": str(exc)})
     except TooMany as exc:
@@ -301,7 +327,7 @@ async def forget(body: ForgetBody) -> dict | JSONResponse:
 async def poll(screen_id: str, request: Request, v: int = -1) -> dict | Response:
     """What to show. 204 when nothing has changed since version `v`."""
     try:
-        now = store().poll(screen_id, _screen_key(request))
+        now = store().poll(screen_id, _screen_key(request), device=_device(request))
     except NotThisScreen as exc:
         return _not_this_screen(request, exc)
     if now is None:
@@ -416,10 +442,13 @@ async def remote_page(screen_id: str, body: PageBody) -> dict | JSONResponse:
 
 @router.post("/{screen_id}/remote/done", response_model=None)
 async def remote_done(screen_id: str, body: PaneBody, request: Request) -> dict | JSONResponse:
-    """Packed (or done), from the remote: once every item to send is ticked for this version."""
+    """Packed (or done), from the remote: once every item to send is ticked for this version.
+    Asked from a device that is itself one of the screens, it is that screen's word, and the
+    done row says so (round 11, B-04)."""
     who, _ = principal_check(request)
+    from_screen = store().screen_device(_screen_key(request), _device(request)) is not None
     try:
-        store().done_from_remote(screen_id, body.pane, body.version, by=who)
+        store().done_from_remote(screen_id, body.pane, body.version, by=who, from_screen=from_screen)
         return _fresh(store().remote(screen_id))
     except DisplayError as exc:
         return _remote_refusal(exc)

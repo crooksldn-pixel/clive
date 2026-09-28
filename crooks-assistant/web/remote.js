@@ -24,6 +24,11 @@
  * (B2-02), and an answer to anything asked before it is never read (B2-03): only a fresh ask can
  * put anything back. Turning the whole screen off names the version of the screen the owner was
  * looking at when he chose to, so CLIVE refuses it (409, stale) if the screen has changed since.
+ *
+ * Round 11 (S3P-F-01). A finger on the panel holds back only a redraw of what may still be shown.
+ * A pane that passes CLIVE's own limit leaves the panel, and everything the page holds of it, the
+ * moment it does — timed to that moment, whether or not an ask is answered — and so does a pane
+ * CLIVE no longer shows (taken off, put up afresh, or marked done), finger or no finger.
  */
 'use strict';
 
@@ -40,6 +45,7 @@
   const R = {
     id: '', name: '', open: false, data: null, gen: 0, timer: 0, polling: false, ctl: null, shown: null,
     lastOk: 0, skew: 0, gone: '', note: '', held: false, heldAt: 0, dirty: false, confirm: null, busy: false, ui: null,
+    drawn: [], expiry: 0,
   };
 
   const doc = () => root.document;
@@ -471,14 +477,60 @@
     if (!d) return 'Asking the screen…';
     return d.online ? 'On · following the screen' : 'Off · it catches up when it’s next on';
   }
+  // A pane as the panel draws it: its place, the version it was put up at, and whether it is done
+  // (a done pane is CLIVE's summary alone). Ticks and pages change none of these.
+  function paneKey(p) { return p.pane + ':' + p.v + ':' + (p.done_at ? 'done' : ''); }
+  // A pane older than CLIVE keeps anything up is let go of here the moment it passes that limit
+  // (round 11, S3P-F-01): taken out of what the remote holds — the last answer (R.data) and the
+  // view drawn from it (R.shown), which are not always the same answer while a finger holds the
+  // redraw. True when anything went.
+  function expire() {
+    let gone = false;
+    for (const d of [R.data, R.shown]) {
+      if (!d || !Array.isArray(d.panes)) continue;
+      const kept = d.panes.filter(fresh);
+      if (kept.length !== d.panes.length) { d.panes = kept; gone = true; }
+    }
+    return gone;
+  }
+  // Whether a pane drawn on the panel is no longer in what CLIVE says the screen shows as it was
+  // drawn: past its time, taken off, put up afresh, or marked done.
+  function leaving() {
+    if (!R.drawn.length) return false;
+    const now = new Set((R.data && Array.isArray(R.data.panes) ? R.data.panes.filter(fresh) : []).map(paneKey));
+    return R.drawn.some((k) => !now.has(k));
+  }
+  // The panel is looked at again the moment the soonest pane drawn on it passes CLIVE's limit, so
+  // it leaves then, whether or not an ask is answered meanwhile.
+  function watchExpiry(panes) {
+    clearTimeout(R.expiry);
+    R.expiry = 0;
+    let soonest = Infinity;
+    for (const p of panes) {
+      const at = Date.parse((p && p.at) || '');
+      if (!isNaN(at)) soonest = Math.min(soonest, at + SHOW_KEEP_MS - serverNow());
+    }
+    if (soonest !== Infinity && R.open) R.expiry = setTimeout(() => { R.expiry = 0; render(); }, Math.max(0, soonest) + 20);
+  }
   // `now`: drawn at once even under a finger (a wipe, round 10, B2-02). Otherwise a finger on the
-  // panel holds the redraw until it lifts, so a control never moves under it.
+  // panel holds the redraw until it lifts, so a control never moves under it — but only a redraw
+  // of what may still be shown: a pane past CLIVE's limit, or gone from the screen, leaves the
+  // panel and what the page holds at once, under a finger or not (round 11, S3P-F-01).
   function render(now) {
     const U = R.ui;
     if (!U || !R.open) return;
+    const privacy = expire() || leaving();
     // A hold whose lift was never seen does not freeze the panel: it lapses after two seconds.
-    if (!now && R.held && Date.now() - R.heldAt < 2000) { R.dirty = true; return; }
-    if (!now) R.held = false;
+    // A held redraw still sets the expiry timer again for what is drawn: an answer since the last
+    // full redraw may have moved CLIVE's clock, and the timer set then may already have fired on a
+    // pane that was still, by a few milliseconds, within its time (the round-11 check, S3P-F-01).
+    if (!now && !privacy && R.held && Date.now() - R.heldAt < 2000) {
+      R.dirty = true;
+      watchExpiry(R.shown && Array.isArray(R.shown.panes) ? R.shown.panes.filter(fresh) : []);
+      return;
+    }
+    if (!now && !privacy) R.held = false;
+    R.dirty = false;
     const d = R.data;
     R.shown = d;
     U.name.textContent = R.name || 'Screen';
@@ -490,6 +542,8 @@
     clear(U.panes);
     const panes = d && Array.isArray(d.panes) ? d.panes.filter(fresh) : [];
     panes.forEach((p) => U.panes.appendChild(paneGroup(p, panes.length)));
+    R.drawn = panes.map(paneKey);
+    watchExpiry(panes);
     if (d && !panes.length) {
       const empty = h('div', 'rm-empty');
       empty.appendChild(h('p', 'rm-empty-t', 'Nothing on the screen'));
@@ -680,6 +734,9 @@
     R.open = false;
     R.gen++;
     clearTimeout(R.timer);
+    clearTimeout(R.expiry);
+    R.expiry = 0;
+    R.drawn = [];
     if (R.ctl) { try { R.ctl.abort(); } catch (e) { /* already settled */ } }
     R.ctl = null;
     R.polling = false;

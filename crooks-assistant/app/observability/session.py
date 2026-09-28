@@ -8,16 +8,44 @@ timeline beside them holds what the owner said and what was answered."""
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
 import re
 import stat
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 _log = logging.getLogger("crooks.observe")
+
+
+class Interrupted(Exception):
+    """Housekeeping was asked to stop — the service is shutting down — and the walk it was on
+    ended at the next entry it came to (round 11, R9-A3b-F-04-SHUTDOWN)."""
+
+
+# The stop asked of the housekeeping pass running in this thread (app/main.py sets it for the
+# pass it runs, and shutdown sets the event). Every walk here over sessions and reports reads it
+# before each entry, so a pass asked to stop ends within one filesystem call however many files
+# there are: a stop read only BETWEEN a pass's steps left one long step — an age or a report
+# check over a big folder — to run on past the unit's deadline, with the runtime left open under
+# it (round 11). A context variable, so nothing else is ever stopped by it: a turn's own roll of
+# the day, a command's prune, a test calling these directly see none.
+HOUSEKEEPING_STOP: contextvars.ContextVar[threading.Event | None] = contextvars.ContextVar(
+    "crooks_housekeeping_stop", default=None)
+
+
+def checkpoint() -> None:
+    """Raise Interrupted if the housekeeping running here has been asked to stop. Called only
+    between whole filesystem changes — never between the move and the check of a prune
+    (_unlink_if_aged), which must finish once begun — so what an interrupted walk leaves is what
+    a walk that had not reached the rest yet would leave."""
+    stop = HOUSEKEEPING_STOP.get()
+    if stop is not None and stop.is_set():
+        raise Interrupted("housekeeping stopped early for shutdown")
 
 DIR_NAME = "test-sessions"
 ACTIVE_FILE = "active.json"
@@ -145,7 +173,11 @@ def _remove_if_older(path: Path, cutoff: float) -> int:
     past the cutoff, or one that cannot be looked at, keeps the whole folder. The removal then
     goes file by file, each removed only if it is still the very file that was looked at and still
     old (_unlink_if_aged), and a folder only by rmdir, which refuses one that is not empty:
-    something written while it runs stops it, and is kept."""
+    something written while it runs stops it, and is kept.
+
+    Housekeeping asked to stop ends it before the next entry (checkpoint): an old folder half
+    emptied is only old files gone, and the next pass takes the rest."""
+    checkpoint()
     try:
         top = os.lstat(path)
     except OSError:
@@ -159,6 +191,7 @@ def _remove_if_older(path: Path, cutoff: float) -> int:
         return 0
     try:
         for entry, is_dir in order:
+            checkpoint()
             if is_dir:
                 os.rmdir(entry)
             elif not _unlink_if_aged(entry, cutoff):
@@ -226,6 +259,7 @@ def _expired_tree(top: Path, cutoff: float) -> list[tuple[Path, bool]] | None:
         if failed:
             return None
         for name in [*files, *dirs]:
+            checkpoint()
             entry = Path(here) / name
             try:
                 info = os.lstat(entry)
@@ -320,6 +354,7 @@ def tighten(folder: Path) -> Exposure:
         return Exposure(exposed, [str(getattr(exc, "filename", folder) or folder)])
     for here, dirs, files in os.walk(folder, onerror=lambda exc: unread.append(str(exc.filename or ""))):
         for name in [*dirs, *files]:
+            checkpoint()     # a check stopped part way is not a clean one: tidy_reports says so
             path = Path(here) / name
             if path.is_symlink():
                 linked.append(path)
@@ -375,6 +410,7 @@ def withhold(folder: Path, exposed: list[Path]) -> tuple[int, list[Path]]:
     left: list[Path] = []
     withheld = 0
     for path in exposed:
+        checkpoint()
         if path == folder:
             left.append(path)   # the folder itself: nowhere to move it to
             continue
@@ -628,6 +664,12 @@ class TestSessions:
             return 0
         try:
             return self._tidy_reports(now)
+        except Interrupted:
+            # Stopped part way for shutdown: not a check that ran to its end, so not contained, and
+            # said as what it was. The pass that asked is ending; it is told too.
+            self.tidy_problem = "the report check stopped early for shutdown"
+            self.tidy_contained = False
+            raise
         except Exception as exc:  # noqa: BLE001 - said, and not contained, whatever it was
             self.tidy_problem = f"the reports could not be checked ({type(exc).__name__})"
             self.tidy_contained = False

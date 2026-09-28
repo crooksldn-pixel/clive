@@ -625,6 +625,53 @@ async def test_a_customer_named_aloud_is_redacted_from_what_the_turn_writes_even
     assert heard["ts"] <= model["ts"] <= finished["ts"]
 
 
+async def test_a_defect_report_naming_a_customer_only_this_turns_reads_find_is_written_redacted(shop, recording):
+    """Closes the gap the round-11 records fixer left open on D1-01. A spoken defect was written
+    to the always-on timeline before the model was asked — so a customer he named in it, whom
+    only this turn's reads went on to find, was on disk raw: nothing had told the timeline her
+    name yet. The feedback is still taken against the screen he was on before the model, and
+    the model is still told it was logged, but the event is written once the reads' names are
+    known, keeping the time he said it."""
+    line, store, session = recording
+    said = "log that the card for Mia Kowalski shows the wrong order"
+    lookup = reads(("shopify_find_customer", {"query": "Kowalski"}),
+                   ("shopify_customer_history", {"customer_id": found_customer}))
+    shop.model.steps = [lookup]
+    body = await say(shop, said, "fb-named")
+    assert "Mia Kowalski" in shop.runtime.sessions.get("fb-named").pii_seen
+
+    line.flush(2.0)
+    events = [json.loads(x) for x in store.timeline_path(session).read_text(encoding="utf-8").splitlines() if x.strip()]
+    recorded = [e for e in events if e.get("kind") == "owner_feedback" and e.get("session_id") == "fb-named"]
+    assert len(recorded) == 1, [e.get("kind") for e in events]
+    written = json.dumps(recorded[0])
+    assert "Kowalski" not in written, f"the defect report wrote the name raw: {written[:300]}"
+    assert "[name]" in recorded[0]["text"] and recorded[0]["shape"] == "log"
+    assert recorded[0]["turn_id"] == body.get("turn_id")
+    # Written late, it keeps the time he said it: before the model answered.
+    model = next(e for e in events if e.get("kind") == "model" and e.get("session_id") == "fb-named")
+    assert recorded[0]["ts"] <= model["ts"]
+
+
+async def test_a_defect_report_is_written_even_when_the_model_fails(shop, recording):
+    """The model failing is when a defect report matters most: the event is written in the
+    route's `finally`, not after a successful answer."""
+    line, store, session = recording
+
+    async def broken(session_, calls, text):
+        raise RuntimeError("the model fell over")
+
+    shop.model.steps = [broken]
+    try:
+        await shop.post("/turn", json={"text": "log that the back button is broken", "session_id": "fb-broken"}, headers=PROXIED)
+    except RuntimeError:
+        pass   # however the route answers a model that raised, the report must already be written
+    line.flush(2.0)
+    events = [json.loads(x) for x in store.timeline_path(session).read_text(encoding="utf-8").splitlines() if x.strip()]
+    assert [e.get("text") for e in events if e.get("kind") == "owner_feedback" and e.get("session_id") == "fb-broken"] == [
+        "log that the back button is broken"]
+
+
 # ------------------------------------ every write the model can reach, at the same boundary (D1-03)
 
 # What the model can reach that moves money. The fast lane never wrote (its recipes were
@@ -708,25 +755,44 @@ async def test_a_change_staged_by_an_answer_the_owner_has_moved_on_from_is_withd
 # ------------------------------- what the owner named, not what was open (D2-05, I-tests2 I-02)
 
 
-async def test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it(shop):
-    """"What's the status of 1940" with #1938 open. The fast lane refused to answer that from
-    the open order in code; the model is now told, beside the open record, that a number he
-    says is the record he means — and the screen is drawn only from what the model read, so
-    the card and the cursor are #1940's, and nothing on the Mac read #1938 for the sentence."""
+def reads_the_number_said() -> Step:
+    """Claude reading the order the owner's words name — whichever that is. Nothing in it is
+    fixed to an order (round 9, I-tests2 I-03: a model that always read the same order could not
+    show that the one ASKED for is what is read and drawn)."""
+    import re
+
+    async def step(session, calls, text):
+        number = re.search(r"\b(\d{4})\b", text.split("\n")[1]).group(1)
+        return await show_order(number)(session, calls, text)
+    return step
+
+
+@pytest.mark.parametrize(("open_number", "asked_number"), [("1938", "1940"), ("1940", "1938")])
+async def test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it(shop, open_number, asked_number):
+    """"What's the status of 1940" with #1938 open, and the other way round. The fast lane
+    refused to answer that from the open order in code; the model is now told, beside the open
+    record, that a number he says is the record he means — and the screen is drawn only from
+    what the model read, so the card and the cursor are the asked-for order's, and nothing on
+    the Mac read the open one for the sentence. The model reads whichever number was said, so
+    the order drawn is the one requested, not one the script fixed (round 9, I-tests2 I-03)."""
     from app.routes.turn import NAMED_OUTRANKS_SHOWN
 
-    shop.model.steps = [show_order("1938"), show_order("1940")]
-    await say(shop, "show me order 1938", "num")
+    refs = {"1938": A, "1940": B}
+    sid = f"num-{asked_number}"
+    shop.model.steps = [show_order(open_number), reads_the_number_said()]
+    await say(shop, f"show me order {open_number}", sid)
     before = len(shop.store.queries)
-    body = await say(shop, "what's the status of 1940", "num")
+    said = f"what's the status of {asked_number}"
+    body = await say(shop, said, sid)
 
     prompt = shop.model.prompts[-1]
-    assert prompt.split("\n")[1] == "what's the status of 1940"
+    assert prompt.split("\n")[1] == said
     assert NAMED_OUTRANKS_SHOWN in prompt
-    assert ("order", B) in records(body) and ("order", A) not in records(body)
-    assert body["branch"]["entity"]["ref"] == B
+    assert ("order", refs[asked_number]) in records(body) and ("order", refs[open_number]) not in records(body)
+    assert body["branch"]["entity"]["ref"] == refs[asked_number]
+    assert body["answer"] == "Here it is.", "the model's answer about the order asked for is what he hears"
     turn_reads = json.dumps(shop.store.queries[before:])
-    assert A not in turn_reads, "the Mac read the open order for a sentence about another"
+    assert refs[open_number] not in turn_reads, "the Mac read the open order for a sentence about another"
 
 
 async def test_a_question_the_model_answers_in_words_does_not_redraw_the_open_order(shop):

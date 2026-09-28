@@ -314,17 +314,26 @@ pattern rather than being a feature of its own:
 | Archive a thread | AMBER, undo | tap | the INBOX label gone |
 
 Every sentence you say or type goes to Claude exactly as you said it, and Claude decides
-whether to look an order up; nothing on the Mac matches your words or reads an order in front
-of it (the owner's decision of 28 September 2026). When Claude does read an order, the card
-shows the whole of it — items with images, money, address, the customer's history and their
-email, and what the order needs (unshipped for days, oversold, cancelled but not refunded, an
-email from the customer read for what it is about). The card's rail offers only the changes
-that make sense for that order and that the store has granted this Mac. Name the order or the
-person you mean: the record on screen is only where you are, and what you name is what Claude
-looks up. Say a bare "yes" or "go ahead" while a card is waiting and the Mac answers, without
-Claude, that nothing happens until the gesture; the card stays. Anything more — "yes, #1938",
-"yes, the one for Sam" — is a new instruction: it goes to Claude, and the waiting card is
-withdrawn. If a gesture from where you are would be refused, the card says so first.
+whether to look an order up: nothing on the Mac looks anything up from your words, or answers
+in Claude's place, before Claude is asked (the owner's decision of 28 September 2026). Saying
+an order number does not make the Mac read that order; it makes Claude read it, if Claude
+decides that is what you asked. The Mac reads your words only to answer a bare "yes" while a
+card is waiting (below), and to put short notes beside them for Claude: whether you asked for a
+draft or a send, a change it knows it cannot make, which of its tools does what you asked for,
+and — during a test session — that you reported a fault with the assistant, which it records.
+None of those is a lookup, and none replaces your words. A tap is not a sentence: a dock icon
+or a form field names the fixed reads it makes, and a read cannot change anything.
+
+When Claude does read an order, the card shows the whole of it — items with images, money,
+address, the customer's history and their email, and what the order needs (unshipped for days,
+oversold, cancelled but not refunded, an email from the customer read for what it is about).
+The card's rail offers only the changes that make sense for that order and that the store has
+granted this Mac. Name the order or the person you mean: the record on screen is only where you
+are, and what you name is what Claude looks up. Say a bare "yes" or "go ahead" while a card is
+waiting and the Mac answers, without Claude, that nothing happens until the gesture; the card
+stays. Anything more — "yes, #1938", "yes, the one for Sam" — is a new instruction: it goes to
+Claude, and the waiting card is withdrawn. If a gesture from where you are would be refused,
+the card says so first.
 
 What holds it together, and what the tests hold:
 

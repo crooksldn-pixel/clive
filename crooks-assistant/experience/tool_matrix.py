@@ -7,14 +7,18 @@ cannot be decided it says so rather than being filled in optimistically:
     REGISTERED        the tool is in app/tools/registry.py
     ROUTABLE          something other than the model's free choice reaches it — a tap
                       recipe's read primitives, a semantic command, or a capability family
-    DIRECTLY TESTED   a test CALLS this tool: its code — not a comment, not a docstring —
-                      passes the tool's name to a call (registry.get, dispatch, classify, the
-                      action engine; directly, through a variable or loop variable holding it,
-                      or inside a literal argument such as a tool-call fixture), or calls the
-                      tool's handler function by name. The citation is printed; a test that
-                      only mentions a tool — in a comment, a docstring, an assertion about a
-                      list of names, or a monkeypatch that replaces it — does not count, and a
-                      tool with no citation is reported untested, which is honest
+    DIRECTLY TESTED   a test RUNS this tool: its code — not a comment, not a docstring —
+                      hands the tool's name to the dispatcher (app/tools/dispatch.py), to
+                      `registry.invoke` or to the SDK provider's callback, directly, through a
+                      variable, loop variable or app constant holding it, or through a helper
+                      of the test's own that hands it on; or calls the tool's handler function
+                      by name. The citation is printed. Nothing else counts (the 2026-09-28
+                      deploy review, round 9, I-tests5 I-05): looking the tool up in the
+                      registry, asking the gate to classify a call, drawing a card from a tool
+                      call the test made up, a mention in a comment, a docstring or an
+                      assertion about names, a monkeypatch that replaces it, or the provider's
+                      callback in a test that has replaced the dispatcher behind it. A tool
+                      with no citation is reported untested, which is honest
     AUTH-SCOPE        the Shopify or Gmail scope its capability family declares
     READ-WRITE        read, write or batch, from the spec
     STAGING           a write's WriteSpec is complete: prepare, observe, execute, present
@@ -78,25 +82,33 @@ def _named(name: str, text: str) -> bool:
 
 # ------------------------------------------------------------------ what a test's code does
 
-# Calls that hold, count or compare names rather than call what they name — and a monkeypatch
-# that REPLACES a tool, which is the opposite of testing it.
-_NOT_CALLING = frozenset({
-    "setattr", "delattr", "setitem", "delitem", "patch", "object",
-    "len", "set", "frozenset", "sorted", "list", "tuple", "dict", "isinstance", "print",
-    "str", "repr", "format", "join", "startswith", "endswith",
-})
+# The calls that RUN a tool named by their first argument: the dispatcher every tool call goes
+# through (app/tools/dispatch.py), and the registry's own invocation of a handler. Nothing else
+# a test does with a tool's name runs it — looking its spec up (`registry.get`), asking the
+# gate about a call (`classify`), drawing a card from a tool call the test made up (`present`),
+# counting or comparing names, or monkeypatching the tool away — and none of those counts (the
+# 2026-09-28 deploy review, round 9, I-tests5 I-05 and H-06).
+_RUNS_A_TOOL = frozenset({("app.tools.dispatch", "dispatch"), ("app.tools.registry", "invoke")})
+# The Agent SDK provider's callback, which hands the SDK's tool call to the dispatcher
+# (app/providers/max_agent_sdk.py `MaxAgentSDKProvider._dispatch`); a method, so it is known
+# by its name on whatever object holds it.
+_RUNS_A_TOOL_METHODS = frozenset({"_dispatch"})
+# Where a call to one of those names the tool.
+_TOOL_KEYWORDS = frozenset({"tool_name", "name"})
 
 
 @dataclass
 class Citations:
-    """What one test file's code does with names, read from its syntax tree: the strings that
-    reach a call as an argument, and the functions it calls (as module and name)."""
+    """What one test file's code does with names, read from its syntax tree: the strings it
+    hands to the dispatcher or to `registry.invoke` as the tool to run, and the functions it
+    calls (as module and name)."""
 
     call_strings: set[str] = field(default_factory=set)
     calls: set[tuple[str, str]] = field(default_factory=set)
 
     def calls_tool(self, name: str, module: str, function: str) -> bool:
-        """Whether the test calls the tool: passes its name to a call, or calls its handler."""
+        """Whether the test RUNS the tool: hands its name to the dispatcher or to the registry's
+        invocation, or calls its handler function itself."""
         return name in self.call_strings or (module, function) in self.calls
 
 
@@ -209,11 +221,76 @@ def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> C
                     if argname.strip() and values:
                         one.setdefault(argname.strip(), set()).update(values)
 
+    def runs_a_tool(func: ast.AST) -> bool:
+        """The dispatcher, `registry.invoke` or the provider's callback — however it was
+        imported: by name, through its module, or through an alias of either."""
+        if isinstance(func, ast.Name):
+            return imported.get(func.id) in _RUNS_A_TOOL
+        if isinstance(func, ast.Attribute):
+            if func.attr in _RUNS_A_TOOL_METHODS:
+                return True
+            module = module_of(func.value)
+            return module is not None and (module, func.attr) in _RUNS_A_TOOL
+        return False
+
+    # A test's own helper that hands one of its parameters to the dispatcher as the tool
+    # (`async def stage(session, tool, **args): ... await dispatch(tool, args, ...)`) runs the
+    # tool a call to it names: helper -> the positions and names of those parameters. Followed
+    # through helpers of helpers; only the file's module-level functions, so a nested function
+    # of the same name elsewhere is not mistaken for one.
+    helpers = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    forwards: dict[str, set[tuple[int, str]]] = {}
+
+    def tool_arguments(call: ast.Call) -> list[ast.AST]:
+        """The arguments of this call that name the tool it runs; none if it runs none. The
+        arguments the tool is given are not tools, whatever strings they hold."""
+        if runs_a_tool(call.func):
+            return [*call.args[:1], *(k.value for k in call.keywords if k.arg in _TOOL_KEYWORDS)]
+        if isinstance(call.func, ast.Name) and call.func.id in forwards:
+            held_at = forwards[call.func.id]
+            positions = {i for i, _ in held_at}
+            names = {n for _, n in held_at}
+            return [*(a for i, a in enumerate(call.args) if i in positions),
+                    *(k.value for k in call.keywords if k.arg in names)]
+        return []
+
+    changed = True
+    while changed:
+        changed = False
+        for name, fn in helpers.items():
+            params = [a.arg for a in (*fn.args.posonlyargs, *fn.args.args)]
+            keyword_only = {a.arg for a in fn.args.kwonlyargs}
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.Call):
+                    continue
+                for argument in tool_arguments(node):
+                    if not isinstance(argument, ast.Name):
+                        continue
+                    if argument.id in params:
+                        entry = (params.index(argument.id), argument.id)
+                    elif argument.id in keyword_only:
+                        entry = (-1, argument.id)
+                    else:
+                        continue
+                    if entry not in forwards.setdefault(name, set()):
+                        forwards[name].add(entry)
+                        changed = True
+
+    # The provider's callback hands the call on to the dispatcher its own module imported. A test
+    # that replaces that dispatcher (`monkeypatch.setattr(max_agent_sdk, "dispatch", stub)`) is
+    # testing the callback's own refusals, and no tool runs behind it: a call to the callback in
+    # the function that does so does not count (tests/test_provider.py's cancelled-turn tests).
+    not_run: set[int] = set()
+    for fn in nodes:
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and "dispatch" in _replaced(fn):
+            not_run |= {id(n) for n in ast.walk(fn) if isinstance(n, ast.Call)
+                        and isinstance(n.func, ast.Attribute) and n.func.attr in _RUNS_A_TOOL_METHODS}
+
     for node in nodes:
         if not isinstance(node, ast.Call):
             continue
-        if _callee(node.func) not in _NOT_CALLING:
-            for argument in [*node.args, *(keyword.value for keyword in node.keywords)]:
+        if id(node) not in not_run:
+            for argument in tool_arguments(node):
                 code.call_strings.update(strings(argument))
         if isinstance(node.func, ast.Name) and node.func.id in imported:
             code.calls.add(imported[node.func.id])
@@ -222,6 +299,22 @@ def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> C
             if module is not None:
                 code.calls.add((module, node.func.attr))
     return code
+
+
+def _replaced(fn: ast.AST) -> set[str]:
+    """The names a function replaces with `setattr` (a monkeypatch's, or the builtin): the
+    attribute named by `setattr(target, "name", value)`, or the last part of a dotted
+    `setattr("module.name", value)`."""
+    names: set[str] = set()
+    for node in ast.walk(fn):
+        if not (isinstance(node, ast.Call) and _callee(node.func) == "setattr" and node.args):
+            continue
+        first = node.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            names.add(first.value.rsplit(".", 1)[-1])
+        elif len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str):
+            names.add(node.args[1].value)
+    return names
 
 
 def _callee(func: ast.AST) -> str:
@@ -635,10 +728,13 @@ def markdown() -> str:
         "disagree.",
         "",
         "Every column is read from the thing that decides it. **DIRECTLY TESTED** means a test",
-        "CALLS the tool — its code passes the tool's name to a call, or calls the tool's handler",
-        "— and the file that does is cited. A test that only mentions the tool, in a comment, a",
-        "docstring, an assertion about a list of names or a monkeypatch that replaces it, does",
-        "not count, so a tool whose unit tests pass but which no test calls is reported as",
+        "RUNS the tool — its code hands the tool's name to the dispatcher, to `registry.invoke`",
+        "or to the SDK provider's callback (itself or through a helper of its own), or calls the",
+        "tool's handler — and the file that does is cited. Looking the tool up in the registry,",
+        "asking the gate to classify a call, drawing a card from a made-up tool call, a comment,",
+        "a docstring, an assertion about a list of names, a monkeypatch that replaces it, or the",
+        "provider's callback in a test that replaced the dispatcher behind it does not count, so a",
+        "tool whose unit tests pass but which no test runs is reported as",
         "untested. **GOLDEN SCENARIO** is read the same way from the scenarios' code: a scenario",
         "counts when it hands the tool to the model it scripts or to a call, or taps a control that",
         "reads or stages it — never for naming it in an assertion or a description — and a write",

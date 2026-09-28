@@ -148,6 +148,14 @@ async def focus(request: Request, branch_id: str, session_id: str = Form(default
     if branch_id not in session.branches:
         return _refuse(404, "unknown_branch", "There is no such branch in this conversation.")
     branch = session.branches[branch_id]
+    if branch.status in ("MERGED", "CANCELLED"):
+        # A half that is over is kept for a while only so a card still on the glass can be
+        # settled against it. A stale chip tapped after a merge or a close used to make it the
+        # focused half again: the next sentence posted without a half was then answered on a
+        # half nobody could see, and any change it staged could never be applied ("that half
+        # is closed"). Showing it is already refused (`branch.show`), and so is moving its
+        # trail (`_step`); focusing it is refused the same way (round 9, I-tests3 I-03).
+        return _refuse(409, "branch_closed", f"That half is {branch.status.lower()}. Tap the one that is open.")
     if branch.status == "BACKGROUND":
         branch.status = "ACTIVE"
     session.focus_branch(branch_id)

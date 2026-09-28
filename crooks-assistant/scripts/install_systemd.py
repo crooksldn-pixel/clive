@@ -98,6 +98,14 @@ def preflight() -> list[str]:
 
 
 def install(port: int) -> int:
+    """Install, start, and keep the new unit only if the service it runs passes every gate.
+
+    Each gate after the unit file is written — systemd reloading it, enabling it, restarting on
+    it, /health answering, and what must be true of the process now running (running_problems) —
+    aborts the install with exit 1, and first rolls back what the install changed (round 10,
+    R9-A1b-F-05B-AVAIL-PREFLIGHT): the unit file as it was (or none), whether it starts at boot,
+    and the service as that unit had it, running or stopped. The code in this checkout is not
+    this command's to roll back; the deploy that fetched it does that."""
     problems = preflight()
     for problem in problems:
         print(f"  FAIL   {problem}")
@@ -106,6 +114,7 @@ def install(port: int) -> int:
 
     lc.LOG_DIR.mkdir(parents=True, exist_ok=True)
     target = lc.SYSTEMD_UNIT_PATH
+    before = Before.read(target)
     target.write_text(rendered_unit(), encoding="utf-8")
     target.chmod(0o644)
     print(f"  ok     unit → {target}")
@@ -113,18 +122,18 @@ def install(port: int) -> int:
     out = systemctl("daemon-reload")
     if out.returncode != 0:
         print(f"  FAIL   daemon-reload: {(out.stderr or out.stdout).strip()}")
-        return 1
+        return roll_back(before)
     out = systemctl("enable", lc.SERVICE_UNIT)
     if out.returncode != 0:
         print(f"  FAIL   enable: {(out.stderr or out.stdout).strip()}")
-        return 1
+        return roll_back(before)
     print(f"  ok     {lc.SERVICE_UNIT} enabled (starts at boot)")
     # restart, not start: a reinstall over a running service must pick up the new unit.
     out = systemctl("restart", lc.SERVICE_UNIT)
     if out.returncode != 0:
         print(f"  FAIL   start: {(out.stderr or out.stdout).strip()}")
         print(f"         look in: journalctl -u {lc.SERVICE_UNIT} -n 50")
-        return 1
+        return roll_back(before)
     print(f"  ok     {lc.SERVICE_UNIT} started")
 
     host, note = lc.ensure_serve(port)
@@ -134,16 +143,70 @@ def install(port: int) -> int:
     print(f"  health {lc.summarise_health(health)}")
     if health is None:
         print(f"         look in: journalctl -u {lc.SERVICE_UNIT} -n 50")
-        return 1
+        return roll_back(before)
     problems = running_problems(health)
     for problem in problems:
         print(f"  FAIL   {problem}")
     if problems:
         print(f"         the install is not done; look in: journalctl -u {lc.SERVICE_UNIT} -n 50")
-        return 1
+        return roll_back(before)
     print("  ok     running with --no-proxy-headers, and /health says it can tell who opened each connection")
     print("\n  Done. It starts on boot and restarts on failure. Open the address above.")
+    print("  Then, on the owner's phone, open /whoami at that address: it must say \"owner\": true, and")
+    print(f"  `journalctl -u {lc.SERVICE_UNIT} | grep 'whoami: id=<its check>'` must show the same line.")
     return 0
+
+
+class Before:
+    """What the install is about to change, read before it changes it: the unit file's bytes (None
+    when there was none), and whether the unit was enabled and active."""
+
+    def __init__(self, unit: bytes | None, enabled: bool, active: bool) -> None:
+        self.unit, self.enabled, self.active = unit, enabled, active
+
+    @classmethod
+    def read(cls, target: Path) -> Before:
+        unit = target.read_bytes() if target.is_file() else None
+        enabled = systemctl("is-enabled", lc.SERVICE_UNIT).stdout.strip() == "enabled"
+        active = systemctl("is-active", lc.SERVICE_UNIT).stdout.strip() == "active"
+        return cls(unit, enabled, active)
+
+
+def roll_back(before: Before) -> int:
+    """Put back what install() changed, say each step, and return the install's failure (1). The
+    unit file as it was, or none; systemd told; enabled at boot as it was; and the service as that
+    unit had it — restarted on the old unit if it was running, stopped if it was not. A step that
+    fails is said, and the rest are still tried."""
+    target = lc.SYSTEMD_UNIT_PATH
+    steps: list[tuple[str, bool]] = []
+    if before.unit is None:
+        steps.append(("stop", systemctl("stop", lc.SERVICE_UNIT).returncode == 0))
+        steps.append(("disable", systemctl("disable", lc.SERVICE_UNIT).returncode == 0))
+        try:
+            target.unlink(missing_ok=True)
+            steps.append(("unit removed (there was none before)", True))
+        except OSError:
+            steps.append(("unit removed (there was none before)", False))
+        steps.append(("daemon-reload", systemctl("daemon-reload").returncode == 0))
+    else:
+        try:
+            target.write_bytes(before.unit)
+            target.chmod(0o644)
+            steps.append(("unit put back as it was", True))
+        except OSError:
+            steps.append(("unit put back as it was", False))
+        steps.append(("daemon-reload", systemctl("daemon-reload").returncode == 0))
+        if not before.enabled:
+            steps.append(("disable (it was not enabled)", systemctl("disable", lc.SERVICE_UNIT).returncode == 0))
+        if before.active:
+            steps.append(("restart on the unit as it was", systemctl("restart", lc.SERVICE_UNIT).returncode == 0))
+        else:
+            steps.append(("stop (it was not running)", systemctl("stop", lc.SERVICE_UNIT).returncode == 0))
+    for step, ok in steps:
+        print(f"  {'undone' if ok else 'FAIL  '} {step}")
+    print("  The install is rolled back." if all(ok for _step, ok in steps)
+          else "  The install is NOT fully rolled back: see the steps above.")
+    return 1
 
 
 def running_argv(unit: str = lc.SERVICE_UNIT) -> list[str] | None:
@@ -177,6 +240,12 @@ def running_problems(health: dict | None) -> list[str]:
     if not isinstance(check, dict) or check.get("ok") is not True:
         detail = check.get("detail") if isinstance(check, dict) else "no proxy_identity check in the answer"
         problems.append(f"/health checks.proxy_identity is not ok: {detail}")
+    # And this host can tell a request it sent itself from the owner's device (round 10, S1T-01):
+    # its address tables hold the Tailscale interface's own addresses. Without it every forwarded
+    # request is refused; the install says so here rather than leave it to his phone.
+    ok, why = identity.tailnet_self_check()
+    if not ok:
+        problems.append(f"this host cannot tell its own requests from the owner's devices: {why}")
     return problems
 
 

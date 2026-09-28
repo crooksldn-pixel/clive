@@ -687,14 +687,17 @@ def reconstruct(events: list[dict[str, Any]], *, capability_states: dict[str, di
             turn = turn_for(event)
             if turn is not None:
                 turn.tablet.append(event)
-                pid = str(event.get("proposal_id") or "")
+                # A page names a proposal by the id the Mac gave it, an identifier; anything else a
+                # page put there names no proposal and is never made one (round 11, F-OBS2-01: the
+                # action engine's table prints every proposal's id).
+                pid = _page_id(event.get("proposal_id"))
                 if pid:
                     proposal_for({"proposal_id": pid}).tablet.append(event)
                 if kind == "tablet_render":
                     # A render names the proposals whose cards it drew, inside the cards.
                     for c in event.get("cards") or []:
-                        if isinstance(c, dict) and c.get("proposal_id"):
-                            proposal_for({"proposal_id": str(c["proposal_id"])}).tablet.append(event)
+                        if isinstance(c, dict) and _page_id(c.get("proposal_id")):
+                            proposal_for({"proposal_id": _page_id(c["proposal_id"])}).tablet.append(event)
             else:
                 orphans.append(event)
         elif kind.startswith("pad_"):
@@ -716,9 +719,14 @@ def reconstruct(events: list[dict[str, Any]], *, capability_states: dict[str, di
     # The tap bursts the voice layer swallowed, read once for the whole timeline: a long hold
     # that produced nothing inside one of these was competing with a finger (D-13).
     taps = _tap_bursts(events)
+    # What a page sent leaves the classifier's signals as it leaves visible.py's (round 11,
+    # F-OBS2-01): a disabled chip's action, a card's state and the like are quoted from telemetry,
+    # and section 5's table prints the signals.
+    words = visible.page_words(events)
     for turn in result:
         turn.tools.sort(key=lambda t: t.requested_at or t.finished_at)
         _classify(turn, collisions=collisions, taps=taps, capability_states=capability_states)
+        turn.signals = [visible.withheld(signal, words) for signal in turn.signals]
         turn.cluster = _cluster(turn)
     _mark_repeats(result)
     rec = Reconstruction(session=session, events=events, turns=result, proposals=proposals, orphans=orphans,
@@ -930,14 +938,17 @@ def _collisions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     within `GESTURE_WINDOW_S` of a recording that produced nothing is what produced nothing.
     """
     out: list[dict[str, Any]] = []
+    word = visible.as_identifier      # a page's words, as an identifier or withheld (round 11, F-OBS2-01)
     for event in events:
         kind = str(event.get("kind") or "")
         ts = float(event.get("ts") or 0.0)
         if kind == "tablet_hold" and str(event.get("phase") or "") == "multitouch":
             fingers = event.get("fingers") if isinstance(event.get("fingers"), int) else event.get("count")
-            out.append({"ts": ts, "what": "multitouch", "detail": f"{fingers or 2} fingers on the {event.get('target') or 'orb'}"})
+            if isinstance(fingers, bool) or not isinstance(fingers, int):
+                fingers = 2
+            out.append({"ts": ts, "what": "multitouch", "detail": f"{fingers or 2} fingers on the {word(event.get('target')) or 'orb'}"})
         elif kind == "tablet_navigate" and str(event.get("nav") or "") in ("split", "merge"):
-            out.append({"ts": ts, "what": str(event["nav"]), "detail": f"{event['nav']} by {event.get('name') or 'gesture'}"})
+            out.append({"ts": ts, "what": str(event["nav"]), "detail": f"{event['nav']} by {word(event.get('name')) or 'gesture'}"})
         elif kind == "branch_forked":
             out.append({"ts": ts, "what": "fork", "detail": f"branch {event.get('branch_id') or '?'} forked"})
     return out
@@ -1422,6 +1433,20 @@ def _clock(ts: float | None) -> str:
     return time.strftime("%H:%M:%S", time.localtime(float(ts)))
 
 
+def _page_id(value: Any) -> str:
+    """An id a page sent, when it is one: an identifier (visible.as_identifier) as it is, anything
+    else ''."""
+    shown = visible.as_identifier(value)
+    return "" if shown == visible.WITHHELD_MARK else shown
+
+
+def _part(event: dict[str, Any], name: str) -> dict[str, Any]:
+    """One of a page event's own objects — its viewport, document, overflow — or an empty one when
+    the page sent anything else there."""
+    value = event.get(name)
+    return value if isinstance(value, dict) else {}
+
+
 def _cell(text: Any, limit: int = 90) -> str:
     s = " ".join(str(text if text is not None else "").split())
     s = s.replace("|", "\\|")
@@ -1634,8 +1659,9 @@ def intelligence(rec: Reconstruction, registered: list[str], *, capability_state
     for t in turns:
         for r in t.tablet_events("render"):
             for kind in r.get("skipped") or []:
-                ui_types[str(kind)] += 1
-                ui_turns[str(kind)].append(t.turn_id)
+                kind = visible.as_identifier(kind)     # a page's words (round 11, F-OBS2-01)
+                ui_types[kind] += 1
+                ui_turns[kind].append(t.turn_id)
         entity_results = [x for x in t.tools if x.outcome == "ok" and x.result and any(k in x.result for k in ("rows", "orders", "customers", "threads", "products"))]
         if entity_results and not [u for u in t.ui if u not in ("assistant", "error", "context_stack")]:
             ui_types["(records without a card)"] += 1
@@ -1811,7 +1837,9 @@ def render(rec: Reconstruction, *, tools_registered: list[str] | None = None,
     failed = [t for t in turns if t.outcome != "successful" or t.experience != "SUCCESSFUL"]
     rows = []
     for t in failed:
-        rows.append([t.turn_id, t.raw_text, t.question if t.question != t.raw_text else "(same)", t.answer, ", ".join(f"{x.tool}:{x.outcome or '?'}" for x in t.tools) or "—", "; ".join(t.signals), ", ".join(c.get("type", "") for c in ((t.render or {}).get("cards") or [])) or ", ".join(t.ui) or "—", ", ".join(t.classes), f"{t.backend} / {t.visible} / {t.experience}"])
+        # The cards the page said it drew, as identifiers or withheld (round 11, F-OBS2-01).
+        drawn = ", ".join(visible.as_identifier(c.get("type")) for c in ((t.render or {}).get("cards") or []) if isinstance(c, dict))
+        rows.append([t.turn_id, t.raw_text, t.question if t.question != t.raw_text else "(same)", t.answer, ", ".join(f"{x.tool}:{x.outcome or '?'}" for x in t.tools) or "—", "; ".join(t.signals), drawn or ", ".join(t.ui) or "—", ", ".join(t.classes), f"{t.backend} / {t.visible} / {t.experience}"])
     lines.extend(_table(["Turn", "Owner said", "Normalised", "Assistant answered", "Tools attempted", "Technical reason", "UI displayed", "Class", "backend / visible / experience"], rows))
     add("By class: " + (", ".join(f"{k} × {v}" for k, v in Counter(c for t in failed for c in t.classes).most_common()) or "none") + ".")
     add("")
@@ -1846,26 +1874,29 @@ def render(rec: Reconstruction, *, tools_registered: list[str] | None = None,
     add("## 7. UI usage")
     add("")
     renders = [e for t in turns for e in t.tablet_events("render")] + [e for e in rec.orphans if e.get("kind") == "tablet_render"]
-    screens = Counter(str(r.get("screen") or "") for r in renders)
-    card_types = Counter(str(c.get("type") or "") for r in renders for c in (r.get("cards") or []) if isinstance(c, dict))
-    sections = Counter(s for r in renders for c in (r.get("cards") or []) if isinstance(c, dict) for s in (c.get("sections") or []))
-    tabs_rendered = Counter(s for r in renders for c in (r.get("cards") or []) if isinstance(c, dict) for s in (c.get("tabs") or []))
-    tab_taps = Counter(str(e.get("label") or "") for t in turns for e in t.tablet_events("tab"))
+    # Every name counted here is one a page sent, so each is counted as an identifier or withheld
+    # (round 11, F-OBS2-01: visible.as_identifier), never printed as the words the page put there.
+    word = visible.as_identifier
+    screens = Counter(word(r.get("screen")) for r in renders)
+    card_types = Counter(word(c.get("type")) for r in renders for c in (r.get("cards") or []) if isinstance(c, dict))
+    sections = Counter(word(s) for r in renders for c in (r.get("cards") or []) if isinstance(c, dict) for s in (c.get("sections") or []))
+    tabs_rendered = Counter(word(s) for r in renders for c in (r.get("cards") or []) if isinstance(c, dict) for s in (c.get("tabs") or []))
+    tab_taps = Counter(word(e.get("label")) for t in turns for e in t.tablet_events("tab"))
     exposed: Counter = Counter()
     disabled: Counter = Counter()
     for r in renders:
         for c in r.get("cards") or []:
             for a in (c.get("actions") or []) if isinstance(c, dict) else []:
                 if isinstance(a, dict):
-                    (exposed if a.get("enabled") else disabled)[str(a.get("id") or "")] += 1
+                    (exposed if a.get("enabled") else disabled)[word(a.get("id"))] += 1
     used: Counter = Counter()
     for t in turns:
         for e in t.tablet_events("rail_tap"):
-            used[str(e.get("action") or "")] += 1
+            used[word(e.get("action"))] += 1
         for e in t.tablet_events("action_primed"):
-            used[str(e.get("action") or "")] += 1
-    nav = Counter(str(e.get("nav") or "") for t in turns for e in t.tablet_events("navigate"))
-    nav.update(str(e.get("nav") or "") for e in rec.orphans if e.get("kind") == "tablet_navigate")
+            used[word(e.get("action"))] += 1
+    nav = Counter(word(e.get("nav")) for t in turns for e in t.tablet_events("navigate"))
+    nav.update(word(e.get("nav")) for e in rec.orphans if e.get("kind") == "tablet_navigate")
     add(f"- Screens rendered: {dict(screens) or '—'}; cards: {dict(card_types) or '—'}.")
     add(f"- Sections shown on cards: {dict(sections) or '—'}; tab controls: {dict(tabs_rendered) or 'none rendered'}; tabs tapped: {dict(tab_taps) or 'none'}.")
     add(f"- Rail actions exposed (enabled): {dict(exposed) or '—'}; shown disabled: {dict(disabled) or '—'}; actually used: {dict(used) or 'none'}.")
@@ -1880,19 +1911,25 @@ def render(rec: Reconstruction, *, tools_registered: list[str] | None = None,
     abandoned = [t.turn_id for t in turns if _abandoned(t)]
     if abandoned:
         add(f"- **Screens left within {ABANDON_S:.0f} s:** {', '.join(abandoned)}.")
+    # The rest of this section prints what a page sent too: a path as a path of identifiers, a
+    # number as a number, anything else withheld (round 11, F-OBS2-01).
+    number, path = visible.as_number, visible.as_path
     images = [e for t in turns for e in t.tablet_events("image_failed")] + [e for e in rec.orphans if e.get("kind") == "tablet_image_failed"]
     if images:
-        add(f"- **Failed image loads:** {len(images)} — {dict(Counter(str(e.get('src') or '') for e in images))}.")
-    clipped = [(t.turn_id, c.get("type"), c.get("clipped_x")) for t in turns for r in t.tablet_events("render") for c in (r.get("cards") or []) if isinstance(c, dict) and c.get("clipped_x")]
+        add(f"- **Failed image loads:** {len(images)} — {dict(Counter(path(e.get('src')) for e in images))}.")
+    clipped = [(t.turn_id, word(c.get("type")), number(c.get("clipped_x"))) for t in turns for r in t.tablet_events("render") for c in (r.get("cards") or []) if isinstance(c, dict) and c.get("clipped_x")]
     if clipped:
         add(f"- **Clipping / horizontal overflow:** {clipped}.")
-    long_scroll = [(t.turn_id, (r.get("document") or {}).get("cards_height"), (r.get("document") or {}).get("cards_visible")) for t in turns for r in t.tablet_events("render") if (r.get("overflow") or {}).get("long_scroll")]
+    long_scroll = [(t.turn_id, number(_part(r, "document").get("cards_height")), number(_part(r, "document").get("cards_visible")))
+                   for t in turns for r in t.tablet_events("render") if _part(r, "overflow").get("long_scroll")]
     if long_scroll:
         add(f"- **Long scroll surfaces** (cards taller than the view; turn, height, visible): {long_scroll}.")
     scrolls = [e for t in turns for e in t.tablet_events("scroll")]
     if scrolls:
-        add(f"- Scrolling: {len(scrolls)} scroll report(s); deepest {max(int(e.get('depth') or 0) for e in scrolls)} px.")
-    viewports = {f"{(r.get('viewport') or {}).get('w')}×{(r.get('viewport') or {}).get('h')}@{(r.get('viewport') or {}).get('dpr')}" for r in renders}
+        deepest = max((int(d) for d in (number(e.get("depth")) for e in scrolls) if isinstance(d, (int, float))), default=0)
+        add(f"- Scrolling: {len(scrolls)} scroll report(s); deepest {deepest} px.")
+    viewports = {f"{number(_part(r, 'viewport').get('w'))}×{number(_part(r, 'viewport').get('h'))}@{number(_part(r, 'viewport').get('dpr'))}"
+                 for r in renders}
     if viewports:
         add(f"- Viewports seen: {', '.join(sorted(viewports))}.")
     exceptions = [e for t in turns for e in t.tablet_events("exception")] + [e for e in rec.orphans if e.get("kind") == "tablet_exception"]
@@ -1900,7 +1937,7 @@ def render(rec: Reconstruction, *, tools_registered: list[str] | None = None,
         add(f"- **Frontend exceptions:** {len(exceptions)} — " + "; ".join(_cell(e.get("message"), 100) for e in exceptions[:5]) + ".")
     connectivity = [e for t in turns for e in t.tablet_events("connectivity")] + [e for e in rec.orphans if e.get("kind") == "tablet_connectivity"]
     if connectivity:
-        add(f"- Connectivity: {dict(Counter(str(e.get('state')) for e in connectivity))}.")
+        add(f"- Connectivity: {dict(Counter(word(e.get('state')) for e in connectivity))}.")
     add("")
 
     # 8 ------------------------------------------------------------------------------
@@ -1992,7 +2029,7 @@ def render(rec: Reconstruction, *, tools_registered: list[str] | None = None,
     add("")
     attention_turns = [t for t in turns if "attention" in t.ui or ((t.render or {}).get("attention"))]
     opens = [e for t in turns for e in t.tablet_events("navigate") if e.get("nav") == "attention_open"] + [e for e in rec.orphans if e.get("kind") == "tablet_navigate" and e.get("nav") == "attention_open"]
-    add(f"- Attention surfaces shown: {len(attention_turns)} turn(s) ({', '.join(t.turn_id for t in attention_turns) or '—'}); items on the last: {((attention_turns[-1].render or {}).get('attention') if attention_turns else 0) or 0}.")
+    add(f"- Attention surfaces shown: {len(attention_turns)} turn(s) ({', '.join(t.turn_id for t in attention_turns) or '—'}); items on the last: {visible.as_number((attention_turns[-1].render or {}).get('attention') if attention_turns else 0) or 0}.")
     add(f"- Opened by the owner: {len(opens)} time(s).")
     if opens:
         later = []
@@ -2441,9 +2478,9 @@ def _opportunities(rec: Reconstruction, turns: list[Turn], registered: list[str]
             for c in r.get("cards") or []:
                 for a in (c.get("actions") or []) if isinstance(c, dict) else []:
                     if isinstance(a, dict) and a.get("enabled"):
-                        exposed[str(a.get("id"))] += 1
+                        exposed[visible.as_identifier(a.get("id"))] += 1     # a page's words (round 11, F-OBS2-01)
         for e in t.tablet_events("rail_tap") + t.tablet_events("action_primed"):
-            used[str(e.get("action") or "")] += 1
+            used[visible.as_identifier(e.get("action"))] += 1
     unused = sorted(set(exposed) - set(used))
     if unused and len(turns) >= 5:
         out.append({"problem": "Rail actions exposed but never used", "frequency": f"{len(unused)} chip(s) ({', '.join(unused)}) across {len(turns)} turns", "severity": 1, "examples": [],

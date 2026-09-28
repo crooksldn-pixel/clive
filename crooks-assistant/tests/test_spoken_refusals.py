@@ -91,7 +91,8 @@ async def test_the_other_half_said_out_loud_moves_no_focus(stage):
 @pytest.mark.parametrize(("said", "tool", "args"), [
     # A refund is the same engine and the same gesture; the fixture shop cannot price one
     # (it has no answer for Shopify's suggested-refund read), so it is held at the tool in
-    # tests/test_refund.py, where a fake store can.
+    # tests/test_refund.py, and from a spoken sentence through /turn — with cancellation and
+    # store credit beside it — in tests/test_r11_turn.py, whose fake shop can price one.
     ("cancel order 1938", "shopify_order_cancel", {"reason": "customer"}),
     ("cancel that order, the customer changed their mind", "shopify_order_cancel", {"reason": "customer", "staff_note": "Changed their mind."}),
 ])

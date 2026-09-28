@@ -296,6 +296,7 @@ def test_this_servers_own_addresses_are_the_kernels_read_fresh_every_time(tmp_pa
     on every request: gained, it is this host at once; unreadable, the caller refuses."""
     root = _addresses(tmp_path / "proc", ["100.101.102.103"], ["fd7a:115c:a1e0::abcd"])
     monkeypatch.setattr(identity, "PROC", root)
+    interface = tailscale_interface(monkeypatch, "100.101.102.103")
     monkeypatch.setattr(socket.socket, "bind", lambda self, address: None)   # as if nonlocal bind were on
     assert identity.is_this_host("100.101.102.103") is True
     assert identity.is_this_host("fd7a:115c:a1e0::abcd") is True
@@ -303,6 +304,7 @@ def test_this_servers_own_addresses_are_the_kernels_read_fresh_every_time(tmp_pa
     assert identity.is_this_host("not an address") is False
     # The server's tailnet address changes: the very next request knows it.
     _addresses(root, ["100.101.102.200"], ["fd7a:115c:a1e0::abcd"])
+    interface["v4"] = "100.101.102.200"
     assert identity.is_this_host("100.101.102.200") is True and identity.is_this_host("100.101.102.103") is False
     # IPv6 switched off on the host: no IPv6 address is its own, and IPv4 still answers. Off is
     # the kernel's switch saying so (round 8, F-05B-AVAIL), not the table being absent.
@@ -831,13 +833,32 @@ def kernel_world(owner_world, tmp_path, monkeypatch):
     proc = _point_at(monkeypatch, tmp_path, {100: ("tailscaled", [777])})
     identity.bind_self_check(None)
     # A real server on the tailnet holds its own tailnet addresses, and since round 9
-    # (F-05B-AVAIL) a reading of its tables without them is not taken as whole.
+    # (F-05B-AVAIL) a reading of its tables without them is not taken as whole. Which address is
+    # its own is the Tailscale interface's answer (round 10, S1T-01): the one thing here that is
+    # not a /proc file, an ioctl, is stood in for.
     _addresses(proc, HOST_TAILNET, HOST_TAILNET6)
+    tailscale_interface(monkeypatch, HOST_TAILNET[0])
     return proc
 
 
 def _v6() -> Request:
     return _request(V6_OWNER, peer=("127.0.0.1", 40001))
+
+
+def tailscale_interface(monkeypatch, address) -> dict:
+    """What the kernel says TAILSCALE_INTERFACE holds (identity.interface_ipv4, an ioctl a test
+    cannot make): `address`, or no IPv4 address at all when it is None. The answer is kept in
+    the dict returned, so a test can change it as the host's address changes."""
+    held = {"v4": address}
+
+    def asked(name=identity.TAILSCALE_INTERFACE):
+        assert name == identity.TAILSCALE_INTERFACE
+        if held["v4"] is None:
+            raise OSError(99, "Cannot assign requested address")
+        return held["v4"]
+
+    monkeypatch.setattr(identity, "interface_ipv4", asked)
+    return held
 
 
 async def test_at_both_gates_an_address_this_host_gains_is_its_own_on_the_next_request(kernel_world):
@@ -1013,6 +1034,9 @@ def test_the_install_is_done_only_when_the_running_service_has_the_flag_and_heal
     monkeypatch.setattr(installer.lc, "LOG_DIR", tmp_path / "logs")
     monkeypatch.setattr(installer.lc, "ensure_serve", lambda port: ("crooks.example.com", "serving"))
     monkeypatch.setattr(installer.lc, "wait_for_health", lambda url, timeout_s=90: {"status": "ok", "checks": checks})
+    # This host's own tailnet addresses (round 10, S1T-01) are the next gate's, in
+    # tests/test_r11_install_gate.py; here they are in order.
+    monkeypatch.setattr(identity, "tailnet_self_check", lambda: (True, "whole"))
     assert installer.install(8000) == expect
     out = capsys.readouterr().out
     assert ("show", "-p", "MainPID", "--value", "crooks-assistant.service") in ran

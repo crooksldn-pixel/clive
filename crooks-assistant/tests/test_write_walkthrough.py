@@ -41,7 +41,9 @@ class ModelThatAddsANote:
     and not evidence of the choice itself (round 9, I-tests5 I-03). What the Mac does with a
     choice of the wrong record — an order this conversation was never shown refused at the
     gate, a record other than the one named never drawn in its place — is in
-    tests/test_turn_boundary.py."""
+    tests/test_turn_boundary.py; a change staged on an order other than the one the owner
+    named, withdrawn at the write boundary before it is delivered, is in tests/test_r11_turn.py
+    (`test_a_change_to_an_order_other_than_the_one_named_is_refused_at_the_write_boundary`)."""
 
     def __init__(self, runtime) -> None:
         self.runtime = runtime

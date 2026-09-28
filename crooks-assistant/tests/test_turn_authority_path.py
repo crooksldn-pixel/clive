@@ -6,8 +6,9 @@ the HTTP path that decides who gets one. This drives that path whole, with produ
 the real middleware (app/main.py guard_and_freshness), the real proxy decision and owner rule
 (app/routes/actions.py proxy_state and principal_verdict) reading the kernel's account of the
 connection from a fake /proc through the real code that reads it (app/identity.py
-_proc_peer_check, host_addresses, verify — only `tailscale whois`, which tests do not have, and the
-fake pids' pinning are stood in for), the authority the door stamps (app/tools/authority.py
+_proc_peer_check, host_addresses, verify — only `tailscale whois`, which tests do not have, what
+the Tailscale interface holds (an ioctl) and the fake pids' pinning are stood in for), the
+authority the door stamps (app/tools/authority.py
 for_owner), the real turn route (app/routes/turn.py), and the real dispatcher (app/tools/dispatch.py)
 called by a model double exactly as the SDK callback calls it.
 
@@ -34,7 +35,13 @@ from app.tools import dispatch as dispatch_module
 from app.tools.dispatch import dispatch
 from tests.test_actions import ORDER, TOOL
 from tests.test_actions_routes import OWNER, client, configure  # noqa: F401 - `client` is a fixture
-from tests.test_proxy_identity import HOST_TAILNET, HOST_TAILNET6, _addresses, _world
+from tests.test_proxy_identity import (
+    HOST_TAILNET,
+    HOST_TAILNET6,
+    _addresses,
+    _world,
+    tailscale_interface,
+)
 
 PHONE, STRANGER_DEVICE = "100.64.0.9", "100.64.0.3"
 STRANGER = "someone@example.com"
@@ -92,6 +99,7 @@ def production(client, tmp_path, monkeypatch):  # noqa: F811
     app.state.allowed_logins = client.runtime.allowed_logins
     proc = _world(tmp_path, {100: ("tailscaled", [777]), 200: ("curl", [888])})
     _addresses(proc, HOST_TAILNET, HOST_TAILNET6)
+    tailscale_interface(monkeypatch, HOST_TAILNET[0])     # what tailscale0 holds: an ioctl, stood in for
     monkeypatch.setattr(identity, "PROC", proc)
     monkeypatch.setattr(identity, "CGROUP", tmp_path / "cgroup")
     whois = {PHONE: OWNER, STRANGER_DEVICE: STRANGER, HOST_TAILNET[0]: OWNER}

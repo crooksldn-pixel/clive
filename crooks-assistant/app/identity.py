@@ -656,19 +656,49 @@ def _ipv4_local(trie: str) -> frozenset[str]:
     return frozenset(found)
 
 
-def _ipv6_local(inet6: str) -> frozenset[str]:
-    """The addresses /proc/net/if_inet6 lists (net/ipv6/addrconf.c if6_seq_show: the address in
-    32 lower-case hex digits, the interface index, prefix length, scope and flags, and the
-    interface's name). Any other line raises MalformedTable (round 8, F-05B-AVAIL)."""
-    found: set[str] = set()
+def _ipv6_rows(inet6: str) -> list[tuple[str, str]]:
+    """Each address /proc/net/if_inet6 lists, with the interface that holds it
+    (net/ipv6/addrconf.c if6_seq_show: the address in 32 lower-case hex digits, the interface
+    index, prefix length, scope and flags, and the interface's name). Any other line raises
+    MalformedTable (round 8, F-05B-AVAIL)."""
+    rows: list[tuple[str, str]] = []
     for line in inet6.split("\n"):
         if not line:
             continue
         match = _INET6_ROW.fullmatch(line)
         if not match:
             raise MalformedTable("/proc/net/if_inet6 has a line the kernel does not write")
-        found.add(str(ipaddress.IPv6Address(int(match.group(1), 16))))
-    return frozenset(found)
+        rows.append((str(ipaddress.IPv6Address(int(match.group(1), 16))), line.split()[-1]))
+    return rows
+
+
+def _ipv6_local(inet6: str) -> frozenset[str]:
+    """The addresses /proc/net/if_inet6 lists (_ipv6_rows, without the interfaces)."""
+    return frozenset(address for address, _interface in _ipv6_rows(inet6))
+
+
+# The interface tailscaled holds this host's own tailnet addresses on: tailscaled's own name for it
+# on Linux (its --tun default), which this server uses. A request the server sends through its own
+# `tailscale serve` carries one of those addresses, so they are what a reading of this host's
+# addresses must hold before it is believed whole (round 10, S1T-01). An address in the tailnet's
+# range on any other interface — a carrier-grade NAT address on the uplink, say — is not this
+# host's tailnet address, and a reading that holds only such an address is not whole.
+TAILSCALE_INTERFACE = "tailscale0"
+_SIOCGIFADDR = 0x8915      # linux/sockios.h: an interface's IPv4 address
+
+
+def interface_ipv4(name: str = TAILSCALE_INTERFACE) -> str:
+    """The IPv4 address the kernel holds on one interface, asked of the kernel itself (the
+    SIOCGIFADDR ioctl): one answer, given under the kernel's own lock on its addresses — not a
+    table walked while it changes, and read apart from /proc/net/fib_trie. Raises OSError when the
+    interface is not there or holds no IPv4 address. Tests stand in for it."""
+    import fcntl
+    import socket
+    import struct
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        answer = fcntl.ioctl(probe.fileno(), _SIOCGIFADDR, struct.pack("256s", name.encode("ascii")[:15]))
+    return socket.inet_ntoa(answer[20:24])
 
 
 class HostAddresses(NamedTuple):
@@ -678,6 +708,9 @@ class HostAddresses(NamedTuple):
     # False only when the kernel itself says IPv6 is off (no if_inet6, and its switch reads 1):
     # then no IPv6 address can be this host's. True whenever an IPv6 table was read.
     ipv6: bool
+    # The tailnet IPv6 addresses the IPv6 table lists on TAILSCALE_INTERFACE: this host's own
+    # tailnet IPv6 address, as the interface that holds it says (round 10, S1T-01).
+    tailnet6: frozenset[str] = frozenset()
 
 
 def _switched_off(root: Path, path: Path) -> bool:
@@ -710,16 +743,19 @@ def _addresses_once(root: Path) -> tuple[HostAddresses | None, str]:
         except MalformedTable as exc:
             return None, str(exc)
     try:
-        v4, v6 = _ipv4_local(trie), _ipv6_local(inet6)
+        v4, rows = _ipv4_local(trie), _ipv6_rows(inet6)
     except MalformedTable as exc:
         return None, str(exc)
+    v6 = frozenset(address for address, _interface in rows)
     # The IPv6 table's own completeness mark, as 127.0.0.1 is the IPv4 table's (round 9,
     # F-05B-AVAIL): with IPv6 on, the loopback interface holds ::1, so a table without it — an
     # empty one above all — is not whole. Only the kernel's switch saying IPv6 is off on the
     # loopback interface, or everywhere, excuses it.
     if "::1" not in v6 and not (_switched_off(root, IPV6_LO_OFF) or _switched_off(root, IPV6_OFF)):
         return None, "/proc/net/if_inet6 does not list ::1 and IPv6 is not switched off"
-    return HostAddresses(v4 | v6, ipv6=True), ""
+    tailnet6 = frozenset(address for address, interface in rows
+                         if interface == TAILSCALE_INTERFACE and ipaddress.ip_address(address) in TAILNET_V6)
+    return HostAddresses(v4 | v6, ipv6=True, tailnet6=tailnet6), ""
 
 
 # How many times the tables are read, at most, for one answer: two readings running must agree.
@@ -828,7 +864,16 @@ def this_host(address: str) -> tuple[bool | None, str]:
     tailscaled brings it a request, so a whole reading lists that address; one that does not could
     have left out the very address a request the server sent itself would carry, and is "cannot
     say". IPv6 is excused only when the kernel says IPv6 is off, as then no IPv6 address can be
-    this host's."""
+    this host's.
+
+    Which address is this host's own tailnet address is the Tailscale interface's answer, never
+    "some address in the tailnet's range" (round 10, S1T-01): a reading that left the server's own
+    tailnet address out but held another address in 100.64.0.0/10 — a carrier-grade NAT address on
+    another interface — passed that test, and the server's own request was let in as the owner.
+    For IPv4 the kernel is asked what TAILSCALE_INTERFACE holds (interface_ipv4, read apart from
+    the tables), and the reading must hold that very address; for IPv6 the IPv6 table must list a
+    tailnet address on that interface. When the interface cannot say, or the reading does not hold
+    what it says, the answer is "cannot say", and the caller refuses."""
     ip = _ip(forwarded_address(address))
     if ip is None:
         return False, ""
@@ -847,12 +892,48 @@ def this_host(address: str) -> tuple[bool | None, str]:
         return True, ""
     if ip.version == 6 and not mine.ipv6:
         return False, ""
-    tailnet = TAILNET_V4 if ip.version == 4 else TAILNET_V6
-    if not any(ipaddress.ip_address(own) in tailnet for own in mine.addresses):
-        family = "IPv4" if ip.version == 4 else "IPv6"
-        return None, (f"{_UNREADABLE_SELF} whole: its own tailnet {family} address is not among them, so a "
-                      "request it sent itself could not be told from a device's")
+    whole, why = _holds_own_tailnet_address(ip.version, mine)
+    if not whole:
+        return None, why
     return False, ""
+
+
+def _holds_own_tailnet_address(version: int, mine: HostAddresses) -> tuple[bool, str]:
+    """Whether this reading holds this host's own tailnet address of one family, as the Tailscale
+    interface itself names it (round 10, S1T-01). (whole, why not)."""
+    family = "IPv4" if version == 4 else "IPv6"
+    missing = (f"{_UNREADABLE_SELF} whole: its own tailnet {family} address is not among them, so a "
+               "request it sent itself could not be told from a device's")
+    if version == 6:
+        return (True, "") if mine.tailnet6 else (False, missing)
+    try:
+        own = _ip(interface_ipv4(TAILSCALE_INTERFACE))
+    except (OSError, ValueError) as exc:
+        detail = getattr(exc, "strerror", None) or type(exc).__name__
+        return False, (f"{_UNREADABLE_SELF} whole: its own tailnet IPv4 address could not be read from "
+                       f"{TAILSCALE_INTERFACE} ({detail}), so a request it sent itself could not be told from a device's")
+    if own is None or own.version != 4 or own not in TAILNET_V4:
+        return False, (f"{_UNREADABLE_SELF} whole: {TAILSCALE_INTERFACE} does not hold a tailnet IPv4 address, so a "
+                       "request it sent itself could not be told from a device's")
+    return (True, "") if str(own) in mine.addresses else (False, missing)
+
+
+def tailnet_self_check() -> tuple[bool, str]:
+    """Whether this host can tell its own requests from a device's now, for each family it has:
+    its address tables read whole, and each holding the Tailscale interface's own tailnet address
+    (IPv6 only when IPv6 is on). (ok, why). What `make install` asks of the host before it keeps a
+    new build (scripts/install_systemd.py running_problems): a server on which this is not so
+    refuses every request from the owner's devices, and the install says so rather than leave it
+    for his phone to find."""
+    mine, why = host_addresses()
+    if mine is None:
+        return False, f"{_UNREADABLE_SELF}: {why}"
+    for version in (4, 6) if mine.ipv6 else (4,):
+        whole, why = _holds_own_tailnet_address(version, mine)
+        if not whole:
+            return False, why
+    held = "IPv4 and IPv6 addresses are" if mine.ipv6 else "IPv4 address is"
+    return True, f"this host's own tailnet {held} on {TAILSCALE_INTERFACE} and in its address tables"
 
 
 def is_this_host(address: str) -> bool | None:

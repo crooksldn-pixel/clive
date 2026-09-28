@@ -348,9 +348,16 @@ async def row(request: Request, session_id: str = Form(default=""), action: str 
     from app.actions import rows as row_actions
 
     # The change belongs to the half of the orb the row was on, not to whichever half happens
-    # to be focused when the finger lands.
+    # to be focused when the finger lands — nor to whichever half last spoke. Focusing the half
+    # was not enough: the engine stamps a proposal with the request's own half first and the
+    # session's `acting_branch` after it, and that field holds the half that last had a
+    # sentence or a tap, so Archive on a row in the left half, after a question to the right,
+    # was filed against the right. The right half's next question then withdrew it and the left
+    # half's did not (the 2026-09-28 deploy review, round 9, D2-03). The row's half is held on
+    # this request's own task, as /turn and /command hold theirs.
     if branch_id.strip():
         owner_session.focus_branch(branch_id.strip())
+    row_half = owner_session.branch(branch_id.strip()).branch_id
     try:
         spec, args = row_actions.resolve(action, ref)
     except row_actions.UnknownRowAction:
@@ -362,10 +369,16 @@ async def row(request: Request, session_id: str = Form(default=""), action: str 
     if not status.ready:
         return _refuse(403, status.code, status.detail, status.code)
 
+    from app.tools.context import CURRENT_BRANCH
     from app.tools.dispatch import dispatch
 
     calls: list = []
-    await dispatch(spec.tool, args, session=owner_session, timeout_s=runtime.settings.tool_timeout_s, calls=calls)
+    owner_session.acting_branch = row_half
+    token = CURRENT_BRANCH.set(row_half)
+    try:
+        await dispatch(spec.tool, args, session=owner_session, timeout_s=runtime.settings.tool_timeout_s, calls=calls)
+    finally:
+        CURRENT_BRANCH.reset(token)
     proposal_id = next((c.proposal_id for c in calls if getattr(c, "proposal_id", None)), "")
     if not proposal_id:
         detail = next((str(c.error) for c in calls if not c.ok and c.error), "That change could not be prepared.")

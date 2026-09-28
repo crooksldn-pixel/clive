@@ -107,7 +107,10 @@ async def answer_for(task: str, period: str = "today", session: Session | None =
 
     Every summary question is the model's since 28 September 2026, when the word-matching
     lane that used to draw these was removed; the model's call of the read is what they are
-    drawn from now.
+    drawn from now. This holds the SURFACE to its shape given that call. The owner's own words
+    sent through `POST /turn`, and the whole screen that comes back — the turn's cards and the
+    workspace it staged, exactly one summary and no profile — are
+    tests/test_turn_surfaces.py (the 2026-09-28 deploy review, round 9, I-tests5 I-02).
     """
     session = session or Session(session_id="sum")
     session.turn_id = session.turn_id or "turn_sum"

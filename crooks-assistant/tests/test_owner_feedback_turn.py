@@ -8,16 +8,22 @@ read back from the transcript, and the model — which has no tool for it — wa
 "I've no tool for logging a product bug", which is the exact D-7 failure the family was built
 to end.
 
-`feedback.at_turn` is the recorder restored without the lane. It recognises the sentence,
+`feedback.at_turn` is the recorder restored without the lane (`held_at_turn`, what the route
+calls, is the same in two halves: taken now, written once the turn's names are known). It recognises the sentence,
 records it against the screen the owner was on BEFORE the answer replaced it, and returns the
 line the model is given — "it is logged" when it was, "nothing wrote it down" when no test
 session is running — so the confirmation he hears is the truth. Nothing here answers the
 sentence: it still goes to the model.
 
 The first tests hold the recorder and its whole transcript→report path through a real timeline
-file and the real report builder. The last drives `POST /turn` end to end and needs one line in
-`app/routes/turn.py` that belongs to the turn route's owner this round; it is marked as a
-strict expected failure until that line lands, so the moment it does the marker has to come off.
+file and the real report builder. The last two drive `POST /turn` end to end: the turn route
+hands the owner's words to `feedback.held_at_turn` before the model is asked (app/routes/turn.py,
+since round 10; held since round 11), which takes the screen he was on then and tells the model
+it is logged, and the route writes the event once the turn's reads have named whoever they found
+— keeping the time he said it — so a defect said out loud is recorded against that turn, and the
+report prints it among those recorded. (Round 9's I-tests4 I-02 found this file saying nothing
+recorded feedback at turn time; that stopped being true when the route's call landed, and the
+tests below hold that it is.) tests/test_r11_observability.py drives the same door once more.
 """
 
 from __future__ import annotations
@@ -90,6 +96,28 @@ def test_with_no_test_session_the_model_is_told_nothing_wrote_it_down():
     assert "never say it was logged" in told
 
 
+def test_the_routes_held_recorder_tells_the_model_the_same_truth():
+    """held_at_turn, which the turn route calls: with no test session the model is told nothing
+    wrote it down and there is nothing to write; a sentence that is not feedback gives no line."""
+    timeline.install(timeline.NullTimeline())
+    told, write = feedback.held_at_turn(SAID, branch=Half(), session_id="s1", turn_id="t")
+    assert told == feedback.NOT_RECORDED_LINE and write() is None
+    told, write = feedback.held_at_turn("show me today's orders", branch=Half(), session_id="s1", turn_id="t")
+    assert told == "" and write() is None
+
+
+def test_the_routes_held_recorder_writes_only_when_asked_and_keeps_the_time_he_said_it(recording):
+    line, store, session = recording
+    told, write = feedback.held_at_turn(SAID, branch=Half(), session_id="s1", turn_id="t", now=1000.0)
+    assert told == feedback.RECORDED_LINE
+    line.flush()
+    assert not [e for e in _events(store, session) if e["kind"] == "owner_feedback"], "nothing until asked"
+    assert write() is not None
+    line.flush()
+    (event,) = [e for e in _events(store, session) if e["kind"] == "owner_feedback"]
+    assert event["ts"] == 1000.0 and event["text"] == SAID and event["turn_id"] == "t"
+
+
 def test_a_recorder_that_fails_never_fails_the_turn(recording, monkeypatch):
     def broken(*args, **kwargs):
         raise RuntimeError("disk full")
@@ -124,7 +152,8 @@ def test_what_at_turn_recorded_is_what_the_report_prints_as_recorded(recording):
 async def test_a_spoken_defect_through_the_turn_route_is_recorded_before_the_model_answers(tmp_path):
     """I-tests4 I-02: a plain spoken defect sent through `POST /turn`, with no call to
     `feedback.record` in the test — the route's own recorder must write it, against the turn,
-    and the model must be handed the line saying so."""
+    and the model must be handed the line saying so. It is taken before the model answers: the
+    event carries the time he said it, which is before the model's."""
     from experience.harness import harness
 
     async with harness(admitted=True) as h:
@@ -145,15 +174,16 @@ async def test_a_spoken_defect_through_the_turn_route_is_recorded_before_the_mod
     assert [e.get("turn_id") for e in recorded] == [turn_id], recorded
     assert recorded[0]["text"] == said
     assert feedback.RECORDED_LINE in h.provider.calls[-1], "the model is told it was logged"
+    model = [e for e in events if e["kind"] == "model" and e.get("turn_id") == turn_id]
+    assert model and recorded[0]["ts"] <= model[0]["ts"], "said, and taken, before the model answered"
 
 
 async def test_a_spoken_defect_through_the_turn_route_reaches_the_report_in_his_words(tmp_path):
-    """What holds today, hook or no hook, through the same door and the same report builder,
-    with nothing called in the route's place: a defect said out loud is not lost. Before the
-    turn route calls `feedback.at_turn` the report finds it in the transcript and prints it
-    among the defects NOTHING recorded; once the route calls it, among those recorded. Either
-    way his words are in the report verbatim, against that turn — and never both, and never
-    neither."""
+    """Through the same door and the same report builder, with nothing called in the route's
+    place: a defect said out loud is recorded at turn time — the route takes it with
+    `feedback.held_at_turn` before the model — so the report prints it among the defects RECORDED, verbatim, against that
+    turn, and not among those nothing recorded. (Round 10 accepted either while the route's call
+    was still to land; it has, so only the recorded reading is right now.)"""
     from experience.harness import harness
 
     said = SAID
@@ -172,6 +202,7 @@ async def test_a_spoken_defect_through_the_turn_route_reaches_the_report_in_his_
     turn = rec.turn(str(capture.raw.get("turn_id") or ""))
     assert turn is not None, "the turn is in the transcript the report read"
     recorded, ignored = len(rec.experience.feedback), len(rec.experience.ignored_feedback)
-    assert (recorded, ignored) in ((1, 0), (0, 1)), (recorded, ignored)
-    assert ("OWNER_FEEDBACK_IGNORED" in turn.classes) == bool(ignored), turn.classes
+    assert (recorded, ignored) == (1, 0), (recorded, ignored)
+    assert "OWNER_FEEDBACK_IGNORED" not in turn.classes, turn.classes
+    assert "1 recorded during the session" in markdown
     assert said in markdown, "his words, verbatim"

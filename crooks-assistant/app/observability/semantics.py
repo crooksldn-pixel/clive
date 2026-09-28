@@ -95,8 +95,11 @@ CHANGES: tuple[Change, ...] = (
            re.compile(r"\b(?:create|make|raise|start|open|place|put in|set up)\b[^.?!]{0,30}\b(?:a |an |the )?(?:new )?(?:draft )?order\b", re.I)),
     Change("discount_code", "create a discount code", "discount_create",
            re.compile(r"\b(?:discount|promo(?:tion)?|voucher|coupon)\s*code\b|\b(?:create|make|set up|add|generate)\b[^.?!]{0,30}\b(?:discount|promo(?:tion)?|voucher|coupon)\b|\b\d{1,3}\s?%\s*(?:off|discount)\b", re.I)),
+    # "Credit Alice's account with £15" names no "store credit": the verb at its head is the grant
+    # (round 11, O2-F-02; contract.grants_credit reads it as a change).
     Change("store_credit", "put store credit on a customer", "store_credit",
-           re.compile(r"\bstore credit\b|\bgift card\b|\bcredit (?:on|to) (?:the |their |his |her )?(?:account|customer)\b", re.I)),
+           re.compile(r"\bstore credit\b|\bgift card\b|\bcredit (?:on|to) (?:the |their |his |her )?(?:account|customer)\b"
+                      r"|^\s*(?:please\s+)?credit\b(?!\s+(?:cards?|notes?)\b)", re.I)),
     Change("abandoned_checkout", "recover an abandoned checkout", "abandoned_checkouts",
            re.compile(r"\babandoned (?:checkout|cart|basket)s?\b", re.I)),
     # ------------------------------------------------- asked for and not built

@@ -303,13 +303,17 @@ def _read(url: str, headers: dict[str, str], timeout_s: float) -> dict | None:
         return None
 
 
-def _read_keyed(url: str, key: dict[str, str], timeout_s: float) -> dict | None:
-    """/health with the server's key, sent on one connection and only once the kernel has said
-    the service itself took that connection (round 9, A1B-KEY). The connection is opened here and
-    the request goes down that same connection — never a second one that another process could
-    have taken in between. No proxy, no redirect (http.client follows none), and anything but a
-    200 with a JSON body is None. None too when the far end is not shown to be the service: the
-    key has then not been sent."""
+def _one_connection(url: str, method: str, body: bytes | None, headers: dict[str, str],
+                    key: dict[str, str], timeout_s: float) -> tuple[int, bytes] | None:
+    """One request, down one connection opened here, to a loopback URL: (status, body).
+
+    With `key` (the server's own, _server_key), the request goes only once the kernel has said the
+    service itself took this very connection (round 9, A1B-KEY) — never a second connection that
+    another process could have taken in between — and None means that could not be shown and
+    nothing at all was sent. Straight to the address: http.client reads no proxy from the
+    environment. Never on to a redirect: http.client follows none, so a 3xx is an answer like any
+    other and its Location goes nowhere. Raises as the connection does: OSError
+    (ConnectionRefusedError when nothing listens, TimeoutError) and http.client.HTTPException."""
     import http.client
     import socket
     from urllib.parse import urlsplit
@@ -317,26 +321,75 @@ def _read_keyed(url: str, key: dict[str, str], timeout_s: float) -> dict | None:
     parts = urlsplit(url)
     host, port = parts.hostname or "", parts.port or 80
     target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
-    try:
-        sock = socket.create_connection((host, port), timeout=timeout_s)
-    except OSError:
-        return None
+    sock = socket.create_connection((host, port), timeout=timeout_s)
     connection = http.client.HTTPConnection(host, port, timeout=timeout_s)
     connection.sock = sock
     try:
-        ok, _why = _taken_by_the_service(sock)
-        if not ok:
-            return None
-        connection.request("GET", target, headers={**key, "Connection": "close"})
+        if key:
+            ok, _why = _taken_by_the_service(sock)
+            if not ok:
+                return None
+        connection.request(method, target, body=body, headers={**headers, **key, "Connection": "close"})
         response = connection.getresponse()
-        if response.status != 200:
-            return None
-        data = json.loads(response.read().decode("utf-8"))
-        return data if isinstance(data, dict) else None
-    except (OSError, http.client.HTTPException, ValueError):
-        return None
+        return response.status, response.read()
     finally:
         connection.close()
+
+
+def _read_keyed(url: str, key: dict[str, str], timeout_s: float) -> dict | None:
+    """/health with the server's key, down one connection the kernel says the service took
+    (_one_connection). Anything but a 200 with a JSON body is None; None too when the far end is
+    not shown to be the service, and the key has then not been sent."""
+    import http.client
+
+    try:
+        answered = _one_connection(url, "GET", None, {}, key, timeout_s)
+    except (OSError, http.client.HTTPException):
+        return None
+    if answered is None or answered[0] != 200:
+        return None
+    try:
+        data = json.loads(answered[1].decode("utf-8"))
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _keyed_route(method: str, path: str) -> bool:
+    """Whether the server's key opens this route at all (app/local_cli.py ROUTES): it is sent on
+    no other."""
+    try:
+        from app import local_cli
+
+        return (method.upper(), path.split("?", 1)[0]) in local_cli.ROUTES
+    except Exception:  # noqa: BLE001 — no app to ask: no route is the key's
+        return False
+
+
+def call_service(port: int, method: str, path: str, body: bytes | None = None, *,
+                 timeout_s: float = 5.0) -> tuple[int, bytes]:
+    """One request to the service on this machine's loopback, for the server's own commands
+    (scripts/session_ops.py: `make test-session-*` and CROOKS Control's session buttons):
+    (status, body), whatever the status.
+
+    The server's key goes with it only on a route the key opens (_keyed_route), only where this
+    user can read it and the far end can be shown at all (_server_key), and only down a
+    connection the kernel says the service took (_one_connection) — the rule `fetch_health` keeps,
+    and for the same reason (S1-KEY-SENDER: this path used urllib, which followed a redirect with
+    the key on it, read a proxy from the environment, and never asked who held the port). When
+    the service cannot be shown to hold the connection, the same request is made plainly on a
+    fresh one and the key stays here: the answer is then what a request made on the server
+    without it gets. Raises as the connection does (_one_connection)."""
+    url = f"http://127.0.0.1:{port}{path}"
+    headers = {"content-type": "application/json"}
+    key = _server_key(url) if _keyed_route(method, path) else {}
+    if key:
+        answered = _one_connection(url, method, body, headers, key, timeout_s)
+        if answered is not None:
+            return answered
+    answered = _one_connection(url, method, body, headers, {}, timeout_s)
+    assert answered is not None     # without a key nothing is withheld
+    return answered
 
 
 def fetch_health(url: str, timeout_s: float = 8.0) -> dict | None:

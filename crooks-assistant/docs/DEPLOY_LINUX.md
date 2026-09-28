@@ -186,6 +186,18 @@ What every deploy must hold:
   `checks.proxy_identity` says whether the running process has the flag. `make install` checks
   both after the restart — the running process's own command line
   (`/proc/<MainPID>/cmdline`) and that check — and exits non-zero, saying which, if either fails.
+  Since round 11 the unit also bounds uvicorn's graceful drain (`--timeout-graceful-shutdown 10`,
+  before `--no-proxy-headers`), inside the `TimeoutStopSec=30` a stop has always had: 10 s for
+  requests still running, then at most 13 s of the app's own shutdown (housekeeping stopped, the
+  runtime closed, the timeline's accepted events written — `app/main.py`, the SHUTDOWN_* budget),
+  and the rest for the process to exit. The deploy's re-rendered unit is what carries the flag.
+  Also since round 11, a forwarded request is admitted only while the host's address tables hold
+  the Tailscale interface's own tailnet address (IPv6 as well, when IPv6 is on): a reading
+  without it cannot tell the server's own requests from a device's (S1T-01). `make install`
+  asks the same of the host after the restart (`app/identity.py` `tailnet_self_check`) and rolls
+  itself back if it is not so — which a host running tailscaled in userspace mode, or with IPv6
+  on and no tailnet IPv6 address on `tailscale0`, would be. The deploy prompt runs that check
+  read-only before anything changes.
 - **The switches stay as they are.** The table is in CURRENT_TRUTH. A deploy changes no `.env`
   line and no credential.
 - **Tailscale is what the proxy check trusts.** These must all hold, or every owner device is
@@ -227,13 +239,17 @@ What every deploy must hold:
 - **Screens left open reload themselves — from round 10 on.** Every answer to a screen's ask
   says which build answered (`X-Clive-Build`), and a screen whose page is from an older build
   reloads itself once it is resting on its clock (never mid-slip, never mid-video).
-  **The round-10 deploy itself is the exception**: the pages already open on the TVs are from
-  before this, and their key moves from the page's storage into an HttpOnly cookie (B2-01). An
-  old page still sending its key as a header is answered 403 `reload` and shows "not allowed"
-  until someone reloads it. So, once, after the round-10 deploy: reload `/display` on every
-  screen (or restart the TV's browser), over the https tailnet address, since the cookie is
-  Secure. It keeps its name and its approval: the new page hands its old key back once, gets
-  the cookie, and the old key stops working.
+  **The first deploy that carries round 10 is the exception** (round 10 was reviewed but not
+  deployed, so this is round 11's deploy or whichever ships first): the pages already open on
+  the TVs are from before this, and their key moves from the page's storage into an HttpOnly
+  cookie (B2-01). An old page still sending its key as a header is answered 403 `reload` and
+  shows "not allowed" until someone reloads it. So, once, after that deploy: reload `/display`
+  on every screen (or restart the TV's browser), over the https tailnet address, since the
+  cookie is Secure. It keeps its name and its approval: the new page takes the old key out of
+  its storage the moment it reads it (round 11), hands it back once, gets the cookie, and the
+  old key stops working. Reload each TV while CLIVE is up: a page reloaded AGAIN before that
+  hand-back has succeeded no longer has the key anywhere, and the screen is named again (a new
+  code for the owner to approve), as a new screen would be.
 
 ## The capability-gap record, cleaned at start-up
 

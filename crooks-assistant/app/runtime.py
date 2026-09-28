@@ -497,9 +497,11 @@ def build(settings: Settings | None = None) -> Runtime:
     gmail_tools.bind(gmail, customer_lookup=_make_customer_lookup(shopify))
     # The engineering loop's inbox and status on GitHub. Its token is read from the secret
     # store at each call, so a Mac without one builds the same and says it is not connected.
-    from app.engineering_bridge.github import EngineeringInbox
+    # With CROOKS_ENGINEERING_HOST unset (production: filing is deferred) the tools are bound to
+    # an inbox that refuses every call before a token is read (app/engineering_switch.py, CFG-01).
+    from app import engineering_switch
 
-    engineering_tools.bind(EngineeringInbox(host=settings.engineering_host))
+    engineering_tools.bind(engineering_switch.inbox_for(settings.engineering_host))
     engineering_tools.configure(check_python=settings.engineering_check_python)
 
     kb = load(settings.kb_dir)

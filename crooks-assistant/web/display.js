@@ -33,10 +33,18 @@
  * Round 10. The screen's key is not this page's to hold (B2-01): CLIVE sets it as a cookie that no
  * script can read (HttpOnly, for /displays only) when the device names itself, and the browser
  * sends it with every ask; this device keeps only the screen's id and name. A screen named before
- * then hands its old key back to CLIVE once, for the cookie, and forgets it (migrate). An answer to
+ * then hands its old key back to CLIVE once, for the cookie, and forgets it (migrate); since round
+ * 11 its record on the device is written again without the key the moment the page reads it, so
+ * the key is held in memory alone while it is handed back (loadScreen). An answer to
  * an ask sent before what was shown was taken down is never read (B2-03), so only a fresh answer
  * can put anything up again. And a slip marked packed is drawn from CLIVE's done summary alone —
  * the order's number and when it was packed — never from the copy this screen drew (B2-04).
+ *
+ * Round 11. A pane past CLIVE's own limit takes the screen down the way a refusal does, at once
+ * and whatever it is in the middle of — forming, dissolving or packing — with the dots that drew
+ * it (NEW-B-LOCAL-SLIP): never by a dissolve that leaves the page up while it plays. And marked
+ * packed, the dots that drew the slip let go of it at once: they never form it again on their way
+ * to the check, which comes out of the orb (web/dots.js packOut, B2-04).
  */
 'use strict';
 
@@ -68,22 +76,45 @@
   // A screen is the device holding its key (app/displays/store.py), and since round 10 (B2-01)
   // the key is a cookie CLIVE sets and the browser alone holds: nothing on this page, nor anything
   // that can read its storage, can copy it. What is kept here is the screen's id and name, and
-  // nothing else is ever written. A record kept before then also holds the key: that key is held
-  // in memory only until CLIVE has taken it back for the cookie (migrate), and never written again.
+  // nothing else is ever written.
+  //
+  // A record kept before then also holds the key. Round 11 (B2-01): the moment this page reads
+  // such a record it writes it again as the id and name alone — before anything is asked of
+  // CLIVE, whatever CLIVE answers later — so the key is off the device's storage at once, and a
+  // hand-back that fails, is refused or never gets through cannot leave it there. The key is then
+  // held in this page's memory only, for this page's own attempts to hand it back (migrate). If
+  // the page is closed or reloaded before CLIVE has taken it, the key is gone for good: the next
+  // ask carries no key, CLIVE answers "not this screen", and the screen is named and approved
+  // again. That is the safe outcome — a key left in storage could be copied and reused.
+  //
+  // Held in memory for a bounded time only (LEGACY_KEEP_MS): a page that cannot hand the key back
+  // within it lets the key go and has the screen named again, rather than hold a reusable key for
+  // as long as the TV stays on (the round-11 independent check). A record this page cannot read
+  // at all is removed, not left: whatever it holds, nothing here can say it holds no key.
   const SCREEN_ID = /^scr_[0-9a-f]{12}$/;
+  const LEGACY_KEEP_MS = 30 * 60 * 1000;
   let legacyKey = '';
+  let legacyUntil = 0;
   function loadScreen() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (raw && SCREEN_ID.test(raw.id) && typeof raw.name === 'string' && raw.name) {
-        legacyKey = typeof raw.key === 'string' ? raw.key.slice(0, 200) : '';
-        return { id: raw.id, name: raw.name };
-      }
-    } catch (e) { /* nothing kept */ }
-    return null;
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { forgetStored(); return null; }
+    if (raw === null) return null;
+    if (typeof raw !== 'object' || Array.isArray(raw)) { forgetStored(); return null; }
+    const screen = SCREEN_ID.test(String(raw.id || '')) && typeof raw.name === 'string' && raw.name ? { id: raw.id, name: raw.name } : null;
+    if (Object.keys(raw).some((k) => k !== 'id' && k !== 'name')) {
+      if (screen) legacyKey = typeof raw.key === 'string' ? raw.key.slice(0, 200) : '';
+      if (legacyKey) legacyUntil = Date.now() + LEGACY_KEEP_MS;
+      // Written again now, as the id and name alone; a record that is not a screen's is not kept.
+      if (!screen || !saveScreen(screen)) forgetStored();
+    }
+    return screen;
   }
-  function saveScreen(s) { try { localStorage.setItem(KEY, JSON.stringify({ id: s.id, name: s.name })); } catch (e) { /* kept for this visit */ } }
-  function forgetScreen() { legacyKey = ''; try { localStorage.removeItem(KEY); } catch (e) { /* nothing kept */ } }
+  // True once the id and name alone are what is kept.
+  function saveScreen(s) {
+    try { localStorage.setItem(KEY, JSON.stringify({ id: s.id, name: s.name })); return true; } catch (e) { return false; /* kept for this visit */ }
+  }
+  function forgetStored() { try { localStorage.removeItem(KEY); } catch (e) { /* nothing kept */ } }
+  function forgetScreen() { legacyKey = ''; forgetStored(); }
 
   const S = {
     screen: loadScreen(),
@@ -983,7 +1014,18 @@
     S.busy = false;
     if (S.pending) { S.pending = false; reconcile(); }
   }
+  // A pane drawn here that is past CLIVE's own limit (round 11, NEW-B-LOCAL-SLIP) takes the whole
+  // screen down at once, as a refusal does (wipe): the page, the dots that drew it and what is
+  // kept of it, whatever the screen is in the middle of — even mid-journey, mid-dissolve or
+  // mid-pack, when an ordinary change would wait for the animation to end. A pane beside it that
+  // is still within its time comes back from the next ask, which starts afresh.
+  function expireDrawn() {
+    if (!(S.drawnView || []).some((P) => tooOld(P.view))) return false;
+    wipe('');
+    return true;
+  }
   function reconcile() {
+    if (expireDrawn()) return;
     if (S.busy || !E) { S.pending = true; return; }
     const want = wanted();
     if (S.phase === 'idle') { if (want.length) push(want); return; }
@@ -1060,13 +1102,16 @@
   // its done state (the other, if any, as it was). What the pane showed of the customer goes the
   // moment CLIVE says it is done (round 10, B2-04): the copy drawn here, its pages and all, is
   // replaced by CLIVE's done summary, and the page is drawn again from that at once, before the
-  // dots have moved.
+  // dots have moved. And the dots let go of the page they drew, now (round 11, B2-04): not one of
+  // them keeps a place sampled from the slip, so none forms it again — the check comes out of
+  // the orb (web/dots.js packOut), and the page they go back into is the done page, sampled anew.
   function markedDone(P, view) {
     S.busy = true;
     S.phase = 'packing';
     P.packed = true;
     P.view = doneOf(view);
     P.page = freshPage();
+    if (E) E.forget();
     const label = (P.view.kind === 'order' ? 'Packed at ' : 'Done at ') + timeOf(P.view.done_at);
     if (calm) {
       draw(S.drawnView);
@@ -1607,8 +1652,11 @@
     if (typeof data.version === 'number') S.version = data.version;
     const approvedNow = S.unapproved;
     S.unapproved = false;
-    S.showing = data.showing || null;
-    S.beside = (S.showing && data.beside) || null;
+    // A pane past CLIVE's own limit is not taken in at all, not even kept in memory (round 11), in
+    // case CLIVE's answer still lists it; each pane by its own time, in its own place.
+    const inTime = (s) => (s && typeof s === 'object' && !tooOld(s) ? s : null);
+    S.showing = inTime(data.showing);
+    S.beside = (data.showing && inTime(data.beside)) || null;
     S.lastDone = data.last_done || null;
     if (approvedNow && S.phase === 'pairing') { approved(); return; }
     reconcile();
@@ -1642,11 +1690,11 @@
   // hands that key back to CLIVE, once, the way a screen has always named itself again
   // (X-Screen-Key, to /displays/register): CLIVE answers as it does any screen naming itself
   // again with its own key — the same screen, still approved (or, still waiting, with a new
-  // code) — and sets the key as the cookie. The record here is then written again with the id
-  // and name alone, and the key is gone from the device. A name that has since gone to another
-  // device, or a key CLIVE no longer knows, is named again, as it would be today. Until CLIVE has
-  // answered, the old record stays, so a screen opened while CLIVE is away is not lost: it is
-  // tried again as an ask would be.
+  // code) — and sets the key as the cookie. A name that has since gone to another device, or a
+  // key CLIVE no longer knows, is named again, as it would be today. The device's record lost the
+  // key when this page read it (loadScreen, round 11); the key is in this page's memory alone,
+  // and while CLIVE is away or refusing this login the hand-back is tried again from there, as an
+  // ask would be. Reloaded before it gets through, the screen is named again (see loadScreen).
   let migrating = false;
   async function migrate() {
     if (migrating || !S.screen || !legacyKey) return;
@@ -1705,7 +1753,15 @@
   async function poll() {
     clearTimeout(pollTimer);
     if (!S.screen || polling) return;
-    // A screen named before round 10 hands its old key back first (B2-01).
+    // A screen named before round 10 hands its old key back first (B2-01) — for LEGACY_KEEP_MS at
+    // most; after that the key is let go and the screen is named again, as a new one would be.
+    if (legacyKey && Date.now() > legacyUntil) {
+      const name = S.screen.name;
+      wipe('');
+      forgetScreen(); S.screen = null;
+      toNaming('', name);
+      return;
+    }
     if (legacyKey) { migrate(); return; }
     polling = true;
     const stale = asked();
@@ -1765,20 +1821,26 @@
   }
   // Out of reach for OFFLINE_CLEAR_MS on end, however the asks are failing (refused, erroring or
   // hanging): what is shown is taken down (round 8, NEW-B-LOCAL-SLIP). And a slip past CLIVE's
-  // own limit is taken down even while CLIVE answers "nothing new".
+  // own limit is taken down even while CLIVE answers "nothing new" — at once, and whatever the
+  // screen is in the middle of (round 11, expireDrawn). Looked at every second, so either happens
+  // within a second of its time.
   setInterval(() => {
     if (S.screen && !S.gone && Date.now() - S.lastOk >= OFFLINE_CLEAR_MS) wipe('offline');
+    if (expireDrawn()) return;
     let old = false;
     if (S.showing && tooOld(S.showing)) { S.showing = null; old = true; }
     if (S.beside && tooOld(S.beside)) { S.beside = null; old = true; }
-    if (old || (S.drawnView || []).some((P) => tooOld(P.view))) reconcile();
-  }, 5000);
+    if (old) reconcile();
+  }, 1000);
 
   // ---- taking what is shown down, at once (round 8, NEW-B-LOCAL-SLIP) --------------------
-  // A customer's details leave this screen the moment it may no longer show them. Nothing is
-  // animated away: the page, the dots that drew it (they carry its shapes and letters) and what
-  // is kept of it in memory go now, and the next ask starts afresh, so what comes back is only
-  // what CLIVE sends again.
+  // A customer's details leave this screen the moment it may no longer show them — refused, out
+  // of reach too long, or past CLIVE's own limit (expireDrawn). Nothing is animated away, and
+  // nothing waits for an animation under way (a journey, a dissolve, a pack) to end: the page,
+  // the dots that drew it (they carry its shapes and letters; the engine is destroyed, which
+  // blanks its canvases and forgets every dot's place, web/dots.js) and what is kept of it in
+  // memory go now, and the next ask starts afresh, so what comes back is only what CLIVE sends
+  // again.
   function wipe(why) {
     const drawn = !!S.drawnView || ['forming', 'revealing', 'shown', 'packing', 'clearing'].indexOf(S.phase) !== -1;
     S.gen++;

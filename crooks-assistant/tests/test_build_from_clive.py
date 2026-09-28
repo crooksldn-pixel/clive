@@ -163,11 +163,13 @@ def test_each_host_has_its_own_inbox_and_status_branch():
 
 
 def test_the_runtime_files_with_the_configured_host():
+    from app import engineering_switch
     from config.settings import Settings
 
-    settings = Settings(_env_file=None)
-    assert settings.engineering_host == HOST
-    assert EngineeringInbox(host=settings.engineering_host).inbox_branch == INBOX
+    # Unset is off, not worker-01 (the 2026-09-28 review, round 10, CFG-01): filing is named on.
+    assert engineering_switch.filing_host(Settings(_env_file=None).engineering_host) is None
+    settings = Settings(_env_file=None, engineering_host=HOST)
+    assert engineering_switch.inbox_for(settings.engineering_host).inbox_branch == INBOX
 
 
 async def test_status_names_the_host_the_base_and_the_parts_a_build_may_change(fake, bound):
