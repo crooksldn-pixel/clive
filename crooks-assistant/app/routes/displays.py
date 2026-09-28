@@ -17,13 +17,16 @@ not yet durable is answered 503, never as done (B-03).
 A screen shows up to two things at once (round 9): the screen names the pane, and that pane's
 own version, when it acknowledges a page or says done. And the owner's app can be the remote
 for a screen (web/remote.js): `GET /displays/{id}/remote` is his view of it, and the
-`/remote/...` routes tick items, turn pages, mark a pane done, put an objective up again and take
-things off. They are his routes like every other here, answered for his own devices and nobody
+`/remote/...` routes tick items, turn pages, mark a pane done, put an objective up again, play,
+pause and turn up a video (`/remote/video`), and take things off. A screen playing a video tells
+CLIVE how it is playing (`/displays/{id}/video`, with its key), which is held in memory only. They are his routes like every other here, answered for his own devices and nobody
 else's, and need no screen key: the remote is not the screen. A pane that has moved on is 409
 (`stale`), a screen still waiting for approval is 409 (`not_approved`), and a deletion not yet
 durable is 503."""
 
 from __future__ import annotations
+
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
@@ -31,6 +34,7 @@ from pydantic import BaseModel, Field
 
 from app.displays import views
 from app.displays.store import (
+    MAX_JUMP_S,
     MAX_PANES,
     DisplayError,
     NameTaken,
@@ -101,6 +105,31 @@ class PageBody(BaseModel):
 class PaneBody(BaseModel):
     pane: int = Field(ge=0, le=MAX_PANES - 1, strict=True)
     version: int = Field(ge=0, strict=True)
+
+
+class VideoBody(BaseModel):
+    """What the owner asks of the video on one pane: play, pause, mute, unmute, a volume (0 to
+    100), louder or quieter (by a step, 10 unsaid), a skip (seconds either way) or a jump (to a
+    point, in seconds from the start)."""
+    pane: int = Field(ge=0, le=MAX_PANES - 1, strict=True)
+    version: int = Field(ge=0, strict=True)
+    action: Literal["play", "pause", "mute", "unmute", "volume", "louder", "quieter", "skip", "jump"]
+    value: int | None = Field(default=None, ge=-MAX_JUMP_S, le=MAX_JUMP_S, strict=True)
+
+
+class PlayingBody(BaseModel):
+    """The screen's own word on how the video on one pane is playing (round 9, YouTube)."""
+    pane: int = Field(ge=0, le=MAX_PANES - 1, strict=True)
+    version: int = Field(ge=0, strict=True)
+    state: Literal["unstarted", "cued", "buffering", "playing", "paused", "ended"]
+    at: float = Field(ge=0, le=MAX_JUMP_S * 2)
+    duration: float | None = Field(default=None, ge=0, le=MAX_JUMP_S * 2)
+    volume: int | None = Field(default=None, ge=0, le=100, strict=True)
+    muted: bool = Field(default=False, strict=True)
+    # The screen could play it only muted until someone there presses a button (a browser's rule).
+    blocked: bool = Field(default=False, strict=True)
+    # YouTube's own error number, when the player would not play it (not embeddable, gone, ...).
+    error: int | None = Field(default=None, ge=0, le=999, strict=True)
 
 
 class OffBody(BaseModel):
@@ -224,6 +253,25 @@ async def seen(screen_id: str, body: SeenBody, request: Request) -> dict | JSONR
     return {"seen": held}
 
 
+@router.post("/{screen_id}/video", response_model=None)
+async def video_playing(screen_id: str, body: PlayingBody, request: Request) -> dict | JSONResponse:
+    """The screen holding this key says how a video is playing. Kept in memory only, for the
+    remote and CLIVE; one told sooner than the store takes them is dropped, not refused."""
+    try:
+        heard = store().report_playing(screen_id, body.pane, body.version, screen_key=_screen_key(request),
+                                       state=body.state, at=body.at, duration=body.duration, volume=body.volume,
+                                       muted=body.muted, blocked=body.blocked, error=body.error)
+    except NotThisScreen as exc:
+        return _not_this_screen(exc)
+    except NotPaired as exc:
+        return _not_approved(exc)
+    except NoSuchScreen:
+        return JSONResponse(status_code=404, content={"code": "not_found", "detail": "No such screen."})
+    except DisplayError as exc:
+        return JSONResponse(status_code=409, content={"code": "stale", "detail": str(exc)})
+    return {"heard": heard}
+
+
 @router.post("/{screen_id}/done", response_model=None)
 async def done(screen_id: str, body: DoneBody, request: Request) -> dict | JSONResponse:
     who, _ = principal_check(request)
@@ -287,6 +335,16 @@ async def remote_done(screen_id: str, body: PaneBody, request: Request) -> dict 
     try:
         store().done_from_remote(screen_id, body.pane, body.version, by=who)
         return _fresh(store().remote(screen_id))
+    except DisplayError as exc:
+        return _remote_refusal(exc)
+
+
+@router.post("/{screen_id}/remote/video", response_model=None)
+async def remote_video(screen_id: str, body: VideoBody) -> dict | JSONResponse:
+    """Play, pause, mute, the volume, a skip or a jump, for the video on one pane. The screen
+    applies it on its next ask; the answer is the video's state as it now stands."""
+    try:
+        return _fresh(store().player(screen_id, body.pane, body.version, body.action, body.value))
     except DisplayError as exc:
         return _remote_refusal(exc)
 

@@ -335,6 +335,8 @@ const DETAIL_WORDS = {
   screen_pair: ['Approving', 'the screen'],
   // Round 9, the screens remote (web/remote.js): turning a screen off, and this app becoming its remote.
   screen_off: ['Turning', 'the screen off'], screen_remote: ['Opening', 'the remote'],
+  // YouTube on a screen: finding a video and putting it on, and working what plays.
+  screen_play: ['Finding', 'it on YouTube'], screen_video: ['Telling', 'the video'],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;

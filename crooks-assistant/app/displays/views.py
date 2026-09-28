@@ -1,5 +1,6 @@
 """What a screen shows, built from CLIVE's own records: an order as a fulfilment slip, an
-objective, or a titled list. Plain data; the screen draws it (web/display.js).
+objective, or a titled list; or a YouTube video the owner asked for, by its id. Plain data; the
+screen draws it (web/display.js).
 
 Every field is bounded here, before it is kept (the 2026-09-27 deploy review, round 6, B-03):
 each string is cut before it is cleaned, so a very long value is never walked whole; every list
@@ -9,6 +10,7 @@ takes is marked partial, and a partial slip can never be marked packed (B-04).""
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 MAX_ITEMS = 60
@@ -19,6 +21,9 @@ MAX_ADDRESS_LINES = 6
 MAX_URL = 500
 MAX_ID = 200
 MAX_VIEW_BYTES = 64_000
+# A YouTube video's id (app/clients/youtube.py VIDEO_ID), and how far in one may start.
+VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+MAX_START_S = 12 * 3600
 
 
 def _text(value: Any, limit: int = MAX_LINE) -> str:
@@ -114,6 +119,28 @@ def objective_view(summary: dict[str, Any], items: list[dict[str, Any]] | None =
             "needs_you": few("needs_you", 6),
             "blocked_by": few("blocked_by", 6),
             "items": [{"text": _text(i.get("text")), "state": _text(i.get("state"), 20)} for i in open_items[:MAX_LINES]],
+        },
+    }
+
+
+def video_view(video: str, *, title: str, channel: str = "", duration_s: int | None = None, live: bool = False,
+               start: int = 0) -> dict[str, Any]:
+    """A YouTube video, played on the screen in YouTube's own embedded player (web/display.js).
+    Only the video's id, its title and channel, how long it is and where to start are kept: the
+    screen builds the player's address from the id itself, so nothing here is ever an address."""
+    ident = str(video or "")
+    if not VIDEO_ID.fullmatch(ident):
+        raise ValueError("not a YouTube video id")
+    return {
+        "kind": "video",
+        "ref": ident,
+        "title": _text(title, MAX_TITLE) or "YouTube video",
+        "video": {
+            "id": ident,
+            "channel": _text(channel, 80) or None,
+            "duration_s": None if live else _count(duration_s),
+            "live": bool(live) or None,
+            "start": max(0, min(int(start), MAX_START_S)) if isinstance(start, int) and not isinstance(start, bool) else 0,
         },
     }
 

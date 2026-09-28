@@ -63,7 +63,11 @@ it?**
 ### Static — encrypted credentials
 
 `elevenlabs_api_key`, `shopify_client_id`, `shopify_client_secret`, `shopify_static_token`,
-`claude_oauth_token`.
+`claude_oauth_token`, `youtube_api_key`.
+
+`youtube_api_key` is optional. It is a YouTube Data API v3 key that CLIVE uses to search YouTube
+when the owner asks for a video on a screen ("play the Heat trailer on the TV"). Without it, a
+YouTube link still plays; only search needs the key (app/clients/youtube.py).
 
 Read at runtime and never written. Encrypted with `systemd-creds encrypt`, which binds the
 blob to this host, and mounted read-only into the service's own private tmpfs by

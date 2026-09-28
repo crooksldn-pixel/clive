@@ -89,6 +89,8 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
   els.namer.hidden = true;
   els.pairing.hidden = true;
   const storage = {};
+  const docListeners = {};
+  const winListeners = {};
   if (stored) storage['clive.screen'] = JSON.stringify(stored);
   const dots = engines();
   const RealDate = Date;
@@ -105,7 +107,7 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
     createDocumentFragment: () => new Fragment(),
     createTreeWalker: () => ({ nextNode: () => null }),
     createRange: () => ({ setStart() {}, setEnd() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }) }),
-    addEventListener() {},
+    addEventListener: (type, fn) => { (docListeners[type] = docListeners[type] || []).push(fn); },
     visibilityState: 'visible',
     fullscreenEnabled: false,
     fullscreenElement: null,
@@ -125,12 +127,13 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
   };
   const schedule = (fn, ms, every) => { timers.push({ id: ++seq, at: clock.now + Math.max(0, Number(ms) || 0), fn, every }); return seq; };
   const cancel = (id) => { const t = timers.find((x) => x.id === id); if (t) t.fn = null; };
-  const window = { innerWidth: 1920, innerHeight: 1080, matchMedia: () => ({ matches: true }), addEventListener() {} };
+  const window = { innerWidth: 1920, innerHeight: 1080, matchMedia: () => ({ matches: true }),
+    addEventListener: (type, fn) => { (winListeners[type] = winListeners[type] || []).push(fn); } };
   const sandbox = {
     window, document, console, Math, JSON, Date: FakeDate, Promise, Set, Map, Array, Number, Object, String, Error, TypeError,
     Uint8ClampedArray, isNaN, parseFloat, encodeURIComponent, AbortController,
     navigator: { hardwareConcurrency: 8 },
-    location: { search: '' },
+    location: { search: '', origin: 'https://clive.example' },
     NodeFilter: { SHOW_TEXT: 4 },
     localStorage: {
       getItem: (k) => (Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null),
@@ -180,7 +183,7 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
     engine().runDue();
     await flush();
   };
-  return { els, clock, requests, storage, dots, load, advance, flush, frame, engine };
+  return { els, clock, requests, storage, dots, load, advance, flush, frame, engine, docListeners, winListeners };
 }
 
 function slip(at) {
@@ -437,4 +440,190 @@ test('turned off, the screen goes back to its clock; a 403 takes both panes down
   assert.equal(pg.els.ui.allText(), '');
   assert.ok(drewWith.destroyed, 'with the dots that drew them');
   assert.equal(pg.els.line.textContent, REFUSED_LINE);
+});
+
+/* YouTube on a screen.
+ *
+ * - The video plays in YouTube's own privacy-enhanced player, built from its id and nothing else,
+ *   and only messages from that player, from that frame, are listened to.
+ * - Every command the owner gives it is applied once, however many arrive between two asks.
+ * - How it is playing is told to CLIVE with the screen's key, at a change, and not too often.
+ * - A browser that will not start it with sound: it plays muted, says so, and the first press
+ *   on the screen brings the sound back.
+ * - The TV's own remote works it through CLIVE, as the owner's remote does.
+ * - Drawn again around it, it does not start over; taken off, it is paused at once and dropped;
+ *   a 403 takes it down at once. A video YouTube will not let play says so.
+ */
+const VID = 'dQw4w9WgXcQ';
+const YT = 'https://www.youtube-nocookie.com';
+
+function clip(at, v, player) {
+  return { kind: 'video', ref: VID, title: 'Heat | Official Trailer', at, by: 'clive', v,
+    video: { id: VID, channel: 'Warner', duration_s: 151, live: null, start: 0 }, player: player || undefined };
+}
+
+// The player in its frame: what the page posts to it, and a way to answer as YouTube's player does.
+function player(pg) {
+  const host = pg.els.board.querySelector('.cs-vhost');
+  assert.ok(host, 'the player is on the board');
+  const frame = host.querySelector('iframe');
+  const sent = [];
+  frame.contentWindow = { postMessage: (message, origin) => sent.push({ message: JSON.parse(message), origin }) };
+  const say = (data, extra) => {
+    for (const fn of pg.winListeners.message || []) fn(Object.assign({ origin: YT, source: frame.contentWindow, data: JSON.stringify(data) }, extra || {}));
+  };
+  const commands = () => sent.filter((m) => m.message.event === 'command').map((m) => [m.message.func, ...(m.message.args || [])]);
+  return { host, frame, sent, say, commands };
+}
+
+test('a video plays in YouTube’s own player, built from its id, and only that player is listened to', async () => {
+  const { pg } = await upWith((at) => ({ version: 1, showing: clip(at, 1) }));
+  const yt = player(pg);
+  const src = yt.frame.src;
+  assert.ok(src.startsWith(YT + '/embed/' + VID + '?'), src);
+  assert.ok(src.includes('enablejsapi=1') && src.includes('origin=' + encodeURIComponent('https://clive.example')), src);
+  assert.equal(yt.frame.getAttribute('tabindex'), '-1');
+  assert.equal(yt.frame.getAttribute('referrerpolicy'), 'strict-origin-when-cross-origin');
+  assert.ok(pg.els.ui.allText().includes('Heat | Official Trailer') && pg.els.ui.allText().includes('Warner · 2:31 · YouTube'));
+  yt.frame.dispatch('load');
+  await pg.advance(300);
+  assert.ok(yt.sent.some((m) => m.message.event === 'listening' && m.origin === YT), 'it asks the player to talk');
+  // Nobody else is listened to: another origin, or another frame, saying it is ready changes nothing.
+  yt.say({ event: 'onReady' }, { origin: 'https://evil.example' });
+  yt.say({ event: 'onReady' }, { source: {} });
+  yt.say('not json');
+  assert.deepEqual(yt.commands(), []);
+  yt.say({ event: 'onReady' });
+  const said = yt.commands();
+  assert.deepEqual(said.slice(0, 2), [['addEventListener', 'onStateChange'], ['addEventListener', 'onError']]);
+  assert.deepEqual(said.slice(2), [['unMute'], ['playVideo']], 'shown, so it plays');
+  assert.ok(yt.host.classList.contains('is-in'));
+});
+
+test('every command is applied once, however many arrive between two asks', async () => {
+  let version = 1, p = { n: 0, paused: false, muted: false, volume: null, skip: 0, jump: null };
+  const { pg } = await upWith((at) => ({ version, showing: clip(at, 1, p) }));
+  const yt = player(pg);
+  yt.frame.dispatch('load');
+  yt.say({ event: 'onReady' });
+  yt.say({ event: 'infoDelivery', info: { playerState: 1, currentTime: 10, duration: 151 } });
+  yt.sent.length = 0;
+  // Three commands between two asks: a jump to 60, a skip of 20 after it, a pause, a volume.
+  p = { n: 4, paused: true, muted: false, volume: 30, skip: 25, jump: { n: 2, to: 60, skip: 5 } };
+  version = 5;
+  await pg.advance(800);
+  const got = yt.commands();
+  assert.deepEqual(got.filter((c) => c[0] === 'seekTo').map((c) => Math.round(c[1])), [60, 80]);
+  assert.ok(got.some((c) => c[0] === 'setVolume' && c[1] === 30));
+  assert.ok(got.some((c) => c[0] === 'pauseVideo'));
+  // The same commands again (the screen changed elsewhere): nothing new happens.
+  yt.sent.length = 0;
+  version = 6;
+  await pg.advance(800);
+  assert.deepEqual(yt.commands(), []);
+});
+
+test('how it plays is told to CLIVE with the screen’s key, at a change, and not too often', async () => {
+  const { pg } = await upWith((at) => ({ version: 1, showing: clip(at, 1) }), (request) => (request.url.endsWith('/video') ? { status: 200, body: { heard: true } } : null));
+  const yt = player(pg);
+  yt.frame.dispatch('load');
+  yt.say({ event: 'onReady' });
+  yt.say({ event: 'infoDelivery', info: { playerState: 3, currentTime: 0, duration: 151, volume: 80, muted: false } });
+  yt.say({ event: 'infoDelivery', info: { playerState: 1, currentTime: 0.4 } });
+  await pg.flush();
+  let told = pg.requests.filter((r) => r.url.endsWith('/video'));
+  assert.equal(told.length, 1, 'the second change waits for the gap');
+  assert.equal(told[0].headers['X-Screen-Key'], SCREEN.key);
+  assert.deepEqual(Object.keys(told[0].body).sort(), ['at', 'blocked', 'duration', 'error', 'muted', 'pane', 'state', 'version', 'volume']);
+  assert.equal(told[0].body.state, 'buffering');
+  await pg.advance(1100);
+  told = pg.requests.filter((r) => r.url.endsWith('/video'));
+  assert.equal(told.length, 2);
+  assert.equal(told[1].body.state, 'playing');
+  await pg.advance(4100);
+  assert.ok(pg.requests.filter((r) => r.url.endsWith('/video')).length >= 3, 'and every couple of seconds while it plays');
+});
+
+test('no sound until someone presses: it plays muted, says so, and the first press brings the sound back', async () => {
+  const { pg } = await upWith((at) => ({ version: 1, showing: clip(at, 1) }), (request) => (request.url.endsWith('/video') ? { status: 200, body: { heard: true } } : null));
+  const yt = player(pg);
+  yt.frame.dispatch('load');
+  yt.say({ event: 'onReady' });
+  yt.sent.length = 0;
+  await pg.advance(3600);   // the browser never let it start
+  assert.deepEqual(yt.commands(), [['mute'], ['playVideo']]);
+  assert.equal(pg.els.ui.querySelector('.cs-vstate').textContent, 'Sound off · press OK or tap the screen');
+  assert.ok(pg.requests.some((r) => r.url.endsWith('/video') && r.body.blocked === true));
+  yt.sent.length = 0;
+  for (const fn of pg.docListeners.keydown || []) fn({ key: 'Shift', target: null, preventDefault() {} });
+  assert.deepEqual(yt.commands(), [['unMute']]);
+  assert.equal(pg.els.ui.querySelector('.cs-vstate').textContent, '');
+});
+
+test('the TV’s own remote works it through CLIVE, as the owner’s remote does', async () => {
+  const asked = [];
+  const { pg } = await upWith((at) => ({ version: 1, showing: clip(at, 1) }), (request) => {
+    if (!request.url.endsWith('/remote/video')) return request.url.endsWith('/video') ? { status: 200, body: { heard: true } } : null;
+    asked.push(request.body);
+    const paused = request.body.action === 'pause';
+    return { status: 200, body: { version: 2, v: 1, player: { n: asked.length, paused, muted: false, volume: null,
+      skip: request.body.action === 'skip' ? request.body.value : 0, jump: null }, playing: null } };
+  });
+  const yt = player(pg);
+  yt.frame.dispatch('load');
+  yt.say({ event: 'onReady' });
+  yt.say({ event: 'infoDelivery', info: { playerState: 1, currentTime: 30, duration: 151 } });
+  yt.sent.length = 0;
+  const press = (key) => { for (const fn of pg.docListeners.keydown || []) fn({ key, target: null, preventDefault() {} }); };
+  press('Enter');
+  await pg.flush();
+  assert.deepEqual(asked[0], { pane: 0, version: 1, action: 'pause' });
+  assert.ok(yt.commands().some((c) => c[0] === 'pauseVideo'), 'applied from CLIVE’s answer');
+  press('ArrowRight');
+  await pg.flush();
+  assert.deepEqual(asked[1], { pane: 0, version: 1, action: 'skip', value: 10 });
+  assert.ok(yt.commands().some((c) => c[0] === 'seekTo' && Math.round(c[1]) === 40));
+  press('q');
+  await pg.flush();
+  assert.equal(asked.length, 2, 'a key it does not use asks nothing');
+});
+
+test('drawn again around it, the video does not start over; taken off, it is paused at once and dropped', async () => {
+  let state = null;
+  const { pg, at } = await upWith((when) => state || { version: 2, showing: clip(when, 1), beside: list(when, 2) });
+  const yt = player(pg);
+  yt.frame.dispatch('load');
+  yt.say({ event: 'onReady' });
+  // The list beside it is marked done: the page is drawn again, the player is the same player.
+  state = { version: 3, showing: clip(at, 1), beside: Object.assign(list(at, 3), { done_at: new Date(pg.clock.now).toISOString() }) };
+  await pg.advance(8000);
+  assert.equal(pg.els.board.querySelector('.cs-vhost'), yt.host, 'the same player');
+  assert.equal(yt.host.querySelector('iframe'), yt.frame);
+  assert.ok(yt.host.parentNode, 'still on the board');
+  // Turned off: paused at once, then dropped.
+  yt.sent.length = 0;
+  state = { version: 4, showing: null, beside: null };
+  await pg.advance(2100);
+  assert.ok(yt.commands().some((c) => c[0] === 'pauseVideo'));
+  assert.ok(!yt.host.classList.contains('is-in'));
+  await pg.advance(12000);
+  assert.equal(yt.host.parentNode, null, 'dropped');
+  assert.equal(pg.els.board.querySelector('.cs-vhost'), null);
+});
+
+test('a 403 takes a video down at once, and one YouTube will not let play says so', async () => {
+  let state = null;
+  const { pg } = await upWith((when) => state || { version: 1, showing: clip(when, 1) }, (request) => (request.url.endsWith('/video') ? { status: 200, body: { heard: true } } : null));
+  const yt = player(pg);
+  yt.frame.dispatch('load');
+  yt.say({ event: 'onReady' });
+  yt.say({ event: 'onError', info: 150 });
+  await pg.flush();
+  assert.equal(yt.host.querySelector('.cs-vnote').textContent, 'YouTube won’t let this video play outside YouTube. Ask CLIVE for another.');
+  assert.equal(yt.host.querySelector('.cs-vnote').hidden, false);
+  assert.equal(pg.els.ui.querySelector('.cs-vstate').textContent, 'Can’t play');
+  assert.ok(pg.requests.some((r) => r.url.endsWith('/video') && r.body.error === 150));
+  state = { status: 403, body: { code: 'refused', detail: 'not allowed' } };
+  await pg.advance(1000);
+  assert.equal(yt.host.parentNode, null, 'gone at once');
 });

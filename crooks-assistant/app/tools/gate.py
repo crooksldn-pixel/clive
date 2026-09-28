@@ -146,6 +146,10 @@ _KNOWN_TOOLS = frozenset({
     # Round 9: screen_off takes things off one of his screens and screen_remote opens his app's
     # remote for one; each changes only CLIVE's own record of screens, or nothing.
     "screen_off", "screen_remote",
+    # YouTube on his screens: screen_play finds a video on YouTube (a read) and puts it on one of
+    # them, screen_video plays, pauses or turns it up. Each changes only CLIVE's own record of
+    # screens; nothing in a store or an inbox is reachable from either.
+    "screen_play", "screen_video",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

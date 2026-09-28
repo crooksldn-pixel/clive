@@ -71,6 +71,14 @@ acknowledgements; the screen's own button keeps its rule above. A tick is an ite
 view and nothing else, kept in the pane (`ticked`), so it goes when the pane goes and expires
 with it; so does the page the remote turned to (`page`).
 
+A video (YouTube, app/clients/youtube.py and web/display.js). A pane can play a video the owner
+asked for, kept as its id, title and channel and nothing else. What he asks of it — play, pause,
+mute, a volume, a skip, a jump — is kept in the pane as `player`: every command counted, skips
+added up and the last jump noted, so the screen applies each command exactly once however many
+arrive between two of its asks. How it is actually playing is the screen's own word, told at
+most every PLAYING_GAP_S and held in memory only (`report_playing`), for the remote and for
+CLIVE. A video is never marked done, ticked or paged: it is taken off like anything else.
+
 One JSON file beside the objectives, 0600 in a 0700 folder. Nothing here is sent anywhere.
 """
 
@@ -344,8 +352,23 @@ class _Acks:
     last: float = float("-inf")       # when the last new page was acknowledged (monotonic)
 
 
-# What the store sets on a view itself, never taken from what it is given to show (round 9).
-_STAMPED = frozenset({"at", "by", "v", "done_at", "ticked", "page"})
+# What the store sets on a view itself, never taken from what it is given to show (round 9;
+# `player`, a video's playing state as the owner last set it).
+_STAMPED = frozenset({"at", "by", "v", "done_at", "ticked", "page", "player"})
+
+# A video on a screen (YouTube, web/display.js). What the owner can ask of it, from his remote or
+# through CLIVE; `volume` and `jump` take a value, `skip` a number of seconds either way.
+VIDEO_ACTIONS = ("play", "pause", "mute", "unmute", "volume", "louder", "quieter", "skip", "jump")
+# How far one skip goes, either way, and how far in a jump may land.
+MAX_SKIP_S = 3600
+MAX_JUMP_S = 12 * 3600
+# What a louder or quieter moves the volume by when no step is said.
+VOLUME_STEP = 10
+# What the screen says of the player it runs: its state, and why it stopped if it did.
+PLAYER_STATES = ("unstarted", "cued", "buffering", "playing", "paused", "ended")
+PLAYER_ERRORS = frozenset({2, 5, 100, 101, 150, 153})
+# A screen tells CLIVE how a video is playing at most this often; anything sooner is dropped.
+PLAYING_GAP_S = 0.5
 
 _NOT_SAVED = "That could not be saved just now; nothing was changed. Try again."
 _NOT_DURABLE = "That was done, but CLIVE could not make sure it is saved yet. It keeps trying; check again in a moment."
@@ -362,6 +385,10 @@ class DisplayStore:
         self._seen_written: dict[str, float] = {}
         # Page acknowledgements, per pane: (screen id, the pane's version) -> how far (round 9).
         self._acks: dict[tuple[str, int], _Acks] = {}
+        # How each video is actually playing, as its screen last said: (screen id, the pane's
+        # version) -> state, position and when it was said. Held in memory only, like the
+        # acknowledgements: nothing about it is worth keeping across a restart.
+        self._playing: dict[tuple[str, int], dict[str, Any]] = {}
         # The record in memory differs from what is durably on disk (said by sweep()).
         self.unsaved = False
         # Deletions made in memory that are not yet durably in the record: screen id -> what the
@@ -1182,6 +1209,8 @@ class DisplayStore:
                     # Asked again while the first answer was "not saved yet": said done only once it is.
                     self._make_durable()
                 return self._public(screen)
+            if showing.get("kind") == "video":
+                raise DisplayError("A video is not marked done; take it off the screen instead.")
             if showing.get("kind") == "order" and (showing.get("order") or {}).get("partial"):
                 # A slip cut at views.MAX_ITEMS: the rest of the order was never on any screen.
                 raise DisplayError("This order has more items than a screen shows, so it cannot be marked packed here.")
@@ -1331,6 +1360,142 @@ class DisplayStore:
             _screen, showing = self._remote_pane(screen_id, pane, version)
             return str(showing.get("kind") or ""), str(showing.get("ref") or "")
 
+    # ---- a video on a screen ---------------------------------------------------------------
+    @staticmethod
+    def _player(view: dict[str, Any]) -> dict[str, Any]:
+        """A video's playing state as the owner last set it, whatever the record holds: `n`
+        counts his commands, so the screen applies each one once; `skip` is every skip added
+        up, and `jump` the last jump (where to, its command, and the skips before it), so
+        commands that arrive together between two of the screen's asks are all applied."""
+        raw = view.get("player") if isinstance(view.get("player"), dict) else {}
+        volume = raw.get("volume")
+        jump = raw.get("jump") if isinstance(raw.get("jump"), dict) else None
+        return {
+            "n": max(0, _whole(raw.get("n"))),
+            "paused": raw.get("paused") is True,
+            "muted": raw.get("muted") is True,
+            "volume": max(0, min(100, volume)) if isinstance(volume, int) and not isinstance(volume, bool) else None,
+            "skip": max(-(2**40), min(2**40, _whole(raw.get("skip")))),
+            "jump": {"n": max(0, _whole(jump.get("n"))), "to": max(0, min(MAX_JUMP_S, _whole(jump.get("to")))),
+                     "skip": max(-(2**40), min(2**40, _whole(jump.get("skip"))))} if jump else None,
+        }
+
+    def _heard(self, screen_id: str, view: dict[str, Any]) -> dict[str, Any] | None:
+        """How the screen last said this video was playing, brought up to now: the position
+        moves on by the time since, while it was playing, and never past the end."""
+        heard = self._playing.get((screen_id, _pane_v(view)))
+        if heard is None:
+            return None
+        out = {k: v for k, v in heard.items() if k != "mono"}
+        age = max(0.0, self.mono() - float(heard["mono"]))
+        if heard["state"] == "playing":
+            at = float(heard["at"]) + age
+            out["at"] = round(min(at, float(heard["duration"])) if heard.get("duration") else at, 1)
+        out["age_s"] = round(age, 1)
+        return out
+
+    def _video_state(self, screen_id: str, screen: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
+        return {"version": _whole(screen.get("version")), "v": _pane_v(view), "player": self._player(view),
+                "playing": self._heard(screen_id, view)}
+
+    def player(self, screen_id: str, pane: int, version: int, action: str, value: int | None = None) -> dict[str, Any]:
+        """The owner plays, pauses, mutes, sets the volume of, skips through or jumps within the
+        video on one pane — from his remote, the screen's own buttons or through CLIVE. It is
+        kept in the pane (it goes when the pane goes) and the screen applies it on its next ask.
+        Nothing here is anyone's words: a state, a number or two."""
+        if action not in VIDEO_ACTIONS:
+            raise DisplayError("Say play, pause, mute, unmute, volume, louder, quieter, skip or jump.")
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+            raise DisplayError("That needs a whole number.")
+        with self._lock:
+            self._sweep_locked()
+            screen, showing = self._remote_pane(screen_id, pane, version)
+            if showing.get("kind") != "video":
+                raise DisplayError("Nothing on this plays.")
+            was = self._player(showing)
+            now = dict(was)
+            heard = self._playing.get((screen_id, _pane_v(showing))) or {}
+            if action in ("play", "pause"):
+                now["paused"] = action == "pause"
+            elif action in ("mute", "unmute"):
+                now["muted"] = action == "mute"
+            elif action == "volume":
+                if value is None or not 0 <= value <= 100:
+                    raise DisplayError("The volume is 0 to 100.")
+                now["volume"], now["muted"] = value, value == 0 and now["muted"]
+            elif action in ("louder", "quieter"):
+                step = VOLUME_STEP if value is None else value
+                if not 1 <= step <= 100:
+                    raise DisplayError("Louder or quieter by 1 to 100.")
+                base = now["volume"] if now["volume"] is not None else heard.get("volume")
+                base = base if isinstance(base, int) else 100
+                now["volume"] = max(0, min(100, base + (step if action == "louder" else -step)))
+                now["muted"] = False if action == "louder" else now["muted"]
+            elif action == "skip":
+                if value is None or value == 0 or abs(value) > MAX_SKIP_S:
+                    raise DisplayError(f"Skip by 1 to {MAX_SKIP_S} seconds, forward or back.")
+                now["skip"] = was["skip"] + value
+            else:
+                if value is None or not 0 <= value <= MAX_JUMP_S:
+                    raise DisplayError("Jump to a point from the start, in seconds.")
+                now["jump"] = {"n": was["n"] + 1, "to": value, "skip": was["skip"]}
+            now["n"] = was["n"] + 1
+
+            def change() -> dict[str, Any]:
+                showing["player"] = now
+                screen["version"] = _whole(screen.get("version")) + 1
+                return self._video_state(screen_id, screen, showing)
+
+            return self._commit(change)
+
+    def report_playing(self, screen_id: str, pane: int, version: int, *, screen_key: str, state: str, at: float,
+                       duration: float | None, volume: int | None, muted: bool, blocked: bool, error: int | None) -> bool:
+        """The screen holding this key says how the video on one pane is actually playing: kept
+        in memory for the owner's remote and for CLIVE ("is it still playing?"), never written
+        down. At most one every PLAYING_GAP_S; one sooner is dropped (False), not refused."""
+        if state not in PLAYER_STATES:
+            raise DisplayError("That is not a player's state.")
+        if error is not None and error not in PLAYER_ERRORS:
+            error = 5
+        with self._lock:
+            screen = self._data["screens"].get(screen_id)
+            if screen is None:
+                raise NoSuchScreen("That screen is not there any more.")
+            self._holder(screen, screen_key)
+            if self._pending(screen):
+                raise NotPaired("That screen hasn't been approved yet.")
+            showing = self._pane(screen, pane)
+            if not showing or showing.get("kind") != "video" or isinstance(version, bool) or _pane_v(showing) != int(version):
+                raise Stale("The screen changed before that; nothing was noted.")
+            key = (screen_id, _pane_v(showing))
+            now = self.mono()
+            last = self._playing.get(key)
+            if last is not None and now - float(last["mono"]) < PLAYING_GAP_S:
+                return False
+            self._touch(screen_id)
+            self._playing[key] = {
+                "state": state,
+                "at": round(max(0.0, min(float(at), float(MAX_JUMP_S * 2))), 1),
+                "duration": round(max(0.0, min(float(duration), float(MAX_JUMP_S * 2))), 1) if duration else None,
+                "volume": max(0, min(100, int(volume))) if isinstance(volume, int) and not isinstance(volume, bool) else None,
+                "muted": muted is True, "blocked": blocked is True, "error": error, "mono": now,
+            }
+            return True
+
+    def playing(self, screen_id: str) -> list[dict[str, Any]]:
+        """Each video on a screen, pane by pane: its title, as the owner last set it, and as
+        the screen last said it was playing (for CLIVE: "is it still playing?")."""
+        with self._lock:
+            screen = self._data["screens"].get(str(screen_id)) if _ID.fullmatch(str(screen_id or "")) else None
+            if screen is None:
+                return []
+            out = []
+            for n, view in enumerate(self._panes(screen)):
+                if isinstance(view, dict) and view.get("kind") == "video" and not view.get("done_at"):
+                    out.append({"pane": n, "v": _pane_v(view), "title": str(view.get("title") or "")[:120],
+                                "player": self._player(view), "playing": self._heard(str(screen_id), view)})
+            return out
+
     def remote(self, screen_id: str) -> dict[str, Any]:
         """The owner's view of a screen, for his remote: its name, whether it is on, and pane by
         pane what it shows — as much as the remote needs to work it and nothing more. An order's
@@ -1389,6 +1554,18 @@ class DisplayStore:
                 "deadline": str(goal.get("deadline") or "")[:40] or None,
                 "days_left": days if isinstance(days, int) and not isinstance(days, bool) else None,
             }
+        elif kind == "video":
+            clip = view.get("video") if isinstance(view.get("video"), dict) else {}
+            ident = str(clip.get("id") or "")
+            duration = clip.get("duration_s")
+            out["video"] = {
+                "id": ident if len(ident) == 11 else "",
+                "channel": str(clip.get("channel") or "")[:80] or None,
+                "duration_s": duration if isinstance(duration, int) and not isinstance(duration, bool) else None,
+                "live": clip.get("live") is True,
+            }
+            out["player"] = self._player(view)
+            out["playing"] = self._heard(screen_id, view)
         if kind in ("order", "list"):
             out["page"] = max(0, _whole(view.get("page")))
             out["pages"] = self._pages(screen_id, view)
@@ -1419,6 +1596,8 @@ class DisplayStore:
         live = {_pane_v(p) for p in self._panes(self._data["screens"].get(screen_id))}
         for key in [k for k in self._acks if k[0] == screen_id and k[1] not in live]:
             del self._acks[key]
+        for key in [k for k in self._playing if k[0] == screen_id and k[1] not in live]:
+            del self._playing[key]
 
     def _stood(self, screen_id: str, commit: Callable[[], Any]) -> Any:
         """Run a commit that moves a screen past what it showed. The acknowledgements of what it

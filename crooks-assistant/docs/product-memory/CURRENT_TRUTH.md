@@ -2,15 +2,31 @@
 
 **Purpose:** compact active context for GPT/Claude/Fable/engineering workers  
 **Status:** ACTIVE — update whenever a material product/architecture state changes  
-**As of:** 2026-09-27 (the deploy pipeline; the 2026-09-25 state and earlier ones are kept below as history)
+**As of:** 2026-09-28 (the screens and the deploy pipeline; 2026-09-27 and earlier are kept below as history)
 
 This file is intentionally not a historical transcript. It answers: **what is true and important now?**
 
 For historical rationale, use Git and DECISIONS.md. For release evolution rules, use EVOLUTION_POLICY.md.
 
-## Now — 2026-09-27
+## Now — 2026-09-28
 
 Where anything further down this file disagrees with this section, this section is the current truth and the text below is history.
+
+| | SHA | What it is |
+|---|---|---|
+| **Production** (`/opt/crooks-os`) | `6a29e310` | Deployed on 27 Sep under the owner's waiver of the round-8 findings ("sure - lets waive review - go"). Both phone checks passed. Record: `claude/deploy-review-round-8-findings` (`74bd8301`). |
+| **Candidate** | the `clive/trunk` head | PR #51: the 21 round-8 findings fixed and the screens restyled. PR #52: iOS blue, live voice, no fast lane or speech terms, and the TV remote. Then YouTube on the screens (below). |
+
+**Next:** the round-9 prompt on the production host. It reviews the candidate under the owner's ship rule: only a finding that can be exploited, would lose data or would leak data, on production as configured, blocks the deploy; every other finding is a follow-up. The switches, the parked engineering credential and "code and unit in one operation" are as in the 27 Sep section below.
+
+**YouTube on the screens.** "Play the Heat trailer on the TV" finds the video on YouTube and plays it on a screen, in YouTube's own privacy-enhanced embedded player; the owner's app becomes its remote (play, pause, ten seconds either way, where it is, the volume), and so does the TV's own remote. "Pause the TV", "turn it up" and "back thirty seconds" work through CLIVE.
+
+- Tools: `screen_play` (find and put on; the other matches come back as choices) and `screen_video` (control what plays).
+- Search needs a YouTube Data API v3 key stored as the `youtube_api_key` secret (`scripts/provision_secrets.py`). Without it, a YouTube link still plays.
+- A video pane keeps the video's id, title, channel and numbers; the screen builds the player's address itself, and no script of YouTube's runs in the screen's page.
+- Only YouTube. Unlicensed streaming sites are not wired into CLIVE.
+
+## 2026-09-27 (history)
 
 ### Where the deploy is
 

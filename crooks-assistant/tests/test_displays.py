@@ -2028,4 +2028,5 @@ def test_the_new_screen_tools_answer_only_the_owners_own_request(s):
         assert decided.tier is Tier.GREEN and decided.executes, tool
     from app.capabilities.families import get as family
 
-    assert set(family("screens").tools) == {"screen_list", "screen_show", "screen_pair", "screen_off", "screen_remote"}
+    assert set(family("screens").tools) == {"screen_list", "screen_show", "screen_pair", "screen_off", "screen_remote",
+                                            "screen_play", "screen_video"}

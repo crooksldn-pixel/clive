@@ -10,7 +10,10 @@
  * - taking a pane off, and turning the screen off, each take a second tap;
  * - what it shows leaves it on a 403, after two minutes out of reach (not before), when it is
  *   closed, and a pane older than CLIVE's own limit is never drawn;
- * - it opens only for CLIVE's screen_remote card, never for anything else.
+ * - it opens only for CLIVE's screen_remote card, never for anything else;
+ * - a YouTube video's play and pause, ten seconds either way, where it is and its volume are each
+ *   told to CLIVE naming the pane and its version, and it says when the screen plays it muted or
+ *   YouTube will not play it.
  */
 'use strict';
 
@@ -151,11 +154,11 @@ test('the controls follow what each pane shows, and a kind with no controls gets
   assert.ok(groups[1].querySelector('.rm-glass').allText().includes('Put it up again'));
   assert.equal(all(groups[1], '.rm-tick').length, 0);
   for (const g of groups) assert.equal(g.querySelector('.rm-destroy').textContent, 'Take this off');
-  // A list, and a kind the remote has no controls for yet (a video, one day).
+  // A list, and a kind the remote has no controls for (a slideshow, one day; a video has its own now).
   panes = [
     { pane: 0, v: 7, kind: 'list', title: 'Today', at: new Date(pg.clock.now).toISOString(), done_at: null, page: 0, pages: 1,
       lines: [{ i: 0, text: 'Steam the jackets', ticked: true }, { i: 1, text: 'Pack the returns', ticked: false }] },
-    { pane: 1, v: 8, kind: 'video', title: 'Lookbook film', at: new Date(pg.clock.now).toISOString(), done_at: null },
+    { pane: 1, v: 8, kind: 'slideshow', title: 'Lookbook', at: new Date(pg.clock.now).toISOString(), done_at: null },
   ];
   await pg.advance(1100);
   const now = all(ui, '.rm-group');
@@ -164,7 +167,7 @@ test('the controls follow what each pane shows, and a kind with no controls gets
   assert.equal(now[0].querySelector('.rm-primary').textContent, 'Mark done');
   assert.equal(now[1].querySelector('.rm-ctl'), null, 'no controls for a kind it does not know');
   assert.ok(now[1].querySelector('.rm-destroy'));
-  assert.ok(pg.R.CONTROLS.order && pg.R.CONTROLS.list && pg.R.CONTROLS.objective && !pg.R.CONTROLS.video);
+  assert.ok(pg.R.CONTROLS.order && pg.R.CONTROLS.list && pg.R.CONTROLS.objective && pg.R.CONTROLS.video && !pg.R.CONTROLS.slideshow);
 });
 
 // CLIVE keeping the order's ticks and its done state, as the store does.
@@ -315,4 +318,70 @@ test('it opens only for CLIVE’s screen_remote card, never for anything else', 
   assert.equal(pg.panel().hidden, false);
   assert.equal(pg.requests[0].url, '/displays/' + ID + '/remote');
   assert.ok(!/become (the )?remote|be the remote|control the tv/i.test(SOURCE), 'no phrase is matched here');
+});
+
+// A YouTube video on the screen, as CLIVE's view of it says: what the owner asked of it
+// (`player`) and how the screen said it is playing (`playing`).
+function video(pg, over) {
+  return Object.assign({
+    pane: 0, v: 3, kind: 'video', title: 'Heat | Official Trailer', at: new Date(pg.clock.now - 60000).toISOString(), done_at: null,
+    video: { id: 'dQw4w9WgXcQ', channel: 'Warner', duration_s: 151, live: false },
+    player: { n: 0, paused: false, muted: false, volume: null, skip: 0, jump: null },
+    playing: { state: 'playing', at: 30, duration: 151, volume: 80, muted: false, blocked: false, error: null, age_s: 0.4 },
+  }, over || {});
+}
+
+test('a video: play and pause, ten seconds either way, where it is and the volume, each told to CLIVE', async () => {
+  const told = [];
+  const pg = await opened((p) => view(p, [video(p)]), (request) => {
+    if (!request.url.endsWith('/remote/video')) return null;
+    told.push(request.body);
+    return { status: 200, body: { version: 6, v: 3, player: { n: told.length, paused: request.body.action === 'pause', muted: request.body.action === 'mute',
+      volume: request.body.action === 'volume' ? request.body.value : null, skip: 0, jump: null }, playing: null } };
+  });
+  const ui = pg.panel();
+  const group = ui.querySelector('.rm-group');
+  assert.equal(group.querySelector('.rm-kicker').textContent, 'Video');
+  assert.ok(group.querySelector('.rm-sub').textContent.startsWith('0:30 of 2:31'), group.querySelector('.rm-sub').textContent);
+  const art = group.querySelector('img');
+  assert.equal(art.src, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
+  assert.equal(art.referrerPolicy, 'no-referrer');
+  assert.ok(group.allText().includes('Warner · YouTube'));
+  const buttons = all(group, '.rm-vbtn');
+  assert.equal(buttons.length, 3);
+  assert.equal(buttons[1].getAttribute('aria-label'), 'Pause');
+  await pg.tap(buttons[1]);
+  assert.deepEqual(told[0], { pane: 0, version: 3, action: 'pause' });
+  await pg.tap(all(ui.querySelector('.rm-group'), '.rm-vbtn')[0]);
+  assert.deepEqual(told[1], { pane: 0, version: 3, action: 'skip', value: -10 });
+  await pg.tap(all(ui.querySelector('.rm-group'), '.rm-vbtn')[2]);
+  assert.deepEqual(told[2], { pane: 0, version: 3, action: 'skip', value: 10 });
+  const bars = all(ui.querySelector('.rm-group'), '.rm-vbar');
+  assert.equal(bars.length, 2, 'where it is, and the volume');
+  assert.equal(bars[0].max, '151');
+  bars[0].value = '90';
+  bars[0].dispatch('change');
+  await pg.flush();
+  assert.deepEqual(told[3], { pane: 0, version: 3, action: 'jump', value: 90 });
+  const level = all(ui.querySelector('.rm-group'), '.rm-vlevel')[0];
+  assert.equal(level.value, '80', 'the volume the screen said');
+  level.value = '35';
+  level.dispatch('change');
+  await pg.flush();
+  assert.deepEqual(told[4], { pane: 0, version: 3, action: 'volume', value: 35 });
+  await pg.tap(ui.querySelector('.rm-vspk'));
+  assert.deepEqual(told[5], { pane: 0, version: 3, action: 'mute' });
+  assert.ok(ui.querySelector('.rm-destroy'), 'and it can be taken off like anything else');
+});
+
+test('a video the screen plays muted, or YouTube will not play, says so', async () => {
+  let pane = null;
+  const pg = await opened((p) => view(p, [pane || video(p, { playing: { state: 'playing', at: 3, duration: 151, volume: 100, muted: true,
+    blocked: true, error: null, age_s: 1 } })]));
+  const ui = pg.panel();
+  assert.ok(ui.allText().includes('The screen plays it muted until someone presses OK on it or taps it'));
+  pane = video(pg, { playing: { state: 'unstarted', at: 0, duration: null, volume: null, muted: false, blocked: false, error: 150, age_s: 1 } });
+  await pg.advance(1100);
+  assert.ok(ui.allText().includes('YouTube won’t let this video play outside YouTube. Ask CLIVE for another.'));
+  assert.equal(ui.querySelector('.rm-sub').textContent, 'Can’t play on the screen');
 });

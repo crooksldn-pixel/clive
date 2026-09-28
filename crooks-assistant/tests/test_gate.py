@@ -235,16 +235,19 @@ def test_harvest_records_personal_strings_but_not_order_names(session):
 
 def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else():
     """The changes the engineering bridge and the owner's screens made to the gate. The bridge
-    added one read; the screens added three tools (app/tools/display_tools.py; screen_pair in
-    round 8, B-02) and one issued-id rule, so a slip is only ever drawn from an order this
-    conversation looked up. Every other table is as it was: the same mutation verbs, the same
+    added one read; the screens added their tools (app/tools/display_tools.py; screen_pair in
+    round 8, B-02; screen_off and screen_remote in round 9, then YouTube's screen_play and
+    screen_video, which carry nobody's details) and one issued-id rule, so a slip is only ever
+    drawn from an order this conversation looked up. Every other table is as it was: the same mutation verbs, the same
     personal-data reads, the same id kinds, the same bounds."""
     from app.tools import gate
 
     assert "engineering_status" in gate._KNOWN_TOOLS
     assert {"screen_list", "screen_show", "screen_pair"} <= gate._KNOWN_TOOLS
     assert {"screen_off", "screen_remote"} <= gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 39, "33 before, engineering_status, screen_list, screen_show, screen_pair, then screen_off and screen_remote"
+    assert {"screen_play", "screen_video"} <= gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 41, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+                                          "screen_off and screen_remote, then screen_play and screen_video")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",
@@ -252,7 +255,7 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
         "restore", "commit", "approve", "execute", "adjust",
     )
     assert len(gate._PII_TOOLS) == 6 and "engineering_status" not in gate._PII_TOOLS
-    assert not {"screen_list", "screen_show"} & gate._PII_TOOLS
+    assert not {"screen_list", "screen_show", "screen_play", "screen_video"} & gate._PII_TOOLS
     assert len(gate._ISSUED_ID_ARGS) == 4 and "engineering_status" not in gate._ISSUED_ID_ARGS
     # Round 6, B-05: an objective put on a screen is an issued id too, of its own kind.
     assert gate._ISSUED_ID_ARGS["screen_show"] == ("order_id", "objective_id")
