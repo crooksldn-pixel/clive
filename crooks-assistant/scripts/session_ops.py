@@ -26,13 +26,13 @@ from __future__ import annotations
 
 import json
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))      # launch_common, as the other scripts import it
 
 # Reading a timeline to count turns costs a pass over the file. A long session is megabytes,
 # and the Control app asks every few seconds while one is running. Above this the counts are
@@ -67,28 +67,29 @@ def call(port: int, method: str, path: str, body: dict | None = None, *, timeout
     or came back as something that is not an answer is NOT that: the backend may be running and
     may have done what was asked. It comes back as {FAILED: why}, and failed() says so. Before,
     both came back None, and a stop that timed out was reported as a stop with no backend, whose
-    count is final."""
-    from app import local_cli
+    count is final.
+
+    It is sent by launch_common.call_service (round 10, S1-KEY-SENDER): the server's own key for
+    the test-session routes (app/local_cli.py) goes only down a connection the kernel says the
+    service itself took, never through a proxy the environment names and never on to a redirect —
+    urllib, which this used, did all three. A redirect is an answer here, not a place to go."""
+    import launch_common as lc
 
     data = json.dumps(body or {}).encode("utf-8") if method == "POST" else None
-    # The server's own key for the test-session routes (app/local_cli.py), when readable here.
-    headers = {"content-type": "application/json", **(local_cli.headers() if path.startswith("/test-session/") else {})}
-    request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method=method,
-                                     headers=headers)
     wait = TIMEOUT_S if timeout_s is None else timeout_s
     try:
-        with urllib.request.urlopen(request, timeout=wait) as response:  # noqa: S310 — loopback only
-            answer = json.loads(response.read().decode("utf-8") or "{}")
-    except urllib.error.HTTPError as exc:
-        try:
-            answer = json.loads(exc.read().decode("utf-8") or "{}")
-        except Exception:  # noqa: BLE001 — a refusal whose body could not be read is still a refusal
-            answer = None
-        return answer if isinstance(answer, dict) else {"code": f"http {exc.code}"}
+        status, raw = lc.call_service(port, method, path, data, timeout_s=wait)
     except Exception as exc:  # noqa: BLE001 — every way a call can fail is one of the two below
         if _refused(exc):
             return None
         return {FAILED: _why(exc, wait)}
+    try:
+        answer = json.loads(raw.decode("utf-8") or "{}")
+    except ValueError:
+        answer = None
+    if status >= 300:
+        # A refusal (or a redirect, never followed) is still an answer: its body, or its code.
+        return answer if isinstance(answer, dict) and answer else {"code": f"http {status}"}
     return answer if isinstance(answer, dict) else {FAILED: "its answer was not one this understands"}
 
 
