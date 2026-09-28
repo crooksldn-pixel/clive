@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 
 from app.capabilities.families import CapabilityFamily
 from app.capabilities.families import register as register_family
-from app.clients.shopify import ShopifyClient
+from app.clients.shopify import ShopifyClient, ShopifyError
 from app.surfaces import Freshness, Surface
 from app.tools.gate import Tier
 from app.tools.registry import ToolError, tool
@@ -50,6 +50,13 @@ DEFAULT_LIMIT = 25
 MAX_LIMIT = 50
 MAX_RANKED = 8
 MAX_DRILLDOWN = 6
+# How many pages of `limit` checkouts one answer reads before it stops and says it stopped.
+# The count and the value are the WINDOW's, so the read follows Shopify's pages to the end of
+# the window — within this bound, which keeps one question to a handful of Shopify calls
+# (four pages of the default 25 is the most recent hundred). Past it, the figures are the
+# checkouts read and are labelled as that, never passed off as the window's total (the
+# round-10 deploy review, F-01).
+MAX_PAGES = 4
 
 # The one sentence this family exists to keep saying. Held once, on the result the model
 # reads, so what it says cannot drift from what the data is.
@@ -59,8 +66,8 @@ WHAT_IT_IS = (
 )
 
 ABANDONED_QUERY = """
-query CrooksAbandonedCheckouts($q: String!, $n: Int!) {
-  abandonedCheckouts(first: $n, query: $q, sortKey: CREATED_AT, reverse: true) {
+query CrooksAbandonedCheckouts($q: String!, $n: Int!, $after: String) {
+  abandonedCheckouts(first: $n, query: $q, after: $after, sortKey: CREATED_AT, reverse: true) {
     edges {
       node {
         id
@@ -82,7 +89,7 @@ query CrooksAbandonedCheckouts($q: String!, $n: Int!) {
         }
       }
     }
-    pageInfo { hasNextPage }
+    pageInfo { hasNextPage endCursor }
   }
 }
 """
@@ -114,9 +121,12 @@ def _since(days: int) -> str:
     return first.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-async def _read(client: ShopifyClient, days: int, limit: int) -> dict[str, Any]:
+async def _read(client: ShopifyClient, days: int, limit: int, after: str | None = None) -> dict[str, Any]:
     since = _since(days)
-    payload = await client.graphql(ABANDONED_QUERY, {"q": f"created_at:>='{since}'", "n": limit})
+    variables: dict[str, Any] = {"q": f"created_at:>='{since}'", "n": limit}
+    if after:
+        variables["after"] = after
+    payload = await client.graphql(ABANDONED_QUERY, variables)
     body = (payload.get("data") or {}).get("abandonedCheckouts")
     if not isinstance(body, dict):
         # Named, not swallowed. A store whose plan or scopes do not serve this gets the
@@ -126,6 +136,33 @@ async def _read(client: ShopifyClient, days: int, limit: int) -> dict[str, Any]:
             "abandoned checkouts are only available to shops on a plan that has them."
         )
     return body
+
+
+async def _read_window(client: ShopifyClient, days: int, limit: int) -> tuple[list[dict[str, Any]], bool, int, str]:
+    """Every page of the window's checkouts, up to MAX_PAGES of them.
+
+    Returns the checkout nodes, whether the whole window was read, how many pages it took, and
+    — when it was not — why not, in words. The first page failing is the answer failing (the
+    caller hears Shopify's own reason); a later page failing leaves what was already read, said
+    to be partial, rather than losing the whole answer to it.
+    """
+    nodes: list[dict[str, Any]] = []
+    after: str | None = None
+    for page in range(MAX_PAGES):
+        try:
+            body = await _read(client, days, limit, after)
+        except (ShopifyError, ToolError) as exc:
+            if page == 0:
+                raise
+            return nodes, False, page, f"Shopify stopped answering after {len(nodes)} checkouts ({type(exc).__name__})"
+        nodes.extend((edge or {}).get("node") or {} for edge in (body.get("edges") or []))
+        info = body.get("pageInfo") or {}
+        if not info.get("hasNextPage"):
+            return nodes, True, page + 1, ""
+        after = str(info.get("endCursor") or "")
+        if not after:
+            return nodes, False, page + 1, "Shopify said there were more checkouts but gave no way to read them"
+    return nodes, False, MAX_PAGES, f"the window holds more than the {len(nodes)} most recent checkouts read"
 
 
 def _lines(node: dict[str, Any]) -> list[dict[str, Any]]:
@@ -201,11 +238,10 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
     """
     days = max(1, min(int(days or DEFAULT_DAYS), MAX_DAYS))
     limit = max(1, min(int(limit or DEFAULT_LIMIT), MAX_LIMIT))
-    body = await _read(_c(), days, limit)
+    nodes, complete, pages, short = await _read_window(_c(), days, limit)
     currency = "GBP"
     checkouts: list[dict[str, Any]] = []
-    for edge in (body.get("edges") or []):
-        node = (edge or {}).get("node") or {}
+    for node in nodes:
         if not node.get("id") or node.get("completedAt"):
             # A checkout that was completed is an order, not an abandonment. Shopify's own
             # filter is `completedAt: null`, and a shop whose window overlaps a recovery
@@ -223,6 +259,12 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
         })
     value = round(sum(c["total"] for c in checkouts), 2)
     ranked = rank(checkouts)
+    # When the window was not read to its end, every figure below is of the checkouts that
+    # were read, and the result says so in the fields the model reads and the cards draw from.
+    partial = "" if complete else (
+        f"Partial: {short}, so the count and the value are at least these — the checkouts "
+        "read, not the whole window."
+    )
     return {
         "days": days,
         "count": len(checkouts),
@@ -230,7 +272,11 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
         "value_display": display(value, currency),
         "average_display": display(round(value / len(checkouts), 2) if checkouts else 0.0, currency),
         "currency": currency,
-        "more": bool((body.get("pageInfo") or {}).get("hasNextPage")),
+        "complete": complete,
+        "more": not complete,
+        "pages": pages,
+        "counted": "the whole window" if complete else "the checkouts read",
+        "partial": partial,
         "items": [
             {"item": r["label"], "variant": r["variant"], "checkouts": r["checkouts"], "units": r["units"],
              "value_display": display(round(r["value"], 2), currency), "variant_id": r["variant_id"]}
@@ -247,7 +293,7 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
             "baskets abandoned before checkout (Shopify's Admin API has no cart resource) and "
             "orders that were paid for and have not been fulfilled"
         ),
-        "note": WHAT_IT_IS,
+        "note": f"{WHAT_IT_IS} {partial}".strip(),
     }
 
 
@@ -276,6 +322,12 @@ def cards(body: dict[str, Any]) -> list[Surface]:
     days = int(body.get("days") or DEFAULT_DAYS)
     count = int(body.get("count") or 0)
     when = _window_words(days)
+    # Complete only when the read said so: a body without the flag (or with `more`) is a
+    # subset, and a card read on its own must not present a subset as the window's total.
+    complete = body.get("complete") is True and not body.get("more")
+    partial = str(body.get("partial") or "") or "Partial: not every checkout in the window was read."
+    at_least = "" if complete else "at least "
+    caveat = "" if complete else "Partial: the checkouts read, not the whole window."
     figures = Surface(
         surface_type="analytics",
         ui_type="metric_group",
@@ -284,15 +336,15 @@ def cards(body: dict[str, Any]) -> list[Surface]:
             "title": "Checkouts not paid for",
             "subtitle": f"{when} · {WHAT_IT_IS}",
             "metrics": [
-                {"value": str(count), "label": "checkouts abandoned"},
-                {"value": str(body.get("value_display") or "—"), "label": "not taken"},
-                {"value": str(body.get("average_display") or "—"), "label": "average each"},
+                {"value": f"{at_least}{count}", "label": "checkouts abandoned" if complete else "checkouts abandoned, of those read"},
+                {"value": f"{at_least}{body.get('value_display') or '—'}", "label": "not taken" if complete else "not taken, of those read"},
+                {"value": str(body.get("average_display") or "—"), "label": "average each" if complete else "average of those read"},
             ],
-            "note": WHAT_IT_IS,
-            "complete": True,
-            "truncated": bool(body.get("more")),
+            "note": WHAT_IT_IS if complete else f"{partial} {WHAT_IT_IS}",
+            "complete": complete,
+            "truncated": not complete,
         },
-        freshness=Freshness(source="shopify", complete=True),
+        freshness=Freshness(source="shopify", complete=complete, caveat=caveat),
     )
     items = [i for i in (body.get("items") or []) if isinstance(i, dict)]
     if not items:
@@ -304,7 +356,7 @@ def cards(body: dict[str, Any]) -> list[Surface]:
         title="Left behind most often",
         data={
             "title": "Left behind most often",
-            "subtitle": f"by how many abandoned checkouts they appear in, {when}",
+            "subtitle": f"by how many abandoned checkouts they appear in, {when}" + ("" if complete else ", of those read"),
             "rows": [
                 {
                     "rank": index + 1,
@@ -319,13 +371,14 @@ def cards(body: dict[str, Any]) -> list[Surface]:
                 for index, item in enumerate(items)
             ],
             "totals": [
-                {"value": str(count), "label": "abandoned"},
-                {"value": str(body.get("value_display") or "—"), "label": "not taken"},
+                {"value": f"{at_least}{count}", "label": "abandoned"},
+                {"value": f"{at_least}{body.get('value_display') or '—'}", "label": "not taken"},
             ],
-            "note": "Ranked by how many checkouts each appears in, not by value: what is being asked is which items keep not being bought.",
-            "complete": True,
+            "note": "Ranked by how many checkouts each appears in, not by value: what is being asked is which items keep not being bought."
+                    + ("" if complete else f" {partial}"),
+            "complete": complete,
         },
-        freshness=Freshness(source="shopify", complete=True),
+        freshness=Freshness(source="shopify", complete=complete, caveat=caveat),
     )
     return [figures, ranking]
 

@@ -500,22 +500,37 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     body = open_body if primary == "open" else today_body
     if isinstance(body, dict):
         _open_workflow(ctx, body, kind="orders", operation="review")
+    # A read that answered but says it is not complete (the order cache still filling after a
+    # restart) is not an empty list either: "nothing" is said only of a complete read. An
+    # incomplete one says none are held SO FAR and that more may exist, and the answer is
+    # partial (the round-10 deploy review, F-02 — the empty branch used to be taken whatever
+    # `complete` said, with the hedge appended after a sentence it did not qualify).
+    open_whole = open_read and open_body.get("complete") is not False
+    today_whole = today_read and today_body.get("complete") is not False
     if waiting:
         oldest = waiting[0]
         words = f"{_how_many(open_body, len(waiting))} order{'s' if len(waiting) != 1 else ''} to go out; the oldest is {str(oldest.get('order_number') or '').lstrip('#')} at {int(oldest.get('age_days') or 0)} days."
     elif not open_read:
         words = "I could not read the orders still to go out, so I cannot say whether any are waiting."
+    elif not open_whole:
+        words = "None of the orders read so far are waiting to go out, but the read is not complete, so more may exist."
     else:
         words = "Nothing is waiting to go out."
     if not today_read:
         words += " Today's orders could not be read."
+    elif today:
+        words += f" {len(today)} order{'s' if len(today) != 1 else ''} today."
+    elif not today_whole:
+        words += " None of today's orders read so far, and more may exist."
     else:
-        words += f" {len(today)} order{'s' if len(today) != 1 else ''} today." if today else " None in today yet."
+        words += " None in today yet."
     drawn = [c for c in (_call_named(result, primary), _call_named(result, "today" if primary == "open" else "open")) if c is not None]
     return RecipeAnswer(answer=words + _hedge(open_body if open_read else today_body),
-                      calls=list(result.calls), drawn=drawn, partial=result.partial or not (open_read and today_read),
+                      calls=list(result.calls), drawn=drawn,
+                      partial=result.partial or not (open_read and today_read) or not (open_whole and today_whole),
                       trace={"waiting": len(waiting), "today": len(today), "primary": primary,
-                             "unread": [name for name, ok in (("open", open_read), ("today", today_read)) if not ok]})
+                             "unread": [name for name, ok in (("open", open_read), ("today", today_read)) if not ok],
+                             "incomplete": [name for name, ok, whole in (("open", open_read, open_whole), ("today", today_read, today_whole)) if ok and not whole]})
 
 
 # ------------------------------------------------------------------------------- inbox

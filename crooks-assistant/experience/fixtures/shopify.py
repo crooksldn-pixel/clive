@@ -541,8 +541,13 @@ def _abandoned_checkouts(_store: FixtureShopify, v: dict) -> dict:
                 for variant, quantity in checkout["lines"]
             ]},
         }})
+    # Pages as Shopify's do: `after` is the cursor the previous page ended on (here, how
+    # many had been served), so the application's walk to the end of the window is walked.
+    start = int(v.get("after") or 0) if str(v.get("after") or "0").isdigit() else 0
+    page = chosen[start:start + limit]
+    more = len(chosen) > start + limit
     return {"data": {"abandonedCheckouts": {
-        "edges": chosen[:limit], "pageInfo": {"hasNextPage": len(chosen) > limit},
+        "edges": page, "pageInfo": {"hasNextPage": more, "endCursor": str(start + len(page)) if page else None},
     }}}
 
 
