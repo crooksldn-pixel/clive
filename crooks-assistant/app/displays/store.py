@@ -13,7 +13,9 @@ can only say a label was created. CLIVE reads it back ("has 2048 been packed?").
 Who a screen is (the 2026-09-27 deploy reviews, rounds 6 to 8, B-02 and B-05). Only the owner
 can name one: every route here is his (app/routes/displays.py). Naming hands that device a key,
 once, and every later ask, page acknowledgement and "done" must carry it; only the key's hash is
-kept. A new name is not a screen yet: it is waiting for approval, and the device shows a
+kept. The key travels as a cookie the page's own script cannot read (round 9, B2-01,
+app/routes/displays.py); how it travels is the routes' business, and this store sees only the
+key. A new name is not a screen yet: it is waiting for approval, and the device shows a
 six-digit code (only its hash is kept here, for PAIR_CODE_S). The owner reads the code off the
 device he means and tells CLIVE, which approves it (`approve`, the screen_pair tool). Until then
 nothing is ever put on it. PAIR_TRIES wrong codes cancel the request, and so does the code
@@ -24,33 +26,49 @@ asked first. A screen written down before approval existed counts as approved.
 An approved name is never handed to another device — not when the screen is quiet, not after a
 restart, not when there are many screens (at MAX_SCREENS a new name is refused; nothing is
 removed to make room, round 8, NEW-B-CAP). The device holding the key may name it again (and
-gets a new key). Otherwise the owner removes the old screen first, explicitly (`forget`), which
-clears whatever it was showing and its key.
+gets a new key, and stays approved) — which is also how a screen paired before the key became a
+cookie moves over, once, with the key it kept (round 9, B2-01). Otherwise the owner removes the
+old screen first, explicitly (`forget`), which clears whatever it was showing and its key.
 
-What "done" rests on (rounds 7 and 8, B-04). The server keeps, for what a screen is showing now,
-how far through its items the screen has acknowledged putting them up: pages told in order from
-the first item, each starting where the last ended, all the same size but the last and at most
-MAX_ACK, each at least ACK_GAP_S after the one before. An order or a list is marked done only
-once every item has been acknowledged for the version showing now, at least ACK_GAP_S after the
-last page, and only when the tap says so (`confirmed`). This is still the key-holding screen's
-own word: it is harder to fake and cannot be hurried, not proven. A slip cut at views.MAX_ITEMS
-is never marked done here. Acknowledgements are held in memory: after a restart the screen shows
-its pages again before it can say done.
+What "done" rests on (rounds 7 to 9, B-04). A screen's "Mark packed" is that screen's own word
+and nothing more: the server cannot tell a packer's tap, or a page drawn on a screen, from
+anything else the device holding the key sends. What the server does hold is its own plan of a
+pane's pages (`_Acks`). The first page a screen acknowledges for a pane sets the plan's page
+size, at most MAX_ACK; from then the server issues the plan — every page that size but the
+last, each starting where the one before ended — and takes only the plan's next page, at least
+ACK_GAP_S after the one before (a first page of another size is a new plan, counted from
+nothing: the screen laid its pages out again). An order or a list is marked done from its screen
+only once every page of the plan has been acknowledged for the version showing now, at least
+ACK_GAP_S after the last, and only when the page says its button was tapped (`confirmed`). That
+makes a screen's "done" slow to fake and impossible to hurry, not proven, and the done record
+says so: each row keeps how it was marked (`how`) — "screen", the screen's own button and so its
+word, or "remote", the owner ticking every item on his own device (below) — and CLIVE says which
+(app/tools/display_tools.py). A slip cut at views.MAX_ITEMS is never marked done here.
+Acknowledgements are held in memory: after a restart the screen shows its pages again before it
+can say done.
 
-What is kept, and for how long (rounds 6 to 8, B-03). An order's slip carries the customer's
-name, address, phone and note, and the moment it is marked done the slip is cut down to what
-the done record needs — a kind, a reference and a title that cannot be anyone's words ("Order
-#2048", "Objective", "List"). Anything left up longer than SHOWING_KEEP_S is taken down by
-itself. Done rows are kept DONE_KEEP_S and MAX_DONE at most, every field bounded; one view is at
-most views.MAX_VIEW_BYTES, and the file is checked against MAX_FILE_BYTES before it is written.
+What is kept, and for how long (rounds 6 to 9, B-03 and B-NEW-DONE-LOSS). An order's slip
+carries the customer's name, address, phone and note, and the moment it is marked done the slip
+is cut down to what the done record needs — a kind, a reference and a title that cannot be
+anyone's words ("Order #2048", "Objective", "List"). Anything left up longer than SHOWING_KEEP_S
+is taken down by itself. Done rows are kept DONE_KEEP_S and MAX_DONE at most, every field
+bounded, and nothing else ever removes one. One view is at most views.MAX_VIEW_BYTES and the
+whole record at most MAX_FILE_BYTES, which holds every screen showing two of the largest views
+beside a full done record; a change that would take the record past it is refused (Full) with
+nothing changed, and nothing is dropped to make room.
 
 Writes are atomic and durable (the temporary file and then the folder are flushed). A deletion —
-a slip cut down when it is marked done, a slip replaced or cleared, a slip past its time, a
-screen removed — is written first to a small purge journal beside the record
-(displays.purge.json), flushed with its folder, and only then to the record. If the record then
-cannot be made durable, the deletion stands in memory, the journal keeps it across a restart
-(it is applied before anything else when the record is next read) and the caller is told it is
-not saved yet, never that it is done. The journal goes once a write of the record is durable.
+a slip cut down when it is marked done, a slip replaced or cleared, a screen removed — is written
+first to a small purge journal beside the record (displays.purge.json), flushed with its folder,
+and only then to the record. If the journal is durable and the record then cannot be made so, the
+deletion stands in memory, the journal keeps it across a restart (it is applied before anything
+else when the record is next read) and the caller is told it is not saved yet (NotDurable), never
+that it is done. If the journal's folder could not be flushed either, nothing on disk is known to
+hold the deletion, so it does not stand: the record in memory is put back as it was and the caller
+is told nothing was changed (NotSaved, round 9, B-03). What comes down by its time — a slip past
+SHOWING_KEEP_S, a request for approval that ran out — stands whatever the disk says: it comes
+down in memory at once, and again by itself at the next start. The journal goes once a write of
+the record is durable.
 
 Two things at once (round 9). A screen shows up to MAX_PANES views side by side — two columns on
 a landscape screen, one above the other on a portrait one (web/display.js). The first is kept as
@@ -65,11 +83,13 @@ taking it down, or putting something in its place, is a deletion journaled first
 The owner's remote (round 9, app/routes/displays.py and web/remote.js). The owner's own app can
 be the remote for a screen: tick each item as it goes in the box (the screen shows the tick at
 once), turn its pages, take a pane off, turn the screen off, and mark an order packed or a list
-done. Ticks are the owner's explicit word from his own device, item by item, so "done" from the
-remote needs every item to send ticked, for the pane's current version, and no page
-acknowledgements; the screen's own button keeps its rule above. A tick is an item's place in the
-view and nothing else, kept in the pane (`ticked`), so it goes when the pane goes and expires
-with it; so does the page the remote turned to (`page`).
+done. Every one of them names what it was made for — the pane and its version, or for the whole
+screen the screen's version — so a tap made on an older view changes nothing that went up since
+(round 9, B-REMOTE-OFF). Ticks are the owner's explicit word from his own device, item by item,
+so "done" from the remote needs every item to send ticked, for the pane's current version, and
+no page acknowledgements; the screen's own button keeps its rule above. A tick is an item's
+place in the view and nothing else, kept in the pane (`ticked`), so it goes when the pane goes
+and expires with it; so does the page the remote turned to (`page`).
 
 A video (YouTube, app/clients/youtube.py and web/display.js). A pane can play a video the owner
 asked for, kept as its id, title and channel and nothing else. What he asks of it — play, pause,
@@ -127,10 +147,13 @@ DONE_KEEP_S = 90 * 86_400
 # (round 8, B-02).
 PAIR_CODE_S = 15 * 60
 PAIR_TRIES = 5
-# The whole record, written down: 20 screens at the largest view each and the done record full
-# come to about 1.4 MB, so this is never reached unless something above is broken. The purge
-# journal is held to the same bound.
-MAX_FILE_BYTES = 2_000_000
+# The whole record, written down (round 9, B-NEW-DONE-LOSS). Every one of MAX_SCREENS screens
+# showing MAX_PANES of the largest views a screen takes (views.MAX_VIEW_BYTES each, a little more
+# once indented on disk), every item ticked, beside a full done record, comes to about 3.1 MB
+# (tests/test_screens_r10.py builds it), so this is reached only if something above is broken.
+# A change that would take the record past it is refused, with nothing changed; nothing is ever
+# dropped to make it fit. The purge journal is held to the same bound.
+MAX_FILE_BYTES = 4_000_000
 # What a screen shows at once (round 9), and where each pane is kept in the record: the first
 # where a screen has always kept what it shows, so a record from before panes reads as one.
 MAX_PANES = 2
@@ -163,6 +186,19 @@ def done_summary(showing: dict[str, Any]) -> dict[str, str]:
     if kind == "objective":
         return {"kind": "objective", "ref": ref if _OBJECTIVE_REF.fullmatch(ref) else "", "title": "Objective"}
     return {"kind": "list", "ref": "", "title": "List"}
+
+
+def how_marked(row: dict[str, Any]) -> str:
+    """How a done row was marked, in words CLIVE can say as they are (round 9, B-04): the
+    screen's own button is that screen's word, not a check; the remote is the owner ticking
+    every item on his own device."""
+    did = "packed" if row.get("kind") == "order" else "done"
+    where = str(row.get("screen") or "") or "screen"
+    if row.get("how") == "remote":
+        return f"marked {did} from the owner's remote for the {where}, with every item ticked there"
+    if row.get("how") == "screen":
+        return f"marked {did} with the {where}'s own button: that screen's word, not a check"
+    return f"marked {did} on the {where}"
 
 
 def _done_showing(showing: Any) -> dict[str, Any] | None:
@@ -297,12 +333,15 @@ class NotConfirmed(DisplayError):
 
 
 class OutOfOrder(DisplayError):
-    """A page acknowledgement that does not carry on from where the last one ended."""
+    """A page acknowledgement that is not the next page of the server's plan: it does not start
+    where the last one ended, or is not the plan's size (round 9, B-04: `next_page` is the page
+    the plan takes next)."""
 
-    def __init__(self, message: str, *, covered: int, size: int) -> None:
+    def __init__(self, message: str, *, covered: int, size: int, next_page: tuple[int, int] | None = None) -> None:
         super().__init__(message)
         self.covered = covered
         self.size = size
+        self.next_page = next_page
 
 
 class TooSoon(DisplayError):
@@ -329,6 +368,11 @@ class NotTicked(DisplayError):
     """Done was asked for from the remote before every item to send was ticked."""
 
 
+class Full(DisplayError):
+    """The change would take the record past MAX_FILE_BYTES: refused, with nothing changed and
+    nothing dropped to make room (round 9, B-NEW-DONE-LOSS)."""
+
+
 class NotSaved(DisplayError):
     """The record could not be written; nothing was changed."""
 
@@ -344,12 +388,28 @@ class NotFlushed(OSError):
 
 @dataclass(slots=True)
 class _Acks:
-    """How far through one pane a screen has acknowledged, for the version it went up at."""
+    """The server's plan of one pane's pages, for the version it went up at, and how far through
+    it the screen has acknowledged (round 9, B-04). The first page sets `size`; from then the
+    plan is fixed by the server: page n is items [n * size, min(count, (n + 1) * size)), and the
+    only page it takes next is the one starting at `covered`."""
 
     version: int
     covered: int = 0                  # items [0, covered) acknowledged, in order
     size: int = 0                     # the page size every page but the last must have
     last: float = float("-inf")       # when the last new page was acknowledged (monotonic)
+
+    def next(self, count: int) -> tuple[int, int] | None:
+        """The page the plan takes next, or None once every page has been acknowledged (or
+        before the first page has set the plan)."""
+        if not self.size or self.covered >= count:
+            return None
+        return self.covered, min(count, self.covered + self.size)
+
+    def issued(self, count: int) -> dict[str, Any]:
+        """The plan as the server holds it, said back to the screen with every answer."""
+        page = self.next(count)
+        return {"size": self.size, "pages": max(1, math.ceil(count / self.size)) if self.size else 0,
+                "covered": self.covered, "next": list(page) if page else None}
 
 
 # What the store sets on a view itself, never taken from what it is given to show (round 9;
@@ -372,6 +432,12 @@ PLAYING_GAP_S = 0.5
 
 _NOT_SAVED = "That could not be saved just now; nothing was changed. Try again."
 _NOT_DURABLE = "That was done, but CLIVE could not make sure it is saved yet. It keeps trying; check again in a moment."
+_FULL = ("CLIVE's record of its screens is full, so that was not done and nothing was changed. Take something off a "
+         "screen, or remove a screen you no longer use, and try again.")
+
+# How a done row was marked (round 9, B-04): with the screen's own button, which is that screen's
+# word, or from the owner's remote, every item ticked on his own device.
+DONE_HOW = ("screen", "remote")
 
 
 class DisplayStore:
@@ -553,8 +619,12 @@ class DisplayStore:
 
     @staticmethod
     def _done_row(row: dict[str, Any]) -> dict[str, Any]:
+        """A done row as it is kept. `how` it was marked is "screen" or "remote" (round 9, B-04),
+        or None for a row written before that was kept, which may have been either."""
+        how = row.get("how")
         return {**done_summary(row), "at": str(row.get("at") or "")[:40], "screen": str(row.get("screen") or "")[:MAX_NAME],
-                "screen_id": str(row.get("screen_id") or "")[:20], "by": (str(row.get("by") or "")[:80] or None)}
+                "screen_id": str(row.get("screen_id") or "")[:20], "by": (str(row.get("by") or "")[:80] or None),
+                "how": how if how in DONE_HOW else None}
 
     def _folder(self) -> Path:
         folder = self.path.parent
@@ -580,8 +650,9 @@ class DisplayStore:
 
     def _journal(self, owed: dict[str, dict[str, Any]]) -> bool:
         """The purge journal, written before the record (round 8, B-03). True once it and its
-        folder are flushed; False when it is in place but the folder could not be flushed.
-        Raises if it could not be put in place: then nothing on disk changed."""
+        folder are flushed; False when it is in place but the folder could not be flushed, so it
+        is not durable and a new deletion may not rest on it (_commit, round 9, B-03). Raises if
+        it could not be put in place: then nothing on disk changed."""
         folder = self._folder()
         text = json.dumps({"screens": owed}, ensure_ascii=False)
         if len(text.encode("utf-8")) > MAX_FILE_BYTES:
@@ -605,21 +676,27 @@ class DisplayStore:
         except OSError as exc:
             log.warning("screens purge journal not removed: %s", exc)
 
-    def _write(self) -> None:
+    @staticmethod
+    def _text(data: dict[str, Any]) -> str:
+        """The record as it is written down."""
+        return json.dumps(data, indent=2, ensure_ascii=False)
+
+    def _write(self, text: str | None = None) -> None:
         """Write the record: a 0600 temporary file, flushed, renamed into place, and the folder
         flushed after. Raises OSError if the record could not be put in place (nothing changed
         on disk). Raises NotFlushed if it was put in place but the folder could not be flushed:
         the new record IS the file, but may not survive a power cut, so that is kept as
         `unsaved` (said by sweep() on /health and written again on the next pass), and what it
-        deleted stays in the purge journal. Only a durable write empties the journal."""
+        deleted stays in the purge journal. Only a durable write empties the journal.
+
+        Its size is not judged here (round 9, B-NEW-DONE-LOSS): every change that could make the
+        record larger is refused before it is written if it would take it past MAX_FILE_BYTES
+        (_commit), and nothing here drops a done row, or anything else, to make it fit. What is
+        written without that check only ever makes the record smaller or keeps it the same — a
+        deletion, a slip past its time, a "last seen" — and must never be refused for size."""
         folder = self._folder()
-        text = json.dumps(self._data, indent=2, ensure_ascii=False)
-        while len(text.encode("utf-8")) > MAX_FILE_BYTES and self._data["done"]:
-            # Never reached while the bounds hold; if it is, the oldest done rows go first.
-            self._data["done"] = self._data["done"][len(self._data["done"]) // 2 + 1:]
-            text = json.dumps(self._data, indent=2, ensure_ascii=False)
-        if len(text.encode("utf-8")) > MAX_FILE_BYTES:
-            raise OSError(f"screens record over {MAX_FILE_BYTES} bytes")
+        if text is None:
+            text = self._text(self._data)
         self._put(self.path, text)
         try:
             _fsync_dir(folder)
@@ -635,32 +712,54 @@ class DisplayStore:
         """One change, written down or not made at all: on a failed write the record in memory
         is put back as it was and the change is refused.
 
+        A change that would take the record past MAX_FILE_BYTES is refused before anything is
+        written (Full), unless it makes the record no larger (round 9, B-NEW-DONE-LOSS).
+
         A deletion (`owes` says what it deleted) is written to the purge journal first, and
-        once the journal is in place the deletion is never put back: if the record then cannot
+        once the journal is durable the deletion is never put back: if the record then cannot
         be made durable the caller is told NotDurable — not saved yet — and never that it is
         done (round 8, B-03). The same holds for any change written while an earlier deletion is
-        still owed, since that write carries it."""
+        still owed, since that write carries it. A journal put in place whose folder could not
+        be flushed is not durable: unless the record itself then is, the deletion does not
+        stand — it is put back, the journal is put back as it was, and the caller is told
+        nothing was changed (round 9, B-03)."""
         before = copy.deepcopy(self._data)
         carries = bool(self._purges)
         result = change()
+        text = self._text(self._data)
+        size = len(text.encode("utf-8"))
+        if size > MAX_FILE_BYTES and size > len(self._text(before).encode("utf-8")):
+            self._data = before
+            log.error("screens record would be %d bytes, over %d; the change was refused", size, MAX_FILE_BYTES)
+            raise Full(_FULL)
+        journaled = True       # a deletion's obligation is durably on disk (or there is none)
         if owes is not None:
             owed = self._merge(self._purges, owes())
             try:
-                self._journal(owed)
+                journaled = self._journal(owed)
             except OSError as exc:
                 self._data = before
                 log.error("screens purge journal not written; the change was not made: %s", exc)
                 raise NotSaved(_NOT_SAVED) from exc
-            self._purges = owed
+            if journaled:
+                self._purges = owed
         try:
-            self._write()
-        except NotFlushed as exc:
-            if owes is not None or carries:
-                raise NotDurable(_NOT_DURABLE) from exc
-            # Not a deletion: the change is the file, and that it may not survive a power cut
-            # is said by sweep() and put right on the next pass.
-            return result
+            self._write(text)
         except OSError as exc:
+            if not journaled:
+                # Neither the journal nor the record is known to be on disk: after a power cut the
+                # old record could come back with nothing owed against it, so the deletion is not
+                # made at all, and is not said to be.
+                self._data = before
+                self._restore_journal()
+                log.error("screens deletion not made: neither its journal nor the record is durable: %s", exc)
+                raise NotSaved(_NOT_SAVED) from exc
+            if isinstance(exc, NotFlushed):
+                if owes is not None or carries:
+                    raise NotDurable(_NOT_DURABLE) from exc
+                # Not a deletion: the change is the file, and that it may not survive a power cut
+                # is said by sweep() and put right on the next pass.
+                return result
             if owes is not None:
                 self.unsaved = True
                 log.error("screens record not written; the deletion stands and is owed: %s", exc)
@@ -669,6 +768,18 @@ class DisplayStore:
             log.error("screens record not written; the change was not made: %s", exc)
             raise NotSaved(_NOT_SAVED) from exc
         return result
+
+    def _restore_journal(self) -> None:
+        """The purge journal put back to what is still owed (nothing at all: no journal), after
+        a deletion that did not stand. At best effort: a journal that still names the refused
+        deletion only ever takes a slip down, never puts one up (_replay)."""
+        try:
+            if self._purges:
+                self._put(self.journal_path, json.dumps({"screens": self._purges}, ensure_ascii=False))
+            else:
+                self.journal_path.unlink(missing_ok=True)
+        except OSError as exc:
+            log.warning("screens purge journal not put back after a deletion that did not stand: %s", exc)
 
     def _make_durable(self) -> None:
         """Whatever is owed, written durably now, or NotDurable."""
@@ -743,14 +854,19 @@ class DisplayStore:
             out["code_expires_in"] = PAIR_CODE_S
         return out
 
-    def register(self, name: str, *, screen_key: str = "") -> dict[str, Any]:
+    def register(self, name: str, *, screen_key: str = "", old_key: str = "") -> dict[str, Any]:
         """The owner's device names itself a screen, and is given that screen's key and, for a
         new name, the code the owner approves it by (in the answer, once). A new screen waits for
         approval (`approve`) and shows nothing until then. A name already in use is refused
         unless the device holds that screen's key (then it gets a new key, and a waiting screen a
-        new code): it never passes to another device by name (round 7, B-02). To give the name to
-        a new device, the owner removes the old screen first (`forget`). At MAX_SCREENS a new
-        name is refused; nothing is removed to make room (round 8, NEW-B-CAP)."""
+        new code; an approved one stays approved): it never passes to another device by name
+        (round 7, B-02). To give the name to a new device, the owner removes the old screen
+        first (`forget`). At MAX_SCREENS a new name is refused; nothing is removed to make room
+        (round 8, NEW-B-CAP).
+
+        `screen_key` is the key the device holds now; `old_key` is one a page kept from before
+        the key moved into a cookie (round 9, B2-01), offered only when naming itself, and
+        treated exactly as holding the key: the holder naming itself again."""
         shown = clean_name(name)
         key = name_key(shown)
         if not key:
@@ -764,7 +880,7 @@ class DisplayStore:
             for screen in self._data["screens"].values():
                 if screen.get("key") != key:
                     continue
-                if not self._holds(screen, screen_key):
+                if not (self._holds(screen, screen_key) or self._holds(screen, old_key)):
                     if self._pending(screen):
                         raise NameTaken(f"A screen called {screen['name']} is waiting to be approved. If it is not this one, "
                                         "remove it and name this one: it has never shown anything.")
@@ -1083,14 +1199,21 @@ class DisplayStore:
         return (f"The {screen['name']} already shows two things: first {names[0]}, and second {names[1]}. "
                 "Say which one to replace, or take one off first.")
 
-    def take_off(self, screen_id: str, pane: int | None = None, *, expect: int | None = None) -> dict[str, Any]:
+    def take_off(self, screen_id: str, pane: int | None = None, *, expect: int | None = None,
+                 screen_version: int | None = None) -> dict[str, Any]:
         """Everything off a screen, back to its clock (`pane` None), or one pane of it, and the
         other then fills the screen (round 9: "turn the screen off", "take that off"). With
         `expect`, only while that pane is still the one put up at that version (Stale
-        otherwise). Taking a view down is a deletion, journaled first (B-03). Asked while there
-        is nothing to take down and an earlier deletion on this screen is still owed, that one
-        is made durable or refused, so the screen is said to be off only once it is. Returns
-        the screen and how many panes came off."""
+        otherwise). With `screen_version`, everything comes off only while the screen is still
+        at that version — the remote's whole-screen off names the view it was tapped on, so a
+        tap made for an older view never takes down what went up since (round 9, B-REMOTE-OFF):
+        Stale, with nothing taken off; a screen that shows nothing by then is simply off.
+        Without it, everything that is up comes off: that is CLIVE's own "turn the screen off",
+        the owner's request as he makes it (app/tools/display_tools.py screen_off). Taking a
+        view down is a deletion, journaled first (B-03). Asked while there is nothing to take
+        down and an earlier deletion on this screen is still owed, that one is made durable or
+        refused, so the screen is said to be off only once it is. Returns the screen, how many
+        panes came off and what they were (`removed`, their titles)."""
         with self._lock:
             self._sweep_locked()
             screen = self._data["screens"].get(screen_id)
@@ -1100,6 +1223,9 @@ class DisplayStore:
                 raise NotPaired("That screen hasn't been approved yet: it shows only its code.")
             panes = self._panes(screen)
             if pane is None:
+                if screen_version is not None and panes and (
+                        isinstance(screen_version, bool) or _whole(screen.get("version")) != _whole(screen_version, -2)):
+                    raise Stale("The screen changed before this, so nothing was taken off.")
                 gone = list(range(len(panes)))
             elif isinstance(pane, int) and 0 <= pane < len(panes):
                 if expect is not None and _pane_v(panes[pane]) != int(expect):
@@ -1114,14 +1240,15 @@ class DisplayStore:
             if not gone:
                 if screen_id in self._purges:
                     self._make_durable()
-                return {**self._public(screen), "taken_off": 0}
+                return {**self._public(screen), "taken_off": 0, "removed": []}
             removed = [panes[n] for n in gone]
             after = [p for n, p in enumerate(panes) if n not in gone]
+            titles = [str(p.get("title") or "") if isinstance(p, dict) else "" for p in removed]
 
             def off() -> dict[str, Any]:
                 screen["version"] = _whole(screen.get("version")) + 1
                 self._lay(screen, after)
-                return {**self._public(screen), "taken_off": len(gone)}
+                return {**self._public(screen), "taken_off": len(gone), "removed": titles}
 
             owes = (lambda: {screen_id: self._owed(screen)}) if any(_private(p) for p in removed) else None
             return self._stood(screen_id, lambda: self._commit(off, owes=owes))
@@ -1137,13 +1264,16 @@ class DisplayStore:
 
     def acknowledge(self, screen_id: str, version: int, *, screen_key: str, start: int, end: int, pane: int = 0) -> int:
         """The screen holding this key says items [start, end) of one pane are up on it now
-        (round 8, B-04; round 9: `pane`, and `version` is that pane's own). Pages are told in
-        order: the first starts at item 0 and each new one where the last ended; every page but
-        the last is the same size, at most MAX_ACK; each new page comes at least ACK_GAP_S after
-        the one before (TooSoon, with how long to wait). A page inside what is already
-        acknowledged changes nothing. A first page of another size starts the count again (the
-        screen laid its pages out again). Returns how many items, from the first, are
-        acknowledged for this pane's version."""
+        (round 8, B-04; round 9: `pane`, and `version` is that pane's own). It is the screen's
+        word; what the server decides is the plan it is held to (_Acks, round 9, B-04). The
+        first page starts at item 0 and sets the plan's page size, at most MAX_ACK; after that
+        only the plan's next page is taken — starting where the last ended, the plan's size, or
+        shorter only as the last (OutOfOrder otherwise, naming the page the plan takes next) —
+        and each at least ACK_GAP_S after the one before (TooSoon, with how long to wait). A
+        page inside what is already acknowledged changes nothing. A first page of another size
+        is a new plan, counted from nothing (the screen laid its pages out again). Returns how
+        many items, from the first, are acknowledged for this pane's version; `page_plan` says
+        the plan itself."""
         with self._lock:
             screen = self._data["screens"].get(screen_id)
             if screen is None:
@@ -1164,15 +1294,16 @@ class DisplayStore:
             held = self._acks.get(key)
             state = held if held is not None else _Acks(int(version))
             size = end - start
+            # A new plan: the first page, or a first page of another size (laid out again).
             fresh = start == 0 and (state.covered == 0 or size != state.size)
             if not fresh:
                 if end <= state.covered:
                     return state.covered
-                if start != state.covered:
-                    raise OutOfOrder(f"Pages are told in order: the next one starts at item {state.covered + 1}.",
-                                     covered=state.covered, size=state.size)
-                if size != state.size and not (end == count and size < state.size):
-                    raise OutOfOrder(f"Every page but the last is {state.size} items.", covered=state.covered, size=state.size)
+                want = state.next(count)
+                if (start, end) != want:
+                    said = (f"Pages are told in order: the next one starts at item {state.covered + 1}."
+                            if start != state.covered else f"Every page but the last is {state.size} items.")
+                    raise OutOfOrder(said, covered=state.covered, size=state.size, next_page=want)
             now = self.mono()
             wait = ACK_GAP_S - (now - state.last)
             if wait > 0:
@@ -1184,14 +1315,31 @@ class DisplayStore:
             self._acks[key] = state
             return state.covered
 
+    def page_plan(self, screen_id: str, version: int, pane: int = 0) -> dict[str, Any] | None:
+        """The server's plan of one pane's pages as it stands (round 9, B-04): its page size, how
+        many pages, how far the screen has acknowledged and the page it takes next. None before
+        the screen's first page has set it, or for a pane that is not marked item by item."""
+        with self._lock:
+            screen = self._data["screens"].get(screen_id)
+            showing = self._pane(screen, pane) if screen is not None else None
+            if not showing or isinstance(version, bool) or _pane_v(showing) != _whole(version, -2):
+                return None
+            count = _shown_count(showing)
+            state = self._acks.get((screen_id, _pane_v(showing)))
+            if not count or state is None or not state.size:
+                return None
+            return state.issued(count)
+
     def mark_done(self, screen_id: str, version: int, *, screen_key: str, confirmed: bool, by: str = "", pane: int = 0) -> dict[str, Any]:
-        """What one pane of the screen shows was physically done, tapped on the screen holding its
-        key (round 9: `pane`, and `version` is that pane's own). Refused without the tap saying
-        so (`confirmed`, round 8, B-04); if the pane has moved on since it was drawn, so a late
-        tap never marks the wrong thing; for an order or a list, unless every item was
-        acknowledged on the screen for the pane's version (round 7), and until ACK_GAP_S after
-        the last page; and for a slip cut at the screen's limit. The slip is then cut down to
-        what the done record needs, journaled first (B-03)."""
+        """The screen holding this key says what one pane shows was done — its Mark packed button
+        (round 9: `pane`, and `version` is that pane's own). That is the screen's own word, and
+        the done row says so (`how` "screen", round 9, B-04): the server cannot tell the tap from
+        anything else the key-holder sends, and `confirmed` is only the page saying the button
+        was pressed. Refused without it (round 8); if the pane has moved on since it was drawn,
+        so a late tap never marks the wrong thing; for an order or a list, unless every page of
+        the server's plan was acknowledged for the pane's version (round 7), and until
+        ACK_GAP_S after the last page; and for a slip cut at the screen's limit. The slip is then
+        cut down to what the done record needs, journaled first (B-03)."""
         with self._lock:
             screen = self._data["screens"].get(screen_id)
             if screen is None:
@@ -1223,11 +1371,13 @@ class DisplayStore:
                 wait = ACK_GAP_S - (self.mono() - state.last)
                 if wait > 0:
                     raise TooSoon("That came too soon after the last page.", retry_after_ms=max(1, math.ceil(wait * 1000)))
-            return self._finish(screen_id, screen, pane, showing, by)
+            return self._finish(screen_id, screen, pane, showing, by, how="screen")
 
-    def _finish(self, screen_id: str, screen: dict[str, Any], pane: int, showing: dict[str, Any], by: str) -> dict[str, Any]:
+    def _finish(self, screen_id: str, screen: dict[str, Any], pane: int, showing: dict[str, Any], by: str, *,
+                how: str) -> dict[str, Any]:
         """One pane marked done: its slip cut to the done summary at a new version, and a done row
-        written — the purge journal first (B-03). The other pane is not touched."""
+        written saying how it was marked (DONE_HOW) — the purge journal first (B-03). The other
+        pane is not touched."""
         when = _now_iso()
 
         def done() -> dict[str, Any]:
@@ -1238,7 +1388,7 @@ class DisplayStore:
             panes[pane] = {**summary, "at": showing.get("at"), "by": showing.get("by"), "done_at": when, "v": version}
             self._lay(screen, panes)
             self._data["done"].append(self._done_row({**summary, "at": when, "screen": screen["name"],
-                                                      "screen_id": screen_id, "by": by}))
+                                                      "screen_id": screen_id, "by": by, "how": how}))
             self._data["done"] = self._data["done"][-MAX_DONE:]
             return self._public(screen)
 
@@ -1327,12 +1477,12 @@ class DisplayStore:
             return self._commit(change)
 
     def done_from_remote(self, screen_id: str, pane: int, version: int, *, by: str = "") -> dict[str, Any]:
-        """The owner marks a pane done from his remote: an order packed, a list done — exactly as
-        the screen's own button does it, the same done row and the slip cut to its summary,
-        journaled first (B-03) — once every item to send (every line of a list) is ticked for
-        the pane's current version. The ticks are his own word, item by item, from his own
-        device, so no page acknowledgement is asked for; the screen's button keeps its rule. A
-        slip cut at the screen's limit is never marked packed here either."""
+        """The owner marks a pane done from his remote: an order packed, a list done — as the
+        screen's own button does it, the same done row (but for `how`, "remote") and the slip
+        cut to its summary, journaled first (B-03) — once every item to send (every line of a
+        list) is ticked for the pane's current version. The ticks are his own word, item by
+        item, from his own device, so no page acknowledgement is asked for; the screen's button
+        keeps its rule. A slip cut at the screen's limit is never marked packed here either."""
         with self._lock:
             self._sweep_locked()
             screen, showing = self._remote_pane(screen_id, pane, version)
@@ -1351,7 +1501,7 @@ class DisplayStore:
             if not set(need) <= set(_ticked(showing)):
                 what = "item to send" if kind == "order" else "line"
                 raise NotTicked(f"Tick every {what} first; nothing was marked.")
-            return self._finish(screen_id, screen, int(pane), showing, by)
+            return self._finish(screen_id, screen, int(pane), showing, by, how="remote")
 
     def pane_ref(self, screen_id: str, pane: int, version: int) -> tuple[str, str]:
         """What kind of thing one pane shows, and its reference (an objective's id), so the remote

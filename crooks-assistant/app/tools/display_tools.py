@@ -43,7 +43,7 @@ from typing import Any
 from app.capabilities.families import CapabilityFamily, register
 from app.clients import youtube
 from app.displays import views
-from app.displays.store import MAX_JUMP_S, MAX_SKIP_S, DisplayError, store
+from app.displays.store import MAX_JUMP_S, MAX_SKIP_S, DisplayError, how_marked, store
 from app.tools import authority as tool_authority
 from app.tools.context import current_session
 from app.tools.gate import Tier
@@ -115,7 +115,10 @@ def _owner_said(digits: str) -> bool:
 async def screen_list(order_id: str | None = None) -> dict[str, Any]:
     _owners_own()
     s = store()
-    out: dict[str, Any] = {"screens": s.screens(), "done": s.done(ref=order_id or None)}
+    # Each done row says how it was marked, in words to say as they are (round 9, B-04): a
+    # screen's own button is that screen's word, not a check; the remote is the owner's ticks.
+    done = [{**row, "marked": how_marked(row)} for row in s.done(ref=order_id or None)]
+    out: dict[str, Any] = {"screens": s.screens(), "done": done}
     if not out["screens"]:
         out["note"] = "No screens yet: open CLIVE's address with /display on a screen and give it a name."
     elif any(x.get("pending") for x in out["screens"]):
@@ -245,6 +248,11 @@ def _screen_meant(screen: str | None, *, doing: str) -> dict[str, Any]:
     tier=Tier.GREEN,
 )
 async def screen_off(screen: str | None = None, pane: str | None = None) -> dict[str, Any]:
+    """The owner's own "turn the screen off", asked now: whatever is up on the screen he means
+    when this runs comes off, and the answer names each thing that did, so he hears exactly
+    what went (round 9, B-REMOTE-OFF). The remote's off is different: it is a tap on a view that
+    may be old by the time it arrives, so it names the screen's version and a changed screen is
+    left as it is (app/routes/displays.py remote_off)."""
     _owners_own()
     if pane is not None and pane not in _PANE:
         raise ToolError("pane is first or second.")
@@ -255,6 +263,8 @@ async def screen_off(screen: str | None = None, pane: str | None = None) -> dict
         raise ToolError(str(exc)) from None
     left = str((out.get("showing") or {}).get("title") or "")
     result: dict[str, Any] = {"screen": out["name"], "taken_off": out["taken_off"], "showing": left or "nothing"}
+    if out.get("removed"):
+        result["took_off"] = [title or "something" for title in out["removed"]]
     if not out["taken_off"]:
         result["note"] = "It was showing nothing already."
     return result

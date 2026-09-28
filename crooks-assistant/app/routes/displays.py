@@ -8,21 +8,48 @@ and a six-digit code, and shows the code until the owner reads it off that devic
 CLIVE (the screen_pair tool). At MAX_SCREENS a new name is refused, and nothing is removed to
 make room (NEW-B-CAP).
 
-What a screen does after that, it does with its own key (X-Screen-Key): ask what to show,
-acknowledge each page it puts up — in order, and not faster than one a second — and say "done"
-from the tap that means it (B-04). Replacing a screen that lost its key is the owner removing
-the old one explicitly, which clears what it showed (round 7, B-02). A deletion that is made but
-not yet durable is answered 503, never as done (B-03).
+What a screen does after that, it does with its own key: ask what to show, acknowledge each page
+it puts up — the next page of the plan the server holds for it, and not faster than one a second
+— and say "done" from its button, which is the screen's own word and is recorded as that (B-04).
+Replacing a screen that lost its key is the owner removing the old one explicitly, which clears
+what it showed (round 7, B-02). A deletion that is made but not yet durable is answered 503, never
+as done (B-03).
+
+The key is a cookie the page's own script cannot read (round 9, B2-01): `POST /displays/register`
+sets `clive_screen` — HttpOnly, Secure, SameSite=Strict, for /displays only, kept 400 days — and
+never puts the key in its answer, and every screen request (the ask, /seen, /done, /video) is
+known by that cookie and nothing else. A page from before holds its key in its own storage: it
+names itself once more with `X-Screen-Key`, which is read on /register alone and only for that,
+and if the key holds the screen of that name the screen is handed the cookie with a new key and
+stays approved. Such a page still open when CLIVE is updated asks with that header and no cookie:
+it is refused as any device without the key is, but answered `reload` rather than
+`not_this_screen`, which would make it throw its key away (_not_this_screen).
 
 A screen shows up to two things at once (round 9): the screen names the pane, and that pane's
 own version, when it acknowledges a page or says done. And the owner's app can be the remote
 for a screen (web/remote.js): `GET /displays/{id}/remote` is his view of it, and the
 `/remote/...` routes tick items, turn pages, mark a pane done, put an objective up again, play,
 pause and turn up a video (`/remote/video`), and take things off. A screen playing a video tells
-CLIVE how it is playing (`/displays/{id}/video`, with its key), which is held in memory only. They are his routes like every other here, answered for his own devices and nobody
-else's, and need no screen key: the remote is not the screen. A pane that has moved on is 409
-(`stale`), a screen still waiting for approval is 409 (`not_approved`), and a deletion not yet
-durable is 503."""
+CLIVE how it is playing (`/displays/{id}/video`, with its key), which is held in memory only.
+They are his routes like every other here, answered for his own devices and nobody else's, and
+need no screen key: the remote is not the screen. Each names what it was made for — a pane and
+its version, or for the whole screen off the screen's version (round 9, B-REMOTE-OFF) — so a
+tap on an older view moves nothing: a pane or screen that has moved on is 409 (`stale`), a
+screen still waiting for approval is 409 (`not_approved`), and a deletion not yet durable is
+503.
+
+What a screen can have from here (round 9, F-A3B-SCREEN-EVIDENCE; tests/test_screen_paths.py).
+With its cookie, its own record and nothing else: what it shows (both panes, the customer's
+details on an order slip included), its version, its name and its last done row's title and
+time. A key is in no answer at all, only in the cookie, and no answer carries any screen's key
+hash or approval-code hash; an approval code is in the answer to its own naming, for that screen
+to show, and nowhere else. Another screen's record needs that screen's key. What every one of
+the owner's devices has from the owner's routes here, a screen too — it is one of his devices by
+its Tailscale login — is the list of screens (names, whether each is on, the titles up), the
+done record (kind, reference, title, screen, time, login, how), and the remote's view of a
+screen, pane by pane: an order's items (title, variant, quantity, image), a list's lines, an
+objective's words, a video's id and how it plays — never who an order goes to, where, their
+phone or their note. Nothing here reads a conversation, its words or live voice."""
 
 from __future__ import annotations
 
@@ -30,13 +57,14 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.displays import views
 from app.displays.store import (
     MAX_JUMP_S,
     MAX_PANES,
     DisplayError,
+    Full,
     NameTaken,
     NoSuchScreen,
     NotConfirmed,
@@ -78,7 +106,9 @@ class DoneBody(BaseModel):
     # acknowledged, page by page (/displays/{id}/seen), not a number it asserts.
     items_seen: int | None = Field(default=None, ge=0, le=10_000)
     # Sent only by the Mark packed tap (web/display.js markDone), and required (round 8, B-04).
-    # Strictly the JSON value true: a string or a number is not the tap.
+    # Strictly the JSON value true: a string or a number is not the tap. It is the page's word
+    # that its button was pressed, not evidence of it (round 9, B-04): the done row says it was
+    # marked on the screen (`how` "screen").
     confirm: bool = Field(default=False, strict=True)
     # Which pane (round 9); `version` is that pane's own.
     pane: int = Field(default=0, ge=0, le=MAX_PANES - 1)
@@ -133,22 +163,65 @@ class PlayingBody(BaseModel):
 
 
 class OffBody(BaseModel):
-    # One pane (with the version it was put up at), or, with neither, the whole screen.
+    """One pane, with the version it was put up at; or the whole screen, with the screen's
+    version the remote was showing when it was tapped (its view's top-level `version`, round 9,
+    B-REMOTE-OFF). Nothing else: a whole-screen off that names no version is refused (422)."""
+
+    model_config = ConfigDict(extra="forbid")
+
     pane: int | None = Field(default=None, ge=0, le=MAX_PANES - 1, strict=True)
     version: int | None = Field(default=None, ge=0, strict=True)
+    screen_version: int | None = Field(default=None, ge=0, strict=True)
+
+
+# The screen's key, as the cookie POST /displays/register sets (round 9, B2-01): the page's
+# script cannot read it, it goes only to the screen's own routes, never cross-site, and it is kept
+# 400 days (as long as a browser keeps any cookie).
+SCREEN_COOKIE = "clive_screen"
+SCREEN_COOKIE_MAX_AGE = 34_560_000
 
 
 def _screen_key(request: Request) -> str:
-    """The key the device was given when it named itself (app/displays/store.py)."""
+    """The key the device was given when it named itself (app/displays/store.py): its cookie,
+    and only its cookie. `X-Screen-Key` is not read here."""
+    return request.cookies.get(SCREEN_COOKIE, "")[:200]
+
+
+def _old_screen_key(request: Request) -> str:
+    """A key a page kept in its own storage from before the key became a cookie. Read by
+    /register alone, and only so that screen can name itself again and be handed the cookie."""
     return request.headers.get("x-screen-key", "")[:200]
 
 
-def _not_this_screen(exc: NotThisScreen) -> JSONResponse:
+def _handed(content: dict, key: str) -> JSONResponse:
+    """An answer that hands the device its key, as the cookie and nowhere else."""
+    response = JSONResponse(content=content, headers={"Cache-Control": "no-store"})
+    response.headers.append("set-cookie", f"{SCREEN_COOKIE}={key}; HttpOnly; Secure; SameSite=Strict; Path=/displays; "
+                                          f"Max-Age={SCREEN_COOKIE_MAX_AGE}")
+    return response
+
+
+def _not_this_screen(request: Request, exc: NotThisScreen) -> JSONResponse:
+    """A device that does not hold this screen's key. One that sent no cookie but did send the
+    header every page from before the cookie sends (round 9, B2-01) is such a page, still open
+    since CLIVE was updated: it is told to reload (`reload`), not that it is not the screen —
+    that page throws its key away when told the latter, and would then have to be named and
+    approved all over again, where reloaded it moves over by itself (/register). Only whether the
+    header was sent is looked at, never its value, and nothing is served either way."""
+    if SCREEN_COOKIE not in request.cookies and "x-screen-key" in request.headers:
+        return JSONResponse(status_code=403, content={
+            "code": "reload", "detail": "This screen's page is from before an update to CLIVE. Reload it: it keeps its name "
+                                        "and its approval."})
     return JSONResponse(status_code=403, content={"code": "not_this_screen", "detail": str(exc)})
 
 
 def _not_saved(exc: NotSaved) -> JSONResponse:
     return JSONResponse(status_code=503, content={"code": "not_saved", "detail": str(exc)})
+
+
+def _full(exc: Full) -> JSONResponse:
+    """The record would pass its bound: refused, nothing changed (round 9, B-NEW-DONE-LOSS)."""
+    return JSONResponse(status_code=409, content={"code": "full", "detail": str(exc)})
 
 
 def _not_approved(exc: NotPaired) -> JSONResponse:
@@ -161,14 +234,16 @@ def _too_soon(exc: TooSoon) -> JSONResponse:
 
 def _remote_refusal(exc: DisplayError) -> JSONResponse:
     """How a remote route says no (round 9): the screen is gone (404), not approved (409), the
-    pane moved on (409 stale), an item is not ticked (409), a deletion not yet durable (503), or
-    anything else, plainly (409)."""
+    pane or screen moved on (409 stale), an item is not ticked (409), the record is full (409),
+    a deletion not yet durable (503), or anything else, plainly (409)."""
     if isinstance(exc, NoSuchScreen):
         return JSONResponse(status_code=404, content={"code": "not_found", "detail": str(exc)})
     if isinstance(exc, NotPaired):
         return _not_approved(exc)
     if isinstance(exc, NotSaved):
         return _not_saved(exc)
+    if isinstance(exc, Full):
+        return _full(exc)
     code = "stale" if isinstance(exc, Stale) else "not_ticked" if isinstance(exc, NotTicked) else "refused"
     return JSONResponse(status_code=409, content={"code": code, "detail": str(exc)})
 
@@ -185,22 +260,27 @@ async def screens() -> dict:
 
 @router.post("/register", response_model=None)
 async def register(body: RegisterBody, request: Request) -> dict | JSONResponse:
+    """A device names itself a screen, or the screen it holds names itself again (a new key,
+    and for one still waiting, a new code). The key it holds is its cookie, or, once, a key a
+    page kept from before the cookie (`X-Screen-Key`, round 9, B2-01)."""
     try:
-        screen = store().register(body.name, screen_key=_screen_key(request))
+        screen = store().register(body.name, screen_key=_screen_key(request), old_key=_old_screen_key(request))
     except NameTaken as exc:
         return JSONResponse(status_code=409, content={"code": "name_taken", "detail": str(exc)})
     except TooMany as exc:
         return JSONResponse(status_code=409, content={"code": "too_many_screens", "detail": str(exc)})
     except NotSaved as exc:
         return _not_saved(exc)
+    except Full as exc:
+        return _full(exc)
     except DisplayError as exc:
         return JSONResponse(status_code=409, content={"code": "refused", "detail": str(exc)})
-    # The key and the code are in this answer and nowhere else: the device keeps the key and
-    # shows the code, and the store keeps only their hashes.
-    content = {"id": screen["id"], "name": screen["name"], "key": screen["screen_key"], "pending": screen["pending"]}
+    # The key is the cookie and nowhere else (round 9, B2-01); the code is in this answer and
+    # nowhere else, for the screen to show. The store keeps only their hashes.
+    content = {"id": screen["id"], "name": screen["name"], "pending": screen["pending"]}
     if screen.get("code"):
         content.update(code=screen["code"], code_expires_in=screen["code_expires_in"])
-    return JSONResponse(content=content, headers={"Cache-Control": "no-store"})
+    return _handed(content, screen["screen_key"])
 
 
 @router.post("/forget", response_model=None)
@@ -223,7 +303,7 @@ async def poll(screen_id: str, request: Request, v: int = -1) -> dict | Response
     try:
         now = store().poll(screen_id, _screen_key(request))
     except NotThisScreen as exc:
-        return _not_this_screen(exc)
+        return _not_this_screen(request, exc)
     if now is None:
         return JSONResponse(status_code=404, content={"code": "not_found", "detail": "No such screen."})
     # A screen waiting for approval is answered in full each time: it shows how long its code has.
@@ -234,23 +314,24 @@ async def poll(screen_id: str, request: Request, v: int = -1) -> dict | Response
 
 @router.post("/{screen_id}/seen", response_model=None)
 async def seen(screen_id: str, body: SeenBody, request: Request) -> dict | JSONResponse:
-    """The screen has put items [start, end) up, for the version it was given (a page at most,
-    carrying on from the last, round 8, B-04)."""
+    """The screen says it has put items [start, end) up, for the version it was given: the next
+    page of the server's plan (round 8 and round 9, B-04). The answer says the plan."""
     try:
         held = store().acknowledge(screen_id, body.version, screen_key=_screen_key(request), start=body.start, end=body.end,
                                    pane=body.pane)
     except NotThisScreen as exc:
-        return _not_this_screen(exc)
+        return _not_this_screen(request, exc)
     except NotPaired as exc:
         return _not_approved(exc)
     except TooSoon as exc:
         return _too_soon(exc)
     except OutOfOrder as exc:
-        return JSONResponse(status_code=409, content={"code": "out_of_order", "detail": str(exc),
-                                                      "covered": exc.covered, "size": exc.size})
+        return JSONResponse(status_code=409, content={"code": "out_of_order", "detail": str(exc), "covered": exc.covered,
+                                                      "size": exc.size, "next": list(exc.next_page) if exc.next_page else None})
     except DisplayError as exc:
         return JSONResponse(status_code=409, content={"code": "refused", "detail": str(exc)})
-    return {"seen": held}
+    # The server's plan of the pane's pages, as it now holds it (round 9, B-04).
+    return {"seen": held, "plan": store().page_plan(screen_id, body.version, body.pane)}
 
 
 @router.post("/{screen_id}/video", response_model=None)
@@ -262,7 +343,7 @@ async def video_playing(screen_id: str, body: PlayingBody, request: Request) -> 
                                        state=body.state, at=body.at, duration=body.duration, volume=body.volume,
                                        muted=body.muted, blocked=body.blocked, error=body.error)
     except NotThisScreen as exc:
-        return _not_this_screen(exc)
+        return _not_this_screen(request, exc)
     except NotPaired as exc:
         return _not_approved(exc)
     except NoSuchScreen:
@@ -279,7 +360,7 @@ async def done(screen_id: str, body: DoneBody, request: Request) -> dict | JSONR
     try:
         store().mark_done(screen_id, body.version, screen_key=key, confirmed=body.confirm, by=who, pane=body.pane)
     except NotThisScreen as exc:
-        return _not_this_screen(exc)
+        return _not_this_screen(request, exc)
     except NotPaired as exc:
         return _not_approved(exc)
     except NotConfirmed as exc:
@@ -290,6 +371,8 @@ async def done(screen_id: str, body: DoneBody, request: Request) -> dict | JSONR
         return JSONResponse(status_code=409, content={"code": "not_seen", "detail": str(exc)})
     except NotSaved as exc:
         return _not_saved(exc)
+    except Full as exc:
+        return _full(exc)
     except DisplayError as exc:
         return JSONResponse(status_code=409, content={"code": "stale", "detail": str(exc)})
     return store().poll(screen_id, key) or {}
@@ -372,12 +455,20 @@ async def remote_again(screen_id: str, body: PaneBody) -> dict | JSONResponse:
 
 @router.post("/{screen_id}/remote/off", response_model=None)
 async def remote_off(screen_id: str, body: OffBody) -> dict | JSONResponse:
-    """One pane taken off the screen (the other fills it), or, with no pane, everything: the
-    screen goes back to its clock. 503 until the deletion is durable."""
-    if (body.pane is None) != (body.version is None):
-        return JSONResponse(status_code=422, content={"code": "refused", "detail": "Name the pane and its version, or neither."})
+    """One pane taken off the screen (the other fills it), named with the version it was put up
+    at; or everything, named with the screen's version the remote was showing, and the screen
+    goes back to its clock. Either only while that is still what is up (409 stale otherwise,
+    and nothing is taken off, round 9, B-REMOTE-OFF). 503 until the deletion is durable."""
+    one = body.pane is not None and body.version is not None and body.screen_version is None
+    whole = body.pane is None and body.version is None and body.screen_version is not None
+    if not (one or whole):
+        return JSONResponse(status_code=422, content={"code": "refused",
+                                                      "detail": "Name the pane and its version, or the screen's version."})
     try:
-        store().take_off(screen_id, body.pane, expect=body.version)
+        if one:
+            store().take_off(screen_id, body.pane, expect=body.version)
+        else:
+            store().take_off(screen_id, None, screen_version=body.screen_version)
         return _fresh(store().remote(screen_id))
     except DisplayError as exc:
         return _remote_refusal(exc)
