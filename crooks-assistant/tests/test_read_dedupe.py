@@ -23,7 +23,7 @@ from experience.harness import harness
 
 @pytest.fixture()
 async def stage():
-    async with harness() as h:
+    async with harness(admitted=True) as h:
         dedupe.current().reset()
         yield h
 

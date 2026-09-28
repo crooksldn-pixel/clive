@@ -1,12 +1,15 @@
 """The composer, and the draft turned into a send (brief §7, §8).
 
-Four scenarios. Each is one of the two bench failures, or something that had to be true for
+Five scenarios. Each is one of the two bench failures, or something that had to be true for
 the fix not to be a new hole:
 
-    compose_open            the exact sentence the bench refused draws an editable email
+    compose_open            the exact sentence the bench refused draws an editable email, its
+                            address marked for the owner to check
     compose_dictated        an address a microphone heard is marked, then corrected by finger
     compose_stage           the gesture prepares a change; nothing is executed
     compose_send_instead    the draft becomes a send in one gesture, and its card is withdrawn
+    compose_send_spoken     the same correction SAID, on the model path: the draft's own email,
+                            held to the send's gesture, and nothing sent before it
 
 The sentence is the model's, like every sentence (since 28 September 2026): the harness's
 model opens the composer with `gmail_compose_open`, as Claude does, and what is asserted is
@@ -54,7 +57,8 @@ def _opens(to: str, *, subject: str = data.COMPOSE_SUBJECT, body: str = data.COM
 
 
 async def _draft_waiting(h: Harness, session_id: str, r: Result) -> Any:
-    """Open the composer with the bench sentence, type the words in, and tap Save draft.
+    """Open the composer with the bench sentence, check the address and type the words in, and
+    tap Save draft.
 
     Every step goes through the same HTTP surface the tablet uses, so the draft this leaves on
     the branch was prepared exactly as production prepares one: the write tool's own handler,
@@ -67,7 +71,9 @@ async def _draft_waiting(h: Harness, session_id: str, r: Result) -> Any:
     r.checks.append(check("the composer opened", bool(compose_id), f"surfaces={opened.surface_types}"))
     if not compose_id:
         return None
-    for name, value in (("subject", data.COMPOSE_SUBJECT), ("body", data.COMPOSE_BODY)):
+    # The owner checks the address by typing it: an address that came from his words is never
+    # prepared until his finger has been on it (E-02).
+    for name, value in (("to", data.COMPOSE_TO), ("subject", data.COMPOSE_SUBJECT), ("body", data.COMPOSE_BODY)):
         typed = await h.touch("compose.field", session_id=session_id, compose_id=compose_id,
                               field=name, value=value)
         r.captures.append(typed)
@@ -94,8 +100,11 @@ async def compose_open(h: Harness) -> Result:
     r.checks.append(a_model_turn(c))
     card = _compose(c)
     to = _field(c, "to")
-    r.checks.append(check("addressed to the address in the sentence, and it reads as sound",
-                          to.get("value") == data.COMPOSE_TO and to.get("status") == "ok",
+    # The address is the model's transcription of what the owner said, so it is his to check
+    # however cleanly it reads (the 2026-09-28 deploy review, round 9, E-02): it was `ok` here
+    # before, and a mis-heard address the model had tidied could then reach Send untouched.
+    r.checks.append(check("addressed to the address in the sentence, and marked for him to check",
+                          to.get("value") == data.COMPOSE_TO and to.get("status") == "uncertain" and bool(to.get("hint")),
                           f"to={to}"))
     r.checks.append(check("a new email, not a reply",
                           card.get("kind") == "new" and not card.get("thread_id"),
@@ -247,9 +256,67 @@ async def compose_send_instead(h: Harness) -> Result:
     return r
 
 
+async def compose_send_spoken(h: Harness) -> Result:
+    """“No, don't save a draft, send it”, said — the bench's second failure, on the model path.
+
+    Restored in round 10 (the 2026-09-28 deploy review, round 9, H-04): the fast-lane version
+    was deleted with the lane, and `compose_send_instead` covers only the TAP. The model's part
+    is scripted — the harness's model stages the send of the email on the card, as Claude is
+    told to — and what is asserted is everything the Mac decides around it: the draft's card is
+    withdrawn by the new instruction, the send carries exactly the draft's recipient and words,
+    it waits for the graver gesture, a spoken yes does not apply it, an address other than the
+    one the owner checked is refused, and nothing reaches the inbox.
+    """
+    r = Result("compose_send_spoken", "“No, don't save a draft, send it”, said")
+    session_id = "cmp5"
+    draft = await _draft_waiting(h, session_id, r)
+    if draft is None:
+        return r
+    session = h.runtime.sessions.get_or_create(session_id)
+    compose_id = str(getattr(draft, "entity_ref", "") or "")
+    email = {"compose_id": compose_id, "subject": str(draft.execution.get("subject") or ""),
+             "body": str((h.branch(session_id).compose or {}).get("body") or "")}
+    c = await h.ask(
+        "no, don't save a draft, send it",
+        # The boundary first: the model reaching for an address the owner never checked.
+        ("gmail_send_new", {**email, "to": "someone.else@example.com"}),
+        # Then the email on the card, to the address on the card.
+        ("gmail_send_new", {**email, "to": str(draft.execution.get("to") or "")}),
+        reply="It's ready to send — hold the card to send it.",
+        scenario="compose_send_spoken", session_id=session_id)
+    r.captures.append(c)
+    r.checks.append(a_model_turn(c))
+    sends = [p for p in session.proposals if p.operation.startswith("gmail_send_")]
+    r.checks.append(check("an address other than the one the owner checked prepares nothing",
+                          all(p.execution.get("to") == draft.execution.get("to") for p in sends),
+                          f"sends={[(p.execution.get('to'), p.status.value) for p in sends]}"))
+    r.checks.append(check("one send is staged, with exactly the draft's recipient, subject and words",
+                          len(sends) == 1 and sends[0].execution.get("to") == draft.execution.get("to")
+                          and sends[0].execution.get("subject") == draft.execution.get("subject")
+                          and sends[0].execution.get("body") == draft.execution.get("body"),
+                          f"sends={[(p.operation, p.status.value) for p in sends]}"))
+    r.checks += a_surface(c, "confirmation", what="answers with the send, waiting for its gesture")
+    r.checks.append(check("held to the graver gesture, because a send cannot be unsent",
+                          bool(sends) and sends[0].risk == "RED" and sends[0].interaction == "hold_to_arm"
+                          and sends[0].status.value == "PENDING",
+                          f"risk={sends[0].risk if sends else None} gesture={sends[0].interaction if sends else None}"))
+    r.checks.append(check("the draft's own card was withdrawn by the new instruction",
+                          draft.status.value == "REVOKED", f"draft={draft.status.value}"))
+    yes = await h.say("yes", scenario="compose_send_spoken:yes", session_id=session_id)
+    r.captures.append(yes)
+    r.checks.append(check("a spoken yes is answered by the Mac and applies nothing",
+                          yes.model_calls == 0 and bool(sends) and sends[0].status.value == "PENDING",
+                          f"model_calls={yes.model_calls} send={sends[0].status.value if sends else None}"))
+    r.checks.append(check("nothing was executed by any of it",
+                          all(p.executed_at is None for p in session.proposals),
+                          f"executed={[p.operation for p in session.proposals if p.executed_at is not None]}"))
+    return r
+
+
 SCENARIOS = (
     ("compose_open", compose_open),
     ("compose_dictated", compose_dictated),
     ("compose_stage", compose_stage),
     ("compose_send_instead", compose_send_instead),
+    ("compose_send_spoken", compose_send_spoken),
 )

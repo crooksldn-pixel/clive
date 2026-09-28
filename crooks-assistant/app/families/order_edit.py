@@ -167,12 +167,29 @@ def _stage_add_item(ctx: CommandCtx) -> Outcome:
     only after the hold. This returns the change to be prepared; `app/routes/command.py`
     prepares it through the same gate and the same action engine a model-proposed change goes
     through, and answers with the confirmation card.
+
+    The order is the one this half has open, and nothing else. A picker is drawn for the order
+    on screen (`_open_picker`), but the Add button carries the order id it was drawn with, and
+    a picker left on the glass after the owner has moved to another order still posts the old
+    one. That order was issued to this conversation, so `may_open` alone would pass it, and the
+    card would have been labelled with the NEW order's number while it changed the old one
+    (the 2026-09-28 deploy review, round 9, E-01). So a posted order must be the open order;
+    anything else is refused, and the label comes from that same validated order. The item is
+    bound the same way: when this half's screen holds the picker, the variant must be one of
+    its rows, drawn for this order.
     """
     order_id, variant_id = ctx.arg("order_id"), ctx.arg("variant_id")
     entity = getattr(ctx.branch, "entity", None) or {}
-    if not order_id:
-        order_id = str(entity.get("ref") or "") if entity.get("kind") == "order" else ""
-    if not order_id or not variant_id:
+    open_order = str(entity.get("ref") or "") if entity.get("kind") == "order" else ""
+    if not open_order:
+        return Outcome.refused("no_order", "There is no order open to add anything to.")
+    if order_id and order_id != open_order:
+        return Outcome.refused(
+            "wrong_order",
+            "That picker was for a different order from the one on screen. Open the picker again on this order.",
+        )
+    order_id = open_order
+    if not variant_id:
         return Outcome.refused("no_target", "That says which order or which item is being added.")
     # Issued to THIS conversation, and of the right kind. The gate checks both again before
     # the tool runs; checking here means the refusal is a sentence rather than a tool error,
@@ -181,13 +198,44 @@ def _stage_add_item(ctx: CommandCtx) -> Outcome:
         return Outcome.refused("not_held", "I do not have that order to hand; open it again.")
     if variant_id not in (getattr(ctx.session, "issued_ids", None) or frozenset()):
         return Outcome.refused("unknown_variant", "That item is not one I have looked up; open the picker again.")
+    # And the item is one THIS order's picker offered, when this half's screen holds it. An
+    # issued variant is any the conversation has been shown — a hoodie from a picker drawn for
+    # another order, or from an earlier search — and the Add on this picker can only mean a
+    # row of this picker. Where the screen this half last drew holds no picker (a record the
+    # Mac keeps bounded, and which a later answer on the half replaces), the checks above are
+    # the whole of it: the open order, and an item this conversation looked up; the card that
+    # follows names both before the hold.
+    picker = _picker_on_screen(ctx.branch)
+    if picker is not None:
+        if str(picker.get("order_id") or "") != order_id:
+            return Outcome.refused(
+                "wrong_order",
+                "That picker was for a different order from the one on screen. Open the picker again on this order.",
+            )
+        offered = {str(c.get("variant_id") or "") for c in picker.get("candidates") or [] if isinstance(c, dict)}
+        if variant_id not in offered:
+            return Outcome.refused("not_on_picker", "That item is not one this order's picker offered; choose it there again.")
     quantity, problem = _quantity(ctx.arg("quantity", "1"))
     if problem:
         return Outcome.refused("bad_quantity", problem)
+    # `order_id` IS the open order now, so the label beside it is that order's own.
     return Outcome(answer="", changed={
         "stage": {"tool": WRITE_TOOL, "args": {"order_id": order_id, "variant_id": variant_id, "quantity": quantity}},
         "entity": {"kind": "order", "ref": order_id, "label": str(entity.get("label") or "")},
     })
+
+
+def _picker_on_screen(branch: Any) -> dict[str, Any] | None:
+    """The data of the variant picker this half last drew, or None when its screen holds none.
+
+    Read from `branch.last_ui`, the Mac's own copy of what the half shows (app/session/
+    branch.py:shown), which both a tap and a sentence write — never from anything the tablet
+    posts, since the question is whether what it posted came from here.
+    """
+    for item in getattr(branch, "last_ui", None) or []:
+        if isinstance(item, dict) and item.get("type") == "variant_picker" and isinstance(item.get("data"), dict):
+            return item["data"]
+    return None
 
 
 def _quantity(value: str) -> tuple[int, str]:

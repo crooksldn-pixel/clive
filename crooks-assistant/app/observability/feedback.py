@@ -14,11 +14,15 @@ He did the most valuable thing a tester can do — narrate defects as they happe
 machine discarded all of it, twice, and then produced a report that did not mention them.
 
 So a sentence of that shape is recognised as local development feedback, and `record` appends
-it to the timeline as an `owner_feedback` event while a TEST SESSION is running. Nothing calls
-`record` at turn time any more: the word-matching lane that did so answered the sentence
-itself instead of letting the model hear it, and it was removed on 28 September 2026. A
-spoken report now reaches the model like every other sentence, and the report finds it in the
-transcript with `recognise` (OWNER_FEEDBACK_IGNORED). What an event is, and what it is not:
+it to the timeline as an `owner_feedback` event while a TEST SESSION is running. The
+word-matching family that used to call it answered the sentence itself instead of letting the
+model hear it, and it was removed on 28 September 2026 — and with it, for a day, the only
+caller of `record` (the deploy review's round 9, E-03). `at_turn` is the recorder without the
+lane: the turn route hands it the owner's own words before the model is asked, it records them
+against the screen he was on, and it returns the one line the model is given about it, so the
+model says "logged" only when something logged it. The sentence still goes to the model. The
+report keeps its safety net: a recognised sentence that nothing recorded is still read back
+from the transcript as OWNER_FEEDBACK_IGNORED. What an event is, and what it is not:
 
 * It is **observability metadata**, written to the same append-only timeline as everything
   else, and it is what `app/observability/report.py` reads to print OWNER-REPORTED DEFECTS
@@ -273,3 +277,39 @@ def record(recognition: Recognition, *, branch: Any = None, session_id: str = ""
 def active() -> bool:
     """Whether a test session is running, so feedback has somewhere to go."""
     return timeline.current().own is not None
+
+
+# What the model is told, beside the owner's words, when a sentence is feedback about the
+# product. The recording is the Mac's and has already happened; the model's part is to say so
+# truthfully and to do anything else the sentence asked for. The second line exists because
+# the one thing worse than not recording a defect is saying it was recorded when nothing was.
+RECORDED_LINE = ("[CLIVE has written this down, word for word, as the owner's feedback about CLIVE itself, "
+                 "with the screen he was on, for this test session's report. Say it is logged, in a few "
+                 "words; if the sentence also asks for something, do that too. Do not say there is no tool "
+                 "for logging feedback.]")
+NOT_RECORDED_LINE = ("[This reads as the owner's feedback about CLIVE itself, and no test session is running, "
+                     "so nothing has written it down. Say so plainly, in a few words; never say it was logged.]")
+
+
+def at_turn(said: str, *, branch: Any = None, session_id: str = "", turn_id: str = "",
+            now: float | None = None) -> str:
+    """Recognise one sentence at turn time, record it if it is feedback, and return the line
+    the model is given about it — or "" when the sentence is not feedback.
+
+    This is the recorder the word-matching lane used to be, without the lane: nothing answers
+    the sentence here, it still goes to the model, and the model is told the truth about what
+    the Mac did with it. It runs BEFORE the model turn, so the screen on the event is the one
+    the owner was complaining about rather than the answer to his complaint (the 2026-09-28
+    deploy review, round 9, E-03: the deleted family was the only caller of `record`, so from
+    28 September a defect said out loud reached the report only as OWNER_FEEDBACK_IGNORED).
+
+    It never raises: a turn is never worth losing over its telemetry.
+    """
+    try:
+        recognition = recognise(said)
+        if recognition is None:
+            return ""
+        event = record(recognition, branch=branch, session_id=session_id, turn_id=turn_id, now=now)
+    except Exception:  # noqa: BLE001 — telemetry must never fail a turn
+        return ""
+    return RECORDED_LINE if event is not None else NOT_RECORDED_LINE

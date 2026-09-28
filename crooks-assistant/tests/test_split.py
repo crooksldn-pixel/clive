@@ -35,7 +35,7 @@ from tests.test_actions_routes import PROXIED, FakeProvider, commit, configure
 
 @pytest.fixture()
 async def stage():
-    async with harness() as h:
+    async with harness(admitted=True) as h:
         yield h
 
 
@@ -316,22 +316,37 @@ async def test_open_area_is_served_on_a_forked_half(stage):
     assert other.last_ui and other.last_ui[0]["type"] == "order", "the other half did not move"
 
 
-def test_a_landing_that_cannot_be_read_offers_the_tap_again():
+async def test_a_landing_that_cannot_be_read_offers_the_tap_again(stage, monkeypatch):
     """It is still possible for a source not to answer. What is not allowed is a refusal with
-    nothing on it to act on — which is what the owner was given, twice, in five seconds."""
-    from app.recipes import RecipeAnswer
+    nothing on it to act on — which is what the owner was given, twice, in five seconds.
 
-    answer = RecipeAnswer(answer="", defer="the order reads did not answer")
-    assert answer.deferred
-    branch = Branch(branch_id="br_a", session_id="s1")
-    branch.visit("order", "o1", "#1957")
-    refusal = commands.Outcome.refused(
-        "landing_unavailable", f"Orders could not be read just now ({answer.defer}). Tap it again, or ask for it out loud.",
-        changed={"area": "orders", "retry": {"command": "open.area", "area": "orders"},
-                 "offer": commands.offer_for(branch), "holds": branch.holds()},
-    )
-    assert refusal.changed["retry"]["command"] == "open.area"
-    assert refusal.changed["holds"]["entity"]["ref"] == "o1"
+    Through the real tap: `open.area`, its recipe and the read scheduler, with the two order
+    reads made to fail and nothing else. This used to build the refusal it asserted on by hand
+    and never reached the landing code at all (the 2026-09-28 deploy review, round 9, I-tests4
+    I-03)."""
+    from app.tools import registry
+    from app.tools.registry import ToolError
+
+    await stage.open_order("1938", session_id="unreadable")
+    real = registry.invoke
+
+    async def invoke(name, args, *, timeout_s):
+        if name == "commerce_query":
+            raise ToolError("Shopify did not answer in time.")
+        return await real(name, args, timeout_s=timeout_s)
+
+    monkeypatch.setattr(registry, "invoke", invoke)
+    refused = await stage.touch("open.area", area="orders", session_id="unreadable")
+    raw = refused.raw
+    assert raw.get("ok") is False and raw.get("code") == "landing_unavailable", raw
+    assert "Tap it again" in str(raw.get("detail") or ""), raw
+    changed = raw.get("changed") or {}
+    assert changed.get("retry") == {"command": "open.area", "area": "orders"}, changed
+    # What the half holds rides on the refusal, so the owner can go back to it from there.
+    assert (changed.get("holds") or {}).get("entity", {}).get("ref") == "gid://shopify/Order/1938", changed
+    offer = changed.get("offer") or []
+    assert offer and offer[0] == {"command": "open.entity", "kind": "order", "ref": "gid://shopify/Order/1938",
+                                  "label": "#1938", "words": "Open #1938"}, offer
 
 
 async def test_open_entity_on_a_forked_half_opens_what_its_parent_was_shown(stage):

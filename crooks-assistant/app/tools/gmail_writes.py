@@ -311,15 +311,108 @@ async def _observe_token(execution: dict) -> Observed:
 
 
 async def _check_order(order_id: str, ctx: dict[str, Any]) -> dict[str, str]:
-    """A reply named with an order goes to that order's customer, or it is not staged. The
-    recipient is the address the reply would actually go to."""
+    """A reply named with an order goes to that order's customer, in a thread that is about
+    that order, or it is not staged. The recipient is the address the reply would actually go
+    to; the thread is judged by `_about_this_order`."""
     customer = await _order_customer(order_id)
     if not customer.get("email") or customer["email"] != ctx["to_email"]:
         who = f"{ctx['to_email'] or 'an unknown address'}"
         if ctx.get("reply_to") and ctx.get("from_email") == customer.get("email"):
             who = f"{ctx['reply_to']} (the message asks for replies there, not to the customer's own address)"
         raise ToolError(f"That reply would go to {who}, not the customer on order {customer.get('label') or order_id}. Nothing was prepared.")
+    confidence, other, why = _about_this_order(ctx, customer, order_id)
+    if confidence != "confident":
+        # The right person is not enough: the thread has to be about THIS order. A reply filed
+        # in a thread she opened about another of her orders — or in one that could be about
+        # any of them — carries this order's number on its card and reads to her as an answer
+        # about whatever she asked. The deleted order→email family replied only from a
+        # CONFIDENT link and showed a possible one without arming anything
+        # (`order_email._choose`: "possible is never good enough to reply from"); the model
+        # path keeps that rule here, where every reply naming an order passes (the 2026-09-28
+        # deploy review, round 9, E-04 and I-tests3 I-02).
+        label = str(customer.get("label") or order_id).lstrip("#")
+        if other:
+            raise ToolError(
+                f"That thread is about order {other}, not order {label}. Nothing was prepared. Write a new email about "
+                f"order {label}, or reply in that thread without naming an order."
+            )
+        raise ToolError(
+            f"I can't tell that thread is about order {label}: {why}. Nothing was prepared. Reply in it without "
+            f"naming an order, or write a new email about order {label}."
+        )
     return customer
+
+
+def _digits(number: Any) -> str:
+    return str(number or "").rsplit("-", 1)[-1].lstrip("#").strip()
+
+
+def _held_messages(thread_id: str) -> list[dict[str, Any]]:
+    """The thread's messages as this conversation was shown them, when the Mac holds the
+    thread (`gmail_read_thread` puts it in the entity cache); empty otherwise. Read, never
+    fetched: the words are evidence of which order the thread is about, and a missing copy
+    only means there is less of it."""
+    try:
+        from app.memory import ENTITY
+        from app.memory import current as memory
+
+        entry = memory().get(ENTITY, f"email_thread:{thread_id}", allow_stale=True)
+    except Exception:  # noqa: BLE001 — no memory bound (a unit test, a cold start) is no copy
+        return []
+    thread = getattr(entry, "value", None) if entry is not None else None
+    messages = thread.get("messages") if isinstance(thread, dict) else None
+    return [m for m in messages if isinstance(m, dict)] if isinstance(messages, list) else []
+
+
+def _warm_rows() -> list[dict[str, Any]]:
+    """The order cache's rows when it has synced; empty when it has not or is not bound."""
+    try:
+        from app.tools.analytics_tools import cache
+
+        held = cache()
+        return list(held.rows() or []) if held.status().get("synced_at") is not None else []
+    except Exception:  # noqa: BLE001 — no cache bound (a Mac without Shopify, a unit test) is a cold cache
+        return []
+
+
+def _about_this_order(ctx: dict[str, Any], customer: dict[str, str], order_id: str) -> tuple[str, str, str]:
+    """(confidence, another order of hers it is about, why) that this thread is about this
+    order, for a reply already proven to go to the order's customer.
+
+    `order_email.about_this_order`'s rule, which the model path lost with that family and
+    keeps here. The strong reading is the graph the thread card's linked-order strip uses
+    (`app/context/graph.py`) over the order cache the Mac already holds: it knows her OTHER
+    orders, so it tells "she wrote about #1930" from "she wrote about #1931", and a year or a
+    tracking fragment is never taken for an order. A thread it links confidently to another
+    order is not this order's thread; one it links only possibly — several recent orders and
+    nothing saying which — is not confidently this order's either. A cold cache, or an order
+    too old to be in it, falls back to the narrow rule: this order's number in the thread is
+    confident, another number is not this order, and no number at all is only possible.
+    """
+    from app.context import graph
+
+    this = _digits(customer.get("label"))
+    email = str(customer.get("email") or "").strip().lower()
+    subject = str(ctx.get("subject") or "")
+    messages = _held_messages(str(ctx.get("thread_id") or ""))
+    rows = _warm_rows()
+    if rows:
+        found = graph.linked_orders_for_thread({"subject": subject, "from_email": email, "messages": messages}, rows=rows)
+        linked = [o for o in found.get("linked") or [] if isinstance(o, dict)]
+        confidence = str(found.get("confidence") or "none")
+        if any(str(o.get("order_id") or "") == str(order_id) for o in linked):
+            if confidence == "confident":
+                return "confident", "", ""
+            return "possible", "", "; ".join(str(r) for r in found.get("provenance") or []) or "the link is only possible"
+        if confidence == "confident" and linked:
+            return "none", _digits(linked[0].get("order_number")) or "another order", ""
+    text = " ".join([subject] + [f"{m.get('subject') or ''} {m.get('body') or m.get('snippet') or ''}" for m in messages])
+    named = graph.order_numbers_in(text)
+    if this and this in named:
+        return "confident", "", ""
+    if named:
+        return "none", "", f"it names {named[0]}, not {this or 'this order'}"
+    return "possible", "", "it does not name an order, and nothing I hold says which of the customer's orders it is about"
 
 
 def _provenance(ctx: dict[str, Any]) -> str:
@@ -645,6 +738,16 @@ async def _recipient(order_id: str, customer_id: str, to: str = "", to_name: str
             raise ToolError("An email to an address is prepared from an open composer; call gmail_compose_open first.")
         if len(address) > MAX_ADDRESS_CHARS or not EMAIL_ADDRESS.match(address):
             raise ToolError(f"{address!r} is not an email address I can send to.")
+        # The composer's own card decides, not the argument: the address must be the one on
+        # it, and the owner must have checked it there. An issued compose id beside any
+        # address the model chose was enough before, so a mis-heard address the model wrote
+        # down cleanly could be staged without the owner ever touching it (the 2026-09-28
+        # deploy review, round 9, E-02). Imported here because the family imports this module.
+        from app.families.compose import owner_checked
+
+        why = owner_checked(str(compose_id), address)
+        if why:
+            raise ToolError(why)
         return {"name": " ".join(str(to_name or "").split())[:80], "email": address.lower(), "label": "", "off_shopify": True}
     if bool(order_id) == bool(customer_id):
         raise ToolError("Say which order — or, without one, which customer — the email is to.")

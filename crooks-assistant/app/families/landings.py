@@ -488,22 +488,34 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
         return RecipeAnswer(answer="", defer="the order reads did not answer")
     _arrived(ctx, "orders")
     waiting, today = _rows(open_body), _rows(today_body)
+    # A read that did not answer is not an empty list. Before this, the open-orders read
+    # failing while today's answered said "Nothing is waiting to go out." — a false
+    # operational answer on the one question this landing exists for (the 2026-09-28 deploy
+    # review, round 9, E-06). Each half now says it could not be read, and the answer is
+    # marked partial so the card says so too.
+    open_read, today_read = isinstance(open_body, dict), isinstance(today_body, dict)
     # The set the cursor walks is the operational one: the orders still to go out, oldest
     # first. On a day with nothing waiting, today's orders are the set.
-    primary = "open" if waiting else "today"
-    body = open_body if waiting else today_body
+    primary = "open" if waiting or not today_read else "today"
+    body = open_body if primary == "open" else today_body
     if isinstance(body, dict):
         _open_workflow(ctx, body, kind="orders", operation="review")
     if waiting:
         oldest = waiting[0]
         words = f"{_how_many(open_body, len(waiting))} order{'s' if len(waiting) != 1 else ''} to go out; the oldest is {str(oldest.get('order_number') or '').lstrip('#')} at {int(oldest.get('age_days') or 0)} days."
+    elif not open_read:
+        words = "I could not read the orders still to go out, so I cannot say whether any are waiting."
     else:
         words = "Nothing is waiting to go out."
-    words += f" {len(today)} order{'s' if len(today) != 1 else ''} today." if today else " None in today yet."
+    if not today_read:
+        words += " Today's orders could not be read."
+    else:
+        words += f" {len(today)} order{'s' if len(today) != 1 else ''} today." if today else " None in today yet."
     drawn = [c for c in (_call_named(result, primary), _call_named(result, "today" if primary == "open" else "open")) if c is not None]
-    return RecipeAnswer(answer=words + _hedge(open_body if isinstance(open_body, dict) else today_body),
-                      calls=list(result.calls), drawn=drawn, partial=result.partial,
-                      trace={"waiting": len(waiting), "today": len(today), "primary": primary})
+    return RecipeAnswer(answer=words + _hedge(open_body if open_read else today_body),
+                      calls=list(result.calls), drawn=drawn, partial=result.partial or not (open_read and today_read),
+                      trace={"waiting": len(waiting), "today": len(today), "primary": primary,
+                             "unread": [name for name, ok in (("open", open_read), ("today", today_read)) if not ok]})
 
 
 # ------------------------------------------------------------------------------- inbox
@@ -544,11 +556,18 @@ def _inbox_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
         return RecipeAnswer(answer="", defer=f"{queue.defer}; {recent.defer}")
     _arrived(ctx, "email")
     parts = [a.answer for a in (queue, recent) if not a.deferred and a.answer]
+    # Half of the landing that did not answer is said as unread, and the answer is partial —
+    # the rule `_orders_render` keeps for the Orders landing (the 2026-09-28 deploy review,
+    # round 9, E-06). Silence would leave the recent threads standing in for "nobody waiting".
+    if queue.deferred:
+        parts.append("I could not read who is waiting on a reply.")
+    if recent.deferred:
+        parts.append("I could not read the recent threads.")
     surfaces = list(queue.surfaces) if not queue.deferred else []
     # The queue is the recipe's own card; the recent threads are drawn from the search read.
     drawn = [c for c in [_call_named(result, "inbox")] if c is not None] if not recent.deferred else []
     return RecipeAnswer(answer=" ".join(parts), calls=list(result.calls), surfaces=surfaces, drawn=drawn,
-                      partial=result.partial or queue.partial or recent.partial,
+                      partial=result.partial or queue.partial or recent.partial or queue.deferred or recent.deferred,
                       trace={"queue": (queue.trace or {}).get("waiting"), "threads": (recent.trace or {}).get("threads")})
 
 
@@ -626,20 +645,28 @@ def _products_plan(ctx: Ctx) -> ReadPlan | None:
 
 
 def _products_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
+    """The best seller and what is closest to running out. A read that did not answer is said
+    as unread and the answer is partial, never "Nothing sold" or "Nothing is close to running
+    out" — the Orders landing's rule (E-06), which this landing had the same hole for."""
     top = _rows(result.values.get("top"))
     stock = _rows(result.values.get("stock"))
-    if not isinstance(result.values.get("top"), dict) and not isinstance(result.values.get("stock"), dict):
+    top_read, stock_read = isinstance(result.values.get("top"), dict), isinstance(result.values.get("stock"), dict)
+    if not top_read and not stock_read:
         return RecipeAnswer(answer="", defer="the product reads did not answer")
     _arrived(ctx, "products")
     words = []
-    if top:
+    if not top_read:
+        words.append("I could not read this month's best sellers.")
+    elif top:
         first = top[0]
         label = str(first.get("label") or first.get("product") or "").strip()
         units = first.get("units")
         words.append(f"Best seller this month: {label}" + (f", {int(units)} units." if units is not None else "."))
     else:
         words.append("Nothing sold this month.")
-    if stock:
+    if not stock_read:
+        words.append("I could not read the stock levels, so I cannot say what is close to running out.")
+    elif stock:
         first = stock[0]
         cover = first.get("days_cover")
         line = f"Closest to running out: {str(first.get('label') or '').strip()}"
@@ -649,8 +676,10 @@ def _products_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     else:
         words.append("Nothing is close to running out.")
     drawn = [c for c in (_call_named(result, "top"), _call_named(result, "stock")) if c is not None]
-    return RecipeAnswer(answer=" ".join(words), calls=list(result.calls), drawn=drawn, partial=result.partial,
-                      trace={"top": len(top), "stock": len(stock)})
+    return RecipeAnswer(answer=" ".join(words), calls=list(result.calls), drawn=drawn,
+                      partial=result.partial or not (top_read and stock_read),
+                      trace={"top": len(top), "stock": len(stock),
+                             "unread": [name for name, ok in (("top", top_read), ("stock", stock_read)) if not ok]})
 
 
 # --------------------------------------------------------------------------- registration
