@@ -565,6 +565,35 @@ test('a pane that passes CLIVE’s limit under a finger leaves at once while the
   assert.ok(ui.allText().includes('Get the drop live'));
 });
 
+// The round-11 independent check on S3P-F-01: the expiry timer was set only by a full redraw, and
+// every answer resets the clock skew. An answer under the finger that put CLIVE's clock 50 ms
+// behind made the pane still fresh when the timer fired; the redraw was held, nothing set the timer
+// again, and with the next ask hanging the pane stayed up to eight seconds past its limit.
+test('a pane still leaves at its limit under a finger when an answer moved CLIVE’s clock after the timer was set', async () => {
+  const put = Date.UTC(2026, 8, 28, 12, 0, 0) - 12 * 3600 * 1000 + 3000;   // three seconds left when opened
+  let phase = 'normal';
+  const pg = await opened((p) => view(p, [order(p, { at: new Date(put).toISOString() }), objective(p)]),
+    (request) => {
+      if (!request.url.endsWith('/remote') || phase === 'normal') return null;
+      if (phase === 'hang') return held().promise;
+      phase = 'hang';               // one answer with CLIVE's clock a little behind, then nothing
+      const body = view(pg, [order(pg, { at: new Date(put).toISOString() }), objective(pg)]);
+      body.now = new Date(pg.clock.now - 50).toISOString();
+      return { status: 200, body };
+    });
+  const ui = pg.panel();
+  const shows = () => ui.allText().includes('Heavyweight Tee');
+  await pg.advance(1500);
+  ui.dispatch('pointerdown');       // the finger goes on and stays
+  phase = 'behind';
+  await pg.advance(1100);           // the answer with the moved clock lands under the finger
+  assert.ok(shows(), 'within its time it is still shown');
+  await pg.advance(700);            // its limit, by CLIVE's clock as last answered, passes
+  assert.ok(!shows(), 'gone at its limit, not when the finger lifts or the ask gives up');
+  assert.ok(!keeps(pg, 'Heavyweight Tee'));
+  assert.equal(pg.R.state().held, true, 'the finger is still down');
+});
+
 // Closes S3P-F-01 (round 11): a pane CLIVE no longer shows leaves at once too; a tick still waits.
 test('under a finger a tick waits for the lift, but a pane CLIVE took off leaves at once', async () => {
   let panes = null;

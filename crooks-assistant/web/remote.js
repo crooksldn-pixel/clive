@@ -521,7 +521,14 @@
     if (!U || !R.open) return;
     const privacy = expire() || leaving();
     // A hold whose lift was never seen does not freeze the panel: it lapses after two seconds.
-    if (!now && !privacy && R.held && Date.now() - R.heldAt < 2000) { R.dirty = true; return; }
+    // A held redraw still sets the expiry timer again for what is drawn: an answer since the last
+    // full redraw may have moved CLIVE's clock, and the timer set then may already have fired on a
+    // pane that was still, by a few milliseconds, within its time (the round-11 check, S3P-F-01).
+    if (!now && !privacy && R.held && Date.now() - R.heldAt < 2000) {
+      R.dirty = true;
+      watchExpiry(R.shown && Array.isArray(R.shown.panes) ? R.shown.panes.filter(fresh) : []);
+      return;
+    }
     if (!now && !privacy) R.held = false;
     R.dirty = false;
     const d = R.data;

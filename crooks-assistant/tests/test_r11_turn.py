@@ -1037,6 +1037,40 @@ async def test_add_a_note_bound_to_1938_then_1940_named_stages_nothing_on_1938(d
     assert desk.store.mutations == []
 
 
+@pytest.mark.parametrize(("said", "note"), [
+    ("exchange for order 1912, she wants a medium instead", "Exchange for order 1912, she wants a medium instead"),
+    ("part of drop-007, send it with the others", "Part of drop-007, send it with the others"),
+    ("replacement for #1936", "Replacement for #1936"),
+])
+async def test_a_note_that_mentions_another_order_is_his_note_not_a_change_aimed_elsewhere(desk, said, note):
+    """The round-11 independent check: a number said INSIDE what he is dictating is the note's
+    content, not the order it goes on. Add a note tapped on #1938, then "exchange for order 1912,
+    she wants a medium instead" noted on #1938 as asked, was withdrawn with "You said #1912, but
+    the change I'd prepared was for #1938" — and so was a tag or note carrying a code such as
+    "drop-007". The card stands, the answer does not tell him he read another order, and the
+    commit sends #1938's note."""
+    sid = f"content-{abs(hash(said)) % 1000}"
+    await _bound_to_1938(desk, sid)
+    desk.model.steps = [notes(A, note)]
+    body = await say(desk, said, sid)
+    card = confirmation(body)
+    assert "withdrawn" not in body["answer"] and "not #" not in body["answer"], body["answer"]
+    assert (await commit(desk, card["proposal_id"], sid)).json()["status"] == "verified"
+    assert [(n, v["id"]) for n, v in desk.store.mutations] == [("order_note_set", A)]
+
+
+async def test_a_note_naming_where_it_goes_is_still_held_to_that_order_whatever_it_mentions(desk):
+    """The other side of the same rule: he names #1940 as where the note goes and mentions #1912
+    in it; a model that notes #1938 still gets nothing staged, and he is told #1940, not #1912."""
+    await _bound_to_1938(desk, "content-held")
+    desk.model.steps = [notes(A, "Exchange for order 1912")]
+    body = await say(desk, "add a note to order 1940: exchange for order 1912", "content-held")
+    assert no_confirmation(body)
+    assert body["answer"] == ("You said #1940, but the change I'd prepared was for #1938, so I've withdrawn it. "
+                              "Say which order you want it on.")
+    assert desk.store.mutations == []
+
+
 async def test_add_a_note_bound_to_1938_then_a_note_for_1940_as_asked_lands_on_1940(desk):
     """R9-I-tests2-I-01, the other way: the model reads the words and notes #1940. That card is
     #1940's, and the commit sends #1940's note and nothing to #1938."""

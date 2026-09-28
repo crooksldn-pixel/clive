@@ -12,6 +12,7 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Mapping
 from functools import lru_cache
 from typing import Any
 
@@ -955,6 +956,37 @@ def _spoken_orders(numbers) -> str:
     return " and ".join(f"#{n}" for n in sorted(numbers))
 
 
+#: A key whose value names a record rather than saying anything: an order's id, a gid.
+_ID_KEY = re.compile(r"(?:^|_)(?:id|ids|ref|refs|gid)$", re.I)
+_ANY_NUMBER = re.compile(r"(?<!\d)(\d{3,7})(?!\d)")
+
+
+def _written_numbers(proposal) -> set[str]:
+    """The numbers inside what a change WRITES — a note's words, a tag, a message — as against
+    the record it is written on. "Exchange for order 1912, she wants a medium" dictated as a note
+    on #1938 names #1912 as its content, not as where it goes; so does the tag "drop-007". Read
+    from the model's arguments and from what will be sent, never from an id or a gid."""
+    out: set[str] = set()
+
+    def walk(value: Any, key: str, depth: int) -> None:
+        if depth > 5:
+            return
+        if isinstance(value, str):
+            if not _ID_KEY.search(key) and not value.startswith("gid://"):
+                out.update(_ANY_NUMBER.findall(value))
+        elif isinstance(value, Mapping):
+            for k, v in value.items():
+                walk(v, str(k), depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for v in value:
+                walk(v, key, depth + 1)
+
+    for source in (getattr(proposal, "model_args", None), getattr(proposal, "execution", None)):
+        if isinstance(source, Mapping):
+            walk(source, "", 0)
+    return out
+
+
 def _off_target(proposed: list[str], session, named: frozenset[str]) -> list[str]:
     """The changes this turn staged on an order the owner did not name, when he named one.
 
@@ -962,7 +994,12 @@ def _off_target(proposed: list[str], session, named: frozenset[str]) -> list[str
     1940" after Add a note was tapped on #1938, or "yes, #1940" over a refund waiting on #1938,
     must not come back as a card for #1938, however the model read the words. A change whose
     order cannot be told from its card is not his either. A bulk change is over a set and a
-    change to anything but an order names its own record; neither is judged here."""
+    change to anything but an order names its own record; neither is judged here.
+
+    A number he said that is inside what the change writes is its content, not its order
+    (`_written_numbers`): a note on #1938 that says "exchange for order 1912" was withdrawn as
+    not the order named, and so was a tag "drop-007" (the round-11 independent check). When
+    every order he named is content, he named none to hold the change to, and it stands."""
     off: list[str] = []
     for proposal_id in proposed:
         if str(proposal_id).startswith("batch_"):
@@ -970,16 +1007,24 @@ def _off_target(proposed: list[str], session, named: frozenset[str]) -> list[str
         proposal = session.proposal(proposal_id)
         if proposal is None or getattr(proposal, "entity_kind", "") != "order":
             continue
+        where = named - _written_numbers(proposal)
+        if not where:
+            continue
         number = _order_number(getattr(proposal, "entity_label", ""))
-        if not number or number not in named:
+        if not number or number not in where:
             off.append(proposal_id)
     return off
 
 
 def _off_target_words(session, off: list[str], named: frozenset[str]) -> str:
-    """What the owner is told instead of the model's sentence about a change that was withdrawn."""
+    """What the owner is told instead of the model's sentence about a change that was withdrawn.
+    The orders he said are the ones he named as where it goes, not those in what it writes."""
     targets = {_order_number(getattr(session.proposal(p), "entity_label", "")) for p in off}
     targets.discard("")
+    written: set[str] = set()
+    for p in off:
+        written |= _written_numbers(session.proposal(p))
+    named = (named - written) or named
     were = _spoken_orders(targets) if targets else "another order"
     return (f"You said {_spoken_orders(named)}, but the change I'd prepared was for {were}, so I've "
             "withdrawn it. Say which order you want it on.")
@@ -1265,9 +1310,16 @@ async def _answer(
             withheld = set(off)
             proposed = [p for p in proposed if p not in withheld]
         else:
+            # An order said only inside what this turn's change writes ("exchange for order
+            # 1912", noted on #1938) is not one he asked to read.
+            written: set[str] = set()
+            for p in proposed:
+                if not str(p).startswith("batch_") and session.proposal(p) is not None:
+                    written |= _written_numbers(session.proposal(p))
+            asked = named - written
             read = _orders_read(calls)
-            if read and not (read & named):
-                answer = f"{answer.rstrip()} That's {_spoken_orders(read)}, not {_spoken_orders(named)}."
+            if read and asked and not (read & asked):
+                answer = f"{answer.rstrip()} That's {_spoken_orders(read)}, not {_spoken_orders(asked)}."
     # A change was proposed this turn. Say, now and in the same breath, whether a tap on THIS
     # tablet could apply it — a card that cannot be applied must never look as if it can.
     if proposed and writes is None and request is not None:

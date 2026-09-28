@@ -205,7 +205,8 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
   const writes = [];            // every value the page ever wrote to the device's storage
   const docListeners = {};
   const winListeners = {};
-  if (stored) storage['clive.screen'] = JSON.stringify(stored);
+  // A string is what the device holds as it is — a record that is not JSON at all.
+  if (stored) storage['clive.screen'] = typeof stored === 'string' ? stored : JSON.stringify(stored);
   // With the real engine, the short start-up (it played already today) and the lighter engine a
   // small TV gets, so a test runs in a second or two.
   if (real) storage['clive.screen.startup'] = JSON.stringify({ day: new Date(start).toDateString(), build });
@@ -1341,6 +1342,34 @@ test('an old key leaves the device’s storage the moment the page reads it, whe
     assert.ok(handed.length >= 1 && handed.every((r) => r.headers['X-Screen-Key'] === LEGACY.key), 'handed back from memory only');
     assert.ok(!pg.requests.some((r) => r.method === 'GET'), 'nothing is asked without it');
     assert.equal(pg.state().screen.key, undefined, 'nor is it put on the screen’s record in the page');
+  }
+});
+
+// The round-11 independent check on B2-01: the key is held in memory for a bounded time only.
+test('an old key CLIVE never takes back is let go after half an hour, and the screen is named again', async () => {
+  const box = {};
+  const pg = page({ stored: LEGACY, answer: (r) => box.answer(r) });
+  box.answer = legacyClive(pg, () => 'network');
+  await pg.load();
+  await pg.advance(29 * 60 * 1000);
+  assert.equal(pg.els.namer.hidden, true, 'still trying within the half hour');
+  assert.ok(pg.requests.some((r) => r.headers['X-Screen-Key'] === LEGACY.key));
+  await pg.advance(2 * 60 * 1000);
+  assert.equal(pg.els.namer.hidden, false, 'named again once the half hour is up');
+  assert.equal(pg.storage['clive.screen'], undefined, 'nothing of the old screen is kept');
+  const after = pg.requests.length;
+  await pg.advance(60 * 1000);
+  for (const r of pg.requests.slice(after)) assert.equal(r.headers['X-Screen-Key'], undefined, 'the key is gone: ' + r.url);
+  assert.equal(pg.state().screen, null);
+});
+
+// The round-11 independent check on B2-01: a record the page cannot read is removed, not left.
+test('a record the page cannot read is taken off the device, whatever it holds', async () => {
+  for (const raw of ['{"id":"scr_0123456789ab","name":"Packing","key":"legacy-screen-key"', '["legacy-screen-key"]', '"legacy-screen-key"']) {
+    const pg = page({ stored: raw, answer: () => ({ status: 403, body: { code: 'not_this_screen', detail: 'Not this screen.' } }) });
+    await pg.load();
+    assert.equal(pg.storage['clive.screen'], undefined, 'removed: ' + raw);
+    for (const r of pg.requests) assert.equal(r.headers['X-Screen-Key'], undefined, 'no key in ' + r.url);
   }
 });
 

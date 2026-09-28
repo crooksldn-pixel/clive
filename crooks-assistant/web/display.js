@@ -86,15 +86,24 @@
   // the page is closed or reloaded before CLIVE has taken it, the key is gone for good: the next
   // ask carries no key, CLIVE answers "not this screen", and the screen is named and approved
   // again. That is the safe outcome — a key left in storage could be copied and reused.
+  //
+  // Held in memory for a bounded time only (LEGACY_KEEP_MS): a page that cannot hand the key back
+  // within it lets the key go and has the screen named again, rather than hold a reusable key for
+  // as long as the TV stays on (the round-11 independent check). A record this page cannot read
+  // at all is removed, not left: whatever it holds, nothing here can say it holds no key.
   const SCREEN_ID = /^scr_[0-9a-f]{12}$/;
+  const LEGACY_KEEP_MS = 30 * 60 * 1000;
   let legacyKey = '';
+  let legacyUntil = 0;
   function loadScreen() {
     let raw = null;
-    try { raw = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; }
-    if (!raw || typeof raw !== 'object') return null;
+    try { raw = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { forgetStored(); return null; }
+    if (raw === null) return null;
+    if (typeof raw !== 'object' || Array.isArray(raw)) { forgetStored(); return null; }
     const screen = SCREEN_ID.test(String(raw.id || '')) && typeof raw.name === 'string' && raw.name ? { id: raw.id, name: raw.name } : null;
     if (Object.keys(raw).some((k) => k !== 'id' && k !== 'name')) {
       if (screen) legacyKey = typeof raw.key === 'string' ? raw.key.slice(0, 200) : '';
+      if (legacyKey) legacyUntil = Date.now() + LEGACY_KEEP_MS;
       // Written again now, as the id and name alone; a record that is not a screen's is not kept.
       if (!screen || !saveScreen(screen)) forgetStored();
     }
@@ -1744,7 +1753,15 @@
   async function poll() {
     clearTimeout(pollTimer);
     if (!S.screen || polling) return;
-    // A screen named before round 10 hands its old key back first (B2-01).
+    // A screen named before round 10 hands its old key back first (B2-01) — for LEGACY_KEEP_MS at
+    // most; after that the key is let go and the screen is named again, as a new one would be.
+    if (legacyKey && Date.now() > legacyUntil) {
+      const name = S.screen.name;
+      wipe('');
+      forgetScreen(); S.screen = null;
+      toNaming('', name);
+      return;
+    }
     if (legacyKey) { migrate(); return; }
     polling = true;
     const stale = asked();
