@@ -214,3 +214,25 @@ def test_every_staging_command_names_the_registered_write_it_prepares():
         for name in tools:
             spec = registry.get(name)
             assert spec.write is not None, f"{command} names {name}, which is not a write"
+
+
+def test_posting_a_staging_command_is_not_evidence_that_its_write_was_staged():
+    """H-06's second half: a write is credited only where the scenario really prepares it. The
+    stale-picker and cancelled-order scenarios post `order_edit.stage` and are refused by
+    design; the composer's Save draft prepares a draft of a NEW email, not a reply or a send.
+    Before round 10 each of those was reported as staging every write its command could
+    prepare. `tests/test_experience.py` holds every credit to a real run."""
+    from experience.matrix import STAGES, TAP_STAGED
+
+    tool_matrix.load()
+    rows = {row["name"]: row for row in tool_matrix.tools()}
+    add = set(rows["shopify_order_add_item"]["scenarios"])
+    assert "order_add_item_picker" in add
+    assert not add & {"order_add_item_stale_picker", "order_add_item_cancelled"}, add
+    for reply in ("gmail_draft_reply", "gmail_send_reply"):
+        assert "compose_stage" not in rows[reply]["scenarios"], reply
+    assert "compose_stage" not in rows["gmail_send_new"]["scenarios"]
+    # A declaration can only name a write some staging command can prepare.
+    can = {tool for tools in STAGES.values() for tool in tools}
+    for scenario, tools in TAP_STAGED.items():
+        assert set(tools) <= can, (scenario, set(tools) - can)

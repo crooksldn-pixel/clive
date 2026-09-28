@@ -86,6 +86,14 @@ def write(results: list[Any], *, directory: Path | None = None, mode: str = "fix
     return out
 
 
+def _scripted(captures: list[Any]) -> str:
+    """The tools a scenario scripted for the harness's model, each marked ✗ where Claude could
+    not have made the call (`experience.harness.model_could_make`)."""
+    scripted = sorted({t for c in captures for t in (getattr(c, "scripted", None) or [])})
+    beyond = {t for c in captures for t in (getattr(c, "unmakeable", None) or {})}
+    return ", ".join(f"{t} ✗" if t in beyond else t for t in scripted)
+
+
 def _markdown(payload: dict[str, Any], results: list[Any]) -> str:
     totals = payload["totals"]
     lines: list[str] = [
@@ -105,7 +113,9 @@ def _markdown(payload: dict[str, Any], results: list[Any]) -> str:
     lines += ["## Scenarios", "",
               "A sentence's model here is the harness's: where a scenario says which tools it calls",
               "(**Scripted model**), the run proves what the gate, the action engine and the cards do",
-              "with those calls — not that Claude would choose them.",
+              "with those calls — not that Claude would choose them. Each is checked to be a call",
+              "Claude COULD make (offered to it, with arguments its schema admits); one it could not",
+              "is marked ✗.",
               "",
               "| | Scenario | Lane | Recipe | Surfaces | Actions | First UI | Model | Scripted model |",
               "|---|---|---|---|---|---|---|---|---|"]
@@ -120,7 +130,7 @@ def _markdown(payload: dict[str, Any], results: list[Any]) -> str:
             f"| {len(getattr(capture, 'action_ids', []) or [])} "
             f"| {_ms(getattr(capture, 'first_ui_ms', None))} "
             f"| {getattr(capture, 'model_calls', 0)} "
-            f"| {', '.join(sorted({t for c in result.captures for t in (getattr(c, 'scripted', None) or [])})) or '—'} |"
+            f"| {_scripted(result.captures) or '—'} |"
         )
     lines += [""]
 

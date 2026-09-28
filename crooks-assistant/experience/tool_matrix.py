@@ -448,8 +448,11 @@ def _scenario_tools() -> dict[str, dict[str, str]]:
       reads are the tool's (`h.open_order` → the find and the detail read);
     * it taps a control whose recipe reads the tool (`experience/matrix.py::COVERAGE`, the
       repository's mapping of scenario to operation, walked to the recipe's read primitives);
-    * it taps a staging command (`experience/matrix.py::STAGES`) whose name its code posts, in
-      which case the command's write tool has been PREPARED.
+    * its taps prepare a write it declares (`experience/matrix.py::TAP_STAGED`), and its code
+      posts a staging command that can prepare that write (`experience/matrix.py::STAGES`).
+      Posting the command alone credits nothing: which write a command prepares, and whether it
+      is refused first, only a run can say — and `tests/test_experience.py` runs every scenario
+      and holds these claims to what it really dispatched and staged.
 
     A write reached any of these ways has been staged and nothing more: the fixture world refuses
     every mutation, so no golden scenario applies one, and the value says "staged" so a reader
@@ -458,7 +461,7 @@ def _scenario_tools() -> dict[str, dict[str, str]]:
     """
     from app.recipes import RECIPES
     from app.tools import registry
-    from experience.matrix import COVERAGE, STAGES
+    from experience.matrix import COVERAGE, STAGES, TAP_STAGED
     from experience.scenarios import SCENARIOS
 
     by_function: dict[str, set[str]] = {}
@@ -485,9 +488,13 @@ def _scenario_tools() -> dict[str, dict[str, str]]:
                 continue
             for tool in (recipe.read_primitives if recipe is not None else ()):
                 out.setdefault(str(tool), {})[scenario] = "read"
-            if operation in STAGES and operation in handed[scenario]:
-                for tool in STAGES[operation]:
-                    out.setdefault(tool, {})[scenario] = "staged"
+    for scenario, declared in TAP_STAGED.items():
+        if scenario not in handed:
+            continue
+        can = {tool for command, tools in STAGES.items() if command in handed[scenario] for tool in tools}
+        for tool in declared:
+            if tool in can:
+                out.setdefault(tool, {})[scenario] = "staged"
     for spec in registry.all_specs():
         for scenario, strings in handed.items():
             if spec.name in strings:

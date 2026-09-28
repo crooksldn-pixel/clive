@@ -73,6 +73,9 @@ class RecordingProvider:
         self.calls: list[str] = []
         self.runtime: Any = None
         self._scripts: dict[str, tuple[list[tuple[str, dict[str, Any]]], str]] = {}
+        # Every scripted call as it was made, its arguments resolved: what `model_could_make`
+        # holds to the tool list and the schemas Claude is actually given.
+        self.made: list[tuple[str, dict[str, Any]]] = []
 
     def will(self, said: str, *tools: tuple[str, dict[str, Any]], reply: str = "") -> None:
         """When asked `said`, call `tools` in order and answer `reply`."""
@@ -103,8 +106,72 @@ class RecordingProvider:
             # order_id comes from the search, as it does for Claude — so it may be a function
             # of the calls so far.
             given = args(calls) if callable(args) else args
+            self.made.append((str(name), dict(given or {})))
             await dispatch(name, dict(given or {}), session=session, timeout_s=10, calls=calls)
         return TurnResult(text=reply, tool_calls=calls, session_id=session_id)
+
+
+# The JSON Schema types a tool's arguments are declared in, as Python sees what the model sends.
+_JSON_TYPES: dict[str, tuple[type, ...]] = {
+    "string": (str,), "integer": (int,), "number": (int, float), "boolean": (bool,),
+    "array": (list, tuple), "object": (dict,), "null": (type(None),),
+}
+
+
+def _fits(schema: dict[str, Any], value: Any) -> str:
+    """Why `value` is not something this argument's schema admits; empty when it is."""
+    wanted = schema.get("type")
+    kinds = [wanted] if isinstance(wanted, str) else [k for k in (wanted or []) if isinstance(k, str)]
+    if kinds:
+        ok = any(isinstance(value, _JSON_TYPES.get(k, ())) and not (k in ("integer", "number") and isinstance(value, bool))
+                 for k in kinds)
+        if not ok:
+            return f"{type(value).__name__} where the schema says {'/'.join(kinds)}"
+    if "enum" in schema and value not in (schema.get("enum") or []):
+        return f"{value!r} is not one of {schema.get('enum')}"
+    return ""
+
+
+def model_could_make(runtime: Any, name: str, args: dict[str, Any]) -> str:
+    """Why Claude could NOT make this call, in words; empty when it could.
+
+    A scripted scenario proves what the gate, the action engine and the presenters do with a
+    call — never that Claude would make it (the 2026-09-28 deploy review, round 9, H-02). What
+    CAN be held offline is that the call is one Claude is able to make: the tool is on the
+    list it is offered on this runtime (not withheld by the fixed rule or by the store's state,
+    exactly as `app/providers/max_agent_sdk.py` withholds it), and every argument is one the
+    tool's schema declares, of the declared type, with every required one given. A script
+    that fails this is scripting something the model cannot do, and the scenario built on it
+    proves nothing about a spoken request. Whether Claude WILL choose it is a live question
+    this cannot answer.
+    """
+    from app.providers.max_agent_sdk import withheld_tools
+    from app.tools import registry
+
+    try:
+        spec = registry.get(name)
+    except KeyError:
+        return "no tool of that name is registered, so none is offered"
+    writes = bool(getattr(getattr(runtime, "settings", None), "writes_enabled", False))
+    withheld = withheld_tools(registry.all_specs(), writes_enabled=writes)
+    by_family = getattr(runtime, "withheld_by_family", None)
+    if callable(by_family):
+        withheld |= {str(n) for n in (by_family() or ())}
+    if spec.name in withheld:
+        return "it is withheld from the model on this runtime"
+    schema = spec.input_schema or {}
+    properties = schema.get("properties") or {}
+    extra = sorted(set(args) - set(properties))
+    if extra:
+        return f"its schema has no argument {extra[0]!r}"
+    missing = [key for key in schema.get("required") or [] if key not in args]
+    if missing:
+        return f"its schema requires {missing[0]!r}"
+    for key, value in args.items():
+        why = _fits(properties.get(key) or {}, value)
+        if why:
+            return f"{key}: {why}"
+    return ""
 
 
 # ------------------------------------------------------------------- what Claude reads for...
@@ -165,6 +232,9 @@ class Capture:
     # engine and the presenters do with those calls — never that the model would make them
     # (the 2026-09-28 deploy review, round 9, H-02). Empty for a tap and an unscripted sentence.
     scripted: list[str] = field(default_factory=list)
+    # Scripted calls Claude could not have made, tool -> why (`model_could_make`). Empty for
+    # every scenario but the one that reaches for a tool that does not exist on purpose.
+    unmakeable: dict[str, str] = field(default_factory=dict)
 
     answer: str = ""
     ui: list[dict[str, Any]] = field(default_factory=list)
@@ -232,6 +302,7 @@ class Capture:
             "lane": self.lane, "recipe_id": self.recipe_id,
             "model_calls": self.model_calls, "tools": list(self.tools), "reads": list(self.reads),
             "scripted_model": list(self.scripted),
+            "unmakeable": dict(self.unmakeable),
             "answer": self.answer,
             "surfaces": self.surface_types,
             "surface_detail": [
@@ -329,11 +400,18 @@ class Harness:
         then CALLS, so the cards are drawn by the real presenters from real results — and a
         scenario built on this is a scripted gate-and-presenter test, not evidence that Claude
         would choose these tools. The capture says so (`Capture.scripted`), and so does the
-        report.
+        report. What it can say is whether each call is one Claude COULD make on this runtime
+        — offered to it, with arguments its schema admits — and a call that is not is named on
+        the capture (`Capture.unmakeable`, `model_could_make`).
         """
         self.provider.will(text, *tools, reply=reply)
+        before = len(self.provider.made)
         capture = await self.say(text, **kwargs)
         capture.scripted = [str(name) for name, _ in tools]
+        for name, args in self.provider.made[before:]:
+            why = model_could_make(self.runtime, name, args)
+            if why:
+                capture.unmakeable[name] = why
         return capture
 
     async def open_order(self, number: str | int, *, said: str = "", **kwargs: Any) -> Capture:
