@@ -7,8 +7,12 @@ compact string for the model. If a call did not come through here, it did not ha
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
+import os
+import re
 import time
 from typing import Any
 
@@ -475,7 +479,8 @@ class _Trace:
         if self.active:
             timeline.emit(
                 "tool_requested", session_id=session.session_id, turn_id=session.turn_id or None, tool_call_id=self.tool_call_id,
-                tool=name, args=loggable_args(name, args), tier=(decision.tier.value if decision is not None else None),
+                tool=name, args=loggable_args(name, args, names=getattr(session, "pii_seen", ())),
+                tier=(decision.tier.value if decision is not None else None),
                 disposition=(decision.disposition.value if decision is not None else None),
             )
 
@@ -493,12 +498,17 @@ class _Trace:
         return call
 
 
-def loggable_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
+def loggable_args(name: str, args: dict[str, Any], *, names: Any = ()) -> dict[str, Any]:
     """A tool call's arguments as the timeline keeps them: ids and short plain values as they
-    are; the text of a change (a note, an email body) by its length. Redacted by shape."""
+    are; the text of a change (a note, an email body) by its length; the owner's own words in a
+    read — a search — by their shape (_spoken_shape). Redacted by shape, and by `names`: the
+    customer names this conversation's reads have already returned (Session.pii_seen), the set
+    the turn's own record is redacted with."""
     from app.logging.turnlog import redact
 
-    write = False
+    # A tool this process does not have (a name the model made up) is not known to be a read, so
+    # its text is kept as a change's is: by length.
+    write = True
     try:
         spec = registry.get(name)
         write = spec.write is not None or spec.batch is not None
@@ -513,9 +523,59 @@ def loggable_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
             out[key] = value
         elif isinstance(value, list):
             out[key] = f"<list of {len(value)}>"
+        elif isinstance(value, dict):
+            out[key] = str(_spoken_fields(value))[:120]
+        elif key.lower() in SPOKEN_ARGS:
+            out[key] = _spoken_shape(str(value))
         else:
             out[key] = str(value)[:120]
-    return redact(out)
+    return redact(out, tuple(str(n) for n in (names or ()) if n))
+
+
+# The arguments of a read that are the owner's own words, and so can hold a person's name: a
+# customer or an order looked up by name or email, a mail search, words to find in a thread, a
+# card's or a set's title in his words, what to look for on a screen. The call is written down
+# (tool_requested) before its read has returned anything, so the timeline's name set — fed from
+# what reads return (timeline.note_names, Session.pii_seen) — cannot yet hold the name he has
+# just said, and a name has no shape for the redactor to find (round 9: "orders for Jo Bloggs" was
+# written to the always-on timeline as it was said). Product words (`product`, `colour`, `size`)
+# are the catalogue's and stay as they are.
+SPOKEN_ARGS = frozenset({
+    "query", "q", "search", "term", "terms", "contains", "sender", "mentions", "name", "to_name", "customer",
+    "customer_name", "who", "title", "text", "words", "label",
+})
+# What of the owner's words may be kept as it is: one identifier, whole — an order's number
+# ("1930", "#1930", "CROOKS-1930"), a Shopify id, a hex id — or an email address, which the
+# redactor turns into "[email]" on the way out.
+_IDENTIFIER = re.compile(r"#?\d{1,10}|[A-Za-z]{2,12}-\d{1,10}|gid://shopify/\w+/\d+|[0-9a-f]{16,64}")
+_EMAIL_ONLY = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+# A digest the same for the same words for the life of this process and unrelated to them
+# otherwise: the report tells a search repeated from a new one (report._duplicate_calls) without
+# the words being on disk, and the key is never written anywhere.
+_DIGEST_KEY = os.urandom(16)
+
+
+def _spoken_shape(text: str) -> str:
+    """The owner's own words in a read, as the timeline may keep them: an identifier or an email
+    address as it is (the redactor still sees it), anything else by its length and a digest."""
+    words = text.strip()
+    if _IDENTIFIER.fullmatch(words) or _EMAIL_ONLY.fullmatch(words):
+        return words[:120]
+    digest = hmac.new(_DIGEST_KEY, words.lower().encode("utf-8"), hashlib.sha256).hexdigest()[:8]
+    return f"<{len(words)} chars ~{digest}>"
+
+
+def _spoken_fields(value: dict[str, Any], depth: int = 0) -> dict[str, Any]:
+    """A structured argument (a query's filters) with the owner's words in it shaped the same way."""
+    out: dict[str, Any] = {}
+    for key, item in value.items():
+        if depth < 3 and isinstance(item, dict):
+            out[key] = _spoken_fields(item, depth + 1)
+        elif isinstance(item, str) and str(key).lower() in SPOKEN_ARGS:
+            out[key] = _spoken_shape(item)
+        else:
+            out[key] = item
+    return out
 
 
 def _result_shape(payload: Any) -> dict[str, Any] | None:

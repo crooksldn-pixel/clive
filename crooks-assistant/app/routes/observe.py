@@ -67,6 +67,19 @@ ALLOWED_FIELDS = frozenset({
     "path", "control",
 })
 
+# The live words' account of how a hold went (web/live-voice.js, `live_transcript`): an outcome
+# and a reason from that file's own fixed lists (CrooksLiveVoice.OUTCOMES and REASONS), and three
+# whole numbers. The words themselves are never sent, and the page is built so a provider's
+# message type, error text or close reason is looked up in those lists, never copied. The route
+# holds the same line whatever a page sends (round 10): a word here is a short lowercase token,
+# the numbers are numbers, and every other field of the event is dropped, so an outcome or a
+# reason can never carry what was said.
+LIVE_TRANSCRIPT_KIND = "live_transcript"
+LIVE_WORDS = ("outcome", "reason")
+LIVE_NUMBERS = ("ms", "partials", "count", "t", "seq")
+LIVE_IDS = ("session_id", "turn_id")
+_LIVE_WORD = re.compile(r"^[a-z0-9_]{2,24}$")
+
 MAX_SCREEN_BYTES = 1_500_000
 MAX_SCREENS = 600          # per session: a day of heavy use is a few hundred
 _REASON = re.compile(r"[^a-z0-9_]+")
@@ -225,7 +238,10 @@ async def telemetry(request: Request) -> Response:
             # able to find out.
             appliance += 1
             continue
-        fields = {k: _bounded(v) for k, v in item.items() if k in ALLOWED_FIELDS and k != "kind"}
+        if kind == LIVE_TRANSCRIPT_KIND:
+            fields = _live_transcript_fields(item)
+        else:
+            fields = {k: _bounded(v) for k, v in item.items() if k in ALLOWED_FIELDS and k != "kind"}
         fields.setdefault("session_id", session_id or None)
         timeline.emit(f"tablet_{kind}", source="tablet", **fields)
         received += 1
@@ -315,6 +331,28 @@ async def telemetry_screen(request: Request) -> Response:
 def scrub_screen(html: str) -> str:
     """A copy of the screen, parsed and cleaned whatever the page sent (app/observability/screens.py)."""
     return sanitise_markup(html)
+
+
+def _live_transcript_fields(item: dict[str, Any]) -> dict[str, Any]:
+    """A `live_transcript` event as the record may hold it: its outcome and reason only when each
+    is one short lowercase word (the page's own fixed lists are all of that shape), its counts
+    only when they are whole numbers of a sane size, its conversation and turn as ids — and
+    nothing else, whatever else was sent. A field that is not in its shape is dropped, not
+    corrected: 'other' is the page's word to choose, not this route's."""
+    fields: dict[str, Any] = {}
+    for key in LIVE_WORDS:
+        value = item.get(key)
+        if isinstance(value, str) and _LIVE_WORD.fullmatch(value):
+            fields[key] = value
+    for key in LIVE_NUMBERS:
+        value = item.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and 0 <= value < 1e13:
+            fields[key] = value
+    for key in LIVE_IDS:
+        value = item.get(key)
+        if isinstance(value, str) and value:
+            fields[key] = value[:64]
+    return fields
 
 
 def _bounded(value: Any, depth: int = 0) -> Any:

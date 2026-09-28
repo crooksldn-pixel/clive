@@ -714,6 +714,10 @@ def _named_queries(rec: Any) -> dict[str, str]:
     Read off the resolving reads themselves: `shopify_find_customer {query: "…"}` followed by
     the customer the turn then drew. This is the only place a NAME is joined to an ID, and it
     is what makes "he asked about A and was told about B" provable rather than suspected.
+
+    A search the dispatcher wrote down by its shape (`<9 chars ~…>`, app/tools/dispatch.py
+    loggable_args, round 9) holds no name to find in a request, and is passed over: the pair,
+    which compares ids, is what proves it then.
     """
     out: dict[str, str] = {}
     for turn in rec.turns:
@@ -724,7 +728,7 @@ def _named_queries(rec: Any) -> dict[str, str]:
             if not any(mark in record.tool for mark in RESOLVING_READS):
                 continue
             asked = str((record.args or {}).get("query") or (record.args or {}).get("name") or "").strip()
-            if len(asked) >= 3:
+            if len(asked) >= 3 and not asked.startswith("<"):
                 out.setdefault(asked.lower(), ref)
     return out
 
