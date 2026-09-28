@@ -98,7 +98,8 @@ def test_every_screen_request_is_known_by_its_cookie_and_never_by_the_old_header
     for method, path, body in requests:
         kwargs = {"json": body} if body is not None else {}
         refused = getattr(other, method)(path, headers={"X-Screen-Key": key}, **kwargs)
-        assert refused.status_code == 403 and refused.json()["code"] == "not_this_screen", path
+        assert refused.status_code == 403 and refused.json()["code"] == "reload", path
+        assert "Today" not in refused.text and "Heat" not in refused.text
     assert s.done() == [] and s.page_plan(sid, 1) is None, "nothing the header asked for was done"
     # The same requests with the cookie are the screen's own.
     assert tv.get(f"/displays/{sid}?v=-1").json()["beside"]["kind"] == "video"
@@ -106,9 +107,43 @@ def test_every_screen_request_is_known_by_its_cookie_and_never_by_the_old_header
     later(s)
     assert tv.post(f"/displays/{sid}/done", json={"version": 1, "confirm": True}).json()["showing"]["done_at"]
     assert tv.post(f"/displays/{sid}/video", json=said).json() == {"heard": True}
-    # A cookie with another key is not the screen either.
-    other.cookies.set("clive_screen", "not-its-key", domain="testserver", path="/displays")
-    assert other.get(f"/displays/{sid}?v=-1").status_code == 403
+    # A cookie with another key is not the screen either, header or no header.
+    other.cookies.set("clive_screen", "not-its-key", domain="testserver.local", path="/displays")
+    for headers in ({}, {"X-Screen-Key": key}):
+        refused = other.get(f"/displays/{sid}?v=-1", headers=headers)
+        assert refused.status_code == 403 and refused.json()["code"] == "not_this_screen"
+
+
+def test_a_page_from_before_the_cookie_still_open_is_told_to_reload_and_keeps_its_key(tmp_path):
+    """The deploy itself (B2-01). The page each approved screen has open when CLIVE is updated
+    is the old one: it asks with X-Screen-Key and no cookie, and it throws its key away when it
+    is told `not_this_screen` (web/display.js notThisScreen, as deployed before round 10) — after
+    which the screen could only be named and approved all over again. So a request with the
+    header and no cookie is refused like any other without the key, but answered `reload`,
+    which that page takes as any other refusal: it shows nothing, keeps its key and asks again.
+    Reloaded, it is the new page, which moves over with that key and stays approved. The
+    header's value is never read on these routes; a device with no header is told what it
+    always was."""
+    path = tmp_path / "objectives" / "displays.json"
+    sid, old = _paired_before(path, marked=True)
+    s = store_module.install(path, mono=Tick())
+    stale_page = TestClient(browser(s).app, base_url="https://testserver", headers=OWNER)
+    for method, route, body in (("get", f"/displays/{sid}?v=-1", None),
+                                ("post", f"/displays/{sid}/seen", {"version": 4, "start": 0, "end": 1}),
+                                ("post", f"/displays/{sid}/done", {"version": 4, "confirm": True}),
+                                ("post", f"/displays/{sid}/video", {"pane": 0, "version": 4, "state": "playing", "at": 1.0})):
+        kwargs = {"json": body} if body is not None else {}
+        for key in (old, "anything at all"):
+            told = getattr(stale_page, method)(route, headers={"X-Screen-Key": key}, **kwargs)
+            assert told.status_code == 403 and told.json()["code"] == "reload", route
+            for word in ("Sam Carter", "Order #1047"):
+                assert word not in told.text
+        assert getattr(stale_page, method)(route, **kwargs).json()["code"] == "not_this_screen"
+    assert s.done() == [] and "Sam Carter" in path.read_text(), "nothing was done, and the slip is still its own"
+    # Reloaded: the new page names itself with the key the old one kept, and carries on.
+    moved = stale_page.post("/displays/register", json={"name": "Office screen"}, headers={"X-Screen-Key": old})
+    assert moved.json() == {"id": sid, "name": "Office screen", "pending": False}
+    assert stale_page.get(f"/displays/{sid}?v=-1").json()["showing"]["title"] == "Order #1047"
 
 
 def _paired_before(path, *, marked: bool) -> tuple[str, str]:

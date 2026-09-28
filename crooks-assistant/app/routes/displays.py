@@ -21,7 +21,9 @@ never puts the key in its answer, and every screen request (the ask, /seen, /don
 known by that cookie and nothing else. A page from before holds its key in its own storage: it
 names itself once more with `X-Screen-Key`, which is read on /register alone and only for that,
 and if the key holds the screen of that name the screen is handed the cookie with a new key and
-stays approved.
+stays approved. Such a page still open when CLIVE is updated asks with that header and no cookie:
+it is refused as any device without the key is, but answered `reload` rather than
+`not_this_screen`, which would make it throw its key away (_not_this_screen).
 
 A screen shows up to two things at once (round 9): the screen names the pane, and that pane's
 own version, when it acknowledges a page or says done. And the owner's app can be the remote
@@ -199,7 +201,17 @@ def _handed(content: dict, key: str) -> JSONResponse:
     return response
 
 
-def _not_this_screen(exc: NotThisScreen) -> JSONResponse:
+def _not_this_screen(request: Request, exc: NotThisScreen) -> JSONResponse:
+    """A device that does not hold this screen's key. One that sent no cookie but did send the
+    header every page from before the cookie sends (round 9, B2-01) is such a page, still open
+    since CLIVE was updated: it is told to reload (`reload`), not that it is not the screen —
+    that page throws its key away when told the latter, and would then have to be named and
+    approved all over again, where reloaded it moves over by itself (/register). Only whether the
+    header was sent is looked at, never its value, and nothing is served either way."""
+    if SCREEN_COOKIE not in request.cookies and "x-screen-key" in request.headers:
+        return JSONResponse(status_code=403, content={
+            "code": "reload", "detail": "This screen's page is from before an update to CLIVE. Reload it: it keeps its name "
+                                        "and its approval."})
     return JSONResponse(status_code=403, content={"code": "not_this_screen", "detail": str(exc)})
 
 
@@ -291,7 +303,7 @@ async def poll(screen_id: str, request: Request, v: int = -1) -> dict | Response
     try:
         now = store().poll(screen_id, _screen_key(request))
     except NotThisScreen as exc:
-        return _not_this_screen(exc)
+        return _not_this_screen(request, exc)
     if now is None:
         return JSONResponse(status_code=404, content={"code": "not_found", "detail": "No such screen."})
     # A screen waiting for approval is answered in full each time: it shows how long its code has.
@@ -308,7 +320,7 @@ async def seen(screen_id: str, body: SeenBody, request: Request) -> dict | JSONR
         held = store().acknowledge(screen_id, body.version, screen_key=_screen_key(request), start=body.start, end=body.end,
                                    pane=body.pane)
     except NotThisScreen as exc:
-        return _not_this_screen(exc)
+        return _not_this_screen(request, exc)
     except NotPaired as exc:
         return _not_approved(exc)
     except TooSoon as exc:
@@ -331,7 +343,7 @@ async def video_playing(screen_id: str, body: PlayingBody, request: Request) -> 
                                        state=body.state, at=body.at, duration=body.duration, volume=body.volume,
                                        muted=body.muted, blocked=body.blocked, error=body.error)
     except NotThisScreen as exc:
-        return _not_this_screen(exc)
+        return _not_this_screen(request, exc)
     except NotPaired as exc:
         return _not_approved(exc)
     except NoSuchScreen:
@@ -348,7 +360,7 @@ async def done(screen_id: str, body: DoneBody, request: Request) -> dict | JSONR
     try:
         store().mark_done(screen_id, body.version, screen_key=key, confirmed=body.confirm, by=who, pane=body.pane)
     except NotThisScreen as exc:
-        return _not_this_screen(exc)
+        return _not_this_screen(request, exc)
     except NotPaired as exc:
         return _not_approved(exc)
     except NotConfirmed as exc:

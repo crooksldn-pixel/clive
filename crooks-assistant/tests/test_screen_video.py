@@ -364,10 +364,11 @@ def test_the_video_routes_are_the_owners_and_the_screens_own(s):
     said = {"pane": 0, "version": v, "state": "playing", "at": 3.5, "duration": 151, "volume": 50, "muted": False}
     assert client.post(f"/displays/{sid}/video", json=said, headers=stranger).status_code == 403
     # The screen's own word, known by its cookie like its every other request (round 9, B2-01):
-    # a wrong key, or the right one sent as the old header, is not the screen.
-    for headers in (as_screen("wrong"), {**OWNER, "X-Screen-Key": key}):
+    # a wrong key, or the right one sent as the old header (a page from before, told to reload),
+    # is not the screen.
+    for headers, code in ((as_screen("wrong"), "not_this_screen"), ({**OWNER, "X-Screen-Key": key}, "reload")):
         refused = client.post(f"/displays/{sid}/video", json=said, headers=headers)
-        assert refused.status_code == 403 and refused.json()["code"] == "not_this_screen"
+        assert refused.status_code == 403 and refused.json()["code"] == code
     ok = client.post(f"/displays/{sid}/video", json=said, headers=as_screen(key))
     assert ok.status_code == 200 and ok.json() == {"heard": True}
     assert client.post(f"/displays/{sid}/video", json={**said, "version": v + 1}, headers=as_screen(key)).status_code == 409

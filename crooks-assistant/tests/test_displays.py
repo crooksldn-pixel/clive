@@ -478,10 +478,12 @@ def test_a_screen_names_itself_asks_and_marks_done(s):
     assert first.json()["pending"] is False
     assert client.get(f"/displays/{made['id']}?v=0", headers=mine).status_code == 204, "nothing new, nothing sent"
     # The owner's other device, knowing the id and the name but not the key, is not the screen;
-    # nor is one that sends the key as the header it used to be (round 9, B2-01).
+    # nor is one that sends the key as the header it used to be (round 9, B2-01: that is a page
+    # from before the cookie, told to reload, tests/test_screen_cookie.py).
     for headers in (OWNER, as_screen("guess"), {**OWNER, "X-Screen-Key": key}):
         refused = client.get(f"/displays/{made['id']}?v=-1", headers=headers)
-        assert refused.status_code == 403 and refused.json()["code"] == "not_this_screen"
+        assert refused.status_code == 403 and refused.json()["code"] in ("not_this_screen", "reload")
+        assert "showing" not in refused.text
     taken = client.post("/displays/register", json={"name": "packing SCREEN"}, headers=OWNER)
     assert taken.status_code == 409 and taken.json()["code"] == "name_taken"
     s.show(made["id"], views.list_view("Today", ["One"]))
