@@ -2515,7 +2515,10 @@ def build_report(path: Path, *, tools_registered: list[str] | None = None,
 def write_report(path: Path, out_dir: Path, *, tools_registered: list[str] | None = None,
                  capability_states: dict[str, dict[str, Any]] | None = None) -> Path:
     rec, markdown = build_report(Path(path), tools_registered=tools_registered, capability_states=capability_states)
-    from app.observability.session import write_private_text
+    from app.observability.session import report_target, write_private_text
 
-    target = Path(out_dir) / f"{rec.session.get('test_session_id') or Path(path).stem}.md"
+    # Named by the session's id only when it is one (round 9, F-01): the id comes from the
+    # timeline's events, and a value like `../web/exposed` would otherwise name a file outside
+    # the reports folder.
+    target = report_target(Path(out_dir), rec.session.get("test_session_id"), Path(path).stem, ".md")
     return write_private_text(target, markdown)

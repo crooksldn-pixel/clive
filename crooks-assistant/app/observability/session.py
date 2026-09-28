@@ -90,6 +90,37 @@ def new_session_id(name: str, now: float) -> str:
     return f"ts-{stamp}-{slug}"
 
 
+# The shape new_session_id() gives a session (and the recorder's "rec-" twin of it): the kind,
+# the day, the time, and the slug of its name — absent from sessions recorded before names were
+# slugged in. Nothing else is a session id (round 9, F-01).
+SESSION_ID = re.compile(r"(?:ts|rec)-[0-9]{8}-[0-9]{6}(?:-[a-z0-9][a-z0-9-]{0,23})?")
+
+
+def safe_session_id(value: object) -> str | None:
+    """`value` when it is a session id in the shape new_session_id() makes, else None. A session
+    id names files — its timeline, its report, its proposals — so anything that is not one is
+    never used as a name (round 9, F-01: `../web/exposed` in an event would have written a report
+    outside reports/)."""
+    text = value if isinstance(value, str) else ""
+    return text if SESSION_ID.fullmatch(text) else None
+
+
+def report_target(out_dir: Path, session_id: object, fallback: object, suffix: str) -> Path:
+    """Where a report drawn from a session goes: `<out_dir>/<session id><suffix>`, the id checked
+    for its shape (the one the timeline's own events carry, or else the timeline file's own name),
+    and the result checked to be directly inside `out_dir` once every link on the way is resolved.
+    Raises ValueError for anything else: a report is never written anywhere but its folder."""
+    carried = str(session_id or "")
+    ident = safe_session_id(carried) if carried else safe_session_id(fallback)
+    if ident is None:
+        raise ValueError("not a test session id: a report is written only under a session's own name")
+    folder = Path(out_dir)
+    target = folder / f"{ident}{suffix}"
+    if target.name != f"{ident}{suffix}" or Path(os.path.realpath(target)).parent != Path(os.path.realpath(folder)):
+        raise ValueError("a report's path must stay inside its folder")
+    return target
+
+
 def _day(ts: float) -> str:
     return time.strftime("%Y%m%d", time.localtime(ts))
 

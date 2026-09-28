@@ -87,15 +87,19 @@ class Change:
 
 
 CHANGES: tuple[Change, ...] = (
-    # ------------------------------------------------- asked for and not built (§27C)
-    Change("order_create", "create an order from nothing", "",
+    # ------------------------------------------------- asked for in §27C, and built since
+    # Each names the family that now serves it (round 9, F-03): with no family named, a request for
+    # store credit — a live, money-moving write — was reported as a capability nothing claims, and
+    # the report proposed building it. The family's own state (READY, MISSING_SCOPE, …) decides.
+    Change("order_create", "create an order from nothing", "order_create",
            re.compile(r"\b(?:create|make|raise|start|open|place|put in|set up)\b[^.?!]{0,30}\b(?:a |an |the )?(?:new )?(?:draft )?order\b", re.I)),
-    Change("discount_code", "create a discount code", "",
+    Change("discount_code", "create a discount code", "discount_create",
            re.compile(r"\b(?:discount|promo(?:tion)?|voucher|coupon)\s*code\b|\b(?:create|make|set up|add|generate)\b[^.?!]{0,30}\b(?:discount|promo(?:tion)?|voucher|coupon)\b|\b\d{1,3}\s?%\s*(?:off|discount)\b", re.I)),
-    Change("store_credit", "put store credit on a customer", "",
+    Change("store_credit", "put store credit on a customer", "store_credit",
            re.compile(r"\bstore credit\b|\bgift card\b|\bcredit (?:on|to) (?:the |their |his |her )?(?:account|customer)\b", re.I)),
-    Change("abandoned_checkout", "recover an abandoned checkout", "",
+    Change("abandoned_checkout", "recover an abandoned checkout", "abandoned_checkouts",
            re.compile(r"\babandoned (?:checkout|cart|basket)s?\b", re.I)),
+    # ------------------------------------------------- asked for and not built
     Change("price_change", "change a price", "",
            re.compile(r"\b(?:change|set|update|drop|raise|cut)\b[^.?!]{0,20}\bprice\b", re.I),
            limitation="price_change"),
