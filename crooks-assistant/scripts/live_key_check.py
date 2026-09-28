@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Does ElevenLabs keep its word about the live words' key? (the 2026-09-28 deploy review, round 9
-and 10, C-02). For the deploy, on the server, as the service's user.
+and 10, C-02). For the deploy, on the server, as root, from the checkout being deployed.
 
     python scripts/live_key_check.py             one key: one socket opens with it, a second does not
     python scripts/live_key_check.py --expiry    and a fresh key held unused past fifteen minutes
@@ -14,11 +14,21 @@ key and the route's own mint (voice._mint) and socket address (voice.socket_url,
 exactly as the phone would: it opens the socket with a fresh key, closes it at once, and tries the
 same key again. No audio is sent.
 
+The server's ElevenLabs key is the one the service reads. On the server that is an encrypted
+systemd credential (scripts/provision_secrets.py), which systemd decrypts into a private folder for
+a unit that loads it, and the secret store (app/secrets/linux_store.py) reads it only there — so run
+from a shell, root's included, this could not read it and would only ever say NOT ASKED. When that
+credential is on disk, then, this asks again inside a transient unit that loads it as the service's
+unit does (`systemd-run … --property=LoadCredentialEncrypted=elevenlabs_api_key:<blob>`, in this
+checkout, with this interpreter) and says what that run said. systemd decrypts the key for that unit
+alone, as it does for the service; it is never on a command line, and never passes through the run
+that asked.
+
 Exit 0 when every property asked about holds; 1 when one does not (a key that opens a second
 socket, or one past its life) — the design then has to stop handing the browser a bearer key; 2
-when it could not be asked (no ElevenLabs key stored, no key minted, or a fresh key that would not
-open even once). It prints fixed words only: never the server's key, the minted key, or anything
-ElevenLabs said.
+when it could not be asked (no ElevenLabs key stored, no key minted, a fresh key that would not
+open even once, or the run under the service's credential could not be made or did not finish). It
+prints fixed words only: never the server's key, the minted key, or anything ElevenLabs said.
 """
 
 from __future__ import annotations
@@ -26,14 +36,25 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import shutil
+import subprocess
 import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlencode
 
-ROOT = Path(__file__).resolve().parent.parent
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))      # provision_secrets, as the other scripts import it
+
+# The secret the route mints with (voice._api_key), and the flag the run inside the transient unit
+# is given, so that it reads the key there and never asks a unit of its own.
+KEY_NAME = "elevenlabs_api_key"
+IN_UNIT = "--in-unit"
 
 OPENED, REFUSED = "opened", "refused"
 # Past ElevenLabs' fifteen minutes, with a minute to spare.
@@ -106,17 +127,80 @@ def check(mint: Callable[[], str], opens: Callable[[str], str], *, expiry: bool 
     return 1 if failed else 0
 
 
+def _say(line: str) -> None:
+    print(line, flush=True)
+
+
+def credential_blob() -> Path | None:
+    """The encrypted credential the ElevenLabs key is provisioned as (scripts/provision_secrets.py
+    encrypted_path), which the service's unit loads with LoadCredentialEncrypted= and a shell cannot
+    read; None when there is none."""
+    import provision_secrets
+
+    blob = provision_secrets.encrypted_path(KEY_NAME)
+    return blob if blob.is_file() else None
+
+
+def unit_command(blob: Path, args: list[str]) -> list[str]:
+    """This check again, inside a transient unit that loads the key as the service's unit does: the
+    same credential under the same name (systemd refuses it under any other), this checkout as its
+    working directory (so its .env is read, as the service reads it), this interpreter, unbuffered so
+    each line arrives as it is said. --wait and --pipe: its output and its exit code are this run's."""
+    return ["systemd-run", "--quiet", "--wait", "--pipe", "--collect",
+            f"--property=LoadCredentialEncrypted={KEY_NAME}:{blob}",
+            f"--property=WorkingDirectory={ROOT}",
+            sys.executable, "-u", str(Path(__file__).resolve()), IN_UNIT, *args]
+
+
+def under_the_units_credential(blob: Path, args: list[str], *, spawn=subprocess.Popen,
+                               out: Callable[[str], None] = _say) -> int:
+    """Ask inside a transient unit that holds the service's credential, say each line it says, and
+    return its exit code — but only a code its own words back: 0 after its passing verdict, 1 after
+    a FAIL, 2 after NOT ASKED. Anything else (systemd-run missing or refused, the unit not started,
+    the run cut short or crashed) is 2: it could not be asked, which is never a pass or a fail."""
+    if shutil.which("systemd-run") is None:
+        out("NOT ASKED: the ElevenLabs key is a systemd credential and systemd-run is not here to load it")
+        return 2
+    try:
+        child = spawn(unit_command(blob, args), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
+    except OSError as exc:
+        out(f"NOT ASKED: the check could not be started under the service's credential ({type(exc).__name__})")
+        return 2
+    said: list[str] = []
+    for line in child.stdout:
+        said.append(line.rstrip("\n"))
+        out(said[-1])
+    code = child.wait()
+    backed = {0: any(line.startswith("VERDICT: the key is") for line in said),
+              1: any(line.startswith("FAIL") for line in said),
+              2: any(line.startswith("NOT ASKED") for line in said)}
+    if backed.get(code):
+        return code
+    out(f"NOT ASKED: the check under the service's credential did not finish (systemd-run exit {code})")
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--expiry", action="store_true", help="also hold a key past its life (16 minutes)")
+    parser.add_argument(IN_UNIT, action="store_true", dest="in_unit", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+
+    # The key the service uses: its unit's credential when one is provisioned, read where systemd
+    # puts it for a unit and nowhere else. Asked once, from outside a unit; inside one, never again.
+    if not args.in_unit and not os.environ.get("CREDENTIALS_DIRECTORY"):
+        blob = credential_blob()
+        if blob is not None:
+            return under_the_units_credential(blob, ["--expiry"] if args.expiry else [])
 
     from app.routes import voice
     from config.settings import get_settings
 
     key = voice._api_key()
     if not key:
-        print("NOT ASKED: no ElevenLabs key is stored here (run as the service's user)")
+        print("NOT ASKED: no ElevenLabs key could be read here "
+              + ("(the service's credential was loaded and holds none)" if args.in_unit
+                 else "(none is provisioned: python scripts/provision_secrets.py elevenlabs_api_key)"))
         return 2
     base = getattr(get_settings(), "elevenlabs_base_url", "") or "https://api.elevenlabs.io/v1"
 
