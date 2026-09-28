@@ -1,0 +1,65 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-A3b-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "F-04-STARTUP",
+      "material": true,
+      "finding": "FOLLOW-UP — The inspected production reports folder and .gitkeep are root-owned and private, so this failure requires a different path shape than the one present tonight. STILL PRESENT in the general case: TestSessions._tidy_reports can declare reports contained after tighten checks modes but not ownership; tighten also skips symlink entries. A 0700 folder owned by another user, or a symlink to a report accessible by another path, can therefore pass the startup check without its contents being private. The separate housekeeping steps, unchecked initial state, unreadable-path handling and retries repair the round-8 skipped-check path.",
+      "evidence_ref": "crooks-assistant/app/observability/session.py:TestSessions._tidy_reports, tighten; crooks-assistant/app/main.py:housekeep_once, _reports_contained; REVIEW PACKET — STANDING FACTS 3",
+      "required_repair": "Check ownership and symlink targets as part of containment, or refuse startup on paths whose privacy cannot be established; test differently owned and linked report paths."
+    },
+    {
+      "finding_id": "F-04-REPORT-LOSS",
+      "material": true,
+      "finding": "BLOCKS — The preflight permission count does not establish whether an aged report can race a writer on production tonight, and that race can delete the newly written report. STILL PRESENT in part: _remove_if_older checks an aged file and then unlinks its pathname; a concurrent write_private_text can replace that pathname with a fresh report between those operations. Descendant files have the same check-then-unlink gap. The fresh-descendant check, withheld retention and post-move privacy check repair the specific round-8 cases, but not this writer race.",
+      "evidence_ref": "crooks-assistant/app/observability/session.py:_remove_if_older, _expired_tree, write_private_text, TestSessions._tidy_reports; crooks-assistant/tests/test_screen_privacy.py:test_a_fresh_report_inside_an_old_folder_keeps_the_whole_folder",
+      "required_repair": "Make pruning conditional on the identity and age of the entry actually removed, without allowing a replacement to be unlinked; test concurrent atomic replacement of an aged report and of a descendant."
+    },
+    {
+      "finding_id": "F-04-SHUTDOWN",
+      "material": true,
+      "finding": "BLOCKS — On this always-on production session, a housekeeping step that exceeds the 27-second deadline can make shutdown exit without closing the runtime while accepted timeline events remain in a daemon writer; no bound on such a step establishes that this cannot happen tonight. STILL PRESENT in that case: lifespan deliberately skips runtime.aclose when Housekeeper.stop times out. Cooperative checks between steps and waiting beyond the first 20 seconds repair the shorter overrun, not an overlong step. Normal-close flushing also cannot be verified without app/runtime.py:Runtime.aclose.",
+      "evidence_ref": "crooks-assistant/app/main.py:lifespan, housekeep_once, Housekeeper.stop, _in_own_thread; crooks-assistant/app/observability/timeline.py:Timeline.emit, Timeline._ensure_writer, Timeline._run; REVIEW PACKET — STANDING FACTS 3–4",
+      "required_repair": "Bound or safely interrupt the individual housekeeping operations and establish a shutdown drain for accepted timeline work within the unit deadline, without closing the runtime under a pass. Supply app/runtime.py:Runtime.aclose to verify the normal-close path and test both paths with accepted pending events."
+    },
+    {
+      "finding_id": "F-10",
+      "material": true,
+      "finding": "FOLLOW-UP — This remaining failure can falsely call a count final, but does not itself delete the raw timeline or expose store data in the configured root-only command path. STILL PRESENT in part: Timeline._hold_writer_lock catches a lock-acquisition failure and _run writes its accepted batch anyway. If the command can subsequently acquire the lock, writer_alive reports no writer and no_backend_verdict may call an on-disk snapshot final while that batch is pending. Distinguishing connection refusal from timeout, checking a successfully held writer, and naming a failed flush repair the round-8 paths those tests exercise.",
+      "evidence_ref": "crooks-assistant/app/observability/timeline.py:Timeline._hold_writer_lock, Timeline._run, writer_alive; crooks-assistant/scripts/session_ops.py:no_backend_verdict",
+      "required_repair": "Do not accept or write unprotected events while lock acquisition has failed, or make the offline finality check fail closed for that condition; test a writer-side lock failure followed by a successful command-side lock check."
+    },
+    {
+      "finding_id": "F-A3B-SHORT-WRITE",
+      "material": true,
+      "finding": "BLOCKS — A partial filesystem write can discard bytes of an accepted event in production's always-on timeline, and the supplied host facts do not establish that partial writes cannot occur tonight. Timeline._append makes one os.write call for a batch, then counts every selected line as written regardless of the returned byte count; flush can settle and a stop can report a final count over an incomplete JSONL line.",
+      "evidence_ref": "crooks-assistant/app/observability/timeline.py:Timeline._append, Timeline._run, Timeline.flush, Timeline.counts",
+      "required_repair": "Write the complete batch in a checked loop, and count a line as written only once all its bytes have been written; test a short os.write and a subsequent stop."
+    },
+    {
+      "finding_id": "F-A3B-SCREEN-EVIDENCE",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell what the three approved production TVs can obtain through the display routes, so I cannot establish that a screen sees no unintended customer or live-voice data tonight. With CROOKS_SCREEN_SNAPSHOTS=false, observe.telemetry_screen returns 204 before reading or storing a copy; main.display_page serves a page shell, not its data. Neither establishes what the included displays router serves to that shell or its remote.",
+      "evidence_ref": "crooks-assistant/app/routes/observe.py:telemetry_screen; crooks-assistant/app/main.py:display_page, app.include_router(displays.router); REVIEW PACKET — YOUR PART and STANDING FACTS 3",
+      "required_repair": "Have the screen-path review verify app/routes/displays.py's registration, poll and remote handlers, app/displays/store.py's screen-facing view, and web/display.js's polling and rendering at this SHA; establish precisely what a keyed TV receives with snapshots disabled."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0128a43e4ceb84b9016aba6240cc9c87d2bde2198077bea4d7",
+    "session_started_at": "2026-09-28T12:49:02.930343Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "F-04-STARTUP, F-04-REPORT-LOSS, F-04-SHUTDOWN and F-10 are each partly repaired but still present as identified above. Disabled snapshots prevent /telemetry/screen from keeping a copy; they do not turn off the TV or establish what its separate data routes return. A newly identified short-write path can also lose accepted timeline data.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 134465, \"input_tokens_details\": {\"cache_write_tokens\": 134462, \"cached_tokens\": 0}, \"output_tokens\": 12060, \"output_tokens_details\": {\"reasoning_tokens\": 10496}, \"total_tokens\": 146525}]"
+}

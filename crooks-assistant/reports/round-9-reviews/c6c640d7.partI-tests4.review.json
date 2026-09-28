@@ -1,0 +1,51 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-I-tests4-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "I-01",
+      "material": true,
+      "finding": "BLOCKS — store-credit writes are live, and this test accepts a £25 balance increase as verification of a £20 credit, leaving a money discrepancy unverified. `test_the_verification_is_the_balance_plus_what_was_sent` explicitly expects verification to return true for £15 → £40 after an asserted £20 credit.",
+      "evidence_ref": "CANDIDATE FILES / crooks-assistant/tests/test_store_credit.py / test_the_verification_is_the_balance_plus_what_was_sent",
+      "required_repair": "Change the store-credit verifier to require the expected balance increase or return an unverified outcome; change this assertion to reject the discrepant balance."
+    },
+    {
+      "finding_id": "I-02",
+      "material": true,
+      "finding": "FOLLOW-UP — the running test session retains transcripts, so the supplied evidence does not establish loss of the owner's spoken words tonight. `test_owner_feedback` says nothing records feedback at turn time, while this range deletes the tests that required a spoken defect to be recorded and confirmed through the router; the remaining tests call `feedback.record` directly. The former confirmation coverage is STILL PRESENT only as a gap, not a passing end-to-end test.",
+      "evidence_ref": "DIFF / crooks-assistant/tests/test_owner_feedback.py / deleted test_the_family_records_and_says_so and test_the_acceptance_script_s_step_nine_both_halves; CANDIDATE FILES / module docstring",
+      "required_repair": "Add a test sending a plain spoken defect through `/turn` and checking its actual transcript-to-report recording path and the confirmation behavior the product now promises, without calling `feedback.record` in place of that path."
+    },
+    {
+      "finding_id": "I-03",
+      "material": true,
+      "finding": "FOLLOW-UP — a missing actionable retry would be a refusal-quality defect, not an identified exploit or data loss tonight. `test_a_landing_that_cannot_be_read_offers_the_tap_again` constructs the desired `commands.Outcome.refused` itself and asserts on that constructed object; it never invokes the landing code whose refusal it purports to test.",
+      "evidence_ref": "CANDIDATE FILES / crooks-assistant/tests/test_split.py / test_a_landing_that_cannot_be_read_offers_the_tap_again",
+      "required_repair": "Force a landing read failure through the real `open.area` command or route and assert that its returned refusal contains the retry command and held-record context."
+    },
+    {
+      "finding_id": "I-04",
+      "material": true,
+      "finding": "FOLLOW-UP — owner authority granted to offline tests does not itself admit a production caller tonight. F-A2-FIXTURE cannot be marked REPAIRED for the suite from this slice: `test_refund.py` and `test_store_credit.py` explicitly grant `owner_asking` to every test in their modules, but the claimed removal of the global autouse grant depends on `tests/conftest.py::owner_asking` and its autouse fixtures, which were not supplied.",
+      "evidence_ref": "CANDIDATE FILES / crooks-assistant/tests/test_refund.py and tests/test_store_credit.py / pytestmark; REVIEW PACKET / YOUR PART, F-A2-FIXTURE",
+      "required_repair": "Have the part owning `tests/conftest.py` verify the fixture definition and absence of a default authority grant; retain a dispatch regression run with no authority stamped."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_03accdfccac3ff06016aba6240b4dc87d2bfd332c479b08027",
+    "session_started_at": "2026-09-28T12:49:02.922008Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "CHANGES_REQUIRED. The money-verification assertion is a production blocker. The deleted feedback confirmation coverage and self-constructed landing refusal are follow-ups; F-A2-FIXTURE is not independently verifiable beyond these files.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 100614, \"input_tokens_details\": {\"cache_write_tokens\": 100611, \"cached_tokens\": 0}, \"output_tokens\": 5618, \"output_tokens_details\": {\"reasoning_tokens\": 4819}, \"total_tokens\": 106232}]"
+}

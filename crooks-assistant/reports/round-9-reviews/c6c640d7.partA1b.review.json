@@ -1,0 +1,58 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-A1b-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "A1B-KEY",
+      "material": true,
+      "finding": "BLOCKS — During a restart, a non-root process can occupy the unprivileged loopback port, answer the installer's first /health request with `limited: true`, and receive the live local-CLI key on the retry; it can also redirect that keyed request off-host. `fetch_health` trusts a literal loopback URL but does not authenticate the listener, and `_open` disables environment proxies without disabling urllib's automatic redirects. The test replaces `_open`, so it exercises neither case.",
+      "evidence_ref": "REVIEW PACKET — CANDIDATE FILES: scripts/launch_common.py (_server_key, _open, _read, fetch_health); tests/test_local_cli.py (test_the_hosts_status_readers_carry_the_key_on_loopback_and_nowhere_else); STANDING FACTS 2–3",
+      "required_repair": "Do not send the key to an unauthenticated loopback listener or forward it on any redirect. Constrain keyed health reads to the intended service, disable redirects for them, and test a competing loopback listener and a cross-origin redirect."
+    },
+    {
+      "finding_id": "F-05A",
+      "material": true,
+      "finding": "FOLLOW-UP — The missing real-device check demonstrates no exploit or data loss tonight, but leaves the required test of this SHA incomplete. PARTLY REPAIRED: `local_cli.presented` detects even an empty header, and HTTP tests cover right, wrong and empty keys on all three command routes; `_verified_owner_device` still substitutes peer, locality and whois answers, and the packet supplies no real owner-device check against this SHA.",
+      "evidence_ref": "REVIEW PACKET — CANDIDATE FILES: app/local_cli.py (presented, admits); tests/test_local_cli.py (_verified_owner_device, test_through_the_proxy_a_right_wrong_or_empty_key_is_refused_on_each_command_route); STANDING FACTS 6",
+      "required_repair": "Record the required correct-key refusal and headerless admission from a genuinely verified owner device against this exact SHA, without substituting the provenance answers."
+    },
+    {
+      "finding_id": "F-05B-AVAIL",
+      "material": true,
+      "finding": "FOLLOW-UP — Two failed reads deny owner requests rather than admitting an uncertain caller, and this host's tables parsed successfully at preflight. PARTLY REPAIRED: `this_hosts_addresses` rejects malformed tables and a missing IPv6 table unless the disable switch is exactly `1`, but it retries a failed read only immediately; after two failures it refuses both gates, without an availability-preserving response to a routine failure lasting longer than those reads.",
+      "evidence_ref": "REVIEW PACKET — CANDIDATE FILES: app/identity.py (_addresses_once, this_hosts_addresses); tests/test_proxy_identity.py (test_at_both_gates_a_read_that_fails_once_is_tried_again_before_anyone_is_refused); STANDING FACTS 5",
+      "required_repair": "Provide and test a bounded way to preserve availability during routine lookup failures without treating uncertain host locality as remote-owner traffic."
+    },
+    {
+      "finding_id": "F-05B-AVAIL-PREFLIGHT",
+      "material": true,
+      "finding": "BLOCKS — I cannot determine whether the required correlated real-phone gate is reliable at this SHA: its `/whoami` implementation and a phone result against this candidate were not supplied. PARTLY REPAIRED: `install_systemd.running_problems` checks the running argv and health verdict, but `install` has no real-device assertion or rollback after a failed check, and the test supplies a mocked health answer and MainPID.",
+      "evidence_ref": "REVIEW PACKET — CANDIDATE FILES: scripts/install_systemd.py (install, running_problems); tests/test_proxy_identity.py (test_the_install_is_done_only_when_the_running_service_has_the_flag_and_health_agrees); YOUR PART scope; STANDING FACTS 6",
+      "required_repair": "Supply `app/routes/admin.py:whoami` for the correlated-token check, record a successful real-phone `/whoami` against this SHA under the rendered unit, and make the deployment gate abort or roll back on failed running-process, health or correlated-device checks."
+    },
+    {
+      "finding_id": "A1B-STATUS",
+      "material": true,
+      "finding": "FOLLOW-UP — This can report an unknown health state as a successful status command, but neither loses nor leaks data on the configured host. `install_systemd.status` returns zero whenever the unit is active and any health document exists, including a `limited` response that omits essential checks; the new limited-response exit-code test covers `healthcheck.main` and `status.show`, not this status path.",
+      "evidence_ref": "REVIEW PACKET — CANDIDATE FILES: scripts/install_systemd.py (status); scripts/launch_common.py (health_limited); tests/test_local_cli.py (test_a_status_reader_given_liveness_alone_says_so_and_never_calls_it_well)",
+      "required_repair": "Make `install_systemd.status` return nonzero for limited health and test that path."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0bd28fdc337a9e57016aba6240acac87d29594a608afecaff5",
+    "session_started_at": "2026-09-28T12:49:02.811696Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "F-05B is REPAIRED in `identity.unit_pids` and `socket_inode`: the malformed-listing and malformed-row tests reach both gates and assert refusal. F-NEW-PAD is REPAIRED in `health._guarded` and `_liveness`: refused callers receive only allow-listed liveness on fresh and cached responses. F-05A, F-05B-AVAIL and F-05B-AVAIL-PREFLIGHT remain partial as detailed above. The installer additions change no rendered unit directive; the packet's one-comment-line unit diff is consistent with the code shown. The keyed health retry has a separate material secret-exposure defect.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 118993, \"input_tokens_details\": {\"cache_write_tokens\": 118990, \"cached_tokens\": 0}, \"output_tokens\": 6413, \"output_tokens_details\": {\"reasoning_tokens\": 5178}, \"total_tokens\": 125406}]"
+}

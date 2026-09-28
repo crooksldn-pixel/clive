@@ -1,0 +1,51 @@
+==============================================================================================
+YOUR PART: B1 — screens, server
+==============================================================================================
+
+You are part B1 of 24. Your scope is EXACTLY these 8 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/app/displays/store.py
+    crooks-assistant/app/displays/views.py
+    crooks-assistant/app/routes/displays.py
+    crooks-assistant/app/tools/display_tools.py
+    crooks-assistant/app/tools/gate.py
+    crooks-assistant/tests/test_gate.py
+    crooks-assistant/app/tools/authority.py
+    crooks-assistant/tests/test_displays.py
+
+ROUND-8 FINDINGS THIS PART MUST RULE ON, ONE BY ONE (the full round-8 document is
+included below):
+    B-01
+    B-02
+    B-03
+    B-04
+    B-05
+    NEW-B-CAP
+    NEW-B-LOCAL-SLIP
+
+This part owns the screens feature on the server: the store, the views, the routes, the tools and
+the gate. app/tools/gate.py and tests/test_gate.py are PROTECTED files that PR #51 changed by hand,
+allow-list only.
+
+Production has THREE screens already, stored before pairing existed, with no approved/paired field
+(standing fact 3). The owner counts them as already approved.
+
+Answer these, on the code, naming file and symbol:
+  - PAIRING. A screen shows a six-digit code; the owner says "approve the <name> screen, code
+    <digits>". Where is that code generated, how long does it live, how many guesses are allowed,
+    and is the comparison constant-time? Six digits is 10^6; an unrated endpoint is brute-forceable
+    in minutes. Who may call the approve path — owner only, or anyone who can reach the tailnet?
+  - MIGRATION. What does this code do with the three EXISTING rows that have no approved/paired
+    field — treat them as approved, as unapproved, or crash? Either wrong answer matters: treating
+    unknown rows as approved is a hole, dropping them loses the owner's screens.
+  - NEW-B-CAP: the owner ruled that a 21st screen is REFUSED. Is the cap actually enforced on the
+    server, on every path that can create a screen, or only in one route?
+  - NEW-B-LOCAL-SLIP: re-rule at this SHA.
+  - THE REMOTE. New owner routes under /displays/{id}/remote/, plus screen_off and screen_remote.
+    Who may drive a screen remotely? Does the remote path re-check authority per request, or trust a
+    pairing done once? Can one screen's secret drive another screen?
+  - Each row holds a "secret" and a "key". Does any route, view, tool result or log line put either
+    where a non-owner — or a screen — can read it? That reaches the ship rule's "leak".
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

@@ -1,0 +1,58 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-A1a-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "F-05A",
+      "material": true,
+      "finding": "FOLLOW-UP — The supplied code refuses empty, wrong and proxied local-key headers, so the missing verification does not itself open a production route tonight. STILL UNVERIFIED as a whole: `local_cli._carried`, `presented` and `admits`, together with `main.guard_and_freshness`, repair the empty-header defect on all three CLI routes, but the packet supplies neither the required through-proxy test cases nor an owner-device check with and without the key against this SHA.",
+      "evidence_ref": "crooks-assistant/app/local_cli.py:_carried,presented,admits; crooks-assistant/app/main.py:guard_and_freshness; REVIEW PACKET — YOUR PART, F-05A required repair, and CANDIDATE FILES",
+      "required_repair": "Supply the correct-, wrong- and empty-key tests through the proxy on each CLI route, and record the specified verified owner-device check against this SHA."
+    },
+    {
+      "finding_id": "F-05B",
+      "material": true,
+      "finding": "FOLLOW-UP — Malformed input takes a fail-closed path in the supplied code, so the missing test evidence does not itself permit a production caller through tonight. STILL UNVERIFIED as a whole: `unit_pids` rejects a partly malformed listing and `_tcp_rows` rejects malformed socket rows before `_proc_peer_check` accepts an inode; both gates use `proxy_state`, but the required malformed-input exercises through `principal_verdict` and `caller_check` are not supplied.",
+      "evidence_ref": "crooks-assistant/app/identity.py:unit_pids,_tcp_rows,_proc_peer_check; crooks-assistant/app/routes/actions.py:proxy_state,principal_verdict,caller_check; REVIEW PACKET — F-05B required repair and CANDIDATE FILES",
+      "required_repair": "Supply the malformed-listing and malformed-row tests exercising both gates at this SHA. Preserve the fail-closed parsing and process-pinning checks."
+    },
+    {
+      "finding_id": "F-05B-AVAIL",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether an incomplete but well-formed kernel-table snapshot can occur during a production request; if it does, a request sent by this server through serve can be classified as an owner device and reach the live write routes. STILL PRESENT in part: `_ipv4_local` treats a trie containing loopback but omitting another owned address as complete, while `_ipv6_local` accepts an empty or partial `if_inet6` result even though IPv6 and this host's tailnet IPv6 address are enabled. `this_host` then returns false for an omitted owned address, and `proxy_state` calls the request TAILSCALE. The missing-table refusal, strict row parsing and immediate retry are repairs, and the preflight's real tables parsed successfully; those facts do not establish fail-closed handling of a partial result.",
+      "evidence_ref": "crooks-assistant/app/identity.py:_ipv4_local,_ipv6_local,_addresses_once,this_host; crooks-assistant/app/routes/actions.py:proxy_state,principal_verdict,caller_check; REVIEW PACKET — STANDING FACTS 3 and 5",
+      "required_repair": "Do not classify a forwarded source as non-local solely because a syntactically valid snapshot omits it. Corroborate host locality independently or detect and refuse incomplete address snapshots, including an empty enabled-IPv6 table; exercise the omission through both gates with production flags."
+    },
+    {
+      "finding_id": "F-05B-AVAIL-PREFLIGHT",
+      "material": true,
+      "finding": "FOLLOW-UP — The rendered production unit retains `--no-proxy-headers` and the supplied gate fails closed, so the absent deployment evidence alone does not meet the exploit, loss or leak bar tonight. STILL UNVERIFIED: `admin.whoami` makes one token and uses it in both the log and JSON for that request, so concurrent requests do not share the token; `health._checked` obtains the proxy-identity check from `identity.served_without_proxy_headers`. But `crooks-assistant/scripts/install_systemd.py:install` is outside the supplied seven files, so its claimed executable argv-and-health gate cannot be checked, and no owner-phone check against this exact SHA is supplied.",
+      "evidence_ref": "crooks-assistant/app/routes/admin.py:whoami; crooks-assistant/app/routes/health.py:_checked; crooks-assistant/app/identity.py:served_without_proxy_headers; REVIEW PACKET — YOUR PART, F-05B-AVAIL-PREFLIGHT required repair, STANDING FACTS 4–6, and CANDIDATE FILES",
+      "required_repair": "Supply `crooks-assistant/scripts/install_systemd.py:install` at this SHA for review and the correlated real-phone preflight evidence required for this candidate; verify the running argv and health check as part of that gate."
+    },
+    {
+      "finding_id": "F-NEW-PAD",
+      "material": false,
+      "finding": "REPAIRED in the supplied code. `health._guarded` applies the owner verdict or a direct, valid server key to each response, including both cache-return paths; `_liveness` constructs only the specified fields for a refused caller. The loopback caller without the key receives that limited document, and the shared health cache does not hold a caller-specific document.",
+      "evidence_ref": "crooks-assistant/app/routes/health.py:health,_guarded,_liveness; crooks-assistant/app/local_cli.py:admits; crooks-assistant/app/routes/actions.py:principal_verdict",
+      "required_repair": "None: repaired in the supplied code at this SHA."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_04bfc27c8208f572016aba653ac85087d2ae69ab08204461e2",
+    "session_started_at": "2026-09-28T13:01:46.354079Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The door and health filtering have substantive code repairs, and no supplied admin or action change widens their principal rule. F-05B-AVAIL remains incomplete; the required tests, installer gate and exact-SHA phone evidence also prevent clearing the assigned findings.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 83807, \"input_tokens_details\": {\"cache_write_tokens\": 83804, \"cached_tokens\": 0}, \"output_tokens\": 10106, \"output_tokens_details\": {\"reasoning_tokens\": 8735}, \"total_tokens\": 93913}]"
+}

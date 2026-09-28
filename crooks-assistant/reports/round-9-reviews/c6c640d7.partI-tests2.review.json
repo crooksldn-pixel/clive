@@ -1,0 +1,51 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-I-tests2-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "I-01",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether production’s bound-control path can still attach a prior order’s action to a new instruction, and writes are enabled tonight. The test that refused this behavior after a tapped Add a note was deleted, with no model-turn replacement shown.",
+      "evidence_ref": "DIFF — crooks-assistant/tests/test_experience.py, deletion of test_a_question_that_names_its_own_subject_is_not_swallowed_by_a_tapped_control; STANDING FACTS §3",
+      "required_repair": "Add a model-turn regression that binds an action to one order, asks about a different named order, and verifies that no continuation or proposed write targets the first. Supply the exact-SHA /turn bound-control handling in app/routes/turn.py and the voice.bind handler for review."
+    },
+    {
+      "finding_id": "I-02",
+      "material": true,
+      "finding": "FOLLOW-UP — These checks concern answers shown to the authenticated owner, who can access both records, so their deletion alone does not establish an exploit, data loss, or unauthorized disclosure tonight. The end-to-end refusals of answering a named-person or numbered-order question from the unrelated record in focus were removed, and no equivalent model-turn assertion appears in this slice.",
+      "evidence_ref": "DIFF — deletion of crooks-assistant/tests/test_capability_routing.py (test_the_answer_names_the_customer_the_words_named); crooks-assistant/tests/test_experience.py (test_a_number_that_is_not_the_open_order_is_never_answered_from_the_open_order and test_a_named_person_is_not_answered_from_whoever_the_open_order_belongs_to)",
+      "required_repair": "Restore end-to-end model-turn cases with a different record in focus; assert the answer and card identify the requested person or order, or explicitly decline to answer, rather than displaying the focused record."
+    },
+    {
+      "finding_id": "I-03",
+      "material": true,
+      "finding": "FOLLOW-UP — The hard-coded provider runs only in the offline test, so this finding does not itself establish production exploitation, loss, or leakage. client.Provider.turn always looks up order 1938 and supplies a fixed answer; the test then asserts on the reads and card that this mock itself manufactured, not on the model choosing the requested order.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/tests/test_context.py, client.Provider.turn and test_a_spoken_order_lookup_is_the_models_and_its_two_reads_draw_the_whole_order",
+      "required_repair": "Separate the route-rendering smoke test from the model-routing claim. Add differing requested and focused order numbers, with assertions on the requested entity that cannot be satisfied by a fixed-order provider."
+    },
+    {
+      "finding_id": "I-04",
+      "material": true,
+      "finding": "FOLLOW-UP — Test-fixture authority is not itself a production access path, so this evidence gap does not meet tonight’s exploit, loss, or leak bar. F-A2-FIXTURE is STILL PRESENT as an unverified review requirement: this slice shows explicit owner opt-ins, including module-level opt-ins in four files, but does not show the owner_asking fixture or prove the former suite-wide autouse grant was removed. No default enablement of writes is shown in these files.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/tests/test_cancel.py, test_council_fixes.py, test_discounts.py and test_engine_hooks.py (pytestmark); PR #51 BODY, ‘Protected files changed by hand’ (claim about tests/conftest.py)",
+      "required_repair": "Provide the exact-SHA crooks-assistant/tests/conftest.py owner_asking and autouse fixture implementations, plus the no-authority dispatch test, to verify that tests without an explicit opt-in have neither owner authority nor default write permission."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0cf388d710f81dda016aba6240b50c87d28a6627a9b70347a2",
+    "session_started_at": "2026-09-28T12:49:02.871139Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "CHANGES_REQUIRED for removed safety regressions, a test asserting on its own hard-coded provider, and an unverified F-A2-FIXTURE repair. The scoped files show explicit owner opt-ins, not proof of a suite-wide default grant; no default write enablement is shown.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 96010, \"input_tokens_details\": {\"cache_write_tokens\": 96007, \"cached_tokens\": 0}, \"output_tokens\": 5535, \"output_tokens_details\": {\"reasoning_tokens\": 4643}, \"total_tokens\": 101545}]"
+}

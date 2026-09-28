@@ -1,0 +1,44 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-G-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "G-01",
+      "material": true,
+      "finding": "BLOCKS — Live transcription and always-on telemetry are enabled in production, but the supplied files do not establish whether the single-use token or spoken words can leak, so reachability of a production data leak cannot be determined. app.js delegates token acquisition and retention to CrooksLiveVoice.create, passes it an unrestricted fetch callback and forwards its record fields to telemetry; it also passes turn UI to CliveRemote.fromTurn. These files alone cannot establish the token's lifetime, its destinations, or whether the new integrations preserve the app's same-origin assumptions.",
+      "evidence_ref": "crooks-assistant/web/app.js:LiveVoice.create, renderTurn; crooks-assistant/web/index.html:script tags for live-voice.js and remote.js; review packet: YOUR PART, STANDING FACTS 3",
+      "required_repair": "Have the designated reviewers inspect the exact-SHA implementations of web/live-voice.js (CrooksLiveVoice.create/begin/release/cancel), web/telemetry.js (CrooksTelemetry.record), and web/remote.js (CliveRemote.fromTurn). Establish the token's lifetime and all request destinations, and prove that neither token nor spoken content reaches storage, URLs, logs, or telemetry; constrain the app.js callbacks if those guarantees do not hold."
+    },
+    {
+      "finding_id": "G-02",
+      "material": true,
+      "finding": "FOLLOW-UP — An incorrect transcript left on the ask bar is a display-correctness defect, with no evidenced exploit, data loss, or data leak tonight. If /turn returns before a /state poll observes data.heard, submit writes the batch question to el.heard but never calls showHeardWords for the bar, which can keep displaying the differing realtime words.",
+      "evidence_ref": "crooks-assistant/web/app.js:startStatePolling, submit, showHeardWords",
+      "required_repair": "On the audio turn response, replace the bar's interim words with the batch question, or clear them when no question was heard; test the case where /state never supplies data.heard."
+    },
+    {
+      "finding_id": "G-03",
+      "material": true,
+      "finding": "FOLLOW-UP — The unverified accent claim is an appearance requirement, not an evidenced exploit, data-loss, or data-leak path tonight. The scoped files link alpha.css but do not supply it, so this part cannot confirm that the iOS-blue change is cosmetic.",
+      "evidence_ref": "crooks-assistant/web/index.html:stylesheet links; review packet: PR #52 body, section 1",
+      "required_repair": "Have the designated CSS reviewer verify web/alpha.css at this exact SHA and confirm the accent change alters styling only."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0744b513424427b2016aba6240f78087d28285d13e500a53f0",
+    "session_started_at": "2026-09-28T12:49:03.120555Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The added app.js lines name the screen tools, wire microphone audio and level to the live-word and waveform helpers, put interim words in text-only DOM nodes, replace the bar's heard words on a /state transcript, clear them for a typed ask, and hand turn UI to the remote. They make no direct new storage write and handle no ElevenLabs credential or token directly. The only new fetch in these lines is the callback supplied to LiveVoice; its actual calls, token handling, and the remote's calls are in unsupplied modules. Existing app.js storage writes retain session, turn count, developer, voice, and stream preferences—not the token in the shown code. No round-8 finding was assigned to part G in the packet.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 82953, \"input_tokens_details\": {\"cache_write_tokens\": 82950, \"cached_tokens\": 0}, \"output_tokens\": 4440, \"output_tokens_details\": {\"reasoning_tokens\": 3624}, \"total_tokens\": 87393}]"
+}

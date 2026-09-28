@@ -1,0 +1,10 @@
+app/tools/authority.py
+app/tools/dispatch.py
+app/tools/registry.py
+app/providers/max_agent_sdk.py
+app/memory/prefetch.py
+tests/conftest.py
+tests/test_tool_boundary.py
+tests/test_provider.py
+tests/fake_credentials.py
+tests/test_registry.py

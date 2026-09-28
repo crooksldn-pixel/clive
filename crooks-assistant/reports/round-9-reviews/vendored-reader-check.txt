@@ -1,0 +1,15 @@
+vendored module loaded: /root/clive-activation/round-9/review/crooks-assistant/tests/rollback/gaps_3e77f215.py
+
+--- 3e77f215's GapLedger.load() against the LIVE record (read-only) ---
+  loaded OK. top-level keys: ['builds', 'gaps', 'misjudged', 'seeded', 'version']
+  version = 1  gaps = 10  builds = 0  misjudged = 0
+  seeded  = 2026-09-27T01:07:06+00:00
+
+--- 3e77f215's report() against a byte-identical COPY (never the live file) ---
+  report() returned OK. keys: ['gaps', 'misjudged', 'summary']
+    gaps: list(len=10)
+    misjudged: list(len=0)
+    summary: dict(len=11)
+  copy unchanged by report(): True
+
+VENDORED READER: reads, and reports on, the record as it stands today. PASS

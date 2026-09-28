@@ -1,0 +1,72 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-H-experience1-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "F-A2-FIXTURE",
+      "material": true,
+      "finding": "FOLLOW-UP — This authority grant is confined to the experience harness, so it does not itself admit a production request tonight. STILL PRESENT in this slice: `harness()` defaults to writes enabled, and `Harness.configure` installs a fixture owner on the allow-list while disabling Tailscale verification; every harness request then supplies that owner's headers. These scenarios therefore do not test whether the same unverified headers would be refused by the production owner boundary. The claimed repair in `tests/conftest.py::owner_asking` is outside this part and is not cleared here.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/experience/harness.py (TABLET_HEADERS, Harness.configure, harness)",
+      "required_repair": "Make unadmitted requests the harness default; require an explicit admitted-owner mode for owner scenarios, and retain a scenario using the production-equivalent identity check to prove forged headers are refused."
+    },
+    {
+      "finding_id": "H-02",
+      "material": true,
+      "finding": "FOLLOW-UP — Scripted model choices affect the offline scenarios, not the deployed provider directly, so this is not itself a production data-loss or leakage path. The sentence scenarios verify gate and presenter responses to tools chosen by the harness, not whether the model chooses those tools: `Harness.ask` supplies the tool list and `RecordingProvider.turn` supplies the reply. For example, `abandoned_window` supplies `days=7` before checking the week's card, and `compose_open` supplies the recipient and email fields before checking them. `a_model_turn` checks only the call count and lane.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/experience/harness.py (RecordingProvider.turn, Harness.ask); crooks-assistant/experience/scenario_packs/abandoned.py (abandoned_window); crooks-assistant/experience/scenarios.py (a_model_turn)",
+      "required_repair": "Describe these as scripted gate/presenter tests, and add separate model-decision evidence that independently checks tool selection and arguments for the claimed spoken behaviours."
+    },
+    {
+      "finding_id": "H-03",
+      "material": true,
+      "finding": "FOLLOW-UP — These no-op test turns cannot themselves execute a production write tonight. `discount_sentence_defers`, `order_add_item_sentence_defers`, and `unsupported_edit` send their change requests to an unscripted `RecordingProvider`, which returns fixed prose and calls no tools. Their assertions that nothing was prepared or changed consequently cannot detect unsafe staging, execution, or claims in an actual model response; `unsupported_edit` also lost its former false-claim assertion.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/experience/harness.py (RecordingProvider.turn); crooks-assistant/experience/scenario_packs/discounts.py (discount_sentence_defers); crooks-assistant/experience/scenario_packs/order_edit.py (order_add_item_sentence_defers); crooks-assistant/experience/scenarios.py (unsupported_edit)",
+      "required_repair": "Exercise representative model tool attempts on these write requests and assert the intended proposal, confirmation, and non-execution boundaries; separately check that the answer does not claim an unexecuted change succeeded."
+    },
+    {
+      "finding_id": "H-04",
+      "material": true,
+      "finding": "FOLLOW-UP — Deleting a scenario does not itself send mail or expose mailbox data on production tonight. `compose_send_spoken` was deleted, including its check of what happened before the send-confirmation gesture. The remaining `compose_send_instead` covers a tapped conversion, not the spoken 'don't save a draft, send it' path now handled by the model. There is no replacement scenario here checking that the spoken path preserves the draft's recipient and words and does not send before confirmation.",
+      "evidence_ref": "REVIEW PACKET — restricted diff for crooks-assistant/experience/scenario_packs/compose.py (deleted compose_send_spoken); CANDIDATE FILES — same file (compose_send_instead, SCENARIOS)",
+      "required_repair": "Restore a spoken, model-turn send-instead scenario using the existing draft and assert the intended staging policy, exact recipient and body, required confirmation, and no execution before it."
+    },
+    {
+      "finding_id": "H-05",
+      "material": true,
+      "finding": "FOLLOW-UP — This weakened oracle is test-only and does not itself change the production inbox tonight. `needs_reply` no longer checks that the spoken answer names those waiting or excludes people already answered. Its replacement looks for each waiting person's first name anywhere in a stringified queue payload, while its exclusion check looks for replied-to full names; a misleading answer or an incorrectly queued person can evade those checks.",
+      "evidence_ref": "REVIEW PACKET — restricted diff for crooks-assistant/experience/scenarios.py (needs_reply); CANDIDATE FILES — same file (needs_reply)",
+      "required_repair": "Compare structured queue entries and reply states with the fixture world's expected threads, and assert that the accompanying answer accurately describes who is waiting."
+    },
+    {
+      "finding_id": "H-06",
+      "material": true,
+      "finding": "FOLLOW-UP — The audit's false coverage claims are generated from test-source inspection and do not execute a production tool tonight. `tool_matrix._scenario_tools` treats a tool or operation mentioned anywhere in a scenario file, including a comment or assertion, as a golden scenario exercising the tool and reports the filename rather than an executing scenario. In `store_credit_give`, the string `store_credit_credit` checks a pending card; the credit write is not executed, yet that mention can mark its write tool covered.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/experience/tool_matrix.py (_scenario_tools, tools); crooks-assistant/experience/scenario_packs/commerce.py (store_credit_give)",
+      "required_repair": "Derive coverage from identified scenario calls rather than arbitrary source mentions, and distinguish a write that was staged from one whose handler or confirmation path was exercised."
+    },
+    {
+      "finding_id": "H-07",
+      "material": true,
+      "finding": "FOLLOW-UP — These credit tests run inside the harness rather than exposing a new production route tonight. Both store-credit scenarios invoke `dispatch(sc.OPEN_TOOL, ...)` after manually setting `CURRENT_SESSION`, instead of having their model turn call the tool through `/turn`. That bypasses the request path whose owner authority this harness purports to exercise and makes their credit-form assertions dependent on test context outside the scenario.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/experience/scenario_packs/commerce.py (store_credit_give, store_credit_not_on_this_store)",
+      "required_repair": "Drive the credit-opening tool through a scripted `Harness.ask` request with the intended owner context; keep the direct capability probe as a separately identified unit-level check."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0c3129de3d827d04016aba6240c9f087d2bd28496db2179c03",
+    "session_started_at": "2026-09-28T12:49:03.112710Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "F-A2-FIXTURE remains present in the experience harness. The migrated scenarios exercise several real HTTP, gate, and presentation paths, but scripted model choices and removed or weakened write and inbox checks leave material gaps in what their results can establish. All findings here are follow-ups under the stated production ship rule; this verdict clears no code outside the assigned experience files.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 99847, \"input_tokens_details\": {\"cache_write_tokens\": 99844, \"cached_tokens\": 0}, \"output_tokens\": 9231, \"output_tokens_details\": {\"reasoning_tokens\": 7583}, \"total_tokens\": 109078}]"
+}

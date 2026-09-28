@@ -1,0 +1,58 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-C-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "C-01",
+      "material": true,
+      "finding": "BLOCKS — I cannot determine whether a caller can mint a token by presenting a forged owner identity on production. `_refused` delegates the entire owner decision to `principal_verdict`, whose implementation was not supplied; the mocked route tests do not establish the real proxy-identity boundary.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/routes/voice.py, `_refused`; tests/test_live_voice.py, `test_a_caller_the_owner_rule_refuses_gets_nothing_under_the_production_switches`",
+      "required_repair": "Supply and review `app/routes/actions.py:principal_verdict` and the applicable `app/main.py` route and identity middleware at this SHA, including how forwarded identity is verified for `/voice/live`."
+    },
+    {
+      "finding_id": "C-02",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether the browser bearer token can be reused or remain valid beyond the claimed fifteen minutes, which would extend credential and billing exposure outside the tailnet. The route accepts any nonempty string in the provider’s `token` field, and all token tests use a mocked provider that returns the same token repeatedly; neither establishes the provider’s single-use or expiry behavior.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/routes/voice.py, `_mint`; tests/test_live_voice.py, `ElevenLabs.handler` and `TOKEN`",
+      "required_repair": "Provide verifiable provider-contract evidence or a safe integration check for the exact token endpoint demonstrating one use and expiry; if those properties do not hold, change the design so the browser does not receive a reusable bearer credential."
+    },
+    {
+      "finding_id": "C-03",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether live customer names and order details remain display-only on production. `create` passes complete live words to an unrestricted `onWords` callback, but the `web/app.js` wiring that decides whether they also enter telemetry, a turn, or retained context was not supplied.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/web/live-voice.js, `create`/`heard`; REVIEW PACKET — YOUR PART: C (the integration is assigned to `web/app.js`, outside the supplied files)",
+      "required_repair": "Supply and review the `web/app.js` `CrooksLiveVoice.create` callbacks and voice-turn submission at this SHA; ensure only the batch transcript enters the model or retained records and that live words are used only for text display."
+    },
+    {
+      "finding_id": "C-04",
+      "material": true,
+      "finding": "BLOCKS — I cannot establish that third-party socket errors cannot put speech or customer data into the always-on telemetry timeline. `heard` copies any error message’s unvalidated `message_type` into `reason`, `close` passes it to `record`, and telemetry accepts string fields; the provider-message shape and production callback wiring needed to exclude such data are not established.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/web/live-voice.js, `isError`, `heard` and `close`; crooks-assistant/web/telemetry.js, `record`/`flush`; REVIEW PACKET — STANDING FACTS 3 (`CROOKS_TEST_SESSION_ALWAYS=true`)",
+      "required_repair": "Map socket failures to a fixed, bounded set of local reason codes before calling `record`; test an error whose `message_type` contains a customer name and verify no such text enters a telemetry payload."
+    },
+    {
+      "finding_id": "C-05",
+      "material": true,
+      "finding": "FOLLOW-UP — This can lose live-word availability on a slow connection, but the supplied code still sends the ordinary batch recording. Releasing before the WebSocket opens starts the 1.5-second finish timer immediately; if the socket opens later, `close` has already discarded its buffered audio, so it never commits the words.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/web/live-voice.js, `connect`, `close` and `handle.release`",
+      "required_repair": "Bound the connection wait separately and start the post-commit finish timer only once the socket has opened and buffered audio has been committed; test opening after 1.5 seconds following release."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_00b05d5aa8e77a8c016aba6240bb9487d285b68d1ecdf284d8",
+    "session_started_at": "2026-09-28T12:49:02.937853Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The visible route rate-limits mint requests, keeps the long-lived key out of its normal response, and Settings retains `extra=\"ignore\"` with live transcription enabled by default. Owner admission, token lifetime, and the production handling of live words cannot be cleared from the supplied code; a telemetry-input defect and a release timing defect also remain.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 102573, \"input_tokens_details\": {\"cache_write_tokens\": 102570, \"cached_tokens\": 0}, \"output_tokens\": 7902, \"output_tokens_details\": {\"reasoning_tokens\": 6893}, \"total_tokens\": 110475}]"
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-J-docs1-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "J-01",
+      "material": true,
+      "finding": "FOLLOW-UP — This incorrect usage guidance does not itself exploit, lose, or leak production data tonight. The README tells the owner to say an order number so the Mac looks it up before Claude is asked, although this candidate's recorded decision says requests reach the model without a preceding lookup.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/README.md, “Changes to the store and the inbox”; crooks-assistant/docs/product-memory/OWNER_DECISIONS_2026-09-28.md, “Decided”",
+      "required_repair": "Replace the pre-model lookup instruction with guidance that the model decides whether to look up an order; remove the README's descriptions of the removed transcript normaliser as current behaviour."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0518fe39e2284c07016aba6240a06887d2bd0c07f21bab0ba8",
+    "session_started_at": "2026-09-28T12:49:03.179273Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "Neither example file contains a real secret, token, or login. The README still instructs the owner to expect a removed workflow.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 53612, \"input_tokens_details\": {\"cache_write_tokens\": 53609, \"cached_tokens\": 0}, \"output_tokens\": 2316, \"output_tokens_details\": {\"reasoning_tokens\": 2070}, \"total_tokens\": 55928}]"
+}

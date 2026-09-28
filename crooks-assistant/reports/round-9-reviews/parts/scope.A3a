@@ -1,0 +1,40 @@
+==============================================================================================
+YOUR PART: A3a — the gap record
+==============================================================================================
+
+You are part A3a of 24. Your scope is EXACTLY these 5 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/app/objectives/gaps.py
+    crooks-assistant/tests/rollback/gaps_3e77f215.py
+    crooks-assistant/tests/test_capability_gaps.py
+    crooks-assistant/tests/test_gaps.py
+    crooks-assistant/app/main.py
+
+ROUND-8 FINDINGS THIS PART MUST RULE ON, ONE BY ONE (the full round-8 document is
+included below):
+    F-07-VALUES
+    F-07-LINKS
+    F-07-DURABILITY
+
+This part owns app/objectives/gaps.py — the record production keeps on disk — and the vendored
+copy of the reader a rollback returns to.
+
+The live record is described in standing fact 3. It has grown to TEN gaps under the deployed
+6a29e310, one row was re-keyed when its label was reworded, and two rows carry a "name" field the
+other eight do not. tests/rollback/gaps_3e77f215.py is byte-identical (from its line 6) to
+app/objectives/gaps.py at 3e77f215 — I verified that at preflight, sha256 b6bfba90....
+
+Answer these, on the code, naming file and symbol:
+  - When this candidate starts against THAT record — ten gaps, mixed row shapes, one existing
+    backup — does its clean/migration run again, and does it write a SECOND backup? The deploy
+    asserts afterwards that there is still exactly one. What does the code do?
+  - Can the clean LOSE a row, or silently drop a field it does not recognise (for instance the
+    "name" field on two rows, or a row whose key no longer matches its label)? A lost gap is lost
+    owner data — that reaches the ship rule's "would lose data".
+  - F-07-VALUES, F-07-LINKS, F-07-DURABILITY have been reported partly repaired for several rounds.
+    Rule on each individually.
+  - After this candidate writes the record, can the VENDORED 3e77f215 reader still load and report
+    it? That is what a rollback depends on.
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

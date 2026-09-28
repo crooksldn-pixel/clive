@@ -1,0 +1,47 @@
+==============================================================================================
+YOUR PART: D2 — every sentence is a model turn — runtime, branch, speech
+==============================================================================================
+
+You are part D2 of 24. Your scope is EXACTLY these 21 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/app/session/branch.py
+    crooks-assistant/app/runtime.py
+    crooks-assistant/app/speech/transcribe.py
+    crooks-assistant/app/clients/whisper.py
+    crooks-assistant/tests/test_every_turn_is_the_model.py
+    crooks-assistant/app/speech/normalise.py
+    crooks-assistant/app/fastpath/__init__.py
+    crooks-assistant/app/fastpath/correction.py
+    crooks-assistant/app/fastpath/intent.py
+    crooks-assistant/app/fastpath/lanes.py
+    crooks-assistant/app/fastpath/library.py
+    crooks-assistant/app/fastpath/models.py
+    crooks-assistant/app/fastpath/recipes.py
+    crooks-assistant/app/fastpath/runner.py
+    crooks-assistant/tests/test_fastpath.py
+    crooks-assistant/tests/test_normalise.py
+    crooks-assistant/tests/test_transcribe.py
+    crooks-assistant/tests/test_whisper_disabled.py
+    crooks-assistant/scripts/bench_lanes.py
+    crooks-assistant/scripts/bench_whisper.py
+    crooks-assistant/app/routes/turn.py
+
+This part holds the DELETED fast-lane and normaliser modules (their diffs show what was removed),
+plus app/runtime.py, app/session/branch.py and the speech path that fed them. app/routes/turn.py is
+supplied again as context.
+
+The deploy owner asks this part the same two questions as D1, from the other side:
+
+  (a) Read what was DELETED. For each guard, refusal, confirmation or disambiguation that lived in
+      app/fastpath/* or app/speech/normalise.py, say whether an equivalent exists on the model path
+      at this SHA, naming the file and symbol that replaces it. If nothing replaces it, that is a
+      finding, and say whether it guarded a write.
+  (b) The speech keyterms/normaliser are gone, so what ElevenLabs/Whisper return is now used as
+      heard. Does anything downstream assume normalised text — a key lookup, a comparison, an id
+      match — and now silently miss? A silent miss on a write confirmation is the dangerous case.
+
+Also: app/session/branch.py (48 KB) and app/runtime.py — with every sentence a model turn, does
+branching or concurrency change in a way that could cross two owners' sessions or replay a write?
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

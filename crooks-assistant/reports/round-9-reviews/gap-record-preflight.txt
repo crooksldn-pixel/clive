@@ -1,0 +1,35 @@
+=== GAP RECORD ON DISK ===
+EXISTS uid=0 gid=0 mode=600 size=5866 mtime=2026-09-28 11:44:37.501301008 +0000 /var/lib/crooks-assistant/objectives/gaps.json
+7f1a7f6b86a708d0b3872b12b8e75c52ed2a197122f01697359c4f798f8eaf48  /var/lib/crooks-assistant/objectives/gaps.json
+
+--- every file in the objectives dir (names/modes only) ---
+total 104
+drwx------ 2 root root 4096 Sep 28 12:12 .
+drwxr-xr-x 3 root root 4096 Sep 23 16:55 ..
+-rw------- 1 root root 3800 Sep 28 12:12 displays.json
+-rw------- 1 root root 5866 Sep 28 11:44 gaps.json
+-rw------- 1 root root 4663 Sep 27 21:18 gaps.json.20260927T211850Z.before-clean
+-rw-r--r-- 1 root root 5179 Sep 27 14:27 obj_08f56757.json
+-rw-r--r-- 1 root root 3938 Sep 26 21:17 obj_1919ab82.json
+-rw-r--r-- 1 root root 4210 Sep 26 21:20 obj_442075aa.json
+-rw-r--r-- 1 root root 4720 Sep 26 23:12 obj_45b6e5f3.json
+-rw-r--r-- 1 root root 2547 Sep 28 11:44 obj_63b9bdbb.json
+-rw-r--r-- 1 root root  617 Sep 23 16:55 obj_6b340203.json
+-rw-r--r-- 1 root root 7097 Sep 26 23:22 obj_855fe814.json
+-rw-r--r-- 1 root root 3611 Sep 26 21:33 obj_e7055542.json
+-rw-r--r-- 1 root root 3487 Sep 26 23:34 obj_f5df38c5.json
+-rw-r--r-- 1 root root 1581 Sep 26 21:30 obj_f914c602.json
+-rw-r--r-- 1 root root 2113 Sep 26 23:40 obj_fd419148.json
+-rw-r--r-- 1 root root 8409 Sep 23 17:05 obj_fefa81bc.json
+-rw-r--r-- 1 root root 3639 Sep 27 17:43 obj_ff55923e.json
+
+--- BACKUPS of the gap record ---
+-rw------- 1 root root 4663 Sep 27 21:18 gaps.json.20260927T211850Z.before-clean
+backup count by glob gaps.json.*: 1
+-rw------- 1 root root 4663 Sep 27 21:18 /var/lib/crooks-assistant/objectives/gaps.json.20260927T211850Z.before-clean
+
+--- record keys and shape (no gap text printed) ---
+  top-level keys: ['builds', 'gaps', 'misjudged', 'seeded', 'version']
+  version=1  gaps=10 entries  builds=0  misjudged=0  seeded='2026-09-27T01:07:06+00:00'
+  gap keys: ['concept multiple users member accounts invite', 'custom line name on an order', 'display tool project expanded view onto', 'log manual physically done state task', 'mac read only shopify gmail writes', 'order name lookup on order open order add name', "tool exposes draft order's invoice checkout", 'tool set custom line name price', "visibility into how machine's access networking", 'web research tool look up trend']
+  sha256: 7f1a7f6b86a708d0b3872b12b8e75c52ed2a197122f01697359c4f798f8eaf48

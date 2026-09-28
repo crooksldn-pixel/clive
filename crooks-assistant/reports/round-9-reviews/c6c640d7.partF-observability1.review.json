@@ -1,0 +1,44 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-F-observability1-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "F-01",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether a test-session identifier can be supplied through production telemetry tonight, so I cannot rule out using it to write a report containing owner or customer words outside the private reports directory. `reconstruct` accepts `test_session_id` from an event without validating it, and both output functions use that value as a filename; an identifier such as `../web/exposed` escapes `reports/` unless the unseen write helper prevents it.",
+      "evidence_ref": "crooks-assistant/app/observability/report.py:reconstruct, write_report; crooks-assistant/app/observability/proposals.py:write_proposals; REVIEW PACKET: YOUR PART, STANDING FACTS §3",
+      "required_repair": "Validate session identifiers as single safe filename components and verify resolved targets remain inside the intended reports directory in both writers. Establish whether app/observability/timeline.py::read_events admits a supplied identifier and whether app/observability/session.py::write_private_text enforces containment; those symbols were not supplied."
+    },
+    {
+      "finding_id": "F-02",
+      "material": true,
+      "finding": "FOLLOW-UP — `CROOKS_SCREEN_SNAPSHOTS=false` prevents this screen-copy path from collecting markup on production tonight. Nevertheless, `sanitise_markup` treats `data-spoken` as an ordinary attribute: it retains text beneath the marked element, and `_attrs` can retain a token-shaped `data-words` value because that attribute is absent from `DATA_FREE_TEXT`. General credential and known-customer scrubbing is not a guarantee that live dictation or the words of a proposed write are masked.",
+      "evidence_ref": "crooks-assistant/app/observability/screens.py:DATA_NAMES, DATA_FREE_TEXT, _Sanitiser.handle_data, _Sanitiser._attrs; REVIEW PACKET: STANDING FACTS §3",
+      "required_repair": "Mask the content of `data-spoken` elements during parsing, and discard or empty `data-words`; test with arbitrary live words that are not recognizable credentials."
+    },
+    {
+      "finding_id": "F-03",
+      "material": true,
+      "finding": "FOLLOW-UP — Incorrect observability classification does not itself exploit access or lose or leak production data tonight. `semantics.CHANGES` declares store credit to have no capability, although the packet establishes that the production `store_credit_credit` write is ready. When a store-credit request receives a mutation verdict, `_spoken_capability` therefore reports `NO_FAMILY`, and the report and proposals can recommend building an already-live money-moving action or mark its turn as missing a capability.",
+      "evidence_ref": "crooks-assistant/app/observability/semantics.py:CHANGES, capability_state; crooks-assistant/app/observability/report.py:_spoken_capability, _classify; REVIEW PACKET: STANDING FACTS §3",
+      "required_repair": "Map store credit to its actual capability or derive availability from the live capability registry; test the report classification of a successfully executed store-credit request."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0de393dd0f15d7a7016aba6240b06887d28a1a36cb0ae1d384",
+    "session_started_at": "2026-09-28T12:49:03.062548Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "`feedback.record` can emit owner words and context to the timeline; `report.write_report` and `proposals.write_proposals` write Markdown under the supplied output directory (production reports resolve under the checkout). The other scoped modules classify events or transform screen markup without writing files themselves. Reports explicitly print owner requests and answers, so they can contain customer details or write wording. These seven files do not establish who can retrieve those records or whether they reach a screen; the filename escape and missing provenance and write-helper evidence prevent clearing that boundary.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 87756, \"input_tokens_details\": {\"cache_write_tokens\": 87753, \"cached_tokens\": 0}, \"output_tokens\": 7943, \"output_tokens_details\": {\"reasoning_tokens\": 7159}, \"total_tokens\": 95699}]"
+}

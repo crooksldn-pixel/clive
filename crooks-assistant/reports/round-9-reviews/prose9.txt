@@ -1,0 +1,186 @@
+OBJECTIVE: Deploy clive/trunk at exactly c6c640d7017a0411c13d39cecc6ce2223a79c724 to PRODUCTION
+(/opt/crooks-os/crooks-assistant, the CROOKS Assistant FastAPI backend, running as root on host
+crooks-os-prod-1, serving the owner's live Shopify store and the owner's shared team Gmail mailbox).
+
+CURRENTLY DEPLOYED: 6a29e31013b0b9e543d90434e14ed65deea1ce30 (PR #50), deployed 2026-09-27 under
+the owner's written waiver after round 8 returned CHANGES_REQUIRED on all four parts. This deploy
+moves production 6a29e310 -> c6c640d7, which is work the owner has never run.
+
+LAST SHA A REVIEWER JUDGED: 6a29e31013b0b9e543d90434e14ed65deea1ce30 (round 8). All four parts
+returned CHANGES_REQUIRED — 24 findings, 21 of them material. Those findings are published at
+74bd8301 on claude/deploy-review-round-8-findings and, for the parts that re-check them, are
+included IN FULL in this packet.
+
+REVIEW RANGE: 6a29e31013b0b9e543d90434e14ed65deea1ce30..c6c640d7017a0411c13d39cecc6ce2223a79c724
+— 221 files, 13350 insertions, 14964 deletions. Most of the deletions are the fast lane being
+removed. It contains exactly two pieces of work:
+  - PR #51 (head 10fe6865, merge 32a99cd7) — closes the 21 material round-8 findings, applies the
+    owner's two rulings, and restyles the screens to their approved design. Its body is the claim
+    sheet for those findings. The owner's two rulings were:
+      F-A2-FIXTURE: the test suite no longer grants owner authority by default.
+      NEW-B-CAP:    a 21st screen is refused.
+  - PR #52 (head 858d36e4, merge c6c640d7) — the owner's four requests of 28 September:
+      1. the app accent goes to iOS blue;
+      2. live voice: a real waveform plus live words while he holds the ask bar. A new owner-only
+         POST /voice/live mints an ElevenLabs single-use realtime token and the page streams to
+         ElevenLabs directly;
+      3. the fast lane and the speech keyterms/normaliser are removed — every sentence is a model
+         turn;
+      4. the TV remote: two panes, screen_off, screen_remote, and new owner routes under
+         /displays/{id}/remote/.
+
+==============================================================================================
+THE OWNER'S SHIP RULE FOR THIS ROUND. READ IT BEFORE YOU LABEL ANYTHING.
+==============================================================================================
+The owner has set the bar for what stops this deploy. It is NOT "is this code correct". It is:
+
+  A part BLOCKS the deploy only when it has a MATERIAL finding that meets at least one of these,
+  ON PRODUCTION AS IT IS ACTUALLY CONFIGURED TONIGHT:
+      - it can be exploited;
+      - it would lose data;
+      - it would leak data.
+  "As configured" means: Tailscale-only access, the owner's login on the allow-list, the switches
+  listed under STANDING FACTS below, and writes as they are.
+
+  EVERY OTHER MATERIAL FINDING IS A FOLLOW-UP. It goes on the published list for the next fix
+  round and does not stop the deploy.
+
+YOU MUST LABEL EVERY MATERIAL FINDING EITHER "BLOCKS" OR "FOLLOW-UP", with ONE SENTENCE saying
+why, inside the finding text. Put the label as the first word of the `finding` field, like:
+
+    "BLOCKS — <one sentence why it is exploitable / loses data / leaks data on production as
+     configured tonight>. <then the finding itself>"
+    "FOLLOW-UP — <one sentence why it does not reach that bar tonight>. <then the finding>"
+
+Do not soften a finding to make it a follow-up, and do not inflate one to make it block. If you
+cannot tell whether a defect is reachable on production as configured, say so explicitly and
+label it BLOCKS — the deploy owner will re-check every label and treats "cannot tell" as BLOCKS.
+
+Your VERDICT field is still READY or CHANGES_REQUIRED, and it is about the code, not the ship
+rule: return CHANGES_REQUIRED if any material finding stands, whatever its label. The deploy
+decision is made from the labels, not from the verdict.
+
+==============================================================================================
+STANDING FACTS. Established by earlier rounds and RE-VERIFIED at this round's preflight
+(2026-09-28), on the real host, read-only.
+==============================================================================================
+
+1. clive/trunk HAS NO BRANCH PROTECTION, AND NONE CAN BE CONFIGURED.
+   GET /branches/clive%2Ftrunk -> "protected": false, re-checked at this preflight. Branch
+   protection and rulesets both return HTTP 403 on this plan. No required review, no required
+   status check, no push restriction. Refused SHAs have landed on this branch before, and
+   unreviewed lines have landed on it before.
+   A SHA'S POSITION ON TRUNK AND A GREEN ACCEPTANCE RUN THEREFORE CARRY ZERO REVIEW WEIGHT.
+   Judge only the code.
+
+2. THE ENGINEERING BRIDGE IS OUT OF THIS DEPLOY AND F-ENG STAYS DEFERRED.
+   Verified by name at this preflight, without opening or decrypting any file. The GitHub
+   engineering token was live in the store on 27 Sep at 01:55Z and was PARKED that afternoon at
+   14:30Z; it is in neither live tier today:
+     - /etc/crooks-os/credentials/ (the systemd LoadCredentialEncrypted tier) holds exactly three
+       .cred files: elevenlabs_api_key, shopify_client_id, shopify_client_secret.
+     - github_engineering_inbox_token.cred is in /etc/crooks-os/credentials-parked/ (directory
+       0700, file 0600, 292 bytes) and is never opened.
+     - /etc/crooks-os/secrets/ (the read-write tier app/secrets/linux_store.py consults AFTER the
+       systemd credentials) holds gmail_token, media_signing_key and — new since the round-8
+       deploy — local_cli_key. THE LOCAL-CLI KEY PATH IS THEREFORE LIVE IN PRODUCTION; judge
+       app/local_cli.py on the basis that the server's own key exists and is readable by root.
+     - The unit rendered at this candidate carries LoadCredentialEncrypted lines byte-identical to
+       the three installed ones.
+   Do not gate this deploy on F-ENG, and do not clear it either.
+   NOTE: settings.engineering_host still defaults to "worker-01", so leaving
+   CROOKS_ENGINEERING_HOST unset does NOT by itself make the bridge inert. Parking the credential
+   is what makes it inert.
+
+3. PRODUCTION STATE THIS LANDS INTO — judge every touched path as LIVE.
+   - CROOKS_WRITES_ENABLED=true. All 18 write actions ready, including refund_create,
+     order_cancel and store_credit_credit, which move real money.
+   - CROOKS_ALLOWED_LOGINS non-empty (the owner's phone, Android tablet and MacBook).
+     clive-worker-01 is tagged tag:clive-worker and is NOT on the allow-list.
+   - CROOKS_WRITES_LOCAL_OWNER=false        (verified, unchanged by this deploy)
+   - CROOKS_LOCAL_OWNER unset -> settings.local_owner False (verified by constructing Settings
+     against the live .env at this candidate)
+   - CROOKS_ENGINEERING_HOST unset          (verified)
+   - CROOKS_SCREEN_SNAPSHOTS=false and STAYS false. NOT ONE .env LINE CHANGES in this deploy; the
+     live .env is byte-identical to the one the round-8 deploy ran against (sha256 0021c07d…).
+   - CROOKS_TAILSCALE_VERIFY unset -> code default true, so the proxy identity check is ACTIVE in
+     production from the moment this deploys (verified: settings.tailscale_verify is True).
+   - CROOKS_LIVE_TRANSCRIPT is NEW in this candidate and defaults to true. It is left unset, so
+     LIVE TRANSCRIPT IS ON IN PRODUCTION (verified: settings.live_transcript is True).
+   - CROOKS_SCRIBE_KEYTERMS=true is still a line in the live .env. At this candidate Settings
+     carries model_config extra="ignore" and has no scribe_keyterms field, so the key is ignored
+     and the app still constructs (verified at preflight against the live .env). If any code you
+     are shown would make an unknown key fatal, that is a start-up failure on this host — say so.
+   - CROOKS_TEST_SESSION_ALWAYS=true — the always-on observability session is RUNNING NOW.
+   - Service runs as ROOT via systemd Type=exec, uvicorn on 127.0.0.1:8000, --no-proxy-headers.
+   - tailscale serve: https://crooks-os-prod-1.taildfb357.ts.net (tailnet only) -> 127.0.0.1:8000
+   - LIVE DATA, /var/lib/crooks-assistant/objectives (0700):
+       * gaps.json (0600, 5866 bytes, sha256 7f1a7f6b…): version=1, gaps=10 entries, builds={},
+         misjudged={}, seeded="2026-09-27T01:07:06+00:00". Exactly ONE backup beside it,
+         gaps.json.20260927T211850Z.before-clean (4663 bytes), written by the round-8 deploy's
+         start-up clean and byte-identical to the record as it was before that deploy. Since that
+         deploy the running 6a29e310 has grown the record from 8 to 10 gaps in ordinary use, and
+         re-keyed one row when its label was reworded — every other field of that row carried
+         over. Two of the ten rows carry a "name" field the older eight do not.
+       * displays.json (0600, 3800 bytes): top-level keys "screens" and "done". THREE screens
+         exist, created 2026-09-27T21:33Z, 2026-09-27T21:35Z and 2026-09-28T10:54Z — that is,
+         BEFORE pairing existed. Each row has fields created_at, id, key, last_seen, name, secret,
+         showing, version, and NO approved/paired field. The deploy owner counts all three as
+         already approved. Any migration this candidate performs runs against THOSE rows.
+   - LIVE REPORTS. reports_dir resolves to /opt/crooks-os/crooks-assistant/reports (
+     CROOKS_REPORTS_DIR is not set). The round-8 deploy's first housekeeping pass already
+     tightened it: the directory is now 0700 and .gitkeep 0600, `find <dir> -perm /077 | wc -l`
+     = 0, and there is no .withheld/. Judge the code for the general case, not for this count.
+
+4. THIS DEPLOY RE-RENDERS THE SYSTEMD UNIT, AND CODE + UNIT LAND IN ONE OPERATION.
+   I rendered the unit from this candidate with production paths and diffed it against the
+   installed one. THE COMPLETE DIFF IS ONE COMMENT LINE:
+       -#   the checkout   logs/, .cache/media/, kb/.catalogue-cache.txt
+       +#   the checkout   logs/, .cache/media/
+   Not one directive changes. ExecStart (including --no-proxy-headers), Environment=PATH,
+   LoadCredentialEncrypted, ReadWritePaths, ProtectSystem and every other sandboxing directive are
+   byte-identical to what is installed and running now. If you believe a change in this range
+   ought to have changed the unit and did not, say so.
+   --no-proxy-headers is load-bearing: without it uvicorn replaces the connection's own address
+   with the forwarded one and the app has nothing left to check.
+
+5. THE STRICTER PARSERS WERE RUN AGAINST THIS HOST'S REAL KERNEL TABLES AT THIS CANDIDATE, with
+   the production venv interpreter (Python 3.12.3). Results, as packet facts:
+       app.identity._tcp_rows("net/tcp",  open("/proc/net/tcp").read())  -> ACCEPTED, 19/19 rows
+       app.identity._tcp_rows("net/tcp6", open("/proc/net/tcp6").read()) -> ACCEPTED, 37/37 rows
+       app.identity.this_hosts_addresses() -> (frozenset({'100.72.82.24',
+           'fd7a:115c:a1e0::352b:5219', '2.28.233.59', '2a01:4f8:1c1c:60a3::1', '127.0.0.1',
+           '::1', 'fe80::3874:4208:1c14:608f', 'fe80::9000:9ff:feec:f59'}), '')
+       — this host's tailnet v4 and v6 addresses are both present and the reason string is empty.
+   Tailscale/provenance preconditions also re-verified: tailscaled MainPID 1655, /proc/1655/exe ->
+   /usr/sbin/tailscaled exactly, cgroup exactly 0::/system.slice/tailscaled.service; that binary,
+   that cgroup directory and its cgroup.procs are all uid 0 with no group- or other-write;
+   pidfd_open works from the production interpreter; 100.72.82.24 has a /32 host LOCAL entry in
+   fib_trie and fd7a115ca1e0000000000000352b5219 is in /proc/net/if_inet6.
+
+6. ACCEPTANCE. Run 36417364775 on exactly c6c640d7017a0411c13d39cecc6ce2223a79c724,
+   completed/success, head_sha matches, event=push on clive/trunk. PR #51's head 10fe6865 was
+   green on 36406075900 and 36406082443; PR #52's head 858d36e4 on 36416641987 and 36416700793.
+   Per standing fact 1 none of this carries review weight; it is recorded so you know the tests
+   the author ran did pass.
+
+==============================================================================================
+RULES FOR THIS REVIEW
+==============================================================================================
+- YOU ARE ONE OF TWENTY-FOUR PARTS. DO NOT APPROVE WHAT YOU CANNOT SEE. If a verdict here depends
+  on code reserved for another part, say so and name exactly the file and symbol you would need.
+  Your scope block below names your files; nothing outside it is yours to clear.
+- Judge the code AT c6c640d7017a0411c13d39cecc6ce2223a79c724, and NEVER on what a commit message,
+  a PR body, a code comment or a test NAME claims.
+- For any round-8 finding assigned to this part, rule on it INDIVIDUALLY: state REPAIRED or STILL
+  PRESENT at this SHA. If a repair is partial, say exactly which part remains. Quote the file and
+  symbol your verdict rests on. Several of these have been reported "partly repaired" across many
+  rounds; do not accept a narrowing of scope, a renamed symbol, a new docstring or an added test
+  as a repair unless the defect is actually closed.
+- The PR bodies below are CLAIM SHEETS to check, not evidence. The same goes for the removal of
+  the fast lane: a deleted file proves nothing about what replaced it.
+- Report NEW defects as well, with their own ids.
+- LABEL EVERY MATERIAL FINDING "BLOCKS" OR "FOLLOW-UP" as described above. A non-material
+  observation may ride along with material false and needs no label.
+- Verdict READY only if every finding assigned to this part is actually closed and you found no
+  new material defect.

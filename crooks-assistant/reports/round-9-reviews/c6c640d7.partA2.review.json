@@ -1,0 +1,30 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-A2-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "F-NEW-TOOLS-PATH",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether a non-owner can obtain owner authority on a model turn in production tonight because the current HTTP admission and authority-stamping path was not supplied. STILL UNVERIFIED end to end at this SHA: the supplied registry callback, provider `_dispatch`, and `dispatch` enforce authority before a handler runs, but the fast-lane removal changes the turn-entry path being assessed, and the scoped tests do not establish its production admission behavior.",
+      "evidence_ref": "REVIEW PACKET — YOUR PART and PR #52 BODY; crooks-assistant/app/providers/max_agent_sdk.py:_options,_dispatch,_turn_locked; crooks-assistant/app/tools/registry.py:build_mcp_server; crooks-assistant/tests/test_tool_boundary.py:test_a_turn_from_anyone_but_the_owner_never_reaches_the_model_or_a_tool",
+      "required_repair": "Supply or obtain a review at this exact SHA of crooks-assistant/app/main.py:guard_and_freshness and crooks-assistant/app/routes/turn.py:turn,_provider_turn, tracing a refused production-configured caller through authority stamping to the provider. No change to the reviewed SDK callback is requested on the evidence supplied."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0f3451b046e2f92f016aba6240a4b087d2adb555e28edf724e",
+    "session_started_at": "2026-09-28T12:49:02.769243Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "F-A2-FIXTURE is REPAIRED: tests/conftest.py:owner_asking is non-autouse, its six protected-gate opt-ins are named, and the supplied tests/test_provider.py cases create owner authority explicitly; tests/test_tool_boundary.py also tests an unstamped context. F-NEW-TOOLS is REPAIRED within the reviewed invocation boundary: authority.py:permits, dispatch.py:dispatch, max_agent_sdk.py:_dispatch and prefetch.py:Prefetcher.start restrict and revoke service authority. F-NEW-TOOLS-PATH is repaired from the SDK callback through dispatch, but its current HTTP entry cannot be cleared from this packet. The reviewed callback grants no additional tool to a caller without authority. Screens-specific handler checks remain for the screens review part.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 99103, \"input_tokens_details\": {\"cache_write_tokens\": 99100, \"cached_tokens\": 0}, \"output_tokens\": 5409, \"output_tokens_details\": {\"reasoning_tokens\": 4902}, \"total_tokens\": 104512}]"
+}

@@ -1,0 +1,48 @@
+==============================================================================================
+YOUR PART: A1b — identity and the door — the tests and the launchers
+==============================================================================================
+
+You are part A1b of 24. Your scope is EXACTLY these 9 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/scripts/install_systemd.py
+    crooks-assistant/scripts/launch_common.py
+    crooks-assistant/scripts/healthcheck.py
+    crooks-assistant/tests/test_proxy_identity.py
+    crooks-assistant/tests/test_local_cli.py
+    crooks-assistant/tests/test_pad.py
+    crooks-assistant/app/identity.py
+    crooks-assistant/app/local_cli.py
+    crooks-assistant/app/routes/health.py
+
+ROUND-8 FINDINGS THIS PART MUST RULE ON, ONE BY ONE (the full round-8 document is
+included below):
+    F-05A
+    F-05B
+    F-05B-AVAIL
+    F-05B-AVAIL-PREFLIGHT
+    F-NEW-PAD
+
+This part owns the EVIDENCE for the access boundary: the tests that are supposed to prove it,
+and the launchers that render the unit and read /health. app/identity.py, app/local_cli.py and
+app/routes/health.py are supplied again here as context so you can check each test against the
+code it claims to exercise.
+
+Answer these, on the code, naming file and symbol:
+  - tests/test_proxy_identity.py, tests/test_local_cli.py, tests/test_pad.py: do these tests
+    actually exercise the boundary, or do they mock the very answers under test? Round 8 found the
+    "verified owner device" test substituted mocked peer, locality and whois answers. A test that
+    stubs `_proc_peer_check` and then asserts on its result proves nothing.
+  - Is there a test for a MALFORMED cgroup listing and a MALFORMED TCP row reaching BOTH
+    principal_verdict and caller_check, and does it assert fail-closed? (round 8, F-05B)
+  - scripts/launch_common.py gains _loopback, _server_key, _open, _read, fetch_health and
+    health_limited. fetch_health now reads the server's own key from app/local_cli.py and RETRIES
+    /health with it when the first answer is limited. Check: can that key ever leave the machine —
+    a non-loopback URL, a redirect, an HTTP proxy from the environment, a hostname that resolves to
+    loopback but is not the literal 127.0.0.1/::1? The key is a live production secret (standing
+    fact 2). This is the highest-value question in this part.
+  - scripts/install_systemd.py gains 43 lines. Does anything it adds change the unit's directives?
+    Standing fact 4 says the rendered unit differs from the installed one by ONE COMMENT LINE; if
+    the code you see contradicts that, say so.
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

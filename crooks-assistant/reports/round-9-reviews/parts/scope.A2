@@ -1,0 +1,41 @@
+==============================================================================================
+YOUR PART: A2 — tool authority
+==============================================================================================
+
+You are part A2 of 24. Your scope is EXACTLY these 10 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/app/tools/authority.py
+    crooks-assistant/app/tools/dispatch.py
+    crooks-assistant/app/tools/registry.py
+    crooks-assistant/app/providers/max_agent_sdk.py
+    crooks-assistant/app/memory/prefetch.py
+    crooks-assistant/tests/conftest.py
+    crooks-assistant/tests/test_tool_boundary.py
+    crooks-assistant/tests/test_provider.py
+    crooks-assistant/tests/fake_credentials.py
+    crooks-assistant/tests/test_registry.py
+
+ROUND-8 FINDINGS THIS PART MUST RULE ON, ONE BY ONE (the full round-8 document is
+included below):
+    F-NEW-TOOLS
+    F-NEW-TOOLS-PATH
+    F-A2-FIXTURE
+
+This part owns which principal may run which tool. tests/conftest.py is a PROTECTED file that
+PR #51 changed by hand to apply the owner's ruling F-A2-FIXTURE: the test suite no longer grants
+owner authority by default.
+
+Answer these, on the code, naming file and symbol:
+  - F-A2-FIXTURE: is owner authority actually no longer the default in tests/conftest.py, or has it
+    merely moved behind a helper that most tests still call? If the default changed, do the tests
+    that still assert owner-only behaviour now obtain that authority EXPLICITLY?
+  - F-NEW-TOOLS / F-NEW-TOOLS-PATH: re-rule on them at this SHA.
+  - app/tools/authority.py is also in part B1, because the screens feature adds authority to it.
+    Rule here on the general authority model; if a screens-specific clause is beyond what you can
+    see, say so rather than clearing it.
+  - app/providers/max_agent_sdk.py and app/tools/dispatch.py: with the fast lane gone, EVERY
+    sentence is now a model turn, so every sentence reaches the dispatcher. Does any tool become
+    reachable that previously was not, for a principal who is not the owner?
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

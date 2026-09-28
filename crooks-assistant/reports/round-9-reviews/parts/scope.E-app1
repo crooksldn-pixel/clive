@@ -1,0 +1,31 @@
+==============================================================================================
+YOUR PART: E-app1 — the rest of the application code touched by this range (bounded slice E-app1)
+==============================================================================================
+
+You are part E-app1 of 24. Your scope is EXACTLY these 10 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/app/commands.py
+    crooks-assistant/app/digest/selfmodel.py
+    crooks-assistant/app/kb/loader.py
+    crooks-assistant/app/memory/coalesce.py
+    crooks-assistant/app/progressive.py
+    crooks-assistant/app/reads/scheduler.py
+    crooks-assistant/app/routes/branches.py
+    crooks-assistant/app/routes/command.py
+    crooks-assistant/app/surfaces.py
+    crooks-assistant/app/tools/analytics_tools.py
+
+These files are changed in the range but are not the security surfaces the named parts own. Most
+of the churn here is the fast lane's removal rippling outward. Read the diffs for what they actually
+do, not for what the removal was supposed to do.
+
+Answer these, naming file and symbol:
+  - Did any of these edits remove a check, a refusal or a confirmation rather than just an import?
+  - Does anything here reach a WRITE path? Production has CROOKS_WRITES_ENABLED=true and 18 write
+    actions including refund_create, order_cancel and store_credit_credit.
+  - Does anything here newly log, render or return data that belongs to the owner or a customer?
+  - Is there any place left that decides on the owner's WORDS rather than letting the model decide
+    (the spoken-yes interlock is the one permitted exception)?
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

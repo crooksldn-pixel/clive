@@ -1,0 +1,9 @@
+.env.example
+Makefile
+README.md
+deploy/env.production.example
+docs/DEPLOY_LINUX.md
+docs/phase4/TOOL_MATRIX.md
+docs/product-memory/OWNER_DECISIONS_2026-09-28.md
+docs/product-memory/README.md
+kb/terminology.md

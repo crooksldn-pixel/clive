@@ -1,0 +1,9 @@
+scripts/install_systemd.py
+scripts/launch_common.py
+scripts/healthcheck.py
+tests/test_proxy_identity.py
+tests/test_local_cli.py
+tests/test_pad.py
+app/identity.py
+app/local_cli.py
+app/routes/health.py

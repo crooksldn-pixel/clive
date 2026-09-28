@@ -1,0 +1,15 @@
+changed paths in range      : 221
+distinct paths in packets   : 225
+CHANGED PATHS WITH NO PACKET: 0
+paths supplied as unchanged context: 4
+   crooks-assistant/app/displays/views.py  (in B1)
+   crooks-assistant/app/routes/observe.py  (in A3b)
+   crooks-assistant/app/tools/registry.py  (in A2)
+   crooks-assistant/tests/rollback/gaps_3e77f215.py  (in A3a)
+paths deliberately in more than one part: 6
+   crooks-assistant/app/identity.py: A1a,A1b
+   crooks-assistant/app/local_cli.py: A1a,A1b
+   crooks-assistant/app/main.py: A1a,A3a,A3b
+   crooks-assistant/app/routes/health.py: A1a,A1b
+   crooks-assistant/app/routes/turn.py: D1,D2
+   crooks-assistant/app/tools/authority.py: A2,B1

@@ -1,0 +1,37 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-I-tests1-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "F-A2-FIXTURE",
+      "material": true,
+      "finding": "FOLLOW-UP — Test fixtures do not run in production, so this evidence gap does not itself make the live service exploitable or cause data loss or leakage tonight. STILL PRESENT as an unverified ruling: these files explicitly opt tests into `owner_asking`, but the packet does not include `tests/conftest.py::owner_asking` or the autouse fixtures needed to establish that tests without an opt-in have no owner authority.",
+      "evidence_ref": "crooks-assistant/tests/test_actions.py:pytestmark; crooks-assistant/tests/test_abandoned.py:test_the_models_read_draws_both_cards; review packet, YOUR PART and PR #51 F-A2-FIXTURE",
+      "required_repair": "Provide the `owner_asking` fixture and autouse-fixture definitions to the part that owns `tests/conftest.py`, and demonstrate a dispatch in a fresh context with no owner fixture is refused."
+    },
+    {
+      "finding_id": "I-01",
+      "material": true,
+      "finding": "FOLLOW-UP — These vacuous assertions weaken offline privacy evidence, but do not themselves expose production data tonight. In `test_state_can_be_asked_after_a_lost_connection` and `test_a_write_tools_note_is_logged_by_length_only_even_when_refused`, the assertions intended to exclude sensitive content end in `or True` and therefore pass regardless of the returned card or logged read arguments.",
+      "evidence_ref": "crooks-assistant/tests/test_actions_routes.py:test_state_can_be_asked_after_a_lost_connection; crooks-assistant/tests/test_actions_routes.py:test_a_write_tools_note_is_logged_by_length_only_even_when_refused",
+      "required_repair": "Remove both unconditional `or True` branches and assert the intended public-card and read-argument redaction properties against actual outputs."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0d0f170abbe779d6016aba6240b28c87d29b8b7e58c4309de4",
+    "session_started_at": "2026-09-28T12:49:03.270327Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The supplied diff shows no deletion or weakening of a refusal, confirmation, or authority assertion in these 11 files; the removed abandonment cases concern the retired fast lane and spoken formatter. Five files explicitly grant owner authority at module scope, and the batch route fixture explicitly enables writes; neither establishes a suite-wide default. No test in this slice clearly mocks the function it directly asserts on. F-A2-FIXTURE cannot be cleared without the missing fixture definitions, and two privacy assertions at this SHA are ineffective.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 85052, \"input_tokens_details\": {\"cache_write_tokens\": 85049, \"cached_tokens\": 0}, \"output_tokens\": 3852, \"output_tokens_details\": {\"reasoning_tokens\": 3278}, \"total_tokens\": 88904}]"
+}

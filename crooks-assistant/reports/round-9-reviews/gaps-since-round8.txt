@@ -1,0 +1,38 @@
+=== gaps.json: round-8 POST-DEPLOY state -> now ===
+  post-deploy sha256 : 81229a263519463b3e58a504ddd6235159eddbd797f0db2df80479c49bb3a939  (4662 bytes)
+  now         sha256 : 7f1a7f6b86a708d0b3872b12b8e75c52ed2a197122f01697359c4f798f8eaf48  (5866 bytes)
+  version: 1 -> 1  same
+  seeded: '2026-09-27T01:07:06+00:00' -> '2026-09-27T01:07:06+00:00'  same
+  builds: 0 -> 0 entries
+  misjudged: 0 -> 0 entries
+  gaps: 8 -> 10 entries
+  keys kept : 7 of 8   LOST: ['tool set custom line item price']
+  keys ADDED: ['custom line name on an order', 'order name lookup on order open order add name', 'tool set custom line name price']
+  kept rows whose contents changed: 1
+    mac read only shopify gmail writes: fields added [], removed [], differing ['label']
+
+=== the key that disappeared, and the key that appeared next to it ===
+  OLD 'tool set custom line item price':
+      first_seen = <str 25 chars, starts '2026-09-26T23:34:21+00:0'>
+      hits = 1
+      label = <str 178 chars, starts 'CLIVE has no tool to set'>
+      last_seen = <str 25 chars, starts '2026-09-26T23:34:21+00:0'>
+      objectives = <list 1>
+      requests = <list 0>
+      seen = <list 1>
+      sources = <dict 1>
+  NEW 'tool set custom line name price':
+      first_seen = <str 25 chars, starts '2026-09-26T23:34:21+00:0'>
+      hits = 1
+      label = <str 178 chars, starts 'CLIVE has no tool to set'>
+      last_seen = <str 25 chars, starts '2026-09-26T23:34:21+00:0'>
+      objectives = <list 1>
+      requests = <list 0>
+      seen = <list 1>
+      sources = <dict 1>
+  fields equal between them: {'first_seen': True, 'hits': True, 'label': False, 'last_seen': True, 'objectives': True, 'requests': True, 'seen': True, 'sources': True}
+  carried over (all fields but the label equal): True
+
+=== the two genuinely new gap keys ===
+  custom line name on an order: fields ['first_seen', 'hits', 'label', 'last_seen', 'name', 'objectives', 'requests', 'seen', 'sources']
+  order name lookup on order open order add name: fields ['first_seen', 'hits', 'label', 'last_seen', 'name', 'objectives', 'requests', 'seen', 'sources']

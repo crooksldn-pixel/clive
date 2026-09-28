@@ -1,0 +1,10 @@
+app/commands.py
+app/digest/selfmodel.py
+app/kb/loader.py
+app/memory/coalesce.py
+app/progressive.py
+app/reads/scheduler.py
+app/routes/branches.py
+app/routes/command.py
+app/surfaces.py
+app/tools/analytics_tools.py

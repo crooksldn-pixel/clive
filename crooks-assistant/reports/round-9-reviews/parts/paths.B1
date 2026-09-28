@@ -1,0 +1,8 @@
+app/displays/store.py
+app/displays/views.py
+app/routes/displays.py
+app/tools/display_tools.py
+app/tools/gate.py
+tests/test_gate.py
+app/tools/authority.py
+tests/test_displays.py

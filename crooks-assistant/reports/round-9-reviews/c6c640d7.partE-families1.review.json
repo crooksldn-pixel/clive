@@ -1,0 +1,65 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-E-families1-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "E-01",
+      "material": true,
+      "finding": "BLOCKS — A stale picker can prepare a change to a previously issued order other than the order now on screen, risking a wrong live order mutation after the owner's hold. `order_edit._open_picker` requires the named order to be open, but `_stage_add_item` checks only `may_open` and whether the variant was issued; it does not repeat the current-order check, and it pairs the submitted order ID with the current entity's label.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/families/order_edit.py: _open_picker, _stage_add_item",
+      "required_repair": "At staging, require the submitted order ID to equal the branch's currently open order, bind the variant choice to that picker, and derive the displayed order label from the validated order."
+    },
+    {
+      "finding_id": "E-02",
+      "material": true,
+      "finding": "BLOCKS — A model-normalised spoken address can be treated as a verified recipient, so an ASR or model error can send private mail to the wrong address on this live mailbox. `gmail_compose_open` passes the model's `to` string to `check_address`; a canonical address receives `to_status='ok'` even if the owner dictated it, whereas `_ready_to_stage` refuses only an address still marked uncertain. The deleted spoken composer passed its extracted address through the uncertainty check before offering Send.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/families/compose.py: check_address, gmail_compose_open, _ready_to_stage; DIFF — compose.py: _open_render deletion",
+      "required_repair": "Preserve recipient provenance across the model path. Require an explicit owner field confirmation for an arbitrary address supplied from speech or by the model before Send can be staged; test a dictated address that the model supplies in canonical form."
+    },
+    {
+      "finding_id": "E-03",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether owner-reported defects are still recorded during tonight's always-on test session; without a replacement, deleting the only recorder shown here loses those reports. The removed `owner_feedback._render` called `feedback.record`, and no surviving file in this slice replaces that call. The model-turn recording path is outside the supplied files.",
+      "evidence_ref": "DIFF — crooks-assistant/app/families/owner_feedback.py: _render deletion; REVIEW PACKET — STANDING FACTS 3 (CROOKS_TEST_SESSION_ALWAYS=true)",
+      "required_repair": "Show the SHA-exact replacement in `app/routes/turn.py` that calls `app/observability/feedback.py:record` for recognised owner feedback, or restore recording on the model path, with an end-to-end report test."
+    },
+    {
+      "finding_id": "E-04",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether the replacement model path preserves the deleted confident order-to-thread refusal; if it does not, a reply about one live customer's order could be drafted to another customer's thread and sent after a hold. `order_email._choose` previously refused merely possible links before arming a reply. Its removal supplies no corresponding check in this slice; `compose._compose_reply` identifies the thread's sender but does not establish that the thread concerns the requested order.",
+      "evidence_ref": "DIFF — crooks-assistant/app/families/order_email.py: about_this_order, _choose, _render deletion; CANDIDATE FILES — crooks-assistant/app/families/compose.py: _compose_reply",
+      "required_repair": "Show the order/thread binding enforced by the SHA-exact model/write path in `app/routes/turn.py` and `app/tools/gmail_writes.py`, or enforce a confident match before preparing an order-specific reply. Test a possible link to a different order."
+    },
+    {
+      "finding_id": "E-05",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether any live startup or observability module still imports a deleted capability or family; a remaining reference could also stop tonight's test-session data capture. Package discovery covers the family imports shown here, but the packet does not contain a repository-wide reference audit, so the requested answer about remaining references cannot be verified.",
+      "evidence_ref": "REVIEW PACKET — YOUR PART (deleted modules and reference question); CANDIDATE FILES — crooks-assistant/app/families/__init__.py: load_all; DIFF — capability and family deletions",
+      "required_repair": "Provide a SHA-exact repository-wide executable import/symbol-reference check, including `app/observability/visible.py` and `app/routes/turn.py`, and repair any dangling references; verify startup with the production configuration."
+    },
+    {
+      "finding_id": "E-06",
+      "material": true,
+      "finding": "FOLLOW-UP — This can give the owner a false operational answer tonight, but the shown path only reads and presents records; it does not itself write, lose or leak them. If the open-orders read fails while today's read succeeds, `landings._orders_render` treats the failed read as an empty list and says 'Nothing is waiting to go out.'",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/families/landings.py: _orders_render",
+      "required_repair": "Distinguish a failed open-orders read from a successful empty result; mark the answer partial and decline to say nothing is waiting when that read failed."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_00aaeedf3f351529016aba6240cd7087d2876563a94d4c075e",
+    "session_started_at": "2026-09-28T12:49:03.138638Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The deleted modules were not all dead code. `capabilities.ask`, `screen` and `ui_intent` supplied request discrimination, live-screen answers and a surface-fulfilment check. `families.navigation_extras`, `order_email`, `query_language`, `self_knowledge` and `ui_intent` supplied spoken navigation, grounded order/email replies, bounded order queries, interface explanations and customer/area workspaces. `owner_feedback` recorded spoken defect reports; that loss is finding E-03. The tracking limitation from `query_language` does remain registered as `shipping.DELIVERY`. In the supplied surviving files, references to deleted modules are comments rather than executable imports; references outside this slice remain unverified (E-05).\n\n`landings` now houses the shared reply-queue, working-set, period and money helpers and runs four read-only dock recipes. It reads customer-linked Gmail threads and Shopify order, stock and sales figures, including monetary totals, but contains no store or mailbox mutation. The deleted families did not themselves commit writes; the material lost refusal to check is `order_email`'s confident thread match (E-04). The surviving workspace and action paths retain staging and hold descriptions, but the spoken-recipient check is weaker on the model path (E-02). No round-8 finding was assigned to this slice in the packet.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 144097, \"input_tokens_details\": {\"cache_write_tokens\": 144094, \"cached_tokens\": 0}, \"output_tokens\": 9761, \"output_tokens_details\": {\"reasoning_tokens\": 8192}, \"total_tokens\": 153858}]"
+}

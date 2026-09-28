@@ -1,0 +1,42 @@
+=== HEAD of origin/clive/trunk ===
+c6c640d7017a0411c13d39cecc6ce2223a79c724
+=== candidate is a commit ===
+commit
+=== parents of candidate (merge commit?) ===
+c6c640d7017a0411c13d39cecc6ce2223a79c724 32a99cd79b54aa774f88344dbfaad31879a775e6 858d36e4560f265f7580d260fcccbc00a81d528d
+=== candidate subject ===
+c6c640d7017a0411c13d39cecc6ce2223a79c724
+crooksldn-pixel <redacted>
+Mon Sep 28 12:43:32 2026 +0100
+Round 9 features: iOS blue, live voice, no fast path or speech terms, and the TV remote (PR #52)
+Round 9 features: iOS blue, live voice, no fast path or speech terms, and the TV remote
+=== ancestry checks ===
+  32a99cd7 : ANCESTOR ok
+  6a29e31013b0b9e543d90434e14ed65deea1ce30 : ANCESTOR ok
+  3e77f2157a35a23ba69014c1b0161a9351accd48 : ANCESTOR ok
+=== 32a99cd7 full sha + subject ===
+32a99cd79b54aa774f88344dbfaad31879a775e6
+32a99cd79b54aa774f88344dbfaad31879a775e6 Deploy review round 8: close the 21 material findings, and restyle the screens to their design (PR #51)
+=== commits in range ===
+c6c640d7 Round 9 features: iOS blue, live voice, no fast path or speech terms, and the TV remote (PR #52)
+858d36e4 Merge clive/trunk (PR #51) into the round-9 features
+ebc3203d Merge: the app becomes the TV's remote; two things at once; screen off
+c34c5cd8 Merge: live voice waveform and words while holding
+7fcb80f2 Merge: every sentence is a model turn; nothing rewrites what was heard
+32a99cd7 Deploy review round 8: close the 21 material findings, and restyle the screens to their design (PR #51)
+4411adde Every sentence is a model turn; nothing biases or rewrites what was heard
+81ae0c11 Screens: two things at once, turn a screen off, and the app as the screen's remote
+d03f5ae2 Live words and a real waveform while the owner holds the ask bar
+0bdfe58c The app in iOS blue: the accent moves from lilac, and the start-up's dots go steel
+10fe6865 Screens test: build the pre-round-8 screen key with the fake-credentials helper
+be04534b Screens: the design's gift icon and colours in the page script, and one test on the new derive
+08c0650e Merge the screens restyle to the approved design
+0083e803 Merge round-8 screens fixes
+235aba2d Merge round-8 A3 fixes
+f12abfe3 Merge round-8 A1/A2 fixes
+5c9105f8 Deploy review round 8: close A1 and A2 access-boundary findings
+4bf986fd Deploy review round 8, part A3: close all seven gap-record, report and stop findings
+d2504a35 Screens, deploy review round 8: close B-01 to B-05, NEW-B-CAP and NEW-B-LOCAL-SLIP
+dd0dd7ca Restyle the screens to their approved design: steel, white and Apple blue
+=== diffstat total ===
+ 221 files changed, 13350 insertions(+), 14964 deletions(-)

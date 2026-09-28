@@ -1,0 +1,12 @@
+app/routes/voice.py
+app/clients/elevenlabs.py
+config/settings.py
+web/live-voice.js
+web/audio-viz.js
+web/alpha.js
+web/alpha.css
+web/telemetry.js
+tests/test_live_voice.py
+tests/web/live-voice.test.js
+tests/test_voice_credits.py
+tests/test_scribe.py

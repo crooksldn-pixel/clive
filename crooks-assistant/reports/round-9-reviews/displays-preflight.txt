@@ -1,0 +1,21 @@
+=== 1.7 SCREENS: production displays.json ===
+  EXISTS uid=0 mode=600 size=3800 mtime=1790597569
+  sha256 6b3b3fee8a5ea45ba86f8df22ee3ee9477709c629caa464a24cd962cc0dce7e2
+  top-level keys: ['done', 'screens']
+  SCREEN COUNT: 0
+  screens (names redacted to their first letter; ids to 8 chars):
+
+  --- re-read under the real top-level keys ---
+  done: list with 0 entries
+  screens: dict with 3 entries
+  SCREEN COUNT: 3
+    id=scr_e32d   name=P…   approved=None paired=None fields=['created_at', 'id', 'key', 'last_seen', 'name', 'secret', 'showing', 'version']
+    id=scr_59ec   name=M…   approved=None paired=None fields=['created_at', 'id', 'key', 'last_seen', 'name', 'secret', 'showing', 'version']
+    id=scr_3bcf   name=P…   approved=None paired=None fields=['created_at', 'id', 'key', 'last_seen', 'name', 'secret', 'showing', 'version']
+  'done': list, 0 entries
+
+  --- when were they stored? (pairing did not exist before c6c640d7) ---
+    scr_e32d   created_at='2026-09-27T21:33:51+00:00' last_seen='2026-09-28T10:53:34+00:00' version=2 showing=NoneType has_secret=True has_key=True
+    scr_59ec   created_at='2026-09-27T21:35:53+00:00' last_seen='2026-09-28T11:47:51+00:00' version=8 showing=dict has_secret=True has_key=True
+    scr_3bcf   created_at='2026-09-28T10:54:05+00:00' last_seen='2026-09-28T12:12:48+00:00' version=1 showing=dict has_secret=True has_key=True
+  -> all three predate pairing: they count as ALREADY APPROVED.

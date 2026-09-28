@@ -1,0 +1,54 @@
+==============================================================================================
+YOUR PART: A1a — identity and the door — the code
+==============================================================================================
+
+You are part A1a of 24. Your scope is EXACTLY these 7 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/app/identity.py
+    crooks-assistant/app/routes/actions.py
+    crooks-assistant/app/local_cli.py
+    crooks-assistant/app/main.py
+    crooks-assistant/app/routes/health.py
+    crooks-assistant/app/routes/admin.py
+    crooks-assistant/deploy/systemd/crooks-assistant.service
+
+ROUND-8 FINDINGS THIS PART MUST RULE ON, ONE BY ONE (the full round-8 document is
+included below):
+    F-05A
+    F-05B
+    F-05B-AVAIL
+    F-05B-AVAIL-PREFLIGHT
+    F-NEW-PAD
+
+This part owns the access boundary: who the app believes opened each connection, and what it
+lets them do. app/identity.py, app/routes/actions.py, app/local_cli.py, app/main.py,
+app/routes/health.py and app/routes/admin.py are all here TOGETHER and in full, because round 8's
+lesson was that a verdict on any one of them needs the others in the same packet.
+
+Answer these, on the code, naming file and symbol:
+  - Is a forwarded/forged identity header able to change what the door believes, at ANY gate? The
+    unit runs uvicorn with --no-proxy-headers, so the connection's own peer address is what the app
+    sees. Trace every place a header could still displace it.
+  - app/local_cli.py: the server's own key now EXISTS at /etc/crooks-os/secrets/local_cli_key on
+    production (standing fact 2). Round 8's F-05A said `presented` treated an EMPTY
+    X-Crooks-Local-Key header as absent, so refusal depended on the header's VALUE rather than its
+    PRESENCE. Is that closed, on all three CLI routes, for correct, wrong and empty keys?
+  - /whoami now logs `whoami: id=<8 hex> through=... owner=... refusal=...` and returns the same
+    token as "check" in its JSON. Confirm the logged id and the returned "check" are the SAME value
+    for one request and cannot be confused across concurrent requests.
+  - /health now answers callers the owner rule refuses — INCLUDING the server's own loopback curl —
+    with limited liveness only: status, build, uptime_s, checks.proxy_identity {ok, detail},
+    checks.housekeeping {ok}, limited: true. Confirm the limited document leaks nothing else, and
+    that the full document is reachable only by a caller the owner rule admits (or by the server's
+    own key). That is round 8's F-NEW-PAD; rule on it here.
+  - app/routes/admin.py and the write paths in app/routes/actions.py: does anything in this range
+    widen who may reach them?
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.
+
+SCHEMA NOTE FOR THIS PART: every finding you return MUST carry a NON-EMPTY `required_repair`
+string. If a finding needs no repair — for example a round-8 finding you judge REPAIRED, or a
+non-material observation — write the reason in words there, such as "None: repaired at this SHA,
+no further work" or "None: observation only". An empty string is rejected and your whole review
+is thrown away.

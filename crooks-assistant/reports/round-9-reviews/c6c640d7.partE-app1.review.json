@@ -1,0 +1,30 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-E-app1-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "E-01",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether a tap can reach a live write on production tonight, because writes are enabled and the replacement recipe runner was not supplied. `app/routes/command.py:_run_recipe` now calls `app/recipes.py:run`; its claimed read-only check and tool-dispatch path cannot be verified from this packet. The scheduler’s read-only check applies only if the runner uses that scheduler.",
+      "evidence_ref": "CANDIDATE FILES: crooks-assistant/app/routes/command.py, _run_recipe; crooks-assistant/app/reads/scheduler.py, assert_reads_only",
+      "required_repair": "Supply the candidate-SHA implementation of app/recipes.py:RECIPES, run, assert_read_only, and its dispatch path for review. If a write or batch tool is reachable, refuse it before execution on the tap path."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_010c14f0615ceaea016aba6240d62087d2af1c5f8ef2dbb7d6",
+    "session_started_at": "2026-09-28T12:49:03.052668Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The supplied edits do not show a removed refusal, new customer-data output, or matching of the owner’s words. The changed tap-recipe execution path cannot be cleared without its runner; no round-8 finding was assigned to this part for individual adjudication.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 78713, \"input_tokens_details\": {\"cache_write_tokens\": 78710, \"cached_tokens\": 0}, \"output_tokens\": 3456, \"output_tokens_details\": {\"reasoning_tokens\": 3159}, \"total_tokens\": 82169}]"
+}

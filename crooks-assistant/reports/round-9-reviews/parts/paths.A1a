@@ -1,0 +1,7 @@
+app/identity.py
+app/routes/actions.py
+app/local_cli.py
+app/main.py
+app/routes/health.py
+app/routes/admin.py
+deploy/systemd/crooks-assistant.service

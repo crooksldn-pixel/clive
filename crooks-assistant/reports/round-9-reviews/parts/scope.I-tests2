@@ -1,0 +1,30 @@
+==============================================================================================
+YOUR PART: I-tests2 — the remaining test files touched by this range (bounded slice I-tests2)
+==============================================================================================
+
+You are part I-tests2 of 24. Your scope is EXACTLY these 11 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/tests/test_cancel.py
+    crooks-assistant/tests/test_capability_routing.py
+    crooks-assistant/tests/test_compose.py
+    crooks-assistant/tests/test_context.py
+    crooks-assistant/tests/test_council_fixes.py
+    crooks-assistant/tests/test_digest_relate.py
+    crooks-assistant/tests/test_discounts.py
+    crooks-assistant/tests/test_engine_hooks.py
+    crooks-assistant/tests/test_engineering_bridge.py
+    crooks-assistant/tests/test_engineering_bridge_bounds.py
+    crooks-assistant/tests/test_experience.py
+
+These are the tests the range changed that no named part owns. They are EVIDENCE, and the owner's
+rulings turn on whether the evidence is real.
+
+Answer these, naming file and symbol:
+  - Does any test here assert on a mock of the very thing under test?
+  - Did a test that used to cover a refusal, a confirmation or an authority check get deleted or have
+    its assertion weakened in this range? Deletions matter as much as changes: several test files are
+    removed outright.
+  - Does any test grant owner authority or enable writes by default? (round 8, F-A2-FIXTURE)
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

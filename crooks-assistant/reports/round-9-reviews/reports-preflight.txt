@@ -1,0 +1,16 @@
+=== 1.5 REPORTS (read-only) ===
+CROOKS_REPORTS_DIR not in .env -> default: /opt/crooks-os/crooks-assistant/reports
+exists: yes
+dir itself: uid=0 gid=0 mode=700 /opt/crooks-os/crooks-assistant/reports
+
+total entries under it: 2
+--- find /opt/crooks-os/crooks-assistant/reports -perm /077 | wc -l ---
+OTHERS-REACHABLE COUNT: 0
+
+--- breakdown (paths only, no contents) ---
+drwx------ root:root d /opt/crooks-os/crooks-assistant/reports
+-rw------- root:root f /opt/crooks-os/crooks-assistant/reports/.gitkeep
+--- (showing first 40) ---
+
+.withheld/ present? no
+NOTHING CHANGED: this step is read-only.

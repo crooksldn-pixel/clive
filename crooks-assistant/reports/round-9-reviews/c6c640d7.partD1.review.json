@@ -1,0 +1,44 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-D1-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "D1-01",
+      "material": true,
+      "finding": "BLOCKS — Production’s always-on observability receives raw spoken text and model answers containing potential customer names before the turn installs its name-redaction context; I cannot verify from the supplied files that those events are made safe before they are retained or shared. `turn()` emits `raw_text`, `text`, and `result.text`, whereas `_answer()` calls `timeline.note_names()` later.",
+      "evidence_ref": "CANDIDATE FILES: crooks-assistant/app/routes/turn.py, turn() stt/model timeline.emit calls and _answer() timeline.note_names; STANDING FACTS §3 (CROOKS_TEST_SESSION_ALWAYS=true)",
+      "required_repair": "Redact or omit content at the early emission sites, and verify the persisted events with a newly encountered customer name; alternatively provide the missing `app/observability/timeline.py:emit` and `scrub` behavior proving those events are redacted before retention."
+    },
+    {
+      "finding_id": "D1-02",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether a write from the production tablet can target a different record from the one displayed. `_stand_on_what_was_shown()` moves the branch cursor from the first simple record card only, while `present()` can replace that card with an `order_workspace` or `customer_workspace`; it also does not resolve screens containing records of different kinds. The new model-turn cursor can therefore remain on an earlier record or move to an incidental one.",
+      "evidence_ref": "CANDIDATE FILES: crooks-assistant/app/routes/turn.py, _RECORD_CARDS, _stand_on_what_was_shown() and _answer(); crooks-assistant/app/presentation.py, _compose_workspace()",
+      "required_repair": "Make cursor selection account for composed workspaces and refuse ambiguous multi-record selection. Test a model turn showing order B while the cursor was on order A, through the subsequent tapped write and its confirmation; inspect the command handler’s target binding before clearing the write risk."
+    },
+    {
+      "finding_id": "D1-03",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether removing the fast lane has left a reachable model write with weaker disambiguation or refusal checks on this writes-enabled production host. This part shows model tool calls going straight to `_answer()` for proposal delivery, but supplies neither the deleted fast-lane guards nor the model dispatch and action-commit implementations needed to establish guard parity.",
+      "evidence_ref": "REVIEW PACKET: YOUR PART questions (b) and restricted diff for app/routes/turn.py; CANDIDATE FILES: crooks-assistant/app/routes/turn.py, _provider_turn() call and _answer() proposal delivery",
+      "required_repair": "Provide and review the deleted fast-lane write checks against `app/providers/max_agent_sdk.py:MaxAgentSDKProvider._dispatch`, `app/tools/dispatch.py:dispatch`, `app/tools/gate.py:classify`, and the action staging and commit handlers. Restore any missing check at the model write boundary and test refund, cancellation, and store-credit attempts."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0ac2ba195a76ffe9016aba624092f887d28de87cc093b0913b",
+    "session_started_at": "2026-09-28T12:49:02.925456Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "Within the supplied turn path, only the permitted bare-yes interlock short-circuits a sentence; the other word matches add model context rather than execute an action. No round-8 finding is individually assigned to D1 in this packet. The production write-guard question cannot be cleared from these six files, and the cursor and observability paths have the material findings above.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 78375, \"input_tokens_details\": {\"cache_write_tokens\": 78372, \"cached_tokens\": 0}, \"output_tokens\": 8202, \"output_tokens_details\": {\"reasoning_tokens\": 7364}, \"total_tokens\": 86577}]"
+}

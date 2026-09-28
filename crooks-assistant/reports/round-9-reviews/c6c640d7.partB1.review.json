@@ -1,0 +1,65 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-B1-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "B-REMOTE-OFF",
+      "material": true,
+      "finding": "BLOCKS — A stale owner remote can turn off a newly displayed customer slip, irreversibly losing it. The whole-screen remote off request supplies no version, and `take_off` checks `expect` only when a pane is specified; an off tap made for an older view therefore deletes whatever is showing when the request arrives.",
+      "evidence_ref": "CANDIDATE FILES — app/routes/displays.py:OffBody,remote_off; app/displays/store.py:DisplayStore.take_off",
+      "required_repair": "Require a screen-wide expected version for remote whole-screen off and check it under the store lock before removing either pane; return 409 for a changed screen. Test replacement between viewing the remote and tapping off."
+    },
+    {
+      "finding_id": "B-03",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether a folder-fsync failure will occur on production tonight; if it occurs while clearing a slip, that slip can reappear after a restart. `_journal` returns False when its directory flush fails, but `_commit` ignores that result and accepts the deletion in memory; if the record flush also fails, neither the old record's deletion nor its purge obligation is confirmed durable.",
+      "evidence_ref": "CANDIDATE FILES — app/displays/store.py:DisplayStore._journal,_commit,_write,_replay; tests/test_displays.py:_flaky_record_flush",
+      "required_repair": "Do not let a deletion stand without a durably confirmed purge obligation unless the record itself becomes durable. Test failure of the journal's *first* directory fsync together with record-write failure, followed by restart from the old durable record."
+    },
+    {
+      "finding_id": "B-04",
+      "material": true,
+      "finding": "BLOCKS — An approved production screen holding its key and allow-listed login can forge a real order's packed record without displaying or packing it. `acknowledge` accepts paced, client-chosen ranges without page issuance, and `mark_done` accepts client-supplied `confirm: true`; the one-second gaps do not establish a displayed page or a packer's tap. B-04 is STILL PRESENT despite its added ordering and pacing.",
+      "evidence_ref": "CANDIDATE FILES — app/displays/store.py:DisplayStore.acknowledge,mark_done; app/routes/displays.py:SeenBody,DoneBody,seen,done",
+      "required_repair": "Either establish the required page and confirmation evidence independently of arbitrary POST bodies, with a test using direct paced POSTs that never render pages, or obtain an explicit owner ruling accepting key-holder assertions as the definition of packed."
+    },
+    {
+      "finding_id": "B-01-B-05-PATH",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether a refused caller can reach the production screen handlers or bypass issued-ID enforcement at this SHA, which could expose a customer slip on a screen. The supplied handlers check active OWNER authority and the gate checks issued IDs, but the current owner-principal implementation and HTTP-to-SDK callback path are not supplied; the route tests disable Tailscale verification or call dispatch directly. B-01 and the production-path portion of B-05 remain UNVERIFIED.",
+      "evidence_ref": "REVIEW PACKET — YOUR PART and CANDIDATE FILES, app/tools/display_tools.py:_owners_own,screen_show; app/tools/gate.py:_ISSUED_ID_ARGS; tests/test_displays.py:app_with,test_an_objective_goes_up_only_once_this_conversation_was_shown_it",
+      "required_repair": "Supply the exact-SHA implementations of app/routes/actions.py:require_principal,principal_check; app/main.py:guard_and_freshness; app/routes/turn.py:turn,_provider_turn; app/providers/max_agent_sdk.py:_dispatch; and app/tools/registry.py:build_mcp_server,invoke for a production-path review."
+    },
+    {
+      "finding_id": "NEW-B-LOCAL-SLIP",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether an open production screen actually removes customer details after a 403, disconnection or local expiry, so the previously demonstrated leak remains unverified. The supplied server-side test searches for snippets in `web/display.js`, but that browser implementation and its rendering/retained-dot state are outside the supplied files.",
+      "evidence_ref": "REVIEW PACKET — YOUR PART and CANDIDATE FILES, tests/test_displays.py:test_the_screen_takes_a_customer_off_at_once_when_it_may_no_longer_show_it",
+      "required_repair": "Supply and review the exact-SHA web/display.js:poll,wipe,wanted,reconcile,draw and the relevant dots-engine clearing code, with behavioural checks for an open slip after 403, prolonged disconnection and expiry."
+    },
+    {
+      "finding_id": "B-NEW-DONE-LOSS",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether this host's real slips and packed history will cross the file limit as its permitted screens fill; crossing it silently destroys done rows. With two views allowed on each of twenty screens, `_write` repeatedly discards the oldest half of `done` until the file fits, rather than refusing a new view; the old single-pane size assumption no longer bounds that loss.",
+      "evidence_ref": "CANDIDATE FILES — app/displays/store.py:MAX_SCREENS,MAX_FILE_BYTES,MAX_PANES,DisplayStore._write,DisplayStore.show; app/displays/views.py:MAX_VIEW_BYTES",
+      "required_repair": "Bound two-pane capacity against the record limit without silently discarding retained done rows. Reject the operation that exceeds capacity or adopt an explicit, tested retention policy; exercise near-limit views with existing done history."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0ee8c3194d981b10016aba62409bb087d2b949765305a4b0a1",
+    "session_started_at": "2026-09-28T12:49:02.815998Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "B-01: STILL UNVERIFIED on the production invocation path (`display_tools._owners_own` itself refuses non-owner authority). B-02: REPAIRED by `DisplayStore.register`, `approve` and pending-only `poll`: a random six-digit code is salted and hashed, lasts 15 minutes, permits five wrong attempts, and uses `hmac.compare_digest`; `screen_pair` requires active OWNER authority and code digits in the request's heard words. B-03: STILL PRESENT for an unflushed purge journal. B-04: STILL PRESENT as client-asserted packing. B-05: pairing, exact-name selection and `gate._ISSUED_ID_ARGS` are repaired, but production invocation remains UNVERIFIED. NEW-B-CAP: REPAIRED in the sole creation path, `DisplayStore.register`, which refuses a twenty-first screen without eviction. NEW-B-LOCAL-SLIP: STILL UNVERIFIED without the browser implementation. The three existing rows without `paired` are treated as approved as the owner requires. Each remote route has a router-level per-request principal dependency and no screen-key alternative; the supplied server responses exclude stored `secret` and pairing hashes, while a row's `key` is its normalized name. Verification of the production principal dependency requires the missing implementation noted above.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 168304, \"input_tokens_details\": {\"cache_write_tokens\": 168301, \"cached_tokens\": 0}, \"output_tokens\": 10726, \"output_tokens_details\": {\"reasoning_tokens\": 9231}, \"total_tokens\": 179030}]"
+}

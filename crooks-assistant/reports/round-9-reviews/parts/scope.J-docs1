@@ -1,0 +1,27 @@
+==============================================================================================
+YOUR PART: J-docs1 — documentation and example files (bounded slice J-docs1)
+==============================================================================================
+
+You are part J-docs1 of 24. Your scope is EXACTLY these 9 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/.env.example
+    crooks-assistant/Makefile
+    crooks-assistant/README.md
+    crooks-assistant/deploy/env.production.example
+    crooks-assistant/docs/DEPLOY_LINUX.md
+    crooks-assistant/docs/phase4/TOOL_MATRIX.md
+    crooks-assistant/docs/product-memory/OWNER_DECISIONS_2026-09-28.md
+    crooks-assistant/docs/product-memory/README.md
+    crooks-assistant/kb/terminology.md
+
+These are documentation, example and configuration-example files. They are not executed.
+
+Answer these briefly:
+  - Does any EXAMPLE file (deploy/env.production.example, .env.example) contain a real secret value, a
+    real token, or a real login? That would be a leak in the repository.
+  - Does any document instruct an operator to do something the code no longer supports, or to set a
+    switch this deploy relies on being unset?
+  - Otherwise say "documentation only, nothing material" and stop. Do not invent findings here.
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

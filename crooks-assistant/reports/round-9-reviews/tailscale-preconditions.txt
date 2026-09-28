@@ -1,0 +1,45 @@
+=== 1.4 TAILSCALE / PROVENANCE PRECONDITIONS ===
+tailscaled MainPID: 1655
+readlink /proc/1655/exe = /usr/sbin/tailscaled
+  OK exact /usr/sbin/tailscaled
+cgroup: 0::/system.slice/tailscaled.service
+  OK exact cgroup
+
+--- stat -c '%u %a %n': want uid 0, no group-write, no other-write ---
+0 755 /usr/sbin/tailscaled
+  uid0=True  group-write=False  other-write=True
+0 755 /sys/fs/cgroup/system.slice/tailscaled.service
+  uid0=True  group-write=False  other-write=True
+0 644 /sys/fs/cgroup/system.slice/tailscaled.service/cgroup.procs
+  uid0=True  group-write=True  other-write=False
+
+--- pidfd_open from the PRODUCTION venv interpreter ---
+interpreter: /opt/crooks-os/crooks-assistant/.venv/bin/python (Python 3.12.3)
+  OK pidfd_open(1) succeeded and closed
+
+=== 1.4b own-address tables ===
+tailscale ip -4 = 100.72.82.24
+--- fib_trie, /32 host LOCAL entry ---
+     |-- 100.72.82.24
+        /32 host LOCAL
+     +-- 127.0.0.0/8 2 0 2
+  OK /32 host LOCAL present
+--- IPv6 ---
+tailscale ip -6 = fd7a:115c:a1e0::352b:5219
+disable_ipv6=0
+00000000000000000000000000000001 01 80 10 80       lo
+fe80000000000000900009fffeec0f59 02 40 20 80     eth0
+2a0104f81c1c60a30000000000000001 02 40 00 80     eth0
+fd7a115ca1e0000000000000352b5219 03 80 00 80 tailscale0
+fe80000000000000387442081c14608f 03 40 20 80 tailscale0
+  OK tailscale v6 address present in if_inet6 (hex)
+
+--- CORRECTED ownership/mode block (computed in python, not shell arithmetic) ---
+--- stat: want uid 0, no group-write, no other-write ---
+0 755 /usr/sbin/tailscaled
+  uid0=True  group-write=False  other-write=False  -> OK
+0 755 /sys/fs/cgroup/system.slice/tailscaled.service
+  uid0=True  group-write=False  other-write=False  -> OK
+0 644 /sys/fs/cgroup/system.slice/tailscaled.service/cgroup.procs
+  uid0=True  group-write=False  other-write=False  -> OK
+ownership/mode block: PASS

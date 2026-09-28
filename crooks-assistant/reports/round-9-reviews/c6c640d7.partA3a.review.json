@@ -1,0 +1,51 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-A3a-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "A3a-LIVE-CLEAN",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether the startup clean will lose owner data on production tonight because the ten live rows’ keys and complete field sets were not supplied. GapLedger._repair_locked compares the cleaned record with the stored record: unchanged data gets no rewrite or second backup, but a changed record gets a backup and rewrite. _sanitise can merge keys that clean alike and removes fields outside its allow-list. The packet establishes that a row was re-keyed and two rows have names, but not whether all ten keys remain distinct after cleaning or whether every stored field survives. The `name` field itself is allow-listed.",
+      "evidence_ref": "REVIEW PACKET — STANDING FACTS 3; crooks-assistant/app/objectives/gaps.py:GapLedger._repair_locked, _sanitise, _GAP_FIELDS",
+      "required_repair": "Run the candidate’s clean against a byte-identical private copy of the current ten-row record and supply a per-row before/after key-and-field comparison, backup count, and vendored-reader result. If any distinct row or owner field would be lost, preserve it or provide an explicit, recoverable migration before deployment."
+    },
+    {
+      "finding_id": "F-07-VALUES",
+      "material": false,
+      "finding": "REPAIRED at this SHA for the assigned round-8 defect: _count accepts only bounded integers or ASCII-digit text, _strict_iso catches UTC-conversion overflow, and deeply nested JSON is treated as unreadable rather than escaping through report or repair.",
+      "evidence_ref": "crooks-assistant/app/objectives/gaps.py:_count, _strict_iso, GapLedger.load, GapLedger._repair_locked",
+      "required_repair": "None for the assigned defect."
+    },
+    {
+      "finding_id": "F-07-LINKS",
+      "material": false,
+      "finding": "REPAIRED at this SHA for the assigned round-8 limit and earliest-fix defects: truncated lists are counted and marked uncertain where relevant, _keep_requests retains the earliest live fix, and the report does not call an uncertain zero recurrence exact or held. This does not establish what will happen to the undisclosed live rows.",
+      "evidence_ref": "crooks-assistant/app/objectives/gaps.py:_only_known_gap, _only_known_build, _keep_requests, GapLedger.report",
+      "required_repair": "None for the assigned defect; resolve A3a-LIVE-CLEAN separately."
+    },
+    {
+      "finding_id": "F-07-DURABILITY",
+      "material": false,
+      "finding": "REPAIRED at this SHA for the assigned round-8 post-replacement failure: _save distinguishes a failed directory fsync after replacement with WrittenNotConfirmed, and startup and later-change logging no longer claim that such a file was untouched.",
+      "evidence_ref": "crooks-assistant/app/objectives/gaps.py:GapLedger._save, _repair_locked, _change, install",
+      "required_repair": "None for the assigned defect."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_030a7a59cd5a3793016aba6240b65887d2b3b72be0ef72e668",
+    "session_started_at": "2026-09-28T12:49:03.047395Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The vendored 3e77f215 reader can load and report the candidate’s supported version-1 schema; its report ignores the new accounting fields. For a record that remains unchanged under _sanitise, startup makes no second backup. The packet does not provide enough of the actual ten-row record to establish that production takes that branch, retains all ten rows and their fields, or ends with exactly its existing backup.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 103168, \"input_tokens_details\": {\"cache_write_tokens\": 103165, \"cached_tokens\": 0}, \"output_tokens\": 9113, \"output_tokens_details\": {\"reasoning_tokens\": 8286}, \"total_tokens\": 112281}]"
+}

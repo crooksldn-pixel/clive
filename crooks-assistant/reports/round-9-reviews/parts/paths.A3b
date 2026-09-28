@@ -1,0 +1,9 @@
+app/observability/session.py
+app/observability/timeline.py
+app/observability/contract.py
+app/routes/observe.py
+scripts/session_ops.py
+scripts/test_session.py
+tests/test_screen_privacy.py
+tests/test_observability.py
+app/main.py

@@ -1,0 +1,42 @@
+==============================================================================================
+YOUR PART: A3b — observability, screen privacy and shutdown
+==============================================================================================
+
+You are part A3b of 24. Your scope is EXACTLY these 9 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/app/observability/session.py
+    crooks-assistant/app/observability/timeline.py
+    crooks-assistant/app/observability/contract.py
+    crooks-assistant/app/routes/observe.py
+    crooks-assistant/scripts/session_ops.py
+    crooks-assistant/scripts/test_session.py
+    crooks-assistant/tests/test_screen_privacy.py
+    crooks-assistant/tests/test_observability.py
+    crooks-assistant/app/main.py
+
+ROUND-8 FINDINGS THIS PART MUST RULE ON, ONE BY ONE (the full round-8 document is
+included below):
+    F-04-STARTUP
+    F-04-REPORT-LOSS
+    F-04-SHUTDOWN
+    F-10
+
+This part owns the always-on observability session, the report files it writes, what the screens
+are allowed to see, and what happens on shutdown. CROOKS_TEST_SESSION_ALWAYS=true, so this session
+is running in production right now.
+
+Answer these, on the code, naming file and symbol:
+  - F-04-STARTUP / F-04-REPORT-LOSS: the start-up pass tightens report paths others can reach and
+    withholds what it cannot fix. On this host it already tightened two paths and the count is now
+    zero. Judge the GENERAL case: can the pass lose a report, or leave one readable, on a path
+    shape this host does not happen to have (a symlink, a path it cannot chmod, a race with a
+    writer)?
+  - F-04-SHUTDOWN: does the Housekeeper/lifespan stop cleanly, and can a shutdown lose a report or
+    a timeline that had been accepted?
+  - F-10: re-rule at this SHA.
+  - tests/test_screen_privacy.py grows by 674 lines. CROOKS_SCREEN_SNAPSHOTS=false in production.
+    What exactly is a screen allowed to observe with that switch false, and does anything in this
+    range widen it? A screen is a TV in a shop; anything it can see is effectively public.
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

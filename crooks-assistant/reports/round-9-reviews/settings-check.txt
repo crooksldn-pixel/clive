@@ -1,0 +1,17 @@
+module: /root/clive-activation/round-9/review/crooks-assistant/config/settings.py
+settings class: BaseSettings
+  model_config extra = forbid
+  env_prefix        = 
+  env_file          = None
+settings class: Settings
+  model_config extra = ignore
+  env_prefix        = CROOKS_
+  env_file          = .env
+  CONSTRUCTED OK against the live .env
+    settings.live_transcript        = True
+    settings.scribe_keyterms        = '<no such field>'
+    settings.screen_snapshots       = False
+    settings.local_owner            = False
+    settings.writes_local_owner     = False
+    settings.engineering_host       = 'worker-01'
+    settings.tailscale_verify       = True

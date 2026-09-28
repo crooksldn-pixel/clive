@@ -1,0 +1,58 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-D2-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "D2-01",
+      "material": true,
+      "finding": "BLOCKS — An older turn can finish after its replacement and put an older order back on the live branch, leaving a subsequent money-moving action aimed at the wrong record. `_answer` detects that the turn was abandoned but still calls `branch.shown` and `_stand_on_what_was_shown`, which can call `branch.visit`; it also completes the older workspace. Refusing the old proposal does not prevent these state changes.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/routes/turn.py, _answer(), _moved_on(), _stand_on_what_was_shown()",
+      "required_repair": "When a turn has moved on, do not publish its cards or mutate its branch cursor or workspace. Add an overlapping-turn test in which the older answer finishes last."
+    },
+    {
+      "finding_id": "D2-02",
+      "material": true,
+      "finding": "BLOCKS — A pending live refund or cancellation remains tappable when the owner says an apparent correction such as “yes, #1938”: `is_affirmation` deletes the digits, treats the result as bare “yes”, and skips the model and pending-proposal revocation. The spoken identifier is silently lost at the write-confirmation boundary.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/routes/turn.py, is_affirmation() and the waiting-proposal branch of turn()",
+      "required_repair": "Recognise an affirmation only when the entire utterance contains the permitted words and harmless punctuation; never discard numbers or other substantive tokens. Test a different spoken order number against a pending money-moving proposal."
+    },
+    {
+      "finding_id": "D2-03",
+      "material": true,
+      "finding": "BLOCKS — Concurrent turns on the two halves assign different values to the same `live.acting_branch` before either finishes, so I cannot tell whether downstream staging can attach a live write to the wrong half. The route sets this shared session field once and then awaits preflight and the provider; the branch-local safety of downstream tool calls depends on code not supplied to D2.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/routes/turn.py, turn() (`live.acting_branch` and `_provider_turn`); crooks-assistant/app/session/branch.py, Branch.instruction_seq",
+      "required_repair": "Establish branch authority per concurrent turn rather than through a mutable session-wide field, and test overlapping write proposals. To verify an existing safeguard instead, supply app/session/models.py:Session.branch, app/providers/max_agent_sdk.py:MaxAgentSDKProvider.turn_on_branch and the action-staging path in app/actions/engine.py."
+    },
+    {
+      "finding_id": "D2-04",
+      "material": true,
+      "finding": "BLOCKS — When a model answer displays an order and a customer, `_stand_on_what_was_shown` chooses the first record even though another kind of record is also present; on this write-enabled host I cannot tell whether a later card action overrides that possibly wrong branch cursor. Its uniqueness test counts references only of the *first kind*, not distinct records across the screen.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/routes/turn.py, _RECORD_CARDS and _stand_on_what_was_shown()",
+      "required_repair": "Do not infer a focused record from a mixed-record screen. Require an explicit focus or uniquely identified tapped card, and test order-plus-customer results followed by a write action; verify the binding in app/commands.py for the affected card action."
+    },
+    {
+      "finding_id": "D2-05",
+      "material": true,
+      "finding": "FOLLOW-UP — The removed fast lane's read-only no-guess checks cannot themselves execute a write or disclose data to a different principal tonight, but their equivalent read-side disambiguation is not present in the supplied model-turn path. In particular, the refusals for a different order number, a named customer instead of the focused one, conflicting periods or dimensions, and spoken self-correction are gone; `turn()` now passes the words and branch context to the model without replacing those checks.",
+      "evidence_ref": "REVIEW PACKET diff — crooks-assistant/app/fastpath/library.py (_names_another_order, _customer_history_plan, period_from, dimension_from), app/fastpath/correction.py (corrections), and app/routes/turn.py (removed _route and _fast); CANDIDATE FILES — app/routes/turn.py, turn()",
+      "required_repair": "Test the model path with conflicting names, order numbers and corrections, and provide a bounded clarification or target-validation rule where it otherwise presents an answer about the wrong record. Keep write-target validation separate from these former read-only heuristics."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_016784ed6a01a9a3016aba6240d10887d2a2a8d3139cf4a64e",
+    "session_started_at": "2026-09-28T12:49:03.135147Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The fast lane and transcript normaliser are removed, and ordinary requests reach the model; the tap recipes retain a startup read-only assertion. No round-8 finding is expressly assigned to D2 in the packet. New write-adjacent branch and affirmation defects, plus unverified concurrent-branch authority, prevent READY.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 148912, \"input_tokens_details\": {\"cache_write_tokens\": 148909, \"cached_tokens\": 0}, \"output_tokens\": 7528, \"output_tokens_details\": {\"reasoning_tokens\": 6332}, \"total_tokens\": 156440}]"
+}

@@ -1,0 +1,44 @@
+==============================================================================================
+YOUR PART: E-families1 — the capability families and capabilities the fast lane fed (bounded slice E-families1)
+==============================================================================================
+
+You are part E-families1 of 24. Your scope is EXACTLY these 23 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/app/capabilities/__init__.py
+    crooks-assistant/app/capabilities/ask.py
+    crooks-assistant/app/capabilities/delta.py
+    crooks-assistant/app/capabilities/screen.py
+    crooks-assistant/app/capabilities/surface.py
+    crooks-assistant/app/capabilities/ui_intent.py
+    crooks-assistant/app/families/__init__.py
+    crooks-assistant/app/families/abandoned.py
+    crooks-assistant/app/families/address.py
+    crooks-assistant/app/families/compose.py
+    crooks-assistant/app/families/discounts.py
+    crooks-assistant/app/families/interaction.py
+    crooks-assistant/app/families/landings.py
+    crooks-assistant/app/families/navigation_extras.py
+    crooks-assistant/app/families/order_create.py
+    crooks-assistant/app/families/order_edit.py
+    crooks-assistant/app/families/order_email.py
+    crooks-assistant/app/families/owner_feedback.py
+    crooks-assistant/app/families/query_language.py
+    crooks-assistant/app/families/self_knowledge.py
+    crooks-assistant/app/families/shipping.py
+    crooks-assistant/app/families/summaries.py
+    crooks-assistant/app/families/ui_intent.py
+
+app/families/* and app/capabilities/* are where the fast lane used to hand off. Several files here
+are DELETED outright (navigation_extras, order_email, owner_feedback, query_language, self_knowledge,
+ui_intent; capabilities ask, screen, ui_intent) and app/families/landings.py gains 466 lines.
+
+Answer these, naming file and symbol:
+  - For each DELETED family or capability: was it dead code, or did the owner have a behaviour that is
+    now gone? Say which, and say whether anything still references it.
+  - app/families/landings.py (+466/-66) is the largest single behaviour change outside the named
+    features. What does it now do, and does it touch a write, a customer record or money?
+  - Did any of these families carry a confirmation or refusal for a write that has not been
+    re-established on the model path?
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

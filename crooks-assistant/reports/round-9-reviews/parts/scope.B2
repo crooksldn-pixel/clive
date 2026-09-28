@@ -1,0 +1,40 @@
+==============================================================================================
+YOUR PART: B2 — screens, pages
+==============================================================================================
+
+You are part B2 of 24. Your scope is EXACTLY these 10 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/web/display.js
+    crooks-assistant/web/display.html
+    crooks-assistant/web/display.css
+    crooks-assistant/web/remote.js
+    crooks-assistant/web/remote.css
+    crooks-assistant/web/sw.js
+    crooks-assistant/web/dots.js
+    crooks-assistant/tests/web/display.test.js
+    crooks-assistant/tests/web/remote.test.js
+    crooks-assistant/tests/web/sw.test.js
+
+ROUND-8 FINDINGS THIS PART MUST RULE ON, ONE BY ONE (the full round-8 document is
+included below):
+    B-06
+    B-07
+
+This part owns the pages the screens and the remote actually run: web/display.js (84 KB),
+web/remote.js, their CSS and HTML, the service worker, web/dots.js, and the JS tests.
+
+Answer these, on the code, naming file and symbol:
+  - The display page runs on a TV in a shop, unattended, and anyone in the room can see it. What
+    does it render that came from the owner's data? With CROOKS_SCREEN_SNAPSHOTS=false, what is it
+    still allowed to show?
+  - The pairing code is shown on the TV. Does the page hold the screen's secret or key in a place
+    another origin, an extension, or the next person to open the page can read (localStorage,
+    sessionStorage, a global, the DOM, a query string, a log)?
+  - web/sw.js: what does the service worker cache, and could it cache an owner-only response and
+    serve it to a later, unauthenticated load of the same page?
+  - The remote page turns the owner's phone into the screen's remote. Where does it get its
+    authority, and does it send anything to the screen it should not?
+  - The restyle to iOS blue is cosmetic; say so and move on unless it changes behaviour.
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

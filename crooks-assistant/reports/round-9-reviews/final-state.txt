@@ -1,0 +1,38 @@
+=== FINAL STATE, 2026-09-28T13:10:40Z — nothing was changed ===
+production HEAD : 6a29e31013b0b9e543d90434e14ed65deea1ce30
+worktree clean  : 0 modified paths
+worktrees       :
+    /opt/crooks-os              6a29e310 (detached HEAD)
+    /opt/crooks-review          1cf3a0f3 [claude/linux-prod-migration-review]
+    /opt/crooks-watcher-review  73f20002 [claude/crooks-bridge-watcher-review]
+service         : active  MainPID=3068091  NRestarts=0
+args            : /opt/crooks-os/crooks-assistant/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
+unit sha256     : 3808af03c0bb0dcfc083ab519b33be3a82299ba92cc418a73678ba60c826722b
+  saved at preflight: 3808af03c0bb0dcfc083ab519b33be3a82299ba92cc418a73678ba60c826722b
+.env sha256     : 0021c07d9c523d4112420537698eae50c51945f5966d3b0d01501def035693ce
+  at preflight      : 0021c07d9c523d4112420537698eae50c51945f5966d3b0d01501def035693ce
+parked cred     : uid=0 mode=600 size=292 mtime=1790474150
+  at preflight      : uid=0 mode=600 size=292 mtime=1790474150
+credentials/    : 3 .cred files
+gap record      : 7f1a7f6b86a708d0b3872b12b8e75c52ed2a197122f01697359c4f798f8eaf48
+  at preflight      : 7f1a7f6b86a708d0b3872b12b8e75c52ed2a197122f01697359c4f798f8eaf48
+gap backups     : 1
+displays.json   : 19884409b5482844c53ac4b903736c5670f598083be834169fc0cc834f35cdc1
+  at preflight      : 6b3b3fee8a5ea45ba86f8df22ee3ee9477709c629caa464a24cd962cc0dce7e2
+serve handlers  :
+    https://crooks-os-prod-1.taildfb357.ts.net (tailnet only)
+    |-- / proxy http://127.0.0.1:8000
+    
+port 8799 open? : 0
+0
+stage unit      : inactive
+switches        :
+    CROOKS_SCREEN_SNAPSHOTS      = 'false'
+    CROOKS_LOCAL_OWNER           = <unset>
+    CROOKS_WRITES_LOCAL_OWNER    = 'false'
+    CROOKS_ENGINEERING_HOST      = <unset>
+    CROOKS_TAILSCALE_VERIFY      = <unset>
+    displays.json now: 3 screens, done=0
+      scr_e32d   name=P…  version=2 last_seen=2026-09-28T10:53:34+00:00 created_at=2026-09-27T21:33:51+00:00
+      scr_59ec   name=M…  version=8 last_seen=2026-09-28T11:47:51+00:00 created_at=2026-09-27T21:35:53+00:00
+      scr_3bcf   name=P…  version=1 last_seen=2026-09-28T13:08:41+00:00 created_at=2026-09-28T10:54:05+00:00

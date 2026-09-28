@@ -1,0 +1,12 @@
+  CROOKS_SCREEN_SNAPSHOTS          = 'false'
+  CROOKS_LOCAL_OWNER               = <unset>
+  CROOKS_WRITES_LOCAL_OWNER        = 'false'
+  CROOKS_ENGINEERING_HOST          = <unset>
+  CROOKS_TAILSCALE_VERIFY          = <unset>
+  CROOKS_LIVE_TRANSCRIPT           = <unset>
+  CROOKS_SCRIBE_KEYTERMS           = 'true'
+  CROOKS_WRITES_ENABLED            = 'true'
+  CROOKS_TEST_SESSION_ALWAYS       = 'true'
+  CROOKS_REPORTS_DIR               = <unset>
+  CROOKS_ALLOWED_LOGINS            = non-empty:True (value not printed)
+  total keys in .env: 40

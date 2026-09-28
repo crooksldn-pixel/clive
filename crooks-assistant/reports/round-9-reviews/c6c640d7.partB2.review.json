@@ -1,0 +1,72 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-B2-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "B2-01",
+      "material": true,
+      "finding": "BLOCKS — On an approved production screen, someone with access to its browser or an extension can copy its persistent screen key and reuse it to request future slips from an admitted session. `loadScreen` and `saveScreen` keep the full key in `localStorage['clive.screen']`; the pairing code being memory-only does not protect that credential.",
+      "evidence_ref": "crooks-assistant/web/display.js:loadScreen,saveScreen; REVIEW PACKET — STANDING FACTS §3 (three already-approved screens)",
+      "required_repair": "Stop persisting a reusable screen key in script-readable storage, provide a secure re-entry mechanism for paired devices, and revoke or migrate existing persisted keys."
+    },
+    {
+      "finding_id": "B2-02",
+      "material": true,
+      "finding": "BLOCKS — A revoked production remote can continue showing customer details after a 403 while a finger is held on its panel. `wipe` calls `render`, but `render` returns without clearing the DOM for up to two seconds after `pointerdown`; the 403 test does not exercise that state.",
+      "evidence_ref": "crooks-assistant/web/remote.js:build,render,wipe,sync; crooks-assistant/tests/web/remote.test.js:what the remote shows leaves it on a 403",
+      "required_repair": "Make refusal and privacy wipes clear sensitive DOM synchronously regardless of the redraw hold, and test a 403 during an active pointer hold."
+    },
+    {
+      "finding_id": "B2-03",
+      "material": true,
+      "finding": "BLOCKS — An older successful response can put a customer slip back on a production screen or remote after another request has received a revoking 403. `display.js` increments `S.gen` in `wipe`, but its pending `poll` and `markDone` continuations can still call `receive`; `remote.js` likewise lets an in-flight `sync` write `R.data` after `post` calls `wipe`.",
+      "evidence_ref": "crooks-assistant/web/display.js:wipe,poll,markDone,receive; crooks-assistant/web/remote.js:wipe,sync,post",
+      "required_repair": "Invalidate and discard responses started before a refusal, on both pages; permit customer data to return only following a fresh successful request. Test response ordering with the old 200 resolving after the 403."
+    },
+    {
+      "finding_id": "B2-04",
+      "material": true,
+      "finding": "BLOCKS — A production TV can continue exposing a customer's order details after the order is marked packed. `markedDone` copies the previously drawn full order and only adds `done_at`; `renderOrder` draws its customer, address, phone and note again, and the packed view can remain for 45 seconds instead of using the privacy-reduced done result.",
+      "evidence_ref": "crooks-assistant/web/display.js:markedDone,renderOrder,wantedPane,DONE_HOLD_MS; REVIEW PACKET — round-8 B-03 (privacy-deleting mark_done)",
+      "required_repair": "Discard the local full slip when done is confirmed and render only a reduced done confirmation. Test that the packed DOM and retained drawn view contain no customer details."
+    },
+    {
+      "finding_id": "B-07",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell from this B2 packet whether production's `GET /` is always the same data-free HTML for every login. The worker caches any successful HTML response at `/` and serves it on a later network failure, potentially to an unauthenticated load; its exclusion of `/display` and `/displays/*` does not settle that root-page question. B-07 is therefore STILL UNVERIFIED at this SHA, although the screen routes themselves remain outside the cache.",
+      "evidence_ref": "crooks-assistant/web/sw.js:SHELL,networkFirst; REVIEW PACKET — B-07 verification note; CANDIDATE FILES (GET / handler not supplied)",
+      "required_repair": "Supply the FastAPI GET / handler and its rendered response at this SHA for review, or constrain the worker to cache a demonstrably public, data-free shell. Test an owner load followed by an unauthenticated offline load."
+    },
+    {
+      "finding_id": "B-06",
+      "material": false,
+      "finding": "B-06 — REPAIRED as a no-regression check in the supplied range: the scoped start-up and finish paths retain their handoff, and `web/startup.js` is unchanged. Its implementation was not supplied for an independent re-audit.",
+      "evidence_ref": "crooks-assistant/web/display.js:startup,finishStartup; crooks-assistant/web/dots.js:boot,quick; REVIEW PACKET — round-8 B-06 and restricted diff",
+      "required_repair": "None for a regression in the scoped changes."
+    },
+    {
+      "finding_id": "B2-COSMETIC",
+      "material": false,
+      "finding": "The blue restyle is cosmetic for this review, though the pairing code remains lilac and the refused-state line remains amber.",
+      "evidence_ref": "crooks-assistant/web/display.css:.cs-pair-code,.cs-line.is-gone",
+      "required_repair": "Align those colours with the approved design in a cosmetic follow-up."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0584e2d6f5040a75016aba62409ec887d2a226838d01366eaf",
+    "session_started_at": "2026-09-28T12:49:02.689113Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "B-06 shows no scoped regression. B-07 cannot be fully cleared without the root-page response. The screen-key storage and three customer-data exposure paths require changes; the remote's owner-route enforcement belongs to the backend review, not this part.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 184101, \"input_tokens_details\": {\"cache_write_tokens\": 184098, \"cached_tokens\": 0}, \"output_tokens\": 9021, \"output_tokens_details\": {\"reasoning_tokens\": 7724}, \"total_tokens\": 193122}]"
+}

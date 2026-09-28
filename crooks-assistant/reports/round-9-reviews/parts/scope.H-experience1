@@ -1,0 +1,35 @@
+==============================================================================================
+YOUR PART: H-experience1 — the experience harness and scenario packs (bounded slice H-experience1)
+==============================================================================================
+
+You are part H-experience1 of 24. Your scope is EXACTLY these 16 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/experience/fixtures/live_states.py
+    crooks-assistant/experience/harness.py
+    crooks-assistant/experience/matrix.py
+    crooks-assistant/experience/scenario_packs/abandoned.py
+    crooks-assistant/experience/scenario_packs/commerce.py
+    crooks-assistant/experience/scenario_packs/compose.py
+    crooks-assistant/experience/scenario_packs/discounts.py
+    crooks-assistant/experience/scenario_packs/graph.py
+    crooks-assistant/experience/scenario_packs/landings.py
+    crooks-assistant/experience/scenario_packs/navigation.py
+    crooks-assistant/experience/scenario_packs/navigation_extras.py
+    crooks-assistant/experience/scenario_packs/order_edit.py
+    crooks-assistant/experience/scenario_packs/query_language.py
+    crooks-assistant/experience/scenario_packs/recording.py
+    crooks-assistant/experience/scenarios.py
+    crooks-assistant/experience/tool_matrix.py
+
+These are the scenario harness and its packs — test infrastructure, not production code, but they
+are evidence, and PR #51/#52 lean on them.
+
+Answer these, naming file and symbol:
+  - Do these scenarios still exercise the behaviour they claim to, now that the fast lane is gone, or
+    do they assert on the harness's own stubs?
+  - Did a scenario that used to cover a write's confirmation get deleted or weakened?
+  - Does the harness grant authority (owner, writes) that a real request would not? That is the shape
+    of round 8's F-A2-FIXTURE.
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

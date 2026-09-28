@@ -1,0 +1,37 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-F-observability2-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "F-OBS2-01",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell from the supplied code whether these sensitive outputs reach a SCREEN or a non-owner on the live test-session deployment, so a data leak cannot be excluded. `_feedback` returns entire `owner_feedback` events and puts the owner's text and full answer into `ignored_feedback`; `read` also puts finding signals into `Row.why`, while `apply` copies them onto turns. An ignored-feedback signal can contain the first 120 characters of an answer, including customer details or write contents. This file has no disk writer or route, and the supplied evidence does not establish where those outputs are persisted or shown.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/observability/visible.py: _feedback, read, apply; REVIEW PACKET — STANDING FACTS 3",
+      "required_repair": "Redact or omit sensitive text and raw event dictionaries before they leave visible.py, then provide the report/timeline consumers and access controls needed to verify that the resulting records cannot expose secrets, customer details or write contents to a screen or non-owner."
+    },
+    {
+      "finding_id": "F-OBS2-02",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell who can read the production log, so a secret in malformed telemetry could leak there. For example, `_focus_lost` passes `tablet_compose_field.chars` to `int`; on failure, `read` logs the exception text, which includes the rejected value. The same raw-exception logging occurs for `_feedback`.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/app/observability/visible.py: _focus_lost, read",
+      "required_repair": "Log only the rule name and exception type, not the exception message or telemetry value; verify the same constraint for the feedback exception path."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0426b4ee465c41b8016aba6240899c87d2bcfca0f63dc018bd",
+    "session_started_at": "2026-09-28T12:49:02.791037Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "visible.py itself contains no disk write or SCREEN route, but it propagates unredacted session material and can log rejected telemetry values. The supplied file does not establish the persistence or audience of those outputs. No round-8 finding was expressly assigned to visible.py.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 26061, \"input_tokens_details\": {\"cache_write_tokens\": 26058, \"cached_tokens\": 0}, \"output_tokens\": 4081, \"output_tokens_details\": {\"reasoning_tokens\": 3582}, \"total_tokens\": 30142}]"
+}

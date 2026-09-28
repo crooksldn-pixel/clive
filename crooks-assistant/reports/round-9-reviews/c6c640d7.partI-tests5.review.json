@@ -1,0 +1,65 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-I-tests5-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "I-01",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether a navigation command spoken after binding a control can be treated as note dictation on tonight’s write-enabled production system. The command-versus-dictation classification test was deleted; the remaining binding tests check that a sentence reaches the model and that the binding expires, but do not try a command such as “open the inbox.”",
+      "evidence_ref": "Packet diff: tests/test_touch_to_voice.py::test_every_fast_path_family_is_classified_against_the_continuation_glue (deleted); candidate tests/test_touch_to_voice.py::test_the_next_sentence_carries_the_binding_and_only_the_next",
+      "required_repair": "Inspect app/routes/turn.py::_with_continuation and its replacement command-classification logic, and add a model-era negative test showing that a navigation command after binding cannot stage a change to the bound record."
+    },
+    {
+      "finding_id": "I-02",
+      "material": true,
+      "finding": "FOLLOW-UP — This loss of test coverage cannot itself exploit, lose, or leak production data tonight. The returning-customer test no longer submits the owner’s words or asserts that exactly one summary card and no customer profiles reach the glass: answer_for supplies a task directly to commerce_summary, and the former sentence-to-surface test was deleted.",
+      "evidence_ref": "Packet diff: tests/test_summaries.py::test_the_returning_customers_question_draws_one_compact_surface (deleted); candidate tests/test_summaries.py::answer_for",
+      "required_repair": "Restore owner-utterance-to-rendered-surface coverage for the model path, asserting the complete card list contains one summary and no entity profiles."
+    },
+    {
+      "finding_id": "I-03",
+      "material": true,
+      "finding": "FOLLOW-UP — A mocked model in a test cannot itself cause a production write tonight. ModelThatAddsANote.turn always searches order 1930 and stages the same note regardless of the request; the walkthrough therefore does not establish that the model selects the correct lookup or write, despite testing the downstream gate and confirmation path.",
+      "evidence_ref": "tests/test_write_walkthrough.py::ModelThatAddsANote.turn; tests/test_write_walkthrough.py::test_the_owner_asks_for_a_note_and_gets_a_card_that_says_only_that_it_is_ready",
+      "required_repair": "Keep this as a downstream gate walkthrough, but add separate evidence for the production model’s choice of record and tool from the owner’s words, including a mismatched-record refusal."
+    },
+    {
+      "finding_id": "I-04",
+      "material": true,
+      "finding": "FOLLOW-UP — These fixture defaults affect tests, not the running production service. F-A2-FIXTURE is STILL PRESENT as a module-level default in four files: pytestmark grants owner_asking to every test in each module, including tests of refusals; the claimed removal of the suite-wide autouse grant cannot be verified because tests/conftest.py was not supplied.",
+      "evidence_ref": "tests/test_tags.py::pytestmark; tests/test_tags_remove.py::pytestmark; tests/test_tracking.py::pytestmark; tests/test_working_sets.py::pytestmark; packet scope and PR #51 claim sheet",
+      "required_repair": "Supply tests/conftest.py::owner_asking and its autouse-fixture definitions for review; restrict module-wide owner grants where a test is intended to exercise absent authority, and test that refusal without authority explicitly."
+    },
+    {
+      "finding_id": "I-05",
+      "material": true,
+      "finding": "FOLLOW-UP — A false test-audit citation cannot itself exploit or alter production tonight. The audit test requires calls_tool to count registry.get('probe_tool'), classify(name), and a synthetic presentation item as directly testing the tool, although none executes its handler; this can certify a tool without a behavioral test.",
+      "evidence_ref": "tests/test_tool_matrix.py::test_a_test_that_calls_a_tool_tests_it",
+      "required_repair": "Require an actual dispatch or handler invocation for the directly-tested column, and add negative cases for registry lookup, classification, and synthetic presentation alone."
+    },
+    {
+      "finding_id": "I-06",
+      "material": true,
+      "finding": "FOLLOW-UP — This vacuous assertion cannot itself leak mailbox data tonight. The email-query test’s sender-and-search-terms assertion ends in `or True`, so it passes even if every sender or the order-number search term is wrong.",
+      "evidence_ref": "tests/test_working_sets.py::test_the_inbox_is_cross_referenced_with_the_set_and_makes_derived_sets",
+      "required_repair": "Remove `or True`, assert the expected senders and search terms independently, and require that a search call exists."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0463bcf2ace74ba6016aba6240913c87d2bbb280b82253e56f",
+    "session_started_at": "2026-09-28T12:49:02.787434Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The write walkthrough retains spoken-yes, tap-confirmation, and writes-disabled assertions, but it mocks the model’s tool choice. The deleted UI-intent tests also remove a check that a confirmation card does not satisfy a workspace request. Owner authority is explicitly granted by default within four marked modules, and the suite-wide F-A2-FIXTURE repair cannot be cleared without the actual conftest fixture code.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 76965, \"input_tokens_details\": {\"cache_write_tokens\": 76962, \"cached_tokens\": 0}, \"output_tokens\": 7109, \"output_tokens_details\": {\"reasoning_tokens\": 5921}, \"total_tokens\": 84074}]"
+}

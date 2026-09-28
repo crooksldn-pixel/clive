@@ -1,0 +1,51 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round9-I-tests3-c6c640d7",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "F-A2-FIXTURE",
+      "material": true,
+      "finding": "FOLLOW-UP — This test-fixture evidence gap does not itself run on production or grant a production caller authority tonight. STILL PRESENT as an unverified repair: these files explicitly opt tests into `owner_asking`, but the supplied files do not show whether the suite-wide default owner grant was removed.",
+      "evidence_ref": "test_fulfil.py:pytestmark; test_gmail_writes.py:pytestmark; packet: PR #51 protected-files claim and supplied-file scope",
+      "required_repair": "Supply and review `crooks-assistant/tests/conftest.py::owner_asking` and its autouse fixtures, including a test that dispatches with no authority stamped. The module-level marks are explicit opt-ins, not proof of the default."
+    },
+    {
+      "finding_id": "I-02",
+      "material": true,
+      "finding": "BLOCKS — I cannot tell whether the live model-driven mail path can select another order's thread and leak customer information, so its reachability on tonight's production configuration remains unresolved. `test_graph.py` deleted the assertions that a thread about a customer's different order is not this order's thread and that a merely possible link is never selected for a reply; the remaining `test_gmail_writes.py::test_a_reply_with_no_order_named_says_the_recipient_was_not_checked` demonstrates that a reply can still be proposed without an order check.",
+      "evidence_ref": "packet: diff test_graph.py, deleted `test_a_thread_about_another_of_their_orders_is_not_this_orders_thread` and `test_a_cold_cache_falls_back_to_the_narrow_rule_and_never_upgrades_a_guess`; test_gmail_writes.py:`test_a_reply_with_no_order_named_says_the_recipient_was_not_checked`",
+      "required_repair": "Provide the replacement model-turn and registered Gmail reply-handler evidence, and test the live dispatch path with two orders for one customer: a possible or different-order thread must not be selected as a verified reply destination."
+    },
+    {
+      "finding_id": "I-03",
+      "material": true,
+      "finding": "FOLLOW-UP — Changing offline assertions cannot itself bypass the production write-confirmation path tonight. Refusal and authority-related coverage was weakened: `test_needs_reply_routing.py` now checks the observability contract instead of request routing; `test_order_create.py` drops the spoken cancel/refund refusal assertions; and the deleted `test_navigation_extras.py` covered cross-order tab refusal and ambiguous or closed-half navigation. Those checks do not establish what the replacement model turn does.",
+      "evidence_ref": "packet: diff test_needs_reply_routing.py, test_order_create.py and deleted test_navigation_extras.py",
+      "required_repair": "Add replacement turn-level tests for the retained refusal scenarios, or provide the relevant route and tool-boundary evidence showing each scenario cannot reach the removed behavior. Do not restore the fast lane merely to satisfy its old tests."
+    },
+    {
+      "finding_id": "I-04",
+      "material": true,
+      "finding": "FOLLOW-UP — This is a performance-test weakness, not a demonstrated production exploit, data loss or leak tonight. `test_n_plus_one.py::turn` now supplies `commerce_summary` and its task directly to `dispatch`, so the N+1 tests no longer test whether a spoken question makes the model choose per-customer reads. Its inventory audit also compares three separately named products with a single query for `Convict`, which does not request the Yard Jeans.",
+      "evidence_ref": "test_n_plus_one.py:`turn`, `test_the_answer_does_not_grow_a_read_when_the_shop_does`, `_before_inventory`, `_after_inventory`",
+      "required_repair": "Keep the direct-tool read bound, but add a spoken-turn test that counts the model-selected source reads; make the inventory before and after queries request equivalent products and assert equivalent results."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_049d800ffd8e1eea016aba6240c7f487d299500f6cdd1c1bcd",
+    "session_started_at": "2026-09-28T12:49:03.240054Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_branch": "detached:c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "workspace_head": "c6c640d7017a0411c13d39cecc6ce2223a79c724",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The supplied tests use explicit owner opt-ins and generally test the real handlers against fake external stores, not mocks of the handler under test. They do not establish the F-A2-FIXTURE default without `conftest.py`. Several deleted refusal assertions lack replacement-path evidence; the cross-order email case leaves a potential live data leak unresolved.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 99609, \"input_tokens_details\": {\"cache_write_tokens\": 99606, \"cached_tokens\": 0}, \"output_tokens\": 5646, \"output_tokens_details\": {\"reasoning_tokens\": 4660}, \"total_tokens\": 105255}]"
+}

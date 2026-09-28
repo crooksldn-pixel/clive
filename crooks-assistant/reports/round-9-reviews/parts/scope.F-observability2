@@ -1,0 +1,21 @@
+==============================================================================================
+YOUR PART: F-observability2 — the observability modules the named parts do not own (bounded slice F-observability2)
+==============================================================================================
+
+You are part F-observability2 of 24. Your scope is EXACTLY these 1 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/app/observability/visible.py
+
+These modules decide what is recorded about the owner's sessions and what is shown back.
+CROOKS_TEST_SESSION_ALWAYS=true, so this machinery is running in production now, and
+CROOKS_SCREEN_SNAPSHOTS=false.
+
+Answer these, naming file and symbol:
+  - What do these modules persist, and where? Anything written under the checkout or /var/lib is on
+    disk on a machine that also holds live Shopify and Gmail credentials.
+  - Can a report, a timeline or a "visible" record capture a secret, a token, a customer's details or
+    the contents of a write?
+  - Does anything here become reachable by a SCREEN (a TV in a shop) or by a non-owner?
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.

@@ -1,0 +1,36 @@
+==============================================================================================
+YOUR PART: D1 — every sentence is a model turn — the turn path
+==============================================================================================
+
+You are part D1 of 24. Your scope is EXACTLY these 6 files, at c6c640d7017a0411c13d39cecc6ce2223a79c724:
+    crooks-assistant/app/routes/turn.py
+    crooks-assistant/app/recipes.py
+    crooks-assistant/app/render.py
+    crooks-assistant/app/presentation.py
+    crooks-assistant/tests/test_recipes.py
+    crooks-assistant/tests/test_turn_scene.py
+
+The fast lane is GONE. app/routes/turn.py loses 480 lines and gains 131; app/recipes.py is new;
+app/fastpath/* and app/speech/normalise.py are deleted (their diffs are in part D2).
+
+The deploy owner asks this part two questions SPECIFICALLY, and wants them answered by name:
+
+  (a) DOES ANYTHING STILL PRE-EMPT THE MODEL ON WORDS? That is, is there any remaining path where
+      what the owner said is matched against a pattern, a keyword list, a recipe name or a
+      normaliser, and an action is taken WITHOUT the model deciding? The ONE permitted exception is
+      the spoken-yes interlock, which is part of the write boundary and stays. Anything else that
+      still short-circuits on words is a finding.
+
+  (b) DID ANY WRITE PATH LOSE A GUARD WHEN THE FAST LANE WENT? The fast lane used to carry
+      confirmation, disambiguation and refusal logic. If a guard lived in a deleted module and was
+      not re-established on the model path, a write can now happen with less checking than before.
+      Production has CROOKS_WRITES_ENABLED=true and 18 write actions including refund_create,
+      order_cancel and store_credit_credit. A lost guard on those is exploitable, and reaches the
+      ship rule.
+
+Also: app/presentation.py and app/render.py — what the owner is SHOWN. Does anything that used to be
+rendered from a fast-lane result now render from unvalidated model output?
+
+Remember: label EVERY material finding BLOCKS or FOLLOW-UP, as the first word of the
+`finding` field, with one sentence on why. If you cannot tell whether a defect is reachable
+on production as configured tonight, say so and label it BLOCKS.
