@@ -1034,6 +1034,9 @@ def test_the_install_is_done_only_when_the_running_service_has_the_flag_and_heal
     monkeypatch.setattr(installer.lc, "LOG_DIR", tmp_path / "logs")
     monkeypatch.setattr(installer.lc, "ensure_serve", lambda port: ("crooks.example.com", "serving"))
     monkeypatch.setattr(installer.lc, "wait_for_health", lambda url, timeout_s=90: {"status": "ok", "checks": checks})
+    # This host's own tailnet addresses (round 10, S1T-01) are the next gate's, in
+    # tests/test_r11_install_gate.py; here they are in order.
+    monkeypatch.setattr(identity, "tailnet_self_check", lambda: (True, "whole"))
     assert installer.install(8000) == expect
     out = capsys.readouterr().out
     assert ("show", "-p", "MainPID", "--value", "crooks-assistant.service") in ran
