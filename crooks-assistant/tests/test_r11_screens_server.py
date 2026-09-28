@@ -614,6 +614,10 @@ def test_a_screen_using_the_remotes_routes_is_still_a_screen_and_never_the_owner
 
     assert forge({**tv_device, "Cookie": f"clive_screen={key}"}) == "screen_remote", "with its cookie"
     assert forge(tv_device) == "screen_remote", "its cookie left out: its address is still a screen's"
+    # A device on the tailnet has an IPv6 address too, and may ask by either: both are its.
+    tv_v6 = {**tv_device, "X-Forwarded-For": "fd7a:115c:a1e0::7"}
+    assert client.get(f"/displays/{sid}?v=-1", headers={**tv_v6, "Cookie": f"clive_screen={key}"}).status_code == 200
+    assert forge(tv_v6) == "screen_remote" and forge(tv_device) == "screen_remote"
     said = run(display_tools.screen_list(order_id=ORDER["order_id"]))["done"][0]["marked"]
     assert said.endswith("not the owner's own remote: a screen's word, not a check"), said
     # The owner's own phone: the owner's remote.

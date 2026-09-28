@@ -463,8 +463,27 @@ _SCREEN_ORDER_ITEM = frozenset({"title", "variant", "sku", "quantity", "to_send"
 _SCREEN_OBJECTIVE = frozenset({"deadline", "days_left", "doing", "next", "needs_you", "blocked_by", "items"})
 _SCREEN_OBJECTIVE_ITEM = frozenset({"text", "state"})
 _SCREEN_VIDEO = frozenset({"id", "channel", "duration_s", "live", "start"})
-# A tailnet address as a screen's key-holder asked from it (app/routes/displays.py): at most this long.
+# The tailnet addresses a screen's key-holder has asked from (app/routes/displays.py), each at most
+# MAX_ADDRESS long and the latest MAX_ADDRESSES of them: a device on the tailnet has an IPv4 and an
+# IPv6 address and may ask by either (round 11, B-04, screen_device).
 MAX_ADDRESS = 64
+MAX_ADDRESSES = 4
+
+
+def _addresses_of(screen: dict[str, Any]) -> list[str]:
+    """The addresses a screen's key-holder has asked from, as the record holds them."""
+    kept = screen.get("asked_from")
+    return [a for a in kept if isinstance(a, str) and a][-MAX_ADDRESSES:] if isinstance(kept, list) else []
+
+
+def _asked_from(screen: dict[str, Any], device: str) -> bool:
+    """Note that the screen's key-holder asked from this address; True when it was not known."""
+    device = str(device or "")[:MAX_ADDRESS]
+    known = _addresses_of(screen)
+    if not device or device in known:
+        return False
+    screen["asked_from"] = [*known, device][-MAX_ADDRESSES:]
+    return True
 
 
 def _only(value: Any, keys: frozenset[str]) -> dict[str, Any]:
@@ -913,7 +932,6 @@ class DisplayStore:
             raise DisplayError("Give the screen a name, like office screen.")
         secret = secrets.token_urlsafe(24)
         code = f"{secrets.randbelow(1_000_000):06d}"
-        device = str(device or "")[:MAX_ADDRESS]
         with self._lock:
             if self._expire_locked() or self.unsaved:
                 # A request that ran out frees its name (and its place) before either is asked for.
@@ -932,16 +950,14 @@ class DisplayStore:
                     def renew(screen=screen) -> dict[str, Any]:
                         screen["secret"] = _key_hash(secret)
                         screen["pairing"] = self._pairing(code)
-                        if device:
-                            screen["asked_from"] = device
+                        _asked_from(screen, device)
                         return self._answer(screen, secret, code)
 
                     out = self._keyed(renew)
                 else:
                     def rotate(screen=screen) -> dict[str, Any]:
                         screen["secret"] = _key_hash(secret)
-                        if device:
-                            screen["asked_from"] = device
+                        _asked_from(screen, device)
                         return self._answer(screen, secret, None)
 
                     out = self._keyed(rotate)
@@ -957,8 +973,7 @@ class DisplayStore:
                 screen = {"id": ident, "name": shown, "key": key, "secret": _key_hash(secret), "created_at": _now_iso(),
                           "last_seen": _now_iso(), "version": 0, "showing": None, "beside": None, "paired": False,
                           "pairing": self._pairing(code)}
-                if device:
-                    screen["asked_from"] = device
+                _asked_from(screen, device)
                 self._data["screens"][ident] = screen
                 return self._answer(screen, secret, code)
 
@@ -1051,13 +1066,13 @@ class DisplayStore:
         done as the remote does. What it says there is still a screen's word, never the owner's
         own remote, so the done row must say so (done_from_remote). A request is a screen's when
         it carries a key some screen holds (its cookie, sent by its browser on every /displays
-        route), or when it comes from the tailnet address a screen's key-holder asks from — which
-        a page leaving its cookie out cannot change. The screen's id, or None for any other of
-        the owner's devices."""
+        route), or when it comes from a tailnet address a screen's key-holder has asked from —
+        which a page leaving its cookie out cannot change. The screen's id, or None for any other
+        of the owner's devices."""
         device = str(device or "")[:MAX_ADDRESS]
         with self._lock:
             for screen in self._data["screens"].values():
-                if self._holds(screen, screen_key) or (device and screen.get("asked_from") == device):
+                if self._holds(screen, screen_key) or (device and device in _addresses_of(screen)):
                     return str(screen["id"])
         return None
 
@@ -1136,15 +1151,12 @@ class DisplayStore:
     def _touch(self, screen_id: str, *, device: str = "") -> None:
         """Seen now. "Last seen" is written down now and then, and a failure to write it down
         costs nothing but its accuracy. `device`, the tailnet address the screen's key-holder
-        asked from (round 11, B-04), is written down at once when it is new, so that it is known
-        across a restart (screen_device)."""
+        asked from (round 11, B-04), is written down at once when it is one not known before, so
+        that it is known across a restart (screen_device)."""
         now = self.clock()
         self._seen[screen_id] = now
         screen = self._data["screens"].get(screen_id)
-        device = str(device or "")[:MAX_ADDRESS]
-        moved = screen is not None and bool(device) and screen.get("asked_from") != device
-        if moved:
-            screen["asked_from"] = device
+        moved = screen is not None and _asked_from(screen, device)
         if screen is not None and (moved or now - self._seen_written.get(screen_id, 0.0) >= SEEN_WRITE_S):
             screen["last_seen"] = _now_iso()
             self._seen_written[screen_id] = now
