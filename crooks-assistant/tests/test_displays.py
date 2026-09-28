@@ -47,6 +47,7 @@ from app.displays.store import (
 from app.tools import authority, gate
 from app.tools.gate import Tier
 from app.tools.registry import ToolError
+from tests import fake_credentials
 
 OWNER_LOGIN = "owner@example.com"
 
@@ -1146,7 +1147,7 @@ def test_a_request_waiting_for_approval_survives_a_restart_as_it_was(tmp_path):
 
 def test_a_screen_written_down_before_approval_existed_counts_as_approved(tmp_path):
     path = tmp_path / "displays.json"
-    key = "a-key-from-before-round-8"
+    key = fake_credentials.body("a screen key from before round 8", 32)   # never a literal (rule B)
     path.write_text(json.dumps({"screens": {"scr_0123456789ab": {
         "id": "scr_0123456789ab", "name": "Office screen", "key": "office screen", "secret": store_module._key_hash(key),
         "created_at": "2026-09-26T10:00:00+00:00", "last_seen": "2026-09-26T10:00:00+00:00", "version": 3, "showing": None}},
