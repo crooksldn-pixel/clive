@@ -91,12 +91,12 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `batch_email_archive` | the model only | test_batch.py | — |
 | `batch_email_drafts` | the model only | test_batch.py, test_flows.py | — |
 | `batch_email_send` | the model only | test_gaps.py, test_tool_boundary.py | — |
-| `batch_order_tags_add` | the model only | test_batch.py, test_council_fixes.py, test_flows.py, test_memory.py, test_read_budget.py, test_reads.py | — |
+| `batch_order_tags_add` | the model only | test_batch.py, test_council_fixes.py, test_flows.py, test_memory.py, test_read_budget.py, test_reads.py, test_tap_reads_only.py | — |
 | `batch_order_tags_remove` | the model only | test_batch.py | — |
 | `commerce_aggregate` | recipe:landing_sales, recipe:landing_products, family:analytics | test_analytics_present.py, test_analytics_tools.py, test_council_fixes.py, test_experience_analyser.py, test_flows.py, test_progressive.py, test_scene_payload.py, test_scenes.py, test_working_sets.py | landing_products, landing_sales |
 | `commerce_capabilities` | family:capability_reads | test_analytics_tools.py | — |
 | `commerce_query` | recipe:landing_orders, family:analytics | test_analytics_present.py, test_analytics_tools.py, test_council_fixes.py, test_flows.py, test_n_plus_one.py, test_navigation.py, test_needs_reply_inbox.py, test_query_engine_p3.py, test_read_budget.py, test_read_dedupe.py, test_recorder.py, test_scene_payload.py, test_scenes.py, test_working_sets.py | landing_orders, next_previous |
-| `commerce_summary` | family:summary_surfaces | test_n_plus_one.py, test_summaries.py | — |
+| `commerce_summary` | family:summary_surfaces | test_n_plus_one.py, test_summaries.py, test_turn_surfaces.py | — |
 | `email_query` | recipe:landing_inbox, family:email_reads | test_council_fixes.py, test_flows.py, test_graph.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_scene_payload.py, test_scene_planner.py, test_scenes.py, test_working_sets.py | graph_thread_to_order, landing_inbox, needs_reply |
 | `engineering_status` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_engineering_bridge_bounds.py, test_gate.py | — |
 | `gmail_compose_fill` | family:email_compose | test_compose.py | — |
@@ -122,32 +122,32 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `screen_show` | family:screens | test_displays.py, test_tool_boundary.py | — |
 | `screen_video` | family:screens | test_screen_video.py | — |
 | `shopify_abandoned_checkouts` | family:abandoned_checkouts | test_abandoned.py | abandoned.py |
-| `shopify_customer_history` | command:cursor:customers, family:customer_reads | test_anticipation.py, test_branches.py, test_context.py, test_entities.py, test_n_plus_one.py, test_observability.py, test_reads.py, test_workspaces.py | — |
+| `shopify_customer_history` | command:cursor:customers, family:customer_reads | test_anticipation.py, test_branches.py, test_context.py, test_entities.py, test_n_plus_one.py, test_observability.py, test_reads.py, test_turn_boundary.py, test_workspaces.py | — |
 | `shopify_discount_check` | recipe:discount_code, family:discount_create | test_discounts.py | discount_code_taken, discount_new_code |
 | `shopify_discount_create` | command:a tapped control, family:discount_create | test_discounts.py | discounts.py |
 | `shopify_discount_open` | family:discount_create | test_discounts.py | — |
-| `shopify_find_customer` | recipe:order_customer, family:customer_reads | test_entities.py, test_gate.py, test_observability.py, test_observability_redaction.py, test_presentation.py, test_reads.py, test_scenes.py, test_shopify_tools.py, test_workspaces.py | — |
-| `shopify_find_order` | family:order_reads | test_actions_routes.py, test_analyser.py, test_anticipation.py, test_context.py, test_entities.py, test_observability.py, test_presentation.py, test_progressive.py, test_progressive_turn.py, test_provider.py, test_read_dedupe.py, test_reads.py, test_registry.py, test_routes.py, test_scenes.py, test_shopify_tools.py, test_tool_boundary.py, test_write_walkthrough.py | — |
+| `shopify_find_customer` | recipe:order_customer, family:customer_reads | test_entities.py, test_gate.py, test_observability.py, test_observability_redaction.py, test_presentation.py, test_reads.py, test_scenes.py, test_shopify_tools.py, test_turn_boundary.py, test_workspaces.py | — |
+| `shopify_find_order` | family:order_reads | test_actions_routes.py, test_analyser.py, test_anticipation.py, test_context.py, test_entities.py, test_observability.py, test_presentation.py, test_progressive.py, test_progressive_turn.py, test_provider.py, test_read_dedupe.py, test_reads.py, test_registry.py, test_routes.py, test_scenes.py, test_shopify_tools.py, test_tap_reads_only.py, test_tool_boundary.py, test_turn_boundary.py, test_write_walkthrough.py | — |
 | `shopify_fulfillment_tracking_set` | family:order_fulfil | test_tracking.py | — |
 | `shopify_inventory` | family:product_reads | test_n_plus_one.py, test_observability.py, test_presentation.py, test_scenes.py, test_shopify_tools.py | — |
 | `shopify_inventory_adjust` | family:inventory_set | test_inventory.py | — |
 | `shopify_list_orders` | family:order_reads | test_gate.py, test_presentation.py, test_progressive.py, test_progressive_states.py, test_provider.py, test_scene_planner.py, test_scenes.py, test_session.py, test_shopify_tools.py | — |
 | `shopify_order_add_item` | command:a tapped control, family:order_edit | test_order_edit.py | order_edit.py |
 | `shopify_order_address` | family:order_reads | test_gaps.py, test_operations.py, test_scenes.py, test_watch_lines.py | — |
-| `shopify_order_cancel` | family:order_cancel | test_cancel.py, test_read_budget.py, test_tool_boundary.py | — |
+| `shopify_order_cancel` | family:order_cancel | test_cancel.py, test_read_budget.py, test_tap_reads_only.py, test_tool_boundary.py, test_turn_boundary.py | — |
 | `shopify_order_create` | command:a tapped control, family:order_create | test_order_create.py | commerce.py |
-| `shopify_order_detail` | command:cursor:orders, family:order_reads | test_actions.py, test_analyser.py, test_anticipation.py, test_attention.py, test_capability_gaps.py, test_context.py, test_entities.py, test_gate.py, test_memory.py, test_observability.py, test_observability_redaction.py, test_presentation.py, test_progressive.py, test_progressive_turn.py, test_read_dedupe.py, test_reads.py, test_scene_planner.py, test_scenes.py, test_shopify_tools.py, test_tool_boundary.py, test_workspaces.py | — |
+| `shopify_order_detail` | command:cursor:orders, family:order_reads | test_actions.py, test_analyser.py, test_anticipation.py, test_attention.py, test_capability_gaps.py, test_context.py, test_entities.py, test_gate.py, test_memory.py, test_observability.py, test_observability_redaction.py, test_presentation.py, test_progressive.py, test_progressive_turn.py, test_read_dedupe.py, test_reads.py, test_scene_planner.py, test_scenes.py, test_shopify_tools.py, test_tool_boundary.py, test_turn_boundary.py, test_workspaces.py | — |
 | `shopify_order_fulfil` | family:order_fulfil | test_fulfil.py | — |
-| `shopify_order_note_append` | family:order_notes | test_actions.py, test_analyser.py, test_anticipation.py, test_branches.py, test_engine_hooks.py, test_memory.py, test_observability.py, test_presentation.py, test_read_budget.py, test_read_dedupe.py, test_reads.py, test_recipes.py | scenarios.py |
+| `shopify_order_note_append` | family:order_notes | test_actions.py, test_analyser.py, test_anticipation.py, test_branches.py, test_engine_hooks.py, test_memory.py, test_observability.py, test_presentation.py, test_read_budget.py, test_read_dedupe.py, test_reads.py, test_recipes.py, test_tap_reads_only.py, test_turn_boundary.py | scenarios.py |
 | `shopify_order_open` | family:order_create | test_order_create.py | — |
 | `shopify_order_shipping_address_set` | command:a tapped control, family:order_address | test_address.py, test_address_typing.py | — |
 | `shopify_order_tags_add` | family:order_notes | test_council_fixes.py, test_tags.py | — |
 | `shopify_order_tags_remove` | family:order_notes | test_tags_remove.py | — |
 | `shopify_product_info` | family:product_reads | test_observability.py, test_reads.py, test_shopify_tools.py | — |
-| `shopify_refund_create` | family:order_refund | test_refund.py | — |
+| `shopify_refund_create` | family:order_refund | test_refund.py, test_tap_reads_only.py, test_turn_boundary.py | — |
 | `shopify_sales_summary` | family:analytics | test_presentation.py, test_scenes.py, test_shopify_tools.py | — |
 | `shopify_store_credit` | family:store_credit | test_store_credit.py | — |
-| `shopify_store_credit_add` | command:a tapped control, family:store_credit | test_store_credit.py | commerce.py |
+| `shopify_store_credit_add` | command:a tapped control, family:store_credit | test_store_credit.py, test_tap_reads_only.py | commerce.py |
 | `shopify_variant_search` | recipe:order_line, recipe:order_add_item, family:order_edit | test_order_edit.py | order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker |
 | `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_gate.py | — |
 
