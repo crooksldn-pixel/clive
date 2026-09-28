@@ -313,6 +313,14 @@ async def _turn(request: Request, runtime, live, branch, *, text: str | None, au
     set_line = working_sets.prompt_line(live, branch=branch)
     if set_line:
         prompt_text = f"{prompt_text}\n\n{set_line}"
+    # A defect the owner says out loud is recorded before the model is asked, against the screen
+    # he was complaining about, and the model is told what the Mac did with it (the 2026-09-28
+    # deploy review, round 9, E-03: app/observability/feedback.py at_turn). It never fails a turn.
+    from app.observability import feedback
+
+    told = feedback.at_turn(text, branch=branch, session_id=session_id, turn_id=turn_id)
+    if told:
+        prompt_text = f"{prompt_text}\n\n{told}"
     for extra in _context_lines(live, text, runtime=runtime):
         prompt_text = f"{prompt_text}\n\n{extra}"
     where = _branch_line(branch)
@@ -698,11 +706,17 @@ _WANTS_DRAFT = re.compile(r"\b(?:draft|drafts?|prepare|prepared|write me|write o
 # "Reply to" is deliberately absent: it names what the email is, not whether it goes. A bare
 # "reply to Millie" is left unhinted and the model decides, which is honest — the owner's
 # gesture is what sends either way.
-_WANTS_SEND = re.compile(r"\b(?:send|sends|email them|email him|email her|email the|let (?:them|him|her) know|tell (?:them|him|her)|get back to|chase|fire (?:it|them) off)\b", re.I)
+_WANTS_SEND = re.compile(r"\b(?:send|sends|email them|email him|email her|email the|let (?:them|him|her) know|tell (?:them|him|her)|get back to|chase|fire (?:it|them) off|(?:want|wants|wanted|get|have) (?:it|them) sent)\b", re.I)
+# A draft or a send the owner says NOT to do: "no, don't save a draft, send it", "don't send it,
+# just draft it". Read within the clause, so the correction is what steers the model (the
+# 2026-09-28 deploy review, round 9, H-04: the words alone steered "don't save a draft" to one).
+_NOT_DRAFT = re.compile(r"\b(?:don'?t|do not|not|no|never)\b[^.,;!?]{0,24}?\bdrafts?\b", re.I)
+_NOT_SEND = re.compile(r"\b(?:don'?t|do not|not|never)\b[^.,;!?]{0,12}?\bsend\b", re.I)
 
 
 def _draft_or_send(text: str) -> str:
-    draft, send = bool(_WANTS_DRAFT.search(text)), bool(_WANTS_SEND.search(text))
+    draft = bool(_WANTS_DRAFT.search(_NOT_DRAFT.sub(" ", text)))
+    send = bool(_WANTS_SEND.search(_NOT_SEND.sub(" ", text)))
     if draft and not send:
         return "[This asks for a DRAFT: stage gmail_draft_reply or gmail_draft_new, not a send. Nothing is sent.]"
     if send and not draft:

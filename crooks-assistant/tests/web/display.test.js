@@ -34,7 +34,7 @@ const OFFLINE_LINE = 'CLIVE can’t be reached, so this screen has taken down wh
 // What a screen keeps on its device since round 10 (B2-01): its id and name. Its key is CLIVE's
 // cookie, which the browser alone holds; `LEGACY` is a record kept before then, key and all.
 const SCREEN = { id: 'scr_0123456789ab', name: 'Packing screen' };
-const LEGACY = Object.assign({ key: 'key-one-legacy-0123456789' }, SCREEN);
+const LEGACY = Object.assign({ key: 'legacy-screen-key' }, SCREEN);
 
 // What the page's own drawing asks of an element, beyond what the shared stand-in has.
 Element.prototype.getBoundingClientRect = function () { return { left: 0, top: 0, width: 10, height: 10, right: 10, bottom: 10 }; };
@@ -757,7 +757,7 @@ function legacyClive(pg, register) {
 test('a screen named before round 10 hands its key back once, stays approved, and forgets it', async () => {
   const box = {};
   const pg = page({ stored: LEGACY, answer: (r) => box.answer(r) });
-  box.answer = legacyClive(pg, () => ({ status: 200, body: { id: SCREEN.id, name: SCREEN.name, pending: false, key: 'rotated-key-0123456789' } }));
+  box.answer = legacyClive(pg, () => ({ status: 200, body: { id: SCREEN.id, name: SCREEN.name, pending: false, key: 'rotated-screen-key' } }));
   await pg.load();
   await pg.advance(3000);
   const handed = pg.requests.filter((r) => r.url === '/displays/register');
@@ -767,7 +767,7 @@ test('a screen named before round 10 hands its key back once, stays approved, an
   assert.equal(handed[0].credentials, 'same-origin', 'so the browser keeps the cookie CLIVE sets with its answer');
   assert.deepEqual(handed[0].body, { name: SCREEN.name });
   assert.deepEqual(JSON.parse(pg.storage['clive.screen']), SCREEN, 'the key is gone from the device');
-  keptOnlyIdAndName(pg, [LEGACY.key, 'rotated-key-0123456789']);
+  keptOnlyIdAndName(pg, [LEGACY.key, 'rotated-screen-key']);
   assert.ok(pg.els.ui.allText().includes('Sam Carter'), 'still approved: its slip is up');
   assert.equal(pg.els.namer.hidden, true, 'never asked for its name again');
   await pg.advance(20000);

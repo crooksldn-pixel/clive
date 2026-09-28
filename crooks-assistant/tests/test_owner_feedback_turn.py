@@ -121,12 +121,6 @@ def test_what_at_turn_recorded_is_what_the_report_prints_as_recorded(recording):
 # ------------------------------------------------------------------------ through /turn
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=("needs the turn route to call feedback.at_turn before the model is asked "
-            "(round 10 E-03 hook in app/routes/turn.py, owned by the turn fixer); "
-            "remove this marker when it lands"),
-)
 async def test_a_spoken_defect_through_the_turn_route_is_recorded_before_the_model_answers(tmp_path):
     """I-tests4 I-02: a plain spoken defect sent through `POST /turn`, with no call to
     `feedback.record` in the test — the route's own recorder must write it, against the turn,
