@@ -85,6 +85,13 @@ class Settings(BaseSettings):
     tts_max_chars: int = 1200
     tts_cooldown_s: float = 300.0
 
+    # --- live words while holding (app/routes/voice.py, web/live-voice.js) ---
+    # The phone shows what ElevenLabs hears as the owner speaks, over a realtime socket opened
+    # with a single-use key the server mints. Display only: the recording is still sent whole on
+    # release and that transcript is the one CLIVE answers. Off, /voice/live answers 503 and the
+    # hold works exactly as before. On, each spoken question is a second speech-to-text use.
+    live_transcript: bool = True
+
     # Whether local speech recognition is deployed on this host at all. True everywhere the
     # Mac runs: whisper.cpp is its automatic fallback and nothing about that changes. False on
     # the Linux server, which has no Core ML, no model and no build toolchain, and where a

@@ -102,6 +102,9 @@ DATA_NAMES = frozenset({
     "data-restored", "data-said", "data-scene-id", "data-set", "data-shell", "data-significance",
     "data-snap-dialog", "data-snap-left", "data-snap-top", "data-state", "data-tab", "data-task", "data-thread",
     "data-tone", "data-typable", "data-type", "data-undo-of", "data-unread", "data-unsaved", "data-workspace",
+    # The ask bar's live words (web/live-voice.js): whether it shows some, whether it says what was
+    # heard, and the mark that keeps the words themselves out of a copy of the screen.
+    "data-heard", "data-spoken", "data-words",
 })
 # data- names whose values are free text by what they are for: kept, but empty.
 DATA_FREE_TEXT = frozenset({"data-args", "data-ask", "data-customer", "data-customer-name", "data-label",

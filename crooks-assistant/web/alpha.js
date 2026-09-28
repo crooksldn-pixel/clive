@@ -72,16 +72,21 @@
   // The one bar. A tap opens the keyboard (here); a hold is the microphone, and that is decided
   // in app.js (its ask bar section), the only file that reaches it. The bar's faces follow the
   // stage's own state through the stylesheet, so an orb hold lights the bar the same way.
-  const bars = h('span', { class: 'ask-bars', 'aria-hidden': 'true' },
-    ...Array.from({ length: 28 }, (_, i) => h('span', { style: `height:${10 + ((i * 37) % 26)}px;animation-delay:${(i * 53) % 700}ms` })));
+  // ---- live words and the real waveform: app.js fills #ask-words, draws #ask-wave from the
+  // microphone's own level (web/live-voice.js) and puts what was heard in #ask-heard. Empty until
+  // then, and they stay empty when there is nothing real to put in them. `data-spoken` keeps the
+  // words out of a copy of the screen (web/telemetry.js), as a typed field's are.
   const bar = h('button', { id: 'ask-bar', class: 'ask-bar', type: 'button', 'aria-label': 'Ask CLIVE. Tap to type, hold to speak.' },
     h('span', { class: 'ask-face ask-idle' }, h('span', { class: 'ask-text', text: 'Ask CLIVE' }), h('span', { class: 'ask-voice' }, icon(ICON.wave))),
     h('span', { class: 'ask-face ask-listen' },
       h('span', { class: 'ask-head' }, h('span', { class: 'ask-dot' }), 'Listening'),
-      bars,
+      h('span', { class: 'ask-words-frame', 'aria-hidden': 'true' }, h('span', { id: 'ask-words', class: 'ask-words', 'data-spoken': true })),
+      h('canvas', { id: 'ask-wave', class: 'ask-wave', 'aria-hidden': 'true' }),
       h('span', { class: 'ask-hint', text: 'Release to send · slide away to cancel' })),
     h('span', { class: 'ask-face ask-drop', text: 'Release to cancel' }),
-    h('span', { class: 'ask-face ask-busy', text: 'Working on it' }));
+    h('span', { class: 'ask-face ask-busy' },
+      h('span', { id: 'ask-heard', class: 'ask-heard', 'data-spoken': true }),
+      h('span', { class: 'ask-busy-text', text: 'Working on it' })));
   const input = h('input', { id: 'alpha-input', class: 'alpha-input', type: 'text', placeholder: 'Ask CLIVE…',
     autocomplete: 'off', enterkeyhint: 'send', 'aria-label': 'Ask CLIVE' });
   const send = h('button', { class: 'alpha-send', type: 'submit', 'aria-label': 'Send', 'data-alpha': 'send' }, icon(ICON.up, 18));

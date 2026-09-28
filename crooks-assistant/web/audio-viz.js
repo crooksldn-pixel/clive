@@ -12,6 +12,9 @@
  *     the only path the voice has left once the node exists.
  *   - The microphone analyser hangs off the existing warm MediaStream. It never opens a
  *     second stream and cannot touch what MediaRecorder captures from the same tracks.
+ *   - The live words (web/live-voice.js) listen through the SAME microphone source node, by
+ *     tapMic: one context, one source, one stream. The tap is the caller's node, and it must
+ *     lead nowhere audible; like the analyser, it cannot reach what MediaRecorder captures.
  *
  * Every failure leaves the page exactly as it was without this file: the orb approximates.
  */
@@ -95,6 +98,20 @@
       micSource = micAnalyser = micStream = null;
     }
 
+    // ---- the live words' tap (web/live-voice.js)
+    // A node of the caller's, fed from the microphone source the analyser already reads. False
+    // when there is no source to feed it from (no context yet, or the analyser never attached):
+    // the caller then does without, and nothing here opens anything to make one.
+    function tapMic(node) {
+      if (!ctx || !micSource || !node) return false;
+      try { micSource.connect(node); return true; } catch (error) { return false; }
+    }
+
+    function untapMic(node) {
+      if (!micSource || !node) return;
+      try { micSource.disconnect(node); } catch (error) { /* not connected, or already gone */ }
+    }
+
     function level(analyser) {
       if (!analyser || !ctx || ctx.state !== 'running') return 0;
       if (!buffer || buffer.length !== analyser.fftSize) buffer = new Uint8Array(analyser.fftSize);
@@ -114,12 +131,16 @@
       attachPlayer,
       attachMic,
       detachMic,
+      tapMic,
+      untapMic,
       playerLevel: () => level(playerAnalyser),
       micLevel: () => level(micAnalyser),
       get hasPlayer() { return Boolean(playerSource); },
       get hasMic() { return Boolean(micSource); },
       get state() { return ctx ? ctx.state : 'none'; },
       get micStream() { return micStream; },
+      // The one context, for a tap's own nodes (web/live-voice.js). Null before the first touch.
+      get context() { return ctx; },
     };
   }
 
