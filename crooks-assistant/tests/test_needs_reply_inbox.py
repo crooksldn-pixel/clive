@@ -24,10 +24,10 @@ import pytest
 from app import progressive
 from app.analytics.cache import OrderCache
 from app.analytics.present import working_set_items
-from app.fastpath import library
-from app.fastpath.models import Ctx
+from app.families import landings as library
 from app.presentation import present
 from app.reads.scheduler import Read, ReadPlan, ReadResult, run_plan
+from app.recipes import Ctx
 from app.session.branch import Branch
 from app.session.models import Session
 from app.tools import analytics_tools, gmail_tools
@@ -214,20 +214,22 @@ def test_the_fold_waits_from_the_first_message_nobody_answered():
 
 
 def test_the_recipe_reads_the_inbox_and_nothing_else():
-    from app.fastpath.recipes import RECIPES
+    """The queue is the Inbox landing's (the tapped dock icon); the sentence that used to reach
+    a recipe of its own is the model's since 28 September 2026."""
+    from app.recipes import RECIPES
 
-    plan = library._needs_reply_plan(_ctx(Session(session_id="nr-plan")))
-    (read,) = plan.reads
-    assert read.tool == "email_query" and "set_id" not in read.args and read.args["days"] == 30
-    assert read.draws is False, "a working input: the recipe draws its own card"
-    assert RECIPES["needs_reply"].read_primitives == ("email_query",), "no customer list read first"
+    plan = library._inbox_plan(_ctx(Session(session_id="nr-plan")))
+    queue = next(read for read in plan.reads if read.name == "mail")
+    assert queue.tool == "email_query" and "set_id" not in queue.args and queue.args["days"] == 30
+    assert queue.draws is False, "a working input: the recipe draws its own card"
+    assert RECIPES["landing_inbox"].read_primitives == ("email_query", "gmail_search"), "no customer list read first"
 
 
 # ------------------------------------------------------- 2 and 4. the answer, and its order
 
 
 def _ctx(session: Session) -> Ctx:
-    return Ctx(runtime=None, session=session, branch=Branch(branch_id="b", session_id=session.session_id), intent=None,
+    return Ctx(runtime=None, session=session, branch=Branch(branch_id="b", session_id=session.session_id),
                text="any emails need my attention")
 
 

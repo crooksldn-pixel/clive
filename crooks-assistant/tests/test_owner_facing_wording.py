@@ -41,7 +41,7 @@ WEB = ROOT / "web"
 RUNTIME_WORDS = re.compile(r"\bmac\b|\btablets?\b|\blaunchd\b|\bmake\s+up\b", re.I)
 
 PYTHON_SOURCES = (
-    "app/fastpath",
+    "app/recipes.py",
     "app/providers",
     "app/families",
     "app/presentation.py",
@@ -70,8 +70,7 @@ WEB_SUFFIXES = (".js", ".html", ".css", ".webmanifest")
 # The same word anywhere else — another module, another name, another spelling — is read like
 # any sentence, and a declaration nothing matches any more fails the scan.
 NOT_SAID: frozenset[tuple[str, str, str]] = frozenset({
-    # Words the owner may SAY, held in the sets that recognise a question about the screen.
-    ("app/capabilities/ui_intent.py", "_SUBJECT_WORDS", "tablet"),
+    # Words the owner may SAY, held in the set that recognises a question about the screen.
     ("app/observability/ui_semantics.py", "UI_WORDS", "tablet"),
     # "mac": the source tag, beside "shopify" and "gmail", for what this process answers from
     # what it already holds. It keys budgets, freshness and the manifest's sources.
@@ -79,8 +78,6 @@ NOT_SAID: frozenset[tuple[str, str, str]] = frozenset({
     ("app/capabilities/manifest.py", "_source_of", "mac"),
     ("app/capabilities/manifest.py", "build", "mac"),
     ("app/capabilities/surface.py", "build_surface", "mac"),
-    ("app/families/self_knowledge.py", "_surface", "mac"),
-    ("app/families/self_knowledge.py", "_screen_surface", "mac"),
     ("app/routes/turn.py", "_performance", "mac"),
 })
 
@@ -440,7 +437,7 @@ LINE = "mac"
             if RUNTIME_WORDS.search(text)] == ["mac"]
     assert [text for _, text in _python_strings(tag, "app/tools/probe.py")
             if RUNTIME_WORDS.search(text)] == ["mac", "mac"]
-    assert [text for _, text in _python_strings('WORDS = {"Tablet"}\n', "app/capabilities/ui_intent.py")
+    assert [text for _, text in _python_strings('WORDS = {"Tablet"}\n', "app/observability/ui_semantics.py")
             if RUNTIME_WORDS.search(text)] == ["Tablet"]
 
 

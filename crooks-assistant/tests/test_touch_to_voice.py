@@ -6,6 +6,9 @@ listening for, and the next thing said applies to it without the owner naming it
 The properties that matter are the ones about NOT applying: a binding belongs to one half of
 the orb, lasts one sentence, and expires. Each of those is a way the right words could be
 applied to the wrong record, which is worse than not being applied at all.
+
+Opening the record is a model turn like every sentence: `stage.open_order` is "show me order
+1938" with the reads Claude makes for it, and the order it draws is what the control binds.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ async def stage():
 
 
 async def test_tapping_a_spoken_control_binds_what_is_open(stage):
-    await stage.say("show me order 1938", session_id="tv")
+    await stage.open_order("1938", session_id="tv")
     tapped = await stage.touch("voice.bind", family="order.add_note", session_id="tv")
     assert tapped.raw.get("ok") is True, tapped.raw
     listening = (tapped.raw.get("changed") or {}).get("listening_for") or {}
@@ -34,14 +37,14 @@ async def test_tapping_a_spoken_control_binds_what_is_open(stage):
 
 
 async def test_the_tablet_is_told_what_it_is_listening_for(stage):
-    await stage.say("show me order 1938", session_id="tv2")
+    await stage.open_order("1938", session_id="tv2")
     await stage.touch("voice.bind", family="order.add_note", session_id="tv2")
     branch = stage.branch("tv2").public()
     assert (branch.get("listening_for") or {}).get("family") == "order.add_note"
 
 
 async def test_the_next_sentence_carries_the_binding_and_only_the_next(stage):
-    await stage.say("show me order 1938", session_id="tv3")
+    await stage.open_order("1938", session_id="tv3")
     await stage.touch("voice.bind", family="order.add_note", session_id="tv3")
     await stage.say("he rang about the sizing", session_id="tv3")
     asked = stage.provider.calls[-1] if stage.provider.calls else ""
@@ -54,7 +57,7 @@ async def test_a_binding_does_not_leak_across_the_split(stage):
     """The point of holding it on the branch. A continuation armed on one half must never
     catch a sentence spoken to the other."""
     session = "tv4"
-    await stage.say("show me order 1938", session_id=session)
+    await stage.open_order("1938", session_id=session)
     fork = await stage.client.post(
         "/branches/fork", data={"session_id": session, "label": "right"},
         headers={"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"},
@@ -73,7 +76,7 @@ async def test_a_binding_does_not_leak_across_the_split(stage):
 
 
 async def test_a_binding_expires(stage):
-    await stage.say("show me order 1938", session_id="tv5")
+    await stage.open_order("1938", session_id="tv5")
     branch = stage.branch("tv5")
     branch.bind_voice("order.add_note", kind="order", ref="gid://shopify/Order/1938",
                       clock=lambda: 1000.0)
@@ -92,14 +95,14 @@ async def test_binding_a_control_with_nothing_open_is_refused(stage):
 
 
 async def test_an_unknown_control_is_refused(stage):
-    await stage.say("show me order 1938", session_id="tv7")
+    await stage.open_order("1938", session_id="tv7")
     tapped = await stage.touch("voice.bind", family="order.detonate", session_id="tv7")
     assert tapped.raw.get("ok") is False
     assert tapped.raw.get("code") == "unknown_control", tapped.raw
 
 
 async def test_cancelling_stops_the_listening(stage):
-    await stage.say("show me order 1938", session_id="tv8")
+    await stage.open_order("1938", session_id="tv8")
     await stage.touch("voice.bind", family="order.add_note", session_id="tv8")
     await stage.touch("voice.cancel", session_id="tv8")
     assert stage.branch("tv8").voice_target() is None
@@ -116,7 +119,7 @@ async def test_the_owner_is_shown_his_own_words_not_the_note_added_for_the_model
     so the two are simply kept apart.
     """
     said = "make it shorter and more apologetic"
-    await stage.say("show me order 1938", session_id="tv9")
+    await stage.open_order("1938", session_id="tv9")
     await stage.touch("voice.bind", family="order.add_note", session_id="tv9")
 
     before = len(stage.provider.calls)
@@ -128,31 +131,3 @@ async def test_the_owner_is_shown_his_own_words_not_the_note_added_for_the_model
     # And the model was told what the words apply to, which is why the binding exists.
     asked = " ".join(str(getattr(c, "prompt", c)) for c in stage.provider.calls[before:])
     assert "order.add_note" in asked or "1938" in asked, "the model lost the continuation"
-
-
-def test_every_fast_path_family_is_classified_against_the_continuation_glue():
-    """A new family that nobody classified is a sentence the glue can swallow.
-
-    `_is_a_command` decides from the family the router resolved, which is the right way round
-    — it holds for however the thing is said. But the two sets it reads were hand-written for
-    the families that existed when the glue was, and a family added since is silently absent
-    from both: tap Note on #1938, say "open the inbox", and the model was handed the words as
-    note text with an instruction to apply them to that order and nothing else.
-
-    So the rule, as a test: every family the router can resolve is either an instruction to
-    the assistant or names its own subject. Dictation is what does NOT resolve to a confident
-    family (see the comment above the sets), so there is no third case to leave a hole for.
-    """
-    from app.families import load_all
-    from app.fastpath import intent
-    from app.routes import turn
-
-    load_all()
-    registered = {f.name for f in intent.all_families()}
-    assert len(registered) > 20, "the family table did not load — the check would pass vacuously"
-    classified = turn._NEVER_A_CONTINUATION | turn._CARRIES_ITS_OWN_SUBJECT
-    missing = sorted(registered - classified)
-    assert not missing, (
-        "these families are in neither set, so a tapped control would take their sentences "
-        f"as dictation: {missing}"
-    )

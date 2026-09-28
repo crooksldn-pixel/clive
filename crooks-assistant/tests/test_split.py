@@ -80,6 +80,10 @@ async def writes(monkeypatch):
             yield c
 
 
+# What Claude reads for "which orders are waiting to go out?".
+WAITING_TO_GO_OUT = (("shopify_list_orders", {"days": 30, "unfulfilled_only": True}),)
+
+
 def _ctx(session, branch, **args):
     return commands.Ctx(runtime=None, session=session, branch=branch, args=args)
 
@@ -99,18 +103,18 @@ async def test_two_halves_asked_different_questions_hold_different_workspaces(st
     """The test the brief asks for by name.
 
     The brief's own wording is "show yesterday's orders" on the left. The golden world has no
-    orders yesterday, and a question that draws nothing proves nothing about two screens; nor
-    does a question about TODAY, whose answer in this suite depends on process-wide read state
-    a sibling module leaves behind (`scripts/bench_lanes` run in-process by
-    tests/test_operations.py flattens the "today" bucket for every harness after it). So the
-    left half is asked the same thing in a period nothing else disturbs. The point is
-    unchanged: two questions, two halves, and two different things on the glass.
+    orders yesterday, and a question that draws nothing proves nothing about two screens, so
+    the left half is asked about the orders still to go out. Each question is the model's, and
+    the harness's model makes the read Claude would; the point is unchanged: two questions,
+    two halves, and two different things on the glass.
     """
-    left = await stage.say("which orders are waiting to go out?", session_id="split")
+    left = await stage.ask("which orders are waiting to go out?", *WAITING_TO_GO_OUT,
+                           reply="Three orders are waiting to go out.", session_id="split")
     forked = await stage.client.post("/branches/fork", data={"session_id": "split"})
     right_id = forked.json()["branch_id"]
 
-    right = await stage.say("find emails needing replies", session_id="split", branch_id=right_id)
+    right = await stage.ask("find emails needing replies", ("gmail_search", {"query": "", "days": 30}),
+                            reply="Two people are waiting on a reply.", session_id="split", branch_id=right_id)
     assert left.surface_types and right.surface_types, "both halves must have drawn something"
     assert left.surface_types != right.surface_types, (
         f"both halves drew {left.surface_types}: the owner's 'two of the same thing'"
@@ -135,7 +139,7 @@ async def test_two_halves_asked_different_questions_hold_different_workspaces(st
 async def test_a_forked_half_draws_nothing_of_its_parents_screen(stage):
     """A fork used to rebuild its parent's record from memory. That is the defect: two cards,
     identical, one under each chip."""
-    parent = await stage.say("show me order 1938", session_id="fork-draw")
+    parent = await stage.open_order("1938", session_id="fork-draw")
     assert parent.surface("order") is not None
     forked = await stage.client.post("/branches/fork", data={"session_id": "fork-draw"})
     child_id = forked.json()["branch_id"]
@@ -155,14 +159,12 @@ def test_a_fork_inherits_what_its_parent_holds_and_none_of_what_it_shows():
     parent.visit("order", "o1", "#1957", tab="items")
     parent.set_id = "set_abc"
     parent.workflow = Workflow(workflow_id="wf", set_id="set_abc", kind="orders", total=10, cursor=3, label="10 orders")
-    parent.learn("millie", "customer", "c1", "Millie Rogers")
     parent.shown([{"type": "order", "data": {}}], "1957 is Millie's.", "show me 1957")
     parent.compose = {"compose_id": "cmp_1", "kind": "reply"}
     parent.bind_voice("email.reply", label="Millie")
 
     child = fork_from(parent)
     assert child.entity == parent.entity and child.set_id == "set_abc"
-    assert child.resolve("millie")["ref"] == "c1", "it never received what its parent held"
     assert [e["ref"] for e in child.recent_entities] == [e["ref"] for e in parent.recent_entities]
     assert child.inherited["from"] == "br_a" and child.inherited["entity"]["ref"] == "o1"
     # And nothing of the screen, nothing half-written, nothing armed, nothing appliable.
@@ -300,7 +302,7 @@ def test_nothing_a_half_says_about_itself_is_a_number_out_of_a_number():
 
 async def test_open_area_is_served_on_a_forked_half(stage):
     """`open.area ok=False code=landing_unavailable br_29a02563cf`, 00:25:48."""
-    await stage.say("show me order 1938", session_id="fork-area")
+    await stage.open_order("1938", session_id="fork-area")
     forked = await stage.client.post("/branches/fork", data={"session_id": "fork-area"})
     child_id = forked.json()["branch_id"]
 
@@ -317,9 +319,9 @@ async def test_open_area_is_served_on_a_forked_half(stage):
 def test_a_landing_that_cannot_be_read_offers_the_tap_again():
     """It is still possible for a source not to answer. What is not allowed is a refusal with
     nothing on it to act on — which is what the owner was given, twice, in five seconds."""
-    from app.fastpath.models import FastAnswer
+    from app.recipes import RecipeAnswer
 
-    answer = FastAnswer(answer="", defer="the order reads did not answer")
+    answer = RecipeAnswer(answer="", defer="the order reads did not answer")
     assert answer.deferred
     branch = Branch(branch_id="br_a", session_id="s1")
     branch.visit("order", "o1", "#1957")
@@ -334,7 +336,7 @@ def test_a_landing_that_cannot_be_read_offers_the_tap_again():
 
 async def test_open_entity_on_a_forked_half_opens_what_its_parent_was_shown(stage):
     """`open.entity ok=False code=not_held br_29a02563cf`, 00:25:53."""
-    listed = await stage.say("which orders are waiting to go out?", session_id="fork-entity")
+    listed = await stage.ask("which orders are waiting to go out?", *WAITING_TO_GO_OUT, session_id="fork-entity")
     rows = listed.data("order_list").get("orders") or []
     assert rows, listed.surface_types
     ref = str(rows[0]["order_id"])
@@ -387,14 +389,13 @@ def test_one_halfs_state_changes_never_touch_the_others():
     right.workspace = {"workspace_id": "ws_r", "kind": "discount"}
     right.bind_voice("email.reply", label="Someone")
     right.begin_turn("reading")
-    right.learn("someone", "customer", "c9", "Someone Else")
     right.remember_action("prop_r", "order_note_append", "PENDING")
 
     assert left.entity["ref"] == "o1" and left.tab == "overview" and left.scroll == 0
     assert left.workflow.cursor == 2 and left.expanded == []
     assert left.compose is None and left.workspace is None and left.voice_context is None
     assert left.state() == "ACTIVE" and right.state() == "WORKING"
-    assert left.recent_actions == [] and left.resolve("someone") is None
+    assert left.recent_actions == []
     assert left.headline()["title"] != right.headline()["title"]
     assert left.nav_index == 0 and len(left.nav) == 1 and len(right.nav) == 2
 
@@ -503,7 +504,6 @@ async def test_a_merge_brings_state_and_never_a_transcript_or_an_unresolved_chan
     other.visit("customer", "c1", "Millie Rogers")
     other.shown([{"type": "email_list", "data": {}}], "4 threads.", "who is waiting?")
     other.remember_result("gmail_search", summary="gmail_search: 4 threads", ref="", ms=90.0)
-    other.learn("millie", "customer", "c1", "Millie Rogers")
     session.acting_branch = other.branch_id
     await dispatch(TOOL, {"order_id": ORDER, "note": "Exchange agreed"}, session=session, timeout_s=5)
     staged_there = session.proposals[-1]
@@ -512,13 +512,11 @@ async def test_a_merge_brings_state_and_never_a_transcript_or_an_unresolved_chan
                                 data={"session_id": "merge"})).json()["merged"]
     assert merged["headline"]["title"] == "CUSTOMER · Millie Rogers" and merged["state"] == "ACTIVE"
     assert merged["read"][0]["tool"] == "gmail_search"
-    assert merged["resolved"][0]["said"] == "millie"
     assert "answer" not in merged and "question" not in merged and "last_ui" not in merged
     assert merged["still_waiting"] == [staged_there.proposal_id], "the change is named, not moved"
     assert staged_there.status is ActionStatus.PENDING
     assert staged_there.branch_id == other.branch_id, "a change belongs to the half it was asked in"
     assert writes.store.mutations == [], "a merge is not a gesture"
-    assert keeper.resolve("millie")["ref"] == "c1", "what it worked out comes back"
 
 
 def test_the_halves_share_only_what_is_safe_to_share():
@@ -534,6 +532,5 @@ def test_the_halves_share_only_what_is_safe_to_share():
     assert "gid://shopify/Order/1957" in session.issued_ids, "one ledger for the conversation"
     assert not hasattr(right, "issued_ids"), "and it is not branch state"
     assert left.nav is not right.nav
-    assert left.resolutions is not right.resolutions
     assert left.recent_entities is not right.recent_entities
     assert left.entity is not right.entity

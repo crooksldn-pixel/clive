@@ -1,17 +1,15 @@
-"""What the owner meant, once it no longer matters whether he said it or tapped it.
+"""What a tap means, named once.
 
-Saying "go back" and tapping Back are the same instruction. Before this module they were two
-implementations of it: the spoken one (`app/fastpath/library.py:_nav_back`) moved the cursor,
-rebuilt the record from memory and said a sentence; the tapped one
-(`app/routes/branches.py:back`) moved the cursor and returned bare JSON, leaving the tablet to
-redraw the screen from whatever it still had. Two implementations of one idea drift, and these
-had: the same gesture produced a card in one direction and did not in the other.
+A tap posts which command it was and which record it was on; the Mac decides the rest. Back,
+Next, a tab, an expanded row, opening a record the Mac already holds: each is named here and
+`POST /command` runs it. `POST /branches/{id}/back` survives as a position-only endpoint for a
+caller that wants where the trail is and no card — it moves through `move_nav`, this file's
+arithmetic, so it cannot drift from the command; it simply does not draw.
 
-So a semantic command is named once here, and both ends resolve into it. The fast lane's
-navigation recipes call `run()`; `POST /command` calls `run()`. Neither contains any logic of
-its own about what Back means. `POST /branches/{id}/back` survives as a position-only endpoint
-for a caller that wants where the trail is and no card — it moves through `move_nav`, this
-file's arithmetic, so it cannot drift from the other two; it simply does not draw.
+Words never reach this file. A sentence — typed or spoken, "go back" as much as "order 1047" —
+is a model turn (app/routes/turn.py), and nothing matches its words to a command first. That
+is the owner's decision of 28 September 2026: a lane that matched words in front of the model
+kept answering a different question from the one he asked.
 
 Three properties hold for everything in this file, and the tests hold them:
 
@@ -47,13 +45,12 @@ REPLAY_TOOL = {
     "email_thread": "gmail_read_thread",
 }
 
-# The tabs each surface offers. Held here rather than in the renderer because "show shipping"
-# spoken and a tap on Shipping have to reach the same place, and only one of those two ever
-# sees the DOM — and READ from app/workspace.py rather than written out again, because a
-# composed surface's sections and the tabs the owner may ask for are the same list said
-# twice. A customer's Inbox is "inbox" there and was "email" here, so "show me the email"
-# would have set a tab the workspace does not have: the quiet kind of mismatch §18 calls a
-# control with no destination.
+# The tabs each surface offers. Held here rather than in the renderer because the Mac keeps
+# which tab is showing — it survives a reload, a branch switch and a Back — and READ from
+# app/workspace.py rather than written out again, because a composed surface's sections and
+# the tabs the owner may open are the same list said twice. A customer's Inbox is "inbox"
+# there and was "email" here: the quiet kind of mismatch §18 calls a control with no
+# destination.
 TABS: dict[str, tuple[str, ...]] = {
     "order": WORKSPACE_SECTIONS["order"],
     # "email" stays beside "inbox" on a customer: it is the word the owner says for that tab,
@@ -65,7 +62,7 @@ TABS: dict[str, tuple[str, ...]] = {
 
 @dataclass
 class Outcome:
-    """What a command did. The same shape whether it was spoken or tapped."""
+    """What a command did."""
 
     ok: bool = True
     answer: str = ""
@@ -93,9 +90,10 @@ class Command:
     name: str
     what: str
     run: Callable[[Any], Outcome]
-    # Which of the two ends can reach it. Almost everything is both; a few are touch-only
-    # because there is no natural sentence for them ("expand this row").
-    voice: bool = True
+    # Whether words can reach it. None can: a sentence is a model turn and nothing matches
+    # its words to a command. Kept, and always false, because the command table on
+    # /commands and the feature matrix have always carried the column.
+    voice: bool = False
     touch: bool = True
     # What has to be open for the command to mean anything.
     needs_entity: tuple[str, ...] = ()
@@ -104,8 +102,7 @@ class Command:
 
 @dataclass
 class Ctx:
-    """Everything a command may read. Deliberately the same shape the fast lane hands a
-    recipe, so a recipe can delegate without adapting anything."""
+    """Everything a command may read."""
 
     runtime: Any
     session: Any
@@ -295,9 +292,8 @@ DEFAULT_LANDING = "orders"
 def home_target(branch: Any) -> tuple[str, str]:
     """The area a Home on this half lands in, and the recipe that draws it.
 
-    One implementation for both ends: `POST /command` runs the recipe this names, and the fast
-    lane's `navigation_home` recipe delegates to it, so a tapped Assistant chip and the spoken
-    "back to the assistant" cannot reach two different screens.
+    One implementation: `POST /command` runs the recipe this names, so the Assistant chip and
+    a Back that lands on a landing cannot reach two different screens.
     """
     area = str(getattr(branch, "home_area", "") or DEFAULT_LANDING)
     recipe = LANDING_FOR.get(area) or LANDING_FOR.get(DEFAULT_LANDING, "")
@@ -307,9 +303,8 @@ def home_target(branch: Any) -> tuple[str, str]:
 def move_nav(branch: Any, direction: str) -> dict[str, Any]:
     """Move the trail and say where it landed. Reads nothing.
 
-    Separated from the drawing for the same reason the cursor move is: the fast lane needs to
-    know WHERE it will land before it can plan a read for it, and the read has to happen
-    before the render. Both ends call this, so there is one implementation of the move.
+    Separated from the drawing so the position-only `POST /branches/{id}/back` and the
+    command move the trail by the same arithmetic.
     """
     entry = None
     if direction == "back":
@@ -401,12 +396,8 @@ MEMBER_READ = {
 def move_cursor(session: Any, branch: Any, *, forward: bool) -> dict[str, Any]:
     """The cursor move, and nothing else.
 
-    This is the whole of what "Next" means, and it is arithmetic. It lives here rather than in
-    the fast lane's runner because a tap on Next and the word "next" have to move the same
-    cursor by the same amount and stop at the same ends — and while the arithmetic lived in the
-    runner, keyed on a recipe id, a tapped Next could not reach it at all.
-
-    Reads nothing, so it is safe on either path. Returns what happened.
+    This is the whole of what Next means, and it is arithmetic. Reads nothing. Returns what
+    happened.
     """
     from app.analytics import sets as working_sets
 
@@ -434,9 +425,8 @@ def move_cursor(session: Any, branch: Any, *, forward: bool) -> dict[str, Any]:
             "kind": kind, "set_kind": ws.kind, "set_id": ws.set_id}
 
 
-# What the end of a list sounds like. Here rather than at either call site because the fast
-# lane says these words too: while `_step_cursor` owned them, a tapped Next stopped at the end
-# and a spoken "next" re-read the last member, which is the same word meaning two things.
+# What the end of a list sounds like, said rather than refused: the owner walking a queue of
+# eleven must be able to tell the eleventh from the end.
 BOUND_WORDS = {"at_end": "That is the last one.", "at_start": "That is the first one."}
 
 
@@ -464,8 +454,7 @@ def _step_cursor(ctx: Ctx, *, forward: bool) -> Outcome:
                       changed={**moved, "replayed": bool(calls), "position": _position(ctx),
                                "workspace": ctx.branch.where()})
     if not calls:
-        # Memory does not hold this member. The caller reads it: the route can await, and the
-        # fast lane already has a read plan for exactly this.
+        # Memory does not hold this member. The caller reads it: the route can await.
         outcome.changed["needs_read"] = {"kind": kind, "ref": ref, "set_kind": moved.get("set_kind")}
     return outcome
 
@@ -592,8 +581,8 @@ def _scrolled(ctx: Ctx) -> Outcome:
 register(Command("surface.tab", "Show one part of the open record", _select_tab))
 register(Command("surface.expand", "Open a row where it sits", _expand_row, voice=False))
 register(Command("surface.scroll", "How far down the screen is", _scrolled, voice=False))
-# The spoken shortcuts people actually use. Each is the tab command with its argument fixed,
-# so there is still one implementation of "show the shipping".
+# Shortcuts on the order and customer cards. Each is the tab command with its argument fixed,
+# so there is one implementation of "show the shipping".
 register(Command("order.open_shipping", "The shipping on this order",
                  lambda ctx: _select_tab(Ctx(ctx.runtime, ctx.session, ctx.branch, {"surface": "order", "tab": "shipping"})),
                  needs_entity=("order",)))
@@ -675,7 +664,8 @@ register(Command("branch.show", "What that half is looking at", _branch_show, vo
 
 # The controls that expect words rather than a decision. Tapping one of these does not do
 # anything on its own — it says what the next sentence is about, and starts listening. The
-# family is what the sentence will be routed as; the record is what it will be applied to.
+# sentence then goes to the model with the control and its record beside it
+# (app/routes/turn.py), and the model decides whether the words are for that control.
 SPOKEN_CONTROLS: dict[str, tuple[str, str]] = {
     "email.rewrite": ("email_thread", "Rewrite this"),
     "email.reply": ("email_thread", "Reply to this"),

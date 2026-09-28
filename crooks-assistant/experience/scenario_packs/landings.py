@@ -1,8 +1,9 @@
 """The dock's landings, tapped from an idle tablet (brief §4).
 
 Each icon is a place with a fixed shape. Tapped, it posts `open.area` and the Mac draws the
-landing from deterministic reads — no model, a working set where there is a list to walk,
-the same cards a sentence would have drawn. Spoken, the short forms reach the same recipe.
+landing from deterministic reads — no model, a working set where there is a list to walk.
+Said out loud, "open orders" is a sentence like any other and goes to the model (since
+28 September 2026); the dock is the way to a landing.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from experience.harness import Harness
 # the packs at the END of its own module body — so these names are bound by the time a pack
 # is imported. Importing them from here rather than copying them keeps one definition of what
 # a check is.
-from experience.scenarios import Result, a_surface, check, deterministic, grounded
+from experience.scenarios import Result, a_surface, check, grounded
 
 
 def _ok(c) -> bool:
@@ -30,7 +31,7 @@ def _detail(c) -> str:
 
 
 def _no_model(c) -> object:
-    return check("no model on the path", c.model_calls == 0 and (c.lane in ("FAST", "TOUCH", "")), f"lane={c.lane} model_calls={c.model_calls}")
+    return check("no model on the path", c.model_calls == 0 and (c.lane in ("TOUCH", "")), f"lane={c.lane} model_calls={c.model_calls}")
 
 
 async def landing_orders(h: Harness) -> Result:
@@ -94,23 +95,6 @@ async def landing_products(h: Harness) -> Result:
     return r
 
 
-async def landing_spoken(h: Harness) -> Result:
-    r = Result("landing_spoken", "“Open orders” / “open the inbox” spoken")
-    c = await h.say("open orders", scenario="landing_spoken", session_id="dock5")
-    r.captures.append(c)
-    r.checks.append(check("“open orders” takes the fast lane to the same landing", c.lane == "FAST" and c.model_calls == 0, f"lane={c.lane} model_calls={c.model_calls}"))
-    r.checks += a_surface(c, "order_list", what="draws the order list")
-    d = await h.say("open the inbox", scenario="landing_spoken", session_id="dock5")
-    r.captures.append(d)
-    r.checks.append(check("“open the inbox” takes the fast lane too", d.lane == "FAST" and d.model_calls == 0, f"lane={d.lane} model_calls={d.model_calls}"))
-    r.checks += a_surface(d, "email_list", what="draws the inbox")
-    e = await h.say("show me today's orders", scenario="landing_spoken", session_id="dock5")
-    r.captures.append(e)
-    r.checks.append(check("a sentence with a period in it is still the period list, not the landing", e.recipe_id == "order_list_period", f"recipe={e.recipe_id!r}"))
-    r.checks.append(deterministic(e))
-    return r
-
-
 async def landing_unknown(h: Harness) -> Result:
     r = Result("landing_unknown", "A tap on an area the dock does not have")
     c = await h.touch("open.area", scenario="landing_unknown", session_id="dock6", area="warehouse")
@@ -125,6 +109,5 @@ SCENARIOS = (
     ("landing_inbox", landing_inbox),
     ("landing_sales", landing_sales),
     ("landing_products", landing_products),
-    ("landing_spoken", landing_spoken),
     ("landing_unknown", landing_unknown),
 )

@@ -31,8 +31,6 @@ import pytest
 
 from app.analytics.cache import OrderCache
 from app.families import load_all
-from app.fastpath import recipe_for, resolve, runner
-from app.fastpath.models import Ctx
 from app.session.branch import Branch
 from app.session.models import Session
 from app.tools import analytics_tools, shopify_tools
@@ -239,17 +237,28 @@ def shop():
     return store
 
 
-async def turn(text: str, *, session: Session | None = None):
+async def turn(task: str, period: str = "today", *, session: Session | None = None):
+    """One summary question, asked the way the model asks it: one `commerce_summary` call
+    through the dispatcher. What is counted is what went out to the shop."""
+    from types import SimpleNamespace
+
+    from app.tools.dispatch import dispatch
+
     session = session or Session(session_id="n1")
     session.turn_id = "turn_n1"
-    branch = Branch(branch_id="br_n1", session_id=session.session_id)
-    intent = resolve(text, branch=branch)
-    recipe = recipe_for(intent.family) if intent.family else None
-    assert recipe is not None, f"{text!r} resolved to {intent.family!r} and has no recipe"
-    fast = await runner.run(recipe, Ctx(runtime=None, session=session, branch=branch,
-                                        intent=intent, text=text))
-    assert not fast.deferred, fast.defer
-    return fast, session
+    args = {"task": task} if task == "orders_attention" else {"task": task, "period": period}
+    calls: list = []
+    await dispatch("commerce_summary", args, session=session, timeout_s=8.0, calls=calls)
+    assert calls and calls[-1].ok, calls
+    body = calls[-1].result
+    return SimpleNamespace(calls=calls, body=body, count=int(body.get("count") or 0)), session
+
+
+def surface_of(answer, session: Session):
+    """The compact surface the summary builds from that one read (app/summaries.py)."""
+    from app import summaries
+
+    return summaries.returning_customers(answer.body, session=session, period="today")
 
 
 # ----------------------------------------------------------- the bound, enforced
@@ -261,7 +270,7 @@ async def test_the_returning_customers_answer_reads_the_period_once(shop):
     The bound is stated and enforced: one request to the source for the period, and ZERO
     per-customer reads however many buyers there are.
     """
-    fast, _session = await turn("any returning customers today")
+    fast, _session = await turn("returning_customers")
     calls, entities = BOUND["returning_customers"]
     assert shop.entity_reads == entities, f"{shop.entity_reads} per-customer reads: {shop.by_query}"
     assert len(fast.calls) == calls, [c.name for c in fast.calls]
@@ -269,7 +278,7 @@ async def test_the_returning_customers_answer_reads_the_period_once(shop):
     # anything the aggregation worked out for itself.
     assert shop.source_reads <= pages_for(len(NODES)), shop.by_query
     # It answered: one, out of seven buyers.
-    assert fast.trace["count"] == 1, fast.trace
+    assert fast.count == 1, fast.body
 
 
 async def test_the_answer_does_not_grow_a_read_when_the_shop_does(shop):
@@ -284,14 +293,14 @@ async def test_the_answer_does_not_grow_a_read_when_the_shop_does(shop):
         for n in range(25)
     ]
     shop.nodes = [dict(x) for x in more]
-    fast, _session = await turn("any returning customers today")
+    fast, _session = await turn("returning_customers")
     assert shop.entity_reads == 0, shop.by_query
     assert len(fast.calls) == 1, [c.name for c in fast.calls]
     # Thirty-two more rows cost more PAGES and not one read more than that: the paging is the
     # data, and the N+1 — a request per buyer — would be twenty-five of them.
     assert shop.source_reads <= pages_for(len(more)), shop.by_query
     assert shop.source_reads < 25, f"a read per buyer crept back: {shop.by_query}"
-    assert fast.trace["count"] >= 25, fast.trace
+    assert fast.count >= 25, fast.body
 
 
 async def test_the_cursor_reaches_every_match_and_never_says_an_id(shop):
@@ -311,11 +320,11 @@ async def test_the_cursor_reaches_every_match_and_never_says_an_id(shop):
         for n in range(25)
     ]
     shop.nodes = [dict(x) for x in many]
-    fast, session = await turn("any returning customers today")
-    surface = fast.surfaces[0]
+    fast, session = await turn("returning_customers")
+    surface = surface_of(fast, session)
     assert surface.data["count"] >= 25 and len(surface.data["rows"]) == 12, surface.data["count"]
 
-    held = working_sets.get(session, surface.data.get("set_id") or fast.calls[-1].result.get("set_id"))
+    held = working_sets.get(session, surface.data.get("set_id") or fast.body.get("set_id"))
     assert held is not None, "the summary published no set for its cursor to walk"
     assert held.count == surface.data["count"], (
         f"the set holds {held.count} of {surface.data['count']} matches"
@@ -333,24 +342,23 @@ async def test_two_summary_questions_in_a_row_read_the_shop_once(shop):
     asking three things in a minute waits three times.
     """
     session = Session(session_id="warm")
-    await turn("any returning customers today", session=session)
+    await turn("returning_customers", session=session)
     after_first = shop.source_reads
-    await turn("which orders need attention", session=session)
-    await turn("what came in yesterday", session=session)
+    await turn("orders_attention", session=session)
+    await turn("order_list", "yesterday", session=session)
     assert shop.source_reads == after_first, f"the warm cache was not used: {shop.by_query}"
     assert shop.entity_reads == 0, shop.by_query
 
 
 async def test_the_attention_and_listing_answers_keep_the_same_bound(shop):
-    for text, workflow in (("which orders need attention", "orders_attention"),
-                           ("what came in yesterday", "order_list")):
+    for task, period in (("orders_attention", ""), ("order_list", "yesterday")):
         store = Counting()
         _bind(store)
-        fast, _session = await turn(text)
-        calls, entities = BOUND[workflow]
-        assert store.entity_reads == entities, f"{text!r}: {store.by_query}"
+        fast, _session = await turn(task, period)
+        calls, entities = BOUND[task]
+        assert store.entity_reads == entities, f"{task!r}: {store.by_query}"
         assert len(fast.calls) == calls, [c.name for c in fast.calls]
-        assert store.source_reads <= pages_for(len(NODES)), f"{text!r}: {store.by_query}"
+        assert store.source_reads <= pages_for(len(NODES)), f"{task!r}: {store.by_query}"
 
 
 async def test_lifetime_metrics_for_a_whole_set_read_nothing_at_all(shop):
@@ -404,7 +412,7 @@ async def _before_returning_customers(store) -> tuple[int, float]:
 
 async def _after_returning_customers(store) -> tuple[int, float]:
     started = time.perf_counter()
-    await turn("any returning customers today")
+    await turn("returning_customers")
     return store.source_reads, (time.perf_counter() - started) * 1000
 
 
@@ -482,7 +490,7 @@ async def test_the_audit_table():
     """
     rows = []
     # Once through both halves of every workflow before anything is timed. The first call
-    # into a recipe pays for the lazy imports underneath it — 200 ms of them, measured, which
+    # into the summary read pays for the lazy imports underneath it — 200 ms of them, measured, which
     # is not a cost of the read pattern and would have sat in the table looking like one.
     for _name, before, after in AUDIT:
         warm = Counting()
@@ -658,33 +666,6 @@ async def test_the_same_summary_asked_twice_in_one_turn_is_one_read(shop):
 # ------------------------------------------------------------------ §36, this half of it
 
 
-async def test_a_summary_question_never_reaches_the_model(shop):
-    """turn_be1b384ca420 took 12,895 ms, of which 12,116 ms was the model, and then dumped
-    seven cards. §36: do not do that.
-
-    The recipe answers it. What that means precisely, and is asserted here: the turn takes
-    the FAST lane, the answer and the surface are both built by the recipe, and it hands the
-    model nothing to continue — `continuation` is the one channel a recipe has for saying
-    "and Claude must write the rest of this", and a summary has no rest.
-    """
-    from app.fastpath import choose_lane
-
-    text = "any returning customers today"
-    session = Session(session_id="p36")
-    session.turn_id = "turn_p36"
-    branch = Branch(branch_id="br_p36", session_id="p36")
-    intent = resolve(text, branch=branch)
-    recipe = recipe_for(intent.family)
-    lane, why = choose_lane(intent, recipe=recipe, text=text)
-    assert lane == "FAST", f"{text!r} took {lane}: {why}"
-    fast = await runner.run(recipe, Ctx(runtime=None, session=session, branch=branch,
-                                        intent=intent, text=text))
-    assert not fast.deferred, fast.defer
-    assert fast.continuation == "", "a summary asked the model to finish it"
-    assert fast.answer and fast.surfaces, "the recipe did not produce both halves itself"
-    assert len(fast.calls) == 1, [c.name for c in fast.calls]
-
-
 async def test_a_tap_on_a_row_the_mac_holds_costs_nothing_at_all(shop):
     """§36: a known cached entity opens immediately.
 
@@ -698,8 +679,8 @@ async def test_a_tap_on_a_row_the_mac_holds_costs_nothing_at_all(shop):
     from app.memory import current as memory
     from app.presentation import present
 
-    fast, session = await turn("any returning customers today")
-    row = fast.surfaces[0].data["rows"][0]
+    fast, session = await turn("returning_customers")
+    row = surface_of(fast, session).data["rows"][0]
     memory().put(ENTITY, f"customer:{row['ref']}", {
         "customer_id": row["ref"], "name": "Cy Cole", "orders": 2, "spent": "120.00 GBP",
         "standing": "returning", "recent": [],

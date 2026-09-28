@@ -7,10 +7,9 @@ asked to authorise anything, that the card in front of him says what the code wi
 words rather than in a payload, and that the whole path from an empty form to a waiting
 card costs no language model at all.
 
-The sentence still cannot reach it, and `discount_sentence_defers` asserts exactly that
-rather than letting it look like an oversight: `intent.resolve` returns no family for a
-request carrying a mutation signal, so "set up a code" goes to Claude — whose job here is
-the parse, landing in a workspace the owner can correct.
+The sentence does not open the form, and `discount_sentence_defers` asserts exactly that
+rather than letting it look like an oversight: "set up a code" goes to Claude like every
+sentence, and nothing is prepared on the way to it.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ import re
 
 from experience.fixtures import data
 from experience.harness import Harness
-from experience.scenarios import Result, a_surface, check, deterministic, grounded
+from experience.scenarios import Result, a_model_turn, a_surface, check, deterministic, grounded
 
 FREE = data.DISCOUNT_FREE_CODE          # AUTUMN20 — nothing in the golden world uses it
 TAKEN = "SUMMER15"                      # the Summer sale, still running
@@ -211,10 +210,7 @@ async def discount_sentence_defers(h: Harness) -> Result:
     c = await h.say(f"set up a discount code {FREE} for 20 per cent off",
                     scenario="discount_sentence_defers", session_id=session)
     r.captures.append(c)
-    # The fast lane refusing to serve a change is the property that makes it safe, not a gap
-    # in this family. When a spoken route to a workspace exists it will be a deliberate one,
-    # and this check is where it will be changed.
-    r.checks.append(check("the fast lane declines a sentence that asks for a change", c.lane != "FAST", f"lane={c.lane}"))
+    r.checks.append(a_model_turn(c))
     r.checks.append(check("no form and no card came from the words alone",
                           c.surface("workspace") is None and c.surface("confirmation") is None,
                           f"surfaces={c.surface_types}"))

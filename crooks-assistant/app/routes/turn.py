@@ -146,7 +146,6 @@ async def turn(
                 "stt", session_id=session_id, turn_id=live.turn_id, ok=result.ok, engine=result.engine or None, fallback=result.fallback,
                 engine_detail=result.engine_detail or None, reason=result.reason or None, raw_text=result.raw_text or None, text=result.text or None,
                 audio_s=stats.get("duration_s"), audio_bytes=len(blob), timings=transcript_info.get("timings_ms"),
-                matches=transcript_info.get("matches"), order_numbers=transcript_info.get("order_numbers"),
             )
         if not result.ok:
             live.set_state("READY")
@@ -154,14 +153,9 @@ async def turn(
                 runtime, session_id, result.reason, request=request, error_kind="speech",
                 timings=timings, started=started, transcript=transcript_info, speak=speak, epoch=epoch,
             )
+        # What the recogniser heard, word for word. Nothing rewrites it towards the catalogue
+        # first: the owner said "Clive" and a term list turned it into "Plaid".
         text = result.text
-        # The normaliser refused to guess between near-identical names; tell the model, so it
-        # can search the partial name and ask — rather than silently losing the information.
-        if result.normalised and result.normalised.ambiguities:
-            notes = "; ".join(
-                f"'{a.heard}' could be {' or '.join(a.candidates)}" for a in result.normalised.ambiguities
-            )
-            text = f"{text}\n[The speech recogniser was unsure: {notes}. Ask if it matters.]"
 
     if not text or not text.strip():
         live.set_state("READY")
@@ -178,11 +172,14 @@ async def turn(
     # A bare "yes" while a card is waiting is not a new instruction and applies nothing; it
     # is answered here, in a fixed sentence, without the model and without withdrawing the
     # card — the owner is told again what applies it. Anything else said is an instruction.
+    # This is the one check on the words kept in front of the model, and it is kept because
+    # it is part of the write boundary, not a shortcut: it fires only with a card waiting
+    # and only on a whole sentence of four words or fewer from a fixed list of bare yeses, it
+    # looks nothing up, and sending that yes to the model instead would withdraw the very card
+    # he is agreeing to (every new instruction withdraws pending cards, below). "Yes, and
+    # cancel the order" is not a bare yes and goes to the model.
     # Which half of the orb is being spoken to, before anything is withdrawn: a question
     # asked over here is not a new instruction to a card waiting over there.
-    # A recipe's half of a compound answer, when there is one: its cards and its reads are
-    # carried into the model turn below rather than ending it (brief section 16).
-    fast_partial = None
     branch = live.branch(branch_id)
     # Everything downstream that is handed only the session — the action engine when it
     # stages, working sets when they are created — asks the session which half is speaking.
@@ -215,8 +212,10 @@ async def turn(
     continuation = branch.voice_target()
     if continuation:
         branch.release_voice()      # one sentence, one binding, taken or abandoned
-        if not _is_a_command(text, branch):
-            text = _with_continuation(text, continuation)
+        # Said beside the words, never instead of them: whether "how many orders today" is a
+        # note for #1938 or a question in its own right is the model's to judge, not a word
+        # list's.
+        text = _with_continuation(text, continuation)
 
     revoked = runtime.actions.revoke_pending(live, "new instruction", branch_id=branch.branch_id) + runtime.batches.revoke_pending(live, "new instruction")
     epoch = runtime.actions.advance_epoch(live, "new instruction", branch_id=branch.branch_id)
@@ -234,113 +233,30 @@ async def turn(
     branch.in_flight = 0
     seq = branch.instruction_seq
 
-    # The hourly catalogue refresh is a Shopify round trip; it runs beside this turn, not
-    # in front of it. This question is answered with the catalogue as it stands.
-    runtime.refresh_catalogue_soon()
-
-    # ---------------------------------------------------------------- the fast lane
-    # Most of what is said to a tablet on a workbench is not a new problem. If the Mac knows
-    # the procedure for this one — an order, a customer, a period, "next", "what can you do"
-    # — it runs it and answers, with no model on the critical path. A recipe that is not sure
-    # defers, and the turn carries on to Claude exactly as it did before.
-    live.heard = spoken.strip()
-    lane, lane_why, intent, recipe = _route(text, branch)
-    if timeline.current().active is not None:
-        timeline.emit(
-            "lane", session_id=session_id, turn_id=live.turn_id, lane=lane, why=lane_why,
-            branch_id=branch.branch_id, recipe_id=(recipe.recipe_id if recipe else None), **intent.public(),
-        )
-    # What this half is doing, in the owner's words, while it does it. A half he has put
-    # aside says this on its own chip rather than taking his attention (brief section 17).
-    # `begin_turn` rather than `working`: the branch counts turns actually in flight, so
-    # WORKING on a chip is a fact and not a note left behind by a turn that died.
-    branch.begin_turn(_working_words(lane, intent))
-    # The workspace starts NOW, not when the reads are done (§7, D-5). A family the router
-    # recognised already knows what kind of card is coming, so its skeleton goes up before the
-    # first read is issued; the rest arrive as each read lands (app/tools/dispatch.py) and are
-    # collected by the tablet's /state poll. `turn_c8eb4cffe077` waited 7,975 ms for its first
-    # card and the owner said the system "waits and then dumps a large chunk".
-    progressive.begin(
-        session_id, turn_id=live.turn_id, branch_id=branch.branch_id,
-        family=str(getattr(intent, "family", "") or ""),
-    )
-    if lane == "FAST" and recipe is not None:
-        # The rail is worked out beside the read, not after it. A fast turn used to answer with
-        # `writes` still None — that variable is set further down, on the path the fast lane
-        # returns before reaching — so present() built the card with no actions on it and an
-        # order looked up quickly offered nothing to do with the order.
-        #
-        # Beside, though, and not in front. This was an `asyncio.gather` of the two, with a
-        # comment claiming the preflight is cached and so costs nothing — which was wrong on
-        # both halves. Before that change a read turn never called `writes_context` at all
-        # (`_answer` asks for it only when something was proposed), and the scope caches behind
-        # it last ten minutes, so every expiry, every restart and every cold tablet paid
-        # `WRITE_STATUS_TIMEOUT_S` on the fastest turn in the system: measured, "what can you
-        # do now?" went from 24 ms to 1508 ms with a slow scope check. So the preflight starts
-        # here and is only waited for by an answer that has a card to hang a rail on. A recipe
-        # that draws from its own state — capability, navigation, the end of a list — reads
-        # nothing and offers nothing, and now pays nothing.
-        preflight = (
-            asyncio.create_task(writes_context(request)) if request is not None else None
-        )
-        fast = await _fast(runtime, live, branch, intent, recipe, text)
-        fast_writes = None
-        if preflight is not None:
-            if fast is not None and fast.calls:
-                fast_writes = await preflight
-            else:
-                preflight.cancel()
-        if fast is not None and fast.partial and fast.continuation:
-            # The recipe drew the workspace and says the rest is Claude's (brief section 16).
-            # The turn does NOT end here: the cards are kept, the continuation is put to the
-            # model, and one answer comes back with both halves. The alternative — returning
-            # the recipe's sentence and arming the branch — made the owner ask twice, which is
-            # what the bench's thirty-five-second compound turn already cost him once.
-            fast_partial = fast
-            timings["fast_partial"] = (time.perf_counter() - started) * 1000
-            lane, lane_why = "NORMAL", f"the fast path drew {recipe.recipe_id} and handed the words to Claude"
-        elif fast is not None:
-            return await _answer(
-                runtime, session_id, fast.answer, request=request, timings=timings, started=started,
-                transcript=transcript_info, question=spoken.strip(), speak=speak,
-                # What is worth looking at, which is not always everything that was read. The
-                # reads themselves still reach the log and the timeline, on the line below.
-                calls=fast.calls if fast.drawn is None else fast.drawn,
-                epoch=epoch, seq=seq, revoked=revoked, tool_calls=_fast_tool_calls(fast.calls),
-                lane=lane, recipe_id=recipe.recipe_id, branch=branch, partial=fast.partial,
-                surfaces=fast.surfaces, writes=fast_writes,
-                # When the facts were in hand on this lane: the recipe's own measurement of
-                # its reads (section 25's time-to-first-useful-workspace). There is no model
-                # step to read it from, and the whole point of the lane is that the two
-                # numbers are nearly the same.
-                measures={"recipe_reads_ms": (fast.trace or {}).get("critical_path_ms") or (fast.trace or {}).get("ms")},
-            )
-        elif fast is None:
-            lane, lane_why = "NORMAL", "the fast path deferred"
-
-    await _ensure_provider_started(runtime)
-
-    # What was heard, on the session now, so the tablet can show it while Claude thinks
+    # Every sentence is a model turn. Nothing matches the words first — no phrase, no order
+    # number, no intent — and nothing is looked up in front of the model. The owner's
+    # decision of 28 September 2026: a lane that matched words in front of Claude meant that
+    # mentioning an order number or a word could get a canned lookup instead of what he asked.
+    # What was heard goes on the session now, so the tablet can show it while Claude thinks
     # rather than only once the answer lands — a mis-heard question is visible at once.
     live.heard = spoken.strip()
+    # What this half is doing, while it does it. A half he has put aside says this on its own
+    # chip rather than taking his attention (brief section 17). `begin_turn` rather than
+    # `working`: the branch counts turns actually in flight, so WORKING on a chip is a fact
+    # and not a note left behind by a turn that died.
+    branch.begin_turn("working it out")
+    # The workspace starts NOW, not when the reads are done (§7, D-5): its sections go up as
+    # each read starts (app/tools/dispatch.py) and are collected by the tablet's /state poll.
+    progressive.begin(session_id, turn_id=live.turn_id, branch_id=branch.branch_id)
+
+    await _ensure_provider_started(runtime)
 
     # What the Mac already knows about applying a change from this request, before the model
     # is asked: a change proposed while changes are off must never be announced as something
     # to tap. Asked once per turn (the scope answer is cached), and reused for the card.
-    # An order number in the question is looked up before the model is asked: the Mac
-    # already knows it is an order number, the lookup is the model's first step anyway, and
-    # having the record — and its id issued — saves a model round trip and the stumble of a
-    # note proposed for an order that has not been looked up yet. It runs beside the scope
-    # preflight, which does not depend on it.
-    prefetched: list[ToolCall] = []
     prompt_text = f"{_now_line(runtime)}\n{text.strip()}"
-    writes, lookup = await asyncio.gather(
-        writes_context(request) if request is not None else _none(),
-        _prefetch_order(runtime, live, text, prefetched, timings),
-    )
+    writes = await writes_context(request) if request is not None else None
     live.writes_blocked = "" if writes is None or writes["allowed"] else _blocked_words(writes)
-    if lookup:
-        prompt_text = f"{prompt_text}\n\n{lookup}"
     from app.analytics import sets as working_sets
 
     set_line = working_sets.prompt_line(live, branch=branch)
@@ -348,27 +264,14 @@ async def turn(
         prompt_text = f"{prompt_text}\n\n{set_line}"
     for extra in _context_lines(live, text, runtime=runtime):
         prompt_text = f"{prompt_text}\n\n{extra}"
-    if fast_partial is not None and fast_partial.continuation:
-        # Last, so it is the freshest thing in front of the model, and marked as the Mac's own
-        # reading rather than something the owner said.
-        prompt_text = f"{prompt_text}\n\n{fast_partial.continuation}"
     where = _branch_line(branch)
     if where:
         prompt_text = f"{prompt_text}\n\n{where}"
-    if timeline.current().active is not None:
-        timeline.emit(
-            "prefetch", session_id=session_id, turn_id=live.turn_id, order_numbers=spoken_order_numbers(text), hit=bool(lookup),
-            ms=(round(timings["prefetch"], 1) if "prefetch" in timings else None), hydrating=live.hydrating is not None, writes_code=(None if writes is None or writes["allowed"] else writes.get("code")),
-        )
 
     # What the model is about to be given, in numbers (brief section 11). Counts only: no
     # part of the prompt is written anywhere, here or on the timeline. Kept apart from
     # `timings`, which is milliseconds and is published as such.
     measures = {"model_input_chars": len(prompt_text), "tool_schema_bytes": _tool_schema_bytes(runtime)}
-    if fast_partial is not None:
-        # The facts were in hand when the RECIPE finished reading, not when the model's
-        # sentence landed — which is exactly the gap section 25 asks to be measured.
-        measures["recipe_reads_ms"] = (fast_partial.trace or {}).get("critical_path_ms") or (fast_partial.trace or {}).get("ms")
     t0 = time.perf_counter()
     result = await _provider_turn(runtime, session_id, prompt_text, branch)
     timings["agent"] = (time.perf_counter() - t0) * 1000
@@ -380,17 +283,7 @@ async def turn(
             error_kind=result.error_kind, stopped_early=result.stopped_early, answer=result.text or None,
             tool_calls=[{"tool": c.name, "ok": c.ok, "tool_call_id": getattr(c, "tool_call_id", "") or None, "proposal_id": c.proposal_id} for c in result.tool_calls or []],
         )
-    if prefetched:
-        result.tool_calls = _hydrated(live, prefetched + list(result.tool_calls or []))
-
     answer = result.text or "I could not work out an answer to that."
-    if fast_partial is not None and fast_partial.answer:
-        # The recipe's sentence LEADS, and the model's follows it. Section 16 splits this turn
-        # deliberately: the mechanics are the Mac's and the synthesis is Claude's, so the facts
-        # the owner hears first — who wrote, when, whether we replied — are the ones that were
-        # read, not the ones that were generated. It is also what is left if the model fails:
-        # the fallback sentence lands after a true one instead of instead of it.
-        answer = f"{fast_partial.answer.rstrip()} {answer}"
     if len(answer) > runtime.settings.max_answer_chars:
         # A forty-second spoken monologue is a bad product; truncate at a sentence boundary.
         cut = answer[: runtime.settings.max_answer_chars]
@@ -422,20 +315,9 @@ async def turn(
                 "proposal_id": c.proposal_id,
                 "tool_call_id": getattr(c, "tool_call_id", "") or None,
             }
-            for c in list(result.tool_calls) + (list(fast_partial.calls) if fast_partial is not None else [])
-        ] + [],
-        # The recipe's cards, in front of whatever the model's own reads drew. A compound
-        # answer is one screen: the workspace the Mac built and the sentence Claude wrote
-        # about it, not two turns' worth of cards (brief section 16).
-        calls=(
-            list(fast_partial.calls if fast_partial.drawn is None else fast_partial.drawn) + list(result.tool_calls or [])
-            if fast_partial is not None else result.tool_calls
-        ),
-        surfaces=(list(fast_partial.surfaces) if fast_partial is not None else None),
-        # A compound turn is still a recipe turn: it ran, it did the reads, and the report and
-        # the timeline should be able to say which one, next to the model call it handed on to.
-        # Nameless, the only NORMAL turns with `recipe_reads_ms` on them would be unattributable.
-        recipe_id=(recipe.recipe_id if fast_partial is not None and recipe is not None else ""),
+            for c in list(result.tool_calls)
+        ],
+        calls=result.tool_calls,
         speak=speak,
         lost_thread=lost_thread,
         epoch=epoch,
@@ -469,9 +351,14 @@ def _written(text: str, names: set[str]) -> str:
 FAMILY_LINE_PREFIX = "[What CLIVE cannot do right now. Do not attempt these; say why if asked:\n"
 
 
-def _performance(timings: dict, *, lane: str, recipe_id: str, branch, calls, partial: bool, session, measures: dict, ui: list | None = None, glass: dict | None = None) -> dict:
+def _performance(timings: dict, *, branch, calls, session, measures: dict, ui: list | None = None, glass: dict | None = None) -> dict:
     """The turn's own measurements. No content, no arguments, no personal data: counts,
-    milliseconds and names of tools."""
+    milliseconds and names of tools.
+
+    Every turn is a model turn, so the fields the removed fast lane wrote — `recipe_id` and
+    `fast_path_hit` — are no longer produced; a reader of older records finds them there and
+    of newer ones finds them absent. `lane` stays, always NORMAL, because readers of the
+    record group turns by it and a tap is TOUCH on /command."""
     from app.memory import current as memory
     from app.memory.coalesce import current as coalescer
     from app.memory.prefetch import current as prefetcher
@@ -486,19 +373,17 @@ def _performance(timings: dict, *, lane: str, recipe_id: str, branch, calls, par
     model_phases = sum(1 for key in timings if key.startswith("step:model"))
     facts_ms, workspace_ms, waited_ms = _workspace_timing(timings, calls=calls, measures=measures)
     return {
-        "lane": lane,
-        "recipe_id": recipe_id or None,
-        "fast_path_hit": lane == "FAST",
+        "lane": "NORMAL",
         "branch_id": getattr(branch, "branch_id", None),
         "parent_branch_id": (getattr(branch, "parent_id", "") or None),
         "backgrounded": getattr(branch, "status", "") == "BACKGROUND",
         "cancelled": bool(getattr(session, "abandoned", False) or getattr(branch, "abandoned", False)),
-        "partial": bool(partial),
+        "partial": False,
         "tool_calls": len(calls or []),
         "source_ms": sources,
         "stt_ms": round(float(timings.get("transcribe") or timings.get("stt") or 0.0), 1) or None,
         "model_ms": round(float(model_ms), 1) if model_ms is not None else None,
-        "model_calls": 0 if lane == "FAST" else 1,
+        "model_calls": 1,
         "model_phases": model_phases or None,
         "model_input_chars": measures.get("model_input_chars"),
         "tool_schema_bytes": measures.get("tool_schema_bytes"),
@@ -506,8 +391,7 @@ def _performance(timings: dict, *, lane: str, recipe_id: str, branch, calls, par
         # Section 25's three numbers, kept apart on purpose.
         #
         # `facts_ms` is when the Mac HELD the authoritative data the cards are drawn from —
-        # the last read to land. A progressive workspace could be on screen at that moment,
-        # and on the FAST lane it effectively is.
+        # the last read to land. A progressive workspace could be on screen at that moment.
         # `workspace_ms` is when the cards existed (present() returned).
         # `prose_wait_ms` is the rest: what the owner waited AFTER the facts were in hand,
         # which on the live bench was most of a twenty-five-second turn and is the number to
@@ -554,24 +438,14 @@ def _workspace_timing(timings: dict, *, calls, measures: dict) -> tuple[float | 
 
     The model path records a step per tool call at the moment it returned, offset from the
     start of the turn (`step:tool:<name>`); the last of those is when the workspace COULD
-    have been drawn. The fast lane has no model, so its reads are its critical path, which
-    the recipe measures and passes here. A turn that read nothing — a capability answer, a
-    navigation move — has no facts time and is not counted as slow prose.
-
-    A recipe's reads come FIRST where there are both. On a compound turn (§16) the cards are
-    the recipe's and the model is there to write about them, so the last model step is not
-    when the facts arrived — it is a draft being composed from facts already held, and
-    reading it as "facts_ms" would report a twenty-second turn as twenty seconds of reading
-    and nothing waited. Which is the opposite of the number §25 asks for.
+    have been drawn. A turn that read nothing has no facts time and is not counted as slow
+    prose.
     """
-    recipe_ms = measures.get("recipe_reads_ms")
-    facts = float(recipe_ms) if isinstance(recipe_ms, (int, float)) else None
-    if facts is None:
-        steps = [float(v) for k, v in timings.items() if k.startswith("step:tool:") and isinstance(v, (int, float))]
-        facts = max(steps) if steps else None
+    steps = [float(v) for k, v in timings.items() if k.startswith("step:tool:") and isinstance(v, (int, float))]
+    facts = max(steps) if steps else None
     if facts is None and calls:
-        # No per-step offsets (a fast lane that did not report, a provider that does not
-        # measure): the reads themselves are the floor, run in parallel where they could be.
+        # No per-step offsets (a provider that does not measure): the reads themselves are
+        # the floor, run in parallel where they could be.
         durations = [float(getattr(c, "duration_ms", 0.0) or 0.0) for c in calls]
         facts = max(durations) if any(durations) else None
     workspace = timings.get("workspace")
@@ -633,177 +507,14 @@ def _tool_schema_bytes(runtime) -> int:
     return _SCHEMA_BYTES[key]
 
 
-def _route(text: str, branch):
-    """(lane, why, intent, recipe) for this request. Structure only: no source is touched."""
-    from app.fastpath import choose_lane, recipe_for, resolve
-
-    intent = resolve(text, branch=branch)
-    recipe = recipe_for(intent.family) if intent.family else None
-    lane, why = choose_lane(intent, recipe=recipe, text=text)
-    return lane, why, intent, recipe
-
-
-# The other thing a request asked for, said in a clause. Explicit requested work outranks
-# contextual status (§14, D-14) — but the status half was ASKED, and the live session's answer
-# to "are you okay now?" was the capability delta INSTEAD of the emails. Answering the work
-# and saying nothing about the health would be the same mistake with the halves swapped.
-#
-# Fixed sentences, and true by construction: the Mac is answering, so it is running. Nothing
-# here claims anything the turn has not already proved.
-_SECONDARY_WORDS = {
-    "capability_delta": "I'm back up and running.",
-    "capability_summary": "I'm back up and running.",
-    # And the family that answers the health question itself (app/families/interaction.py).
-    # "Are you okay now?" used to reach `capability_delta` only because it carries the word
-    # "now" — the delta answers "what MORE can you do", which is not what was asked. With a
-    # family of its own for the status question, this is the clause that acknowledges it.
-    "assistant_status": "I'm running fine.",
-}
-
-
-async def _fast(runtime, session, branch, intent, recipe, text: str):
-    """Run a recipe. Returns its answer, or None when it deferred and Claude should answer."""
-    from app.fastpath import run as run_recipe
-    from app.fastpath.models import Ctx
-    from app.memory import current as memory
-
-    session.turns += 1
-    session.set_state("THINKING", recipe.recipe_id)
-    answer = await run_recipe(recipe, Ctx(runtime=runtime, session=session, branch=branch, intent=intent, text=text, memory=memory()))
-    session.set_state("READY")
-    if answer.deferred:
-        # The turn is about to be answered properly; it was never a second turn.
-        session.turns -= 1
-        return None
-    aside = _SECONDARY_WORDS.get(str(getattr(intent, "secondary", "") or ""))
-    if aside and answer.answer:
-        answer.answer = f"{aside} {answer.answer.lstrip()}"
-    return answer
-
-
-# What a lane is doing, said once, in words. Deliberately vague about the work and exact
-# about the source: the owner does not need to know which tool, and must never be told what
-# the model is thinking.
-_WORKING = {
-    "order_lookup": "reading the order", "order_status_lookup": "reading the order",
-    "order_address_lookup": "reading the order", "customer_purchase_lookup": "reading the customer",
-    "best_sellers_period": "adding up the sales", "sales_breakdown_period": "adding up the sales",
-    "delayed_orders": "listing what is late", "stock_cover_analysis": "checking stock",
-    "needs_reply": "checking the inbox", "inbox_state": "checking the inbox",
-    "working_set_next": "reading the next one", "working_set_previous": "reading the last one",
-}
-
-
-def _working_words(lane: str, intent) -> str:
-    if lane == "DEEP":
-        return "working through it"
-    return _WORKING.get(getattr(intent, "family", ""), "working it out")
-
-
-# Families that are instructions to the assistant rather than words about a record. A
-# continuation must not swallow one: tapping Note and then saying "go back" abandons the note,
-# it does not write "go back" into it. Deciding this from the family rather than from a list of
-# phrases means it holds for however those things are said.
-# Sentences that are instructions to the assistant, whatever control was tapped a moment ago.
-# Two kinds. These are the ones that command it directly: "go back", "next", "what can you do".
-_NEVER_A_CONTINUATION = frozenset({
-    "navigation_back", "navigation_home", "working_set_next", "working_set_previous",
-    "capability_summary", "capability_delta", "order_reopen",
-    # And every other way of saying "move the screen": the dock's four landings, a tab on the
-    # record, and the switch to the other half of the orb. Tap Note on #1938, say "open the
-    # inbox", and the inbox is what should open.
-    "landing_orders", "landing_inbox", "landing_sales", "landing_products",
-    "order_tab_show", "branch_switch",
-    # And §4's two ways of saying it in words the router had no family for at all
-    # (app/families/ui_intent.py). "Take me to the inbox" said over a tapped Add a note is
-    # the inbox, not note text — the same rule the dock's four landings are here for.
-    "ui_area_workspace",
-    # And the two that are about the machine rather than about the shop (§15, §16). "What does
-    # the split button do" is a question to the assistant, like "what can you do"; "log that
-    # your split function is broken" is an instruction to write something down. Tap Add a note
-    # on #1938 and say either of them, and a note containing it is the last thing wanted.
-    "ui_semantics", "owner_feedback",
-    # And "what is on this screen" (D-11), which is the same kind of question as "what does
-    # the split button do" — about the machine, not about the record. Tap Add a note on #1938,
-    # ask what is on the screen, and a note containing the question is the last thing wanted.
-    "screen_state",
-    # And §24's three (app/families/interaction.py). "Stop" said over a tapped Add a note is
-    # an interruption — it abandons the note, it does not become its text — and a hello or a
-    # "are you working?" is a word to the assistant, not dictation for the control.
-    "interaction_stop", "greeting", "assistant_status",
-})
-# And these are the ones that NAME THEIR OWN SUBJECT, which the glue would then overrule. Tap
-# Add a note on #1938, then ask "how many orders today", and the model was handed
-#
-#     how many orders today
-#     [This continues order.add_note on the order the owner is looking at (#1938) … Apply it
-#      to that record and to nothing else.]
-#
-# — a sales question turned into an instruction about one order's note, and the turn dropped
-# off the fast lane on the way. "Show me order 1782" was glued to #1938 the same way.
-#
-# Dictated note and rewrite text is not in either set, because it does not resolve to a
-# confident family: "he wants it by Friday" names no order, no period and no list, so it is
-# still taken as the words the tapped control was waiting for. That is the whole distinction —
-# a sentence the router can already act on is not dictation.
-_CARRIES_ITS_OWN_SUBJECT = frozenset({
-    "order_lookup", "order_list_period", "order_status_lookup", "order_address_lookup",
-    "customer_history_lookup", "customer_purchase_lookup", "sales_breakdown_period",
-    "best_sellers_period", "stock_cover_analysis", "delayed_orders", "inbox_state",
-    "needs_reply",
-    # Phase 3's families, on the same rule. The email pair says which record it is asking
-    # about ("this order") and then reads the thread; the latest order and the two list
-    # questions name the set they want; adding an item to an order is an instruction in its
-    # own right, and a tapped Note must not swallow it as note text.
-    "order_latest", "order_email_draft", "order_email_waiting",
-    "unfulfilled_orders", "international_orders", "order_add_item",
-    # And the composer's three. "Write an email to <address> …" names the address it is going
-    # to; "make it shorter" and "send it instead" name the composer or the draft in front of
-    # the owner. None of them is dictation for a control tapped a moment ago — the composer's
-    # own fields are typed into, and its rewrite arrives as words with a composer open, which
-    # is a different mechanism from a bound control.
-    "email_compose_any", "compose_rewrite", "draft_send_instead",
-    # And the commerce families' four (app/families/discounts.py, order_create.py,
-    # abandoned.py), on the same rule. "How many abandoned checkouts" is a question about the
-    # shop and names the window it wants; "create an order for Poppy De-Witt" names the
-    # person it is for; the two discount families name the code. None of them is dictation
-    # for a control tapped a moment ago — tap Add a note on #1938, ask what has been
-    # abandoned, and it is the abandonment that should be answered.
-    "abandoned_checkouts", "discount_code", "order_new", "order_new_line",
-    # §4's workspace family (app/families/ui_intent.py). "Expand David's customer page" names
-    # the person it is about; tap Add a note on #1938 and say it, and the customer's page is
-    # what should open, not a note containing the sentence.
-    "customer_workspace",
-    # And the summary families (app/families/summaries.py), on the same rule. "Any returning
-    # customers today", "which orders need attention" and "what came in yesterday" each name
-    # the period and the question they are about. Tap Add a note on #1938 and ask any of
-    # them, and it is the summary that should be answered — not a note containing the words.
-    "returning_customers", "returning_customers_before", "orders_attention",
-    "order_list_summary",
-})
-
-
-def _is_a_command(text: str, branch: Any) -> bool:
-    """Whether this sentence is an instruction in its own right.
-
-    Resolved from the words the owner actually said, before any continuation note is added —
-    the note is for the model, and routing must not see it.
-    """
-    from app.fastpath import resolve
-
-    try:
-        family = resolve(text, branch=branch).family
-    except Exception:  # noqa: BLE001 — a router that cannot decide is not a reason to fail a turn
-        return False
-    return family in _NEVER_A_CONTINUATION or family in _CARRIES_ITS_OWN_SUBJECT
-
-
 def _with_continuation(text: str, continuation: dict) -> str:
-    """The sentence, with what it applies to said plainly beside it.
+    """The sentence, with the control he tapped before saying it named plainly beside it.
 
-    A bracketed note rather than a new mechanism: the recogniser's ambiguity note already uses
-    this shape, the model already reads it, and it survives being logged. The reference is the
-    record's id and its label — never its contents.
+    A bracketed note the model reads, never a rewrite of the words: the owner's sentence stays
+    exactly as he said it, and whether it is the words that control was waiting for or a new
+    request of its own is the model's to judge. It used to be decided by a word list in front
+    of the model, which is the kind of guess the owner asked to be rid of. The reference is
+    the record's id and its label — never its contents.
     """
     family = str(continuation.get("family") or "")
     kind = str(continuation.get("kind") or "record").replace("_", " ")
@@ -811,18 +522,10 @@ def _with_continuation(text: str, continuation: dict) -> str:
     ref = str(continuation.get("ref") or "")
     named = f" ({label})" if label else ""
     return (
-        f"{text}\n[This continues {family} on the {kind} the owner is looking at{named}"
-        f"{f', id {ref}' if ref else ''}. Apply it to that record and to nothing else.]"
+        f"{text}\n[Just before saying this he tapped {family} on the {kind} he is looking at{named}"
+        f"{f', id {ref}' if ref else ''}. If these words are for that, apply them to that record and to "
+        "nothing else; if they ask for something else, do that instead.]"
     )
-
-
-def _fast_tool_calls(calls) -> list[dict]:
-    """The fast lane's reads, in the shape the turn log and the tablet already read."""
-    return [
-        {"name": c.name, "ok": c.ok, "error": c.error, "ms": c.duration_ms, "args": _loggable_args(c),
-         "proposal_id": c.proposal_id, "tool_call_id": getattr(c, "tool_call_id", "") or None}
-        for c in calls or []
-    ]
 
 
 def _branch_line(branch) -> str:
@@ -1000,121 +703,80 @@ def _now_line(runtime) -> str:
     return f"[Now: {now.strftime('%A')} {now.day} {now.strftime('%B %Y, %H:%M')} {runtime.settings.shop_timezone}]"
 
 
-# The lookup ahead of the model gets less time than a tool call the model makes: past this,
-# the model does its own looking up and nothing was lost but the head start.
-PREFETCH_TIMEOUT_S = 2.5
-
-# An order number the owner SAID: the cue, then the number, and nothing between them but
-# "number", "no." or "#". Four digits, because that is what CROOKS issues; not a year unless
-# written as a number ("order number 2025", "#2025"); and never "orders over 500 pounds",
-# "orders from 2025" or "orders in the last 100 days", which name no order.
-_SPOKEN_ORDER = re.compile(
-    r"\b(?:order|invoice)\b\s*(?P<explicit>(?:number|no\.?|#)\s*#?\s*)?(?P<digits>\d{4})\b"
-    # Not a figure with a unit after it, and not the head of something the recogniser left
-    # half-converted ("1930-eight"): a number that runs into a word is not an order number.
-    r"(?!\s*(?:pounds?|quid|days?|items?|units?|percent|%|per\b))"
-    r"(?![\u2010-\u2015-]?[A-Za-z])",
-    re.I,
-)
+#: The cards that are one record, with the kind the branch calls it by and where the card
+#: keeps its id and its name.
+_RECORD_CARDS: dict[str, tuple[str, str, str]] = {
+    "order": ("order", "order_id", "order_number"),
+    "customer": ("customer", "customer_id", "name"),
+    "email_thread": ("email_thread", "thread_id", "subject"),
+}
 
 
-def spoken_order_numbers(text: str) -> list[str]:
-    """The order numbers the owner named, if any. CROOKS issues four digits; "order 2025" is
-    read as the year unless it was said as a number ("order number 2025", "order #2025")."""
-    found: list[str] = []
-    for match in _SPOKEN_ORDER.finditer(text):
-        digits = match.group("digits")
-        looks_like_a_year = 2000 <= int(digits) <= 2099
-        if looks_like_a_year and not match.group("explicit"):
-            continue
-        if digits not in found:
-            found.append(digits)
-    return found
+def _stand_on_what_was_shown(branch, ui: list) -> None:
+    """The record the model put on the screen is the record the owner is now on.
 
-
-async def _prefetch_order(runtime, session, text: str, calls: list, timings: dict) -> str:
-    """Look one spoken order number up through the same gate the model uses. Returns the
-    text to hand the model, or nothing when there was no single order number, or the lookup
-    failed (the model then does it itself, as before)."""
-    from app.tools.dispatch import dispatch
-
-    numbers = spoken_order_numbers(text)
-    if len(numbers) != 1:
-        return ""
-    number = numbers[0]
-    session.set_state("CHECKING SHOPIFY", "shopify_find_order")
-    t0 = time.perf_counter()
-    try:
-        rendered = await dispatch(
-            "shopify_find_order", {"query": number}, session=session,
-            timeout_s=min(PREFETCH_TIMEOUT_S, runtime.settings.tool_timeout_s), calls=calls,
-        )
-    finally:
-        timings["prefetch"] = (time.perf_counter() - t0) * 1000
-    if not calls or not calls[-1].ok:
-        calls.clear()
-        return ""
-    # One order: its full picture is read now, beside the model rather than in front of it.
-    # If the model asks for the detail it is answered at once; if it does not, the card still
-    # shows the whole order when the read has landed by the time the answer does.
-    found = calls[-1].result.get("orders") if isinstance(calls[-1].result, dict) else None
-    hydrating = ""
-    if isinstance(found, list) and len(found) == 1 and isinstance(found[0], dict) and found[0].get("order_id"):
-        session.hydrating = _hydrate_soon(str(found[0]["order_id"]))
-        hydrating = (
-            " The full order (items, money, address, tracking, the customer's history and their "
-            "recent email) is being read beside you: call shopify_order_detail if the answer needs "
-            "any of it — it answers at once."
-        )
-    return (
-        f"[CLIVE already ran shopify_find_order(query=\"{number}\") for this question. Its result:\n"
-        f"{rendered}\nUse it as if you had called the tool; do not call shopify_find_order for "
-        f"{number} again.{hydrating}]"
-    )
-
-
-def _hydrate_soon(order_id: str) -> asyncio.Task | None:
-    """Start the order's full read in the background. Never awaited by the turn itself.
-
-    Lane 4 — "an active branch's requested background job". The owner asked for this order,
-    so it outranks a guess; he is not waiting on this read, so it yields to his next question
-    (app/reads/budget.py). A task copies the context at creation, which is why entering the
-    lane here is enough for everything the read reaches.
+    Everything the tablet does next under a finger — Add a note, Reply, Back, the next tab —
+    acts on the branch's cursor, never on what a card happens to show. Only the word-matching
+    lane used to move that cursor for a sentence, so once every sentence became a model turn,
+    "show me order 1938" drew the order and left the cursor where it was: Add a note on that
+    card was refused as "no order open". This follows the cards, not the words. One record
+    shown is where he now is; several of one kind is a list, and a list moves nothing.
     """
-    from app.reads import budget
-    from app.tools.shopify_tools import hydrator
+    first = None
+    refs: dict[str, set[str]] = {}
+    for item in ui or []:
+        spec = _RECORD_CARDS.get(str(item.get("type") or "")) if isinstance(item, dict) else None
+        data = item.get("data") if spec is not None else None
+        if not isinstance(data, dict) or data.get("empty"):
+            continue
+        kind, id_key, label_key = spec
+        ref = str(data.get(id_key) or "")
+        if not ref:
+            continue
+        refs.setdefault(kind, set()).add(ref)
+        if first is None:
+            first = (kind, ref, str(data.get(label_key) or ""))
+    if first is None or len(refs.get(first[0], ())) != 1:
+        return
+    kind, ref, label = first
+    entity = getattr(branch, "entity", None) or {}
+    if entity.get("kind") == kind and entity.get("ref") == ref:
+        return
+    branch.visit(kind, ref, label)
 
-    async def read() -> Any:
-        with budget.using(budget.BACKGROUND, f"hydrate:{order_id}", yielding=False):
-            return await hydrator().order(order_id)
 
-    try:
-        return asyncio.get_running_loop().create_task(read())
-    except Exception as exc:  # noqa: BLE001 — Shopify not bound; the model looks it up itself
-        log.debug("no background hydration: %s", exc)
-        return None
+#: Where each record a replay rebuilds keeps its id (app/commands.py REPLAY_TOOL).
+_ID_OF_KIND = {"order": "order_id", "customer": "customer_id", "email_thread": "thread_id"}
 
 
-def _hydrated(session, calls: list) -> list:
-    """The order the Mac read beside the model, as a tool call the card is built from — when
-    it landed in time and the model did not read it itself. The ids in it are issued as any
-    tool result's are. Nothing is waited for: a read still in flight is collected by the
-    tablet from /context/order once the card is up."""
-    task = getattr(session, "hydrating", None)
-    if task is None:
-        return calls
-    session.hydrating = None
-    if not task.done() or task.cancelled() or task.exception() is not None:
-        if task.done() and task.exception() is not None:
-            log.debug("background hydration failed: %s", task.exception())
-        return calls
-    result = task.result()
-    if not isinstance(result, dict) or any(c.name == "shopify_order_detail" and c.ok for c in calls):
-        return calls
-    from app.tools.dispatch import harvest_ids
+def _keep_what_was_read(calls) -> None:
+    """The records the model read, kept where a tap finds them (app/commands.py `replay`).
 
-    harvest_ids(result, session)
-    return list(calls) + [ToolCall(name="shopify_order_detail", args={"order_id": result.get("order_id", "")}, ok=True, result=result)]
+    Back, a tapped link and a replayed card rebuild a record from the entity tier rather than
+    asking the shop again. Only the word-matching lane's recipes used to put records there, so
+    once every sentence became a model turn, Back onto the order he had just asked for read
+    Shopify a second time. These are the same reads a replay rebuilds from, kept as they came
+    back; who may see them is still decided at replay, against the conversation's issued ids.
+    """
+    from app.commands import REPLAY_TOOL
+    from app.memory import ENTITY
+    from app.memory import current as memory
+
+    kind_of = {tool: kind for kind, tool in REPLAY_TOOL.items()}
+    for call in calls or []:
+        kind = kind_of.get(getattr(call, "name", ""))
+        result = getattr(call, "result", None)
+        if kind is None or not getattr(call, "ok", False) or not isinstance(result, dict) or result.get("reused"):
+            continue
+        key = _ID_OF_KIND[kind]
+        ref = str(result.get(key) or (getattr(call, "args", None) or {}).get(key) or "")
+        if not ref:
+            continue
+        try:
+            memory().put(ENTITY, f"{kind}:{ref}", result, source="gmail" if kind == "email_thread" else "shopify",
+                         query=f"model:{call.name}", provenance={"tool": call.name, "ref": ref})
+        except Exception as exc:  # noqa: BLE001 — a cold cache is a slower Back, not a failed turn
+            log.debug("could not keep what the model read: %s", exc)
 
 
 def _ui_entities(ui: list) -> list[dict]:
@@ -1152,10 +814,6 @@ def _is_write_tool(name: str) -> bool:
         return spec.write is not None or spec.batch is not None
     except KeyError:
         return False
-
-
-async def _none():
-    return None
 
 
 def _truthy(value) -> bool:
@@ -1257,12 +915,8 @@ async def _answer(
     epoch: int | None = None,
     revoked: list[str] | None = None,
     writes: dict | None = None,
-    lane: str = "NORMAL",
-    recipe_id: str = "",
     branch: Any = None,
-    partial: bool = False,
     measures: dict | None = None,
-    surfaces: list | None = None,
     seq: int | None = None,
 ) -> dict:
     tool_calls = tool_calls or []
@@ -1332,13 +986,7 @@ async def _answer(
     # The same turn as a validated scene, when CLIVE_SCENES is on: planned from these reads,
     # carried as its own field and changing nothing else. Off, nothing here runs.
     scene = _turn_scene(question or str((transcript or {}).get("text") or ""), answer, calls, session_id)
-    # A card a recipe built for itself, for an answer no tool produced. It goes in front of
-    # the context stack and behind nothing: it IS the answer to the question that was asked.
-    if surfaces:
-        ui = [s.as_ui() if hasattr(s, "as_ui") else s for s in surfaces] + ui
-    # One cursor, one headline per kind, the rest folded (brief section 22). Here rather than
-    # inside present(): a recipe's own cards are in front of the tool cards by now, and it is
-    # the two together that have to fit an eight-inch screen.
+    # One cursor, one headline per kind, the rest folded (brief section 22).
     ui = compact(ui)
     # When the Mac had cards to show, as a fact and not an inference (brief section 25 asks
     # for time-to-first-useful-workspace measured APART from the whole turn). Taken here,
@@ -1365,9 +1013,12 @@ async def _answer(
             branch.idle()
         # What this half now shows, kept on the Mac so tapping it later draws it (branch.show).
         branch.shown(ui, answer, question)
+        if not error_kind:
+            _stand_on_what_was_shown(branch, ui)
     for call in calls or []:
         if branch is not None and getattr(call, "ok", False):
             branch.remember_result(call.name, summary=_call_summary(call), ref=_call_ref(call), ms=float(getattr(call, "duration_ms", 0.0) or 0.0))
+    _keep_what_was_read(calls)
     # The turn's own cards, reconciled against what the progressive workspace already put on
     # the glass (§7, §25). A card that is unchanged is NOT redrawn — the whole point — and one
     # that gained its rail or an enrichment is patched in place. The numbers come back for the
@@ -1375,7 +1026,7 @@ async def _answer(
     glass = progressive.complete(session, ui, branch_id=getattr(branch, "branch_id", "") or "")
     # How this turn actually went, in numbers. Every field is measured; none of it is content.
     # This is what the report's speed section and the bench read (brief section 32).
-    performance = _performance(timings, lane=lane, recipe_id=recipe_id, branch=branch, calls=calls, partial=partial, session=session, measures=measures or {}, ui=ui, glass=glass)
+    performance = _performance(timings, branch=branch, calls=calls, session=session, measures=measures or {}, ui=ui, glass=glass)
     # An answer that declines, held against what the Mac composes: a refusal of a best
     # seller, a breakdown, a comparison or a bulk change the tools could have made is a
     # FALSE UNSUPPORTED claim, and the report counts it. Words only; no reasoning text. The
@@ -1443,10 +1094,10 @@ async def _answer(
         "transcript": transcript,
         "timings_ms": {k: round(v, 1) for k, v in timings.items()},
         "ui": ui,
-        # Which lane answered, and where the conversation now is. The tablet renders its
-        # navigation from this rather than from what it can see on screen.
-        "lane": lane,
-        "recipe_id": recipe_id or None,
+        # Which lane answered — always the model's on this route; a tap is TOUCH on /command —
+        # and where the conversation now is. The tablet renders its navigation from this
+        # rather than from what it can see on screen.
+        "lane": "NORMAL",
         "branch": branch.public() if branch is not None else None,
         # Both halves, when there are two, so the tablet draws what the Mac holds rather
         # than what it remembers doing.
@@ -1455,7 +1106,7 @@ async def _answer(
              "branches": [b.public() for b in session.branches.values() if b.status in ("ACTIVE", "BACKGROUND")]}
             if session is not None and session.branches else None
         ),
-        "partial": bool(partial),
+        "partial": False,
         "performance": performance,
         # What the glass still needs to agree with this payload (§7). The tablet has been
         # collecting patches from /state while the turn ran and stops the moment this arrives,

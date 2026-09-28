@@ -8,8 +8,9 @@ code:
                       tool matrix loads it (experience/tool_matrix.py), with whether it reads
                       or writes. The diagnostic mock_ tools are left out, as the runtime's own
                       lists leave them out.
-    intent_family     every intent family the fast lane routes (app/fastpath/intent.py, with
-                      those app/families adds), with its signals and its recipe's reads
+    intent_family     none any more. The word-matching lane these described was removed on
+                      28 September 2026 (every sentence is a model turn); the kind is kept so
+                      a self-model recorded before then still reads
     scene_primitive   the Generative UI scene elements a plan may use (app/scenes/scene.py)
     review_check      every acceptance gate (the gate_* functions of
                       scripts/acceptance_provenance.py, read as source and never run): the
@@ -57,7 +58,7 @@ PRESENT_KINDS = frozenset(
 )
 # The product memory: what CLIVE plans, has thought of and decided — what the why-index traces to.
 MEMORY_KINDS = ("feature", "idea", "decision")
-REGISTRY_SOURCES = ("tool registry", "intent families", "scene primitives")
+REGISTRY_SOURCES = ("tool registry", "scene primitives")
 ACCESS = ("read", "write")
 
 MAX_NAME = 200
@@ -212,8 +213,8 @@ class SelfModel:
     @property
     def unread(self) -> tuple[str, ...]:
         """The registries this self-model could not read. Relating against it cannot tell
-        whether CLIVE has a tool, an intent family or a scene primitive: a unit that seems to
-        be missing from it may be there."""
+        whether CLIVE has a tool or a scene primitive: a unit that seems to be missing from it
+        may be there."""
         return tuple(source.name for source in self.sources
                      if source.name in REGISTRY_SOURCES and not source.entries
                      and source.note.startswith("not read"))
@@ -291,36 +292,6 @@ def _tools() -> list[SelfEntry]:
             key=f"tool:{spec.name}", kind="tool", name=spec.name,
             description=_one_line(spec.description, MAX_DESCRIPTION),
             origin=f"tool registry ({module})", access="write" if writes else "read",
-        ))
-    return entries
-
-
-def _families() -> list[SelfEntry]:
-    from experience import tool_matrix
-
-    tool_matrix.load()
-    from app.fastpath.intent import all_families
-    from app.fastpath.recipes import recipe_for
-
-    entries = []
-    for family in all_families():
-        recipe = recipe_for(family.name)
-        parts = [f"{family.kind} intent {family.name.replace('_', ' ')}"]
-        if family.needs:
-            parts.append("needs " + ", ".join(family.needs))
-        if family.boosts:
-            parts.append("boosted by " + ", ".join(family.boosts))
-        if family.entities:
-            parts.append("resolves " + ", ".join(family.entities))
-        if recipe is not None:
-            reads = ", ".join(recipe.read_primitives) or "nothing"
-            parts.append(f"answered by recipe {recipe.recipe_id} reading {reads}")
-        else:
-            parts.append("answered by the model")
-        entries.append(SelfEntry(
-            key=f"intent_family:{family.name}", kind="intent_family", name=family.name,
-            description=_one_line("; ".join(parts), MAX_DESCRIPTION),
-            origin="intent families (app.fastpath.intent)",
         ))
     return entries
 
@@ -592,7 +563,6 @@ def build_self_model(repo_root: Path, *, memory: Path | None = None,
 
     registries = (
         ("tool registry", "app/tools/registry.py", _tools),
-        ("intent families", "app/fastpath/intent.py and app/families", _families),
         ("scene primitives", "app/scenes/scene.py", _scene_primitives),
     )
     running = _running_code_is(app_root)

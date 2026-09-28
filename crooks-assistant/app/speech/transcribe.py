@@ -1,21 +1,27 @@
-"""decode → recognise → filter hallucinations → normalise CROOKS terminology.
+"""decode → recognise → filter hallucinations → trim.
 
 The pipeline's contract is that it never returns text it does not believe. Silence, a decode
 failure and a blocklisted artefact all come back as "no speech", because an assistant that
 answers a question nobody asked is worse than one that says it did not hear.
 
+And it returns what was SAID. Nothing tells a recogniser which words to expect and nothing
+rewrites the words it heard: no keyterms to Scribe, no prompt to Whisper, no fuzzy match onto
+the catalogue afterwards. All three were here, and between them "Clive" came out as "Plaid" —
+Scribe was handed the catalogue as keyterms and found one of them. Understanding the words is
+the model's job, with the tools that can look a product up (the owner's decision of 28
+September 2026). What is left after recognition is the one change that alters no word:
+surrounding whitespace is trimmed.
+
 Recognition has two engines and one rule: the tablet gets an answer. ElevenLabs Scribe runs
-first because it hears this business better; whisper.cpp on this Mac catches every way Scribe
-can fail — no key, no credit, no network, no response in time — and the speaker never hears
-about it. Everything after recognition (hallucination blocklist, CROOKS normalisation, order
-numbers, ambiguity) is engine-independent and runs exactly as it did before.
+first; whisper.cpp on this Mac catches every way Scribe can fail — no key, no credit, no
+network, no response in time — and the speaker never hears about it. The hallucination
+blocklist after recognition is engine-independent.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,19 +29,9 @@ from pathlib import Path
 from app.clients.elevenlabs import ScribeClient, ScribeUnavailable
 from app.clients.whisper import Transcript, WhisperClient, WhisperUnavailable
 from app.speech.decode import AudioStats, DecodeError, decode
-from app.speech.normalise import Normalised, Normaliser
 from app.speech.voice_reasons import LISTENING_CREDIT_SPOKEN
 
 log = logging.getLogger("crooks.transcribe")
-
-# Whisper accepts an initial prompt to bias decoding. It is truncated from the FRONT at 224
-# tokens, so the most important terms go LAST. It must be a bare comma-separated list — prose
-# here bleeds into the transcript, which looks like a hallucination and is not one.
-# Whisper keeps roughly the last 224 tokens of the prompt; ~900 characters of short product
-# names lands under that. Counting characters rather than terms keeps a long live catalogue from
-# pushing the hand-written aliases out.
-PROMPT_MAX_CHARS = 900
-
 
 # Said aloud when the upload could not be turned into audio at all. Fixed, so the voice
 # synthesises it once and keeps it.
@@ -49,7 +45,6 @@ class SpeechResult:
     raw_text: str = ""
     reason: str = ""  # populated when ok is False
     stats: AudioStats | None = None
-    normalised: Normalised | None = None
     timings_ms: dict[str, float] = field(default_factory=dict)
     # Which recogniser produced this text: "scribe_v2", "whisper_fallback" or "whisper".
     engine: str = ""
@@ -63,11 +58,6 @@ class SpeechResult:
             "raw_text": self.raw_text,
             "reason": self.reason,
             "stats": self.stats.as_dict() if self.stats else None,
-            "matches": [
-                {"heard": m.heard, "became": m.replaced_with, "score": m.score, "via": m.via}
-                for m in (self.normalised.matches if self.normalised else [])
-            ],
-            "order_numbers": self.normalised.order_numbers if self.normalised else [],
             "engine": self.engine,
             "fallback": self.fallback,
             "engine_detail": self.engine_detail,
@@ -75,43 +65,18 @@ class SpeechResult:
         }
 
 
-def build_prompt(terms: list[str]) -> str:
-    """A comma-separated term list ending in a full stop, most important LAST because
-    truncation eats the front.
-
-    Whisper imitates the prompt's style. A bare lower-case list produced transcripts with no
-    capitals and no punctuation; the same list in display case ending with a period restored
-    both. Symbols are dropped because '★' teaches the model nothing about how a word sounds."""
-    cleaned = [re.sub(r"[^A-Za-z0-9' ]+", " ", t).strip() for t in terms]
-    cleaned = [" ".join(t.split()) for t in cleaned if t and t.strip()]
-    cleaned = list(dict.fromkeys(cleaned))
-    if not cleaned:
-        return ""
-    kept: list[str] = []
-    length = 0
-    for term in reversed(cleaned):  # last terms are the most important; keep from the end
-        if length + len(term) + 2 > PROMPT_MAX_CHARS:
-            break
-        kept.append(term)
-        length += len(term) + 2
-    return ", ".join(reversed(kept)) + "."
-
-
 class Transcriber:
     def __init__(
         self,
         client: WhisperClient,
-        normaliser: Normaliser,
         *,
         scribe: ScribeClient | None = None,
         primary: str = "whisper",
         whisper_enabled: bool = True,
-        keyterms: bool = True,
         save_dir: Path | None = None,
         max_saved: int = 200,
     ) -> None:
         self._client = client
-        self._normaliser = normaliser
         # No Scribe client, or primary set to "whisper", means the local path exactly as it was.
         self._scribe = scribe
         self._primary = "scribe" if (primary == "scribe" and scribe is not None) else "whisper"
@@ -120,7 +85,6 @@ class Transcriber:
         # refuses immediately and says why — the caller sees WhisperUnavailable either way,
         # so nothing downstream learns a new shape, it just stops waiting to be told.
         self._whisper_enabled = whisper_enabled
-        self._keyterms = keyterms
         self._save_dir = save_dir
         self._max_saved = max_saved
 
@@ -134,9 +98,9 @@ class Transcriber:
                 "local speech recognition is not deployed on this host "
                 "(CROOKS_WHISPER_ENABLED=false); there is no fallback behind Scribe here."
             )
-        return await self._client.transcribe(
-            wav, prompt=build_prompt(self._normaliser.catalogue.prompt_terms())
-        )
+        # No initial prompt: a prompt of product names is a list of words to expect, and
+        # Whisper finds them whether or not they were said.
+        return await self._client.transcribe(wav)
 
     def _unheard_reason(self, exc: WhisperUnavailable) -> str:
         """What the owner hears when nothing could transcribe. An empty ElevenLabs account is
@@ -156,10 +120,7 @@ class Transcriber:
 
         t = time.perf_counter()
         try:
-            # external_terms(), not prompt_terms(): customer names bias Whisper on this Mac but
-            # are never sent to ElevenLabs.
-            terms = self._normaliser.catalogue.external_terms() if self._keyterms else []
-            transcript = await self._scribe.transcribe(wav, keyterms=terms)
+            transcript = await self._scribe.transcribe(wav)
             timings["scribe"] = _ms(t)
             return transcript, self._scribe.model, False, ""
         except ScribeUnavailable as exc:
@@ -256,19 +217,12 @@ class Transcriber:
                 engine_detail=why,
             )
 
-        t2 = time.perf_counter()
-        normalised = self._normaliser.normalise(transcript.text)
-        timings["normalise"] = _ms(t2)
-        if normalised.changed:
-            # Counts, not words: what the owner says about customers is not for the log.
-            log.info("normalised the transcript (%d chars -> %d)", len(normalised.raw), len(normalised.text))
-
+        # Trimmed and nothing else: every word is the recogniser's, as it heard it.
         return SpeechResult(
             ok=True,
-            text=normalised.text,
+            text=transcript.text.strip(),
             raw_text=transcript.text,
             stats=audio.stats,
-            normalised=normalised,
             timings_ms=timings,
             engine=engine,
             fallback=fell_back,

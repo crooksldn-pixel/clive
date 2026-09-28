@@ -128,7 +128,7 @@ class ReadPlan:
     scope: str = ""
     # Whether `lane` was asked for or read off the origin. A plan that did not ask takes the
     # lane its caller is already in — a recipe run for a TAP reads in the navigation lane
-    # without every recipe in app/fastpath/library.py having to say so.
+    # without every recipe having to say so.
     lane_explicit: bool = False
 
     def names(self) -> list[str]:

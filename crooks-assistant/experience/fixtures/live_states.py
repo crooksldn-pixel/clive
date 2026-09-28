@@ -499,15 +499,11 @@ AUTHORED: dict[str, dict[str, Any]] = {
             "text": "pull up the history of Mia Jones and her orders, see how many times she has "
                     "ordered, see how much she spent in total, and see if she is in Gmail anywhere",
             # A composed workspace about the customer is MORE of an answer than the card it
-            # replaced, so both names count. The same stale-list mistake as D-4's above, and
-            # the same one app/capabilities/ui_intent.py's own SATISFIES table had made.
+            # replaced, so both names count. The same stale-list mistake as D-4's above.
             "require_any_type": ["customer", "customer_workspace"],
-            # AND this sentence is 28 words, against `customer_purchase_lookup`'s
-            # `max_words=14` (app/fastpath/intent.py) — so the fast path declines it ON
-            # PURPOSE, because a long compound sentence is more likely to be about several
-            # things than one. It goes to the model, which reads, and `_compose_workspace`
-            # then builds the customer workspace from those reads: that is D-3's fix and it
-            # works on the model path exactly as it does on a recipe's.
+            # It goes to the model, as every sentence does, which reads, and
+            # `_compose_workspace` then builds the customer workspace from those reads: that
+            # is D-3's fix.
             #
             # This world has no model, so nothing can be drawn here whatever the product
             # does. Declared rather than inferred, and the §3/§4 claim for this sentence is

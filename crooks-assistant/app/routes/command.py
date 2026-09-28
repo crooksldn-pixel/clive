@@ -1,4 +1,8 @@
-"""POST /command — a tap, in the same words a sentence would have used.
+"""POST /command — a tap: a button that names what it does.
+
+Only taps come here. Words never do: a sentence, typed or spoken, is a model turn on /turn,
+and nothing matches its words to a command. A tap is different in kind — it names its action
+explicitly, so there is nothing to understand and no model on the path.
 
 The tablet posts which command it was and which record it was on. It does not post what the
 command should do, and it cannot: the body is a name from a fixed registry plus a reference,
@@ -107,9 +111,10 @@ async def command(
     })))
     recipe_id = outcome.changed.get("recipe") if outcome.ok and isinstance(outcome.changed, dict) else None
     if recipe_id:
-        # A command that names a place rather than a record — a dock landing. Commands are
-        # synchronous and read nothing themselves; the recipe reads, through the same
-        # scheduler and the same read tools a sentence would use, and no model.
+        # A command that names a place rather than a record — a dock landing — or a read a
+        # form needs (who is that customer, is that code taken). Commands are synchronous and
+        # read nothing themselves; the recipe reads, through the read scheduler and the
+        # registered read tools, and no model: a button is not a sentence.
         outcome = await _run_recipe(runtime, session, branch, str(recipe_id), outcome)
     wanted = outcome.changed.get("stage") if outcome.ok and isinstance(outcome.changed, dict) else None
     if isinstance(wanted, dict):
@@ -259,17 +264,13 @@ async def _arguments(request: Request, named: dict[str, str]) -> dict[str, str]:
 
 
 async def _run_recipe(runtime, session, branch, recipe_id: str, outcome):
-    """A FAST recipe, run for a tap. The same runner the fast lane uses (app/fastpath), the
-    same read-only assertion, the same timeline event; the intent is the recipe's own family
-    at full confidence, because a tap on Orders is not ambiguous."""
+    """A recipe, run for a tap (app/recipes.py): the read-only assertion, the read scheduler
+    and no model. What the tapped control narrowed the read to travels in `slots`."""
     from app import commands as command_mod
-    from app.fastpath import RECIPES
-    from app.fastpath import run as run_recipe
-    from app.fastpath.intent import Intent, signals_for
-    from app.fastpath.models import Ctx as RecipeCtx
+    from app import recipes
     from app.memory import current as memory
 
-    recipe = RECIPES.get(recipe_id)
+    recipe = recipes.RECIPES.get(recipe_id)
     if recipe is None:
         return command_mod.Outcome.refused("unknown_recipe", f"There is no recipe called {recipe_id!r}.")
     # A tap is its own interaction, and it is the owner NAVIGATING. Two things follow, and
@@ -284,18 +285,15 @@ async def _run_recipe(runtime, session, branch, recipe_id: str, outcome):
     refused_before = ledger.spend(budget.NAVIGATION, lane_key).refusals
     # A tap can be about something as well as somewhere. A landing is not — Orders is Orders —
     # but a picker is about a product, and the words that narrow it come from the control that
-    # was tapped. They travel where a sentence's own parameters travel, `intent.slots`, so a
-    # recipe reads them from one place whether they were said or tapped; `text` is what was
-    # said, and is empty for a tap. Neither can carry an execution argument: a recipe cannot
-    # write (app/fastpath/recipes.py assert_read_only).
-    intent = Intent(family=recipe.intent_family, confidence=1.0, signals=signals_for("", branch=branch), reason="a tap",
-                    slots={str(k)[:40]: v for k, v in (outcome.changed.get("slots") or {}).items()})
+    # was tapped. Neither can carry an execution argument: a recipe cannot write
+    # (app/recipes.py assert_read_only).
+    slots = {str(k)[:40]: v for k, v in (outcome.changed.get("slots") or {}).items()}
     area = str(outcome.changed.get("area") or "")
     branch.begin_turn("opening " + (area or recipe.ui))
     try:
         with budget.using(budget.NAVIGATION, lane_key, scope=budget.scope_of(session)):
-            answer = await run_recipe(recipe, RecipeCtx(runtime=runtime, session=session, branch=branch, intent=intent,
-                                                        text=str(outcome.changed.get("said") or ""), memory=memory()))
+            answer = await recipes.run(recipe, recipes.Ctx(runtime=runtime, session=session, branch=branch, slots=slots,
+                                                            text=str(outcome.changed.get("said") or ""), memory=memory()))
     finally:
         branch.end_turn()
         branch.idle()
@@ -319,13 +317,13 @@ async def _run_recipe(runtime, session, branch, recipe_id: str, outcome):
             changed=offer,
         )
     calls = list(answer.calls if answer.drawn is None else answer.drawn)
-    changed = {**outcome.changed, "lane": "FAST", "recipe_id": recipe_id, "partial": bool(answer.partial),
+    changed = {**outcome.changed, "recipe_id": recipe_id, "partial": bool(answer.partial),
                "reads": list((answer.trace or {}).get("reads") or []), "ms": (answer.trace or {}).get("ms")}
     return command_mod.Outcome(answer=answer.answer, calls=calls, surfaces=list(answer.surfaces), changed=changed)
 
 
 async def _read_member(runtime, session, needs: dict) -> list:
-    """Read one record, through the same scheduler and the same tools a recipe would use.
+    """Read one record, through the read scheduler and the registered read tools.
 
     Not a shortcut around the gate: `run_plan` refuses a plan naming anything but a read, and
     the tools are the registered ones. A tap can therefore cause a read and can never cause
@@ -357,12 +355,10 @@ async def _read_member(runtime, session, needs: dict) -> list:
 def _remember(needs: dict, ref: str, result) -> None:
     """Put what the tap just read where a replay will look for it.
 
-    `run_plan` reads; only the fast lane's `_keep` was writing to the tiers. So a record
-    reached by tapping Next was gone a second later: Back onto it missed `replay()` and read
-    Shopify again, and `open.entity` refused a record the owner had been looking at moments
-    before with "I no longer have that one to hand". `commands.replay`'s premise — the read
-    happened when the record was opened, so going back to it is not a new question — held only
-    for records opened by voice.
+    `run_plan` reads and does not keep. Without this a record reached by tapping Next was gone
+    a second later: Back onto it missed `replay()` and read Shopify again, and `open.entity`
+    refused a record the owner had been looking at moments before with "I no longer have that
+    one to hand".
     """
     from app.commands import MEMBER_READ
     from app.memory import ENTITY

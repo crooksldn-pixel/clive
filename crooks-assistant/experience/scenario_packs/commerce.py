@@ -225,8 +225,8 @@ async def store_credit_give(h: Harness) -> Result:
     # Her record has to be one this conversation has looked up: the read below takes a
     # customer id and the gate holds it to ids the conversation was handed. So the scenario
     # asks the question that reads her, as the owner would.
-    await h.say("show me order 1938", scenario="store_credit_give", session_id=session)
-    looked = await h.say("what else has this customer ordered?", scenario="store_credit_give", session_id=session)
+    await h.open_order("1938", scenario="store_credit_give", session_id=session)
+    looked = await h.customer_history(MIA.customer_id, scenario="store_credit_give", session_id=session)
     r.captures.append(looked)
     r.checks += a_surface(looked, "customer", what="reads her record")
     r.checks.append(check("looking her up hands this conversation her id",
@@ -306,8 +306,8 @@ async def store_credit_not_on_this_store(h: Harness) -> Result:
     r = Result("store_credit_not_on_this_store", "Store credit on a shop that has not got it")
     session = "cred2"
     h.configure()
-    await h.say("show me order 1938", scenario="store_credit_not_on_this_store", session_id=session)
-    await h.say("what else has this customer ordered?", scenario="store_credit_not_on_this_store", session_id=session)
+    await h.open_order("1938", scenario="store_credit_not_on_this_store", session_id=session)
+    await h.customer_history(MIA.customer_id, scenario="store_credit_not_on_this_store", session_id=session)
 
     from app.families import _workspace as ws
     from app.families import store_credit as sc

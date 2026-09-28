@@ -310,7 +310,6 @@ def wait_for_health(url: str, timeout_s: float = 45.0, still_starting=None) -> d
 PLAIN_NAMES = {
     "claude": "Claude", "speech": "hearing", "scribe": "ElevenLabs hearing", "whisper": "offline hearing",
     "tts": "the voice", "shopify": "Shopify", "gmail": "Gmail", "knowledge_base": "the knowledge base",
-    "terminology": "product names",
 }
 
 

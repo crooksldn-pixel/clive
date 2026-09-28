@@ -1,8 +1,10 @@
 """The click path, driven end to end (brief §5, §31; defect D-10).
 
 `tests/test_navigation.py` holds the semantics against the branch and the command registry.
-These run the whole thing — the route, the recipes, the read scheduler, the presenters —
+These run the whole thing — the route, the landings, the read scheduler, the presenters —
 against the golden world, and assert what the owner would actually be looking at afterwards.
+A list is opened from the dock, as the owner opens one; a record by asking for it, which is a
+model turn like every sentence.
 
 Every check here is about the SCREEN. None of them reads `ok`, because in the live session
 twelve navigation commands in twenty-two seconds all returned `ok=True` while the owner was
@@ -36,7 +38,7 @@ async def click_path(h: Harness) -> Result:
     """
     r = Result("nav_click_path", "Orders, an order, a prior order, and back out")
     session = "nav_path"
-    listing = await h.say("show me today's orders", scenario="nav:list", session_id=session)
+    listing = await h.touch("open.area", area="orders", scenario="nav:list", session_id=session)
     r.captures.append(listing)
     r.checks += a_surface(listing, "order_list", what="the list opens")
     rows = _rows(listing)
@@ -100,10 +102,10 @@ async def home_is_a_landing(h: Harness) -> Result:
     """
     r = Result("nav_home_landing", "Back to the assistant, from three records deep")
     session = "nav_home"
-    await h.say("show me today's orders", scenario="nav_home:list", session_id=session)
+    await h.touch("open.area", area="orders", scenario="nav_home:list", session_id=session)
     spec = world.order("1938")
-    await h.say("show me order 1938", scenario="nav_home:order", session_id=session)
-    deep = await h.say("what else has this customer ordered?", scenario="nav_home:customer", session_id=session)
+    await h.open_order("1938", scenario="nav_home:order", session_id=session)
+    deep = await h.customer_history(spec.person.customer_id, scenario="nav_home:customer", session_id=session)
     r.captures.append(deep)
     r.checks.append(check("three records deep", (deep.entity or {}).get("kind") == "customer",
                           f"entity={deep.entity}"))
@@ -146,7 +148,7 @@ async def next_walks_the_set(h: Harness) -> Result:
     """Next is the set under the cursor, with a position, and is not Back."""
     r = Result("nav_next_position", "Next, with a position on it")
     session = "nav_next"
-    listing = await h.say("show me today's orders", scenario="nav_next:list", session_id=session)
+    listing = await h.touch("open.area", area="orders", scenario="nav_next:list", session_id=session)
     r.captures.append(listing)
     total = len(_rows(listing))
     # The scenario walks a list, so it needs one. An empty listing here used to reach `seen[-2]`
@@ -154,10 +156,10 @@ async def next_walks_the_set(h: Harness) -> Result:
     # than as the thing that is actually wrong. It is a failed CHECK now, and it names what it
     # got: the last time this happened the list was empty because another test had left a
     # frozen clock in the process and "today" was a day the fixture world has no orders on.
-    r.checks.append(check("today's orders is a list with something in it to walk",
+    r.checks.append(check("the Orders landing is a list with something in it to walk",
                           total >= 2, f"rows={total} answer={listing.answer!r}"))
     if total < 2:
-        return
+        return r
     seen = []
     for step in range(1, min(total, 3) + 1):
         moved = await h.touch("workflow.next", session_id=session, scenario=f"nav_next:{step}")
@@ -190,8 +192,8 @@ async def halves_keep_their_own_trail(h: Harness) -> Result:
     """The right half's Back must not move the left half's screen (D-3's other half)."""
     r = Result("nav_branch_isolation", "Two halves, two trails")
     session = "nav_halves"
-    await h.say("show me today's orders", scenario="nav_halves:left", session_id=session)
-    left_deep = await h.say("show me order 1938", scenario="nav_halves:left_order", session_id=session)
+    await h.touch("open.area", area="orders", scenario="nav_halves:left", session_id=session)
+    left_deep = await h.open_order("1938", scenario="nav_halves:left_order", session_id=session)
     r.captures.append(left_deep)
     fork = await h.client.post("/branches/fork", data={"session_id": session, "label": "right"},
                                headers={"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"})
@@ -201,7 +203,7 @@ async def halves_keep_their_own_trail(h: Harness) -> Result:
     if not other:
         return r
 
-    right_first = await h.say("show me order 1936", scenario="nav_halves:right", session_id=session, branch_id=other)
+    right_first = await h.open_order("1936", scenario="nav_halves:right", session_id=session, branch_id=other)
     r.captures.append(right_first)
     left, right = h.branch(session, left_deep.branch_id), h.branch(session, other)
     before = (left.nav_index, dict(left.entity or {}), [e.entry_id for e in left.nav])

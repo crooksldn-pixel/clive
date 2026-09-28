@@ -372,10 +372,6 @@ async def _health(runtime) -> dict:
         "ok": not runtime.kb.empty,
         "detail": f"{len(runtime.kb.files)} file(s), {runtime.kb.chars} chars",
     }
-    checks["terminology"] = {
-        "ok": len(runtime.normaliser.catalogue) > 0,
-        "detail": f"{len(runtime.normaliser.catalogue)} term(s)",
-    }
 
     # Whether a proposal could execute here. Off by configuration is the intended state and
     # not a fault; on but blocked (no allow-list, no scope) is a fault the owner should see.

@@ -8,8 +8,8 @@ What these hold, beyond the mechanics:
 * the count, the value and the ranking are arithmetic over what was read, and the ranking is
   by how many CHECKOUTS an item appears in rather than by units or by value;
 * a checkout that was paid for in the end is not an abandonment;
-* every card and every spoken line says which of the three abandonment questions this is —
-  and a store that cannot serve the query gets the limitation, never "I don't have a tool".
+* every card says which of the three abandonment questions this is — and a store that cannot
+  serve the query gets the limitation, never "I don't have a tool".
 """
 
 from __future__ import annotations
@@ -115,8 +115,8 @@ def test_it_is_a_read_that_names_people_and_can_never_be_staged():
 
 
 def test_the_description_and_the_family_both_say_what_the_data_is_not():
-    """The one thing this family exists to keep saying. Held in one constant so the card, the
-    spoken line and what the model reads cannot drift into three different claims."""
+    """The one thing this family exists to keep saying. Held in one constant so the tool's
+    description and what the model reads cannot drift into different claims."""
     assert "not baskets" in registry.get(TOOL).description.lower()
     assert "unfulfilled" in registry.get(TOOL).description.lower()
     assert "not baskets left on the site" in abandoned.WHAT_IT_IS
@@ -143,7 +143,6 @@ async def test_a_checkout_that_was_paid_for_in_the_end_is_not_an_abandonment(sto
     store.checkouts = [c for c in CHECKOUTS if c[0] == "#C6"]
     empty = await abandoned.shopify_abandoned_checkouts(days=14)
     assert empty["count"] == 0 and empty["items"] == []
-    assert "No checkouts were begun and left unpaid" in abandoned.spoken(empty)
 
 
 async def test_the_window_is_the_shops_own_day_and_is_sent_to_shopify(store, session):
@@ -245,64 +244,25 @@ async def test_no_abandonment_draws_the_figures_and_no_empty_ranking(store, sess
     assert drawn[0].data["metrics"][0]["value"] == "0"
 
 
-async def test_the_spoken_line_names_the_number_the_value_and_the_item(store, session):
-    body = await abandoned.shopify_abandoned_checkouts(days=7)
-    said = abandoned.spoken(body)
-    assert said.startswith("6 checkouts begun and not paid for in the last week, worth £426.00.")
-    assert "Convict Hoodie (Black / M), in 3 of them" in said
-    assert said.endswith(abandoned.WHAT_IT_IS)
-
-
 def test_the_window_words_are_the_owners_words():
     assert abandoned._window_words(1) == "in the last day"
     assert abandoned._window_words(7) == "in the last week"
     assert abandoned._window_words(30) == "in the last 30 days"
 
 
-# --------------------------------------------------------------------------- the fast lane
-
-
 @pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
-async def test_the_sentence_reaches_this_family_and_the_recipe_draws_both_cards(store, session):
-    from app.fastpath import RECIPES
-    from app.fastpath.intent import Intent, resolve, signals_for
-    from app.fastpath.models import Ctx as RecipeCtx
-    from app.reads.scheduler import run_plan
+async def test_the_models_read_draws_both_cards(store, session):
+    """The question is the model's (every sentence is, since 28 September 2026); its call of
+    the read is what the cards are drawn from, so the answer still has the figures on it."""
+    from app.presentation import present
 
-    branch = session.branch()
-    for sentence in ("what's been abandoned this week", "how many abandoned checkouts", "abandoned baskets"):
-        assert resolve(sentence, branch=branch).family == "abandoned_checkouts", sentence
-    # A change is not this family, and neither is a question about the inbox.
-    assert resolve("cancel the abandoned checkout", branch=branch).family != "abandoned_checkouts"
-    assert resolve("who needs replying to", branch=branch).family != "abandoned_checkouts"
-
-    recipe = RECIPES["abandoned_checkouts"]
-    ctx = RecipeCtx(runtime=None, session=session, branch=branch,
-                    intent=Intent(family="abandoned_checkouts", confidence=1.0,
-                                  signals=signals_for("abandoned this week", branch=branch), slots={"days": 7}),
-                    text="abandoned this week", memory=None)
-    plan = recipe.plan(ctx)
-    assert plan is not None and [r.tool for r in plan.reads] == [TOOL]
-    assert plan.reads[0].args["days"] == 7
-    result = await run_plan(plan, session=session, timeout_s=5.0)
-    answer = recipe.render(ctx, result)
-    assert [s.ui_type for s in answer.surfaces] == ["metric_group", "ranking"]
-    assert "not paid for" in answer.answer and answer.trace["count"] == 6
-
-
-async def test_a_shop_that_will_not_answer_defers_rather_than_drawing_an_empty_card(store, session):
-    from app.fastpath import RECIPES
-    from app.fastpath.intent import Intent, signals_for
-    from app.fastpath.models import Ctx as RecipeCtx
-    from app.reads.scheduler import ReadResult
-
-    recipe = RECIPES["abandoned_checkouts"]
-    branch = session.branch()
-    ctx = RecipeCtx(runtime=None, session=session, branch=branch,
-                    intent=Intent(family="abandoned_checkouts", confidence=1.0, signals=signals_for("", branch=branch)),
-                    text="", memory=None)
-    answer = recipe.render(ctx, ReadResult())
-    assert answer.deferred and "did not answer" in answer.defer
+    calls: list = []
+    await dispatch(TOOL, {"days": 7}, session=session, timeout_s=5, calls=calls)
+    assert calls and calls[-1].ok, calls
+    ui = present(calls, session=session)
+    assert [item["type"] for item in ui if item["type"] != "context_stack"] == ["metric_group", "ranking"]
+    figures = next(item for item in ui if item["type"] == "metric_group")
+    assert abandoned.WHAT_IT_IS in figures["data"]["note"]
 
 
 async def test_the_probe_is_honest_about_the_one_scope_and_about_carts():

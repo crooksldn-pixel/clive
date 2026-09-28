@@ -59,9 +59,6 @@ def area_of(ui: list[dict[str, Any]] | None) -> str:
 # memory that would go stale before it was read.
 MAX_RECENT = 8
 MAX_NAV = 12
-# How a resolution ("Millie Rogers" -> customer_id) stands before it is looked up again.
-RESOLUTION_TTL_S = 900.0
-MAX_RESOLUTIONS = 60
 
 # What kind of workspace a stop on the trail is. Two of them are not records:
 #
@@ -304,8 +301,6 @@ class Branch:
     recent_entities: list[dict[str, str]] = field(default_factory=list)
     recent_results: list[dict[str, Any]] = field(default_factory=list)
     recent_actions: list[dict[str, Any]] = field(default_factory=list)
-    # name (as said) -> {"kind","ref","label","at"}. A resolution, not a permission.
-    resolutions: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # Work running for this branch that the owner is not waiting on. Semantic states only:
     # QUEUED, WORKING, WAITING, READY, FAILED — never a percentage nobody can compute,
@@ -463,8 +458,8 @@ class Branch:
         """Go to a RECORD. Truncates any forward history, as a browser does.
 
         Asking about the record you are already on is not going anywhere, so it does not push a
-        stop. Every read calls this (`app/fastpath/library.py:_remember`), so three questions
-        about one order used to leave three identical entries on the trail — and Back then
+        stop. Reads land here again and again, so three questions about one order used to
+        leave three identical entries on the trail — and Back then
         landed on the same record, on the same tab, and said the same sentence, which is a
         button that visibly does nothing. The owner has no way to tell that from a Back that
         failed.
@@ -774,26 +769,6 @@ class Branch:
         self.recent_actions.insert(0, {"proposal_id": proposal_id, "operation": operation, "status": status, "spoken": str(spoken)[:200], "at": time.time()})
         del self.recent_actions[MAX_RECENT:]
 
-    def resolve(self, said: str, *, clock=time.time) -> dict[str, Any] | None:
-        """What this branch already knows a name means, if it still stands."""
-        key = _resolution_key(said)
-        found = self.resolutions.get(key)
-        if not found:
-            return None
-        if clock() - float(found.get("at") or 0) > RESOLUTION_TTL_S:
-            self.resolutions.pop(key, None)
-            return None
-        return found
-
-    def learn(self, said: str, kind: str, ref: str, label: str, *, clock=time.time) -> None:
-        key = _resolution_key(said)
-        if not key or not ref:
-            return
-        self.resolutions[key] = {"kind": kind, "ref": str(ref), "label": str(label or "")[:80], "at": clock()}
-        if len(self.resolutions) > MAX_RESOLUTIONS:
-            for old in sorted(self.resolutions, key=lambda k: self.resolutions[k]["at"])[: len(self.resolutions) - MAX_RESOLUTIONS]:
-                self.resolutions.pop(old, None)
-
     # ----------------------------------------------------------------- shape
 
     def public(self) -> dict[str, Any]:
@@ -890,11 +865,9 @@ def fork_from(parent: Branch, *, label: str = "") -> Branch:
 
         child.workflow = replace(parent.workflow, workflow_id=f"{parent.workflow.workflow_id}b",
                                  visited=list(parent.workflow.visited))
-    # What its parent had already worked out. These are resolutions and references, not
-    # permissions — the gate still reads `Session.issued_ids` — and they are exactly what the
-    # clone never received in the live session.
+    # What its parent had already seen. References, not permissions — the gate still reads
+    # `Session.issued_ids` — and exactly what the clone never received in the live session.
     child.recent_entities = [dict(e) for e in parent.recent_entities[:MAX_RECENT]]
-    child.resolutions = {said: dict(value) for said, value in parent.resolutions.items()}
     child.inherited = {
         "from": parent.branch_id,
         "entity": dict(parent.entity) if parent.entity else None,
@@ -907,6 +880,3 @@ def fork_from(parent: Branch, *, label: str = "") -> Branch:
         child.visit(parent.entity["kind"], parent.entity["ref"], parent.entity["label"], tab=parent.tab)
     return child
 
-
-def _resolution_key(said: str) -> str:
-    return " ".join(str(said or "").lower().split())[:60]

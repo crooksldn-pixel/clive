@@ -41,8 +41,8 @@ UI_TYPES = frozenset({
     "metric_group", "ranking", "table", "comparison", "variant_matrix", "trend", "working_set",
     # bulk changes (app/actions/batch.py): the card before the gesture, the count after it
     "batch_action", "batch_result",
-    # what this build can do, grouped (app/capabilities/surface.py). Built by a recipe rather
-    # than from a tool result: the manifest is read from the registry, not from the shop.
+    # what this build can do, grouped (app/capabilities/surface.py). Built from the manifest
+    # rather than from a tool result: the manifest is read from the registry, not the shop.
     "capability",
     # the answer to a summary question, as compact rows (app/summaries.py): "returning
     # customers today · 1", one row per person, a tap that opens the full workspace. §13 —
@@ -189,7 +189,7 @@ def present(
             continue
         if not isinstance(call.result, dict):
             continue
-        for item in _from_result(call.name, call.result):
+        for item in _from_result(call.name, call.result) + _family_cards(call.name, call.result, session):
             if item["type"] == "email_list" and row_actions.get("email_thread"):
                 for thread in item["data"].get("threads") or []:
                     if thread.get("thread_id"):
@@ -440,6 +440,40 @@ def _only_empty_when_nothing_else(items: list[dict[str, Any]]) -> list[dict[str,
 
 
 # --------------------------------------------------------------------------- per tool
+
+
+def _family_cards(name: str, result: dict[str, Any], session: Session | None) -> list[dict[str, Any]]:
+    """The cards a family draws for its own read tool, when the model calls it.
+
+    Built by the family that owns the read (app/summaries.py, app/families/abandoned.py),
+    which validates them against the surface contract, so nothing is re-shaped here. They were
+    drawn by the word-matching lane until that was removed on 28 September 2026; since every
+    sentence is now the model's, the model's call of the same tool is where they come from, and
+    a summary question still gets its compact rows rather than a paragraph.
+    """
+    if name == "commerce_summary":
+        from app import summaries
+
+        period = result.get("period") if isinstance(result.get("period"), dict) else {}
+        label = str(period.get("label") or "")
+        fresh = summaries.freshness_of(result.get("coverage"))
+        task = str(result.get("task") or "")
+        if task == "returning_customers":
+            surface = summaries.returning_customers(result, session=session, period=label or "today", freshness=fresh)
+        elif task == "orders_attention":
+            surface = summaries.attention_rows(result, session=session, period=label if result.get("period_asked") else "",
+                                               freshness=fresh)
+        elif task == "order_list":
+            surface = summaries.order_rows(result, session=session, period=label or "today",
+                                           set_id=str(result.get("set_id") or ""), freshness=fresh)
+        else:
+            return []
+        return [surface.as_ui()]
+    if name == "shopify_abandoned_checkouts":
+        from app.families.abandoned import cards
+
+        return [surface.as_ui() for surface in cards(result)]
+    return []
 
 
 def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:

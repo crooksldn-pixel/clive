@@ -4,12 +4,15 @@ Phase 2's answer to "how many people abandoned their basket this week and what w
 trying to buy?" was "I don't have a tool for that". Two things have to be true now, and only
 one of them is about having the tool:
 
-* the question is answered from a read, with cards, and without a language model;
-* the answer says WHICH abandonment it is. The golden world has a checkout that was left and
+* the question is answered from a read, with cards drawn from what the model read;
+* the cards say WHICH abandonment it is. The golden world has a checkout that was left and
   then paid for, so "six abandoned" versus "seven begun" is a real distinction here and not
-  a hypothetical one — and the words carry the limitation the Admin API imposes, because a
+  a hypothetical one — and the cards carry the limitation the Admin API imposes, because a
   shop that acts on "twelve people abandoned their baskets" is acting on a number Shopify
   never gave it.
+
+Every sentence is the model's (since 28 September 2026), so the harness's model makes the one
+read Claude makes for these questions, and what is asserted is what the Mac drew from it.
 """
 
 from __future__ import annotations
@@ -18,9 +21,9 @@ import re
 
 from experience.fixtures import data
 from experience.harness import Harness
-from experience.scenarios import Result, a_surface, check, deterministic, grounded
+from experience.scenarios import Result, a_model_turn, a_surface, check, grounded
 
-HOODIE = "gid://shopify/ProductVariant/9102"        # Convict Hoodie, Black / M
+HOODIE_TITLE, HOODIE_VARIANT = "Convict Hoodie", "Black / M"      # gid://shopify/ProductVariant/9102
 
 
 def _amount(value) -> float | None:
@@ -47,12 +50,10 @@ async def abandoned_checkouts(h: Harness) -> Result:
     r = Result("abandoned_checkouts", "What's been abandoned in the last fortnight?")
     session = "aban1"
     h.configure()
-    c = await h.say("how many abandoned checkouts", scenario="abandoned_checkouts", session_id=session)
+    c = await h.ask("how many abandoned checkouts", ("shopify_abandoned_checkouts", {"days": 14}),
+                    scenario="abandoned_checkouts", session_id=session)
     r.captures.append(c)
-    r.checks.append(check("the tap-free question is answered on the fast lane", c.lane == "FAST", f"lane={c.lane}"))
-    r.checks.append(deterministic(c))
-    r.checks.append(check("the recipe that answered it is this family's", c.recipe_id == "abandoned_checkouts",
-                          f"recipe={c.recipe_id!r}"))
+    r.checks.append(a_model_turn(c))
     r.checks += a_surface(c, "metric_group", what="draws the figures")
     r.checks += a_surface(c, "ranking", what="draws what keeps being left behind")
 
@@ -70,8 +71,10 @@ async def abandoned_checkouts(h: Harness) -> Result:
                               _amount(metrics.get("not taken")) == expected,
                               f"said={metrics.get('not taken')!r} expected={expected}"))
         rows = _rows(c)
+        # By name: a variant is not a record the tablet can open, so the row carries no
+        # destination (app/presentation.py `_withhold_dead_refs`, §18).
         r.checks.append(check("the item that keeps appearing is the one that keeps appearing",
-                              bool(rows) and rows[0].get("ref") == HOODIE,
+                              bool(rows) and rows[0].get("label") == HOODIE_TITLE and rows[0].get("sublabel") == HOODIE_VARIANT,
                               f"first={rows[0] if rows else None}"))
         r.checks.append(check("ranked by how many checkouts, with the units beside them",
                               bool(rows) and (rows[0].get("primary") or {}).get("label") == "checkouts"
@@ -82,13 +85,9 @@ async def abandoned_checkouts(h: Harness) -> Result:
                               f"note={c.data('ranking').get('note')!r}"))
 
     # The thing this family exists for.
-    said = c.answer.lower()
-    r.checks.append(check("the spoken answer says it is checkouts, not baskets",
-                          "checkout" in said and "not baskets left on the site" in said, c.answer[:220]))
-    r.checks.append(check("and that unfulfilled orders are a different question",
-                          "not orders waiting to go out" in said, c.answer[-140:]))
-    r.checks.append(check("the card says the same thing rather than leaving it to the voice",
-                          "not baskets left on the site" in str(c.data("metric_group").get("note") or ""),
+    r.checks.append(check("the card says it is checkouts, not baskets, and not orders waiting to go out",
+                          "not baskets left on the site" in str(c.data("metric_group").get("note") or "")
+                          and "not orders waiting to go out" in str(c.data("metric_group").get("note") or ""),
                           f"note={c.data('metric_group').get('note')!r}"))
     r.checks.append(check("nothing was changed by asking", getattr(h.store, "mutations_sent", -1) == 0,
                           f"mutations_sent={getattr(h.store, 'mutations_sent', 'NO COUNTER')}"))
@@ -100,13 +99,14 @@ async def abandoned_window(h: Harness) -> Result:
     r = Result("abandoned_window", "Abandoned this week")
     session = "aban2"
     h.configure()
-    c = await h.say("what's been abandoned this week", scenario="abandoned_window", session_id=session)
+    c = await h.ask("what's been abandoned this week", ("shopify_abandoned_checkouts", {"days": 7}),
+                    scenario="abandoned_window", session_id=session)
     r.captures.append(c)
-    r.checks.append(check("still the fast lane and still no model", c.lane == "FAST" and c.model_calls == 0,
-                          f"lane={c.lane} model_calls={c.model_calls}"))
+    r.checks.append(a_model_turn(c))
     r.checks += a_surface(c, "metric_group", what="draws the figures")
-    r.checks.append(check("the answer names the window it used",
-                          "in the last" in c.answer.lower(), c.answer[:160]))
+    r.checks.append(check("the card names the window it used",
+                          "in the last week" in str(c.data("metric_group").get("subtitle") or ""),
+                          f"subtitle={c.data('metric_group').get('subtitle')!r}"))
     if grounded(h):
         # The read went to Shopify with a date filter: the window is the shop's own search,
         # not a filter applied to everything after the fact.

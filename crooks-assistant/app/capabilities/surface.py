@@ -38,8 +38,8 @@ ORDER = tuple(LABELS)
 MAX_PER_GROUP = 10
 MAX_EXAMPLES = 6
 
-# Things worth saying, shown as chips. Deliberately a short fixed list of the questions the
-# fast lane actually has a recipe for, so tapping one is answered without the model.
+# Things worth saying, shown as chips. A short fixed list of everyday questions; tapping one
+# asks it, and it is a model turn like anything said.
 EXAMPLES: tuple[str, ...] = (
     "Show me today's orders",
     "Show me order 1938",

@@ -287,7 +287,7 @@ def test_back_to_a_list_whose_cards_are_gone_reads_the_place_again(world):
 async def test_a_cold_list_stop_is_redrawn_through_the_route(stage):
     """The same thing, end to end: the cards kept with the stop are dropped, and the Back that
     follows still comes back with a list on the screen."""
-    listing = await stage.say("show me today's orders", session_id="cold_list")
+    listing = await stage.touch("open.area", area="orders", session_id="cold_list")
     card = listing.data("order_list")
     rows = [r for r in (card.get("orders") or card.get("rows") or []) if isinstance(r, dict)]
     assert rows, listing.surface_types
@@ -305,16 +305,6 @@ async def test_a_cold_list_stop_is_redrawn_through_the_route(stage):
     assert not back.prose_only, f"back announced a move and drew nothing: {back.answer!r}"
     assert back.surface("order_list") is not None, back.surface_types
     assert back.model_calls == 0, back.model_calls
-
-    # And said rather than tapped, which is the other end of the same command.
-    await stage.touch("open.entity", session_id="cold_list", kind="order",
-                      ref=str(rows[0].get("order_id") or ""), label="a row")
-    for entry in [e for e in branch.nav if e.is_workspace]:
-        entry.ui = []
-    spoken = await stage.say("go back", session_id="cold_list")
-    assert spoken.lane == "FAST" and spoken.recipe_id == "navigation_back", (spoken.lane, spoken.recipe_id)
-    assert spoken.surface("order_list") is not None, spoken.surface_types
-    assert spoken.model_calls == 0, spoken.model_calls
 
 
 def test_back_at_the_start_of_the_trail_says_so_and_stays(world):
@@ -432,7 +422,7 @@ async def test_the_whole_of_navigation_happens_without_the_model(stage):
     """
     session_id = "det"
     before = len(stage.provider.calls)
-    listing = await stage.say("show me today's orders", session_id=session_id)
+    listing = await stage.touch("open.area", area="orders", session_id=session_id)
     card = listing.data("order_list")
     rows = [r for r in (card.get("orders") or card.get("rows") or []) if isinstance(r, dict)]
     assert rows, f"the fixture world drew no rows: {listing.surface_types}"
@@ -466,7 +456,7 @@ async def test_the_whole_of_navigation_happens_without_the_model(stage):
         f"navigation woke the model {asked} time(s): {stage.provider.calls[at_start:]}"
     )
     assert all(step.model_calls == 0 for step in steps), [s.model_calls for s in steps]
-    assert spoken_reads == 0, "even the listing that set this up should not have asked the model"
+    assert spoken_reads == 0, "even the listing that set this up (the Orders landing, tapped) did not ask the model"
     # And they were not refusals dressed up as silence: every one of them said something or
     # drew something.
     empty = [s.command for s in steps if s.raw.get("ok") is False and s.raw.get("code") not in ("at_end", "at_start")]

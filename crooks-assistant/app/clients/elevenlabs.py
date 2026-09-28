@@ -10,7 +10,11 @@ speech path that leaves the Mac. Two consequences shape this module:
   ScribeUnavailable with a `kind`, and app/speech/transcribe.py turns that into a whisper.cpp
   fallback rather than an error on the screen.
 
-`keyterms` are product words, never customer names — see Catalogue.external_terms().
+Nothing biases what Scribe hears. It used to be sent up to 99 `keyterms` from the shop's
+catalogue — product titles, set names, colour options, spoken aliases — and a recogniser told
+which words to expect finds them: the owner said "Clive" and the transcript said "Plaid", a
+word that list carried and "Clive" was not. The owner asked for what he said, so the request
+carries the audio and nothing else about the words (28 September 2026).
 """
 
 from __future__ import annotations
@@ -28,12 +32,6 @@ from app.speech.voice_reasons import listening_reason
 log = logging.getLogger("crooks.scribe")
 
 API_BASE = "https://api.elevenlabs.io/v1"
-
-# ElevenLabs' documented keyterm rules: at most 1000 terms, under 50 characters each, at most
-# five words each. A request with 100 or more keyterms is billed at a 20-second minimum, so the
-# default cap sits just under that line — see Settings.scribe_max_keyterms.
-KEYTERM_MAX_CHARS = 49
-KEYTERM_MAX_WORDS = 5
 
 # Failures that will not fix themselves within a turn or two: a missing or rejected key, an
 # account with no credit. Retrying those on every sentence buys nothing and costs the speaker a
@@ -68,14 +66,12 @@ class ScribeClient:
         language: str = "eng",
         timeout_s: float = 20.0,
         base_url: str = API_BASE,
-        max_keyterms: int = 99,
         cooldown_s: float = 300.0,
         account: AccountCredit | None = None,
     ) -> None:
         self.model = model
         self.language = language
         self.base_url = base_url.rstrip("/")
-        self.max_keyterms = max_keyterms
         self._timeout = timeout_s
         self._cooldown_s = cooldown_s
         self._key: str | None = None
@@ -178,21 +174,7 @@ class ScribeClient:
 
     # ------------------------------------------------------------------ transcription
 
-    def keyterms(self, terms: list[str]) -> list[str]:
-        """The terms ElevenLabs will actually accept: short, few-worded, deduplicated, capped.
-
-        Most important LAST in, most important KEPT — the catalogue puts the hand-written
-        spoken forms at the end, so the cap trims from the front like Whisper's prompt does."""
-        cleaned: list[str] = []
-        for term in terms:
-            term = " ".join(str(term).split())
-            if not term or len(term) > KEYTERM_MAX_CHARS or len(term.split()) > KEYTERM_MAX_WORDS:
-                continue
-            cleaned.append(term)
-        deduped = list(dict.fromkeys(cleaned))
-        return deduped[-self.max_keyterms :] if self.max_keyterms > 0 else []
-
-    async def transcribe(self, wav: bytes, *, keyterms: list[str] | None = None) -> Transcript:
+    async def transcribe(self, wav: bytes) -> Transcript:
         """POST a 16 kHz mono WAV to /v1/speech-to-text. Raises ScribeUnavailable on anything
         that is not a usable transcript, so the caller can fall back."""
         if self.cooling_down:
@@ -205,17 +187,14 @@ class ScribeClient:
         self.attempts += 1
         started = time.perf_counter()
 
-        data: dict[str, str | list[str]] = {
+        data: dict[str, str] = {
             "model_id": self.model,
             "language_code": self.language,
-            # "(laughter)" and friends are not what was said; they would reach the normaliser
-            # and then the agent as if they were words.
+            # "(laughter)" and friends are not what was said; they would reach the model as
+            # if they were words.
             "tag_audio_events": "false",
             "diarize": "false",
         }
-        terms = self.keyterms(keyterms or [])
-        if terms:
-            data["keyterms"] = terms  # httpx repeats the field once per term, as the API wants
 
         try:
             response = await self._client().post(

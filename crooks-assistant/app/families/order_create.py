@@ -56,10 +56,8 @@ from app.commands import Command, Outcome
 from app.commands import Ctx as CommandCtx
 from app.commands import register as register_command
 from app.families import _workspace as ws
-from app.fastpath.intent import Family, extend, signal
-from app.fastpath.models import Ctx, FastAnswer
-from app.fastpath.recipes import CACHE_NONE, Recipe, register
 from app.reads.scheduler import Read, ReadPlan, ReadResult
+from app.recipes import CACHE_NONE, Ctx, Recipe, RecipeAnswer, register
 from app.tools.gate import Tier
 from app.tools.registry import ToolError, WriteSpec, tool
 from app.tools.shopify_tools import _c
@@ -471,8 +469,8 @@ async def _resolve_customer(workspace: dict[str, Any]) -> None:
 
 def choose_row(workspace: dict[str, Any], row: dict[str, Any]) -> None:
     """One of the candidates, chosen. Synchronous, and that is not an accident: a recipe's
-    `render` runs synchronously (app/fastpath/runner.py), so the fast lane can only ever
-    choose from what it has already read. The `address` key is deliberately ABSENT here
+    `render` runs synchronously (app/recipes.py), so a tapped read can only ever choose from
+    what it has already read. The `address` key is deliberately ABSENT here
     rather than empty — "not read yet" and "none on file" are different facts, and the card
     says which."""
     workspace["facts"]["customer"] = {
@@ -997,15 +995,15 @@ register_command(Command("order.discard", "Throw away the order being built", _d
 
 # --------------------------------------------------------------------------- the recipes
 #
-# Two reads, each run for a tap or for a sentence, and neither can stage: a recipe naming a
-# write tool is a crash at start-up (app/fastpath/recipes.py assert_read_only).
+# Two reads, each run for a tap, and neither can stage: a recipe naming a write tool is a
+# crash at start-up (app/recipes.py assert_read_only).
 
 
 def _customer_plan(ctx: Ctx) -> ReadPlan | None:
-    """Who the name means. The read is `shopify_find_customer`, the same tool a spoken
-    "find Poppy" uses, so the answer here and the answer there cannot disagree."""
+    """Who the name means. The read is `shopify_find_customer`, the same tool the model uses
+    to find Poppy, so the answer here and the answer there cannot disagree."""
     workspace = ws.held(ctx.branch, KIND)
-    slots = ctx.intent.slots or {}
+    slots = ctx.slots or {}
     name = (ws.value(workspace, "customer") if workspace else "") or str(slots.get("customer") or "").strip()
     if not name:
         return None
@@ -1013,13 +1011,13 @@ def _customer_plan(ctx: Ctx) -> ReadPlan | None:
                           source="shopify", cost=90.0, optional=False)], label="order_customer")
 
 
-def _customer_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
+def _customer_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     workspace = ws.held(ctx.branch, KIND)
     if workspace is None:
-        return FastAnswer(answer="", defer="the order was closed while the customer was being looked up")
+        return RecipeAnswer(answer="", defer="the order was closed while the customer was being looked up")
     body = result.values.get("customer")
     if not isinstance(body, dict):
-        return FastAnswer(answer="", defer="the shop did not answer about that customer")
+        return RecipeAnswer(answer="", defer="the shop did not answer about that customer")
     found = [c for c in (body.get("customers") or []) if isinstance(c, dict) and c.get("customer_id")]
     workspace["facts"]["candidates"] = [
         {"customer_id": str(c["customer_id"]), "name": str(c.get("name") or ""),
@@ -1039,7 +1037,7 @@ def _customer_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
         ctx.session.remember_pii(*[v for v in (chosen.get("name"), chosen.get("email"), chosen.get("address")) if v])
     for candidate in workspace["facts"]["candidates"]:
         ctx.session.remember_pii(*[v for v in (candidate.get("name"), candidate.get("email")) if v])
-    return FastAnswer(
+    return RecipeAnswer(
         answer=_spoken(workspace), calls=list(result.calls), drawn=[],
         surfaces=[workspace_surface(workspace)], partial=result.partial,
         trace={"candidates": len(workspace["facts"]["candidates"]), "chosen": bool(chosen)},
@@ -1048,7 +1046,7 @@ def _customer_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
 
 def _line_plan(ctx: Ctx) -> ReadPlan | None:
     workspace = ws.held(ctx.branch, KIND)
-    slots = ctx.intent.slots or {}
+    slots = ctx.slots or {}
     words = (str(slots.get("product") or "") or (ws.value(workspace, "item") if workspace else "")).strip()
     if not words:
         return None
@@ -1056,7 +1054,7 @@ def _line_plan(ctx: Ctx) -> ReadPlan | None:
                           source="shopify", cost=90.0, optional=False)], label="order_line")
 
 
-def _line_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
+def _line_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     """Add the line when exactly one variant matches, and never when several do.
 
     Four hoodies match "hoodie", and choosing one of them for the owner is the same mistake
@@ -1065,10 +1063,10 @@ def _line_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     """
     workspace = ws.held(ctx.branch, KIND)
     if workspace is None:
-        return FastAnswer(answer="", defer="the order was closed while the catalogue was being read")
+        return RecipeAnswer(answer="", defer="the order was closed while the catalogue was being read")
     body = result.values.get("variants")
     if not isinstance(body, dict):
-        return FastAnswer(answer="", defer="the catalogue did not answer")
+        return RecipeAnswer(answer="", defer="the catalogue did not answer")
     candidates = [c for c in (body.get("candidates") or []) if isinstance(c, dict) and c.get("for_sale")]
     workspace["facts"].pop("item_note", None)
     if not candidates:
@@ -1101,7 +1099,7 @@ def _line_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
         workspace["facts"].pop("draft", None)
         ws.type_into(workspace, FIELDS, "item", "")
         ws.type_into(workspace, FIELDS, "quantity", "1")
-    return FastAnswer(
+    return RecipeAnswer(
         answer=_spoken(workspace), calls=list(result.calls), drawn=[],
         surfaces=[workspace_surface(workspace)], partial=result.partial,
         trace={"lines": len(_lines(workspace)), "matched": len(candidates)},
@@ -1109,43 +1107,18 @@ def _line_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
 
 
 register(Recipe(
-    recipe_id="order_customer", intent_family="order_new",
+    recipe_id="order_customer",
     read_primitives=("shopify_find_customer",), parallel_nodes=(("customer",),), ui="workspace",
-    cache_policy=CACHE_NONE, min_confidence=0.72, target_ms=1200,
+    cache_policy=CACHE_NONE, target_ms=1200,
     plan=_customer_plan, render=_customer_render,
 ))
 
 register(Recipe(
-    recipe_id="order_line", intent_family="order_new_line",
+    recipe_id="order_line",
     read_primitives=(SEARCH_TOOL,), parallel_nodes=(("variants",),), ui="workspace",
-    cache_policy=CACHE_NONE, min_confidence=0.75, target_ms=1200,
+    cache_policy=CACHE_NONE, target_ms=1200,
     plan=_line_plan, render=_line_render,
 ))
-
-# The family's own word, for the sentence the brief names: "create an order for Poppy
-# De-Witt". `mutation` is in `needs` on purpose — making an order IS an instruction, and
-# `intent.resolve` returns no family at all for a sentence carrying that signal unless the
-# family declares `serves_mutation_words`. This one does, and what it may then DO is
-# unchanged: `recipes.assert_read_only` still holds, the read scheduler still refuses a plan
-# with a write in it, and the ONLY thing the lane can do here is look the customer up and
-# draw the form. Nothing on this path can stage; the gesture on the card is the owner's.
-_MAKE = frozenset({"create", "make", "raise", "start", "new", "build"})
-_AN_ORDER = frozenset({"order", "invoice", "sale"})
-
-signal("makes_order", lambda sig: bool(set(sig.words) & _MAKE) and bool(set(sig.words) & _AN_ORDER))
-
-extend([
-    Family("order_new", needs=("mutation", "makes_order"),
-           blocks=("question", "metric", "email", "ranking"),
-           base=0.82, floor=0.72, max_words=12, serves_mutation_words=True),
-    # The line recipe's family, declared so that its reachability is a fact with a test
-    # rather than a comment: it is reached by the tap on Add the item and by nothing else.
-    # `serves_mutation_words` is deliberately NOT declared here, so `intent.resolve` refuses
-    # to score it for any sentence carrying a mutation signal — and `makes_order` needs one,
-    # so no sentence can reach it at all.
-    Family("order_new_line", needs=("mutation", "makes_order"), base=0.5, floor=0.99, max_words=1),
-])
-
 
 # --------------------------------------------------------------------------- the capability
 
