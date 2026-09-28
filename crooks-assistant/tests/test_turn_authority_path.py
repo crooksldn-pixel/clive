@@ -176,3 +176,31 @@ async def test_with_no_allow_list_not_even_the_owners_device_is_given_authority(
                                     headers={"Tailscale-User-Login": OWNER, "X-Forwarded-For": PHONE})
     assert refused.status_code == 403 and refused.json()["code"] == "allow_list_missing"
     assert witness.asked == [] and reached == []
+
+
+# ------------------------------------------------ F-05A, through the same real door
+
+
+async def test_the_command_key_through_the_real_door_is_the_servers_own_command_or_nothing(production):
+    """F-05A with the kernel's own account instead of a stand-in for it (round 9): on each of the
+    three test-session routes, the owner's verified device carrying the right key, a wrong one or
+    an empty one is refused at the door, and admitted as the owner without it; straight to the
+    port, the right key is let in and a wrong or empty one is not. The key never makes a tool
+    authority either way (the turn route, above)."""
+    local_cli.bind_key(KEY)
+    phone = {"Tailscale-User-Login": OWNER, "X-Forwarded-For": PHONE}
+    routes = (("POST", "/test-session/start"), ("GET", "/test-session/status"), ("POST", "/test-session/stop"))
+    async with _caller(TAILSCALED_END) as device, _caller(DIRECT_END) as server:
+        for method, path in routes:
+            for value in (KEY, "k" * 42, ""):
+                refused = await device.request(method, path, headers={**phone, local_cli.HEADER: value}, json={"name": "x"})
+                assert refused.status_code == 403 and refused.json()["code"] == "local_key_misused", (path, repr(value))
+            for value in ("k" * 42, ""):
+                refused = await server.request(method, path, headers={local_cli.HEADER: value}, json={"name": "x"})
+                assert refused.status_code == 403, (path, repr(value))
+        started = await device.post("/test-session/start", headers=phone, json={"name": "from the phone"})
+        assert started.status_code == 200 and started.json()["started"] is True, started.text
+        assert (await server.get("/test-session/status", headers={local_cli.HEADER: KEY})).json()["active"] is True
+        assert (await server.get("/test-session/status")).status_code == 403, "the server itself, without the key"
+        stopped = await server.post("/test-session/stop", headers={local_cli.HEADER: KEY})
+        assert stopped.status_code == 200 and stopped.json()["stopped"] is True
