@@ -8,11 +8,12 @@ from contextvars import ContextVar
 from typing import Any
 
 CURRENT_SESSION: ContextVar[Any] = ContextVar("crooks_current_session", default=None)
-# Which half of the orb the running tool call acts for. Set by the provider around each
-# dispatch, on the task the call runs in, so that two halves thinking at once cannot stamp
-# each other's proposals: the session's own `acting_branch` is one field for both halves and
-# holds whichever spoke last. Empty outside a model turn — the request task's own
-# `acting_branch` is right there.
+# Which half of the orb the running work acts for. Set on the request's own task by /turn,
+# /command and /actions/row, and by the provider around each tool call the Agent SDK makes on a
+# task of its own, so that two halves thinking at once cannot stamp each other's proposals,
+# working sets or glass: the session's own `acting_branch` is one field for both halves and
+# holds whichever spoke last. Empty outside a request — then the session's field is the only
+# word there is.
 CURRENT_BRANCH: ContextVar[str] = ContextVar("crooks_current_branch", default="")
 
 

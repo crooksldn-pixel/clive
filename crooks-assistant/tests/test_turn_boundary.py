@@ -708,25 +708,44 @@ async def test_a_change_staged_by_an_answer_the_owner_has_moved_on_from_is_withd
 # ------------------------------- what the owner named, not what was open (D2-05, I-tests2 I-02)
 
 
-async def test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it(shop):
-    """"What's the status of 1940" with #1938 open. The fast lane refused to answer that from
-    the open order in code; the model is now told, beside the open record, that a number he
-    says is the record he means — and the screen is drawn only from what the model read, so
-    the card and the cursor are #1940's, and nothing on the Mac read #1938 for the sentence."""
+def reads_the_number_said() -> Step:
+    """Claude reading the order the owner's words name — whichever that is. Nothing in it is
+    fixed to an order (round 9, I-tests2 I-03: a model that always read the same order could not
+    show that the one ASKED for is what is read and drawn)."""
+    import re
+
+    async def step(session, calls, text):
+        number = re.search(r"\b(\d{4})\b", text.split("\n")[1]).group(1)
+        return await show_order(number)(session, calls, text)
+    return step
+
+
+@pytest.mark.parametrize(("open_number", "asked_number"), [("1938", "1940"), ("1940", "1938")])
+async def test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it(shop, open_number, asked_number):
+    """"What's the status of 1940" with #1938 open, and the other way round. The fast lane
+    refused to answer that from the open order in code; the model is now told, beside the open
+    record, that a number he says is the record he means — and the screen is drawn only from
+    what the model read, so the card and the cursor are the asked-for order's, and nothing on
+    the Mac read the open one for the sentence. The model reads whichever number was said, so
+    the order drawn is the one requested, not one the script fixed (round 9, I-tests2 I-03)."""
     from app.routes.turn import NAMED_OUTRANKS_SHOWN
 
-    shop.model.steps = [show_order("1938"), show_order("1940")]
-    await say(shop, "show me order 1938", "num")
+    refs = {"1938": A, "1940": B}
+    sid = f"num-{asked_number}"
+    shop.model.steps = [show_order(open_number), reads_the_number_said()]
+    await say(shop, f"show me order {open_number}", sid)
     before = len(shop.store.queries)
-    body = await say(shop, "what's the status of 1940", "num")
+    said = f"what's the status of {asked_number}"
+    body = await say(shop, said, sid)
 
     prompt = shop.model.prompts[-1]
-    assert prompt.split("\n")[1] == "what's the status of 1940"
+    assert prompt.split("\n")[1] == said
     assert NAMED_OUTRANKS_SHOWN in prompt
-    assert ("order", B) in records(body) and ("order", A) not in records(body)
-    assert body["branch"]["entity"]["ref"] == B
+    assert ("order", refs[asked_number]) in records(body) and ("order", refs[open_number]) not in records(body)
+    assert body["branch"]["entity"]["ref"] == refs[asked_number]
+    assert body["answer"] == "Here it is.", "the model's answer about the order asked for is what he hears"
     turn_reads = json.dumps(shop.store.queries[before:])
-    assert A not in turn_reads, "the Mac read the open order for a sentence about another"
+    assert refs[open_number] not in turn_reads, "the Mac read the open order for a sentence about another"
 
 
 async def test_a_question_the_model_answers_in_words_does_not_redraw_the_open_order(shop):

@@ -104,12 +104,21 @@ class ActionEngine:
         now = self.clock()
         self.prune(now)
         fingerprint = args_fingerprint(spec.name, model_args)
+        # The half that asked, read once: it stamps a new proposal below, and it decides whether
+        # a waiting one is the same request. The same change asked for in BOTH halves of a
+        # divided orb in one position used to come back to the second half as the first half's
+        # proposal — its card drawn over there, stamped over here, withdrawn by the other
+        # half's next question and never by its own (the 2026-09-28 deploy review, round 9,
+        # D2-03). Each half's request is its own proposal, and each is held to its own
+        # precondition at commit: once one has changed the entity, the other finds it moved.
+        asking = acting_branch(session)
         for existing in session.proposals:
             if (
                 existing.status is ActionStatus.PENDING
                 and existing.proposal_id in self._index      # ours: never a proposal this engine cannot execute
                 and existing.epoch == session.epoch
                 and existing.fingerprint == fingerprint
+                and str(getattr(existing, "branch_id", "") or "") == asking
                 and not existing.expired(now)
             ):
                 # The same proposal, not a second one: the ledger already has its line.
@@ -134,7 +143,7 @@ class ActionEngine:
             # speaking branch, `revoke_pending` withdraws by branch, `/branches/{id}
             # /background` refuses a half with a change waiting, and a BACKGROUND half is
             # never allowed to commit. Stamped with the focused branch, all four inverted.
-            branch_id=acting_branch(session),
+            branch_id=asking,
             tool_name=spec.name,
             operation=spec.write.operation,
             risk=risk,
