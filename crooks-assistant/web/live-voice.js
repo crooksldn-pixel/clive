@@ -21,9 +21,15 @@
  *   - One microphone stream and one AudioContext. The tap hangs off audio-viz's own source node
  *     (tapMic) and reaches the speaker through a gain of zero: pulled, never heard. It never asks
  *     for the microphone and never touches the recorder.
- *   - The Mac's ElevenLabs key never reaches the page; the key it mints is good for one session.
- *     The words are never stored, logged or sent to telemetry: telemetry gets how it went (an
- *     outcome, a time, counts), never what was said.
+ *   - The Mac's ElevenLabs key never reaches the page. The single-use key it mints is used
+ *     once, for the hold that asked for it, within the life the Mac gives it (expires_in_s) or
+ *     not at all, and no copy is kept once its socket is closed. It is never stored, logged,
+ *     put in the address bar or sent to telemetry.
+ *   - The words are for the owner's eyes and nothing else. They go to `onWords` and nowhere
+ *     more: never stored, logged or sent to telemetry, never into a question (the recording is
+ *     what is sent), and forgotten here when the hold's words end. Telemetry gets how it went,
+ *     in this file's own fixed words (OUTCOMES, REASONS) and numbers, and nothing the socket
+ *     said: a provider's message type, error text or close reason is looked up, never copied.
  */
 (function (root) {
   'use strict';
@@ -31,7 +37,9 @@
   const TARGET_RATE = 16000;
   const CHUNK_BYTES = 3200;                        // 100 ms of 16 kHz mono PCM16
   const EARLY_BYTES = 3 * TARGET_RATE * 2;         // what is kept while the socket opens: 3 s
-  const FINISH_MS = 1500;                          // after the release, how long to wait for the words to settle
+  const FINISH_MS = 1500;                          // after the commit, how long to wait for the words to settle
+  const OPEN_WAIT_MS = 5000;                       // released before the socket opened: how long it may still take
+  const MAX_LIFE_S = 60;                           // the longest life the page will honour for a key, whatever it is told
   const QUIET_AFTER_REFUSAL_MS = 30000;            // a refused key is not asked for again on every hold
   const TAP_NAME = 'crooks-live-tap';
 
@@ -94,11 +102,16 @@
     return JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: toBase64(bytes), commit: Boolean(commit) });
   }
 
-  // The socket's address, from what the Mac answered. Only a wss: address is opened, and no
-  // keyterms are ever passed on: the owner had them removed because they rewrote his words.
+  // What a key may look like: the Mac's own rule (app/routes/voice.py TOKEN_SHAPE), kept here
+  // too, so the page opens nothing with an answer that is not one.
+  const TOKEN_SHAPE = /^[A-Za-z0-9._~+/=-]{16,2048}$/;
+
+  // The socket's address, from what the Mac answered. Only a wss: address is opened, only with a
+  // key-shaped key, and no keyterms are ever passed on: the owner had them removed because they
+  // rewrote his words.
   function socketUrl(data) {
     const base = String((data && data.url) || '');
-    if (!/^wss:\/\/[^\s?#]+$/.test(base) || !data.token || typeof data.token !== 'string') return '';
+    if (!/^wss:\/\/[^\s?#]+$/.test(base) || typeof data.token !== 'string' || !TOKEN_SHAPE.test(data.token)) return '';
     const query = new URLSearchParams();
     const params = data.params && typeof data.params === 'object' ? data.params : {};
     for (const [name, value] of Object.entries(params)) {
@@ -109,15 +122,63 @@
     return `${base}?${query.toString()}`;
   }
 
-  // What the socket can say that means it will not go on.
-  const ERROR_TYPES = new Set([
-    'error', 'auth_error', 'authentication_error', 'quota_exceeded_error', 'throttled_error', 'rate_limited',
-    'resource_exhausted_error', 'session_time_limit_exceeded_error', 'invalid_request_error',
-    'chunk_size_exceeded_error', 'insufficient_audio_activity_error', 'transcriber_error',
+  // How long the Mac says a key may be held, in seconds; 0 when the answer gives none this page
+  // can honour (missing, not a number, not positive), and never more than MAX_LIFE_S.
+  function keyLife(data) {
+    const life = typeof (data && data.expires_in_s) === 'number' ? data.expires_in_s : NaN;
+    return Number.isFinite(life) && life > 0 ? Math.min(life, MAX_LIFE_S) : 0;
+  }
+
+  /* What telemetry may be told of how the words went: these words and no others (round 9,
+   * C-04). The socket's messages decide WHICH word, and never supply one: its message_type is
+   * looked up in PROVIDER_ERRORS, a close code in CLOSE_CODES, the Mac's status in HTTP_STATUSES,
+   * and anything not listed is 'provider_error' or 'other'. So a message type, an error's text
+   * or a close reason with a customer's name in it reaches nothing. */
+  const PROVIDER_ERRORS = new Map([
+    ['error', 'provider_error'], ['auth_error', 'auth'], ['authentication_error', 'auth'],
+    ['quota_exceeded_error', 'quota'], ['throttled_error', 'throttled'], ['rate_limited', 'throttled'],
+    ['resource_exhausted_error', 'busy'], ['session_time_limit_exceeded_error', 'time_limit'],
+    ['invalid_request_error', 'invalid_request'], ['chunk_size_exceeded_error', 'chunk_size'],
+    ['insufficient_audio_activity_error', 'no_audio'], ['transcriber_error', 'transcriber'],
   ]);
+  const HTTP_STATUSES = [400, 401, 403, 404, 405, 408, 413, 429, 500, 502, 503, 504];
+  const CLOSE_CODES = [1000, 1001, 1002, 1003, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015];
+  const OUTCOMES = new Set(['committed', 'timeout', 'cancelled', 'replaced', 'superseded', 'error', 'unavailable', 'slow', 'closed', 'no_tap', 'other']);
+  const REASONS = new Set([
+    ...PROVIDER_ERRORS.values(), 'provider_error',
+    'send', 'socket', 'no_socket', 'fetch', 'bad_answer', 'expired', 'resting', 'open_wait', 'connect',
+    ...HTTP_STATUSES.map((status) => `http_${status}`), 'http_other',
+    ...CLOSE_CODES.map((code) => `code_${code}`), 'code_app', 'code_other', 'other',
+  ]);
+
+  // What the socket can say that means it will not go on.
   function isError(message) {
-    const type = String(message.message_type || '');
-    return Boolean(message.error) || ERROR_TYPES.has(type) || /_error$/.test(type);
+    const type = typeof message.message_type === 'string' ? message.message_type : '';
+    return Boolean(message.error) || PROVIDER_ERRORS.has(type) || /_error$/.test(type);
+  }
+  function providerReason(message) {
+    const type = typeof message.message_type === 'string' ? message.message_type : '';
+    return PROVIDER_ERRORS.get(type) || 'provider_error';
+  }
+  function httpReason(status) {
+    return HTTP_STATUSES.indexOf(status) !== -1 ? `http_${status}` : 'http_other';
+  }
+  function closeReason(code) {
+    if (CLOSE_CODES.indexOf(code) !== -1) return `code_${code}`;
+    return Number.isInteger(code) && code >= 3000 && code <= 4999 ? 'code_app' : 'code_other';
+  }
+
+  // The one shape a `live_transcript` event may have: an outcome and a reason from the lists
+  // above, and three whole numbers. Anything else in `fields` is dropped, and an unknown word is
+  // 'other'. web/app.js passes what reaches it through this again before telemetry sees it.
+  function telemetryFields(fields) {
+    const f = fields || {};
+    const whole = (v) => (Number.isInteger(v) && v >= 0 && v < 1e7 ? v : undefined);
+    return {
+      outcome: OUTCOMES.has(f.outcome) ? f.outcome : 'other',
+      reason: f.reason === undefined || f.reason === '' ? undefined : REASONS.has(f.reason) ? f.reason : 'other',
+      ms: whole(f.ms), partials: whole(f.partials), count: whole(f.count),
+    };
   }
 
   // ------------------------------------------------------------------ the tap
@@ -207,8 +268,9 @@
   // ------------------------------------------------------------------ the words
 
   /* The live words for one hold at a time. `begin()` on LISTENING, then `release()` or
-   * `cancel()`. What is heard so far goes to `onWords(text)`: the committed words and the
-   * current partial, and '' when there is nothing to show. */
+   * `cancel()`, and `drop()` once the Mac's own transcript has taken their place. What is heard
+   * so far goes to `onWords(text)`: the committed words and the current partial, and '' when
+   * there is nothing to show. That is the only place the words go. */
   function create(options) {
     const opts = options || {};
     const deps = {
@@ -296,9 +358,21 @@
         }
       }
 
+      // The thumb has lifted and the socket is open: what is left goes with the commit, and the
+      // words have FINISH_MS from then to settle. Never started before the socket is open, so a
+      // socket that takes longer than FINISH_MS to open still gets the commit (round 9, C-05);
+      // how long it may take is OPEN_WAIT_MS, counted from the release (`release`).
+      function finish() {
+        if (s.timer !== null) { deps.clearTimeout(s.timer); s.timer = null; }
+        pump(true);
+        if (s.done) return;
+        s.timer = deps.setTimeout(() => close('timeout'), FINISH_MS);
+      }
+
       function heard(message) {
-        const type = String(message.message_type || '');
-        if (isError(message)) { stop('error', type || 'error'); return; }
+        const type = typeof message.message_type === 'string' ? message.message_type : '';
+        // Which word telemetry gets is looked up; nothing of the message is carried (C-04).
+        if (isError(message)) { stop('error', providerReason(message)); return; }
         if (type === 'partial_transcript') {
           s.partial = String(message.text || '');
           s.partials += 1;
@@ -313,9 +387,16 @@
         }
       }
 
+      /* One key, one socket, for this hold. The key is asked for here, checked (its shape and
+       * its life), put into the socket's address and so into the socket, and held nowhere else:
+       * not on `s`, not in a log, not in telemetry. Its life is counted from the ask rather than
+       * the answer, because the page's clock and the Mac's need not agree and the ask is the
+       * earlier of the two. A key that arrives too late, or with no life this page can honour,
+       * is dropped unused. */
       async function connect() {
         if (!deps.fetch || typeof deps.WebSocket !== 'function') { stop('unavailable', 'no_socket'); return; }
         s.controller = typeof AbortController === 'function' ? new AbortController() : null;
+        const askedAt = deps.now();
         let data = null;
         try {
           const response = await deps.fetch('/voice/live', {
@@ -323,22 +404,26 @@
             signal: s.controller ? s.controller.signal : undefined,
           });
           if (s.done) return;
-          if (!response.ok) { quietUntil = deps.now() + QUIET_AFTER_REFUSAL_MS; stop('unavailable', `http_${response.status}`); return; }
+          if (!response.ok) { quietUntil = deps.now() + QUIET_AFTER_REFUSAL_MS; stop('unavailable', httpReason(response.status)); return; }
           data = await response.json();
         } catch {
           if (!s.done) stop('unavailable', 'fetch');
           return;
         }
         if (s.done) return;
-        const url = socketUrl(data);
+        const life = keyLife(data);
+        const url = life ? socketUrl(data) : '';
+        data = null;
         if (!url) { stop('unavailable', 'bad_answer'); return; }
+        if (deps.now() - askedAt > life * 1000) { stop('unavailable', 'expired'); return; }
         let socket;
         try { socket = new deps.WebSocket(url); } catch { stop('error', 'socket'); return; }
         s.socket = socket;
         socket.onopen = () => {
           if (s.done) return;
           s.open = true;
-          pump(!s.held);   // what was said while it opened, and the commit if the thumb has lifted
+          // What was said while it opened; and when the thumb has already lifted, the commit.
+          if (s.held) pump(false); else finish();
         };
         socket.onmessage = (event) => {
           if (s.done) return;
@@ -349,7 +434,7 @@
         socket.onerror = () => { if (!s.done) stop('error', 'socket'); };
         socket.onclose = (event) => {
           if (s.done) return;
-          if (s.held) stop('closed', `code_${(event && event.code) || 0}`);
+          if (s.held) stop('closed', closeReason(event && event.code));
           else close('closed');
         };
       }
@@ -359,7 +444,9 @@
         // No context or no source to tap: nothing to send, so no key is asked for either.
         if (!audio || !audio.context || !audio.hasMic) { stop('no_tap'); return; }
         if (deps.now() < quietUntil) { stop('unavailable', 'resting'); return; }
-        connect();
+        // Never a rejection left for the page's own handler to report: its text could carry
+        // the socket's address, and so the key.
+        connect().catch(() => { if (!s.done) stop('error', 'connect'); });
         const tap = await openTap(audio, frames, deps);
         if (s.done || !s.held) { if (tap) tap.close(); if (!tap && !s.done) stop('no_tap'); return; }
         if (!tap) { stop('no_tap'); return; }
@@ -370,7 +457,9 @@
         if (s.tap) { const tap = s.tap; s.tap = null; tap.close(); }
       }
 
-      // The end of it, whichever end. Recorded once: how it went, never a word of it.
+      // The end of it, whichever end. Recorded once: how it went, in this file's own words and
+      // numbers (telemetryFields), never a word of what was said. Then the words, the socket and
+      // with it the key are let go: nothing of this hold is kept once it is over.
       function close(outcome, reason, clear) {
         if (s.done) return;
         s.done = true;
@@ -383,19 +472,23 @@
           socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
           try { socket.close(); } catch { /* closed */ }
         }
+        s.socket = null;
+        s.controller = null;
         s.pending = [];
         s.pendingBytes = 0;
         if (clear) onWords('');
-        record('live_transcript', {
+        record('live_transcript', telemetryFields({
           outcome, reason: reason || undefined,
-          ms: s.firstPartialMs === null ? undefined : s.firstPartialMs,
+          ms: s.firstPartialMs === null ? undefined : Math.round(s.firstPartialMs),
           partials: s.partials || undefined, count: s.chunks || undefined,
-        });
+        }));
+        s.committed = '';
+        s.partial = '';
       }
 
       // Something went wrong: the words go quietly. While he holds they are cleared, because
-      // words that stop mid-sentence read as what was heard; after the release they stay until
-      // the Mac's own transcript takes their place.
+      // words that stop mid-sentence read as what was heard; after the release they stay on
+      // screen until the Mac's own transcript takes their place (web/app.js).
       function stop(outcome, reason) { close(outcome, reason, s.held); }
 
       const handle = {
@@ -403,15 +496,17 @@
           if (s.done) return;
           s.held = false;
           closeTap();
-          pump(true);
-          s.timer = deps.setTimeout(() => close('timeout'), FINISH_MS);
+          if (s.open) finish();
+          else s.timer = deps.setTimeout(() => stop('slow', 'open_wait'), OPEN_WAIT_MS);
         },
         cancel() { close('cancelled', '', true); },
+        // The Mac's transcript is on the bar: these words have done their job.
+        drop() { close('superseded', '', true); },
         close,
         get words() { return words(); },
         get done() { return s.done; },
       };
-      start();
+      start().catch(() => { if (!s.done) stop('no_tap'); });
       return handle;
     }
 
@@ -419,6 +514,7 @@
       begin,
       release() { if (current) current.release(); },
       cancel() { if (current) current.cancel(); },
+      drop() { if (current) current.drop(); },
       get active() { return Boolean(current && !current.done); },
     };
   }
@@ -545,8 +641,9 @@
   }
 
   const api = {
-    create, wave, createResampler, pcmBytes, toBase64, chunkMessage, socketUrl, barHeight, isError,
-    CHUNK_BYTES, EARLY_BYTES, FINISH_MS, TARGET_RATE, STEP_MS,
+    create, wave, createResampler, pcmBytes, toBase64, chunkMessage, socketUrl, barHeight, isError, keyLife,
+    telemetryFields, OUTCOMES, REASONS,
+    CHUNK_BYTES, EARLY_BYTES, FINISH_MS, OPEN_WAIT_MS, MAX_LIFE_S, TARGET_RATE, STEP_MS,
   };
   root.CrooksLiveVoice = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
