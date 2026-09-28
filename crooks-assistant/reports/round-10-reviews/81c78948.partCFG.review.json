@@ -1,0 +1,37 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-CFG-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "CFG-01",
+      "material": true,
+      "finding": "BLOCKS — An exploitable engineering-filing path cannot be ruled out on production with writes enabled: leaving CROOKS_ENGINEERING_HOST unset still selects `worker-01`, despite the production template saying that leaving it unset defers filing. Whether the tool or credential gate prevents filing cannot be determined without `app/tools/engineering_tools.py` and `scripts/provision_secrets.py`.",
+      "evidence_ref": "CANDIDATE FILES: config/settings.py, `engineering_host`; deploy/env.production.example, “build objectives”",
+      "required_repair": "Make the unset production setting resolve to a disabled value, verify that filing refuses that value, and provide the missing tool and credential-gate evidence."
+    },
+    {
+      "finding_id": "CFG-02",
+      "material": true,
+      "finding": "FOLLOW-UP — No exploit, data loss or data leak is established by the supplied files, but a connection that outlasts shutdown can prevent graceful cleanup: uvicorn has no bounded drain, while systemd stops waiting after 30 seconds. This is also identified as an outstanding unit change in the earlier PR claim sheet.",
+      "evidence_ref": "CANDIDATE FILES: deploy/systemd/crooks-assistant.service, `ExecStart` and `TimeoutStopSec`; REVIEW PACKET: PR #51 “Residuals” (uvicorn drain)",
+      "required_repair": "Set a finite graceful-drain limit and coordinate `TimeoutStopSec` with that limit and the application's shutdown budget; test a restart with a held connection."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_096a5c1821012a04016ababf3770c887d2b9bfecbc66b66c15",
+    "session_started_at": "2026-09-28T19:25:42.069071Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The engineering-host default contradicts the production opt-out instructions, and the files needed to determine its production impact were not supplied. The unit also retains the documented unbounded-drain issue. No round-9 finding specific to these five files was listed in the packet.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 22213, \"input_tokens_details\": {\"cache_write_tokens\": 22210, \"cached_tokens\": 0}, \"output_tokens\": 5073, \"output_tokens_details\": {\"reasoning_tokens\": 4652}, \"total_tokens\": 27286}]"
+}

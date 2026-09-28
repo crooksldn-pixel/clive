@@ -1,0 +1,473 @@
+[
+ {
+  "name": "S1",
+  "title": "the door and authority \u2014 identity, admission, the local CLI, health, and the whole tool-authority chain",
+  "paths": [
+   "crooks-assistant/app/identity.py",
+   "crooks-assistant/app/main.py",
+   "crooks-assistant/app/routes/actions.py",
+   "crooks-assistant/app/routes/health.py",
+   "crooks-assistant/app/local_cli.py",
+   "crooks-assistant/app/tools/authority.py",
+   "crooks-assistant/app/tools/dispatch.py",
+   "crooks-assistant/app/tools/gate.py",
+   "crooks-assistant/app/providers/max_agent_sdk.py",
+   "crooks-assistant/app/tools/registry.py"
+  ],
+  "budget": 244675
+ },
+ {
+  "name": "S1T",
+  "title": "the door's tests",
+  "paths": [
+   "crooks-assistant/tests/test_turn_authority_path.py",
+   "crooks-assistant/tests/test_health_key.py",
+   "crooks-assistant/tests/test_host_addresses.py",
+   "crooks-assistant/tests/test_proxy_identity.py",
+   "crooks-assistant/tests/test_local_cli.py",
+   "crooks-assistant/tests/test_tool_boundary.py",
+   "crooks-assistant/tests/test_gate.py",
+   "crooks-assistant/tests/test_registry.py",
+   "crooks-assistant/tests/test_engineering_bridge.py",
+   "crooks-assistant/tests/test_engineering_bridge_bounds.py",
+   "crooks-assistant/tests/test_routes.py"
+  ],
+  "budget": 272006
+ },
+ {
+  "name": "S2",
+  "title": "the turn and the write boundary",
+  "paths": [
+   "crooks-assistant/app/routes/turn.py",
+   "crooks-assistant/app/routes/command.py",
+   "crooks-assistant/app/recipes.py",
+   "crooks-assistant/app/tools/gmail_writes.py",
+   "crooks-assistant/app/families/compose.py",
+   "crooks-assistant/app/families/order_edit.py",
+   "crooks-assistant/app/families/store_credit.py"
+  ],
+  "budget": 273481
+ },
+ {
+  "name": "S2T",
+  "title": "the turn's and the write boundary's tests",
+  "paths": [
+   "crooks-assistant/tests/test_turn_boundary.py",
+   "crooks-assistant/tests/test_tap_reads_only.py",
+   "crooks-assistant/tests/test_reply_order_binding.py",
+   "crooks-assistant/tests/test_compose_provenance.py",
+   "crooks-assistant/tests/test_store_credit.py",
+   "crooks-assistant/tests/test_actions_routes.py",
+   "crooks-assistant/tests/test_recipes.py",
+   "crooks-assistant/tests/test_every_turn_is_the_model.py",
+   "crooks-assistant/tests/test_order_edit_picker_binding.py",
+   "crooks-assistant/tests/test_gmail_writes.py"
+  ],
+  "budget": 223438
+ },
+ {
+  "name": "S3",
+  "title": "the screens, server side",
+  "paths": [
+   "crooks-assistant/app/routes/displays.py",
+   "crooks-assistant/app/displays/store.py",
+   "crooks-assistant/app/tools/display_tools.py",
+   "crooks-assistant/app/displays/views.py",
+   "crooks-assistant/app/clients/youtube.py",
+   "crooks-assistant/app/observability/screens.py"
+  ],
+  "budget": 188198
+ },
+ {
+  "name": "S3P",
+  "title": "the screens, the pages",
+  "paths": [
+   "crooks-assistant/web/display.js",
+   "crooks-assistant/web/remote.js",
+   "crooks-assistant/web/sw.js",
+   "crooks-assistant/web/display.html",
+   "crooks-assistant/web/display.css",
+   "crooks-assistant/web/remote.css"
+  ],
+  "budget": 209284
+ },
+ {
+  "name": "S3T1",
+  "title": "the screens' server tests",
+  "paths": [
+   "crooks-assistant/tests/test_displays.py",
+   "crooks-assistant/tests/test_screens_r10.py",
+   "crooks-assistant/tests/test_screen_cookie.py",
+   "crooks-assistant/tests/test_screen_paths.py",
+   "crooks-assistant/tests/test_screen_video.py"
+  ],
+  "budget": 204231
+ },
+ {
+  "name": "S3T2",
+  "title": "the screens' page tests and screen privacy",
+  "paths": [
+   "crooks-assistant/tests/test_screen_privacy.py",
+   "crooks-assistant/tests/web/display.test.js",
+   "crooks-assistant/tests/web/remote.test.js",
+   "crooks-assistant/tests/web/sw.test.js"
+  ],
+  "budget": 180482
+ },
+ {
+  "name": "S4",
+  "title": "live voice and the words on the page",
+  "paths": [
+   "crooks-assistant/app/routes/voice.py",
+   "crooks-assistant/app/routes/observe.py",
+   "crooks-assistant/web/live-voice.js",
+   "crooks-assistant/web/telemetry.js",
+   "crooks-assistant/tests/test_live_voice.py",
+   "crooks-assistant/tests/test_live_voice_owner.py",
+   "crooks-assistant/tests/test_live_transcript_telemetry.py",
+   "crooks-assistant/tests/web/live-voice.test.js",
+   "crooks-assistant/tests/web/live-words-page.test.js"
+  ],
+  "budget": 177480
+ },
+ {
+  "name": "S4A",
+  "title": "the app page itself",
+  "paths": [
+   "crooks-assistant/web/app.js"
+  ],
+  "budget": 259719
+ },
+ {
+  "name": "S5",
+  "title": "records, observability and shutdown",
+  "paths": [
+   "crooks-assistant/app/objectives/gaps.py",
+   "crooks-assistant/scripts/gap_clean_check.py",
+   "crooks-assistant/scripts/launch_common.py",
+   "crooks-assistant/scripts/install_systemd.py",
+   "crooks-assistant/scripts/status.py",
+   "crooks-assistant/app/reads/scheduler.py",
+   "crooks-assistant/app/anticipation/engine.py",
+   "crooks-assistant/tests/test_gaps.py",
+   "crooks-assistant/tests/test_gap_clean_property.py",
+   "crooks-assistant/tests/test_housekeeping_round9.py",
+   "crooks-assistant/tests/test_standdown_branch.py"
+  ],
+  "budget": 192897
+ },
+ {
+  "name": "AC1",
+  "title": "the rest of the application, part 1 of 3",
+  "paths": [
+   "crooks-assistant/app/presentation.py",
+   "crooks-assistant/app/tools/analytics_tools.py",
+   "crooks-assistant/app/tools/shopify_tools.py",
+   "crooks-assistant/app/workspace.py"
+  ],
+  "budget": 263422
+ },
+ {
+  "name": "AC2",
+  "title": "the rest of the application, part 2 of 3",
+  "paths": [
+   "crooks-assistant/app/clients/elevenlabs.py",
+   "crooks-assistant/app/commands.py",
+   "crooks-assistant/app/digest/selfmodel.py",
+   "crooks-assistant/app/kb/loader.py",
+   "crooks-assistant/app/progressive.py",
+   "crooks-assistant/app/render.py",
+   "crooks-assistant/app/routes/branches.py",
+   "crooks-assistant/app/runtime.py",
+   "crooks-assistant/app/session/branch.py",
+   "crooks-assistant/app/surfaces.py",
+   "crooks-assistant/app/tools/engineering_tools.py"
+  ],
+  "budget": 297629
+ },
+ {
+  "name": "AC3",
+  "title": "the rest of the application, part 3 of 3",
+  "paths": [
+   "crooks-assistant/app/capabilities/__init__.py",
+   "crooks-assistant/app/capabilities/ask.py",
+   "crooks-assistant/app/capabilities/delta.py",
+   "crooks-assistant/app/capabilities/screen.py",
+   "crooks-assistant/app/capabilities/surface.py",
+   "crooks-assistant/app/capabilities/ui_intent.py",
+   "crooks-assistant/app/clients/whisper.py",
+   "crooks-assistant/app/fastpath/__init__.py",
+   "crooks-assistant/app/fastpath/correction.py",
+   "crooks-assistant/app/fastpath/intent.py",
+   "crooks-assistant/app/fastpath/lanes.py",
+   "crooks-assistant/app/fastpath/library.py",
+   "crooks-assistant/app/fastpath/models.py",
+   "crooks-assistant/app/fastpath/recipes.py",
+   "crooks-assistant/app/fastpath/runner.py",
+   "crooks-assistant/app/memory/coalesce.py",
+   "crooks-assistant/app/memory/prefetch.py",
+   "crooks-assistant/app/routes/admin.py",
+   "crooks-assistant/app/secrets/keychain.py",
+   "crooks-assistant/app/secrets/linux_store.py",
+   "crooks-assistant/app/session/models.py",
+   "crooks-assistant/app/speech/normalise.py",
+   "crooks-assistant/app/speech/transcribe.py"
+  ],
+  "budget": 82166
+ },
+ {
+  "name": "CFG",
+  "title": "settings, the unit template and the deploy documents",
+  "paths": [
+   "crooks-assistant/.env.example",
+   "crooks-assistant/Makefile",
+   "crooks-assistant/config/settings.py",
+   "crooks-assistant/deploy/env.production.example",
+   "crooks-assistant/deploy/systemd/crooks-assistant.service"
+  ],
+  "budget": 37860
+ },
+ {
+  "name": "DOC",
+  "title": "the documents",
+  "paths": [
+   "crooks-assistant/README.md",
+   "crooks-assistant/docs/DEPLOY_LINUX.md",
+   "crooks-assistant/docs/phase4/TOOL_MATRIX.md",
+   "crooks-assistant/docs/product-memory/CURRENT_TRUTH.md",
+   "crooks-assistant/docs/product-memory/OWNER_DECISIONS_2026-09-28.md",
+   "crooks-assistant/docs/product-memory/README.md",
+   "crooks-assistant/kb/terminology.md"
+  ],
+  "budget": 156577
+ },
+ {
+  "name": "F",
+  "title": "the families",
+  "paths": [
+   "crooks-assistant/app/families/__init__.py",
+   "crooks-assistant/app/families/abandoned.py",
+   "crooks-assistant/app/families/address.py",
+   "crooks-assistant/app/families/discounts.py",
+   "crooks-assistant/app/families/interaction.py",
+   "crooks-assistant/app/families/landings.py",
+   "crooks-assistant/app/families/navigation_extras.py",
+   "crooks-assistant/app/families/order_create.py",
+   "crooks-assistant/app/families/order_email.py",
+   "crooks-assistant/app/families/owner_feedback.py",
+   "crooks-assistant/app/families/query_language.py",
+   "crooks-assistant/app/families/self_knowledge.py",
+   "crooks-assistant/app/families/shipping.py",
+   "crooks-assistant/app/families/summaries.py",
+   "crooks-assistant/app/families/ui_intent.py"
+  ],
+  "budget": 187561
+ },
+ {
+  "name": "O1",
+  "title": "observability, part 1 of 2",
+  "paths": [
+   "crooks-assistant/app/observability/report.py",
+   "crooks-assistant/app/observability/session.py",
+   "crooks-assistant/app/observability/timeline.py",
+   "crooks-assistant/app/observability/visible.py"
+  ],
+  "budget": 293494
+ },
+ {
+  "name": "O2",
+  "title": "observability, part 2 of 2",
+  "paths": [
+   "crooks-assistant/app/observability/contract.py",
+   "crooks-assistant/app/observability/feedback.py",
+   "crooks-assistant/app/observability/proposals.py",
+   "crooks-assistant/app/observability/semantics.py",
+   "crooks-assistant/app/observability/touch.py",
+   "crooks-assistant/app/observability/ui_semantics.py"
+  ],
+  "budget": 110867
+ },
+ {
+  "name": "SC",
+  "title": "the remaining scripts",
+  "paths": [
+   "crooks-assistant/bench/anticipation.py",
+   "crooks-assistant/scripts/bench_lanes.py",
+   "crooks-assistant/scripts/bench_whisper.py",
+   "crooks-assistant/scripts/doctor.py",
+   "crooks-assistant/scripts/experience.py",
+   "crooks-assistant/scripts/healthcheck.py",
+   "crooks-assistant/scripts/provision_secrets.py",
+   "crooks-assistant/scripts/session_ops.py",
+   "crooks-assistant/scripts/test_session.py"
+  ],
+  "budget": 88902
+ },
+ {
+  "name": "T1",
+  "title": "the remaining tests, part 1 of 5",
+  "paths": [
+   "crooks-assistant/tests/test_capability_gaps.py",
+   "crooks-assistant/tests/test_digest_relate.py",
+   "crooks-assistant/tests/test_discounts.py",
+   "crooks-assistant/tests/test_observability.py",
+   "crooks-assistant/tests/test_order_create.py",
+   "crooks-assistant/tests/test_pad.py"
+  ],
+  "budget": 295723
+ },
+ {
+  "name": "T2",
+  "title": "the remaining tests, part 2 of 5",
+  "paths": [
+   "crooks-assistant/tests/test_actions.py",
+   "crooks-assistant/tests/test_analyser.py",
+   "crooks-assistant/tests/test_batch.py",
+   "crooks-assistant/tests/test_compose.py",
+   "crooks-assistant/tests/test_experience.py",
+   "crooks-assistant/tests/test_n_plus_one.py",
+   "crooks-assistant/tests/test_needs_reply_inbox.py",
+   "crooks-assistant/tests/test_voice_credits.py"
+  ],
+  "budget": 271510
+ },
+ {
+  "name": "T3",
+  "title": "the remaining tests, part 3 of 5",
+  "paths": [
+   "crooks-assistant/tests/test_address.py",
+   "crooks-assistant/tests/test_context.py",
+   "crooks-assistant/tests/test_graph.py",
+   "crooks-assistant/tests/test_navigation.py",
+   "crooks-assistant/tests/test_order_edit.py",
+   "crooks-assistant/tests/test_owner_facing_wording.py",
+   "crooks-assistant/tests/test_progressive.py",
+   "crooks-assistant/tests/test_progressive_states.py",
+   "crooks-assistant/tests/test_query_engine_p3.py",
+   "crooks-assistant/tests/test_split.py",
+   "crooks-assistant/tests/test_summaries.py"
+  ],
+  "budget": 297002
+ },
+ {
+  "name": "T4",
+  "title": "the remaining tests, part 4 of 5",
+  "paths": [
+   "crooks-assistant/tests/conftest.py",
+   "crooks-assistant/tests/test_abandoned.py",
+   "crooks-assistant/tests/test_analytics_tools.py",
+   "crooks-assistant/tests/test_branches.py",
+   "crooks-assistant/tests/test_build_from_clive.py",
+   "crooks-assistant/tests/test_cancel.py",
+   "crooks-assistant/tests/test_council_fixes.py",
+   "crooks-assistant/tests/test_engine_hooks.py",
+   "crooks-assistant/tests/test_fulfil.py",
+   "crooks-assistant/tests/test_owner_feedback.py",
+   "crooks-assistant/tests/test_provider.py",
+   "crooks-assistant/tests/test_read_budget.py",
+   "crooks-assistant/tests/test_refund.py",
+   "crooks-assistant/tests/test_scribe.py",
+   "crooks-assistant/tests/test_session_ops.py",
+   "crooks-assistant/tests/test_tracking.py",
+   "crooks-assistant/tests/test_visible_privacy.py",
+   "crooks-assistant/tests/test_working_sets.py"
+  ],
+  "budget": 291970
+ },
+ {
+  "name": "T5",
+  "title": "the remaining tests, part 5 of 5",
+  "paths": [
+   "crooks-assistant/tests/fake_credentials.py",
+   "crooks-assistant/tests/test_action_state.py",
+   "crooks-assistant/tests/test_branch_concurrency.py",
+   "crooks-assistant/tests/test_capability_routing.py",
+   "crooks-assistant/tests/test_fastpath.py",
+   "crooks-assistant/tests/test_fixture_wiring.py",
+   "crooks-assistant/tests/test_inventory.py",
+   "crooks-assistant/tests/test_landings_unread.py",
+   "crooks-assistant/tests/test_multi_intent.py",
+   "crooks-assistant/tests/test_n_plus_one_turn.py",
+   "crooks-assistant/tests/test_navigation_extras.py",
+   "crooks-assistant/tests/test_needs_reply_routing.py",
+   "crooks-assistant/tests/test_no_dangling_imports.py",
+   "crooks-assistant/tests/test_normalise.py",
+   "crooks-assistant/tests/test_operations.py",
+   "crooks-assistant/tests/test_owner_feedback_turn.py",
+   "crooks-assistant/tests/test_progressive_turn.py",
+   "crooks-assistant/tests/test_read_dedupe.py",
+   "crooks-assistant/tests/test_self_correction.py",
+   "crooks-assistant/tests/test_self_knowledge.py",
+   "crooks-assistant/tests/test_spoken_refusals.py",
+   "crooks-assistant/tests/test_spoken_screen_copy.py",
+   "crooks-assistant/tests/test_spoken_send_steering.py",
+   "crooks-assistant/tests/test_stop.py",
+   "crooks-assistant/tests/test_tags.py",
+   "crooks-assistant/tests/test_tags_remove.py",
+   "crooks-assistant/tests/test_tool_args_redaction.py",
+   "crooks-assistant/tests/test_tool_matrix.py",
+   "crooks-assistant/tests/test_touch_to_voice.py",
+   "crooks-assistant/tests/test_transcribe.py",
+   "crooks-assistant/tests/test_turn_scene.py",
+   "crooks-assistant/tests/test_turn_surfaces.py",
+   "crooks-assistant/tests/test_ui_intent.py",
+   "crooks-assistant/tests/test_web_js.py",
+   "crooks-assistant/tests/test_whisper_disabled.py",
+   "crooks-assistant/tests/test_worker_page_mark.py",
+   "crooks-assistant/tests/test_write_walkthrough.py"
+  ],
+  "budget": 229777
+ },
+ {
+  "name": "TW",
+  "title": "the remaining page tests",
+  "paths": [
+   "crooks-assistant/tests/web/ui.test.js"
+  ],
+  "budget": 115936
+ },
+ {
+  "name": "W1",
+  "title": "the remaining pages, part 1 of 2",
+  "paths": [
+   "crooks-assistant/web/alpha.js",
+   "crooks-assistant/web/dots.js",
+   "crooks-assistant/web/ui.js"
+  ],
+  "budget": 278374
+ },
+ {
+  "name": "W2",
+  "title": "the remaining pages, part 2 of 2",
+  "paths": [
+   "crooks-assistant/web/alpha.css",
+   "crooks-assistant/web/audio-viz.js",
+   "crooks-assistant/web/index.html"
+  ],
+  "budget": 51928
+ },
+ {
+  "name": "X",
+  "title": "the experience harness",
+  "paths": [
+   "crooks-assistant/experience/fixtures/live_states.py",
+   "crooks-assistant/experience/harness.py",
+   "crooks-assistant/experience/matrix.py",
+   "crooks-assistant/experience/report.py",
+   "crooks-assistant/experience/scenario_packs/abandoned.py",
+   "crooks-assistant/experience/scenario_packs/commerce.py",
+   "crooks-assistant/experience/scenario_packs/compose.py",
+   "crooks-assistant/experience/scenario_packs/discounts.py",
+   "crooks-assistant/experience/scenario_packs/graph.py",
+   "crooks-assistant/experience/scenario_packs/landings.py",
+   "crooks-assistant/experience/scenario_packs/navigation.py",
+   "crooks-assistant/experience/scenario_packs/navigation_extras.py",
+   "crooks-assistant/experience/scenario_packs/order_edit.py",
+   "crooks-assistant/experience/scenario_packs/query_language.py",
+   "crooks-assistant/experience/scenario_packs/recording.py",
+   "crooks-assistant/experience/scenarios.py",
+   "crooks-assistant/experience/tool_matrix.py"
+  ],
+  "budget": 278771
+ }
+]

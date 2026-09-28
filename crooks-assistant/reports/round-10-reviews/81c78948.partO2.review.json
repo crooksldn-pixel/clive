@@ -1,0 +1,58 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-O2-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-E-families1-E-03",
+      "material": true,
+      "finding": "BLOCKS — Owner-reported defects could be lost from tonight’s test-session report because the replacement recording path cannot be verified. CANNOT TELL — `feedback.at_turn` calls `record`, but this part does not include `app/routes/turn.py` to show that it is invoked before the model turn, or the end-to-end test.",
+      "evidence_ref": "REVIEW PACKET — R9-E-families1-E-03; CANDIDATE FILES — feedback.py, at_turn",
+      "required_repair": "Supply the SHA-exact `app/routes/turn.py` call path and an end-to-end test showing that recognised feedback produces an owner_feedback event and appears in the report."
+    },
+    {
+      "finding_id": "R9-F-observability1-F-01",
+      "material": true,
+      "finding": "BLOCKS — An unverified report filename boundary could leak owner or customer words outside the private reports directory. CANNOT TELL — `write_proposals` now calls `report_target`, but the bodies that determine identifier admission, target containment and the other report writer are outside this part.",
+      "evidence_ref": "REVIEW PACKET — R9-F-observability1-F-01; CANDIDATE FILES — proposals.py, write_proposals",
+      "required_repair": "Supply `app/observability/session.py`, `app/observability/report.py` and `app/observability/timeline.py`; verify single-component identifiers and resolved-path containment in both writers, including traversal tests."
+    },
+    {
+      "finding_id": "R9-F-observability1-F-03",
+      "material": true,
+      "finding": "BLOCKS — Classification alone meets none of exploit, data loss or data leak, but the packet requires an unresolved finding to block. CANNOT TELL — `semantics.CHANGES` now names `store_credit`, yet this part cannot establish that the live registry contains that key or that the report classifies a successful store-credit turn correctly.",
+      "evidence_ref": "REVIEW PACKET — R9-F-observability1-F-03; CANDIDATE FILES — semantics.py, CHANGES and capability_state",
+      "required_repair": "Supply `app/capabilities/families.py` and `app/observability/report.py`, with a report test for a successfully executed store-credit request."
+    },
+    {
+      "finding_id": "O2-F-01",
+      "material": true,
+      "finding": "FOLLOW-UP — Misfiling a read request as product feedback meets none of exploit, data loss or data leak. `recognise('Show me the log for order #1938')` matches the bare `log` rule, which bypasses the shop-subject exclusion; during a test session `at_turn` therefore records a false defect and tells the model to say it was logged.",
+      "evidence_ref": "REVIEW PACKET — CANDIDATE FILES: feedback.py, KINDS[\"log\"], recognise and at_turn",
+      "required_repair": "Require an instruction to record feedback or a product-defect context for the `log` rule; add a negative test for requests to read an order log."
+    },
+    {
+      "finding_id": "O2-F-02",
+      "material": true,
+      "finding": "FOLLOW-UP — A wrong observability verdict meets none of exploit, data loss or data leak. For ‘Give Alice £15 of store credit’, `contract.mutating` finds no mutation word, so `contract_of` returns READ_INTENT and `semantics.read_request` never assigns the store-credit change despite the new capability mapping.",
+      "evidence_ref": "REVIEW PACKET — CANDIDATE FILES: contract.py, MUTATION and contract_of; semantics.py, CHANGES and read_request",
+      "required_repair": "Recognise store-credit grants as writes in context without treating balance questions as writes; test both request forms through the contract and semantic verdicts."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_053895fbafe4c41c016abac064e79087d280057182c24d8f74",
+    "session_started_at": "2026-09-28T19:30:44.563683Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The three required round-9 rulings cannot be closed from this part: the turn hook, filename safeguards and live capability classification depend on missing files. Two additional classification defects are visible within the supplied files.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 52883, \"input_tokens_details\": {\"cache_write_tokens\": 52880, \"cached_tokens\": 0}, \"output_tokens\": 5514, \"output_tokens_details\": {\"reasoning_tokens\": 4626}, \"total_tokens\": 58397}]"
+}

@@ -1,0 +1,9 @@
+<frozen runpy>:128: RuntimeWarning: 'app.orchestrator.reviewers.gpt' found in sys.modules after import of package 'app.orchestrator.reviewers', but prior to execution of 'app.orchestrator.reviewers.gpt'; this may result in unpredictable behaviour
+review failed: OpenAI API HTTP 429: {
+  "error": {
+    "message": "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.",
+    "type": "insufficient_quota",
+    "param": null,
+    "code": "credit_balance_exhausted"
+  }
+}

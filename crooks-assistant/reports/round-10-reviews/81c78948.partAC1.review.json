@@ -1,0 +1,37 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-AC1-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-D1-D1-02",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — A tapped write targeting a different record from the one displayed could lose or leak data in production, and the supplied files do not establish that the cursor and write target remain aligned. `presentation.py` composes workspaces, but this part does not include the cursor-selection or command-binding code.",
+      "evidence_ref": "Round-9 finding R9-D1-D1-02; CANDIDATE FILES: crooks-assistant/app/presentation.py, _compose_workspace() and _remember()",
+      "required_repair": "Supply crooks-assistant/app/routes/turn.py, app/routes/command.py, and app/commands.py for review of cursor selection and target binding, with a test that displays order B after order A and follows the tapped write through confirmation; refuse ambiguous multi-record selection."
+    },
+    {
+      "finding_id": "AC1-F-01",
+      "material": true,
+      "finding": "FOLLOW-UP — This incorrect segmentation is not itself shown to be exploitable or to lose or leak data in production. `email_query` puts members in the `not_contacted` working set when their Gmail check was unavailable, although its displayed count excludes unchecked members and its note says they belong to neither set.",
+      "evidence_ref": "CANDIDATE FILES: crooks-assistant/app/tools/analytics_tools.py, email_query() (`not_contacted.extend(members)` and the derived-set loop)",
+      "required_repair": "Add members to `not_contacted` only after a successful mail check; keep unchecked members separate and test an unavailable Gmail read."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0eb4a6410fc1b813016abac037b10087d283b20a3ebcbf73ed",
+    "session_started_at": "2026-09-28T19:29:59.331132Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The round-9 wrong-record write risk cannot be cleared from this part’s files. A separate, definite unchecked-customer segmentation defect also needs repair.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 77417, \"input_tokens_details\": {\"cache_write_tokens\": 77414, \"cached_tokens\": 0}, \"output_tokens\": 2761, \"output_tokens_details\": {\"reasoning_tokens\": 2344}, \"total_tokens\": 80178}]"
+}

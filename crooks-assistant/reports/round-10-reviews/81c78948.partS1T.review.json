@@ -1,0 +1,72 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-S1T-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-A1b-A1B-KEY",
+      "material": true,
+      "finding": "BLOCKS — Without the launcher implementation, I cannot rule out leakage of the local-CLI key on the configured host. CANNOT TELL — The new tests exercise a competing listener and a redirect, but scripts/launch_common.py is not supplied, so I cannot verify that the connection check and no-redirect rule protect the keyed request.",
+      "evidence_ref": "crooks-assistant/tests/test_health_key.py:test_a_competitor_answering_limited_on_the_port_is_never_sent_the_key; test_a_redirect_is_never_followed_with_the_key_or_without_it; REVIEW PACKET — YOUR PART",
+      "required_repair": "Supply scripts/launch_common.py at this SHA for review of fetch_health, its connection check, and redirect handling."
+    },
+    {
+      "finding_id": "R9-A1b-F-05A",
+      "material": true,
+      "finding": "BLOCKS — The missing real-device result leaves exploitation of the local-key admission path unresolved on the configured host. CANNOT TELL — Both owner-device tests substitute provenance or Tailscale answers; no result from a genuinely verified owner device against this SHA is supplied, and app/main.py and app/routes/actions.py are outside this part.",
+      "evidence_ref": "crooks-assistant/tests/test_local_cli.py:_verified_owner_device; crooks-assistant/tests/test_turn_authority_path.py:production; REVIEW PACKET — PR #54 BODY, Deploy-time steps",
+      "required_repair": "Supply app/main.py and app/routes/actions.py and record, against this SHA, the real owner device's correct-key refusal and headerless admission without substituted provenance answers."
+    },
+    {
+      "finding_id": "R9-A1b-F-05B-AVAIL",
+      "material": true,
+      "finding": "BLOCKS — Without the locality implementation, I cannot rule out exploitation by a server-originated request mistaken for George's device. CANNOT TELL — Tests assert bounded retries and refusal after four failed reads, but app/identity.py and the gate in app/routes/actions.py are not supplied as bodies.",
+      "evidence_ref": "crooks-assistant/tests/test_host_addresses.py:test_a_failure_that_outlasts_an_immediate_reread_is_waited_out_within_a_bound; REVIEW PACKET — sibling contracts and YOUR PART",
+      "required_repair": "Supply app/identity.py and app/routes/actions.py at this SHA to verify the bounded retry and fail-closed locality decision."
+    },
+    {
+      "finding_id": "R9-A1b-F-05B-AVAIL-PREFLIGHT",
+      "material": true,
+      "finding": "BLOCKS — An unverified production-device gate could admit an exploitable caller or leave the deployed service incorrectly configured. CANNOT TELL — The installer test mocks health and MainPID; neither scripts/install_systemd.py nor app/routes/admin.py:whoami nor a correlated real-phone result against this SHA is supplied.",
+      "evidence_ref": "crooks-assistant/tests/test_proxy_identity.py:test_the_install_is_done_only_when_the_running_service_has_the_flag_and_health_agrees; test_every_whoami_carries_its_own_token_and_the_line_that_says_so; REVIEW PACKET — PR #54 BODY, Deploy-time steps",
+      "required_repair": "Supply both named implementation files, a correlated real-phone /whoami result under the rendered unit at this SHA, and evidence that failed running-process, health, or device checks abort or roll back deployment."
+    },
+    {
+      "finding_id": "R9-A1b-A1B-STATUS",
+      "material": true,
+      "finding": "BLOCKS — With the status implementation absent, its effects on the configured host cannot be cleared under this packet's missing-file rule. CANNOT TELL — The new test asserts a nonzero exit for limited health, but scripts/install_systemd.py:status is outside this part.",
+      "evidence_ref": "crooks-assistant/tests/test_health_key.py:test_make_status_is_well_only_on_a_health_answer_that_carries_its_checks; REVIEW PACKET — YOUR PART",
+      "required_repair": "Supply scripts/install_systemd.py at this SHA so its status path can be checked against the limited-health test."
+    },
+    {
+      "finding_id": "R9-A2-F-NEW-TOOLS-PATH",
+      "material": true,
+      "finding": "BLOCKS — Missing production admission code prevents ruling out exploitation through owner authority granted to a non-owner. CANNOT TELL — The new HTTP tests use a model double and force tailscale_verify=True; app/main.py:guard_and_freshness, app/routes/turn.py:turn and _provider_turn, app/routes/actions.py, and config/settings.py are not supplied as implementations.",
+      "evidence_ref": "crooks-assistant/tests/test_turn_authority_path.py:production; Witness; REVIEW PACKET — sibling contracts and YOUR PART",
+      "required_repair": "Supply the named files at this SHA and trace admission and authority stamping with CROOKS_TAILSCALE_VERIFY unset, as production specifies."
+    },
+    {
+      "finding_id": "S1T-01",
+      "material": true,
+      "finding": "BLOCKS — The test explicitly accepts a server-originated request as owner traffic when the host's address reading omits its own tailnet address, a condition that could be exploited if it occurs on the configured host. In the no-socket case, the test puts a different tailnet address in the table yet asserts that _gates(_self(HOST_V4)) is ADMITTED.",
+      "evidence_ref": "crooks-assistant/tests/test_host_addresses.py:test_a_socket_on_this_host_holding_the_address_makes_it_this_hosts",
+      "required_repair": "Make that incomplete-reading case fail closed at both gates and change the regression test to require refusal; supply app/identity.py and app/routes/actions.py to review the repair."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0f27b43a2a13358b016ababfbb024487d2b5b65ad8f5167bef",
+    "session_started_at": "2026-09-28T19:27:54.509478Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The tests strengthen several checks, but this part cannot clear the production implementations or the required real-device evidence. One locality test also explicitly expects owner admission for a server-originated request under an incomplete address reading.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 118936, \"input_tokens_details\": {\"cache_write_tokens\": 118933, \"cached_tokens\": 0}, \"output_tokens\": 4834, \"output_tokens_details\": {\"reasoning_tokens\": 3453}, \"total_tokens\": 123770}]"
+}

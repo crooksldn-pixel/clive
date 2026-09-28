@@ -1,0 +1,51 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-T2-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-I-tests1-F-A2-FIXTURE",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — The missing fixture definitions prevent ruling out unintended owner authority, so exploitability cannot be settled. `test_experience.py` checks that an unadmitted harness is refused, but `tests/conftest.py` is not supplied; the direct-dispatch tests' `owner_asking` marks do not establish what happens without that fixture.",
+      "evidence_ref": "crooks-assistant/tests/test_actions.py:pytestmark; crooks-assistant/tests/test_experience.py:test_the_harness_admits_nobody_unless_the_owner_is_asked_for_by_name; review packet: YOUR PART",
+      "required_repair": "Supply crooks-assistant/tests/conftest.py, including `owner_asking` and the autouse fixtures, and the fresh-context dispatch refusal for review."
+    },
+    {
+      "finding_id": "R9-I-tests2-I-01",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — With writes enabled, a prior order's bound action might still be applied to a newly named order, and the missing production handlers prevent ruling out exploitation or data loss. The bound-control regression was deleted and no replacement appears in this file; `app/routes/turn.py` and the `voice.bind` handler are not supplied.",
+      "evidence_ref": "DIFF — crooks-assistant/tests/test_experience.py:deletion of test_a_question_that_names_its_own_subject_is_not_swallowed_by_a_tapped_control; review packet: YOUR PART",
+      "required_repair": "Add a model-turn regression binding a note to one order and then naming another, asserting no continuation or proposed write targets the first; supply crooks-assistant/app/routes/turn.py and the `voice.bind` handler file (crooks-assistant/app/commands.py) for review."
+    },
+    {
+      "finding_id": "R9-I-tests2-I-02",
+      "material": true,
+      "finding": "STILL PRESENT — FOLLOW-UP — The missing answer checks do not themselves demonstrate an exploit, data loss, or disclosure to anyone other than the authenticated owner tonight. No replacement model-turn test asks about a named person or order while a different record is in focus; the remaining `open_order` calls script the record to read rather than testing that choice.",
+      "evidence_ref": "crooks-assistant/tests/test_experience.py:test_asking_again_about_the_record_you_are_on_does_not_add_a_stop; DIFF — crooks-assistant/tests/test_experience.py:deletion of test_a_number_that_is_not_the_open_order_is_never_answered_from_the_open_order and test_a_named_person_is_not_answered_from_whoever_the_open_order_belongs_to",
+      "required_repair": "Restore model-turn cases with a different record in focus and assert that both answer and card identify the requested person or order, or explicitly decline."
+    },
+    {
+      "finding_id": "R9-I-tests3-I-04",
+      "material": true,
+      "finding": "STILL PRESENT — FOLLOW-UP — This remaining performance-test gap demonstrates none of exploitation, data loss, or data leakage tonight. The inventory test now compares equivalent products and results, but `turn()` still calls `dispatch('commerce_summary', ...)` with a predetermined task; no spoken turn measures the reads selected by the model.",
+      "evidence_ref": "crooks-assistant/tests/test_n_plus_one.py:turn; crooks-assistant/tests/test_n_plus_one.py:test_the_one_inventory_read_answers_exactly_what_the_per_product_reads_did",
+      "required_repair": "Keep the corrected direct-tool and inventory assertions, and add a spoken-turn regression that counts model-selected source and per-customer reads."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0532f1f619a860ec016abac073ed4087d2b43f9d3052dba464",
+    "session_started_at": "2026-09-28T19:30:59.582442Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The inventory comparison was repaired, but its spoken-turn coverage remains absent. The named-record answer regressions remain absent, and missing fixture and bound-control implementation files prevent clearing two BLOCKS findings.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 101109, \"input_tokens_details\": {\"cache_write_tokens\": 101106, \"cached_tokens\": 0}, \"output_tokens\": 2035, \"output_tokens_details\": {\"reasoning_tokens\": 1199}, \"total_tokens\": 103144}]"
+}

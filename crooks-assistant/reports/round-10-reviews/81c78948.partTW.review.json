@@ -1,0 +1,30 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-TW-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "F-01",
+      "material": true,
+      "finding": "BLOCKS — This cannot be settled from the supplied files, so exploitation or data leakage through the new remote surface cannot be ruled out. CANNOT TELL whether `screen_remote` is implemented and rendered safely: the only new assertion checks membership in `UI.TYPES`, and the implementation it imports was not supplied.",
+      "evidence_ref": "crooks-assistant/tests/web/ui.test.js:12-14,24-44; packet section “THE FILES IN YOUR PART”",
+      "required_repair": "Supply `crooks-assistant/web/ui.js` at this exact SHA so the new type and its rendering can be reviewed."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0a01c8e6b1a714b2016abac09c279887d28f543c543eba5e93",
+    "session_started_at": "2026-09-28T19:31:39.826162Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The scoped test change adds `screen_remote` to a vocabulary assertion. The imported renderer needed to verify that assertion and the new surface was not provided.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 42146, \"input_tokens_details\": {\"cache_write_tokens\": 42143, \"cached_tokens\": 0}, \"output_tokens\": 2140, \"output_tokens_details\": {\"reasoning_tokens\": 1918}, \"total_tokens\": 44286}]"
+}

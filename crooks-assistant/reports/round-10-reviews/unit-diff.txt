@@ -1,0 +1,11 @@
+--- /etc/systemd/system/crooks-assistant.service	2026-09-27 21:18:48.515972522 +0000
++++ rendered-81c78948.service	2026-09-28 19:15:53.397550148 +0000
+@@ -71,7 +71,7 @@
+ LockPersonality=yes
+ # ProtectSystem=strict makes the whole hierarchy read-only, so everything this service must
+ # write is named here and nothing else is writable:
+-#   the checkout   logs/, .cache/media/, kb/.catalogue-cache.txt
++#   the checkout   logs/, .cache/media/
+ #   HOME           /root/.claude — the Claude CLI's own credential, refreshed in place
+ #   the secrets    the Gmail token, rewritten after every OAuth refresh
+ ProtectHome=no

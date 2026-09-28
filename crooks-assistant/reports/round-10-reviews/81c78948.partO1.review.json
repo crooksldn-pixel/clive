@@ -1,0 +1,114 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-O1-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-A3b-F-04-STARTUP",
+      "material": false,
+      "finding": "REPAIRED — The reports check now tests ownership, identifies links, and refuses to call the folder contained when either prevents establishing privacy.",
+      "evidence_ref": "crooks-assistant/app/observability/session.py:TestSessions._tidy_reports, tighten, _open_to_others",
+      "required_repair": "None for the defect identified in round 9."
+    },
+    {
+      "finding_id": "R9-A3b-F-04-REPORT-LOSS",
+      "material": false,
+      "finding": "REPAIRED — Pruning moves a candidate aside before unlinking it, then checks the moved entry’s identity and age; a fresh replacement at the original pathname is not unlinked.",
+      "evidence_ref": "crooks-assistant/app/observability/session.py:_unlink_if_aged, _remove_if_older, _expired_tree",
+      "required_repair": "None for the pathname race identified in round 9."
+    },
+    {
+      "finding_id": "R9-A3b-F-04-SHUTDOWN",
+      "material": true,
+      "finding": "BLOCKS — Losing accepted timeline events during shutdown cannot be ruled out on the configured always-on server. CANNOT TELL — The files that decide whether an overlong housekeeping pass prevents the runtime and its pending writer from closing are not supplied: crooks-assistant/app/main.py and crooks-assistant/app/runtime.py.",
+      "evidence_ref": "REVIEW PACKET — R9-A3b-F-04-SHUTDOWN; crooks-assistant/app/observability/timeline.py:Timeline._run, Timeline.flush",
+      "required_repair": "Supply app/main.py and app/runtime.py at this SHA, and establish and test a bounded shutdown drain with accepted pending events, including an overlong housekeeping step."
+    },
+    {
+      "finding_id": "R9-A3b-F-10",
+      "material": false,
+      "finding": "REPAIRED — The specific failed-lock path from round 9 now rejects an event when lock acquisition fails and drops a queued batch if the writer cannot hold the lock.",
+      "evidence_ref": "crooks-assistant/app/observability/timeline.py:Timeline.emit, Timeline._hold_writer_lock, Timeline._run",
+      "required_repair": "None for the failed-lock path identified in round 9; see F-01 for a distinct busy-lock race."
+    },
+    {
+      "finding_id": "R9-A3b-F-A3B-SHORT-WRITE",
+      "material": false,
+      "finding": "REPAIRED — The writer loops over short writes and counts only complete lines if a subsequent write fails.",
+      "evidence_ref": "crooks-assistant/app/observability/timeline.py:_write_all, Timeline._append",
+      "required_repair": "None for the implementation defect identified in round 9; the required regression-test evidence remains outstanding under F-02."
+    },
+    {
+      "finding_id": "R9-D1-D1-01",
+      "material": true,
+      "finding": "BLOCKS — Customer names could leak into the configured always-on timeline if early turn events precede name registration. CANNOT TELL — Timeline.emit scrubs before queuing, but its name set starts empty; the missing crooks-assistant/app/routes/turn.py is needed to establish when names are registered relative to the first STT and model emissions.",
+      "evidence_ref": "crooks-assistant/app/observability/timeline.py:Timeline.emit, note_names, _names; REVIEW PACKET — R9-D1-D1-01",
+      "required_repair": "Supply app/routes/turn.py and verify a newly encountered customer name is removed from persisted early events, or omit that content at emission."
+    },
+    {
+      "finding_id": "R9-E-families1-E-05",
+      "material": true,
+      "finding": "BLOCKS — A dangling import could prevent configured test-session capture, and its absence cannot be established from this part. CANNOT TELL — The requested repository-wide check and the missing crooks-assistant/app/routes/turn.py and crooks-assistant/app/families/__init__.py have not been supplied.",
+      "evidence_ref": "REVIEW PACKET — R9-E-families1-E-05 and YOUR PART; crooks-assistant/app/observability/visible.py:imports",
+      "required_repair": "Supply a SHA-exact executable repository-wide import and symbol-reference check covering startup and the named files; repair any dangling reference."
+    },
+    {
+      "finding_id": "R9-F-observability1-F-01",
+      "material": true,
+      "finding": "BLOCKS — A report-path data leak cannot be excluded until both writers are checked. CANNOT TELL — report_target validates the Markdown writer’s identifier and resolved parent, but the other writer, crooks-assistant/app/observability/proposals.py, is not supplied.",
+      "evidence_ref": "crooks-assistant/app/observability/session.py:report_target; crooks-assistant/app/observability/report.py:write_report; REVIEW PACKET — R9-F-observability1-F-01",
+      "required_repair": "Supply app/observability/proposals.py and verify that its output uses a validated single-component identifier and remains inside its intended reports folder."
+    },
+    {
+      "finding_id": "R9-F-observability1-F-03",
+      "material": true,
+      "finding": "BLOCKS — The store-credit classification cannot be verified from this part, so its round-9 defect cannot be cleared. CANNOT TELL — _spoken_capability still delegates availability to the missing crooks-assistant/app/observability/semantics.py.",
+      "evidence_ref": "crooks-assistant/app/observability/report.py:_spoken_capability; REVIEW PACKET — R9-F-observability1-F-03",
+      "required_repair": "Supply app/observability/semantics.py and a successful store-credit classification case showing that the live action is not reported as NO_FAMILY."
+    },
+    {
+      "finding_id": "R9-F-observability2-F-OBS2-01",
+      "material": true,
+      "finding": "BLOCKS — A leak of owner or customer words from these outputs cannot be excluded. CANNOT TELL — The feedback dictionaries are now scrubbed, but findings can still carry unchecked telemetry values such as tablet_focus.name and cause into report tables; the missing crooks-assistant/app/main.py and crooks-assistant/scripts/session_ops.py are needed to settle downstream access.",
+      "evidence_ref": "crooks-assistant/app/observability/visible.py:_focus_lost, read, apply; crooks-assistant/app/observability/report.py:render, _two_outcomes",
+      "required_repair": "Scrub or omit telemetry-derived finding signals before they leave visible.py; supply the report access and consumer paths to verify who can obtain the resulting output."
+    },
+    {
+      "finding_id": "R9-F-observability2-F-OBS2-02",
+      "material": false,
+      "finding": "REPAIRED — Both rule-failure log paths now include only the rule name and exception type, not the rejected telemetry value or exception message.",
+      "evidence_ref": "crooks-assistant/app/observability/visible.py:read, _whole",
+      "required_repair": "None for the logging defect identified in round 9."
+    },
+    {
+      "finding_id": "F-01",
+      "material": true,
+      "finding": "FOLLOW-UP — This can falsely call a count final but does not itself exploit access, lose data, or leak data on the configured server. If an offline checker briefly holds the exclusive lock before this process’s first emission, emit accepts an event on _LOCK_BUSY; the checker can release its lock and report no writer before the blocked writer has acquired its shared lock or written the accepted event.",
+      "evidence_ref": "crooks-assistant/app/observability/timeline.py:Timeline.emit, Timeline._hold_writer_lock, Timeline._run, writer_alive; REVIEW PACKET — R9-A3b-F-10",
+      "required_repair": "Do not accept an event without a held writer lock, or make the offline finality check account for events accepted while its exclusive lock was held; test that interleaving."
+    },
+    {
+      "finding_id": "F-02",
+      "material": true,
+      "finding": "BLOCKS — The required regression evidence for data-loss repairs cannot be verified from the supplied part. The packet supplies source changes but not the concurrent-replacement test in crooks-assistant/tests/test_screen_privacy.py or a SHA-exact timeline short-write-and-stop test file.",
+      "evidence_ref": "REVIEW PACKET — R9-A3b-F-04-REPORT-LOSS and R9-A3b-F-A3B-SHORT-WRITE required repairs; PR #54 claim sheet",
+      "required_repair": "Supply executable SHA-exact tests for concurrent replacement of an aged report and descendant, and for a short os.write followed by stop, with assertions on retained files and final counts."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_08460f7d0ff7e374016abac050fa1487d2b28e632483115c8a",
+    "session_started_at": "2026-09-28T19:30:24.516576Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The source closes several round-9 defects in this part, but shutdown, early-name redaction, the second report writer, capability mapping, downstream privacy, and required regression evidence cannot be cleared from the supplied files. A separate writer-lock race also remains.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 105206, \"input_tokens_details\": {\"cache_write_tokens\": 105203, \"cached_tokens\": 0}, \"output_tokens\": 8294, \"output_tokens_details\": {\"reasoning_tokens\": 6190}, \"total_tokens\": 113500}]"
+}

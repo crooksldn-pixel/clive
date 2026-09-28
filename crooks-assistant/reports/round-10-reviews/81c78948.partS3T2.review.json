@@ -1,0 +1,37 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-S3T2-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-A3b-F-04-REPORT-LOSS",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — The missing pruning implementation could still delete a freshly replaced report and lose data on production as configured. The supplied tests do not exercise concurrent replacement of an aged report or descendant, so the round-9 race cannot be ruled out.",
+      "evidence_ref": "Round-9 finding R9-A3b-F-04-REPORT-LOSS; crooks-assistant/tests/test_screen_privacy.py:test_a_fresh_report_inside_an_old_folder_keeps_the_whole_folder",
+      "required_repair": "Supply crooks-assistant/app/observability/session.py for review; make removal conditional on the identity and age of the entry actually removed, and add atomic-replacement tests for a report and a descendant."
+    },
+    {
+      "finding_id": "R9-B2-B2-02",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — Without the remote implementation, a revoked remote may still leak customer details after a 403 while a finger is held on the panel. The new test exercises that state, but cannot establish that the production wipe clears the DOM synchronously.",
+      "evidence_ref": "crooks-assistant/tests/web/remote.test.js:test('a refusal takes what the remote shows away at once, even with a finger on the panel'); contract-only crooks-assistant/web/remote.js:render,wipe",
+      "required_repair": "Supply crooks-assistant/web/remote.js for review and verify that refusal and privacy wipes clear sensitive DOM immediately, independently of the pointer-hold redraw delay."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_09523870f1253071016ababfbb076887d2bbc11c12b97f5306",
+    "session_started_at": "2026-09-28T19:27:54.591249Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The supplied tests cover the held-pointer refusal but not the report replacement race. Neither round-9 finding can be cleared without its implementation file.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 101851, \"input_tokens_details\": {\"cache_write_tokens\": 101848, \"cached_tokens\": 0}, \"output_tokens\": 1442, \"output_tokens_details\": {\"reasoning_tokens\": 1034}, \"total_tokens\": 103293}]"
+}

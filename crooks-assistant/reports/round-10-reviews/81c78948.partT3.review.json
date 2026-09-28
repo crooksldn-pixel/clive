@@ -1,0 +1,51 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-T3-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-I-tests2-I-03",
+      "material": true,
+      "finding": "BLOCKS — The missing-file rule blocks this unresolved finding, although the offline mock alone establishes no exploit, data loss, or data leak. CANNOT TELL — The route-rendering test still hard-codes order 1938, and its claimed differing-requested-order test is in tests/test_turn_boundary.py, which was not supplied.",
+      "evidence_ref": "tests/test_context.py:client.Provider.turn; tests/test_context.py:test_the_models_two_reads_of_an_order_draw_the_whole_order",
+      "required_repair": "Supply tests/test_turn_boundary.py so the claimed test can be checked; it must request an order different from the focused one and assert that the requested order, not a fixed order, is read and drawn."
+    },
+    {
+      "finding_id": "R9-I-tests3-I-02",
+      "material": true,
+      "finding": "BLOCKS — Whether a reply could leak customer information through a wrong-order thread remains unresolved with writes enabled. CANNOT TELL — The replacement model-turn and registered reply-handler evidence is outside this part; tests/test_gmail_writes.py and app/tools/gmail_writes.py were not supplied.",
+      "evidence_ref": "packet: diff tests/test_graph.py, deleted different-order and possible-link tests; PR #54 claim sheet, E-04 / I-tests3 I-02",
+      "required_repair": "Supply the missing handler and tests, including a live-dispatch test with two orders for one customer that refuses a different-order or merely possible thread as a verified reply destination."
+    },
+    {
+      "finding_id": "R9-I-tests4-I-03",
+      "material": false,
+      "finding": "REPAIRED — The test now makes the commerce read fail, invokes open.area through stage.touch, and asserts the returned refusal's retry command and held-order context instead of constructing the refusal itself.",
+      "evidence_ref": "tests/test_split.py:test_a_landing_that_cannot_be_read_offers_the_tap_again",
+      "required_repair": "None."
+    },
+    {
+      "finding_id": "R9-I-tests5-I-02",
+      "material": true,
+      "finding": "FOLLOW-UP — This missing test coverage cannot itself exploit, lose data, or leak data tonight. STILL PRESENT — tests/test_summaries.py passes a task directly to commerce_summary; it neither submits the owner's returning-customer words through a model turn nor asserts that the complete rendered card list contains exactly one summary and no customer profiles.",
+      "evidence_ref": "tests/test_summaries.py:answer_for; tests/test_summaries.py:test_the_compact_row_carries_what_the_brief_asks_for; packet: diff tests/test_summaries.py, deleted test_the_returning_customers_question_draws_one_compact_surface",
+      "required_repair": "Add an owner-utterance-to-rendered-surface model-turn test for the returning-customer question and assert the complete card list has exactly one summary and no entity profiles."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_099820f81f528c9a016abac083174c87d296cbda73135828b6",
+    "session_started_at": "2026-09-28T19:31:14.665816Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "T3 cannot clear this SHA: two round-9 repairs depend on files absent from this part, and the returning-customer model-path coverage remains missing in the supplied test. The landing-refusal test is repaired. No finding here clears code outside T3.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 107490, \"input_tokens_details\": {\"cache_write_tokens\": 107487, \"cached_tokens\": 0}, \"output_tokens\": 3899, \"output_tokens_details\": {\"reasoning_tokens\": 3204}, \"total_tokens\": 111389}]"
+}

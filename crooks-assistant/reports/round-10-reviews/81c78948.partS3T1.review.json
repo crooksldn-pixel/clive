@@ -1,0 +1,44 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-S3T1-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-B1-B-03",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — Unverified purge durability could leak a cleared customer slip after restart. The new tests cover a first journal-folder fsync failure followed by a record failure, but the store implementation is not supplied, so they cannot establish that every deletion and retry preserves the required durability invariant.",
+      "evidence_ref": "tests/test_screens_r10.py:test_a_deletion_whose_journal_is_not_durable_and_whose_record_is_not_either_is_not_made; REVIEW PACKET — CONTRACT ONLY app/displays/store.py",
+      "required_repair": "Supply the exact-SHA body of app/displays/store.py, particularly DisplayStore._journal, _commit, _write, _restore_journal and _replay, for review against the failure and restart tests."
+    },
+    {
+      "finding_id": "R9-B1-B-01-B-05-PATH",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — An unverified production authority path could be exploited to put a customer slip on a screen or expose one to a refused caller. The new test exercises a scripted path, but its fixture forces tailscale_verify=True while tonight's CROOKS_TAILSCALE_VERIFY is unset; the implementations deciding whether that represents production, and whether issued IDs survive the HTTP-to-tool path, are not supplied.",
+      "evidence_ref": "tests/test_screen_paths.py:world,test_a_refused_caller_reaches_no_screen_route_and_no_screen_tool,test_screen_show_puts_up_only_an_order_this_conversation_was_issued; REVIEW PACKET — production switches and CONTRACT ONLY",
+      "required_repair": "Supply exact-SHA app/routes/actions.py, app/main.py, app/routes/turn.py, app/providers/max_agent_sdk.py, app/tools/registry.py and app/tools/gate.py bodies; verify the path with Tailscale verification unset as configured and with an ID issued by a real lookup rather than manually by the test."
+    },
+    {
+      "finding_id": "R9-B1-NEW-B-LOCAL-SLIP",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — An open TV retaining a slip after refusal, disconnection or expiry could leak customer details. The supplied server test checks what an HTTP response contains and another test checks strings in the page source; neither establishes what the open page or dots engine actually clears, and their implementations are not supplied.",
+      "evidence_ref": "tests/test_screen_paths.py:test_a_screen_whose_device_is_refused_or_whose_slip_is_past_its_time_is_given_nothing; tests/test_displays.py:test_the_screen_takes_a_customer_off_at_once_when_it_may_no_longer_show_it",
+      "required_repair": "Supply exact-SHA web/display.js and web/dots.js, plus tests/web/display.test.js, to review behavioral clearing of the rendered slip and retained dots after 403, prolonged disconnection and local expiry."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_01aa51e1197af622016ababfbb003c87d2894d42bc6ad3ba1c",
+    "session_started_at": "2026-09-28T19:27:54.488494Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The supplied screen tests add relevant coverage, but this part contains tests rather than the implementations needed to close its three round-9 findings. None can be cleared at the exact SHA from this packet.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 124272, \"input_tokens_details\": {\"cache_write_tokens\": 124269, \"cached_tokens\": 0}, \"output_tokens\": 2672, \"output_tokens_details\": {\"reasoning_tokens\": 1981}, \"total_tokens\": 126944}]"
+}

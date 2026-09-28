@@ -1,0 +1,13 @@
+record: 10 gap row(s) before, 10 after; file unchanged; 0 copy/copies of the original kept, 0 byte-identical
+  row 1 -> "tool exposes draft order's invoice checkout": kept as it was
+  row 2 -> 'tool set custom line name price': kept as it was
+  row 3 -> "visibility into how machine's access networking": kept as it was
+  row 4 -> 'concept multiple users member accounts invite': kept as it was
+  row 5 -> 'display tool project expanded view onto': kept as it was
+  row 6 -> 'log manual physically done state task': kept as it was
+  row 7 -> 'web research tool look up trend': kept as it was
+  row 8 -> 'mac read only shopify gmail writes': kept as it was
+  row 9 -> 'order name lookup on order open order add name': kept as it was
+  row 10 -> 'custom line name on an order': kept as it was
+  rollback code (3e77f215) reads and reports the result: yes
+VERDICT: nothing lost

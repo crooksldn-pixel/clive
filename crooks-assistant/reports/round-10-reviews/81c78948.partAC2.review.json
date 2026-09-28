@@ -1,0 +1,44 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-AC2-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-A3b-F-04-SHUTDOWN",
+      "material": true,
+      "finding": "BLOCKS — CANNOT TELL — Accepted timeline events may be lost on shutdown because the shutdown and writer-drain paths cannot be verified. Runtime.aclose closes the provider and clients but contains no timeline drain; whether lifespan safely stops housekeeping and drains pending events depends on missing app/main.py and app/observability/timeline.py.",
+      "evidence_ref": "crooks-assistant/app/runtime.py:Runtime.aclose; REVIEW PACKET — R9-A3b-F-04-SHUTDOWN",
+      "required_repair": "Supply app/main.py and app/observability/timeline.py, and demonstrate bounded shutdown and a drain of accepted pending events on both normal-close and timeout paths."
+    },
+    {
+      "finding_id": "R9-D2-D2-03",
+      "material": true,
+      "finding": "BLOCKS — CANNOT TELL — A live write could attach to the wrong half and lose data because per-turn branch authority cannot be verified. Branch.instruction_seq exists, but the claimed CURRENT_BRANCH binding and downstream staging are outside the supplied files: app/routes/turn.py, app/session/models.py, app/providers/max_agent_sdk.py and app/actions/engine.py are missing.",
+      "evidence_ref": "crooks-assistant/app/session/branch.py:Branch.instruction_seq; REVIEW PACKET — R9-D2-D2-03",
+      "required_repair": "Supply the named files and an overlapping-write-proposals test establishing branch authority through staging, or implement and test per-turn branch binding."
+    },
+    {
+      "finding_id": "R9-D2-D2-04",
+      "material": true,
+      "finding": "BLOCKS — CANNOT TELL — A mixed-record answer could focus the wrong record before a write and lose data because the cursor-selection code is unavailable. The supplied app/commands.py shows how a tapped control binds a target, but missing app/routes/turn.py contains _stand_on_what_was_shown, so the claimed mixed-record safeguard cannot be checked.",
+      "evidence_ref": "crooks-assistant/app/commands.py:_bind_voice; REVIEW PACKET — R9-D2-D2-04",
+      "required_repair": "Supply app/routes/turn.py and a test of an order-plus-customer answer followed by a write action; establish that a mixed screen does not infer a focused record without an explicit focus or uniquely identified tap."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0078b5733b010776016abac03cda1c87d29f86e11c80f5e0b8",
+    "session_started_at": "2026-09-28T19:30:04.414708Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "None of the three required round-9 repairs can be verified from this part's files. The omitted shutdown, turn and write-staging code prevents a READY ruling at this SHA.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 92614, \"input_tokens_details\": {\"cache_write_tokens\": 92611, \"cached_tokens\": 0}, \"output_tokens\": 2642, \"output_tokens_details\": {\"reasoning_tokens\": 2070}, \"total_tokens\": 95256}]"
+}

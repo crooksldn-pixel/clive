@@ -1,0 +1,32 @@
+=== ENGINEERING BRIDGE TOKEN — BOTH TIERS RE-CHECKED AT THE CANDIDATE ===
+TOKEN_KEY = github_engineering_inbox_token (app/engineering_bridge/github.py:34)
+
+Tier A — systemd credentials ($CREDENTIALS_DIRECTORY): the unit loads exactly these keys:
+    LoadCredentialEncrypted=shopify_client_id:/etc/crooks-os/credentials/shopify_client_id.cred
+    LoadCredentialEncrypted=shopify_client_secret:/etc/crooks-os/credentials/shopify_client_secret.cred
+    LoadCredentialEncrypted=elevenlabs_api_key:/etc/crooks-os/credentials/elevenlabs_api_key.cred
+    -> github_engineering_inbox_token is NOT among them.
+
+Tier B — /etc/crooks-os/secrets/ (names only):
+    gmail_token
+    local_cli_key
+    media_signing_key
+    -> github_engineering_inbox_token is NOT among them.
+
+The parked file lives in /etc/crooks-os/credentials-parked/, which is NEITHER tier
+(linux_store knows only CREDENTIALS_DIRECTORY and /etc/crooks-os/secrets). It was not
+opened, decrypted, or read at any point in this review.
+
+Consequence: read_token() -> None, and EVERY EngineeringInbox entry point returns
+NotConnected before any HTTP request is made. Verified fail-closed on all of:
+    149:    async def status(self) -> LoopStatus | NotConnected:
+    166:    async def inbox_head(self) -> InboxHead | NotConnected:
+    170:    async def trunk_head(self, ref: str = TRUNK_REF) -> InboxHead | NotConnected:
+    175:    async def _branch_head(self, branch: str, what: str) -> InboxHead | NotConnected:
+    191:    async def on_trunk(self, sha: str, ref: str = TRUNK_REF) -> bool | NotConnected:
+    207:    async def request_file(self, request_id: str) -> RequestFile | NotConnected:
+    216:    async def create_request(self, request_id: str, content: bytes) -> Created | Refused | NotConnected:
+
+CROOKS_ENGINEERING_HOST stays unset; settings.engineering_host therefore defaults to
+'worker-01' (config/settings.py:187) and only names which branch pair WOULD be used.
+It does not itself grant access. With no token in either tier, the host name is inert.

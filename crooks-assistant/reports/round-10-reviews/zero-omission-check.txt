@@ -1,0 +1,9 @@
+packets found on disk        : 29
+changed paths in the range   : 267
+paths delivered to >=1 part  : 267
+paths a reviewer never sees  : 0
+paths pushed past the 300000-byte window: 0
+paths delivered that are NOT in the range (context files): 1
+    context: crooks-assistant/app/tools/registry.py -> ['S1:full']
+
+ZERO OMISSIONS: VERIFIED

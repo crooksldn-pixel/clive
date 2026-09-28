@@ -1,0 +1,128 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-S1-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-A1a-F-05A",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — The required verification cannot be settled from this part, so I cannot establish that all three CLI routes preserve the production admission boundary. The supplied key checks reject empty and misplaced headers, but the through-proxy tests and exact-SHA owner-device check are not supplied.",
+      "evidence_ref": "app/local_cli.py:presented,admits; app/main.py:guard_and_freshness; REVIEW PACKET — R9-A1a-F-05A",
+      "required_repair": "Supply tests/test_local_cli.py with correct-, wrong-, and empty-key proxy cases for each route, and the specified real owner-device results at this SHA."
+    },
+    {
+      "finding_id": "R9-A1a-F-05B",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — Without the required gate exercises, I cannot establish that malformed kernel input never admits a caller in production. The supplied parsers reject malformed rows and PID listings, but their tests through both gates are not supplied.",
+      "evidence_ref": "app/identity.py:_tcp_rows,unit_pids,_proc_peer_check; app/routes/actions.py:proxy_state,principal_verdict,caller_check; REVIEW PACKET — R9-A1a-F-05B",
+      "required_repair": "Supply tests/test_proxy_identity.py exercising malformed listings and socket rows through principal_verdict and caller_check at this SHA."
+    },
+    {
+      "finding_id": "R9-A1a-F-05B-AVAIL",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — The required omission cases are not supplied, so I cannot establish that an incomplete address snapshot cannot admit a self-originating request as an owner device. The new code checks for ::1, corroborates locality against sockets, and requires a family-matched tailnet address, but two equal readings are not proof that neither omitted an address.",
+      "evidence_ref": "app/identity.py:host_addresses,bound_here,this_host; app/routes/actions.py:proxy_state; REVIEW PACKET — R9-A1a-F-05B-AVAIL",
+      "required_repair": "Supply tests/test_proxy_identity.py exercising well-formed address omissions, including enabled IPv6, through both gates with production flags; establish the self-request refusal when the address snapshots omit its source."
+    },
+    {
+      "finding_id": "R9-A1a-F-05B-AVAIL-PREFLIGHT",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — The installer's executable launch-and-health gate and the required phone correlation cannot be established from this part, leaving the production proxy-identity preflight unverified. The packet establishes the rendered unit flag, not the installer's behavior.",
+      "evidence_ref": "app/identity.py:served_without_proxy_headers; app/routes/health.py:_checked; REVIEW PACKET — PACKET FACTS and R9-A1a-F-05B-AVAIL-PREFLIGHT",
+      "required_repair": "Supply scripts/install_systemd.py, app/routes/admin.py, and the exact-SHA correlated real-phone preflight results; verify the running argv and health gate."
+    },
+    {
+      "finding_id": "R9-A1b-F-05A",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — I cannot verify the required real-device admission behavior from substituted provenance answers, so the production CLI exception is not fully checked. Header presence and DIRECT-only admission are visible, but the owner-device evidence and cited tests are absent.",
+      "evidence_ref": "app/local_cli.py:presented,admits; REVIEW PACKET — R9-A1b-F-05A and PR #54 BODY",
+      "required_repair": "Supply tests/test_local_cli.py and record correct-key refusal and headerless admission from a genuinely verified owner device against this SHA."
+    },
+    {
+      "finding_id": "R9-A1b-F-05B-AVAIL",
+      "material": true,
+      "finding": "STILL PRESENT — FOLLOW-UP — An address-table failure lasting beyond the bounded retries denies owner requests rather than causing an exploit, data loss, or data leak on the configured host. Four reads over at most 70 ms replace two immediate reads, but no availability-preserving response is provided for a routine lookup failure lasting longer.",
+      "evidence_ref": "app/identity.py:ADDRESS_READS,ADDRESS_PAUSES_S,host_addresses,this_host",
+      "required_repair": "Provide and test a bounded availability strategy for routine longer-lived lookup failures that never treats uncertain locality as remote-owner traffic."
+    },
+    {
+      "finding_id": "R9-A2-F-NEW-TOOLS-PATH",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — A refused caller's path to the model cannot be established without the turn-entry code, so possible acquisition of owner tool authority remains unverified. The supplied middleware, provider callback, and dispatcher do not show the entire HTTP-to-turn path.",
+      "evidence_ref": "app/main.py:guard_and_freshness; app/providers/max_agent_sdk.py:_dispatch,_turn_locked; app/tools/registry.py:build_mcp_server; REVIEW PACKET — R9-A2-F-NEW-TOOLS-PATH",
+      "required_repair": "Supply app/routes/turn.py and tests/test_tool_boundary.py at this SHA; trace a production-configured refused request through turn entry, authority stamping, and the provider."
+    },
+    {
+      "finding_id": "R9-A3b-F-04-STARTUP",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — I cannot establish that report containment prevents a data leak when a differently owned report path or symlink is present. Startup calls the report check, but its ownership and link handling are outside this part.",
+      "evidence_ref": "app/main.py:_reports_contained,housekeep_once,lifespan; REVIEW PACKET — R9-A3b-F-04-STARTUP",
+      "required_repair": "Supply app/observability/session.py and its differently owned and linked-path tests; verify that startup refuses when privacy cannot be established."
+    },
+    {
+      "finding_id": "R9-A3b-F-04-SHUTDOWN",
+      "material": true,
+      "finding": "STILL PRESENT — BLOCKS — A housekeeping operation exceeding 27 seconds can still leave runtime closure skipped and a bounded timeline drain can exit with accepted events pending, risking data loss on production shutdown. Stop checks occur between operations, not within an overlong operation; the normal close and flush guarantees also cannot be verified from this part.",
+      "evidence_ref": "app/main.py:housekeep_once,Housekeeper.stop,lifespan,drain_timelines",
+      "required_repair": "Bound or safely interrupt individual housekeeping operations, establish a drain for accepted pending work within the unit deadline, and supply app/runtime.py and app/observability/timeline.py with tests of both shutdown paths."
+    },
+    {
+      "finding_id": "R9-A3b-F-A3B-SCREEN-EVIDENCE",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — I cannot establish what a keyed production TV receives, so an unintended customer or live-voice data leak cannot be ruled out. This part supplies the public page shell and router inclusion, not the screen-facing data path.",
+      "evidence_ref": "app/main.py:display_page,app.include_router(displays.router); REVIEW PACKET — R9-A3b-F-A3B-SCREEN-EVIDENCE",
+      "required_repair": "Supply app/routes/displays.py, app/displays/store.py, and web/display.js for an exact-SHA screen-path review with snapshots disabled."
+    },
+    {
+      "finding_id": "R9-B1-B-01-B-05-PATH",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — The complete production path from owner admission to a screen handler and its issued-ID check is not supplied, so a refused caller's access to customer slips cannot be ruled out. The supplied gate and authority chain alone do not establish what the screen handlers expose.",
+      "evidence_ref": "app/routes/actions.py:principal_verdict,require_principal; app/main.py:guard_and_freshness; app/tools/gate.py:_ISSUED_ID_ARGS; app/providers/max_agent_sdk.py:_dispatch; REVIEW PACKET — R9-B1-B-01-B-05-PATH",
+      "required_repair": "Supply app/routes/turn.py, app/routes/displays.py, app/tools/display_tools.py, and the production-path route tests at this SHA."
+    },
+    {
+      "finding_id": "R9-C-C-01",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — A forged identity is rejected by the supplied middleware path, but I cannot verify the live-token handler and its complete admission behavior; an unauthorized token mint would leak access to live transcription. The voice route implementation is absent.",
+      "evidence_ref": "app/main.py:guard_and_freshness,app.include_router(voice.router); app/routes/actions.py:proxy_state,principal_verdict; REVIEW PACKET — R9-C-C-01",
+      "required_repair": "Supply app/routes/voice.py and tests/test_live_voice.py at this SHA, including a forged-identity request through the real door."
+    },
+    {
+      "finding_id": "R9-D1-D1-03",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — I cannot rule out a reachable write with weaker refusal or disambiguation checks on this writes-enabled host. The supplied provider and gate show model tool staging, but neither the deleted fast-lane checks nor the complete turn and action-staging implementations are in this part.",
+      "evidence_ref": "app/providers/max_agent_sdk.py:_dispatch; app/tools/dispatch.py:dispatch,_stage; app/tools/gate.py:classify; REVIEW PACKET — R9-D1-D1-03",
+      "required_repair": "Supply app/routes/turn.py, app/actions/engine.py, and the deleted fast-lane guards for parity review; test refund, cancellation, and store-credit attempts."
+    },
+    {
+      "finding_id": "R9-D2-D2-03",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — The provider now sets CURRENT_BRANCH around each SDK tool dispatch, but I cannot establish that every overlapping write proposal is staged against that context rather than a shared session field; attaching a live write to the wrong half could lose data. The turn and staging implementations are absent.",
+      "evidence_ref": "app/providers/max_agent_sdk.py:_dispatch,turn_on_branch; app/tools/dispatch.py:_stage; REVIEW PACKET — R9-D2-D2-03",
+      "required_repair": "Supply app/routes/turn.py, app/session/models.py, and app/actions/engine.py, with an overlapping-two-branch write-proposal test."
+    },
+    {
+      "finding_id": "S1-KEY-SENDER",
+      "material": true,
+      "finding": "BLOCKS — The callers that transmit the local CLI key are not supplied, so I cannot rule out leaking it to a different process that takes the loopback port during a restart. Defining far_end_held_by does not establish that every sender calls it before sending headers().",
+      "evidence_ref": "app/identity.py:far_end_held_by; app/local_cli.py:headers; REVIEW PACKET — PR #54 BODY, A1B-KEY claim",
+      "required_repair": "Supply and review the exact-SHA key-sending paths in scripts/healthcheck.py, scripts/status.py, scripts/install_systemd.py, and scripts/test_session.py; ensure each checks the connected far end before sending the key and does not forward it on redirects."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0ae6896daed2d390016ababfbaec8887d2b4216437b01484c0",
+    "session_started_at": "2026-09-28T19:27:54.389185Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "CHANGES_REQUIRED for this S1 part. The supplied authority and identity code contains substantive repairs, but required exact-SHA route, sender, test, and shutdown implementations or evidence are missing; shutdown also retains an identifiable data-loss case. No finding clears files outside this part.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 97750, \"input_tokens_details\": {\"cache_write_tokens\": 97747, \"cached_tokens\": 0}, \"output_tokens\": 6747, \"output_tokens_details\": {\"reasoning_tokens\": 4314}, \"total_tokens\": 104497}]"
+}

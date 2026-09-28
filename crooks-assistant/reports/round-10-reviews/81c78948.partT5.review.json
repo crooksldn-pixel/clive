@@ -1,0 +1,65 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-T5-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-I-tests2-I-02",
+      "material": true,
+      "finding": "BLOCKS — The missing turn tests leave the risk of disclosing the wrong record's data unresolved. CANNOT TELL — The supplied replacement scripts a different-order lookup and checks its card, but does not check the spoken answer or a named-person request; tests/test_turn_boundary.py and tests/test_experience.py were not supplied.",
+      "evidence_ref": "tests/test_spoken_refusals.py::test_what_the_model_reads_for_another_order_is_drawn_as_that_order; packet: ROUND-9 FINDINGS, R9-I-tests2-I-02",
+      "required_repair": "Supply the missing tests or add end-to-end model-turn cases with a different record in focus that check both answer and card for the requested person or order, or an explicit refusal."
+    },
+    {
+      "finding_id": "R9-I-tests3-I-03",
+      "material": true,
+      "finding": "BLOCKS — Missing refusal and route evidence leaves the possibility of an unintended write and data loss unresolved. CANNOT TELL — The new turn tests cover spoken cancellation, but expressly defer refund coverage; tests/test_refund.py, tests/test_order_create.py, app/routes/turn.py, app/routes/command.py and app/routes/branches.py were not supplied to settle the remaining refusal and navigation claims.",
+      "evidence_ref": "tests/test_spoken_refusals.py::test_a_spoken_cancel_is_a_held_card_that_a_spoken_yes_cannot_apply; packet: ROUND-9 FINDINGS, R9-I-tests3-I-03",
+      "required_repair": "Supply the named files and demonstrate the retained refund and navigation refusals at turn level or at their route and tool boundaries."
+    },
+    {
+      "finding_id": "R9-I-tests5-I-01",
+      "material": true,
+      "finding": "BLOCKS — A navigation command misread as bound-note dictation could stage a wrong-record change on tonight's write-enabled system, with data loss if confirmed. CANNOT TELL — tests/test_touch_to_voice.py still has no navigation-after-binding negative case, and app/routes/turn.py, which contains _with_continuation, was not supplied.",
+      "evidence_ref": "tests/test_touch_to_voice.py::test_the_next_sentence_carries_the_binding_and_only_the_next; packet: ROUND-9 FINDINGS, R9-I-tests5-I-01",
+      "required_repair": "Supply app/routes/turn.py and add a turn-level test showing that saying “open the inbox” after binding Add a note cannot stage a note on the bound order."
+    },
+    {
+      "finding_id": "R9-I-tests5-I-03",
+      "material": true,
+      "finding": "BLOCKS — The missing record-selection evidence leaves a confirmed wrong-record write and consequent data loss unresolved. CANNOT TELL — ModelThatAddsANote still searches and notes #1930 regardless of the owner's words; its claimed separate mismatched-record evidence is in the unsupplied tests/test_turn_boundary.py.",
+      "evidence_ref": "tests/test_write_walkthrough.py::ModelThatAddsANote.turn; packet: ROUND-9 FINDINGS, R9-I-tests5-I-03",
+      "required_repair": "Supply tests/test_turn_boundary.py and evidence that a mismatched requested record is refused at the write boundary; keep the fixed-model walkthrough labelled as downstream-gate evidence, not model-choice evidence."
+    },
+    {
+      "finding_id": "R9-I-tests5-I-04",
+      "material": true,
+      "finding": "BLOCKS — Missing fixture definitions prevent this part from ruling out an exploitable authority regression hidden by the tests. CANNOT TELL — Module-wide owner grants remain visible in the tag tests, while tests/conftest.py, tests/test_tracking.py and tests/test_working_sets.py were not supplied to settle the fixture and absent-authority claims.",
+      "evidence_ref": "tests/test_tags.py::pytestmark; tests/test_tags_remove.py::pytestmark; packet: ROUND-9 FINDINGS, R9-I-tests5-I-04",
+      "required_repair": "Supply the three missing files, verify owner_asking is not autouse, and restrict module-wide grants wherever a test is meant to exercise absent authority; assert that refusal explicitly."
+    },
+    {
+      "finding_id": "R9-I-tests5-I-05",
+      "material": true,
+      "finding": "FOLLOW-UP — A misleading offline audit citation cannot itself be exploited, lose data, or leak data on production as configured. STILL PRESENT — The positive audit test still counts registry.get, classify and a synthetic presentation item as directly testing probe_tool without dispatching it or invoking its handler.",
+      "evidence_ref": "tests/test_tool_matrix.py::test_a_test_that_calls_a_tool_tests_it",
+      "required_repair": "Count only actual dispatch or handler invocation as directly tested, and make registry lookup, classification and synthetic presentation negative cases."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0466f61f54eb178c016abac09c53b487d2a21919165b597103",
+    "session_started_at": "2026-09-28T19:31:39.766780Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "CHANGES_REQUIRED for this part: the tool-matrix audit defect is visible, and five round-9 rulings cannot be settled without the named files. This decision does not clear files outside T5.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 126444, \"input_tokens_details\": {\"cache_write_tokens\": 126441, \"cached_tokens\": 0}, \"output_tokens\": 4045, \"output_tokens_details\": {\"reasoning_tokens\": 2875}, \"total_tokens\": 130489}]"
+}

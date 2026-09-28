@@ -1,0 +1,51 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-AC3-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-A1a-F-05B-AVAIL-PREFLIGHT",
+      "material": true,
+      "finding": "BLOCKS — The missing deployment gate and phone evidence leave a potentially exploitable proxy-identity failure unverified on production. CANNOT TELL — `whoami` creates one token for its log line and response, but `scripts/install_systemd.py` and a correlated real-phone result for this SHA were not supplied.",
+      "evidence_ref": "crooks-assistant/app/routes/admin.py:whoami; REVIEW PACKET — R9-A1a-F-05B-AVAIL-PREFLIGHT and YOUR PART scope",
+      "required_repair": "Supply scripts/install_systemd.py at this SHA and a correlated real-phone /whoami result under the rendered unit; verify the running argv and health gate."
+    },
+    {
+      "finding_id": "R9-A1b-F-05B-AVAIL-PREFLIGHT",
+      "material": true,
+      "finding": "BLOCKS — Without the installer and device check, an exploitable failure of the production identity gate cannot be ruled out. CANNOT TELL — The supplied `whoami` code correlates its log and response tokens, but whether installation aborts or rolls back after failed running-process, health, or device checks requires `scripts/install_systemd.py`, which is outside this part; no real-phone result is supplied.",
+      "evidence_ref": "crooks-assistant/app/routes/admin.py:whoami; REVIEW PACKET — R9-A1b-F-05B-AVAIL-PREFLIGHT and YOUR PART scope",
+      "required_repair": "Supply scripts/install_systemd.py and a successful correlated real-phone check against this SHA; demonstrate that every failed gate aborts or rolls back installation."
+    },
+    {
+      "finding_id": "R9-D2-D2-03",
+      "material": true,
+      "finding": "BLOCKS — Missing write-path files prevent ruling out an exploitable cross-branch write on production. CANNOT TELL — `Session.acting_branch` remains shared and mutable; its comment claims request-local authority, but the route, provider, context, and action-staging implementations are not supplied.",
+      "evidence_ref": "crooks-assistant/app/session/models.py:Session.acting_branch, Session.branch, Session.stage; REVIEW PACKET — R9-D2-D2-03",
+      "required_repair": "Supply app/routes/turn.py, app/routes/command.py, app/tools/context.py, app/providers/max_agent_sdk.py, and app/actions/engine.py, with an overlapping write-proposal test showing each proposal is bound to its requesting branch."
+    },
+    {
+      "finding_id": "R9-D2-D2-05",
+      "material": true,
+      "finding": "BLOCKS — Without the model-turn route and tests, a wrong-record answer that could leak customer data cannot be ruled out on production. CANNOT TELL — The former read-side disambiguation and correction rules were deleted; the claimed replacement for named orders and customers cannot be checked in the files assigned to this part.",
+      "evidence_ref": "REVIEW PACKET — diff deleting app/fastpath/library.py and app/fastpath/correction.py; R9-D2-D2-05; YOUR PART scope",
+      "required_repair": "Supply app/routes/turn.py and model-path tests for conflicting names, order numbers, periods, dimensions, and spoken corrections; add bounded clarification or target validation wherever those cases could answer about the wrong record."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_09661a3d7c1cd3d4016abac03cfc1c87d28f43800f1804742a",
+    "session_started_at": "2026-09-28T19:30:04.506412Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The per-request /whoami token is visible, but none of the four assigned round-9 findings can be closed from this part's files and supplied deployment evidence.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 99953, \"input_tokens_details\": {\"cache_write_tokens\": 99950, \"cached_tokens\": 0}, \"output_tokens\": 2304, \"output_tokens_details\": {\"reasoning_tokens\": 1535}, \"total_tokens\": 102257}]"
+}

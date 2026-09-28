@@ -1,0 +1,65 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-F-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-E-families1-E-03",
+      "material": true,
+      "finding": "BLOCKS — If the replacement hook does not record owner feedback, tonight's test-session defect reports will be lost. CANNOT TELL — The deleted recorder is visible, but the claimed replacement in app/routes/turn.py and its end-to-end test are not supplied.",
+      "evidence_ref": "REVIEW PACKET — R9-E-families1-E-03; DIFF — app/families/owner_feedback.py deletion; CONTRACT ONLY — app/routes/turn.py",
+      "required_repair": "Supply the SHA-exact app/routes/turn.py recording path, app/observability/feedback.py:record implementation, and an end-to-end test showing recognised feedback is retained during the configured test session; restore recording if it is absent."
+    },
+    {
+      "finding_id": "R9-E-families1-E-04",
+      "material": true,
+      "finding": "BLOCKS — Accepting a merely possible order-to-thread link could leak one customer's order details in a reply to another customer after George confirms it. CANNOT TELL — The bodies of app/tools/gmail_writes.py and app/routes/turn.py are missing, so their contract signatures cannot establish that an order-specific reply requires a confident link.",
+      "evidence_ref": "REVIEW PACKET — R9-E-families1-E-04; DIFF — app/families/order_email.py deletion; CONTRACT ONLY — app/tools/gmail_writes.py and app/routes/turn.py",
+      "required_repair": "Supply the SHA-exact write and model paths and a test that refuses an order-specific reply when the thread possibly links to a different order; enforce confident binding before preparation if either path lacks it."
+    },
+    {
+      "finding_id": "R9-E-families1-E-05",
+      "material": true,
+      "finding": "BLOCKS — An unverified dangling import could stop tonight's startup or test-session capture and lose reports. CANNOT TELL — Dynamic family discovery does not establish whether modules outside this part still reference the deleted families, and no SHA-exact repository-wide check or production-config startup result was supplied.",
+      "evidence_ref": "REVIEW PACKET — R9-E-families1-E-05 and PR #54 BODY, 'E-05'; CANDIDATE FILES — app/families/__init__.py:load_all",
+      "required_repair": "Supply a SHA-exact executable repository-wide import and symbol-reference check covering app/observability/visible.py and app/routes/turn.py, repair any dangling references, and verify startup under the production configuration."
+    },
+    {
+      "finding_id": "R9-E-families1-E-06",
+      "material": false,
+      "finding": "REPAIRED — A missing open-orders read is now distinguished from an empty result: the answer says it cannot determine whether orders are waiting and is marked partial.",
+      "evidence_ref": "CANDIDATE FILES — app/families/landings.py:_orders_render",
+      "required_repair": "None. The repair is already in place at this SHA: app/families/landings.py:_orders_render checks open_read, gives an explicit unread answer, and sets partial."
+    },
+    {
+      "finding_id": "F-01",
+      "material": true,
+      "finding": "FOLLOW-UP — This can give George a false operational count, but the shown read and card path does not itself exploit, lose or leak data. When Shopify has another page, abandoned checkouts reports the count and value of only the fetched page while its figures card marks freshness complete.",
+      "evidence_ref": "CANDIDATE FILES — app/families/abandoned.py:shopify_abandoned_checkouts and cards",
+      "required_repair": "Paginate to obtain window-wide totals, or explicitly label the count and value as the fetched subset whenever more is true; mark the card incomplete in that case."
+    },
+    {
+      "finding_id": "F-02",
+      "material": true,
+      "finding": "FOLLOW-UP — This can falsely tell George nothing is waiting to go out, but the shown recipe only reads and presents data and does not itself exploit, lose or leak it. An open-orders response with complete=False and no rows still takes the unconditional 'Nothing is waiting to go out' branch; the appended completeness note does not qualify that claim.",
+      "evidence_ref": "CANDIDATE FILES — app/families/landings.py:_orders_render and _hedge",
+      "required_repair": "Reserve the definitive empty answer for a complete open-orders read; on an incomplete read, say that no waiting orders are held so far but more may exist, and mark the answer partial."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0a5026ad230aa0f0016abac2a7d32487d2937cf7e0a8d065c9",
+    "session_started_at": "2026-09-28T19:40:23.299243Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "CHANGES_REQUIRED. The open-orders read-failure repair is visible, but three round-9 safety rulings require missing implementation or audit evidence. Two additional read-only paths can give false operational answers.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 113850, \"input_tokens_details\": {\"cache_write_tokens\": 113847, \"cached_tokens\": 0}, \"output_tokens\": 6040, \"output_tokens_details\": {\"reasoning_tokens\": 5018}, \"total_tokens\": 119890}]"
+}

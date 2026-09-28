@@ -1,0 +1,125 @@
+==============================================================================================
+STEP 1 — PREFLIGHT, ROUND 10. Read-only. Every check below passed.
+==============================================================================================
+
+1.1 SHA PROVENANCE
+  origin/clive/trunk                     = 81c78948cdb518dba344990617fb77b8a00bc228
+  candidate                              = 81c78948cdb518dba344990617fb77b8a00bc228  (they match)
+  parents                                = a7cd2be7 (trunk) + 036c71c4 (PR #54 head)
+  PR #54 merge commit per GitHub          = 81c78948   head = 036c71c4   base = clive/trunk   MERGED
+  ancestors of the candidate, all present: a7cd2be7 YES  c6c640d7 YES  32a99cd7 YES
+                                           6a29e310 YES  3e77f215 YES
+  first-parent range 6a29e310..81c78948 is exactly four merges:
+     81c78948  Round 10: close the round-9 review's findings (PR #54)
+     a7cd2be7  Screens: YouTube on a screen ... (PR #53)
+     c6c640d7  Round 9 features: iOS blue, live voice, ... (PR #52)
+     32a99cd7  Deploy review round 8: close the 21 material findings ... (PR #51)
+  NOTE: the local clone's origin/clive/trunk was stale at c6c640d7 and was fetched read-only
+  before any of the above. Nothing was written to the production checkout.
+
+  ACCEPTANCE RUNS — all three completed/success:
+     36460922500  pull_request  claude/r10-integrate  036c71c4  success
+     36460913922  push          claude/r10-integrate  036c71c4  success
+     36461705974  push          clive/trunk           81c78948  success   <- on the candidate itself
+  This carries no review weight. clive/trunk is unprotected and a green run is not a review.
+
+1.2 THE SWITCHES — exactly as required, and .env byte-identical to round 9
+     CROOKS_SCREEN_SNAPSHOTS          = 'false'
+     CROOKS_LOCAL_OWNER               = <unset>
+     CROOKS_WRITES_LOCAL_OWNER        = 'false'
+     CROOKS_ENGINEERING_HOST          = <unset>
+     CROOKS_TAILSCALE_VERIFY          = <unset>
+     CROOKS_LIVE_TRANSCRIPT           = <unset>   (new this range; defaults to true)
+     CROOKS_SCRIBE_KEYTERMS           = 'true'
+     CROOKS_WRITES_ENABLED            = 'true'
+     CROOKS_TEST_SESSION_ALWAYS       = 'true'
+     CROOKS_REPORTS_DIR               = <unset>
+     CROOKS_ALLOWED_LOGINS            = non-empty (value never printed)
+     40 keys, no duplicate key
+  .env sha256 0021c07d9c523d4112420537698eae50c51945f5966d3b0d01501def035693ce
+             — IDENTICAL to round 9's recorded value.  mode 600, 3513 bytes.
+  No .env line was changed at any point in this review.
+
+1.3 THE UNIT DIFF — only what rounds 6-9 accepted
+  First, the renderer was proved faithful: install_systemd.py --print run from a checkout of
+  6a29e310 reproduces the INSTALLED unit BYTE FOR BYTE. So the diff below is exactly what this
+  range does to the unit and nothing else.
+  installed unit sha256 3808af03c0bb0dcfc083ab519b33be3a82299ba92cc418a73678ba60c826722b
+  Rendered at 81c78948, the only difference from the installed unit is one comment line:
+     -#   the checkout   logs/, .cache/media/, kb/.catalogue-cache.txt
+     +#   the checkout   logs/, .cache/media/
+  No directive changes at all. This is the same one-line diff round 9 accepted at c6c640d7.
+  --no-proxy-headers is present in the rendered ExecStart.
+  LoadCredentialEncrypted lines are identical to the installed unit's (three credentials).
+
+1.4 TAILSCALE AND KERNEL-TABLE PRECONDITIONS
+  tailscaled MainPID 1655, exe exactly /usr/sbin/tailscaled,
+  cgroup exactly 0::/system.slice/tailscaled.service
+  /usr/sbin/tailscaled, the cgroup, and its cgroup.procs: all uid 0, no group-write, no
+  other-write  -> PASS (computed in python, not shell arithmetic)
+  pidfd_open(1) from the production venv interpreter (Python 3.12.3): OK
+  tailscale ip -4 = 100.72.82.24        present in /proc/net/fib_trie as /32 host LOCAL
+  tailscale ip -6 = fd7a:115c:a1e0::352b:5219  present in /proc/net/if_inet6 (hex)
+  disable_ipv6 = 0
+
+1.4b PARSER CHECK AT THE CANDIDATE (production venv interpreter, real host tables)
+  net/tcp  : ACCEPTED, 16 of 16 data rows parsed
+  net/tcp6 : ACCEPTED, 42 of 42 data rows parsed
+  identity.this_hosts_addresses() returned BOTH tailnet addresses, reason EMPTY.  parser-rc=0
+
+1.5 REPORTS
+  CROOKS_REPORTS_DIR unset -> /opt/crooks-os/crooks-assistant/reports, uid 0, mode 700
+  2 entries total (the directory and .gitkeep). Others-reachable count: 0. No .withheld/.
+  Unchanged from round 9.
+
+1.6 THE GAP RECORD AND ITS ONE BACKUP
+  /var/lib/crooks-assistant/objectives/gaps.json  uid 0, mode 600, 5866 bytes
+  sha256 7f1a7f6b86a708d0b3872b12b8e75c52ed2a197122f01697359c4f798f8eaf48
+         — BYTE-IDENTICAL to round 9. version 1, 10 gaps, 0 builds, 0 misjudged.
+  Backups matching gaps.json.*: exactly 1 (gaps.json.20260927T211850Z.before-clean).
+  Round 9 established: 8 -> 10 gaps on 28 Sep, one row re-keyed, nothing lost. There has been
+  NO further change since: the record is the same bytes. No row is gone.
+
+1.6b THE CANDIDATE'S OWN GAP CHECK — scripts/gap_clean_check.py, as root, at 81c78948
+  Run bare it resolves to the review checkout's own empty .state/objectives and exits 0 on
+  "no gap record" — a vacuous pass. It was therefore run against the live record by path.
+  Against /var/lib/crooks-assistant/objectives/gaps.json it reported:
+     record: 10 gap row(s) before, 10 after; file unchanged; 0 copies of the original kept
+     rows 1-10 each: "kept as it was"
+     rollback code (3e77f215) reads and reports the result: yes
+     VERDICT: nothing lost          exit 0
+  The live record was untouched: same bytes, mode, size and mtime before and after. Backups
+  still exactly 1. No temporary folder was left behind. Because the clean rewrites nothing
+  that is already clean, the deploy should create NO new backup.
+
+1.7 THE VENDORED ROLLBACK READER
+  tests/rollback/gaps_3e77f215.py loaded; 3e77f215's GapLedger.load() reads the live record
+  (10 gaps, version 1); report() run against a byte-identical COPY returned gaps/misjudged/
+  summary and left the copy unchanged; the live record was never written.  PASS
+
+1.8 displays.json
+  uid 0, mode 600, 3079 bytes, sha256 97e9ee7bd3f4b832f6d5bef6e68c6451bc8ba65692b5caee027aa755c5454768
+  SCREEN COUNT: 3 — the same three ids round 9 recorded.
+     scr_e32d   name P…   created 2026-09-27T21:33:51Z  version 2
+     scr_59ec   name M…   created 2026-09-27T21:35:53Z  version 9
+     scr_3bcf   name P…   created 2026-09-28T10:54:05Z  version 1
+  None carries an `approved` or `paired` field, and all three were created before pairing
+  existed -> all three count as ALREADY APPROVED, as in round 9.
+  OBSERVATION, not a failure: the file has changed since round 9 (3800 -> 3079 bytes, last_seen
+  advanced, scr_59ec's version 8 -> 9). That is the live service recording what each screen is
+  showing. No screen was lost and none was added.
+
+1.9 THE PARKED ENGINEERING CREDENTIAL
+  /etc/crooks-os/credentials-parked/github_engineering_inbox_token.cred
+  uid 0, mode 600, 292 bytes, mtime 27 Sep 01:55 — unchanged. NEVER opened or decrypted.
+  Both secret tiers re-checked (see engineering-bridge-tiers.txt): neither the unit's three
+  systemd credentials nor /etc/crooks-os/secrets/ holds the key, so read_token() is None and
+  every EngineeringInbox entry point returns NotConnected before any HTTP request.
+  /etc/crooks-os/credentials/ holds exactly 3 .cred files.
+
+1.10 NOTE FOR THE RECORD
+  /opt/crooks-os has three worktrees registered: /opt/crooks-os itself (6a29e310, the
+  production checkout), /opt/crooks-review and /opt/crooks-watcher-review. Both extras predate
+  this round and were not touched. The review checkout for this round is a separate clone at
+  /root/clive-activation/round-10/review, detached at 81c78948, tree 26c70c81 — which matches
+  the candidate's tree in /opt/crooks-os exactly. Production stayed at 6a29e310, 0 dirty.

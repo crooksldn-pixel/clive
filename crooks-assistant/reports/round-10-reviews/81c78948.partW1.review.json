@@ -1,0 +1,37 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-W1-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-C-C-03",
+      "material": true,
+      "finding": "BLOCKS — Whether the owner's live words could leak cannot be settled from the supplied files, and the packet treats an unresolved finding as a block. CANNOT TELL — alpha.js creates the live-word slots, but does not show whether words remain display-only or are cleared when the turn ends.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/web/alpha.js, ask-words and ask-heard; web/app.js contract, liveEnd and settleLiveWords",
+      "required_repair": "Supply the bodies of crooks-assistant/web/app.js and crooks-assistant/web/live-voice.js at this SHA, with evidence that interim words are not submitted or retained and are cleared on every turn-ending path."
+    },
+    {
+      "finding_id": "W1-01",
+      "material": true,
+      "finding": "FOLLOW-UP — This removes an order control rather than permitting exploitation, data loss, or data leakage. renderOrder calls rail without an order ref, while railChip requires a ref to enable a staged action, so enabled stage-mode order chips are omitted.",
+      "evidence_ref": "CANDIDATE FILES — crooks-assistant/web/ui.js, renderOrder(), rail(), and railChip()",
+      "required_repair": "Pass the order's ref to rail in renderOrder and test that an enabled staged order action renders and posts that ref."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_058049f7d00862e3016abac0b0245487d2b2c5bf0baf55f846",
+    "session_started_at": "2026-09-28T19:31:59.763012Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The order rail has a demonstrable missing-control defect. The live-word cleanup claim cannot be ruled on from this part's files; this decision does not clear files outside W1.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 101538, \"input_tokens_details\": {\"cache_write_tokens\": 101535, \"cached_tokens\": 0}, \"output_tokens\": 5349, \"output_tokens_details\": {\"reasoning_tokens\": 4974}, \"total_tokens\": 106887}]"
+}

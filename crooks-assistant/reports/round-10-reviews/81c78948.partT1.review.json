@@ -1,0 +1,30 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-T1-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-I-tests3-I-03",
+      "material": true,
+      "finding": "CANNOT TELL — BLOCKS — Without the replacement turn tests or routing code, an exploitable write or data loss on production as configured cannot be ruled out. The supplied test_order_create.py removes the spoken cancel/refund routing assertions, and none of the six files supplies turn-level tests for those refusals or the removed cross-order and navigation scenarios.",
+      "evidence_ref": "packet: R9-I-tests3-I-03; diff tests/test_order_create.py",
+      "required_repair": "Supply tests/test_needs_reply_routing.py, tests/test_every_turn_is_the_model.py and app/main.py for review, with turn-level coverage of cancel/refund, cross-order tab refusal, and ambiguous or closed-half navigation; or provide the relevant route and tool-boundary evidence for each scenario. Do not restore the fast lane."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0b5027729674188a016abac073ee2487d2858feb3f74671432",
+    "session_started_at": "2026-09-28T19:30:59.585041Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "The round-9 refusal-coverage finding cannot be closed from this part's files.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 108135, \"input_tokens_details\": {\"cache_write_tokens\": 108132, \"cached_tokens\": 0}, \"output_tokens\": 1287, \"output_tokens_details\": {\"reasoning_tokens\": 1034}, \"total_tokens\": 109422}]"
+}

@@ -1,0 +1,85 @@
+[DOC] packet: 115419 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/DOC/attempt-1/dispatch.1
+  harness auto-files: 7 included, 155360 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[F] packet: 261656 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/F/attempt-1/dispatch.1
+  harness auto-files: 9 included, 187179 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[S2] packet: 223045 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/S2/attempt-1/dispatch.1
+  harness auto-files: 7 included, 272968 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[S2T] packet: 181094 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/S2T/attempt-1/dispatch.1
+  harness auto-files: 10 included, 223200 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+    CROOKS_ALLOWED_LOGINS: present, but already committed in 5 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[S3] packet: 238470 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/S3/attempt-1/dispatch.1
+  harness auto-files: 6 included, 188052 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[S3P] packet: 259908 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/S3P/attempt-1/dispatch.1
+  harness auto-files: 6 included, 209098 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[S4] packet: 224136 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/S4/attempt-1/dispatch.1
+  harness auto-files: 9 included, 177391 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[S4A] packet: 59116 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/S4A/attempt-1/dispatch.1
+  harness auto-files: 1 included, 259163 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[S5] packet: 168936 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/S5/attempt-1/dispatch.1
+  harness auto-files: 11 included, 192732 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[T4] packet: 114570 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/T4/attempt-1/dispatch.1
+  harness auto-files: 18 included, 291812 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[W2] packet: 65641 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/W2/attempt-1/dispatch.1
+  harness auto-files: 3 included, 51865 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet
+[X] packet: 234878 bytes  -> /tmp/claude-0/-root/06067772-65be-458f-a3da-55db70f93db7/scratchpad/rev54/X/attempt-1/dispatch.1
+  harness auto-files: 15 included, 278246 bytes; 0 omitted
+  required paths supplied manually (not in diff): 0
+  OK: no required path is omitted, and every manual path is present
+  leak check: 12 secret values checked (IPs/ports excluded as non-secret)
+    CROOKS_SCRIBE_MODEL: present, but already committed in 15 file(s) at 81c78948 -> code under review, not an injection
+  OK: no production secret value is injected into the packet

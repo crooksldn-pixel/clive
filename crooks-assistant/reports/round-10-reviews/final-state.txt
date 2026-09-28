@@ -1,0 +1,49 @@
+=== FINAL STATE, verified after the review stopped ===
+2026-09-28T19:47:28Z
+
+--- production checkout ---
+HEAD  : 6a29e31013b0b9e543d90434e14ed65deea1ce30
+dirty : 0 entries
+
+--- the service (must be untouched) ---
+is-active : active
+MainPID   : 3068091
+NRestarts : 0
+ActiveEnterTimestamp: Sun 2026-09-27 21:18:49 UTC
+args      : /opt/crooks-os/crooks-assistant/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
+
+--- the unit ---
+3808af03c0bb0dcfc083ab519b33be3a82299ba92cc418a73678ba60c826722b  /etc/systemd/system/crooks-assistant.service
+preflight value: 3808af03c0bb0dcfc083ab519b33be3a82299ba92cc418a73678ba60c826722b  /etc/systemd/system/crooks-assistant.service
+
+--- .env ---
+0021c07d9c523d4112420537698eae50c51945f5966d3b0d01501def035693ce  /opt/crooks-os/crooks-assistant/.env
+preflight value: 0021c07d9c523d4112420537698eae50c51945f5966d3b0d01501def035693ce  /opt/crooks-os/crooks-assistant/.env
+stat now: 600 3513 1790471216   preflight: 600 3513 1790471216
+
+--- parked credential ---
+uid=0 mode=600 size=292 mtime=1790474150
+(expected uid=0 mode=600 size=292 mtime=1790474150)
+/etc/crooks-os/credentials/ .cred count: 3
+
+--- gap record ---
+7f1a7f6b86a708d0b3872b12b8e75c52ed2a197122f01697359c4f798f8eaf48  /var/lib/crooks-assistant/objectives/gaps.json
+backups: 1
+
+--- displays.json ---
+97e9ee7bd3f4b832f6d5bef6e68c6451bc8ba65692b5caee027aa755c5454768  /var/lib/crooks-assistant/objectives/displays.json
+
+--- tailscale serve (no staging handler must exist) ---
+https://crooks-os-prod-1.taildfb357.ts.net (tailnet only)
+|-- / proxy http://127.0.0.1:8000
+
+8443 handlers: []
+
+--- staging must not exist ---
+stage dir      : absent
+stage-state dir: absent
+stage unit     : inactive
+
+--- reports ---
+mode=700 /opt/crooks-os/crooks-assistant/reports
+entries: 2  others-reachable: 0

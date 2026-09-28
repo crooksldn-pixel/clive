@@ -1,0 +1,86 @@
+{
+  "schema_version": "clive.review_result.v1",
+  "task_id": "round10-S3P-81c78948",
+  "task_revision": 1,
+  "attempt_id": "attempt-1",
+  "candidate_sha": "81c78948cdb518dba344990617fb77b8a00bc228",
+  "verdict": "CHANGES_REQUIRED",
+  "findings": [
+    {
+      "finding_id": "R9-A3b-F-A3B-SCREEN-EVIDENCE",
+      "material": true,
+      "finding": "BLOCKS — The missing screen-route bodies leave a possible production customer-data leak unverified. CANNOT TELL — display.js renders customer, address, phone and note fields, but this packet does not establish what a keyed TV can obtain with snapshots disabled.",
+      "evidence_ref": "crooks-assistant/web/display.js:renderOrder,receive; REVIEW PACKET — THE CONTRACT OF THE SIBLING FILES YOU CALL BUT CANNOT SEE",
+      "required_repair": "Supply crooks-assistant/app/routes/displays.py, app/displays/store.py and app/displays/views.py at this SHA for review of registration, poll and screen-facing views."
+    },
+    {
+      "finding_id": "R9-B1-NEW-B-LOCAL-SLIP",
+      "material": true,
+      "finding": "BLOCKS — Customer details remain on a production TV past local expiry and can therefore leak. STILL PRESENT — The five-second expiry check calls reconcile and clearScreen, which delays removal of the old DOM rather than wiping it immediately.",
+      "evidence_ref": "crooks-assistant/web/display.js:tooOld,reconcile,clearScreen; crooks-assistant/web/display.css:.cs-ui.is-dissolving",
+      "required_repair": "Use an immediate privacy wipe when a pane expires, including during animation; verify retained dots are cleared using crooks-assistant/web/dots.js and a behavioural expiry test."
+    },
+    {
+      "finding_id": "R9-B2-B2-01",
+      "material": true,
+      "finding": "BLOCKS — An existing production TV's reusable key remains exploitable from script-readable storage until a successful migration. STILL PRESENT — loadScreen reads the legacy key without removing its localStorage record, and migrate leaves that record intact while the server is unreachable.",
+      "evidence_ref": "crooks-assistant/web/display.js:loadScreen,saveScreen,migrate",
+      "required_repair": "Remove the legacy key from persistent storage on first read, retain it only for a bounded in-memory migration attempt, and require fresh pairing if migration cannot complete; verify rotation of the previously issued key."
+    },
+    {
+      "finding_id": "R9-B2-B2-02",
+      "material": false,
+      "finding": "REPAIRED — wipe calls render(true), which bypasses the pointer-hold redraw delay and clears the remote's panes after a 403.",
+      "evidence_ref": "crooks-assistant/web/remote.js:wipe,render,sync",
+      "required_repair": "None. The repair is in place at this SHA: remote.js:wipe calls render(true) to clear the held panel."
+    },
+    {
+      "finding_id": "R9-B2-B2-03",
+      "material": false,
+      "finding": "REPAIRED — The specified old-success-after-403 paths discard responses using generation checks before display.js receives them or remote.js assigns them to R.data.",
+      "evidence_ref": "crooks-assistant/web/display.js:asked,poll,markDone,wipe; crooks-assistant/web/remote.js:sync,act,tick,control,wipe",
+      "required_repair": "None. The repair is in place at this SHA: both pages increment their generation on wipe and check it before applying the specified in-flight responses."
+    },
+    {
+      "finding_id": "R9-B2-B2-04",
+      "material": true,
+      "finding": "BLOCKS — Whether previously sampled customer-detail dots remain visible after packing is an unresolved production data-leak risk. CANNOT TELL — markedDone replaces the DOM and pane view with a reduced summary, but invokes the unseen dots engine's packOut on the prior drawing.",
+      "evidence_ref": "crooks-assistant/web/display.js:sampleUi,push,markedDone; REVIEW PACKET — YOUR PART",
+      "required_repair": "Supply crooks-assistant/web/dots.js and tests/web/display.test.js to verify that packing removes retained customer-detail dots as well as DOM and pane data; clear them immediately if it does not."
+    },
+    {
+      "finding_id": "R9-B2-B-07",
+      "material": true,
+      "finding": "BLOCKS — An unverified owner-specific root response could leak data through the offline cache. CANNOT TELL — isShell checks for a build-marker substring, not that GET / is the same data-free HTML for every login; its handler and template are absent.",
+      "evidence_ref": "crooks-assistant/web/sw.js:keepShell,networkFirst,isShell",
+      "required_repair": "Supply crooks-assistant/app/main.py's GET / handler and crooks-assistant/web/index.html at this SHA, and test an owner load followed by an unauthenticated offline load; otherwise cache only a demonstrably public shell."
+    },
+    {
+      "finding_id": "R9-G-G-01",
+      "material": true,
+      "finding": "BLOCKS — The missing live-voice and telemetry implementations leave a possible production token or spoken-data leak unverified. CANNOT TELL — remote.js:fromTurn handles a screen card, but cannot establish token lifetime or the destinations of live words and telemetry.",
+      "evidence_ref": "crooks-assistant/web/remote.js:fromTurn,open; REVIEW PACKET — R9-G-G-01",
+      "required_repair": "Supply crooks-assistant/web/live-voice.js, web/telemetry.js, web/app.js and web/index.html at this SHA for the requested token, spoken-content and integration review."
+    },
+    {
+      "finding_id": "S3P-F-01",
+      "material": true,
+      "finding": "BLOCKS — An expired customer pane can remain visible on the production remote and leak data during a pointer hold. A successful sync calls render without the immediate-wipe flag; render returns before filtering expired panes while the hold is active.",
+      "evidence_ref": "crooks-assistant/web/remote.js:fresh,render,sync; crooks-assistant/web/remote.js:build pointerdown handler",
+      "required_repair": "On local pane expiry, clear its sensitive DOM and retained data synchronously regardless of pointer hold, and test expiry during an active hold."
+    }
+  ],
+  "reviewer": {
+    "principal_id": "gpt",
+    "principal_kind": "model",
+    "session_id": "openai-response:resp_0b2dea8201230d7d016abac2a7aac087d2bb5b75d34db654f7",
+    "session_started_at": "2026-09-28T19:40:23.191571Z",
+    "context_fresh": true,
+    "workspace_id": "git-objects:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_branch": "detached:81c78948cdb518dba344990617fb77b8a00bc228",
+    "workspace_head": "81c78948cdb518dba344990617fb77b8a00bc228",
+    "read_only": true,
+    "clean": true
+  },
+  "summary": "CHANGES_REQUIRED: local-expiry leaks and persistence of legacy screen keys remain; missing sibling files prevent clearing the screen-data, dots, root-shell and live-voice findings.\n\n[model gpt-6-sol, effort high, usage {\"input_tokens\": 138886, \"input_tokens_details\": {\"cache_write_tokens\": 138883, \"cached_tokens\": 0}, \"output_tokens\": 7999, \"output_tokens_details\": {\"reasoning_tokens\": 6545}, \"total_tokens\": 146885}]"
+}
