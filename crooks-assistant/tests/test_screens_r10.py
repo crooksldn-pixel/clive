@@ -392,3 +392,17 @@ def test_a_change_that_would_overflow_the_record_is_refused_with_nothing_changed
     # Taking the list off makes the record smaller: never refused for its size.
     s.take_off(screen["id"])
     assert s._data["screens"][screen["id"]]["showing"] is None and len(s.done(limit=MAX_DONE)) == MAX_DONE
+
+
+def test_every_answer_to_a_screens_ask_says_which_build_answered(s):
+    """A screen left open across a deploy reloads itself once it rests (web/display.js), so every
+    answer to its ask says which build of CLIVE gave it: in full, and "nothing new" alike."""
+    from tests.test_displays import app_with, as_screen, pair
+
+    client = app_with(s)
+    client.app.state.runtime.build = "build-7"
+    made = pair(s, "Packing screen")
+    full = client.get(f"/displays/{made['id']}?v=-1", headers=as_screen(made["screen_key"]))
+    assert full.status_code == 200 and full.headers["x-clive-build"] == "build-7"
+    quiet = client.get(f"/displays/{made['id']}?v={full.json()['version']}", headers=as_screen(made["screen_key"]))
+    assert quiet.status_code == 204 and quiet.headers["x-clive-build"] == "build-7"

@@ -203,3 +203,17 @@ def test_the_screens_and_their_remote_under_node(name):
     )
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
     assert "# fail 0" in result.stdout
+
+
+@needs_node
+@pytest.mark.parametrize("name", ["live-voice.test.js", "live-words-page.test.js"])
+def test_the_live_words_under_node(name):
+    """Live voice (round 9) and its round-10 repairs, with the page's own code: the single-use key
+    is bounded and dropped, live words stay on the glass and leave it when the turn ends, and a
+    provider's error reaches telemetry only as a fixed word (C-02 to C-05, G-01, G-02)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / name)],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout

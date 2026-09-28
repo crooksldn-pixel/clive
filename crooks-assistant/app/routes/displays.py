@@ -306,10 +306,13 @@ async def poll(screen_id: str, request: Request, v: int = -1) -> dict | Response
         return _not_this_screen(request, exc)
     if now is None:
         return JSONResponse(status_code=404, content={"code": "not_found", "detail": "No such screen."})
+    # Which build of CLIVE answered, so a screen left open across a deploy reloads itself once it
+    # is resting (web/display.js), rather than waiting for someone to reload it by hand.
+    build = {"X-Clive-Build": str(getattr(getattr(request.app.state, "runtime", None), "build", "") or "")[:80]}
     # A screen waiting for approval is answered in full each time: it shows how long its code has.
     if int(now["version"]) == int(v) and not now["pending"]:
-        return Response(status_code=204)
-    return now
+        return Response(status_code=204, headers=build)
+    return JSONResponse(content=now, headers=build)
 
 
 @router.post("/{screen_id}/seen", response_model=None)

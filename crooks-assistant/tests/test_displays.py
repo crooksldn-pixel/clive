@@ -480,9 +480,10 @@ def test_a_screen_names_itself_asks_and_marks_done(s):
     # The owner's other device, knowing the id and the name but not the key, is not the screen;
     # nor is one that sends the key as the header it used to be (round 9, B2-01: that is a page
     # from before the cookie, told to reload, tests/test_screen_cookie.py).
-    for headers in (OWNER, as_screen("guess"), {**OWNER, "X-Screen-Key": key}):
+    for headers, code in ((OWNER, "not_this_screen"), (as_screen("guess"), "not_this_screen"),
+                          ({**OWNER, "X-Screen-Key": key}, "reload")):
         refused = client.get(f"/displays/{made['id']}?v=-1", headers=headers)
-        assert refused.status_code == 403 and refused.json()["code"] in ("not_this_screen", "reload")
+        assert refused.status_code == 403 and refused.json()["code"] == code, headers
         assert "showing" not in refused.text
     taken = client.post("/displays/register", json={"name": "packing SCREEN"}, headers=OWNER)
     assert taken.status_code == 409 and taken.json()["code"] == "name_taken"

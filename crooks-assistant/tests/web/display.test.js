@@ -88,7 +88,8 @@ const IDS = ['board', 'ui', 'idle', 'namer', 'mark', 'pairing', 'scan', 'status'
 
 // One screen page: its elements, a clock and timers that move only when told, a stored screen,
 // and CLIVE answering as `answer(request)` says.
-function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0), calm = true } = {}) {
+function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0), calm = true, build = '' } = {}) {
+  const reloads = [];
   const clock = { now: start };
   const timers = [];
   let seq = 0;
@@ -112,7 +113,7 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
   }
   const document = {
     getElementById: (id) => els[id] || null,
-    querySelector: () => null,
+    querySelector: (sel) => (build && String(sel).includes('crooks-build') ? { getAttribute: () => build } : null),
     createElement: (tag) => new Element(tag),
     createElementNS: (ns, tag) => new Element(tag, ns),
     createTextNode: (data) => new Text(data),
@@ -125,8 +126,9 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
     fullscreenElement: null,
     documentElement: {},
   };
-  const response = (status, body) => ({
+  const response = (status, body, headers) => ({
     status, ok: status >= 200 && status < 300,
+    headers: { get: (name) => (headers && Object.prototype.hasOwnProperty.call(headers, name) ? headers[name] : null) },
     json: async () => (body === undefined ? {} : JSON.parse(JSON.stringify(body))),
     clone() { return this; },
   });
@@ -137,7 +139,7 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
       body: opts.body ? JSON.parse(opts.body) : null, at: clock.now };
     requests.push(request);
     const said = answer(request);
-    const give = (s) => (s === 'network' ? Promise.reject(new TypeError('Failed to fetch')) : response(s.status, s.body));
+    const give = (s) => (s === 'network' ? Promise.reject(new TypeError('Failed to fetch')) : response(s.status, s.body, s.headers));
     if (said && typeof said.then === 'function') return said.then(give);
     return said === 'network' ? give(said) : Promise.resolve(give(said));
   };
@@ -149,7 +151,7 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
     window, document, console, Math, JSON, Date: FakeDate, Promise, Set, Map, Array, Number, Object, String, Error, TypeError,
     Uint8ClampedArray, isNaN, parseFloat, encodeURIComponent, AbortController,
     navigator: { hardwareConcurrency: 8 },
-    location: { search: '', origin: 'https://clive.example' },
+    location: { search: '', origin: 'https://clive.example', reload: () => reloads.push(clock.now) },
     NodeFilter: { SHOW_TEXT: 4 },
     localStorage: {
       getItem: (k) => (Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null),
@@ -200,7 +202,7 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
     engine().runDue();
     await flush();
   };
-  return { els, clock, requests, storage, writes, dots, load, advance, flush, frame, engine, docListeners, winListeners,
+  return { els, clock, requests, storage, writes, dots, load, advance, flush, frame, engine, docListeners, winListeners, reloads,
     state: () => window.__screen };
 }
 
@@ -968,4 +970,33 @@ test('a refusal of any call of the screen’s own takes the slip down as the ask
   assert.equal(pg.state().showing, null, 'and what the page kept of it');
   assert.equal(pg.state().drawnView, null);
   assert.equal(pg.state().version, -1, 'the next ask starts afresh');
+});
+
+
+// A screen left open across a deploy reloads itself, but only once it is resting: never mid-slip.
+test('a screen left open across a deploy reloads itself once it rests, never while a slip is up', async () => {
+  let showing = true;
+  let version = 1;
+  const box = {};
+  const pg = page({ build: 'build-old', answer: (r) => box.answer(r) });
+  const at = new Date(pg.clock.now - 60 * 1000).toISOString();
+  box.answer = (request) => {
+    if (request.url.endsWith('/seen')) return { status: 200, body: { seen: request.body.end } };
+    const headers = { 'X-Clive-Build': 'build-new' };
+    if (request.url.includes('?v=' + version)) return { status: 204, headers };
+    return { status: 200, headers, body: { id: SCREEN.id, name: SCREEN.name, version, pending: false, now: new Date(pg.clock.now).toISOString(),
+      last_done: null, beside: null, showing: showing ? Object.assign(slip(at), { v: 1 }) : null } };
+  };
+  await pg.load();
+  await pg.advance(6000);
+  assert.ok(pg.els.ui.allText().includes('Sam Carter'), 'the slip is up');
+  assert.equal(pg.reloads.length, 0, 'not while a slip is up, however new CLIVE is');
+  showing = false; version = 2;           // the owner takes it off
+  await pg.advance(10000);
+  assert.equal(pg.reloads.length, 1, 'resting on the clock: it reloads, once');
+});
+
+test('the same build never reloads the screen', async () => {
+  const { pg } = await upWith(() => ({ version: 1, showing: null }));
+  assert.equal(pg.reloads.length, 0);
 });

@@ -224,6 +224,17 @@ What every deploy must hold:
   sent the key). Run as a user who cannot read that key, or with the port held by anything else,
   they say the detail is the owner's and exit 1; so does `make status`.
 
+- **Screens left open reload themselves — from round 10 on.** Every answer to a screen's ask
+  says which build answered (`X-Clive-Build`), and a screen whose page is from an older build
+  reloads itself once it is resting on its clock (never mid-slip, never mid-video).
+  **The round-10 deploy itself is the exception**: the pages already open on the TVs are from
+  before this, and their key moves from the page's storage into an HttpOnly cookie (B2-01). An
+  old page still sending its key as a header is answered 403 `reload` and shows "not allowed"
+  until someone reloads it. So, once, after the round-10 deploy: reload `/display` on every
+  screen (or restart the TV's browser), over the https tailnet address, since the cookie is
+  Secure. It keeps its name and its approval: the new page hands its old key back once, gets
+  the cookie, and the old key stops working.
+
 ## The capability-gap record, cleaned at start-up
 
 The first start of a build with the current gap rule (deploy review rounds 6 and 7) rewrites

@@ -1581,6 +1581,7 @@
 
   // ---- asking CLIVE what to show --------------------------------------------------------
   let pollTimer = 0, pollDelay = POLL_MS, polling = false;
+  let newerBuild = false;             // CLIVE answered from a newer build than this page's
   function receive(data) {
     if (!data || typeof data !== 'object') return;
     const now = Date.parse(data.now || '');
@@ -1740,6 +1741,12 @@
       const data = response.status === 204 ? null : await response.json();
       if (stale()) { again(); return; }
       S.lastOk = Date.now();
+      // CLIVE has been updated since this page was loaded: it reloads itself once it is resting
+      // (the clock showing, nothing playing), so a screen left open across a deploy never needs
+      // someone to reload it by hand. Never mid-slip and never mid-video.
+      const build = response.headers && typeof response.headers.get === 'function' ? response.headers.get('X-Clive-Build') : '';
+      if (build && BUILD && BUILD !== '__BUILD__' && build !== BUILD) newerBuild = true;
+      if (newerBuild && S.phase === 'idle' && !VIDEOS.size && !S.drawnView) { location.reload(); return; }
       if (S.gone) { S.gone = ''; showLine(true); }
       if (S.online !== true) setOnline(true);
       // While a video is up the owner's remote is working it: asked more often, so it answers at once.

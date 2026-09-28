@@ -60,6 +60,11 @@ async def split():
 
 
 async def _settle():
+    """Long enough for a cancellation to land on every Python this runs on: 3.11 takes more
+    turns of the loop than 3.12 to move a task from cancelling to cancelled."""
+    for _ in range(3):
+        await asyncio.sleep(0)
+    await asyncio.sleep(0.02)
     for _ in range(3):
         await asyncio.sleep(0)
 
