@@ -300,6 +300,68 @@ NOT_RECORDED_LINE = ("[This reads as the owner's feedback about CLIVE itself, an
                      "so nothing has written it down. Say so plainly, in a few words; never say it was logged.]")
 
 
+def _nothing_to_write() -> dict[str, Any] | None:
+    return None
+
+
+def _clock() -> float | None:
+    """The timeline's own clock, so an event written later keeps the time it records; None
+    (the timeline then stamps it as written) should that clock fail."""
+    try:
+        return float(timeline.current().clock())
+    except Exception:  # noqa: BLE001 — a clock is not worth a turn
+        return None
+
+
+def held_at_turn(said: str, *, branch: Any = None, session_id: str = "", turn_id: str = "",
+                 now: float | None = None) -> tuple[str, Any]:
+    """`at_turn` in two halves, for the turn route: recognise the sentence and take the screen
+    he was complaining about NOW, before the model is asked, but write the event only when the
+    returned function is called — which the route does once this turn's reads have told the
+    timeline the names they returned.
+
+    A defect report can name a customer ("log that Mia Kowalski's card shows the wrong order")
+    whom only this turn's own reads go on to find. The timeline redacts an event as it is
+    written, never after, so an event written before those reads kept her name raw (round 10's
+    records fixer, on the round-9 finding D1-01). The event keeps the time he said it, so the
+    timeline still reads in the order things happened.
+
+    Returns the line for the model — or "" when the sentence is not feedback — and the writer,
+    which returns the event written or None. Neither half ever raises.
+    """
+    try:
+        recognition = recognise(said)
+        if recognition is None:
+            return "", _nothing_to_write
+        if timeline.current().own is None:
+            return NOT_RECORDED_LINE, _nothing_to_write
+        where = context(branch, now=now)
+        said_at = _clock() if now is None else now
+    except Exception:  # noqa: BLE001 — telemetry must never fail a turn
+        return "", _nothing_to_write
+
+    def write() -> dict[str, Any] | None:
+        try:
+            return timeline.emit(
+                "owner_feedback",
+                ts=said_at,
+                session_id=session_id or None,
+                turn_id=turn_id or None,
+                branch_id=where["branch_id"] or None,
+                shape=recognition.kind,
+                text=recognition.text,
+                screen=where["screen"] or None,
+                entities=where["entities"] or None,
+                tab=where["tab"] or None,
+                branch_status=where["branch_status"] or None,
+                nearby=where["nearby"] or None,
+            )
+        except Exception:  # noqa: BLE001 — telemetry must never fail a turn
+            return None
+
+    return RECORDED_LINE, write
+
+
 def at_turn(said: str, *, branch: Any = None, session_id: str = "", turn_id: str = "",
             now: float | None = None) -> str:
     """Recognise one sentence at turn time, record it if it is feedback, and return the line

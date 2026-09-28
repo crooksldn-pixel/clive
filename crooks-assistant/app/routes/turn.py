@@ -313,12 +313,15 @@ async def _turn(request: Request, runtime, live, branch, *, text: str | None, au
     set_line = working_sets.prompt_line(live, branch=branch)
     if set_line:
         prompt_text = f"{prompt_text}\n\n{set_line}"
-    # A defect the owner says out loud is recorded before the model is asked, against the screen
+    # A defect the owner says out loud is taken down before the model is asked, against the screen
     # he was complaining about, and the model is told what the Mac did with it (the 2026-09-28
-    # deploy review, round 9, E-03: app/observability/feedback.py at_turn). It never fails a turn.
+    # deploy review, round 9, E-03: app/observability/feedback.py held_at_turn). It is WRITTEN
+    # once this turn's reads have named whoever they found, as the words heard are, because a
+    # defect report can name a customer only those reads go on to find (round 9, D1-01). It
+    # never fails a turn.
     from app.observability import feedback
 
-    told = feedback.at_turn(text, branch=branch, session_id=session_id, turn_id=turn_id)
+    told, write_feedback = feedback.held_at_turn(text, branch=branch, session_id=session_id, turn_id=turn_id)
     if told:
         prompt_text = f"{prompt_text}\n\n{told}"
     for extra in _context_lines(live, text, runtime=runtime):
@@ -332,7 +335,13 @@ async def _turn(request: Request, runtime, live, branch, *, text: str | None, au
     # `timings`, which is milliseconds and is published as such.
     measures = {"model_input_chars": len(prompt_text), "tool_schema_bytes": _tool_schema_bytes(runtime)}
     t0 = time.perf_counter()
-    result = await _provider_turn(runtime, session_id, prompt_text, branch)
+    try:
+        result = await _provider_turn(runtime, session_id, prompt_text, branch)
+    finally:
+        # Written even when the model fails — that is when a defect report matters most — and
+        # only after the names this turn's reads returned are known to the timeline.
+        timeline.note_names(live.pii_seen)
+        write_feedback()
     timings["agent"] = (time.perf_counter() - t0) * 1000
     for step, ms in getattr(result, "steps", None) or []:
         timings[f"step:{step}"] = ms

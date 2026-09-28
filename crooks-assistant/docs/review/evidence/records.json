@@ -374,18 +374,21 @@
     "parts": [
       "O1"
     ],
-    "status": "EVIDENCED",
+    "status": "FIXED",
     "question": "Are customer names redacted from the very first events a turn writes — before any read of the turn has returned them?",
     "files": [
       "crooks-assistant/app/routes/turn.py",
       "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/app/observability/feedback.py",
       "crooks-assistant/app/tools/dispatch.py",
       "crooks-assistant/tests/test_turn_boundary.py"
     ],
     "tests": [
-      "crooks-assistant/tests/test_turn_boundary.py::test_a_customer_named_aloud_is_redacted_from_what_the_turn_writes_even_before_a_read_names_her"
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_customer_named_aloud_is_redacted_from_what_the_turn_writes_even_before_a_read_names_her",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_defect_report_naming_a_customer_only_this_turns_reads_find_is_written_redacted",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_defect_report_is_written_even_when_the_model_fails"
     ],
-    "answer": "For the turn's own events, yes. turn._turn calls timeline.note_names(live.pii_seen) before turn_started (the names the conversation has already been shown); the words heard are not emitted when heard but held in heard_event and written by written_heard() only after timeline.note_names(live.pii_seen) has run again with what this turn's reads returned (it keeps the time it was heard); the model event and turn_finished are written after that same call. Timeline.emit scrubs every event (scrub → _redact → turnlog.redact_text with the noted names and by shape) before it is queued, so what is on disk is redacted as written. A read's own arguments are written before the read returns (tool_requested), so dispatch.loggable_args writes the owner's words in them (query, name, customer …) by length and a keyed digest, never as words. The test drives POST /turn with audio heard as 'What has Mia Kowalski ordered?', the model's reads returning her, and asserts no turn_started, stt, model, turn_performance, turn_finished or unsupported_claim event carries 'Kowalski', the stt text carries [name], and the order of times is kept. Not covered, and outside this file set: an owner_feedback event is written by feedback.at_turn before the model's reads, so a customer's name said for the first time INSIDE a defect report ('log that Mia Kowalski's card shows twice') is redacted only if the conversation had already been shown it. Closing that needs turn.py to record the feedback after the reads' note_names (keeping the screen captured before the model) — the turn fixer's file; not changed here."
+    "answer": "For the turn's own events, yes. turn._turn calls timeline.note_names(live.pii_seen) before turn_started (the names the conversation has already been shown); the words heard are not emitted when heard but held in heard_event and written by written_heard() only after timeline.note_names(live.pii_seen) has run again with what this turn's reads returned (it keeps the time it was heard); the model event and turn_finished are written after that same call. Timeline.emit scrubs every event (scrub → _redact → turnlog.redact_text with the noted names and by shape) before it is queued, so what is on disk is redacted as written. A read's own arguments are written before the read returns (tool_requested), so dispatch.loggable_args writes the owner's words in them (query, name, customer …) by length and a keyed digest, never as words. The test drives POST /turn with audio heard as 'What has Mia Kowalski ordered?', the model's reads returning her, and asserts no turn_started, stt, model, turn_performance, turn_finished or unsupported_claim event carries 'Kowalski', the stt text carries [name], and the order of times is kept. The owner_feedback event follows the same rule: feedback.held_at_turn recognises a spoken defect and takes the screen he was on before the model is asked (and the model is told it was logged), but returns a writer that the route calls in the finally around _provider_turn, after timeline.note_names(live.pii_seen) has run with what this turn's reads returned; the event keeps the time he said it. So a customer named for the first time inside a defect report ('log that the card for Mia Kowalski shows the wrong order'), whom only this turn's reads find, is written as [name]; the test asserts it, and fails on the round-10 route, which wrote the event before the model. The second test shows the report is written even when the model raises."
   },
   {
     "finding": "R9-A3a-A3a-LIVE-CLEAN",
