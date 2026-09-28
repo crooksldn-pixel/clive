@@ -189,3 +189,17 @@ def test_the_scene_renderer_under_node():
     )
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
     assert "# fail 0" in result.stdout
+
+
+@needs_node
+@pytest.mark.parametrize("name", ["display.test.js", "remote.test.js"])
+def test_the_screens_and_their_remote_under_node(name):
+    """The screen page and the owner's remote for it (round 9): two panes, ticks shown in place,
+    pages the remote turns, a screen turned off, and each letting go of what it showed on a 403,
+    out of reach and past CLIVE's own limit (tests/web/display.test.js, tests/web/remote.test.js)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / name)],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout

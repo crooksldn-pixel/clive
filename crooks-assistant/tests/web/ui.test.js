@@ -39,6 +39,8 @@ test('the vocabulary is exactly the presentation layer\'s', () => {
     // full customer profiles (D-4), and a count with one row each is a different component
     // from a profile, not a smaller one.
     'summary_list',
+    // The owner's app becoming the remote for one of his screens (round 9, web/remote.js).
+    'screen_remote',
   ]));
 });
 

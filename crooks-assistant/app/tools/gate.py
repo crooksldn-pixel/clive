@@ -143,6 +143,9 @@ _KNOWN_TOOLS = frozenset({
     # screens, and is named "pair" rather than "approve", which the verbs above read as a store
     # write.
     "screen_list", "screen_show", "screen_pair",
+    # Round 9: screen_off takes things off one of his screens and screen_remote opens his app's
+    # remote for one; each changes only CLIVE's own record of screens, or nothing.
+    "screen_off", "screen_remote",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

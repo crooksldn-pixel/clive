@@ -243,7 +243,8 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
 
     assert "engineering_status" in gate._KNOWN_TOOLS
     assert {"screen_list", "screen_show", "screen_pair"} <= gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 37, "33 before, engineering_status, then screen_list, screen_show and screen_pair"
+    assert {"screen_off", "screen_remote"} <= gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 39, "33 before, engineering_status, screen_list, screen_show, screen_pair, then screen_off and screen_remote"
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",

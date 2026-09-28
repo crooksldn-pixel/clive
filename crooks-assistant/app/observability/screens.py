@@ -105,10 +105,13 @@ DATA_NAMES = frozenset({
     # The ask bar's live words (web/live-voice.js): whether it shows some, whether it says what was
     # heard, and the mark that keeps the words themselves out of a copy of the screen.
     "data-heard", "data-spoken", "data-words",
+    # Round 9, the screens remote: a pane's place, an item's place, and the screen a card opens
+    # the remote for (its id, and its name, which is free text).
+    "data-pane", "data-tick", "data-remote-screen", "data-remote-name",
 })
 # data- names whose values are free text by what they are for: kept, but empty.
 DATA_FREE_TEXT = frozenset({"data-args", "data-ask", "data-customer", "data-customer-name", "data-label",
-                            "data-name", "data-said"})
+                            "data-name", "data-said", "data-remote-name"})
 # Any other data- value: a short token (a state word, an id, a number) or nothing.
 _DATA_TOKEN = re.compile(r"^[A-Za-z0-9_.:/#-]{0,64}$")
 # What a drawing number may be: no leading zero, at most four digits before the point.

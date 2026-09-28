@@ -333,6 +333,8 @@ const DETAIL_WORDS = {
   // The owner's screens
   screen_list: ['Checking', 'your screens'], screen_show: ['Putting', 'it on the screen'],
   screen_pair: ['Approving', 'the screen'],
+  // Round 9, the screens remote (web/remote.js): turning a screen off, and this app becoming its remote.
+  screen_off: ['Turning', 'the screen off'], screen_remote: ['Opening', 'the remote'],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
@@ -2225,6 +2227,9 @@ function renderAttentionSurface() {
 // The answer to a turn: cards first, then the mode they need.
 function renderTurn(data) {
   const ui = window.CrooksUI ? window.CrooksUI.render(data.ui, renderOpts()) : { nodes: [], skipped: [], stack: null, errors: [], hasContext: false };
+  // Round 9, the screens remote: CLIVE's screen_remote card (his answer when the owner asks for a
+  // remote) opens the remote for its screen over the app (web/remote.js). The card is drawn as usual.
+  if (window.CliveRemote) window.CliveRemote.fromTurn(data.ui);
   if (ui.skipped.length) console.warn('[crooks] skipped ui items:', ui.skipped.join(', '));
   el.errline.textContent = '';
   lastErrorTitle = '';

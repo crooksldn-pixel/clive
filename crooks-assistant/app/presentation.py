@@ -21,6 +21,7 @@ before the tool ran; this runs afterwards and only shapes what is already known.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -82,6 +83,10 @@ UI_TYPES = frozenset({
     # that `present()` never builds — it is staged by the progressive layer, from the reads
     # the turn has planned and landed, and patched in place as each section arrives.
     "workspace_plan",
+    # the owner's app becoming the remote for one of his screens (round 9, screen_remote in
+    # app/tools/display_tools.py): the screen's id and name only. The tablet opens its remote
+    # when it draws this card (web/remote.js), and the card stays to open it again.
+    "screen_remote",
 })
 MAX_BATCH_ROWS = 50
 ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_query", "email_query"})
@@ -89,6 +94,9 @@ ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_q
 # Each returns the Mac's own card under `_surfaces`, and `_from_result` below takes it as it
 # is rather than re-shaping state that never came from the shop.
 WORKSPACE_TOOLS = frozenset({"shopify_discount_open", "shopify_order_open", "shopify_store_credit"})
+
+# One of the owner's screens (app/displays/store.py _ID).
+_SCREEN_ID = re.compile(r"^scr_[0-9a-f]{12}$")
 
 # Bounds. The tablet is 8 inches wide; more than this is a spreadsheet, not an answer.
 MAX_ORDERS = 10
@@ -477,6 +485,15 @@ def _family_cards(name: str, result: dict[str, Any], session: Session | None) ->
 
 
 def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
+    if name == "screen_remote":
+        # Round 9: "become the remote". The screen's id (not a secret: its key is) and name, and
+        # the titles of what it shows, bounded; the remote asks for the rest itself, as the owner.
+        screen_id = _text(result.get("screen_id"), 20)
+        if not _SCREEN_ID.fullmatch(screen_id):
+            return []
+        showing = [_text(t, MAX_TEXT_CHARS) for t in _list_strings(result.get("showing"), 2)]
+        return [_ui("screen_remote", {"screen_id": screen_id, "name": _text(result.get("screen"), 40),
+                                      "showing": showing, "on": bool(result.get("on"))})]
     if name in ("gmail_compose_open", "gmail_compose_fill"):
         # The composer's card is built by the family that owns the context
         # (app/families/compose.py `compose_surface`), which copies it key by key and bounds
