@@ -219,3 +219,16 @@ def test_the_live_words_under_node(name):
     )
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
     assert "# fail 0" in result.stdout
+
+
+@needs_node
+def test_the_accent_is_ios_blue_and_appearance_only_under_node():
+    """G-03 (rounds 9 and 11): the owner's move from lilac to iOS blue is one set of colour tokens
+    on body.alpha, and the app's stylesheets can reach nothing — no url(), no @import — so the
+    change is appearance and nothing else (tests/web/accent.test.js)."""
+    result = subprocess.run(
+        [NODE, "--test", str(ROOT / "tests" / "web" / "accent.test.js")],
+        capture_output=True, text=True, timeout=120, cwd=ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout

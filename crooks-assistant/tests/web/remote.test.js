@@ -585,3 +585,20 @@ test('under a finger a tick waits for the lift, but a pane CLIVE took off leaves
   assert.ok(!keeps(pg, 'Heavyweight Tee'));
   assert.equal(all(ui, '.rm-group').length, 1);
 });
+
+// Closes B2-02 (rounds 10 and 11): a refusal of the owner's own change, under the finger that made it.
+test('a refused change under the finger that made it takes everything away at once, and nothing of it is kept', async () => {
+  const pg = await opened((p) => view(p, [order(p), objective(p)]),
+    (request) => (request.url.endsWith('/remote/tick') ? { status: 403, body: { detail: 'no' } } : null));
+  const ui = pg.panel();
+  assert.ok(ui.allText().includes('Heavyweight Tee'));
+  ui.dispatch('pointerdown');                       // the finger that taps the row stays on the panel
+  all(ui, '.rm-tick')[0].listeners.click[0]({ stopPropagation() {} });
+  await pg.flush();                                 // CLIVE refuses the tick: this device may no longer do this
+  assert.equal(pg.R.state().held, true, 'the finger is still down');
+  assert.equal(all(ui, '.rm-group').length, 0, 'gone at once, not when the finger lifts');
+  assert.ok(!ui.allText().includes('Heavyweight Tee') && !ui.allText().includes('Get the drop live'));
+  assert.equal(pg.R.state().data, null);
+  assert.equal(pg.R.state().shown, null, 'nor kept as what was drawn');
+  assert.ok(ui.querySelector('.rm-state').textContent.includes('isn’t allowed'));
+});
