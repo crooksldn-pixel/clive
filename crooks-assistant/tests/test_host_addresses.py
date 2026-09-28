@@ -146,7 +146,7 @@ def test_the_socket_evidence_is_read_whole_or_says_it_cannot(tmp_path):
 async def test_a_reading_that_changes_under_it_is_not_believed_until_it_holds_still(kernel_world, monkeypatch):  # noqa: F811
     """The kernel writes these tables while it walks them: a reading taken across a change can be
     well formed and still leave an entry out. Two readings running must agree; a reading that
-    differs from the one before is followed by another, and three that never agree are "cannot
+    differs from the one before is followed by another, and four that never agree are "cannot
     say"."""
     whole = (kernel_world / "net" / "fib_trie").read_text()
     _trie(kernel_world, ["127.0.0.1", "100.64.50.50"])      # the server's own address left out
@@ -160,10 +160,10 @@ async def test_a_reading_that_changes_under_it_is_not_believed_until_it_holds_st
         return real(path)
 
     monkeypatch.setattr(identity, "_read_table", reading)
-    readings[:] = [whole, partial, whole]
+    readings[:] = [whole, partial, whole, partial]
     request = _self(HOST_V4)
     assert _gates(request) == FORGED_REFUSED, "no two readings running agreed"
-    assert "changed on every one of 3 readings" in actions_route.proxy_state(request)[1]
+    assert "changed on every one of 4 readings" in actions_route.proxy_state(request)[1]
     readings[:] = [partial, whole, whole]
     assert _gates(_self(HOST_V4)) == LOCAL_REFUSED, "the last two agreed, and hold the server's address"
     readings[:] = [whole, whole]
@@ -186,3 +186,38 @@ async def test_whatever_a_whole_looking_reading_leaves_out_the_servers_own_reque
         device = _v6() if HOST_V4 in left_out and HOST_V6 not in left_out else _from(40001)
         expect = ADMITTED if (HOST_V4 not in left_out or HOST_V6 not in left_out) else FORGED_REFUSED
         assert _gates(device) == expect, left_out
+
+
+# ------------------------------------------------ round 9 (A1b), F-05B-AVAIL: a passing failure is waited out, boundedly
+
+
+async def test_a_failure_that_outlasts_an_immediate_reread_is_waited_out_within_a_bound(kernel_world, monkeypatch):  # noqa: F811
+    """The A1b finding: a read that failed was tried again only at once, so a failure lasting a
+    moment longer than that refused the owner's device. Now a reading that fails or differs is
+    followed by another after a short wait that grows, up to ADDRESS_READS readings: a table that
+    fails twice running still answers his device, on two readings that agree; one that never
+    recovers is refused, having waited no more than ADDRESS_PAUSES_S in all; and readings that
+    agree at once wait for nothing."""
+    waited: list[float] = []
+    monkeypatch.setattr(identity, "_pause", waited.append)
+    real = identity._read_table
+    failures = {"left": 0}
+
+    def flaky(path):
+        if path.name == "fib_trie" and failures["left"] > 0:
+            failures["left"] -= 1
+            raise OSError("Resource temporarily unavailable")
+        return real(path)
+
+    monkeypatch.setattr(identity, "_read_table", flaky)
+    assert _gates(_from(40001)) == ADMITTED and waited == [], "two readings that agree wait for nothing"
+    failures["left"] = 2
+    request = _from(40001)
+    assert _gates(request) == ADMITTED, "two failures running, and still the owner's device is answered"
+    assert waited == list(identity.ADDRESS_PAUSES_S[:2]) and failures["left"] == 0
+    assert _gates(_self(HOST_V4)) == LOCAL_REFUSED, "and the server itself is still the server"
+    waited.clear()
+    failures["left"] = identity.ADDRESS_READS
+    route, why = actions_route.proxy_state(_from(40001))
+    assert route == actions_route.FORGED and f"read {identity.ADDRESS_READS} times" in why
+    assert len(waited) == identity.ADDRESS_READS - 1 and sum(waited) <= sum(identity.ADDRESS_PAUSES_S) <= 0.1

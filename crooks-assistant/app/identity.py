@@ -723,7 +723,15 @@ def _addresses_once(root: Path) -> tuple[HostAddresses | None, str]:
 
 
 # How many times the tables are read, at most, for one answer: two readings running must agree.
-ADDRESS_READS = 3
+ADDRESS_READS = 4
+# How long to wait before the next reading, when the one before it failed or differed from the
+# one before that: the first wait, the second, and any after (round 9, A1b F-05B-AVAIL). A reading
+# that goes wrong is a passing thing — the kernel changing a route while it is walked, a read
+# refused for a moment — and a short, growing wait lets it pass rather than refuse the owner's
+# device. Bounded: at most their sum (70 ms) in all, and only ever when a reading went wrong; two
+# readings that agree at once wait for nothing.
+ADDRESS_PAUSES_S = (0.01, 0.02, 0.04)
+_pause = time.sleep
 
 
 def host_addresses(*, proc: Path | None = None) -> tuple[HostAddresses | None, str]:
@@ -731,14 +739,21 @@ def host_addresses(*, proc: Path | None = None) -> tuple[HostAddresses | None, s
     (round 9, F-05B-AVAIL). The kernel writes these tables while it walks them, so one reading
     taken while an address or a route is being changed can be well formed and still leave an entry
     out; two consecutive readings that say the same were not taken across a change. At most
-    ADDRESS_READS readings, done at once one after another: a reading that fails, or one that
-    differs from the last, is followed by another, and when no two running agree the answer is
-    None — never the reading that happened to come last."""
+    ADDRESS_READS readings: a reading that fails, or one that differs from the last, is followed by
+    another after a short wait that grows (ADDRESS_PAUSES_S), and when no two running agree the
+    answer is None — never the reading that happened to come last, and never an address taken as
+    not this host's for want of a reading."""
     root = proc or PROC
     last: HostAddresses | None = None
     failure = ""
+    troubles = 0
+    wrong = False
     for _ in range(ADDRESS_READS):
+        if wrong:
+            _pause(ADDRESS_PAUSES_S[min(troubles, len(ADDRESS_PAUSES_S)) - 1])
         found, why = _addresses_once(root)
+        wrong = found is None or (last is not None and found != last)
+        troubles += wrong
         if found is None:
             failure, last = why, None
             continue

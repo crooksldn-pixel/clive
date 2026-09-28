@@ -196,7 +196,11 @@ What every deploy must hold:
   - this server's tailnet address is in the kernel's own tables (`/proc/net/fib_trie`, and
     `/proc/net/if_inet6` for IPv6), each read whole or not believed at all. A missing
     `if_inet6` counts as "no IPv6" only when `net.ipv6.conf.all.disable_ipv6` reads `1`;
-    otherwise every forwarded request is refused.
+    otherwise every forwarded request is refused. Since round 9 a reading is believed only when
+    two taken one after the other agree (up to four, with a wait of at most 70 ms in all, and
+    only when one went wrong); the IPv6 table must list `::1` unless IPv6 is switched off; and
+    a reading without this server's own tailnet address of the forwarded family refuses every
+    request of that family. The journal's refusal says which of these failed.
 - **Reports must be private, or it will not start.** At start-up every report is set to 0600
   and every folder to 0700. Anything that cannot be fixed is moved into `reports/.withheld/`;
   nothing is deleted to get it private. What is in `.withheld/` ages out like any report, by its

@@ -910,8 +910,9 @@ async def test_at_both_gates_a_malformed_ipv6_table_is_believed_in_no_part(kerne
 async def test_at_both_gates_a_read_that_fails_once_is_tried_again_before_anyone_is_refused(kernel_world, monkeypatch, table):
     """Availability: a table read that fails for an instant is read once more at once, and the
     owner's device is answered on what the second read says — which is still the whole truth, so
-    an address of this host's own is still refused as the server. Failing twice refuses, and says
-    how often it tried (round 9: up to three readings, two running of which must agree)."""
+    an address of this host's own is still refused as the server. Failing on every reading but
+    one refuses, and says how often it tried (round 9: up to four readings, two running of which
+    must agree, with a short wait after each that went wrong — tests/test_host_addresses.py)."""
     _addresses(kernel_world, ["100.101.102.103"], ["fd7a:115c:a1e0::abcd"])
     real = identity._read_table
     failures = {"left": 0}
@@ -931,11 +932,11 @@ async def test_at_both_gates_a_read_that_fails_once_is_tried_again_before_anyone
     failures["left"] = 1
     self_request = _request({"Tailscale-User-Login": OWNER, "X-Forwarded-For": "100.101.102.103"}, peer=("127.0.0.1", 40001))
     assert _gates(self_request) == LOCAL_REFUSED, "a retried read is not a weaker one"
-    failures["left"] = 2
+    failures["left"] = 3
     assert _gates(_from(40001)) == FORGED_REFUSED
-    failures["left"] = 2
+    failures["left"] = 3
     route, why = actions_route.proxy_state(_from(40001))
-    assert route == actions_route.FORGED and "could not be read (read 3 times" in why and table in why
+    assert route == actions_route.FORGED and "could not be read (read 4 times" in why and table in why
 
 
 # ------------------------------------------------ round 8, F-05B-AVAIL-PREFLIGHT: the phone's answer and the install's
