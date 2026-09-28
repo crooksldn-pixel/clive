@@ -7,8 +7,10 @@ work explicitly derived from one. What is held here, end to end:
 
 - a turn from anyone but the owner never reaches the model, let alone a tool;
 - work with no authority — unscoped, from a route the owner rule does not cover, from a task a
-  request left behind after its answer, with an expired or revoked authority — reaches no tool,
-  and no handler is ever called;
+  request left behind after its answer, with an expired or revoked authority, or in a context
+  where none was ever stamped — reaches no tool, and no handler is ever called;
+- bounded service work reaches its named reads and nothing else — no screen, no write — before
+  and after the owner's answer, and loses even those when it ends (round 8, F-NEW-TOOLS);
 - concurrent requests keep their own authority;
 - the REAL Agent SDK path: the provider's tool callbacks arrive on tasks the SDK started with no
   context of the request's, and they run only under the authority the provider carried from the
@@ -82,6 +84,7 @@ def world(client, tmp_path):  # noqa: F811
     app.state.allowed_logins = client.runtime.allowed_logins
     screens = displays_store.install(tmp_path / "objectives" / "displays.json")
     screen = screens.register("Office screen")
+    screens.approve("Office screen", screen["code"])   # approved with its code (round 8, B-02)
     provider = ToolingProvider(client.runtime)
     client.runtime.provider = provider
     return client, provider, screens, screen
@@ -208,36 +211,264 @@ async def test_with_no_authority_or_a_dead_one_no_handler_is_reached(world, monk
                 assert text.startswith(REFUSED), (held, tool, text)
 
 
-async def test_bounded_service_work_holds_its_own_derived_authority(world):
+async def test_bounded_service_work_holds_its_own_derived_authority(world, monkeypatch):
     """A speculative read the owner's request started may finish after the answer: it holds a
-    service authority derived from the owner's, named and expiring by itself — never the
-    request's, and never one derived from nothing."""
+    service authority derived from the owner's, named, expiring by itself, able to call only the
+    prefetch's own reads (round 8, F-NEW-TOOLS) — never the request's, never one derived from
+    nothing, and never a screen or a write, whatever the work reaches for."""
     from app.memory.prefetch import Prefetcher
 
-    _http, _provider, _screens, _screen = world
+    _http, _provider, screens, screen = world
+    reached = _reads_reach(monkeypatch)
     owner = authority.for_owner(OWNER)
     session = Session(session_id="prefetch")
     results: dict[str, str] = {}
 
-    async def read(tag):
+    async def read(tag, tool, args):
         await asyncio.sleep(0.1)
-        results[tag] = await dispatch("screen_list", {}, session=session, timeout_s=5)
+        results[tag] = await dispatch(tool, args, session=session, timeout_s=5)
 
     prefetcher = Prefetcher()
     with authority.acting_as(owner):
-        assert prefetcher.start("k-owner", lambda: read("owner"), scope="s")
+        assert prefetcher.start("k-read", lambda: read("read", "shopify_find_order", {"query": "1938"}), scope="s")
+        assert prefetcher.start("k-screen", lambda: read("screen", "screen_show", {"screen": "Office screen", "title": "x", "lines": ["y"]}), scope="s")
+        assert prefetcher.start("k-write", lambda: read("write", "shopify_order_cancel", {"order_id": "gid://shopify/Order/1"}), scope="s")
     owner.revoke()                                  # the request has been answered
     with authority.acting_as(None):
-        assert prefetcher.start("k-none", lambda: read("none"), scope="s")
+        assert prefetcher.start("k-none", lambda: read("none", "shopify_find_order", {"query": "1938"}), scope="s")
     await asyncio.sleep(0.4)
-    assert not results["owner"].startswith(REFUSED), results
+    assert not results["read"].startswith("REFUSED"), results
+    assert results["screen"].startswith("REFUSED") and results["write"].startswith("REFUSED"), results
     assert results["none"].startswith(REFUSED)
-    assert owner.derive("x", 10) is None, "nothing derives from a revoked authority"
+    assert reached == ["shopify_find_order"], "only the named read reached a handler"
+    assert screens._data["screens"][screen["id"]]["showing"] is None
+    assert owner.derive("x", 10, tools={"shopify_find_order"}) is None, "nothing derives from a revoked authority"
     fresh = authority.for_owner(OWNER)
-    derived = fresh.derive("prefetch:x", 10_000)
+    derived = fresh.derive("prefetch:x", 10_000, tools={"shopify_find_order"})
     assert derived.kind == authority.SERVICE and derived.purpose == "prefetch:x"
+    assert derived.tools == frozenset({"shopify_find_order"})
     assert derived.expires_at - fresh.expires_at < authority.MAX_SERVICE_S, "bounded however long is asked for"
-    assert derived.derive("again", 1) is None, "a service authority derives nothing"
+    assert derived.derive("again", 1, tools={"shopify_find_order"}) is None, "a service authority derives nothing"
+
+
+def _reads_reach(monkeypatch) -> list[str]:
+    """The dispatcher's way to a read handler, recording what reached it (and staging nothing)."""
+    reached: list[str] = []
+
+    async def read_once(name, args, *, session, timeout_s):
+        reached.append(name)
+        return {"ok": True, "tool": name}
+
+    def staged(*_a, **_k):
+        raise AssertionError("a change was staged for service work")
+
+    monkeypatch.setattr(dispatch_module, "_read_once", read_once)
+    monkeypatch.setattr(dispatch_module, "_stage", staged)
+    return reached
+
+
+# The owner's screens, a write, a bulk change, and reads that are not the service's to make.
+NOT_THE_SERVICES = (
+    ("screen_list", {}),
+    ("screen_show", {"screen": "Office screen", "title": "t", "lines": ["x"]}),
+    ("shopify_order_cancel", {"order_id": "gid://shopify/Order/1", "reason": "customer"}),
+    ("gmail_send_reply", {"thread_id": "abc123", "body": "x"}),
+    ("batch_email_send", {"set_id": "set_abcdef"}),
+    ("objective_note", {"objective_id": "obj_12345678", "note": "x"}),
+    ("mock_echo", {"word": "banana"}),
+)
+
+
+def _all_tools() -> list[str]:
+    from app.families import load_all
+    from app.objectives import tools as objective_tools  # noqa: F401
+    from app.tools import (  # noqa: F401 — every tool the runtime offers
+        analytics_tools,
+        batch_tools,
+        engineering_tools,
+        gmail_tools,
+        gmail_writes,
+        mock,
+        registry,
+        shopify_tools,
+        shopify_writes,
+    )
+
+    load_all()
+    return [spec.name for spec in registry.all_specs()]
+
+
+def test_a_service_authority_names_its_reads_and_can_name_nothing_else(world, monkeypatch):
+    """derive() needs the set, and keeps of it only the service reads (authority.SERVICE_READS)
+    that the gate also treats as reads (registered with no write or bulk definition, GREEN or
+    AMBER, on the gate's allow-list, not a mutation by name) — never one of the screens, never a
+    read that opens something on the Mac — and makes nothing when nothing is left. Neither list
+    can widen the other, and once made an authority cannot be widened."""
+    import time
+
+    from app.memory.prefetch import Prefetcher
+    from app.tools import registry
+
+    names = _all_tools()
+    owner = authority.for_owner(OWNER)
+    with pytest.raises(TypeError):
+        owner.derive("prefetch:x", 10)              # the set is not optional
+    for nothing in (frozenset(), [], None, "shopify_find_order", {"screen_list", "screen_show"},
+                    {"shopify_order_cancel", "batch_email_send", "gmail_send_reply", "no_such_tool", "mock_danger"}):
+        assert owner.derive("prefetch:x", 10, tools=nothing) is None, nothing
+    everything = owner.derive("prefetch:x", 10, tools=names)
+    for name in names:
+        spec = registry.get(name)
+        if name in everything.tools:
+            assert spec.write is None and spec.batch is None and not name.startswith("screen_"), name
+            assert spec.tier.value in ("GREEN", "AMBER"), name
+    assert everything.tools == authority.SERVICE_READS, "every service read, and nothing else the runtime offers"
+    assert not {"screen_list", "screen_show", "objective_note", "objective_open", "gmail_compose_open",
+                "shopify_discount_open", "shopify_order_open", "mock_echo"} & everything.tools
+    named = owner.derive("p", 10, tools=["mcp__crooks__gmail_search", "screen_list", "shopify_order_cancel"])
+    assert named.tools == frozenset({"gmail_search"}), "names are the gate's names, and only reads are kept"
+    assert Prefetcher().readable_tools() <= everything.tools and Prefetcher().readable_tools()
+    for field_name, value in (("tools", frozenset({"screen_list"})), ("kind", authority.OWNER), ("who", "x"),
+                              ("revoked", False), ("expires_at", named.expires_at + 60)):
+        with pytest.raises(AttributeError):
+            setattr(named, field_name, value)
+    named.expires_at = 0.0                          # only ever sooner
+    assert not named.active and not named.permits("gmail_search")
+    # A service authority made by hand, naming what derive() would never keep, can call none of it.
+    by_hand = authority.Authority(authority.SERVICE, OWNER, purpose="x", expires_at=time.monotonic() + 60,
+                                  tools=frozenset({"screen_list", "screen_show", "shopify_order_cancel", "gmail_search"}))
+    assert [n for n in ("screen_list", "screen_show", "shopify_order_cancel", "gmail_search") if by_hand.permits(n)] == ["gmail_search"]
+    assert not authority.Authority(authority.SERVICE, OWNER, expires_at=time.monotonic() + 60).active, "no tools, no authority"
+    # A write or a screen written into the service reads by mistake is still not one to the gate.
+    monkeypatch.setattr(authority, "SERVICE_READS", authority.SERVICE_READS | {"shopify_order_cancel", "screen_list", "batch_email_send"})
+    assert owner.derive("p", 10, tools=["shopify_order_cancel", "screen_list", "batch_email_send"]) is None
+
+
+async def test_screens_and_writes_are_refused_to_service_authority_before_any_handler_and_after_the_owner_answer(world, monkeypatch):
+    http, _provider, screens, screen = world
+    reached = _reads_reach(monkeypatch)
+    session = Session(session_id="service")
+    session.issue("gid://shopify/Order/1")
+    owner = authority.for_owner(OWNER)
+    derived = owner.derive("prefetch:k", 30, tools=[name for name, _ in NOT_THE_SERVICES] + ["shopify_find_order"])
+    assert derived.tools == frozenset({"shopify_find_order"}), "the screens, the writes and the Mac's own reads are dropped"
+    for moment in ("while the owner's request is open", "after its answer has been sent"):
+        with authority.acting_as(derived):
+            for tool, args in NOT_THE_SERVICES:
+                text = await dispatch(tool, args, session=session, timeout_s=5)
+                assert text.startswith("REFUSED"), (moment, tool, text)
+            assert not (await dispatch("shopify_find_order", {"query": "1938"}, session=session, timeout_s=5)).startswith("REFUSED")
+        owner.revoke()
+    assert reached == ["shopify_find_order", "shopify_find_order"]
+    assert screens._data["screens"][screen["id"]]["showing"] is None
+    assert not session.refusals, "service work's refusals are not the owner's"
+
+    # The same through a real owner request: bounded work it started runs after the answer, and
+    # still reaches only its read.
+    from app.memory.prefetch import Prefetcher
+
+    started: dict[str, object] = {}
+
+    class PrefetchingProvider:
+        def __init__(self, runtime):
+            self.runtime, self.prefetcher = runtime, Prefetcher()
+
+        async def start(self): pass
+        async def stop(self): pass
+        async def health(self): return True, "fake"
+        async def reset_session(self, session_id): pass
+        async def set_system_prompt(self, prompt): pass
+        async def interrupt(self, session_id): return True
+
+        async def turn(self, session_id, text):
+            conversation = self.runtime.sessions.get_or_create(session_id)
+
+            async def later():
+                await asyncio.sleep(0.2)            # well after the answer has been sent
+                started["held"] = authority.current()
+                return {tool: await dispatch(tool, args, session=conversation, timeout_s=5)
+                        for tool, args in (*NOT_THE_SERVICES, ("shopify_find_order", {"query": "1938"}))}
+
+            assert self.prefetcher.start("after-answer", later, scope="s")
+            started["task"] = self.prefetcher._tasks["after-answer"]
+            return TurnResult(text="done", session_id=session_id)
+
+    provider = PrefetchingProvider(http.runtime)
+    http.runtime.provider = provider
+    answered = await http.post("/turn", json={"text": "and look ahead", "session_id": "s9"}, headers=PROXIED)
+    assert answered.status_code == 200, answered.text
+    late = await asyncio.wait_for(started["task"], timeout=5)
+    assert started["held"].kind == authority.SERVICE
+    assert all(late[tool].startswith("REFUSED") for tool, _ in NOT_THE_SERVICES), late
+    assert not late["shopify_find_order"].startswith("REFUSED"), late
+    assert reached[-1] == "shopify_find_order" and reached.count("shopify_find_order") == 3
+    assert screens._data["screens"][screen["id"]]["showing"] is None
+
+
+async def test_a_prefetchs_authority_is_revoked_when_its_work_ends(world, monkeypatch):
+    """However the bounded work ends — an answer, an error, the timeout, or cancelled before it
+    ran — its authority is revoked then, so a task it left behind holds nothing."""
+    from app.memory import prefetch as prefetch_module
+    from app.memory.prefetch import Prefetcher
+
+    reached = _reads_reach(monkeypatch)
+    session = Session(session_id="revoked")
+    held: dict[str, authority.Authority] = {}
+    left: dict[str, asyncio.Task] = {}
+
+    async def answers(tag):
+        held[tag] = authority.current()
+
+        async def afterwards():
+            await asyncio.sleep(0.2)
+            return await dispatch("shopify_find_order", {"query": "1938"}, session=session, timeout_s=5)
+
+        left[tag] = asyncio.get_running_loop().create_task(afterwards())
+        return "found"
+
+    async def fails(tag):
+        held[tag] = authority.current()
+        raise RuntimeError("the read failed")
+
+    async def hangs(tag):
+        held[tag] = authority.current()
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(prefetch_module, "TIMEOUT_S", 0.2)
+    prefetcher = Prefetcher()
+    with authority.acting_as(authority.for_owner(OWNER)):
+        for tag, work in (("answered", answers), ("failed", fails), ("timed out", hangs)):
+            assert prefetcher.start(tag, lambda work=work, tag=tag: work(tag), scope="s")
+        assert prefetcher.start("cancelled", lambda: answers("cancelled"), scope="s")
+        prefetcher._tasks["cancelled"].cancel()      # before it ever ran
+        cancelled = prefetcher._tasks["cancelled"]
+    await asyncio.sleep(0.5)
+    assert prefetcher.collect("answered") == "found"
+    for tag in ("answered", "failed", "timed out"):
+        assert held[tag].kind == authority.SERVICE and held[tag].revoked and not held[tag].active, tag
+    assert cancelled.cancelled() and "cancelled" not in held
+    late = await asyncio.wait_for(left["answered"], timeout=5)
+    assert late.startswith(REFUSED), "what the work left running holds nothing once it has ended"
+    assert reached == []
+
+
+async def test_a_dispatch_with_no_authority_stamped_at_all_reaches_no_handler(world, monkeypatch):
+    """Not an override to None: a task running in a brand-new context, where TOOL_AUTHORITY has
+    never been set — the state every task not started by an admitted request is in — even when the
+    code that made it holds the owner's authority."""
+    _no_handler(monkeypatch)
+    session = Session(session_id="unstamped")
+
+    async def unstamped():
+        assert authority.TOOL_AUTHORITY.get() is None and authority.current() is None
+        return [await dispatch(tool, args, session=session, timeout_s=5)
+                for tool, args in (("screen_list", {}), ("objective_list", {}), ("shopify_find_order", {"query": "1938"}),
+                                   ("shopify_order_detail", {"order_id": "gid://shopify/Order/1"}))]
+
+    with authority.acting_as(authority.for_owner(OWNER)):
+        task = asyncio.get_running_loop().create_task(unstamped(), context=contextvars.Context())
+    answers = await task
+    assert len(answers) == 4 and all(a.startswith(REFUSED) for a in answers), answers
 
 
 # --------------------------------------------------------------------------- the real SDK path
@@ -401,5 +632,35 @@ async def test_the_pretooluse_hook_denies_a_call_with_no_authority(sdk):
     assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
     conv.begin(Session(session_id="h"), authority=authority.for_owner(OWNER))
     allowed = await sdk._hook_for(conv.holder)({"tool_name": name, "tool_input": {}}, None, None)
+    assert allowed == {}
+    await sdk.stop()
+
+
+async def test_the_real_provider_and_its_hook_hold_a_service_authority_to_its_reads(sdk, monkeypatch):
+    """A turn carried under bounded service authority — after the owner's own was revoked — gets
+    its read through the SDK's callback and nothing else: the screens and a write are refused by
+    the provider before dispatch, and the PreToolUse hook denies them too (round 8, F-NEW-TOOLS)."""
+    from app.tools import registry
+
+    reached = _reads_reach(monkeypatch)
+    owner = authority.for_owner(OWNER)
+    derived = owner.derive("prefetch:k", 30, tools={"shopify_find_order", "screen_list", "shopify_order_cancel"})
+    owner.revoke()
+    calls = [("screen_list", {}), ("screen_show", {"screen": "Office screen", "clear": True}),
+             ("shopify_order_cancel", {"order_id": "gid://shopify/Order/1", "reason": "customer"}),
+             ("shopify_find_order", {"query": "1938"})]
+    answered = await _turn(sdk, calls, held=derived)
+    assert all(a.startswith("REFUSED") for a in answered[:3]), answered
+    assert not answered[3].startswith("REFUSED"), answered
+    assert reached == ["shopify_find_order"]
+    with authority.acting_as(derived):
+        conv = await sdk._conversation_for("hook")
+    conv.holder.conversation = conv
+    conv.begin(Session(session_id="hook"), authority=derived)
+    hook = sdk._hook_for(conv.holder)
+    for name, args in calls[:3]:
+        denied = await hook({"tool_name": f"mcp__{registry.MCP_SERVER_NAME}__{name}", "tool_input": args}, None, None)
+        assert denied["hookSpecificOutput"]["permissionDecision"] == "deny", name
+    allowed = await hook({"tool_name": f"mcp__{registry.MCP_SERVER_NAME}__shopify_find_order", "tool_input": {"query": "1938"}}, None, None)
     assert allowed == {}
     await sdk.stop()

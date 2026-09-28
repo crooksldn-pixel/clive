@@ -17,6 +17,9 @@ The distinction this makes, and the reason it is not just `curl /health`:
     unhealthy   an essential subsystem is down — the assistant cannot do its job
     degraded    something non-essential is down, or deliberately not deployed here
     ok          everything that is deployed is working
+    limited     it answered, but only with the liveness anyone gets: this user could not read
+                the server's own key (run it as root on the server), so nothing is known of
+                the essentials and it exits 1
 
 `degraded` exits 0. A server that was never given a local speech fallback is not a broken
 server, and a check that goes red for a thing you decided not to install is a check that
@@ -39,7 +42,7 @@ sys.path.insert(0, str(HERE))
 import launch_common as lc  # noqa: E402
 from control import ESSENTIAL  # noqa: E402 — one definition of "essential", not two
 
-DOWN, UNHEALTHY, DEGRADED, OK = "down", "unhealthy", "degraded", "ok"
+DOWN, UNHEALTHY, DEGRADED, OK, LIMITED = "down", "unhealthy", "degraded", "ok", "limited"
 
 
 def checks_of(health: dict | None) -> dict[str, dict]:
@@ -53,6 +56,10 @@ def verdict(health: dict | None) -> tuple[str, str]:
     """(state, one line). The line names what is wrong, in the owner's words."""
     if not health:
         return DOWN, "nothing is answering"
+    if lc.health_limited(health):
+        # The answer a caller the owner rule refuses gets (round 8, F-NEW-PAD): an essential that
+        # is not in it is unknown here, never working.
+        return LIMITED, lc.summarise_health(health)
     checks = checks_of(health)
     if not checks:
         return DOWN, "answered without any checks"

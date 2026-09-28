@@ -36,6 +36,10 @@ def show(port: int, out=sys.stdout) -> int:
     if not health:
         print(_line(BAD, "Backend", f"nothing answering on 127.0.0.1:{port}. `make up`, or `make install` to have it start at login."), file=out)
         return 1
+    if lc.health_limited(health):
+        # Liveness alone (round 8, F-NEW-PAD): what it does not show is not known to be working.
+        print(_line(MEH, "Backend", lc.summarise_health(health)), file=out)
+        return 1
     raw = health.get("checks")
     # /health answers with a map of name -> {ok, detail}; older builds answered with a list.
     checks: dict[str, dict] = (

@@ -19,6 +19,11 @@ from app.tools import shopify_tools
 from app.tools.dispatch import dispatch
 from tests.test_actions import ORDER, TOOL, FakeStore
 
+# The admitted owner calling tools directly, as a request the door let through would: every tool
+# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
+# and every test's that does not say this, is no authority at all.
+pytestmark = pytest.mark.usefixtures("owner_asking")
+
 OWNER = "owner@example.com"
 PROXIED = {"Tailscale-User-Login": OWNER, "X-Forwarded-For": "100.64.0.9"}
 
@@ -168,7 +173,14 @@ async def test_health_says_when_writes_are_off_and_when_they_are_ready(client):
     assert health["writes"] == {"state": "disabled", "detail": "disabled — CROOKS_WRITES_ENABLED=false"}
     assert health["checks"]["writes"]["ok"] is True, "off by configuration is not a fault"
     configure(client, writes=True, logins="")
-    assert (await client.get("/health?fresh=1")).json()["writes"]["detail"] == "blocked — CROOKS_ALLOWED_LOGINS not configured"
+    # With no allow-list nobody is the owner, so the server's own status reader reads this with
+    # the server's key; without it, only liveness (the 2026-09-27 deploy review, round 8, F-NEW-PAD).
+    from app import local_cli
+
+    local_cli.bind_key("k" * 43)
+    blocked = (await client.get("/health?fresh=1", headers={local_cli.HEADER: "k" * 43})).json()
+    assert blocked["writes"]["detail"] == "blocked — CROOKS_ALLOWED_LOGINS not configured"
+    assert "writes" not in (await client.get("/health")).json()
     configure(client)
     ready = (await client.get("/health?fresh=1")).json()["writes"]
     assert ready["state"] == "ready" and ready["detail"].startswith("ready — ") and "order note append" in ready["detail"]

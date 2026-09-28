@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import stat
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -61,11 +62,21 @@ class TestSession:
 
     @classmethod
     def from_dict(cls, data: dict) -> TestSession:
+        """Raises ValueError for a time that is not a finite number: _read takes such a record
+        for no record at all (round 8, F-04-STARTUP)."""
+        import math
+
+        def when(value) -> float:
+            number = float(value)
+            if not math.isfinite(number):
+                raise ValueError(f"not a time: {value!r}")
+            return number
+
         return cls(
             test_session_id=str(data.get("test_session_id") or ""),
             name=str(data.get("name") or ""),
-            started_at=float(data.get("started_at") or 0.0),
-            stopped_at=(float(data["stopped_at"]) if data.get("stopped_at") is not None else None),
+            started_at=when(data.get("started_at") or 0.0),
+            stopped_at=(when(data["stopped_at"]) if data.get("stopped_at") is not None else None),
         )
 
 
@@ -94,18 +105,66 @@ def _write_private(path: Path, data: dict) -> None:
 
 
 def _remove_if_older(path: Path, cutoff: float) -> int:
-    import shutil
+    """Remove `path` if it is past `cutoff`: 1 when it went, 0 when it stays.
 
+    A folder goes only when everything in it is past the cutoff too (round 8, F-04-REPORT-LOSS):
+    the folder's own time says when a name in it last changed, not when a file in it was last
+    written, so an old `ts-…-screens/` could hold a fresh report and was removed whole. Now every
+    descendant is looked at first (by its own time, never following a link), and one that is not
+    past the cutoff, or one that cannot be looked at, keeps the whole folder. The removal then
+    goes file by file, each checked again just before it goes, and a folder only by rmdir, which
+    refuses one that is not empty: something written while it runs stops it, and is kept."""
     try:
-        if path.stat().st_mtime >= cutoff:
-            return 0
-        if path.is_dir():
-            shutil.rmtree(path, ignore_errors=True)
-        else:
-            path.unlink()
-        return 1
+        top = os.lstat(path)
     except OSError:
         return 0
+    if top.st_mtime >= cutoff:
+        return 0
+    if not stat.S_ISDIR(top.st_mode):
+        try:
+            os.unlink(path)
+            return 1
+        except OSError:
+            return 0
+    order = _expired_tree(Path(path), cutoff)
+    if order is None:
+        return 0
+    try:
+        for entry, is_dir in order:
+            if is_dir:
+                os.rmdir(entry)
+            else:
+                if os.lstat(entry).st_mtime >= cutoff:
+                    return 0     # written since it was looked at: it, and what holds it, stay
+                os.unlink(entry)
+        os.rmdir(path)
+    except OSError:
+        return 0
+    return 1
+
+
+def _expired_tree(top: Path, cutoff: float) -> list[tuple[Path, bool]] | None:
+    """Everything under `top`, deepest first, as (path, is a folder), when every entry is past
+    `cutoff`; None when any is not, or when any part could not be looked at."""
+    order: list[tuple[Path, bool]] = []
+    failed: list[OSError] = []
+    for here, dirs, files in os.walk(top, topdown=False, onerror=failed.append, followlinks=False):
+        if failed:
+            return None
+        for name in [*files, *dirs]:
+            entry = Path(here) / name
+            try:
+                info = os.lstat(entry)
+            except OSError:
+                return None
+            if info.st_mtime >= cutoff:
+                return None
+            # A link to a folder is listed with the folders and never walked: it goes as a link.
+            order.append((entry, stat.S_ISDIR(info.st_mode)))
+    if failed:
+        return None
+    # Files before folders within each level; os.walk bottom-up already gives children first.
+    return sorted(order, key=lambda e: (-len(e[0].parts), e[1]))
 
 
 def private_dir(path: Path) -> Path:
@@ -183,10 +242,21 @@ def tighten(folder: Path) -> Exposure:
 
 
 def _private(folder: Path) -> bool:
+    """A real folder (not a link to one), this process's own, that no one else can enter. Whose
+    it is counts too (round 8): a 0700 folder someone else made is private to them, not to us."""
     try:
-        return not folder.stat().st_mode & 0o077 and folder.is_dir() and not folder.is_symlink()
+        info = os.lstat(folder)
     except OSError:
         return False
+    return stat.S_ISDIR(info.st_mode) and not info.st_mode & 0o077 and info.st_uid == os.geteuid()
+
+
+def _same_folder(folder: Path, before: os.stat_result) -> bool:
+    try:
+        now = os.lstat(folder)
+    except OSError:
+        return False
+    return (now.st_dev, now.st_ino) == (before.st_dev, before.st_ino)
 
 
 def withhold(folder: Path, exposed: list[Path]) -> tuple[int, list[Path]]:
@@ -195,7 +265,12 @@ def withhold(folder: Path, exposed: list[Path]) -> tuple[int, list[Path]]:
     no one else can reach it whatever its own mode (F-04). Never removed (round 7, F-04-REPORT-
     LOSS: a report is the owner's, and a permission problem is not a reason to lose it). What
     cannot be moved is left where it is and returned as still exposed, for the caller to refuse
-    to go on with. Returns (how many were withheld, what is still exposed)."""
+    to go on with. Returns (how many were withheld, what is still exposed).
+
+    Checked after the move as well as before it (round 8, F-04-REPORT-LOSS): the private folder
+    must still be the same real folder, ours and closed to everyone else, with the report in it.
+    If it is not, it is closed again; if that fails, the report is returned as still exposed.
+    The report's own mode is tightened too, where that now works."""
     import uuid
 
     folder = Path(folder)
@@ -221,15 +296,36 @@ def withhold(folder: Path, exposed: list[Path]) -> tuple[int, list[Path]]:
             continue            # already inside the private folder: out of reach as it is
         except ValueError:
             pass
+        try:
+            before = os.lstat(kept)
+        except OSError:
+            left.append(path)
+            continue
         target = kept / f"{uuid.uuid4().hex}-{path.name}"
         if target.exists() or target.is_symlink():
             left.append(path)           # never over anything
             continue
         try:
             os.rename(path, target)     # a name nothing has: nothing is replaced
-            withheld += 1
         except OSError:
             left.append(path)
+            continue
+        if not (_private(kept) and _same_folder(kept, before)):
+            try:
+                kept.chmod(0o700)
+            except OSError:
+                pass
+        if not (_private(kept) and _same_folder(kept, before) and os.path.lexists(target)):
+            _log.error("a withheld report's folder is not private after the move: %s", target)
+            left.append(target)
+            continue
+        try:
+            is_dir = stat.S_ISDIR(os.lstat(target).st_mode)
+            if not os.path.islink(target):
+                target.chmod(0o700 if is_dir else 0o600)
+        except OSError:
+            pass                        # out of reach inside the folder whatever its own mode
+        withheld += 1
     return withheld, left
 
 
@@ -243,6 +339,21 @@ def prune_reports(out_dir: Path, keep_days: int, *, now: float | None = None) ->
     return sum(_remove_if_older(path, cutoff) for path in out_dir.glob("ts-*"))
 
 
+def prune_withheld(folder: Path, keep_days: int, *, now: float | None = None) -> int:
+    """What withhold() took out of reach ages like any report (round 8, F-04-REPORT-LOSS): by its
+    own time, which a move does not change, whatever it is called there. The names withhold()
+    gives start with a UUID, so the `ts-*` pass never matched one and nothing there ever went."""
+    folder = Path(folder)
+    if not _private(folder):
+        return 0     # never through a link, or in a folder that is not ours: nothing removed there
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return 0
+    cutoff = (time.time() if now is None else now) - max(1, int(keep_days)) * 86_400
+    return sum(_remove_if_older(path, cutoff) for path in entries)
+
+
 def _read(path: Path) -> TestSession | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -250,7 +361,23 @@ def _read(path: Path) -> TestSession | None:
         return None
     if not isinstance(data, dict) or not data.get("test_session_id"):
         return None
-    return TestSession.from_dict(data)
+    try:
+        return TestSession.from_dict(data)
+    except (TypeError, ValueError, OverflowError):
+        # A record whose times are not times is no record (round 8, F-04-STARTUP): raising here
+        # stopped the day's roll, every event's session lookup and the command line's stop alike.
+        # Said once for each version of the file, not on every look at it.
+        try:
+            version = (str(path), path.stat().st_mtime_ns)
+        except OSError:
+            version = (str(path), -1)
+        if _UNREADABLE.get(version[0]) != version[1]:
+            _UNREADABLE[version[0]] = version[1]
+            _log.warning("test-session record at %s is not readable as one; taken as none", path)
+        return None
+
+
+_UNREADABLE: dict[str, int] = {}
 
 
 class TestSessions:
@@ -276,7 +403,10 @@ class TestSessions:
         # when someone next runs a report command (the 2026-09-26 deploy review, F-04 and F-03).
         self.reports_dir = Path(reports_dir) if reports_dir else None
         self.tidy_problem = ""   # what the last tidy_reports could not put right, in counts
-        self.tidy_contained = True   # False when a report is left exposed or could not be checked
+        # True only once a check has run to its end and found every report private; False when one
+        # is left exposed or could not be checked; None before any check has run (round 8,
+        # F-04-STARTUP: it began True, so a start-up whose check was skipped read as a clean one).
+        self.tidy_contained: bool | None = None
         self._cached: TestSession | None = None
         self._checked_at = -1.0
         self._mtime = -1.0
@@ -387,14 +517,50 @@ class TestSessions:
 
     def tidy_reports(self, now: float | None = None) -> int:
         """The reports folder, as the sessions are: old reports gone, the rest the owner's alone
-        (files 0600, folders 0700, including any written before that was the rule)."""
+        (files 0600, folders 0700, including any written before that was the rule).
+
+        Never raises, and never says "contained" without having looked (round 8, F-04-STARTUP):
+        `tidy_contained` is False from the moment it starts until the whole check has run. A
+        configured path that is not there holds no reports and is contained; one that is there
+        but cannot be looked at or listed, or is not a folder, is "could not be checked", not
+        "nothing exposed". Anything raised on the way is the same."""
         self.tidy_problem = ""
-        self.tidy_contained = True
-        if self.reports_dir is None or not self.reports_dir.is_dir():
+        self.tidy_contained = False
+        if self.reports_dir is None:
+            self.tidy_contained = True     # no reports folder configured: nothing to keep private
+            return 0
+        try:
+            return self._tidy_reports(now)
+        except Exception as exc:  # noqa: BLE001 - said, and not contained, whatever it was
+            self.tidy_problem = f"the reports could not be checked ({type(exc).__name__})"
+            self.tidy_contained = False
+            _log.error("reports could not be checked", exc_info=True)
+            return 0
+
+    def _tidy_reports(self, now: float | None) -> int:
+        folder = self.reports_dir
+        try:
+            info = os.stat(folder)
+        except FileNotFoundError:
+            self.tidy_contained = True     # not there: no report to expose
+            return 0
+        except OSError as exc:
+            self.tidy_problem = "the reports folder could not be checked"
+            _log.error("reports folder could not be looked at: %s", exc)
+            return 0
+        if not stat.S_ISDIR(info.st_mode):
+            self.tidy_problem = "the reports path is not a folder, so it could not be checked"
+            _log.error("reports path is not a folder: %s", folder)
+            return 0
+        try:
+            os.listdir(folder)
+        except OSError as exc:
+            self.tidy_problem = "the reports folder could not be read, so it could not be checked"
+            _log.error("reports folder could not be listed: %s", exc)
             return 0
         when = self.clock() if now is None else now
         removed = prune_reports(self.reports_dir, self.keep_named_days, now=when)
-        removed += prune_reports(self.reports_dir / WITHHELD, self.keep_named_days, now=when)
+        removed += prune_withheld(self.reports_dir / WITHHELD, self.keep_named_days, now=when)
         found = tighten(self.reports_dir)
         withheld, left = withhold(self.reports_dir, found.exposed)
         if withheld:

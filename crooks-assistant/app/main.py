@@ -8,8 +8,10 @@ LAN IP looks like it works and then fails on the browser API that actually matte
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import mimetypes
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -108,53 +110,123 @@ async def lifespan(app: FastAPI):
     await keeper.first_pass()
     # Fail closed (round 7, F-04-STARTUP): a report left readable by others, or one that could
     # not even be checked, stops the service here, before it answers anything. Nothing is
-    # deleted to get past it; the owner puts the permissions right and starts it again.
+    # deleted to get past it; the owner puts the permissions right and starts it again. Only a
+    # check that ran to its end and found everything private lets it start (round 8): one that
+    # never ran is run here, and one that failed is tried again a few times first, so a passing
+    # hiccup does not keep the service down.
     tests = getattr(app.state.runtime, "tests", None)
-    if tests is not None and not getattr(tests, "tidy_contained", True):
-        log.error("refusing to start: %s", getattr(tests, "tidy_problem", "") or "reports are not private")
+    if tests is not None and not await _reports_contained(tests):
+        problem = getattr(tests, "tidy_problem", "") or "the reports could not be confirmed private"
+        log.error("refusing to start: %s", problem)
         await app.state.runtime.aclose()
-        raise RuntimeError(f"CROOKS will not start with reports it cannot keep private: {tests.tidy_problem}")
+        raise RuntimeError(f"CROOKS will not start with reports it cannot keep private: {problem}")
     keeper.start()
     log.info("CROOKS Assistant ready (bind address is whatever uvicorn was started with)")
     yield
-    # Nothing new is scheduled, and a pass already running in its thread (which cancelling does
-    # not stop) finishes before the runtime it works on is closed (round 6, F-04). If it has not
-    # finished in time, the runtime is NOT closed under it (round 7, F-04-SHUTDOWN): the process
-    # exits with it open, which loses at most what the close would have flushed, rather than
-    # pull clients and files out from under a pass still using them.
-    if await keeper.stop(timeout_s=SHUTDOWN_WAIT_S):
-        await app.state.runtime.aclose()
+    # Nothing new is scheduled, a pass already running is asked to stop at its next step, and it
+    # finishes before the runtime it works on is closed (round 6, F-04; round 8, F-04-SHUTDOWN).
+    # The wait is SHUTDOWN_WAIT_S, then on to SHUTDOWN_DEADLINE_S, inside the unit's
+    # TimeoutStopSec: a pass that ends by then has the runtime closed after it, even if it ended
+    # after the first wait. One still running at the deadline keeps its runtime open (round 7:
+    # never closed under it), and the process exits without waiting on it, because the pass runs
+    # in a daemon thread of its own: what the close would have flushed is lost, not the whole
+    # stop to systemd's SIGKILL.
+    import time
+
+    began = time.monotonic()
+    if await keeper.stop(timeout_s=SHUTDOWN_WAIT_S, deadline_s=SHUTDOWN_DEADLINE_S):
+        # A pass that ended just before the deadline leaves the close what is left before the
+        # unit's own: given up there and said, rather than cut off by SIGKILL mid-close.
+        left = max(1.0, SHUTDOWN_CLOSE_BY_S - (time.monotonic() - began))
+        try:
+            await asyncio.wait_for(app.state.runtime.aclose(), timeout=left)
+        except TimeoutError:
+            log.error("shutdown: closing the runtime did not finish in %.1fs; exiting with it part-closed", left)
     else:
-        log.error("shutdown: a housekeeping pass was still running after %ss; the runtime is left "
-                  "open rather than closed under it", SHUTDOWN_WAIT_S)
+        log.error("shutdown: a housekeeping pass was still running at the %ss deadline; the runtime is left "
+                  "open rather than closed under it", SHUTDOWN_DEADLINE_S)
 
 
 # How often test mode's records are aged and tightened with nobody using the service (the
 # 2026-09-26 deploy review, F-04): the day's roll, the sessions past their keep and the reports
 # drawn from them happen on a clock, not only when the next event asks.
 HOUSEKEEPING_S = 15 * 60
-# How long shutdown waits for a housekeeping pass already running: inside systemd's
-# TimeoutStopSec (30 s in deploy/systemd/crooks-assistant.service), so the decision is ours.
+# How long shutdown waits for a housekeeping pass already running before it says so, and the
+# latest it waits at all: both inside systemd's TimeoutStopSec (30 s in
+# deploy/systemd/crooks-assistant.service), so the decision is ours, with room to exit after it.
 SHUTDOWN_WAIT_S = 20.0
+SHUTDOWN_DEADLINE_S = 27.0
+# And the latest the runtime's own close may run to, a pass having ended in time.
+SHUTDOWN_CLOSE_BY_S = 29.0
+# How many times start-up checks the reports before it refuses, and how far apart (round 8,
+# F-04-STARTUP): the first pass is the first of them.
+REPORT_CHECK_ATTEMPTS = 3
+REPORT_CHECK_DELAY_S = 0.5
+
+# The stop asked of the housekeeping pass running in this thread (Housekeeper.run_pass sets it),
+# read by housekeep_once between its steps. A context variable, so a pass called directly (a
+# test, a script) has none and is never stopped.
+_PASS_STOP: contextvars.ContextVar[threading.Event | None] = contextvars.ContextVar("housekeeping_stop", default=None)
 
 
-def housekeep_once(runtime) -> str:
+async def _reports_contained(tests) -> bool:
+    """Whether a check of the reports ran to its end and found them private, trying up to
+    REPORT_CHECK_ATTEMPTS in all, REPORT_CHECK_DELAY_S apart (round 8, F-04-STARTUP)."""
+    if getattr(tests, "tidy_contained", None) is None:
+        await asyncio.to_thread(tests.tidy_reports)   # the first pass did not get to it
+    for attempt in range(2, REPORT_CHECK_ATTEMPTS + 1):
+        if getattr(tests, "tidy_contained", None) is True:
+            return True
+        log.warning("reports not confirmed private (%s); checking again, %d of %d",
+                    getattr(tests, "tidy_problem", "") or "no answer", attempt, REPORT_CHECK_ATTEMPTS)
+        await asyncio.sleep(REPORT_CHECK_DELAY_S)
+        await asyncio.to_thread(tests.tidy_reports)
+    return getattr(tests, "tidy_contained", None) is True
+
+
+def housekeep_once(runtime, *, stop: threading.Event | None = None) -> str:
     """One pass: let the always-on session roll if the day has turned, age the sessions and the
     reports and make the reports private, and take down whatever a screen has shown too long.
     Never raises: what it could not do is returned, in words that name no file ('' when it did
-    everything)."""
+    everything).
+
+    Each step is tried on its own (round 8, F-04-STARTUP): the report check used to share one
+    `try` with the roll and the ages, so an active session record that would not parse skipped
+    it, and start-up read the unchecked reports as private. Now it runs whatever happened before
+    it, and a check that raises is not a contained one. Between steps the pass stops if shutdown
+    has asked it to (round 8, F-04-SHUTDOWN), and says so."""
+    stop = stop if stop is not None else _PASS_STOP.get()
     problems: list[str] = []
+
+    def stopping() -> bool:
+        if stop is not None and stop.is_set():
+            problems.append("housekeeping stopped early for shutdown")
+            return True
+        return False
+
     tests = getattr(runtime, "tests", None)
     if tests is not None:
+        for what, step in (("the day's roll", "active"), ("the session ages", "prune")):
+            try:
+                getattr(tests, step)()
+            except Exception as exc:  # noqa: BLE001 - housekeeping never takes the service down
+                log.warning("test-mode housekeeping: %s did not complete", what, exc_info=True)
+                problems.append(f"{what} did not complete ({type(exc).__name__})")
+            if stopping():
+                return "; ".join(problems)
         try:
-            tests.active()
-            tests.prune()
             tests.tidy_reports()
             if getattr(tests, "tidy_problem", ""):
                 problems.append(tests.tidy_problem)
-        except Exception as exc:  # noqa: BLE001 - housekeeping never takes the service down
-            log.warning("test-mode housekeeping did not complete", exc_info=True)
-            problems.append(f"test-mode housekeeping did not complete ({type(exc).__name__})")
+        except Exception as exc:  # noqa: BLE001
+            try:
+                tests.tidy_contained = False   # a check that raised is not a clean one
+            except Exception:  # noqa: BLE001
+                pass
+            log.warning("the report check did not complete", exc_info=True)
+            problems.append(f"the report check did not complete ({type(exc).__name__})")
+        if stopping():
+            return "; ".join(problems)
     try:
         from app.displays.store import store as displays
 
@@ -167,6 +239,37 @@ def housekeep_once(runtime) -> str:
     return "; ".join(problems)
 
 
+async def _in_own_thread(fn):
+    """fn() in a daemon thread of its own, awaited (round 8, F-04-SHUTDOWN). asyncio.to_thread
+    would use the loop's default executor, whose threads the process waits for as it exits (the
+    event loop's close waits up to five minutes, the interpreter's exit for ever): a pass stuck
+    past the shutdown deadline would then hold the process until systemd killed it anyway.
+    Cancelling the await does not stop the thread; Housekeeper holds a lock for its length."""
+    loop = asyncio.get_running_loop()
+    done = loop.create_future()
+    context = contextvars.copy_context()
+
+    def settle(ok: bool, value) -> None:
+        if not done.done():
+            if ok:
+                done.set_result(value)
+            else:
+                done.set_exception(value)
+
+    def target() -> None:
+        try:
+            value, ok = context.run(fn), True
+        except BaseException as exc:  # noqa: BLE001 - handed to whoever awaits it
+            value, ok = exc, False
+        try:
+            loop.call_soon_threadsafe(settle, ok, value)
+        except RuntimeError:
+            pass   # the loop has closed: nobody is waiting any more
+
+    threading.Thread(target=target, name="crooks-housekeeping", daemon=True).start()
+    return await done
+
+
 class Housekeeper:
     """The housekeeping timer, supervised (the 2026-09-27 deploy review, round 6, F-04).
 
@@ -174,17 +277,18 @@ class Housekeeper:
     timer ends for any reason but a shutdown — a pass that raised, a cancellation nobody asked
     for — it is started again, and the restart is counted and shown. A pass runs in a thread
     holding `_running` for its whole length, so shutdown can stop scheduling and then wait for a
-    pass already under way to finish before the runtime is closed under it. /health reads
-    check(): whether a pass has run lately and whether the last one left anything undone."""
+    pass already under way to finish before the runtime is closed under it. Shutdown also sets
+    `_stop`, which the pass reads between its steps (round 8, F-04-SHUTDOWN), so a long pass ends
+    at its next step rather than running on to the unit's kill. /health reads check(): whether a
+    pass has run lately and whether the last one left anything undone."""
 
     def __init__(self, runtime, *, interval_s: float | None = None, pass_fn=None) -> None:
-        import threading
-
         self.runtime = runtime
         self.interval_s = float(HOUSEKEEPING_S if interval_s is None else interval_s)
         self._fn = pass_fn
         self._running = threading.Lock()
         self._stopping = False
+        self._stop = threading.Event()
         self._task: asyncio.Task | None = None
         self.passes = 0
         self.restarts = 0
@@ -193,14 +297,19 @@ class Housekeeper:
         self.last_stop = ""
 
     def run_pass(self) -> str:
-        """One pass, in the calling thread. Nothing once shutdown has begun."""
+        """One pass, in the calling thread. Nothing once shutdown has begun, and a pass under way
+        is asked to stop at its next step (housekeep_once reads `_stop`)."""
         import time
 
         with self._running:
-            if self._stopping:
+            if self._stopping or self._stop.is_set():
                 return ""
             fn = self._fn if self._fn is not None else housekeep_once
-            problem = fn(self.runtime) or ""
+            token = _PASS_STOP.set(self._stop)
+            try:
+                problem = fn(self.runtime) or ""
+            finally:
+                _PASS_STOP.reset(token)
             self.passes += 1
             self.last_at = time.time()
             self.last_problem = str(problem)
@@ -209,7 +318,7 @@ class Housekeeper:
             return self.last_problem
 
     async def first_pass(self) -> str:
-        return await asyncio.to_thread(self.run_pass)
+        return await _in_own_thread(self.run_pass)
 
     def start(self) -> None:
         self._task = asyncio.get_running_loop().create_task(self._loop(), name="housekeeping")
@@ -220,7 +329,7 @@ class Housekeeper:
             await asyncio.sleep(self.interval_s)
             if self._stopping:
                 return
-            await asyncio.to_thread(self.run_pass)
+            await _in_own_thread(self.run_pass)
 
     def _ended(self, task: asyncio.Task) -> None:
         if self._stopping:
@@ -234,9 +343,16 @@ class Housekeeper:
         except RuntimeError:   # the event loop itself is closing: nothing to restart on
             log.warning("housekeeping timer not restarted: no running event loop")
 
-    async def stop(self, timeout_s: float = 60.0) -> bool:
-        """Stop scheduling, then wait for a pass already running. True when none is left."""
+    async def stop(self, timeout_s: float = 60.0, deadline_s: float | None = None) -> bool:
+        """Stop scheduling, ask a pass already running to stop at its next step, and wait for it:
+        `timeout_s`, then, if it is still running, on to `deadline_s` from the start of the stop
+        (round 8, F-04-SHUTDOWN: a pass that ended a moment after the first wait used to be
+        treated as one that never would). True when none is left running."""
+        import time
+
+        began = time.monotonic()
         self._stopping = True
+        self._stop.set()
         task, self._task = self._task, None
         if task is not None:
             task.cancel()
@@ -244,11 +360,17 @@ class Housekeeper:
                 await task
             except BaseException:  # noqa: BLE001 - its own cancellation, or whatever ended it
                 pass
-        finished = await asyncio.to_thread(self._running.acquire, True, timeout_s)
+        finished = await asyncio.to_thread(self._running.acquire, True, max(0.0, timeout_s - (time.monotonic() - began)))
+        if not finished and deadline_s is not None and deadline_s > timeout_s:
+            log.warning("a housekeeping pass was still running after %ss at shutdown; asked to stop, waiting "
+                        "until %ss", timeout_s, deadline_s)
+            left = max(0.0, deadline_s - (time.monotonic() - began))
+            finished = await asyncio.to_thread(self._running.acquire, True, left)
         if finished:
             self._running.release()
         else:
-            log.error("a housekeeping pass was still running after %ss at shutdown", timeout_s)
+            log.error("a housekeeping pass was still running after %ss at shutdown",
+                      deadline_s if deadline_s is not None else timeout_s)
         return finished
 
     def check(self) -> dict:
@@ -320,9 +442,10 @@ async def guard_and_freshness(request: Request, call_next):
     # by one had left /turn, and so the model's whole tool surface, open to any caller on the
     # server). tests/test_proxy_identity.py walks every route the app serves to keep it so.
     # The one exception, and not an owner: the server's own test-session commands with their key
-    # (app/local_cli.py, round 6 F-05A), on those three routes only, straight to the port. The key
-    # anywhere else — through the proxy, on another route — is refused outright (round 7), even
-    # from a device that would pass the owner rule without it.
+    # (app/local_cli.py, round 6 F-05A), on its own routes only (local_cli.ROUTES), straight to the
+    # port. The key anywhere else — through the proxy, on another route — is refused outright
+    # (round 7), even from a device that would pass the owner rule without it; and carrying the
+    # header at all is carrying the key, an empty value included (round 8, F-05A).
     from app import local_cli
     from app.tools import authority as tool_authority
 

@@ -68,28 +68,26 @@ def _now() -> str:
 
 def _strict_iso(at: object) -> str | None:
     """A time kept here, in the one form, or None when it is not a time at all: a value that is
-    not a time is dropped, never replaced by now (round 7, F-07-VALUES)."""
+    not a time is dropped, never replaced by now (round 7, F-07-VALUES). Total over whatever a
+    stored record holds (round 8, F-07-VALUES): a valid time that cannot be put in UTC — year 1
+    with a positive offset is before year 1 there, and year 9999 with a negative one after 9999 —
+    raises OverflowError on the way, and is dropped like any other value that is not a time."""
     if not isinstance(at, str) or not at or len(at) > 40:
         return None
     try:
         when = datetime.fromisoformat(at.replace("Z", "+00:00"))
-    except ValueError:
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        return when.astimezone(UTC).isoformat(timespec="seconds")
+    except (ValueError, OverflowError, TypeError):
         return None
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=UTC)
-    return when.astimezone(UTC).isoformat(timespec="seconds")
 
 
 def _iso(at: object) -> str:
     """One form for every time kept here, UTC to the second, so they compare as text: a
-    blocker's own time may carry microseconds or another offset."""
-    try:
-        when = datetime.fromisoformat(str(at).replace("Z", "+00:00"))
-    except ValueError:
-        return _now()
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=UTC)
-    return when.astimezone(UTC).isoformat(timespec="seconds")
+    blocker's own time may carry microseconds or another offset. A time that is not one, or
+    cannot be put in UTC (round 8, F-07-VALUES), is the time it was noticed, never a raise."""
+    return _strict_iso(str(at)) or _now()
 
 
 def key_for(capability: str = "", text: str = "") -> str:
@@ -122,6 +120,17 @@ def _misjudged_key(cap: object) -> str:
     return str(cap) if str(cap) in {c.key for c in CAPABILITIES} else "other"
 
 
+class WrittenNotConfirmed(Exception):
+    """The record on disk WAS replaced, but its folder could not be flushed afterwards (round 8,
+    F-07-DURABILITY): the new contents are what the file now holds, and whether a power cut would
+    keep them is not confirmed. Never an OSError, so nothing that reads "OSError" as "nothing was
+    written" can take it for one. `kept` is the original's copy, when a clean made one first."""
+
+    def __init__(self, cause: BaseException, kept: Path | None = None) -> None:
+        super().__init__(f"written, but its folder could not be flushed ({type(cause).__name__}: {cause})")
+        self.kept = kept
+
+
 class GapLedger:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
@@ -134,7 +143,9 @@ class GapLedger:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             data = {}
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
+            # RecursionError: JSON nested deeper than the parser will go is as unreadable as JSON
+            # cut off mid-write, and must not raise out of report() (round 8, F-07-VALUES).
             log.warning("gap record unreadable at %s; starting a fresh one in memory", self.path)
             data = {}
         data = _shaped(data)
@@ -155,6 +166,9 @@ class GapLedger:
         doing. Raises if the copy cannot be made, so nothing is saved without one. The copy and
         then the folder are flushed to disk before the clean record is written, and the clean
         record and the folder after it, so a power cut leaves one or the other, never neither.
+        When only that last flush fails, the clean record has replaced the original and cannot be
+        called untouched: WrittenNotConfirmed is raised, carrying the copy (round 8,
+        F-07-DURABILITY). Any other failure is raised before the original is replaced.
 
         The cleaned file is one the code before this change (3e77f215) still reads, writes and
         reports: tests/test_capability_gaps.py runs that code, vendored verbatim, against it.
@@ -179,14 +193,16 @@ class GapLedger:
             return None
         try:
             parsed = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
-            parsed = None
-        if parsed is None or not isinstance(parsed, dict):
+            # A copy to clean, leaving what was read as it was read. Nesting deeper than the
+            # parser or the encoder will go is unreadable too, never a raise (round 8, F-07-VALUES).
+            shaped = _shaped(json.loads(json.dumps(parsed))) if isinstance(parsed, dict) else None
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            shaped = None
+        if shaped is None:
             # Unreadable: kept aside before a change would start a fresh record over it.
             copy = self._existing_original(raw, "unreadable") or self._keep_original(raw, "unreadable")
             self._repaired = True
             return copy
-        shaped = _shaped(json.loads(json.dumps(parsed)))
         clean = json.loads(json.dumps(shaped))
         _sanitise(clean)
         if clean == shaped:
@@ -195,7 +211,14 @@ class GapLedger:
         # A clean that failed after its copy was made (a failed save, a crash) is tried again
         # with the copy it already has, verified byte for byte, not with another (round 7).
         copy = self._existing_original(raw, "before-clean") or self._keep_original(raw, "before-clean")
-        self._save(clean)
+        try:
+            self._save(clean)
+        except WrittenNotConfirmed as exc:
+            # The clean record is in place (round 8, F-07-DURABILITY): not tried again over
+            # itself, and said as what it is, with the copy that was flushed before it.
+            self._repaired = True
+            exc.kept = copy
+            raise
         self._repaired = True
         log.warning("gap record cleaned to today's rule; the original is kept at %s", copy.name)
         return copy
@@ -248,25 +271,50 @@ class GapLedger:
             pass
         _forget_stale(data)
         tmp = self.path.with_name(f".{self.path.name}.{uuid.uuid4().hex[:8]}.tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(data, indent=2, ensure_ascii=False))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, self.path)
-        _fsync_dir(folder)
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(data, indent=2, ensure_ascii=False))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, self.path)
+        except BaseException:
+            # Nothing replaced: the record is as it was, and no half-written file is left beside it.
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        # From here the live file holds the new record, so no failure below may be reported as
+        # "not updated" or "left as it was" (round 8, F-07-DURABILITY): it is its own outcome.
+        # Not tried again: a second fsync after a failed one can report success for data the
+        # first lost.
+        try:
+            _fsync_dir(folder)
+        except Exception as exc:  # noqa: BLE001 - whatever it was, the replace has happened
+            raise WrittenNotConfirmed(exc) from exc
 
     def _change(self, fn) -> None:
         """One read-modify-write. A failure is logged, never raised: the turn that noticed the
-        gap is the owner's, and a bookkeeping error must not cost him his answer."""
+        gap is the owner's, and a bookkeeping error must not cost him his answer. What is logged
+        says what is on disk (round 8, F-07-DURABILITY): "not updated" only when the record was
+        not replaced; a replace whose folder could not be flushed is said as that."""
         try:
             with self._lock:
                 if not self._repaired:
                     # Nothing is saved over a record that has not been kept aside first.
-                    self._repair_locked()
+                    try:
+                        self._repair_locked()
+                    except WrittenNotConfirmed as exc:
+                        # The original was kept, flushed, before the clean replaced it; the change
+                        # goes on, and its own save flushes the folder again.
+                        log.error("gap record cleaned before this change and written, but not confirmed on disk "
+                                  "(%s); the original is kept at %s", exc, getattr(exc.kept, "name", "?"))
                 data = self.load()
                 fn(data)
                 self._save(data)
+        except WrittenNotConfirmed as exc:
+            log.error("gap record updated, but not confirmed on disk: %s", exc)
         except Exception:  # noqa: BLE001 - see above
             log.warning("gap record not updated", exc_info=True)
 
@@ -290,7 +338,7 @@ class GapLedger:
         def fn(data):
             for cap in capabilities or ["unnamed"]:
                 row = data["misjudged"].setdefault(_misjudged_key(cap), {"count": 0, "first_seen": when})
-                row["count"] = int(row.get("count", 0)) + 1
+                row["count"] = min(_MAX_COUNT, int(row.get("count", 0)) + 1)
                 row["last_seen"] = when
         self._change(fn)
 
@@ -383,10 +431,15 @@ class GapLedger:
             live_at = min((b["live_at"] for b in linked if b.get("live_at")), default=None)
             after = [t for t in gap.get("seen", []) if live_at and t > live_at]
             dropped = gap.get("dropped") or {}
+            uncertain = set(gap.get("uncertain") or ())
+            stage = _stage(linked)
             # A count that some forgotten history could add to is said to be a floor, not the
             # figure (round 7, F-07-LINKS): seen times kept are the newest, so it is exact
-            # unless one of those forgotten came after the fix.
-            exact = not (live_at and dropped.get("seen") and (gap.get("seen_dropped_last") or "") > live_at)
+            # unless one of those forgotten came after the fix. And not exact either when history
+            # was let go unread, or a link was let go that could have been an earlier fix (round
+            # 8, F-07-LINKS: `uncertain`, set where it happened).
+            exact = not (live_at and dropped.get("seen") and (gap.get("seen_dropped_last") or "") > live_at) \
+                and not uncertain
             rows.append({
                 "key": key,
                 # What to call it: the capability as CLIVE named it, or what it wrote.
@@ -397,13 +450,20 @@ class GapLedger:
                 "objectives": gap.get("objectives", []),
                 "first_seen": gap.get("first_seen"),
                 "last_seen": gap.get("last_seen"),
-                "stage": _stage(linked),
+                "stage": stage,
+                # Live is as far as a gap goes, so a live stage is exact whatever was let go; below
+                # it, a link let go could be further along than any kept (round 8, F-07-LINKS).
+                "stage_exact": stage == "live" or "links" not in uncertain,
                 "builds": [{k: b.get(k) for k in ("request_id", "progress", "proposed_at", "filed_at", "built_at",
                                                   "merged_at", "live_at")} for b in linked],
                 "hits_after_fix": len(after) if live_at else None,
-                "hits_after_fix_exact": bool(exact) if live_at else None,
+                # With no fix live among the links kept, None; but False, not None, when a link let
+                # go could itself have been a live fix.
+                "hits_after_fix_exact": bool(exact) if live_at else (False if "links" in uncertain else None),
                 # Links and history the record could not keep, counted rather than lost silently.
                 "not_kept": {k: int(v) for k, v in dropped.items() if v},
+                # What was let go without being looked at: "links", "history" (round 8, F-07-LINKS).
+                "uncertain": sorted(uncertain),
             })
         rows.sort(key=lambda r: r["last_seen"] or "", reverse=True)
         rows.sort(key=lambda r: r["hits"], reverse=True)   # stable: equal counts stay newest first
@@ -418,7 +478,10 @@ class GapLedger:
             "live": len(fixed),
             "top_proposed": sum(1 for r in top if r["stage"] != "open"),
             "top": len(top),
-            "fixes_held": sum(1 for r in fixed if not r["hits_after_fix"]),
+            # Held only when nought is the figure, not a floor (round 8, F-07-LINKS): a fix whose
+            # count after it is not exact and reads nought is in neither, so held and recurred
+            # fall short of live by exactly the fixes the record cannot vouch for.
+            "fixes_held": sum(1 for r in fixed if not r["hits_after_fix"] and r["hits_after_fix_exact"]),
             "fixes_recurred": sum(1 for r in fixed if r["hits_after_fix"]),
             "misjudged": sum(int(v.get("count", 0)) for v in data["misjudged"].values()),
         }
@@ -441,8 +504,8 @@ def _hit(data: dict[str, Any], key: str, source: str, text: str, objective_id: s
                            "objectives": [], "requests": [], "seen": [], "first_seen": at}
     if name and not gap.get("name"):
         gap["name"] = name[:1].upper() + name[1:]
-    gap["hits"] = int(gap.get("hits", 0)) + 1
-    gap["sources"][source] = int(gap["sources"].get(source, 0)) + 1
+    gap["hits"] = min(_MAX_COUNT, int(gap.get("hits", 0)) + 1)
+    gap["sources"][source] = min(_MAX_COUNT, int(gap["sources"].get(source, 0)) + 1)
     gap["first_seen"] = min(gap.get("first_seen") or at, at)
     gap["last_seen"] = max(gap.get("last_seen") or at, at)
     _keep_seen(gap, [*gap.get("seen", []), at])
@@ -489,7 +552,8 @@ def _sanitise(data: dict[str, Any]) -> None:
         gap = _only_known_gap(raw)
         new = _clean_key(str(key))
         renamed[str(key)] = new
-        gap["label"] = _minimal(gap.get("label") or new)
+        # A label that cleans to nothing is the key, on the first read as on every later one.
+        gap["label"] = _minimal(gap.get("label") or "") or _minimal(new)
         if gap.get("name"):
             gap["name"] = _minimal(gap["name"])[:MAX_KEY]
         if new in gaps:
@@ -498,12 +562,20 @@ def _sanitise(data: dict[str, Any]) -> None:
             gaps[new] = gap
     data["gaps"] = gaps
     builds: dict[str, dict] = {}
+    # Builds whose own list of gaps was longer than is read (round 8, F-07-LINKS): a gap naming
+    # one of them that the part read does not name may be a real link, let go unseen.
+    cut_short: set[str] = set()
     for request_id, raw in data["builds"].items():
         if not isinstance(raw, dict) or not _REQUEST_ID.fullmatch(str(request_id)):
             continue
-        build = _only_known_build(raw)
-        build["gaps"] = sorted({renamed.get(k, _clean_key(k)) for k in build["gaps"]})
+        build, truncated = _only_known_build(raw)
+        for k in build["gaps"]:
+            if k not in renamed:
+                renamed[k] = _clean_key(k)   # remembered: a key many builds name is cleaned once
+        build["gaps"] = sorted({renamed[k] for k in build["gaps"]})
         builds[str(request_id)] = build
+        if truncated:
+            cut_short.add(str(request_id))
     data["builds"] = builds
     misjudged: dict[str, dict] = {}
     for cap, raw in data["misjudged"].items():
@@ -513,7 +585,7 @@ def _sanitise(data: dict[str, Any]) -> None:
         key = _misjudged_key(cap)
         if key in misjudged:
             into = misjudged[key]
-            into["count"] = into["count"] + row["count"]
+            into["count"] = min(_MAX_COUNT, into["count"] + row["count"])
             into["first_seen"] = min(filter(None, [into.get("first_seen"), row.get("first_seen")]), default=None)
             into["last_seen"] = max(filter(None, [into.get("last_seen"), row.get("last_seen")]), default=None)
         else:
@@ -522,8 +594,16 @@ def _sanitise(data: dict[str, Any]) -> None:
     # Both sides of every link (round 7, F-07-LINKS): a gap's request counts only when that build
     # names the gap, and a build's gap only when that gap names the build, so no gap reports the
     # stage of a build that was never for it. A link dropped here is counted on the gap.
+    names = {request_id: set(build["gaps"]) for request_id, build in builds.items()}
     for key, gap in gaps.items():
-        kept = [r for r in gap["requests"] if r in builds and key in builds[r]["gaps"]]
+        kept: list[str] = []
+        for r in gap["requests"]:
+            if r in names and key in names[r]:
+                kept.append(r)
+            elif r in cut_short:
+                # Not named in the part of the build's list that was read: whether it is named
+                # in the rest is not known, so this gap's stage and recurrence are not either.
+                _mark_uncertain(gap, "links")
         _count_dropped(gap, "requests", len(gap["requests"]) - len(kept))
         _keep_requests(gap, kept, builds)
     for request_id, build in builds.items():
@@ -546,12 +626,19 @@ def _fsync_dir(folder: Path) -> None:
 # could otherwise override the cleaned key where the report spreads the row.
 _TOP_FIELDS = frozenset({"version", "gaps", "builds", "misjudged", "seeded"})
 _GAP_FIELDS = ("label", "name", "hits", "sources", "objectives", "requests", "seen", "first_seen", "last_seen",
-               "dropped", "seen_dropped_last")
+               "dropped", "seen_dropped_last", "uncertain")
 _BUILD_FIELDS = ("objective_id", "gaps", "proposed_at", "filed_at", "built_at", "merged_at", "live_at",
                  "progress", "candidate_sha")
 _MISJUDGED_FIELDS = ("count", "first_seen", "last_seen")
 _SOURCES = frozenset({"blocker", "tool"})
 _DROPPED = ("requests", "objectives", "seen")
+# What a gap can have let go without looking at it (round 8, F-07-LINKS): "links", builds it can no
+# longer follow that could be (or become) a further stage or an earlier fix than any it kept;
+# "history", times of hits whose value was never read.
+_UNCERTAIN = frozenset({"links", "history"})
+# A count written as text: ASCII digits only. str.isdigit() also says yes to '²' and every other
+# script's digits, which int() then refuses (round 8, F-07-VALUES).
+_NUMERAL = re.compile(r"[0-9]{1,8}")
 _OBJECTIVE_ID = re.compile(r"^obj_[a-z0-9]{4,40}$")
 _REQUEST_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+){1,7}$")
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
@@ -566,14 +653,24 @@ def _stamp(value: object) -> str | None:
 
 
 def _count(value: object) -> int:
-    """A count: a whole number, nought or more, bounded; anything else is nought."""
+    """A count: a whole number, nought or more, bounded; anything else is nought. Total over any
+    JSON value (round 8, F-07-VALUES): an int that is not a bool, held to the bound, or text of
+    one to eight ASCII digits. Nothing here can raise, so neither can the repair or the report."""
     if isinstance(value, bool):
         return 0
     if isinstance(value, int):
         return max(0, min(value, _MAX_COUNT))
-    if isinstance(value, str) and value.isdigit() and len(value) <= 8:
-        return int(value)
+    if isinstance(value, str) and _NUMERAL.fullmatch(value):
+        return min(int(value, 10), _MAX_COUNT)
     return 0
+
+
+def _as_list(value: object) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _mark_uncertain(gap: dict, what: str) -> None:
+    gap["uncertain"] = sorted({*(gap.get("uncertain") or ()), what})
 
 
 def _count_dropped(gap: dict, what: str, n: int) -> None:
@@ -603,47 +700,93 @@ _STAGE_RANK = {"proposed": 0, "filed": 1, "building": 2, "built": 3, "merged": 4
 
 
 def _keep_requests(gap: dict, requests: list[str], builds: dict[str, dict]) -> None:
-    """At most MAX_LINKS builds per gap, and never at the cost of the report's stage: the ones
-    kept are the furthest along, then the newest; how many went is counted on the gap."""
+    """At most MAX_LINKS builds per gap, and never at the cost of the report's stage or its count
+    after the fix: the build that went live first is always kept (round 8, F-07-LINKS: "the last
+    twenty live" could let it go, and the count after the fix then started at a later one), then
+    the furthest along, then the newest; how many went is counted on the gap.
+
+    With a live build kept, nothing let go can change the stage (live is as far as it goes) or
+    the fix's time (a build let go goes live later, if ever, than the one kept). With none live,
+    one let go could go live later and the gap would not see it: that is marked "links"
+    uncertain, and the report says its stage and its count after a fix are not exact."""
     ordered = list(dict.fromkeys(requests))
     if len(ordered) > MAX_LINKS:
         position = {r: i for i, r in enumerate(ordered)}
-        ranked = sorted(ordered, key=lambda r: (_STAGE_RANK[_stage([builds.get(r) or {}])] if r in builds else -1, position[r]))
-        keep = set(ranked[-MAX_LINKS:])
+        live = [r for r in ordered if (builds.get(r) or {}).get("live_at")]
+        first = min(live, key=lambda r: (builds[r]["live_at"], position[r])) if live else None
+
+        def rank(r: str) -> tuple:
+            stage = _STAGE_RANK[_stage([builds[r]])] if r in builds else -1
+            return (r == first, stage, position[r])
+
+        keep = set(sorted(ordered, key=rank)[-MAX_LINKS:])
         _count_dropped(gap, "requests", len(ordered) - MAX_LINKS)
+        if first is None:
+            _mark_uncertain(gap, "links")
         ordered = [r for r in ordered if r in keep]
     gap["requests"] = ordered
 
 
 def _only_known_gap(raw: dict) -> dict:
+    """A stored gap with only its known fields, each checked for what it must be. Each list is
+    read to _MAX_READ entries at most, against a hostile record; what that leaves unread is
+    counted in `dropped`, and marked in `uncertain` where it could change the report (round 8,
+    F-07-LINKS): requests unread could be the build that fixed it, history unread could be hits
+    after that fix. Nothing is let go without trace."""
     gap: dict[str, Any] = {field: raw[field] for field in _GAP_FIELDS if field in raw}
+    for field in ("label", "name"):
+        if field in gap and not isinstance(gap[field], str):
+            del gap[field]   # text, or nothing: a list or an object is not a label (round 8)
     gap["hits"] = _count(gap.get("hits"))
     sources = gap.get("sources") if isinstance(gap.get("sources"), dict) else {}
     gap["sources"] = {k: _count(v) for k, v in sources.items() if k in _SOURCES and _count(v)}
-    objectives = gap.get("objectives") if isinstance(gap.get("objectives"), list) else []
-    gap["objectives"] = [o for o in objectives[-_MAX_READ:] if isinstance(o, str) and _OBJECTIVE_ID.fullmatch(o)]
-    requests = gap.get("requests") if isinstance(gap.get("requests"), list) else []
-    # Bounded here only against a hostile record; which MAX_LINKS are kept is settled once the
-    # builds are known (_sanitise, _keep_requests), so the stage the report shows is not lost.
-    gap["requests"] = list(dict.fromkeys(r for r in requests[:_MAX_READ] if isinstance(r, str) and _REQUEST_ID.fullmatch(r)))
-    seen = gap.get("seen") if isinstance(gap.get("seen"), list) else []
-    gap["seen"] = sorted(filter(None, (_stamp(t) for t in seen[-_MAX_READ:])))
+    dropped = gap.get("dropped") if isinstance(gap.get("dropped"), dict) else {}
+    gap["dropped"] = {k: _count(v) for k, v in dropped.items() if k in _DROPPED and _count(v)}
+    uncertain = _as_list(gap.get("uncertain"))
+    gap["uncertain"] = sorted({u for u in uncertain if isinstance(u, str) and u in _UNCERTAIN})
     for field in ("first_seen", "last_seen", "seen_dropped_last"):
         stamped = _stamp(gap.get(field))
         if stamped is None:
             gap.pop(field, None)
         else:
             gap[field] = stamped
-    dropped = gap.get("dropped") if isinstance(gap.get("dropped"), dict) else {}
-    gap["dropped"] = {k: _count(v) for k, v in dropped.items() if k in _DROPPED and _count(v)}
-    if not gap["dropped"]:
-        gap.pop("dropped")
+    objectives = _as_list(gap.get("objectives"))
+    if len(objectives) > _MAX_READ:
+        _count_dropped(gap, "objectives", len(objectives) - _MAX_READ)
+        objectives = objectives[-_MAX_READ:]
+    gap["objectives"] = [o for o in objectives if isinstance(o, str) and _OBJECTIVE_ID.fullmatch(o)]
+    requests = _as_list(gap.get("requests"))
+    if len(requests) > _MAX_READ:
+        _count_dropped(gap, "requests", len(requests) - _MAX_READ)
+        _mark_uncertain(gap, "links")
+        requests = requests[:_MAX_READ]
+    # Which MAX_LINKS are kept is settled once the builds are known (_sanitise, _keep_requests),
+    # so the stage the report shows is not lost here.
+    gap["requests"] = list(dict.fromkeys(r for r in requests if isinstance(r, str) and _REQUEST_ID.fullmatch(r)))
+    seen = _as_list(gap.get("seen"))
+    if len(seen) > _MAX_READ:
+        _count_dropped(gap, "seen", len(seen) - _MAX_READ)
+        _mark_uncertain(gap, "history")
+        seen = seen[-_MAX_READ:]
+    gap["seen"] = sorted(filter(None, (_stamp(t) for t in seen)))
     _keep_objectives(gap, gap["objectives"])
     _keep_seen(gap, gap["seen"])
+    if "last_seen" not in gap and gap["seen"]:
+        # A last hit that was not a time is the newest hit kept (round 8, F-07-VALUES): dropped
+        # and not replaced, the gap read as never hit and was forgotten at the next save.
+        gap["last_seen"] = gap["seen"][-1]
+    if not gap["dropped"]:
+        gap.pop("dropped")
+    if not gap["uncertain"]:
+        gap.pop("uncertain")
     return gap
 
 
-def _only_known_build(raw: dict) -> dict:
+def _only_known_build(raw: dict) -> tuple[dict, bool]:
+    """A stored build with only its known fields, each checked; and whether its list of gaps was
+    longer than is read. That list was cut at MAX_GAPS before its keys were cleaned (round 8,
+    F-07-LINKS), which let go links to gaps whose legacy keys came later in it; it is read to
+    _MAX_READ now, and a build cut there is said to be, so the gaps it may name are marked."""
     build: dict[str, Any] = {field: raw[field] for field in _BUILD_FIELDS if field in raw}
     if not (isinstance(build.get("objective_id"), str) and _OBJECTIVE_ID.fullmatch(build["objective_id"])):
         build.pop("objective_id", None)
@@ -651,8 +794,9 @@ def _only_known_build(raw: dict) -> dict:
         build.pop("candidate_sha", None)
     if not (isinstance(build.get("progress"), str) and _WORDS.fullmatch(build["progress"])):
         build.pop("progress", None)
-    gaps = build.get("gaps") if isinstance(build.get("gaps"), list) else []
-    build["gaps"] = [str(k) for k in gaps if isinstance(k, str) and k][:MAX_GAPS]
+    gaps = _as_list(build.get("gaps"))
+    truncated = len(gaps) > _MAX_READ
+    build["gaps"] = [k for k in gaps[:_MAX_READ] if isinstance(k, str) and k]
     for field in ("proposed_at", "filed_at", "built_at", "merged_at", "live_at"):
         if field in build:
             stamped = _stamp(build[field])
@@ -660,7 +804,7 @@ def _only_known_build(raw: dict) -> dict:
                 del build[field]
             else:
                 build[field] = stamped
-    return build
+    return build, truncated
 
 
 def _only_known_misjudged(raw: dict) -> dict:
@@ -672,13 +816,15 @@ def _merge(into: dict, other: dict) -> None:
     """Two gaps that turn out to be one, once cleaned. Counts add up; links and history join, and
     whatever the bounds cannot keep is counted, never lost without trace (round 7, F-07-LINKS).
     Which builds are kept is settled when the record's builds are known (_sanitise)."""
-    into["hits"] = into["hits"] + other["hits"]
+    into["hits"] = min(_MAX_COUNT, into["hits"] + other["hits"])
     sources = dict(into.get("sources") or {})
     for source, count in (other.get("sources") or {}).items():
-        sources[source] = int(sources.get(source, 0)) + int(count)
+        sources[source] = min(_MAX_COUNT, int(sources.get(source, 0)) + int(count))
     into["sources"] = sources
     for what, n in (other.get("dropped") or {}).items():
         _count_dropped(into, what, n)
+    for what in other.get("uncertain") or ():
+        _mark_uncertain(into, what)
     if other.get("seen_dropped_last"):
         into["seen_dropped_last"] = max(filter(None, [into.get("seen_dropped_last"), other["seen_dropped_last"]]))
     _keep_objectives(into, [*into["objectives"], *other["objectives"]])
@@ -699,13 +845,19 @@ def _minimal(text: str) -> str:
     customer names taken out by the same rule every event on the timeline passes."""
     from app.observability.timeline import scrub_text
 
-    return " ".join(scrub_text(str(text or "")).split())[:MAX_LABEL]
+    # A lone surrogate ("\ud800" in the JSON) is text Python reads and UTF-8 cannot write: kept, it
+    # made every save of the record fail, the repair's included (round 8, F-07-VALUES).
+    text = str(text or "").encode("utf-8", "ignore").decode("utf-8")
+    return " ".join(scrub_text(text).split())[:MAX_LABEL]
 
 
 def _forget_stale(data: dict[str, Any], now: datetime | None = None) -> None:
-    """Gaps nobody has hit for KEEP_DAYS, with no build ever proposed for them, are forgotten."""
+    """Gaps nobody has hit for KEEP_DAYS, with no build ever proposed for them, are forgotten. A
+    gap whose last hit is not known is not known to be stale, and is kept (round 8, F-07-VALUES):
+    a stored time that was not one used to make its whole gap go at the next save."""
     cutoff = ((now or datetime.now(UTC)) - timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
-    for key in [k for k, g in data["gaps"].items() if (g.get("last_seen") or "") < cutoff and not g.get("requests")]:
+    for key in [k for k, g in data["gaps"].items()
+                if g.get("last_seen") and g["last_seen"] < cutoff and not g.get("requests")]:
         del data["gaps"][key]
 
 
@@ -737,12 +889,17 @@ _LEDGER: GapLedger | None = None
 def install(path: Path) -> GapLedger:
     """The process's record. Brought up to today's rule on disk now, with the original kept
     aside first (GapLedger.repair); a repair that cannot keep the original leaves the file
-    untouched and says so, and the first change tries again before it saves."""
+    untouched and says so, and the first change tries again before it saves. A clean that
+    replaced the file but could not flush its folder afterwards says exactly that, and names
+    the copy of the original, flushed before it (round 8, F-07-DURABILITY)."""
     global _LEDGER
     _LEDGER = GapLedger(path)
     try:
         _LEDGER.repair()
-    except Exception:  # noqa: BLE001 - never stops the process; nothing was written
+    except WrittenNotConfirmed as exc:
+        log.error("gap record cleaned at startup: the clean record has replaced the original, but is not "
+                  "confirmed on disk (%s). The original is kept, flushed, at %s", exc, getattr(exc.kept, "name", "?"))
+    except Exception:  # noqa: BLE001 - never stops the process; raised before the replace, nothing written
         log.warning("gap record not cleaned at startup; left exactly as it was", exc_info=True)
     return _LEDGER
 

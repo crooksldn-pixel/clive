@@ -11,6 +11,13 @@
  *
  * Everything drawn comes from the screen's own record, written as text (textContent), never as
  * markup. The page holds nothing but the screen's id and name, kept on this device.
+ *
+ * Round 8 of the deploy review. A newly named screen shows only a six-digit code until the owner
+ * reads it off this device and tells CLIVE (B-02); the code is kept in memory, never stored. What
+ * a customer's slip shows leaves the screen at once when CLIVE refuses it (403), when CLIVE has
+ * been out of reach for two minutes, and once it is older than CLIVE keeps anything up
+ * (NEW-B-LOCAL-SLIP). Pages are told to CLIVE in order, a page at a time, as fast as CLIVE allows,
+ * and only the Mark packed tap says "done" (B-04).
  */
 'use strict';
 
@@ -20,13 +27,16 @@
   const POLL_MAX_MS = 10000;
   const REFUSED_MS = 15000;
   const DONE_HOLD_MS = 45000;          // a packed slip stays up this long, then the screen rests
+  const SHOW_KEEP_MS = 12 * 3600 * 1000;   // CLIVE's own limit for anything shown (store.py SHOWING_KEEP_S)
+  const OFFLINE_CLEAR_MS = 120000;     // out of reach this long, and what is shown is taken down
+  const POLL_TIMEOUT_MS = 15000;       // an ask that hangs is given up, so it counts as out of reach
   const LINE_MS = 6000;
   const KEY = 'clive.screen';
   const BOOT_KEY = 'clive.screen.startup';
   const $ = (id) => document.getElementById(id);
   const buildMeta = document.querySelector('meta[name="crooks-build"]');
   const BUILD = buildMeta ? buildMeta.getAttribute('content') || '' : '';
-  const board = $('board'), ui = $('ui'), idleEl = $('idle'), namer = $('namer'), markEl = $('mark');
+  const board = $('board'), ui = $('ui'), idleEl = $('idle'), namer = $('namer'), markEl = $('mark'), pairEl = $('pairing');
   const scanEl = $('scan'), statusEl = $('status'), hintEl = $('hint');
   let reduced = false;
   try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { reduced = false; }
@@ -63,6 +73,14 @@
     refused: false,
     pushT0: null,
     what: '',
+    drawnVersion: -1,
+    unapproved: false,     // named, waiting for the owner to approve it with its code
+    pairCode: '',          // that code, in memory only
+    pairUntil: 0,
+    gone: '',              // why what was shown was taken down: 'refused' · 'offline' · ''
+    gen: 0,                // bumped when what is shown is wiped; a drawing begun before it is dropped
+    lastOk: Date.now(),    // when CLIVE last answered this screen
+    skew: 0,               // CLIVE's clock less this device's
   };
 
   // ---- the board: a fixed height, as wide as the screen's shape, scaled to fit -----------
@@ -117,6 +135,8 @@
     E = window.CliveDots.create({
       canvas: $('dots'), bloom: weak ? null : $('bloom'), fx: $('fx'), root: board, W: L.W, H: L.H, L,
       density: weak ? 7000 : 14000, speed: 1, calm, drift: driftAt, onTick,
+      // The screens' own colours (the approved CLIVE Screens design): steel and white, never the app's lilac.
+      palette: 'steel',
     });
   }
 
@@ -142,6 +162,11 @@
         const c = document.createElementNS(NS, 'circle');
         c.setAttribute('cx', d.circle[0]); c.setAttribute('cy', d.circle[1]); c.setAttribute('r', d.circle[2]);
         s.appendChild(c);
+      } else if (d.rect) {
+        const r = document.createElementNS(NS, 'rect');
+        r.setAttribute('x', d.rect[0]); r.setAttribute('y', d.rect[1]); r.setAttribute('width', d.rect[2]);
+        r.setAttribute('height', d.rect[3]); r.setAttribute('rx', d.rect[4] || 0);
+        s.appendChild(r);
       } else {
         const p = document.createElementNS(NS, 'path');
         p.setAttribute('d', d);
@@ -152,6 +177,7 @@
   }
   const ICON_CHECK = ['m5 12.5 4.5 4.5L19 7.5'];
   const ICON_CIRCLE_CHECK = [{ circle: [12, 12, 9] }, 'm8.5 12.2 2.4 2.4 4.6-5'];
+  const ICON_GIFT = [{ rect: [3, 8, 18, 13, 2] }, 'M12 8v13', 'M3 12h18', 'M12 8c-1.5-3-5-3.5-5-1.2C7 8 9.5 8 12 8c2.5 0 5 0 5-1.2C17 4.5 13.5 5 12 8z'];
   const ICON_HANGER = ['M10.2 5.6a1.8 1.8 0 1 1 2.6 1.6c-.5.3-.8.7-.8 1.2V9', 'M12 9 3.6 15c-.8.6-.4 1.7.6 1.7h15.6c1 0 1.4-1.1.6-1.7L12 9z'];
   function pad(n) { return String(n).padStart(2, '0'); }
   function hhmm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
@@ -177,10 +203,21 @@
 
   // ---- what a push says it is ---------------------------------------------------------
   function keyOf(s) { return s ? [s.kind, s.ref, s.at, s.title].join('|') : ''; }
+  // Now, by CLIVE's clock (each answer says what it is), so a device whose own clock is wrong
+  // neither keeps a slip too long nor takes one down as soon as it arrives.
+  function serverNow() { return Date.now() + S.skew; }
+  // Older than CLIVE keeps anything up, counted from when it was put up (round 8,
+  // NEW-B-LOCAL-SLIP): taken down here even if CLIVE is never heard from again. A time that
+  // cannot be read counts as too old, as it does on the server.
+  function tooOld(s) {
+    const at = Date.parse((s && s.at) || '');
+    return isNaN(at) || serverNow() - at > SHOW_KEEP_MS;
+  }
   function wanted() {
     const s = S.showing;
     if (!s) return null;
-    if (s.done_at && Date.now() - Date.parse(s.done_at) > DONE_HOLD_MS) return null;
+    if (tooOld(s)) return null;
+    if (s.done_at && serverNow() - Date.parse(s.done_at) > DONE_HOLD_MS) return null;
     // Once done, CLIVE keeps only what was done, not the slip (the customer's details go). The
     // screen that drew it shows its own copy as packed; one that never drew it rests.
     if (s.done_at && keyOf(s) !== S.drawnKey) return null;
@@ -298,9 +335,12 @@
     if (o.shipping_method) ship.appendChild(el('div', 'cs-method', o.shipping_method));
     if (o.note) {
       const note = el('div', 'cs-note');
-      note.setAttribute('data-dot', 'warn');
+      note.setAttribute('data-dot', 'note');
       const first = String(o.customer || '').split(' ')[0];
-      note.appendChild(el('span', 'cs-note-k', first ? 'Note from ' + first : 'Note on the order'));
+      const label = el('span', 'cs-note-k');
+      label.appendChild(svg(ICON_GIFT, 2));
+      label.appendChild(document.createTextNode(first ? 'Note from ' + first : 'Note on the order'));
+      note.appendChild(label);
       note.appendChild(document.createTextNode(o.note));
       ship.appendChild(note);
     }
@@ -397,20 +437,73 @@
     PAGE.more = more;
   }
   function packedLocked() { return PAGE.pages > 1 && PAGE.seen.size < PAGE.pages; }
-  // The page now up, told to CLIVE (round 7, B-04): "done" is taken only once CLIVE has heard,
-  // page by page, that every item of the version showing was on this screen. Never more than a
-  // page at a time, and only once it is shown, not while it is still forming.
+  // The pages put up, told to CLIVE (rounds 7 and 8, B-04): "done" is taken only once CLIVE has
+  // heard that every item of the version showing was on this screen. CLIVE takes them in order
+  // from the first item, a page at a time, each carrying on from the last, and no sooner than a
+  // second apart; so they are sent that way — the next page only once it has been up here, the
+  // next only after CLIVE took this one, and again after the wait a too_soon answer names.
+  const ACK = { version: -1, per: 0, covered: 0, busy: false, timer: 0, fails: 0, run: 0 };
+  function ackReset() {
+    clearTimeout(ACK.timer);
+    ACK.run++;
+    ACK.timer = 0; ACK.version = -1; ACK.per = 0; ACK.covered = 0; ACK.busy = false; ACK.fails = 0;
+  }
+  function ackLater(ms) {
+    clearTimeout(ACK.timer);
+    ACK.timer = setTimeout(() => { ACK.timer = 0; ackPage(); }, Math.max(50, Math.min(10000, Number(ms) || 1000)));
+  }
+  function acksHeard() { return ACK.version === S.drawnVersion && ACK.per === PAGE.per && ACK.covered >= PAGE.total; }
   function ackPage() {
     const v = S.drawnView;
     if (!S.screen || S.phase !== 'shown' || S.drawnPacked || !v || (v.kind !== 'order' && v.kind !== 'list')) return;
     if (!PAGE.total || !PAGE.per || typeof S.drawnVersion !== 'number' || S.drawnVersion < 0) return;
-    const start = PAGE.index * PAGE.per;
+    if (ACK.version !== S.drawnVersion || ACK.per !== PAGE.per) {
+      // Something new, or its pages laid out again (a resize): told again from the first item.
+      ackReset();
+      ACK.version = S.drawnVersion; ACK.per = PAGE.per;
+    }
+    if (ACK.busy || ACK.timer) return;
+    const start = ACK.covered;
+    if (start >= PAGE.total || start % PAGE.per || !PAGE.seen.has(start / PAGE.per)) return;   // not up here yet
     const end = Math.min(PAGE.total, start + PAGE.per);
-    if (end <= start) return;
-    fetch('/displays/' + encodeURIComponent(S.screen.id) + '/seen', {
-      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
-      body: JSON.stringify({ version: S.drawnVersion, start, end }),
-    }).catch(() => { /* told again when the page is next turned; done is refused until it is */ });
+    const run = ACK.run, screen = S.screen;
+    ACK.busy = true;
+    fetch('/displays/' + encodeURIComponent(screen.id) + '/seen', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': screen.key },
+      body: JSON.stringify({ version: ACK.version, start, end }),
+    }).then(async (response) => {
+      if (run !== ACK.run) return;
+      ACK.busy = false;
+      if (response.status === 403) { if (!(await notThisScreen(response))) wipe('refused'); return; }
+      const data = await response.json().catch(() => ({}));
+      if (run !== ACK.run) return;
+      if (response.ok && typeof data.seen === 'number') { ACK.covered = data.seen; ACK.fails = 0; ackPage(); return; }
+      if (response.status === 409 && data.code === 'too_soon') { ackLater(data.retry_after_ms); return; }
+      if (response.status === 409 && data.code === 'out_of_order' && typeof data.covered === 'number' && ++ACK.fails <= 3) {
+        // CLIVE heard a different amount (a restart, a lost answer): carry on from what it has,
+        // or from the first item if it has this screen's pages laid out another way.
+        const next = data.size === ACK.per ? data.covered : 0;
+        if (next !== start) { ACK.covered = next; ackPage(); }
+      }
+      // Otherwise what is shown changed: the next ask brings it, and it is told afresh.
+    }).catch(() => {
+      if (run !== ACK.run) return;
+      ACK.busy = false;
+      ackLater(3000);   // told again shortly; done waits until it is
+    });
+  }
+  // Every page heard, or false once `ms` has passed without it.
+  function heardAll(ms) {
+    const until = Date.now() + ms;
+    return new Promise((resolve) => {
+      const check = () => {
+        if (acksHeard()) { resolve(true); return; }
+        if (Date.now() >= until || S.phase !== 'shown' || !S.drawnView) { resolve(false); return; }
+        ackPage();
+        setTimeout(check, 200);
+      };
+      check();
+    });
   }
   function lockPacked(root) {
     const btn = (root || ui).querySelector('.cs-btn');
@@ -522,7 +615,7 @@
     const needs = (g.needs_you || []).map((t) => t).concat((g.blocked_by || []).map((t) => 'Blocked: ' + t));
     if (needs.length) {
       const panel = el('section', 'cs-panel is-needs');
-      panel.setAttribute('data-dot', 'warn');
+      panel.setAttribute('data-dot', 'need');
       panel.appendChild(el('h2', 'cs-h2', 'Needs you'));
       for (const t of needs.slice(0, 4)) panel.appendChild(el('div', 'cs-need', t));
       stack.appendChild(panel);
@@ -603,12 +696,15 @@
     const fills = {
       panel: ['rgba(160,160,180,.09)', 'rgba(255,255,255,.34)'],
       row: ['rgba(150,150,170,.10)', null],
-      pill: ['rgba(170,130,232,.86)', null],
-      btn: ['rgba(170,130,232,.9)', null],
-      good: ['rgba(112,214,160,.32)', 'rgba(112,214,160,.6)'],
+      // The design's own colours, so the dots arrive in the colours the page resolves into.
+      pill: ['rgba(245,245,247,.9)', null],
+      btn: ['rgba(0,113,227,.92)', null],
+      good: ['rgba(48,209,88,.3)', 'rgba(48,209,88,.6)'],
       chip: ['rgba(160,160,180,.22)', null],
-      warn: ['rgba(255,212,138,.10)', 'rgba(255,212,138,.5)'],
-      ring: [null, 'rgba(196,161,240,.7)'],
+      note: ['rgba(255,255,255,.1)', 'rgba(255,255,255,.28)'],
+      need: ['rgba(10,132,255,.16)', 'rgba(10,132,255,.55)'],
+      warn: ['rgba(255,105,97,.12)', 'rgba(255,105,97,.5)'],
+      ring: ['rgba(255,255,255,.1)', 'rgba(235,235,245,.4)'],
       tile: ['rgba(120,118,140,.75)', 'rgba(255,255,255,.2)'],
     };
     const marked = ui.querySelectorAll('[data-dot]');
@@ -671,9 +767,9 @@
   function checkTargets(label) {
     const c = offscreen(), k = L.check.k, cx = L.check.cx, cy = L.check.cy;
     c.lineCap = 'round'; c.lineJoin = 'round';
-    c.strokeStyle = 'rgb(112,214,160)'; c.lineWidth = 56 * k;
+    c.strokeStyle = 'rgb(48,209,88)'; c.lineWidth = 56 * k;
     c.beginPath(); c.moveTo(cx - 150 * k, cy + 4 * k); c.lineTo(cx - 46 * k, cy + 108 * k); c.lineTo(cx + 162 * k, cy - 118 * k); c.stroke();
-    c.lineWidth = 3 * k; c.strokeStyle = 'rgba(112,214,160,.6)';
+    c.lineWidth = 3 * k; c.strokeStyle = 'rgba(48,209,88,.55)';
     c.beginPath(); c.arc(cx, cy, 250 * k, 0, Math.PI * 2); c.stroke();
     c.fillStyle = '#ffffff'; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
     c.font = '700 ' + L.check.label + 'px ' + FAM;
@@ -714,8 +810,9 @@
     uiState('is-hidden');
     idleEl.classList.add('is-out');
     hint('');
+    const gen = S.gen;
     afterPaint(() => {
-      if (!E) return;
+      if (!E || gen !== S.gen) return;   // taken down meanwhile (wipe): nothing is drawn from it
       const tg = sampleUi();
       const T0 = E.time();
       S.pushT0 = T0;
@@ -757,7 +854,7 @@
     E.at(T0 + 5.2, () => { S.phase = 'shown'; uiState('is-shown'); settle(); scheduleRest(v); });
   }
   function scheduleRest(v) {
-    const left = DONE_HOLD_MS - (Date.now() - Date.parse(v.done_at || ''));
+    const left = DONE_HOLD_MS - (serverNow() - Date.parse(v.done_at || ''));
     setTimeout(reconcile, Math.max(1000, isNaN(left) ? DONE_HOLD_MS : left + 200));
   }
   function clearScreen() {
@@ -801,54 +898,91 @@
     const btn = event && event.currentTarget;
     if (btn) btn.disabled = true;
     try {
-      const body = { version: S.version };
-      const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '/done', {
-        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
-        body: JSON.stringify(body),
-      });
-      if (response.ok) {
-        receive(await response.json());
-      } else if (await notThisScreen(response)) {
-        return;
-      } else if (response.status === 409) {
+      const paged = S.drawnView && (S.drawnView.kind === 'order' || S.drawnView.kind === 'list') && PAGE.total > 0;
+      if (paged && !acksHeard()) {
+        // The last pages may still be on their way to CLIVE, a second apart.
+        hint('Telling CLIVE every page was shown…', false, 20000);
+        if (!(await heardAll(20000))) {
+          hint('CLIVE has not heard every page yet, so nothing was marked. Tap again.', true);
+          return;
+        }
+        hint('');
+      }
+      for (let attempt = 0; attempt < 5; attempt++) {
+        // `confirm` is sent from here, the Mark packed tap, and nowhere else (round 8, B-04).
+        const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '/done', {
+          method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
+          body: JSON.stringify({ version: S.version, confirm: true }),
+        });
+        if (response.ok) { receive(await response.json()); return; }
+        if (await notThisScreen(response)) return;
+        if (response.status === 403) { wipe('refused'); return; }
+        if (response.status === 503) {
+          // Not yet safely kept (round 8, B-03), so not taken as done here: the screen shows
+          // whatever CLIVE says it has on the next ask, and a tap again is answered once it is kept.
+          hint('CLIVE could not save that yet. Tap again in a moment.', true);
+          poll();
+          return;
+        }
+        if (response.status !== 409) throw new Error('done ' + response.status);
         const why = await response.json().catch(() => ({}));
+        if (why && why.code === 'too_soon') {
+          await new Promise((resolve) => setTimeout(resolve, Math.max(50, Math.min(5000, Number(why.retry_after_ms) || 1000))));
+          continue;
+        }
         if (why && why.code === 'not_seen') {
           // CLIVE has not heard every page of this (a restart, a lost acknowledgement): show
-          // them again, from this one.
+          // them again, from this one; they are told again from the first item.
           PAGE.seen = new Set([PAGE.index]);
           pageControls();
           lockPacked(ui);
+          ackReset();
           ackPage();
           hint(PAGE.pages > 1 ? 'CLIVE needs to see every page again: tap through them, then mark it.' : 'Tap again.', true);
-          if (btn && !packedLocked()) btn.disabled = false;
-        } else {
-          hint('This changed before the tap, so nothing was marked. Look again.', true);
-          poll();
-          if (btn) btn.disabled = false;
+          return;
         }
-      } else {
-        throw new Error('done ' + response.status);
+        hint('This changed before the tap, so nothing was marked. Look again.', true);
+        poll();
+        return;
       }
+      hint('CLIVE is still busy with the last page, so nothing was marked. Tap again.', true);
     } catch (e) {
       hint('CLIVE could not be reached, so nothing was marked. Tap again.', true);
-      if (btn) btn.disabled = false;
     } finally {
       marking = false;
+      if (btn) btn.disabled = packedLocked();
     }
   }
 
   // ---- asking CLIVE what to show --------------------------------------------------------
-  let pollTimer = 0, pollDelay = POLL_MS;
+  let pollTimer = 0, pollDelay = POLL_MS, polling = false;
   function receive(data) {
     if (!data || typeof data !== 'object') return;
-    if (typeof data.version === 'number') S.version = data.version;
-    S.showing = data.showing || null;
-    S.lastDone = data.last_done || null;
+    const now = Date.parse(data.now || '');
+    if (!isNaN(now)) S.skew = now - Date.now();
     if (data.name && S.screen && data.name !== S.screen.name) {
       S.screen.name = data.name;
       saveScreen(S.screen);
       $('bar-name').textContent = data.name;
     }
+    if (data.pending) {
+      // Waiting for the owner to approve this screen: nothing is shown on it (round 8, B-02). Its
+      // version is not taken, so the first ask after approval is answered in full.
+      S.version = -1;
+      S.unapproved = true;
+      S.showing = null;
+      S.lastDone = null;
+      if (typeof data.code_expires_in === 'number') S.pairUntil = Date.now() + data.code_expires_in * 1000;
+      if (S.phase === 'pairing') showCode();
+      else if (S.phase !== 'boot') toPairing();
+      return;
+    }
+    if (typeof data.version === 'number') S.version = data.version;
+    const approvedNow = S.unapproved;
+    S.unapproved = false;
+    S.showing = data.showing || null;
+    S.lastDone = data.last_done || null;
+    if (approvedNow && S.phase === 'pairing') { approved(); return; }
     reconcile();
   }
   function setOnline(on, refused) {
@@ -862,31 +996,91 @@
     if (response.status !== 403) return false;
     const data = await response.clone().json().catch(() => ({}));
     if (!data || data.code !== 'not_this_screen') return false;
+    wipe('');
     forgetScreen(); S.screen = null; toNaming();
     return true;
   }
   async function poll() {
     clearTimeout(pollTimer);
-    if (!S.screen) return;
+    if (!S.screen || polling) return;
+    polling = true;
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const giveUp = ctl ? setTimeout(() => ctl.abort(), POLL_TIMEOUT_MS) : 0;
     try {
       const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '?v=' + S.version,
-        { cache: 'no-store', headers: { 'X-Screen-Key': S.screen.key } });
-      if (response.status === 404) { forgetScreen(); S.screen = null; toNaming(); return; }
+        { cache: 'no-store', headers: { 'X-Screen-Key': S.screen.key }, signal: ctl ? ctl.signal : undefined });
+      if (response.status === 404) {
+        // Removed by the owner, or a request for approval that ran out or was cancelled.
+        const waiting = S.unapproved, was = S.screen ? S.screen.name : '';
+        wipe('');
+        forgetScreen(); S.screen = null;
+        toNaming(waiting ? 'The code ran out or was cancelled before this screen was approved. Name it again for a new code.' : '', waiting ? was : '');
+        return;
+      }
       if (await notThisScreen(response)) return;
       if (response.status === 403) {
+        // This screen's login may not use CLIVE now (round 8, NEW-B-LOCAL-SLIP): whatever it
+        // shows goes at once, and it asks again now and then in case that changes.
+        S.lastOk = Date.now();
+        wipe('refused');
         if (S.online !== false || !S.refused) setOnline(false, true);
         pollTimer = setTimeout(poll, REFUSED_MS);
         return;
       }
       if (response.status !== 204 && !response.ok) throw new Error('poll ' + response.status);
+      S.lastOk = Date.now();
+      if (S.gone) { S.gone = ''; showLine(true); }
       if (S.online !== true) setOnline(true);
       pollDelay = POLL_MS;
       if (response.status !== 204) receive(await response.json());
     } catch (e) {
       if (S.online !== false || S.refused) setOnline(false);
       pollDelay = Math.min(POLL_MAX_MS, Math.round(pollDelay * 1.5));
+    } finally {
+      clearTimeout(giveUp);
+      polling = false;
     }
-    pollTimer = setTimeout(poll, pollDelay);
+    if (S.screen) pollTimer = setTimeout(poll, pollDelay);
+  }
+  // Out of reach for OFFLINE_CLEAR_MS on end, however the asks are failing (refused, erroring or
+  // hanging): what is shown is taken down (round 8, NEW-B-LOCAL-SLIP). And a slip past CLIVE's
+  // own limit is taken down even while CLIVE answers "nothing new".
+  setInterval(() => {
+    if (S.screen && !S.gone && Date.now() - S.lastOk >= OFFLINE_CLEAR_MS) wipe('offline');
+    if (S.showing && tooOld(S.showing)) { S.showing = null; reconcile(); }
+    else if (S.drawnView && tooOld(S.drawnView)) reconcile();
+  }, 5000);
+
+  // ---- taking what is shown down, at once (round 8, NEW-B-LOCAL-SLIP) --------------------
+  // A customer's details leave this screen the moment it may no longer show them. Nothing is
+  // animated away: the page, the dots that drew it (they carry its shapes and letters) and what
+  // is kept of it in memory go now, and the next ask starts afresh, so what comes back is only
+  // what CLIVE sends again.
+  function wipe(why) {
+    const drawn = !!S.drawnView || ['forming', 'revealing', 'shown', 'packing', 'clearing'].indexOf(S.phase) !== -1;
+    S.gen++;
+    S.showing = null; S.lastDone = null; S.version = -1;
+    S.drawnView = null; S.drawnKey = ''; S.drawnPacked = false; S.drawnVersion = -1; S.what = '';
+    ackReset();
+    draw(null);
+    uiState('is-hidden');
+    status(false);
+    scanEl.classList.remove('is-run');
+    hint('');
+    if (drawn) {
+      makeEngine();
+      if (E) E.idleNow(clockTargets());
+      idleEl.classList.remove('is-out');
+      S.phase = 'idle'; S.busy = false; S.pending = false;
+    } else if (S.phase === 'pairing' && why) {
+      // The code is not a customer's, but a screen that may not use CLIVE says that instead.
+      pairEl.hidden = true;
+      if (E) E.nameToOrb(clockTargets());
+      idleEl.classList.remove('is-out');
+      S.phase = 'idle'; S.busy = false; S.pending = false;
+    }
+    S.gone = why || '';
+    showLine(true);
   }
 
   // ---- idle: the date and a line under the dot clock ------------------------------------
@@ -894,7 +1088,8 @@
   function showLine(force) {
     const line = $('line');
     let text;
-    if (S.refused) text = 'This screen’s login is not allowed to use CLIVE.';
+    if (S.gone === 'refused' || S.refused) text = 'This screen isn’t allowed to show CLIVE’s things any more.';
+    else if (S.gone === 'offline') text = 'CLIVE can’t be reached, so this screen has taken down what it showed.';
     else if (S.online === false) text = 'CLIVE cannot be reached. Trying again.';
     else {
       const name = S.screen ? S.screen.name.toLowerCase() : 'this screen';
@@ -902,6 +1097,7 @@
       if (S.lastDone && S.lastDone.title) options.push('Last done here: ' + S.lastDone.title + ' at ' + timeOf(S.lastDone.at));
       text = options[lineN % options.length];
     }
+    line.classList.toggle('is-gone', !!S.gone || S.refused);
     if (!force && line.textContent === text) return;
     line.textContent = text;
     line.classList.remove('is-new');
@@ -927,24 +1123,37 @@
   // ---- naming this screen ---------------------------------------------------------------
   const input = $('name-input'), saveBtn = $('name-save'), nameError = $('name-error'), replaceBtn = $('name-replace');
   let nameTimer = 0;
-  function toNaming() {
+  function toNaming(note, name) {
     S.phase = 'naming';
     S.busy = true;
+    S.unapproved = false; S.pairCode = '';
     uiState('is-hidden');
     draw(null);
     idleEl.classList.add('is-out');
+    pairEl.hidden = true;
     namer.hidden = false;
     namer.classList.remove('is-leaving');
+    if (name) { input.value = String(name).slice(0, 40); saveBtn.disabled = false; }
+    replaceMode('');
+    nameError.textContent = note || '';
     if (E) { E.nameIntro(); E.nameTo(nameTargets(input.value)); }
     setTimeout(() => { try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); } }, 200);
   }
   function typed() {
     const value = input.value.slice(0, 40);
     saveBtn.disabled = !value.trim();
-    nameError.textContent = '';
-    replaceBtn.hidden = true;
+    // Making room (too many screens) is typing the name of the one to remove: the way stays open.
+    if (replaceBtn.dataset.mode !== 'room') { nameError.textContent = ''; replaceBtn.hidden = true; }
     clearTimeout(nameTimer);
     nameTimer = setTimeout(() => { if (E && S.phase === 'naming') E.nameTo(nameTargets(value)); }, 80);
+  }
+  // The one button that removes a screen, in the two cases it is offered: a name already taken
+  // ("replace": remove it and name this one that) and too many screens ("room": remove the one
+  // typed, then name this one).
+  function replaceMode(mode) {
+    replaceBtn.dataset.mode = mode;
+    replaceBtn.hidden = !mode;
+    replaceBtn.textContent = mode === 'room' ? 'Remove that screen' : 'Remove the old screen and use this one';
   }
   input.addEventListener('input', typed);
   namer.addEventListener('click', (event) => {
@@ -953,18 +1162,30 @@
   });
   // A name another screen already has is never simply taken over (round 7, B-02): the owner
   // removes the old screen first — here, with one deliberate tap — which clears whatever it was
-  // showing, and this device then gets a new screen of that name, with nothing on it.
+  // showing, and this device then gets a new screen of that name, with nothing on it. At the
+  // most screens CLIVE keeps, nothing is removed to make room (round 8, NEW-B-CAP): the owner
+  // names the one to remove and taps, then names this one.
   replaceBtn.addEventListener('click', async () => {
     const name = input.value.trim();
     if (!name) return;
+    const room = replaceBtn.dataset.mode === 'room';
     replaceBtn.disabled = true;
     try {
       const response = await fetch('/displays/forget', {
         method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
       });
+      if (room) {
+        if (response.status === 404) { nameError.textContent = 'There is no screen called that. Type the name of one to remove.'; return; }
+        if (!response.ok) throw new Error('forget ' + response.status);
+        replaceMode('');
+        input.value = '';
+        typed();
+        nameError.textContent = 'Removed ' + name + '. Now type this screen’s name.';
+        return;
+      }
       if (!response.ok && response.status !== 404) throw new Error('forget ' + response.status);
-      replaceBtn.hidden = true;
+      replaceMode('');
       nameError.textContent = '';
       namer.requestSubmit ? namer.requestSubmit() : namer.dispatchEvent(new Event('submit', { cancelable: true }));
     } catch (e) {
@@ -978,7 +1199,7 @@
     const name = input.value.trim();
     if (!name) { nameError.textContent = 'Type a name first, like office screen.'; return; }
     saveBtn.disabled = true;
-    replaceBtn.hidden = true;
+    replaceMode('');
     try {
       const response = await fetch('/displays/register', {
         method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
@@ -987,25 +1208,129 @@
       const data = await response.json().catch(() => ({}));
       if (response.status === 403) throw new Error('This screen’s login is not allowed to use CLIVE.');
       if (response.status === 409 && data.code === 'name_taken') {
-        replaceBtn.hidden = false;
+        replaceMode('replace');
         throw new Error(data.detail || 'There is already a screen with that name.');
+      }
+      if (response.status === 409 && data.code === 'too_many_screens') {
+        replaceMode('room');
+        throw new Error(data.detail || 'CLIVE has as many screens as it keeps. Remove one first.');
       }
       if (!response.ok || !data.id || !data.key) throw new Error(data.detail || 'CLIVE did not take that name. Try another.');
       S.screen = { id: data.id, name: data.name || name, key: data.key };
       saveScreen(S.screen);
       $('bar-name').textContent = S.screen.name;
+      S.version = -1;
+      S.lastOk = Date.now();
+      if (data.pending) {
+        // Named, not yet a screen CLIVE shows things on: its code goes up (round 8, B-02).
+        S.unapproved = true;
+        S.pairCode = /^\d{6}$/.test(String(data.code || '')) ? String(data.code) : '';
+        S.pairUntil = Date.now() + (Number(data.code_expires_in) || 900) * 1000;
+        toPairing(true);
+        poll();
+        return;
+      }
       namer.classList.add('is-leaving');
       setTimeout(() => { namer.hidden = true; }, 700);
       if (E) E.nameToOrb(clockTargets());
       idleEl.classList.remove('is-out');
       S.phase = 'idle';
-      S.version = -1;
       setTimeout(() => { settle(); poll(); }, calm ? 200 : 2200);
     } catch (e) {
       nameError.textContent = (e && e.message) || 'CLIVE could not be reached. Try again.';
       saveBtn.disabled = false;
     }
   });
+
+  // ---- approving this screen (round 8, B-02) --------------------------------------------
+  // The screen's name in dots, and beneath it the code the owner reads out to CLIVE. The code is
+  // held in memory only; a page opened again while the screen is waiting asks CLIVE for a new
+  // one, with the screen's own key.
+  function spaced(code) { const c = String(code || ''); return c.length === 6 ? c.slice(0, 3) + ' ' + c.slice(3) : c; }
+  function saidName(name) {
+    const n = String(name || '').trim().toLowerCase();
+    return /\bscreen$/.test(n) ? n : n + ' screen';
+  }
+  function showCode() {
+    const code = spaced(S.pairCode);
+    $('pair-code').textContent = code || '··· ···';
+    $('pair-say').textContent = code && S.screen
+      ? 'Tell CLIVE: “approve the ' + saidName(S.screen.name) + ', code ' + code + '”'
+      : 'Getting a code from CLIVE…';
+    const mins = Math.max(1, Math.ceil((S.pairUntil - Date.now()) / 60000));
+    $('pair-note').textContent = code
+      ? 'The code works for ' + mins + (mins === 1 ? ' more minute' : ' more minutes') + '. Nothing is shown here until CLIVE approves it.'
+      : '';
+  }
+  function toPairing(fromNaming) {
+    const wasNaming = S.phase === 'naming';
+    S.phase = 'pairing';
+    S.busy = true;
+    uiState('is-hidden');
+    draw(null);
+    idleEl.classList.add('is-out');
+    if (fromNaming) {
+      namer.classList.add('is-leaving');
+      setTimeout(() => { namer.hidden = true; }, 700);
+    } else {
+      namer.hidden = true;
+    }
+    pairEl.hidden = false;
+    pairEl.classList.remove('is-leaving');
+    showCode();
+    if (E && S.screen) {
+      if (!wasNaming) E.nameIntro();
+      E.nameTo(nameTargets(S.screen.name));
+    }
+    if (!S.pairCode) renewCode();
+  }
+  function approved() {
+    S.unapproved = false;
+    S.pairCode = '';
+    pairEl.classList.add('is-leaving');
+    setTimeout(() => { if (S.phase !== 'pairing') pairEl.hidden = true; }, 700);
+    if (E) E.nameToOrb(clockTargets());
+    idleEl.classList.remove('is-out');
+    S.phase = 'idle';
+    hint('Approved. CLIVE can put things on this screen now.', false, 8000);
+    setTimeout(() => { if (S.phase === 'idle') { settle(); reconcile(); } }, calm ? 200 : 2200);
+  }
+  let renewing = false;
+  async function renewCode() {
+    if (renewing || !S.screen) return;
+    renewing = true;
+    try {
+      const response = await fetch('/displays/register', {
+        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
+        body: JSON.stringify({ name: S.screen.name }),
+      });
+      if (response.status === 403) { wipe('refused'); return; }
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && S.screen && data.id === S.screen.id && data.key) {
+        S.screen.key = data.key;
+        saveScreen(S.screen);
+        if (data.pending && /^\d{6}$/.test(String(data.code || ''))) {
+          S.pairCode = String(data.code);
+          S.pairUntil = Date.now() + (Number(data.code_expires_in) || 900) * 1000;
+        }
+        if (S.phase === 'pairing') showCode();
+        return;
+      }
+      if (response.status === 409 && data.code === 'name_taken') {
+        // The name went to another request while this one lapsed: name this screen again.
+        const was = S.screen ? S.screen.name : '';
+        forgetScreen(); S.screen = null;
+        toNaming(data.detail || '', was);
+        return;
+      }
+      throw new Error('register ' + response.status);
+    } catch (e) {
+      if (S.phase === 'pairing') $('pair-say').textContent = 'CLIVE could not give this screen a code yet. Trying again.';
+      setTimeout(() => { if (S.phase === 'pairing' && !S.pairCode) renewCode(); }, 5000);
+    } finally {
+      renewing = false;
+    }
+  }
 
   // ---- the start-up ---------------------------------------------------------------------
   // The whole sequence the first time this screen opens on a day, and after CLIVE has been
@@ -1164,6 +1489,7 @@
     rowsTo(false);
     if (!S.screen) { toNaming(); return; }
     $('bar-name').textContent = S.screen.name;
+    if (S.unapproved) { toPairing(false); return; }
     idleEl.classList.remove('is-out');
     S.phase = 'idle';
     settle();
@@ -1209,17 +1535,24 @@
       makeEngine();
       // Straight to where things are, without the journey.
       if (S.phase === 'naming') { E.nameIntro(); E.nameTo(nameTargets(input.value)); return; }
+      if (S.phase === 'pairing' && S.screen) { E.nameIntro(); E.nameTo(nameTargets(S.screen.name)); return; }
       if (S.drawnView && (S.phase === 'shown' || S.phase === 'forming' || S.phase === 'revealing' || S.phase === 'packing')) {
         draw(S.drawnView, S.drawnPacked);
         ackPage();
         uiState('is-shown');
         status(false);
-        afterPaint(() => { E.place(sampleUi()); S.phase = 'shown'; settle(); });
+        const gen = S.gen;
+        afterPaint(() => {
+          if (gen !== S.gen) return;
+          E.place(sampleUi()); S.phase = 'shown'; settle();
+          ackPage();   // the pages as now laid out, told from the first item
+        });
         return;
       }
       E.idleNow(clockTargets());
       if (S.phase !== 'idle') { markEl.className = 'bt-mark'; idleEl.classList.remove('is-out'); uiState('is-hidden'); draw(null); S.phase = 'idle'; }
       if (!S.screen) { toNaming(); return; }
+      if (S.unapproved) { toPairing(false); return; }
       settle();
     }, 300);
   });

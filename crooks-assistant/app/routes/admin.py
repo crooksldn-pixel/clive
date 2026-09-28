@@ -54,6 +54,9 @@ async def tools() -> dict:
 async def whoami(request: Request) -> dict:
     """Who Tailscale says is asking. Open this on the device to see the exact login to put in
     CROOKS_ALLOWED_LOGINS; nothing is guessed. A request made on the server itself has no login."""
+    import logging
+    import secrets
+
     from app.routes.actions import TAILSCALE, principal_verdict, proxy_state
 
     login = request.headers.get("tailscale-user-login", "")
@@ -61,12 +64,14 @@ async def whoami(request: Request) -> dict:
     _who, code, _detail = principal_verdict(request)
     # One line in the service's own log for every /whoami, without the login: the deploy reads it
     # to know that a real owner device got through end to end before it keeps a new build
-    # (the 2026-09-27 deploy review, round 7, F-05B-AVAIL-PREFLIGHT).
-    import logging
-
+    # (the 2026-09-27 deploy review, round 7, F-05B-AVAIL-PREFLIGHT). It carries a token made for
+    # this request alone, which the answer carries too, so the line the deploy reads can be tied to
+    # the phone that asked and not to any other request (round 8, F-05B-AVAIL-PREFLIGHT).
+    check = secrets.token_hex(4)
     logging.getLogger("crooks.identity").info(
-        "whoami: through=%s owner=%s refusal=%s", route, "true" if not code else "false", code or "none")
+        "whoami: id=%s through=%s owner=%s refusal=%s", check, route, "true" if not code else "false", code or "none")
     return {
+        "check": check,
         "login": login or None,
         "proxied": route == TAILSCALE,
         # Whether this request, as it arrived, is the owner's by the one rule every owner route

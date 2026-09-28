@@ -50,25 +50,54 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
         return _guarded(request, {**result, "observability": _observability(runtime), "pad": _pad(), "cached": False, "age_s": 0.0})
 
 
-# What /health says only to the owner (the 2026-09-27 deploy review, round 7, F-NEW-PAD). /health
-# is public — the service manager, the watchdog and `make status` read it on the server with no
-# device behind them — so it keeps liveness for everyone and withholds the pad's status (GET /pad
-# is the owner's) and the test session's name and recording state (the observe routes are the
-# owner's) from anyone the owner rule refuses.
-OWNER_ONLY_BLOCKS = ("pad", "observability")
+# What /health says to a caller the owner rule refuses (the 2026-09-27 deploy review, round 8,
+# F-NEW-PAD). /health is public — anything that can reach the port can ask, a device on the
+# tailnet that is not the owner's among them — so such a caller gets liveness and nothing else:
+# whether the server is well overall, which build, how long it has been up, and the two checks
+# that say whether its own guards are working (_liveness says what each keeps). Built from an
+# allow-list, not by taking the owner's blocks out, so that a block added later is the owner's by
+# default. Sessions, write state, capabilities, families, the orders cache, the manifest, the
+# voice, every other check and every check's detail (which can carry an exception's text) stay
+# the owner's — and the server's own status readers', which carry its local key
+# (app/local_cli.py).
 
 
 def _guarded(request: Request, result: dict) -> dict:
-    """The answer as this caller may see it: _checked, less the owner's own blocks unless the
-    caller is the owner."""
+    """The answer as this caller may see it: all of _checked for the owner and for the server's
+    own status readers with their key, liveness alone for anyone else. Decided per request from
+    the shared result, and never cached, so neither caller's answer is ever served to the other."""
+    from app import local_cli
     from app.routes.actions import principal_verdict
 
     out = _checked(request.app.state, result)
+    if local_cli.admits(request):
+        return out
     _who, code, _detail = principal_verdict(request)
-    if code:
-        out = {k: v for k, v in out.items() if k not in OWNER_ONLY_BLOCKS}
-        out["withheld"] = list(OWNER_ONLY_BLOCKS)
-    return out
+    return out if not code else _liveness(out)
+
+
+def _liveness(out: dict) -> dict:
+    """What a caller the owner rule refuses may read. proxy_identity keeps its detail because that
+    string is only ever one of identity.served_without_proxy_headers's own fixed sentences (never an
+    exception's text; tests/test_pad.py holds it to them); housekeeping's detail can name a problem
+    a pass met, so it goes as a verdict only."""
+    checks = out.get("checks") if isinstance(out.get("checks"), dict) else {}
+    shown: dict[str, dict] = {}
+    proxy = checks.get("proxy_identity")
+    if isinstance(proxy, dict):
+        shown["proxy_identity"] = {"ok": proxy.get("ok") is True, "detail": str(proxy.get("detail") or "")}
+    keeper = checks.get("housekeeping")
+    if isinstance(keeper, dict):
+        shown["housekeeping"] = {"ok": keeper.get("ok") is True}
+    return {
+        "status": "ok" if out.get("status") == "ok" else "degraded",
+        "build": out.get("build"),
+        "uptime_s": out.get("uptime_s"),
+        "checks": shown,
+        # So a reader can tell this answer from the whole one and never takes an absent check for
+        # a working one (scripts/healthcheck.py, scripts/status.py).
+        "limited": True,
+    }
 
 
 def _checked(state, result: dict) -> dict:

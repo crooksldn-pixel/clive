@@ -204,6 +204,7 @@ async def test_another_logins_session_gets_nothing_of_it(client):
 
 # ------------------------------------------- a change belongs to where it was asked
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_staged_change_carries_the_branch_that_staged_it():
     """The property this test is named for, asserted rather than grepped.
 

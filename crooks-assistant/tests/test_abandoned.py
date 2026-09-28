@@ -194,6 +194,7 @@ def test_two_of_the_same_item_in_one_checkout_is_one_checkout_not_two():
     assert len(named) == 1 and named[0]["checkouts"] == 2
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_shop_that_cannot_serve_the_query_gets_the_limitation_not_a_shrug(store, session):
     store.answer_nothing = True
     text = await dispatch(TOOL, {"days": 7}, session=session, timeout_s=5)
@@ -202,6 +203,7 @@ async def test_a_shop_that_cannot_serve_the_query_gets_the_limitation_not_a_shru
     assert "don't have a tool" not in text.lower() and "do not have a tool" not in text.lower()
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_shopify_that_is_not_answering_is_reported_as_that(store, session):
     class Broken(AbandonedStore):
         async def graphql(self, query, variables=None):
@@ -260,6 +262,7 @@ def test_the_window_words_are_the_owners_words():
 # --------------------------------------------------------------------------- the fast lane
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_sentence_reaches_this_family_and_the_recipe_draws_both_cards(store, session):
     from app.fastpath import RECIPES
     from app.fastpath.intent import Intent, resolve, signals_for

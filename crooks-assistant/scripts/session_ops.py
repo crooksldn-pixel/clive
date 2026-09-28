@@ -52,9 +52,22 @@ def settings():
     return get_settings()
 
 
-def call(port: int, method: str, path: str, body: dict | None = None, *, timeout_s: float = 5.0) -> dict | None:
-    """The backend on loopback, or None when it is not running. The same two endpoints the
-    typed CLI uses, so a button and a command cannot start different things."""
+# How long a call to the backend waits for its answer.
+TIMEOUT_S = 5.0
+# The key an answer carries when there was none: the call timed out or failed some other way.
+FAILED = "call_failed"
+
+
+def call(port: int, method: str, path: str, body: dict | None = None, *, timeout_s: float | None = None) -> dict | None:
+    """The backend on loopback. The same endpoints the typed CLI uses, so a button and a command
+    cannot start different things.
+
+    None means one thing only (round 8, F-10): nothing is listening on the port — the connection
+    was refused, which on loopback is the kernel's own answer. A call that timed out, was cut off,
+    or came back as something that is not an answer is NOT that: the backend may be running and
+    may have done what was asked. It comes back as {FAILED: why}, and failed() says so. Before,
+    both came back None, and a stop that timed out was reported as a stop with no backend, whose
+    count is final."""
     from app import local_cli
 
     data = json.dumps(body or {}).encode("utf-8") if method == "POST" else None
@@ -62,16 +75,48 @@ def call(port: int, method: str, path: str, body: dict | None = None, *, timeout
     headers = {"content-type": "application/json", **(local_cli.headers() if path.startswith("/test-session/") else {})}
     request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method=method,
                                      headers=headers)
+    wait = TIMEOUT_S if timeout_s is None else timeout_s
     try:
-        with urllib.request.urlopen(request, timeout=timeout_s) as response:  # noqa: S310 — loopback only
-            return json.loads(response.read().decode("utf-8") or "{}")
+        with urllib.request.urlopen(request, timeout=wait) as response:  # noqa: S310 — loopback only
+            answer = json.loads(response.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         try:
-            return json.loads(exc.read().decode("utf-8") or "{}")
-        except ValueError:
-            return {"code": f"http {exc.code}"}
-    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
-        return None
+            answer = json.loads(exc.read().decode("utf-8") or "{}")
+        except Exception:  # noqa: BLE001 — a refusal whose body could not be read is still a refusal
+            answer = None
+        return answer if isinstance(answer, dict) else {"code": f"http {exc.code}"}
+    except Exception as exc:  # noqa: BLE001 — every way a call can fail is one of the two below
+        if _refused(exc):
+            return None
+        return {FAILED: _why(exc, wait)}
+    return answer if isinstance(answer, dict) else {FAILED: "its answer was not one this understands"}
+
+
+def failed(answer: dict | None) -> str:
+    """Why a call got no answer, when it timed out or failed; '' for an answer, or for None (no
+    backend running)."""
+    return str(answer.get(FAILED) or "") if isinstance(answer, dict) else ""
+
+
+def _refused(exc: BaseException) -> bool:
+    import errno
+
+    for reason in (exc, getattr(exc, "reason", None)):
+        if isinstance(reason, ConnectionRefusedError):
+            return True
+        if isinstance(reason, OSError) and reason.errno == errno.ECONNREFUSED:
+            return True
+    return False
+
+
+def _why(exc: BaseException, wait: float) -> str:
+    import socket
+
+    reason = getattr(exc, "reason", None)
+    for cause in (exc, reason):
+        if isinstance(cause, (TimeoutError, socket.timeout)):
+            return f"it did not answer within {wait:g} s"
+    return f"the call failed ({type(reason if isinstance(reason, BaseException) else exc).__name__})"
 
 
 def store(log_dir: Path | None = None):
@@ -132,6 +177,13 @@ def start(port: int, *, label: str = "", log_dir: Path | None = None) -> dict:
 
     name = (label or "").strip()[:80] or "session"
     answer = call(port, "POST", "/test-session/start", {"name": name})
+    if why := failed(answer):
+        # Running but not answering is not "not running" (round 8, F-10): it may have started the
+        # session, so nothing is marked on disk over it and nothing is claimed either way.
+        return {"ok": False, "active": False, "test_session_id": "", "name": name, "path": "", "started_at": None,
+                "where": "backend",
+                "human": f"CROOKS OS did not answer ({why}), so whether the session started is not known. "
+                         "Check its status before starting another."}
     if answer is not None:
         if answer.get("started"):
             return {"ok": True, "active": True, "test_session_id": answer.get("test_session_id", ""),
@@ -159,6 +211,18 @@ def status(port: int, *, log_dir: Path | None = None, now: float | None = None) 
     now = time.time() if now is None else now
     sessions = store(log_dir)
     answer = call(port, "GET", "/test-session/status")
+    if why := failed(answer):
+        # What the files on disk say, as that, and never "CROOKS OS is not running" (round 8, F-10).
+        active = sessions.active()
+        if active is None:
+            return {"ok": True, "active": False, "test_session_id": "", "name": "", "path": "", "where": "disk",
+                    "events": {}, "progress": {}, "last": {},
+                    "human": f"CROOKS OS did not answer ({why}); no test session is marked running on disk."}
+        path = sessions.timeline_path(active)
+        return {"ok": True, "active": True, "test_session_id": active.test_session_id, "name": active.name,
+                "path": str(path), "where": "disk", "events": {},
+                "progress": progress(path, started_at=active.started_at, now=now),
+                "human": f"CROOKS OS did not answer ({why}); {active.test_session_id} is marked running on disk."}
     if answer is not None and answer.get("active"):
         path = Path(answer.get("path") or "")
         return {"ok": True, "active": True, "test_session_id": answer.get("test_session_id", ""),
@@ -215,27 +279,40 @@ def stop_and_analyse(port: int, *, log_dir: Path | None = None, analyse: bool = 
     sleep = sleep or time.sleep
     now = now or time.monotonic
     sessions = store(log_dir)
+    asked_at = sessions.clock()
     answer = call(port, "POST", "/test-session/stop")
-    if answer is not None and not answer.get("stopped"):
+    why_failed = failed(answer)
+    if answer is not None and not why_failed and not answer.get("stopped"):
         return {"ok": False, "stopped": False, "test_session_id": "", "paths": {}, "artefacts": [],
                 "human": str(answer.get("detail") or "No test session is running.")}
-    if answer is None:
-        session = sessions.stop()
+    if answer is None or why_failed:
+        session = stop_on_disk(sessions, asked_at=asked_at if why_failed else None)
         if session is None:
-            return {"ok": False, "stopped": False, "test_session_id": "", "paths": {}, "artefacts": [],
-                    "human": "No test session is running."}
+            human = "No test session is running." if answer is None else (
+                f"CROOKS OS did not answer the stop ({why_failed}), and no test session is marked running on disk.")
+            return {"ok": False, "stopped": False, "test_session_id": "", "paths": {}, "artefacts": [], "human": human}
         ident, path, where = session.test_session_id, sessions.timeline_path(session), "disk"
     else:
         ident = str(answer.get("test_session_id") or "")
         path = Path(answer.get("path") or sessions.timeline_path(ident))
         where = "backend"
-    from app.observability.timeline import stop_is_final
+    from app.observability.timeline import stop_is_final, unsettled_reasons
 
-    held = _settle(path, sleep=sleep, now=now)
-    # The file's count is the session's total only when the backend said the stop settled and
-    # nothing was pending (round 7, F-10); two equal counts of the file are not that — a stalled
-    # writer gives exactly two equal counts. With no backend running, nothing is writing: final.
-    final = stop_is_final(answer) if answer is not None else True
+    # The file's count is the session's total only when an answer says so with authority, or when
+    # nothing can still be writing it (round 8, F-10). Two equal counts of the file are never
+    # that: a stalled writer gives exactly two equal counts. With nothing answering, whether a
+    # writer is alive is asked first and the file counted after: once none is, it cannot grow.
+    if answer is None:
+        final, reasons = no_backend_verdict(sessions, sleep=sleep, now=now, since=now())
+        held = _settle(path, sleep=sleep, now=now)
+    elif why_failed:
+        held = _settle(path, sleep=sleep, now=now)
+        final, reasons = False, [f"CROOKS OS did not answer the stop ({why_failed}), so what it still had to write "
+                                 "is not known; the session was stopped on disk"]
+    else:
+        held = _settle(path, sleep=sleep, now=now)
+        final = stop_is_final(answer)
+        reasons = [] if final else unsettled_reasons(answer)
     reports = Path(out_dir) if out_dir else ROOT / "reports"
     paths = {"raw": str(path), "folder": str(reports), "report": "", "proposals": ""}
     artefacts: list[dict] = []
@@ -250,17 +327,52 @@ def stop_and_analyse(port: int, *, log_dir: Path | None = None, analyse: bool = 
             artefacts.append({"name": name, "ok": True, "path": str(written), "detail": ""})
     else:
         artefacts.append({"name": "analysis", "ok": False, "path": "", "detail": "not asked for"})
-    failed = [a["name"] for a in artefacts if not a["ok"] and a["detail"] != "not asked for"]
+    unwritten = [a["name"] for a in artefacts if not a["ok"] and a["detail"] != "not asked for"]
     if final:
         human = f"Recorded {held} event(s) in {ident}."
     else:
-        pending = ((answer or {}).get("events") or {}).get("pending", "some")
-        human = (f"{held} event(s) on disk in {ident} so far, not final: {pending} were still being written when it "
-                 "stopped, and more may yet land or be dropped. The report is of what was on disk.")
-    if failed:
-        human += " The session is saved; " + ", ".join(failed) + " could not be written."
+        human = (f"{held} event(s) on disk in {ident} so far — an on-disk snapshot, not final: {'; '.join(reasons)}. "
+                 "More may yet land or be dropped. The report is of what was on disk.")
+    if unwritten:
+        human += " The session is saved; " + ", ".join(unwritten) + " could not be written."
     return {"ok": True, "stopped": True, "test_session_id": ident, "where": where, "events": held, "final": final,
-            "paths": paths, "artefacts": artefacts, "human": human}
+            "not_final_because": reasons, "paths": paths, "artefacts": artefacts, "human": human}
+
+
+def stop_on_disk(sessions, *, asked_at: float | None = None):
+    """The session stopped by its file, with no backend answer to go on. `asked_at`, when the
+    backend was asked first and did not answer: a stop it carried out before its answer was lost
+    has already moved the session to last.json, and that session is the one stopped, not "none"
+    (round 8, F-10). A last session stopped before the ask is not."""
+    session = sessions.stop()
+    if session is None and asked_at is not None:
+        last = sessions.last()
+        if last is not None and last.stopped_at is not None and last.stopped_at >= asked_at:
+            session = last
+    return session
+
+
+def no_backend_verdict(sessions, *, sleep, now, since: float) -> tuple[bool, list[str]]:
+    """Whether a count read with nothing answering on the port is final: only when no process
+    still holds the session folder's timeline writer (round 8, F-10). A backend stops listening
+    before its own shutdown has flushed, so a refused connection alone is not that. Asked after
+    RECHECK_S has passed since the session was stopped on disk: a backend holding the session in
+    its one-second cache has either queued its last event by then, holding the writer, or never
+    will. (final, reasons)."""
+    from app.observability.session import RECHECK_S
+    from app.observability.timeline import writer_alive
+
+    left = RECHECK_S + 0.2 - (now() - since)
+    if left > 0:
+        sleep(left)
+    alive = writer_alive(sessions.root)
+    if alive is False:
+        return True, []
+    if alive is True:
+        return False, ["CROOKS OS is not answering on its port, but a process still holds the timeline's writer, "
+                       "so events may still land"]
+    return False, ["CROOKS OS is not answering on its port, and whether anything still holds the timeline's "
+                   "writer could not be checked"]
 
 
 def _write_report(path: Path, out_dir: Path) -> Path:

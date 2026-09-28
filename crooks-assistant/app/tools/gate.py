@@ -138,8 +138,11 @@ _KNOWN_TOOLS = frozenset({
     # there. Nothing leaves this machine through them and nothing in a store or an inbox changes.
     # The order a slip is drawn from, and the objective put up, must be issued ids (below), and
     # the screen must be named exactly (app/tools/display_tools.py). Named here one by one,
-    # because this is an allow-list.
-    "screen_list", "screen_show",
+    # because this is an allow-list. screen_pair approves a newly named screen with the code it
+    # shows, as the owner read it out (round 8, B-02): it changes only CLIVE's own record of
+    # screens, and is named "pair" rather than "approve", which the verbs above read as a store
+    # write.
+    "screen_list", "screen_show", "screen_pair",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

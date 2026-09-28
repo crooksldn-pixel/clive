@@ -212,21 +212,36 @@ def _identity_seams_are_put_back(request):
     local_cli.bind_key()
 
 
-@pytest.fixture(autouse=True)
-def _the_owner_is_asking(request):
-    """The offline world is the owner's server with the owner asking: a test that calls a tool
-    directly does so as the owner would through a request the door let through. The dispatcher
-    refuses every tool without an owner's authority (app/tools/authority.py); the tests about
-    that boundary say so themselves, with `acting_as(None)` or through the real door
-    (tests/test_tool_boundary.py)."""
-    if request.node.get_closest_marker("live"):
-        yield
-        return
+@pytest.fixture()
+def owner_asking():
+    """An admitted owner calling tools directly, as a request the door let through would, for
+    the length of one test. Not autouse (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE):
+    production's default is no authority at all, and so is every test's unless it asks for this
+    by name (`pytestmark = pytest.mark.usefixtures("owner_asking")`, or per test). Revoked on the
+    way out, so nothing a test left running keeps it."""
     from app.tools import authority
 
-    token = authority.TOOL_AUTHORITY.set(authority.for_owner("owner@example.com"))
-    yield
+    granted = authority.for_owner("owner@example.com")
+    token = authority.TOOL_AUTHORITY.set(granted)
+    yield granted
     authority.TOOL_AUTHORITY.reset(token)
+    granted.revoke()
+
+
+# tests/test_gate.py is protected and cannot opt in for itself: these of its tests run a tool
+# through the dispatcher end to end as the admitted owner would, and are given owner_asking here,
+# by name and nowhere else. Every other test in it, and in the suite, runs with no authority.
+_GATE_TESTS_AS_THE_OWNER = frozenset({
+    "test_red_tool_handler_never_runs", "test_red_tool_via_mcp_prefix_never_runs", "test_green_tool_runs",
+    "test_timeout_is_reported_not_raised", "test_unissued_detail_call_is_not_run_end_to_end",
+    "test_client_errors_reach_the_model_readably",
+})
+
+
+@pytest.fixture(autouse=True)
+def _the_protected_gate_tests_that_ask_as_the_owner(request):
+    if request.node.path.name == "test_gate.py" and getattr(request.node, "originalname", "") in _GATE_TESTS_AS_THE_OWNER:
+        request.getfixturevalue("owner_asking")
 
 
 @pytest.fixture(autouse=True)

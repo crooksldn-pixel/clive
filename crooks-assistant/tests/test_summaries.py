@@ -184,6 +184,7 @@ def row_labels(item) -> list[str]:
     # rather than `returning_customers` — two shapes, one procedure, one surface.
     "has anyone bought today that has bought before",
 ])
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_returning_customers_question_draws_one_compact_surface(text, shop):
     """ONE summary surface. Not seven customer profiles, not one profile, not a ranking.
 
@@ -201,6 +202,7 @@ async def test_the_returning_customers_question_draws_one_compact_surface(text, 
     assert "One" in fast.answer, fast.answer
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_compact_row_carries_what_the_brief_asks_for(shop):
     """The brief's own worked example:
 
@@ -223,6 +225,7 @@ async def test_the_compact_row_carries_what_the_brief_asks_for(shop):
     assert lines["Orders"] == "2", lines
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_attention_question_draws_attention_rows_not_a_days_listing(shop):
     """"Which orders need attention?" was answered with a plain period listing of every order
     of the day — the right card for a different question. It gets attention rows."""
@@ -240,6 +243,7 @@ async def test_the_attention_question_draws_attention_rows_not_a_days_listing(sh
     assert "#1900" in [row["label"] for row in data["rows"]], data["rows"]
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_today_in_an_attention_question_is_not_a_filter_on_the_orders(shop):
     """"Which orders need my attention TODAY" does not mean orders placed today.
 
@@ -258,6 +262,7 @@ async def test_today_in_an_attention_question_is_not_a_filter_on_the_orders(shop
     "show yesterday's orders",
     "what came in yesterday",
 ])
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_list_question_draws_a_compact_list_and_no_order_profiles(text, shop):
     """"Show yesterday's orders" is rows. Every row is a line, never a page.
 
@@ -277,6 +282,7 @@ async def test_a_list_question_draws_a_compact_list_and_no_order_profiles(text, 
 # --------------------------------------------------------------- §18: the tap resolves
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_compact_rows_tap_opens_the_real_customer_workspace(shop):
     """The row offers a tap, and the tap lands on workstream B's customer card.
 
@@ -306,6 +312,7 @@ async def test_a_compact_rows_tap_opens_the_real_customer_workspace(shop):
     assert branch.entity == {"kind": "customer", "ref": row["ref"], "label": "Cy Cole"}, branch.entity
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_tap_the_mac_does_not_hold_reads_it_rather_than_refusing(shop):
     """Not holding the record is not a dead end: the outcome names the read the route makes.
 
@@ -404,6 +411,7 @@ def test_a_row_whose_destination_does_not_resolve_is_drawn_without_a_tap():
 # ------------------------------------------------------------------- §26: human language
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_no_compact_surface_ever_shows_an_id(shop):
     """No `gid://` in anything the owner can read, on any of the three surfaces.
 
@@ -544,6 +552,7 @@ def test_lifetime_metrics_for_several_customers_at_once_read_nothing():
     assert held["gid://shopify/Customer/404"] == {"held": False}, "never guessed at"
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_an_empty_answer_is_a_card_in_the_right_sentence(shop):
     """D-15 and §13 together. "Nothing needs attention" is not "no orders" — there were nine
     orders — so the empty sentence is the Mac's, per task, and reaches the surface."""

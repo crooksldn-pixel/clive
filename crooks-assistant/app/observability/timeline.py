@@ -166,7 +166,45 @@ def scrub_text(text: str) -> str:
     return _redact(_SECRET.sub("[secret]", text or ""))
 
 
+# Held, shared, by every process with a timeline writer on a session folder, for as long as the
+# process lives: the kernel lets go of it when the process ends, however it ends. The command line
+# asks for it exclusively to learn whether any writer is still alive when nothing answers on the
+# port (round 8, F-10): a backend stops listening before its lifespan closes, and a refused
+# connection alone is not proof that nothing is still writing.
+WRITER_LOCK = ".timeline-writer.lock"
+
+
+def writer_alive(root: Path) -> bool | None:
+    """Whether any process holds the timeline writer for the session folder `root`: True, False,
+    or None when that could not be found out (no flock here, the lock file cannot be opened).
+    None is never taken for False by anything that decides a count is final."""
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    try:
+        fd = os.open(Path(root) / WRITER_LOCK, os.O_RDONLY | os.O_CREAT, 0o600)
+    except FileNotFoundError:
+        return False     # no session folder: no timeline has been written here, nor can be held
+    except OSError:
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return None
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
 class Timeline:
+    # The shared hold on WRITER_LOCK, once taken (an fd kept for the life of the process).
+    _writer_lock: int | None = None
+
     def __init__(self, sessions: TestSessions, *, clock=time.time) -> None:
         self.sessions = sessions
         self.clock = clock
@@ -290,6 +328,10 @@ class Timeline:
             line = json.dumps(event, ensure_ascii=False, default=str)
             size = len(line.encode("utf-8"))
             path = self.sessions.timeline_path(session)
+            # Held before anything is pending, so no event is ever waiting in a process that does
+            # not hold it (round 8, F-10). Not blocking here, on a turn's path; the writer takes
+            # it, blocking, before it writes, if this could not.
+            self._hold_writer_lock(blocking=False)
             queued = False
             with self._lock:
                 if self._pending_bytes + size <= MAX_PENDING_BYTES:
@@ -343,9 +385,31 @@ class Timeline:
             self._thread = threading.Thread(target=self._run, name="crooks-timeline", daemon=True)
             self._thread.start()
 
+    def _hold_writer_lock(self, *, blocking: bool) -> None:
+        """Take the shared hold on this session folder's WRITER_LOCK, once. Never raises, because
+        observability never takes a turn down: a hold not taken at an event is taken, blocking,
+        by the writer before it writes the batch that event is in."""
+        if self._writer_lock is not None:
+            return
+        try:
+            import fcntl
+
+            root = self.sessions.root
+            root.mkdir(parents=True, exist_ok=True)
+            fd = os.open(root / WRITER_LOCK, os.O_RDONLY | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH | (0 if blocking else fcntl.LOCK_NB))
+            except BaseException:
+                os.close(fd)
+                raise
+            self._writer_lock = fd
+        except Exception as exc:  # noqa: BLE001 - observability never takes a turn down
+            log.debug("timeline writer lock not taken yet: %s", exc)
+
     def _run(self) -> None:
         while True:
             batch = [self._queue.get()]
+            self._hold_writer_lock(blocking=True)
             # Whatever else is waiting goes out in the same write.
             while True:
                 try:
@@ -510,11 +574,38 @@ def stop_is_final(answer: dict[str, Any]) -> bool:
     pending (the 2026-09-27 deploy review, round 7, F-10). Anything missing — an older backend's
     answer — is not final. Every owner-facing stop reads this one rule."""
     counts = answer.get("events") if isinstance(answer.get("events"), dict) else {}
-    try:
-        pending = int(counts.get("pending", 1))
-    except (TypeError, ValueError):
-        pending = 1
-    return answer.get("stop_settled") is True and counts.get("settled") is True and pending == 0
+    pending = counts.get("pending")
+    # Nought as a number, not text or a bool that happens to convert to it (round 8, F-10).
+    nothing_pending = isinstance(pending, int) and not isinstance(pending, bool) and pending == 0
+    return answer.get("stop_settled") is True and counts.get("settled") is True and nothing_pending
+
+
+def unsettled_reasons(answer: dict[str, Any]) -> list[str]:
+    """Why a stop's answer does not make its count final, one reason for each thing stop_is_final
+    needs that the answer did not give (round 8, F-10): a flush that did not settle is said as
+    that, even when the pending count read afterwards has reached nought, and never as "0 still
+    being written". Empty only when stop_is_final(answer) is True."""
+    counts = answer.get("events") if isinstance(answer.get("events"), dict) else {}
+    reasons: list[str] = []
+    settled = answer.get("stop_settled")
+    if settled is False:
+        reasons.append("the stop's own flush did not settle")
+    elif settled is not True:
+        reasons.append("the backend did not say whether the stop's own flush settled")
+    pending = counts.get("pending")
+    counted = isinstance(pending, int) and not isinstance(pending, bool)
+    if counted and pending > 0:
+        reasons.append(f"{pending} were still being written")
+    elif not counted:
+        reasons.append("the backend did not say how many were still being written")
+    # A pending count above nought already says the counts had not settled; said once.
+    if counts.get("settled") is False and not (counted and pending > 0):
+        reasons.append("the counts were still moving when they were read")
+    elif counts.get("settled") is not True and counts.get("settled") is not False:
+        reasons.append("the backend did not say whether its counts had settled")
+    if not reasons and not stop_is_final(answer):
+        reasons.append("the backend's answer did not say the stop had settled")
+    return reasons
 
 
 _current: Timeline = NullTimeline()

@@ -41,6 +41,11 @@ from tests.test_analytics import HOODIE, NOW, node
 from tests.test_analytics_tools import Store
 from tests.test_summaries import NODES, SEVEN
 
+# The admitted owner calling tools directly, as a request the door let through would: every tool
+# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
+# and every test's that does not say this, is no authority at all.
+pytestmark = pytest.mark.usefixtures("owner_asking")
+
 load_all()
 
 # The bound this pass puts on each audited workflow, stated so that a change which quietly

@@ -614,6 +614,7 @@ def test_the_hold_surface_is_not_over_the_composer():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_model_opens_a_composer_and_the_card_is_drawn_from_it(branch, session):
     """The path when the fast lane defers and Claude takes the turn: two GREEN reads that
     change nothing but the Mac's own copy, and a card built by the family that owns it."""
@@ -650,6 +651,7 @@ async def test_the_model_opens_a_composer_and_the_card_is_drawn_from_it(branch, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_model_cannot_open_a_composer_to_something_that_is_not_an_address(branch, session):
     from app.tools.dispatch import dispatch
 
@@ -662,6 +664,7 @@ async def test_the_model_cannot_open_a_composer_to_something_that_is_not_an_addr
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_filling_a_composer_that_is_not_open_is_refused(branch, session):
     from app.tools.dispatch import dispatch
 

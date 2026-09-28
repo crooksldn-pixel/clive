@@ -20,12 +20,26 @@ async def stage():
         yield h
 
 
-@pytest.mark.parametrize("name", [n for n, _ in SCENARIOS])
+# Two scenarios call a read tool themselves, as the model would inside the owner's turn, with the
+# conversation that looked the customer up (experience/scenario_packs/commerce.py): they are the
+# admitted owner calling a tool directly, and say so (round 8, F-A2-FIXTURE). Every other
+# scenario goes through the door, which stamps the owner's authority itself.
+CALL_A_TOOL_AS_THE_OWNER = ("store_credit_give", "store_credit_not_on_this_store")
+
+
+@pytest.mark.parametrize("name", [n for n, _ in SCENARIOS if n not in CALL_A_TOOL_AS_THE_OWNER])
 async def test_the_golden_scenarios(name, stage):
     result = await BY_NAME[name](stage)
     assert not result.error, result.error
     failures = "\n".join(f"  - {c.what} :: {c.detail}" for c in result.failures)
     assert result.status == "PASS", f"{result.title}\n{failures}"
+
+
+@pytest.mark.usefixtures("owner_asking")
+@pytest.mark.parametrize("name", CALL_A_TOOL_AS_THE_OWNER)
+async def test_the_golden_scenarios_that_call_a_tool_as_the_owner(name, stage):
+    assert name in BY_NAME
+    await test_the_golden_scenarios(name, stage)
 
 
 async def test_an_order_lookup_that_is_fast_and_empty_is_a_failure(stage):

@@ -17,10 +17,7 @@ backend at all: it reads the JSONL and writes the Markdown.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,24 +31,20 @@ def _settings():
 
 
 def _call(port: int, method: str, path: str, body: dict | None = None) -> dict | None:
-    """The backend on loopback, or None when it is not running."""
-    from app import local_cli
+    """The backend on loopback: its answer; None only when nothing is listening (the connection
+    was refused); {"call_failed": why} when it timed out or failed some other way, which is not
+    "not running" (round 8, F-10). The Control app's own call (scripts/session_ops.py), so the
+    two can never tell these apart differently. It carries the server's own key for these
+    commands (app/local_cli.py) when this user can read it: root on the server."""
+    from scripts import session_ops
 
-    data = json.dumps(body or {}).encode("utf-8") if method == "POST" else None
-    # The server's own key for these commands (app/local_cli.py), when this user can read it:
-    # root on the server. Without it the backend refuses them, and says so.
-    headers = {"content-type": "application/json", **local_cli.headers()}
-    request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method=method, headers=headers)
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:  # noqa: S310 — loopback only
-            return json.loads(response.read().decode("utf-8") or "{}")
-    except urllib.error.HTTPError as exc:
-        try:
-            return json.loads(exc.read().decode("utf-8") or "{}")
-        except ValueError:
-            return {"code": f"http {exc.code}"}
-    except (urllib.error.URLError, OSError, TimeoutError):
-        return None
+    return session_ops.call(port, method, path, body)
+
+
+def _failed(answer: dict | None) -> str:
+    from scripts import session_ops
+
+    return session_ops.failed(answer)
 
 
 def cmd_start(args) -> int:
@@ -60,6 +53,11 @@ def cmd_start(args) -> int:
     settings = _settings()
     name = (args.name or "session").strip()
     answer = _call(settings.port, "POST", "/test-session/start", {"name": name})
+    if why := _failed(answer):
+        # Running but not answering: it may have started it, so nothing is marked on disk over it.
+        print(f"CROOKS OS did not answer ({why}), so whether the session started is not known; "
+              "run make test-session-status before starting another", file=sys.stderr)
+        return 1
     if answer is not None:
         if answer.get("started"):
             print(answer["test_session_id"])
@@ -85,17 +83,20 @@ def cmd_status(args) -> int:
 
     settings = _settings()
     answer = _call(settings.port, "GET", "/test-session/status")
-    if answer is None:
+    why = _failed(answer)
+    if answer is None or why:
+        # The files on disk, said as that; "backend not running" only when nothing is listening.
+        backend = f"backend did not answer: {why}" if why else "backend not running"
         store = TestSessions.from_settings(settings, always=False)
         active = store.active()
         if active is None:
             last = store.last()
-            print("no test session running (backend not running)" + (f"; last: {last.test_session_id}" if last else ""))
+            print(f"no test session running ({backend})" + (f"; last: {last.test_session_id}" if last else ""))
             return 0
         from app.observability.timeline import count_events
 
         held = count_events(store.timeline_path(active))
-        print(f"{active.test_session_id}  events={held}  (marked on disk; backend not running)")
+        print(f"{active.test_session_id}  events on disk={held}  (marked on disk; {backend})")
         return 0
     if not answer.get("active"):
         last = answer.get("last") or {}
@@ -111,16 +112,41 @@ def cmd_status(args) -> int:
 
 
 def cmd_stop(args) -> int:
+    import time
+
     from app.observability.session import TestSessions
+    from scripts import session_ops
 
     settings = _settings()
+    store = TestSessions.from_settings(settings, always=False)
+    asked_at = store.clock()
     answer = _call(settings.port, "POST", "/test-session/stop")
-    if answer is None:
-        session = TestSessions.from_settings(settings, always=False).stop()
+    why = _failed(answer)
+    if answer is None or why:
+        # Stopped by its file. Its count is final only when nothing can still be writing it:
+        # with nothing listening, once no process holds the timeline's writer; with a backend that
+        # did not answer, never (round 8, F-10).
+        session = session_ops.stop_on_disk(store, asked_at=asked_at if why else None)
         if session is None:
-            print("no test session running", file=sys.stderr)
+            print(f"CROOKS OS did not answer the stop ({why}), and no test session is marked running on disk"
+                  if why else "no test session running", file=sys.stderr)
             return 1
         print(session.test_session_id)
+        path = store.timeline_path(session)
+        if why:
+            final, reasons = False, [f"CROOKS OS did not answer the stop ({why}), so what it still had to write is "
+                                     "not known; the session was stopped on disk"]
+        else:
+            final, reasons = session_ops.no_backend_verdict(store, sleep=time.sleep, now=time.monotonic,
+                                                            since=time.monotonic())
+        from app.observability.timeline import count_events
+
+        held = count_events(path)
+        if final:
+            print(f"{held} events in {path} (final; stopped on disk, and nothing is still writing it)", file=sys.stderr)
+        else:
+            print(f"{held} events in {path} so far, an on-disk snapshot, not final: {'; '.join(reasons)}. "
+                  "More may yet land or be dropped.", file=sys.stderr)
         return 0
     if not answer.get("stopped"):
         print(answer.get("detail") or "no test session running", file=sys.stderr)
@@ -135,21 +161,17 @@ def stopped_line(answer: dict) -> str:
     """What a stop says about the count: final only when the backend said nothing was still being
     written (the 2026-09-27 deploy review, round 6, F-10). Otherwise the file's count so far, and
     how many events were still pending, which may yet land or be dropped."""
-    from app.observability.timeline import stop_is_final
+    from app.observability.timeline import stop_is_final, unsettled_reasons
 
-    counts = answer.get("events") or {}
+    counts = answer.get("events") if isinstance(answer.get("events"), dict) else {}
     on_disk = counts.get("on_disk", counts.get("written", "?"))
     path = answer.get("path")
     if stop_is_final(answer):
         return f"{on_disk} events in {path} (final; {counts.get('dropped', 0)} dropped)"
-    pending = counts.get("pending", "?")
-    reasons = []
-    if answer.get("stop_settled") is not True:
-        reasons.append("the stop's own flush did not settle")
-    if pending != 0 or counts.get("settled") is not True:
-        reasons.append(f"{pending} still being written")
-    return (f"{on_disk} events in {path} so far, not final: {' and '.join(reasons)} when it stopped, "
-            "and more may yet land or be dropped. Run make test-session-status to see it settle.")
+    # The same reasons the Control app gives (round 8, F-10): a flush that did not settle is
+    # said as that, never as a pending count that has since reached nought.
+    return (f"{on_disk} events in {path} so far, an on-disk snapshot, not final: {'; '.join(unsettled_reasons(answer))}. "
+            "More may yet land or be dropped. Run make test-session-status to see it settle.")
 
 
 def _prune_reports(out_dir: Path, settings) -> None:

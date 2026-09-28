@@ -39,6 +39,11 @@ from app.tools.gate import Disposition, Tier, classify
 from tests.test_actions import Clock, FakeStore
 from tests.test_gmail_writes import FakeGmail, Policy, msg
 
+# The admitted owner calling tools directly, as a request the door let through would: every tool
+# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
+# and every test's that does not say this, is no authority at all.
+pytestmark = pytest.mark.usefixtures("owner_asking")
+
 BATCH_TOOLS = ("batch_order_tags_add", "batch_order_tags_remove", "batch_email_archive", "batch_email_drafts")
 
 

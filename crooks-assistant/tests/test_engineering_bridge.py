@@ -271,6 +271,7 @@ def test_invalid_fields_are_refused_without_echo(override, field):
         assert value not in message
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_tool_refuses_a_bad_field_without_echo(fake, bound):
     session = Session(session_id="eng-bad")
     await dispatch(STATUS_TOOL, {}, session=session, timeout_s=5)
@@ -279,6 +280,7 @@ async def test_the_tool_refuses_a_bad_field_without_echo(fake, bound):
     assert MARK not in out and session.proposals == [] and fake.puts == []
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_a_caller_can_name_neither_its_base_nor_its_checks(fake, bound):
     """F-06: a request that chose its own checks would choose the gate it is judged by."""
     session = Session(session_id="eng-own-gate")
@@ -337,6 +339,7 @@ def test_the_token_is_read_from_the_secret_store_at_call_time(monkeypatch):
     assert github.read_token() is None
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_tools_say_not_connected_and_send_nothing(fake, monkeypatch):
     inbox = EngineeringInbox(REPO, transport=fake.transport())   # the real token reader; no token
     monkeypatch.setattr(engineering_tools, "_inbox", inbox)
@@ -417,6 +420,7 @@ async def test_engineering_status_reports_each_request_in_plain_words(fake, boun
     assert result["inbox"]["id"] == HEAD and result["connected"] is True
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_engineering_status_reports_every_request_however_many(fake, bound):
     stages = ["READY", "RUNNING", "REVIEWING", "COMPLETE", "BLOCKED"]
     fake.status["requests"] = [
@@ -456,6 +460,7 @@ def test_the_two_tools_are_registered_as_a_read_and_a_reviewed_write():
     assert write.interaction == "tap_commit" and write.kind == "irreversible" and not write.reversible
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_inbox_id_is_issued_by_the_read_and_the_write_is_staged_for_the_owner(fake, bound, engine, clock):
     session = Session(session_id="eng")
     args = {"inbox_id": HEAD, **ask()}
@@ -490,6 +495,7 @@ async def test_the_inbox_id_is_issued_by_the_read_and_the_write_is_staged_for_th
     assert fake.files[PATH] == served().content and len(fake.puts) == 1
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_an_inbox_that_moved_before_the_tap_files_nothing(fake, bound, engine, clock):
     session = Session(session_id="eng-stale")
     await _staged(session)
@@ -543,6 +549,7 @@ async def owner_app(monkeypatch, fake):
             yield c
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_owner_approval_path_admits_the_engineering_write(fake, owner_app):
     from tests.test_actions_routes import PROXIED, configure
 
@@ -610,6 +617,7 @@ async def test_preparing_refuses_a_moved_inbox_or_an_id_already_used(fake, bound
 # ------------------------------------------------------------------ the token
 
 
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_token_appears_in_no_log_error_result_or_card(fake, bound, engine, clock, caplog):
     caplog.set_level(logging.DEBUG)
     session = Session(session_id="eng-token")
