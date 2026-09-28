@@ -300,3 +300,33 @@ async def test_the_command_key_is_the_servers_own_command_or_nothing_under_produ
         stopped = await server.post("/test-session/stop", headers={local_cli.HEADER: KEY})
         assert stopped.status_code == 200 and stopped.json()["stopped"] is True
     _nothing_reached(door)
+
+
+# ------------------------------------------------------------------ R9-A1a-F-05B: malformed kernel input, the same door
+
+
+async def test_a_malformed_kernel_listing_or_socket_row_refuses_the_phone_at_both_gates_and_the_door(door, tmp_path):
+    """R9-A1a-F-05B with production's settings as they resolve: a cgroup listing or a socket table
+    with anything in it the kernel does not write is believed in no part — the owner's own phone
+    is refused by the door, by principal_verdict and by caller_check, and the model is never
+    asked — and the kernel's own shape is believed again at once. (Every malformed shape, one by
+    one, is in tests/test_proxy_identity.py.)"""
+    from tests.test_proxy_identity import _gates, _request
+
+    phone = {"Tailscale-User-Login": OWNER, "X-Forwarded-For": PHONE}
+    procs = tmp_path / "cgroup" / "system.slice" / "tailscaled.service" / "cgroup.procs"
+    tcp = identity.PROC / "net" / "tcp"
+    good_procs, good_tcp = procs.read_text(), tcp.read_text()
+    assert _gates(_request(phone, peer=("127.0.0.1", TAILSCALED_END))) == ("", ""), "the kernel's own shape: the owner"
+    for broken in ((procs, "100\nabc\n"), (procs, "100"), (tcp, good_tcp + "   9: garbage\n"),
+                   (tcp, good_tcp.replace(" 01 ", " ZZ ", 1))):
+        path, text = broken
+        path.write_text(text)
+        assert _gates(_request(phone, peer=("127.0.0.1", TAILSCALED_END))) == ("identity_unverified", "identity_unverified"), text
+        async with door.via(TAILSCALED_END) as caller:
+            refused = await caller.post("/turn", json={"text": QUESTION, "session_id": "owner-f05b"}, headers=phone)
+        assert refused.status_code == 403 and refused.json()["who"] == "unverified proxy", text
+        procs.write_text(good_procs)
+        tcp.write_text(good_tcp)
+    _nothing_reached(door)
+    assert _gates(_request(phone, peer=("127.0.0.1", TAILSCALED_END))) == ("", "")
