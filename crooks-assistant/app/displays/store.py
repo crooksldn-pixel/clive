@@ -42,10 +42,15 @@ only once every page of the plan has been acknowledged for the version showing n
 ACK_GAP_S after the last, and only when the page says its button was tapped (`confirmed`). That
 makes a screen's "done" slow to fake and impossible to hurry, not proven, and the done record
 says so: each row keeps how it was marked (`how`) — "screen", the screen's own button and so its
-word, or "remote", the owner ticking every item on his own device (below) — and CLIVE says which
-(app/tools/display_tools.py). A slip cut at views.MAX_ITEMS is never marked done here.
-Acknowledgements are held in memory: after a restart the screen shows its pages again before it
-can say done.
+word, or "remote", the owner ticking every item and marking it from one of his own devices
+(below) — and CLIVE says which (app/tools/display_tools.py). A screen is one of the owner's
+devices by its login, so it can reach the remote's routes too (its page ticks items through
+them); a done marked there from a device that is a screen — one carrying a screen's key, or
+asking from the tailnet address a screen's key-holder asks from (`screen_device`) — is
+"screen_remote", a screen's word, never "remote" (round 11, B-04). Whether a screen's word is
+to count as packed is the owner's ruling, not this code's. A slip cut at views.MAX_ITEMS is
+never marked done here. Acknowledgements are held in memory: after a restart the screen shows
+its pages again before it can say done.
 
 What is kept, and for how long (rounds 6 to 9, B-03 and B-NEW-DONE-LOSS). An order's slip
 carries the customer's name, address, phone and note, and the moment it is marked done the slip
@@ -190,14 +195,20 @@ def done_summary(showing: dict[str, Any]) -> dict[str, str]:
 
 def how_marked(row: dict[str, Any]) -> str:
     """How a done row was marked, in words CLIVE can say as they are (round 9, B-04): the
-    screen's own button is that screen's word, not a check; the remote is the owner ticking
-    every item on his own device."""
+    screen's own button is that screen's word, not a check; the remote is the owner marking it
+    from one of his own devices that is not a screen, once every item was ticked (a packing
+    tablet ticks items too, so where each tick was made is not said); and the remote's controls
+    used from a device that is itself one of the screens are that screen's word as well
+    (round 11, B-04)."""
     did = "packed" if row.get("kind") == "order" else "done"
     where = str(row.get("screen") or "") or "screen"
     if row.get("how") == "remote":
-        return f"marked {did} from the owner's remote for the {where}, with every item ticked there"
+        return f"marked {did} from the owner's remote for the {where}, with every item ticked"
     if row.get("how") == "screen":
         return f"marked {did} with the {where}'s own button: that screen's word, not a check"
+    if row.get("how") == "screen_remote":
+        return (f"marked {did} for the {where} with the remote's controls on a device that is itself one of the "
+                "screens, not the owner's own remote: a screen's word, not a check")
     return f"marked {did} on the {where}"
 
 
@@ -436,8 +447,34 @@ _FULL = ("CLIVE's record of its screens is full, so that was not done and nothin
          "screen, or remove a screen you no longer use, and try again.")
 
 # How a done row was marked (round 9, B-04): with the screen's own button, which is that screen's
-# word, or from the owner's remote, every item ticked on his own device.
-DONE_HOW = ("screen", "remote")
+# word; from the owner's remote on one of his devices that is not a screen, every item ticked; or
+# (round 11) with the remote's controls on a device that is itself one of the screens, which is
+# that screen's word too — a screen never makes a row that says it was the owner's remote.
+DONE_HOW = ("screen", "remote", "screen_remote")
+
+# What a screen is given of each thing it shows (round 11, F-A3B-SCREEN-EVIDENCE): what
+# app/displays/views.py builds for that kind, and what the store sets on a pane that the page
+# reads (web/display.js) — and nothing else, whatever a record read from disk holds. `by` is who
+# put the pane up ("clive"), never who marked anything done: that login is in the done record only.
+_SCREEN_PANE = ("kind", "ref", "title", "at", "by")
+_SCREEN_ORDER = frozenset({"number", "placed_at", "customer", "company", "address", "phone", "items", "note", "tags",
+                           "fulfillment", "payment", "shipping_method", "partial", "total_items"})
+_SCREEN_ORDER_ITEM = frozenset({"title", "variant", "sku", "quantity", "to_send", "image"})
+_SCREEN_OBJECTIVE = frozenset({"deadline", "days_left", "doing", "next", "needs_you", "blocked_by", "items"})
+_SCREEN_OBJECTIVE_ITEM = frozenset({"text", "state"})
+_SCREEN_VIDEO = frozenset({"id", "channel", "duration_s", "live", "start"})
+# A tailnet address as a screen's key-holder asked from it (app/routes/displays.py): at most this long.
+MAX_ADDRESS = 64
+
+
+def _only(value: Any, keys: frozenset[str]) -> dict[str, Any]:
+    """The fields of a record named in `keys`, and no others; {} for anything not a record."""
+    return {k: v for k, v in value.items() if k in keys} if isinstance(value, dict) else {}
+
+
+def _rows(value: Any, keys: frozenset[str]) -> list[dict[str, Any]]:
+    """A list of records, each cut to `keys`; anything in it that is not a record is dropped."""
+    return [_only(row, keys) for row in value if isinstance(row, dict)] if isinstance(value, list) else []
 
 
 class DisplayStore:
@@ -854,7 +891,7 @@ class DisplayStore:
             out["code_expires_in"] = PAIR_CODE_S
         return out
 
-    def register(self, name: str, *, screen_key: str = "", old_key: str = "") -> dict[str, Any]:
+    def register(self, name: str, *, screen_key: str = "", old_key: str = "", device: str = "") -> dict[str, Any]:
         """The owner's device names itself a screen, and is given that screen's key and, for a
         new name, the code the owner approves it by (in the answer, once). A new screen waits for
         approval (`approve`) and shows nothing until then. A name already in use is refused
@@ -866,13 +903,17 @@ class DisplayStore:
 
         `screen_key` is the key the device holds now; `old_key` is one a page kept from before
         the key moved into a cookie (round 9, B2-01), offered only when naming itself, and
-        treated exactly as holding the key: the holder naming itself again."""
+        treated exactly as holding the key: the holder naming itself again. Either way the key it
+        held is spent: the screen keeps only the new key's hash, so the old key opens nothing
+        from then on. `device` is the tailnet address the device asks from, when the request came
+        through Tailscale (screen_device, round 11, B-04)."""
         shown = clean_name(name)
         key = name_key(shown)
         if not key:
             raise DisplayError("Give the screen a name, like office screen.")
         secret = secrets.token_urlsafe(24)
         code = f"{secrets.randbelow(1_000_000):06d}"
+        device = str(device or "")[:MAX_ADDRESS]
         with self._lock:
             if self._expire_locked() or self.unsaved:
                 # A request that ran out frees its name (and its place) before either is asked for.
@@ -891,15 +932,19 @@ class DisplayStore:
                     def renew(screen=screen) -> dict[str, Any]:
                         screen["secret"] = _key_hash(secret)
                         screen["pairing"] = self._pairing(code)
+                        if device:
+                            screen["asked_from"] = device
                         return self._answer(screen, secret, code)
 
-                    out = self._commit(renew)
+                    out = self._keyed(renew)
                 else:
                     def rotate(screen=screen) -> dict[str, Any]:
                         screen["secret"] = _key_hash(secret)
+                        if device:
+                            screen["asked_from"] = device
                         return self._answer(screen, secret, None)
 
-                    out = self._commit(rotate)
+                    out = self._keyed(rotate)
                 self._touch(screen["id"])
                 return out
 
@@ -912,12 +957,35 @@ class DisplayStore:
                 screen = {"id": ident, "name": shown, "key": key, "secret": _key_hash(secret), "created_at": _now_iso(),
                           "last_seen": _now_iso(), "version": 0, "showing": None, "beside": None, "paired": False,
                           "pairing": self._pairing(code)}
+                if device:
+                    screen["asked_from"] = device
                 self._data["screens"][ident] = screen
                 return self._answer(screen, secret, code)
 
-            out = self._commit(create)
+            out = self._keyed(create)
             self._touch(out["id"])
             return out
+
+    def _keyed(self, change: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        """A change that hands a device its key — a new screen, a new code, a new key for the
+        screen it holds — written as every change is (_commit). It deletes nothing, so _commit
+        says NotDurable of it only when the record holding it was put in place but its folder
+        could not be flushed while an earlier deletion is still owed: the change stands, in
+        memory and in the file on disk, and so the device is handed its key (round 11, B2-01).
+        Refusing it then would leave the screen with the hash of a key no device holds: the old
+        key no longer its, and the new one never given. A change not made at all (NotSaved)
+        hands nothing, and the key the device held still works."""
+        made: dict[str, Any] = {}
+
+        def run() -> dict[str, Any]:
+            made["answer"] = change()
+            return made["answer"]
+
+        try:
+            return self._commit(run)
+        except NotDurable:
+            log.error("a screen was handed its key; the record holding it is in place but not yet durable")
+            return made["answer"]
 
     def approve(self, name: str, code: str) -> dict[str, Any]:
         """The owner read the code off the screen he means and said it (the screen_pair tool;
@@ -973,7 +1041,25 @@ class DisplayStore:
 
     @staticmethod
     def _public(screen: dict[str, Any]) -> dict[str, Any]:
-        return {k: v for k, v in screen.items() if k not in ("secret", "pairing")}
+        return {k: v for k, v in screen.items() if k not in ("secret", "pairing", "asked_from")}
+
+    def screen_device(self, screen_key: str, device: str) -> str | None:
+        """Whether a request to one of the owner's routes comes from one of the screens, and
+        which (round 11, B-04). A screen is one of the owner's devices by its Tailscale login,
+        so it is let into his routes like any other — its own page ticks items and turns pages
+        through the remote's routes (web/display.js) — and from there it could also mark a pane
+        done as the remote does. What it says there is still a screen's word, never the owner's
+        own remote, so the done row must say so (done_from_remote). A request is a screen's when
+        it carries a key some screen holds (its cookie, sent by its browser on every /displays
+        route), or when it comes from the tailnet address a screen's key-holder asks from — which
+        a page leaving its cookie out cannot change. The screen's id, or None for any other of
+        the owner's devices."""
+        device = str(device or "")[:MAX_ADDRESS]
+        with self._lock:
+            for screen in self._data["screens"].values():
+                if self._holds(screen, screen_key) or (device and screen.get("asked_from") == device):
+                    return str(screen["id"])
+        return None
 
     @staticmethod
     def _holds(screen: dict[str, Any], screen_key: str) -> bool:
@@ -1047,13 +1133,19 @@ class DisplayStore:
             raise DisplayError(f"More than one screen fits {name!r}: {names}. Say which.")
         raise DisplayError(f"There is no screen called {name!r}. The screens are: {names}.")
 
-    def _touch(self, screen_id: str) -> None:
+    def _touch(self, screen_id: str, *, device: str = "") -> None:
         """Seen now. "Last seen" is written down now and then, and a failure to write it down
-        costs nothing but its accuracy."""
+        costs nothing but its accuracy. `device`, the tailnet address the screen's key-holder
+        asked from (round 11, B-04), is written down at once when it is new, so that it is known
+        across a restart (screen_device)."""
         now = self.clock()
         self._seen[screen_id] = now
         screen = self._data["screens"].get(screen_id)
-        if screen is not None and now - self._seen_written.get(screen_id, 0.0) >= SEEN_WRITE_S:
+        device = str(device or "")[:MAX_ADDRESS]
+        moved = screen is not None and bool(device) and screen.get("asked_from") != device
+        if moved:
+            screen["asked_from"] = device
+        if screen is not None and (moved or now - self._seen_written.get(screen_id, 0.0) >= SEEN_WRITE_S):
             screen["last_seen"] = _now_iso()
             self._seen_written[screen_id] = now
             try:
@@ -1115,10 +1207,17 @@ class DisplayStore:
         return out
 
     # ---- what a screen shows ---------------------------------------------------------------
-    def poll(self, screen_id: str, screen_key: str) -> dict[str, Any] | None:
+    def poll(self, screen_id: str, screen_key: str, *, device: str = "") -> dict[str, Any] | None:
         """What the screen should show now, and its version, for the device holding its key.
-        The screen is seen. A screen waiting for approval is never given anything to show, in
-        either pane, and one whose request ran out is gone (None)."""
+        The screen is seen (and `device`, the tailnet address it asked from, noted: round 11,
+        B-04). A screen waiting for approval is never given anything to show, in either pane,
+        and one whose request ran out is gone (None).
+
+        This is everything a screen is given from its own record (round 11,
+        F-A3B-SCREEN-EVIDENCE): its id, name, version and whether it waits for approval (and
+        then how long its code has), the time, the title and time of the last thing marked done
+        on it, and each pane as _for_screen cuts it — never another screen's, never a key, a
+        hash, an approval code or the login that marked anything done."""
         with self._lock:
             screen = self._data["screens"].get(screen_id)
             if screen is None:
@@ -1127,16 +1226,53 @@ class DisplayStore:
             self._sweep_locked()
             if screen_id not in self._data["screens"]:
                 return None
-            self._touch(screen_id)
+            self._touch(screen_id, device=device)
             pending = self._pending(screen)
             last = None if pending else next((d for d in reversed(self._data["done"]) if d.get("screen_id") == screen_id), None)
-            out = {"id": screen_id, "name": screen["name"], "version": screen.get("version", 0),
-                   "showing": None if pending else screen.get("showing"),
-                   "beside": None if pending else screen.get("beside"), "pending": pending, "now": _now_iso(),
-                   "last_done": {"title": last.get("title"), "at": last.get("at")} if last else None}
+            out = {"id": screen_id, "name": screen["name"], "version": _whole(screen.get("version")),
+                   "showing": None if pending else self._for_screen(screen.get("showing")),
+                   "beside": None if pending else self._for_screen(screen.get("beside")), "pending": pending, "now": _now_iso(),
+                   "last_done": {"title": str(last.get("title") or ""), "at": str(last.get("at") or "")} if last else None}
             if pending:
                 out["code_expires_in"] = max(0, math.ceil(float(screen["pairing"]["until"]) - self.clock()))
             return out
+
+    @classmethod
+    def _for_screen(cls, view: Any) -> dict[str, Any] | None:
+        """One pane as its screen is given it (round 11, F-A3B-SCREEN-EVIDENCE): the fields
+        views.py builds for its kind and those the store sets that the page reads (_SCREEN_*),
+        each nested record cut to its own list, and nothing else whatever the record holds. A
+        pane marked done is its done summary, its times, who put it up and its version."""
+        if not isinstance(view, dict):
+            return None
+        if view.get("done_at"):
+            return _done_showing(view)
+        kind = view.get("kind")
+        out: dict[str, Any] = {k: view[k] for k in _SCREEN_PANE if k in view}
+        out["v"] = _pane_v(view)
+        if kind == "order":
+            slip = _only(view.get("order"), _SCREEN_ORDER)
+            if "items" in slip:
+                slip["items"] = _rows(slip["items"], _SCREEN_ORDER_ITEM)
+            out["order"] = slip
+        elif kind == "list":
+            lines = (view.get("list") or {}).get("lines") if isinstance(view.get("list"), dict) else None
+            out["list"] = {"lines": [line for line in lines if isinstance(line, str)] if isinstance(lines, list) else []}
+        elif kind == "objective":
+            goal = _only(view.get("objective"), _SCREEN_OBJECTIVE)
+            if "items" in goal:
+                goal["items"] = _rows(goal["items"], _SCREEN_OBJECTIVE_ITEM)
+            out["objective"] = goal
+        elif kind == "video":
+            out["video"] = _only(view.get("video"), _SCREEN_VIDEO)
+            if "player" in view:
+                out["player"] = cls._player(view)
+        if kind in ("order", "list"):
+            if "ticked" in view:
+                out["ticked"] = _ticked(view)
+            if "page" in view:
+                out["page"] = max(0, _whole(view.get("page")))
+        return out
 
     def show(self, screen_id: str, showing: dict[str, Any] | None, *, by: str = "clive", beside: bool = False,
              replace: int | None = None, expect: int | None = None) -> dict[str, Any]:
@@ -1359,6 +1495,11 @@ class DisplayStore:
                 return self._public(screen)
             if showing.get("kind") == "video":
                 raise DisplayError("A video is not marked done; take it off the screen instead.")
+            if showing.get("kind") not in ("order", "list"):
+                # The screen's page has no button for anything else (web/display.js): an
+                # objective marked done from here could only be a request the page never makes
+                # (round 11, B-04). The remote refuses it the same way.
+                raise DisplayError("Only an order or a list is marked done.")
             if showing.get("kind") == "order" and (showing.get("order") or {}).get("partial"):
                 # A slip cut at views.MAX_ITEMS: the rest of the order was never on any screen.
                 raise DisplayError("This order has more items than a screen shows, so it cannot be marked packed here.")
@@ -1476,13 +1617,19 @@ class DisplayStore:
 
             return self._commit(change)
 
-    def done_from_remote(self, screen_id: str, pane: int, version: int, *, by: str = "") -> dict[str, Any]:
+    def done_from_remote(self, screen_id: str, pane: int, version: int, *, by: str = "",
+                         from_screen: bool = False) -> dict[str, Any]:
         """The owner marks a pane done from his remote: an order packed, a list done — as the
         screen's own button does it, the same done row (but for `how`, "remote") and the slip
         cut to its summary, journaled first (B-03) — once every item to send (every line of a
         list) is ticked for the pane's current version. The ticks are his own word, item by
-        item, from his own device, so no page acknowledgement is asked for; the screen's button
-        keeps its rule. A slip cut at the screen's limit is never marked packed here either."""
+        item, from his own devices, so no page acknowledgement is asked for; the screen's button
+        keeps its rule. A slip cut at the screen's limit is never marked packed here either.
+
+        `from_screen`: the request came from a device that is itself one of the screens
+        (screen_device, round 11, B-04). It is let do this — it is one of the owner's devices —
+        but what it says is a screen's word, and the row says so ("screen_remote"): a screen
+        never makes a row that says the owner's own remote marked it."""
         with self._lock:
             self._sweep_locked()
             screen, showing = self._remote_pane(screen_id, pane, version)
@@ -1501,7 +1648,7 @@ class DisplayStore:
             if not set(need) <= set(_ticked(showing)):
                 what = "item to send" if kind == "order" else "line"
                 raise NotTicked(f"Tick every {what} first; nothing was marked.")
-            return self._finish(screen_id, screen, int(pane), showing, by, how="remote")
+            return self._finish(screen_id, screen, int(pane), showing, by, how="screen_remote" if from_screen else "remote")
 
     def pane_ref(self, screen_id: str, pane: int, version: int) -> tuple[str, str]:
         """What kind of thing one pane shows, and its reference (an objective's id), so the remote

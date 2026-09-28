@@ -278,7 +278,9 @@ def test_a_key_holder_that_never_draws_a_page_is_held_to_the_servers_plan_and_it
     s.done_from_remote(sid, 0, v, by=OWNER_LOGIN)
     assert s.done()[0]["how"] == "remote"
     said = run(display_tools.screen_list())["done"][0]["marked"]
-    assert said == "marked done from the owner's remote for the Packing screen, with every item ticked there"
+    # Round 11: not "ticked there" — a packing tablet ticks items through the same routes, so
+    # where each tick was made is not said (tests/test_r11_screens_server.py).
+    assert said == "marked done from the owner's remote for the Packing screen, with every item ticked"
 
 
 def test_a_done_row_from_before_says_nothing_it_does_not_know(tmp_path):
