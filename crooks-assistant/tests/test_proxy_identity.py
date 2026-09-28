@@ -818,6 +818,7 @@ async def test_at_both_gates_a_malformed_socket_row_is_no_match_and_a_malformed_
 
 
 V6_OWNER = {"Tailscale-User-Login": OWNER, "X-Forwarded-For": "fd7a:115c:a1e0::9"}
+HOST_TAILNET, HOST_TAILNET6 = ["100.101.102.103"], ["fd7a:115c:a1e0::abcd"]
 FORGED_REFUSED = ("identity_unverified", "identity_unverified")
 LOCAL_REFUSED = ("not_authorised_local", "not_authorised_local")
 
@@ -829,7 +830,9 @@ def kernel_world(owner_world, tmp_path, monkeypatch):
     in for — so each gate's answer below is the kernel tables' answer."""
     proc = _point_at(monkeypatch, tmp_path, {100: ("tailscaled", [777])})
     identity.bind_self_check(None)
-    _addresses(proc, [], [])
+    # A real server on the tailnet holds its own tailnet addresses, and since round 9
+    # (F-05B-AVAIL) a reading of its tables without them is not taken as whole.
+    _addresses(proc, HOST_TAILNET, HOST_TAILNET6)
     return proc
 
 
@@ -908,7 +911,7 @@ async def test_at_both_gates_a_read_that_fails_once_is_tried_again_before_anyone
     """Availability: a table read that fails for an instant is read once more at once, and the
     owner's device is answered on what the second read says — which is still the whole truth, so
     an address of this host's own is still refused as the server. Failing twice refuses, and says
-    it tried twice."""
+    how often it tried (round 9: up to three readings, two running of which must agree)."""
     _addresses(kernel_world, ["100.101.102.103"], ["fd7a:115c:a1e0::abcd"])
     real = identity._read_table
     failures = {"left": 0}
@@ -932,7 +935,7 @@ async def test_at_both_gates_a_read_that_fails_once_is_tried_again_before_anyone
     assert _gates(_from(40001)) == FORGED_REFUSED
     failures["left"] = 2
     route, why = actions_route.proxy_state(_from(40001))
-    assert route == actions_route.FORGED and "could not be read (read twice)" in why and table in why
+    assert route == actions_route.FORGED and "could not be read (read 3 times" in why and table in why
 
 
 # ------------------------------------------------ round 8, F-05B-AVAIL-PREFLIGHT: the phone's answer and the install's
