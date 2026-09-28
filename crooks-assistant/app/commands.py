@@ -27,6 +27,7 @@ Three properties hold for everything in this file, and the tests hold them:
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -724,12 +725,48 @@ def listening_phrase(family: str, *, kind: str, ref: str, label: str) -> str:
     return template.format(who=who, label=(label if str(label).startswith("#") else (f"#{label}" if str(label).isdigit() else label or "this")))
 
 
+def _same_record(kind: str, one: str, other: str) -> bool:
+    """One record however its id arrived: a gid and the same gid said another way are one."""
+    from app import entities
+
+    return bool(one and other) and (entities.key(kind, one) or f"{kind}:{one}") == (entities.key(kind, other) or f"{kind}:{other}")
+
+
+def _bound_label(kind: str, ref: str, entity: dict[str, Any]) -> str:
+    """The Mac's own name for the record a tap bound — the words the glass says it is listening
+    for, and the name the model is handed beside the id.
+
+    The cursor's label when the tap bound the cursor; otherwise the label of the copy the Mac
+    holds of the record named, in the form its card uses ("#1940", a name, a subject); otherwise
+    nothing, and the phrase says "this". Never the cursor's label for another record, and never a
+    word the tablet posted: either could put one order's name on a binding to another."""
+    if str(entity.get("kind") or "") == kind and _same_record(kind, ref, str(entity.get("ref") or "")):
+        return str(entity.get("label") or "")
+    from app.memory import ENTITY
+    from app.memory import current as memory
+
+    held = memory().get(ENTITY, f"{kind}:{ref}", allow_stale=True)
+    value = held.value if held is not None and isinstance(getattr(held, "value", None), dict) else {}
+    if kind == "order":
+        digits = re.search(r"(\d+)\s*$", str(value.get("order_number") or ""))
+        return f"#{digits.group(1)}" if digits else ""
+    return str(value.get({"customer": "name", "email_thread": "subject"}.get(kind, "")) or "")[:120]
+
+
 def _bind_voice(ctx: Ctx) -> Outcome:
     """A control was tapped that expects words. Bind what they will apply to, and listen.
 
     Nothing is changed and nothing is proposed here. The owner has said what he is about to
     talk about, which is a fact about the conversation, not an instruction — the instruction
     is the sentence that follows, and it goes through /turn like every other sentence.
+
+    What is bound is the record the tap named, else the half's cursor — and only a record this
+    conversation was shown (`may_open`, the rule `open.entity` and every tool call keep). It took
+    any id the tablet posted: the next sentence was armed for a record the conversation was never
+    issued, and the listening phrase was built from the Mac's process-wide copy of it. And it is
+    called by its own name (`_bound_label`): a tap naming #1940 while the cursor was #1938 took the
+    cursor's name, so the glass said "Adding a note to #1938" over a binding to #1940 and the model
+    was told the same (the 2026-09-28 deploy review, round 9, D1-02 and D2-04).
     """
     family = ctx.arg("family")
     if family not in SPOKEN_CONTROLS:
@@ -738,9 +775,18 @@ def _bind_voice(ctx: Ctx) -> Outcome:
     entity = getattr(ctx.branch, "entity", None) or {}
     kind = ctx.arg("kind") or str(entity.get("kind") or "")
     ref = ctx.arg("ref") or str(entity.get("ref") or "")
-    if wants_kind != "set" and (kind != wants_kind or not ref):
-        return Outcome.refused("no_target", f"There is no {wants_kind.replace('_', ' ')} open to do that to.")
-    entity_label = ctx.arg("label") or str(entity.get("label") or "")
+    if wants_kind == "set":
+        entity_label = ctx.arg("label") or str(entity.get("label") or "")
+    else:
+        if kind != wants_kind or not ref:
+            return Outcome.refused("no_target", f"There is no {wants_kind.replace('_', ' ')} open to do that to.")
+        if not may_open(ctx, kind, ref):
+            # Refused before the record is looked at, so the refusal says nothing about it.
+            return Outcome.refused(
+                "not_held", "That one was not opened in this conversation, so there is nothing to say it to.",
+                changed={"offer": offer_for(ctx.branch), "holds": _holds(ctx.branch)},
+            )
+        entity_label = _bound_label(kind, ref, entity)
     phrase = listening_phrase(family, kind=kind, ref=ref, label=entity_label)
     bound = ctx.branch.bind_voice(family, kind=kind, ref=ref, label=entity_label, prompt=label, phrase=phrase)
     return Outcome(answer="", changed={"listening_for": {"family": family, "label": bound.get("label", ""),

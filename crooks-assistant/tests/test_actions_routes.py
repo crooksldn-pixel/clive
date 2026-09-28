@@ -376,7 +376,7 @@ class StagingProvider(FakeProvider):
 async def test_a_proposal_from_an_allowed_tablet_arms_and_says_only_that_it_is_ready(client):
     configure(client)
     client.runtime.provider = StagingProvider(client.runtime)
-    body = (await client.post("/turn", json={"text": "add a note to order 1938", "session_id": "t1"}, headers=PROXIED)).json()
+    body = (await client.post("/turn", json={"text": "add a note to order 1930", "session_id": "t1"}, headers=PROXIED)).json()
     assert body["answer"] == "The note's ready. Tap the card to apply it."
     (card,) = [i for i in body["ui"] if i["type"] == "confirmation"]
     assert card["data"]["commit"] == {"allowed": True}
@@ -403,7 +403,7 @@ async def test_a_turn_time_refusal_is_logged_and_the_local_case_is_named(client,
     caplog.set_level(logging.WARNING, logger="crooks.actions")
     configure(client, writes=True, logins=OWNER, local=False)
     client.runtime.provider = StagingProvider(client.runtime)
-    body = (await client.post("/turn", json={"text": "add a note to order 1938", "session_id": "loc"})).json()
+    body = (await client.post("/turn", json={"text": "add a note to order 1930", "session_id": "loc"})).json()
     assert body["writes"]["allowed"] is False and body["writes"]["code"] == "not_authorised_local"
     (card,) = [i for i in body["ui"] if i["type"] == "confirmation"]
     assert card["data"]["commit"]["code"] == "not_authorised_local"
@@ -422,7 +422,7 @@ async def test_a_proposal_this_tablet_cannot_apply_says_so_at_once(client, setup
     that is not on the allow-list never gets this far: the middleware refuses it outright.)"""
     configure(client, **setup)
     client.runtime.provider = StagingProvider(client.runtime)
-    body = (await client.post("/turn", json={"text": "add a note to order 1938", "session_id": "t2"}, headers=headers)).json()
+    body = (await client.post("/turn", json={"text": "add a note to order 1930", "session_id": "t2"}, headers=headers)).json()
     assert body["writes"]["allowed"] is False and body["writes"]["code"] == code
     (card,) = [i for i in body["ui"] if i["type"] == "confirmation"]
     assert card["data"]["commit"]["allowed"] is False and card["data"]["commit"]["code"] == code
@@ -438,7 +438,7 @@ async def test_with_no_allow_list_nobody_can_even_ask(client):
     tap could not apply."""
     configure(client, writes=True, logins="", local=True)
     for headers in (PROXIED, {}):
-        refused = await client.post("/turn", json={"text": "add a note to order 1938", "session_id": "t3"}, headers=headers)
+        refused = await client.post("/turn", json={"text": "add a note to order 1930", "session_id": "t3"}, headers=headers)
         assert refused.status_code == 403 and refused.json()["code"] == "allow_list_missing"
         assert refused.json()["spoken"] == "Nobody is allowed to apply changes yet: the allowed logins aren't set on the server."
     assert client.store.mutations == []
@@ -647,7 +647,7 @@ async def test_a_shopify_blip_is_not_spoken_as_a_permission_refusal(client):
 
     client.store.access_scopes = unreachable  # type: ignore[method-assign]
     client.runtime.provider = StagingProvider(client.runtime)
-    body = (await client.post("/turn", json={"text": "add a note to order 1938", "session_id": "blip"}, headers=PROXIED)).json()
+    body = (await client.post("/turn", json={"text": "add a note to order 1930", "session_id": "blip"}, headers=PROXIED)).json()
     assert body["writes"]["allowed"] is True and body["writes"]["state"] == "unknown"
     assert "permission" not in body["answer"].lower() and "not allowed" not in body["answer"].lower()
     (card,) = [i for i in body["ui"] if i["type"] == "confirmation"]
@@ -705,7 +705,7 @@ async def test_a_slow_shopify_costs_the_preflight_bound_once(client):
     client.store.access_scopes = slow_scopes  # type: ignore[method-assign]
     client.runtime.provider = StagingProvider(client.runtime)
     started = _time.perf_counter()
-    body = (await client.post("/turn", json={"text": "add a note to order 1938", "session_id": "slow"}, headers=PROXIED)).json()
+    body = (await client.post("/turn", json={"text": "add a note to order 1930", "session_id": "slow"}, headers=PROXIED)).json()
     first_ms = (_time.perf_counter() - started) * 1000
     assert body["writes"]["allowed"] is True and body["writes"]["state"] == "unknown"
     assert first_ms < actions_module.WRITE_STATUS_TIMEOUT_S * 1000 + 800, first_ms

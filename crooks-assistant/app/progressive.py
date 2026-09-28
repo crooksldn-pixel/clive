@@ -696,19 +696,47 @@ def background() -> Any:
         FOREGROUND.reset(token)
 
 
+# The workspace the read running on this task was issued into, set by `starting` and read when
+# the same read lands or fails. A read belongs to the turn that asked for it: when a newer
+# instruction to the same half has begun a workspace of its own while the read was out, what
+# the read found is not put on the newer one's glass (the 2026-09-28 deploy review, round 9,
+# D2-01: a turn the owner has moved on from publishes nothing). Per task, so reads running
+# side by side each keep their own.
+_ISSUED_INTO: ContextVar[Any] = ContextVar("crooks_progressive_issued_into", default=None)
+
+
 def _workspace_for(session: Any, branch_id: str = "") -> Workspace | None:
+    """The workspace of the half this work is for: the one named, else the running request's
+    own half (`app/tools/context.py` acting_branch). It was the FOCUSED half, so a read made by
+    the half put aside, while the focused half was answering something else, was staged on the
+    focused half's glass (round 9, D2-03)."""
     if not FOREGROUND.get():
         return None
     session_id = str(getattr(session, "session_id", "") or "")
     if not session_id:
         return None
-    return current(session_id, branch_id or str(getattr(session, "focused_branch", "") or ""))
+    if not branch_id:
+        from app.tools.context import acting_branch
+
+        branch_id = acting_branch(session)
+    return current(session_id, branch_id)
+
+
+def _landing_on(session: Any) -> Workspace | None:
+    """The live workspace a read that has come back may put its cards on: the one it was
+    issued into, while that is still the one on this half's glass."""
+    workspace = _workspace_for(session)
+    issued = _ISSUED_INTO.get()
+    if issued is not None and issued is not workspace:
+        return None
+    return workspace
 
 
 def starting(session: Any, tool: str) -> None:
     """A read has been issued. Never raises: a skeleton is not worth a failed turn."""
     try:
         workspace = _workspace_for(session)
+        _ISSUED_INTO.set(workspace)
         if workspace is not None and not workspace.finished:
             workspace.starting(tool)
     except Exception as exc:  # noqa: BLE001 — bookkeeping must not break a read
@@ -762,7 +790,7 @@ def failed(session: Any, tool: str, why: str = "") -> None:
     a failure is not a failed turn, and the spoken answer still says what happened.
     """
     try:
-        workspace = _workspace_for(session)
+        workspace = _landing_on(session)
         if workspace is not None and not workspace.finished:
             workspace.failed(tool, why)
     except Exception as exc:  # noqa: BLE001 — bookkeeping must not break the error path
@@ -778,7 +806,7 @@ def observe(session: Any, name: str, result: Any) -> None:
     record on the stack the owner never saw and issue an id nobody was shown.
     """
     try:
-        workspace = _workspace_for(session)
+        workspace = _landing_on(session)
         if workspace is None or workspace.finished or not isinstance(result, dict):
             return
         from app.presentation import present

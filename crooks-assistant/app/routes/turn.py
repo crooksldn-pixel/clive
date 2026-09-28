@@ -868,7 +868,115 @@ def _records_shown(ui: list) -> dict[str, tuple[str, str, str]]:
     return out
 
 
-def _stand_on_what_was_shown(branch, ui: list) -> None:
+# ------------------------------------------------ the order he named, and a change to another one
+#
+# Every sentence is the model's (the owner's decision of 28 September 2026), and nothing here
+# answers one or reads anything for it. What is here runs AFTER the model, on what it did: when
+# the owner plainly named an order and the model staged a change to a different one, the change
+# is withdrawn before it is shown; when it read a different order and none he named, the answer
+# says so in one short sentence and the half's cursor does not follow that order. The fast lane
+# used to refuse these in front of the model; the write boundary is where a wrong record costs
+# something, so that is where the Mac checks (the 2026-09-28 deploy review, round 9, D2-05,
+# I-tests2 I-01, I-tests5 I-03).
+
+#: An order number said as one: "#1940", "order 1940", "order number 1940", "order no. 1940",
+#: "CROOKS-1940". Any other number counts only when it is an order this conversation already
+#: holds (`_orders_known`) — "1940" once #1940 has been read, "orders 1938 and 1940" once both
+#: have: "refund 150", "orders over 100" and "since 2025" are not orders, and nothing in their
+#: shape says so, so a number the conversation has never seen as an order is left to the model
+#: and to the card, which names its own order.
+_ORDER_SAID = re.compile(r"(?:#\s?|\border\s+(?:number\s+|no\.?\s*|#\s?)?|\b[a-z]{2,12}-)(\d{3,7})\b", re.I)
+_NUMBER = re.compile(r"(?<![\d£$€.,#-])(\d{3,7})(?!\d|[.,]\d)")
+_TRAILING_NUMBER = re.compile(r"(\d{3,7})\s*$")
+
+
+def _order_number(label: Any) -> str:
+    """"1940" from "#1940" or "CROOKS-1940"; empty when the label carries no number."""
+    match = _TRAILING_NUMBER.search(str(label or ""))
+    return match.group(1) if match else ""
+
+
+def _orders_read(calls, *, lists: bool = False) -> set[str]:
+    """The numbers of the orders this turn read as orders: a record read on its own, and what
+    an order search found. With `lists`, every order row any read returned as well."""
+    out: set[str] = set()
+    for call in calls or []:
+        result = getattr(call, "result", None)
+        if not getattr(call, "ok", False) or not isinstance(result, dict):
+            continue
+        if result.get("order_id") and result.get("order_number"):
+            out.add(_order_number(result["order_number"]))
+        rows = result.get("orders")
+        if isinstance(rows, list) and (lists or getattr(call, "name", "") == "shopify_find_order"):
+            for row in rows:
+                if isinstance(row, dict) and row.get("order_number"):
+                    out.add(_order_number(row["order_number"]))
+    out.discard("")
+    return out
+
+
+def _orders_known(session, branch, calls) -> set[str]:
+    """Every order number this conversation holds: on its context stack, under the half's
+    cursor, on a change it staged, and in what this turn read."""
+    known = _orders_read(calls, lists=True)
+    for entry in getattr(session, "context", None) or []:
+        if isinstance(entry, dict) and entry.get("kind") == "order":
+            known.add(_order_number(entry.get("label")))
+    entity = getattr(branch, "entity", None) or {}
+    if entity.get("kind") == "order":
+        known.add(_order_number(entity.get("label")))
+    for proposal in getattr(session, "proposals", None) or []:
+        if getattr(proposal, "entity_kind", "") == "order":
+            known.add(_order_number(getattr(proposal, "entity_label", "")))
+    known.discard("")
+    return known
+
+
+def _orders_named(text: str, known: set[str]) -> frozenset[str]:
+    """The order numbers the owner's own words name — said as an order, or a number that is an
+    order this conversation holds. Only his words: never the note a tapped control put beside
+    them, which names the record the tap bound and not what he said next."""
+    words = str(text or "")
+    said = set(_ORDER_SAID.findall(words))
+    said.update(n for n in _NUMBER.findall(words) if n in known)
+    return frozenset(said)
+
+
+def _spoken_orders(numbers) -> str:
+    return " and ".join(f"#{n}" for n in sorted(numbers))
+
+
+def _off_target(proposed: list[str], session, named: frozenset[str]) -> list[str]:
+    """The changes this turn staged on an order the owner did not name, when he named one.
+
+    A change to an order is the owner's only when it is to the order he said. "Add a note to
+    1940" after Add a note was tapped on #1938, or "yes, #1940" over a refund waiting on #1938,
+    must not come back as a card for #1938, however the model read the words. A change whose
+    order cannot be told from its card is not his either. A bulk change is over a set and a
+    change to anything but an order names its own record; neither is judged here."""
+    off: list[str] = []
+    for proposal_id in proposed:
+        if str(proposal_id).startswith("batch_"):
+            continue
+        proposal = session.proposal(proposal_id)
+        if proposal is None or getattr(proposal, "entity_kind", "") != "order":
+            continue
+        number = _order_number(getattr(proposal, "entity_label", ""))
+        if not number or number not in named:
+            off.append(proposal_id)
+    return off
+
+
+def _off_target_words(session, off: list[str], named: frozenset[str]) -> str:
+    """What the owner is told instead of the model's sentence about a change that was withdrawn."""
+    targets = {_order_number(getattr(session.proposal(p), "entity_label", "")) for p in off}
+    targets.discard("")
+    were = _spoken_orders(targets) if targets else "another order"
+    return (f"You said {_spoken_orders(named)}, but the change I'd prepared was for {were}, so I've "
+            "withdrawn it. Say which order you want it on.")
+
+
+def _stand_on_what_was_shown(branch, ui: list, named: frozenset[str] = frozenset()) -> None:
     """The record the model put on the screen is the record the owner is now on — when there
     is exactly one.
 
@@ -889,11 +997,17 @@ def _stand_on_what_was_shown(branch, ui: list) -> None:
     to a change — a listening chip such as Add a note — is only offered on the card that IS
     the cursor (`_bind_listening_to_cursor`), and every other change names its own record (a
     row's id, an open chip's arguments, or the words said).
+
+    Nor does it follow an order the owner did not name when he named one (`named`): "what's
+    the status of #1940" answered with #1938's card leaves the cursor where it was, so a tapped
+    Add a note cannot bind an order he never asked about (D2-05).
     """
     records = _records_shown(ui)
     if len(records) != 1:
         return
     ((kind, ref, label),) = records.values()
+    if named and kind == "order" and _order_number(label) not in named:
+        return
     entity = getattr(branch, "entity", None) or {}
     if entity.get("kind") == kind and _record_key(kind, str(entity.get("ref") or "")) == _record_key(kind, ref):
         return
@@ -1124,6 +1238,27 @@ async def _answer(
         runtime.actions.revoke_ids(proposed, "the owner moved on")
         runtime.batches.revoke_ids(proposed, "the owner moved on")
         proposed = []
+    # The order the owner named, held against what the model did with it — on a model turn
+    # (`seq`), which is the only place a change is staged from words. A change to another order
+    # is withdrawn before it is delivered and drawn nowhere; a read of another order and none
+    # he named is said to be that, in one sentence, and does not move the cursor (see
+    # `_off_target`, `_stand_on_what_was_shown`).
+    named: frozenset[str] = frozenset()
+    withheld: set[str] = set()
+    if seq is not None and session is not None and not abandoned:
+        named = _orders_named(question, _orders_known(session, branch, calls))
+    if named:
+        off = _off_target(proposed, session, named)
+        if off:
+            log.warning("withdrew %d change(s) staged on an order the owner did not name", len(off))
+            answer = (LOST_THREAD_PREFIX if lost_thread and answer.startswith(LOST_THREAD_PREFIX) else "") + _off_target_words(session, off, named)
+            runtime.actions.revoke_ids(off, "not the order the owner named")
+            withheld = set(off)
+            proposed = [p for p in proposed if p not in withheld]
+        else:
+            read = _orders_read(calls)
+            if read and not (read & named):
+                answer = f"{answer.rstrip()} That's {_spoken_orders(read)}, not {_spoken_orders(named)}."
     # A change was proposed this turn. Say, now and in the same breath, whether a tap on THIS
     # tablet could apply it — a card that cannot be applied must never look as if it can.
     if proposed and writes is None and request is not None:
@@ -1191,7 +1326,8 @@ async def _answer(
     else:
         # What the screen shows beside the answer: cards chosen from the tool results, never
         # from the prose. See app/presentation.py for the vocabulary and the bounds.
-        ui = present(calls, session=session, error_kind=error_kind, writes=rail)
+        ui = present([c for c in (calls or []) if getattr(c, "proposal_id", None) not in withheld] if withheld else calls,
+                     session=session, error_kind=error_kind, writes=rail)
         # The same turn as a validated scene, when CLIVE_SCENES is on: planned from these
         # reads, carried as its own field and changing nothing else. Off, nothing here runs.
         scene = _turn_scene(question or str((transcript or {}).get("text") or ""), answer, calls, session_id)
@@ -1222,7 +1358,7 @@ async def _answer(
             else:
                 branch.idle()
             if not error_kind:
-                _stand_on_what_was_shown(branch, ui)
+                _stand_on_what_was_shown(branch, ui, named)
             # A control on a card that listens for words binds the half's cursor, not the card
             # it sits on (web/app.js `primeAction` posts the branch's entity). So only the card
             # that IS the cursor keeps one; every other card's chip primes its words and binds
