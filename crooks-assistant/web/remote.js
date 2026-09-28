@@ -19,6 +19,11 @@
  * after two minutes out of reach; and a pane older than CLIVE keeps anything up is dropped here
  * too — the rules the screen itself keeps (web/display.js). Nothing is stored on the device, and
  * every word is put on the page as text, never as markup.
+ *
+ * Round 10. Taking what is shown away is done at once, whether or not a finger is on the panel
+ * (B2-02), and an answer to anything asked before it is never read (B2-03): only a fresh ask can
+ * put anything back. Turning the whole screen off names the version of the screen the owner was
+ * looking at when he chose to, so CLIVE refuses it (409, stale) if the screen has changed since.
  */
 'use strict';
 
@@ -33,7 +38,7 @@
   const NS = 'http://www.w3.org/2000/svg';
 
   const R = {
-    id: '', name: '', open: false, data: null, gen: 0, timer: 0, polling: false,
+    id: '', name: '', open: false, data: null, gen: 0, timer: 0, polling: false, ctl: null, shown: null,
     lastOk: 0, skew: 0, gone: '', note: '', held: false, heldAt: 0, dirty: false, confirm: null, busy: false, ui: null,
   };
 
@@ -432,10 +437,16 @@
     body.appendChild(state);
     body.appendChild(panes);
     const foot = h('footer', 'rm-foot');
+    // The whole screen off, at a second tap, for the screen as the owner sees it here: the version
+    // drawn when he first tapped goes with it (screen_version), and a screen that has changed
+    // since is refused by CLIVE and shown as it is now (round 10).
     const off = button('rm-off', 'Turn screen off', () => {
-      const armed = R.confirm && R.confirm.key === 'screen' && Date.now() < R.confirm.until;
-      if (armed) { R.confirm = null; takeOff(null); return; }
-      arm('screen');
+      const version = screenVersion();
+      if (version === null) return;
+      const key = 'screen:' + version;
+      const armed = R.confirm && R.confirm.key === key && Date.now() < R.confirm.until;
+      if (armed) { R.confirm = null; takeOff(null, version); return; }
+      arm(key);
     });
     foot.appendChild(off);
     panel.appendChild(bar);
@@ -460,13 +471,16 @@
     if (!d) return 'Asking the screen…';
     return d.online ? 'On · following the screen' : 'Off · it catches up when it’s next on';
   }
-  function render() {
+  // `now`: drawn at once even under a finger (a wipe, round 10, B2-02). Otherwise a finger on the
+  // panel holds the redraw until it lifts, so a control never moves under it.
+  function render(now) {
     const U = R.ui;
     if (!U || !R.open) return;
     // A hold whose lift was never seen does not freeze the panel: it lapses after two seconds.
-    if (R.held && Date.now() - R.heldAt < 2000) { R.dirty = true; return; }
-    R.held = false;
+    if (!now && R.held && Date.now() - R.heldAt < 2000) { R.dirty = true; return; }
+    if (!now) R.held = false;
     const d = R.data;
+    R.shown = d;
     U.name.textContent = R.name || 'Screen';
     U.panel.setAttribute('aria-label', 'Remote for ' + (R.name || 'the screen'));
     U.dot.className = 'rm-dot' + (d && d.online && !R.gone ? ' is-on' : '');
@@ -482,18 +496,30 @@
       empty.appendChild(h('p', 'rm-empty-d', 'Ask CLIVE to put an order, a list, an objective or a YouTube video on it.'));
       U.panes.appendChild(empty);
     }
-    const armed = R.confirm && R.confirm.key === 'screen' && Date.now() < R.confirm.until;
+    const version = screenVersion();
+    const armed = version !== null && R.confirm && R.confirm.key === 'screen:' + version && Date.now() < R.confirm.until;
     U.off.textContent = armed ? 'Tap again to turn it off' : 'Turn screen off';
     U.off.className = 'rm-off' + (armed ? ' is-armed' : '');
     U.off.disabled = !panes.length || R.busy;
     U.body.scrollTop = top;
   }
-  // What the remote shows leaves it, at once (the screen's own rule, NEW-B-LOCAL-SLIP).
+  // The screen's version as drawn here now, or null when nothing is.
+  function screenVersion() { return R.shown && Number.isInteger(R.shown.version) ? R.shown.version : null; }
+  // What the remote shows leaves it, at once (the screen's own rule, NEW-B-LOCAL-SLIP): drawn away
+  // now, under a finger or not (B2-02). Everything asked before it is let go — its answer is never
+  // read (B2-03), a change on its way is no longer waited for — and the next ask goes afresh.
   function wipe(why) {
+    R.gen++;
+    if (R.ctl) { try { R.ctl.abort(); } catch (e) { /* already settled */ } }
+    R.ctl = null;
+    R.polling = false;
+    clearTimeout(R.timer);
     R.data = null;
     R.confirm = null;
+    R.busy = false;
     R.gone = why || '';
-    render();
+    render(true);
+    if (R.open) R.timer = setTimeout(sync, POLL_SLOW_MS);
   }
 
   // ---- asking, and telling -----------------------------------------------------------------
@@ -503,6 +529,7 @@
     clearTimeout(R.timer);
     const gen = R.gen, id = R.id;
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    R.ctl = ctl;
     const giveUp = ctl ? setTimeout(() => ctl.abort(), POLL_TIMEOUT_MS) : 0;
     let delay = POLL_MS;
     try {
@@ -529,7 +556,9 @@
       if (Date.now() - R.lastOk >= OFFLINE_CLEAR_MS) { if (R.gone !== 'offline') wipe('offline'); } else { R.note = 'CLIVE can’t be reached. Trying again.'; render(); }
     } finally {
       clearTimeout(giveUp);
+      // Taken down (wipe) or closed meanwhile: the next ask is already set, or none is wanted.
       if (gen === R.gen) {
+        R.ctl = null;
         R.polling = false;
         if (R.open) R.timer = setTimeout(sync, delay);
       }
@@ -589,6 +618,7 @@
     render();
     const gen = R.gen;
     const answer = await post(path, body);
+    // Taken down meanwhile (a refusal, or closed): its answer is not read, and wipe let go of busy.
     if (gen !== R.gen) return;
     R.busy = false;
     if (answer && Array.isArray(answer.panes)) { R.data = answer; R.lastOk = Date.now(); }
@@ -620,7 +650,13 @@
   }
   function markDone(p) { if (ready(p)) return act('/remote/done', { pane: p.pane, version: p.v }); return null; }
   function putUpAgain(p) { return act('/remote/again', { pane: p.pane, version: p.v }); }
-  function takeOff(p) { return act('/remote/off', p ? { pane: p.pane, version: p.v } : {}); }
+  // One pane, named by its place and the version it was put up at; or the whole screen, named by
+  // the version of it the owner chose from (round 10: CLIVE refuses it, stale, if it moved on).
+  function takeOff(p, screenAt) {
+    if (p) return act('/remote/off', { pane: p.pane, version: p.v });
+    if (!Number.isInteger(screenAt)) return null;
+    return act('/remote/off', { screen_version: screenAt });
+  }
 
   // ---- open and close ----------------------------------------------------------------------
   function open(id, name) {
@@ -644,9 +680,12 @@
     R.open = false;
     R.gen++;
     clearTimeout(R.timer);
+    if (R.ctl) { try { R.ctl.abort(); } catch (e) { /* already settled */ } }
+    R.ctl = null;
     R.polling = false;
     // Nothing of what the screen showed stays in the page once the remote is put away.
     R.data = null;
+    R.shown = null;
     R.confirm = null;
     R.busy = false;
     const U = R.ui;
