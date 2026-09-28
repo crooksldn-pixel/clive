@@ -7,9 +7,10 @@ asked to authorise anything, that the card in front of him says what the code wi
 words rather than in a payload, and that the whole path from an empty form to a waiting
 card costs no language model at all.
 
-The sentence does not open the form, and `discount_sentence_defers` asserts exactly that
-rather than letting it look like an oversight: "set up a code" goes to Claude like every
-sentence, and nothing is prepared on the way to it.
+"Set up a code" said out loud goes to Claude like every sentence, and nothing is prepared on
+the way to it. `discount_sentence_defers` scripts what Claude then does — opens the form and
+asks for the code — and holds the result to the same boundary a tap meets: a card waiting for
+the owner's gesture, and nothing created.
 """
 
 from __future__ import annotations
@@ -203,24 +204,45 @@ async def discount_code_taken(h: Harness) -> Result:
 
 
 async def discount_sentence_defers(h: Harness) -> Result:
-    """The spoken form. It reaches the model, as it must, and prepares nothing on the way."""
+    """The spoken form: the model's, and the model's own attempt at the change is held to the
+    same boundary as a tap (the 2026-09-28 deploy review, round 9, H-03).
+
+    Scripted: the harness's model opens the form with the code and the percentage it heard and
+    then asks for the code to be created, as Claude would. What is asserted is the Mac's side —
+    the form is drawn from a read, the create is PREPARED as a card waiting for the owner's
+    gesture, nothing reaches the shop, and the answer does not say a code exists. Before round
+    10 this sent the sentence to a model that called nothing, so none of that could fail.
+    """
+    from app.observability import contract
+
     r = Result("discount_sentence_defers", "“Set up a code for 20% off”, spoken")
     session = "disc3"
     h.configure()
-    c = await h.say(f"set up a discount code {FREE} for 20 per cent off",
+
+    def _made(calls):
+        return {"workspace_id": next((str((c.result or {}).get("workspace_id") or "") for c in calls
+                                      if c.name == "shopify_discount_open" and isinstance(c.result, dict)), "")}
+
+    c = await h.ask(f"set up a discount code {FREE} for 20 per cent off",
+                    ("shopify_discount_open", {"code": FREE, "percent": 20}),
+                    ("shopify_discount_create", _made),
+                    reply=f"{FREE} is ready on the card — hold it to create the code.",
                     scenario="discount_sentence_defers", session_id=session)
     r.captures.append(c)
     r.checks.append(a_model_turn(c))
-    r.checks.append(check("no form and no card came from the words alone",
-                          c.surface("workspace") is None and c.surface("confirmation") is None,
-                          f"surfaces={c.surface_types}"))
-    r.checks.append(check("nothing was prepared and nothing was created",
-                          not [p for p in h.runtime.sessions.get(session).proposals if p.status.value == "PENDING"]
-                          and getattr(h.store, "mutations_sent", -1) == 0,
+    r.checks += a_surface(c, "confirmation", what="the model's create comes back as a card to authorise")
+    card = c.data("confirmation")
+    r.checks.append(check("it is waiting for the owner's gesture, and a spoken yes cannot apply it",
+                          card.get("status") == "pending" and (card.get("interaction") or {}).get("kind") not in (None, "", "none"),
+                          f"status={card.get('status')!r} interaction={(card.get('interaction') or {}).get('kind')!r}"))
+    pending = [p for p in h.runtime.sessions.get(session).proposals if p.status.value == "PENDING"]
+    r.checks.append(check("exactly the code that was said is prepared, and nothing is created",
+                          len(pending) == 1 and pending[0].executed_at is None
+                          and FREE in str(pending[0].summary) and getattr(h.store, "mutations_sent", -1) == 0,
+                          f"pending={[(p.operation, p.status.value) for p in pending]} "
                           f"mutations_sent={getattr(h.store, 'mutations_sent', 'NO COUNTER')}"))
-    r.checks.append(check("and it did not claim to have created anything",
-                          not any(word in c.answer.lower() for word in ("i've created", "created it", "the code is live", "done")),
-                          f"answer={c.answer[:120]!r}"))
+    r.checks.append(check("and the answer does not say the code exists (the report's own FALSE_SUCCESS rule)",
+                          not contract.reports_success(c.answer), f"answer={c.answer[:120]!r}"))
     return r
 
 

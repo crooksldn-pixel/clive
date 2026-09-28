@@ -234,21 +234,23 @@ async def store_credit_give(h: Harness) -> Result:
                           f"lane={looked.lane} surfaces={looked.surface_types}"))
 
     # The way in is the model calling the read tool, because opening this form needs a READ
-    # of the balance and a command reads nothing. Driven here through the tool directly, with
-    # the session that has looked her up — which is what the gate holds it to.
+    # of the balance and a command reads nothing. So it is asked for in a sentence, through
+    # `POST /turn` with the owner's own request, and the harness's model makes the call Claude
+    # makes for it — through the gate, with the authority the door stamped on this request
+    # and nothing set up around it (the 2026-09-28 deploy review, round 9, H-07).
+    asked = await h.ask("put twenty pounds of store credit on Mia's account",
+                        ("shopify_store_credit", {"customer_id": MIA.customer_id, "amount": 20}),
+                        reply="It's on the form; Prepare the credit when you're happy with it.",
+                        scenario="store_credit_give", session_id=session)
+    r.captures.append(asked)
+    called = [t for t in (asked.raw.get("tool_calls") or []) if isinstance(t, dict)]
+    r.checks.append(check("the read is allowed for a customer this conversation looked up",
+                          [t.get("name") for t in called] == ["shopify_store_credit"] and all(t.get("ok") for t in called),
+                          f"tool_calls={[(t.get('name'), t.get('ok'), str(t.get('error') or '')[:80]) for t in called]}"))
+    r.checks += a_surface(asked, "workspace", what="draws the credit form from that read")
     from app.families import store_credit as sc
-    from app.tools.context import CURRENT_SESSION
-    from app.tools.dispatch import dispatch
 
     conversation = h.runtime.sessions.get(session)
-    token = CURRENT_SESSION.set(conversation)
-    try:
-        text = await dispatch(sc.OPEN_TOOL, {"customer_id": MIA.customer_id, "amount": 20},
-                              session=conversation, timeout_s=5)
-    finally:
-        CURRENT_SESSION.reset(token)
-    r.checks.append(check("the read is allowed for a customer this conversation looked up",
-                          not text.startswith(("REFUSED", "NOT YET", "ERROR")), text[:160]))
     from app.families import _workspace as ws
 
     workspace = ws.held(conversation.branch(), sc.KIND)
@@ -311,30 +313,36 @@ async def store_credit_not_on_this_store(h: Harness) -> Result:
 
     from app.families import _workspace as ws
     from app.families import store_credit as sc
-    from app.tools.context import CURRENT_SESSION
-    from app.tools.dispatch import dispatch
 
     before = getattr(h.store, "store_credit", None)
     h.store.store_credit = None                 # a shop where Shopify does not serve the field
-    conversation = h.runtime.sessions.get(session)
-    token = CURRENT_SESSION.set(conversation)
     try:
-        text = await dispatch(sc.OPEN_TOOL, {"customer_id": MIA.customer_id, "amount": 20},
-                              session=conversation, timeout_s=5)
+        # Asked for as the owner asks, through the door (H-07): the harness's model calls the
+        # read tool Claude calls for it, with the authority the request was given.
+        asked = await h.ask("put twenty pounds of store credit on Mia's account",
+                            ("shopify_store_credit", {"customer_id": MIA.customer_id, "amount": 20}),
+                            reply="This shop hasn't got store credit switched on.",
+                            scenario="store_credit_not_on_this_store", session_id=session)
+        # The capability probe, separately and named as what it is: a UNIT-level check of the
+        # family's state, called directly because the capability table is read at start-up and
+        # not by a request.
         probed = await sc._probe(type("R", (), {"shopify": h.store, "store_credit_sample": MIA.customer_id})())
     finally:
-        CURRENT_SESSION.reset(token)
         h.store.store_credit = before
+    r.captures.append(asked)
+    conversation = h.runtime.sessions.get(session)
+    called = [t for t in (asked.raw.get("tool_calls") or []) if isinstance(t, dict)]
+    text = " ".join(str(t.get("error") or "") for t in called if t.get("name") == "shopify_store_credit")
 
     r.checks.append(check("the read says so rather than failing obscurely",
-                          text.startswith("ERROR") and "does not have store credit" in text, text[:200]))
+                          bool(called) and not called[0].get("ok") and "does not have store credit" in text, text[:200]))
     r.checks.append(check("it says the code for it exists",
                           "The code for it is here and reviewed" in text, text[:260]))
     r.checks.append(check("and that it is the store's own configuration",
                           "Shopify enables store credit per store" in text, text[-200:]))
     r.checks.append(check("no form is opened for a feature the store has not got",
                           ws.held(conversation.branch(), sc.KIND) is None, "a workspace was opened"))
-    r.checks.append(check("and the capability state is NOT_SUPPORTED_BY_STORE, not a missing scope",
+    r.checks.append(check("(unit-level probe) the capability state is NOT_SUPPORTED_BY_STORE, not a missing scope",
                           probed.get("state") == "NOT_SUPPORTED_BY_STORE",
                           f"probed={probed}"))
     r.checks.append(check("nothing was sent to the shop", getattr(h.store, "mutations_sent", -1) == 0,

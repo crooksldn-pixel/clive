@@ -103,8 +103,12 @@ def _markdown(payload: dict[str, Any], results: list[Any]) -> str:
         lines += [""]
 
     lines += ["## Scenarios", "",
-              "| | Scenario | Lane | Recipe | Surfaces | Actions | First UI | Model |",
-              "|---|---|---|---|---|---|---|---|"]
+              "A sentence's model here is the harness's: where a scenario says which tools it calls",
+              "(**Scripted model**), the run proves what the gate, the action engine and the cards do",
+              "with those calls — not that Claude would choose them.",
+              "",
+              "| | Scenario | Lane | Recipe | Surfaces | Actions | First UI | Model | Scripted model |",
+              "|---|---|---|---|---|---|---|---|---|"]
     for result in results:
         mark = {"PASS": "✓", "PARTIAL": "~", "FAIL": "✗"}.get(result.status, "?")
         first = next((c for c in result.captures if c.surfaces), None)
@@ -115,7 +119,8 @@ def _markdown(payload: dict[str, Any], results: list[Any]) -> str:
             f"| {', '.join(getattr(capture, 'surface_types', []) or ['—'])} "
             f"| {len(getattr(capture, 'action_ids', []) or [])} "
             f"| {_ms(getattr(capture, 'first_ui_ms', None))} "
-            f"| {getattr(capture, 'model_calls', 0)} |"
+            f"| {getattr(capture, 'model_calls', 0)} "
+            f"| {', '.join(sorted({t for c in result.captures for t in (getattr(c, 'scripted', None) or [])})) or '—'} |"
         )
     lines += [""]
 

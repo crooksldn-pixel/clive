@@ -160,6 +160,11 @@ class Capture:
     recipe_id: str = ""                 # the read a tap named, when it named one
     model_calls: int = 0
     tools: list[str] = field(default_factory=list)
+    # The tools the harness's model was TOLD to call for this sentence (`Harness.ask`). Not
+    # Claude's choice: what a capture with anything here proves is what the gate, the action
+    # engine and the presenters do with those calls — never that the model would make them
+    # (the 2026-09-28 deploy review, round 9, H-02). Empty for a tap and an unscripted sentence.
+    scripted: list[str] = field(default_factory=list)
 
     answer: str = ""
     ui: list[dict[str, Any]] = field(default_factory=list)
@@ -226,6 +231,7 @@ class Capture:
             "session_id": self.session_id, "branch_id": self.branch_id, "status": self.status,
             "lane": self.lane, "recipe_id": self.recipe_id,
             "model_calls": self.model_calls, "tools": list(self.tools), "reads": list(self.reads),
+            "scripted_model": list(self.scripted),
             "answer": self.answer,
             "surfaces": self.surface_types,
             "surface_detail": [
@@ -319,11 +325,16 @@ class Harness:
     async def ask(self, text: str, *tools: tuple[str, Any], reply: str = "", **kwargs: Any) -> Capture:
         """Say `text`, with the model calling `tools` for it through the gate, as Claude would.
 
-        The sentence goes to the model like every sentence; what is scripted is only what the
-        model then reads, so the cards are drawn by the real presenters from real results.
+        The sentence goes to the model like every sentence; what is scripted is what the model
+        then CALLS, so the cards are drawn by the real presenters from real results — and a
+        scenario built on this is a scripted gate-and-presenter test, not evidence that Claude
+        would choose these tools. The capture says so (`Capture.scripted`), and so does the
+        report.
         """
         self.provider.will(text, *tools, reply=reply)
-        return await self.say(text, **kwargs)
+        capture = await self.say(text, **kwargs)
+        capture.scripted = [str(name) for name, _ in tools]
+        return capture
 
     async def open_order(self, number: str | int, *, said: str = "", **kwargs: Any) -> Capture:
         """"Show me order N", and the two reads Claude makes for it."""

@@ -86,6 +86,21 @@ COVERAGE: dict[str, tuple[str, ...]] = {
     "credit.discard": (),
 }
 
+# Which write tool each staging command prepares. A tap on one of these runs the write tool's
+# PREPARE step through the action engine, so a scenario that taps it has STAGED that tool —
+# and only staged it: nothing in the fixture world can apply a change. Named here because the
+# command's module decides the tool at run time; `tests/test_tool_matrix.py` holds every
+# `.stage` command in the registry to an entry, and every tool named to a registered write.
+STAGES: dict[str, tuple[str, ...]] = {
+    "address.stage": ("shopify_order_shipping_address_set",),
+    "compose.stage": ("gmail_draft_new", "gmail_send_new", "gmail_draft_reply", "gmail_send_reply"),
+    "draft.send_instead": ("gmail_send_new", "gmail_send_reply"),
+    "discount.stage": ("shopify_discount_create",),
+    "order.stage": ("shopify_order_create",),
+    "order_edit.stage": ("shopify_order_add_item",),
+    "credit.stage": ("shopify_store_credit_add",),
+}
+
 # Operations a live read-only run must not exercise, whatever their scenario does. Nothing is
 # here yet because every scenario is a read — the list exists so that adding a write-shaped
 # scenario has somewhere obvious to declare it.

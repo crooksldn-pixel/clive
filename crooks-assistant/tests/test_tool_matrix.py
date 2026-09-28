@@ -155,3 +155,62 @@ def test_the_audit_never_mutates_anything():
     before = registry.names()
     tool_matrix.markdown()
     assert registry.names() == before
+
+
+# ------------------------------------------------ what a golden scenario really reaches (H-06)
+
+
+def test_a_scenario_counts_only_what_its_code_hands_on():
+    """The 2026-09-28 deploy review, round 9, H-06: a tool or operation named anywhere in a
+    scenario file — a check's description, an assertion about a card — used to mark the tool
+    as exercised, and the row named the FILE. Now only what the code hands on counts: the tool
+    a scripted model is told to call, a tool a helper builds that call from, a command a tap
+    posts."""
+    strings = tool_matrix.scenario_strings(textwrap.dedent('''
+        WRITE = "probe_write"
+
+        def _opens(to):
+            return ("probe_open", {"to": to})
+
+        async def scenario(h):
+            """Mentions probe_docstring in its docstring."""
+            c = await h.ask("say it", _opens("a@b.co"), ("probe_scripted", {}))
+            t = await h.touch("probe.stage", session_id="s")
+            r.checks.append(check("probe_described is on the card", c.data("x").get("op") == "probe_compared"))
+            r.checks.append(check("described", "probe_contained" in c.action_ids))
+            r.checks.append(check("formatted", True, f"{WRITE} probe_fstring"))
+            await h.open_order("1938")
+    '''))["scenario"]
+    assert {"probe_open", "probe_scripted", "probe.stage", "@open_order"} <= strings
+    for claimed in ("probe_docstring", "probe_described", "probe_compared", "probe_contained", "probe_fstring"):
+        assert claimed not in strings, claimed
+    assert "probe_write" not in strings, "a constant only an f-string reads is not handed on"
+
+
+def test_a_write_a_scenario_reaches_is_reported_staged_and_the_scenario_is_named():
+    from experience.scenarios import BY_NAME
+
+    tool_matrix.load()
+    rows = {row["name"]: row for row in tool_matrix.tools()}
+    credit = rows["shopify_store_credit_add"]
+    assert "store_credit_give" in credit["scenarios"], "the tap on Prepare stages it"
+    assert credit["scenario_reach"] == "staged, never applied"
+    for row in rows.values():
+        assert set(row["scenarios"]) <= set(BY_NAME), f"{row['name']} cites a file, not a scenario"
+        if row["read_write"] != "read" and row["scenarios"]:
+            assert row["scenario_reach"] == "staged, never applied", row["name"]
+
+
+def test_every_staging_command_names_the_registered_write_it_prepares():
+    from app import commands
+    from app.families import load_all
+    from app.tools import registry
+    from experience.matrix import STAGES
+
+    load_all()
+    staging = {name for name in commands.REGISTRY if name.endswith(".stage") or name == "draft.send_instead"}
+    assert staging == set(STAGES), staging ^ set(STAGES)
+    for command, tools in STAGES.items():
+        for name in tools:
+            spec = registry.get(name)
+            assert spec.write is not None, f"{command} names {name}, which is not a write"

@@ -7,8 +7,8 @@ the picker, the priced card and the hold, in that order, with nothing applied un
 
 The sentence does not open the picker: it is the model's, like every sentence, and nothing
 is prepared on the way to it; the picker is reached by touch from the order card's own
-control. `order_add_item_sentence_defers` asserts exactly that rather than letting it look like
-an oversight.
+control. `order_add_item_sentence_defers` scripts what Claude then does — reads the catalogue
+and stages the add — and holds it to the same boundary the picker meets.
 """
 
 from __future__ import annotations
@@ -229,23 +229,48 @@ async def order_add_item_stale_picker(h: Harness) -> Result:
 
 
 async def order_add_item_sentence_defers(h: Harness) -> Result:
-    """The spoken form. It reaches the model, as it must, and prepares nothing on the way."""
+    """The spoken form: the model's, and the model's own attempt at the change is held to the
+    same boundary as the picker (the 2026-09-28 deploy review, round 9, H-03).
+
+    Scripted: the harness's model searches the catalogue with the words it heard and stages
+    `shopify_order_add_item`, as the family's own docstring says Claude does. What is asserted
+    is the Mac's side — the change comes back as the priced card at the graver tier, only the
+    two calculation mutations ran, nothing was applied, and the answer does not say it was
+    added. Before round 10 this sent the sentence to a model that called nothing, so none of
+    that could fail.
+    """
+    from app.observability import contract
+
     r = Result("order_add_item_sentence_defers", "“Add a black hoodie to this order”, spoken")
     session = "edit4"
     await _open_order(h, session, "1938")
-    c = await h.say("add a black medium Convict hoodie to this order", scenario="order_add_item_sentence_defers", session_id=session)
+
+    def _chosen(calls):
+        found = next((c.result for c in calls if c.name == "shopify_variant_search" and isinstance(c.result, dict)), {})
+        first = next((x for x in (found.get("candidates") or []) if isinstance(x, dict)), {})
+        return {"order_id": ORDER.order_id, "variant_id": str(first.get("variant_id") or ""), "quantity": 1}
+
+    c = await h.ask("add a black medium Convict hoodie to this order",
+                    ("shopify_variant_search", {"product": "convict hoodie", "colour": "black", "size": "medium"}),
+                    ("shopify_order_add_item", _chosen),
+                    reply="It's on the card with what it costs — hold it to add the hoodie.",
+                    scenario="order_add_item_sentence_defers", session_id=session)
     r.captures.append(c)
     r.checks.append(a_model_turn(c))
-    r.checks.append(check("no picker and no card came from the words alone",
-                          c.surface("variant_picker") is None and c.surface("confirmation") is None,
-                          f"surfaces={c.surface_types}"))
-    r.checks.append(check("nothing was prepared and nothing was changed",
-                          not [p for p in h.runtime.sessions.get(session).proposals if p.status.value == "PENDING"]
-                          and not getattr(h.store, "calculations", []) and getattr(h.store, "mutations_sent", -1) == 0,
-                          f"calculations={getattr(h.store, 'calculations', None)}"))
-    r.checks.append(check("and it did not claim to have added anything",
-                          not any(word in c.answer.lower() for word in ("i've added", "added it", "done", "updated the order")),
-                          f"answer={c.answer[:120]!r}"))
+    r.checks += a_surface(c, "confirmation", what="the model's change comes back as the priced card")
+    card = c.data("confirmation")
+    r.checks.append(check("it is this change, waiting, held to the graver gesture",
+                          card.get("operation") == "order_edit_add_line" and card.get("status") == "pending"
+                          and (card.get("interaction") or {}).get("kind") == "hold_to_arm",
+                          f"operation={card.get('operation')!r} status={card.get('status')!r} "
+                          f"interaction={(card.get('interaction') or {}).get('kind')!r}"))
+    ran = [name for name, _ in getattr(h.store, "calculations", [])]
+    r.checks.append(check("only the two calculation mutations ran, and nothing was applied",
+                          ran == ["order_edit_begin", "order_edit_add_variant"] and getattr(h.store, "mutations_sent", -1) == 0
+                          and all(p.executed_at is None for p in h.runtime.sessions.get(session).proposals),
+                          f"calculations={ran} mutations_sent={getattr(h.store, 'mutations_sent', 'NO COUNTER')}"))
+    r.checks.append(check("and the answer does not say it was added (the report's own FALSE_SUCCESS rule)",
+                          not contract.reports_success(c.answer), f"answer={c.answer[:120]!r}"))
     return r
 
 
