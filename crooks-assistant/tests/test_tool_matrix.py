@@ -82,15 +82,29 @@ def test_a_test_that_only_mentions_a_tool_does_not_test_it():
     assert not only_mentions.calls_tool(PROBE, "app.tools.probes", PROBE)
 
 
-def test_a_test_that_calls_a_tool_tests_it():
+DISPATCH = "from app.tools.dispatch import dispatch\nfrom app.tools import registry\n"
+
+
+def test_a_test_that_runs_a_tool_tests_it():
+    """DIRECTLY TESTED is a test RUNNING the tool (the 2026-09-28 deploy review, round 9,
+    I-tests5 I-05): handing its name to the dispatcher or to `registry.invoke`, however the name
+    gets there, or calling its handler."""
     cases = {
-        "by name": 'registry.get("probe_tool")',
-        "through a constant": 'TOOL = "probe_tool"\nasync def go():\n    await dispatch(TOOL, {})',
-        "through a loop": 'for name in ("probe_tool", "other"):\n    classify(name)',
-        "through a list it iterates": 'NAMES = ["probe_tool"]\nfor n in NAMES:\n    registry.get(n)',
-        "in a tool-call fixture": 'present([{"name": "probe_tool", "args": {}}])',
-        "through an app constant": 'from app.tools import probes\nWRITE = probes.WRITE_TOOL\n'
-                                   'dispatch(WRITE, {})',
+        "dispatched by name": DISPATCH + 'dispatch("probe_tool", {}, session=s, timeout_s=5)',
+        "dispatched through a constant": DISPATCH + 'TOOL = "probe_tool"\nasync def go():\n    await dispatch(TOOL, {})',
+        "dispatched through a loop": DISPATCH + 'for name in ("probe_tool", "other"):\n    dispatch(name, {})',
+        "dispatched through a list it iterates": DISPATCH + 'NAMES = ["probe_tool"]\nfor n in NAMES:\n    dispatch(n, {})',
+        "dispatched through an app constant": DISPATCH + 'from app.tools import probes\nWRITE = probes.WRITE_TOOL\n'
+                                              'dispatch(WRITE, {})',
+        "dispatched through the module": 'import app.tools.dispatch as dispatch_module\n'
+                                         'dispatch_module.dispatch("probe_tool", {})',
+        "dispatched by keyword": DISPATCH + 'dispatch(tool_name="probe_tool", args={})',
+        "dispatched through the test's own helper": DISPATCH + (
+            'async def stage(session, tool, **args):\n    return await dispatch(tool, args, session=session)\n'
+            'async def run(session, which):\n    return await stage(session, which)\n'
+            'stage(s, "probe_tool", x=1)\nrun(s, "probe_tool")'),
+        "invoked by the registry": DISPATCH + 'registry.invoke("probe_tool", {}, timeout_s=1)',
+        "through the provider's callback": 'provider._dispatch("probe_tool", {}, holder=h)',
         "its handler, imported": 'from app.tools.probes import probe_tool\nprobe_tool(query="x")',
         "its handler, by module": 'from app.tools import probes\nprobes.probe_tool()',
         "its handler, aliased": 'import app.tools.probes as p\np.probe_tool()',
@@ -98,15 +112,47 @@ def test_a_test_that_calls_a_tool_tests_it():
     for case, body in cases.items():
         code = _reads(body, {("app.tools.probes", "WRITE_TOOL"): PROBE})
         assert code.calls_tool(PROBE, "app.tools.probes", PROBE), case
-    parametrized = _reads('''
-        import pytest
+    parametrized = _reads(DISPATCH + '''
+import pytest
 
-        @pytest.mark.parametrize("name, limit", [("probe_tool", 1), ("other", 2)])
-        def test_it(name, limit):
-            registry.get(name)
-    ''')
+@pytest.mark.parametrize("name, limit", [("probe_tool", 1), ("other", 2)])
+async def test_it(name, limit):
+    await dispatch(name, {})
+''')
     assert parametrized.calls_tool(PROBE, "app.tools.probes", PROBE)
     assert not _reads("this is not python (").calls_tool(PROBE, "m", PROBE)
+
+
+def test_looking_a_tool_up_asking_the_gate_or_drawing_a_made_up_call_does_not_test_it():
+    """The round-9 I-05 negatives: none of these runs the tool's handler, so none is a test of
+    it — a registry lookup, the gate's classification, a synthetic tool call handed to the
+    presenters, a tool's name among another dispatched tool's ARGUMENTS, a helper that only looks
+    the tool up, a function of the same name as the dispatcher that is not it, and the provider's
+    callback in a test that replaced the dispatcher behind it (tests/test_provider.py's
+    cancelled-turn tests, which test the callback's refusals and run no tool)."""
+    cases = {
+        "a registry lookup": DISPATCH + 'registry.get("probe_tool")',
+        "a registry lookup in a loop": DISPATCH + 'NAMES = ["probe_tool"]\nfor n in NAMES:\n    registry.get(n).write',
+        "the gate's classification": DISPATCH + 'from app.tools.gate import classify\n'
+                                     'for name in ("probe_tool", "other"):\n    classify(name, {})',
+        "a synthetic tool call, presented": DISPATCH + 'from app.presentation import present\n'
+                                            'present([{"name": "probe_tool", "args": {}}])\n'
+                                            'present([ToolCall(name="probe_tool", args={}, ok=True)])',
+        "the name among another tool's arguments": DISPATCH + 'dispatch("other_tool", {"tool": "probe_tool"}, session=s)',
+        "a helper that only looks it up": DISPATCH + 'def spec(name):\n    return registry.get(name)\nspec("probe_tool")',
+        "a local function called dispatch": 'def dispatch(name, args):\n    return name\ndispatch("probe_tool", {})',
+        "a monkeypatch replacing it": 'from app.tools import probes\nmonkeypatch.setattr(probes, "probe_tool", None)',
+        "the provider's callback, its dispatcher replaced": (
+            'from app.providers import max_agent_sdk\n'
+            'async def test_x(monkeypatch):\n    monkeypatch.setattr(max_agent_sdk, "dispatch", stub)\n'
+            '    await provider._dispatch("probe_tool", {}, holder=h)'),
+        "the provider's callback, its dispatcher replaced by path": (
+            'async def test_x(monkeypatch):\n    monkeypatch.setattr("app.providers.max_agent_sdk.dispatch", stub)\n'
+            '    await provider._dispatch("probe_tool", {}, holder=h)'),
+    }
+    for case, body in cases.items():
+        code = _reads(body, {("app.tools.probes", "WRITE_TOOL"): PROBE})
+        assert not code.calls_tool(PROBE, "app.tools.probes", PROBE), case
 
 
 def test_the_matrix_does_not_cite_a_test_that_only_looks_tools_up():
