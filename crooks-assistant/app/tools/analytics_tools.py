@@ -687,27 +687,42 @@ async def email_query(set_id: str = "", days: int = 30) -> dict:
     contacted: list[str] = []
     not_contacted: list[str] = []
     replied: list[str] = []
+    # The members whose mail was never read: a Gmail check that failed or did not come back,
+    # plus (below) the members outside the window and the guest orders. They are neither
+    # "contacted" nor "not contacted" — "draft an apology to the rest" must not reach someone
+    # who may well have written — so they are held apart as a set of their own (the round-10
+    # deploy review, AC1-F-01: they used to fall into `not_contacted` while the count beside
+    # it left them out).
+    unchecked_members: list[str] = []
     unavailable = 0
     for entry in by_customer.values():
         mail = entry["mail"]
         members = entry["order_ids"] if ws.kind == "orders" else [entry["customer_id"]]
-        if not mail.get("available"):
+        checked = bool(mail.get("available"))
+        if not checked:
             unavailable += 1
         has_mail = bool(mail.get("count"))
-        (contacted if has_mail else not_contacted).extend(members)
+        if has_mail:
+            contacted.extend(members)
+        elif checked:
+            not_contacted.extend(members)
+        else:
+            unchecked_members.extend(members)
         if mail.get("replied"):
             replied.extend(members)
         last = mail["threads"][0] if mail.get("threads") else {}
         rows.append({
             "customer_id": entry["customer_id"], "customer_name": entry.get("name"), "customer_email": entry.get("email"), "orders": entry["orders"][:5],
             "emailed": has_mail, "threads": int(mail.get("count") or 0), "replied": mail.get("replied"), "last_subject": str(last.get("subject") or "")[:80], "last_date": str(last.get("date") or "")[:32],
-            "last_thread_id": str(last.get("thread_id") or ""), "checked": bool(mail.get("available")),
+            "last_thread_id": str(last.get("thread_id") or ""), "checked": checked,
             # Across every thread this customer has with us, never merged: who spoke last,
             # when, and whether we have answered since they did.
             "thread_count": int(mail.get("thread_count") or 0),
             "latest_inbound_at": mail.get("latest_inbound_at"),
             "latest_outbound_at": mail.get("latest_outbound_at"),
-            "latest_direction": mail.get("latest_direction") or ("none" if not has_mail else "unknown"),
+            # An inbox that was not read has no direction and no link to speak of: "none"
+            # would say it was read and held nothing (AC1-F-01).
+            "latest_direction": (mail.get("latest_direction") or ("none" if not has_mail else "unknown")) if checked else "unknown",
             "has_reply_after_latest_inbound": mail.get("has_reply_after_latest_inbound"),
             "needs_reply": bool(mail.get("needs_reply")),
             "waiting_since": mail.get("waiting_since"),
@@ -715,7 +730,7 @@ async def email_query(set_id: str = "", days: int = 30) -> dict:
             # and the whole account of how the row was decided (app/tools/analytics_tools.py
             # `_customer_threads`). The queue prints the first two; the report keeps the third.
             "related_orders": list(mail.get("related_orders") or []),
-            "confidence": str(mail.get("confidence") or ("none" if not has_mail else "unknown")),
+            "confidence": str(mail.get("confidence") or ("none" if not has_mail else "unknown")) if checked else "unknown",
             "provenance": dict(mail.get("provenance") or {}),
         })
     # Waiting on us first: that is what the question is usually for.
@@ -732,10 +747,11 @@ async def email_query(set_id: str = "", days: int = 30) -> dict:
         "set_id": ws.set_id, "set_label": ws.label, "kind": ws.kind, "days": days, "customers": len(by_customer),
         "counts": {"contacted": sum(1 for r in rows if r["emailed"]), "not_contacted": sum(1 for r in rows if not r["emailed"] and r["checked"]), "replied": sum(1 for r in rows if r["replied"]), "needs_reply": sum(1 for r in rows if r.get("needs_reply")), "unchecked": unchecked},
         "rows": rows, "source": f"Gmail threads from each customer in the last {days} days, mentioning their order", "_ms": round((time.perf_counter() - started) * 1000, 1),
-        "note": ("; ".join(notes) + "; they are counted in neither set." if notes else ""),
+        "note": ("; ".join(notes) + "; they are in neither the contacted nor the not-contacted set, and are held apart as the unchecked set." if notes else ""),
     }
     waiting = [m for r in rows if r.get("needs_reply") for m in ([r["customer_id"]] if ws.kind == "customers" else by_customer[r["customer_id"]]["order_ids"])]
-    for name, members, words in (("contacted", contacted, "who have emailed us"), ("not_contacted", not_contacted, "who have not emailed us"), ("replied", replied, "we have replied to"), ("needs_reply", waiting, "waiting on a reply from us")):
+    unchecked_members.extend(m for m in [*missing, *guests] if m not in unchecked_members)
+    for name, members, words in (("contacted", contacted, "who have emailed us"), ("not_contacted", not_contacted, "who have not emailed us"), ("replied", replied, "we have replied to"), ("needs_reply", waiting, "waiting on a reply from us"), ("unchecked", unchecked_members, "whose inbox could not be checked")):
         if members:
             # Side sets beside the parent: "these" stays the set the owner asked about; the
             # model names a derived set by its id when the owner says "the rest".

@@ -1,0 +1,231 @@
+[
+  {
+    "finding": "AC1-F-01",
+    "parts": ["AC1"],
+    "status": "FIXED",
+    "question": "Does email_query put a member in the not_contacted working set only after that member's Gmail check succeeded, keeping unchecked members apart?",
+    "files": [
+      "crooks-assistant/app/tools/analytics_tools.py",
+      "crooks-assistant/app/analytics/sets.py",
+      "crooks-assistant/app/analytics/present.py",
+      "crooks-assistant/app/reads/fanout.py",
+      "crooks-assistant/tests/test_r11_families.py",
+      "crooks-assistant/tests/test_working_sets.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_families.py::test_a_member_whose_inbox_was_not_read_is_never_in_the_rest",
+      "crooks-assistant/tests/test_r11_families.py::test_the_card_counts_only_what_was_read",
+      "crooks-assistant/tests/test_working_sets.py::test_the_inbox_is_cross_referenced_with_the_set_and_makes_derived_sets"
+    ],
+    "answer": "FIXED in analytics_tools.email_query. The loop over customers used `(contacted if has_mail else not_contacted).extend(members)`, so a customer whose Gmail read failed (fanout.gather_with_failures reported it unreachable) or came back `available: False` fell into not_contacted while `counts.not_contacted` excluded them. Now a member goes to `contacted` when mail was found, to `not_contacted` only when the check succeeded (`mail['available']`) and found none, and otherwise to `unchecked_members`, which also takes the members outside the held window (`missing`) and the guest orders; they are derived as their own working set (`set_unchecked`, 'whose inbox could not be checked'), never as part of 'the rest'. An unread row also says `latest_direction`/`confidence` 'unknown' rather than 'none', and the note says the unchecked are held apart. The new test drives dispatch('email_query') with one inbox read empty, one raising and one unavailable: counts {not_contacted: 1, unchecked: 2}, set_not_contacted is exactly the read member, set_unchecked the other two. It fails on 81c78948 (not_contacted held all three). present.correlation already counted and marked unread rows '?'; the second test holds that on the glass."
+  },
+  {
+    "finding": "F-01",
+    "parts": ["F"],
+    "status": "FIXED",
+    "question": "When Shopify has another page of abandoned checkouts, are the count and value window-wide, or labelled as the fetched subset with the card marked incomplete?",
+    "files": [
+      "crooks-assistant/app/families/abandoned.py",
+      "crooks-assistant/app/surfaces.py",
+      "crooks-assistant/app/presentation.py",
+      "crooks-assistant/experience/fixtures/shopify.py",
+      "crooks-assistant/tests/test_r11_families.py",
+      "crooks-assistant/tests/test_abandoned.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_families.py::test_the_count_and_the_value_are_the_whole_windows_when_shopify_has_more_pages",
+      "crooks-assistant/tests/test_r11_families.py::test_past_the_page_bound_the_figures_are_the_checkouts_read_and_say_so",
+      "crooks-assistant/tests/test_r11_families.py::test_a_later_page_that_fails_leaves_what_was_read_said_as_partial",
+      "crooks-assistant/tests/test_r11_families.py::test_a_first_page_that_fails_is_the_answer_failing",
+      "crooks-assistant/tests/test_r11_families.py::test_the_models_read_of_a_window_past_the_bound_draws_incomplete_cards",
+      "crooks-assistant/tests/test_r11_families.py::test_the_query_pages_by_cursor",
+      "crooks-assistant/tests/test_abandoned.py::test_the_cards_carry_the_numbers_and_say_what_the_data_is"
+    ],
+    "answer": "FIXED, both halves of the repair. abandoned._read_window follows Shopify's cursor (`$after`, `pageInfo.endCursor`) to the end of the window, bounded at MAX_PAGES (4) pages of `limit`, so the count, value, average and ranking are the window's. Past the bound, when Shopify reports more without a cursor, or when a later page fails (a first-page failure is still the answer failing), the result carries `complete: False`, `more: True` and a `partial` sentence that is also appended to the `note` the model reads. abandoned.cards now takes `complete` from the body (a body without it counts as a subset): the figures and ranking say 'at least N' / 'of those read', `data.complete` is False and `Freshness(complete=False, caveat=...)`. Before, the tool read one page and the figures card was hard-coded `complete=True`. The tests page a fake shop by cursor; they fail on 81c78948. The golden fixture (experience/fixtures/shopify.py) now serves `after`/`endCursor` too."
+  },
+  {
+    "finding": "F-02",
+    "parts": ["F"],
+    "status": "FIXED",
+    "question": "Does the Orders landing reserve 'Nothing is waiting to go out' for a complete open-orders read, and mark an incomplete empty read partial?",
+    "files": [
+      "crooks-assistant/app/families/landings.py",
+      "crooks-assistant/app/recipes.py",
+      "crooks-assistant/app/routes/command.py",
+      "crooks-assistant/tests/test_r11_families.py",
+      "crooks-assistant/tests/test_landings_unread.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_families.py::test_an_incomplete_empty_open_orders_read_is_not_nothing_waiting",
+      "crooks-assistant/tests/test_r11_families.py::test_a_complete_empty_open_orders_read_is_nothing_waiting",
+      "crooks-assistant/tests/test_r11_families.py::test_an_incomplete_empty_today_is_not_none_in_today",
+      "crooks-assistant/tests/test_landings_unread.py::test_an_unread_open_orders_list_is_never_said_to_be_empty",
+      "crooks-assistant/tests/test_landings_unread.py::test_both_read_is_the_landing_it_always_was"
+    ],
+    "answer": "FIXED in landings._orders_render. A read that answered with `complete: False` (the order cache still filling) is now distinguished from a complete one (`open_whole`, `today_whole`): with no rows it says 'None of the orders read so far are waiting to go out, but the read is not complete, so more may exist.' (and 'None of today's orders read so far, and more may exist.' for today), and `partial` is set whenever either read is incomplete, which _run_recipe passes to the tap's `changed.partial`. 'Nothing is waiting to go out.' and 'None in today yet.' are said only of a complete read. The tests tap `open.area` through POST /command in the golden harness with the read made complete-but-empty or incomplete-but-empty; the incomplete ones fail on 81c78948."
+  },
+  {
+    "finding": "R9-E-families1-E-04",
+    "parts": ["F", "T3"],
+    "status": "EVIDENCED",
+    "question": "Is an order-specific reply prepared only in a thread confidently linked to that order, on the model's own path, so a thread about the customer's other order, or only possibly about this one, is refused?",
+    "files": [
+      "crooks-assistant/app/tools/gmail_writes.py",
+      "crooks-assistant/app/context/graph.py",
+      "crooks-assistant/app/providers/max_agent_sdk.py",
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/experience/harness.py",
+      "crooks-assistant/tests/test_r11_reply_turn.py",
+      "crooks-assistant/tests/test_reply_order_binding.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_reply_turn.py::test_her_thread_about_one_order_is_refused_for_a_reply_about_the_other",
+      "crooks-assistant/tests/test_r11_reply_turn.py::test_a_thread_only_possibly_about_this_order_is_refused",
+      "crooks-assistant/tests/test_r11_reply_turn.py::test_the_thread_that_is_about_the_order_is_replied_in",
+      "crooks-assistant/tests/test_reply_order_binding.py::test_her_thread_about_one_order_is_not_the_thread_for_another_of_hers",
+      "crooks-assistant/tests/test_reply_order_binding.py::test_a_possible_link_is_never_replied_from",
+      "crooks-assistant/tests/test_reply_order_binding.py::test_a_reply_about_one_customers_order_is_refused_in_another_customers_thread",
+      "crooks-assistant/tests/test_reply_order_binding.py::test_a_cold_order_cache_falls_back_to_the_narrow_rule_and_never_upgrades_a_guess"
+    ],
+    "answer": "gmail_draft_reply and gmail_send_reply (the registered handlers) call `_check_order(order_id, ctx)` whenever an order is named. It raises ToolError unless the address the reply would go to (Reply-To, else From, read from the thread by thread_context) is the order's customer, and then unless `_about_this_order` returns 'confident': with the order cache warm it asks graph.linked_orders_for_thread over her other orders, refusing a thread confidently linked to another order ('That thread is about order X, not order Y') and one only possibly linked ('I can't tell that thread is about order Y'); with it cold, only this order's own number in the thread is confident. The model path adds nothing: max_agent_sdk.MaxAgentSDKProvider._dispatch hands the model's arguments to dispatch() unchanged, and app/routes/turn.py prepares no reply itself (it only adds a draft-or-send note, _draft_or_send). A reply with no order named goes to the thread's own sender, and its card carries no order line and `ledger.to_checked: false` (_prepared_email), so it is never presented as a verified order destination. New: tests/test_r11_reply_turn.py sends the sentence to POST /turn in the golden harness, whose model makes the reply call through dispatch as the provider does, for Mia (two recent orders, #1938 and #1912, a thread about each; every id issued by the order read, none granted by the test): her #1938 thread for #1912 and her #1912 thread for #1938 are refused for both tools, a thread naming no order is refused as only possible, no card reaches the screen, no proposal waits, and the model is told why; the control prepares a card naming #1938. Replacing `_about_this_order` with 'confident' fails six of the seven."
+  },
+  {
+    "finding": "R9-I-tests3-I-02",
+    "parts": ["T3"],
+    "status": "EVIDENCED",
+    "question": "On the live dispatch path with two orders for one customer, is a different-order or merely possible thread refused as a verified reply destination?",
+    "files": [
+      "crooks-assistant/app/tools/gmail_writes.py",
+      "crooks-assistant/app/context/graph.py",
+      "crooks-assistant/app/providers/max_agent_sdk.py",
+      "crooks-assistant/experience/harness.py",
+      "crooks-assistant/tests/test_r11_reply_turn.py",
+      "crooks-assistant/tests/test_reply_order_binding.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_reply_turn.py::test_her_thread_about_one_order_is_refused_for_a_reply_about_the_other",
+      "crooks-assistant/tests/test_r11_reply_turn.py::test_a_thread_only_possibly_about_this_order_is_refused",
+      "crooks-assistant/tests/test_r11_reply_turn.py::test_the_thread_that_is_about_the_order_is_replied_in",
+      "crooks-assistant/tests/test_reply_order_binding.py::test_her_thread_about_one_order_is_not_the_thread_for_another_of_hers",
+      "crooks-assistant/tests/test_reply_order_binding.py::test_a_possible_link_is_never_replied_from"
+    ],
+    "answer": "The replacement for test_graph's deleted assertions is on the live path at two depths. tests/test_reply_order_binding.py (round 10) calls dispatch() — the gate, the registered handler and the action engine — with two orders for one customer (#1930, #1931) and refuses her #1930 thread for #1931, a thread naming no order while she has two recent orders, and another customer's thread naming the order, for both reply tools. tests/test_r11_reply_turn.py (round 11) goes out to POST /turn with the golden world's Mia (#1938, #1912) and asserts the /turn response carries no confirmation card, the session no pending proposal, and the tool call an error naming the refusal. The deciding code is gmail_writes._check_order / _about_this_order, answered in full under R9-E-families1-E-04."
+  },
+  {
+    "finding": "R9-E-families1-E-01",
+    "parts": ["E-families1"],
+    "status": "EVIDENCED",
+    "question": "Is the order-edit Add bound to the order on screen and to a row of the picker drawn for it, with the label taken from that same order?",
+    "files": [
+      "crooks-assistant/app/families/order_edit.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/app/routes/command.py",
+      "crooks-assistant/app/session/branch.py",
+      "crooks-assistant/experience/scenario_packs/order_edit.py",
+      "crooks-assistant/tests/test_r11_families.py",
+      "crooks-assistant/tests/test_order_edit_picker_binding.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_families.py::test_the_add_on_the_picker_stages_only_a_row_of_the_picker_on_screen",
+      "crooks-assistant/tests/test_order_edit_picker_binding.py::test_a_stale_picker_for_another_order_is_refused",
+      "crooks-assistant/tests/test_order_edit_picker_binding.py::test_the_order_on_screen_is_the_order_staged_and_the_label_is_its_own",
+      "crooks-assistant/tests/test_order_edit_picker_binding.py::test_an_item_the_picker_on_screen_did_not_offer_is_refused",
+      "crooks-assistant/tests/test_order_edit_picker_binding.py::test_a_picker_on_screen_for_another_order_stages_nothing_even_for_the_open_order",
+      "crooks-assistant/tests/test_order_edit_picker_binding.py::test_with_no_order_open_nothing_is_staged_whatever_was_posted",
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[order_add_item_stale_picker]"
+    ],
+    "answer": "order_edit._stage_add_item (round 10) takes the order from the branch, not the post: a posted order_id that is not `branch.entity.ref` is refused 'wrong_order', an absent one means the open order, and the label is that entity's. The variant must be issued to the conversation (the gate checks both ids again in dispatch), and when the half's screen holds a picker (`_picker_on_screen` reads `branch.last_ui`, the Mac's own copy written by branch.shown after each tap and turn) the picker must have been drawn for this order and the variant must be one of its rows ('not_on_picker'). When the screen holds no picker (a later answer replaced it, or the owner already added from it) the open order and an issued variant are the whole check, and the confirmation card that follows names the item, price and order before the hold; refusing there would refuse a second Add from the same picker. The new test drives it through POST /command in the golden harness: the order read issues the hoodie, the picker on screen is the cap picker for the same order, an Add posting the hoodie is refused with no card, no proposal and no calculation, and the cap is prepared for that order. The route-level stale-picker case is the golden scenario order_add_item_stale_picker. Disabling the row check fails the new test."
+  },
+  {
+    "finding": "R9-E-families1-E-02",
+    "parts": ["E-families1"],
+    "status": "EVIDENCED",
+    "question": "Must a model-normalised or dictated address be checked by the owner before it is a recipient a draft or send can be prepared for?",
+    "files": [
+      "crooks-assistant/app/families/compose.py",
+      "crooks-assistant/app/tools/gmail_writes.py",
+      "crooks-assistant/experience/scenario_packs/compose.py",
+      "crooks-assistant/tests/test_r11_families.py",
+      "crooks-assistant/tests/test_compose_provenance.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_families.py::test_an_address_the_model_wrote_down_reaches_no_email_until_the_owner_checks_it",
+      "crooks-assistant/tests/test_compose_provenance.py::test_an_address_the_model_wrote_down_cleanly_is_for_the_owner_to_check",
+      "crooks-assistant/tests/test_compose_provenance.py::test_the_model_cannot_stage_that_address_behind_the_composers_back",
+      "crooks-assistant/tests/test_compose_provenance.py::test_once_the_owner_has_typed_it_that_address_and_only_that_one_is_prepared",
+      "crooks-assistant/tests/test_compose_provenance.py::test_a_composer_that_has_closed_carries_no_address",
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[compose_open]",
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[compose_dictated]"
+    ],
+    "answer": "gmail_compose_open (the only way the model puts an address on a composer) opens it with `to_from_words=True`, so compose.check_said_address marks every address it supplies 'uncertain' whatever its shape; gmail_compose_fill cannot touch the recipient. Only compose.field (a keystroke on the tablet, run through check_address) can make it 'ok'. Both doors to a send check that: the tap (_compose_stage → _ready_to_stage refuses anything but 'ok') and the write tools themselves — gmail_writes._recipient, for any `to`, requires a compose_id (held to the conversation's issued ids by the gate) and asks compose.owner_checked, which refuses unless that composer is still open on this conversation, the address is exactly the one on its card, and its status is 'ok'. Order and customer recipients come from Shopify (_order_customer), never from the model. The new test goes through POST /turn and POST /command: the model opens the composer with the canonical address and calls gmail_send_new itself in the same turn — refused by the write tool ('has not checked that address'), no card, no proposal; Send tapped is refused 'not_ready'; after the owner types the address, Send prepares that address from the Mac's copy, off_shopify, unsent. Making owner_checked accept an unchecked address fails it."
+  },
+  {
+    "finding": "R9-E-app1-E-01",
+    "parts": ["E-app1"],
+    "status": "EVIDENCED",
+    "question": "Can a tap reach a live write through the recipe runner (command.py _run_recipe → recipes.run)?",
+    "files": [
+      "crooks-assistant/app/routes/command.py",
+      "crooks-assistant/app/recipes.py",
+      "crooks-assistant/app/reads/scheduler.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/families/landings.py",
+      "crooks-assistant/tests/test_tap_reads_only.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_tap_reads_only.py::test_a_tap_whose_recipe_plans_a_change_is_refused_before_anything_is_dispatched",
+      "crooks-assistant/tests/test_tap_reads_only.py::test_the_read_scheduler_refuses_a_change_in_any_plan_whoever_built_it",
+      "crooks-assistant/tests/test_tap_reads_only.py::test_a_landing_reads_through_the_dispatcher_as_the_owner_and_reads_only",
+      "crooks-assistant/tests/test_tap_reads_only.py::test_a_recipe_run_with_no_authority_reads_nothing"
+    ],
+    "answer": "No. recipes.run checks, before any read: assert_read_only on the recipe's declared read_primitives (a write or batch tool raises; also run at start-up), and _undeclared — the PLAN's tools against the declaration, so a plan naming anything undeclared defers and reads nothing. What runs is run_plan, whose assert_reads_only refuses any plan containing a write or batch tool whoever built it, and each read goes through dispatch (the gate, under the authority the door stamped on the tap). A recipe's render is synchronous and returns a RecipeAnswer; command._run_recipe builds the tap's `changed` from the command's own outcome plus partial/reads/ms, so nothing a recipe returns can become a `stage`. The tap path that can PREPARE a change (Add on the picker, Save/Send on a composer) is a different branch of command._tap (`_stage_change`): it names a registered write tool, prepares through dispatch and the action engine, and applies nothing — the only route to a mutation is POST /actions/{id}/commit with the owner's gesture. The tests drive POST /command with the Orders landing made to plan each of five writes (declared and undeclared): refused 'landing_unavailable', none dispatched, no proposal, no mutation."
+  },
+  {
+    "finding": "R9-I-tests4-I-01",
+    "parts": ["I-tests4"],
+    "status": "EVIDENCED",
+    "question": "Is store-credit verification exact, so a £25 balance rise does not verify a £20 credit?",
+    "files": [
+      "crooks-assistant/app/families/store_credit.py",
+      "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/tests/test_store_credit.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_store_credit.py::test_the_verification_is_the_balance_plus_what_was_sent",
+      "crooks-assistant/tests/test_store_credit.py::test_a_balance_that_moved_by_anything_but_what_was_sent_is_not_proof",
+      "crooks-assistant/tests/test_store_credit.py::test_a_credit_that_landed_with_something_else_is_unverified_end_to_end",
+      "crooks-assistant/tests/test_store_credit.py::test_a_credit_shopify_accepted_that_did_not_move_the_balance_is_not_proven"
+    ],
+    "answer": "store_credit._verify (the WriteSpec `verify` the engine calls after the re-read, actions/engine.py) converts before, after and the amount sent to whole pence with Decimal (_pence) and verifies only when after == before + sent, in the currency sent, with both reads in that currency; anything else — £15 → £40 on a £20 credit, a penny either way, a different currency, a figure that is not money — returns (False, reason). The round-9 test that accepted £15 → £40 was changed in round 10 to assert the opposite, and an end-to-end test credits through the engine while a further £5 lands on the account: the proposal settles UNVERIFIED and the owner is told 'I couldn't confirm the credit'."
+  },
+  {
+    "finding": "R9-I-tests5-I-06",
+    "parts": ["I-tests5"],
+    "status": "EVIDENCED",
+    "question": "Does the email-query test's sender/search-terms assertion assert something, rather than ending in `or True`?",
+    "files": [
+      "crooks-assistant/tests/test_working_sets.py",
+      "crooks-assistant/app/tools/analytics_tools.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_working_sets.py::test_the_inbox_is_cross_referenced_with_the_set_and_makes_derived_sets"
+    ],
+    "answer": "Made real in round 10 and unchanged here: the test asserts a search call exists, exactly three searches — one per customer and no customer twice — and, sender by sender, the customer's own order number as the only search term and the 30-day window (ben@example.com → ['1002'], flo → ['1007'], gus → ['1009']). No `or True` remains in the file; the only one left in tests/ is test_recorder.py:181, inside a generator's condition, which widens rather than voids its assertion."
+  },
+  {
+    "finding": "R9-J-docs1-J-01",
+    "parts": ["J-docs1"],
+    "status": "FIXED",
+    "question": "Does the README say truthfully that a sentence reaches the model without a preceding lookup, and no longer describe the removed normaliser as current?",
+    "files": [
+      "crooks-assistant/README.md",
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/tests/test_r11_families.py",
+      "crooks-assistant/tests/test_turn_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_families.py::test_saying_an_order_number_reads_no_order_before_claude_is_asked"
+    ],
+    "answer": "Round 10 replaced 'Say the order number and the Mac looks the order up before Claude is asked'. Its replacement overstated in the other direction ('nothing on the Mac matches your words'): turn.py does read the words, for a bare yes with a card waiting (is_affirmation) and for notes it puts beside them (_context_lines: _draft_or_send, contract.limitation_line, claims.match_capabilities; feedback.at_turn during a test session). README 'Changes to the store and the inbox' now says exactly that: nothing looks anything up from the words or answers in Claude's place; saying an order number makes Claude read it if Claude decides to; the Mac reads the words only for the bare yes and those notes, none a lookup and none replacing the words; a tap names fixed reads. The normaliser is described only as removed ('Hearing you', the M3 row, the reference note). The test sends 'what's happening with order 1938' to POST /turn and finds, at the moment the model is asked, the sentence handed over as said and no Shopify query naming the order (the only read is the scope check), and no card of it."
+  }
+]
