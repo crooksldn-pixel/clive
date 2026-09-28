@@ -83,7 +83,16 @@ MAX_NEARBY = 8
 # an instruction to RECORD something, or on a plain statement that something is broken — a
 # sentence that merely contains the word "log" ("the log says") is not one of these.
 KINDS: tuple[tuple[str, Any], ...] = (
-    ("log", re.compile(r"\b(?:please )?log(?: that| this| it)?\b(?!\s*(?:says?|file|in\b|out\b|ical\b))", re.I)),
+    # "log" is an instruction only at the head of the sentence ("Log — a lot of your functions are
+    # broken", "please log that…", "can you log this") or with what is to be logged straight after
+    # it ("log that", "log this bug", "log your error"). A log that is read — "show me the log for
+    # order #1938", "the order log", "what does the log say" — is a noun, and filing it recorded a
+    # false defect and had the model say it was logged (round 11, O2-F-01).
+    ("log", re.compile(
+        r"^\W*(?:(?:ok(?:ay)?|right|so|and|uh|um|er)\W+)*(?:please\s+)?(?:(?:can|could|would|will) you\s+(?:please\s+)?)?"
+        r"log\b(?!\s*(?:says?|said|file|files|in\b|into\b|on\b|onto\b|out\b|off\b|ical|for\b|of\b|entr|shows?\b))"
+        r"|\blog (?:that|this|it|these|those|the (?:bug|error|defect|issue|problem|fault)|a (?:bug|defect|fault)"
+        r"|an (?:error|issue)|your error|my (?:complaint|feedback))\b", re.I)),
     ("note", re.compile(r"\b(?:note|make a note of|take a note of)\s+(?:that|this|the)\b|\bnote this bug\b", re.I)),
     ("record", re.compile(r"\brecord (?:that|this|it)\b|\bwrite (?:that|this) down\b|\bmake a note\b", re.I)),
     ("save_as_test", re.compile(r"\bsave (?:this|that|it) as a (?:test|case|regression)\b|\bturn (?:this|that) into a test\b", re.I)),

@@ -716,9 +716,14 @@ def reconstruct(events: list[dict[str, Any]], *, capability_states: dict[str, di
     # The tap bursts the voice layer swallowed, read once for the whole timeline: a long hold
     # that produced nothing inside one of these was competing with a finger (D-13).
     taps = _tap_bursts(events)
+    # What a page sent leaves the classifier's signals as it leaves visible.py's (round 11,
+    # F-OBS2-01): a disabled chip's action, a card's state and the like are quoted from telemetry,
+    # and section 5's table prints the signals.
+    words = visible.page_words(events)
     for turn in result:
         turn.tools.sort(key=lambda t: t.requested_at or t.finished_at)
         _classify(turn, collisions=collisions, taps=taps, capability_states=capability_states)
+        turn.signals = [visible.withheld(signal, words) for signal in turn.signals]
         turn.cluster = _cluster(turn)
     _mark_repeats(result)
     rec = Reconstruction(session=session, events=events, turns=result, proposals=proposals, orphans=orphans,
@@ -930,14 +935,17 @@ def _collisions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     within `GESTURE_WINDOW_S` of a recording that produced nothing is what produced nothing.
     """
     out: list[dict[str, Any]] = []
+    word = visible.as_identifier      # a page's words, as an identifier or withheld (round 11, F-OBS2-01)
     for event in events:
         kind = str(event.get("kind") or "")
         ts = float(event.get("ts") or 0.0)
         if kind == "tablet_hold" and str(event.get("phase") or "") == "multitouch":
             fingers = event.get("fingers") if isinstance(event.get("fingers"), int) else event.get("count")
-            out.append({"ts": ts, "what": "multitouch", "detail": f"{fingers or 2} fingers on the {event.get('target') or 'orb'}"})
+            if isinstance(fingers, bool) or not isinstance(fingers, int):
+                fingers = 2
+            out.append({"ts": ts, "what": "multitouch", "detail": f"{fingers or 2} fingers on the {word(event.get('target')) or 'orb'}"})
         elif kind == "tablet_navigate" and str(event.get("nav") or "") in ("split", "merge"):
-            out.append({"ts": ts, "what": str(event["nav"]), "detail": f"{event['nav']} by {event.get('name') or 'gesture'}"})
+            out.append({"ts": ts, "what": str(event["nav"]), "detail": f"{event['nav']} by {word(event.get('name')) or 'gesture'}"})
         elif kind == "branch_forked":
             out.append({"ts": ts, "what": "fork", "detail": f"branch {event.get('branch_id') or '?'} forked"})
     return out
@@ -1846,26 +1854,29 @@ def render(rec: Reconstruction, *, tools_registered: list[str] | None = None,
     add("## 7. UI usage")
     add("")
     renders = [e for t in turns for e in t.tablet_events("render")] + [e for e in rec.orphans if e.get("kind") == "tablet_render"]
-    screens = Counter(str(r.get("screen") or "") for r in renders)
-    card_types = Counter(str(c.get("type") or "") for r in renders for c in (r.get("cards") or []) if isinstance(c, dict))
-    sections = Counter(s for r in renders for c in (r.get("cards") or []) if isinstance(c, dict) for s in (c.get("sections") or []))
-    tabs_rendered = Counter(s for r in renders for c in (r.get("cards") or []) if isinstance(c, dict) for s in (c.get("tabs") or []))
-    tab_taps = Counter(str(e.get("label") or "") for t in turns for e in t.tablet_events("tab"))
+    # Every name counted here is one a page sent, so each is counted as an identifier or withheld
+    # (round 11, F-OBS2-01: visible.as_identifier), never printed as the words the page put there.
+    word = visible.as_identifier
+    screens = Counter(word(r.get("screen")) for r in renders)
+    card_types = Counter(word(c.get("type")) for r in renders for c in (r.get("cards") or []) if isinstance(c, dict))
+    sections = Counter(word(s) for r in renders for c in (r.get("cards") or []) if isinstance(c, dict) for s in (c.get("sections") or []))
+    tabs_rendered = Counter(word(s) for r in renders for c in (r.get("cards") or []) if isinstance(c, dict) for s in (c.get("tabs") or []))
+    tab_taps = Counter(word(e.get("label")) for t in turns for e in t.tablet_events("tab"))
     exposed: Counter = Counter()
     disabled: Counter = Counter()
     for r in renders:
         for c in r.get("cards") or []:
             for a in (c.get("actions") or []) if isinstance(c, dict) else []:
                 if isinstance(a, dict):
-                    (exposed if a.get("enabled") else disabled)[str(a.get("id") or "")] += 1
+                    (exposed if a.get("enabled") else disabled)[word(a.get("id"))] += 1
     used: Counter = Counter()
     for t in turns:
         for e in t.tablet_events("rail_tap"):
-            used[str(e.get("action") or "")] += 1
+            used[word(e.get("action"))] += 1
         for e in t.tablet_events("action_primed"):
-            used[str(e.get("action") or "")] += 1
-    nav = Counter(str(e.get("nav") or "") for t in turns for e in t.tablet_events("navigate"))
-    nav.update(str(e.get("nav") or "") for e in rec.orphans if e.get("kind") == "tablet_navigate")
+            used[word(e.get("action"))] += 1
+    nav = Counter(word(e.get("nav")) for t in turns for e in t.tablet_events("navigate"))
+    nav.update(word(e.get("nav")) for e in rec.orphans if e.get("kind") == "tablet_navigate")
     add(f"- Screens rendered: {dict(screens) or '—'}; cards: {dict(card_types) or '—'}.")
     add(f"- Sections shown on cards: {dict(sections) or '—'}; tab controls: {dict(tabs_rendered) or 'none rendered'}; tabs tapped: {dict(tab_taps) or 'none'}.")
     add(f"- Rail actions exposed (enabled): {dict(exposed) or '—'}; shown disabled: {dict(disabled) or '—'}; actually used: {dict(used) or 'none'}.")

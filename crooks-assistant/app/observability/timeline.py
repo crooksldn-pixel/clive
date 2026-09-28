@@ -202,6 +202,15 @@ def writer_alive(root: Path) -> bool | None:
 
 
 _LOCK_HELD, _LOCK_BUSY, _LOCK_FAILED = "held", "busy", "failed"
+# How long an event may wait, at most, for the writer lock a command is holding for a moment
+# (round 11, O1 F-01): a command holds it exclusively only for the instant of writer_alive's
+# look, so the wait is milliseconds in practice, and it can happen only before this process's
+# first hold, which is kept for the life of the process. One that is still held after this is
+# not waited for again for WRITER_LOCK_BACKOFF_S, so a command stuck with it cannot slow every
+# event on a turn's path.
+WRITER_LOCK_WAIT_S = 0.25
+WRITER_LOCK_POLL_S = 0.005
+WRITER_LOCK_BACKOFF_S = 5.0
 
 
 def _write_all(fd: int, data: bytes) -> tuple[int, OSError | None]:
@@ -265,6 +274,10 @@ class Timeline:
         self._written = 0
         self._dropped = 0
         self.stop_settled: bool | None = None   # whether the last stop saw every event settle
+        # Until when a writer lock found held by a command is not waited for (see _take_writer_lock),
+        # and the guard that makes the hold one per process however many threads ask at once.
+        self._lock_busy_until = 0.0
+        self._lock_guard = threading.Lock()
         self._full: set[Path] = set()
         # The last few CORRELATION ids to go past, so something being written down now can say
         # what was happening around it without reading the file back. Owner feedback is the
@@ -336,6 +349,23 @@ class Timeline:
         try:
             # This timeline's OWN session: `active` is true while a recording runs, and a
             # recording's line is the mirror's to write, not this one's.
+            if self.own is None:
+                return None
+            # No event is accepted without this process's hold on the writer lock (round 8,
+            # F-10; round 11, O1 F-01 and R9-A3b-F-10). It is taken before anything is pending, and
+            # kept for the life of the process, so a command that finds no writer holding the lock
+            # knows no process has an event waiting to be written. An event used to be accepted
+            # while a command held the lock for its look, to be written once the writer took the
+            # hold: the command, letting go and finding no writer, called a count final that the
+            # event then landed in. Now the event waits (briefly) for the hold, or is not accepted.
+            if not self._take_writer_lock():
+                with self._lock:
+                    self._dropped += 1
+                return None
+            # And the session is looked up again now the hold is taken. A command stops a session on
+            # disk and looks for a writer only once RECHECK_S has passed, so a look made after the
+            # hold began sees that stop: an event taken now is never one for a session a command has
+            # already called final.
             session = self.own
             if session is None:
                 return None
@@ -360,16 +390,6 @@ class Timeline:
             line = json.dumps(event, ensure_ascii=False, default=str)
             size = len(line.encode("utf-8"))
             path = self.sessions.timeline_path(session)
-            # Held before anything is pending, so no event is ever waiting in a process that does
-            # not hold it (round 8, F-10). Not blocking here, on a turn's path; the writer takes
-            # it, blocking, before it writes, if this could not because a command held it for a
-            # moment. One that could not be taken at all is not accepted (round 9, F-10): an event
-            # pending in a process no command can see would let a count be called final with it
-            # still to land.
-            if self._hold_writer_lock(blocking=False) == _LOCK_FAILED:
-                with self._lock:
-                    self._dropped += 1
-                return None
             queued = False
             with self._lock:
                 if self._pending_bytes + size <= MAX_PENDING_BYTES:
@@ -423,31 +443,58 @@ class Timeline:
             self._thread = threading.Thread(target=self._run, name="crooks-timeline", daemon=True)
             self._thread.start()
 
+    def _take_writer_lock(self) -> bool:
+        """Whether this process holds the writer lock now, taking it if it does not yet (round 11,
+        O1 F-01). A command holding it exclusively — writer_alive's look, an instant — is waited
+        for, a few milliseconds at a time, for at most WRITER_LOCK_WAIT_S; a lock still held after
+        that, or one that cannot be taken at all, is False, and the caller accepts nothing. Once
+        taken the hold is kept, so this is one attribute read on every event after the first."""
+        if self._writer_lock is not None:
+            return True
+        state = self._hold_writer_lock(blocking=False)
+        if state != _LOCK_BUSY:
+            return state == _LOCK_HELD
+        if time.monotonic() < self._lock_busy_until:
+            return False      # found held a moment ago and not let go: not waited for again yet
+        deadline = time.monotonic() + WRITER_LOCK_WAIT_S
+        while time.monotonic() < deadline:
+            time.sleep(WRITER_LOCK_POLL_S)
+            state = self._hold_writer_lock(blocking=False)
+            if state != _LOCK_BUSY:
+                return state == _LOCK_HELD
+        self._lock_busy_until = time.monotonic() + WRITER_LOCK_BACKOFF_S
+        log.warning("timeline: the writer lock stayed held by another process for %.2f s; events are "
+                    "not accepted until it is let go", WRITER_LOCK_WAIT_S)
+        return False
+
     def _hold_writer_lock(self, *, blocking: bool) -> str:
         """Take the shared hold on this session folder's WRITER_LOCK, once: _LOCK_HELD, or
-        _LOCK_BUSY when a non-blocking try met a command holding it for a moment (the writer takes
-        it, blocking, before it writes), or _LOCK_FAILED when it could not be taken at all. Never
-        raises, because observability never takes a turn down."""
+        _LOCK_BUSY when a non-blocking try met a command holding it for a moment, or _LOCK_FAILED
+        when it could not be taken at all. Never raises, because observability never takes a turn
+        down. One hold per process however many threads ask at once."""
         if self._writer_lock is not None:
             return _LOCK_HELD
-        try:
-            import fcntl
-
-            root = self.sessions.root
-            root.mkdir(parents=True, exist_ok=True)
-            fd = os.open(root / WRITER_LOCK, os.O_RDONLY | os.O_CREAT, 0o600)
+        with self._lock_guard:
+            if self._writer_lock is not None:
+                return _LOCK_HELD
             try:
-                fcntl.flock(fd, fcntl.LOCK_SH | (0 if blocking else fcntl.LOCK_NB))
-            except BaseException:
-                os.close(fd)
-                raise
-            self._writer_lock = fd
-            return _LOCK_HELD
-        except BlockingIOError:
-            return _LOCK_BUSY
-        except Exception as exc:  # noqa: BLE001 - observability never takes a turn down
-            log.debug("timeline writer lock could not be taken: %s", exc)
-            return _LOCK_FAILED
+                import fcntl
+
+                root = self.sessions.root
+                root.mkdir(parents=True, exist_ok=True)
+                fd = os.open(root / WRITER_LOCK, os.O_RDONLY | os.O_CREAT, 0o600)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_SH | (0 if blocking else fcntl.LOCK_NB))
+                except BaseException:
+                    os.close(fd)
+                    raise
+                self._writer_lock = fd
+                return _LOCK_HELD
+            except BlockingIOError:
+                return _LOCK_BUSY
+            except Exception as exc:  # noqa: BLE001 - observability never takes a turn down
+                log.debug("timeline writer lock could not be taken: %s", exc)
+                return _LOCK_FAILED
 
     def _run(self) -> None:
         while True:

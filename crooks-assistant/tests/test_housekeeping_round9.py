@@ -322,8 +322,11 @@ def test_a_writer_that_cannot_hold_the_lock_writes_nothing_a_command_would_miss(
     assert timeline.flush(timeout_s=1)
     assert count_events(store.timeline_path(session)) == final, "nothing lands after the count was called final"
 
-    # Accepted while a command held the lock for a moment, then the writer's own hold fails: the
-    # batch is dropped, never written unprotected.
+    # Found held by a command for a moment, and then the hold fails outright. Round 9 accepted the
+    # event on the command's hold and left the writer to take the lock before writing (round 11, O1
+    # F-01: that acceptance is itself the defect — see tests/test_r11_records.py). Now the event
+    # waits for the hold, and when the hold cannot be taken it is not accepted: nothing pending,
+    # nothing written unprotected.
     busy = {"left": 1}
 
     def busy_then_failing(fd, operation):
@@ -333,7 +336,8 @@ def test_a_writer_that_cannot_hold_the_lock_writes_nothing_a_command_would_miss(
         return failing(fd, operation)
 
     monkeypatch.setattr(fcntl, "flock", busy_then_failing)
-    assert timeline.emit("turn_started") is not None, "accepted: the writer takes the hold before it writes"
+    assert timeline.emit("turn_started") is None, "not accepted: the hold could not be taken"
+    assert timeline.counts["pending"] == 0
     assert timeline.flush(timeout_s=5)
     assert count_events(store.timeline_path(session)) == final and timeline.counts["dropped"] == 2
     assert writer_alive(store.root) is False

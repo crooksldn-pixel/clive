@@ -15,9 +15,12 @@ session is running — so the confirmation he hears is the truth. Nothing here a
 sentence: it still goes to the model.
 
 The first tests hold the recorder and its whole transcript→report path through a real timeline
-file and the real report builder. The last drives `POST /turn` end to end and needs one line in
-`app/routes/turn.py` that belongs to the turn route's owner this round; it is marked as a
-strict expected failure until that line lands, so the moment it does the marker has to come off.
+file and the real report builder. The last two drive `POST /turn` end to end: the turn route
+calls `feedback.at_turn` with the owner's words before the model is asked (app/routes/turn.py,
+since round 10), so a defect said out loud is recorded at turn time, against that turn, and the
+report prints it among those recorded. (Round 9's I-tests4 I-02 found this file saying nothing
+recorded feedback at turn time; that stopped being true when the route's call landed, and the
+tests below hold that it is.) tests/test_r11_observability.py drives the same door once more.
 """
 
 from __future__ import annotations
@@ -148,12 +151,11 @@ async def test_a_spoken_defect_through_the_turn_route_is_recorded_before_the_mod
 
 
 async def test_a_spoken_defect_through_the_turn_route_reaches_the_report_in_his_words(tmp_path):
-    """What holds today, hook or no hook, through the same door and the same report builder,
-    with nothing called in the route's place: a defect said out loud is not lost. Before the
-    turn route calls `feedback.at_turn` the report finds it in the transcript and prints it
-    among the defects NOTHING recorded; once the route calls it, among those recorded. Either
-    way his words are in the report verbatim, against that turn — and never both, and never
-    neither."""
+    """Through the same door and the same report builder, with nothing called in the route's
+    place: a defect said out loud is recorded at turn time — the route calls `feedback.at_turn`
+    before the model — so the report prints it among the defects RECORDED, verbatim, against that
+    turn, and not among those nothing recorded. (Round 10 accepted either while the route's call
+    was still to land; it has, so only the recorded reading is right now.)"""
     from experience.harness import harness
 
     said = SAID
@@ -172,6 +174,7 @@ async def test_a_spoken_defect_through_the_turn_route_reaches_the_report_in_his_
     turn = rec.turn(str(capture.raw.get("turn_id") or ""))
     assert turn is not None, "the turn is in the transcript the report read"
     recorded, ignored = len(rec.experience.feedback), len(rec.experience.ignored_feedback)
-    assert (recorded, ignored) in ((1, 0), (0, 1)), (recorded, ignored)
-    assert ("OWNER_FEEDBACK_IGNORED" in turn.classes) == bool(ignored), turn.classes
+    assert (recorded, ignored) == (1, 0), (recorded, ignored)
+    assert "OWNER_FEEDBACK_IGNORED" not in turn.classes, turn.classes
+    assert "1 recorded during the session" in markdown
     assert said in markdown, "his words, verbatim"

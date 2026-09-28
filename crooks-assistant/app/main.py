@@ -23,6 +23,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from app import runtime as runtime_module
 from app.logging.quiet import quieten
 from app.logging.turnlog import RedactingFilter
+from app.observability.session import HOUSEKEEPING_STOP
 from app.providers.max_agent_sdk import BillingGuardError, assert_no_payg_credentials
 from app.routes import (
     actions,
@@ -125,11 +126,13 @@ async def lifespan(app: FastAPI):
     keeper.start()
     log.info("CROOKS Assistant ready (bind address is whatever uvicorn was started with)")
     yield
-    # Nothing new is scheduled, a pass already running is asked to stop at its next step, and it
-    # finishes before the runtime it works on is closed (round 6, F-04; round 8, F-04-SHUTDOWN).
-    # The wait is SHUTDOWN_WAIT_S, then on to SHUTDOWN_DEADLINE_S, inside the unit's
-    # TimeoutStopSec: a pass that ends by then has the runtime closed after it, even if it ended
-    # after the first wait. One still running at the deadline keeps its runtime open (round 7:
+    # Reached once uvicorn's graceful drain has ended, SHUTDOWN_GRACEFUL_S at the most (the budget
+    # is set out above SHUTDOWN_WAIT_S). Nothing new is scheduled, a pass already running is asked
+    # to stop — and ends at the next file it comes to, not only at its next step (round 11) — and
+    # it finishes before the runtime it works on is closed (round 6, F-04; round 8,
+    # F-04-SHUTDOWN). The wait is SHUTDOWN_WAIT_S, then on to SHUTDOWN_DEADLINE_S: a pass that
+    # ends by then has the runtime closed after it. One still running at the deadline — only a
+    # single filesystem call that has not returned can be, now — keeps its runtime open (round 7:
     # never closed under it), and the process exits without waiting on it, because the pass runs
     # in a daemon thread of its own.
     #
@@ -194,27 +197,44 @@ async def drain_timelines(runtime, *, timeout_s: float) -> bool:
 # 2026-09-26 deploy review, F-04): the day's roll, the sessions past their keep and the reports
 # drawn from them happen on a clock, not only when the next event asks.
 HOUSEKEEPING_S = 15 * 60
-# How long shutdown waits for a housekeeping pass already running before it says so, and the
-# latest it waits at all: both inside systemd's TimeoutStopSec (30 s in
-# deploy/systemd/crooks-assistant.service), so the decision is ours, with room to exit after it.
-SHUTDOWN_WAIT_S = 20.0
-SHUTDOWN_DEADLINE_S = 27.0
-# And the latest the runtime's own close may run to, a pass having ended in time.
-SHUTDOWN_CLOSE_BY_S = 28.0
-# Then the timeline is drained (round 9, F-04-SHUTDOWN): for at most SHUTDOWN_FLUSH_S, and never
-# past SHUTDOWN_EXIT_BY_S from the start of the stop, though always for SHUTDOWN_FLUSH_MIN_S.
-SHUTDOWN_FLUSH_S = 2.0
+# The whole stop, planned inside systemd's TimeoutStopSec (round 11, R9-A3b-F-04-SHUTDOWN and
+# CFG-02). deploy/systemd/crooks-assistant.service sends SIGINT and gives UNIT_STOP_S before SIGKILL:
+#
+#   uvicorn's graceful drain   SHUTDOWN_GRACEFUL_S (--timeout-graceful-shutdown in ExecStart). A
+#                              connection held open used to keep the lifespan's shutdown from
+#                              starting at all until SIGKILL; now requests still running then are
+#                              cancelled, and the lifespan below starts.
+#   then the lifespan, timed from its own start:
+#     housekeeping stops       asked at once, and ended within one filesystem call of it (the walks
+#                              read the stop before each entry); waited for SHUTDOWN_WAIT_S, then
+#                              on to SHUTDOWN_DEADLINE_S
+#     the runtime closes       until SHUTDOWN_CLOSE_BY_S at the latest
+#     the timeline drains      until SHUTDOWN_EXIT_BY_S (at most SHUTDOWN_FLUSH_S, at least
+#                              SHUTDOWN_FLUSH_MIN_S), on the normal path and the timed-out one alike
+#
+# The lifespan therefore ends by SHUTDOWN_EXIT_BY_S at the latest, the whole stop by 15 + 0.1 + 22 =
+# 37.1 s, leaving about 8 s of the unit's 45 for the interpreter to exit. tests/test_r11_records.py
+# holds the unit's two lines to these numbers and the sum to the margin.
+UNIT_STOP_S = 45
+SHUTDOWN_GRACEFUL_S = 15
+SHUTDOWN_WAIT_S = 3.0
+SHUTDOWN_DEADLINE_S = 8.0
+SHUTDOWN_CLOSE_BY_S = 16.0
+SHUTDOWN_FLUSH_S = 8.0
 SHUTDOWN_FLUSH_MIN_S = 0.5
-SHUTDOWN_EXIT_BY_S = 29.5
+SHUTDOWN_EXIT_BY_S = 22.0
+# What the interpreter is left, at least, between the lifespan's end and SIGKILL.
+SHUTDOWN_EXIT_MARGIN_S = 5.0
 # How many times start-up checks the reports before it refuses, and how far apart (round 8,
 # F-04-STARTUP): the first pass is the first of them.
 REPORT_CHECK_ATTEMPTS = 3
 REPORT_CHECK_DELAY_S = 0.5
 
 # The stop asked of the housekeeping pass running in this thread (Housekeeper.run_pass sets it),
-# read by housekeep_once between its steps. A context variable, so a pass called directly (a
-# test, a script) has none and is never stopped.
-_PASS_STOP: contextvars.ContextVar[threading.Event | None] = contextvars.ContextVar("housekeeping_stop", default=None)
+# read by housekeep_once between its steps and, being the session module's own, by every walk
+# inside them (round 11). A context variable, so a pass called directly (a test, a script) has
+# none and is never stopped.
+_PASS_STOP = HOUSEKEEPING_STOP
 
 
 async def _reports_contained(tests) -> bool:
@@ -241,14 +261,31 @@ def housekeep_once(runtime, *, stop: threading.Event | None = None) -> str:
     Each step is tried on its own (round 8, F-04-STARTUP): the report check used to share one
     `try` with the roll and the ages, so an active session record that would not parse skipped
     it, and start-up read the unchecked reports as private. Now it runs whatever happened before
-    it, and a check that raises is not a contained one. Between steps the pass stops if shutdown
-    has asked it to (round 8, F-04-SHUTDOWN), and says so."""
+    it, and a check that raises is not a contained one.
+
+    Asked to stop — shutdown — the pass ends and says so (round 8, F-04-SHUTDOWN). Not only
+    between steps now but inside them (round 11, R9-A3b-F-04-SHUTDOWN): the stop is set for the
+    whole pass in session.HOUSEKEEPING_STOP, which every walk over the sessions and the reports
+    reads before each entry, so one step over a big folder ends within a single filesystem call
+    rather than running on past the unit's deadline. The screens' sweep is one lock and one small
+    file, and is not begun once a stop is asked."""
     stop = stop if stop is not None else _PASS_STOP.get()
+    token = _PASS_STOP.set(stop)
+    try:
+        return _housekeep(runtime, stop)
+    finally:
+        _PASS_STOP.reset(token)
+
+
+def _housekeep(runtime, stop: threading.Event | None) -> str:
+    from app.observability.session import Interrupted
+
     problems: list[str] = []
+    stopped = "housekeeping stopped early for shutdown"
 
     def stopping() -> bool:
         if stop is not None and stop.is_set():
-            problems.append("housekeeping stopped early for shutdown")
+            problems.append(stopped)
             return True
         return False
 
@@ -257,6 +294,9 @@ def housekeep_once(runtime, *, stop: threading.Event | None = None) -> str:
         for what, step in (("the day's roll", "active"), ("the session ages", "prune")):
             try:
                 getattr(tests, step)()
+            except Interrupted:
+                problems.append(stopped)
+                return "; ".join(problems)
             except Exception as exc:  # noqa: BLE001 - housekeeping never takes the service down
                 log.warning("test-mode housekeeping: %s did not complete", what, exc_info=True)
                 problems.append(f"{what} did not complete ({type(exc).__name__})")
@@ -266,6 +306,13 @@ def housekeep_once(runtime, *, stop: threading.Event | None = None) -> str:
             tests.tidy_reports()
             if getattr(tests, "tidy_problem", ""):
                 problems.append(tests.tidy_problem)
+        except Interrupted:
+            try:
+                tests.tidy_contained = False   # a check stopped part way is not a clean one
+            except Exception:  # noqa: BLE001
+                pass
+            problems.append(stopped)
+            return "; ".join(problems)
         except Exception as exc:  # noqa: BLE001
             try:
                 tests.tidy_contained = False   # a check that raised is not a clean one

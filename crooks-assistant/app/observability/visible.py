@@ -82,6 +82,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.observability import touch
+from app.observability.screens import PAGE_IDENTIFIER, WITHHELD, page_identifier
 
 log = logging.getLogger("crooks.observe")
 
@@ -1322,6 +1323,86 @@ def _subjects(turn: Any, found: list[Finding]) -> list[str]:
     return [str((turn.lane or {}).get("family") or turn.cluster or "the turn")]
 
 
+# What a finding may carry of what a page sent (round 11, R9-F-observability2-F-OBS2-01). The
+# rules above write a page's own values into their signals and subjects — the field the keyboard
+# left (`tablet_focus.name`), why (`cause`), the control two fingers landed on, a card's state —
+# and a page is not trusted to have put an identifier there: /telemetry keeps whatever words it
+# sent (bounded, and scrubbed only of the shapes and the names the process has been told), and a
+# customer's name is neither. So every string a page sent in a field that names a thing, and that
+# is not an identifier, is withheld from every finding, wherever a rule put it, before anything
+# leaves this module; then the whole signal passes the timeline's own rule (which is all a page's
+# free text — an exception's message — gets, see _PAGE_TEXT). An identifier is what CLIVE's pages
+# put in these fields:
+# lower-case letters and digits joined by . _ : / # or - (`composer-subject`, `ask_bar`,
+# `order.add_note`, `br_left`, `1938`), or a Shopify id.
+_IDENTIFIER = PAGE_IDENTIFIER
+_WITHHELD = WITHHELD
+# The frame every event carries, written by the Mac whoever sent the event; and the fields that are
+# a page's free text by what they are for — an exception's message, its detail, words on the glass
+# — which the report quotes as text (scrubbed by the timeline's rule, and bounded) because a
+# frontend exception is read by its words. Every other field names a thing: a field, a control, a
+# card, a state, a cause.
+_FRAME = frozenset({"ts", "iso", "seq", "test_session_id", "source", "kind"})
+_PAGE_TEXT = frozenset({"message", "detail", "text", "question"})
+_PAGE_DEPTH = 4
+_PAGE_WORDS_MAX = 20_000
+
+
+# A value a page sent, as the report may count it (screens.page_identifier).
+as_identifier = page_identifier
+
+
+def _from_a_page(event: dict[str, Any]) -> bool:
+    return str(event.get("source") or "") == "tablet" or str(event.get("kind") or "").startswith("tablet_")
+
+
+def page_words(events: list[dict[str, Any]]) -> list[str]:
+    """Every string a page sent in these events that is not an identifier, longest first. The
+    report's own classifier withholds them from its signals too (report.reconstruct)."""
+    found: set[str] = set()
+
+    def walk(value: Any, depth: int) -> None:
+        if len(found) >= _PAGE_WORDS_MAX:
+            return
+        if isinstance(value, str):
+            text = value.strip()
+            if text and not (len(text) <= 64 and _IDENTIFIER.fullmatch(text)):
+                found.add(text)
+        elif depth < _PAGE_DEPTH and isinstance(value, dict):
+            for key, item in value.items():
+                walk(str(key), depth + 1)
+                walk(item, depth + 1)
+        elif depth < _PAGE_DEPTH and isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item, depth + 1)
+
+    for event in events:
+        if isinstance(event, dict) and _from_a_page(event):
+            for key, value in event.items():
+                if key not in _FRAME and key not in _PAGE_TEXT:
+                    walk(value, 0)
+    return sorted(found, key=len, reverse=True)
+
+
+def withheld(text: str, words: list[str]) -> str:
+    """`text` with every word a page sent withheld, each where it stands as a whole, and then
+    passed through the timeline's own rule (credential shapes, contact details, known names)."""
+    from app.observability.timeline import scrub_text
+
+    out = str(text or "")
+    for word in words:
+        if word in out:
+            out = re.sub(rf"(?<![0-9A-Za-z_]){re.escape(word)}(?![0-9A-Za-z_])", _WITHHELD, out)
+    return scrub_text(out)
+
+
+def _leaving(findings: list[Finding], rec: Any) -> list[Finding]:
+    """The findings as they may leave this module (see _IDENTIFIER)."""
+    words = page_words(rec.events)
+    return [Finding(f.name, f.turn_id, withheld(f.signal, words), subject=withheld(f.subject, words), basis=f.basis)
+            for f in findings]
+
+
 def read(rec: Any) -> Reading:
     """Everything this module finds in one timeline, and the two outcomes per turn.
 
@@ -1331,7 +1412,9 @@ def read(rec: Any) -> Reading:
     owner: into reports/, written 0600 in a 0700 folder under a checked session id
     (session.write_private_text, report_target), by the command line and the Control app on the
     server. No route answers with it and no screen is given it — tests/test_visible_privacy.py
-    holds both."""
+    holds both. What a PAGE sent reaches a finding only as an identifier (round 11, F-OBS2-01:
+    _leaving), so a customer's name a page put in a field's name or a cause is not carried into
+    the report's tables."""
     findings: list[Finding] = []
     errors: list[str] = []
     recorded: list[dict[str, Any]] = []
@@ -1351,6 +1434,9 @@ def read(rec: Any) -> Reading:
     except Exception as exc:  # noqa: BLE001 — the same rule for the same reason
         errors.append(f"_feedback: {type(exc).__name__}")
         log.warning("owner feedback could not be read from this timeline (%s)", type(exc).__name__)
+    # What a page sent leaves only as an identifier (round 11, F-OBS2-01): every signal and subject,
+    # whichever rule wrote it, before a row, a turn or the report is given it.
+    findings = _leaving(findings, rec)
     # Exact repeats are one finding: eleven Homes that each replayed the record in hand are one
     # defect said eleven times, and a report that lists it eleven times buries the other ten.
     seen: set[tuple[str, str, str]] = set()
