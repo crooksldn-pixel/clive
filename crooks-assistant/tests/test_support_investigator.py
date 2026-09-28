@@ -639,9 +639,21 @@ def test_nothing_in_the_support_package_imports_a_write_tool():
 
 
 async def test_the_route_replays_a_bundle_and_refuses_an_empty_message(monkeypatch):
+    from types import SimpleNamespace
+
     from app.main import app
     from app.routes import support as support_route
 
+    # The route is the owner's, so this test says who the owner is, here, for itself: his login
+    # on the list and a request made on the server itself speaking for him (CROOKS_LOCAL_OWNER).
+    # It used to inherit that from whichever test last left the shared app configured, and so
+    # failed when run on its own (the 2026-09-28 deploy review, round 9, F-A2-FIXTURE: no test
+    # takes the owner's authority from outside itself). Put back as it was when the test ends.
+    settings = SimpleNamespace(local_owner=True, writes_local_owner=False, tailscale_verify=False,
+                               tailscale_cli="", gmail_signature="CROOKS")
+    monkeypatch.setattr(app.state, "runtime", SimpleNamespace(allowed_logins=("owner@example.com",), settings=settings),
+                        raising=False)
+    monkeypatch.setattr(app.state, "allowed_logins", ("owner@example.com",), raising=False)
     r = Readers(["late_uk"], inbox=["late_uk_chase"])
     bundle, expected = await run("Where is my order 2101?", r, sender="sam@fixture.invalid")
     transport = httpx.ASGITransport(app=app)

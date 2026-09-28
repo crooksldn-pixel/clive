@@ -34,6 +34,7 @@ import os
 # once the fixture is in place, and then it is reading the golden world.
 os.environ.setdefault("CROOKS_ANALYTICS_WARM_DAYS", "0")
 
+import importlib  # noqa: E402
 import time  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
@@ -526,17 +527,58 @@ class Harness:
         return capture
 
 
+_ABSENT = object()
+
+# What the harness, and the start-up it runs (app/runtime.py `build`), bind into the tool modules
+# for the length of a run: the Shopify and Gmail clients the reads and writes use, the order
+# cache and inbox helpers the analytics reads use, and both write modules' policy — which is the
+# harness runtime's settings, changes switched on. Each is put back as it was on the way out.
+_TOOL_BINDINGS = (
+    ("app.tools.shopify_tools", ("_client", "_hydrator")),
+    ("app.tools.gmail_tools", ("_client", "_customer_lookup")),
+    ("app.tools.gmail_writes", ("_client", "_customer", "_policy")),
+    ("app.tools.shopify_writes", ("_policy",)),
+    ("app.tools.analytics_tools", ("_cache", "_threads_for", "_replied", "_reply_state", "_own_address",
+                                   "_inbox_for", "_sent_for")),
+)
+
+
+def _tool_bindings() -> dict[tuple[str, str], Any]:
+    """What each of `_TOOL_BINDINGS` holds now."""
+    return {(module, name): getattr(importlib.import_module(module), name)
+            for module, names in _TOOL_BINDINGS for name in names}
+
+
 @asynccontextmanager
 async def harness(*, live: bool = False, writes: bool = True, admitted: bool = False):
     """A running assistant against the golden world, torn down afterwards.
 
+    What it grants, and to what (the 2026-09-28 deploy review, round 9, F-A2-FIXTURE):
+
+    - `writes=True` (the default) switches changes ON in the harness's own runtime, because a
+      scenario about which actions a card offers proves nothing against a backend where every
+      action is off. Nothing can be applied all the same: the fixture world refuses every
+      mutation, and in live mode the read-only guard refuses it first.
+    - `admitted=True` lets the harness's own HTTP requests in as the owner's: its runtime's
+      allow-list names the fixture owner and Tailscale's confirmation is switched off, so the
+      tablet headers it sends are taken as his (`Harness.configure`). The default is the
+      production identity check, under which they are refused: a caller that drives owner
+      scenarios asks for the owner by name.
+    - Tool authority, to nobody directly. Owner authority exists only inside a request the door
+      admitted (app/main.py stamps it and revokes it when the answer is sent); the harness
+      stamps none on the code that drives it, so a tool called from a scenario's own code, or a
+      test's, outside a request is refused like any other.
+
+    And none of it outlives the harness. The application object is shared by the whole process,
+    so what this puts on it — the runtime whose switches `configure` sets, the allow-list the
+    door reads, and the fixture clients and write policies bound into the tool modules
+    (`_TOOL_BINDINGS`) — is put back as it was on the way out, whatever happened inside. A test
+    that runs after this one meets the app and the tools as it found them, and never the fixture
+    owner's allow-list, an unverified Tailscale header or changes switched on.
+
     `live=True` swaps the golden world for the real Shopify and Gmail credentials and arms the
     read-only guard. It is refused unless the guard is actually in place — see
     `experience/live.py`; a live run that could write is not a test, it is an incident.
-
-    `admitted=True` lets the harness's requests in as the owner's (`Harness.configure`). The
-    default is the production identity check, under which they are refused: a caller that
-    drives owner scenarios asks for the owner by name.
     """
     from app.clients.elevenlabs import ScribeClient
     from app.clients.elevenlabs_tts import VoiceClient
@@ -548,6 +590,10 @@ async def harness(*, live: bool = False, writes: bool = True, admitted: bool = F
         return True, "harness"
 
     scribe_health, voice_health = ScribeClient.health, VoiceClient.health
+    # Everything the harness or the lifespan it runs changes on the shared app and in the tool
+    # modules, as it was before: put back in `finally`.
+    state_before = {name: getattr(app.state, name, _ABSENT) for name in ("runtime", "allowed_logins")}
+    bound_before = _tool_bindings()
     ScribeClient.health = fake_scribe_health
     VoiceClient.health = lambda _self: (True, "harness")
     try:
@@ -601,6 +647,14 @@ async def harness(*, live: bool = False, writes: bool = True, admitted: bool = F
     finally:
         ScribeClient.health = scribe_health
         VoiceClient.health = voice_health
+        for name, value in state_before.items():
+            if value is _ABSENT:
+                if hasattr(app.state, name):
+                    delattr(app.state, name)
+            else:
+                setattr(app.state, name, value)
+        for (module, name), value in bound_before.items():
+            setattr(importlib.import_module(module), name, value)
 
 
 async def _warm(runtime: Any, days: int = 90) -> None:
