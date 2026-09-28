@@ -27,10 +27,12 @@ from tests.test_analytics import HOODIE, JEANS, JOGGERS, NOW, node
 from tests.test_analytics_tools import ORDER_NODES, Store, london_now
 from tests.test_batch import gesture, gid, lookup, orders_set, stage, store_of
 
-# The admitted owner calling tools directly, as a request the door let through would: every tool
-# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
-# and every test's that does not say this, is no authority at all.
-pytestmark = pytest.mark.usefixtures("owner_asking")
+# The admitted owner calling tools directly, as a request the door let through would — granted
+# per test, to the tests that call a tool, and to no others (the 2026-09-28 deploy review, round
+# 9, F-A2-FIXTURE and I-tests5 I-04). The tests of the cache, the walk and the prompt run with
+# none, which is production's default; what a bulk change with none gets is held in
+# tests/test_r11_no_authority.py.
+AS_THE_OWNER = pytest.mark.usefixtures("owner_asking")
 
 # The batch suite's fixtures, under their own names.
 clock = tb.clock
@@ -45,6 +47,7 @@ LONDON = "Europe/London"
 # ------------------------------------------------------------------------ the batch run
 
 
+@AS_THE_OWNER
 async def test_members_are_not_expired_by_the_cards_clock_while_the_batch_runs(engine, batches, session, clock):
     store = store_of(6)
     ws = orders_set(session, store)
@@ -66,6 +69,7 @@ async def test_members_are_not_expired_by_the_cards_clock_while_the_batch_runs(e
     assert len(store.mutations) == 6
 
 
+@AS_THE_OWNER
 async def test_a_word_spoken_while_the_batch_runs_withdraws_none_of_it_and_the_undo_survives(engine, batches, session):
     store = store_of(6)
     ws = orders_set(session, store)
@@ -93,6 +97,7 @@ async def test_a_word_spoken_while_the_batch_runs_withdraws_none_of_it_and_the_u
     assert back.code == "done" and undo.counts["verified"] == 6
 
 
+@AS_THE_OWNER
 async def test_undo_members_are_batch_members_from_birth_and_the_batch_skips_the_courtesy_read(engine, batches, session):
     store = store_of(3)
     ws = orders_set(session, store)
@@ -109,6 +114,7 @@ async def test_undo_members_are_batch_members_from_birth_and_the_batch_skips_the
     assert store.reads - reads_before == 6 and store.tag_reads == {gid(1001): 3, gid(1002): 3, gid(1003): 3}
 
 
+@AS_THE_OWNER
 async def test_the_run_waits_for_shopifys_bucket_when_the_client_last_saw_it_low(engine, batches, session, monkeypatch):
     store = store_of(3)
     ws = orders_set(session, store)
@@ -128,6 +134,7 @@ async def test_the_run_waits_for_shopifys_bucket_when_the_client_last_saw_it_low
     assert await batch_module.pace("gmail_thread_archive") == 0.0
 
 
+@AS_THE_OWNER
 async def test_the_spoken_count_uses_what_the_owner_gestured_for(engine, batches, session):
     store = store_of(4, tagged={4: ["hold"]})
     ws = orders_set(session, store)
@@ -246,6 +253,7 @@ def test_a_running_period_compares_with_the_same_stretch_before():
 # ------------------------------------------------------------------------ the sets
 
 
+@AS_THE_OWNER
 async def test_a_set_holds_every_match_unless_a_number_was_asked_for_and_issues_only_its_id(session, monkeypatch):
     london_now(monkeypatch)
     store = Store(ORDER_NODES)
@@ -272,6 +280,7 @@ async def test_a_set_holds_every_match_unless_a_number_was_asked_for_and_issues_
         analytics_tools.bind(None)
 
 
+@AS_THE_OWNER
 async def test_the_inbox_read_names_the_members_it_could_not_check(session, monkeypatch):
     london_now(monkeypatch)
     store = Store(ORDER_NODES)
@@ -334,6 +343,7 @@ def test_the_context_lines_tell_the_model_what_the_mac_knows():
     assert rest == [] and not s.hinted
 
 
+@AS_THE_OWNER
 async def test_batch_state_after_a_lost_connection(client):
     from tests.test_actions_routes import PROXIED
 

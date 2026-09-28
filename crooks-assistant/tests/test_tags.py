@@ -16,10 +16,16 @@ from app.tools.dispatch import dispatch
 from app.tools.gate import Disposition, Tier, classify
 from tests.test_actions import ORDER, FakeStore
 
-# The admitted owner calling tools directly, as a request the door let through would: every tool
-# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
-# and every test's that does not say this, is no authority at all.
-pytestmark = pytest.mark.usefixtures("owner_asking")
+# The admitted owner calling tools directly, as a request the door let through would — granted
+# per test, to the tests that call a tool, and to no others (the 2026-09-28 deploy review, round
+# 9, F-A2-FIXTURE and I-tests5 I-04). A refusal asserted under it is one the OWNER meets, so it
+# cannot pass for want of authority; a test of the declaration runs with none, which is
+# production's default; and `test_with_no_authority_stamped_nothing_runs` holds what a call with
+# none gets.
+AS_THE_OWNER = pytest.mark.usefixtures("owner_asking")
+# What the dispatcher answers a call made with no authority (app/tools/dispatch.py). The gate's
+# own refusals carry a refusal id — "REFUSED (ref_…):" — and this does not.
+NO_AUTHORITY = "REFUSED: this was not asked for by the owner"
 
 TOOL = "shopify_order_tags_add"
 
@@ -92,6 +98,7 @@ def test_the_tags_tool_is_amber_reversible_and_a_tap():
     assert classify(TOOL, {"order_id": ORDER, "tags": ["x" * 41]}, issued_ids={ORDER}).disposition is Disposition.DENY
 
 
+@AS_THE_OWNER
 async def test_tags_are_merged_never_replaced_and_proven_by_re_reading(store, engine, session):
     text = await dispatch(TOOL, {"order_id": ORDER, "tags": ["exchange-requested", "VIP", " hold "]}, session=session, timeout_s=5)
     assert text.startswith("PROPOSED") and "tags exchange-requested, hold" in text and "tapping the card applies it" in text
@@ -110,18 +117,23 @@ async def test_tags_are_merged_never_replaced_and_proven_by_re_reading(store, en
     assert back.code == "verified" and store.tags == ["vip"] and back.spoken == "Tags taken off order 1930 again."
 
 
+@AS_THE_OWNER
 async def test_tags_already_there_are_not_a_change(store, engine, session):
     text = await dispatch(TOOL, {"order_id": ORDER, "tags": ["vip", "Vip"]}, session=session, timeout_s=5)
     assert text.startswith("ERROR") and "already has those tags" in text and session.proposals == []
 
 
+@AS_THE_OWNER
 @pytest.mark.parametrize("bad", [[""], ["<b>x</b>"], ["a|b"], ["x" * 41], [1]])
 async def test_a_tag_that_is_not_a_tag_is_refused_before_anything_is_read(store, engine, session, bad):
+    """Refused to the owner, by the gate or the tool, for what the tag is — never the refusal a
+    call with no authority gets, which this test would otherwise pass on (I-tests5 I-04)."""
     text = await dispatch(TOOL, {"order_id": ORDER, "tags": bad}, session=session, timeout_s=5)
-    assert text.startswith("ERROR") or text.startswith("REFUSED"), text
+    assert text.startswith(("ERROR", "REFUSED (")) and not text.startswith(NO_AUTHORITY), text
     assert store.reads == 0 and session.proposals == []
 
 
+@AS_THE_OWNER
 async def test_tags_changed_in_admin_meanwhile_are_not_overwritten(store, engine, session):
     await dispatch(TOOL, {"order_id": ORDER, "tags": ["hold"]}, session=session, timeout_s=5)
     proposal = session.proposals[-1]
@@ -131,6 +143,7 @@ async def test_tags_changed_in_admin_meanwhile_are_not_overwritten(store, engine
     assert result.spoken.startswith("The order's tags changed")
 
 
+@AS_THE_OWNER
 async def test_the_card_names_the_tags_and_the_ledger_keeps_only_their_length(store, engine, session):
     from app.presentation import present
     from app.providers.base import ToolCall
@@ -153,3 +166,32 @@ def test_the_list_variable_is_bounded_by_the_client_too():
     for bad in ([], ["x" * 41], [""], ["a"] * 21, [1], "hold"):
         with pytest.raises(ShopifyError, match="out of bounds|wrong type"):
             asyncio.run(client.mutate("order_tags_add", {"id": ORDER, "tags": bad}))
+
+
+async def test_with_no_authority_stamped_nothing_runs(store, engine, session, monkeypatch):
+    """F-A2-FIXTURE's regression for this tool, with NO `owner_asking` (I-tests5 I-04): the same
+    call the owner gets a card for — a tag this order has not got, on an order this conversation
+    was shown — made with no authority, as a call that did not come through the owner's door is.
+    The dispatcher refuses it before the gate: no handler runs, the shop is not read, nothing is
+    prepared. Then the owner asks, and the identical call is prepared, so the refusal was for
+    want of authority and for nothing else."""
+    from app.tools import authority
+
+    ran: list[str] = []
+    real = registry.invoke
+
+    async def invoke(name, args, *, timeout_s):
+        ran.append(name)
+        return await real(name, args, timeout_s=timeout_s)
+
+    monkeypatch.setattr(registry, "invoke", invoke)
+    assert authority.current() is None, "this test was given no authority"
+    calls: list = []
+    text = await dispatch(TOOL, {"order_id": ORDER, "tags": ["hold"]}, session=session, timeout_s=5, calls=calls)
+    assert text.startswith(NO_AUTHORITY), text
+    assert [(c.name, c.ok, c.error) for c in calls] == [(TOOL, False, "no owner authority")]
+    assert ran == [] and store.reads == 0 and store.mutations == [] and session.proposals == []
+
+    with authority.acting_as(authority.for_owner("owner@example.com")):
+        asked = await dispatch(TOOL, {"order_id": ORDER, "tags": ["hold"]}, session=session, timeout_s=5)
+    assert asked.startswith("PROPOSED") and len(session.proposals) == 1 and store.mutations == [], asked

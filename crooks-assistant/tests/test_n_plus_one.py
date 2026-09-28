@@ -39,10 +39,13 @@ from tests.test_analytics import HOODIE, NOW, node
 from tests.test_analytics_tools import Store
 from tests.test_summaries import NODES, SEVEN
 
-# The admitted owner calling tools directly, as a request the door let through would: every tool
-# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
-# and every test's that does not say this, is no authority at all.
-pytestmark = pytest.mark.usefixtures("owner_asking")
+# The admitted owner calling tools through the dispatcher, as a request the door let through
+# would — granted per test, to the tests that dispatch a tool, and to no others (the 2026-09-28
+# deploy review, round 9, F-A2-FIXTURE and I-tests5 I-04). The measurements that call a read's
+# handler directly, and the fan-out's, run with none, which is production's default. The same
+# bounds on a SPOKEN turn, where the door stamps the owner's authority itself and nothing here
+# grants any, are tests/test_n_plus_one_turn.py.
+AS_THE_OWNER = pytest.mark.usefixtures("owner_asking")
 
 load_all()
 
@@ -273,6 +276,7 @@ def surface_of(answer, session: Session):
 # ----------------------------------------------------------- the bound, enforced
 
 
+@AS_THE_OWNER
 async def test_the_returning_customers_answer_reads_the_period_once(shop):
     """The defect, as a number: seven entity reads become none.
 
@@ -290,6 +294,7 @@ async def test_the_returning_customers_answer_reads_the_period_once(shop):
     assert fast.count == 1, fast.body
 
 
+@AS_THE_OWNER
 async def test_the_answer_does_not_grow_a_read_when_the_shop_does(shop):
     """The N+1 test proper: more buyers must not mean more reads.
 
@@ -312,6 +317,7 @@ async def test_the_answer_does_not_grow_a_read_when_the_shop_does(shop):
     assert fast.count >= 25, fast.body
 
 
+@AS_THE_OWNER
 async def test_the_cursor_reaches_every_match_and_never_says_an_id(shop):
     """A capped surface must not cap the list.
 
@@ -343,6 +349,7 @@ async def test_the_cursor_reaches_every_match_and_never_says_an_id(shop):
         assert label and "gid://" not in label, f"{ref} is labelled {label!r}"
 
 
+@AS_THE_OWNER
 async def test_two_summary_questions_in_a_row_read_the_shop_once(shop):
     """§36: the second question is answered from the view the first took.
 
@@ -359,6 +366,7 @@ async def test_two_summary_questions_in_a_row_read_the_shop_once(shop):
     assert shop.entity_reads == 0, shop.by_query
 
 
+@AS_THE_OWNER
 async def test_the_attention_and_listing_answers_keep_the_same_bound(shop):
     for task, period in (("orders_attention", ""), ("order_list", "yesterday")):
         store = Counting()
@@ -523,6 +531,7 @@ AUDIT = (
 )
 
 
+@AS_THE_OWNER
 async def test_the_audit_table():
     """The §14 audit, both halves, on one fixture, printed for the report.
 
@@ -675,6 +684,7 @@ async def test_a_bounded_fan_out_reports_what_failed_and_answers_anyway():
 
 
 
+@AS_THE_OWNER
 async def test_the_same_summary_asked_twice_in_one_turn_is_one_read(shop):
     """§36, "cut tool duplication": the second call in a turn is answered from the first.
 
@@ -708,6 +718,7 @@ async def test_the_same_summary_asked_twice_in_one_turn_is_one_read(shop):
 # ------------------------------------------------------------------ §36, this half of it
 
 
+@AS_THE_OWNER
 async def test_a_tap_on_a_row_the_mac_holds_costs_nothing_at_all(shop):
     """§36: a known cached entity opens immediately.
 
