@@ -220,8 +220,15 @@ async def test_the_inbox_is_cross_referenced_with_the_set_and_makes_derived_sets
     assert session.focus["set"] == set_id, "the set the owner asked about stays in focus; the derived ones are named by id"
     threads = result["set_threads"]
     assert threads["kind"] == "emails" and threads["count"] == 2 and threads["parent"] == set_id and session.sets[threads["set_id"]].labels
-    searched = {c["sender"] for c in inbox.calls}
-    assert searched == {"ben@example.com", "flo@example.com", "gus@example.com"} and inbox.calls[0]["terms"] == ["1002"] or True
+    # One search per customer in the set, each for that customer's own order number over the
+    # window asked for. Asserted sender by sender and term by term: this line used to end in
+    # `or True` and asserted nothing (round 9, I-tests5 I-06).
+    assert inbox.calls, "the inbox was never searched"
+    searched = {c["sender"]: (c["terms"], c["days"]) for c in inbox.calls}
+    assert len(inbox.calls) == len(searched) == 3, inbox.calls
+    assert searched["ben@example.com"] == (["1002"], 30)
+    assert searched["flo@example.com"] == (["1007"], 30)
+    assert searched["gus@example.com"] == (["1009"], 30)
     # The cards: the counts, who wrote, and the two sets.
     items = present(calls[-1:], session=session)
     assert [i["type"] for i in items] == ["metric_group", "table", "working_set"], "the counts, the table, and one set card for the correlation"

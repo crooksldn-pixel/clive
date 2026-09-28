@@ -131,7 +131,9 @@ Then, in order:
    **Skip "Publish app" and your token dies every seven days.**
 
 7. **Content** — `kb/terminology.md` already holds the live catalogue with spoken aliases for
-   the stylised names; correct the aliases to how you actually say them (five minutes). The
+   the stylised names; correct the aliases to how you actually say them (five minutes). Claude
+   reads it to know what you mean and how to say a name back; it does not change what the
+   recogniser hears. The
    policy and sizing files are written from the store's own published content; the one thing
    only you can write is the discretion section of `kb/cs-rules.md`.
 
@@ -311,13 +313,18 @@ pattern rather than being a feature of its own:
 | Email: send a reply / a new email | RED | hold, then tap | the sent message found the same way |
 | Archive a thread | AMBER, undo | tap | the INBOX label gone |
 
-Say the order number and the Mac looks the order up before Claude is asked — items with
-images, money, address, the customer's history and their email, and what the order needs
-(unshipped for days, oversold, cancelled but not refunded, an email from the customer read
-for what it is about). The card's rail offers only the changes that make sense for that
-order and that the store has granted this Mac. Say "yes" or "go ahead" while a card is
-waiting and the Mac answers, without Claude, that nothing happens until the gesture; the
-card stays. If a gesture from where you are would be refused, the card says so first.
+Every sentence you say or type goes to Claude exactly as you said it, and Claude decides
+whether to look an order up; nothing on the Mac matches your words or reads an order in front
+of it (the owner's decision of 28 September 2026). When Claude does read an order, the card
+shows the whole of it — items with images, money, address, the customer's history and their
+email, and what the order needs (unshipped for days, oversold, cancelled but not refunded, an
+email from the customer read for what it is about). The card's rail offers only the changes
+that make sense for that order and that the store has granted this Mac. Name the order or the
+person you mean: the record on screen is only where you are, and what you name is what Claude
+looks up. Say a bare "yes" or "go ahead" while a card is waiting and the Mac answers, without
+Claude, that nothing happens until the gesture; the card stays. Anything more — "yes, #1938",
+"yes, the one for Sam" — is a new instruction: it goes to Claude, and the waiting card is
+withdrawn. If a gesture from where you are would be refused, the card says so first.
 
 What holds it together, and what the tests hold:
 
@@ -409,13 +416,10 @@ recording that is perfectly intelligible, and gating on the peak refused a third
 the tablet ever recorded. `clipped_ratio` and `clipped_ms` are in the stats and on the
 `/audio-test` page, so a rejection can be argued with rather than guessed at.
 
-Correction is deliberately conservative, because a wrong correction turns a transcript the
-recogniser got right into a wrong answer. Ordinary English is never corrected towards a
-catalogue term — the live catalogue contributes the store's colour options as one-word terms,
-and "what" is one character-pair away from "White", "back" from "Black", "and" from "Sand". A
-short one-word term needs near-exact evidence; an equal phonetic code corroborates a match but
-can never invent one; and a match may not swallow an ordinary word at its edge. Anything below
-that bar keeps the words as spoken.
+Nothing corrects the transcript. The normaliser that used to map heard words onto catalogue
+terms was removed with the term list on 28 September 2026: what the recogniser heard is what
+Claude is given, and a mis-heard name is Claude's to ask about, with the words on the tablet
+under the orb for you to see.
 
 Which engine actually answered is in the turn log and in the console (`recognised via scribe_v2
 in 1413ms`), and `/health` carries a `speech` block naming the primary, the effective recogniser
@@ -577,7 +581,7 @@ Mac, your tablet, and your console access — is not, and cannot be done from an
 | M0 Environment | Repo, packaging, `make doctor`. **Run `make doctor` on the Mac.** |
 | M1 Transport | FastAPI + `/health` + the tablet page. **Tailscale setup is yours.** |
 | M2 Microphone | Capture UI, `/audio-test`, decode + level stats. **Needs the tablet.** |
-| M3 Speech | Pipeline **passed against a real whisper-server** here. Normaliser tuned on the real catalogue. **Benchmark needs the Mac and tablet audio.** |
+| M3 Speech | Pipeline **passed against a real whisper-server** here. No catalogue terms and no normaliser since 28 September 2026. **Benchmark needs the Mac and tablet audio.** |
 | M4 Claude provider | **Passed against real Claude.** Billing guard; runs on the CLI's own login (`auth=cli`), from a Terminal or the login-time agents alike. |
 | M5 Tools + gate | **Passed against real Claude** — hook denied a RED call live. Proven by tests on every run. |
 | M6 Shopify auth | Client with token cache and the `shpat_` fallback. **Needs your credentials.** |
@@ -647,11 +651,11 @@ whisper-server and real Claude changed these things — each one would have cost
 | Orders named `#4832`, searched as `name:#4832` | Orders are `CROOKS-1928` (older ones `#1036`); bare `name:1928` matches both | Search uses the bare number; "crooks 1928", "CROOKS-1928", "#1928" all resolve |
 | Variant title is the size | Multi-option variants are `Black / XS` | Size filter matches one segment |
 | Stock is ≥ 0 | `inventoryQuantity` can be `-1` | Reported as "oversold by 1", never as minus one |
-| Product options are Size | Sets have options like `Grey Convict Hoodie (Size)`; socks have `Quantity: 1pc` | Live catalogue takes only Colour values, so `XS`/`1pc`/`V2` never become terms |
+| Product options are Size | Sets have options like `Grey Convict Hoodie (Size)`; socks have `Quantity: 1pc` | Live catalogue took only Colour values, so `XS`/`1pc`/`V2` never became terms (the term list itself was removed on 28 September 2026) |
 | A name search finds the customer | "Noah" returns three other Noahs before the buyer | `find_order` flags ambiguity with the candidates; `find_customer` flags truncation |
 | Product names are pronounceable | `CRXST★RZ T-SHIRT`, `MOTIONTEC™️` | Terminology file supports `spoken form => Canonical` aliases; the seed ships with the real catalogue |
 | whisper-server takes `vad_filter` | The field is `vad` | Client fixed; VAD was silently off per request |
-| A bare term list is the right Whisper prompt | It strips capitals and punctuation from transcripts | Prompt is display-case and ends with a period — measured before and after |
+| A bare term list is the right Whisper prompt | It strips capitals and punctuation from transcripts | Prompt was made display-case, ending with a period — measured before and after. Whisper is given no prompt at all since 28 September 2026 |
 | The Keychain is always reachable | Not on Linux, not from a system daemon | Provider uses the CLI's own login; the login-time agents `make install` sets up run in the user session, where both work |
 
 ---
@@ -665,8 +669,9 @@ library's `secrets` module, and FastAPI imports `token_hex` from it during start
 is an `ImportError` before a single line of our code runs — verified, not theorised. Nesting it
 under `app/` keeps the same shape and cannot shadow anything.
 
-**2. Metaphone, not Double Metaphone.** `jellyfish` removed Double Metaphone in 1.0. Metaphone is
+**2. Metaphone, not Double Metaphone.** `jellyfish` removed Double Metaphone in 1.0. Metaphone was
 the closest maintained equivalent and is what the normaliser's thresholds were tuned against.
+The normaliser was removed on 28 September 2026, and nothing in `app/` uses either now.
 
 ---
 

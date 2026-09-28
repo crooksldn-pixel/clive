@@ -37,6 +37,7 @@ from app.observability import timeline
 from app.presentation import compact, present
 from app.reads import budget
 from app.routes.actions import session_matches, writes_context
+from app.tools.context import CURRENT_BRANCH
 
 router = APIRouter(tags=["command"])
 log = logging.getLogger("crooks.command")
@@ -99,16 +100,28 @@ async def command(
     branch = session.branch(branch_id) if branch_id else session.branch()
     # A tap is addressed to a half too, and anything it causes downstream — a read that opens
     # a working set, a proposal — must be filed against that half rather than the focused one.
+    # Held on this request's own task as well as on the session: the session's field is one
+    # for both halves, and a sentence to the other half that arrives while this tap is still
+    # reading or preparing overwrites it (the 2026-09-28 deploy review, round 9, D2-03).
     session.acting_branch = branch.branch_id
+    token = CURRENT_BRANCH.set(branch.branch_id)
+    try:
+        return await _tap(request, runtime, session, branch, name, {
+            "kind": (kind or "").strip()[:40],
+            "ref": (ref or "").strip()[:MAX_REF_CHARS],
+            "label": (label or "").strip()[:120],
+            "tab": (tab or "").strip()[:40],
+            "surface": (surface or "").strip()[:40],
+            "family": (family or "").strip()[:40],
+        })
+    finally:
+        CURRENT_BRANCH.reset(token)
+
+
+async def _tap(request: Request, runtime, session, branch, name: str, named: dict[str, str]) -> JSONResponse | dict:
+    """The command itself, once the conversation and the half it is addressed to are known."""
     started = time.perf_counter()
-    outcome = commands.run(name, commands.Ctx(runtime, session, branch, await _arguments(request, {
-        "kind": (kind or "").strip()[:40],
-        "ref": (ref or "").strip()[:MAX_REF_CHARS],
-        "label": (label or "").strip()[:120],
-        "tab": (tab or "").strip()[:40],
-        "surface": (surface or "").strip()[:40],
-        "family": (family or "").strip()[:40],
-    })))
+    outcome = commands.run(name, commands.Ctx(runtime, session, branch, await _arguments(request, named)))
     recipe_id = outcome.changed.get("recipe") if outcome.ok and isinstance(outcome.changed, dict) else None
     if recipe_id:
         # A command that names a place rather than a record — a dock landing — or a read a

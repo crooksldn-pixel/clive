@@ -34,7 +34,14 @@ FORBIDDEN = ("not allowed", "isn't allowed", "aren't allowed", "not permitted", 
 
 class ModelThatAddsANote:
     """Claude, as far as the routes are concerned: it reads the prompt it is given, calls the
-    real tool through the real gate, and says what the tool result tells it to say."""
+    real tool through the real gate, and says what the tool result tells it to say.
+
+    It always finds #1930 and notes it, whatever it is asked, so this file is a walkthrough of
+    everything DOWNSTREAM of the model's choice — the gate, the card, the spoken yes, the tap —
+    and not evidence of the choice itself (round 9, I-tests5 I-03). What the Mac does with a
+    choice of the wrong record — an order this conversation was never shown refused at the
+    gate, a record other than the one named never drawn in its place — is in
+    tests/test_turn_boundary.py."""
 
     def __init__(self, runtime) -> None:
         self.runtime = runtime
