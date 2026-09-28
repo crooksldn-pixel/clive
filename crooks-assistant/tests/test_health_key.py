@@ -16,6 +16,7 @@ import http.server
 import json
 import os
 import socket
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -237,9 +238,15 @@ def test_the_kernel_says_who_took_the_connection_and_only_the_units_own_process_
         # Listed, but its own cgroup file says otherwise (a pid reused by a process elsewhere).
         monkeypatch.setattr(identity, "in_unit_cgroup", lambda pid, unit, proc=None: False)
         assert identity.far_end_held_by(local, remote, cgroup=_cgroup_for(tmp_path / "b", [me]))[0] is False
-        # Not listed in the unit at all: the holder is not the service.
+        # Not listed in the unit at all: the unit's only process is another one of ours (so its
+        # open files can be read by whoever runs this, root or not), and the holder is not it.
         monkeypatch.setattr(identity, "in_unit_cgroup", lambda pid, unit, proc=None: True)
-        ok, why = identity.far_end_held_by(local, remote, cgroup=_cgroup_for(tmp_path / "c", [1]))
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            ok, why = identity.far_end_held_by(local, remote, cgroup=_cgroup_for(tmp_path / "c", [other.pid]))
+        finally:
+            other.kill()
+            other.wait()
         assert ok is False and "something other than" in why
         # A cgroup anyone could join is no evidence.
         identity.bind_root_only(lambda path: False)
