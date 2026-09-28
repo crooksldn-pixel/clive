@@ -14,6 +14,14 @@
  * The build id is written in by the Mac when this file is served, so the file changes — and
  * Chrome installs the new worker — whenever any page file does. The new worker waits until
  * the page says it is idle (not recording, not waiting, not speaking) before taking over.
+ *
+ * The page itself (round 10, B-07). What the Mac serves at '/' (app/main.py `index`) is
+ * web/index.html with the build id written into it and nothing else: the same for every login,
+ * before anything is asked for. That page, of this build, is the only page this worker keeps. An
+ * answer at '/' is kept only when it is that page — a 200, HTML, not the end of a redirect, and
+ * carrying this build's own mark — so a proxy's page, a sign-in page, an error page, another
+ * build's page or anything else is passed on and never kept, and so never opened offline. The
+ * screens are never the worker's: /display and every /displays call go to the Mac untouched.
  */
 'use strict';
 
@@ -56,6 +64,9 @@ const SHELL = [
 // tailnet can take a while to refuse; the owner should not stare at a blank screen for it.
 const NETWORK_TIMEOUT_MS = 1500;
 
+// The mark of this build's own page: web/index.html's `crooks-build` meta, as the Mac writes it in.
+const PAGE_MARK = '<meta name="crooks-build" content="' + BUILD + '">';
+
 // When the page itself just had to open from the shell, the Mac is away: its scripts and
 // styles are served from the shell at once for a moment, instead of each waiting its turn.
 const AWAY_GRACE_MS = 10000;
@@ -75,8 +86,18 @@ const OFFLINE_HTML = '<!doctype html><html lang="en-GB"><head><meta charset="utf
 self.addEventListener('install', (event) => {
   // Nothing hurries this along: a new build installs quietly and takes over only when the
   // page says nothing is in progress (see the message handler).
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
+  event.waitUntil(caches.open(CACHE).then(keepShell));
 });
+
+// The shell, fetched afresh for this build: the page first, and only if it is this build's own
+// (isShell), then the files as they come. If the page is not, nothing is kept, the install fails,
+// and the browser keeps the worker it has and tries again later.
+async function keepShell(cache) {
+  const page = await fetch(self.location.origin + '/', { cache: 'no-cache' });
+  if (!(await isShell(page))) throw new Error('the page at / is not this build\'s shell');
+  await cache.addAll(SHELL.filter((path) => path !== '/'));
+  await cache.put('/', page);
+}
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -95,6 +116,7 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;                       // never a POST: nothing to replay
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;            // nothing but the Mac
+  if (/^\/displays?(\/|$)/.test(url.pathname)) return;         // a screen, and its every call, is the Mac's
   // Only the app's own page is the shell. A navigation to /whoami, /health or /docs is a
   // page of its own — passed straight to the Mac, never stored under '/', or the next
   // offline launch would open as that JSON instead of the app.
@@ -116,9 +138,14 @@ async function networkFirst(path, request) {
   try {
     const response = await withTimeout(fetch(request), NETWORK_TIMEOUT_MS);
     if (response.status >= 500) throw new Error(`backend ${response.status}`);
-    // Same origin by construction. The page slot takes HTML only: whatever else answers at
-    // '/' (a proxy's JSON, a redirect body) is passed on but never kept as the app.
-    if (response.ok && (path !== '/' || isHtml(response))) cache.put(path, response.clone());
+    // Same origin by construction. The page slot takes this build's page only (isShell):
+    // whatever else answers at '/' (a proxy's JSON or sign-in page, a redirect, a refusal, a
+    // page of another build) is passed on but never kept as the app.
+    if (path === '/') {
+      if (await isShell(response)) cache.put(path, response.clone());
+    } else if (response.ok) {
+      cache.put(path, response.clone());
+    }
     return response;
   } catch (error) {
     if (path === '/') awayUntil = Date.now() + AWAY_GRACE_MS;
@@ -132,6 +159,17 @@ async function networkFirst(path, request) {
 function isHtml(response) {
   const type = (response.headers && typeof response.headers.get === 'function' ? response.headers.get('content-type') : '') || '';
   return type.toLowerCase().indexOf('text/html') === 0;
+}
+
+// This build's own page, exactly as the Mac serves it at '/': a 200, HTML, not the end of a
+// redirect, with this build's mark in it. Read from a copy, so the answer itself is untouched.
+async function isShell(response) {
+  if (!response || response.status !== 200 || response.redirected || !isHtml(response)) return false;
+  try {
+    return (await response.clone().text()).indexOf(PAGE_MARK) !== -1;
+  } catch (error) {
+    return false;
+  }
 }
 
 function withTimeout(promise, ms) {

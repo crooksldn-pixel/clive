@@ -4,6 +4,10 @@
  * the Mac's endpoints, or anything from another origin; a navigation while the Mac is away
  * opens from the cached shell; a 5xx from the Tailscale proxy counts as "away" and a 4xx does
  * not; and a new build waits to be told before taking over.
+ *
+ * Round 10 (B-07): the page it keeps at '/' is only ever this build's own page as the Mac serves
+ * it (app/main.py `index`: web/index.html with the build id written in) — anything else that
+ * answers there, however it looks, is passed on and never kept, and never opened offline.
  */
 'use strict';
 
@@ -52,8 +56,17 @@ class FakeResponse {
   }
 }
 
+// The page the Mac serves at '/' for a build (app/main.py `index`): web/index.html with the
+// build's id written into its `crooks-build` meta. `tag` tells one serving from another.
+function shellPage(build, tag) {
+  return '<!doctype html><html lang="en-GB"><head><meta charset="utf-8"><meta name="crooks-build" content="'
+    + (build || 'testbuild') + '"></head><body>' + (tag || '') + 'fresh:/</body></html>';
+}
+
 // One browser can run one worker after another: `shared` is the browser's own cache storage,
-// kept across builds, and `build` is the id the Mac wrote into the worker it served.
+// kept across builds, and `build` is the id the Mac wrote into the worker it served. The Mac
+// serves its own build's page at '/' (`network.build`, the worker's build unless a test moves the
+// Mac on), or whatever `network.page` says instead.
 function boot(options) {
   const opts = options || {};
   const handlers = {};
@@ -86,13 +99,19 @@ function boot(options) {
     setTimeout: (fn, ms) => setTimeout(fn, Math.min(ms, 30)),   // the 4 s bound, shortened
     clearTimeout,
     fetch: async (request) => {
-      const p = new URL(request.url).pathname;
+      const p = new URL(typeof request === 'string' ? request : request.url).pathname;
       fetched.push(p);
       if (network.mode === 'fail') throw new TypeError('network down');
       if (network.mode === 'hang') return new Promise(() => {});
       const status = typeof network.mode === 'number' ? network.mode : 200;
       const type = network.type || (p.endsWith('.js') ? 'text/javascript' : 'text/html');
       const tag = network.tag ? `${network.tag}:` : '';
+      if (p === '/' && status === 200) {
+        const said = network.page || shellPage(network.build || opts.build || 'testbuild', tag);
+        const response = new FakeResponse(said, { status, headers: { 'content-type': type } });
+        if (network.redirected) response.redirected = true;
+        return response;
+      }
       return new FakeResponse(`${tag}${status === 200 ? 'fresh' : 'status'}:${p}`, { status, headers: { 'content-type': type } });
     },
   };
@@ -187,25 +206,25 @@ test('a navigation while the Mac is away opens from the shell', async () => {
   const event = w.fire('fetch', { method: 'GET', url: `${ORIGIN}/?dev=1`, mode: 'navigate' });
   const response = await event.response;
   assert.equal(response.status, 200);
-  assert.equal(await response.text(), 'fresh:/');
+  assert.equal(await response.text(), shellPage());
 });
 
 test('a hanging Mac is treated as away after the bound', async () => {
   const w = await installed();
   w.network.mode = 'hang';
   const event = w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' });
-  assert.equal(await (await event.response).text(), 'fresh:/');
+  assert.equal(await (await event.response).text(), shellPage());
 });
 
 test('a 5xx from the proxy is "away"; a 4xx is an answer and is passed through untouched', async () => {
   const w = await installed();
   w.network.mode = 502;
-  assert.equal(await (await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response).text(), 'fresh:/');
+  assert.equal(await (await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response).text(), shellPage());
   w.network.mode = 403;
   const refused = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
   assert.equal(refused.status, 403);
   const cache = await w.sandbox.caches.open('crooks-shell-testbuild');
-  assert.equal(await (await cache.match('/')).text(), 'fresh:/', 'a refusal is never cached as the shell');
+  assert.equal(await (await cache.match('/')).text(), shellPage(), 'a refusal is never cached as the shell');
 });
 
 test('with no shell cached at all, a navigation still gets a CROOKS page, not a browser error', async () => {
@@ -243,11 +262,14 @@ test('a page of its own — /whoami, /health, /docs — is never the shell, and 
     assert.equal(event.response, null, `${path} goes straight to the Mac`);
   }
   const cache = [...w.cacheStore.values()][0];
-  assert.equal(await (await cache.match('/')).text(), 'fresh:/');
+  assert.equal(await (await cache.match('/')).text(), shellPage());
   // And whatever answers at '/' with something other than HTML is passed on, not kept.
   w.network.type = 'application/json';
+  w.network.page = '{"detail":"a proxy said this"}';
   const odd = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
-  assert.equal(await odd.text(), 'fresh:/');
+  assert.equal(await odd.text(), '{"detail":"a proxy said this"}');
+  assert.equal(await (await cache.match('/')).text(), shellPage(), 'the app is still the one kept');
+  w.network.page = null;
   w.network.type = null;
   w.network.mode = 'fail';
   const offline = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
@@ -293,10 +315,11 @@ test('a new build replaces the old shell: the old copy is dropped and never serv
   const a = boot({ build: 'a', shared, network });
   await a.fire('install').waited;
   await a.fire('activate').waited;
-  assert.equal(await (await a.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response).text(), 'build-a:fresh:/');
+  assert.equal(await (await a.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response).text(), shellPage('a', 'build-a:'));
 
   // The Mac moves on. The browser installs the new worker beside the old one...
   network.tag = 'build-b';
+  network.build = 'b';
   const b = boot({ build: 'b', shared, network });
   await b.fire('install').waited;
   assert.deepEqual([...shared.keys()].sort(), ['crooks-shell-a', 'crooks-shell-b']);
@@ -307,7 +330,7 @@ test('a new build replaces the old shell: the old copy is dropped and never serv
   for (const p of ['/', '/static/app.js', '/static/startup.js']) {
     const request = p === '/' ? { method: 'GET', url: ORIGIN + p, mode: 'navigate' } : { method: 'GET', url: ORIGIN + p };
     const text = await (await b.fire('fetch', request).response).text();
-    assert.ok(text.startsWith('build-b:'), `${p} offline is the new build's copy, not the old one's (${text})`);
+    assert.equal(text, p === '/' ? shellPage('b', 'build-b:') : 'build-b:fresh:' + p, `${p} offline is the new build's copy, not the old one's (${text})`);
   }
   // An unrelated cache the page might hold is not the worker's to delete.
   shared.set('someone-elses', new Map());
@@ -320,7 +343,7 @@ test('offline, the shell opens and nothing else is answered from the cache', asy
   await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
   w.network.mode = 'fail';
   const page = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
-  assert.equal(await page.text(), 'fresh:/');
+  assert.equal(await page.text(), shellPage());
   for (const p of ['/displays/scr_000000000000/poll', '/state/s1', '/health', '/whoami', '/objectives']) {
     assert.equal(w.fire('fetch', { method: 'GET', url: ORIGIN + p }).response, null, `${p} is not answered offline by the worker`);
   }
@@ -350,7 +373,7 @@ test('a change of login on the same browser: nothing the last login saw is kept 
   const refused = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
   assert.equal(refused.status, 403);
   const cache = await w.sandbox.caches.open('crooks-shell-testbuild');
-  assert.equal(await (await cache.match('/')).text(), 'owner:fresh:/', 'the kept page is the code the owner was served');
+  assert.equal(await (await cache.match('/')).text(), shellPage('testbuild', 'owner:'), 'the kept page is the code the owner was served');
   for (const store of w.cacheStore.values()) {
     for (const key of store.keys()) assert.ok(SHELL.includes(key), `${key} must never be cached`);
   }
@@ -358,4 +381,72 @@ test('a change of login on the same browser: nothing the last login saw is kept 
   // that the page served at '/' is the same for every login — is tests/test_displays.py.
   assert.ok(SHELL.every((p) => p === '/' || p === '/manifest.webmanifest' || p.startsWith('/static/')));
   assert.ok(!/credentials|Authorization|Tailscale-User/i.test(RAW), 'the worker never looks at who is asking');
+});
+
+
+// --- round 10 (B-07): the page kept at '/' is this build's own page and nothing else ---
+
+// Closes B-07 (round 10): an owner load, then others at '/', then an offline load.
+test('the page kept at / is only ever this build’s own: nothing else that answers there is kept or opened offline', async () => {
+  // What '/' is (app/main.py `index`): web/index.html with the build id written in, the same for
+  // every login. The owner opens the app: that page is kept.
+  const w = await installed();
+  w.network.tag = 'owner';
+  const owner = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
+  assert.equal(await owner.text(), shellPage('testbuild', 'owner:'));
+  const cache = await w.sandbox.caches.open('crooks-shell-testbuild');
+  const kept = () => cache.match('/').then((r) => r.text());
+  assert.equal(await kept(), shellPage('testbuild', 'owner:'));
+  // Whatever else answers at '/' is passed on as it is, and never kept: a sign-in page in front
+  // of the Mac, a page with someone's things on it, the end of a redirect (even to a page that
+  // looks like the app), another build's page, a refusal.
+  const others = [
+    { page: '<!doctype html><html><body><form>Sign in to your tailnet</form></body></html>' },
+    { page: '<!doctype html><html><body>Order #1047 · Sam Carter · 14 Sample Road</body></html>' },
+    { page: shellPage('testbuild', 'elsewhere:'), redirected: true },
+    { page: shellPage('another-build', 'next:') },
+    { mode: 403 },
+  ];
+  for (const other of others) {
+    Object.assign(w.network, { mode: 'ok', page: null, redirected: false }, other);
+    const response = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
+    if (other.page) assert.equal(await response.text(), other.page, 'passed on as it is');
+    else assert.equal(response.status, 403);
+    assert.equal(await kept(), shellPage('testbuild', 'owner:'), `not kept: ${other.page || other.mode}`);
+  }
+  // Then a load with the Mac out of reach (whoever makes it): the app's own page, and only that.
+  Object.assign(w.network, { mode: 'fail', page: null, redirected: false });
+  const offline = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
+  assert.equal(await offline.text(), shellPage('testbuild', 'owner:'));
+  for (const store of w.cacheStore.values()) {
+    for (const key of store.keys()) assert.ok(SHELL.includes(key), `${key} must never be cached`);
+  }
+});
+
+// Closes B-07 (round 10): the install keeps the page only if it is this build's own.
+test('an install keeps nothing when the page at / is not this build’s own, and tries again later', async () => {
+  const w = boot({ network: { mode: 'ok', page: '<!doctype html><html><body>Sign in to your tailnet</body></html>' } });
+  await assert.rejects(w.fire('install').waited, /not this build/);
+  assert.deepEqual(w.cacheStore.get('crooks-shell-testbuild').keys(), [], 'nothing kept from a failed install');
+  // The next try, with the Mac serving the app: the whole shell.
+  w.network.page = null;
+  await w.fire('install').waited;
+  assert.deepEqual(w.cacheStore.get('crooks-shell-testbuild').keys().sort(), [...SHELL].sort());
+  assert.equal(await (await w.cacheStore.get('crooks-shell-testbuild').match('/')).text(), shellPage());
+});
+
+// B-07 (round 10): the worker's mark matches the real web/index.html.
+test('the page the Mac really serves at / is the page the worker keeps', async () => {
+  // app/main.py `index`: web/index.html with every __BUILD__ written as the build's id.
+  const served = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'index.html'), 'utf8').split('__BUILD__').join('testbuild');
+  const w = boot({ network: { mode: 'ok', page: served } });
+  await w.fire('install').waited;
+  const cache = w.cacheStore.get('crooks-shell-testbuild');
+  assert.equal(await (await cache.match('/')).text(), served, 'kept at install');
+  w.network.mode = 'fail';
+  const offline = await w.fire('fetch', { method: 'GET', url: `${ORIGIN}/`, mode: 'navigate' }).response;
+  assert.equal(await offline.text(), served, 'and opened offline');
+  // The same file served for another build is not this worker's page.
+  const other = boot({ build: 'another', network: { mode: 'ok', page: served } });
+  await assert.rejects(other.fire('install').waited, /not this build/);
 });

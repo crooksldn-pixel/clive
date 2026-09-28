@@ -14,6 +14,11 @@
  * - a YouTube video's play and pause, ten seconds either way, where it is and its volume are each
  *   told to CLIVE naming the pane and its version, and it says when the screen plays it muted or
  *   YouTube will not play it.
+ * - Round 10: a refusal takes what it shows away at once even with a finger on the panel (B2-02);
+ *   an answer to anything asked before a refusal never puts it back, and only a fresh ask can
+ *   (B2-03); turning the whole screen off names the version of the screen it was chosen from, and
+ *   a screen that changed since is refused and shown as it is; and a pane that passes CLIVE's own
+ *   limit while it is up leaves at the next ask, answered or not (NEW-B-LOCAL-SLIP).
  */
 'use strict';
 
@@ -52,12 +57,14 @@ function app({ answer, start = Date.UTC(2026, 8, 28, 12, 0, 0) } = {}) {
     addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
   };
   const response = (status, data) => ({ status, ok: status >= 200 && status < 300, json: async () => (data === undefined ? {} : JSON.parse(JSON.stringify(data))) });
+  // CLIVE's answer, at once, or when a test lets it go (a promise): an answer still on its way.
   const fetch = (url, opts = {}) => {
     const request = { url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null, at: clock.now };
     requests.push(request);
     const said = answer(request);
-    if (said === 'network') return Promise.reject(new TypeError('Failed to fetch'));
-    return Promise.resolve(response(said.status, said.body));
+    const give = (s) => (s === 'network' ? Promise.reject(new TypeError('Failed to fetch')) : response(s.status, s.body));
+    if (said && typeof said.then === 'function') return said.then(give);
+    return said === 'network' ? give(said) : Promise.resolve(give(said));
   };
   const schedule = (fn, ms) => { timers.push({ id: ++seq, at: clock.now + Math.max(0, Number(ms) || 0), fn }); return seq; };
   const cancel = (id) => { const t = timers.find((x) => x.id === id); if (t) t.fn = null; };
@@ -259,7 +266,8 @@ test('taking a pane off, and turning the screen off, each take a second tap', as
   assert.equal(ui.querySelector('.rm-off').textContent, 'Turn screen off', 'the second tap has a moment, not for ever');
   await pg.tap(ui.querySelector('.rm-off'));
   await pg.tap(ui.querySelector('.rm-off'));
-  assert.deepEqual(offs[1], {}, 'the whole screen');
+  // Round 10: the whole screen, named by the version of it the owner chose from.
+  assert.deepEqual(offs[1], { screen_version: 5 }, 'the whole screen, as it was seen');
 });
 
 test('what the remote shows leaves it on a 403, after two minutes out of reach, and when it is closed', async () => {
@@ -384,4 +392,128 @@ test('a video the screen plays muted, or YouTube will not play, says so', async 
   await pg.advance(1100);
   assert.ok(ui.allText().includes('YouTube won’t let this video play outside YouTube. Ask CLIVE for another.'));
   assert.equal(ui.querySelector('.rm-sub').textContent, 'Can’t play on the screen');
+});
+
+/* Round 10 of the deploy review. */
+
+// An answer CLIVE gives only when the test says: `let` it go with what it says.
+function held() {
+  let give;
+  const promise = new Promise((resolve) => { give = resolve; });
+  return { promise, let: (said) => give(said) };
+}
+
+// Closes B2-02 (round 10).
+test('a refusal takes what the remote shows away at once, even with a finger on the panel', async () => {
+  let refused = false;
+  const pg = await opened((p) => (refused ? { status: 403, body: { detail: 'no' } } : view(p, [order(p)])));
+  const ui = pg.panel();
+  const shows = () => ui.allText().includes('Heavyweight Tee');
+  assert.ok(shows());
+  ui.dispatch('pointerdown');               // a finger is on the panel, and stays there
+  refused = true;
+  await pg.advance(1100);                   // the next ask is refused while it is held
+  assert.ok(!shows(), 'gone at once, not when the finger lifts');
+  assert.equal(all(ui, '.rm-group').length, 0);
+  assert.ok(ui.querySelector('.rm-state').textContent.includes('isn’t allowed'));
+  assert.equal(pg.R.state().data, null);
+});
+
+// Closes B2-03 (round 10), on the remote.
+test('an answer to an ask made before a refusal never puts anything back; a fresh ask can', async () => {
+  const gate = { hold: null, again: null };
+  const refuse = { ask: false, tick: false };
+  const pg = await opened((p) => (refuse.ask ? { status: 403, body: { detail: 'no' } } : view(p, [order(p), objective(p)])), (request) => {
+    if (request.url.endsWith('/remote') && gate.hold) { const h = gate.hold; gate.hold = null; return h.promise; }
+    if (request.url.endsWith('/remote/again')) { gate.again = held(); return gate.again.promise; }
+    if (request.url.endsWith('/remote/tick') && refuse.tick) return { status: 403, body: { detail: 'no' } };
+    return null;
+  });
+  const ui = pg.panel();
+  const shows = () => ui.allText().includes('Heavyweight Tee');
+  assert.ok(shows());
+
+  // A change on its way ("Put it up again") when the next ask is refused: its answer, with the
+  // order in full, arrives after the refusal and is not read.
+  await pg.tap(ui.querySelector('.rm-glass'));
+  assert.ok(gate.again, 'put up again was asked');
+  refuse.ask = true;
+  await pg.advance(1100);
+  assert.ok(!shows(), 'refused: gone at once');
+  const next = held();
+  gate.hold = next;                          // whatever is asked from here waits
+  gate.again.let({ status: 200, body: view(pg, [order(pg), objective(pg)], { version: 7 }) });
+  await pg.flush();
+  assert.ok(!shows(), 'nothing came back from the older change');
+  assert.equal(pg.R.state().data, null);
+  assert.equal(pg.R.state().busy, false, 'and the controls are not left waiting on it');
+  refuse.ask = false;
+  await pg.advance(4100);                    // the next ask, sent after the refusal...
+  assert.equal(gate.hold, null, 'was asked');
+  next.let({ status: 200, body: view(pg, [order(pg), objective(pg)], { version: 7 }) });
+  await pg.flush();
+  assert.ok(shows(), '...and what it brings is shown');
+
+  // An ask on its way when a tick is refused: its answer, with the order in full, is not read.
+  const late = held();
+  gate.hold = late;
+  await pg.advance(1100);
+  const asks = pg.requests.filter((r) => r.url.endsWith('/remote')).length;
+  refuse.tick = true;
+  await pg.tap(all(ui, '.rm-tick')[0]);
+  assert.ok(!shows(), 'refused: gone at once');
+  assert.ok(ui.querySelector('.rm-state').textContent.includes('isn’t allowed'));
+  late.let({ status: 200, body: view(pg, [order(pg), objective(pg)], { version: 8 }) });
+  await pg.flush();
+  await pg.advance(500);
+  assert.ok(!shows(), 'nothing came back from the older ask');
+  assert.equal(pg.R.state().data, null);
+  // The next ask goes afresh, and what it brings is shown.
+  await pg.advance(4000);
+  assert.ok(pg.requests.filter((r) => r.url.endsWith('/remote')).length > asks, 'asked again');
+  assert.ok(shows(), 'up again from a fresh answer');
+});
+
+// Round 10: the page half of B-REMOTE-OFF (screen_version, and 409 stale).
+test('the whole screen is turned off as it was seen; a screen that changed since is refused and shown as it is', async () => {
+  const offs = [];
+  let version = 5;
+  let stale = false;
+  const pg = await opened((p) => view(p, [order(p)], { version }), (request) => {
+    if (!request.url.endsWith('/remote/off')) return null;
+    offs.push(request.body);
+    return stale ? { status: 409, body: { code: 'stale', detail: 'That changed on the screen before this, so nothing was taken off.' } }
+      : { status: 200, body: view(pg, [], { version: version + 1 }) };
+  });
+  const ui = pg.panel();
+  const off = () => ui.querySelector('.rm-off');
+  // Armed at one version; the screen moves on before the second tap: the second tap arms afresh.
+  await pg.tap(off());
+  assert.equal(off().textContent, 'Tap again to turn it off');
+  version = 6;
+  await pg.advance(1100);
+  assert.equal(off().textContent, 'Turn screen off', 'what was chosen from is no longer what is shown');
+  await pg.tap(off());
+  assert.equal(offs.length, 0, 'nothing was sent for the old view');
+  // CLIVE says it changed after all (between this view and the tap): said plainly, nothing done.
+  stale = true;
+  await pg.tap(off());
+  assert.deepEqual(offs, [{ screen_version: 6 }]);
+  assert.ok(ui.querySelector('.rm-state').textContent.includes('That changed on the screen'), ui.querySelector('.rm-state').textContent);
+  assert.ok(ui.allText().includes('Heavyweight Tee'), 'shown as it is now');
+  assert.equal(off().disabled, false, 'and it can be turned off again');
+});
+
+// Evidence for NEW-B-LOCAL-SLIP (round 10), on the remote.
+test('a pane that passes CLIVE’s own limit while it is up leaves at the next ask, answered or not', async () => {
+  let mode = 'ok';
+  const put = Date.UTC(2026, 8, 28, 12, 0, 0) - 12 * 3600 * 1000 + 3000;   // three seconds left when opened
+  const pg = await opened((p) => view(p, [order(p, { at: new Date(put).toISOString() }), objective(p)]),
+    (request) => (mode === 'network' && request.url.endsWith('/remote') ? 'network' : null));
+  const ui = pg.panel();
+  assert.ok(ui.allText().includes('Heavyweight Tee'));
+  mode = 'network';
+  await pg.advance(5000);
+  assert.ok(!ui.allText().includes('Heavyweight Tee'), 'gone although CLIVE could not be asked');
+  assert.ok(ui.allText().includes('Get the drop live'), 'the other pane, within its time, stays');
 });

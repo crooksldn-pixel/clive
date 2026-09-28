@@ -29,6 +29,14 @@
  *
  * And a pane can play a YouTube video the owner asked for, in YouTube's own embedded player,
  * worked from his remote, through CLIVE, or with this TV's own remote (see "a video", below).
+ *
+ * Round 10. The screen's key is not this page's to hold (B2-01): CLIVE sets it as a cookie that no
+ * script can read (HttpOnly, for /displays only) when the device names itself, and the browser
+ * sends it with every ask; this device keeps only the screen's id and name. A screen named before
+ * then hands its old key back to CLIVE once, for the cookie, and forgets it (migrate). An answer to
+ * an ask sent before what was shown was taken down is never read (B2-03), so only a fresh answer
+ * can put anything up again. And a slip marked packed is drawn from CLIVE's done summary alone —
+ * the order's number and when it was packed — never from the copy this screen drew (B2-04).
  */
 'use strict';
 
@@ -57,17 +65,25 @@
   if (weak) $('bloom').hidden = true;
 
   // ---- what this device is --------------------------------------------------------------
+  // A screen is the device holding its key (app/displays/store.py), and since round 10 (B2-01)
+  // the key is a cookie CLIVE sets and the browser alone holds: nothing on this page, nor anything
+  // that can read its storage, can copy it. What is kept here is the screen's id and name, and
+  // nothing else is ever written. A record kept before then also holds the key: that key is held
+  // in memory only until CLIVE has taken it back for the cookie (migrate), and never written again.
+  const SCREEN_ID = /^scr_[0-9a-f]{12}$/;
+  let legacyKey = '';
   function loadScreen() {
     try {
       const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
-      // A screen is the device holding its key (app/displays/store.py); one kept before keys
-      // existed names itself again.
-      if (raw && /^scr_[0-9a-f]{12}$/.test(raw.id) && typeof raw.name === 'string' && typeof raw.key === 'string' && raw.key) return raw;
+      if (raw && SCREEN_ID.test(raw.id) && typeof raw.name === 'string' && raw.name) {
+        legacyKey = typeof raw.key === 'string' ? raw.key.slice(0, 200) : '';
+        return { id: raw.id, name: raw.name };
+      }
     } catch (e) { /* nothing kept */ }
     return null;
   }
-  function saveScreen(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) { /* kept for this visit */ } }
-  function forgetScreen() { try { localStorage.removeItem(KEY); } catch (e) { /* nothing kept */ } }
+  function saveScreen(s) { try { localStorage.setItem(KEY, JSON.stringify({ id: s.id, name: s.name })); } catch (e) { /* kept for this visit */ } }
+  function forgetScreen() { legacyKey = ''; try { localStorage.removeItem(KEY); } catch (e) { /* nothing kept */ } }
 
   const S = {
     screen: loadScreen(),
@@ -236,9 +252,18 @@
     if (tooOld(s)) return null;
     if (s.done_at && serverNow() - Date.parse(s.done_at) > DONE_HOLD_MS) return null;
     // Once done, CLIVE keeps only what was done, not the slip (the customer's details go). The
-    // screen that drew it shows its own copy as packed; one that never drew it rests.
+    // screen that drew it shows that done summary for a moment (markedDone); one that never drew
+    // it rests.
     if (s.done_at && drawnKeys().indexOf(keyOf(s)) === -1) return null;
     return s;
+  }
+  // What a pane marked done may show (round 10, B2-04): CLIVE's done summary — its kind, the
+  // order's number (a list is just "List"), when it was put up and when it was done — and not a
+  // field more, whatever else came with it. Never the slip this screen drew.
+  function doneOf(view) {
+    const out = {};
+    for (const k of ['kind', 'ref', 'title', 'at', 'by', 'v', 'done_at']) if (view && view[k] !== undefined) out[k] = view[k];
+    return out;
   }
   // Every pane to show, each with its place on CLIVE's side (0 the first, 1 the one beside it):
   // the place and the pane's own version are what a page, a tick and "done" name.
@@ -253,11 +278,15 @@
   function pageOf(view) { return Number.isInteger(view && view.page) && view.page >= 0 ? view.page : 0; }
   function ticksOf(view) { return new Set(Array.isArray(view && view.ticked) ? view.ticked.filter((n) => Number.isInteger(n)) : []); }
   // A pane as drawn here: what it shows, and its own pages and acknowledgements (B-04).
+  function freshPage() {
+    return { index: 0, pages: 1, seen: new Set([0]), total: 0, fill: null, per: 0, step: 1, box: null, more: null, note: null, count: null };
+  }
   function paneOf(w) {
+    const packed = !!w.view.done_at;
     return {
-      index: w.index, view: w.view, key: keyOf(w.view), packed: !!w.view.done_at, two: false, node: null, btn: null,
+      index: w.index, view: packed ? doneOf(w.view) : w.view, key: keyOf(w.view), packed, two: false, node: null, btn: null,
       v: typeof w.view.v === 'number' ? w.view.v : S.version, serverPage: pageOf(w.view),
-      page: { index: 0, pages: 1, seen: new Set([0]), total: 0, fill: null, per: 0, step: 1, box: null, more: null, note: null, count: null },
+      page: freshPage(),
       ack: { version: -1, per: 0, covered: 0, busy: false, timer: 0, fails: 0, run: 0 },
     };
   }
@@ -537,15 +566,17 @@
     const start = ACK.covered;
     if (start >= PAGE.total || start % PAGE.per || !PAGE.seen.has(start / PAGE.per)) return;   // not up here yet
     const end = Math.min(PAGE.total, start + PAGE.per);
+    // A wipe resets every drawn pane's count (ackReset), so an answer to a page told before it is
+    // never read (round 10, B2-03).
     const run = ACK.run, screen = S.screen;
     ACK.busy = true;
     fetch('/displays/' + encodeURIComponent(screen.id) + '/seen', {
-      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': screen.key },
+      method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ version: ACK.version, pane: P.index, start, end }),
     }).then(async (response) => {
       if (run !== ACK.run) return;
       ACK.busy = false;
-      if (response.status === 403) { if (!(await notThisScreen(response))) wipe('refused'); return; }
+      if (response.status === 403) { if (!(await notThisScreen(response, () => run !== ACK.run)) && run === ACK.run) wipe('refused'); return; }
       const data = await response.json().catch(() => ({}));
       if (run !== ACK.run) return;
       if (response.ok && typeof data.seen === 'number') { ACK.covered = data.seen; ACK.fails = 0; ackPane(P); return; }
@@ -759,11 +790,31 @@
     frag.appendChild(meta);
     return frag;
   }
+  // A pane marked packed (or done), for the moment it stays up (round 10, B2-04): drawn from the
+  // done summary alone — the order's number, and when it was packed and where. Nobody's name,
+  // address, phone or note, and not the items: those went when it was marked.
+  function renderDone(P) {
+    const v = P.view, order = v.kind === 'order';
+    const word = order ? 'Packed' : 'Done', at = timeOf(v.done_at);
+    const frag = document.createDocumentFragment();
+    frag.appendChild(headBlock(v.title || (order ? 'Order' : 'List'), [], countBlock(word, at ? 'at ' + at : '', 'is-done'), P.two));
+    const panel = el('section', 'cs-panel cs-donepanel');
+    panel.setAttribute('data-dot', 'panel');
+    const mark = el('div', 'cs-donemark');
+    mark.setAttribute('data-dot', 'good');
+    mark.appendChild(svg(ICON_CHECK, 2.4));
+    panel.appendChild(mark);
+    panel.appendChild(el('div', 'cs-donet', at ? word + ' at ' + at : word));
+    frag.appendChild(panel);
+    const where = S.screen ? S.screen.name.toLowerCase() : 'this screen';
+    frag.appendChild(doneFoot(word, word + (at ? ' at ' + at : '') + ' on the ' + where + '. CLIVE has noted it.'));
+    return frag;
+  }
   function renderPane(P) {
     const box = el('section', 'cs-pane' + (P.view.kind === 'video' ? ' cs-vpane' : ''));
     box.setAttribute('data-pane', String(P.index));
     const v = P.view;
-    box.appendChild(v.kind === 'order' ? renderOrder(P) : v.kind === 'objective' ? renderObjective(P)
+    box.appendChild(P.packed ? renderDone(P) : v.kind === 'order' ? renderOrder(P) : v.kind === 'objective' ? renderObjective(P)
       : v.kind === 'video' ? renderVideo(P) : renderList(P));
     P.node = box;
     return box;
@@ -944,7 +995,7 @@
       for (let n = 0; n < want.length; n++) {
         const w = want[n], P = S.drawnView[n];
         // Looked at again once the check has been drawn, for anything that came with it.
-        if (w.view.done_at && !P.packed) { S.pending = true; markedDone(P, w.view.done_at); return; }
+        if (w.view.done_at && !P.packed) { S.pending = true; markedDone(P, w.view); return; }
         if (!w.view.done_at && typeof w.view.v === 'number' && w.view.v !== P.v) { S.pending = true; clearScreen(); return; }
       }
       want.forEach((w, n) => follow(S.drawnView[n], w));
@@ -1006,13 +1057,17 @@
     });
   }
   // One pane marked done: the dots swirl into a check, and the page comes back with that pane in
-  // its done state (the other, if any, as it was).
-  function markedDone(P, doneAt) {
+  // its done state (the other, if any, as it was). What the pane showed of the customer goes the
+  // moment CLIVE says it is done (round 10, B2-04): the copy drawn here, its pages and all, is
+  // replaced by CLIVE's done summary, and the page is drawn again from that at once, before the
+  // dots have moved.
+  function markedDone(P, view) {
     S.busy = true;
     S.phase = 'packing';
     P.packed = true;
-    P.view = Object.assign({}, P.view, { done_at: doneAt });
-    const label = (P.view.kind === 'order' ? 'Packed at ' : 'Done at ') + timeOf(doneAt);
+    P.view = doneOf(view);
+    P.page = freshPage();
+    const label = (P.view.kind === 'order' ? 'Packed at ' : 'Done at ') + timeOf(P.view.done_at);
     if (calm) {
       draw(S.drawnView);
       S.phase = 'shown';
@@ -1023,7 +1078,7 @@
     const T0 = E.time();
     E.packOut(checkTargets(label));
     uiState('is-dissolving');
-    E.at(T0 + 0.6, () => draw(S.drawnView));
+    draw(S.drawnView);
     E.at(T0 + 2.3, () => E.packIn(sampleUi(), T0 + 2.6));
     E.at(T0 + 3.8, () => { E.sweepOut(T0 + 3.8, 1.3); uiState('is-revealing'); });
     E.at(T0 + 5.2, () => { S.phase = 'shown'; uiState('is-shown'); settle(); scheduleRest(P.view); });
@@ -1077,26 +1132,36 @@
     marking = true;
     const btn = event && event.currentTarget;
     if (btn) btn.disabled = true;
+    // Whatever answers this tap is read only while nothing has been taken down since it was
+    // made, on this same screen (round 10, B2-03).
+    const stale = asked();
     try {
       const paged = (P.view.kind === 'order' || P.view.kind === 'list') && PAGE.total > 0;
       if (paged && !acksHeard(P)) {
         // The last pages may still be on their way to CLIVE, a second apart.
         hint('Telling CLIVE every page was shown…', false, 20000);
         if (!(await heardAll(P, 20000))) {
-          hint('CLIVE has not heard every page yet, so nothing was marked. Tap again.', true);
+          if (!stale()) hint('CLIVE has not heard every page yet, so nothing was marked. Tap again.', true);
           return;
         }
         hint('');
       }
       for (let attempt = 0; attempt < 5; attempt++) {
+        if (stale()) return;
         // `confirm` is sent from here, the Mark packed tap, and nowhere else (round 8, B-04). The
-        // pane is named by its place and its own version (round 9).
+        // pane is named by its place and its own version (round 9). The screen's key goes with it
+        // as its cookie (round 10, B2-01).
         const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '/done', {
-          method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
+          method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ version: P.v, pane: P.index, confirm: true }),
         });
-        if (response.ok) { receive(await response.json()); return; }
-        if (await notThisScreen(response)) return;
+        if (stale()) return;
+        if (response.ok) {
+          const data = await response.json();
+          if (!stale()) receive(data);
+          return;
+        }
+        if (await notThisScreen(response, stale)) return;
         if (response.status === 403) { wipe('refused'); return; }
         if (response.status === 503) {
           // Not yet safely kept (round 8, B-03), so not taken as done here: the screen shows
@@ -1107,6 +1172,7 @@
         }
         if (response.status !== 409) throw new Error('done ' + response.status);
         const why = await response.json().catch(() => ({}));
+        if (stale()) return;
         if (why && why.code === 'too_soon') {
           await new Promise((resolve) => setTimeout(resolve, Math.max(50, Math.min(5000, Number(why.retry_after_ms) || 1000))));
           continue;
@@ -1126,9 +1192,9 @@
         poll();
         return;
       }
-      hint('CLIVE is still busy with the last page, so nothing was marked. Tap again.', true);
+      if (!stale()) hint('CLIVE is still busy with the last page, so nothing was marked. Tap again.', true);
     } catch (e) {
-      hint('CLIVE could not be reached, so nothing was marked. Tap again.', true);
+      if (!stale()) hint('CLIVE could not be reached, so nothing was marked. Tap again.', true);
     } finally {
       marking = false;
       if (btn) btn.disabled = packedLocked(P);
@@ -1148,33 +1214,38 @@
   async function tickRow(P, item) {
     if (ticking || !S.screen || S.phase !== 'shown' || P.packed || !S.drawnView || S.drawnView.indexOf(P) === -1) return;
     ticking = true;
+    const stale = asked();
     try {
       const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '/remote/tick', {
         method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pane: P.index, item, packed: !ticksOf(P.view).has(item), version: P.v }),
       });
+      if (stale()) return;
       if (response.status === 403) { wipe('refused'); return; }
       const data = await response.json().catch(() => ({}));
+      if (stale()) return;
       if (response.ok && Array.isArray(data.ticked) && S.drawnView && S.drawnView.indexOf(P) !== -1 && !P.packed) {
         P.view = Object.assign({}, P.view, { ticked: data.ticked });
         if (P.page.fill) P.page.fill(P.page.index);
       }
     } catch (e) {
-      hint('CLIVE could not be reached, so that was not ticked. Tap again.', true);
+      if (!stale()) hint('CLIVE could not be reached, so that was not ticked. Tap again.', true);
     } finally {
       ticking = false;
     }
   }
   function tellPage(P, delta) {
     if (!S.screen || P.packed) return;
+    const stale = asked();
     fetch('/displays/' + encodeURIComponent(S.screen.id) + '/remote/page', {
       method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pane: P.index, delta, version: P.v }),
     }).then(async (response) => {
+      if (stale()) return;
       if (response.status === 403) { wipe('refused'); return; }
       const data = await response.json().catch(() => ({}));
       // What CLIVE now says the page is: the next ask brings the same, and changes nothing here.
-      if (response.ok && Number.isInteger(data.page)) P.serverPage = data.page;
+      if (!stale() && response.ok && Number.isInteger(data.page)) P.serverPage = data.page;
     }).catch(() => { /* turned here; the remote catches up when CLIVE can be reached */ });
   }
 
@@ -1412,8 +1483,8 @@
     P.vstate.classList.toggle('is-bad', e !== null);
     P.vstate.classList.toggle('is-note', e === null && Y.blocked);
   }
-  // How it is playing, told to CLIVE with this screen's key: at every change, and every couple of
-  // seconds while it plays, never more often than REPORT_GAP_MS.
+  // How it is playing, told to CLIVE with this screen's key (its cookie, round 10): at every
+  // change, and every couple of seconds while it plays, never more often than REPORT_GAP_MS.
   function videoReport(Y, now) {
     if (!S.screen || Y.parked || !Y.ready) return;
     const wait = REPORT_GAP_MS - (Date.now() - Y.reportT);
@@ -1431,11 +1502,13 @@
       duration: !live && I.duration > 0 ? cap(I.duration) : null, volume: I.volume, muted: !!I.muted,
       blocked: !!Y.blocked, error: Y.error,
     };
+    const stale = asked();
     fetch('/displays/' + encodeURIComponent(S.screen.id) + '/video', {
-      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
+      method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(async (response) => {
-      if (await notThisScreen(response)) return;
+      if (stale()) return;
+      if (await notThisScreen(response, stale)) return;
       if (response.status === 403) wipe('refused');
     }).catch(() => { /* told again at the next change or the next couple of seconds */ });
   }
@@ -1493,13 +1566,15 @@
     if (event.preventDefault) event.preventDefault();
     const body = { pane: Y.index, version: Y.v, action };
     if (value !== null) body.value = value;
+    const stale = asked();
     fetch('/displays/' + encodeURIComponent(S.screen.id) + '/remote/video', {
       method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }).then(async (response) => {
+      if (stale()) return;
       if (response.status === 403) { wipe('refused'); return; }
       const data = await response.json().catch(() => ({}));
-      if (response.ok && data && data.player && VIDEOS.get(Y.key) === Y) videoApply(Y, data.player);
-    }).catch(() => hint('CLIVE couldn’t be reached, so that didn’t reach the video. Try again.', true));
+      if (!stale() && response.ok && data && data.player && VIDEOS.get(Y.key) === Y) videoApply(Y, data.player);
+    }).catch(() => { if (!stale()) hint('CLIVE couldn’t be reached, so that didn’t reach the video. Try again.', true); });
   }
   document.addEventListener('keydown', videoKeys);
   document.addEventListener('pointerdown', pressedHere);
@@ -1543,24 +1618,106 @@
     $('online').classList.toggle('is-away', !on);
     showLine(true);
   }
-  // Another device has since been named this screen, or this one's key was lost: name it again.
-  async function notThisScreen(response) {
+  // Another device has since been named this screen, or this one's key (its cookie) was lost:
+  // name it again. An answer to an ask made before a wipe (`stale`) is left alone.
+  async function notThisScreen(response, stale) {
     if (response.status !== 403) return false;
     const data = await response.clone().json().catch(() => ({}));
     if (!data || data.code !== 'not_this_screen') return false;
+    if (stale && stale()) return true;
     wipe('');
     forgetScreen(); S.screen = null; toNaming();
     return true;
   }
+  // An ask of CLIVE's, and whether its answer may still be read (round 10, B2-03): not once what
+  // was shown has been taken down since it was sent (wipe), nor once this device has become
+  // another screen. So nothing an older answer carries — a slip, a tick, a page, a refusal — is
+  // ever taken after a refusal or a clearing; only an ask sent since can put anything up again.
+  function asked() {
+    const gen = S.gen, screen = S.screen;
+    return () => gen !== S.gen || screen !== S.screen;
+  }
+  // A screen named before round 10 kept its key on this device (B2-01). Before its first ask it
+  // hands that key back to CLIVE, once, the way a screen has always named itself again
+  // (X-Screen-Key, to /displays/register): CLIVE answers as it does any screen naming itself
+  // again with its own key — the same screen, still approved (or, still waiting, with a new
+  // code) — and sets the key as the cookie. The record here is then written again with the id
+  // and name alone, and the key is gone from the device. A name that has since gone to another
+  // device, or a key CLIVE no longer knows, is named again, as it would be today. Until CLIVE has
+  // answered, the old record stays, so a screen opened while CLIVE is away is not lost: it is
+  // tried again as an ask would be.
+  let migrating = false;
+  async function migrate() {
+    if (migrating || !S.screen || !legacyKey) return;
+    migrating = true;
+    const screen = S.screen, key = legacyKey;
+    try {
+      const response = await fetch('/displays/register', {
+        method: 'POST', cache: 'no-store', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Screen-Key': key },
+        body: JSON.stringify({ name: screen.name }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (S.screen !== screen) return;
+      if (response.ok && data && SCREEN_ID.test(String(data.id || ''))) {
+        legacyKey = '';
+        S.screen = { id: data.id, name: typeof data.name === 'string' && data.name ? data.name : screen.name };
+        saveScreen(S.screen);
+        $('bar-name').textContent = S.screen.name;
+        S.lastOk = Date.now();
+        if (data.pending) {
+          // Still waiting for the owner: the new code goes up as the ask says so (receive).
+          S.unapproved = true;
+          S.pairCode = /^\d{6}$/.test(String(data.code || '')) ? String(data.code) : '';
+          S.pairUntil = Date.now() + (Number(data.code_expires_in) || 900) * 1000;
+        }
+        migrating = false;
+        poll();
+        return;
+      }
+      if (response.status === 403 && data && data.code !== 'not_this_screen') {
+        // This login may not use CLIVE now: asked again now and then, the key kept until then.
+        wipe('refused');
+        if (S.online !== false || !S.refused) setOnline(false, true);
+        pollTimer = setTimeout(poll, REFUSED_MS);
+        return;
+      }
+      if (response.status >= 400 && response.status < 500) {
+        // The name is another device's now, or CLIVE no longer knows this key: named again.
+        wipe('');
+        forgetScreen(); S.screen = null;
+        toNaming(response.status === 409 && typeof data.detail === 'string' ? data.detail : '', screen.name);
+        return;
+      }
+      throw new Error('register ' + response.status);
+    } catch (e) {
+      if (S.screen === screen) {
+        if (S.online !== false || S.refused) setOnline(false);
+        pollDelay = Math.min(POLL_MAX_MS, Math.round(pollDelay * 1.5));
+        clearTimeout(pollTimer);
+        pollTimer = setTimeout(poll, pollDelay);
+      }
+    } finally {
+      migrating = false;
+    }
+  }
   async function poll() {
     clearTimeout(pollTimer);
     if (!S.screen || polling) return;
+    // A screen named before round 10 hands its old key back first (B2-01).
+    if (legacyKey) { migrate(); return; }
     polling = true;
+    const stale = asked();
+    const again = () => { if (S.screen) pollTimer = setTimeout(poll, pollDelay); };
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
     const giveUp = ctl ? setTimeout(() => ctl.abort(), POLL_TIMEOUT_MS) : 0;
     try {
+      // The screen's key goes as its cookie, which the browser alone holds (round 10, B2-01).
       const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '?v=' + S.version,
-        { cache: 'no-store', headers: { 'X-Screen-Key': S.screen.key }, signal: ctl ? ctl.signal : undefined });
+        { cache: 'no-store', credentials: 'same-origin', signal: ctl ? ctl.signal : undefined });
+      // Sent before what was shown was taken down: not read at all, whatever it says, and asked
+      // again afresh (round 10, B2-03).
+      if (stale()) { again(); return; }
       if (response.status === 404) {
         // Removed by the owner, or a request for approval that ran out or was cancelled.
         const waiting = S.unapproved, was = S.screen ? S.screen.name : '';
@@ -1569,7 +1726,7 @@
         toNaming(waiting ? 'The code ran out or was cancelled before this screen was approved. Name it again for a new code.' : '', waiting ? was : '');
         return;
       }
-      if (await notThisScreen(response)) return;
+      if (await notThisScreen(response, stale)) { if (stale()) again(); return; }
       if (response.status === 403) {
         // This screen's login may not use CLIVE now (round 8, NEW-B-LOCAL-SLIP): whatever it
         // shows goes at once, and it asks again now and then in case that changes.
@@ -1580,20 +1737,24 @@
         return;
       }
       if (response.status !== 204 && !response.ok) throw new Error('poll ' + response.status);
+      const data = response.status === 204 ? null : await response.json();
+      if (stale()) { again(); return; }
       S.lastOk = Date.now();
       if (S.gone) { S.gone = ''; showLine(true); }
       if (S.online !== true) setOnline(true);
       // While a video is up the owner's remote is working it: asked more often, so it answers at once.
       pollDelay = VIDEOS.size ? VIDEO_POLL_MS : POLL_MS;
-      if (response.status !== 204) receive(await response.json());
+      if (data) receive(data);
     } catch (e) {
-      if (S.online !== false || S.refused) setOnline(false);
-      pollDelay = Math.min(POLL_MAX_MS, Math.round(pollDelay * 1.5));
+      if (!stale()) {
+        if (S.online !== false || S.refused) setOnline(false);
+        pollDelay = Math.min(POLL_MAX_MS, Math.round(pollDelay * 1.5));
+      }
     } finally {
       clearTimeout(giveUp);
       polling = false;
     }
-    if (S.screen) pollTimer = setTimeout(poll, pollDelay);
+    again();
   }
   // Out of reach for OFFLINE_CLEAR_MS on end, however the asks are failing (refused, erroring or
   // hanging): what is shown is taken down (round 8, NEW-B-LOCAL-SLIP). And a slip past CLIVE's
@@ -1680,6 +1841,8 @@
   const input = $('name-input'), saveBtn = $('name-save'), nameError = $('name-error'), replaceBtn = $('name-replace');
   let nameTimer = 0;
   function toNaming(note, name) {
+    // Asked again while already asking (the start-up ending, a resize): what it said stays.
+    const said = S.phase === 'naming' ? nameError.textContent : '';
     S.phase = 'naming';
     S.busy = true;
     S.unapproved = false; S.pairCode = '';
@@ -1691,7 +1854,7 @@
     namer.classList.remove('is-leaving');
     if (name) { input.value = String(name).slice(0, 40); saveBtn.disabled = false; }
     replaceMode('');
-    nameError.textContent = note || '';
+    nameError.textContent = note || said || '';
     if (E) { E.nameIntro(); E.nameTo(nameTargets(input.value)); }
     setTimeout(() => { try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); } }, 200);
   }
@@ -1757,8 +1920,10 @@
     saveBtn.disabled = true;
     replaceMode('');
     try {
+      // CLIVE sets the new screen's key as a cookie with its answer (round 10, B2-01): the answer
+      // itself is read for the id, the name and the code, and nothing else of it is kept.
       const response = await fetch('/displays/register', {
-        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
       });
       const data = await response.json().catch(() => ({}));
@@ -1771,8 +1936,9 @@
         replaceMode('room');
         throw new Error(data.detail || 'CLIVE has as many screens as it keeps. Remove one first.');
       }
-      if (!response.ok || !data.id || !data.key) throw new Error(data.detail || 'CLIVE did not take that name. Try another.');
-      S.screen = { id: data.id, name: data.name || name, key: data.key };
+      if (!response.ok || !SCREEN_ID.test(String(data.id || ''))) throw new Error(data.detail || 'CLIVE did not take that name. Try another.');
+      legacyKey = '';
+      S.screen = { id: data.id, name: data.name || name };
       saveScreen(S.screen);
       $('bar-name').textContent = S.screen.name;
       S.version = -1;
@@ -1801,7 +1967,7 @@
   // ---- approving this screen (round 8, B-02) --------------------------------------------
   // The screen's name in dots, and beneath it the code the owner reads out to CLIVE. The code is
   // held in memory only; a page opened again while the screen is waiting asks CLIVE for a new
-  // one, with the screen's own key.
+  // one, with the screen's own key (its cookie, round 10).
   function spaced(code) { const c = String(code || ''); return c.length === 6 ? c.slice(0, 3) + ' ' + c.slice(3) : c; }
   function saidName(name) {
     const n = String(name || '').trim().toLowerCase();
@@ -1855,16 +2021,18 @@
   async function renewCode() {
     if (renewing || !S.screen) return;
     renewing = true;
+    const stale = asked();
     try {
       const response = await fetch('/displays/register', {
-        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
+        method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: S.screen.name }),
       });
+      if (stale()) return;
       if (response.status === 403) { wipe('refused'); return; }
       const data = await response.json().catch(() => ({}));
-      if (response.ok && S.screen && data.id === S.screen.id && data.key) {
-        S.screen.key = data.key;
-        saveScreen(S.screen);
+      if (stale()) return;
+      if (response.ok && S.screen && data.id === S.screen.id) {
+        // The key CLIVE turned over is the cookie it set with this answer; nothing of it is kept here.
         if (data.pending && /^\d{6}$/.test(String(data.code || ''))) {
           S.pairCode = String(data.code);
           S.pairUntil = Date.now() + (Number(data.code_expires_in) || 900) * 1000;
