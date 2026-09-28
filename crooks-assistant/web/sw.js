@@ -41,6 +41,9 @@ const SHELL = [
   '/static/startup.js',
   '/static/startup.css',
   '/static/audio-viz.js',
+  // Round 9: the remote for the screens. Code and styles only; what it shows is asked for.
+  '/static/remote.js',
+  '/static/remote.css',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',

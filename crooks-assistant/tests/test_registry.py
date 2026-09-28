@@ -305,7 +305,15 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # screen's full name and the six-digit code it shows. What it buys is a newly named screen
     # bound to the device the owner read the code from, instead of to whichever device asked for
     # the name first; the rule for using it is one line of the system prompt.
-    assert total <= 36_670, f"the tool block is {total} bytes"
+    #
+    # 37_335 is round 9's screens (app/tools/display_tools.py, tests/test_displays.py), +667
+    # bytes measured (36,665 before, 37,332 after): screen_show's `beside` and `replace` +168,
+    # screen_off 287 (a screen, or none when one screen shows anything, and which of two panes)
+    # and screen_remote 212 (a screen, or none). The rules for when to use each are three lines
+    # of the system prompt. What it buys is two things on a screen at once, "turn the screen
+    # off" doing exactly that, and the owner's app becoming the screen's remote because CLIVE
+    # understood him, not because a phrase matched.
+    assert total <= 37_335, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

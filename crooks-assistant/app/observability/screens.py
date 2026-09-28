@@ -102,10 +102,13 @@ DATA_NAMES = frozenset({
     "data-restored", "data-said", "data-scene-id", "data-set", "data-shell", "data-significance",
     "data-snap-dialog", "data-snap-left", "data-snap-top", "data-state", "data-tab", "data-task", "data-thread",
     "data-tone", "data-typable", "data-type", "data-undo-of", "data-unread", "data-unsaved", "data-workspace",
+    # Round 9, the screens remote: a pane's place, an item's place, and the screen a card opens
+    # the remote for (its id, and its name, which is free text).
+    "data-pane", "data-tick", "data-remote-screen", "data-remote-name",
 })
 # data- names whose values are free text by what they are for: kept, but empty.
 DATA_FREE_TEXT = frozenset({"data-args", "data-ask", "data-customer", "data-customer-name", "data-label",
-                            "data-name", "data-said"})
+                            "data-name", "data-said", "data-remote-name"})
 # Any other data- value: a short token (a state word, an id, a number) or nothing.
 _DATA_TOKEN = re.compile(r"^[A-Za-z0-9_.:/#-]{0,64}$")
 # What a drawing number may be: no leading zero, at most four digits before the point.

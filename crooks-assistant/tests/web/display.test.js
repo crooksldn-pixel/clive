@@ -310,3 +310,131 @@ test('a screen waiting for approval shows its code and the words to say, and nev
   assert.equal(pg.els.pairing.hidden, true, 'approved: the panel goes');
   assert.equal(pg.els['pair-code'].textContent, '480 913', 'shown until then, and nothing else was');
 });
+
+/* Round 9: two things at once, and the owner's remote.
+ *
+ * - Two panes are drawn side by side, and each tells CLIVE its own pages, under its own version.
+ * - A tick from the remote shows on the next ask as a check and a dimmed row, in place: the page
+ *   is not formed again.
+ * - A page the remote turns goes up here, and is acknowledged as the screen's own button would.
+ * - A touched screen ticks an item through the same owner route, naming the pane and its version.
+ * - Turned off, the screen goes back to its clock; a 403 takes both panes down at once.
+ */
+
+function list(at, v) {
+  return { kind: 'list', ref: '', title: 'Sam Carter’s alterations', at, by: 'clive', v, list: { lines: ['Hem the trousers', 'Take in the waist'] } };
+}
+function many(at, v, n) {
+  const s = slip(at);
+  s.v = v;
+  s.order.items = Array.from({ length: n }, (x, i) => ({ title: 'Tee ' + i, variant: 'Black / L', sku: 'T' + i, quantity: 1, to_send: 1, image: null }));
+  return s;
+}
+
+// CLIVE answering with whatever `now()` says the screen shows, as a full answer when asked afresh
+// or when the version moved, and "nothing new" otherwise.
+function screenOf(pg, now, extra) {
+  return (request) => {
+    const said = extra && extra(request);
+    if (said) return said;
+    if (request.url.endsWith('/seen')) return { status: 200, body: { seen: request.body.end } };
+    const state = now();
+    if (state.status) return state;
+    if (request.url.includes('?v=' + state.version)) return { status: 204 };
+    return { status: 200, body: Object.assign({ id: SCREEN.id, name: SCREEN.name, pending: false, now: new Date(pg.clock.now).toISOString(), last_done: null, beside: null }, state) };
+  };
+}
+
+async function upWith(state, extra) {
+  const box = { state };
+  const pg = page({ answer: (r) => box.answer(r) });
+  const at = new Date(pg.clock.now - 60 * 1000).toISOString();
+  box.answer = screenOf(pg, () => (typeof box.state === 'function' ? box.state(at) : box.state), extra);
+  await pg.load();
+  await pg.advance(3000);
+  return { pg, box, at };
+}
+
+test('two panes are drawn side by side, and each tells CLIVE its own pages under its own version', async () => {
+  const { pg } = await upWith((at) => ({ version: 2, showing: Object.assign(slip(at), { v: 1 }), beside: list(at, 2) }));
+  assert.ok(pg.els.ui.classList.contains('cs-two'), 'laid out for two');
+  assert.equal(pg.els.ui.querySelectorAll('.cs-pane').length, 2);
+  const text = pg.els.ui.allText();
+  assert.ok(text.includes('Order #1047') && text.includes('Hem the trousers'), text.slice(0, 120));
+  await pg.advance(3000);
+  const seen = pg.requests.filter((r) => r.url.endsWith('/seen')).map((r) => [r.body.pane, r.body.version, r.body.start, r.body.end]);
+  assert.deepEqual(seen.sort(), [[0, 1, 0, 2], [1, 2, 0, 2]], 'each pane, under its own version');
+  assert.equal(pg.els.ui.querySelectorAll('.cs-btn').length, 2, 'a Mark packed and a Mark done');
+});
+
+test('a tick from the remote shows here at once as a check and a dimmed row, without forming the page again', async () => {
+  let ticked = [];
+  let version = 1;
+  const { pg } = await upWith((at) => ({ version, showing: Object.assign(slip(at), { v: 1, ticked }) }));
+  const drew = pg.engine().calls.filter((c) => c === 'push').length;
+  assert.equal(pg.els.ui.querySelectorAll('.is-ticked').length, 0);
+  assert.equal(pg.els.ui.querySelector('.cs-count-n').textContent, '3', 'three to pack');
+  ticked = [0]; version = 2;                        // the owner ticks the tees on his phone
+  await pg.advance(2100);
+  const rows = pg.els.ui.querySelectorAll('.cs-item');
+  assert.ok(rows[0].classList.contains('is-ticked') && rows[0].querySelector('.cs-tick'), 'a check on the row');
+  assert.ok(!rows[1].classList.contains('is-ticked'));
+  assert.equal(pg.els.ui.querySelector('.cs-count-n').textContent, '1', 'one left to pack');
+  assert.equal(pg.engine().calls.filter((c) => c === 'push').length, drew, 'drawn in place, not formed again');
+  assert.ok(!pg.engine().calls.includes('clear'));
+  ticked = []; version = 3;                         // and unticked
+  await pg.advance(2100);
+  assert.equal(pg.els.ui.querySelectorAll('.is-ticked').length, 0);
+});
+
+test('a page the remote turns goes up here and is acknowledged as the screen’s own button would', async () => {
+  let turned = 0;
+  let version = 1;
+  const { pg } = await upWith((at) => ({ version, showing: Object.assign(many(at, 1, 12), { page: turned }) }));
+  await pg.advance(1500);
+  assert.ok(pg.els.ui.allText().includes('In the box · 1–10 of 12'));
+  turned = 1; version = 2;
+  await pg.advance(2100);
+  assert.ok(pg.els.ui.allText().includes('In the box · 11–12 of 12'), pg.els.ui.allText().slice(0, 200));
+  await pg.advance(1500);
+  const seen = pg.requests.filter((r) => r.url.endsWith('/seen')).map((r) => [r.body.start, r.body.end]);
+  assert.deepEqual(seen, [[0, 10], [10, 12]]);
+});
+
+test('a touched screen ticks an item through the owner’s route, naming the pane and its version', async () => {
+  const ticks = [];
+  const { pg } = await upWith((at) => ({ version: 2, showing: Object.assign(slip(at), { v: 1 }), beside: list(at, 2) }), (request) => {
+    if (!request.url.endsWith('/remote/tick')) return null;
+    ticks.push(request.body);
+    return { status: 200, body: { version: 3, v: request.body.version, ticked: [request.body.item], page: 0 } };
+  });
+  const lines = pg.els.ui.querySelectorAll('.cs-task');
+  assert.equal(lines.length, 2);
+  lines[1].listeners.click[0]({ stopPropagation() {} });
+  await pg.flush();
+  assert.deepEqual(ticks, [{ pane: 1, item: 1, packed: true, version: 2 }]);
+  const now = pg.els.ui.querySelectorAll('.cs-task');
+  assert.ok(now[1].classList.contains('is-ticked') && !now[0].classList.contains('is-ticked'), 'crossed off here at once');
+  assert.ok(!pg.requests.some((r) => r.url.endsWith('/done')), 'a tick marks nothing done');
+});
+
+test('turned off, the screen goes back to its clock; a 403 takes both panes down at once', async () => {
+  let state = null;
+  const { pg, at } = await upWith((when) => state || { version: 2, showing: Object.assign(slip(when), { v: 1 }), beside: list(when, 2) });
+  assert.ok(pg.els.ui.allText().includes('Sam Carter'));
+  state = { version: 3, showing: null, beside: null };
+  await pg.advance(6000);
+  assert.equal(pg.els.ui.allText(), '', 'nothing left of either pane');
+  assert.ok(pg.engine().calls.includes('clear'), 'dissolved back to the clock');
+  assert.ok(!pg.els.ui.classList.contains('cs-two'));
+  // Both up again, then CLIVE refuses the screen.
+  state = { version: 4, showing: Object.assign(slip(at), { v: 4 }), beside: list(at, 4) };
+  await pg.advance(8000);
+  assert.ok(pg.els.ui.allText().includes('Hem the trousers'));
+  const drewWith = pg.engine();
+  state = { status: 403, body: { code: 'refused', detail: 'not allowed' } };
+  await pg.advance(2100);
+  assert.equal(pg.els.ui.allText(), '');
+  assert.ok(drewWith.destroyed, 'with the dots that drew them');
+  assert.equal(pg.els.line.textContent, REFUSED_LINE);
+});

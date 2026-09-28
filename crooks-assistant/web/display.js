@@ -18,6 +18,14 @@
  * been out of reach for two minutes, and once it is older than CLIVE keeps anything up
  * (NEW-B-LOCAL-SLIP). Pages are told to CLIVE in order, a page at a time, as fast as CLIVE allows,
  * and only the Mark packed tap says "done" (B-04).
+ *
+ * Round 9. A screen shows one thing or two: side by side on a landscape screen, one above the
+ * other on a portrait one. Each pane keeps its own pages and acknowledgements and names itself
+ * (its place, and the version it was put up at) when it tells CLIVE a page or "done"; each is
+ * taken down by its own time, and a 403 or two minutes out of reach take both down at once. The
+ * owner's remote (web/remote.js) ticks items as they go in the box — a check and a dimmed row
+ * here — and turns pages; this screen follows both on its next ask, in place, and when CLIVE
+ * turns the screen off it goes back to the orb and the clock like any clearing.
  */
 'use strict';
 
@@ -61,19 +69,18 @@
   const S = {
     screen: loadScreen(),
     version: -1,
-    showing: null,
+    showing: null,         // the first pane CLIVE says is up
+    beside: null,          // the second, beside it (round 9)
     lastDone: null,
     phase: 'boot',         // boot · naming · idle · forming · revealing · shown · packing · clearing
     busy: true,
     pending: false,
-    drawnKey: '',
-    drawnView: null,
-    drawnPacked: false,
+    drawnKey: '',          // the keys of the panes drawn, in order
+    drawnView: null,       // the panes drawn: what each shows, its pages and acknowledgements
     online: null,
     refused: false,
     pushT0: null,
     what: '',
-    drawnVersion: -1,
     unapproved: false,     // named, waiting for the owner to approve it with its code
     pairCode: '',          // that code, in memory only
     pairUntil: 0,
@@ -203,39 +210,61 @@
 
   // ---- what a push says it is ---------------------------------------------------------
   function keyOf(s) { return s ? [s.kind, s.ref, s.at, s.title].join('|') : ''; }
+  // Round 9: a screen shows one thing or two side by side (panes). What is drawn is known by
+  // the keys of its panes, in order.
+  function layoutKey(list) { return list.map((w) => keyOf(w.view)).join('||'); }
   // Now, by CLIVE's clock (each answer says what it is), so a device whose own clock is wrong
   // neither keeps a slip too long nor takes one down as soon as it arrives.
   function serverNow() { return Date.now() + S.skew; }
   // Older than CLIVE keeps anything up, counted from when it was put up (round 8,
   // NEW-B-LOCAL-SLIP): taken down here even if CLIVE is never heard from again. A time that
-  // cannot be read counts as too old, as it does on the server.
+  // cannot be read counts as too old, as it does on the server. Each pane by its own time.
   function tooOld(s) {
     const at = Date.parse((s && s.at) || '');
     return isNaN(at) || serverNow() - at > SHOW_KEEP_MS;
   }
-  function wanted() {
-    const s = S.showing;
+  function drawnKeys() { return (S.drawnView || []).map((P) => P.key); }
+  // One pane CLIVE says is up, if it is still to be shown here.
+  function wantedPane(s) {
     if (!s) return null;
     if (tooOld(s)) return null;
     if (s.done_at && serverNow() - Date.parse(s.done_at) > DONE_HOLD_MS) return null;
     // Once done, CLIVE keeps only what was done, not the slip (the customer's details go). The
     // screen that drew it shows its own copy as packed; one that never drew it rests.
-    if (s.done_at && keyOf(s) !== S.drawnKey) return null;
+    if (s.done_at && drawnKeys().indexOf(keyOf(s)) === -1) return null;
     return s;
   }
-  function whatOf(v) {
-    if (!v) return '';
-    return v.title || (v.kind === 'order' ? 'the order' : 'this');
+  // Every pane to show, each with its place on CLIVE's side (0 the first, 1 the one beside it):
+  // the place and the pane's own version are what a page, a tick and "done" name.
+  function wanted() {
+    const out = [];
+    [S.showing, S.beside].forEach((s, i) => { const view = wantedPane(s); if (view) out.push({ view, index: i }); });
+    return out;
+  }
+  function whatOf(list) {
+    return list.map((w) => w.view.title || (w.view.kind === 'order' ? 'the order' : 'this')).join(' and ');
+  }
+  function pageOf(view) { return Number.isInteger(view && view.page) && view.page >= 0 ? view.page : 0; }
+  function ticksOf(view) { return new Set(Array.isArray(view && view.ticked) ? view.ticked.filter((n) => Number.isInteger(n)) : []); }
+  // A pane as drawn here: what it shows, and its own pages and acknowledgements (B-04).
+  function paneOf(w) {
+    return {
+      index: w.index, view: w.view, key: keyOf(w.view), packed: !!w.view.done_at, two: false, node: null, btn: null,
+      v: typeof w.view.v === 'number' ? w.view.v : S.version, serverPage: pageOf(w.view),
+      page: { index: 0, pages: 1, seen: new Set([0]), total: 0, fill: null, per: 0, step: 1, box: null, more: null, note: null, count: null },
+      ack: { version: -1, per: 0, covered: 0, busy: false, timer: 0, fails: 0, run: 0 },
+    };
   }
 
   // ---- drawing what CLIVE put here ------------------------------------------------------
-  function topBar(v) {
+  function topBar(panes) {
     const top = el('div', 'cs-top');
     const left = el('div', 'cs-top-l');
     left.appendChild(el('span', 'cs-slot'));
     left.appendChild(el('span', '', S.screen ? S.screen.name : ''));
     top.appendChild(left);
-    const at = timeOf(v.at);
+    const latest = panes.map((P) => P.view.at || '').sort().pop();
+    const at = timeOf(latest);
     top.appendChild(el('div', '', at ? 'Put up by CLIVE at ' + at : 'Put up by CLIVE'));
     return top;
   }
@@ -245,10 +274,11 @@
     c.appendChild(el('span', 'cs-count-l', label));
     return c;
   }
-  function headBlock(title, subParts, count) {
+  // A long title is set smaller; beside another pane (round 9) there is half the width for it.
+  function headBlock(title, subParts, count, two) {
     const head = el('div', 'cs-head');
     const left = el('div', 'cs-head-l');
-    const h1 = el('h1', 'cs-h1' + (String(title).length > 22 ? ' is-long' : ''), title);
+    const h1 = el('h1', 'cs-h1' + (String(title).length > (two ? 16 : 22) ? ' is-long' : ''), title);
     left.appendChild(h1);
     if (subParts.length) {
       const sub = el('div', 'cs-sub');
@@ -278,7 +308,7 @@
     foot.appendChild(left);
     return foot;
   }
-  function actionFoot(note, label) {
+  function actionFoot(P, note, label) {
     const foot = el('div', 'cs-foot');
     const left = el('div', 'cs-foot-l');
     left.appendChild(svg(ICON_CIRCLE_CHECK, 1.6));
@@ -287,8 +317,9 @@
     const btn = el('button', 'cs-btn', label);
     btn.type = 'button';
     btn.setAttribute('data-dot', 'btn');
-    btn.addEventListener('click', markDone);
+    btn.addEventListener('click', (event) => markDone(P, event));
     foot.appendChild(btn);
+    P.btn = btn;
     return foot;
   }
   const PAYMENT = { PAID: 'Paid', PARTIALLY_PAID: 'Part paid', PENDING: 'Payment pending', AUTHORIZED: 'Authorised', REFUNDED: 'Refunded', PARTIALLY_REFUNDED: 'Part refunded', VOIDED: 'Voided', EXPIRED: 'Payment expired' };
@@ -296,12 +327,36 @@
     if (typeof item.to_send === 'number') return item.to_send;
     return typeof item.quantity === 'number' ? item.quantity : 0;
   }
-  function renderOrder(v, packed) {
+  // What is left to go in the box: the units of every item still to send that the owner has not
+  // ticked (round 9), or the lines of a list not crossed off.
+  function leftOf(P) {
+    const v = P.view, ticks = ticksOf(v);
+    if (v.kind === 'list') {
+      const lines = (v.list && Array.isArray(v.list.lines)) ? v.list.lines : [];
+      return lines.filter((line, i) => !ticks.has(i)).length;
+    }
+    const items = v.order && Array.isArray(v.order.items) ? v.order.items : [];
+    return items.reduce((n, it, i) => n + (ticks.has(i) ? 0 : Math.max(0, toSendOf(it))), 0);
+  }
+  function leftCount(P) {
+    const n = leftOf(P);
+    if (P.view.kind === 'list') return [String(n), n === 1 ? 'thing to do' : 'things to do'];
+    return [String(n), n === 1 ? 'item to pack' : 'items to pack'];
+  }
+  // The count at the head, kept up to date as the owner ticks.
+  function showLeft(P) {
+    const c = P.page.count;
+    if (!c || P.packed) return;
+    const [n, label] = leftCount(P);
+    const num = c.querySelector('.cs-count-n'), said = c.querySelector('.cs-count-l');
+    if (num) num.textContent = n;
+    if (said) said.textContent = label;
+  }
+  function renderOrder(P) {
+    const v = P.view, packed = P.packed, PAGE = P.page;
     const o = v.order || {};
     const frag = document.createDocumentFragment();
-    frag.appendChild(topBar(v));
     const items = Array.isArray(o.items) ? o.items : [];
-    const units = items.reduce((n, it) => n + Math.max(0, toSendOf(it)), 0);
     const sub = [];
     const bits = [o.customer, o.placed_at ? 'placed ' + when(o.placed_at) : ''].filter(Boolean);
     if (bits.length) sub.push(el('span', '', bits.join(' · ')));
@@ -311,15 +366,15 @@
       chip.setAttribute('data-dot', pay === 'PAID' ? 'good' : 'chip');
       sub.push(chip);
     }
-    for (const tag of (o.tags || []).slice(0, 2)) {
+    for (const tag of (o.tags || []).slice(0, P.two ? 1 : 2)) {
       const chip = el('span', 'cs-chip', tag);
       chip.setAttribute('data-dot', 'chip');
       sub.push(chip);
     }
-    const count = packed
-      ? countBlock('Packed', 'at ' + timeOf(v.done_at), 'is-done')
-      : countBlock(String(units), units === 1 ? 'item to pack' : 'items to pack');
-    frag.appendChild(headBlock(v.title || 'Order', sub, count));
+    const left = leftCount(P);
+    const count = packed ? countBlock('Packed', 'at ' + timeOf(v.done_at), 'is-done') : countBlock(left[0], left[1]);
+    PAGE.count = count;
+    frag.appendChild(headBlock(v.title || 'Order', sub, count, P.two));
 
     const cols = el('div', 'cs-cols');
     const ship = el('section', 'cs-panel');
@@ -353,23 +408,25 @@
     const list = el('div', 'cs-items');
     // A page is what fits the panel: five dense rows, in two columns when the screen is wide —
     // fewer once it is on the screen if a long address or a note leaves less room (fitPage).
-    const two = !L.portrait && items.length > 6;
-    if (items.length > (L.portrait ? 3 : 4)) list.classList.add('is-dense');
+    // Beside another pane (round 9) the panel is narrower: four rows, one column.
+    const two = !L.portrait && !P.two && items.length > 6;
+    if (items.length > (L.portrait || P.two ? 3 : 4)) list.classList.add('is-dense');
     if (two) list.classList.add('is-two');
     // More items than fit are shown a page at a time, and "Mark packed" waits until every page
     // has been on the screen: nobody attests to a box they were shown half of (round 6, B-04).
-    PAGE.index = 0; PAGE.per = L.portrait ? 5 : 10; PAGE.step = two ? 2 : 1; PAGE.box = list;
-    PAGE.pages = Math.max(1, Math.ceil(items.length / PAGE.per)); PAGE.seen = new Set([0]); PAGE.total = items.length;
+    PAGE.index = 0; PAGE.per = P.two ? 4 : L.portrait ? 5 : 10; PAGE.step = two ? 2 : 1; PAGE.box = list;
+    PAGE.pages = Math.max(1, Math.ceil(items.length / PAGE.per)); PAGE.seen = new Set(); PAGE.total = items.length;
     PAGE.fill = (index) => {
       PAGE.index = index;
       PAGE.seen.add(index);
       list.textContent = '';
-      itemRows(list, items.slice(index * PAGE.per, (index + 1) * PAGE.per), packed);
+      itemRows(P, list, items.slice(index * PAGE.per, (index + 1) * PAGE.per), index * PAGE.per);
       head.textContent = PAGE.pages > 1
         ? 'In the box · ' + (index * PAGE.per + 1) + '–' + Math.min(items.length, (index + 1) * PAGE.per) + ' of ' + items.length
         : 'In the box';
-      pageControls();
-      lockPacked(ui);
+      showLeft(P);
+      pageControls(P);
+      lockPacked(P);
     };
     box.appendChild(list);
     cols.appendChild(box);
@@ -383,20 +440,21 @@
       ? doneFoot('Packed', 'Packed at ' + timeOf(v.done_at) + ' on the ' + where + '. CLIVE has noted it.')
       : partial
         ? noteFoot('This order has ' + (o.total_items || 'more') + ' items, more than a screen shows. Check it off in Shopify.')
-        : actionFoot('CLIVE notes who packed it and when.', 'Mark packed');
+        : actionFoot(P, 'CLIVE notes who packed it and when.', 'Mark packed');
     if (!packed && !partial) PAGE.note = { el: foot.querySelector('.cs-foot-l'), one: 'CLIVE notes who packed it and when.', many: 'Show every item, then mark it packed.' };
-    pageButton(foot, 'Next items');
+    pageButton(P, foot, 'Next items');
     frag.appendChild(foot);
-    PAGE.fill(0);
-    lockPacked(frag);
+    PAGE.fill(startPage(P));
     return frag;
   }
-  // Which page of a long order is up, and which have been. `per` shrinks by `step` (a row, or
-  // two in two columns) until a page fits `box` as drawn.
-  const PAGE = { index: 0, pages: 1, seen: new Set([0]), total: 0, fill: null, per: 0, step: 1, box: null, more: null, note: null };
-  function resetPage() { PAGE.box = null; PAGE.more = null; PAGE.note = null; }
+  // The page a pane opens on: the one the owner's remote turned to (round 9), else the first.
+  function startPage(P) { return P.serverPage % Math.max(1, P.page.pages); }
+  // Which page of a long order is up, and which have been — per pane (round 9). `per` shrinks by
+  // `step` (a row, or two in two columns) until a page fits `box` as drawn.
+  function resetPage(P) { P.page.box = null; P.page.more = null; P.page.note = null; P.page.count = null; P.btn = null; }
   // The page button shows only when there is more than one page, and the foot's words say which.
-  function pageControls() {
+  function pageControls(P) {
+    const PAGE = P.page;
     if (PAGE.more) {
       PAGE.more.hidden = PAGE.pages <= 1;
       PAGE.more.textContent = (PAGE.index + 1) % PAGE.pages === 0 && PAGE.pages > 1 ? 'Back to the first' : PAGE.more.dataset.label;
@@ -410,18 +468,20 @@
   }
   // Once the page is on the screen: if its rows do not all fit the panel, fewer to a page, and
   // the count of pages (and so what must be seen before "Mark packed") grows with it.
-  function fitPage() {
-    const box = PAGE.box;
+  function fitPage(P) {
+    const PAGE = P.page, box = PAGE.box;
     if (!box || !PAGE.fill) return;
     for (let guard = 0; guard < 30 && PAGE.per > PAGE.step && box.scrollHeight > box.clientHeight + 2; guard++) {
       PAGE.per -= PAGE.step;
       PAGE.pages = Math.max(1, Math.ceil(PAGE.total / PAGE.per));
-      PAGE.seen = new Set([0]);
-      PAGE.fill(0);
+      PAGE.seen = new Set();
+      PAGE.fill(startPage(P));
     }
   }
-  // The control that turns the page, beside the foot's own button so it never covers a row.
-  function pageButton(foot, label) {
+  // The control that turns the page, beside the foot's own button so it never covers a row. The
+  // turn is told to CLIVE too, so the owner's remote shows the same page (round 9).
+  function pageButton(P, foot, label) {
+    const PAGE = P.page;
     const more = el('button', 'cs-page', label);
     more.type = 'button';
     more.dataset.label = label;
@@ -431,36 +491,41 @@
       event.stopPropagation();
       PAGE.fill((PAGE.index + 1) % PAGE.pages);
       ackPage();
+      tellPage(P, 1);
     });
     const main = foot.querySelector('.cs-btn, .cs-donechip');
     foot.insertBefore(more, main || null);
     PAGE.more = more;
   }
-  function packedLocked() { return PAGE.pages > 1 && PAGE.seen.size < PAGE.pages; }
+  function packedLocked(P) { return P.page.pages > 1 && P.page.seen.size < P.page.pages; }
   // The pages put up, told to CLIVE (rounds 7 and 8, B-04): "done" is taken only once CLIVE has
-  // heard that every item of the version showing was on this screen. CLIVE takes them in order
+  // heard that every item of the pane's version was on this screen. CLIVE takes them in order
   // from the first item, a page at a time, each carrying on from the last, and no sooner than a
   // second apart; so they are sent that way — the next page only once it has been up here, the
-  // next only after CLIVE took this one, and again after the wait a too_soon answer names.
-  const ACK = { version: -1, per: 0, covered: 0, busy: false, timer: 0, fails: 0, run: 0 };
-  function ackReset() {
+  // next only after CLIVE took this one, and again after the wait a too_soon answer names. Each
+  // pane is told on its own, under its own version (round 9).
+  function ackReset(P) {
+    const ACK = P.ack;
     clearTimeout(ACK.timer);
     ACK.run++;
     ACK.timer = 0; ACK.version = -1; ACK.per = 0; ACK.covered = 0; ACK.busy = false; ACK.fails = 0;
   }
-  function ackLater(ms) {
-    clearTimeout(ACK.timer);
-    ACK.timer = setTimeout(() => { ACK.timer = 0; ackPage(); }, Math.max(50, Math.min(10000, Number(ms) || 1000)));
-  }
-  function acksHeard() { return ACK.version === S.drawnVersion && ACK.per === PAGE.per && ACK.covered >= PAGE.total; }
-  function ackPage() {
-    const v = S.drawnView;
-    if (!S.screen || S.phase !== 'shown' || S.drawnPacked || !v || (v.kind !== 'order' && v.kind !== 'list')) return;
-    if (!PAGE.total || !PAGE.per || typeof S.drawnVersion !== 'number' || S.drawnVersion < 0) return;
-    if (ACK.version !== S.drawnVersion || ACK.per !== PAGE.per) {
+  function acksHeard(P) { return P.ack.version === P.v && P.ack.per === P.page.per && P.ack.covered >= P.page.total; }
+  // Every pane on the screen tells CLIVE the pages it has put up.
+  function ackPage() { for (const P of S.drawnView || []) ackPane(P); }
+  function ackPane(P) {
+    const v = P.view, PAGE = P.page, ACK = P.ack;
+    const ackLater = (ms) => {
+      clearTimeout(ACK.timer);
+      ACK.timer = setTimeout(() => { ACK.timer = 0; ackPane(P); }, Math.max(50, Math.min(10000, Number(ms) || 1000)));
+    };
+    if (!S.screen || S.phase !== 'shown' || P.packed || !v || (v.kind !== 'order' && v.kind !== 'list')) return;
+    if (!S.drawnView || S.drawnView.indexOf(P) === -1) return;
+    if (!PAGE.total || !PAGE.per || typeof P.v !== 'number' || P.v < 0) return;
+    if (ACK.version !== P.v || ACK.per !== PAGE.per) {
       // Something new, or its pages laid out again (a resize): told again from the first item.
-      ackReset();
-      ACK.version = S.drawnVersion; ACK.per = PAGE.per;
+      ackReset(P);
+      ACK.version = P.v; ACK.per = PAGE.per;
     }
     if (ACK.busy || ACK.timer) return;
     const start = ACK.covered;
@@ -470,20 +535,20 @@
     ACK.busy = true;
     fetch('/displays/' + encodeURIComponent(screen.id) + '/seen', {
       method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': screen.key },
-      body: JSON.stringify({ version: ACK.version, start, end }),
+      body: JSON.stringify({ version: ACK.version, pane: P.index, start, end }),
     }).then(async (response) => {
       if (run !== ACK.run) return;
       ACK.busy = false;
       if (response.status === 403) { if (!(await notThisScreen(response))) wipe('refused'); return; }
       const data = await response.json().catch(() => ({}));
       if (run !== ACK.run) return;
-      if (response.ok && typeof data.seen === 'number') { ACK.covered = data.seen; ACK.fails = 0; ackPage(); return; }
+      if (response.ok && typeof data.seen === 'number') { ACK.covered = data.seen; ACK.fails = 0; ackPane(P); return; }
       if (response.status === 409 && data.code === 'too_soon') { ackLater(data.retry_after_ms); return; }
       if (response.status === 409 && data.code === 'out_of_order' && typeof data.covered === 'number' && ++ACK.fails <= 3) {
         // CLIVE heard a different amount (a restart, a lost answer): carry on from what it has,
         // or from the first item if it has this screen's pages laid out another way.
         const next = data.size === ACK.per ? data.covered : 0;
-        if (next !== start) { ACK.covered = next; ackPage(); }
+        if (next !== start) { ACK.covered = next; ackPane(P); }
       }
       // Otherwise what is shown changed: the next ask brings it, and it is told afresh.
     }).catch(() => {
@@ -492,32 +557,42 @@
       ackLater(3000);   // told again shortly; done waits until it is
     });
   }
-  // Every page heard, or false once `ms` has passed without it.
-  function heardAll(ms) {
+  // Every page of this pane heard, or false once `ms` has passed without it.
+  function heardAll(P, ms) {
     const until = Date.now() + ms;
     return new Promise((resolve) => {
       const check = () => {
-        if (acksHeard()) { resolve(true); return; }
-        if (Date.now() >= until || S.phase !== 'shown' || !S.drawnView) { resolve(false); return; }
-        ackPage();
+        if (acksHeard(P)) { resolve(true); return; }
+        if (Date.now() >= until || S.phase !== 'shown' || !S.drawnView || S.drawnView.indexOf(P) === -1) { resolve(false); return; }
+        ackPane(P);
         setTimeout(check, 200);
       };
       check();
     });
   }
-  function lockPacked(root) {
-    const btn = (root || ui).querySelector('.cs-btn');
+  function lockPacked(P) {
+    const btn = P.btn;
     if (!btn) return;
-    const locked = packedLocked();
+    const locked = packedLocked(P);
     btn.disabled = locked;
     btn.classList.toggle('is-locked', locked);
     btn.setAttribute('aria-disabled', locked ? 'true' : 'false');
   }
-  function itemRows(list, items, packed) {
-    for (const it of items) {
+  // The check the owner's tick puts on a row (round 9): Apple blue, white stroke.
+  function tickMark() {
+    const tick = el('div', 'cs-tick');
+    tick.setAttribute('data-dot', 'tick');
+    tick.appendChild(svg(ICON_CHECK, 2.6));
+    return tick;
+  }
+  function itemRows(P, list, items, offset) {
+    const packed = P.packed, ticks = ticksOf(P.view);
+    items.forEach((it, i) => {
       const n = toSendOf(it);
       const sent = n <= 0;
-      const row = el('div', 'cs-item' + (sent ? ' is-sent' : '') + (packed && !sent ? ' is-packed' : ''));
+      // Ticked by the owner as it went in the box (round 9): a check, and the row dimmed.
+      const ticked = !packed && !sent && ticks.has(offset + i);
+      const row = el('div', 'cs-item' + (sent ? ' is-sent' : '') + (packed && !sent ? ' is-packed' : '') + (ticked ? ' is-ticked' : ''));
       row.setAttribute('data-dot', 'row');
       const tile = el('div', 'cs-tile');
       tile.setAttribute('data-dot', 'tile');
@@ -543,51 +618,57 @@
         const qty = el('div', 'cs-qty', '×' + n);
         qty.setAttribute('data-dot', 'pill');
         row.appendChild(qty);
+        if (ticked) row.appendChild(tickMark());
+        if (!packed) tappable(P, row, offset + i);
       }
       list.appendChild(row);
-    }
+    });
   }
-  function renderList(v, packed) {
+  function renderList(P) {
+    const v = P.view, packed = P.packed, PAGE = P.page;
     const lines = (v.list && Array.isArray(v.list.lines)) ? v.list.lines : [];
     const frag = document.createDocumentFragment();
-    frag.appendChild(topBar(v));
-    const count = packed
-      ? countBlock('Done', 'at ' + timeOf(v.done_at), 'is-done')
-      : countBlock(String(lines.length), lines.length === 1 ? 'thing to do' : 'things to do');
-    frag.appendChild(headBlock(v.title || 'List', [], count));
-    const grid = el('div', 'cs-tasks' + (L.portrait || lines.length <= 4 ? ' is-one' : lines.length > 8 ? ' is-three' : ''));
-    const max = L.portrait ? 8 : 12;
+    const left = leftCount(P);
+    const count = packed ? countBlock('Done', 'at ' + timeOf(v.done_at), 'is-done') : countBlock(left[0], left[1]);
+    PAGE.count = count;
+    frag.appendChild(headBlock(v.title || 'List', [], count, P.two));
+    const grid = el('div', 'cs-tasks' + (L.portrait || P.two || lines.length <= 4 ? ' is-one' : lines.length > 8 ? ' is-three' : ''));
+    const max = P.two ? 6 : L.portrait ? 8 : 12;
     // As an order's items: a long list a page at a time, and done only once all of it was up.
     const pages = Math.max(1, Math.ceil(lines.length / max));
     const taskRows = (index) => {
       grid.textContent = '';
+      const ticks = ticksOf(P.view);
       lines.slice(index * max, (index + 1) * max).forEach((line, i) => {
-        const row = el('div', 'cs-task' + (packed ? ' is-packed' : ''));
+        // Crossed off by the owner (round 9): struck through, dimmed, and a check in its ring.
+        const ticked = !packed && ticks.has(index * max + i);
+        const row = el('div', 'cs-task' + (packed ? ' is-packed' : '') + (ticked ? ' is-ticked' : ''));
         row.setAttribute('data-dot', 'row');
-        const n = el('span', 'cs-task-n', String(index * max + i + 1));
-        n.setAttribute('data-dot', 'ring');
+        const n = el('span', 'cs-task-n', ticked ? '' : String(index * max + i + 1));
+        if (ticked) n.appendChild(svg(ICON_CHECK, 2.6));
+        n.setAttribute('data-dot', ticked ? 'tick' : 'ring');
         row.appendChild(n);
         row.appendChild(el('span', 'cs-task-t', line));
+        if (!packed) tappable(P, row, index * max + i);
         grid.appendChild(row);
       });
       if (!lines.length) grid.appendChild(el('div', 'cs-empty', 'Nothing on this list'));
     };
-    PAGE.index = 0; PAGE.per = max; PAGE.pages = pages; PAGE.seen = new Set([0]); PAGE.total = lines.length;
-    PAGE.fill = (index) => { PAGE.index = index; PAGE.seen.add(index); taskRows(index); pageControls(); lockPacked(ui); };
-    taskRows(0);
+    PAGE.index = 0; PAGE.per = max; PAGE.pages = pages; PAGE.seen = new Set(); PAGE.total = lines.length;
+    PAGE.fill = (index) => { PAGE.index = index; PAGE.seen.add(index); taskRows(index); showLeft(P); pageControls(P); lockPacked(P); };
     frag.appendChild(grid);
     const foot = packed
       ? doneFoot('Done', 'Done at ' + timeOf(v.done_at) + '. CLIVE has noted it.')
-      : actionFoot(pages > 1 ? 'Show every page, then mark it done.' : 'Ask CLIVE to change anything on it.', 'Mark done');
-    if (pages > 1) pageButton(foot, 'Next page');
+      : actionFoot(P, pages > 1 ? 'Show every page, then mark it done.' : 'Ask CLIVE to change anything on it.', 'Mark done');
+    if (pages > 1) pageButton(P, foot, 'Next page');
     frag.appendChild(foot);
-    lockPacked(frag);
+    PAGE.fill(startPage(P));
     return frag;
   }
-  function renderObjective(v) {
+  function renderObjective(P) {
+    const v = P.view;
     const g = v.objective || {};
     const frag = document.createDocumentFragment();
-    frag.appendChild(topBar(v));
     const sub = [];
     if (g.deadline) {
       const d = new Date(g.deadline + 'T12:00:00');
@@ -599,7 +680,7 @@
       else if (g.days_left === 0) count = countBlock('Today', 'is the day');
       else count = countBlock(String(-g.days_left), -g.days_left === 1 ? 'day late' : 'days late', 'is-late');
     }
-    frag.appendChild(headBlock(v.title || 'Objective', sub, count));
+    frag.appendChild(headBlock(v.title || 'Objective', sub, count, P.two));
     const cols = el('div', 'cs-cols is-goal');
     const stack = el('div', 'cs-stack');
     const now = el('section', 'cs-panel is-now');
@@ -617,7 +698,7 @@
       const panel = el('section', 'cs-panel is-needs');
       panel.setAttribute('data-dot', 'need');
       panel.appendChild(el('h2', 'cs-h2', 'Needs you'));
-      for (const t of needs.slice(0, 4)) panel.appendChild(el('div', 'cs-need', t));
+      for (const t of needs.slice(0, P.two ? 2 : 4)) panel.appendChild(el('div', 'cs-need', t));
       stack.appendChild(panel);
     }
     cols.appendChild(stack);
@@ -625,7 +706,7 @@
     nextPanel.setAttribute('data-dot', 'panel');
     nextPanel.appendChild(el('h2', 'cs-h2', 'Next'));
     const next = el('div', 'cs-next');
-    const steps = (g.next || []).slice(0, 5);
+    const steps = (g.next || []).slice(0, P.two ? 3 : 5);
     steps.forEach((t, i) => {
       const row = el('div', 'cs-step');
       row.setAttribute('data-dot', 'row');
@@ -644,13 +725,33 @@
     frag.appendChild(foot);
     return frag;
   }
-  function draw(v, packed) {
+  function renderPane(P) {
+    const box = el('section', 'cs-pane');
+    box.setAttribute('data-pane', String(P.index));
+    const v = P.view;
+    box.appendChild(v.kind === 'order' ? renderOrder(P) : v.kind === 'objective' ? renderObjective(P) : renderList(P));
+    P.node = box;
+    return box;
+  }
+  // What is up, pane by pane: side by side on a landscape screen, one above the other on a
+  // portrait one (round 9). A pane drawn again keeps the pages it has shown, when its pages are
+  // laid out as before, so the other pane being marked done does not send it back to page one.
+  function draw(panes) {
+    const kept = (panes || []).map((P) => (P.page.fill ? { index: P.page.index, seen: new Set(P.page.seen), per: P.page.per } : null));
     while (ui.firstChild) ui.removeChild(ui.firstChild);
-    resetPage();
-    if (!v) return;
-    const node = v.kind === 'order' ? renderOrder(v, packed) : v.kind === 'objective' ? renderObjective(v) : renderList(v, packed);
-    ui.appendChild(node);
-    fitPage();
+    for (const P of S.drawnView || []) resetPage(P);
+    const two = !!panes && panes.length > 1;
+    ui.classList.toggle('cs-two', two);
+    if (!panes || !panes.length) return;
+    ui.appendChild(topBar(panes));
+    const row = el('div', 'cs-panes');
+    for (const P of panes) { P.two = two; row.appendChild(renderPane(P)); }
+    ui.appendChild(row);
+    panes.forEach((P, n) => {
+      fitPage(P);
+      const k = kept[n];
+      if (k && k.per === P.page.per && P.page.fill) { P.page.seen = k.seen; P.page.fill(Math.min(k.index, P.page.pages - 1)); }
+    });
   }
   function uiState(name) {
     ui.classList.remove('is-hidden', 'is-revealing', 'is-shown', 'is-dissolving');
@@ -705,6 +806,7 @@
       need: ['rgba(10,132,255,.16)', 'rgba(10,132,255,.55)'],
       warn: ['rgba(255,105,97,.12)', 'rgba(255,105,97,.5)'],
       ring: ['rgba(255,255,255,.1)', 'rgba(235,235,245,.4)'],
+      tick: ['rgba(10,132,255,.95)', null],
       tile: ['rgba(120,118,140,.75)', 'rgba(255,255,255,.2)'],
     };
     const marked = ui.querySelectorAll('[data-dot]');
@@ -793,20 +895,44 @@
   function reconcile() {
     if (S.busy || !E) { S.pending = true; return; }
     const want = wanted();
-    if (S.phase === 'idle') { if (want) push(want); return; }
+    if (S.phase === 'idle') { if (want.length) push(want); return; }
     if (S.phase === 'shown') {
-      if (!want) { clearScreen(); return; }
-      if (keyOf(want) !== S.drawnKey) { S.pending = true; clearScreen(); return; }
-      if (want.done_at && !S.drawnPacked) { markedDone(Object.assign({}, S.drawnView || {}, { done_at: want.done_at })); return; }
+      if (!want.length) { clearScreen(); return; }
+      if (layoutKey(want) !== S.drawnKey) { S.pending = true; clearScreen(); return; }
+      // The same things as are drawn: one newly done, or put up afresh at another version (drawn
+      // again), or only the owner's ticks and page turns, which change the page in place.
+      for (let n = 0; n < want.length; n++) {
+        const w = want[n], P = S.drawnView[n];
+        // Looked at again once the check has been drawn, for anything that came with it.
+        if (w.view.done_at && !P.packed) { S.pending = true; markedDone(P, w.view.done_at); return; }
+        if (!w.view.done_at && typeof w.view.v === 'number' && w.view.v !== P.v) { S.pending = true; clearScreen(); return; }
+      }
+      want.forEach((w, n) => follow(S.drawnView[n], w));
     }
   }
-  function push(v) {
+  // The owner's ticks and page turns, from his remote (round 9), on a pane already drawn: the
+  // rows are drawn again in place, with no journey, and a page he turned to goes up here (and is
+  // acknowledged as the screen's own button would).
+  function follow(P, w) {
+    if (P.packed || P.index !== w.index) return;
+    const was = ticksOf(P.view), now = ticksOf(w.view);
+    const ticked = was.size !== now.size || [...now].some((n) => !was.has(n));
+    const turned = pageOf(w.view) !== P.serverPage;
+    P.view = w.view;
+    if (turned) {
+      P.serverPage = pageOf(w.view);
+      if (P.page.fill) { P.page.fill(startPage(P)); ackPage(); }
+    } else if (ticked && P.page.fill) {
+      P.page.fill(P.page.index);
+    }
+  }
+  function push(list) {
     S.busy = true;
     S.phase = 'forming';
-    S.drawnKey = keyOf(v); S.drawnView = v; S.drawnPacked = !!v.done_at;
-    S.drawnVersion = S.version;
-    S.what = whatOf(v);
-    draw(v, S.drawnPacked);
+    S.drawnKey = layoutKey(list);
+    S.drawnView = list.map(paneOf);
+    S.what = whatOf(list);
+    draw(S.drawnView);
     uiState('is-hidden');
     idleEl.classList.add('is-out');
     hint('');
@@ -832,26 +958,28 @@
       E.at(T0 + 4.5, () => { S.phase = 'shown'; uiState('is-shown'); status(false); scanEl.classList.remove('is-run'); ackPage(); settle(); });
     });
   }
-  function markedDone(v) {
+  // One pane marked done: the dots swirl into a check, and the page comes back with that pane in
+  // its done state (the other, if any, as it was).
+  function markedDone(P, doneAt) {
     S.busy = true;
     S.phase = 'packing';
-    S.drawnPacked = true;
-    S.drawnView = v;
-    const label = (v.kind === 'order' ? 'Packed at ' : 'Done at ') + timeOf(v.done_at);
+    P.packed = true;
+    P.view = Object.assign({}, P.view, { done_at: doneAt });
+    const label = (P.view.kind === 'order' ? 'Packed at ' : 'Done at ') + timeOf(doneAt);
     if (calm) {
-      draw(v, true);
+      draw(S.drawnView);
       S.phase = 'shown';
       settle();
-      scheduleRest(v);
+      scheduleRest(P.view);
       return;
     }
     const T0 = E.time();
     E.packOut(checkTargets(label));
     uiState('is-dissolving');
-    E.at(T0 + 0.6, () => draw(v, true));
+    E.at(T0 + 0.6, () => draw(S.drawnView));
     E.at(T0 + 2.3, () => E.packIn(sampleUi(), T0 + 2.6));
     E.at(T0 + 3.8, () => { E.sweepOut(T0 + 3.8, 1.3); uiState('is-revealing'); });
-    E.at(T0 + 5.2, () => { S.phase = 'shown'; uiState('is-shown'); settle(); scheduleRest(v); });
+    E.at(T0 + 5.2, () => { S.phase = 'shown'; uiState('is-shown'); settle(); scheduleRest(P.view); });
   }
   function scheduleRest(v) {
     const left = DONE_HOLD_MS - (serverNow() - Date.parse(v.done_at || ''));
@@ -863,17 +991,21 @@
     status(false);
     const T0 = E.time();
     E.clear(clockTargets());
+    const done = () => {
+      for (const P of S.drawnView || []) ackReset(P);
+      S.phase = 'idle'; S.drawnKey = ''; S.drawnView = null; settle();
+    };
     if (calm) {
       E.simulate(T0 + 3.2);
       uiState('is-hidden');
       idleEl.classList.remove('is-out');
-      later(0.5, () => { draw(null); S.phase = 'idle'; S.drawnKey = ''; settle(); });
+      later(0.5, () => { draw(null); done(); });
       return;
     }
     uiState('is-dissolving');
     E.at(T0 + 1.0, () => idleEl.classList.remove('is-out'));
     E.at(T0 + 1.3, () => { uiState('is-hidden'); draw(null); });
-    E.at(T0 + 2.6, () => { S.phase = 'idle'; S.drawnKey = ''; S.drawnView = null; S.drawnPacked = false; settle(); });
+    E.at(T0 + 2.6, done);
   }
   function status(on) {
     statusEl.hidden = !on;
@@ -887,32 +1019,34 @@
 
   // ---- marking it done here -------------------------------------------------------------
   let marking = false;
-  async function markDone(event) {
+  async function markDone(P, event) {
     if (event) event.stopPropagation();
-    if (marking || S.phase !== 'shown' || S.drawnPacked || !S.screen) return;
-    if (S.drawnView && (S.drawnView.kind === 'order' || S.drawnView.kind === 'list') && packedLocked()) {
-      hint(S.drawnView.kind === 'order' ? 'Show every item first: tap Next items.' : 'Show every page first: tap Next page.', true);
+    if (marking || S.phase !== 'shown' || P.packed || !S.screen || !S.drawnView || S.drawnView.indexOf(P) === -1) return;
+    const PAGE = P.page;
+    if ((P.view.kind === 'order' || P.view.kind === 'list') && packedLocked(P)) {
+      hint(P.view.kind === 'order' ? 'Show every item first: tap Next items.' : 'Show every page first: tap Next page.', true);
       return;
     }
     marking = true;
     const btn = event && event.currentTarget;
     if (btn) btn.disabled = true;
     try {
-      const paged = S.drawnView && (S.drawnView.kind === 'order' || S.drawnView.kind === 'list') && PAGE.total > 0;
-      if (paged && !acksHeard()) {
+      const paged = (P.view.kind === 'order' || P.view.kind === 'list') && PAGE.total > 0;
+      if (paged && !acksHeard(P)) {
         // The last pages may still be on their way to CLIVE, a second apart.
         hint('Telling CLIVE every page was shown…', false, 20000);
-        if (!(await heardAll(20000))) {
+        if (!(await heardAll(P, 20000))) {
           hint('CLIVE has not heard every page yet, so nothing was marked. Tap again.', true);
           return;
         }
         hint('');
       }
       for (let attempt = 0; attempt < 5; attempt++) {
-        // `confirm` is sent from here, the Mark packed tap, and nowhere else (round 8, B-04).
+        // `confirm` is sent from here, the Mark packed tap, and nowhere else (round 8, B-04). The
+        // pane is named by its place and its own version (round 9).
         const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '/done', {
           method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
-          body: JSON.stringify({ version: S.version, confirm: true }),
+          body: JSON.stringify({ version: P.v, pane: P.index, confirm: true }),
         });
         if (response.ok) { receive(await response.json()); return; }
         if (await notThisScreen(response)) return;
@@ -934,10 +1068,10 @@
           // CLIVE has not heard every page of this (a restart, a lost acknowledgement): show
           // them again, from this one; they are told again from the first item.
           PAGE.seen = new Set([PAGE.index]);
-          pageControls();
-          lockPacked(ui);
-          ackReset();
-          ackPage();
+          pageControls(P);
+          lockPacked(P);
+          ackReset(P);
+          ackPane(P);
           hint(PAGE.pages > 1 ? 'CLIVE needs to see every page again: tap through them, then mark it.' : 'Tap again.', true);
           return;
         }
@@ -950,8 +1084,51 @@
       hint('CLIVE could not be reached, so nothing was marked. Tap again.', true);
     } finally {
       marking = false;
-      if (btn) btn.disabled = packedLocked();
+      if (btn) btn.disabled = packedLocked(P);
     }
+  }
+
+  // ---- ticks and pages from this screen too (round 9) -----------------------------------
+  // The owner's remote ticks items and turns pages (web/remote.js); a screen that is touched —
+  // a packing tablet — does the same through the same owner routes, so the two always agree.
+  // A tick is his word that an item went in the box. It does not mark anything done: here that
+  // is still the Mark packed tap, after every page (B-04).
+  function tappable(P, row, item) {
+    row.dataset.tick = String(item);
+    row.addEventListener('click', (event) => { event.stopPropagation(); tickRow(P, item); });
+  }
+  let ticking = false;
+  async function tickRow(P, item) {
+    if (ticking || !S.screen || S.phase !== 'shown' || P.packed || !S.drawnView || S.drawnView.indexOf(P) === -1) return;
+    ticking = true;
+    try {
+      const response = await fetch('/displays/' + encodeURIComponent(S.screen.id) + '/remote/tick', {
+        method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pane: P.index, item, packed: !ticksOf(P.view).has(item), version: P.v }),
+      });
+      if (response.status === 403) { wipe('refused'); return; }
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && Array.isArray(data.ticked) && S.drawnView && S.drawnView.indexOf(P) !== -1 && !P.packed) {
+        P.view = Object.assign({}, P.view, { ticked: data.ticked });
+        if (P.page.fill) P.page.fill(P.page.index);
+      }
+    } catch (e) {
+      hint('CLIVE could not be reached, so that was not ticked. Tap again.', true);
+    } finally {
+      ticking = false;
+    }
+  }
+  function tellPage(P, delta) {
+    if (!S.screen || P.packed) return;
+    fetch('/displays/' + encodeURIComponent(S.screen.id) + '/remote/page', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pane: P.index, delta, version: P.v }),
+    }).then(async (response) => {
+      if (response.status === 403) { wipe('refused'); return; }
+      const data = await response.json().catch(() => ({}));
+      // What CLIVE now says the page is: the next ask brings the same, and changes nothing here.
+      if (response.ok && Number.isInteger(data.page)) P.serverPage = data.page;
+    }).catch(() => { /* turned here; the remote catches up when CLIVE can be reached */ });
   }
 
   // ---- asking CLIVE what to show --------------------------------------------------------
@@ -971,6 +1148,7 @@
       S.version = -1;
       S.unapproved = true;
       S.showing = null;
+      S.beside = null;
       S.lastDone = null;
       if (typeof data.code_expires_in === 'number') S.pairUntil = Date.now() + data.code_expires_in * 1000;
       if (S.phase === 'pairing') showCode();
@@ -981,6 +1159,7 @@
     const approvedNow = S.unapproved;
     S.unapproved = false;
     S.showing = data.showing || null;
+    S.beside = (S.showing && data.beside) || null;
     S.lastDone = data.last_done || null;
     if (approvedNow && S.phase === 'pairing') { approved(); return; }
     reconcile();
@@ -1047,8 +1226,10 @@
   // own limit is taken down even while CLIVE answers "nothing new".
   setInterval(() => {
     if (S.screen && !S.gone && Date.now() - S.lastOk >= OFFLINE_CLEAR_MS) wipe('offline');
-    if (S.showing && tooOld(S.showing)) { S.showing = null; reconcile(); }
-    else if (S.drawnView && tooOld(S.drawnView)) reconcile();
+    let old = false;
+    if (S.showing && tooOld(S.showing)) { S.showing = null; old = true; }
+    if (S.beside && tooOld(S.beside)) { S.beside = null; old = true; }
+    if (old || (S.drawnView || []).some((P) => tooOld(P.view))) reconcile();
   }, 5000);
 
   // ---- taking what is shown down, at once (round 8, NEW-B-LOCAL-SLIP) --------------------
@@ -1059,10 +1240,10 @@
   function wipe(why) {
     const drawn = !!S.drawnView || ['forming', 'revealing', 'shown', 'packing', 'clearing'].indexOf(S.phase) !== -1;
     S.gen++;
-    S.showing = null; S.lastDone = null; S.version = -1;
-    S.drawnView = null; S.drawnKey = ''; S.drawnPacked = false; S.drawnVersion = -1; S.what = '';
-    ackReset();
+    S.showing = null; S.beside = null; S.lastDone = null; S.version = -1;
+    for (const P of S.drawnView || []) ackReset(P);
     draw(null);
+    S.drawnView = null; S.drawnKey = ''; S.what = '';
     uiState('is-hidden');
     status(false);
     scanEl.classList.remove('is-run');
@@ -1509,7 +1690,7 @@
   }
   document.addEventListener('pointerdown', (event) => {
     if (S.phase === 'boot' && startupT0 !== null && E && E.time() < startupT0 + 5.2) { E.simulate(startupT0 + 5.3); return; }
-    if (event.target && event.target.closest && event.target.closest('button, input, form')) return;
+    if (event.target && event.target.closest && event.target.closest('button, input, form, [data-tick]')) return;
     if (!fullscreenOn() && document.fullscreenEnabled && document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen().catch(() => {});
       hint('');
@@ -1537,7 +1718,7 @@
       if (S.phase === 'naming') { E.nameIntro(); E.nameTo(nameTargets(input.value)); return; }
       if (S.phase === 'pairing' && S.screen) { E.nameIntro(); E.nameTo(nameTargets(S.screen.name)); return; }
       if (S.drawnView && (S.phase === 'shown' || S.phase === 'forming' || S.phase === 'revealing' || S.phase === 'packing')) {
-        draw(S.drawnView, S.drawnPacked);
+        draw(S.drawnView);
         ackPage();
         uiState('is-shown');
         status(false);

@@ -52,6 +52,25 @@ cannot be made durable, the deletion stands in memory, the journal keeps it acro
 (it is applied before anything else when the record is next read) and the caller is told it is
 not saved yet, never that it is done. The journal goes once a write of the record is durable.
 
+Two things at once (round 9). A screen shows up to MAX_PANES views side by side — two columns on
+a landscape screen, one above the other on a portrait one (web/display.js). The first is kept as
+`showing`, as it always was, and the second as `beside`; there is never a second without a
+first, and a record written before panes existed is read as a screen with one. Each pane is its
+own thing: it carries `v`, the screen's version when it was put up or marked done, and every
+page acknowledgement, "done", tick and page turn names the pane and that `v`, so a change to one
+pane never makes the other's acknowledgements stale. Everything above holds for each pane: it
+comes down by itself after SHOWING_KEEP_S, it is cut to its done summary when marked done, and
+taking it down, or putting something in its place, is a deletion journaled first.
+
+The owner's remote (round 9, app/routes/displays.py and web/remote.js). The owner's own app can
+be the remote for a screen: tick each item as it goes in the box (the screen shows the tick at
+once), turn its pages, take a pane off, turn the screen off, and mark an order packed or a list
+done. Ticks are the owner's explicit word from his own device, item by item, so "done" from the
+remote needs every item to send ticked, for the pane's current version, and no page
+acknowledgements; the screen's own button keeps its rule above. A tick is an item's place in the
+view and nothing else, kept in the pane (`ticked`), so it goes when the pane goes and expires
+with it; so does the page the remote turned to (`page`).
+
 One JSON file beside the objectives, 0600 in a 0700 folder. Nothing here is sent anywhere.
 """
 
@@ -75,7 +94,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.displays.views import MAX_VIEW_BYTES
+from app.displays.views import MAX_ITEMS, MAX_LINES, MAX_VIEW_BYTES
 
 log = logging.getLogger("crooks.displays")
 
@@ -104,6 +123,10 @@ PAIR_TRIES = 5
 # come to about 1.4 MB, so this is never reached unless something above is broken. The purge
 # journal is held to the same bound.
 MAX_FILE_BYTES = 2_000_000
+# What a screen shows at once (round 9), and where each pane is kept in the record: the first
+# where a screen has always kept what it shows, so a record from before panes reads as one.
+MAX_PANES = 2
+PANES = ("showing", "beside")
 _ID = re.compile(r"^scr_[0-9a-f]{12}$")
 _ORDER_TITLE = re.compile(r"^Order #?[0-9]{1,12}$")
 _ORDER_REF = re.compile(r"^gid://shopify/Order/[0-9]{1,20}$")
@@ -135,21 +158,71 @@ def done_summary(showing: dict[str, Any]) -> dict[str, str]:
 
 
 def _done_showing(showing: Any) -> dict[str, Any] | None:
-    """What a screen may show once its slip is done: the summary and its times, nothing else.
-    Anything that is not a done summary is nothing at all (used for what the journal restores,
-    so even a journal that was tampered with cannot put a customer's details back)."""
+    """What a screen may show once its slip is done: the summary, its times and the pane's
+    version (a number), nothing else. Anything that is not a done summary is nothing at all
+    (used for what the journal restores, so even a journal that was tampered with cannot put a
+    customer's details back)."""
     if not isinstance(showing, dict) or not showing.get("done_at"):
         return None
     return {**done_summary(showing), "at": str(showing.get("at") or "")[:40], "by": str(showing.get("by") or "")[:80],
-            "done_at": str(showing.get("done_at") or "")[:40]}
+            "done_at": str(showing.get("done_at") or "")[:40], "v": max(-1, min(_whole(showing.get("v"), -1), 2**53))}
 
 
 def _whole(value: Any, default: int = 0) -> int:
     """A whole number from the record, or `default` for anything that is not one."""
+    if isinstance(value, bool):
+        return default
     try:
         return int(value)
     except (TypeError, ValueError, OverflowError):
         return default
+
+
+def _pane_v(view: Any) -> int:
+    """The screen's version when this pane was put up or marked done; -1 for none."""
+    return _whole(view.get("v"), -1) if isinstance(view, dict) else -1
+
+
+def _is_done(view: Any) -> bool:
+    return isinstance(view, dict) and bool(view.get("done_at"))
+
+
+def _private(view: Any) -> bool:
+    """Whether taking this pane down deletes anything private: anything but a done summary,
+    which is a kind, a reference and a number, never anyone's words."""
+    return view is not None and not (isinstance(view, dict) and _done_showing(view) == view)
+
+
+def _to_send(item: Any) -> int:
+    """How many of one line of a slip still go in the box (as web/display.js toSendOf reads it)."""
+    if not isinstance(item, dict):
+        return 0
+    for key in ("to_send", "quantity"):
+        value = item.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return max(0, value)
+    return 0
+
+
+def _tickable(view: dict[str, Any]) -> list[int]:
+    """What the owner ticks before the remote may mark a pane done: an order's items still to
+    send, or every line of a list, by their place in the view (round 9)."""
+    if view.get("kind") == "order":
+        items = (view.get("order") or {}).get("items") or []
+        return [n for n, item in enumerate(items) if _to_send(item) > 0]
+    if view.get("kind") == "list":
+        return list(range(len((view.get("list") or {}).get("lines") or [])))
+    return []
+
+
+def _ticked(view: dict[str, Any]) -> list[int]:
+    """The items the owner has ticked on this pane: only places that can be ticked, whatever the
+    record says."""
+    raw = view.get("ticked")
+    if not isinstance(raw, list):
+        return []
+    can = set(_tickable(view))
+    return sorted({n for n in raw[:500] if isinstance(n, int) and not isinstance(n, bool) and n in can})
 
 
 def _key_hash(key: str) -> str:
@@ -232,6 +305,22 @@ class TooSoon(DisplayError):
         self.retry_after_ms = retry_after_ms
 
 
+class NoSuchScreen(DisplayError):
+    """No screen has that id (any more)."""
+
+
+class Stale(DisplayError):
+    """The pane asked about is not the one showing at that version any more: nothing was done."""
+
+
+class PanesFull(DisplayError):
+    """Something was to go beside what is up, and the screen already shows MAX_PANES things."""
+
+
+class NotTicked(DisplayError):
+    """Done was asked for from the remote before every item to send was ticked."""
+
+
 class NotSaved(DisplayError):
     """The record could not be written; nothing was changed."""
 
@@ -247,13 +336,16 @@ class NotFlushed(OSError):
 
 @dataclass(slots=True)
 class _Acks:
-    """How far through what it shows a screen has acknowledged, for one version."""
+    """How far through one pane a screen has acknowledged, for the version it went up at."""
 
     version: int
     covered: int = 0                  # items [0, covered) acknowledged, in order
     size: int = 0                     # the page size every page but the last must have
     last: float = float("-inf")       # when the last new page was acknowledged (monotonic)
 
+
+# What the store sets on a view itself, never taken from what it is given to show (round 9).
+_STAMPED = frozenset({"at", "by", "v", "done_at", "ticked", "page"})
 
 _NOT_SAVED = "That could not be saved just now; nothing was changed. Try again."
 _NOT_DURABLE = "That was done, but CLIVE could not make sure it is saved yet. It keeps trying; check again in a moment."
@@ -268,7 +360,8 @@ class DisplayStore:
         self._lock = threading.Lock()
         self._seen: dict[str, float] = {}
         self._seen_written: dict[str, float] = {}
-        self._acks: dict[str, _Acks] = {}
+        # Page acknowledgements, per pane: (screen id, the pane's version) -> how far (round 9).
+        self._acks: dict[tuple[str, int], _Acks] = {}
         # The record in memory differs from what is durably on disk (said by sweep()).
         self.unsaved = False
         # Deletions made in memory that are not yet durably in the record: screen id -> what the
@@ -297,12 +390,39 @@ class DisplayStore:
         if not isinstance(data.get("screens"), dict):
             data["screens"] = {}
         data["screens"] = {k: v for k, v in data["screens"].items() if isinstance(v, dict)}
+        for screen in data["screens"].values():
+            self._migrate(screen)
         if not isinstance(data.get("done"), list):
             data["done"] = []
         # Done rows written before round 7 are cut to the same policy as new ones.
         data["done"] = [self._done_row(row) for row in data["done"] if isinstance(row, dict)]
         self._replay(data)
         return data
+
+    @classmethod
+    def _migrate(cls, screen: dict[str, Any]) -> None:
+        """A screen written before panes (round 9): what it shows is its one pane, put up at the
+        screen's own version, and it has no second. A second with no first becomes the first."""
+        version = _whole(screen.get("version"))
+        panes = cls._panes(screen)
+        for view in panes:
+            if isinstance(view, dict) and _pane_v(view) < 0:
+                view["v"] = version
+        cls._lay(screen, panes)
+
+    @staticmethod
+    def _panes(screen: dict[str, Any] | None) -> list[Any]:
+        """What a screen shows, pane by pane, first first: none, one or two."""
+        if not screen:
+            return []
+        return [screen.get(key) for key in PANES if screen.get(key) is not None]
+
+    @staticmethod
+    def _lay(screen: dict[str, Any], panes: list[Any]) -> None:
+        """Lay these panes on the screen, first first; there is never a second without a first."""
+        panes = [view for view in panes if view is not None][:MAX_PANES]
+        for n, key in enumerate(PANES):
+            screen[key] = panes[n] if n < len(panes) else None
 
     def _replay(self, data: dict[str, Any]) -> None:
         """A deletion owed when the service stopped (round 8, B-03): what the purge journal holds
@@ -323,16 +443,17 @@ class DisplayStore:
         except (ValueError, KeyError, TypeError):
             log.error("screens purge journal unreadable at %s; every slip is taken down", self.journal_path)
             for sid, screen in data["screens"].items():
-                if screen.get("showing") is not None:
-                    screen["showing"] = None
+                if self._panes(screen):
+                    self._lay(screen, [])
                     screen["version"] = _whole(screen.get("version")) + 1
-                    self._purges[sid] = {"version": screen["version"], "showing": None}
+                    self._purges[sid] = {"version": screen["version"], "showing": None, "beside": None}
             return
         screens = data["screens"]
         added = False
         for sid, entry in entries.items():
             # Only what a journal entry can say is kept of it: that the screen is gone, or the
-            # version it must be at and the done summary it shows; and the done rows owed.
+            # version it must be at and, pane by pane, the done summary it shows or the version
+            # of a pane that was not deleted; and the done rows owed.
             rows = [self._done_row(r) for r in entry.get("done") or [] if isinstance(r, dict)] if isinstance(entry.get("done"), list) else []
             for row in rows:
                 if row not in data["done"]:
@@ -346,14 +467,42 @@ class DisplayStore:
             want = _whole(entry.get("version"), -1)
             if screen is not None and want < 0:
                 want = _whole(screen.get("version")) + 1
-            showing = _done_showing(entry.get("showing"))
-            self._purges[sid] = {"version": max(want, 0), "showing": showing, **({"done": rows} if rows else {})}
+            owed = [self._owed_pane(entry.get(key), max(want, 0)) for key in PANES]
+            self._purges[sid] = {"version": max(want, 0), "showing": owed[0], "beside": owed[1], **({"done": rows} if rows else {})}
             if screen is None or _whole(screen.get("version")) >= want:
                 continue
-            screen["showing"] = showing
+            # Round 9: a pane the deletion did not touch stays if the record holds it, found by
+            # the version it went up at; anything else that was up comes down. Nothing a journal
+            # says can put a view up that the record does not already hold, done summaries apart.
+            had = [p for p in self._panes(screen) if isinstance(p, dict) and not p.get("done_at")]
+            now: list[dict[str, Any]] = []
+            for pane in owed:
+                if pane is None:
+                    continue
+                if "keep" in pane:
+                    kept = next((p for p in had if _pane_v(p) == pane["keep"]), None)
+                    if kept is not None and kept not in now:
+                        now.append(kept)
+                else:
+                    now.append(pane)
+            self._lay(screen, now)
             screen["version"] = want
         if added:
             data["done"] = sorted(data["done"], key=lambda d: d.get("at") or "")[-MAX_DONE:]
+
+    @staticmethod
+    def _owed_pane(value: Any, version: int) -> dict[str, Any] | None:
+        """What a purge journal may say of one pane (round 9): nothing there; a done summary
+        (a journal from before panes gave it no version of its own: it is the entry's); or
+        {"keep": N}, the pane put up at version N, which was not deleted and may stay if the
+        record holds it. Anything else is nothing at all."""
+        if isinstance(value, dict) and set(value) == {"keep"}:
+            kept = _whole(value.get("keep"), -1)
+            return {"keep": kept} if kept >= 0 else None
+        done = _done_showing(value)
+        if done is not None and done["v"] < 0:
+            done["v"] = version
+        return done
 
     @staticmethod
     def _merge(owed: dict[str, dict[str, Any]], more: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -367,7 +516,9 @@ class DisplayStore:
             if entry.get("forget") or earlier.get("forget"):
                 merged: dict[str, Any] = {"forget": True}
             else:
-                merged = {"version": entry["version"], "showing": entry.get("showing")}
+                # The later entry says what every pane must be (it was taken after the earlier
+                # deletion, so it never keeps what that one deleted).
+                merged = {"version": entry["version"], "showing": entry.get("showing"), "beside": entry.get("beside")}
             if done:
                 merged["done"] = done
             out[sid] = merged
@@ -616,7 +767,7 @@ class DisplayStore:
             def create() -> dict[str, Any]:
                 ident = "scr_" + secrets.token_hex(6)
                 screen = {"id": ident, "name": shown, "key": key, "secret": _key_hash(secret), "created_at": _now_iso(),
-                          "last_seen": _now_iso(), "version": 0, "showing": None, "paired": False,
+                          "last_seen": _now_iso(), "version": 0, "showing": None, "beside": None, "paired": False,
                           "pairing": self._pairing(code)}
                 self._data["screens"][ident] = screen
                 return self._answer(screen, secret, code)
@@ -782,16 +933,18 @@ class DisplayStore:
         for screen in list(self._data["screens"].values()):
             if self._lapsed(screen, now):
                 del self._data["screens"][screen["id"]]
-                self._acks.pop(screen["id"], None)
+                self._prune_acks(screen["id"])
                 self._purges = self._merge(self._purges, {screen["id"]: {"forget": True}})
                 changed = True
                 continue
-            showing = screen.get("showing")
-            if showing is not None and (not isinstance(showing, dict) or str(showing.get("at") or "") < cutoff):
-                screen["showing"] = None
-                screen["version"] = int(screen.get("version", 0)) + 1
-                self._acks.pop(screen["id"], None)
-                self._purges = self._merge(self._purges, {screen["id"]: {"version": screen["version"], "showing": None}})
+            # Each pane by its own time (round 9): the one left, if any, fills the screen.
+            panes = self._panes(screen)
+            kept = [p for p in panes if isinstance(p, dict) and str(p.get("at") or "") >= cutoff]
+            if len(kept) != len(panes):
+                self._lay(screen, kept)
+                screen["version"] = _whole(screen.get("version")) + 1
+                self._prune_acks(screen["id"])
+                self._purges = self._merge(self._purges, {screen["id"]: self._owed(screen)})
                 changed = True
         kept = [d for d in self._data["done"] if isinstance(d, dict) and str(d.get("at") or "") >= done_cutoff]
         if len(kept) != len(self._data["done"]):
@@ -799,87 +952,180 @@ class DisplayStore:
             changed = True
         return changed
 
+    def _sweep_locked(self) -> None:
+        """What is past its time comes down before anything is done to a screen."""
+        if self._expire_locked() or self.unsaved:
+            self._settle_expiry()
+
     def screens(self) -> list[dict[str, Any]]:
         with self._lock:
-            if self._expire_locked() or self.unsaved:
-                self._settle_expiry()
+            self._sweep_locked()
         out = []
         for screen in sorted(self._data["screens"].values(), key=lambda s: s.get("name", "")):
-            showing = screen.get("showing") or {}
+            panes = [p for p in self._panes(screen) if isinstance(p, dict)]
+            showing = panes[0] if panes else {}
             out.append({"id": screen["id"], "name": screen["name"], "online": self.online(screen["id"]),
                         "showing": showing.get("title") or None, "since": showing.get("at"),
+                        # Round 9: what is up beside it, if anything.
+                        "beside": (panes[1].get("title") or None) if len(panes) > 1 else None,
                         "pending": self._pending(screen)})
         return out
 
     # ---- what a screen shows ---------------------------------------------------------------
     def poll(self, screen_id: str, screen_key: str) -> dict[str, Any] | None:
         """What the screen should show now, and its version, for the device holding its key.
-        The screen is seen. A screen waiting for approval is never given anything to show, and
-        one whose request ran out is gone (None)."""
+        The screen is seen. A screen waiting for approval is never given anything to show, in
+        either pane, and one whose request ran out is gone (None)."""
         with self._lock:
             screen = self._data["screens"].get(screen_id)
             if screen is None:
                 return None
             self._holder(screen, screen_key)
-            if self._expire_locked() or self.unsaved:
-                self._settle_expiry()
+            self._sweep_locked()
             if screen_id not in self._data["screens"]:
                 return None
             self._touch(screen_id)
             pending = self._pending(screen)
             last = None if pending else next((d for d in reversed(self._data["done"]) if d.get("screen_id") == screen_id), None)
             out = {"id": screen_id, "name": screen["name"], "version": screen.get("version", 0),
-                   "showing": None if pending else screen.get("showing"), "pending": pending, "now": _now_iso(),
+                   "showing": None if pending else screen.get("showing"),
+                   "beside": None if pending else screen.get("beside"), "pending": pending, "now": _now_iso(),
                    "last_done": {"title": last.get("title"), "at": last.get("at")} if last else None}
             if pending:
                 out["code_expires_in"] = max(0, math.ceil(float(screen["pairing"]["until"]) - self.clock()))
             return out
 
-    def show(self, screen_id: str, showing: dict[str, Any] | None, *, by: str = "clive") -> dict[str, Any]:
-        """Put a view on a screen (or clear it). Refused for a screen still waiting for approval
-        (round 8, B-02). Replacing or clearing what was up is a deletion, journaled first
-        (B-03)."""
+    def show(self, screen_id: str, showing: dict[str, Any] | None, *, by: str = "clive", beside: bool = False,
+             replace: int | None = None, expect: int | None = None) -> dict[str, Any]:
+        """Put a view on a screen, or clear it (`showing` None: every pane comes off). Refused for
+        a screen still waiting for approval (round 8, B-02).
+
+        Two at once (round 9). With `beside` the view goes next to what is up, and a third is
+        refused (PanesFull, naming both, so the owner can say which to replace); with `replace`
+        (0 or 1) it goes in place of that pane — and with `expect` too, only while that pane is
+        still the one put up at that version (Stale otherwise); with neither it replaces
+        everything, as it always has. A done summary is resting and makes way. Taking down
+        anything but a done summary is a deletion, journaled first (B-03)."""
         if showing is not None and len(json.dumps(showing, ensure_ascii=False).encode("utf-8")) > MAX_VIEW_BYTES:
             raise DisplayError("That is more than one screen can show.")
+        if replace is not None and replace not in range(MAX_PANES):
+            raise DisplayError("A screen shows two things at most: say the first or the second.")
         with self._lock:
+            self._sweep_locked()
             screen = self._data["screens"].get(screen_id)
             if screen is None:
-                raise DisplayError("That screen is not there any more.")
+                raise NoSuchScreen("That screen is not there any more.")
             if self._pending(screen):
                 raise NotPaired("That screen hasn't been approved yet. It shows a six-digit code: it is approved only "
                                 "with the code the owner reads from it.")
-            # A done summary is a kind, a reference and a number, never anyone's words: replacing
-            # one deletes nothing private. Anything else that was up is.
-            was = screen.get("showing")
-            replacing = was is not None and not (isinstance(was, dict) and _done_showing(was) == was)
+            panes = self._panes(screen)
+            if expect is not None and (replace is None or replace >= len(panes) or _pane_v(panes[replace]) != int(expect)):
+                raise Stale("That changed on the screen before this, so nothing was changed.")
+            new = object()
+            if showing is None:
+                after: list[Any] = []
+            elif replace is not None and replace < len(panes):
+                after = [new if n == replace else p for n, p in enumerate(panes) if n == replace or not _is_done(p)]
+            elif beside or replace is not None:
+                after = [p for p in panes if not _is_done(p)]
+                if len(after) >= MAX_PANES:
+                    raise PanesFull(self._full(screen, after))
+                after.append(new)
+            else:
+                after = [new]
+            removed = [p for p in panes if not any(p is q for q in after)]
 
             def put() -> dict[str, Any]:
-                screen["showing"] = None if showing is None else {**showing, "at": _now_iso(), "by": str(by or "")[:80]}
-                screen["version"] = int(screen.get("version", 0)) + 1
+                version = _whole(screen.get("version")) + 1
+                screen["version"] = version
+                view = None if showing is None else {
+                    **{k: v for k, v in showing.items() if k not in _STAMPED},
+                    "at": _now_iso(), "by": str(by or "")[:80], "v": version}
+                self._lay(screen, [view if p is new else p for p in after])
                 return self._public(screen)
 
-            # What was up is owed gone at the new version; what goes up is not copied into the
-            # journal (a restart before the record is durable shows nothing, never the old slip).
-            owes = (lambda: {screen_id: {"version": int(screen["version"]), "showing": None}}) if replacing else None
+            # What was up is owed gone; what goes up is not copied into the journal, only the
+            # version of a pane that stays (a restart before the record is durable shows nothing
+            # new, and never the old slip).
+            owes = (lambda: {screen_id: self._owed(screen)}) if any(_private(p) for p in removed) else None
             return self._stood(screen_id, lambda: self._commit(put, owes=owes))
 
-    def acknowledge(self, screen_id: str, version: int, *, screen_key: str, start: int, end: int) -> int:
-        """The screen holding this key says items [start, end) of what it shows are up on it now
-        (round 8, B-04). Pages are told in order: the first starts at item 0 and each new one
-        where the last ended; every page but the last is the same size, at most MAX_ACK; each
-        new page comes at least ACK_GAP_S after the one before (TooSoon, with how long to wait).
-        A page inside what is already acknowledged changes nothing. A first page of another size
-        starts the count again (the screen laid its pages out again). Returns how many items,
-        from the first, are acknowledged for this version."""
+    @staticmethod
+    def _full(screen: dict[str, Any], live: list[Any]) -> str:
+        names = [str(p.get("title") or "something") if isinstance(p, dict) else "something" for p in live]
+        return (f"The {screen['name']} already shows two things: first {names[0]}, and second {names[1]}. "
+                "Say which one to replace, or take one off first.")
+
+    def take_off(self, screen_id: str, pane: int | None = None, *, expect: int | None = None) -> dict[str, Any]:
+        """Everything off a screen, back to its clock (`pane` None), or one pane of it, and the
+        other then fills the screen (round 9: "turn the screen off", "take that off"). With
+        `expect`, only while that pane is still the one put up at that version (Stale
+        otherwise). Taking a view down is a deletion, journaled first (B-03). Asked while there
+        is nothing to take down and an earlier deletion on this screen is still owed, that one
+        is made durable or refused, so the screen is said to be off only once it is. Returns
+        the screen and how many panes came off."""
+        with self._lock:
+            self._sweep_locked()
+            screen = self._data["screens"].get(screen_id)
+            if screen is None:
+                raise NoSuchScreen("That screen is not there any more.")
+            if self._pending(screen):
+                raise NotPaired("That screen hasn't been approved yet: it shows only its code.")
+            panes = self._panes(screen)
+            if pane is None:
+                gone = list(range(len(panes)))
+            elif isinstance(pane, int) and 0 <= pane < len(panes):
+                if expect is not None and _pane_v(panes[pane]) != int(expect):
+                    raise Stale("That changed on the screen before this, so nothing was taken off.")
+                gone = [pane]
+            elif expect is not None:
+                raise Stale("That changed on the screen before this, so nothing was taken off.")
+            elif panes:
+                raise DisplayError(f"The {screen['name']} shows only one thing.")
+            else:
+                gone = []
+            if not gone:
+                if screen_id in self._purges:
+                    self._make_durable()
+                return {**self._public(screen), "taken_off": 0}
+            removed = [panes[n] for n in gone]
+            after = [p for n, p in enumerate(panes) if n not in gone]
+
+            def off() -> dict[str, Any]:
+                screen["version"] = _whole(screen.get("version")) + 1
+                self._lay(screen, after)
+                return {**self._public(screen), "taken_off": len(gone)}
+
+            owes = (lambda: {screen_id: self._owed(screen)}) if any(_private(p) for p in removed) else None
+            return self._stood(screen_id, lambda: self._commit(off, owes=owes))
+
+    @classmethod
+    def _pane(cls, screen: dict[str, Any], pane: Any) -> dict[str, Any] | None:
+        """One pane of a screen by its place (0 the first), or None."""
+        panes = cls._panes(screen)
+        if isinstance(pane, bool) or not isinstance(pane, int) or not 0 <= pane < len(panes):
+            return None
+        view = panes[pane]
+        return view if isinstance(view, dict) else None
+
+    def acknowledge(self, screen_id: str, version: int, *, screen_key: str, start: int, end: int, pane: int = 0) -> int:
+        """The screen holding this key says items [start, end) of one pane are up on it now
+        (round 8, B-04; round 9: `pane`, and `version` is that pane's own). Pages are told in
+        order: the first starts at item 0 and each new one where the last ended; every page but
+        the last is the same size, at most MAX_ACK; each new page comes at least ACK_GAP_S after
+        the one before (TooSoon, with how long to wait). A page inside what is already
+        acknowledged changes nothing. A first page of another size starts the count again (the
+        screen laid its pages out again). Returns how many items, from the first, are
+        acknowledged for this pane's version."""
         with self._lock:
             screen = self._data["screens"].get(screen_id)
             if screen is None:
-                raise DisplayError("That screen is not there any more.")
+                raise NoSuchScreen("That screen is not there any more.")
             self._holder(screen, screen_key)
             if self._pending(screen):
                 raise NotPaired("That screen hasn't been approved yet.")
-            showing = screen.get("showing")
-            if not showing or int(version) != int(screen.get("version", 0)) or showing.get("done_at"):
+            showing = self._pane(screen, pane)
+            if not showing or int(version) != _pane_v(showing) or showing.get("done_at"):
                 raise DisplayError("The screen changed before that; show the page again.")
             count = _shown_count(showing)
             if count is None:
@@ -887,8 +1133,9 @@ class DisplayStore:
             start, end = int(start), int(end)
             if not (0 <= start < end <= count) or end - start > MAX_ACK:
                 raise DisplayError(f"A page is at most {MAX_ACK} items of the {count} on the screen.")
-            held = self._acks.get(screen_id)
-            state = held if held is not None and held.version == int(version) else _Acks(int(version))
+            key = (screen_id, int(version))
+            held = self._acks.get(key)
+            state = held if held is not None else _Acks(int(version))
             size = end - start
             fresh = start == 0 and (state.covered == 0 or size != state.size)
             if not fresh:
@@ -907,27 +1154,28 @@ class DisplayStore:
                 state.size = size
             state.covered = end
             state.last = now
-            self._acks[screen_id] = state
+            self._acks[key] = state
             return state.covered
 
-    def mark_done(self, screen_id: str, version: int, *, screen_key: str, confirmed: bool, by: str = "") -> dict[str, Any]:
-        """What the screen is showing was physically done, tapped on the screen holding its key.
-        Refused without the tap saying so (`confirmed`, round 8, B-04); if the screen has moved on
-        since it was drawn, so a late tap never marks the wrong thing; for an order or a list,
-        unless every item was acknowledged on the screen for the version showing now (round 7),
-        and until ACK_GAP_S after the last page; and for a slip cut at the screen's limit. The
-        slip is then cut down to what the done record needs, journaled first (B-03)."""
+    def mark_done(self, screen_id: str, version: int, *, screen_key: str, confirmed: bool, by: str = "", pane: int = 0) -> dict[str, Any]:
+        """What one pane of the screen shows was physically done, tapped on the screen holding its
+        key (round 9: `pane`, and `version` is that pane's own). Refused without the tap saying
+        so (`confirmed`, round 8, B-04); if the pane has moved on since it was drawn, so a late
+        tap never marks the wrong thing; for an order or a list, unless every item was
+        acknowledged on the screen for the pane's version (round 7), and until ACK_GAP_S after
+        the last page; and for a slip cut at the screen's limit. The slip is then cut down to
+        what the done record needs, journaled first (B-03)."""
         with self._lock:
             screen = self._data["screens"].get(screen_id)
             if screen is None:
-                raise DisplayError("That screen is not there any more.")
+                raise NoSuchScreen("That screen is not there any more.")
             self._holder(screen, screen_key)
             if self._pending(screen):
                 raise NotPaired("That screen hasn't been approved yet.")
             if confirmed is not True:
                 raise NotConfirmed("Nothing was marked: it is marked with the button on the screen.")
-            showing = screen.get("showing")
-            if not showing or int(version) != int(screen.get("version", 0)):
+            showing = self._pane(screen, pane)
+            if not showing or int(version) != _pane_v(showing):
                 raise DisplayError("The screen changed before that tap; nothing was marked.")
             if showing.get("done_at"):
                 if screen_id in self._purges or self.unsaved:
@@ -939,39 +1187,249 @@ class DisplayStore:
                 raise DisplayError("This order has more items than a screen shows, so it cannot be marked packed here.")
             count = _shown_count(showing)
             if count:
-                state = self._acks.get(screen_id)
+                state = self._acks.get((screen_id, int(version)))
                 if state is None or state.version != int(version) or state.covered < count:
                     what = "item on the order" if showing.get("kind") == "order" else "line of the list"
                     raise NotSeen(f"Not every {what} has been on the screen yet, so nothing was marked.")
                 wait = ACK_GAP_S - (self.mono() - state.last)
                 if wait > 0:
                     raise TooSoon("That came too soon after the last page.", retry_after_ms=max(1, math.ceil(wait * 1000)))
-            when = _now_iso()
+            return self._finish(screen_id, screen, pane, showing, by)
 
-            def done() -> dict[str, Any]:
-                summary = done_summary(showing)
-                screen["showing"] = {**summary, "at": showing.get("at"), "by": showing.get("by"), "done_at": when}
-                screen["version"] = int(screen.get("version", 0)) + 1
-                self._data["done"].append(self._done_row({**summary, "at": when, "screen": screen["name"],
-                                                          "screen_id": screen_id, "by": by}))
-                self._data["done"] = self._data["done"][-MAX_DONE:]
+    def _finish(self, screen_id: str, screen: dict[str, Any], pane: int, showing: dict[str, Any], by: str) -> dict[str, Any]:
+        """One pane marked done: its slip cut to the done summary at a new version, and a done row
+        written — the purge journal first (B-03). The other pane is not touched."""
+        when = _now_iso()
+
+        def done() -> dict[str, Any]:
+            summary = done_summary(showing)
+            version = _whole(screen.get("version")) + 1
+            screen["version"] = version
+            panes = self._panes(screen)
+            panes[pane] = {**summary, "at": showing.get("at"), "by": showing.get("by"), "done_at": when, "v": version}
+            self._lay(screen, panes)
+            self._data["done"].append(self._done_row({**summary, "at": when, "screen": screen["name"],
+                                                      "screen_id": screen_id, "by": by}))
+            self._data["done"] = self._data["done"][-MAX_DONE:]
+            return self._public(screen)
+
+        def owed() -> dict[str, dict[str, Any]]:
+            return {screen_id: {**self._owed(screen), "done": [self._data["done"][-1]]}}
+
+        return self._stood(screen_id, lambda: self._commit(done, owes=owed))
+
+    # ---- the owner's remote (round 9) ------------------------------------------------------
+    def _remote_pane(self, screen_id: str, pane: Any, version: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        """The screen and the pane the remote means: approved, and still the pane put up at
+        `version`. Anything else is said plainly and nothing is done."""
+        screen = self._data["screens"].get(str(screen_id)) if _ID.fullmatch(str(screen_id or "")) else None
+        if screen is None:
+            raise NoSuchScreen("That screen is not there any more.")
+        if self._pending(screen):
+            raise NotPaired("That screen hasn't been approved yet: it shows only its code.")
+        showing = self._pane(screen, pane)
+        if showing is None or isinstance(version, bool) or _pane_v(showing) != _whole(version, -2):
+            raise Stale("That changed on the screen before this, so nothing was done.")
+        return screen, showing
+
+    def _pages(self, screen_id: str, showing: dict[str, Any]) -> int | None:
+        """How many pages the screen lays this pane out in, once it has told any (its first page's
+        size, B-04), or None while it has not."""
+        state = self._acks.get((screen_id, _pane_v(showing)))
+        count = _shown_count(showing) or 0
+        if state is None or not state.size or not count:
+            return None
+        return max(1, math.ceil(count / state.size))
+
+    @staticmethod
+    def _remote_state(screen: dict[str, Any], showing: dict[str, Any]) -> dict[str, Any]:
+        return {"version": _whole(screen.get("version")), "v": _pane_v(showing), "ticked": _ticked(showing),
+                "page": max(0, _whole(showing.get("page")))}
+
+    def tick(self, screen_id: str, pane: int, item: int, packed: bool, version: int) -> dict[str, Any]:
+        """The owner ticks one item still to send (a line of a list) on his remote, or unticks
+        it. The screen shows the tick on its next ask. A tick is the item's place in the view and
+        nothing more, kept in the pane, so it goes when the pane goes."""
+        with self._lock:
+            self._sweep_locked()
+            screen, showing = self._remote_pane(screen_id, pane, version)
+            if showing.get("done_at"):
+                raise Stale("That is marked done already.")
+            if showing.get("kind") not in ("order", "list"):
+                raise DisplayError("Nothing on this is ticked off item by item.")
+            if isinstance(item, bool) or not isinstance(item, int) or item not in _tickable(showing):
+                sent = isinstance(item, int) and not isinstance(item, bool) and 0 <= item < (_shown_count(showing) or 0)
+                raise DisplayError("That item was sent already." if sent else "There is no such item.")
+            ticked = set(_ticked(showing))
+            want = ticked | {item} if packed is True else ticked - {item}
+            if want == ticked:
+                return self._remote_state(screen, showing)
+
+            def change() -> dict[str, Any]:
+                showing["ticked"] = sorted(want)
+                screen["version"] = _whole(screen.get("version")) + 1
+                return self._remote_state(screen, showing)
+
+            return self._commit(change)
+
+    def turn_page(self, screen_id: str, pane: int, delta: int, version: int) -> dict[str, Any]:
+        """The remote turns a pane's page on the screen, one at a time (the screen puts it up and
+        acknowledges it as its own button does, B-04). Past the last page is the first again once
+        the screen has said how it lays the pane out; before that it stops at the last item."""
+        with self._lock:
+            self._sweep_locked()
+            screen, showing = self._remote_pane(screen_id, pane, version)
+            if showing.get("done_at") or showing.get("kind") not in ("order", "list"):
+                raise DisplayError("Nothing on this has pages.")
+            if delta not in (-1, 1) or isinstance(delta, bool):
+                raise DisplayError("Pages turn one at a time.")
+            count = _shown_count(showing) or 0
+            pages = self._pages(screen_id, showing)
+            now = max(0, _whole(showing.get("page")))
+            turned = (now + delta) % pages if pages else max(0, min(max(0, count - 1), now + delta))
+            if turned == now:
+                return self._remote_state(screen, showing)
+
+            def change() -> dict[str, Any]:
+                showing["page"] = turned
+                screen["version"] = _whole(screen.get("version")) + 1
+                return self._remote_state(screen, showing)
+
+            return self._commit(change)
+
+    def done_from_remote(self, screen_id: str, pane: int, version: int, *, by: str = "") -> dict[str, Any]:
+        """The owner marks a pane done from his remote: an order packed, a list done — exactly as
+        the screen's own button does it, the same done row and the slip cut to its summary,
+        journaled first (B-03) — once every item to send (every line of a list) is ticked for
+        the pane's current version. The ticks are his own word, item by item, from his own
+        device, so no page acknowledgement is asked for; the screen's button keeps its rule. A
+        slip cut at the screen's limit is never marked packed here either."""
+        with self._lock:
+            self._sweep_locked()
+            screen, showing = self._remote_pane(screen_id, pane, version)
+            if showing.get("done_at"):
+                if screen_id in self._purges or self.unsaved:
+                    self._make_durable()
                 return self._public(screen)
+            kind = showing.get("kind")
+            if kind not in ("order", "list"):
+                raise DisplayError("Only an order or a list is marked done.")
+            if kind == "order" and (showing.get("order") or {}).get("partial"):
+                raise DisplayError("This order has more items than a screen shows, so it cannot be marked packed here.")
+            need = _tickable(showing)
+            if not need:
+                raise DisplayError("There is nothing on this left to pack." if kind == "order" else "There is nothing on this list.")
+            if not set(need) <= set(_ticked(showing)):
+                what = "item to send" if kind == "order" else "line"
+                raise NotTicked(f"Tick every {what} first; nothing was marked.")
+            return self._finish(screen_id, screen, int(pane), showing, by)
 
-            def owed() -> dict[str, dict[str, Any]]:
-                return {screen_id: {"version": int(screen["version"]), "showing": screen["showing"], "done": [self._data["done"][-1]]}}
+    def pane_ref(self, screen_id: str, pane: int, version: int) -> tuple[str, str]:
+        """What kind of thing one pane shows, and its reference (an objective's id), so the remote
+        can put it up again from CLIVE's own record."""
+        with self._lock:
+            _screen, showing = self._remote_pane(screen_id, pane, version)
+            return str(showing.get("kind") or ""), str(showing.get("ref") or "")
 
-            return self._stood(screen_id, lambda: self._commit(done, owes=owed))
+    def remote(self, screen_id: str) -> dict[str, Any]:
+        """The owner's view of a screen, for his remote: its name, whether it is on, and pane by
+        pane what it shows — as much as the remote needs to work it and nothing more. An order's
+        items (title, variant, how many, the image) and never who it goes to, where, their phone
+        or their note; a done pane is its title alone."""
+        with self._lock:
+            self._sweep_locked()
+            screen = self._data["screens"].get(str(screen_id)) if _ID.fullmatch(str(screen_id or "")) else None
+            if screen is None:
+                raise NoSuchScreen("That screen is not there any more.")
+            if self._pending(screen):
+                raise NotPaired("That screen hasn't been approved yet: it shows only its code.")
+            panes = [self._remote_view(screen_id, n, view) for n, view in enumerate(self._panes(screen)) if isinstance(view, dict)]
+            return {"id": screen_id, "name": screen["name"], "online": self.online(screen_id),
+                    "version": _whole(screen.get("version")), "now": _now_iso(), "panes": panes}
+
+    def _remote_view(self, screen_id: str, n: int, view: dict[str, Any]) -> dict[str, Any]:
+        kind = str(view.get("kind") or "")
+        out: dict[str, Any] = {"pane": n, "v": _pane_v(view), "kind": kind, "title": str(view.get("title") or "")[:120],
+                               "at": str(view.get("at") or "")[:40], "done_at": str(view.get("done_at") or "")[:40] or None}
+        if view.get("done_at"):
+            return out
+        ticked = set(_ticked(view))
+        if kind == "order":
+            slip = view.get("order") if isinstance(view.get("order"), dict) else {}
+            items = slip.get("items") if isinstance(slip.get("items"), list) else []
+            out["items"] = []
+            for i, item in enumerate(items[:MAX_ITEMS]):
+                if not isinstance(item, dict):
+                    continue
+                left = _to_send(item)
+                image = item.get("image")
+                out["items"].append({
+                    "i": i, "title": str(item.get("title") or "")[:120], "variant": str(item.get("variant") or "")[:80],
+                    "quantity": left if left > 0 else max(0, _whole(item.get("quantity"))), "sent": left <= 0,
+                    "image": image if isinstance(image, str) and image.startswith("https://") and len(image) <= 500 else None,
+                    "ticked": i in ticked,
+                })
+            out["partial"] = bool(slip.get("partial"))
+        elif kind == "list":
+            lines = (view.get("list") or {}).get("lines") if isinstance(view.get("list"), dict) else []
+            out["lines"] = [{"i": i, "text": str(line)[:200], "ticked": i in ticked}
+                            for i, line in enumerate((lines if isinstance(lines, list) else [])[:MAX_LINES])]
+        elif kind == "objective":
+            goal = view.get("objective") if isinstance(view.get("objective"), dict) else {}
+
+            def few(key: str, most: int) -> list[str]:
+                value = goal.get(key)
+                return [str(x)[:200] for x in value[:most]] if isinstance(value, list) else []
+
+            days = goal.get("days_left")
+            out["objective"] = {
+                "doing": str(goal.get("doing") or "")[:200] or None,
+                "needs_you": (few("needs_you", 4) + [f"Blocked: {x}" for x in few("blocked_by", 4)])[:4],
+                "next": few("next", 5),
+                "deadline": str(goal.get("deadline") or "")[:40] or None,
+                "days_left": days if isinstance(days, int) and not isinstance(days, bool) else None,
+            }
+        if kind in ("order", "list"):
+            out["page"] = max(0, _whole(view.get("page")))
+            out["pages"] = self._pages(screen_id, view)
+        return out
+
+    def _owed(self, screen: dict[str, Any]) -> dict[str, Any]:
+        """What a deletion owes the purge journal for this screen (B-03), pane by pane (round
+        9): a done summary as it is; nothing for no pane; and for a pane still up only the
+        version it went up at — never what it shows — so that a restart before the record is
+        durable keeps a pane that was not deleted, if the record holds it, and never brings back
+        one that was."""
+        def one(view: Any) -> dict[str, Any] | None:
+            if view is None:
+                return None
+            if _is_done(view):
+                return _done_showing(view)
+            kept = _pane_v(view)
+            return {"keep": kept} if kept >= 0 else None
+
+        panes = self._panes(screen)
+        return {"version": _whole(screen.get("version")),
+                "showing": one(panes[0]) if panes else None,
+                "beside": one(panes[1]) if len(panes) > 1 else None}
+
+    def _prune_acks(self, screen_id: str) -> None:
+        """Acknowledgements for panes a screen no longer shows go (and every one of a screen
+        that is gone)."""
+        live = {_pane_v(p) for p in self._panes(self._data["screens"].get(screen_id))}
+        for key in [k for k in self._acks if k[0] == screen_id and k[1] not in live]:
+            del self._acks[key]
 
     def _stood(self, screen_id: str, commit: Callable[[], Any]) -> Any:
-        """Run a commit that moves a screen past what it showed. Its acknowledgements go once the
-        change stands (made, or made and not yet durable); a change refused outright leaves them
-        as they were, for the version still showing."""
+        """Run a commit that moves a screen past what it showed. The acknowledgements of what it
+        no longer shows go once the change stands (made, or made and not yet durable); a change
+        refused outright leaves them as they were, for the panes still showing."""
         try:
             out = commit()
         except NotDurable:
-            self._acks.pop(screen_id, None)
+            self._prune_acks(screen_id)
             raise
-        self._acks.pop(screen_id, None)
+        self._prune_acks(screen_id)
         return out
 
     def done(self, *, ref: str | None = None, limit: int = 10) -> list[dict[str, Any]]:

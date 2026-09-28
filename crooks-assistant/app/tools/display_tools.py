@@ -11,9 +11,18 @@ shows, as the owner read it out: until then nothing goes on it (round 8, B-02). 
 says which screens there are, whether each is on, waiting for approval, and what it shows, and
 what was last marked done on them — "has 2048 been packed?" is `screen_list` with the order's id.
 
-All three act on CLIVE's own record of screens (app/displays/store.py) and nothing else: no
+Round 9 adds two more, and a way to show two things at once. `screen_show` with `beside` puts
+the new thing next to what is up (two at most; a third is refused with both named, and
+`replace` says which one to swap). `screen_off` takes everything off a screen, back to its clock,
+or one of the two — "turn the screen off", "clear the TV", "take that off", "go home".
+`screen_remote` turns the owner's app into the remote for a screen — "become the remote",
+"control the TV" — through the same cards every other answer draws: its result is a
+`screen_remote` card (app/presentation.py), and the app opens the remote when it draws one
+(web/remote.js). It is understood by CLIVE from the owner's words, never by matching a phrase.
+
+All of them act on CLIVE's own record of screens (app/displays/store.py) and nothing else: no
 store, inbox or message is changed. A screen is only ever one of the owner's own devices
-(app/routes/displays.py). And all three answer only the owner's own request (round 8, B-01):
+(app/routes/displays.py). And all of them answer only the owner's own request (round 8, B-01):
 each handler checks the authority the call holds itself, so no service work — a speculative read
 the owner's request started (app/memory/prefetch.py) — reaches a screen, whatever the
 dispatcher lets through.
@@ -38,14 +47,22 @@ SHOW_TOOL = "screen_show"
 # store to be staged for the owner's tap (app/tools/gate.py _MUTATION_VERBS). This changes only
 # CLIVE's own record of screens, like screen_show, and needs the code the owner read out instead.
 PAIR_TOOL = "screen_pair"
+# Round 9. Neither name holds a verb the gate reads as a store write (app/tools/gate.py
+# _MUTATION_VERBS): both change only CLIVE's own record of screens, or nothing at all.
+OFF_TOOL = "screen_off"
+REMOTE_TOOL = "screen_remote"
 
 register(CapabilityFamily(
     key="screens", label="Screens", area="system",
-    what=("put an order's packing slip, an objective or a list on one of your own screens, approve a new screen "
-          "by the code it shows, and say what was marked done there"),
-    tools=(LIST_TOOL, SHOW_TOOL, PAIR_TOOL),
+    what=("put an order's packing slip, an objective or a list on one of your own screens (two at once), approve "
+          "a new screen by the code it shows, turn a screen off, work it from a remote, and say what was marked "
+          "done there"),
+    tools=(LIST_TOOL, SHOW_TOOL, PAIR_TOOL, OFF_TOOL, REMOTE_TOOL),
     state="READY", detail="ready",
 ))
+
+# The two panes of a screen as the owner and CLIVE name them (app/displays/store.py PANES).
+_PANE = {"first": 0, "second": 1}
 
 
 def _owners_own() -> None:
@@ -98,7 +115,8 @@ async def screen_list(order_id: str | None = None) -> dict[str, Any]:
     name=SHOW_TOOL,
     description=(
         "Put an order's packing slip (order_id), objective (objective_id) or list (title, lines) "
-        "on the screen named in full; clear empties it."
+        "on the screen named in full; clear empties it. beside: next to what is up (two at most); "
+        "replace: which of the two to swap."
     ),
     input_schema={
         "type": "object",
@@ -109,6 +127,8 @@ async def screen_list(order_id: str | None = None) -> dict[str, Any]:
             "title": {"type": "string", "maxLength": views.MAX_TITLE},
             "lines": {"type": "array", "maxItems": views.MAX_LINES, "items": {"type": "string", "maxLength": views.MAX_LINE}},
             "clear": {"type": "boolean"},
+            "beside": {"type": "boolean"},
+            "replace": {"type": "string", "enum": ["first", "second"]},
         },
         "required": ["screen"],
     },
@@ -116,7 +136,8 @@ async def screen_list(order_id: str | None = None) -> dict[str, Any]:
     issued_id_args=("order_id", "objective_id"),
 )
 async def screen_show(screen: str, order_id: str | None = None, objective_id: str | None = None,
-                      title: str | None = None, lines: list[str] | None = None, clear: bool = False) -> dict[str, Any]:
+                      title: str | None = None, lines: list[str] | None = None, clear: bool = False,
+                      beside: bool = False, replace: str | None = None) -> dict[str, Any]:
     _owners_own()
     # Bounds first, before a screen is looked for or a line is looked at.
     if not isinstance(screen, str) or not screen.strip() or len(screen) > 200:
@@ -140,6 +161,12 @@ async def screen_show(screen: str, order_id: str | None = None, objective_id: st
     chosen = [bool(order_id), bool(objective_id), bool(lines) or bool(title), bool(clear)]
     if sum(chosen) != 1:
         raise ToolError("Say one thing to show: an order_id, an objective_id, a title with lines, or clear.")
+    # Round 9: next to what is up, or in place of one of the two (never with clear: screen_off
+    # takes one of them off).
+    if replace is not None and replace not in _PANE:
+        raise ToolError("replace is first or second.")
+    if (beside is True or replace is not None) and clear:
+        raise ToolError("clear takes everything off; to take one of two off, use screen_off.")
     if clear:
         view = None
     elif order_id:
@@ -161,14 +188,84 @@ async def screen_show(screen: str, order_id: str | None = None, objective_id: st
     else:
         view = views.list_view(title or "", list(lines or []))
     try:
-        shown = s.show(target["id"], view)
+        shown = s.show(target["id"], view, beside=beside is True, replace=_PANE.get(replace or ""))
     except DisplayError as exc:
         raise ToolError(str(exc)) from None
     on = s.online(target["id"])
     result: dict[str, Any] = {"screen": shown["name"], "showing": (view or {}).get("title") or "nothing", "on": on}
+    if shown.get("beside"):
+        result["panes"] = [str((shown.get(key) or {}).get("title") or "") for key in ("showing", "beside")]
     if not on:
         result["note"] = f"{shown['name']} has not asked for anything in a while: it shows this when it is next on."
     return result
+
+
+def _screen_meant(screen: str | None, *, doing: str) -> dict[str, Any]:
+    """The screen the owner means (round 9): the one he named — a unique part of a name will do,
+    since nothing is put on it — or, when he named none, the one screen showing anything (or
+    the only screen there is); otherwise he is asked which."""
+    s = store()
+    if screen is not None:
+        if not isinstance(screen, str) or not screen.strip() or len(screen) > 80:
+            raise ToolError("Name the screen.")
+        try:
+            return s.find(screen)
+        except DisplayError as exc:
+            raise ToolError(str(exc)) from None
+    listed = [x for x in s.screens() if not x.get("pending")]
+    showing = [x for x in listed if x.get("showing")]
+    for group in (showing, listed if not showing else []):
+        if len(group) == 1:
+            return s.find(group[0]["name"], exact=True)
+    if not listed:
+        raise ToolError("No screens yet: open CLIVE's address with /display on a screen and give it a name.")
+    names = ", ".join(sorted(x["name"] for x in (showing or listed)))
+    raise ToolError(f"Which screen should {doing}? {names}.")
+
+
+@tool(
+    name=OFF_TOOL,
+    description="Take everything off a screen, back to its clock, or only the pane named (first or second).",
+    input_schema={
+        "type": "object",
+        "properties": {"screen": {"type": "string", "maxLength": 80}, "pane": {"type": "string", "enum": ["first", "second"]}},
+    },
+    tier=Tier.GREEN,
+)
+async def screen_off(screen: str | None = None, pane: str | None = None) -> dict[str, Any]:
+    _owners_own()
+    if pane is not None and pane not in _PANE:
+        raise ToolError("pane is first or second.")
+    target = _screen_meant(screen, doing="be turned off")
+    try:
+        out = store().take_off(target["id"], _PANE.get(pane or ""))
+    except DisplayError as exc:
+        raise ToolError(str(exc)) from None
+    left = str((out.get("showing") or {}).get("title") or "")
+    result: dict[str, Any] = {"screen": out["name"], "taken_off": out["taken_off"], "showing": left or "nothing"}
+    if not out["taken_off"]:
+        result["note"] = "It was showing nothing already."
+    return result
+
+
+@tool(
+    name=REMOTE_TOOL,
+    description="Open the remote for a screen, on the device the owner is asking from.",
+    input_schema={"type": "object", "properties": {"screen": {"type": "string", "maxLength": 80}}},
+    tier=Tier.GREEN,
+)
+async def screen_remote(screen: str | None = None) -> dict[str, Any]:
+    """Nothing on the screen changes: the answer carries the screen, and the app opens its remote
+    when it draws the card this becomes (app/presentation.py)."""
+    _owners_own()
+    target = _screen_meant(screen, doing="this app control")
+    if target.get("paired", True) is not True:
+        raise ToolError(f"The {target['name']} hasn't been approved yet: it shows only its code until the owner "
+                        "reads that out.")
+    s = store()
+    showing = [str(v.get("title") or "") for v in (target.get("showing"), target.get("beside")) if isinstance(v, dict)]
+    return {"screen": target["name"], "screen_id": target["id"], "remote": "open", "showing": showing,
+            "on": s.online(target["id"])}
 
 
 @tool(
