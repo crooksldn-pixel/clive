@@ -475,17 +475,66 @@ async def test_a_credit_shopify_accepted_that_did_not_move_the_balance_is_not_pr
 
 
 def test_the_verification_is_the_balance_plus_what_was_sent():
+    """Exactly the old balance plus what was sent, to the penny, in the currency it was sent in
+    — and nothing else is proof. Closes the 2026-09-28 deploy review, round 9, I-tests4 I-01:
+    this test used to accept £15 → £40 as proof of a £20 credit."""
     verify = registry.get(WRITE).write.verify
     before = {"balance": "15.00", "currency": "GBP", "accounts": 1}
-    execution = {"amount": "20.00"}
-    assert verify(before, {"balance": "35.00", "currency": "GBP", "accounts": 1}, execution)[0] is True
+    execution = {"amount": "20.00", "currency": "GBP"}
+    assert verify(before, {"balance": "35.00", "currency": "GBP", "accounts": 1}, execution) == (True, "")
+    # A first credit in a currency opens the account for it: the count moves, and that is fine.
+    assert verify({"balance": "0.00", "currency": "GBP", "accounts": 0}, {"balance": "20.00", "currency": "GBP", "accounts": 1}, execution)[0] is True
     assert verify(before, {"balance": "15.00", "currency": "GBP", "accounts": 1}, execution)[0] is False
     assert verify(before, {"balance": "35.00", "currency": "EUR", "accounts": 1}, execution)[0] is False
-    # It moved, and not by what we sent: applied, with a caveat, which is not a failure.
-    ok, note = verify(before, {"balance": "40.00", "currency": "GBP", "accounts": 1}, execution)
-    assert ok is True and "not the figure on the card" in note
     # And a balance that went DOWN is not this change landing.
     assert verify(before, {"balance": "5.00", "currency": "GBP", "accounts": 1}, execution)[0] is False
+
+
+def test_a_balance_that_moved_by_anything_but_what_was_sent_is_not_proof():
+    """£15, £20 sent, £40 read back: £5 nobody can account for. Not verified — the engine then
+    says "I couldn't confirm the credit. Check the customer's account", which is the truth.
+    Closes the 2026-09-28 deploy review, round 9, I-tests4 I-01."""
+    verify = registry.get(WRITE).write.verify
+    before = {"balance": "15.00", "currency": "GBP", "accounts": 1}
+    execution = {"amount": "20.00", "currency": "GBP"}
+    ok, note = verify(before, {"balance": "40.00", "currency": "GBP", "accounts": 1}, execution)
+    assert ok is False, "a £25 rise is not proof of a £20 credit"
+    assert "£40.00" in note and "£35.00" in note and "not proven" in note
+    # One penny either way is still not the credit that was sent.
+    for off in ("34.99", "35.01"):
+        assert verify(before, {"balance": off, "currency": "GBP", "accounts": 1}, execution)[0] is False, off
+    # Pennies add as money, not as floats: 15.10 + 20.20 is 35.30 exactly.
+    assert verify({"balance": "15.10", "currency": "GBP"}, {"balance": "35.30", "currency": "GBP"},
+                  {"amount": "20.20", "currency": "GBP"})[0] is True
+    # The currency sent in is the currency proven in, whatever the two reads agree on.
+    assert verify({"balance": "15.00", "currency": "EUR"}, {"balance": "35.00", "currency": "EUR"}, execution)[0] is False
+    # And a figure that is not money is never proof.
+    for bad in ("", None, "abc", "NaN"):
+        assert verify(before, {"balance": bad, "currency": "GBP"}, execution)[0] is False, bad
+
+
+async def test_a_credit_that_landed_with_something_else_is_unverified_end_to_end(store, engine, session):
+    """The whole path, not the predicate alone: the store answers the credit and reads back a
+    balance £5 higher than the card said. The engine settles it UNVERIFIED and says so in
+    plain words (I-tests4 I-01)."""
+    workspace = await open_workspace(session, amount=20)
+    _, proposal = await stage(session, str(workspace["workspace_id"]))
+    assert proposal is not None and proposal.status is ActionStatus.PENDING
+    assert proposal.before["balance"] == "15.00"
+    credit = store.mutate
+
+    async def credit_and_five_more(name, variables):
+        answer = await credit(name, variables)
+        # Somebody else's £5 lands on the same account between the credit and the re-read.
+        store.accounts[MIA][0]["balance"] = round(store.accounts[MIA][0]["balance"] + 5, 2)
+        return answer
+
+    store.mutate = credit_and_five_more
+    result = await drag(engine, proposal)
+    assert store.accounts[MIA][0]["balance"] == 40.0, "the credit did land, with five more beside it"
+    assert result.code == "unverified" and proposal.verified is False, result.code
+    assert proposal.status is ActionStatus.UNVERIFIED
+    assert result.spoken.startswith("I couldn't confirm the credit")
 
 
 async def test_the_ledger_keeps_the_numbers_and_not_the_customer(store, engine, session):

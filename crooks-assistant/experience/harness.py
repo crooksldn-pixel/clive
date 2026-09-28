@@ -245,30 +245,51 @@ class Harness:
     """A running assistant, wired to the golden world, that can be spoken to and tapped."""
 
     def __init__(self, client: httpx.AsyncClient, runtime: Any, provider: RecordingProvider,
-                 store: Any, gmail: Any, *, live: bool = False) -> None:
+                 store: Any, gmail: Any, *, live: bool = False, admitted: bool = False) -> None:
         self.client = client
         self.runtime = runtime
         self.provider = provider
         self.store = store
         self.gmail = gmail
         self.live = live
+        # Whether the harness's own requests are let in as the owner's. Off unless a caller asks
+        # for it (`harness(admitted=True)`): see `configure`.
+        self.admitted = admitted
         self.captures: list[Capture] = []
 
     # ---------------------------------------------------------------- configuration
 
-    def configure(self, *, writes: bool = True, logins: str = OWNER_LOGIN) -> None:
+    def configure(self, *, writes: bool = True, logins: str = OWNER_LOGIN, admitted: bool | None = None) -> None:
         """Put the backend in the state the tablet meets in production.
 
-        Changes ON and an allow-list naming the caller, because a scenario about which actions
-        a card offers proves nothing against a backend where every action is switched off. What
+        Changes ON and an allow-list naming the owner, because a scenario about which actions a
+        card offers proves nothing against a backend where every action is switched off. What
         this does NOT do is make a write possible: the fixture clients refuse every mutation,
         and in live mode the read-only guard refuses it before that.
+
+        Who is let in is the part that differs, and it is chosen, never assumed (the
+        2026-09-28 deploy review, round 9, F-A2-FIXTURE). Every harness request carries the
+        owner's Tailscale headers, and nothing in this process is tailscaled. So:
+
+            admitted     Tailscale's own confirmation is switched off and the headers are
+                         taken as the owner's. Owner scenarios run like this, and every caller
+                         that wants it says `harness(admitted=True)` — it is the stand-in for
+                         a device Tailscale has vouched for, and it is named as one.
+            not          the production identity check, exactly: CROOKS_TAILSCALE_VERIFY on,
+                         so the same headers from this process are what they are — a claim
+                         nobody confirmed — and every route but the public ones refuses them.
+                         This is the harness's default, and `forged_owner_headers` holds it.
+
+        `admitted` left out keeps whichever the harness is in, so a scenario that resets the
+        switches does not quietly change who is asking.
         """
         from app.main import app
 
+        if admitted is not None:
+            self.admitted = admitted
         self.runtime.settings = self.runtime.settings.model_copy(
             update={"writes_enabled": writes, "allowed_logins": logins,
-                    "writes_local_owner": False, "tailscale_verify": False}
+                    "writes_local_owner": False, "tailscale_verify": not self.admitted}
         )
         app.state.allowed_logins = self.runtime.allowed_logins
 
@@ -402,6 +423,10 @@ class Harness:
             round(float(served_total), 1) if capture.surfaces and isinstance(served_total, (int, float))
             else (round(elapsed, 1) if capture.surfaces else None)
         )
+        # Read, never made: a request the door refused made no conversation, and a capture that
+        # created one to look inside it would hide exactly that.
+        if not self.runtime.sessions.exists(session_id):
+            return capture
         branch = self.branch(session_id, capture.branch_id)
         entity = getattr(branch, "entity", None)
         if isinstance(entity, dict) and entity.get("ref"):
@@ -413,12 +438,16 @@ class Harness:
 
 
 @asynccontextmanager
-async def harness(*, live: bool = False, writes: bool = True):
+async def harness(*, live: bool = False, writes: bool = True, admitted: bool = False):
     """A running assistant against the golden world, torn down afterwards.
 
     `live=True` swaps the golden world for the real Shopify and Gmail credentials and arms the
     read-only guard. It is refused unless the guard is actually in place — see
     `experience/live.py`; a live run that could write is not a test, it is an incident.
+
+    `admitted=True` lets the harness's requests in as the owner's (`Harness.configure`). The
+    default is the production identity check, under which they are refused: a caller that
+    drives owner scenarios asks for the owner by name.
     """
     from app.clients.elevenlabs import ScribeClient
     from app.clients.elevenlabs_tts import VoiceClient
@@ -477,7 +506,7 @@ async def harness(*, live: bool = False, writes: bool = True):
             await _warm(runtime)
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(transport=transport, base_url="http://tablet") as client:
-                harness_ = Harness(client, runtime, provider, store, gmail, live=live)
+                harness_ = Harness(client, runtime, provider, store, gmail, live=live, admitted=admitted)
                 harness_.configure(writes=writes)
                 yield harness_
     finally:

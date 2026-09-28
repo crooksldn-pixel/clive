@@ -21,7 +21,7 @@ from experience.scenarios import BY_NAME, SCENARIOS
 
 @pytest.fixture()
 async def stage():
-    async with harness() as h:
+    async with harness(admitted=True) as h:
         yield h
 
 
@@ -463,3 +463,16 @@ def test_the_fixture_shop_forgets_every_field_it_records_a_scenario_in():
     # The world is deliberately still there — the reset drops the log, not the shop.
     assert used.scopes == fresh.scopes
     assert used.store_credit == fresh.store_credit, "an opening balance is the world, not a log"
+
+
+async def test_the_harness_admits_nobody_unless_the_owner_is_asked_for_by_name():
+    """F-A2-FIXTURE (the 2026-09-28 deploy review, round 9): the harness's default is the
+    production identity check, under which its own owner headers are a claim nobody confirmed.
+    A sentence and a tap are refused at the door, and nothing behind it runs."""
+    async with harness() as unadmitted:
+        assert unadmitted.admitted is False and unadmitted.runtime.settings.tailscale_verify is True
+        said = await unadmitted.say("show me order 1938", session_id="nobody")
+        tapped = await unadmitted.touch("open.area", area="orders", session_id="nobody")
+        assert said.status == 403 and tapped.status == 403, (said.raw, tapped.raw)
+        assert unadmitted.provider.calls == [], "the model was never asked"
+        assert not unadmitted.runtime.sessions.exists("nobody")

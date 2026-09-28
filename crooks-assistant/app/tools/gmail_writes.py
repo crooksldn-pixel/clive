@@ -319,7 +319,53 @@ async def _check_order(order_id: str, ctx: dict[str, Any]) -> dict[str, str]:
         if ctx.get("reply_to") and ctx.get("from_email") == customer.get("email"):
             who = f"{ctx['reply_to']} (the message asks for replies there, not to the customer's own address)"
         raise ToolError(f"That reply would go to {who}, not the customer on order {customer.get('label') or order_id}. Nothing was prepared.")
+    other = _another_of_theirs(ctx, customer, order_id)
+    if other:
+        # The right person, the wrong conversation: a thread she opened about another of her
+        # orders is not this order's thread, and a reply filed there with this order's number
+        # on its card would read to her as an answer about the parcel she asked after. The
+        # deleted order→email family refused exactly this before arming a reply
+        # (`order_email.about_this_order`); the model path keeps the refusal here, where every
+        # reply the model or a tap prepares passes (the 2026-09-28 deploy review, round 9,
+        # E-04 and I-02).
+        label = str(customer.get("label") or order_id).lstrip("#")
+        raise ToolError(
+            f"That thread is about order {other}, not order {label}. Nothing was prepared. Write a new email about "
+            f"order {label}, or reply in that thread without naming an order."
+        )
     return customer
+
+
+def _another_of_theirs(ctx: dict[str, Any], customer: dict[str, str], order_id: str) -> str:
+    """Another order of THIS customer's that the thread's subject names, when the subject does
+    not name this one; empty otherwise.
+
+    Read from the order cache the Mac already holds, through the same graph the thread card's
+    linked-order strip uses (`app/context/graph.py`), so a number counts only when it is an
+    order whose customer is the person the reply goes to — a year or a tracking fragment in a
+    subject is never an order. A cold cache names nothing, and the recipient check above still
+    stands on its own.
+    """
+    from app.context import graph
+
+    subject = str(ctx.get("subject") or "")
+    named = graph.order_numbers_in(subject)
+    this = str(customer.get("label") or "").rsplit("-", 1)[-1].lstrip("#").strip()
+    if not named or (this and this in named):
+        return ""
+    try:
+        from app.tools.analytics_tools import cache
+
+        held = cache()
+        rows = list(held.rows() or []) if held.status().get("synced_at") is not None else []
+    except Exception:  # noqa: BLE001 — no cache bound (a Mac without Shopify, a unit test) is a cold cache
+        return ""
+    found = graph.linked_orders_for_thread({"subject": subject, "from_email": customer.get("email", "")}, rows=rows)
+    for linked in found.get("linked") or []:
+        digits = str(linked.get("order_number") or "").rsplit("-", 1)[-1].lstrip("#").strip()
+        if digits in named and str(linked.get("order_id") or "") != str(order_id):
+            return digits
+    return ""
 
 
 def _provenance(ctx: dict[str, Any]) -> str:
@@ -645,6 +691,16 @@ async def _recipient(order_id: str, customer_id: str, to: str = "", to_name: str
             raise ToolError("An email to an address is prepared from an open composer; call gmail_compose_open first.")
         if len(address) > MAX_ADDRESS_CHARS or not EMAIL_ADDRESS.match(address):
             raise ToolError(f"{address!r} is not an email address I can send to.")
+        # The composer's own card decides, not the argument: the address must be the one on
+        # it, and the owner must have checked it there. An issued compose id beside any
+        # address the model chose was enough before, so a mis-heard address the model wrote
+        # down cleanly could be staged without the owner ever touching it (the 2026-09-28
+        # deploy review, round 9, E-02). Imported here because the family imports this module.
+        from app.families.compose import owner_checked
+
+        why = owner_checked(str(compose_id), address)
+        if why:
+            raise ToolError(why)
         return {"name": " ".join(str(to_name or "").split())[:80], "email": address.lower(), "label": "", "off_shopify": True}
     if bool(order_id) == bool(customer_id):
         raise ToolError("Say which order — or, without one, which customer — the email is to.")

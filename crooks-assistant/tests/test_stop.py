@@ -125,7 +125,7 @@ async def test_a_cancelled_prefetch_is_an_interruption_not_a_provider_error():
     from app.observability import timeline
     from experience.harness import harness
 
-    async with harness() as stage:
+    async with harness(admitted=True) as stage:
         events: list[dict] = []
 
         def record(kind, **fields):

@@ -488,22 +488,34 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
         return RecipeAnswer(answer="", defer="the order reads did not answer")
     _arrived(ctx, "orders")
     waiting, today = _rows(open_body), _rows(today_body)
+    # A read that did not answer is not an empty list. Before this, the open-orders read
+    # failing while today's answered said "Nothing is waiting to go out." — a false
+    # operational answer on the one question this landing exists for (the 2026-09-28 deploy
+    # review, round 9, E-06). Each half now says it could not be read, and the answer is
+    # marked partial so the card says so too.
+    open_read, today_read = isinstance(open_body, dict), isinstance(today_body, dict)
     # The set the cursor walks is the operational one: the orders still to go out, oldest
     # first. On a day with nothing waiting, today's orders are the set.
-    primary = "open" if waiting else "today"
-    body = open_body if waiting else today_body
+    primary = "open" if waiting or not today_read else "today"
+    body = open_body if primary == "open" else today_body
     if isinstance(body, dict):
         _open_workflow(ctx, body, kind="orders", operation="review")
     if waiting:
         oldest = waiting[0]
         words = f"{_how_many(open_body, len(waiting))} order{'s' if len(waiting) != 1 else ''} to go out; the oldest is {str(oldest.get('order_number') or '').lstrip('#')} at {int(oldest.get('age_days') or 0)} days."
+    elif not open_read:
+        words = "I could not read the orders still to go out, so I cannot say whether any are waiting."
     else:
         words = "Nothing is waiting to go out."
-    words += f" {len(today)} order{'s' if len(today) != 1 else ''} today." if today else " None in today yet."
+    if not today_read:
+        words += " Today's orders could not be read."
+    else:
+        words += f" {len(today)} order{'s' if len(today) != 1 else ''} today." if today else " None in today yet."
     drawn = [c for c in (_call_named(result, primary), _call_named(result, "today" if primary == "open" else "open")) if c is not None]
-    return RecipeAnswer(answer=words + _hedge(open_body if isinstance(open_body, dict) else today_body),
-                      calls=list(result.calls), drawn=drawn, partial=result.partial,
-                      trace={"waiting": len(waiting), "today": len(today), "primary": primary})
+    return RecipeAnswer(answer=words + _hedge(open_body if open_read else today_body),
+                      calls=list(result.calls), drawn=drawn, partial=result.partial or not (open_read and today_read),
+                      trace={"waiting": len(waiting), "today": len(today), "primary": primary,
+                             "unread": [name for name, ok in (("open", open_read), ("today", today_read)) if not ok]})
 
 
 # ------------------------------------------------------------------------------- inbox

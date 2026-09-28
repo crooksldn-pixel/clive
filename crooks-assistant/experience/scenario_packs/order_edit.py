@@ -191,6 +191,43 @@ async def order_add_item_cancelled(h: Harness) -> Result:
     return r
 
 
+async def order_add_item_stale_picker(h: Harness) -> Result:
+    """A picker left on the glass after the owner has moved to another order (the 2026-09-28
+    deploy review, round 9, E-01). Its Add still carries the first order's id, and the first
+    order WAS issued to this conversation — so only the check that it is the order on screen
+    stands between that tap and a change to an order he is not looking at."""
+    r = Result("order_add_item_stale_picker", "Add, tapped on a picker for an order no longer on screen")
+    session = "edit5"
+    other = data.BY_NAME["#1936"]
+    await _open_order(h, session, "1938")
+    c = await h.touch("order_edit.find", scenario="order_add_item_stale_picker", session_id=session,
+                      order_id=ORDER.order_id, product="convict hoodie", colour="black", size="medium")
+    r.captures.append(c)
+    picker = c.data("variant_picker")
+    chosen = next((x.get("variant_id") for x in (picker.get("candidates") or []) if x.get("variant_id")), "")
+    r.checks.append(check("the picker was drawn for the first order", picker.get("order_id") == ORDER.order_id and bool(chosen),
+                          f"order_id={picker.get('order_id')!r} chosen={chosen!r}"))
+    # The owner moves on, on the same half.
+    await _open_order(h, session, "1936")
+    r.checks.append(check("the half is on the second order now",
+                          (h.branch(session).entity or {}).get("ref") == other.order_id,
+                          f"entity={h.branch(session).entity}"))
+    d = await h.touch("order_edit.stage", scenario="order_add_item_stale_picker", session_id=session,
+                      order_id=ORDER.order_id, variant_id=chosen, quantity=1)
+    r.captures.append(d)
+    r.checks.append(check("the old picker's Add is refused, in words",
+                          d.status == 200 and not _ok(d) and _code(d) == "wrong_order" and "picker" in _detail(d).lower(),
+                          f"status={d.status} code={_code(d)!r} detail={_detail(d)!r}"))
+    r.checks.append(deterministic(d))
+    r.checks.append(check("no card was drawn and nothing is waiting, on either order",
+                          not d.surfaces and not [p for p in h.runtime.sessions.get(session).proposals if p.status.value == "PENDING"],
+                          f"surfaces={d.surface_types}"))
+    r.checks.append(check("not one mutation was sent, calculation or otherwise",
+                          not getattr(h.store, "calculations", []) and getattr(h.store, "mutations_sent", -1) == 0,
+                          f"calculations={getattr(h.store, 'calculations', None)}"))
+    return r
+
+
 async def order_add_item_sentence_defers(h: Harness) -> Result:
     """The spoken form. It reaches the model, as it must, and prepares nothing on the way."""
     r = Result("order_add_item_sentence_defers", "“Add a black hoodie to this order”, spoken")
@@ -216,5 +253,6 @@ SCENARIOS = (
     ("order_add_item_picker", order_add_item_picker),
     ("order_add_item_ambiguous", order_add_item_ambiguous),
     ("order_add_item_cancelled", order_add_item_cancelled),
+    ("order_add_item_stale_picker", order_add_item_stale_picker),
     ("order_add_item_sentence_defers", order_add_item_sentence_defers),
 )

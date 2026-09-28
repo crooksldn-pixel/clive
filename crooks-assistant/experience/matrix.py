@@ -29,7 +29,7 @@ COVERAGE: dict[str, tuple[str, ...]] = {
     "model_turn": ("order_lookup", "today_orders", "customer_history", "linked_entities", "unsupported_edit",
                    "split_branches", "enrichment", "abandoned_checkouts", "abandoned_window", "compose_open",
                    "compose_dictated", "discount_sentence_defers", "graph_order_to_email",
-                   "order_add_item_sentence_defers", "recording_is_observability"),
+                   "order_add_item_sentence_defers", "recording_is_observability", "compose_send_spoken"),
     "surface.tab": ("tabs", "nav_click_path"),
     "surface.expand": (),
     "surface.scroll": ("nav_click_path",),
@@ -55,8 +55,9 @@ COVERAGE: dict[str, tuple[str, ...]] = {
     "compose.field": ("compose_dictated",),
     "compose.stage": ("compose_stage",),
     "draft.send_instead": ("compose_send_instead",),
-    "order_edit.find": ("order_add_item_picker", "order_add_item_ambiguous", "order_add_item_cancelled"),
-    "order_edit.stage": ("order_add_item_picker",),
+    "order_edit.find": ("order_add_item_picker", "order_add_item_ambiguous", "order_add_item_cancelled",
+                        "order_add_item_stale_picker"),
+    "order_edit.stage": ("order_add_item_picker", "order_add_item_stale_picker"),
     # The commerce families (brief sections 11 to 14): each creation is reached by touch, and
     # by the model through its tool.
     "discount_code": ("discount_new_code", "discount_code_taken"),

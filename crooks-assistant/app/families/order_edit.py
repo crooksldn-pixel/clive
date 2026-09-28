@@ -167,12 +167,27 @@ def _stage_add_item(ctx: CommandCtx) -> Outcome:
     only after the hold. This returns the change to be prepared; `app/routes/command.py`
     prepares it through the same gate and the same action engine a model-proposed change goes
     through, and answers with the confirmation card.
+
+    The order is the one this half has open, and nothing else. A picker is drawn for the order
+    on screen (`_open_picker`), but the Add button carries the order id it was drawn with, and
+    a picker left on the glass after the owner has moved to another order still posts the old
+    one. That order was issued to this conversation, so `may_open` alone would pass it, and the
+    card would have been labelled with the NEW order's number while it changed the old one
+    (the 2026-09-28 deploy review, round 9, E-01). So a posted order must be the open order;
+    anything else is refused, and the label comes from that same validated order.
     """
     order_id, variant_id = ctx.arg("order_id"), ctx.arg("variant_id")
     entity = getattr(ctx.branch, "entity", None) or {}
-    if not order_id:
-        order_id = str(entity.get("ref") or "") if entity.get("kind") == "order" else ""
-    if not order_id or not variant_id:
+    open_order = str(entity.get("ref") or "") if entity.get("kind") == "order" else ""
+    if not open_order:
+        return Outcome.refused("no_order", "There is no order open to add anything to.")
+    if order_id and order_id != open_order:
+        return Outcome.refused(
+            "wrong_order",
+            "That picker was for a different order from the one on screen. Open the picker again on this order.",
+        )
+    order_id = open_order
+    if not variant_id:
         return Outcome.refused("no_target", "That says which order or which item is being added.")
     # Issued to THIS conversation, and of the right kind. The gate checks both again before
     # the tool runs; checking here means the refusal is a sentence rather than a tool error,
@@ -184,6 +199,7 @@ def _stage_add_item(ctx: CommandCtx) -> Outcome:
     quantity, problem = _quantity(ctx.arg("quantity", "1"))
     if problem:
         return Outcome.refused("bad_quantity", problem)
+    # `order_id` IS the open order now, so the label beside it is that order's own.
     return Outcome(answer="", changed={
         "stage": {"tool": WRITE_TOOL, "args": {"order_id": order_id, "variant_id": variant_id, "quantity": quantity}},
         "entity": {"kind": "order", "ref": order_id, "label": str(entity.get("label") or "")},

@@ -457,6 +457,45 @@ async def progressive_enrichment(h: Harness) -> Result:
     return r
 
 
+async def forged_owner_headers(h: Harness) -> Result:
+    """The owner's headers, sent by something that is not Tailscale (the 2026-09-28 deploy
+    review, round 9, F-A2-FIXTURE).
+
+    Every other scenario runs admitted: the harness stands in for a device Tailscale has
+    vouched for. This one switches that off and runs the production identity check exactly —
+    CROOKS_TAILSCALE_VERIFY on — against the very headers every scenario sends. From this
+    process they are a claim nobody confirmed, so a sentence and a tap are both refused at the
+    door: no model call, no read, no conversation, nothing staged.
+    """
+    r = Result("forged_owner_headers", "The owner's headers, from a process Tailscale never saw")
+    was = h.admitted
+    session = "forged"
+    before_model = len(h.provider.calls)
+    before_reads = len(getattr(h.store, "queries", []))
+    h.configure(admitted=False)
+    try:
+        said = await h.say("show me order 1938", scenario="forged_owner_headers", session_id=session)
+        tapped = await h.touch("open.area", area="orders", scenario="forged_owner_headers", session_id=session)
+        # Without the forwarding headers: made on the server itself, to a public path.
+        ping = await h.client.get("/ping")
+    finally:
+        h.configure(admitted=was)
+    r.captures += [said, tapped]
+    for what, capture in (("a sentence", said), ("a tap", tapped)):
+        r.checks.append(check(f"{what} with forged owner headers is refused at the door",
+                              capture.status == 403 and not capture.surfaces,
+                              f"status={capture.status} raw={ {k: capture.raw.get(k) for k in ('error', 'who', 'code')} }"))
+    r.checks.append(check("the model was never asked", len(h.provider.calls) == before_model,
+                          f"model calls={len(h.provider.calls) - before_model}"))
+    r.checks.append(check("and nothing was read", len(getattr(h.store, "queries", [])) == before_reads,
+                          f"reads={len(getattr(h.store, 'queries', [])) - before_reads}"))
+    r.checks.append(check("no conversation was made for the forger", not h.runtime.sessions.exists(session),
+                          f"exists={h.runtime.sessions.exists(session)}"))
+    r.checks.append(check("a public path asked directly still answers, so this is the identity check and not a dead server",
+                          ping.status_code == 200, f"/ping → {ping.status_code}"))
+    return r
+
+
 SCENARIOS: tuple[tuple[str, Callable[[Harness], Awaitable[Result]]], ...] = (
     ("order_lookup", order_lookup),
     ("today_orders", today_orders),
@@ -469,6 +508,7 @@ SCENARIOS: tuple[tuple[str, Callable[[Harness], Awaitable[Result]]], ...] = (
     ("unsupported_edit", unsupported_edit),
     ("split_branches", split_branches),
     ("enrichment", progressive_enrichment),
+    ("forged_owner_headers", forged_owner_headers),
 )
 
 # The Phase 3 families' scenarios, one pack per family (experience/scenario_packs/*), so a
