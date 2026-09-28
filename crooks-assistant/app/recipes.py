@@ -179,16 +179,28 @@ def assert_read_only(recipes: dict[str, Recipe] | None = None) -> None:
 
 async def run(recipe: Recipe, ctx: Ctx) -> RecipeAnswer:
     """One recipe, end to end. Never raises: a failure defers, and the route refuses the tap
-    with the reason and the same tap offered back."""
-    assert_read_only({recipe.recipe_id: recipe})
+    with the reason and the same tap offered back — a recipe that has somehow come to name a
+    write tool included, which start-up refuses and which is refused again here, before
+    anything is read, as a refused tap rather than a failed request."""
     started = time.perf_counter()
     answer: RecipeAnswer
     try:
+        assert_read_only({recipe.recipe_id: recipe})
         missing = _unresolved(recipe, ctx)
+        plan = None if missing else (recipe.plan(ctx) if recipe.plan else None)
+        undeclared = _undeclared(recipe, plan)
         if missing:
             answer = RecipeAnswer(answer="", defer=f"{missing} is not open")
+        elif undeclared:
+            # What runs is the PLAN, not the declaration, so the declaration is only worth
+            # checking if the plan is held to it (the 2026-09-28 deploy review, round 9, E-01).
+            # A plan naming a tool its recipe never declared reads nothing: the tap is refused
+            # with the reason, and nothing is dispatched. The read scheduler refuses a write in
+            # any plan as well (app/reads/scheduler.py `assert_reads_only`); this is the
+            # recipe's own promise, kept before it gets that far.
+            log.warning("recipe %s planned %s, which it does not declare", recipe.recipe_id, ", ".join(undeclared))
+            answer = RecipeAnswer(answer="", defer=f"planned {', '.join(undeclared)}, which it does not declare")
         else:
-            plan = recipe.plan(ctx) if recipe.plan else None
             result = ReadResult()
             if plan is not None:
                 result = await run_plan(plan, session=ctx.session, timeout_s=min(plan.timeout_s, BUDGET_MS / 1000),
@@ -214,6 +226,14 @@ async def run(recipe: Recipe, ctx: Ctx) -> RecipeAnswer:
             trace={k: v for k, v in answer.trace.items() if k not in ("recipe_id",)},
         )
     return answer
+
+
+def _undeclared(recipe: Recipe, plan: ReadPlan | None) -> list[str]:
+    """The tools a plan would dispatch that its recipe did not declare, in plan order."""
+    if plan is None:
+        return []
+    declared = set(recipe.read_primitives)
+    return list(dict.fromkeys(read.tool for read in plan.reads if read.tool not in declared))
 
 
 def _unresolved(recipe: Recipe, ctx: Ctx) -> str:
