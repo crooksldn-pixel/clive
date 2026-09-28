@@ -906,7 +906,6 @@ def test_the_done_record_keeps_no_ones_words(tmp_path):
     key = screen["screen_key"]
     for view, title, ref in (
         (views.list_view("Sam Carter's alterations", ["Hem the trousers"]), "List", ""),
-        (views.objective_view({"id": "obj_0123abcd", "title": "Call Sam Carter back"}, []), "Objective", "obj_0123abcd"),
         (views.order_view(ORDER), "Order #1047", "gid://shopify/Order/1047"),
         ({"kind": "order", "ref": "Sam Carter", "title": "Order for Sam Carter"}, "Order", ""),
     ):
@@ -916,6 +915,15 @@ def test_the_done_record_keeps_no_ones_words(tmp_path):
         row = s.done()[0]
         assert (row["title"], row["ref"]) == (title, ref)
         assert s.poll(screen["id"], key)["showing"]["title"] == title
+    # An objective is not marked done from a screen (round 11, B-04: its page has no button for
+    # it); what the record would keep of one, from a journal or a row written before, is still
+    # its kind and its id and never its title.
+    goal = views.objective_view({"id": "obj_0123abcd", "title": "Call Sam Carter back"}, [])
+    s.show(screen["id"], goal)
+    with pytest.raises(DisplayError, match="Only an order or a list"):
+        s.mark_done(screen["id"], s.poll(screen["id"], key)["version"], screen_key=key, confirmed=True)
+    assert store_module.done_summary(goal) == {"kind": "objective", "ref": "obj_0123abcd", "title": "Objective"}
+    s.show(screen["id"], None)
     stored = path.read_text()
     assert "Sam Carter" not in stored and "Hem the trousers" not in stored
 

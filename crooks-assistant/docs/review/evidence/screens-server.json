@@ -1,0 +1,209 @@
+[
+  {
+    "finding": "R9-A3b-F-A3B-SCREEN-EVIDENCE",
+    "parts": [
+      "S1",
+      "S3P",
+      "S3"
+    ],
+    "status": "FIXED",
+    "question": "What exactly can a keyed production TV obtain from registration, its poll and the screen-facing views, with CROOKS_SCREEN_SNAPSHOTS=false?",
+    "files": [
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/app/displays/views.py",
+      "crooks-assistant/web/display.html",
+      "crooks-assistant/app/routes/observe.py",
+      "crooks-assistant/tests/test_r11_screens_server.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_screens_server.py::test_what_a_keyed_tv_is_given_is_its_own_record_cut_to_the_fields_of_each_kind",
+      "crooks-assistant/tests/test_r11_screens_server.py::test_a_record_holding_more_than_a_view_gives_the_tv_none_of_it",
+      "crooks-assistant/tests/test_screen_paths.py::test_what_an_approved_screen_can_have_from_every_screens_route",
+      "crooks-assistant/tests/test_screen_cookie.py::test_naming_a_screen_hands_it_the_key_as_a_cookie_and_never_in_the_answer"
+    ],
+    "answer": "Snapshots off changes none of this: no screen route reads that switch, a session, a transcript or live voice; the TV's page (web/display.html) loads only dots.js and display.js, which ask only the /displays routes (observe.py:telemetry_screen is never called by it, and answers 204 before reading anything when snapshots are off). What a keyed TV gets: (1) POST /displays/register (routes/displays.py:register) answers {id, name, pending} and, while it waits, {code, code_expires_in}; the key goes only in the HttpOnly, Secure, SameSite=Strict, Path=/displays cookie (_handed). (2) Its ask, GET /displays/{its id} with its cookie, and the answer to its Mark packed (done returns poll) are DisplayStore.poll: {id, name, version, showing, beside, pending, now, last_done{title, at}}, plus code_expires_in while it waits (both panes null then). Each pane is now cut by DisplayStore._for_screen to its kind's fields (_SCREEN_PANE, _SCREEN_ORDER, _SCREEN_ORDER_ITEM, _SCREEN_OBJECTIVE, _SCREEN_OBJECTIVE_ITEM, _SCREEN_VIDEO; ticked, page and player rebuilt by _ticked, _whole, _player): a slip's number, placed_at, customer, company, address, phone, note, tags, fulfillment, payment, shipping_method, partial/total_items and items (title, variant, sku, quantity, to_send, image) - the customer's details are what a packing slip is; a list's lines; an objective's deadline, days_left, doing, next, needs_you, blocked_by, items (text, state); a video's id, channel, duration_s, live, start and the owner's commands; a done pane is its summary (_done_showing: kind, ref, title, at, by, done_at, v), `by` being who put it up ('clive'), never the login that marked it. (3) /seen answers {seen, plan}; /video {heard}; another screen's own routes 403 {code, detail}. (4) A TV is admitted as one of the owner's devices by its Tailscale login (actions.py:principal_verdict), so it also has the owner's screen routes: GET /displays (names, on/off, titles; done rows with login and how), GET /displays/{id}/remote (items, never who/where/phone/note) and the remote actions' answers ({version, v, ticked, page}, {version, v, player, playing}) - and every other owner route of the app (main.py:guard_and_freshness), which the screens do not change. What was wrong: poll handed each pane exactly as the record held it, so the TV got whatever a record on disk carried (a record from another build, or edited by hand); production's records were made by views.py and had the same fields. The new test of a record holding more fails on 81c78948; the shape test pins every field of every kind, and of the remote answers the TV's page receives."
+  },
+  {
+    "finding": "R9-B1-B-01-B-05-PATH",
+    "parts": [
+      "S1",
+      "S3T1",
+      "S3"
+    ],
+    "status": "EVIDENCED",
+    "question": "With production's switches as configured (CROOKS_TAILSCALE_VERIFY and CROOKS_LOCAL_OWNER unset) and an id issued by a real lookup, can a refused caller reach any screen route or tool, or a slip go up for an id the conversation was not issued?",
+    "files": [
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/config/settings.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/tools/display_tools.py",
+      "crooks-assistant/app/tools/gate.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/providers/max_agent_sdk.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_screens_server.py::test_on_productions_own_switches_nobody_but_the_owner_reaches_a_screen_and_a_slip_needs_a_real_lookup",
+      "crooks-assistant/tests/test_screen_paths.py::test_a_refused_caller_reaches_no_screen_route_and_no_screen_tool",
+      "crooks-assistant/tests/test_screen_paths.py::test_screen_show_puts_up_only_an_order_this_conversation_was_issued",
+      "crooks-assistant/tests/test_displays.py::test_the_screen_tools_answer_only_the_owners_own_request",
+      "crooks-assistant/tests/test_displays.py::test_the_gate_lets_a_slip_through_only_for_an_order_this_conversation_looked_up"
+    ],
+    "answer": "Unset, config/settings.py resolves tailscale_verify=True and local_owner=False (writes_local_owner is 'false' in production's .env), and main.lifespan builds the runtime from get_settings() as it is: the old fixture's tailscale_verify=True was the unset default, and the new test proves it from the environment - it deletes both variables, lets the app's own lifespan build the runtime, and asserts the resolved values on runtime.settings; nothing is copied over them. Each connection's holder is read from a fake /proc by the real identity code (only `tailscale whois` and pid pinning stood in for). Through the real app: main.guard_and_freshness refuses a request proxy_state calls FORGED and a proxied one with no login before any route; principal_verdict refuses the server itself (not_authorised_local, local_owner False), a stranger's login, the owner's login on a device whois does not confirm (identity_unverified) and the server's own request through its tailscale serve (THIS_HOST); the displays router repeats the rule as its dependency (require_principal). Each refused caller gets 403 on every route in displays.router.routes, with a body that would act, with and without the TV's own cookie, and on /turn: the model is never asked, no tool runs, the record is byte-identical. For the owner: the TV names itself through the door and is approved by the code he says (screen_pair checks session.heard); screen_show with the order id is refused 'NOT YET' before any order is read (gate._check_issued_ids over _ISSUED_ID_ARGS and the tool's issued_id_args) until the conversation's own shopify_find_order - through the in-process MCP server into MaxAgentSDKProvider._dispatch and dispatch.dispatch, whose _harvest_ids issues the order_id from a client answering the store's own queries - has issued it; then the slip goes up and the TV is given it, and another conversation is still 'NOT YET'. display_tools._owners_own refuses any authority that is not OWNER. app/routes/turn.py runs in the test but is left out of the files for size: the door refuses before it."
+  },
+  {
+    "finding": "R9-B1-B-03",
+    "parts": [
+      "S3T1",
+      "S3"
+    ],
+    "status": "EVIDENCED",
+    "question": "Does every deletion, and every retry of one, keep the purge-journal invariant, so that a slip a caller was told is off never comes back after a restart?",
+    "files": [
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/tests/test_r11_screens_server.py",
+      "crooks-assistant/tests/test_screens_r10.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_screens_server.py::test_a_slip_said_to_be_off_never_comes_back_however_the_disk_fails_and_the_power_goes",
+      "crooks-assistant/tests/test_r11_screens_server.py::test_an_owed_deletion_is_never_lost_to_a_later_one_however_that_one_fails",
+      "crooks-assistant/tests/test_screens_r10.py::test_a_deletion_whose_journal_is_not_durable_and_whose_record_is_not_either_is_not_made",
+      "crooks-assistant/tests/test_screens_r10.py::test_a_refused_deletion_leaves_an_earlier_owed_one_owed_and_adds_nothing",
+      "crooks-assistant/tests/test_screens_r10.py::test_a_deletion_whose_record_is_durable_stands_even_if_its_journal_was_not",
+      "crooks-assistant/tests/test_displays.py::test_a_removed_screen_and_a_cleared_slip_do_not_come_back_after_a_restart",
+      "crooks-assistant/tests/test_displays.py::test_a_packed_slip_whose_record_is_not_durable_is_not_said_done_and_does_not_come_back",
+      "crooks-assistant/tests/test_displays.py::test_a_journal_that_cannot_be_read_takes_every_slip_down",
+      "crooks-assistant/tests/test_displays.py::test_the_purge_journal_covers_both_panes_across_a_restart"
+    ],
+    "answer": "DisplayStore._commit writes a deletion's obligation (owed so far, _merge'd with this one) through _journal, which returns True only once the journal and its folder are flushed; only then is it kept as owed (self._purges = owed). If the record then cannot be made durable: with the journal durable the deletion stands and the caller is told NotDurable (503, never 'done'), and at the next start _load -> _replay applies the journal before anything reads the record and __init__ writes the record; with the journal not durable the record in memory is put back (self._data = before), _restore_journal puts the journal back to what is still owed, and the caller is told NotSaved ('nothing was changed'). Whatever version of the journal a power cut leaves still names every owed deletion, and one naming a refused deletion only ever takes a slip down (_replay leaves a screen at or past the version it names; 'keep' can only keep a pane the record holds). A durable _write empties _purges and drops the journal. Retries - sweep -> _settle_expiry, and _make_durable when /done, the remote's done, take_off or forget is asked again while something is owed - rewrite the journal and the record and say done only once the record is durable. The new tests model the folder as a power cut leaves it (each file durable only after a folder flush, and any version since possible) and run all nine kinds of deletion (clear, replace all, replace the slip's pane, one pane off, CLIVE's off, the remote's off, Mark packed on the screen and from the remote, the screen removed) with the disk failing at every combination of its first five operations: 'done' or 'not yet saved' never has the slip after any restart and a packed row is there, 'not made' leaves it up, the same after the retry; and a deletion already owed survives a later one failing in every way. Checked by mutation: the tests fail if _commit ignores _journal's False (round 9's defect), if _restore_journal drops what is owed, or if a start does not write the replayed record."
+  },
+  {
+    "finding": "R9-B1-NEW-B-LOCAL-SLIP",
+    "parts": [
+      "S3T1",
+      "S3"
+    ],
+    "status": "EVIDENCED",
+    "question": "Server side: is a screen whose device is refused, or whose slip is past its time, given nothing over HTTP?",
+    "files": [
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/tests/test_r11_screens_server.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_screens_server.py::test_on_productions_switches_a_tv_refused_or_past_its_time_is_given_nothing",
+      "crooks-assistant/tests/test_screen_paths.py::test_a_screen_whose_device_is_refused_or_whose_slip_is_past_its_time_is_given_nothing",
+      "crooks-assistant/tests/test_displays.py::test_housekeeping_takes_a_slip_down_with_no_screen_asking_and_at_start_up"
+    ],
+    "answer": "The server's half only; what an open page clears after a 403, a disconnection or its own local expiry (web/display.js, web/dots.js, part S3P and the page half of S3T1) is the pages fixer's entry. The ask (routes/displays.py:poll) is behind the router's require_principal, so a device the owner rule no longer admits - its login taken off the list, or Tailscale no longer saying its address is his (identity.verify from actions.py:principal_verdict) - is answered 403 with a reason and nothing else on its very next ask, whatever version it names (no 204). DisplayStore.poll sweeps before it answers (_sweep_locked -> _expire_locked, each pane by its own time against SHOWING_KEEP_S), so a slip past its time is given as null and taken off the disk; and housekeeping sweeps with nobody asking (main.housekeep_once -> store.sweep) and at start-up (store.install). The new test does both on production's switches with the kernel's account of the connection: whois moves the TV to another login and its next two asks are 403 with nothing of the slip; then past its time the ask gives null and the record holds none of it."
+  },
+  {
+    "finding": "R9-B1-B-REMOTE-OFF",
+    "parts": [
+      "S3"
+    ],
+    "status": "EVIDENCED",
+    "question": "Can a whole-screen off tapped on an older remote view take down something that went up since?",
+    "files": [
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/web/remote.js",
+      "crooks-assistant/tests/test_screens_r10.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_screens_r10.py::test_a_whole_screen_off_tapped_on_an_older_view_takes_nothing_down_that_went_up_since",
+      "crooks-assistant/tests/test_screens_r10.py::test_clives_own_turn_the_screen_off_takes_what_is_up_now_and_says_what",
+      "crooks-assistant/tests/web/remote.test.js::the whole screen is turned off as it was seen; a screen that changed since is refused and shown as it is"
+    ],
+    "answer": "No. routes/displays.py:OffBody (extra='forbid', strict ints) and remote_off accept exactly a pane with its version, or the screen's version alone; anything else is 422. DisplayStore.take_off, under the store's lock and after the sweep, compares screen_version (a bool refused) with the screen's version before any pane comes down and raises Stale -> 409 'stale' with nothing taken off; a pane off is held to its own version the same way. Any change to the screen (a slip put up beside, a tick from another device) moves the version, so an off tapped before it changes nothing. CLIVE's own screen_off (display_tools.screen_off) names no version - it is the owner's request made now - and its answer names each thing it took off. web/remote.js sends {screen_version} from its view's top-level version, and the page test holds that half."
+  },
+  {
+    "finding": "R9-B1-B-NEW-DONE-LOSS",
+    "parts": [
+      "S3"
+    ],
+    "status": "EVIDENCED",
+    "question": "Can the record's size bound silently destroy done rows as the permitted screens fill with two views each?",
+    "files": [
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/app/displays/views.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/tests/test_screens_r10.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_screens_r10.py::test_every_screen_showing_two_of_the_largest_views_beside_a_full_done_record_loses_nothing",
+      "crooks-assistant/tests/test_screens_r10.py::test_a_change_that_would_overflow_the_record_is_refused_with_nothing_changed_and_no_done_row_lost",
+      "crooks-assistant/tests/test_displays.py::test_the_done_record_is_per_screen_and_bounded"
+    ],
+    "answer": "No. DisplayStore._write no longer judges size or drops anything; _commit measures the record after the change and, if it is past MAX_FILE_BYTES and larger than before, puts the record in memory back and raises Full - 409 'full' from every route (_full, _remote_refusal), a ToolError from CLIVE - with nothing written. Changes that only shrink the record (a deletion, a slip past its time) are never refused for size. A done row leaves only by age (DONE_KEEP_S, _expire_locked) or past MAX_DONE (the oldest of 500, _finish, _replay): a stated retention policy. views.MAX_VIEW_BYTES bounds one view; round 10's test builds MAX_SCREENS screens each with two of the largest views, every item ticked, beside a full done record, about 3.1 MB under the 4 MB bound, and every row comes through a restart. Round 11 adds one field written outside _commit: the tailnet addresses a screen's key-holder asks from (asked_from, at most MAX_ADDRESSES of MAX_ADDRESS characters, written by _touch only when one is new)."
+  },
+  {
+    "finding": "R9-B1-B-04",
+    "parts": [
+      "S3"
+    ],
+    "status": "FIXED",
+    "question": "Can a screen mark done a pane it was not issued and shown, and can a screen's word be recorded as anything stronger than a screen's word?",
+    "files": [
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/tools/display_tools.py",
+      "crooks-assistant/tests/test_r11_screens_server.py",
+      "crooks-assistant/tests/test_screens_r10.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_screens_server.py::test_a_screen_using_the_remotes_routes_is_still_a_screen_and_never_the_owners_remote",
+      "crooks-assistant/tests/test_screens_r10.py::test_a_key_holder_that_never_draws_a_page_is_held_to_the_servers_plan_and_its_done_is_its_word",
+      "crooks-assistant/tests/test_displays.py::test_pages_are_told_in_order_one_size_and_not_too_fast_and_done_needs_the_tap",
+      "crooks-assistant/tests/test_displays.py::test_the_done_record_keeps_no_ones_words"
+    ],
+    "answer": "The owner's ruling is still pending: whether a screen's own tap counts as packed is George's to decide, and this code does not decide it. What it does now. A screen's Mark packed (/done -> DisplayStore.mark_done) needs that screen's own key (its cookie), approval, confirm the JSON true, the pane now at `version` on that screen and not done, the kind an order or a list (round 11: an objective, which its page has no button for, is refused, as the remote already refused it; a video too), not a slip cut at views.MAX_ITEMS, and for an order or list every page of the server's own plan acknowledged for that version (_Acks: the first page sets the size, at most MAX_ACK; then only the plan's next page, ACK_GAP_S apart) and ACK_GAP_S before the tap. The row is how='screen' and CLIVE says it as 'that screen's word, not a check' (how_marked). The server cannot tell a drawn page or a packer's tap from a key-holder's paced POSTs; round 10's test sends exactly those and still gets a 'screen' row. The forge path left, now closed: a TV is one of the owner's devices by its login, so it could tick every item through /remote/tick (its own page ticks there) and POST /remote/done - no key, no page drawn - and the row said 'remote', the owner's own remote. routes/displays.py:remote_done now asks DisplayStore.screen_device, which knows a request as a screen's by a key it carries or by a tailnet address that screen's key-holder has asked from (_device: only for a request proxy_state calls TAILSCALE; noted on register and on every ask, IPv4 and IPv6 alike, the latest MAX_ADDRESSES kept in the record as asked_from and in no answer), and done_from_remote then records how='screen_remote', said as a screen's word. The owner's phone is still 'remote' (its wording no longer says the items were ticked 'there'). The new test fails on 81c78948. Limit: a device on the owner's login that has never been a screen is the owner by the admission rule and is not told apart here."
+  },
+  {
+    "finding": "R9-B2-B2-01",
+    "parts": [
+      "S3P",
+      "S3"
+    ],
+    "status": "FIXED",
+    "question": "Server side: when an old page hands its legacy key back on /displays/register, is it given a fresh key only in the cookie, and does the old key stop working?",
+    "files": [
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/tests/test_screen_cookie.py",
+      "crooks-assistant/tests/test_r11_screens_server.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_screens_server.py::test_once_an_old_page_hands_its_key_in_that_key_opens_nothing_and_the_new_one_everything",
+      "crooks-assistant/tests/test_r11_screens_server.py::test_a_new_key_whose_record_is_not_yet_durable_is_still_handed_over",
+      "crooks-assistant/tests/test_screen_cookie.py::test_a_screen_paired_before_the_cookie_moves_over_once_and_stays_approved",
+      "crooks-assistant/tests/test_screen_cookie.py::test_a_wrong_or_borrowed_old_key_is_no_way_in",
+      "crooks-assistant/tests/test_screen_cookie.py::test_every_screen_request_is_known_by_its_cookie_and_never_by_the_old_header"
+    ],
+    "answer": "The server's half; the page's (dropping the legacy key from localStorage the moment it is read, web/display.js:loadScreen, migrate) is the pages fixer's entry. X-Screen-Key is read on /displays/register alone (routes/displays.py:_old_screen_key); DisplayStore.register treats it exactly as holding the screen's key and, for an approved screen, replaces screen['secret'] with the hash of a fresh key (rotate), handed only as the HttpOnly cookie (_handed), never in the answer. Every other screen route reads only the cookie (_screen_key), and _holds compares with the one stored hash, so from then on the old key opens nothing and names nothing (409, no cookie). The new test sends the spent key as a copier would, as the cookie, on the ask, /seen, /done, /video and /register: all refused; the new cookie opens them. Fixed: when the record holding the new key was put in place but its folder could not be flushed while an earlier deletion was owed, _commit raised NotDurable and register answered 503 with no cookie - the old key already spent and the new one never given, the screen lost until the owner removed it and approved it again. DisplayStore._keyed now hands the key over then (the change stands, in memory and in the file); a change not made at all (NotSaved) hands nothing and the old key still works. That test fails on 81c78948."
+  },
+  {
+    "finding": "S3-SCREEN-VIDEO",
+    "parts": [
+      "S3"
+    ],
+    "status": "EVIDENCED",
+    "question": "Can a screen's own /displays/{id}/video report inject anything but the bounded player state into the remote, CLIVE or the record?",
+    "files": [
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/app/tools/display_tools.py",
+      "crooks-assistant/app/clients/youtube.py",
+      "crooks-assistant/tests/test_r11_screens_server.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_screens_server.py::test_a_screens_word_on_its_video_is_a_state_numbers_and_true_or_false_and_nothing_else",
+      "crooks-assistant/tests/test_screen_video.py::test_how_it_plays_is_the_screens_own_word_held_in_memory_and_not_hurried",
+      "crooks-assistant/tests/test_screen_video.py::test_the_video_routes_are_the_owners_and_the_screens_own",
+      "crooks-assistant/tests/test_screen_video.py::test_screen_video_works_the_one_video_playing"
+    ],
+    "answer": "No. routes/displays.py:PlayingBody takes pane and version (strict ints in bounds), state (one of YouTube's six), at and duration (0..2*MAX_JUMP_S, so NaN and infinities are refused), volume (strict int 0..100), muted and blocked (strict bools) and error (strict int 0..999); round 11 made at and duration strict and the body extra='forbid', so another field, or a true or a string where a number goes, is now 422 (before, an extra field was ignored and a true read as 1.0: bounded either way, so this is hardening, not a leak closed). DisplayStore.report_playing needs that screen's key, approval and a video pane at that version, maps an unknown error to 5, clamps and rounds each number, and keeps a fixed dict in memory only (_playing, never written, at most every PLAYING_GAP_S, gone with the pane in _prune_acks). What leaves it is _heard's {state, at, duration, volume, muted, blocked, error, age_s} in the remote's view and in playing(), from which display_tools.screen_video says 'was', a clock time and a fixed note; the video pane itself is an id matching VIDEO_ID, a title and channel cut by views.video_view and youtube._text, numbers and the owner's commands. Found while testing, outside this area: a NaN in any JSON body the app refuses makes FastAPI's default validation answer fail to render (500) - the request is refused all the same and nothing is heard, but app/main.py has no RequestValidationError handler."
+  }
+]
