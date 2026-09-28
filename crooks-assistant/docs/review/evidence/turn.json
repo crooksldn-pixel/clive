@@ -1,0 +1,334 @@
+[
+  {
+    "finding": "R9-D1-D1-02",
+    "parts": [
+      "AC1",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "Can a tapped write land on a record other than the one displayed — after order B replaces order A, on a screen of several records, or with a tap that names a record — and is an ambiguous multi-record selection refused?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_turn.py::test_a_note_tapped_after_order_b_replaced_order_a_lands_on_b_through_the_commit[show me order 1940-order]",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_note_tapped_after_order_b_replaced_order_a_lands_on_b_through_the_commit[show me the items and the shipping on order 1940-order_workspace]",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_late_answer_about_a_does_not_take_the_tapped_note_back_to_a",
+      "crooks-assistant/tests/test_r11_turn.py::test_two_orders_and_no_cursor_leave_nothing_to_bind_and_a_bind_naming_nothing_is_refused",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_tap_that_names_a_record_other_than_the_cursor_is_called_by_that_record_s_own_name",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_tap_naming_a_record_this_conversation_was_never_shown_binds_nothing_and_says_nothing_of_it",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_workspace_moves_the_cursor_and_the_tapped_note_lands_on_the_order_shown",
+      "crooks-assistant/tests/test_turn_boundary.py::test_two_orders_on_one_screen_move_nothing_and_neither_card_can_bind_the_other",
+      "crooks-assistant/tests/test_turn_boundary.py::test_one_record_on_the_screen_is_still_where_the_owner_now_is"
+    ],
+    "answer": "Only a listening chip (Add a note, Change the address, Reply, Rewrite, Ask about) binds by position: it posts `voice.bind` with the half's cursor (web/app.js `primeAction`). Every other tapped change names its own record — a row action its row's ref (app/routes/actions.py `row`), an \"open\" chip its own order_id, a composer its compose_id. In app/routes/turn.py `_answer`, `_stand_on_what_was_shown` moves the cursor to the one record the answer drew — its own card or the workspace `present()` composes over it (`_card_record`, `_WORKSPACE_CARDS`) — and to nothing when the cards hold two or more distinct records (`_records_shown`, counted across kinds) or when the one order drawn is not one the owner named; a replaced turn publishes nothing and moves nothing (the `if abandoned:` branch). `_bind_listening_to_cursor` then takes the binding family off every card that is not the cursor, so a chip on another card primes words naming its own record and binds nothing. FIXED at this commit in app/commands.py `_bind_voice`: a bind is refused (`not_held`) unless the record — the one the tap named, else the cursor — was issued to this conversation (`may_open`, the rule `open.entity` and the gate keep); it bound any id posted and built its listening phrase from the process-wide copy of a record the conversation was never shown. And the bound record is called by its own name (`_bound_label`): a tap naming #1940 with the cursor on #1938 was labelled \"#1938\" on the glass and in the model's note. With no cursor and nothing named the bind is refused `no_target`. The model writes to the id put beside the words (`_with_continuation`), and the gate admits only ids the conversation was issued. The tests follow B-after-A (as a card and as a workspace) and a late answer about A through the tap, the dictation and the commit to the one mutation the shop receives, #1940's note."
+  },
+  {
+    "finding": "R9-D1-D1-03",
+    "parts": [
+      "S1",
+      "S2",
+      "S2T"
+    ],
+    "status": "EVIDENCED",
+    "question": "Did removing the fast lane leave a reachable write — refund, cancellation, store credit — with weaker refusal or disambiguation than before, along turn → provider → dispatch → gate → engine?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/app/providers/max_agent_sdk.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_spoken_refusals.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_turn.py::test_money_through_the_real_provider_is_held_on_the_right_record_and_a_stranger_record_is_denied_first[refund]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_through_the_real_provider_is_held_on_the_right_record_and_a_stranger_record_is_denied_first[cancel]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_through_the_real_provider_is_held_on_the_right_record_and_a_stranger_record_is_denied_first[store credit]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[refund]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[cancel]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[store credit]",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_store_credit_opened_on_one_half_cannot_be_prepared_from_the_other",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_change_to_an_order_other_than_the_one_named_is_refused_at_the_write_boundary",
+      "crooks-assistant/tests/test_spoken_refusals.py::test_a_spoken_cancel_is_a_held_card_that_a_spoken_yes_cannot_apply[cancel order 1938-shopify_order_cancel-args0]"
+    ],
+    "answer": "The fast lane never wrote. Its recipes were read-only by assertion (`assert_read_only`, run at import and before every run: `git show 4411adde^:crooks-assistant/app/fastpath/recipes.py`), and its router scored \"cancel\", \"refund\", \"archive\" as STRONG mutation words that left the lane unscored (`git show 4411adde^:crooks-assistant/app/fastpath/intent.py`), so every spoken refund, cancellation and store credit already went to the model before 4411adde deleted the lane; the assertions deleted from tests/test_order_create.py said exactly that (\"cancel it\" and \"refund order 1930\" resolve to no family). No write lost a check. The write path is /turn (app/routes/turn.py `turn` → `_provider_turn`) → `MaxAgentSDKProvider.turn_on_branch` → the PreToolUse hook (`make_pretooluse_hook`: owner authority, then `classify` against the conversation's issued ids) and the in-process tool → `_dispatch` (authority, `moved_on`, CURRENT_BRANCH) → `dispatch` → `gate.classify` → the tool's own prepare from a fresh read → `ActionEngine.stage` (a PENDING proposal stamped with its half, RED, held to a gesture graver than a tap). What it has that the lane never had: the bare-yes interlock in front of the model (`is_affirmation`; a yes applies nothing), and after the model `_answer` withdraws a change on an order other than the one named (`_off_target`) and any change staged by a turn he has moved on from. The tests drive a refund, a cancellation and a store credit from a sentence, through the scripted model and through the real provider with a stand-in CLI that runs the provider's own hook and MCP tool on a task with none of the request's context: each is a red card on the record read, filed against the half that asked; a commit without the gesture is refused (409 not_armed); a spoken yes applies nothing and never reaches the model; the same change on a record the conversation was never shown is denied by the hook before any handler, with nothing staged. The shop receives nothing."
+  },
+  {
+    "finding": "R9-D2-D2-01",
+    "parts": [
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "When an older turn finishes after its replacement, can it publish cards, move the half's cursor or workspace, or leave a change tappable?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/progressive.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_turn_boundary.py::test_an_answer_replaced_by_a_newer_question_moves_nothing_when_it_finishes_last",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_late_answer_does_not_end_the_newer_turn_still_running_on_its_half",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_cancelled_answer_ends_its_own_turn_and_moves_nothing",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_change_staged_by_an_answer_the_owner_has_moved_on_from_is_withdrawn_unsent",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_late_answer_about_a_does_not_take_the_tapped_note_back_to_a",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_read_that_lands_after_its_turn_was_replaced_puts_nothing_on_the_newer_turn_s_glass"
+    ],
+    "answer": "`_moved_on` (app/routes/turn.py) judges a turn replaced per half: the half's `instruction_seq` has moved, or the half was cancelled. In `_answer` a replaced turn withdraws every change it staged (`revoke_ids`, never delivered), publishes no cards (`ui = []`), calls neither `branch.shown` nor `_stand_on_what_was_shown`, and does not reconcile the workspace (`progressive.complete` runs only on the live branch); it keeps only its reads in the entity tier. That is round 10's change. c5bdc3ba closes what it left open on the progressive glass: a read put its cards on whichever workspace was current on the half when it landed, so a replaced turn's read drew #1938 on the newer turn's glass. `progressive.starting` now records the workspace the read was issued into (`_ISSUED_INTO`, per task), and `observe` and `failed` land only there while it is still the half's live workspace (`_landing_on`), on the half the read was made for (`_workspace_for` → `acting_branch`). The provider refuses any tool call from a replaced turn (`_Conversation.moved_on` in `_dispatch`). Tests: the older answer finishing last moves nothing and leaves the cursor on the newer order, followed through a tapped note to its commit; a late read reaches no glass but its own; a late staged change is withdrawn unsent."
+  },
+  {
+    "finding": "R9-D2-D2-02",
+    "parts": [
+      "S2",
+      "S2T"
+    ],
+    "status": "EVIDENCED",
+    "question": "Over a waiting money-moving card, is \"yes, #1938\" — a yes carrying a number or another word — read as a bare yes, dropping what was said?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_r11_turn.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_yes_that_says_anything_more_is_an_instruction_and_withdraws_the_waiting_card[yes, #1938]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_yes_that_says_anything_more_is_an_instruction_and_withdraws_the_waiting_card[yes 1938]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_yes_that_says_anything_more_is_an_instruction_and_withdraws_the_waiting_card[Yes #1940]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_yes_that_says_anything_more_is_an_instruction_and_withdraws_the_waiting_card[go ahead with 1940]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_yes_that_says_anything_more_is_an_instruction_and_withdraws_the_waiting_card[yes, the one for Sam]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_bare_yes_still_answers_from_the_card_and_withdraws_nothing[yes]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_bare_yes_still_answers_from_the_card_and_withdraws_nothing[OK, go ahead!]",
+      "crooks-assistant/tests/test_r11_turn.py::test_yes_with_another_order_number_over_a_waiting_refund_is_an_instruction_about_that_order[the order he said]",
+      "crooks-assistant/tests/test_r11_turn.py::test_yes_with_another_order_number_over_a_waiting_refund_is_an_instruction_about_that_order[the order that was waiting]"
+    ],
+    "answer": "`is_affirmation` (app/routes/turn.py) accounts for every character: the sentence is split only on whitespace and punctuation (`_HARMLESS`), every chunk left must be letters alone (`_WORD`), there are at most four words, and together they must be one of the fixed bare yeses (`_AFFIRMATIONS`). A digit, a \"#\", a \"£\" or any further word makes the sentence an instruction. Only a bare yes with a card waiting on this half (`_waiting_proposal`) is answered in front of the model, and it applies nothing: it repeats the card's own gesture. Anything else goes to the model with the words exactly as said and, like every new instruction, withdraws the waiting card (`revoke_pending`). Round 10 made that change; c5bdc3ba adds that a model which then re-stages the change on the order that was waiting rather than the one he said has it withdrawn before delivery, and he is told which order it was for (`_off_target`, `_off_target_words`). Tests: yes-plus-something sentences over a waiting cancellation reach the model verbatim and withdraw it; bare yeses do not reach the model and withdraw nothing; \"yes, #1940\" over a waiting refund on #1938 gives #1940's card, or — if the model re-stages #1938 — no card at all; nothing reaches the shop."
+  },
+  {
+    "finding": "R9-D2-D2-03",
+    "parts": [
+      "AC2",
+      "AC3",
+      "S1",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "With two halves thinking at once, is every proposal staged against the half whose request asked for it, rather than the shared session field?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/providers/max_agent_sdk.py",
+      "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/app/tools/context.py",
+      "crooks-assistant/app/session/models.py",
+      "crooks-assistant/tests/test_r11_turn.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_turn.py::test_two_halves_staging_changes_at_once_each_file_theirs_against_their_own_half",
+      "crooks-assistant/tests/test_r11_turn.py::test_the_same_change_asked_in_both_halves_is_two_proposals_each_filed_where_it_was_asked",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_change_staged_through_the_sdk_callback_belongs_to_its_conversation_s_half",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_row_archived_in_one_half_is_filed_there_whoever_spoke_last",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_store_credit_opened_on_one_half_cannot_be_prepared_from_the_other",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_read_by_the_half_put_aside_is_not_staged_on_the_focused_half_s_glass"
+    ],
+    "answer": "A proposal's half comes from app/tools/context.py `acting_branch`: CURRENT_BRANCH (a ContextVar, so per task) first, and the session's shared `acting_branch` (app/session/models.py) only for code that runs with no request. CURRENT_BRANCH is set on the request's own task by /turn (app/routes/turn.py `turn`, around `_turn`), by /command (app/routes/command.py `command`) and — FIXED in c5bdc3ba — by /actions/row (app/routes/actions.py `row`, which had fallen through to the shared field, i.e. the half that last spoke); and by `MaxAgentSDKProvider._dispatch` around each SDK callback, from the conversation's own `branch_id`, because the SDK runs tools on tasks of its own. `ActionEngine.stage` stamps `branch_id=acting_branch(session)`; FIXED in c5bdc3ba (protected app/actions/engine.py): the same change asked in both halves came back to the second half as the first half's proposal — the dedupe now also requires the same half. Everything that reads the stamp agrees: `revoke_pending(branch_id=…)` on a new instruction, `_waiting_proposal(branch_id)` for a spoken yes, and progressive staging (`_workspace_for` → `acting_branch`, c5bdc3ba). Tests: two halves staging at once while the shared field names the other half; the same change asked in both halves; the SDK callback on a task whose context and session both name the other half; a row archived in one half after the other spoke; a store credit opened on one half refused from the other; a read by the half put aside kept off the focused half's glass."
+  },
+  {
+    "finding": "R9-D2-D2-04",
+    "parts": [
+      "AC2",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "When one answer shows an order and a customer, does the Mac infer a focused record that a later write then targets, without an explicit focus or a uniquely identified tap?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_turn_boundary.py::test_an_order_beside_a_customer_is_not_a_record_the_cursor_can_choose",
+      "crooks-assistant/tests/test_turn_boundary.py::test_two_orders_on_one_screen_move_nothing_and_neither_card_can_bind_the_other",
+      "crooks-assistant/tests/test_turn_boundary.py::test_one_record_on_the_screen_is_still_where_the_owner_now_is",
+      "crooks-assistant/tests/test_r11_turn.py::test_after_an_order_beside_a_customer_the_note_chip_s_words_land_only_on_the_order_they_name",
+      "crooks-assistant/tests/test_r11_turn.py::test_after_an_order_beside_a_customer_a_tap_that_names_its_record_binds_that_record",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_tap_that_names_a_record_other_than_the_cursor_is_called_by_that_record_s_own_name"
+    ],
+    "answer": "`_stand_on_what_was_shown` (app/routes/turn.py) moves the cursor only when the answer's cards hold exactly one distinct record, counted across kinds and across a record's own card and its composed workspace (`_records_shown`, `_card_record`, `_record_key`); an order beside a customer is two, and the cursor stays where it was. `_bind_listening_to_cursor` then takes the binding family off every card that is not the cursor, so nothing on a mixed screen binds by position; each such chip primes words that name its own record. The ways left to a target are explicit: words naming the record (the model reads its id, the gate admits only issued ids, and `_off_target` withdraws a change to an order other than the one named) or a tap that names it (`voice.bind` with kind and ref). FIXED at this commit in app/commands.py `_bind_voice`: a tap naming #1940 while the cursor was #1938 bound #1940 but took the cursor's label, so the glass said \"Adding a note to #1938\" and the model was told \"(#1938), id …/1940\"; the label now comes from the record bound (`_bound_label`), and a tap naming a record the conversation was never issued is refused (`may_open`). Tests: the mixed screen leaves the cursor on #1938 and strips #1940's chip; #1940's words stage and commit #1940's note alone; a tap naming #1940 binds, is called, and commits #1940."
+  },
+  {
+    "finding": "R9-D2-D2-05",
+    "parts": [
+      "AC3",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "With the fast lane's read-side checks gone, can the model path present an answer or stage a change about a different record from the one the owner named — by number, name, period or spoken correction?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/docs/product-memory/OWNER_DECISIONS_2026-09-28.md"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_turn.py::test_a_change_to_an_order_other_than_the_one_named_is_refused_at_the_write_boundary",
+      "crooks-assistant/tests/test_r11_turn.py::test_an_answer_that_read_another_order_than_the_one_named_says_so_and_does_not_move_the_cursor",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_named_person_with_another_customer_s_order_open_is_answered_from_that_person",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_name_two_customers_share_moves_nothing_and_draws_neither_as_the_answer",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_spoken_correction_withdraws_the_first_card_and_a_change_to_the_first_order_again_is_not_shown",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_spoken_period_correction_reaches_the_model_as_said_with_nothing_read_ahead_of_it",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it[1938-1940]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it[1940-1938]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_question_the_model_answers_in_words_does_not_redraw_the_open_order"
+    ],
+    "answer": "The owner decided on 28 September 2026 that every sentence is a model turn and nothing matches his words in front of the model (docs/product-memory/OWNER_DECISIONS_2026-09-28.md), so the checks sit after it, with write-target validation kept apart from the read side as the reviewer asked. Beside his words the model is told that a number or name he says outranks what is on screen (`NAMED_OUTRANKS_SHOWN` in `_branch_line`); nothing on the Mac reads the open record for a sentence, and the screen is drawn only from what the model read. c5bdc3ba adds, in `_answer`: the orders his own words name (`_orders_named` — \"#1940\", \"order 1940\", \"CROOKS-1940\", or a bare number that is an order this conversation holds; never the tapped control's note) are held against what the model did. A change staged on any other order is withdrawn before delivery, drawn nowhere, and he hears which order it was for (`_off_target`, `_off_target_words`) — the write-target check. A read of another order and none he named ends the answer \"That's #1940, not #1938.\" and does not move the cursor (`_stand_on_what_was_shown(named)`) — the bounded read-side clarification. A name two customers share draws neither as the answer and moves nothing (the cursor needs exactly one record). Periods and corrections reach the model verbatim with nothing read ahead of it; a correction withdraws the waiting card as any instruction does, and a change re-staged on the first order is withdrawn."
+  },
+  {
+    "finding": "R9-I-tests2-I-01",
+    "parts": [
+      "T2",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "After Add a note is bound to one order and the next sentence names another, can any continuation or proposed write target the first?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_turn.py::test_add_a_note_bound_to_1938_then_1940_named_stages_nothing_on_1938[add a note to order 1940: fragile]",
+      "crooks-assistant/tests/test_r11_turn.py::test_add_a_note_bound_to_1938_then_1940_named_stages_nothing_on_1938[#1940: fragile, handle with care]",
+      "crooks-assistant/tests/test_r11_turn.py::test_add_a_note_bound_to_1938_then_a_note_for_1940_as_asked_lands_on_1940",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_question_about_another_order_after_a_tapped_note_stages_nothing_on_the_first"
+    ],
+    "answer": "/turn (app/routes/turn.py `_turn`) takes the binding once — `branch.voice_target()` then `release_voice()`: one sentence, this half only, expiring — and puts it beside the words as a bracketed note (`_with_continuation`) that tells the model to do something else if the words ask for it; `question` keeps the owner's words alone. The binding is made by `voice.bind` (app/commands.py `_bind_voice`), now only for a record the conversation was issued. c5bdc3ba adds the write-boundary check: the orders his words name (`_orders_named`, from his words only, never the note) are held against every order change the turn staged, and a change to any other order — the bound one included — is withdrawn before delivery (`_off_target`) with a sentence saying which order it was for. Tests: bound to #1938, \"add a note to order 1940: fragile\" and \"#1940: fragile, handle with care\" answered by a model that follows the binding anyway leave #1938's change REVOKED and undelivered, no card, the binding spent and absent from the next sentence; a model that notes #1940 gives #1940's card, whose commit sends #1940's note alone; \"show me order 1940\" after the bind stages nothing."
+  },
+  {
+    "finding": "R9-I-tests2-I-02",
+    "parts": [
+      "T2",
+      "T5",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "With a different record in focus, do the answer and the card identify the person or order the owner asked for, or say plainly that they do not?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it[1938-1940]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it[1940-1938]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_named_person_is_drawn_from_the_model_s_read_of_that_person_not_the_open_order_s_customer",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_question_the_model_answers_in_words_does_not_redraw_the_open_order",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_named_person_with_another_customer_s_order_open_is_answered_from_that_person",
+      "crooks-assistant/tests/test_r11_turn.py::test_an_answer_that_read_another_order_than_the_one_named_says_so_and_does_not_move_the_cursor"
+    ],
+    "answer": "The card and the cursor are drawn only from what the model read (`present(calls)` in `_answer`; `_stand_on_what_was_shown`). c5bdc3ba adds the spoken half: when the model read an order and none of those he named (`_orders_read` against `_orders_named`), the answer ends \"That's #1940, not #1938.\" and the cursor does not follow it. Tests, each with the other record open: the asked-for order, both ways round, is the card, the cursor and the answer he hears, and the open order is never read; a named person is the customer drawn and the cursor, neither Daniel nor his order is drawn, and the answer is the model's own; a model that reads the wrong order has that said at the end of its answer and does not move the cursor; a model that answers in words draws nothing from the open order."
+  },
+  {
+    "finding": "R9-I-tests2-I-03",
+    "parts": [
+      "T3",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "Is there a test whose requested order differs from the focused one and whose assertions a model fixed to one order could not satisfy?",
+    "files": [
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_context.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it[1938-1940]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it[1940-1938]",
+      "crooks-assistant/tests/test_context.py::test_the_models_two_reads_of_an_order_draw_the_whole_order"
+    ],
+    "answer": "tests/test_turn_boundary.py `test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it` is parametrised both ways round (#1938 open and #1940 asked, and the reverse), and its model (`reads_the_number_said`) reads whichever number the owner's words carry. Its assertions — the asked-for order is the card, the cursor and the answer, and the open order was never read for the sentence — fail for any model fixed to one order. tests/test_context.py `test_the_models_two_reads_of_an_order_draw_the_whole_order` is labelled a rendering smoke test and points to it."
+  },
+  {
+    "finding": "R9-I-tests3-I-03",
+    "parts": [
+      "T1",
+      "T5",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "With the fast lane's routing tests gone, are spoken cancel and refund refusals, the cross-order tab refusal, and closed or ambiguous half navigation still held, at turn level or at their route and tool boundaries?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/routes/branches.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_spoken_refusals.py",
+      "crooks-assistant/tests/test_turn_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[refund]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[cancel]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[store credit]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_money_on_a_record_this_conversation_was_never_shown_is_refused_and_nothing_is_staged[shopify_refund_create]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_money_on_a_record_this_conversation_was_never_shown_is_refused_and_nothing_is_staged[shopify_order_cancel]",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_tab_sentence_about_another_order_moves_no_tab_of_the_open_one",
+      "crooks-assistant/tests/test_spoken_refusals.py::test_a_tab_sentence_about_another_order_moves_nothing_before_the_model",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_closed_half_cannot_be_focused_and_the_other_half_said_out_loud_moves_nothing",
+      "crooks-assistant/tests/test_spoken_refusals.py::test_the_other_half_said_out_loud_moves_no_focus"
+    ],
+    "answer": "Cancel and refund: the deleted assertions said the fast lane left \"cancel it\" and \"refund order 1930\" to the model (tests/test_order_create.py in 4411adde); every sentence now goes to the model and the refusal that matters is at the write boundary. At turn level a spoken refund, cancellation and store credit are each a red card on the record read; a commit without the graver gesture is refused (not_armed); a spoken yes applies nothing and never reaches the model; money on a record the conversation was never shown is refused at the gate with nothing staged. Cross-order tabs: a sentence about another order's tab moves nothing before the model, and tabs are held per record (`branch.tab_for`), so reading #1940 leaves #1938's tab where it was. Closed halves: FIXED in c5bdc3ba — app/routes/branches.py `focus` refuses a MERGED or CANCELLED half (409 branch_closed); a stale chip used to refocus it, and the next sentence was answered on a half nobody could see. `branch.show` already refused it. \"The other half\" said out loud is the model's to answer and moves no focus."
+  },
+  {
+    "finding": "R9-I-tests5-I-01",
+    "parts": [
+      "T5",
+      "S2",
+      "S2T"
+    ],
+    "status": "EVIDENCED",
+    "question": "After Add a note is bound, can \"open the inbox\" be taken as the note and stage a change on the bound order?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/session/branch.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_touch_to_voice.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_turn.py::test_open_the_inbox_after_add_a_note_was_tapped_stages_no_note_when_the_model_navigates",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_navigation_command_after_a_tapped_note_cannot_become_a_change_by_itself",
+      "crooks-assistant/tests/test_touch_to_voice.py::test_the_next_sentence_carries_the_binding_and_only_the_next",
+      "crooks-assistant/tests/test_touch_to_voice.py::test_a_binding_does_not_leak_across_the_split",
+      "crooks-assistant/tests/test_touch_to_voice.py::test_a_binding_expires"
+    ],
+    "answer": "By the owner's decision of 28 September 2026 no word list decides whether a sentence is the dictation (the command-versus-dictation classifier went with the fast lane). `_with_continuation` (app/routes/turn.py) puts the binding beside his words and tells the model to do what they ask if they ask for something else, and `_turn` spends the binding on that one sentence (`voice_target` and `release_voice` in app/session/branch.py — this half only, and expiring). What the Mac guarantees holds at the write boundary whatever the model decides: a model that opens the inbox stages nothing on #1938 and the binding is spent; a model that writes those words as the note produces only a PENDING card on #1938 that shows \"open the inbox\" as the note, applied only by the owner's tap — a spoken yes does not apply it and his next sentence withdraws it — and the shop receives nothing. The same words said to the other half never pick the binding up. So \"cannot stage a note\" holds as \"cannot apply one without his tap on a card that shows those words\"; a Mac-side classifier of the words would be the lane the owner removed."
+  },
+  {
+    "finding": "R9-I-tests5-I-03",
+    "parts": [
+      "T5",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "Beyond the fixed-model walkthrough, is a change the model stages on a record other than the one the owner named refused at the write boundary?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_write_walkthrough.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_turn.py::test_a_change_to_an_order_other_than_the_one_named_is_refused_at_the_write_boundary",
+      "crooks-assistant/tests/test_r11_turn.py::test_yes_with_another_order_number_over_a_waiting_refund_is_an_instruction_about_that_order[the order that was waiting]",
+      "crooks-assistant/tests/test_write_walkthrough.py::test_the_owner_asks_for_a_note_and_gets_a_card_that_says_only_that_it_is_ready"
+    ],
+    "answer": "c5bdc3ba: `_answer` (app/routes/turn.py) holds the orders the owner's words name (`_orders_named`) against each order change the turn staged; one on any other order — even one this conversation holds, which the gate lets through — is revoked with the reason \"not the order the owner named\", never delivered, drawn nowhere, and he hears which order it was for (`_off_target`, `_off_target_words`). Asked to note #1940, a model that notes #1938 gets nothing; asked for #1938, the same model's card stands. tests/test_write_walkthrough.py stays the downstream-gate walkthrough and says so in `ModelThatAddsANote`'s docstring, which now points to this test."
+  }
+]

@@ -409,6 +409,164 @@ async def test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_
     assert desk.store.mutations == []
 
 
+class Cli:
+    """The `claude` subprocess, as far as `MaxAgentSDKProvider` can tell. It is asked the question
+    the provider sends; for each tool call its turn makes, it does what the Agent SDK does — runs
+    the provider's own PreToolUse hook, and unless that denies the call, the provider's own
+    in-process MCP tool — on a task that carries none of the request's context, as the SDK's
+    reader task does not; then it answers. Everything behind those two callbacks is the Mac's."""
+
+    turns: list = []
+    asked: list = []
+
+    def __init__(self, options=None) -> None:
+        from app.tools.registry import MCP_SERVER_NAME
+
+        self.options = options
+        self.tools = {t.name: t for t in options.mcp_servers[MCP_SERVER_NAME]["tools"]}
+        self.hook = options.hooks["PreToolUse"][0].hooks[0]
+        self.queries: list[str] = []
+
+    async def connect(self) -> None: ...
+    async def disconnect(self) -> None: ...
+    async def interrupt(self) -> None: ...
+
+    async def get_server_info(self) -> dict:
+        return {"account": {"apiKeySource": "claude.ai", "apiProvider": "firstParty"}}
+
+    async def query(self, text: str) -> None:
+        self.queries.append(text)
+        Cli.asked.append(text)
+
+    async def call(self, name: str, args: dict) -> str:
+        import contextvars
+
+        from app.tools.registry import MCP_SERVER_NAME
+
+        async def as_the_sdk_does() -> str:
+            said = await self.hook({"tool_name": f"mcp__{MCP_SERVER_NAME}__{name}", "tool_input": args}, None, None)
+            decided = said.get("hookSpecificOutput") or {}
+            if decided.get("permissionDecision") == "deny":
+                return f"DENIED: {decided.get('permissionDecisionReason')}"
+            out = await self.tools[name].handler(args)
+            return out["content"][0]["text"]
+        return await asyncio.get_running_loop().create_task(as_the_sdk_does(), context=contextvars.Context())
+
+    async def receive_response(self):
+        from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+
+        answer = await Cli.turns.pop(0)(self, self.queries[-1])
+        yield AssistantMessage(content=[TextBlock(text=answer)], model="fake")
+        yield ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1, is_error=False, num_turns=1, session_id="cli")
+
+
+@pytest.fixture()
+async def sdk(desk, monkeypatch):
+    """The desk, answered by the real provider: /turn → `turn_on_branch` → the SDK's callbacks →
+    `_dispatch` → the dispatcher, the gate, the tool's prepare and the action engine."""
+    import sys
+
+    import claude_agent_sdk
+
+    from app.providers.max_agent_sdk import MaxAgentSDKProvider
+
+    real = claude_agent_sdk.create_sdk_mcp_server
+
+    def keeping_the_tools(name, version="1.0.0", tools=None):
+        return {**real(name=name, version=version, tools=tools), "tools": list(tools or [])}
+
+    monkeypatch.setattr(claude_agent_sdk, "create_sdk_mcp_server", keeping_the_tools)
+    monkeypatch.setattr(claude_agent_sdk, "ClaudeSDKClient", Cli)
+    Cli.turns, Cli.asked = [], []
+    provider = MaxAgentSDKProvider(system_prompt="sys", cli_path=sys.executable, writes_enabled=True,
+                                   session_lookup=desk.runtime.sessions.get_or_create)
+    provider._started, provider._auth_mode = True, "cli"
+    desk.runtime.provider = provider
+    yield desk
+    await provider.stop()
+
+
+def _json(text: str) -> dict:
+    """A read's result as the model reads it: JSON, after the line that frames any email text."""
+    import json
+
+    return json.loads(text[text.index("{"):])
+
+
+async def _sdk_refund(cli, text):
+    order = _json(await cli.call("shopify_find_order", {"query": "1940"}))["orders"][0]["order_id"]
+    await cli.call("shopify_refund_create", {"order_id": order, "amount": "20.00"})
+    return "The refund is on the card."
+
+
+async def _sdk_cancel(cli, text):
+    order = _json(await cli.call("shopify_find_order", {"query": "1940"}))["orders"][0]["order_id"]
+    await cli.call("shopify_order_cancel", {"order_id": order})
+    return "The cancellation is on the card."
+
+
+async def _sdk_credit(cli, text):
+    person = _json(await cli.call("shopify_find_customer", {"query": "Kowalski"}))["customers"][0]["customer_id"]
+    opened = _json(await cli.call("shopify_store_credit", {"customer_id": person, "amount": 20.0}))
+    await cli.call("shopify_store_credit_add", {"workspace_id": opened["workspace_id"]})
+    return "The credit is on the card."
+
+
+SDK_MONEY = {
+    "refund": ("refund twenty pounds on order 1940", _sdk_refund, "shopify_refund_create", B,
+               ("shopify_refund_create", {"order_id": B, "amount": "20.00"})),
+    "cancel": ("cancel order 1940", _sdk_cancel, "shopify_order_cancel", B, ("shopify_order_cancel", {"order_id": B})),
+    "store credit": ("give Mia Kowalski twenty pounds of store credit", _sdk_credit, "shopify_store_credit_add", MIA,
+                     ("shopify_store_credit_add", {"workspace_id": "ws_the_model_made_up"})),
+}
+
+
+@pytest.mark.parametrize("kind", list(SDK_MONEY))
+async def test_money_through_the_real_provider_is_held_on_the_right_record_and_a_stranger_record_is_denied_first(sdk, kind):
+    """R9-D1-D1-03, end to end on the model's own path: /turn, `MaxAgentSDKProvider.turn_on_branch`,
+    the SDK's PreToolUse hook and in-process tool (run as the SDK runs them, on a task that has
+    none of the request's context), `_dispatch`, the dispatcher, the gate, the tool's prepare and
+    the engine. A refund, a cancellation and a store credit the owner asks for are each a red card
+    on the record the model read, filed against the half that asked, held to a gesture graver than
+    a tap; a commit without it is refused, a spoken yes applies nothing and never reaches the
+    model. The same change reached for on a record this conversation was never shown is denied by
+    the hook before any handler runs, and nothing is staged. The fast lane this replaced never
+    wrote, so none of this is weaker than what it had."""
+    said, step, tool, target, stranger = SDK_MONEY[kind]
+    sid = f"sdk-{kind.replace(' ', '-')}"
+    Cli.turns = [step]
+    body = await say(sdk, said, sid)
+    assert all(c["ok"] for c in body["tool_calls"]), body["tool_calls"]
+
+    card = confirmation(body)
+    proposal = sdk.runtime.actions.find(card["proposal_id"])
+    session = sdk.runtime.sessions.get(sid)
+    assert (proposal.tool_name, proposal.entity_ref) == (tool, target)
+    assert proposal.branch_id == session.focused_branch, "the change was not filed against the half that asked"
+    assert card["risk"] == "red" and card["interaction"]["kind"] not in ("tap_commit", "", None)
+    refused = await commit(sdk, card["proposal_id"], sid)
+    assert refused.status_code == 409 and refused.json()["code"] == "not_armed", refused.text
+    asked = len(Cli.asked)
+    yes = await say(sdk, "yes", sid)
+    assert len(Cli.asked) == asked, "a spoken yes reached the model"
+    assert "Nothing happens until you" in yes["answer"]
+    assert sdk.runtime.actions.find(card["proposal_id"]).status.value == "PENDING"
+
+    # Another conversation, shown only #1938, reaching for the same change on a record it never saw.
+    told: list[str] = []
+
+    async def reach(cli, text):
+        await cli.call("shopify_find_order", {"query": "1938"})
+        told.append(await cli.call(*stranger))
+        return "Done."
+
+    Cli.turns = [reach]
+    other = await say(sdk, said, f"{sid}-stranger")
+    assert told and told[0].startswith("DENIED"), told
+    assert no_confirmation(other) and sdk.runtime.sessions.get(f"{sid}-stranger").proposals == []
+    assert sdk.store.mutations == []
+
+
 # ============================== "yes, #1940" over a waiting refund on #1938 (R9-D2-D2-02)
 
 
@@ -704,6 +862,56 @@ async def test_after_an_order_beside_a_customer_a_tap_that_names_its_record_bind
     assert desk.runtime.actions.find(card["proposal_id"]).entity_ref == B
     assert (await commit(desk, card["proposal_id"], "mixed-tap")).json()["status"] == "verified"
     assert [(n, v["id"]) for n, v in desk.store.mutations] == [("order_note_set", B)]
+
+
+async def test_a_tap_that_names_a_record_other_than_the_cursor_is_called_by_that_record_s_own_name(desk):
+    """R9-D2-D2-04 and R9-D1-D1-02: what the screen and the model are told a tap bound. A tap that
+    names #1940 while the cursor is #1938 bound #1940 — but took its NAME from the cursor, so the
+    glass said "Adding a note to #1938" over a binding to #1940, and the model was handed "the order
+    he is looking at (#1938), id …/1940". The name now comes from the record bound: the cursor's
+    own when the tap bound the cursor, else the Mac's copy of the record named — never the cursor's
+    and never a word the tablet sent."""
+    await _mixed_screen(desk, "named-tap")
+    bound = await bind_note(desk, "named-tap", kind="order", ref=B, label="#1938")
+    listening = bound["changed"]["listening_for"]
+    assert (listening["label"], listening["phrase"]) == ("#1940", "Adding a note to #1940"), listening
+    assert desk.runtime.sessions.get("named-tap").branch().public()["listening_for"]["label"] == "#1940"
+
+    desk.model.steps = [dictated_note("Call her back")]
+    await say(desk, "call her back", "named-tap")
+    told = desk.model.prompts[-1].split("[Just before saying this", 1)[1].split("]", 1)[0]
+    assert "#1940" in told and B in told, told
+    assert "1938" not in told, f"the model was told the cursor's name for another record: {told!r}"
+    # And a tap that binds the cursor is still called by the cursor's name.
+    desk.model.steps = [show_order("1938")]
+    await say(desk, "show me order 1938", "named-tap")
+    on_cursor = await bind_note(desk, "named-tap", kind="order", ref=A)
+    assert on_cursor["changed"]["listening_for"]["phrase"] == "Adding a note to #1938"
+
+
+async def test_a_tap_naming_a_record_this_conversation_was_never_shown_binds_nothing_and_says_nothing_of_it(desk):
+    """R9-D1-D1-02: a tapped control binds only a record the conversation was shown. `voice.bind`
+    took whatever id the tablet posted: it armed the next sentence for a record this conversation
+    was never issued, and the listening phrase was built from the Mac's process-wide copy of it —
+    "Asking about Mia", from a read another conversation made. It is refused now, as `open.entity`
+    refuses the same id, before anything about the record is looked at."""
+    desk.model.steps = [
+        reads(("shopify_find_customer", {"query": "Kowalski"}), ("shopify_customer_history", {"customer_id": found_customer})),
+        show_order("1938"),
+    ]
+    await say(desk, "what has Mia Kowalski ordered?", "reader")
+    await say(desk, "show me order 1938", "stranger")
+    branch = desk.runtime.sessions.get("stranger").branch()
+
+    for family, kind, ref in (("customer.ask", "customer", MIA), ("order.add_note", "order", B)):
+        refused = await bind_note(desk, "stranger", kind=kind, ref=ref) if family == "order.add_note" else \
+            await tap(desk, "voice.bind", "stranger", family=family, kind=kind, ref=ref)
+        assert refused["ok"] is False and refused["code"] == "not_held", refused
+        assert "Mia" not in str(refused) and "Kowalski" not in str(refused)
+        assert branch.voice_target() is None and branch.public().get("listening_for") is None
+    # The record it WAS shown still binds.
+    assert (await bind_note(desk, "stranger", kind="order", ref=A))["ok"] is True
+    assert branch.voice_target()["ref"] == A
 
 
 # ============== what the owner named, not what was open (R9-D2-D2-05, R9-I-tests2-I-02)
