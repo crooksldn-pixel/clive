@@ -237,8 +237,10 @@ def _expired_tree(top: Path, cutoff: float) -> list[tuple[Path, bool]] | None:
             order.append((entry, stat.S_ISDIR(info.st_mode)))
     if failed:
         return None
-    # Files before folders within each level; os.walk bottom-up already gives children first.
-    return sorted(order, key=lambda e: (-len(e[0].parts), e[1]))
+    # Files before folders within each level (os.walk bottom-up already gives children first), and
+    # by name within that, so the removal goes in the same order on every filesystem: which old
+    # file goes before a fresh one stops the pass must not depend on how a disk lists a folder.
+    return sorted(order, key=lambda e: (-len(e[0].parts), e[1], e[0].name))
 
 
 def private_dir(path: Path) -> Path:

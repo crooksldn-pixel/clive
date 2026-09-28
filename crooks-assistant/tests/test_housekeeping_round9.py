@@ -466,3 +466,17 @@ def test_the_drain_is_bounded_and_says_what_it_could_not_write(tmp_path, monkeyp
         release.set()
     assert settled is (not pending)
     assert ("still being written when the process exited" in caplog.text) is pending
+
+
+def test_the_removal_goes_in_the_same_order_however_the_disk_lists_a_folder(tmp_path, monkeypatch):
+    """Which old file goes before a fresh one stops the pass is by name, not by how a filesystem
+    happens to list a folder: the descendant case holds with the listing reversed (the CI runner's
+    disk listed it the other way round from a developer's)."""
+    real = os.walk
+
+    def reversed_walk(*args, **kwargs):
+        for here, dirs, files in real(*args, **kwargs):
+            yield here, list(reversed(sorted(dirs))), list(reversed(sorted(files)))
+
+    monkeypatch.setattr(session_module.os, "walk", reversed_walk)
+    test_a_report_renamed_into_an_old_folder_while_it_was_being_aged_out_is_kept(tmp_path, monkeypatch)
