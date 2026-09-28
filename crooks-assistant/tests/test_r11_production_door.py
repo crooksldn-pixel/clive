@@ -39,7 +39,13 @@ from app.tools import dispatch as dispatch_module
 from tests.test_actions import ORDER, TOOL
 from tests.test_actions_routes import OWNER, client  # noqa: F401 - `client` is a fixture
 from tests.test_live_voice import TOKEN, Clock, ElevenLabs, store_key
-from tests.test_proxy_identity import HOST_TAILNET, HOST_TAILNET6, _addresses, _world, tailscale_interface
+from tests.test_proxy_identity import (
+    HOST_TAILNET,
+    HOST_TAILNET6,
+    _addresses,
+    _world,
+    tailscale_interface,
+)
 from tests.test_tool_boundary import CallbackClient
 
 TEMPLATE = Path(__file__).resolve().parents[1] / "deploy" / "env.production.example"
