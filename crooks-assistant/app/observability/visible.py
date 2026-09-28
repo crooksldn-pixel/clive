@@ -714,6 +714,10 @@ def _named_queries(rec: Any) -> dict[str, str]:
     Read off the resolving reads themselves: `shopify_find_customer {query: "…"}` followed by
     the customer the turn then drew. This is the only place a NAME is joined to an ID, and it
     is what makes "he asked about A and was told about B" provable rather than suspected.
+
+    A search the dispatcher wrote down by its shape (`<9 chars ~…>`, app/tools/dispatch.py
+    loggable_args, round 9) holds no name to find in a request, and is passed over: the pair,
+    which compares ids, is what proves it then.
     """
     out: dict[str, str] = {}
     for turn in rec.turns:
@@ -724,7 +728,7 @@ def _named_queries(rec: Any) -> dict[str, str]:
             if not any(mark in record.tool for mark in RESOLVING_READS):
                 continue
             asked = str((record.args or {}).get("query") or (record.args or {}).get("name") or "").strip()
-            if len(asked) >= 3:
+            if len(asked) >= 3 and not asked.startswith("<"):
                 out.setdefault(asked.lower(), ref)
     return out
 
@@ -1048,11 +1052,34 @@ def _self_knowledge(rec: Any) -> list[Finding]:
     return out
 
 
+# What leaves this module of an owner_feedback event (round 9, F-OBS2-01): the fields the report
+# and the proposals print, each passed through the timeline's own scrub again, and nothing else of
+# the raw event. Where the report goes is the owner's alone (see read()).
+_FEEDBACK_FIELDS = ("ts", "session_id", "turn_id", "branch_id", "shape", "text", "screen", "entities", "tab",
+                    "branch_status", "nearby")
+# How much of an answer an ignored feedback row carries: the report prints 160 characters of it.
+_ANSWER_CHARS = 200
+
+
+def _kept_feedback(event: dict[str, Any]) -> dict[str, Any]:
+    from app.observability.timeline import scrub
+
+    return scrub({name: event[name] for name in _FEEDBACK_FIELDS if name in event})
+
+
+def _said(text: Any, limit: int) -> str:
+    """Owner or assistant words as they may leave this module: credential shapes, contact details
+    and the customer names the process knows taken out by the timeline's own rule, and bounded."""
+    from app.observability.timeline import scrub_text
+
+    return scrub_text(" ".join(str(text or "").split()))[:limit]
+
+
 def _feedback(rec: Any) -> tuple[list[Finding], list[dict[str, Any]], list[dict[str, Any]]]:
     """What the owner said about the product, and whether anything wrote it down."""
     from app.observability import feedback as feedback_mod
 
-    recorded = _events(rec, "owner_feedback")
+    recorded = [_kept_feedback(e) for e in _events(rec, "owner_feedback")]
     by_turn = {str(e.get("turn_id") or ""): e for e in recorded}
     out: list[Finding] = []
     ignored: list[dict[str, Any]] = []
@@ -1063,14 +1090,15 @@ def _feedback(rec: Any) -> tuple[list[Finding], list[dict[str, Any]], list[dict[
             continue
         if turn.turn_id in by_turn:
             continue
-        ignored.append({"turn_id": turn.turn_id, "shape": recognition.kind, "text": recognition.text,
-                        "answer": turn.answer, "at": turn.started_at,
+        answer = _said(turn.answer, _ANSWER_CHARS)
+        ignored.append({"turn_id": turn.turn_id, "shape": recognition.kind, "text": _said(recognition.text, 2000),
+                        "answer": answer, "at": turn.started_at,
                         "screen": [str(c.get("type") or "") for r in turn.tablet_events("render")
                                    for c in (r.get("cards") or []) if isinstance(c, dict)][:6]})
         out.append(Finding(
             "OWNER_FEEDBACK_IGNORED", turn.turn_id,
             f"the owner asked for this to be recorded ({recognition.kind}) and no owner_feedback "
-            f"event exists for the turn; the answer was: " + (turn.answer[:120] or "nothing"),
+            f"event exists for the turn; the answer was: " + (answer[:120] or "nothing"),
             subject="owner_feedback",
         ))
     return out, recorded, ignored
@@ -1121,6 +1149,23 @@ def _collisions(rec: Any) -> list[Finding]:
     return out
 
 
+def _whole(value: Any) -> int:
+    """A count or a size the tablet sent: a whole number, or nought. A value a page sent that is
+    not one is not a reason for the rule reading it to fail (round 9, F-OBS2-02)."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value == value and abs(value) < 1e15:
+        return int(value)
+    if isinstance(value, str) and _WHOLE.fullmatch(value.strip()):
+        return int(value.strip())
+    return 0
+
+
+_WHOLE = re.compile(r"-?[0-9]{1,15}")
+
+
 def _focus_lost(rec: Any) -> list[Finding]:
     """The owner's place, taken away by something that redrew.
 
@@ -1144,7 +1189,7 @@ def _focus_lost(rec: Any) -> list[Finding]:
                 subject=str(event.get("name") or ""),
             ))
         elif kind == "tablet_compose_field":
-            chars = int(event.get("chars") or 0)
+            chars = _whole(event.get("chars"))
             if typed > 0 and chars == 0:
                 out.append(Finding(
                     "FOCUS_LOST", turn_id,
@@ -1153,7 +1198,7 @@ def _focus_lost(rec: Any) -> list[Finding]:
                     subject=str(event.get("name") or ""),
                 ))
             typed = chars
-        elif kind == "tablet_scroll" and int(event.get("depth") or 0) == 0:
+        elif kind == "tablet_scroll" and _whole(event.get("depth")) == 0:
             deep, at = None, i
             for j in range(i - 1, -1, -1):
                 earlier = ordered[j]
@@ -1162,12 +1207,12 @@ def _focus_lost(rec: Any) -> list[Finding]:
                     break
                 if earlier_kind in ("command", "tablet_navigate", "tablet_tab"):
                     break     # he moved: the top of a new screen is where he asked to be
-                if earlier_kind == "tablet_scroll" and int(earlier.get("depth") or 0) > 0:
+                if earlier_kind == "tablet_scroll" and _whole(earlier.get("depth")) > 0:
                     deep, at = earlier, j
                     break
             if deep is None:
                 continue
-            if int(deep.get("height") or 0) != int(event.get("height") or 0):
+            if _whole(deep.get("height")) != _whole(event.get("height")):
                 continue      # a different document: the place could not be kept
             between = [e for e in ordered[at:i]
                        if str(e.get("kind") or "") in ("tablet_render", "branch_focused")]
@@ -1278,7 +1323,15 @@ def _subjects(turn: Any, found: list[Finding]) -> list[str]:
 
 
 def read(rec: Any) -> Reading:
-    """Everything this module finds in one timeline, and the two outcomes per turn."""
+    """Everything this module finds in one timeline, and the two outcomes per turn.
+
+    Who sees it (round 9, F-OBS2-01): what this returns carries the owner's words and the
+    assistant's answers, scrubbed by the timeline's own rule on the way out. It is read by
+    app/observability/report.py (reconstruct) and nothing else, and the report goes only to the
+    owner: into reports/, written 0600 in a 0700 folder under a checked session id
+    (session.write_private_text, report_target), by the command line and the Control app on the
+    server. No route answers with it and no screen is given it — tests/test_visible_privacy.py
+    holds both."""
     findings: list[Finding] = []
     errors: list[str] = []
     recorded: list[dict[str, Any]] = []
@@ -1288,13 +1341,16 @@ def read(rec: Any) -> Reading:
             findings.extend(rule(rec))
         except Exception as exc:  # noqa: BLE001 — one rule that cannot read a timeline is not a crash
             errors.append(f"{rule.__name__}: {type(exc).__name__}")
-            log.warning("the experience rule %s could not read this timeline: %s", rule.__name__, exc)
+            # The rule and the kind of failure, never the exception's own words (round 9,
+            # F-OBS2-02): those carry the value that could not be read — a telemetry field, which
+            # can be anything a page sent, a credential included.
+            log.warning("the experience rule %s could not read this timeline (%s)", rule.__name__, type(exc).__name__)
     try:
         extra, recorded, ignored = _feedback(rec)
         findings.extend(extra)
     except Exception as exc:  # noqa: BLE001 — the same rule for the same reason
         errors.append(f"_feedback: {type(exc).__name__}")
-        log.warning("owner feedback could not be read from this timeline: %s", exc)
+        log.warning("owner feedback could not be read from this timeline (%s)", type(exc).__name__)
     # Exact repeats are one finding: eleven Homes that each replayed the record in hand are one
     # defect said eleven times, and a report that lists it eleven times buries the other ten.
     seen: set[tuple[str, str, str]] = set()

@@ -37,10 +37,13 @@ from app.tools.dispatch import dispatch
 from app.tools.gate import Disposition, Tier, classify
 from tests.test_actions import FakeStore
 
-# The admitted owner calling tools directly, as a request the door let through would: every tool
-# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
-# and every test's that does not say this, is no authority at all.
-pytestmark = pytest.mark.usefixtures("owner_asking")
+# The admitted owner calling tools directly, as a request the door let through would — granted
+# per test, to the tests that call a tool, and to no others (the 2026-09-28 deploy review, round
+# 9, F-A2-FIXTURE). A refusal asserted under it is a refusal the OWNER meets, so it cannot pass
+# for want of authority; a test about a declaration, the gate's table or a probe runs with none,
+# which is production's default; and `test_with_no_authority_stamped_nothing_runs` holds what a
+# tool call with none gets.
+AS_THE_OWNER = pytest.mark.usefixtures("owner_asking")
 
 WRITE = discounts.WRITE_TOOL
 OPEN = discounts.OPEN_TOOL
@@ -254,6 +257,7 @@ def test_the_reviewed_shape_refuses_the_percentage_read_the_wrong_way_round():
 # --------------------------------------------------------------------------- the workspace
 
 
+@AS_THE_OWNER
 async def test_the_workspace_reads_the_shop_for_the_code_and_stages_nothing(store, session):
     workspace = await open_workspace(session, percent=20)
     assert workspace["kind"] == "discount"
@@ -266,6 +270,7 @@ async def test_the_workspace_reads_the_shop_for_the_code_and_stages_nothing(stor
     assert str(workspace["workspace_id"]) in session.issued_ids
 
 
+@AS_THE_OWNER
 async def test_a_code_the_shop_already_uses_is_named_on_the_card_and_blocks_the_button(store, session):
     workspace = await open_workspace(session, code="SUMMER15", percent=20)
     assert ws.fact(workspace, "taken_by") == "Summer sale"
@@ -278,6 +283,7 @@ async def test_a_code_the_shop_already_uses_is_named_on_the_card_and_blocks_the_
     assert {"label": "That code", "value": "already 'Summer sale'", "tone": "bad"} in data["facts"]
 
 
+@AS_THE_OWNER
 async def test_both_shapes_of_shopifys_value_union_are_read_back_the_same_way(store, session):
     percentage = await dispatch(CHECK, {"code": "SUMMER15"}, session=session, timeout_s=5)
     assert '"takes_off": "15%"' in percentage and '"taken": true' in percentage
@@ -287,6 +293,7 @@ async def test_both_shapes_of_shopifys_value_union_are_read_back_the_same_way(st
     assert '"taken": false' in free
 
 
+@AS_THE_OWNER
 async def test_a_field_the_family_did_not_declare_is_refused_and_a_value_is_validated(store, session, branch):
     from app import commands
 
@@ -305,6 +312,7 @@ async def test_a_field_the_family_did_not_declare_is_refused_and_a_value_is_vali
     assert ws.status(workspace, "ends") == "invalid"
 
 
+@AS_THE_OWNER
 async def test_an_option_the_family_did_not_offer_is_refused(store, session, branch):
     from app import commands
 
@@ -318,6 +326,7 @@ async def test_an_option_the_family_did_not_offer_is_refused(store, session, bra
     assert ws.chosen(workspace, "basis") == "amount", "a refused choice changes nothing"
 
 
+@AS_THE_OWNER
 async def test_typing_a_code_asks_the_shop_again_and_typing_anything_else_does_not(store, session, branch):
     from app import commands
 
@@ -334,6 +343,7 @@ async def test_typing_a_code_asks_the_shop_again_and_typing_anything_else_does_n
     assert typed.surfaces and typed.surfaces[0].data["fields"][1]["value"] == "25"
 
 
+@AS_THE_OWNER
 async def test_the_recipe_redraws_the_workspace_with_what_the_shop_said_and_uses_no_model(store, session, branch):
     from app.reads.scheduler import run_plan
     from app.recipes import RECIPES
@@ -356,6 +366,7 @@ async def test_the_recipe_redraws_the_workspace_with_what_the_shop_said_and_uses
 # --------------------------------------------------------------------------- preparing
 
 
+@AS_THE_OWNER
 async def test_the_card_says_what_the_code_does_and_the_input_carries_shopifys_fraction(store, session):
     workspace = await open_workspace(session, percent=20, ends=(date.today() + timedelta(days=20)).isoformat(), uses=50)
     text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -381,6 +392,7 @@ async def test_the_card_says_what_the_code_does_and_the_input_carries_shopifys_f
     assert "create the code AUTUMN20 for 20% off" in proposal.summary["read_back"]
 
 
+@AS_THE_OWNER
 async def test_an_amount_off_carries_the_money_shape_and_the_currency(store, session, branch):
     from app import commands
 
@@ -394,6 +406,7 @@ async def test_an_amount_off_carries_the_money_shape_and_the_currency(store, ses
     assert dict(proposal.execution)["value_words"] == "£7.50"
 
 
+@AS_THE_OWNER
 async def test_a_window_becomes_the_shops_own_midnights_not_utcs(store, session):
     """A code that starts on the 12th starts at the shop's midnight. Resolved in UTC it would
     start an hour early in summer, which is a bug that passes all day and fails at eleven at
@@ -409,6 +422,7 @@ async def test_a_window_becomes_the_shops_own_midnights_not_utcs(store, session)
     assert dict(proposal.execution)["scheduled"] is (first > datetime.now(discounts.SHOP_TZ).date())
 
 
+@AS_THE_OWNER
 async def test_a_workspace_that_is_not_ready_prepares_nothing(store, session, branch):
     from app import commands
 
@@ -423,6 +437,7 @@ async def test_a_workspace_that_is_not_ready_prepares_nothing(store, session, br
     assert store.mutations == [] and session.proposals == []
 
 
+@AS_THE_OWNER
 async def test_a_code_taken_between_the_open_and_the_prepare_is_refused_before_anything_is_sent(store, session):
     workspace = await open_workspace(session, percent=10)
     assert ws.fact(workspace, "taken_by") is None
@@ -433,6 +448,7 @@ async def test_a_code_taken_between_the_open_and_the_prepare_is_refused_before_a
     assert ws.fact(workspace, "taken_by") == "Summer sale", "and the card now says so"
 
 
+@AS_THE_OWNER
 async def test_a_workspace_from_another_conversation_cannot_be_prepared(store, session):
     workspace = await open_workspace(session, percent=10)
     stranger = Session(session_id="c9")
@@ -444,6 +460,7 @@ async def test_a_workspace_from_another_conversation_cannot_be_prepared(store, s
 # --------------------------------------------------------------------------- applying
 
 
+@AS_THE_OWNER
 async def test_a_hold_creates_the_code_once_and_proves_it_by_reading_it_back(store, engine, session):
     workspace = await open_workspace(session, percent=20)
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -461,6 +478,7 @@ async def test_a_hold_creates_the_code_once_and_proves_it_by_reading_it_back(sto
     assert len([1 for n, _ in store.mutations if n == "discount_code_create"]) == 1
 
 
+@AS_THE_OWNER
 async def test_a_tap_without_the_hold_sends_nothing(store, engine, session):
     workspace = await open_workspace(session, percent=20)
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -468,6 +486,7 @@ async def test_a_tap_without_the_hold_sends_nothing(store, engine, session):
     assert result.code == "not_armed" and store.created == [] and proposal.status is ActionStatus.PENDING
 
 
+@AS_THE_OWNER
 async def test_a_code_created_in_admin_between_the_card_and_the_tap_is_stale(store, engine, session):
     workspace = await open_workspace(session, percent=20)
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -477,6 +496,7 @@ async def test_a_code_created_in_admin_between_the_card_and_the_tap_is_stale(sto
     assert result.spoken == "Somebody created that code since this was prepared, so I haven't sent it."
 
 
+@AS_THE_OWNER
 async def test_a_refusal_from_shopify_leaves_the_shop_without_the_code(store, engine, session):
     workspace = await open_workspace(session, percent=20)
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -486,6 +506,7 @@ async def test_a_refusal_from_shopify_leaves_the_shop_without_the_code(store, en
     assert "AUTUMN20" not in store.codes and proposal.status is not ActionStatus.VERIFIED
 
 
+@AS_THE_OWNER
 async def test_a_lost_answer_is_settled_by_reading_the_code_back(store, engine, session):
     workspace = await open_workspace(session, percent=20)
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -513,6 +534,7 @@ async def test_a_code_created_with_the_wrong_value_is_not_proven(store, engine, 
     assert ok is True and "scheduled rather than live" in note
 
 
+@AS_THE_OWNER
 async def test_a_value_the_shop_shows_differently_is_not_proven(store, engine, session):
     """The same check, end to end: the fake store is told to record a different percentage
     from the one it was sent, and the engine must not call that verified."""
@@ -524,6 +546,7 @@ async def test_a_value_the_shop_shows_differently_is_not_proven(store, engine, s
     assert result.spoken.startswith("I couldn't confirm the code was created")
 
 
+@AS_THE_OWNER
 async def test_the_ledger_keeps_the_numbers_and_not_the_words(store, engine, session):
     workspace = await open_workspace(session, percent=20, uses=5)
     await stage(session, str(workspace["workspace_id"]))
@@ -535,6 +558,7 @@ async def test_the_ledger_keeps_the_numbers_and_not_the_words(store, engine, ses
 # --------------------------------------------------------------------- the tablet's path
 
 
+@AS_THE_OWNER
 async def test_the_tablet_posts_one_id_and_never_a_value_of_the_change(store, session, branch):
     from app import commands
 
@@ -547,6 +571,7 @@ async def test_the_tablet_posts_one_id_and_never_a_value_of_the_change(store, se
     assert set(staged["args"]) == {"workspace_id"}, "the code, the value and the dates are the Mac's"
 
 
+@AS_THE_OWNER
 async def test_the_card_the_tablet_gets_carries_the_command_each_control_posts(store, session):
     workspace = await open_workspace(session, percent=20)
     item = discounts.workspace_surface(workspace).as_ui()
@@ -564,6 +589,7 @@ async def test_the_card_the_tablet_gets_carries_the_command_each_control_posts(s
             assert forbidden not in action["args"], (action, forbidden)
 
 
+@AS_THE_OWNER
 async def test_discarding_leaves_nothing_behind(store, session, branch):
     from app import commands
 
@@ -642,6 +668,7 @@ async def test_a_shopify_that_does_not_answer_is_not_a_missing_grant():
     assert probed["state"] == "TEMPORARILY_UNAVAILABLE" and "ShopifyError" in probed["detail"]
 
 
+@AS_THE_OWNER
 async def test_a_collision_read_that_fails_does_not_claim_the_code_is_free(store, session):
     """Best effort, and honest about it: the card says the code has not been checked, and
     `_blocked` does not report it as free — because Shopify would then refuse the creation
@@ -651,3 +678,35 @@ async def test_a_collision_read_that_fails_does_not_claim_the_code_is_free(store
     workspace["facts"].pop("checked_code")
     notes = discounts.workspace_surface(workspace).data["notes"]
     assert any("has not been checked" in n for n in notes)
+
+
+async def test_with_no_authority_stamped_nothing_runs(store, engine, session, monkeypatch):
+    """F-A2-FIXTURE's regression, with NO `owner_asking`: the dispatch a call gets when it did
+    not come through the owner's door. The form is opened as the owner first, so its id is one
+    this conversation really holds; then his authority goes, and the same conversation's call
+    to prepare it — or to open another — runs no handler, reads nothing from the shop and
+    prepares nothing."""
+    from app.tools import authority
+
+    granted = authority.for_owner("owner@example.com")
+    token = authority.TOOL_AUTHORITY.set(granted)
+    try:
+        workspace = await open_workspace(session, percent=20)
+    finally:
+        authority.TOOL_AUTHORITY.reset(token)
+        granted.revoke()
+    assert workspace.get("workspace_id"), "opened as the owner"
+    ran: list[str] = []
+    real = registry.invoke
+
+    async def invoke(name, args, *, timeout_s):
+        ran.append(name)
+        return await real(name, args, timeout_s=timeout_s)
+
+    monkeypatch.setattr(registry, "invoke", invoke)
+    reads = store.reads
+    staged = await dispatch(WRITE, {"workspace_id": str(workspace["workspace_id"])}, session=session, timeout_s=5)
+    opened = await dispatch(OPEN, {"code": "WINTER10", "percent": 10}, session=session, timeout_s=5)
+    assert staged.startswith(("REFUSED", "NOT YET")) and opened.startswith(("REFUSED", "NOT YET")), (staged, opened)
+    assert ran == [] and store.reads == reads and not store.mutations, ran
+    assert not session.proposals

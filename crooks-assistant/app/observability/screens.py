@@ -14,6 +14,10 @@ survives.
   instructions are dropped.
 - What was typed never survives: an input's value and a textarea's text become a run of dots
   as long as what was there (at most 24); a hidden input's value is dropped.
+- What is being said never survives either (round 9, F-02): the text of an element marked
+  `data-spoken` (the ask bar's live words) and of everything inside it is masked the same way,
+  and the words-bearing attributes there (a title, a label) are kept empty. `data-words` is kept
+  empty wherever it is.
 - Every other piece of text, and every attribute value, passes the timeline's own rule
   (`scrub_text`): credentials (Shopify, Anthropic, Google, Slack, GitHub, JWTs, bearer values),
   email addresses, phone numbers, postcodes, card numbers and the customer names this process
@@ -109,9 +113,21 @@ DATA_NAMES = frozenset({
     # the remote for (its id, and its name, which is free text).
     "data-pane", "data-tick", "data-remote-screen", "data-remote-name",
 })
-# data- names whose values are free text by what they are for: kept, but empty.
+# data- names whose values are free text by what they are for: kept, but empty. `data-words` is
+# the ask bar's account of the live words it shows (round 9, F-02): whatever the page puts there,
+# it is about what was said, so it is kept as a name and nothing more.
 DATA_FREE_TEXT = frozenset({"data-args", "data-ask", "data-customer", "data-customer-name", "data-label",
-                            "data-name", "data-said", "data-remote-name"})
+                            "data-name", "data-said", "data-remote-name", "data-words"})
+# The mark the page puts on an element whose text is what the owner is saying, word by word (the
+# ask bar's live words, web/live-voice.js): everything written inside it is masked like a
+# textarea's, whatever it holds (round 9, F-02) — dictation is not a credential or a contact
+# detail the timeline's rule would recognise, and it is his words all the same.
+SPOKEN_MARK = "data-spoken"
+# Attributes whose values are words a person reads. Inside a spoken element they are kept empty.
+_WORDS_ATTRS = frozenset({"title", "alt", "placeholder", "value", "aria-label", "aria-valuetext", "aria-description",
+                          "aria-placeholder", "aria-roledescription", "aria-braillelabel",
+                          "aria-brailleroledescription", "aria-colindextext", "aria-rowindextext",
+                          "aria-keyshortcuts"})
 # Any other data- value: a short token (a state word, an id, a number) or nothing.
 _DATA_TOKEN = re.compile(r"^[A-Za-z0-9_.:/#-]{0,64}$")
 # What a drawing number may be: no leading zero, at most four digits before the point.
@@ -140,6 +156,11 @@ class _Sanitiser(HTMLParser):
         self._dropping = 0          # depth inside a dropped element
         self._drop_tag: list[str] = []
         self._in_textarea = 0
+        # The elements open now, each with whether it is, or is inside, a spoken one.
+        self._open: list[tuple[str, bool]] = []
+
+    def _spoken(self) -> bool:
+        return bool(self._open) and self._open[-1][1]
 
     # ---- elements
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -161,9 +182,12 @@ class _Sanitiser(HTMLParser):
             return
         if not _TAG.fullmatch(tag):
             return
-        kept = self._attrs(name, attrs)
+        spoken = self._spoken() or any(k.lower() == SPOKEN_MARK for k, _v in attrs)
+        kept = self._attrs(name, attrs, spoken=spoken)
         text = f"<{tag}{kept}{' /' if closed else ''}>"
         self.out.append(text)
+        if not closed and name not in _VOID:
+            self._open.append((name, spoken))
         if name == "textarea" and not closed:
             self._in_textarea += 1
 
@@ -179,13 +203,18 @@ class _Sanitiser(HTMLParser):
             return
         if name == "textarea" and self._in_textarea:
             self._in_textarea -= 1
+        # Closes the innermost open element of its name, and whatever was left open inside it.
+        for at in range(len(self._open) - 1, -1, -1):
+            if self._open[at][0] == name:
+                del self._open[at:]
+                break
         self.out.append(f"</{tag}>")
 
     # ---- text
     def handle_data(self, data: str) -> None:
         if self._dropping or not data:
             return
-        if self._in_textarea:
+        if self._in_textarea or self._spoken():
             self.out.append(_mask(data))
             return
         self.out.append(escape(_clean(data), quote=False))
@@ -203,7 +232,7 @@ class _Sanitiser(HTMLParser):
         return
 
     # ---- attributes
-    def _attrs(self, tag: str, attrs: list[tuple[str, str | None]]) -> str:
+    def _attrs(self, tag: str, attrs: list[tuple[str, str | None]], *, spoken: bool = False) -> str:
         typed = tag == "input"
         kind = next((str(v or "").lower() for k, v in attrs if k.lower() == "type"), "")
         parts: list[str] = []
@@ -216,7 +245,9 @@ class _Sanitiser(HTMLParser):
             if name not in _KNOWN and name not in _ARIA and name not in DATA_NAMES:
                 continue
             value = "" if raw_value is None else str(raw_value)
-            if typed and name == "value":
+            if spoken and name in _WORDS_ATTRS:
+                value = ""
+            elif typed and name == "value":
                 if kind in ("hidden", "password"):
                     continue
                 value = _mask(value)

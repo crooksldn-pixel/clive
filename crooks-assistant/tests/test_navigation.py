@@ -408,7 +408,7 @@ def test_a_back_on_one_half_leaves_the_other_half_exactly_where_it_was(world):
 async def stage():
     from experience.harness import harness
 
-    async with harness() as h:
+    async with harness(admitted=True) as h:
         yield h
 
 

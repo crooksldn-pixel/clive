@@ -35,10 +35,12 @@ from app.tools.dispatch import dispatch
 from app.tools.gate import Disposition, Tier, classify
 from tests.test_actions import FakeStore
 
-# The admitted owner calling tools directly, as a request the door let through would: every tool
-# call here is his (the 2026-09-27 deploy review, round 8, F-A2-FIXTURE). Production's default,
-# and every test's that does not say this, is no authority at all.
-pytestmark = pytest.mark.usefixtures("owner_asking")
+# The admitted owner calling tools directly, as a request the door let through would — granted
+# per test, to the tests that call a tool, and to no others (the 2026-09-28 deploy review, round
+# 9, I-tests4 I-04). A test about a declaration, a predicate or a probe runs with no authority,
+# which is production's default; and `test_with_no_authority_stamped_nothing_runs` holds what a
+# tool call with none gets.
+AS_THE_OWNER = pytest.mark.usefixtures("owner_asking")
 
 OPEN = sc.OPEN_TOOL
 WRITE = sc.WRITE_TOOL
@@ -239,6 +241,7 @@ def test_the_reviewed_shape_is_one_amount_in_one_named_currency():
 # --------------------------------------------------------------------------- the workspace
 
 
+@AS_THE_OWNER
 async def test_the_balance_is_read_and_nothing_is_credited(store, session):
     workspace = await open_workspace(session, amount=20, reason="the late parcel")
     assert sc._customer(workspace)["name"] == "Mia Jones"
@@ -253,6 +256,7 @@ async def test_the_balance_is_read_and_nothing_is_credited(store, session):
     assert facts["Why"] == "the late parcel"
 
 
+@AS_THE_OWNER
 async def test_a_customer_with_no_account_yet_reads_as_nothing_not_as_unknown(store, session):
     from app.tools.context import CURRENT_SESSION
 
@@ -268,6 +272,7 @@ async def test_a_customer_with_no_account_yet_reads_as_nothing_not_as_unknown(st
     assert facts["Has now"] == "£0.00"
 
 
+@AS_THE_OWNER
 async def test_a_store_without_store_credit_says_what_is_unavailable_and_that_the_code_exists(store, session):
     store.accounts = None
     text = await dispatch(OPEN, {"customer_id": MIA}, session=session, timeout_s=5)
@@ -278,6 +283,7 @@ async def test_a_store_without_store_credit_says_what_is_unavailable_and_that_th
     assert ws.held(session.branch(), sc.KIND) is None, "no form for a feature the store has not got"
 
 
+@AS_THE_OWNER
 async def test_an_amount_the_mac_cannot_use_is_refused_with_the_reason(store, session, branch):
     from app import commands
 
@@ -293,6 +299,7 @@ async def test_an_amount_the_mac_cannot_use_is_refused_with_the_reason(store, se
     assert ws.status(workspace, "currency") == "invalid"
 
 
+@AS_THE_OWNER
 async def test_a_field_the_family_did_not_declare_is_refused(store, session, branch):
     from app import commands
 
@@ -306,6 +313,7 @@ async def test_a_field_the_family_did_not_declare_is_refused(store, session, bra
 # --------------------------------------------------------------------------- preparing
 
 
+@AS_THE_OWNER
 async def test_the_card_shows_the_consequence_and_the_input_carries_one_amount(store, engine, session):
     workspace = await open_workspace(session, amount=20, reason="the late parcel")
     text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -330,6 +338,7 @@ async def test_the_card_shows_the_consequence_and_the_input_carries_one_amount(s
     assert "cannot be taken back" in registry.get(WRITE).write.present(proposal)["detail"]
 
 
+@AS_THE_OWNER
 async def test_the_balance_is_read_again_at_the_moment_of_preparing(store, engine, session):
     workspace = await open_workspace(session, amount=20)
     # Spent in the shop between the form and the prepare: the card must say the new balance,
@@ -341,6 +350,7 @@ async def test_the_balance_is_read_again_at_the_moment_of_preparing(store, engin
     assert sc._balance(workspace) == 4.0, "and the form is corrected too"
 
 
+@AS_THE_OWNER
 async def test_a_second_account_in_another_currency_credits_the_right_one(store, engine, session, branch):
     from app import commands
 
@@ -356,6 +366,7 @@ async def test_a_second_account_in_another_currency_credits_the_right_one(store,
     assert facts["Credit"] == "€20.00" and facts["Accounts"].startswith("2 accounts")
 
 
+@AS_THE_OWNER
 async def test_a_store_that_loses_the_feature_between_the_form_and_the_prepare_refuses(store, engine, session):
     workspace = await open_workspace(session, amount=20)
     store.accounts = None
@@ -364,6 +375,7 @@ async def test_a_store_that_loses_the_feature_between_the_form_and_the_prepare_r
     assert store.mutations == [] and session.proposals == []
 
 
+@AS_THE_OWNER
 async def test_a_workspace_that_is_not_ready_prepares_nothing(store, engine, session, branch):
     from app import commands
 
@@ -376,6 +388,7 @@ async def test_a_workspace_that_is_not_ready_prepares_nothing(store, engine, ses
     assert store.mutations == [] and session.proposals == []
 
 
+@AS_THE_OWNER
 async def test_the_staging_command_refuses_a_customer_this_conversation_never_looked_up(store, session):
     from app import commands
 
@@ -392,6 +405,7 @@ async def test_the_staging_command_refuses_a_customer_this_conversation_never_lo
 # --------------------------------------------------------------------------- applying
 
 
+@AS_THE_OWNER
 async def test_a_drag_credits_the_account_once_and_proves_it_by_reading_the_balance(store, engine, session):
     workspace = await open_workspace(session, amount=20)
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -409,6 +423,7 @@ async def test_a_drag_credits_the_account_once_and_proves_it_by_reading_the_bala
     assert len([1 for n, _ in store.mutations if n == "store_credit_credit"]) == 1
 
 
+@AS_THE_OWNER
 async def test_a_first_credit_creates_the_account_and_is_still_proven(store, engine, session):
     """The account COUNT moves on a first credit — Shopify makes the account for the currency
     — which is why the proof is a predicate on the balance and not an equality on the whole
@@ -428,6 +443,7 @@ async def test_a_first_credit_creates_the_account_and_is_still_proven(store, eng
     assert proposal.after == {"balance": "10.00", "currency": "GBP", "accounts": 1}
 
 
+@AS_THE_OWNER
 async def test_a_tap_without_the_gesture_sends_nothing(store, engine, session):
     workspace = await open_workspace(session, amount=20)
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -436,6 +452,7 @@ async def test_a_tap_without_the_gesture_sends_nothing(store, engine, session):
     assert store.accounts[MIA][0]["balance"] == 15.0
 
 
+@AS_THE_OWNER
 async def test_a_balance_that_moved_between_the_card_and_the_gesture_is_stale(store, engine, session):
     workspace = await open_workspace(session, amount=20)
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -446,6 +463,7 @@ async def test_a_balance_that_moved_between_the_card_and_the_gesture_is_stale(st
     assert store.mutations == [], "nothing was sent"
 
 
+@AS_THE_OWNER
 async def test_a_refusal_from_shopify_leaves_the_balance_alone(store, engine, session):
     workspace = await open_workspace(session, amount=20)
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -456,6 +474,7 @@ async def test_a_refusal_from_shopify_leaves_the_balance_alone(store, engine, se
     assert proposal.status is not ActionStatus.VERIFIED
 
 
+@AS_THE_OWNER
 async def test_a_lost_answer_is_settled_by_reading_the_balance(store, engine, session):
     workspace = await open_workspace(session, amount=20)
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
@@ -465,6 +484,7 @@ async def test_a_lost_answer_is_settled_by_reading_the_balance(store, engine, se
     assert len([1 for n, _ in store.mutations if n == "store_credit_credit"]) == 1
 
 
+@AS_THE_OWNER
 async def test_a_credit_shopify_accepted_that_did_not_move_the_balance_is_not_proven(store, engine, session):
     store.credit_lands = False
     workspace = await open_workspace(session, amount=20)
@@ -475,19 +495,70 @@ async def test_a_credit_shopify_accepted_that_did_not_move_the_balance_is_not_pr
 
 
 def test_the_verification_is_the_balance_plus_what_was_sent():
+    """Exactly the old balance plus what was sent, to the penny, in the currency it was sent in
+    — and nothing else is proof. Closes the 2026-09-28 deploy review, round 9, I-tests4 I-01:
+    this test used to accept £15 → £40 as proof of a £20 credit."""
     verify = registry.get(WRITE).write.verify
     before = {"balance": "15.00", "currency": "GBP", "accounts": 1}
-    execution = {"amount": "20.00"}
-    assert verify(before, {"balance": "35.00", "currency": "GBP", "accounts": 1}, execution)[0] is True
+    execution = {"amount": "20.00", "currency": "GBP"}
+    assert verify(before, {"balance": "35.00", "currency": "GBP", "accounts": 1}, execution) == (True, "")
+    # A first credit in a currency opens the account for it: the count moves, and that is fine.
+    assert verify({"balance": "0.00", "currency": "GBP", "accounts": 0}, {"balance": "20.00", "currency": "GBP", "accounts": 1}, execution)[0] is True
     assert verify(before, {"balance": "15.00", "currency": "GBP", "accounts": 1}, execution)[0] is False
     assert verify(before, {"balance": "35.00", "currency": "EUR", "accounts": 1}, execution)[0] is False
-    # It moved, and not by what we sent: applied, with a caveat, which is not a failure.
-    ok, note = verify(before, {"balance": "40.00", "currency": "GBP", "accounts": 1}, execution)
-    assert ok is True and "not the figure on the card" in note
     # And a balance that went DOWN is not this change landing.
     assert verify(before, {"balance": "5.00", "currency": "GBP", "accounts": 1}, execution)[0] is False
 
 
+def test_a_balance_that_moved_by_anything_but_what_was_sent_is_not_proof():
+    """£15, £20 sent, £40 read back: £5 nobody can account for. Not verified — the engine then
+    says "I couldn't confirm the credit. Check the customer's account", which is the truth.
+    Closes the 2026-09-28 deploy review, round 9, I-tests4 I-01."""
+    verify = registry.get(WRITE).write.verify
+    before = {"balance": "15.00", "currency": "GBP", "accounts": 1}
+    execution = {"amount": "20.00", "currency": "GBP"}
+    ok, note = verify(before, {"balance": "40.00", "currency": "GBP", "accounts": 1}, execution)
+    assert ok is False, "a £25 rise is not proof of a £20 credit"
+    assert "£40.00" in note and "£35.00" in note and "not proven" in note
+    # One penny either way is still not the credit that was sent.
+    for off in ("34.99", "35.01"):
+        assert verify(before, {"balance": off, "currency": "GBP", "accounts": 1}, execution)[0] is False, off
+    # Pennies add as money, not as floats: 15.10 + 20.20 is 35.30 exactly.
+    assert verify({"balance": "15.10", "currency": "GBP"}, {"balance": "35.30", "currency": "GBP"},
+                  {"amount": "20.20", "currency": "GBP"})[0] is True
+    # The currency sent in is the currency proven in, whatever the two reads agree on.
+    assert verify({"balance": "15.00", "currency": "EUR"}, {"balance": "35.00", "currency": "EUR"}, execution)[0] is False
+    # And a figure that is not money is never proof.
+    for bad in ("", None, "abc", "NaN"):
+        assert verify(before, {"balance": bad, "currency": "GBP"}, execution)[0] is False, bad
+
+
+@AS_THE_OWNER
+async def test_a_credit_that_landed_with_something_else_is_unverified_end_to_end(store, engine, session):
+    """The whole path, not the predicate alone: the store answers the credit and reads back a
+    balance £5 higher than the card said. The engine settles it UNVERIFIED and says so in
+    plain words (I-tests4 I-01)."""
+    workspace = await open_workspace(session, amount=20)
+    _, proposal = await stage(session, str(workspace["workspace_id"]))
+    assert proposal is not None and proposal.status is ActionStatus.PENDING
+    assert proposal.before["balance"] == "15.00"
+    credit = store.mutate
+
+    async def credit_and_five_more(name, variables):
+        answer = await credit(name, variables)
+        # Somebody else's £5 lands on the same account between the credit and the re-read.
+        store.accounts[MIA][0]["balance"] = round(store.accounts[MIA][0]["balance"] + 5, 2)
+        return answer
+
+    store.mutate = credit_and_five_more
+    result = await drag(engine, proposal)
+    assert store.accounts[MIA][0]["balance"] == 40.0, "the credit did land, with five more beside it"
+    assert result.code == "unverified" and proposal.verified is False, result.code
+    assert proposal.status is ActionStatus.UNVERIFIED
+    assert result.spoken.startswith("I couldn't confirm the credit")
+
+
+@AS_THE_OWNER
 async def test_the_ledger_keeps_the_numbers_and_not_the_customer(store, engine, session):
     workspace = await open_workspace(session, amount=20)
     await stage(session, str(workspace["workspace_id"]))
@@ -500,6 +571,7 @@ async def test_the_ledger_keeps_the_numbers_and_not_the_customer(store, engine, 
 # --------------------------------------------------------------------- the tablet's path
 
 
+@AS_THE_OWNER
 async def test_the_tablet_posts_one_id_and_never_an_amount(store, session, branch):
     from app import commands
 
@@ -511,6 +583,7 @@ async def test_the_tablet_posts_one_id_and_never_an_amount(store, session, branc
     assert staged["tool"] == WRITE and staged["args"] == {"workspace_id": ident}
 
 
+@AS_THE_OWNER
 async def test_the_card_carries_the_command_each_control_posts(store, session):
     workspace = await open_workspace(session, amount=20)
     item = sc.workspace_surface(workspace).as_ui()
@@ -524,6 +597,7 @@ async def test_the_card_carries_the_command_each_control_posts(store, session):
         assert action["args"] == f"workspace_id={workspace['workspace_id']}"
 
 
+@AS_THE_OWNER
 async def test_discarding_leaves_nothing_behind(store, session, branch):
     from app import commands
 
@@ -669,3 +743,23 @@ async def test_the_probe_gets_a_real_customer_from_the_cache_rather_than_guessin
 
     runtime.order_cache = Broken()
     assert runtime.store_credit_sample == "", "a cache that raises must not fail a health check"
+
+
+async def test_with_no_authority_stamped_nothing_runs(store, engine, session, monkeypatch):
+    """The dispatch regression with NO authority (I-tests4 I-04): no `owner_asking`, as for a
+    call that did not come through the owner's door. The form is not opened, the credit is not
+    prepared, no handler runs and the shop is not read."""
+    ran: list[str] = []
+    real = registry.invoke
+
+    async def invoke(name, args, *, timeout_s):
+        ran.append(name)
+        return await real(name, args, timeout_s=timeout_s)
+
+    monkeypatch.setattr(registry, "invoke", invoke)
+    reads = store.reads
+    opened = await dispatch(OPEN, {"customer_id": MIA, "amount": 20}, session=session, timeout_s=5)
+    staged = await dispatch(WRITE, {"workspace_id": "wsc_0123456789"}, session=session, timeout_s=5)
+    assert opened.startswith(("REFUSED", "NOT YET")) and staged.startswith(("REFUSED", "NOT YET")), (opened, staged)
+    assert ran == [] and store.reads == reads and not store.mutations
+    assert not session.proposals and ws.held(session.branch(), sc.KIND) is None

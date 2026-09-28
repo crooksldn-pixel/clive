@@ -228,7 +228,18 @@ def status(port: int) -> int:
     print(f"  https  https://{host}/" if host else f"  https  {note}")
     health = lc.fetch_health(f"http://127.0.0.1:{port}/health")
     print(f"  health {lc.summarise_health(health)}")
-    return 0 if active == "active" and health else 1
+    return 0 if active == "active" and health_known(health) else 1
+
+
+def health_known(health: dict | None) -> bool:
+    """Whether /health answered with its checks, so what it says of them is known (round 9,
+    A1B-STATUS). A `limited` answer — liveness alone, what a reader the owner rule refuses gets —
+    or one with no checks at all says nothing of the essentials, and a status that reads it as
+    well would call an unknown state a working one."""
+    if not isinstance(health, dict) or lc.health_limited(health):
+        return False
+    checks = health.get("checks")
+    return isinstance(checks, dict) and bool(checks)
 
 
 def main(argv: list[str] | None = None) -> int:

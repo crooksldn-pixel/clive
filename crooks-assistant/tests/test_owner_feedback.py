@@ -12,9 +12,10 @@ Twice in the live hour:
 
 Both sentences are in this file. They are recognised, and `feedback.record` writes one down
 against the screen he was on for the report to surface verbatim (tests/test_experience_analyser.py
-holds that half). Nothing records them at turn time since the word-matching lane was removed
-(28 September 2026): a spoken report is a model turn, and the report reads it from the
-transcript.
+holds that half). Since the word-matching lane was removed (28 September 2026) a spoken report
+is a model turn; `feedback.at_turn` records it at turn time, before the model answers, and tells
+the model what it did (tests/test_owner_feedback_turn.py holds that, and the report's read-back
+from the transcript remains the safety net).
 
 The other half of the file is the bound: nothing reaches Shopify or Gmail, nothing is
 proposed, approved or armed, no customer's name or address is written down, and outside a

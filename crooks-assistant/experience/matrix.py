@@ -29,7 +29,7 @@ COVERAGE: dict[str, tuple[str, ...]] = {
     "model_turn": ("order_lookup", "today_orders", "customer_history", "linked_entities", "unsupported_edit",
                    "split_branches", "enrichment", "abandoned_checkouts", "abandoned_window", "compose_open",
                    "compose_dictated", "discount_sentence_defers", "graph_order_to_email",
-                   "order_add_item_sentence_defers", "recording_is_observability"),
+                   "order_add_item_sentence_defers", "recording_is_observability", "compose_send_spoken"),
     "surface.tab": ("tabs", "nav_click_path"),
     "surface.expand": (),
     "surface.scroll": ("nav_click_path",),
@@ -55,8 +55,9 @@ COVERAGE: dict[str, tuple[str, ...]] = {
     "compose.field": ("compose_dictated",),
     "compose.stage": ("compose_stage",),
     "draft.send_instead": ("compose_send_instead",),
-    "order_edit.find": ("order_add_item_picker", "order_add_item_ambiguous", "order_add_item_cancelled"),
-    "order_edit.stage": ("order_add_item_picker",),
+    "order_edit.find": ("order_add_item_picker", "order_add_item_ambiguous", "order_add_item_cancelled",
+                        "order_add_item_stale_picker"),
+    "order_edit.stage": ("order_add_item_picker", "order_add_item_stale_picker"),
     # The commerce families (brief sections 11 to 14): each creation is reached by touch, and
     # by the model through its tool.
     "discount_code": ("discount_new_code", "discount_code_taken"),
@@ -83,6 +84,42 @@ COVERAGE: dict[str, tuple[str, ...]] = {
     "order.removeitem": (),
     "order.discard": (),
     "credit.discard": (),
+}
+
+# Which write tools each staging command CAN prepare. A tap on one of these runs a write tool's
+# PREPARE step through the action engine — which one the command's module decides at run time
+# (a composer's Save draft is `gmail_draft_new`, its Send `gmail_send_new`, a reply's the reply
+# tools), and a tap can be refused before anything is prepared, which some scenarios exist to
+# show. So posting a command is not evidence that any particular write was staged: this is the
+# set a scenario's declaration below may draw from, and `tests/test_tool_matrix.py` holds every
+# `.stage` command in the registry to an entry, and every tool named to a registered write.
+STAGES: dict[str, tuple[str, ...]] = {
+    "address.stage": ("shopify_order_shipping_address_set",),
+    "compose.stage": ("gmail_draft_new", "gmail_send_new", "gmail_draft_reply", "gmail_send_reply"),
+    "draft.send_instead": ("gmail_send_new", "gmail_send_reply"),
+    "discount.stage": ("shopify_discount_create",),
+    "order.stage": ("shopify_order_create",),
+    "order_edit.stage": ("shopify_order_add_item",),
+    "credit.stage": ("shopify_store_credit_add",),
+}
+
+# Which write tools each scenario's TAPS really prepare, scenario by scenario. Declared rather
+# than inferred, because only a run can tell which write a staging command prepared or whether
+# it was refused (the 2026-09-28 deploy review, round 9, H-06: the audit used to credit every
+# write a posted command could stage, so the stale-picker scenario, whose Add is refused by
+# design, was reported as staging the add). Held both ways: `experience/tool_matrix.py` credits
+# a declared tool only when the scenario's code posts a command that can prepare it, and
+# `tests/test_experience.py` runs every scenario and requires the writes the audit credits it
+# with to be exactly the writes it staged. A write the scenario's scripted MODEL stages is read
+# off its code instead (`tool_matrix.scenario_strings`) and held to the same run.
+TAP_STAGED: dict[str, tuple[str, ...]] = {
+    "compose_stage": ("gmail_draft_new",),
+    "compose_send_instead": ("gmail_draft_new", "gmail_send_new"),
+    "compose_send_spoken": ("gmail_draft_new",),
+    "discount_new_code": ("shopify_discount_create",),
+    "order_new": ("shopify_order_create",),
+    "order_add_item_picker": ("shopify_order_add_item",),
+    "store_credit_give": ("shopify_store_credit_add",),
 }
 
 # Operations a live read-only run must not exercise, whatever their scenario does. Nothing is

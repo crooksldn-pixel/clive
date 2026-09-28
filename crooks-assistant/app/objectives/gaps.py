@@ -212,7 +212,10 @@ class GapLedger:
         # with the copy it already has, verified byte for byte, not with another (round 7).
         copy = self._existing_original(raw, "before-clean") or self._keep_original(raw, "before-clean")
         try:
-            self._save(clean)
+            # Cleaned, not aged (round 9, A3a-LIVE-CLEAN): every gap the original holds is in the
+            # clean record, merged where keys clean alike; forgetting the stale is for a later
+            # change, as it always was, never for start-up.
+            self._save(clean, forget=False)
         except WrittenNotConfirmed as exc:
             # The clean record is in place (round 8, F-07-DURABILITY): not tried again over
             # itself, and said as what it is, with the copy that was flushed before it.
@@ -261,7 +264,7 @@ class GapLedger:
         _fsync_dir(copy.parent)
         return copy
 
-    def _save(self, data: dict[str, Any]) -> None:
+    def _save(self, data: dict[str, Any], *, forget: bool = True) -> None:
         folder = self.path.parent
         folder.mkdir(parents=True, exist_ok=True, mode=0o700)
         try:
@@ -269,7 +272,8 @@ class GapLedger:
                 folder.chmod(0o700)
         except OSError:
             pass
-        _forget_stale(data)
+        if forget:
+            _forget_stale(data)
         tmp = self.path.with_name(f".{self.path.name}.{uuid.uuid4().hex[:8]}.tmp")
         try:
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -294,11 +298,16 @@ class GapLedger:
         except Exception as exc:  # noqa: BLE001 - whatever it was, the replace has happened
             raise WrittenNotConfirmed(exc) from exc
 
-    def _change(self, fn) -> None:
+    def _change(self, fn, *, forget: bool = True) -> None:
         """One read-modify-write. A failure is logged, never raised: the turn that noticed the
         gap is the owner's, and a bookkeeping error must not cost him his answer. What is logged
         says what is on disk (round 8, F-07-DURABILITY): "not updated" only when the record was
-        not replaced; a replace whose folder could not be flushed is said as that."""
+        not replaced; a replace whose folder could not be flushed is said as that.
+
+        A change that changes nothing writes nothing (round 9, A3a-LIVE-CLEAN): start-up's seed of
+        a record already seeded used to save it all the same, and that save forgot stale gaps with
+        no copy kept. With `forget` False (the seed) no gap is forgotten by this save either, so
+        start-up writes only what the clean has kept a copy of the original for."""
         try:
             with self._lock:
                 if not self._repaired:
@@ -311,8 +320,11 @@ class GapLedger:
                         log.error("gap record cleaned before this change and written, but not confirmed on disk "
                                   "(%s); the original is kept at %s", exc, getattr(exc.kept, "name", "?"))
                 data = self.load()
+                before = json.dumps(data, sort_keys=True)
                 fn(data)
-                self._save(data)
+                if json.dumps(data, sort_keys=True) == before:
+                    return
+                self._save(data, forget=forget)
         except WrittenNotConfirmed as exc:
             log.error("gap record updated, but not confirmed on disk: %s", exc)
         except Exception:  # noqa: BLE001 - see above
@@ -355,7 +367,8 @@ class GapLedger:
                         _hit(data, key_for(blocker.get("capability", ""), blocker.get("text", "")), "blocker",
                              blocker.get("text", ""), obj.id, str(blocker.get("at") or _now()),
                              _minimal(blocker.get("capability") or "")[:MAX_KEY])
-        self._change(fn)
+        # Start-up: a record already seeded is not written at all, and seeding one forgets nothing.
+        self._change(fn, forget=False)
 
     # ---- what became of a gap -----------------------------------------------------------
     def proposed(self, request_id: str, objective_id: str, keys: list[str]) -> None:

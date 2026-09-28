@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import re
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from app.actions.models import Observed, Prepared
@@ -399,28 +400,45 @@ async def _execute(execution: dict) -> dict:
     return {"account_id": str(account["id"])}
 
 
+def _pence(value: Any) -> int | None:
+    """A money figure as a whole number of the currency's minor unit, or None when it is not
+    one. Decimal rather than float, because "15.10" + "20.00" must be 3510 pence exactly and
+    never 3509.9999 rounded one way or the other."""
+    try:
+        amount = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        return None
+    if not amount.is_finite():
+        return None
+    return int((amount * 100).to_integral_value(rounding=ROUND_HALF_UP))
+
+
 def _verify(before: dict, observed: dict, execution: dict) -> tuple[bool, str]:
-    """Proof, by re-reading the balance: it is the old one plus what was credited, in the
-    currency it was credited in.
+    """Proof, by re-reading the balance: it is EXACTLY the old one plus what was credited, to
+    the penny, in the currency it was credited in. Anything else is not proof.
 
     A predicate rather than an equality on the whole fingerprint, because the account COUNT
     moves when a customer's first credit in a currency creates their account for it — which
     is a normal thing to happen on exactly the change this is.
+
+    It used to accept any rise as proof, with a caveat: £15 before, £20 sent, £40 after was
+    "applied". That is £5 nobody can account for called a verified credit, on money a customer
+    can spend (the 2026-09-28 deploy review, round 9, I-tests4 I-01). A balance that moved by
+    anything but the amount sent — someone else's credit landing in between, a spend, a
+    different amount going through — is now "I couldn't confirm the credit", which tells the
+    owner to look at the account before asking again, and that is the true state of things.
     """
-    try:
-        was = round(float(before.get("balance")), 2)
-        now = round(float(observed.get("balance")), 2)
-        added = round(float(execution.get("amount")), 2)
-    except (TypeError, ValueError):
-        return False, ""
-    if str(observed.get("currency") or "") != str(before.get("currency") or ""):
-        return False, ""
-    if abs(now - (was + added)) < 0.005:
+    was, now, added = _pence(before.get("balance")), _pence(observed.get("balance")), _pence(execution.get("amount"))
+    if was is None or now is None or added is None or added <= 0:
+        return False, "the balance could not be read as money, so the credit is not proven"
+    sent_in = str(execution.get("currency") or before.get("currency") or "").strip().upper()
+    if not sent_in or str(observed.get("currency") or "").strip().upper() != sent_in \
+            or str(before.get("currency") or "").strip().upper() != sent_in:
+        return False, "the balance read back is not in the currency that was credited"
+    if now == was + added:
         return True, ""
-    if now > was:
-        # It moved, and not by what we sent: something else credited or spent in between.
-        return True, f"the balance is {display(now, str(observed.get('currency') or 'GBP'))}, not the figure on the card; check the account."
-    return False, ""
+    expected = display((was + added) / 100, sent_in)
+    return False, f"the balance is {display(now / 100, sent_in)}, not {expected}; the credit is not proven"
 
 
 def _present(proposal) -> dict:

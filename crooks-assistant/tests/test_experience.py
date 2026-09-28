@@ -13,6 +13,8 @@ makes for it, through the gate — and what is asserted is what the Mac drew fro
 
 from __future__ import annotations
 
+import functools
+
 import pytest
 
 from experience.harness import harness
@@ -20,31 +22,92 @@ from experience.scenarios import BY_NAME, SCENARIOS
 
 
 @pytest.fixture()
-async def stage():
-    async with harness() as h:
+async def stage(monkeypatch):
+    """An admitted harness that also keeps what it really did: every tool call that reached the
+    dispatcher — a scripted model's, a tapped recipe's read, a tapped staging command's — and
+    which of them came back staged. `tool_matrix`'s claims about a scenario are held to it."""
+    import app.tools.dispatch as dispatch_module
+
+    real = dispatch_module.dispatch
+    did: list[tuple[str, bool]] = []
+
+    async def dispatch(tool_name, args, **kwargs):
+        text = await real(tool_name, args, **kwargs)
+        did.append((str(tool_name), str(text).startswith("PROPOSED")))
+        return text
+
+    monkeypatch.setattr(dispatch_module, "dispatch", dispatch)
+    async with harness(admitted=True) as h:
+        h.dispatched = did
         yield h
 
 
-# Two scenarios call a read tool themselves, as the model would inside the owner's turn, with the
-# conversation that looked the customer up (experience/scenario_packs/commerce.py): they are the
-# admitted owner calling a tool directly, and say so (round 8, F-A2-FIXTURE). Every other
-# scenario goes through the door, which stamps the owner's authority itself.
-CALL_A_TOOL_AS_THE_OWNER = ("store_credit_give", "store_credit_not_on_this_store")
+@functools.lru_cache(maxsize=1)
+def _audit_claims() -> dict[str, dict[str, str]]:
+    """Scenario -> {tool: "read" | "staged"}, as the tool matrix reports it."""
+    from experience import tool_matrix
+
+    tool_matrix.load()
+    out: dict[str, dict[str, str]] = {}
+    for tool, reached in tool_matrix._scenario_tools().items():
+        for scenario, how in reached.items():
+            out.setdefault(scenario, {})[tool] = how
+    return out
 
 
-@pytest.mark.parametrize("name", [n for n, _ in SCENARIOS if n not in CALL_A_TOOL_AS_THE_OWNER])
+# Every scenario goes through the door, which stamps the owner's authority itself on an
+# admitted harness. The two store-credit scenarios used to call their read tool directly with
+# an authority granted to the test (round 8, F-A2-FIXTURE); since round 10 they ask for it in a
+# sentence like every other (the 2026-09-28 deploy review, round 9, H-07), and no scenario is
+# given authority from outside its own request.
+#
+# And every call a scenario scripts for the harness's model is one Claude could make: offered to
+# it on this runtime, with arguments its schema admits (`experience.harness.model_could_make`).
+# A scripted scenario proves what the Mac does with a call, never that Claude would make it
+# (the 2026-09-28 deploy review, round 9, H-02); a script Claude could not make would not even
+# prove that much about a spoken request. One scenario reaches for a tool that does not exist
+# on purpose — that is what it is about — and is named here with the tool.
+BEYOND_THE_MODEL = {"unsupported_edit": {"shopify_order_remove_item"}}
+
+
+@pytest.mark.parametrize("name", [n for n, _ in SCENARIOS])
 async def test_the_golden_scenarios(name, stage):
     result = await BY_NAME[name](stage)
     assert not result.error, result.error
     failures = "\n".join(f"  - {c.what} :: {c.detail}" for c in result.failures)
     assert result.status == "PASS", f"{result.title}\n{failures}"
+    for capture in result.captures:
+        beyond = set(getattr(capture, "unmakeable", {}) or {})
+        assert beyond <= BEYOND_THE_MODEL.get(name, set()), f"{capture.scenario}: {capture.unmakeable}"
+    if name in BEYOND_THE_MODEL:
+        reached = {tool for c in result.captures for tool in (getattr(c, "unmakeable", {}) or {})}
+        assert reached == BEYOND_THE_MODEL[name], "the deliberate reach is still what the scenario makes"
+    # And what docs/phase4/TOOL_MATRIX.md says this scenario exercises is what it really did
+    # (the 2026-09-28 deploy review, round 9, H-06): every tool it is credited with reached the
+    # dispatcher in this run, and the writes it is credited with staging are exactly the writes
+    # that came back staged — not every write a command it posts could have prepared.
+    claims = _audit_claims().get(name, {})
+    dispatched = {tool for tool, _ in stage.dispatched}
+    staged = {tool for tool, was_staged in stage.dispatched if was_staged}
+    assert set(claims) <= dispatched, f"credited but never called: {sorted(set(claims) - dispatched)}"
+    assert {t for t, how in claims.items() if how == "staged"} == staged, \
+        f"credited as staged: {sorted(t for t, how in claims.items() if how == 'staged')}; staged: {sorted(staged)}"
 
 
-@pytest.mark.usefixtures("owner_asking")
-@pytest.mark.parametrize("name", CALL_A_TOOL_AS_THE_OWNER)
-async def test_the_golden_scenarios_that_call_a_tool_as_the_owner(name, stage):
-    assert name in BY_NAME
-    await test_the_golden_scenarios(name, stage)
+def test_a_call_claude_could_not_make_is_named_as_such():
+    """The check itself, on each way a script can ask for what the model cannot do."""
+    import app.tools.shopify_tools  # noqa: F401 — registers the tools asked about
+    import app.tools.shopify_writes  # noqa: F401
+    from experience.harness import model_could_make
+
+    runtime = type("R", (), {"settings": type("S", (), {"writes_enabled": False})(), "withheld_by_family": lambda self: set()})()
+    assert model_could_make(runtime, "shopify_find_order", {"query": "1938", "limit": 3}) == ""
+    assert "no tool of that name" in model_could_make(runtime, "shopify_order_remove_item", {"order_id": "x"})
+    assert "withheld" in model_could_make(runtime, "shopify_order_cancel", {"order_id": "x"}), "writes are off"
+    assert "no argument 'order'" in model_could_make(runtime, "shopify_find_order", {"query": "1938", "order": "x"})
+    assert "requires 'query'" in model_could_make(runtime, "shopify_find_order", {})
+    assert "int where the schema says string" in model_could_make(runtime, "shopify_find_order", {"query": 1938})
+    assert "bool where the schema says integer" in model_could_make(runtime, "shopify_find_order", {"query": "1", "limit": True})
 
 
 async def test_an_order_lookup_that_is_fast_and_empty_is_a_failure(stage):
@@ -140,6 +203,18 @@ async def test_the_end_of_a_list_is_said_rather_than_walked_past(stage):
     assert before.answer == "That is the first one."
 
 
+# The fixture shop's reads of an ORDER record (experience/fixtures/shopify.py). A tap on an order
+# also tells the anticipation layer, which reads the customer's history ahead of the owner in
+# the background (app/routes/command.py:_anticipate) — a read that can land inside the next
+# tap's window on a loaded machine, and is not that tap re-reading its record. "Replayed, not
+# re-read" is about the record, so the record's reads are what is counted.
+_ORDER_RECORD_READS = frozenset({"CrooksOrderContext", "CrooksOrderByName", "FindOrders"})
+
+
+def _record_reads(capture) -> list[str]:
+    return [q for q in capture.reads if q in _ORDER_RECORD_READS]
+
+
 async def test_a_record_is_only_replayed_to_the_conversation_it_was_shown_to(stage):
     """The entity cache is shared between conversations; permission is not.
 
@@ -164,7 +239,7 @@ async def test_a_record_is_only_replayed_to_the_conversation_it_was_shown_to(sta
     mine = await stage.touch("open.entity", session_id="ownerA",
                             kind="order", ref="gid://shopify/Order/1938")
     assert mine.raw.get("ok") is True and mine.data("order").get("order_number") == "#1938"
-    assert not mine.reads, "a record already held is replayed, not re-read"
+    assert not _record_reads(mine), f"a record already held is replayed, not re-read: {mine.reads}"
 
 
 async def test_neither_half_of_the_orb_inherits_the_others_list(stage):
@@ -361,11 +436,11 @@ async def test_opening_a_row_reads_the_record_when_the_mac_does_not_hold_it(stag
     opened = await stage.touch("open.entity", session_id="rows", kind="order", ref=ref)
     assert opened.raw.get("ok") is True, opened.raw
     assert opened.data("order").get("order_id") == ref, opened.surface_types
-    assert opened.reads, "a record the Mac did not hold should have been read"
+    assert _record_reads(opened), f"a record the Mac did not hold should have been read: {opened.reads}"
 
     # A second tap on the same row is free: it is held now.
     again = await stage.touch("open.entity", session_id="rows", kind="order", ref=ref)
-    assert again.raw.get("ok") is True and not again.reads, again.reads
+    assert again.raw.get("ok") is True and not _record_reads(again), again.reads
 
 
 async def test_a_row_a_conversation_was_never_shown_is_refused_before_any_read(stage):
@@ -463,3 +538,16 @@ def test_the_fixture_shop_forgets_every_field_it_records_a_scenario_in():
     # The world is deliberately still there — the reset drops the log, not the shop.
     assert used.scopes == fresh.scopes
     assert used.store_credit == fresh.store_credit, "an opening balance is the world, not a log"
+
+
+async def test_the_harness_admits_nobody_unless_the_owner_is_asked_for_by_name():
+    """F-A2-FIXTURE (the 2026-09-28 deploy review, round 9): the harness's default is the
+    production identity check, under which its own owner headers are a claim nobody confirmed.
+    A sentence and a tap are refused at the door, and nothing behind it runs."""
+    async with harness() as unadmitted:
+        assert unadmitted.admitted is False and unadmitted.runtime.settings.tailscale_verify is True
+        said = await unadmitted.say("show me order 1938", session_id="nobody")
+        tapped = await unadmitted.touch("open.area", area="orders", session_id="nobody")
+        assert said.status == 403 and tapped.status == 403, (said.raw, tapped.raw)
+        assert unadmitted.provider.calls == [], "the model was never asked"
+        assert not unadmitted.runtime.sessions.exists("nobody")

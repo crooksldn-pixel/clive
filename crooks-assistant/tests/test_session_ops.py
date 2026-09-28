@@ -45,7 +45,7 @@ class _Settings:
 
 def event(kind: str, seq: int, **fields) -> str:
     return json.dumps({"ts": 1_700_000_000.0 + seq, "iso": "2026-09-12T10:00:00", "seq": seq,
-                       "test_session_id": "ts-x", "source": "mac", "kind": kind, **fields})
+                       "test_session_id": "ts-20260912-100000-x", "source": "mac", "kind": kind, **fields})
 
 
 def timeline(path: Path, *events: str) -> Path:

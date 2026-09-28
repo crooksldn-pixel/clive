@@ -21,8 +21,14 @@ cannot be decided it says so rather than being filled in optimistically:
     VERIFICATION      how a write is proven — a predicate, or the default exact re-read
     VISIBLE UI        app/presentation.py names it, so its result becomes a card
     ERROR UI          its failure is drawn as a named service rather than a generic error
-    GOLDEN SCENARIO   a golden scenario exercises it — either by naming it, or by tapping
-                      a control whose recipe names it as a read primitive
+    GOLDEN SCENARIO   a golden scenario's CODE reaches it — the scenario (or a helper in its
+                      own file, or a harness helper such as `open_order`) hands the tool's name
+                      to the model it scripts or to a call, or taps a control whose recipe
+                      reads it or whose staging command prepares it. A mention in a check's
+                      description, an assertion comparing an operation name, a comment or a
+                      docstring does not count, and the row names the SCENARIO, not the file.
+                      A write is reported as STAGED: no golden scenario can apply a change —
+                      the fixture world refuses every mutation — so none is claimed as applied
 
 There are no intent families any more: every sentence is a model turn (the owner had the
 word-matching lane removed on 28 September 2026), so what a sentence reaches is what the
@@ -350,40 +356,149 @@ def _write_tools_of(family: Any) -> list[str]:
     ]
 
 
-def _scenario_tools() -> dict[str, set[str]]:
-    """Tool name -> the golden scenarios that exercise it.
+# The harness's own helpers that make the model read something (experience/harness.py): a
+# scenario calling `h.open_order(...)` has the model call these, through the gate.
+def _harness_reads() -> dict[str, set[str]]:
+    from experience import harness as harness_mod
 
-    Two ways a scenario counts. It may NAME the tool — an assertion about what was read, a
-    fixture that answers it, the read the harness's model makes. Or it may tap a control whose
-    recipe's read primitives include the tool, in which case running the scenario runs the
-    tool whether it says so or not; `experience/matrix.py::COVERAGE` is the repository's own
-    mapping of which scenario exercises which operation, and this walks it through to the
-    tools. A write tool also counts its OPERATION name, which is what a scenario asserting on
-    a staged change writes down.
+    return {
+        "open_order": {name for name, _ in harness_mod.order_reads("1")},
+        "list_todays_orders": {name for name, _ in harness_mod.todays_orders_reads()},
+        "customer_history": {name for name, _ in harness_mod.customer_reads("")},
+    }
 
-    Deriving it this way keeps the one property that matters: a tool with no route from any
-    scenario is REPORTED as uncovered rather than assumed covered because its unit tests pass.
+
+def scenario_strings(text: str) -> dict[str, set[str]]:
+    """Function name -> the strings its code HANDS ON, for every function in one scenario file,
+    with what the same file's helpers it calls hand on folded in. Read from the syntax tree;
+    nothing is imported or run.
+
+    A string handed on is one that reaches a call's arguments or a helper's return value — the
+    tool a scripted model is told to call, a command a tap posts. Left out, because they claim
+    nothing was run: a check's description (the first argument of `check`), a string compared
+    in an assertion, an f-string, and every docstring. That is the difference between
+    `store_credit_give` STAGING the credit through a tap and it merely writing the credit's
+    operation name in an assertion about the card (the 2026-09-28 deploy review, round 9,
+    H-06). Names of the harness's reading helpers the function calls (`open_order` …) come
+    back as `@open_order`, so the caller can turn them into the tools they read.
+    """
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return {}
+    constants: dict[str, set[str]] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    constants.setdefault(target.id, set()).add(node.value.value)
+    functions = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    harness_helpers = {"open_order", "list_todays_orders", "customer_history"}
+
+    def handed_on(fn: ast.AST) -> tuple[set[str], set[str]]:
+        found: set[str] = set()
+        helpers: set[str] = set()
+        skip: set[int] = set()
+        body = getattr(fn, "body", [])
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+            skip.add(id(body[0].value))          # the docstring
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Call):
+                callee = _callee(node.func)
+                if callee == "check" and node.args:
+                    skip.update(id(n) for n in ast.walk(node.args[0]))
+                if isinstance(node.func, ast.Name) and node.func.id in functions:
+                    helpers.add(node.func.id)
+                if isinstance(node.func, ast.Attribute) and callee in harness_helpers:
+                    found.add(f"@{callee}")
+            elif isinstance(node, (ast.Compare, ast.JoinedStr)):
+                skip.update(id(n) for n in ast.walk(node))
+        for node in ast.walk(fn):
+            if id(node) in skip:
+                continue
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                found.add(node.value)
+            elif isinstance(node, ast.Name) and node.id in constants:
+                found |= constants[node.id]
+        return found, helpers
+
+    direct = {name: handed_on(fn) for name, fn in functions.items()}
+    out: dict[str, set[str]] = {}
+    for name in functions:
+        seen, todo, strings = set(), [name], set()
+        while todo:
+            current = todo.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            own, helpers = direct[current]
+            strings |= own
+            todo.extend(helpers)
+        out[name] = strings
+    return out
+
+
+def _scenario_tools() -> dict[str, dict[str, str]]:
+    """Tool name -> {golden scenario: how it reaches the tool}, derived from the scenarios' code.
+
+    Three ways a scenario reaches a tool, and each is read off what its code does:
+
+    * it hands the tool's name on — to the model it scripts (`h.ask(..., (tool, args))`), to
+      `dispatch`, or through a helper that builds that call — or calls a harness helper whose
+      reads are the tool's (`h.open_order` → the find and the detail read);
+    * it taps a control whose recipe reads the tool (`experience/matrix.py::COVERAGE`, the
+      repository's mapping of scenario to operation, walked to the recipe's read primitives);
+    * its taps prepare a write it declares (`experience/matrix.py::TAP_STAGED`), and its code
+      posts a staging command that can prepare that write (`experience/matrix.py::STAGES`).
+      Posting the command alone credits nothing: which write a command prepares, and whether it
+      is refused first, only a run can say — and `tests/test_experience.py` runs every scenario
+      and holds these claims to what it really dispatched and staged.
+
+    A write reached any of these ways has been staged and nothing more: the fixture world refuses
+    every mutation, so no golden scenario applies one, and the value says "staged" so a reader
+    cannot take it for more. A tool no scenario reaches is REPORTED as uncovered rather than
+    assumed covered because its unit tests pass.
     """
     from app.recipes import RECIPES
     from app.tools import registry
-    from experience.matrix import COVERAGE
-    from experience.scenarios import BY_NAME
+    from experience.matrix import COVERAGE, STAGES, TAP_STAGED
+    from experience.scenarios import SCENARIOS
 
-    out: dict[str, set[str]] = {}
+    by_function: dict[str, set[str]] = {}
+    for text in _sources()["scenario"].values():
+        for function, strings in scenario_strings(text).items():
+            by_function.setdefault(function, set()).update(strings)
+    reads = _harness_reads()
+    handed: dict[str, set[str]] = {}
+    for name, fn in SCENARIOS:
+        strings = set(by_function.get(getattr(fn, "__name__", ""), set()))
+        for helper, tools_read in reads.items():
+            if f"@{helper}" in strings:
+                strings |= tools_read
+        handed[name] = strings
+
+    def kind(spec: Any) -> str:
+        return "staged" if (spec.write is not None or spec.batch is not None) else "read"
+
+    out: dict[str, dict[str, str]] = {}
     for operation, scenarios in COVERAGE.items():
-        named = [s for s in scenarios if s in BY_NAME]
-        if not named:
-            continue
         recipe = RECIPES.get(operation)
-        for tool in (recipe.read_primitives if recipe is not None else ()):
-            out.setdefault(str(tool), set()).update(named)
-    sources = _sources()["scenario"]
+        for scenario in scenarios:
+            if scenario not in handed:
+                continue
+            for tool in (recipe.read_primitives if recipe is not None else ()):
+                out.setdefault(str(tool), {})[scenario] = "read"
+    for scenario, declared in TAP_STAGED.items():
+        if scenario not in handed:
+            continue
+        can = {tool for command, tools in STAGES.items() if command in handed[scenario] for tool in tools}
+        for tool in declared:
+            if tool in can:
+                out.setdefault(tool, {})[scenario] = "staged"
     for spec in registry.all_specs():
-        terms = [spec.name] + ([spec.write.operation] if spec.write is not None else []) + \
-                ([spec.batch.operation] if spec.batch is not None else [])
-        for path, text in sources.items():
-            if any(_named(term, text) for term in terms if term):
-                out.setdefault(spec.name, set()).add(path)
+        for scenario, strings in handed.items():
+            if spec.name in strings:
+                out.setdefault(spec.name, {})[scenario] = kind(spec)
     return out
 
 
@@ -406,7 +521,8 @@ def tools() -> list[dict[str, Any]]:
                   ([f"family:{family['family']}"] if family else [])
         handler = (getattr(spec.handler, "__module__", ""), getattr(spec.handler, "__name__", ""))
         tested_by = sorted(path for path, code in tests.items() if code.calls_tool(name, *handler))
-        scenarios = sorted(by_scenario.get(name, ()))
+        reached_in = by_scenario.get(name, {})
+        scenarios = sorted(reached_in)
         kind = "batch" if spec.batch is not None else ("write" if spec.write is not None else "read")
         rows.append({
             "name": name,
@@ -424,6 +540,10 @@ def tools() -> list[dict[str, Any]]:
             "error_ui": _error_ui(name),
             "golden_scenario": bool(scenarios),
             "scenarios": scenarios,
+            # How far a scenario takes it: "read" for a read, "staged" for a write — prepared
+            # through the action engine and never applied, because nothing in the fixture world
+            # can apply a change.
+            "scenario_reach": ("staged, never applied" if kind != "read" else "read") if scenarios else "",
             "capability_family": family.get("family", ""),
             "capability_state": family.get("state", ""),
         })
@@ -493,7 +613,7 @@ def gaps() -> dict[str, list[str]]:
     rows = tools()
     return {
         "no test calls it": [r["name"] for r in rows if not r["directly_tested"]],
-        "no golden scenario names it": [r["name"] for r in rows if not r["golden_scenario"]],
+        "no golden scenario reaches it": [r["name"] for r in rows if not r["golden_scenario"]],
         "nothing but the model reaches it": [r["name"] for r in rows if not r["routable"]],
         "no card is drawn from it": [r["name"] for r in rows if not r["visible_ui"]],
         "no named error card": [r["name"] for r in rows if not r["error_ui"]],
@@ -519,7 +639,11 @@ def markdown() -> str:
         "— and the file that does is cited. A test that only mentions the tool, in a comment, a",
         "docstring, an assertion about a list of names or a monkeypatch that replaces it, does",
         "not count, so a tool whose unit tests pass but which no test calls is reported as",
-        "untested. There are no intent families: every sentence is a model turn, so what a",
+        "untested. **GOLDEN SCENARIO** is read the same way from the scenarios' code: a scenario",
+        "counts when it hands the tool to the model it scripts or to a call, or taps a control that",
+        "reads or stages it — never for naming it in an assertion or a description — and a write",
+        "is reported as staged, because nothing in the fixture world can apply one.",
+        "There are no intent families: every sentence is a model turn, so what a",
         "sentence reaches is what the model calls. Tests are read as syntax trees and never run; nothing",
         "here runs a tool, and nothing here can reach a mutation: the audit is a read of",
         "registries and of source text, so it is safe against a shop it may not touch.",
@@ -536,13 +660,13 @@ def markdown() -> str:
             f"| `{r['name']}` | {r['tier']} | {_tick(r['registered'])} | {_tick(r['routable'])} "
             f"| {_tick(r['directly_tested'])} | {r['auth_scope'] or '—'} | {r['read_write']} "
             f"| {r['staging'] or '—'} | {r['verification'] or '—'} | {r['visible_ui'] or '—'} "
-            f"| {r['error_ui'] or '—'} | {_tick(r['golden_scenario'])} |"
+            f"| {r['error_ui'] or '—'} | {r['scenario_reach'] or '—'} |"
         )
     out += [
         "",
         "### What cites each tool",
         "",
-        "| Tool | Reached by | Called in tests | Named in scenarios |",
+        "| Tool | Reached by | Called in tests | Reached in scenarios |",
         "|---|---|---|---|",
     ]
     for r in rows:

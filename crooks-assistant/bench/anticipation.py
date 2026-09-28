@@ -122,7 +122,7 @@ async def effect() -> None:
     from experience.harness import harness
 
     for anticipating in (False, True):
-        async with harness() as h:
+        async with harness(admitted=True) as h:
             from app.anticipation import engine as anticipation_mod
             from app.anticipation.learning import Learner
             from app.memory import current as memory

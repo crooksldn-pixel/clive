@@ -49,6 +49,7 @@ from typing import Any
 
 from app.observability import timeline
 from app.reads import budget
+from app.tools.context import acting_branch
 
 log = logging.getLogger("crooks.reads")
 
@@ -230,8 +231,14 @@ async def run_plan(plan: ReadPlan, *, session: Any, timeout_s: float | None = No
         # anticipation engine, which stood down the P2 lane and nothing else — so a background
         # job kept its slot, and the layer had to be installed for a stand-down to happen at
         # all.
+        #
+        # Which half stands down is the half THIS read is for (round 10): the session's own
+        # `acting_branch` is one field for both halves and holds whichever spoke last, so with two
+        # halves thinking at once a read for one stood the other's guesses down and left its own
+        # running. `acting_branch(session)` is the running request's half first (CURRENT_BRANCH,
+        # set per call), then the session's.
         try:
-            budget.yield_to(lane, scope=scope, branch_id=str(getattr(session, "acting_branch", "") or ""))
+            budget.yield_to(lane, scope=scope, branch_id=acting_branch(session))
         except Exception as exc:  # noqa: BLE001 — a read is not failed by a cancellation
             log.debug("could not stand the lower lanes down: %s", exc)
     from app.tools.dispatch import dispatch

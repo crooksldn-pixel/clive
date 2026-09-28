@@ -425,10 +425,16 @@ async def client(monkeypatch):
             yield c
 
 
-async def test_a_spoken_order_lookup_is_the_models_and_its_two_reads_draw_the_whole_order(client):
-    """"Show me order 1938" is the model's, like every sentence: it finds the order and reads
-    it, and the card, the issued ids and where the branch now stands all come from those two
-    reads. Nothing on the Mac looked the order up ahead of it."""
+async def test_the_models_two_reads_of_an_order_draw_the_whole_order(client):
+    """A RENDERING test, through the route: given the model's find and detail of #1938, the
+    card, the issued ids and where the branch now stands all come from those two reads, and
+    nothing on the Mac looked the order up ahead of it.
+
+    It is not evidence that the model chooses the order the words named — the provider above
+    reads #1938 whatever it is asked (round 9, I-tests2 I-03). That claim is tested with a
+    requested order different from the one in focus, where a fixed-order model would fail, in
+    tests/test_turn_boundary.py (`test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_for_it`
+    and its neighbours)."""
     body = (await client.post("/turn", json={"text": "Show me order 1938", "session_id": "h1"})).json()
     assert body["lane"] == "NORMAL" and "recipe_id" not in body
     prompt = client.runtime.provider.prompts[-1]

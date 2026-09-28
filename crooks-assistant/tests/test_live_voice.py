@@ -4,8 +4,10 @@ The phone opens ElevenLabs' realtime speech-to-text itself, with a key the serve
 own. What is proved here: the owner gets a key, the socket's address and its query (and never a
 keyterm); anyone the owner rule refuses gets nothing, under production's switches, at the door
 and at the route; no stored key, the setting off, or an ElevenLabs that says no or says nothing
-in time is a 503 with a plain reason and never an exception's text; the pace holds; and the
-server's key never appears in an answer or a log line, nor the minted one in a log line.
+in time is a 503 with a plain reason and never an exception's text; the pace holds; the
+server's key never appears in an answer or a log line, nor the minted one in a log line; and
+(round 9, C-02) only a key-shaped string is handed on, with the short life the page honours.
+tests/test_live_voice_owner.py proves the owner rule under production's switches (C-01).
 
 ElevenLabs is a mocked transport throughout. Nothing here reaches the network.
 """
@@ -126,7 +128,7 @@ async def test_the_owner_gets_a_single_use_key_the_socket_and_its_query(client, 
     store_key(monkeypatch)
     answer = await ask(client)
     assert answer.status_code == 200, answer.text
-    assert answer.json() == {"token": TOKEN, "url": SOCKET, "params": PARAMS}
+    assert answer.json() == {"token": TOKEN, "url": SOCKET, "params": PARAMS, "expires_in_s": voice_route.EXPIRES_IN_S}
     assert answer.headers["cache-control"] == "no-store"
     # Minted once, at the documented path, with the server's key in the one header it belongs in.
     assert len(elevenlabs.calls) == 1
@@ -354,3 +356,99 @@ async def test_the_key_never_appears_in_an_answer_or_a_log_line(client, elevenla
     assert KEY not in logged
     assert TOKEN not in logged
     assert "live words unavailable" in caplog.text, "a refusal is logged, in the route's own words"
+
+
+# ------------------------------------------------------------------ what is handed on, and for how long
+
+
+@pytest.mark.parametrize("token", [
+    TOKEN,
+    fake.elevenlabs_single_use_token("long", length=400),
+    fake.jwt("live-voice"),
+    fake.body("base64-shaped", 44, fake.BASE64) + "==",
+], ids=["prefixed", "long", "jwt-shaped", "base64-shaped"])
+async def test_a_key_shaped_answer_is_handed_on_exactly_with_a_short_life(client, elevenlabs, monkeypatch, token):
+    """C-02: a string of token characters, of a bearer token's length, is handed on as it came,
+    with the life the page is to honour: seconds, not ElevenLabs' fifteen minutes."""
+    configure(client, logins=OWNER)
+    store_key(monkeypatch)
+    elevenlabs.answer = (200, {"token": token})
+    answer = await ask(client)
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["token"] == token
+    life = answer.json()["expires_in_s"]
+    assert isinstance(life, int) and 0 < life <= 60 and life < 15 * 60
+    assert life > voice_route.TIMEOUT_S, "long enough to outlast the mint's own wait"
+
+
+@pytest.mark.parametrize("token", [
+    12345,
+    {"value": "nested"},
+    ["a", "list"],
+    True,
+    "",
+    "   ",
+    "too-short",
+    "x" * 2049,
+    "Jane Doe asked about order #1042 at 12 High Street",
+    "<img src=x onerror=alert(1)>aaaaaaaaaaaa",
+    "tokén-with-an-accent-and-more",
+    "line-one-of-a-key\nline-two-of-a-key",
+    'quote"in-the-middle-of-a-long-value',
+    "semicolon;in-the-middle-of-a-long-value",
+], ids=["number", "object", "list", "boolean", "empty", "blank", "short", "enormous", "a-sentence", "markup",
+        "non-ascii", "newline", "quote", "semicolon"])
+async def test_anything_else_in_the_token_field_is_not_handed_on_or_logged(client, elevenlabs, monkeypatch, caplog, token):
+    """C-02: the route no longer hands on any non-empty string. Whatever else ElevenLabs puts in
+    the field is refused in the route's own words: a 503 with no key, and neither the answer nor
+    a log line carries what was in the field."""
+    caplog.set_level(logging.DEBUG)
+    configure(client, logins=OWNER)
+    store_key(monkeypatch)
+    elevenlabs.answer = (200, {"token": token})
+    answer = await ask(client)
+    assert answer.status_code == 503, answer.text
+    assert answer.json()["live"] is False and "token" not in answer.json()
+    assert answer.json()["why"] in ("ElevenLabs answered without a key.",
+                                    "ElevenLabs answered with something that is not a key.")
+    if isinstance(token, str) and token.strip():
+        assert token.strip() not in answer.text
+        logged = caplog.text + "".join(str(record.args) for record in caplog.records)
+        assert token.strip() not in logged
+
+
+def test_the_shape_is_what_a_socket_query_can_carry_unescaped_and_no_more():
+    """The accepted characters are URL-safe token characters: nothing that ends a query value,
+    starts a fragment, or would read as markup, whitespace or a sentence."""
+    shape = voice_route.TOKEN_SHAPE
+    for bad in ("a&b" * 8, "a#b" * 8, "a?b" * 8, "a b" * 8, "a<b" * 8, "a%b" * 8, "a'b" * 8, "a,b" * 8):
+        assert not shape.fullmatch(bad), bad
+    assert shape.fullmatch("A-z_0.9~+/=" * 2)
+
+
+async def test_the_servers_own_key_sent_back_as_the_token_is_never_handed_on(client, elevenlabs, monkeypatch, caplog):
+    """C-02: the server's key is key-shaped too. An answer that puts it (or something holding
+    it) in the token field is refused like any other thing that is not a single-use key."""
+    caplog.set_level(logging.DEBUG)
+    configure(client, logins=OWNER)
+    store_key(monkeypatch)
+    for echoed in (KEY, f"{KEY}.suffix", f"prefix.{KEY}"):
+        elevenlabs.answer = (200, {"token": echoed})
+        answer = await ask(client)
+        assert answer.status_code == 503 and KEY not in answer.text
+        voice_route.PACE.reset()
+    assert KEY not in caplog.text
+
+
+def test_the_page_holds_a_key_to_the_same_shape_and_to_the_life_it_is_given():
+    """The page's own copy of the rule (web/live-voice.js TOKEN_SHAPE) is this one, so a key the
+    Mac hands on is one the page will use; and the page honours no life longer than a minute."""
+    import re as _re
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "web" / "live-voice.js").read_text(encoding="utf-8")
+    page = _re.search(r"const TOKEN_SHAPE = /\^(.+?)\$/;", source)
+    assert page is not None, "web/live-voice.js no longer states TOKEN_SHAPE"
+    assert page.group(1) == voice_route.TOKEN_SHAPE.pattern
+    ceiling = _re.search(r"const MAX_LIFE_S = (\d+);", source)
+    assert ceiling is not None and 0 < voice_route.EXPIRES_IN_S <= int(ceiling.group(1))

@@ -274,13 +274,13 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-portrait .cs-pair{padding:0 40px 80px}
 .cs-pair.is-leaving{opacity:0;pointer-events:none}
 .cs-pair-card{width:min(1100px,100%);display:flex;flex-direction:column;gap:18px}
-.cs-pair-code{font-size:168px;line-height:1;font-weight:700;letter-spacing:.06em;font-variant-numeric:tabular-nums;white-space:nowrap;color:rgb(196,161,240);user-select:text;-webkit-user-select:text}
+.cs-pair-code{font-size:168px;line-height:1;font-weight:700;letter-spacing:.06em;font-variant-numeric:tabular-nums;white-space:nowrap;color:#fff;user-select:text;-webkit-user-select:text}
 .cs-portrait .cs-pair-code{font-size:112px}
 .cs-pair-say{margin:0;max-width:1000px;font-size:34px;line-height:1.35;color:rgba(235,235,245,.9)}
 .cs-portrait .cs-pair-say{font-size:24px}
 .cs-pair-note{margin:0;font-size:22px;line-height:1.4;color:rgba(235,235,245,.56)}
 .cs-portrait .cs-pair-note{font-size:17px}
-.cs-line.is-gone{color:rgb(255,212,138)}
+.cs-line.is-gone{color:#409cff}
 
 /* round 9: one thing, or two side by side — two columns on a landscape screen, one above the
    other on a portrait one. A pane is laid out as the whole page was; beside another it takes
@@ -401,3 +401,13 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-vframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
 .cs-vnote{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:48px;text-align:center;font-size:30px;font-weight:600;line-height:1.3;color:rgba(235,235,245,.86);background:rgba(10,11,14,.94)}
 .is-calm .cs-vhost{transition:none}
+
+/* round 10 (B2-04): a slip marked packed is its done summary alone — the order's number, a check
+   and when it was packed — in the space the slip took, never the customer's details. */
+.cs-donepanel{flex:1;align-items:center;justify-content:center;gap:28px;text-align:center}
+.cs-donemark{width:168px;height:168px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#30d158;background:rgba(48,209,88,.16);box-shadow:inset 0 0 0 2px rgba(48,209,88,.45)}
+.cs-donemark svg{width:92px;height:92px}
+.cs-donet{font-size:44px;font-weight:650;letter-spacing:-.01em;color:#fff}
+.cs-portrait .cs-donemark,.cs-two .cs-donemark{width:112px;height:112px}
+.cs-portrait .cs-donemark svg,.cs-two .cs-donemark svg{width:60px;height:60px}
+.cs-portrait .cs-donet,.cs-two .cs-donet{font-size:30px}

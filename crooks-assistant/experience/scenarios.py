@@ -109,7 +109,14 @@ def deterministic(capture: Any) -> Check:
 
 def a_model_turn(capture: Any) -> Check:
     """A sentence: every one is the model's, asked once, with nothing answered in front of it
-    (app/routes/turn.py). The owner removed the word-matching lane on 28 September 2026."""
+    (app/routes/turn.py). The owner removed the word-matching lane on 28 September 2026.
+
+    What this does NOT show is what the model decided. The harness's model calls what the
+    scenario scripted (`Harness.ask`), so a check that a card appeared after `abandoned_window`
+    scripted `days=7`, or that a composer holds the address `compose_open` handed it, is a check
+    of the gate and the presenters given that call — a scripted gate/presenter test (the
+    2026-09-28 deploy review, round 9, H-02). The capture carries the scripted tools
+    (`Capture.scripted`) and the report prints them beside the result."""
     return check("the sentence went to the model, once", capture.model_calls == 1 and capture.lane == "NORMAL",
                  f"model_calls={capture.model_calls} lane={capture.lane!r}")
 
@@ -329,49 +336,94 @@ async def needs_reply(h: Harness) -> Result:
     r.checks.append(check("shows something rather than prose", not c.prose_only,
                           f"surfaces={c.surface_types}"))
     r.checks.append(deterministic(c))
+    queue = next((item for item in c.surfaces if item.get("surface") == "work_queue"), None)
+    card = (queue or {}).get("data") or {}
+    rows = [t for t in card.get("threads") or [] if isinstance(t, dict)]
+    r.checks.append(check("the queue is drawn", queue is not None, f"surfaces={c.surface_types}"))
+
+    # The answer itself, entry by entry. This scenario once checked only that a card was drawn
+    # and that the newsletter sender was absent from it — both trivially true of a card
+    # offering NOBODY, which is what it was drawing. Then it looked for each waiting person's
+    # first name anywhere in the stringified card, which a subject line could satisfy, and for
+    # the answered people's full names, which a misleading answer could avoid (the 2026-09-28
+    # deploy review, round 9, H-05). Now the queue's rows are matched to the world's threads by
+    # id, each row must name who wrote last in its thread, and the spoken answer must name
+    # exactly the people on the card — the waiting clause is its first sentence; the rest may
+    # mention the newest thread, which is a different fact about a different list.
+    said = c.answer.split(". ")[0]
+    on_card = {str(row.get("from") or "") for row in rows}
+    r.checks.append(check("the count on the card is its own rows", card.get("count") == len(rows),
+                          f"count={card.get('count')} rows={len(rows)}"))
+    r.checks.append(check("the answer names everyone the card says is waiting, and how many",
+                          bool(rows) and all(name and name in said for name in on_card) and str(len(rows)) in said,
+                          f"said={said!r} on_card={sorted(on_card)}"))
+    r.checks.append(check("the automated sender is not offered as a customer",
+                          data.NEWSLETTER_SENDER not in str(rows) and data.NEWSLETTER_SENDER not in said,
+                          "newsletter sender present"))
+    if not grounded(h):
+        return r
+
     expected = world.needs_reply()
     answered = [t for t in world.threads if t not in expected]
     r.checks.append(check("the golden world has both kinds to tell apart",
                           bool(expected) and bool(answered),
                           f"{len(expected)} waiting, {len(answered)} not"))
-    queue = next((item for item in c.surfaces if item.get("surface") == "work_queue"), None)
-    body = str((queue or {}).get("data"))
 
-    # The answer itself, against the world's own arithmetic. This scenario once checked only
-    # that a card was drawn and that the newsletter sender was absent from it — both of which
-    # are trivially true of a card offering NOBODY, which is what it was drawing: the fake
-    # inbox could not parse the correlation query, so every customer came back "emailed us:
-    # no" and the assistant said "Nobody is waiting on a reply" in a world with three people
-    # waiting. A scenario that cannot tell that apart from the right answer is not a test of
-    # this question.
-    waiting = {p.name for p in world.people.values()
-               if any(p.email in max(t.messages, key=lambda m: (-m.days_ago, m.hour)).sender
-                      for t in expected)}
-    on_card = {name for name in waiting if name.split()[0] in body}
-    r.checks.append(check("the queue is drawn", queue is not None, f"surfaces={c.surface_types}"))
-    r.checks.append(check("and everyone the world says is waiting is on it to act on",
-                          on_card == waiting, f"on_card={sorted(on_card)} expected={sorted(waiting)}"))
-    replied_to = {p.name for p in world.people.values() if p.name not in waiting}
-    wrongly = {name for name in replied_to if name and name in body}
-    r.checks.append(check("and nobody we have already answered is queued as waiting",
-                          not wrongly, f"queued anyway: {sorted(wrongly)}"))
-    r.checks.append(check("the automated sender is not offered as a customer",
-                          data.NEWSLETTER_SENDER not in body, "newsletter sender present"))
+    def _last_sender(thread: Any) -> str:
+        return max(thread.messages, key=lambda m: (-m.days_ago, m.hour)).sender.split("<")[0].strip()
+
+    wanted = {t.thread_id: _last_sender(t) for t in expected}
+    queued = {str(row.get("thread_id") or ""): str(row.get("from") or "") for row in rows}
+    r.checks.append(check("the queue holds exactly the threads the world says are waiting, and no other",
+                          set(queued) == set(wanted), f"queued={sorted(queued)} expected={sorted(wanted)}"))
+    r.checks.append(check("and each row names who wrote last in its own thread",
+                          all(queued.get(tid) == who for tid, who in wanted.items()),
+                          f"rows={queued} expected={wanted}"))
+    others = {p.name for p in world.people.values() if p.name and p.name not in set(wanted.values())}
+    r.checks.append(check("and the answer names nobody the world says is not waiting",
+                          not [name for name in others if name in said],
+                          f"named anyway: {sorted(name for name in others if name in said)}"))
     return r
 
 
 async def unsupported_edit(h: Harness) -> Result:
-    """It must never claim to have done what it cannot do (brief §30)."""
-    r = Result("unsupported_edit", "Add a hoodie to this order")
+    """It must never claim to have done what it cannot do (brief §30).
+
+    Adding a line is supported now (app/families/order_edit.py); taking one OFF is not, and is a
+    stated limitation (app/observability/contract.py). Scripted: the harness's model reaches for
+    a removal tool that does not exist, as a model left to guess might, and then answers
+    honestly. What is asserted is the Mac's side, which the script cannot supply: the model was
+    handed the limitation in words, the gate refused the invented write, nothing was staged or
+    changed, and the answer is held to the report's own FALSE_SUCCESS rule — the false-claim
+    check this scenario lost when it stopped scripting anything (the 2026-09-28 deploy review,
+    round 9, H-03).
+    """
+    from app.observability import contract
+
+    r = Result("unsupported_edit", "Remove a line from this order")
     await h.open_order("1938", scenario="unsupported:open", session_id="unsup")
-    c = await h.say("add a Black Convict hoodie to this order", scenario="unsupported_edit",
-                    session_id="unsup")
+    said = "remove the Yard Jeans from this order"
+    c = await h.ask(said, ("shopify_order_remove_item", {"order_id": world.order("1938").order_id}),
+                    reply="I can't take a line off an order. I can put a note on it, or cancel and refund it.",
+                    scenario="unsupported_edit", session_id="unsup")
     r.captures.append(c)
     r.checks.append(a_model_turn(c))
+    prompt = h.provider.calls[-1] if h.provider.calls else ""
+    r.checks.append(check("the Mac told the model, in words, that this is a limitation",
+                          "The Mac cannot change what is ON an order" in prompt, "no limitation line in the prompt"))
+    tried = [t for t in (c.raw.get("tool_calls") or []) if isinstance(t, dict)]
+    r.checks.append(check("the invented write was refused at the gate",
+                          [t.get("name") for t in tried] == ["shopify_order_remove_item"] and tried[0].get("ok") is False,
+                          f"tool_calls={[(t.get('name'), t.get('ok'), str(t.get('error') or '')[:80]) for t in tried]}"))
+    r.checks.append(check("nothing was staged", not h.runtime.sessions.get("unsup").proposals,
+                          f"proposals={[p.operation for p in h.runtime.sessions.get('unsup').proposals]}"))
     r.checks.append(check("nothing was changed in the shop", getattr(h.store, "mutations_sent", -1) == 0,
                           f"mutations_sent={getattr(h.store, 'mutations_sent', 'NO COUNTER')}"))
     r.checks.append(check("no success card was drawn", c.surface("success") is None,
                           f"surfaces={c.surface_types}"))
+    r.checks.append(check("and the answer does not claim it was done (the report's own FALSE_SUCCESS rule)",
+                          not contract.reports_success(c.answer) and contract.reports_success("I've removed the jeans from the order."),
+                          f"answer={c.answer[:120]!r}"))
     return r
 
 
@@ -457,6 +509,45 @@ async def progressive_enrichment(h: Harness) -> Result:
     return r
 
 
+async def forged_owner_headers(h: Harness) -> Result:
+    """The owner's headers, sent by something that is not Tailscale (the 2026-09-28 deploy
+    review, round 9, F-A2-FIXTURE).
+
+    Every other scenario runs admitted: the harness stands in for a device Tailscale has
+    vouched for. This one switches that off and runs the production identity check exactly —
+    CROOKS_TAILSCALE_VERIFY on — against the very headers every scenario sends. From this
+    process they are a claim nobody confirmed, so a sentence and a tap are both refused at the
+    door: no model call, no read, no conversation, nothing staged.
+    """
+    r = Result("forged_owner_headers", "The owner's headers, from a process Tailscale never saw")
+    was = h.admitted
+    session = "forged"
+    before_model = len(h.provider.calls)
+    before_reads = len(getattr(h.store, "queries", []))
+    h.configure(admitted=False)
+    try:
+        said = await h.say("show me order 1938", scenario="forged_owner_headers", session_id=session)
+        tapped = await h.touch("open.area", area="orders", scenario="forged_owner_headers", session_id=session)
+        # Without the forwarding headers: made on the server itself, to a public path.
+        ping = await h.client.get("/ping")
+    finally:
+        h.configure(admitted=was)
+    r.captures += [said, tapped]
+    for what, capture in (("a sentence", said), ("a tap", tapped)):
+        r.checks.append(check(f"{what} with forged owner headers is refused at the door",
+                              capture.status == 403 and not capture.surfaces,
+                              f"status={capture.status} raw={ {k: capture.raw.get(k) for k in ('error', 'who', 'code')} }"))
+    r.checks.append(check("the model was never asked", len(h.provider.calls) == before_model,
+                          f"model calls={len(h.provider.calls) - before_model}"))
+    r.checks.append(check("and nothing was read", len(getattr(h.store, "queries", [])) == before_reads,
+                          f"reads={len(getattr(h.store, 'queries', [])) - before_reads}"))
+    r.checks.append(check("no conversation was made for the forger", not h.runtime.sessions.exists(session),
+                          f"exists={h.runtime.sessions.exists(session)}"))
+    r.checks.append(check("a public path asked directly still answers, so this is the identity check and not a dead server",
+                          ping.status_code == 200, f"/ping → {ping.status_code}"))
+    return r
+
+
 SCENARIOS: tuple[tuple[str, Callable[[Harness], Awaitable[Result]]], ...] = (
     ("order_lookup", order_lookup),
     ("today_orders", today_orders),
@@ -469,6 +560,7 @@ SCENARIOS: tuple[tuple[str, Callable[[Harness], Awaitable[Result]]], ...] = (
     ("unsupported_edit", unsupported_edit),
     ("split_branches", split_branches),
     ("enrichment", progressive_enrichment),
+    ("forged_owner_headers", forged_owner_headers),
 )
 
 # The Phase 3 families' scenarios, one pack per family (experience/scenario_packs/*), so a

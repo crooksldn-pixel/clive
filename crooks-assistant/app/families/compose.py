@@ -31,6 +31,13 @@ An arbitrary address is admitted by `gmail_draft_new`/`gmail_send_new` only alon
 whose card the owner has already read. The address itself could never carry that check: an
 address is not a well-formed id (`gate._ID_SHAPE` has no "@").
 
+And the address has to be one the owner has CHECKED. An address the model writes into a
+composer is its transcription of what the owner said, so it arrives `uncertain` however cleanly
+it reads (`check_said_address`), and both the tap (`_ready_to_stage`) and the write tools
+themselves (`owner_checked`, asked by `gmail_writes._recipient`) refuse it until his finger has
+been on the field. An address read off a record — a thread's sender, an order's or a customer's
+email — is `ok` from the start, because the shop or the mailbox served it.
+
 SAID OUT LOUD, IT IS THE MODEL'S. "Write an email to 1232candlestickhorse@gmail.com asking if
 they're free on Sunday" and "no, send it instead" are model turns like every other sentence:
 Claude opens the composer with `gmail_compose_open`, writes into it with `gmail_compose_fill`,
@@ -170,6 +177,33 @@ def check_address(said: str) -> tuple[str, str, str]:
     return value, "ok", ""
 
 
+# What the card says under an address the MODEL wrote into the composer in canonical form. It
+# came from what the owner said — out loud or typed into a sentence, and the Mac cannot tell
+# which — by way of the model, and neither step is a check: a recogniser that heard
+# "candlestick" as "candle stick" and a model that tidied it produce a perfectly valid address
+# belonging to somebody else.
+FROM_WORDS_HINT = "written from what you said, not typed here — check it before this goes anywhere"
+
+
+def check_said_address(said: str) -> tuple[str, str, str]:
+    """(value, status, hint) for an address the model supplied, which is never `ok`.
+
+    `check_address` answers for characters a finger typed into the box, where an address that
+    reads cleanly is the owner's own. An address the model hands over is a different thing: the
+    owner said it, the model wrote it down, and nothing on this side of the wire can tell a
+    clean transcription from a clean mistake. The deleted spoken composer ran its address
+    through `looks_dictated` and marked it `uncertain`; the model normalises the words before
+    this sees them, so the dictation shape is gone and that test alone would pass a mis-heard
+    address as typed (the 2026-09-28 deploy review, round 9, E-02). So every address that
+    arrives this way is `uncertain` until the owner puts a finger on it (`compose.field`), and
+    `_ready_to_stage` — and the write tool, `gmail_writes._recipient` — refuse it until then.
+    """
+    value, status, hint = check_address(said)
+    if status == "ok":
+        return value, "uncertain", FROM_WORDS_HINT
+    return value, status, hint
+
+
 # --------------------------------------------------------------------------- the date
 
 _WEEKDAYS = {
@@ -238,14 +272,19 @@ def open_compose(
     about: str = "",
     origin_text: str = "",
     resolved_when: dict[str, str] | None = None,
+    to_from_words: bool = False,
 ) -> str:
     """Start a composer on this half and return its id. Reads nothing; stages nothing.
 
     The context this creates is the ONLY place the recipient, subject and body live until a
     gesture asks for them. That is what makes a typed value on the tablet safe: it is an
     input to this dictionary, not an argument to a mutation.
+
+    `to_from_words` says the address came from the owner's words by way of the model rather
+    than from a record or a keyboard, and it is then marked for him to check whatever shape it
+    arrives in (`check_said_address`).
     """
-    value, status, hint = check_address(to)
+    value, status, hint = (check_said_address if to_from_words else check_address)(to)
     compose: dict[str, Any] = {
         "compose_id": new_compose_id(),
         "kind": "reply" if kind == "reply" else "new",
@@ -283,6 +322,71 @@ def held(branch: Any, compose_id: str = "") -> dict[str, Any] | None:
         branch.compose = None
         return None
     return compose
+
+
+def _composer_anywhere(session: Any, compose_id: str) -> dict[str, Any] | None:
+    """The composer with this id on any half of this conversation, while it stands.
+
+    Any half rather than the acting one, because the write tool can be called on a turn
+    spoken to either half and the composer is where it was opened; a stale or discarded one is
+    not found, which is the point — the address the owner checked has to be on a card he can
+    still see.
+    """
+    for branch in list((getattr(session, "branches", None) or {}).values()):
+        found = held(branch, compose_id)
+        if found is not None:
+            return found
+    return None
+
+
+def owner_checked(compose_id: str, address: str) -> str:
+    """Why this address may NOT be prepared from this composer, in words; empty when it may.
+
+    The last word on an arbitrary recipient, asked by the write tools themselves
+    (`app/tools/gmail_writes.py::_recipient`) — not only by the tap on Save draft or Send.
+    The model can call `gmail_draft_new`/`gmail_send_new` with a `compose_id` directly, and
+    before this the address it passed beside that id was taken as it came, whatever the card
+    said about it (the 2026-09-28 deploy review, round 9, E-02). Three things must hold: the
+    composer is still open on this conversation, the address is the one on its card, and the
+    card says the owner has checked it — typed it, or had it put there from a record the shop
+    or the mailbox served.
+    """
+    from app.tools.context import CURRENT_SESSION
+
+    session = CURRENT_SESSION.get()
+    compose = _composer_anywhere(session, str(compose_id or "")) if session is not None else None
+    if compose is None:
+        return "That email is no longer open on the screen, so there is no checked address to send to. Open it again."
+    if compose.get("kind") != "new":
+        return "That composer is a reply; a reply goes back into its own thread."
+    if str(compose.get("to") or "").strip().lower() != " ".join(str(address or "").split()).lower():
+        return "That is not the address on the email the owner is looking at. The address on the card is the one he checks."
+    if compose.get("to_status") != "ok":
+        return ("The owner has not checked that address yet: it came from what he said, not from his typing or "
+                "a record. Ask him to tap the address on the card and check it; nothing was prepared.")
+    return ""
+
+
+def _thread_sender(thread_id: str) -> tuple[str, str] | None:
+    """(address, name) of whoever wrote last into a thread the Mac holds, or None.
+
+    Read off the entity cache only — the thread this conversation was shown — never fetched:
+    opening a composer reads nothing. A miss is not an error; the card then says who decides.
+    """
+    from app.memory import ENTITY
+    from app.memory import current as memory
+
+    if not thread_id:
+        return None
+    entry = memory().get(ENTITY, f"email_thread:{thread_id}", allow_stale=True)
+    thread = getattr(entry, "value", None) if entry is not None else None
+    if not isinstance(thread, dict):
+        return None
+    message = _last_inbound(thread)
+    address = str(message.get("from_email") or "").strip().lower()
+    if not address or not EMAIL_ADDRESS.match(address):
+        return None
+    return address, str(message.get("from") or "")
 
 
 ACTIONS: tuple[dict[str, Any], ...] = (
@@ -371,7 +475,7 @@ def _spoken(compose: dict[str, Any]) -> str:
     if when:
         line += f", about {when}"
     if compose.get("to_status") == "uncertain":
-        return f"{line}. I heard that address rather than read it — check it. Nothing is saved or sent."
+        return f"{line}. That address is from what you said, not typed — check it. Nothing is saved or sent."
     return f"{line}. Nothing is saved or sent until you tap."
 
 
@@ -419,11 +523,26 @@ async def gmail_compose_open(to: str, subject: str, body: str, to_name: str = ""
         branch, kind="reply" if thread_id else "new", to=to, to_name=to_name, subject=subject,
         body=body, thread_id=thread_id, about=about or subject, origin_text=about or subject,
         resolved_when=resolve_when(f"{about} {subject} {body}"),
+        # The address is the model's transcription of the owner's words, never a checked one.
+        to_from_words=True,
     )
     compose = held(branch, compose_id) or {}
     if compose.get("to_status") == "invalid":
         branch.compose = None
         raise ToolError(f"{str(to)[:80]!r} is not an address I can send to, so no composer was opened.")
+    if compose.get("kind") == "reply":
+        # A reply's recipient is not the model's to give: the write tool re-reads the thread
+        # and answers whoever wrote last there. When the Mac holds that thread, the card shows
+        # that sender — read off a record Gmail served, so it is `ok`. When it does not, the
+        # card says who decides, and the owner reads the real recipient on the card that
+        # follows before anything is saved. Either way `_ready_to_stage` does not hold a reply
+        # to this field, which the owner cannot type into.
+        sender = _thread_sender(thread_id)
+        if sender:
+            compose.update({"to": sender[0], "to_name": sender[1][:80] or compose.get("to_name", ""),
+                            "to_status": "ok", "to_hint": ""})
+        else:
+            compose["to_hint"] = "the reply goes to whoever wrote last in the thread; the card before it is saved names them"
     # The id becomes an id this conversation has been handed, which is the whole permission
     # story for the address behind it. The address is remembered as personal data so the turn
     # log scrubs it.
@@ -795,7 +914,7 @@ def _ready_to_stage(compose: dict[str, Any]) -> str:
     """Why this composer cannot be prepared yet, in the owner's words. Empty when it can."""
     if compose["kind"] == "new" and compose.get("to_status") != "ok":
         if compose.get("to_status") == "uncertain":
-            return "That address is what I heard, not what you typed. Tap it, check it, and then I'll prepare this."
+            return "That address came from what you said, not from your typing. Tap it, check it, and then I'll prepare this."
         return "There is no address I can send to yet."
     # A reply's subject is the thread's, read there when the change is prepared; a thread with
     # no subject line at all is not a reason to refuse to answer it.

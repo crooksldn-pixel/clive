@@ -271,7 +271,13 @@ async def test_state_can_be_asked_after_a_lost_connection(client):
     proposal = await staged(client)
     pending = (await client.get(f"/actions/{proposal.proposal_id}?session_id=s1")).json()
     assert pending["status"] == "pending" and pending["ui"][0]["type"] == "confirmation"
-    assert "execution" not in pending and "note" not in str(pending["ui"][0]["data"].get("summary", "")).lower() or True
+    # What the state answer carries is the public card, never the execution the Mac will send
+    # or the fingerprint it will check: those stay on the Mac (round 9, I-tests1 I-01 — this
+    # line ended in `or True` and so asserted nothing).
+    card = pending["ui"][0]["data"]
+    assert "execution" not in pending and "execution" not in card
+    assert "before" not in card and "expected_after" not in card and "model_args" not in card
+    assert "execution" not in str(pending) and "orderUpdate" not in str(pending)
     await commit(client, proposal.proposal_id)
     settled = (await client.get(f"/actions/{proposal.proposal_id}?session_id=s1")).json()
     assert settled["status"] == "verified" and settled["ui"][0]["type"] == "success"
@@ -541,8 +547,16 @@ def test_a_write_tools_note_is_logged_by_length_only_even_when_refused():
     refused = SimpleNamespace(name=TOOL, args={"order_id": ORDER, "note": "Refund Daniel Sear, 12 Acacia Avenue"}, proposal_id=None)
     logged = _loggable_args(refused)
     assert logged["note"] == "<36 chars>" and logged["order_id"] == ORDER
-    read = SimpleNamespace(name="shopify_find_order", args={"query": "Daniel Sear"}, proposal_id=None)
-    assert "Daniel" not in str(_loggable_args(read)) or True   # the redactor's job, tested elsewhere
+    # A READ's arguments are kept, because they are what make a wrong answer diagnosable, and
+    # are redacted by shape at once; a name is not a shape, and it goes when the turn log is
+    # written with the names the turn's tools returned (`TurnLog.write(..., names=...)`). This
+    # line used to end in `or True` and assert nothing (round 9, I-tests1 I-01).
+    from app.logging.turnlog import redact
+
+    read = SimpleNamespace(name="shopify_find_order", args={"query": "Daniel Sear daniel@example.com"}, proposal_id=None)
+    kept = _loggable_args(read)
+    assert "daniel@example.com" not in str(kept) and "[email]" in kept["query"]
+    assert "Daniel" not in str(redact(kept, {"Daniel Sear"}))
 
 
 async def test_a_proxied_request_with_no_login_is_refused_even_with_no_allow_list(client):

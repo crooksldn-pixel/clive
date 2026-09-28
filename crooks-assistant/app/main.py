@@ -120,6 +120,7 @@ async def lifespan(app: FastAPI):
         problem = getattr(tests, "tidy_problem", "") or "the reports could not be confirmed private"
         log.error("refusing to start: %s", problem)
         await app.state.runtime.aclose()
+        await drain_timelines(app.state.runtime, timeout_s=SHUTDOWN_FLUSH_S)
         raise RuntimeError(f"CROOKS will not start with reports it cannot keep private: {problem}")
     keeper.start()
     log.info("CROOKS Assistant ready (bind address is whatever uvicorn was started with)")
@@ -130,8 +131,13 @@ async def lifespan(app: FastAPI):
     # TimeoutStopSec: a pass that ends by then has the runtime closed after it, even if it ended
     # after the first wait. One still running at the deadline keeps its runtime open (round 7:
     # never closed under it), and the process exits without waiting on it, because the pass runs
-    # in a daemon thread of its own: what the close would have flushed is lost, not the whole
-    # stop to systemd's SIGKILL.
+    # in a daemon thread of its own.
+    #
+    # Either way, and last, what the timeline has accepted is written before the process exits
+    # (round 9, F-04-SHUTDOWN): its writer is a daemon thread too, and neither the runtime's close
+    # nor a pass left running flushed it, so events it had taken were lost with the process. The
+    # timeline writes on a thread and a file of its own and shares nothing with a pass, so it is
+    # drained even when the runtime is left open; bounded by what is left of the unit's time.
     import time
 
     began = time.monotonic()
@@ -146,6 +152,42 @@ async def lifespan(app: FastAPI):
     else:
         log.error("shutdown: a housekeeping pass was still running at the %ss deadline; the runtime is left "
                   "open rather than closed under it", SHUTDOWN_DEADLINE_S)
+    left = min(SHUTDOWN_FLUSH_S, max(SHUTDOWN_FLUSH_MIN_S, SHUTDOWN_EXIT_BY_S - (time.monotonic() - began)))
+    await drain_timelines(app.state.runtime, timeout_s=left)
+
+
+async def drain_timelines(runtime, *, timeout_s: float) -> bool:
+    """Wait, at most `timeout_s` in all, until every event the process's timelines have accepted
+    is on disk or counted dropped: the runtime's own, the one installed for the process, and the
+    recording each carries as its mirror (round 9, F-04-SHUTDOWN). True when all of them settled;
+    when not, says so, with the count still pending, since that count is then lost with the
+    process. Never raises."""
+    import time
+
+    from app.observability import timeline as timeline_module
+
+    found: list = []
+    for start in (getattr(runtime, "timeline", None), timeline_module.current()):
+        held = start
+        while held is not None and all(held is not other for other in found):
+            found.append(held)
+            held = getattr(held, "mirror", None)
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    settled = True
+    for held in found:
+        flush = getattr(held, "flush", None)
+        if flush is None:
+            continue
+        left = max(0.0, deadline - time.monotonic())
+        try:
+            ok = bool(await _in_own_thread(lambda flush=flush, left=left: flush(timeout_s=left)))
+        except Exception:  # noqa: BLE001 - shutting down: said, never raised
+            ok = False
+        if not ok:
+            settled = False
+            pending = getattr(held, "_pending", "?")
+            log.error("shutdown: %s timeline event(s) were still being written when the process exited", pending)
+    return settled
 
 
 # How often test mode's records are aged and tightened with nobody using the service (the
@@ -158,7 +200,12 @@ HOUSEKEEPING_S = 15 * 60
 SHUTDOWN_WAIT_S = 20.0
 SHUTDOWN_DEADLINE_S = 27.0
 # And the latest the runtime's own close may run to, a pass having ended in time.
-SHUTDOWN_CLOSE_BY_S = 29.0
+SHUTDOWN_CLOSE_BY_S = 28.0
+# Then the timeline is drained (round 9, F-04-SHUTDOWN): for at most SHUTDOWN_FLUSH_S, and never
+# past SHUTDOWN_EXIT_BY_S from the start of the stop, though always for SHUTDOWN_FLUSH_MIN_S.
+SHUTDOWN_FLUSH_S = 2.0
+SHUTDOWN_FLUSH_MIN_S = 0.5
+SHUTDOWN_EXIT_BY_S = 29.5
 # How many times start-up checks the reports before it refuses, and how far apart (round 8,
 # F-04-STARTUP): the first pass is the first of them.
 REPORT_CHECK_ATTEMPTS = 3

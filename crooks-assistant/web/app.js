@@ -1325,12 +1325,24 @@ function pickMimeType() {
  * and the words ElevenLabs makes of it so far. They are for him to watch and nothing else: the
  * recording is still sent whole on release, its transcript is the one CLIVE answers, and when
  * it comes back it takes the live words' place. Anything that fails here goes quiet and the
- * hold carries on as it always did; without web/live-voice.js none of this runs at all. */
+ * hold carries on as it always did; without web/live-voice.js none of this runs at all.
+ *
+ * Where the words go (round 9, C-03 and G-01), and the only places: `onWords` puts them in three
+ * text nodes marked `data-spoken` (#ask-words, #ask-heard, and the tablet's line under the orb
+ * while he holds), which a copy of the screen masks (web/telemetry.js copyScreen). Never into
+ * telemetry: `record` takes the `live_transcript` event alone, through the file's own
+ * telemetryFields (fixed words and whole numbers). Never into a question: sendAudio sends the
+ * recording, and the question on the glass is the Mac's transcript. Never kept: once the Mac has
+ * said what it heard, or the turn is over, or the hold came to nothing, settleLiveWords takes
+ * them off the bar and live-voice.js lets them go. The single-use key is live-voice.js's alone:
+ * the one request this file lets it make is POST /voice/live. */
 const LiveVoice = window.CrooksLiveVoice || null;
 const liveWords = LiveVoice ? LiveVoice.create({
   audio,
-  fetch: (url, init) => fetch(url, init),
-  record: (kind, fields) => T.record(kind, fields),   // an outcome, a time and counts; never a word
+  // Its one request, to the Mac, for the key. Anything else it asked for would be refused here.
+  fetch: (url, init) => (url === '/voice/live' ? fetch(url, init) : Promise.reject(new Error('not a request live words may make'))),
+  // How it went, in its own fixed words and numbers; never a word of what was said.
+  record: (kind, fields) => { if (kind === 'live_transcript') T.record(kind, LiveVoice.telemetryFields(fields)); },
   onWords: (text) => showLiveWords(text),
 }) : null;
 const liveWave = LiveVoice ? LiveVoice.wave({
@@ -1340,12 +1352,14 @@ const liveWave = LiveVoice ? LiveVoice.wave({
   reduced: () => REDUCED.matches,
 }) : null;
 let liveHeardFinal = false;   // the Mac's own transcript is on the bar; the live words give way to it
+let liveHold = 0;             // which hold the words on the bar are from: a turn settles only its own
 
 function liveBegin(stream) {
   if (!LiveVoice) return;
   // A stream warmed at load, before the first touch made the context, has no analyser (and so
   // no level and nothing to tap). Attaching now is a no-op when it already has one.
   if (audio) { audio.resume(); audio.attachMic(stream); }
+  liveHold += 1;
   liveHeardFinal = false;
   showLiveWords('');
   if (liveWave) liveWave.start();
@@ -1356,6 +1370,8 @@ function liveEnd(discard) {
   if (!LiveVoice) return;
   if (liveWave) liveWave.stop();
   if (liveWords) { if (discard) liveWords.cancel(); else liveWords.release(); }
+  // The line under the orb goes back to saying what the machine is doing (setState writes it).
+  el.sub.removeAttribute('data-spoken');
 }
 
 function showLiveWords(text) {
@@ -1367,8 +1383,12 @@ function showLiveWords(text) {
   const lines = !words ? 'false' : box && box.getBoundingClientRect().height > 30 ? '2' : '1';
   if (bar) bar.dataset.words = lines;
   if (!liveHeardFinal) showHeardWords(words, false);
-  // The tablet's layout has no capsule: the line under the orb carries them while he holds.
-  if (!el.body.classList.contains('alpha') && recording) el.sub.textContent = words || LABELS.LISTENING[1];
+  // The tablet's layout has no capsule: the line under the orb carries them while he holds,
+  // marked as the bar's own boxes are so that a copy of the screen keeps how much, not what.
+  if (!el.body.classList.contains('alpha') && recording) {
+    el.sub.textContent = words || LABELS.LISTENING[1];
+    if (words) el.sub.setAttribute('data-spoken', ''); else el.sub.removeAttribute('data-spoken');
+  }
 }
 
 // What the bar's "Working on it" face says was heard: the live words, then the Mac's transcript.
@@ -1380,6 +1400,26 @@ function showHeardWords(text, final = true) {
   const heard = document.getElementById('ask-heard');
   if (heard) heard.textContent = words ? `“${words}”` : '';
   if (bar) bar.dataset.heard = words ? 'true' : 'false';
+}
+
+/* The live words have done their job: the Mac has said what it heard (`question`, which the bar
+ * then shows in their place), or the turn is over without saying (`question` empty: the bar is
+ * cleared, never left showing words that were not the question asked), or the hold came to
+ * nothing. The words leave the bar and live-voice.js lets them and their socket go. `hold` is
+ * the hold they must be from; words from a newer hold, on the bar or still being heard, are
+ * left alone (round 9, G-02 and C-03). */
+function settleLiveWords(question, hold) {
+  if (!LiveVoice) return;
+  if (hold !== undefined && hold !== liveHold) return;
+  if (recording) return;   // a new hold has begun: the bar is its words now
+  liveHeardFinal = true;   // before the drop, so its '' does not also clear the Mac's words
+  if (liveWords) liveWords.drop();
+  const box = document.getElementById('ask-words');
+  const bar = document.getElementById('ask-bar');
+  if (box) box.textContent = '';
+  if (bar) bar.dataset.words = 'false';
+  const words = String(question || '').trim();
+  showHeardWords(words, true);
 }
 
 // The app went away mid-hold: the words stop with it, and the next hold starts them afresh.
@@ -1477,6 +1517,7 @@ async function startRecording() {
       // Too short to be a question. The sub-line is hidden beside the cards, so this goes
       // where it can always be read, with the buzz that says the tablet noticed.
       setState('READY');
+      settleLiveWords('');   // no question was asked, so no live words are left on the bar
       el.sub.textContent = TOO_SHORT;
       el.errline.textContent = TOO_SHORT;
       haptic(HAPTIC.error);
@@ -3511,7 +3552,7 @@ function startStatePolling() {
       // answer to it is paid for.
       if (data.heard && !el.heard.textContent) {
         el.heard.textContent = `“${data.heard}”`;
-        showHeardWords(data.heard);   // and on the bar, in place of the live words
+        settleLiveWords(data.heard);   // and on the bar, in place of the live words
         // The words are on the glass: that, and not the release, is UNDERSTOOD. The machine
         // is handed the LENGTH — it is never told what was said (invariant 11).
         if (live) live.final(String(data.heard).length);
@@ -3565,6 +3606,7 @@ async function submit(body, isAudio) {
   el.errline.textContent = '';
   el.heard.textContent = '';
   if (!isAudio) showHeardWords('', false);   // a typed question: no words left over from the last hold
+  const hold = isAudio ? liveHold : undefined;   // the hold whose words this turn settles
   const startedAt = Date.now();
   T.record('turn_submitted', {
     screen: el.body.dataset.mode || '', index: historyIndex, entities: history[historyIndex] ? history[historyIndex].entities : [],
@@ -3636,6 +3678,10 @@ async function submit(body, isAudio) {
       return;
     }
     el.heard.textContent = data.question ? `“${data.question}”` : '';
+    // And on the bar: the question actually asked, whether or not a /state poll saw it first
+    // (round 9, G-02). A spoken turn that heard nothing clears the live words rather than
+    // leaving them there as if they had been asked.
+    if (isAudio) settleLiveWords(data.question, hold);
     el.answer.textContent = data.answer;
     lastWasError = Boolean(data.error_kind);
     if (data.build) pendingBuild = String(data.build);
@@ -3681,6 +3727,10 @@ async function submit(body, isAudio) {
   } finally {
     clearTimeout(timeout);
     inflight.delete(key);
+    // However the turn ended (answered on the other half, refused, failed, cancelled), the live
+    // words of the hold that asked it are not kept: settled with the Mac's question when it said
+    // one, and cleared when it did not.
+    if (isAudio && hold === liveHold && liveHeardFinal === false) settleLiveWords('', hold);
     endJobs();
     // Invariant 11: what this turn FELT like, in milliseconds and counts only. No transcript,
     // no answer, no entity — the machine was never given any of them to leak.

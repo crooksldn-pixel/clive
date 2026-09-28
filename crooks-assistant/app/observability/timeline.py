@@ -201,6 +201,38 @@ def writer_alive(root: Path) -> bool | None:
         os.close(fd)
 
 
+_LOCK_HELD, _LOCK_BUSY, _LOCK_FAILED = "held", "busy", "failed"
+
+
+def _write_all(fd: int, data: bytes) -> tuple[int, OSError | None]:
+    """Every byte of `data` onto `fd`, however many writes that takes (round 9,
+    F-A3B-SHORT-WRITE: one os.write can take fewer bytes than it is given, and the rest were
+    lost while every line was counted written). (bytes written, None), or (bytes written before
+    it stopped, why it stopped)."""
+    view = memoryview(data)
+    done = 0
+    while done < len(data):
+        try:
+            n = os.write(fd, view[done:])
+        except OSError as exc:
+            return done, exc
+        if n <= 0:
+            return done, OSError("the file took none of what was left")
+        done += n
+    return done, None
+
+
+def _take_back(fd: int, partial: int) -> None:
+    """The last `partial` bytes of an append-only file off again: the part of a line that did not
+    finish. If the file cannot be cut, the part-line is ended, so the next line starts whole."""
+    if partial <= 0:
+        return
+    try:
+        os.ftruncate(fd, max(0, os.fstat(fd).st_size - partial))
+    except OSError:
+        _write_all(fd, b"\n")
+
+
 class Timeline:
     # The shared hold on WRITER_LOCK, once taken (an fd kept for the life of the process).
     _writer_lock: int | None = None
@@ -330,8 +362,14 @@ class Timeline:
             path = self.sessions.timeline_path(session)
             # Held before anything is pending, so no event is ever waiting in a process that does
             # not hold it (round 8, F-10). Not blocking here, on a turn's path; the writer takes
-            # it, blocking, before it writes, if this could not.
-            self._hold_writer_lock(blocking=False)
+            # it, blocking, before it writes, if this could not because a command held it for a
+            # moment. One that could not be taken at all is not accepted (round 9, F-10): an event
+            # pending in a process no command can see would let a count be called final with it
+            # still to land.
+            if self._hold_writer_lock(blocking=False) == _LOCK_FAILED:
+                with self._lock:
+                    self._dropped += 1
+                return None
             queued = False
             with self._lock:
                 if self._pending_bytes + size <= MAX_PENDING_BYTES:
@@ -385,12 +423,13 @@ class Timeline:
             self._thread = threading.Thread(target=self._run, name="crooks-timeline", daemon=True)
             self._thread.start()
 
-    def _hold_writer_lock(self, *, blocking: bool) -> None:
-        """Take the shared hold on this session folder's WRITER_LOCK, once. Never raises, because
-        observability never takes a turn down: a hold not taken at an event is taken, blocking,
-        by the writer before it writes the batch that event is in."""
+    def _hold_writer_lock(self, *, blocking: bool) -> str:
+        """Take the shared hold on this session folder's WRITER_LOCK, once: _LOCK_HELD, or
+        _LOCK_BUSY when a non-blocking try met a command holding it for a moment (the writer takes
+        it, blocking, before it writes), or _LOCK_FAILED when it could not be taken at all. Never
+        raises, because observability never takes a turn down."""
         if self._writer_lock is not None:
-            return
+            return _LOCK_HELD
         try:
             import fcntl
 
@@ -403,13 +442,17 @@ class Timeline:
                 os.close(fd)
                 raise
             self._writer_lock = fd
+            return _LOCK_HELD
+        except BlockingIOError:
+            return _LOCK_BUSY
         except Exception as exc:  # noqa: BLE001 - observability never takes a turn down
-            log.debug("timeline writer lock not taken yet: %s", exc)
+            log.debug("timeline writer lock could not be taken: %s", exc)
+            return _LOCK_FAILED
 
     def _run(self) -> None:
         while True:
             batch = [self._queue.get()]
-            self._hold_writer_lock(blocking=True)
+            held = self._hold_writer_lock(blocking=True)
             # Whatever else is waiting goes out in the same write.
             while True:
                 try:
@@ -421,6 +464,13 @@ class Timeline:
                 by_path.setdefault(path, []).append(line)
             written = dropped = 0
             try:
+                if held != _LOCK_HELD:
+                    # Never written unprotected (round 9, F-10): with no hold on the writer lock a
+                    # command sees no writer here, and may already have called the file's count
+                    # final. Counted as dropped, and said.
+                    log.error("timeline: %d event(s) not written, the writer lock could not be held", len(batch))
+                    dropped = len(batch)
+                    by_path = {}
                 for target, lines in by_path.items():
                     kept, lost = self._append(target, lines)
                     written += kept
@@ -461,12 +511,25 @@ class Timeline:
                     keep.append(data)
                     room -= len(data)
                 if keep:
-                    os.write(fd, b"".join(keep))
+                    done, error = _write_all(fd, b"".join(keep))
+                    if error is not None:
+                        # Only the lines whose every byte went down are written (round 9,
+                        # F-A3B-SHORT-WRITE); the part of one that did not finish is taken back
+                        # off, so it is neither counted from the file nor glued to the next.
+                        whole = used = 0
+                        for data in keep:
+                            if used + len(data) > done:
+                                break
+                            used += len(data)
+                            whole += 1
+                        _take_back(fd, done - used)
+                        log.warning("could not write the timeline whole: %s", error)
+                        return whole, len(lines) - whole
                 if len(keep) < len(lines):
                     # Full: one line says so, and nothing more is written to this file.
                     self._full.add(path)
-                    os.write(fd, (json.dumps({"kind": "timeline_full", "ts": self.clock(),
-                                              "max_bytes": MAX_TIMELINE_BYTES}) + "\n").encode("utf-8"))
+                    _write_all(fd, (json.dumps({"kind": "timeline_full", "ts": self.clock(),
+                                                "max_bytes": MAX_TIMELINE_BYTES}) + "\n").encode("utf-8"))
             finally:
                 os.close(fd)
             return len(keep), len(lines) - len(keep)

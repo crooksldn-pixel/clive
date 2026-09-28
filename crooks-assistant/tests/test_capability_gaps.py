@@ -702,7 +702,7 @@ def test_a_clean_tried_again_uses_the_copy_it_already_made(tmp_path, monkeypatch
     raw = _legacy_record(path, github_token("retry"))
     real_save = gaps_module.GapLedger._save
 
-    def failing(self, data):
+    def failing(self, data, **kwargs):
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(gaps_module.GapLedger, "_save", failing)

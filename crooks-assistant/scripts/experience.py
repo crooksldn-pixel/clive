@@ -51,7 +51,7 @@ async def run(args: argparse.Namespace) -> int:
         print(f"{DIM}A narrowed set of scenarios runs: the rest name a fixture record.{RESET}")
 
     shots: list[Path] = []
-    async with harness(live=args.live) as h:
+    async with harness(live=args.live, admitted=True) as h:
         results = await run_all(h, only=args.scenario)
         if args.ui:
             from experience.browser import capture_screens
