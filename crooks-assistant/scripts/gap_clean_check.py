@@ -2,7 +2,7 @@
 """What start-up would do to the gap record, worked out on a private copy (the 2026-09-28 deploy
 review, round 9, A3a-LIVE-CLEAN).
 
-    python scripts/gap_clean_check.py [path]     default: <objectives dir>/gaps.json
+    python scripts/gap_clean_check.py [path]     default: the configured objectives directory's gaps.json
 
 Copies the record byte for byte into a private temporary folder (0700), runs this build's own
 start-up on the copy — the clean (GapLedger.repair), then the seed — and says, row by row, what it
@@ -15,7 +15,15 @@ record is only read; the temporary folder is removed.
 
 Exit 0 when every row and every field of every row is still in the result, or is in the copy of
 the original the clean kept before it wrote anything; 1 when anything would be lost without such a
-copy, or the rollback code cannot read the result.
+copy, or the rollback code cannot read the result; 2 when there is no record to check — the path
+names none, or no path was given and no objectives directory is configured — because a check of
+nothing is not a pass (round 10, SC-GAPCHECK-DEFAULT).
+
+With no path, the record is the one the service at this checkout is configured with:
+CROOKS_OBJECTIVES_DIR from the environment, or from this checkout's own .env as the service reads
+it (its WorkingDirectory is the checkout). Never the checkout's own .state/objectives, which is only
+the default of a machine that configures nothing: run from a review checkout it named that
+checkout's empty folder, found nothing there, and said so with exit 0.
 """
 
 from __future__ import annotations
@@ -110,17 +118,40 @@ def check(live: Path, out=print) -> int:
         shutil.rmtree(folder, ignore_errors=True)
 
 
+NOTHING_CHECKED = 2
+
+
+def configured_record() -> tuple[Path | None, str]:
+    """(the gap record the service at this checkout is configured with, "") or (None, why): read
+    as the service reads its settings — the environment, then this checkout's .env (or the file
+    CROOKS_ENV_FILE names) — and None when neither sets CROOKS_OBJECTIVES_DIR."""
+    import os
+
+    from config.settings import Settings
+
+    named = os.environ.get("CROOKS_ENV_FILE")
+    env_file = (named or None) if named is not None else str(ROOT / ".env")
+    settings = Settings(_env_file=env_file)
+    if "objectives_dir" not in settings.model_fields_set:
+        return None, ("no objectives directory is configured here (CROOKS_OBJECTIVES_DIR is not in the "
+                      f"environment or in {env_file or 'any .env'}), so there is no record to check: give "
+                      "the record's path, e.g. python scripts/gap_clean_check.py /var/lib/crooks-assistant/objectives/gaps.json")
+    folder = Path(settings.objectives_dir)
+    return (folder if folder.is_absolute() else ROOT / folder) / "gaps.json", ""
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args:
         live = Path(args[0])
     else:
-        from config.settings import get_settings
-
-        live = get_settings().objectives_dir / "gaps.json"
+        live, why = configured_record()
+        if live is None:
+            print(f"NOTHING CHECKED: {why}")
+            return NOTHING_CHECKED
     if not live.is_file():
-        print(f"no gap record at {live}")
-        return 0
+        print(f"NOTHING CHECKED: no gap record at {live}")
+        return NOTHING_CHECKED
     return check(live)
 
 
