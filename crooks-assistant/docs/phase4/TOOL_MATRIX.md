@@ -114,12 +114,12 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `objective_note` | family:objectives | test_objectives.py, test_tool_boundary.py | — |
 | `objective_open` | family:objectives | test_objectives.py | — |
 | `objective_show` | family:objectives | test_objectives.py | — |
-| `screen_list` | family:screens | test_displays.py, test_tool_boundary.py | — |
-| `screen_off` | family:screens | test_displays.py | — |
+| `screen_list` | family:screens | test_displays.py, test_screens_r10.py, test_tool_boundary.py | — |
+| `screen_off` | family:screens | test_displays.py, test_screens_r10.py | — |
 | `screen_pair` | family:screens | test_displays.py | — |
 | `screen_play` | family:screens | test_screen_video.py | — |
 | `screen_remote` | family:screens | test_displays.py | — |
-| `screen_show` | family:screens | test_displays.py, test_tool_boundary.py | — |
+| `screen_show` | family:screens | test_displays.py, test_screens_r10.py, test_tool_boundary.py | — |
 | `screen_video` | family:screens | test_screen_video.py | — |
 | `shopify_abandoned_checkouts` | family:abandoned_checkouts | test_abandoned.py | abandoned.py |
 | `shopify_customer_history` | command:cursor:customers, family:customer_reads | test_anticipation.py, test_branches.py, test_context.py, test_entities.py, test_n_plus_one.py, test_observability.py, test_reads.py, test_workspaces.py | — |

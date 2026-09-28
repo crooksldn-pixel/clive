@@ -28,7 +28,7 @@ from app.tools import authority, gate
 from app.tools.gate import Tier
 from app.tools.registry import ToolError
 from tests import fake_credentials as fake
-from tests.test_displays import OWNER, Tick, app_with, later, owner, pair, run
+from tests.test_displays import OWNER, Tick, app_with, as_screen, later, owner, pair, run
 
 KEY = fake.google_api_key("youtube")
 HEAT = "dQw4w9WgXcQ"
@@ -363,12 +363,15 @@ def test_the_video_routes_are_the_owners_and_the_screens_own(s):
         assert client.post(f"/displays/{sid}/remote/video", json=bad, headers=OWNER).status_code == 422, bad
     said = {"pane": 0, "version": v, "state": "playing", "at": 3.5, "duration": 151, "volume": 50, "muted": False}
     assert client.post(f"/displays/{sid}/video", json=said, headers=stranger).status_code == 403
-    refused = client.post(f"/displays/{sid}/video", json=said, headers={**OWNER, "X-Screen-Key": "wrong"})
-    assert refused.status_code == 403 and refused.json()["code"] == "not_this_screen"
-    ok = client.post(f"/displays/{sid}/video", json=said, headers={**OWNER, "X-Screen-Key": key})
+    # The screen's own word, known by its cookie like its every other request (round 9, B2-01):
+    # a wrong key, or the right one sent as the old header, is not the screen.
+    for headers in (as_screen("wrong"), {**OWNER, "X-Screen-Key": key}):
+        refused = client.post(f"/displays/{sid}/video", json=said, headers=headers)
+        assert refused.status_code == 403 and refused.json()["code"] == "not_this_screen"
+    ok = client.post(f"/displays/{sid}/video", json=said, headers=as_screen(key))
     assert ok.status_code == 200 and ok.json() == {"heard": True}
-    assert client.post(f"/displays/{sid}/video", json={**said, "version": v + 1}, headers={**OWNER, "X-Screen-Key": key}).status_code == 409
-    assert client.post(f"/displays/{sid}/video", json={**said, "state": "x"}, headers={**OWNER, "X-Screen-Key": key}).status_code == 422
+    assert client.post(f"/displays/{sid}/video", json={**said, "version": v + 1}, headers=as_screen(key)).status_code == 409
+    assert client.post(f"/displays/{sid}/video", json={**said, "state": "x"}, headers=as_screen(key)).status_code == 422
     remote = client.get(f"/displays/{sid}/remote", headers=OWNER).json()["panes"][0]
     assert remote["playing"]["volume"] == 50 and remote["player"]["paused"] is True
 

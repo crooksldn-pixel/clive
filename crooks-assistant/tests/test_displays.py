@@ -406,16 +406,37 @@ def test_the_gate_lets_a_slip_through_only_for_an_order_this_conversation_looked
 
 
 def app_with(s, *, allowed=(OWNER_LOGIN,), local_owner=False) -> TestClient:
+    """The screens' routes alone, over https as the tailnet serves them. The client keeps no
+    cookies: each request says which device it is from by its own headers (as_screen), so the
+    owner's other device and the screen are never mixed up in one jar. The cookie itself, as a
+    browser keeps it, is tests/test_screen_cookie.py."""
+    from http.cookiejar import DefaultCookiePolicy
+
     from app.routes import displays
 
     app = FastAPI()
     app.include_router(displays.router)
     settings = SimpleNamespace(writes_local_owner=local_owner, tailscale_verify=False, tailscale_cli="")
     app.state.runtime = SimpleNamespace(allowed_logins=allowed, settings=settings)
-    return TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
+    client.cookies.jar.set_policy(DefaultCookiePolicy(allowed_domains=[]))
+    return client
 
 
 OWNER = {"Tailscale-User-Login": OWNER_LOGIN, "X-Forwarded-For": "100.64.0.9"}
+
+
+def as_screen(key: str) -> dict[str, str]:
+    """A request from the screen holding this key: the owner's device, with the key as the cookie
+    POST /displays/register set (round 9, B2-01)."""
+    return {**OWNER, "Cookie": f"clive_screen={key}"}
+
+
+def handed_key(answer) -> str:
+    """The key POST /displays/register handed the device: in its cookie, and nowhere else."""
+    found = re.search(r"(?:^|,\s*)clive_screen=([A-Za-z0-9_-]+);", answer.headers.get("set-cookie", ""))
+    assert found, "the key is handed as the cookie"
+    return found.group(1)
 
 
 def test_every_screen_route_is_the_owners_alone(s):
@@ -441,9 +462,12 @@ def test_a_screen_names_itself_asks_and_marks_done(s):
     client = app_with(s)
     answer = client.post("/displays/register", json={"name": "Packing screen"}, headers=OWNER)
     made = answer.json()
-    assert made["name"] == "Packing screen" and made["id"].startswith("scr_") and made["key"]
+    assert made["name"] == "Packing screen" and made["id"].startswith("scr_") and "key" not in made
     assert answer.headers["cache-control"] == "no-store"
-    mine = {**OWNER, "X-Screen-Key": made["key"]}
+    # Round 9, B2-01: the key is the cookie, never in the answer the page's script reads.
+    key = handed_key(answer)
+    assert key not in answer.text
+    mine = as_screen(key)
     # Round 8, B-02: named, it waits for approval with the code it was given, and is shown nothing.
     assert made["pending"] is True and re.fullmatch(r"\d{6}", made["code"]) and made["code_expires_in"] == PAIR_CODE_S
     waiting = client.get(f"/displays/{made['id']}?v=0", headers=mine)
@@ -453,8 +477,9 @@ def test_a_screen_names_itself_asks_and_marks_done(s):
     assert first.status_code == 200 and first.json()["version"] == 0 and first.json()["showing"] is None
     assert first.json()["pending"] is False
     assert client.get(f"/displays/{made['id']}?v=0", headers=mine).status_code == 204, "nothing new, nothing sent"
-    # The owner's other device, knowing the id and the name but not the key, is not the screen.
-    for headers in (OWNER, {**OWNER, "X-Screen-Key": "guess"}):
+    # The owner's other device, knowing the id and the name but not the key, is not the screen;
+    # nor is one that sends the key as the header it used to be (round 9, B2-01).
+    for headers in (OWNER, as_screen("guess"), {**OWNER, "X-Screen-Key": key}):
         refused = client.get(f"/displays/{made['id']}?v=-1", headers=headers)
         assert refused.status_code == 403 and refused.json()["code"] == "not_this_screen"
     taken = client.post("/displays/register", json={"name": "packing SCREEN"}, headers=OWNER)
@@ -470,7 +495,7 @@ def test_a_screen_names_itself_asks_and_marks_done(s):
     claimed = client.post(f"/displays/{made['id']}/done", json={"version": 1, "items_seen": 1, "confirm": True}, headers=mine)
     assert claimed.status_code == 409 and claimed.json()["code"] == "not_seen"
     assert client.post(f"/displays/{made['id']}/seen", json={"version": 1, "start": 0, "end": 1}, headers=OWNER).status_code == 403
-    assert client.post(f"/displays/{made['id']}/seen", json={"version": 1, "start": 0, "end": 1}, headers=mine).json() == {"seen": 1}
+    assert client.post(f"/displays/{made['id']}/seen", json={"version": 1, "start": 0, "end": 1}, headers=mine).json()["seen"] == 1
     later(s)
     done = client.post(f"/displays/{made['id']}/done", json={"version": 1, "confirm": True}, headers=mine).json()
     assert done["version"] == 2 and done["showing"]["done_at"] and done["last_done"]["title"] == "List"
@@ -920,18 +945,25 @@ def test_a_change_that_could_not_be_written_is_not_made(tmp_path, monkeypatch):
     assert not list(path.parent.glob(".*.tmp")) and not s.journal_path.exists(), "nor a journal"
     monkeypatch.setattr(store_module.os, "replace", real_replace)
 
-    # In place, but the folder could not be flushed. Clearing the slip is a deletion: it stands
-    # (it is the file, and the journal holds it) but it is not said done.
+    # In place, but the folder could not be flushed — the purge journal's no more than the
+    # record's. Clearing the slip is a deletion, and nothing on disk is known to hold it, so it
+    # is not made and is said so (round 9, B-03: it was answered NotDurable and stood in memory,
+    # which a power cut could undo). A deletion whose journal IS durable stands and is answered
+    # NotDurable: test_a_packed_slip_whose_record_is_not_durable_is_not_said_done_and_does_not_come_back.
     def broken(folder):
         raise OSError(5, "I/O error")
 
     monkeypatch.setattr(store_module, "_fsync_dir", broken)
-    with pytest.raises(NotDurable, match="could not make sure it is saved"):
+    with pytest.raises(NotSaved, match="nothing was changed"):
         s.show(screen["id"], None)
-    assert s._data["screens"][screen["id"]]["showing"] is None and s.journal_path.exists()
+    assert s._data["screens"][screen["id"]]["showing"]["title"] == "Today", "put back as it was"
+    assert not s.journal_path.exists(), "and so is the journal: nothing is owed"
     assert s.unsaved and s.sweep() == "the screens record could not be made durable on disk yet"
     monkeypatch.setattr(store_module, "_fsync_dir", real)
     assert s.sweep() == "" and not s.unsaved and not s.journal_path.exists()
+    assert "Today" in path.read_text(), "the disk says what CLIVE says"
+    s.show(screen["id"], None)
+    assert s._data["screens"][screen["id"]]["showing"] is None and "Today" not in path.read_text()
 
     # A change that deletes nothing, in place with the folder unflushed: the change stands (it is
     # the file), and that it may not survive a power cut is said and put right on the next pass.
@@ -971,7 +1003,7 @@ def test_a_slip_taken_down_stays_down_and_its_removal_is_retried_until_it_is_on_
 def test_the_screens_route_says_a_change_was_not_saved(s, monkeypatch):
     client = app_with(s, local_owner=True)
     made = client.post("/displays/register", json={"name": "Packing screen"}, headers=OWNER).json()
-    monkeypatch.setattr(DisplayStore, "_write", lambda self: (_ for _ in ()).throw(OSError(28, "No space left")))
+    monkeypatch.setattr(DisplayStore, "_write", lambda self, *_: (_ for _ in ()).throw(OSError(28, "No space left")))
     refused = client.post("/displays/register", json={"name": "Kitchen screen"}, headers=OWNER)
     assert refused.status_code == 503 and refused.json()["code"] == "not_saved"
     assert [x["name"] for x in s.screens()] == ["Packing screen"] and made["id"]
@@ -1246,9 +1278,10 @@ def test_at_the_most_screens_a_new_name_is_refused_and_nothing_is_removed(tmp_pa
 # --------------------------------------------------------------------------- round 8, B-03
 
 
-def _flaky_record_flush(monkeypatch, *, fail_from: int):
+def _flaky_record_flush(monkeypatch, *, fail_from: int, records_only: bool = False):
     """The folder flushes work until the `fail_from`th (1-based) from now, and fail from then on
-    (the disk has gone bad); the replaces are recorded in order."""
+    (the disk has gone bad); the replaces are recorded in order. With `records_only`, only a
+    flush that follows the record being put in place fails: the purge journal's keep working."""
     real_flush = store_module._fsync_dir
     real_replace = store_module.os.replace
     calls = {"flush": 0}
@@ -1256,7 +1289,7 @@ def _flaky_record_flush(monkeypatch, *, fail_from: int):
 
     def flush(folder):
         calls["flush"] += 1
-        if calls["flush"] >= fail_from:
+        if calls["flush"] >= fail_from and not (records_only and placed and placed[-1] != "displays.json"):
             raise OSError(5, "I/O error")
         real_flush(folder)
 
@@ -1314,7 +1347,7 @@ def test_a_packed_slip_whose_record_is_not_durable_is_not_said_done_and_does_not
 def test_the_done_route_answers_503_until_the_deletion_is_durable(s, monkeypatch):
     client = app_with(s)
     screen = pair(s, "Packing screen")
-    mine = {**OWNER, "X-Screen-Key": screen["screen_key"]}
+    mine = as_screen(screen["screen_key"])
     s.show(screen["id"], views.list_view("Sam Carter's alterations", ["Hem the trousers"]))
     ack_all(s, screen["id"], screen["screen_key"])
     _placed, restore = _flaky_record_flush(monkeypatch, fail_from=2)
@@ -1338,7 +1371,12 @@ def test_a_removed_screen_and_a_cleared_slip_do_not_come_back_after_a_restart(tm
     with pytest.raises(NotDurable):
         s.forget(gone["id"])
     restore()
-    _placed, restore = _flaky_record_flush(monkeypatch, fail_from=2)
+    # Round 9, B-03: only the record's flushes fail from here, the journal's work. (This asked for
+    # the second flush onward to fail, and the clear below comes after a pass that settles what
+    # is owed, so its own journal's flush failed too and it was answered NotDurable all the same:
+    # the finding. A deletion whose journal is not durable either is not made now; that is
+    # tests/test_screens_r10.py.)
+    _placed, restore = _flaky_record_flush(monkeypatch, fail_from=1, records_only=True)
     with pytest.raises(NotDurable):
         s.show(cleared["id"], None)
     restore()
@@ -1401,7 +1439,7 @@ def test_pages_are_told_in_order_one_size_and_not_too_fast_and_done_needs_the_ta
     is the owner's ruling."""
     client = app_with(s)
     screen = pair(s, "Packing screen")
-    mine = {**OWNER, "X-Screen-Key": screen["screen_key"]}
+    mine = as_screen(screen["screen_key"])
     many = dict(ORDER, items=[dict(ORDER["items"][1], title=f"Tee {i}", sku=f"SKU-{i}") for i in range(25)])
     s.show(screen["id"], views.order_view(many))
 
@@ -1414,16 +1452,18 @@ def test_pages_are_told_in_order_one_size_and_not_too_fast_and_done_needs_the_ta
     skipped = seen(10, 20)
     assert skipped.status_code == 409 and skipped.json()["code"] == "out_of_order" and skipped.json()["covered"] == 0
     assert seen(0, 13).json()["code"] == "refused", "a page is 12 items at most"
-    assert seen(0, 10).json() == {"seen": 10}
+    # Round 9, B-04: the first page sets the plan, and the server says the plan it now holds.
+    assert seen(0, 10).json() == {"seen": 10, "plan": {"size": 10, "pages": 3, "covered": 10, "next": [10, 20]}}
     hurried = seen(10, 20)
     assert hurried.status_code == 409 and hurried.json()["code"] == "too_soon" and 0 < hurried.json()["retry_after_ms"] <= 1000
     later(s)
     for start, end in ((5, 15), (12, 22), (10, 18)):   # overlapping, leaving a gap, another size
         refused = seen(start, end)
         assert refused.status_code == 409 and refused.json()["code"] == "out_of_order", (start, end)
+        assert refused.json()["next"] == [10, 20], "the page the plan takes next"
     # A page already told, told again, changes nothing and waits for nothing.
-    assert seen(0, 10).json() == {"seen": 10} and seen(3, 8).json() == {"seen": 10}
-    assert seen(10, 20).json() == {"seen": 20}
+    assert seen(0, 10).json()["seen"] == 10 and seen(3, 8).json()["seen"] == 10
+    assert seen(10, 20).json()["seen"] == 20
     later(s)
     for body in ({"version": 1}, {"version": 1, "confirm": False}):
         refused = done(body)
@@ -1432,7 +1472,8 @@ def test_pages_are_told_in_order_one_size_and_not_too_fast_and_done_needs_the_ta
         assert done(body).status_code == 422, "only the JSON value true is the tap"
     unseen = done({"version": 1, "confirm": True})
     assert unseen.status_code == 409 and unseen.json()["code"] == "not_seen"
-    assert seen(20, 25).json() == {"seen": 25}, "the last page may be shorter"
+    assert seen(20, 25).json() == {"seen": 25, "plan": {"size": 10, "pages": 3, "covered": 25, "next": None}}, \
+        "the last page may be shorter"
     hurried = done({"version": 1, "confirm": True})
     assert hurried.status_code == 409 and hurried.json()["code"] == "too_soon" and hurried.json()["retry_after_ms"] > 0
     assert s.done() == []
@@ -1900,14 +1941,19 @@ def test_the_remote_routes_say_stale_pending_not_ticked_and_not_saved(s, monkeyp
     waiting = client.post("/displays/register", json={"name": "Office screen"}, headers=OWNER).json()
     pending = client.get(f"/displays/{waiting['id']}/remote", headers=OWNER)
     assert pending.status_code == 409 and pending.json()["code"] == "not_approved"
-    pending = client.post(f"/displays/{waiting['id']}/remote/off", json={}, headers=OWNER)
+    pending = client.post(f"/displays/{waiting['id']}/remote/off", json={"screen_version": 0}, headers=OWNER)
     assert pending.status_code == 409 and pending.json()["code"] == "not_approved"
     assert client.get("/displays/scr_000000000000/remote", headers=OWNER).status_code == 404
+    # Round 9, B-REMOTE-OFF: the whole screen off names the screen's version the remote showed.
+    version = client.get(f"/displays/{sid}/remote", headers=OWNER).json()["version"]
+    assert post("off", {}).status_code == 422, "a whole-screen off that names no version"
     _placed, restore = _flaky_record_flush(monkeypatch, fail_from=2)
-    off = post("off", {})
+    off = post("off", {"screen_version": version})
     assert off.status_code == 503 and off.json()["code"] == "not_saved"
     restore()
-    off = post("off", {})
+    # Tapped again from the same view: the screen has moved on (the slip came down), but it shows
+    # nothing now, so it is simply off, once that is durable.
+    off = post("off", {"screen_version": version})
     assert off.status_code == 200 and off.json()["panes"] == [] and not s.journal_path.exists()
 
 
@@ -1933,11 +1979,11 @@ def test_the_remote_puts_an_objective_up_again_from_clives_own_record(s, tmp_pat
 def test_the_screen_names_its_pane_when_it_tells_a_page_or_done(s):
     client = app_with(s)
     screen = pair(s, "Packing screen")
-    mine = {**OWNER, "X-Screen-Key": screen["screen_key"]}
+    mine = as_screen(screen["screen_key"])
     s.show(screen["id"], views.list_view("Today", ["One"]))
     s.show(screen["id"], views.list_view("Later", ["Two"]), beside=True)
     s.tick(screen["id"], 0, 0, True, 1)                        # the screen's version is 3 now
-    assert client.post(f"/displays/{screen['id']}/seen", json={"version": 2, "pane": 1, "start": 0, "end": 1}, headers=mine).json() == {"seen": 1}
+    assert client.post(f"/displays/{screen['id']}/seen", json={"version": 2, "pane": 1, "start": 0, "end": 1}, headers=mine).json()["seen"] == 1
     wrong = client.post(f"/displays/{screen['id']}/seen", json={"version": 2, "pane": 0, "start": 0, "end": 1}, headers=mine)
     assert wrong.status_code == 409
     later(s)
@@ -1964,7 +2010,8 @@ def test_screen_show_beside_and_replace_and_screen_off_through_the_tools(s):
     # Off: one pane, then everything; the screen may go unnamed when one screen shows anything.
     pair(s, "Office screen")
     out = run(display_tools.screen_off(pane="first"))
-    assert out == {"screen": "Packing screen", "taken_off": 1, "showing": "Third"}
+    # Round 9: the answer names what came off, so the owner hears exactly what went.
+    assert out == {"screen": "Packing screen", "taken_off": 1, "showing": "Third", "took_off": ["Today"]}
     out = run(display_tools.screen_off(screen="packing"))
     assert out["taken_off"] == 1 and out["showing"] == "nothing"
     assert run(display_tools.screen_off(screen="Packing screen"))["note"] == "It was showing nothing already."
