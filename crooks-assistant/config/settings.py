@@ -183,8 +183,11 @@ class Settings(BaseSettings):
 
     # --- engineering: CLIVE's build requests (app/engineering_bridge, app/tools/engineering_tools.py) ---
     # Whose loop builds what CLIVE files: "worker-01" polls clive/control/worker-01-inbox;
-    # "owner" is the production host's own loop (clive/control/owner-inbox).
-    engineering_host: str = "worker-01"
+    # "owner" is the production host's own loop (clive/control/owner-inbox). Unset is "off":
+    # nothing is filed and no request reaches GitHub, whatever token the host holds
+    # (app/engineering_switch.py; the 2026-09-28 review, round 10, CFG-01). Filing is switched on
+    # by naming the host, deliberately.
+    engineering_host: str = "off"
     # The interpreter the building host runs a request's checks with, when CLIVE fills them in.
     engineering_check_python: str = "/home/user/clive/crooks-assistant/.venv/bin/python"
 
