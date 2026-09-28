@@ -523,6 +523,92 @@ def peer_is_tailscaled(client: tuple[str, int] | None, server: tuple[str, int] |
         return False, f"who opened the connection could not be read: {type(exc).__name__}"
 
 
+# ------------------------------------------------------------------ who took a connection this host made
+#
+# The server's own status readers (`make health`, crooks-status, `make install`, CROOKS Control)
+# carry the server's local command key to /health on loopback (app/local_cli.py). A loopback port
+# is not the service's for being on loopback: while the service restarts, any process on the server
+# that can bind an unprivileged port can take it, answer, and read whatever the next request carries
+# (the 2026-09-28 deploy review, round 9, A1B-KEY). So before the key is sent, the kernel is asked
+# who took the very connection it is to be sent on: the socket at the far end of that connection
+# must be held by a process in the service's own cgroup — which only root can move a process into
+# (cgroup_guarded) — with each process pinned while it is looked at and its open files read afresh,
+# as the tailscaled check above is done. Nothing is remembered between reads.
+
+SERVICE_UNIT = "crooks-assistant.service"
+# How long a reader waits for the far end to accept its connection before it gives up on the key.
+# A socket still waiting in the listener's queue has no inode yet (the kernel lists 0), so who holds
+# it cannot be known until it is accepted.
+ACCEPT_WAIT_S = 2.0
+
+
+def in_unit_cgroup(pid: int, unit: str, *, proc: Path | None = None) -> bool:
+    """Whether /proc/<pid>/cgroup puts the process in exactly this system service's cgroup:
+    `/system.slice/<unit>` in its hierarchy, the whole path and nothing that merely ends like it
+    (a user's own service can carry the same name under user.slice)."""
+    root = proc or PROC
+    try:
+        lines = (root / str(pid) / "cgroup").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    want = f"/system.slice/{unit}"
+    return any(len(line.split(":", 2)) == 3 and line.split(":", 2)[2] == want for line in lines)
+
+
+def far_end_held_by(local: tuple[str, int], remote: tuple[str, int], unit: str = SERVICE_UNIT, *,
+                    wait_s: float = ACCEPT_WAIT_S, proc: Path | None = None,
+                    cgroup: Path | None = None) -> tuple[bool, str]:
+    """Whether the socket at the far end of this machine's own connection local -> remote is held
+    by a process of `unit` (ok, why). Waits up to `wait_s` for the far end to accept the
+    connection; refuses when the kernel's tables cannot be read whole, when the unit's cgroup could
+    be joined by anyone but root, and whenever the holder cannot be shown to be the unit's. Never
+    raises: every failure is "no"."""
+    root = proc or PROC
+    try:
+        if not (root / "net" / "tcp").exists():
+            return False, "this machine cannot say who took the connection (no /proc)"
+        deadline = time.monotonic() + max(0.0, wait_s)
+        while True:
+            try:
+                # The far end's own row: its local address is this connection's remote one.
+                inode = socket_inode(remote, local, proc=root)
+            except MalformedTable:
+                return False, "the kernel's socket table could not be read whole"
+            if inode is not None:
+                break
+            if time.monotonic() >= deadline:
+                return False, "nothing on this machine took the connection in time"
+            time.sleep(0.02)
+        folder = unit_cgroup(unit, cgroup=cgroup)
+        if folder is None:
+            return False, f"{unit} is not running"
+        if not cgroup_guarded(folder):
+            return False, f"{unit}'s cgroup could be joined by a process that is not root"
+        pids = unit_pids(folder=folder)
+        if pids is None:
+            return False, f"{unit}'s list of processes could not be read whole"
+        for pid in pids:
+            try:
+                pinned = pin(pid)
+            except OSError:
+                continue          # gone before it could be pinned
+            try:
+                if not in_unit_cgroup(pid, unit, proc=root):
+                    continue
+                held = socket_inodes(pid, proc=root)
+                # As in _proc_peer_check: everything above was read under a pid, and is believed
+                # only if the process pinned to it is still the one alive now.
+                if not pinned.alive():
+                    continue
+                if inode in held:
+                    return True, f"taken by {unit} (pid {pid})"
+            finally:
+                pinned.close()
+        return False, f"the connection was taken by something other than {unit}"
+    except Exception as exc:  # noqa: BLE001 — every failure is "cannot say", and that sends nothing
+        return False, f"who took the connection could not be read: {type(exc).__name__}"
+
+
 IPV6_OFF = Path("sys/net/ipv6/conf/all/disable_ipv6")    # under /proc
 _TRIE_TABLE = re.compile(r"(?:Main|Local|Id \d+):")
 _TRIE_NODE = re.compile(r"\s*\+-- (\d{1,3}(?:\.\d{1,3}){3})/\d{1,2} \d+ \d+ \d+")

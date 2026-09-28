@@ -29,8 +29,12 @@ def _line(state: str, name: str, detail: str) -> str:
     return f"  {state}  {name:<9} {detail}"
 
 
-def show(port: int, out=sys.stdout) -> int:
+def show(port: int, out=None) -> int:
     import launch_common as lc
+
+    # Read at call time, not bound when the module was imported: a stream swapped since (a test's
+    # capture, a redirected stdout) is the one written to.
+    out = out if out is not None else sys.stdout
 
     health = lc.fetch_health(f"http://127.0.0.1:{port}/health")
     if not health:
@@ -69,9 +73,15 @@ def show(port: int, out=sys.stdout) -> int:
     if observed.get("test_session"):
         print(_line(OK, "Session", f"{observed['test_session']} recording — crooks-watch to follow it"), file=out)
     # The verdict: the parts that make it usable. Tailscale and the order cache are shown
-    # but do not make it "down" — the tablet's route can be off while the Mac is fine.
-    essential = [name for name in ("speech", "claude", "shopify") if name in checks]
-    return 0 if all(checks[name].get("ok") for name in essential) else 1
+    # but do not make it "down" — the tablet's route can be off while the Mac is fine. An
+    # essential the answer does not report is unknown, never working (round 9, E-01): an answer
+    # without them — or without any checks — is not a well one.
+    from control import ESSENTIAL
+
+    missing = [name for name in ESSENTIAL if name not in checks]
+    if missing:
+        print(_line(MEH, "Unknown", "not reported: " + ", ".join(lc.PLAIN_NAMES.get(n, n) for n in missing)), file=out)
+    return 0 if not missing and all(checks[name].get("ok") for name in ESSENTIAL) else 1
 
 
 def main(argv: list[str] | None = None) -> int:
