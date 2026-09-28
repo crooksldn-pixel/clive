@@ -103,12 +103,20 @@ class Counting(Store):
             if self.delay_s:
                 await asyncio.sleep(self.delay_s)
             return {"data": {"products": {"pageInfo": {"hasNextPage": False},
-                                          "edges": self._products((variables or {}).get("n") or 1)}}}
+                                          "edges": self._products((variables or {}).get("n") or 1,
+                                                                  str((variables or {}).get("q") or "*"))}}}
         return await super().graphql(query, variables)
 
-    def _products(self, n):
-        """The catalogue, as `shopify_inventory` shapes it. Built from the same line items, so
-        the BEFORE path reads the truth and not a stub."""
+    def _products(self, n, q="*"):
+        """The catalogue, as `shopify_inventory` shapes it, searched the way Shopify searches
+        it: bare words ANDed across the title, "*" for everything. Built from the same line
+        items, so the BEFORE path reads the truth and not a stub.
+
+        The search is honoured, not ignored. It used to return the first `n` products whatever
+        was asked, so an AFTER query for "Convict" came back with the Yard Jeans in it and the
+        audit compared three products against a query that could not have asked for one of
+        them (the 2026-09-28 deploy review, round 9, I-tests3 I-04)."""
+        words = [] if q.strip() == "*" else q.lower().split()
         seen: dict[str, dict] = {}
         for order in self.nodes:
             for edge in order["lineItems"]["edges"]:
@@ -123,7 +131,8 @@ class Counting(Store):
                     "sku": item["sku"], "inventoryQuantity": 3,
                     "inventoryPolicy": "DENY", "inventoryItem": {"tracked": True},
                 }})
-        return [{"node": node} for node in list(seen.values())[: max(1, int(n))]]
+        found = [node for node in seen.values() if all(word in node["title"].lower() for word in words)]
+        return [{"node": node} for node in found[: max(1, int(n))]]
 
     def _customer(self, customer_id):
         """One customer's history, as `CUSTOMER_ORDERS_QUERY` shapes it — built from the same
@@ -455,23 +464,56 @@ async def _after_customer_lifetime(store) -> tuple[int, float]:
     return store.source_reads, (time.perf_counter() - started) * 1000
 
 
-async def _before_inventory(store) -> tuple[int, float]:
-    """Stock for three products, one `shopify_inventory` call each — which is what a model
-    asked "how much of the jeans, the joggers and the hoodie" does."""
+# The products the inventory audit asks about: the range that shares a word, which is what one
+# search can ask for. The Yard Jeans are not in it — no single search for "Convict" asks for
+# them, and an audit that counted them on one side only was comparing two different questions.
+RANGE = ("Convict Joggers", "Convict Hoodie")
+
+
+def _stock(answer: dict) -> dict[str, list]:
+    """What an inventory answer says, product by product, for comparing two answers."""
+    rows = answer.get("products") or []
+    return {str(p.get("title")): sorted((str(v.get("variant_id")), str(v.get("variant")), v.get("available"))
+                                        for v in p.get("variants") or [])
+            for p in rows if isinstance(p, dict)}
+
+
+async def _before_inventory(store, answers: dict | None = None) -> tuple[int, float]:
+    """Stock for the range, one `shopify_inventory` call per product — which is what a model
+    asked "how much of the Convict joggers and the Convict hoodie" does."""
     started = time.perf_counter()
-    for product in ("Yard Jeans", "Convict Joggers", "Convict Hoodie"):
-        await shopify_tools.shopify_inventory(product=product, limit=1)
+    for product in RANGE:
+        got = await shopify_tools.shopify_inventory(product=product, limit=1)
+        if answers is not None:
+            answers.update(_stock(got))
     return store.product_reads, (time.perf_counter() - started) * 1000
 
 
-async def _after_inventory(store) -> tuple[int, float]:
-    """The same three, in the one query the tool already supports. Nothing about this needed
+async def _after_inventory(store, answers: dict | None = None) -> tuple[int, float]:
+    """The same products, in the one query the tool already supports. Nothing about this needed
     building: the audit's finding for this workflow is that the batch read EXISTS and the
     per-product call is a shape the model chooses, which is why it is measured here and told
     to the model in the tool's own description."""
     started = time.perf_counter()
-    await shopify_tools.shopify_inventory(product="Convict", limit=3)
+    got = await shopify_tools.shopify_inventory(product="Convict", limit=len(RANGE))
+    if answers is not None:
+        answers.update(_stock(got))
     return store.product_reads, (time.perf_counter() - started) * 1000
+
+
+async def test_the_one_inventory_read_answers_exactly_what_the_per_product_reads_did(shop):
+    """I-tests3 I-04: the before and the after ask for the SAME products and get the same
+    answer, product by product and size by size — or the audit's fewer requests would be the
+    saving of not asking."""
+    before: dict = {}
+    after: dict = {}
+    await _before_inventory(shop, before)
+    reads = shop.product_reads
+    await _after_inventory(shop, after)
+    assert reads == len(RANGE) and shop.product_reads - reads == 1
+    assert set(before) == set(RANGE), before
+    assert all(before[name] for name in RANGE), "every product came back with its sizes and stock"
+    assert after == before, (after, before)
 
 
 AUDIT = (
