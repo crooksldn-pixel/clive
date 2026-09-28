@@ -59,7 +59,8 @@ body.alpha .sheet.alpha-sheet{background:#111114;-webkit-backdrop-filter:none;ba
 .alpha-card .alpha-needs,.alpha-card .alpha-blocked,.alpha-card .alpha-line{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 
 /* ================================================================== CLIVE design v1
-   Obsidian ground, CLIVE's own orb, one lilac accent, and iOS type and materials: grouped cells
+   Obsidian ground, CLIVE's own orb, one accent in iOS system blue (the owner moved it from lilac
+   on 28 Sep 2026: "remove the purple … go for the iOS blue"), and iOS type and materials: grouped cells
    for content, liquid glass only on controls. The tokens restyle every card, chip and sheet at
    once; the rules after them place the home, the bar and what the bar shows in each state.
    The owner chose this as design v1 (the "D" board of the CLIVE Design canvas). */
@@ -71,10 +72,11 @@ body.alpha{
   --glass:rgba(255,255,255,.06); --glass-2:rgba(255,255,255,.09);
   --glass-surface:rgba(118,118,128,.17); --glass-surface-strong:rgba(118,118,128,.28);
   --glass-control:rgba(255,255,255,.10); --glass-control-active:rgba(255,255,255,.20);
-  --border-subtle:rgba(255,255,255,.09); --border-rest:rgba(255,255,255,.13); --border-active:rgba(196,161,240,.6);
+  --border-subtle:rgba(255,255,255,.09); --border-rest:rgba(255,255,255,.13); --border-active:rgba(10,132,255,.6);
   --radius-panel:26px; --radius-control:18px;
-  --shadow-active:0 0 0 1px rgba(196,161,240,.45),0 0 18px rgba(157,107,200,.3);
-  --acc:196,161,240; --acc-glow:157,107,200; --acc-f1:122,85,189; --acc-f2:93,58,152; --acc-t1:150,110,214; --acc-t2:104,66,170;
+  --shadow-active:0 0 0 1px rgba(10,132,255,.45),0 0 18px rgba(0,122,255,.3);
+  /* iOS systemBlue (dark) #0A84FF, and the filled-button blues beside it */
+  --acc:10,132,255; --acc-glow:0,122,255; --acc-f1:10,132,255; --acc-f2:0,100,210; --acc-t1:64,156,255; --acc-t2:0,113,227;
   --spring:cubic-bezier(.32,.72,0,1);
   font-family:var(--font);
 }
@@ -84,7 +86,7 @@ body.alpha .app{
     radial-gradient(64% 30% at 50% 8%, rgba(176,190,208,.17), rgba(176,190,208,.05) 55%, rgba(176,190,208,0) 76%),
     linear-gradient(180deg,#16181c 0%,#0d0e11 46%,#060607 100%);
 }
-/* Listening: a lilac glow rises from under the bar, wherever the hold began. */
+/* Listening: a blue glow rises from under the bar, wherever the hold began. */
 body.alpha .app::after{
   content:"";position:absolute;left:-25%;right:-25%;bottom:-230px;height:460px;border-radius:50%;z-index:-1;
   background:radial-gradient(closest-side,rgba(var(--acc-glow),.6),rgba(var(--acc-glow),.22) 55%,rgba(var(--acc-glow),0));
@@ -224,9 +226,6 @@ body.alpha .alpha-composer{display:block;height:78px;padding:0;background:transp
 .ask-listen{flex-direction:column;justify-content:space-between;padding:16px 22px 14px}
 .ask-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600}
 .ask-dot{width:8px;height:8px;border-radius:4px;background:rgb(var(--acc));box-shadow:0 0 10px rgba(var(--acc),.9);animation:alpha-pulse 1.2s ease-in-out infinite}
-.ask-bars{display:flex;align-items:center;justify-content:center;gap:4px;height:40px}
-.ask-bars span{width:3px;border-radius:2px;background:#fff;animation:alpha-wave 820ms cubic-bezier(.45,0,.55,1) infinite alternate}
-@keyframes alpha-wave{from{transform:scaleY(.22);opacity:.55}to{transform:scaleY(1);opacity:1}}
 .ask-hint{text-align:center;font-size:13px;color:rgba(255,255,255,.8)}
 .ask-drop,.ask-busy{align-items:center;padding:0 22px;font-size:17px;color:rgba(235,235,245,.72)}
 .ask-drop{justify-content:center}
@@ -246,6 +245,30 @@ body.alpha:has(#stage[data-state="LISTENING"]) .alpha-home{opacity:.25;filter:bl
 /* working: the same bar says so, and shimmers while it does */
 body.alpha:has(#stage[data-state="TRANSCRIBING"]) .ask-idle,body.alpha:has(#stage[data-state="THINKING"]) .ask-idle{display:none}
 body.alpha:has(#stage[data-state="TRANSCRIBING"]) .ask-busy,body.alpha:has(#stage[data-state="THINKING"]) .ask-busy{display:flex}
+
+/* ---- live words and the real waveform (web/live-voice.js, wired in app.js) ------------------
+   The capsule while he holds, top to bottom: "Listening", his words as they are heard (two lines,
+   the newest always in view, the older fading off the top-left as iOS does), the waveform the
+   microphone draws, the hint. It grows to fit the words only once there are some, so with live
+   words off or failing it is the capsule it always was. After the release the bar says what was
+   heard above "Working on it": the live words, then the Mac's own transcript. */
+.ask-words-frame{display:flex;flex-direction:column;justify-content:flex-end;height:0;overflow:hidden;opacity:0;
+  transition:height 420ms var(--spring),opacity 260ms}
+.ask-words{display:block;flex:none;font-size:17px;line-height:22px;font-weight:600;letter-spacing:-.01em;color:#fff;text-align:left;overflow-wrap:anywhere}
+.ask-bar[data-words="1"] .ask-words-frame{height:22px;opacity:1}
+.ask-bar[data-words="2"] .ask-words-frame{height:44px;opacity:1;
+  -webkit-mask-image:linear-gradient(176deg,rgba(0,0,0,.12) 0,rgba(0,0,0,.55) 18%,#000 34%);
+  mask-image:linear-gradient(176deg,rgba(0,0,0,.12) 0,rgba(0,0,0,.55) 18%,#000 34%)}
+body.alpha:has(#stage[data-state="LISTENING"]) .ask-bar[data-words="1"]{height:156px}
+body.alpha:has(#stage[data-state="LISTENING"]) .ask-bar[data-words="2"]{height:178px}
+.ask-wave{display:block;width:100%;height:36px;flex:none}
+.ask-busy{flex-direction:column;justify-content:center;align-items:flex-start;gap:1px}
+.ask-heard{display:none;max-width:100%;font-size:16px;line-height:21px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ask-bar[data-heard="true"] .ask-heard{display:block}
+.ask-bar[data-heard="true"] .ask-busy-text{font-size:13px;line-height:17px;color:rgba(235,235,245,.62)}
+body.alpha:has(#stage[data-state="TRANSCRIBING"]) .ask-bar[data-heard="true"],
+body.alpha:has(#stage[data-state="THINKING"]) .ask-bar[data-heard="true"]{height:66px;border-radius:33px}
+/* ---- live words and the real waveform · end */
 /* typing: the bar gives way to the field */
 .alpha-typerow{display:flex;align-items:center;gap:10px;padding:0 8px;opacity:0;transform:translateY(8px) scale(.98);pointer-events:none}
 .alpha-composer.is-typing .alpha-typerow{opacity:1;transform:none;pointer-events:auto;
@@ -284,6 +307,6 @@ body.alpha[data-mode="context"] .orb-zone{padding-right:64px}
   body.alpha[data-mode="context"] .app{padding-bottom:env(safe-area-inset-bottom,0px)}
 }
 @media (prefers-reduced-motion:reduce){
-  body.alpha .ask-bar,body.alpha .alpha-typerow,body.alpha .alpha-home,body.alpha .app::after{transition-duration:.001ms}
-  .alpha-home.is-first > *,.ask-bars span,.ask-busy::after,.ask-dot,.alpha-state.is-doing::after{animation:none}
+  body.alpha .ask-bar,body.alpha .alpha-typerow,body.alpha .alpha-home,body.alpha .app::after,.ask-words-frame{transition-duration:.001ms}
+  .alpha-home.is-first > *,.ask-busy::after,.ask-dot,.alpha-state.is-doing::after{animation:none}
 }

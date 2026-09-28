@@ -115,7 +115,7 @@ async def listing(request: Request, session_id: str = "") -> JSONResponse | dict
 @router.post("/fork", response_model=None)
 async def fork(request: Request, session_id: str = Form(default=""), label: str = Form(default="")) -> JSONResponse | dict:
     """The orb divides. The new half INHERITS what the old one holds — the record it is on,
-    the set, the names it has already resolved — and shows none of what the old one is showing.
+    the set, what it has already looked at — and shows none of what the old one is showing.
 
     What each half holds is `app/session/branch.py:fork_from`, which is one function so that
     the contract has one test. Both halves are named here, because a chip reading "First" beside
@@ -217,7 +217,6 @@ async def merge(request: Request, branch_id: str, session_id: str = Form(default
         "workflow": branch.workflow.public() if branch.workflow else None,
         "looked_at": list(branch.recent_entities[:6]),
         "read": [{"tool": r["tool"], "summary": r["summary"], "cached": r["cached"]} for r in branch.recent_results[:6]],
-        "resolved": [{"said": said, "kind": v["kind"], "label": v["label"]} for said, v in list(branch.resolutions.items())[:6]],
         "actions": list(branch.recent_actions[:4]),
         # Named, not moved: the owner is told what is still waiting over there and where.
         "still_waiting": waiting,
@@ -230,8 +229,6 @@ async def merge(request: Request, branch_id: str, session_id: str = Form(default
     keeper = session.branch()
     for entity in reversed(branch.recent_entities[:6]):
         keeper.remember_entity(entity["kind"], entity["ref"], entity["label"])
-    for said, value in branch.resolutions.items():
-        keeper.resolutions.setdefault(said, value)
     timeline.emit("branch_merged", session_id=session.session_id, branch_id=branch_id, into=keeper.branch_id,
                   looked_at=len(summary["looked_at"]), read=len(summary["read"]), still_waiting=len(waiting) or None,
                   undoable=len(undoable) or None)
@@ -306,8 +303,8 @@ async def forward(request: Request, branch_id: str, session_id: str = Form(defau
 async def _step(request: Request, branch_id: str, session_id: str, *, forward: bool) -> JSONResponse | dict:
     """Move one branch's trail, for a caller that wants the position and not the card.
 
-    The move itself is `app/commands.py:move_nav` — the same arithmetic `POST /command` and the
-    fast lane's navigation recipes use. It called `branch.back()`/`branch.forward()` directly
+    The move itself is `app/commands.py:move_nav` — the same arithmetic `POST /command` uses.
+    It called `branch.back()`/`branch.forward()` directly
     until now, which made this the second implementation of Back that `app/commands.py`'s
     docstring names by path and says it removed; the two were free to drift, and this one had
     no branch-status check, so it would walk the trail of a branch that had been merged away.

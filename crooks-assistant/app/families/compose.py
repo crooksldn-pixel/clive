@@ -31,15 +31,11 @@ An arbitrary address is admitted by `gmail_draft_new`/`gmail_send_new` only alon
 whose card the owner has already read. The address itself could never carry that check: an
 address is not a well-formed id (`gate._ID_SHAPE` has no "@").
 
-THE FAST LANE AND THE MUTATION GUARD. `intent.resolve` refuses to score a sentence carrying a
-mutation verb, and both bench sentences carry one ("write", "send"). Rather than lift the
-guard, the three read-only families here declare `serves_mutation_words=True` and
-`app/fastpath/intent.py` narrows the candidate set to the families that have declared it — so
-"cancel it" still leaves the lane unscored, and what these families may DO is unchanged:
-`recipes.assert_read_only` still holds and the read scheduler still refuses a plan with a
-write in it. Nothing on the fast lane here can stage. `draft.send_instead` therefore stages
-from the TOUCH path only (`POST /command`, where a gesture arrives); spoken, "send it instead"
-draws the same email as a composer in send mode, one gesture from going.
+SAID OUT LOUD, IT IS THE MODEL'S. "Write an email to 1232candlestickhorse@gmail.com asking if
+they're free on Sunday" and "no, send it instead" are model turns like every other sentence:
+Claude opens the composer with `gmail_compose_open`, writes into it with `gmail_compose_fill`,
+and the gesture on the card is still the owner's. The commands below are the touch path —
+Reply and Email on a card, typing into a field, Save draft and Send.
 """
 
 from __future__ import annotations
@@ -57,9 +53,6 @@ from app.capabilities.families import register as register_capability
 from app.commands import Command, Outcome
 from app.commands import Ctx as CommandCtx
 from app.commands import register as register_command
-from app.fastpath.intent import Family, extend
-from app.fastpath.models import Ctx, FastAnswer
-from app.fastpath.recipes import CACHE_NONE, Recipe, register
 from app.surfaces import Surface
 from app.tools.gate import Tier
 from app.tools.gmail_writes import (
@@ -226,40 +219,6 @@ def resolve_when(text: str, *, now: datetime | None = None) -> dict[str, str]:
     return {"date": when.isoformat(), "phrase": phrase}
 
 
-# --------------------------------------------------------------------------- what it is about
-
-# Where the brief of the email starts, when the owner gave one. "Write an email to X ASKING IF
-# they're free for a shoot next Sunday" — the clause after the marker is the instruction, and
-# the words in front of it are the addressing.
-_ABOUT_MARKERS = ("asking", "and ask", "to ask", "about", "saying", "and say", "to say", "telling", "tell them", "letting them know")
-# And where it stops. "Their email is …" is addressing and "don't send it yet" is an
-# instruction to the assistant; neither is a line of the email, and neither may end up in the
-# subject the model is asked to write.
-_ABOUT_ENDS = re.compile(
-    r"\b(?:don'?t|do not|dont)\s+(?:send|email|mail)\b|\bnot\s+yet\b|\bjust\s+a\s+draft\b"
-    r"|\b(?:their|his|her|the)\s+(?:e-?mail|address)\s+is\b",
-    re.I,
-)
-
-
-def about_from(text: str, *, address: str = "") -> str:
-    """What the email is about, in the owner's own words — never the assistant's summary of
-    them. A summary is a guess, and the owner is about to read this on the card."""
-    said = " ".join(str(text or "").split())
-    if address:
-        # Case-insensitively: the span the router matched came off the lowered text, and the
-        # sentence it came from is capitalised ("Their email is …"). A case-sensitive replace
-        # left the whole address sitting in the subject the model was asked to write.
-        said = " ".join(re.sub(re.escape(address), " ", said, flags=re.I).split())
-    lowered = said.lower()
-    start = min((lowered.find(m) for m in _ABOUT_MARKERS if lowered.find(m) >= 0), default=-1)
-    clause = said[start:] if start >= 0 else said
-    stop = _ABOUT_ENDS.search(clause)
-    if stop:
-        clause = clause[: stop.start()]
-    return " ".join(clause.split()).strip(" ,.;:")[:MAX_ABOUT_CHARS]
-
-
 # --------------------------------------------------------------------------- the context
 
 
@@ -324,29 +283,6 @@ def held(branch: Any, compose_id: str = "") -> dict[str, Any] | None:
         branch.compose = None
         return None
     return compose
-
-
-def _continue_prompt(compose: dict[str, Any]) -> str:
-    """The follow-up the model is asked for once the composer is on screen: the owner's own
-    instruction, the date the Mac resolved, and the one call that fills the fields.
-
-    Server-authored, every word of it, and it names a tool that writes only into the Mac's
-    own context. It is handed to the model inside the SAME turn, as `FastAnswer.continuation`
-    (brief section 16): the composer is drawn from the reads the recipe did, and the words
-    that go in it are Claude's, in one answer. It never reaches the tablet and is never drawn.
-    """
-    when = compose.get("resolved_when") or {}
-    lines = [f'The owner said: "{compose.get("original") or compose.get("about") or ""}"']
-    if compose.get("to"):
-        lines.append(f"A composer is open and addressed to {compose['to']}. Nothing is saved or sent.")
-    if when.get("date"):
-        lines.append(f'"{when.get("phrase")}" is {when["date"]} (Europe/London) — use the date, not the phrase.')
-    lines.append(
-        f'Write the email in the owner\'s voice, plainly, and call gmail_compose_fill('
-        f'compose_id="{compose.get("compose_id")}", subject=…, body=…). Do not stage a draft '
-        "or a send: the owner's gesture on the card does that."
-    )
-    return "\n".join(lines)
 
 
 ACTIONS: tuple[dict[str, Any], ...] = (
@@ -541,124 +477,17 @@ async def gmail_compose_fill(compose_id: str, subject: str, body: str) -> dict[s
     }
 
 
-# --------------------------------------------------------------------------- the recipes
-
-
-def _no_plan(_ctx: Ctx) -> None:
-    """Every recipe here reads nothing. The composer is state the Mac already holds and the
-    date is arithmetic — there is no source to ask, which is why these answer in a
-    millisecond and why they can never write."""
-    return None
-
-
-def _open_render(ctx: Ctx, _result: Any) -> FastAnswer:
-    """"Write an email to <address> …" — the composer, immediately.
-
-    Deferring rather than guessing is this lane's rule and it does real work here: the family
-    matches on `has_address`, and a sentence of the same shape with no address the Mac can
-    make sense of ("email them all") lands in the defer below and goes to Claude, exactly as
-    it did before this family existed.
-    """
-    said = ctx.text or ""
-    span = str(getattr(ctx.intent.signals, "address_words", "") or "")
-    if not span:
-        return FastAnswer(answer="", defer="no address in the words")
-    if check_address(span)[1] == "invalid":
-        return FastAnswer(answer="", defer="the address in the words did not resolve")
-    when = resolve_when(said)
-    compose_id = open_compose(
-        ctx.branch, kind="new", to=span, subject="", body="",
-        about=about_from(said, address=span), origin_text=said, resolved_when=when,
-    )
-    compose = held(ctx.branch, compose_id) or {}
-    ctx.session.issue(compose_id)
-    ctx.session.remember_pii(str(compose.get("to") or ""))
-    # `partial` because the words of the email are not written yet. The card is honest about
-    # that — the body's status is `uncertain` — and the continuation asks the model for them
-    # in this same turn.
-    prompt = _continue_prompt(compose)
-    return FastAnswer(
-        answer=_spoken(compose), surfaces=[compose_surface(compose)], drawn=[], partial=True,
-        continuation=prompt,
-        trace={"compose_id": compose_id, "to_status": compose.get("to_status"),
-               "when": (when or {}).get("date"), "dictated": looks_dictated(span),
-               # The handover, in controlled words and a count. Never the prompt: it quotes
-               # the owner and names an address.
-               "continuation": "gmail_compose_fill", "continuation_chars": len(prompt)},
-    )
-
-
-def _rewrite_render(ctx: Ctx, _result: Any) -> FastAnswer:
-    """"Make it shorter" / "change the subject to …" — the composer again, with the owner's
-    instruction handed to the model. The Mac does not paraphrase an email; it holds the one
-    copy of it and asks for better words."""
-    compose = held(ctx.branch)
-    if compose is None:
-        return FastAnswer(answer="", defer="no composer is open on this half")
-    said = " ".join((ctx.text or "").split())
-    prompt = "\n".join([
-        f"The composer {compose['compose_id']} is open" + (f" to {compose['to']}" if compose.get("to") else "") + ".",
-        f"Its subject is: {compose.get('subject') or '(not written yet)'}",
-        f"Its body is:\n{compose.get('body') or '(not written yet)'}",
-        f'The owner just said: "{said}"',
-        f'Apply that and call gmail_compose_fill(compose_id="{compose["compose_id"]}", subject=…, body=…). '
-        "Do not stage anything.",
-    ])
-    return FastAnswer(
-        answer="Reading it back to change it. Nothing is saved or sent.",
-        surfaces=[compose_surface(compose)], drawn=[], partial=True, continuation=prompt,
-        trace={"compose_id": compose["compose_id"], "chars": len(str(compose.get("body") or "")),
-               "continuation": "gmail_compose_fill", "continuation_chars": len(prompt)},
-    )
-
-
-def _convert_render(ctx: Ctx, _result: Any) -> FastAnswer:
-    """"Send it instead" — the draft, loaded into the composer as a send, one gesture away.
-
-    §8 asks for the send to be staged here. It is not, and that is deliberate: the fast lane
-    cannot stage (`recipes.assert_read_only`, `reads/scheduler.assert_reads_only`), and the
-    answer to that is not a hole in the guard but a card. The words the draft was going to
-    carry are printed, the recipient is the draft's own — read out of the proposal's stored
-    execution, which is what the Mac itself decided and would have sent — and Send is the red
-    gesture on it. That tap posts `compose.stage`, which is the touch path, where an
-    authorisation arrives and where the draft it replaces is withdrawn.
-    """
-    found = _latest_draft(ctx.session, ctx.branch)
-    if found is None:
-        return FastAnswer(answer="", defer="no draft on this half to convert")
-    execution = dict(found.execution)
-    thread_id = str(execution.get("thread_id") or "")
-    to = str(execution.get("to") or "")
-    compose_id = open_compose(
-        ctx.branch, kind="reply" if thread_id else "new",
-        to=to, to_name=str(execution.get("to_name") or ""),
-        subject=str(execution.get("subject") or ""), body=str(execution.get("body") or ""),
-        thread_id=thread_id, about="the draft you asked for, as a send",
-        origin_text=" ".join((ctx.text or "").split()),
-    )
-    compose = held(ctx.branch, compose_id) or {}
-    # This recipient came from the Mac's own prepared draft, which read it from the thread or
-    # from Shopify. It is not a dictation and must not be marked as one, or the composer
-    # would refuse to stage an address it had itself verified a moment ago.
-    compose["to_status"], compose["to_hint"] = ("ok" if to else "invalid"), ""
-    compose["converts"] = found.proposal_id
-    ctx.session.issue(compose_id)
-    return FastAnswer(
-        answer=f"Not a draft then. The same email to {to or 'them'}, ready to send — tap Send.",
-        surfaces=[compose_surface(compose)], drawn=[],
-        trace={"compose_id": compose_id, "converts": found.proposal_id, "reply": bool(thread_id)},
-    )
+# --------------------------------------------------------------------------- the drafts
 
 
 def _latest_draft(session: Any, branch: Any) -> Any:
     """The most recent email DRAFT this half prepared, recently enough to be what "it" means.
     Pending, verified, or revoked.
 
-    REVOKED is in the list because of the voice path, not by accident: `POST /turn` advances
-    the epoch and withdraws this half's pending cards BEFORE the fast lane runs
-    (app/routes/turn.py), so by the time "send it instead" is routed, the draft card the owner
-    is looking at has already been marked REVOKED by the very sentence trying to convert it.
-    VERIFIED is in the list because the draft may really be sitting in Gmail by now.
+    REVOKED is in the list on purpose: `POST /turn` advances the epoch and withdraws this
+    half's pending cards for every new sentence (app/routes/turn.py), so a draft the owner said
+    something over is REVOKED by the time he asks for it as a send. VERIFIED is in the list
+    because the draft may really be sitting in Gmail by now.
     """
     from app.actions.models import ActionStatus
 
@@ -1080,57 +909,16 @@ def _draft_discard(ctx: CommandCtx) -> Outcome:
 
 # --------------------------------------------------------------------------- registration
 
-register(Recipe(
-    recipe_id="email_compose_any", intent_family="email_compose_any", read_primitives=(),
-    ui="email_compose", cache_policy=CACHE_NONE, min_confidence=0.7, target_ms=50,
-    plan=_no_plan, render=_open_render,
-))
-register(Recipe(
-    recipe_id="compose_rewrite", intent_family="compose_rewrite", read_primitives=(),
-    ui="email_compose", cache_policy=CACHE_NONE, min_confidence=0.7, target_ms=50,
-    plan=_no_plan, render=_rewrite_render,
-))
-register(Recipe(
-    recipe_id="draft_send_instead", intent_family="draft_send_instead", read_primitives=(),
-    ui="email_compose", cache_policy=CACHE_NONE, min_confidence=0.7, target_ms=50,
-    plan=_no_plan, render=_convert_render,
-))
-
-# All three declare `serves_mutation_words`, which is what lets a sentence with "write" or
-# "send" in it be scored at all (app/fastpath/intent.py). None of them can write.
-extend([
-    # "Write an email to <address> asking …". Long by nature — a dictated email is one
-    # instruction with as many clauses as the owner speaks — so the word bound is generous and
-    # `many_clauses` waives the two-clauses penalty. What keeps it honest is `has_address`:
-    # with no address in the words this family cannot match at all, so "email them all" still
-    # goes to Claude, which can work out who "them" are.
-    Family("email_compose_any", needs=("has_address", "email"), boosts=("customer",),
-           blocks=("order_number", "send_instead"), base=0.86, floor=0.7, max_words=60,
-           serves_mutation_words=True, many_clauses=True),
-    # "Send it instead" / "no, don't save a draft, send it".
-    Family("draft_send_instead", needs=("send_instead",), boosts=("deixis",),
-           blocks=("has_address", "order_number", "metric", "ranking", "stock"),
-           base=0.88, floor=0.7, max_words=14, serves_mutation_words=True),
-    # "Make it shorter" / "change the subject to …", while a composer is open on this half.
-    # Blocked by every signal that names another subject, so "cancel order 1938" said over an
-    # open composer is refused as it always was rather than quietly rewriting an email.
-    Family("compose_rewrite", needs=("has_compose", "rewrite"), boosts=("email",),
-           blocks=("has_address", "send_instead", "order_number", "order", "customer", "metric",
-                   "ranking", "stock", "running_out", "period", "status", "address", "delayed",
-                   "bought", "possessive_name", "waiting"),
-           base=0.8, floor=0.7, max_words=40, serves_mutation_words=True, many_clauses=True),
-])
-
-# Reply and Email, tapped on a card. Touch only: a spoken "reply to this" is the `email.reply`
-# continuation and goes to the model with the thread named, which is a different thing to
-# opening a box to type in. Neither reads anything and neither can stage.
+# Reply and Email, tapped on a card. A spoken "reply to this" goes to the model with the
+# thread named, which is a different thing to opening a box to type in. Neither reads
+# anything and neither can stage.
 register_command(Command("compose.reply", "Open a reply to this email thread", _compose_reply, voice=False))
 register_command(Command("compose.to_customer", "Open an email to this order's customer", _compose_to_customer, voice=False))
 register_command(Command("compose.to_person", "Open an email to this customer", _compose_to_person, voice=False))
 register_command(Command("compose.field", "Type into the email being written", _compose_field, voice=False))
 register_command(Command("compose.stage", "Save the email as a draft, or send it", _compose_stage, voice=False))
 register_command(Command("compose.discard", "Throw away the email being written", _compose_discard, voice=False))
-# Voice AND touch: "send it instead" is a sentence, and Send on a draft card is a button.
+# Send and Discard on a draft card.
 register_command(Command("draft.send_instead", "Send the draft instead of saving it", _draft_send_instead))
 register_command(Command("draft.discard", "Forget the draft that is waiting", _draft_discard))
 

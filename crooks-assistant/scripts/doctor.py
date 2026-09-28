@@ -371,7 +371,7 @@ def main() -> int:
 
     print("─" * 74)
     for path, why in [
-        (REPO / "kb" / "terminology.md", "product names as you say them"),
+        (REPO / "kb" / "terminology.md", "product names as you say them, for the assistant to read"),
         (REPO / "credentials.json", "the Google Desktop client JSON (see README, Gmail)"),
     ]:
         row(OK if path.exists() else WARN, path.name, str(path) if path.exists() else f"absent — {why}")

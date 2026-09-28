@@ -394,9 +394,16 @@ async def client(monkeypatch):
         async def set_system_prompt(self, prompt): pass
         async def interrupt(self, session_id): return True
         async def turn(self, session_id, text):
+            # Claude, as far as the route is concerned: every sentence is the model's, and for
+            # an order it looks the order up and reads it, through the gate, one after the other.
             self.prompts.append(text)
-            await asyncio.sleep(0.05)   # the model takes a moment; the background read lands meanwhile
-            return TurnResult(text="Order 1938. Paid, not shipped.", session_id=session_id)
+            session = runtime.sessions.get_or_create(session_id)
+            calls: list = []
+            await dispatch("shopify_find_order", {"query": "1938"}, session=session, timeout_s=5, calls=calls)
+            found = ((calls[-1].result or {}).get("orders") or [{}])[0] if calls and calls[-1].ok else {}
+            await dispatch("shopify_order_detail", {"order_id": found.get("order_id") or ""}, session=session,
+                           timeout_s=5, calls=calls)
+            return TurnResult(text="Order 1938. Paid, not shipped.", tool_calls=calls, session_id=session_id)
 
     async with app.router.lifespan_context(app):
         runtime = app.state.runtime
@@ -418,29 +425,16 @@ async def client(monkeypatch):
             yield c
 
 
-async def test_a_spoken_order_number_is_answered_without_the_model(client):
-    """"Show me order 1938" is a procedure the Mac knows: find it, read it, say the sentence.
-    The same two reads, the same card, the same issued ids — and no model call at all."""
-    body = (await client.post("/turn", json={"text": "Show me order 1938", "session_id": "f1"})).json()
-    assert body["lane"] == "FAST" and body["recipe_id"] == "order_lookup"
-    assert client.runtime.provider.prompts == [], "the fast lane never reaches Claude"
-    assert [c["name"] for c in body["tool_calls"]] == ["shopify_find_order", "shopify_order_detail"]
-    assert body["performance"]["model_calls"] == 0 and body["performance"]["fast_path_hit"] is True
-    card = next(i for i in body["ui"] if i["type"] == "order")
-    assert card["data"]["detail"] is True
-    session = client.runtime.sessions.peek("f1")
-    assert "gid://shopify/ProductVariant/11" in session.issued_ids and CUSTOMER in session.issued_ids
-    assert body["branch"]["entity"]["kind"] == "order", "the branch knows where it now is"
-
-
-async def test_a_spoken_order_number_hydrates_the_whole_order_beside_the_model(client):
-    # A change is never the fast lane's, so this turn goes to Claude — and the Mac still runs
-    # the lookup ahead of him and hydrates the order beside him.
-    body = (await client.post("/turn", json={"text": "Show me order 1938 and add a note that he called", "session_id": "h1"})).json()
-    assert body["lane"] == "NORMAL"
+async def test_a_spoken_order_lookup_is_the_models_and_its_two_reads_draw_the_whole_order(client):
+    """"Show me order 1938" is the model's, like every sentence: it finds the order and reads
+    it, and the card, the issued ids and where the branch now stands all come from those two
+    reads. Nothing on the Mac looked the order up ahead of it."""
+    body = (await client.post("/turn", json={"text": "Show me order 1938", "session_id": "h1"})).json()
+    assert body["lane"] == "NORMAL" and "recipe_id" not in body
     prompt = client.runtime.provider.prompts[-1]
-    assert "being read beside you" in prompt and "shopify_order_detail" in prompt
+    assert prompt.split("\n")[1] == "Show me order 1938" and "being read beside you" not in prompt
     assert [c["name"] for c in body["tool_calls"]] == ["shopify_find_order", "shopify_order_detail"]
+    assert body["performance"]["model_calls"] == 1
     # One document for the search and the order; the customer's history once; nothing twice.
     kinds = [q.strip().split("(")[0].replace("query ", "") for q, _ in client.store.queries]
     assert kinds.count("CrooksOrderByName") == 1 and kinds.count("CrooksOrderContext") == 0 and kinds.count("CrooksCustomerOrders") == 1
@@ -449,6 +443,7 @@ async def test_a_spoken_order_number_hydrates_the_whole_order_beside_the_model(c
     assert card["data"]["items"][0]["image"].startswith("/media/shopify/")
     session = client.runtime.sessions.peek("h1")
     assert "gid://shopify/ProductVariant/11" in session.issued_ids and CUSTOMER in session.issued_ids
+    assert body["branch"]["entity"]["kind"] == "order", "the branch knows where it now is"
     # The street and the postcode are remembered as personal, so the log scrubs them by value.
     assert "12 Somewhere Street" in session.pii_seen and "SL4 1AA" in session.pii_seen
     # The turn log records which cards were shown, never the address on them.

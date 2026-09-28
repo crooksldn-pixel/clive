@@ -131,6 +131,12 @@ def elevenlabs_key(seed: str = "") -> str:
     return "sk" + "_" + body(_seed("elevenlabs", seed), 48, HEX)
 
 
+def elevenlabs_single_use_token(seed: str = "", *, length: int = 40) -> str:
+    """An ElevenLabs single-use token, as the server mints one for the phone's live words
+    (app/routes/voice.py): a fixed prefix and an opaque body."""
+    return "sut" + "kn_" + body(_seed("elevenlabs-single-use", seed), length)
+
+
 def google_oauth_token(seed: str = "", *, length: int = 64) -> str:
     """A Google OAuth access token, as Gmail's client holds one."""
     return "ya" + "29." + body(_seed("google-oauth", seed), length)

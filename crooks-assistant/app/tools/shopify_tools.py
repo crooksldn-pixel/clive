@@ -782,14 +782,16 @@ async def shopify_product_info(product: str, size: str = "", limit: int = 3) -> 
     return {"product": product, "size": size or None, "products": products}
 
 
-# ----------------------------------------------------- live catalogue for M3's normaliser
+# ----------------------------------------------------- the live catalogue, as names
 
 
 async def catalogue_terms(limit: int = 250) -> list[str]:
-    """Product titles, variant names and recent customer names, for app/speech/normalise.py.
+    """Product titles, set names, colour options and recent customer names, as the store holds
+    them (products first, then a "\x00customers" boundary, then people).
 
-    This is the M7 half of the normaliser: the same interface the seed file satisfies at M3,
-    backed by what the store actually sells.
+    It used to feed the speech normaliser and the recognisers' term lists, which were removed
+    on 28 September 2026 because they changed what the owner was heard to say. What reads it
+    now is scripts/acceptance.py, for a real product name to put in its checklist.
     """
     client = _c()
     terms: list[str] = []

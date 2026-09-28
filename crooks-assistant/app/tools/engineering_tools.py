@@ -71,7 +71,7 @@ MAX_REASON_CHARS = 300
 # folder of it CLIVE's code lives in: every path a request names is relative to the root.
 APP_ROOT = Path(__file__).resolve().parents[2]
 APP_DIR = "crooks-assistant"
-# Where a path the model gives without the folder ("app/fastpath", "web/alpha.js") belongs.
+# Where a path the model gives without the folder ("app/recipes.py", "web/alpha.js") belongs.
 APP_TOP = ("app", "web", "kb", "docs", "scripts", "config", "tests", "deploy")
 # The builders' own interpreter (CROOKS_ENGINEERING_CHECK_PYTHON): checks run on their host,
 # never this one, in a sandbox with PATH only.
@@ -548,7 +548,7 @@ def _slug(title: object) -> str:
 
 
 def repo_path(path: object) -> object:
-    """A path as the loop takes it, relative to the repository root. "app/fastpath" and
+    """A path as the loop takes it, relative to the repository root. "app/recipes.py" and
     "./web/alpha.js" are CLIVE's own folder's; anything else is left for the rules to judge."""
     if not isinstance(path, str):
         return path

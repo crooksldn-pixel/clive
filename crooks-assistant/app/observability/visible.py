@@ -123,8 +123,8 @@ COMPONENT: dict[str, str] = {
     "NAV_SEMANTIC_MISMATCH": "navigation (app/commands.py, web/app.js): Home is a landing and Back is a workspace, and ok=true is not the same as arriving",
     "FAKE_CONTROL": "the surface vocabulary (app/presentation.py, web/ui.js): a control offered with nothing behind it",
     "DEAD_CONTROL": "the command layer (app/commands.py, app/routes/command.py): a tap accepted that changed nothing on screen",
-    "SELF_UI_KNOWLEDGE_ERROR": "the UI semantics manifest (app/observability/ui_semantics.py) and the read family that reaches it",
-    "OWNER_FEEDBACK_IGNORED": "owner feedback (app/observability/feedback.py, app/families/owner_feedback.py)",
+    "SELF_UI_KNOWLEDGE_ERROR": "the UI semantics manifest (app/observability/ui_semantics.py): the model was not given what the manifest says",
+    "OWNER_FEEDBACK_IGNORED": "owner feedback (app/observability/feedback.py)",
     "COLLISION": "the tablet's touch targets (web/style.css, web/app.js): two fingers on one control, or two controls in one place",
     "FOCUS_LOST": "the renderer's patching (web/app.js): a background render must not take the keyboard or the scroll position",
     "WRONG_ENTITY_ANSWERED": "entity resolution (app/context, app/routes/turn.py): a name in the request must outrank the record in focus",
@@ -1024,7 +1024,7 @@ def _self_knowledge(rec: Any) -> list[Finding]:
     The manifest is asked whether it has an entry for the question. If it has, and the answer
     disclaimed the interface or referred the owner to whoever built it, the product did not
     know itself. A sentence that is feedback rather than a question is not this: that is
-    OWNER_FEEDBACK_IGNORED, and the two are kept apart here as they are in the router.
+    OWNER_FEEDBACK_IGNORED, and the two are kept apart here.
     """
     from app.observability import feedback as feedback_mod
     from app.observability import ui_semantics

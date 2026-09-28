@@ -57,3 +57,23 @@ FAMILY = register(CapabilityFamily(
     detail="Easyship is not integrated in this build: no credentials and no client",
     probe=_probe,
 ))
+
+
+# What this Mac cannot know, in the one table that reaches /health, the manifest and the model's
+# own context (app/capabilities/families.py, app/routes/turn.py:_family_lines). Registered as a
+# family precisely so the model is TOLD once, at the top of the turn, rather than discovering it
+# a refused query at a time — which is what cost the tablet 45 s on one question. (It lived
+# beside the word-matching families of app/families/query_language.py until those were removed
+# on 28 September 2026; the model still needs to be told.)
+#
+# DISCONNECTED rather than NOT_SUPPORTED_BY_STORE: the shop can be told a tracking number, and
+# often is. What is missing is anything that reports back, and that is a provider nobody has
+# connected. `detail` carries no full stop: `families.words()` adds one, and the line the model
+# reads is short because it is paid on every model-path turn.
+DELIVERY = register(CapabilityFamily(
+    key="delivery_tracking", label="Delivery status", area="shipping",
+    what="whether a parcel has actually arrived",
+    state="DISCONNECTED",
+    detail="no carrier is connected, so whether a parcel arrived is not a fact CLIVE holds — "
+           "only fulfilled/unfulfilled, and whether a tracking number exists",
+))

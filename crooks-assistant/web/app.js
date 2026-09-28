@@ -333,6 +333,8 @@ const DETAIL_WORDS = {
   // The owner's screens
   screen_list: ['Checking', 'your screens'], screen_show: ['Putting', 'it on the screen'],
   screen_pair: ['Approving', 'the screen'],
+  // Round 9, the screens remote (web/remote.js): turning a screen off, and this app becoming its remote.
+  screen_off: ['Turning', 'the screen off'], screen_remote: ['Opening', 'the remote'],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
@@ -1315,6 +1317,73 @@ function pickMimeType() {
   return '';
 }
 
+/* ------------------------------------------------- live words and the real waveform */
+/* web/live-voice.js, wired here because the microphone is here. While the owner holds, the ask
+ * bar's capsule draws what the microphone actually hears (audio-viz's analyser, never a guess)
+ * and the words ElevenLabs makes of it so far. They are for him to watch and nothing else: the
+ * recording is still sent whole on release, its transcript is the one CLIVE answers, and when
+ * it comes back it takes the live words' place. Anything that fails here goes quiet and the
+ * hold carries on as it always did; without web/live-voice.js none of this runs at all. */
+const LiveVoice = window.CrooksLiveVoice || null;
+const liveWords = LiveVoice ? LiveVoice.create({
+  audio,
+  fetch: (url, init) => fetch(url, init),
+  record: (kind, fields) => T.record(kind, fields),   // an outcome, a time and counts; never a word
+  onWords: (text) => showLiveWords(text),
+}) : null;
+const liveWave = LiveVoice ? LiveVoice.wave({
+  canvas: () => document.getElementById('ask-wave'),
+  analyser: () => Boolean(audio && audio.hasMic),
+  level: () => (audio ? audio.micLevel() : 0),
+  reduced: () => REDUCED.matches,
+}) : null;
+let liveHeardFinal = false;   // the Mac's own transcript is on the bar; the live words give way to it
+
+function liveBegin(stream) {
+  if (!LiveVoice) return;
+  // A stream warmed at load, before the first touch made the context, has no analyser (and so
+  // no level and nothing to tap). Attaching now is a no-op when it already has one.
+  if (audio) { audio.resume(); audio.attachMic(stream); }
+  liveHeardFinal = false;
+  showLiveWords('');
+  if (liveWave) liveWave.start();
+  if (liveWords) liveWords.begin();
+}
+
+function liveEnd(discard) {
+  if (!LiveVoice) return;
+  if (liveWave) liveWave.stop();
+  if (liveWords) { if (discard) liveWords.cancel(); else liveWords.release(); }
+}
+
+function showLiveWords(text) {
+  const words = String(text || '');
+  const bar = document.getElementById('ask-bar');
+  const box = document.getElementById('ask-words');
+  if (box) box.textContent = words;
+  // One line or two: the capsule grows to what is there, never to an empty line.
+  const lines = !words ? 'false' : box && box.getBoundingClientRect().height > 30 ? '2' : '1';
+  if (bar) bar.dataset.words = lines;
+  if (!liveHeardFinal) showHeardWords(words, false);
+  // The tablet's layout has no capsule: the line under the orb carries them while he holds.
+  if (!el.body.classList.contains('alpha') && recording) el.sub.textContent = words || LABELS.LISTENING[1];
+}
+
+// What the bar's "Working on it" face says was heard: the live words, then the Mac's transcript.
+function showHeardWords(text, final = true) {
+  if (!LiveVoice) return;
+  const words = String(text || '').trim();
+  if (final && words) liveHeardFinal = true;
+  const bar = document.getElementById('ask-bar');
+  const heard = document.getElementById('ask-heard');
+  if (heard) heard.textContent = words ? `“${words}”` : '';
+  if (bar) bar.dataset.heard = words ? 'true' : 'false';
+}
+
+// The app went away mid-hold: the words stop with it, and the next hold starts them afresh.
+if (LiveVoice) document.addEventListener('visibilitychange', () => { if (document.hidden && liveWords) liveWords.cancel(); });
+/* ------------------------------------------- live words and the real waveform · end */
+
 // Everything this page says goes through here, and web/notify.js decides where it appears:
 // on the control, in the workspace, or — for the two states of the machine itself — above the
 // wordmark, in flow. Nothing floats over the dock, the orb, the halves or the composer any
@@ -1418,6 +1487,7 @@ async function startRecording() {
     el.talkLabel.textContent = 'Release to send';
     setState('LISTENING');
     watchForSpeech();
+    liveBegin(stream);   // the capsule's live words and waveform (web/live-voice.js)
     if (orb) orb.pulse();
     haptic(HAPTIC.start);
   } catch (error) {
@@ -1442,6 +1512,7 @@ function stopRecording(discard = false) {
   lastRecordingMs = recordingStartedAt ? Date.now() - recordingStartedAt : 0;
   T.record('hold', { phase: 'release', ms: lastRecordingMs, outcome: discard ? 'discarded' : 'sent' });
   stopWatchingForSpeech();
+  liveEnd(discard);   // a cancel clears the live words; a release commits them and keeps them on screen
   // The instant the owner starts waiting. Everything after it is measured from here, so it
   // is marked here rather than backdated from whatever happens to land first.
   if (live && !discard) live.released();
@@ -2156,6 +2227,9 @@ function renderAttentionSurface() {
 // The answer to a turn: cards first, then the mode they need.
 function renderTurn(data) {
   const ui = window.CrooksUI ? window.CrooksUI.render(data.ui, renderOpts()) : { nodes: [], skipped: [], stack: null, errors: [], hasContext: false };
+  // Round 9, the screens remote: CLIVE's screen_remote card (his answer when the owner asks for a
+  // remote) opens the remote for its screen over the app (web/remote.js). The card is drawn as usual.
+  if (window.CliveRemote) window.CliveRemote.fromTurn(data.ui);
   if (ui.skipped.length) console.warn('[crooks] skipped ui items:', ui.skipped.join(', '));
   el.errline.textContent = '';
   lastErrorTitle = '';
@@ -3435,6 +3509,7 @@ function startStatePolling() {
       // answer to it is paid for.
       if (data.heard && !el.heard.textContent) {
         el.heard.textContent = `“${data.heard}”`;
+        showHeardWords(data.heard);   // and on the bar, in place of the live words
         // The words are on the glass: that, and not the release, is UNDERSTOOD. The machine
         // is handed the LENGTH — it is never told what was said (invariant 11).
         if (live) live.final(String(data.heard).length);
@@ -3487,6 +3562,7 @@ async function submit(body, isAudio) {
   // a recording that said nothing withdraws nothing.
   el.errline.textContent = '';
   el.heard.textContent = '';
+  if (!isAudio) showHeardWords('', false);   // a typed question: no words left over from the last hold
   const startedAt = Date.now();
   T.record('turn_submitted', {
     screen: el.body.dataset.mode || '', index: historyIndex, entities: history[historyIndex] ? history[historyIndex].entities : [],

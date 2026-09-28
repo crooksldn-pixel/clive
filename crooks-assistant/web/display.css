@@ -281,3 +281,95 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-pair-note{margin:0;font-size:22px;line-height:1.4;color:rgba(235,235,245,.56)}
 .cs-portrait .cs-pair-note{font-size:17px}
 .cs-line.is-gone{color:rgb(255,212,138)}
+
+/* round 9: one thing, or two side by side — two columns on a landscape screen, one above the
+   other on a portrait one. A pane is laid out as the whole page was; beside another it takes
+   the portrait sizes, and its inner panels stack when the pane is tall and sit side by side
+   when it is wide. */
+.cs-panes{flex:1;min-height:0;display:flex}
+.cs-portrait .cs-panes{flex-direction:column;gap:24px}
+.cs-pane{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column}
+.cs-land .cs-pane{gap:30px}
+.cs-portrait .cs-pane{gap:20px}
+.cs-ui.cs-two .cs-pane{gap:16px}
+.cs-land .cs-ui.cs-two .cs-pane:first-child{padding-right:36px}
+.cs-land .cs-ui.cs-two .cs-pane+.cs-pane{padding-left:36px;box-shadow:inset 1px 0 0 rgba(255,255,255,.1)}
+.cs-portrait .cs-ui.cs-two .cs-pane+.cs-pane{padding-top:24px;box-shadow:inset 0 1px 0 rgba(255,255,255,.1)}
+.cs-two .cs-head{gap:24px}
+.cs-two .cs-h1{font-size:64px}
+.cs-two .cs-h1.is-long{font-size:48px}
+.cs-two .cs-sub{margin-top:10px;font-size:21px;gap:10px}
+.cs-two .cs-chip{height:32px;padding:0 12px;font-size:15px}
+.cs-two .cs-count-n{font-size:64px}
+.cs-two .cs-count.is-done .cs-count-n{font-size:48px}
+.cs-two .cs-count-l{font-size:17px}
+.cs-land .cs-two .cs-cols,.cs-land .cs-two .cs-cols.is-goal{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:16px}
+.cs-portrait .cs-ui.cs-two .cs-cols{grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);grid-template-rows:minmax(0,1fr);gap:16px}
+.cs-portrait .cs-ui.cs-two .cs-cols.is-goal{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.cs-two .cs-panel{padding:18px 20px;border-radius:22px;gap:8px}
+.cs-two .cs-h2{font-size:18px}
+.cs-two .cs-to{font-size:30px}
+.cs-two .cs-addr{font-size:22px}
+.cs-two .cs-phone,.cs-two .cs-method{font-size:18px}
+.cs-two .cs-note{margin-top:6px;padding:12px 14px;border-radius:14px;font-size:19px;-webkit-line-clamp:3}
+.cs-two .cs-note-k{margin-bottom:4px;font-size:15px}
+.cs-two .cs-note-k svg{width:16px;height:16px}
+.cs-two .cs-items{gap:8px}
+.cs-two .cs-item,.cs-two .cs-items.is-dense .cs-item{gap:14px;padding:8px 10px 8px 8px;border-radius:16px}
+.cs-two .cs-tile,.cs-two .cs-items.is-dense .cs-tile{width:72px;height:72px;border-radius:12px}
+.cs-two .cs-tile svg,.cs-two .cs-items.is-dense .cs-tile svg{width:34px;height:34px}
+.cs-two .cs-what,.cs-two .cs-items.is-dense .cs-what{font-size:24px}
+.cs-two .cs-how,.cs-two .cs-items.is-dense .cs-how{font-size:18px}
+.cs-two .cs-sku,.cs-two .cs-items.is-dense .cs-sku{font-size:15px}
+.cs-two .cs-qty,.cs-two .cs-items.is-dense .cs-qty{min-width:78px;padding:6px 14px;border-radius:14px;font-size:34px}
+.cs-two .cs-sentl{padding:0 8px;font-size:16px}
+.cs-two .cs-foot{height:64px;flex-direction:row;align-items:center;gap:16px}
+.cs-two .cs-foot-l{justify-content:flex-start;font-size:17px}
+.cs-two .cs-foot-l svg{width:22px;height:22px}
+.cs-two .cs-btn{width:auto;height:64px;padding:0 34px;font-size:24px}
+.cs-two .cs-page{height:56px;padding:0 22px;margin-right:10px;font-size:20px}
+.cs-two .cs-done{font-size:19px}
+.cs-two .cs-done svg{width:22px;height:22px}
+.cs-two .cs-donechip{width:auto;height:64px;padding:0 34px;font-size:24px}
+.cs-two .cs-tasks{gap:12px}
+.cs-two .cs-task{gap:16px;padding:0 18px;border-radius:18px}
+.cs-two .cs-task-n{width:44px;height:44px;font-size:20px}
+.cs-two .cs-task-t{font-size:24px}
+.cs-two .cs-stack{gap:16px}
+.cs-two .cs-nowt{font-size:30px}
+.cs-two .cs-need{font-size:21px}
+.cs-two .cs-next{gap:10px}
+.cs-two .cs-step{flex:0 0 auto;min-height:80px;gap:16px;padding:12px 16px;border-radius:16px}
+.cs-two .cs-step-t{font-size:22px}
+.cs-two .cs-empty{font-size:20px}
+.cs-two .cs-live{width:20px;height:20px}
+/* A portrait screen with two panes gives each half its height: a little smaller again. */
+.cs-portrait .cs-two .cs-h1{font-size:48px}
+.cs-portrait .cs-two .cs-h1.is-long{font-size:38px}
+.cs-portrait .cs-two .cs-count-n{font-size:48px}
+.cs-portrait .cs-two .cs-to{font-size:24px}
+.cs-portrait .cs-two .cs-addr{font-size:19px}
+.cs-portrait .cs-two .cs-tile,.cs-portrait .cs-two .cs-items.is-dense .cs-tile{width:56px;height:56px;border-radius:10px}
+.cs-portrait .cs-two .cs-what,.cs-portrait .cs-two .cs-items.is-dense .cs-what{font-size:20px}
+.cs-portrait .cs-two .cs-how,.cs-portrait .cs-two .cs-items.is-dense .cs-how{font-size:15px}
+.cs-portrait .cs-two .cs-sku{display:none}
+.cs-portrait .cs-two .cs-qty,.cs-portrait .cs-two .cs-items.is-dense .cs-qty{min-width:60px;padding:4px 10px;border-radius:12px;font-size:26px}
+.cs-portrait .cs-two .cs-foot{height:56px}
+.cs-portrait .cs-two .cs-btn,.cs-portrait .cs-two .cs-donechip{height:56px;font-size:21px;padding:0 26px}
+
+/* round 9: an item the owner ticked on his remote as it went in the box — a check in Apple blue,
+   and the rest of the row dimmed; a list's line crossed off. A touched screen ticks the same way. */
+[data-tick]{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.cs-item.is-ticked{grid-template-columns:auto minmax(0,1fr) auto auto;background:rgba(10,132,255,.08);box-shadow:inset 0 0 0 1px rgba(10,132,255,.3)}
+.cs-item.is-ticked>:not(.cs-tick){opacity:.42}
+.cs-item.is-ticked .cs-what{text-decoration:line-through;text-decoration-thickness:3px;text-decoration-color:rgba(255,255,255,.55)}
+.cs-tick{flex:none;width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;background:#0a84ff;box-shadow:0 0 0 6px rgba(10,132,255,.18),0 10px 26px -10px rgba(10,132,255,.7)}
+.cs-tick svg{width:36px;height:36px}
+.cs-items.is-dense .cs-tick{width:48px;height:48px}
+.cs-items.is-dense .cs-tick svg{width:28px;height:28px}
+.cs-portrait .cs-tick,.cs-two .cs-tick{width:44px;height:44px;box-shadow:0 0 0 4px rgba(10,132,255,.18)}
+.cs-portrait .cs-tick svg,.cs-two .cs-tick svg{width:26px;height:26px}
+.cs-task.is-ticked{background:rgba(10,132,255,.08);box-shadow:inset 0 0 0 1px rgba(10,132,255,.3)}
+.cs-task.is-ticked .cs-task-t{opacity:.45;text-decoration:line-through;text-decoration-thickness:3px}
+.cs-task.is-ticked .cs-task-n{color:#fff;background:#0a84ff;box-shadow:0 0 0 4px rgba(10,132,255,.18)}
+.cs-task-n svg{width:58%;height:58%}

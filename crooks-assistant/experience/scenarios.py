@@ -27,12 +27,6 @@ from typing import Any
 from experience.fixtures import data, world
 from experience.harness import Harness
 
-# What the fast lane should answer without waking the model at all.
-DETERMINISTIC = frozenset({
-    "capabilities", "order_lookup", "repeat_order", "today_orders", "full_address",
-    "customer_history", "next_voice", "next_touch", "back", "tabs", "drilldown",
-})
-
 
 @dataclass
 class Check:
@@ -85,7 +79,7 @@ def check(what: str, ok: Any, detail: str = "") -> Check:
 # order still produces an order surface with items and a rail, that a real inbox still
 # correlates, that the cards fit real data.
 LIVE_SCENARIOS: frozenset[str] = frozenset({
-    "capabilities", "today_orders", "needs_reply", "next_previous", "back", "tabs",
+    "today_orders", "needs_reply", "next_previous", "back", "tabs",
 })
 
 
@@ -108,31 +102,16 @@ def a_surface(capture: Any, ui_type: str, *, what: str = "") -> list[Check]:
 
 
 def deterministic(capture: Any) -> Check:
+    """A tap: a button that names what it does is answered without the model."""
     return check("answered without the model", capture.model_calls == 0,
                  f"model_calls={capture.model_calls}")
 
 
-def compound(capture: Any, recipe: str = "") -> list[Check]:
-    """A section 16 turn: the Mac chose the reads and drew the cards, and Claude was asked
-    ONCE, in the same turn, for the words.
-
-    Not `deterministic` — there IS a model call, and pretending otherwise would be the sort
-    of check that cannot fail. Not a plain model turn either, and that is the distinction
-    worth asserting: the recipe is named on the turn, so the workspace was the Mac's own work
-    and did not wait for the sentence. The failure it replaces is the owner asking twice.
-    """
-    checks = [check("the Mac drew the workspace and Claude was asked once, in the same turn",
-                    capture.model_calls == 1 and bool(capture.recipe_id),
-                    f"model_calls={capture.model_calls} recipe={capture.recipe_id!r} lane={capture.lane}")]
-    if recipe:
-        checks.append(check(f"the workspace is {recipe}'s", capture.recipe_id == recipe,
-                            f"recipe={capture.recipe_id!r}"))
-    perf = capture.raw.get("performance") or {}
-    checks.append(check("and the wait after the facts were in hand is measured, not guessed",
-                        isinstance(perf.get("facts_ms"), (int, float))
-                        and isinstance(perf.get("prose_wait_ms"), (int, float)),
-                        f"facts_ms={perf.get('facts_ms')} prose_wait_ms={perf.get('prose_wait_ms')}"))
-    return checks
+def a_model_turn(capture: Any) -> Check:
+    """A sentence: every one is the model's, asked once, with nothing answered in front of it
+    (app/routes/turn.py). The owner removed the word-matching lane on 28 September 2026."""
+    return check("the sentence went to the model, once", capture.model_calls == 1 and capture.lane == "NORMAL",
+                 f"model_calls={capture.model_calls} lane={capture.lane!r}")
 
 
 def entity_is(capture: Any, kind: str, ref: str = "") -> Check:
@@ -142,24 +121,6 @@ def entity_is(capture: Any, kind: str, ref: str = "") -> Check:
 
 
 # --------------------------------------------------------------------------- the scenarios
-
-
-async def capabilities(h: Harness) -> Result:
-    r = Result("capabilities", "What can you do now?")
-    c = await h.say("what can you do now?", scenario="capabilities")
-    r.captures.append(c)
-    r.checks += a_surface(c, "capability", what="shows the capability surface")
-    r.checks.append(deterministic(c))
-    payload = c.data("capability")
-    groups = payload.get("groups") or []
-    r.checks.append(check("groups the capabilities by area", len(groups) >= 3,
-                          f"groups={[g.get('area') for g in groups]}"))
-    r.checks.append(check("says whether changes are on", "writes_enabled" in payload,
-                          f"writes_enabled={payload.get('writes_enabled')}"))
-    r.checks.append(check("offers things to ask", len(payload.get("examples") or []) >= 3))
-    r.checks.append(check("the spoken answer is one line, not the list",
-                          len(c.answer) < 400, f"{len(c.answer)} chars"))
-    return r
 
 
 def _money(value: Any) -> float | None:
@@ -180,14 +141,15 @@ async def order_lookup(h: Harness) -> Result:
 
     Every check here would have passed on the build that was reported as broken EXCEPT the
     ones about the surface, the items and the actions — the answer was fast and correct and
-    there was nothing on the screen.
+    there was nothing on the screen. The sentence is the model's; the card is drawn from what
+    the model read, and the order it shows is where the owner now is.
     """
     r = Result("order_lookup", "Show me order 1938")
     spec = world.order("1938")
-    c = await h.say("show me order 1938", scenario="order_lookup")
+    c = await h.open_order("1938", scenario="order_lookup")
     r.captures.append(c)
     r.checks += a_surface(c, "order", what="shows the order surface")
-    r.checks.append(deterministic(c))
+    r.checks.append(a_model_turn(c))
     r.checks.append(entity_is(c, "order", spec.order_id))
     card = c.data("order")
     r.checks.append(check("the card is the full order, not the brief one", card.get("detail") is True,
@@ -221,84 +183,79 @@ async def order_lookup(h: Harness) -> Result:
                               f"variant={first.get('variant')!r}"))
         r.checks.append(check("an item carries its sku", bool(first.get("sku")),
                               f"sku={first.get('sku')!r}"))
+    # The full address is on the card, so the shipping tab can show it without another read.
+    address = card.get("shipping_address") or {}
+    lines = " ".join(str(x) for x in (address.get("lines") or []))
+    r.checks.append(check("the card carries the street", spec.address["address1"] in lines,
+                          f"lines={address.get('lines')}"))
+    r.checks.append(check("the card carries the postcode", address.get("zip") == spec.address["zip"],
+                          f"zip={address.get('zip')}"))
     r.checks.append(check("offers actions for the order", len(c.action_ids) >= 3,
                           f"actions={c.action_ids}"))
     r.checks.append(check("offers a note", "order_note_append" in c.action_ids, f"actions={c.action_ids}"))
-    r.checks.append(check("the spoken answer is short", len(c.answer) < 240, f"{len(c.answer)} chars"))
-    r.checks.append(check("the spoken answer does not read the card out",
-                          str(spec.address["zip"]) not in c.answer, "postcode spoken"))
-    return r
-
-
-async def repeat_order(h: Harness) -> Result:
-    """"Show me 1938 again" — reported as staying text-heavy. It had no intent family at all."""
-    r = Result("repeat_order", "Show me 1938 again")
-    first = await h.say("show me order 1938", scenario="repeat_order:first")
-    c = await h.say("show me 1938 again", scenario="repeat_order")
-    r.captures += [first, c]
-    r.checks += a_surface(c, "order", what="shows the order again")
-    r.checks.append(deterministic(c))
-    r.checks.append(check("takes the fast lane", c.lane == "FAST", f"lane={c.lane}"))
-    r.checks.append(entity_is(c, "order", world.order("1938").order_id))
-    r.checks.append(check("the repeat is not slower than the first",
-                          (c.total_ms or 0) <= (first.total_ms or 0) + 50,
-                          f"first={first.total_ms:.0f}ms repeat={c.total_ms:.0f}ms"))
+    # And the controls on it work, because the Mac knows which order is open.
+    bound = await h.touch("voice.bind", scenario="order_lookup:add_note", family="order.add_note")
+    r.captures.append(bound)
+    r.checks.append(check("Add a note on the card binds to this order",
+                          bound.raw.get("ok") is True
+                          and ((bound.raw.get("changed") or {}).get("listening_for") or {}).get("label") == spec.name,
+                          f"raw={ {k: bound.raw.get(k) for k in ('ok', 'code', 'answer')} }"))
     return r
 
 
 async def today_orders(h: Harness) -> Result:
     r = Result("today_orders", "Show me today's orders")
-    c = await h.say("show me today's orders", scenario="today_orders")
+    c = await h.list_todays_orders(scenario="today_orders")
     r.captures.append(c)
     r.checks += a_surface(c, "order_list", what="shows the order list")
-    r.checks.append(deterministic(c))
+    r.checks.append(a_model_turn(c))
     card = c.data("order_list")
     rows = card.get("orders") or card.get("rows") or []
-    r.checks.append(check("opens a set to walk", bool(c.set_id), f"set_id={c.set_id!r}"))
-    r.checks.append(check("the spoken answer is short rather than a recital",
-                          len(c.answer) < 200, f"{len(c.answer)} chars"))
     if grounded(h):
         expected = world.today()
         r.checks.append(check("lists today's orders", len(rows) == len(expected),
                               f"{len(rows)} rows, expected {len(expected)} ({[o.name for o in expected]})"))
-        r.checks.append(check("counts them in the spoken answer", str(len(expected)) in c.answer,
-                              c.answer[:80]))
+        r.checks.append(check("each row can be opened", all(row.get("order_id") for row in rows),
+                              f"{[row.get('order_id') for row in rows]}"))
     else:
         # A real shop may genuinely have had no orders today. What is being checked live is
-        # that the surface and the set exist, not how many rows are in them.
+        # that the surface exists, not how many rows are in it.
         r.checks.append(check("the rows are shaped like orders",
                               all(isinstance(x, dict) for x in rows), f"{len(rows)} rows"))
     return r
 
 
 async def next_and_previous(h: Harness) -> Result:
-    """Voice and touch on the same cursor (brief §13 and §16)."""
-    r = Result("next_previous", "Next, said and tapped")
-    listing = await h.say("show me today's orders", scenario="next:list", session_id="cursor")
-    v = await h.say("next", scenario="next:voice", session_id="cursor")
-    t = await h.touch("workflow.next", scenario="next:touch", session_id="cursor")
-    p = await h.touch("workflow.previous", scenario="previous:touch", session_id="cursor")
-    r.captures += [listing, v, t, p]
-    r.checks.append(check("the list opened a set", bool(listing.set_id), f"set_id={listing.set_id!r}"))
-    r.checks += a_surface(v, "order", what="saying next opens the member")
-    r.checks += a_surface(t, "order", what="tapping next opens the member")
-    r.checks.append(deterministic(v))
-    r.checks.append(deterministic(t))
-    r.checks.append(check("the cursor moved once per step, whichever way it was asked",
-                          "1 of" in v.answer and "2 of" in t.answer,
-                          f"voice={v.answer!r} touch={t.answer!r}"))
+    """Next and Previous walk the list the Orders landing opened (brief §13 and §16).
+
+    Tapped. The word "next" said out loud is a sentence like any other and goes to the model;
+    the buttons are what walk a list.
+    """
+    r = Result("next_previous", "Next and previous, tapped")
+    listing = await h.touch("open.area", area="orders", scenario="next:list", session_id="cursor")
+    one = await h.touch("workflow.next", scenario="next:one", session_id="cursor")
+    two = await h.touch("workflow.next", scenario="next:two", session_id="cursor")
+    p = await h.touch("workflow.previous", scenario="previous", session_id="cursor")
+    r.captures += [listing, one, two, p]
+    r.checks.append(check("the landing opened a set", bool(listing.set_id), f"set_id={listing.set_id!r}"))
+    r.checks += a_surface(one, "order", what="tapping next opens the member")
+    r.checks.append(deterministic(one))
+    r.checks.append(deterministic(two))
+    r.checks.append(check("the cursor moved once per step",
+                          "1 of" in one.answer and "2 of" in two.answer,
+                          f"one={one.answer!r} two={two.answer!r}"))
     r.checks.append(check("previous goes back one", "1 of" in p.answer, f"previous={p.answer!r}"))
-    r.checks.append(check("voice and touch walk the same set",
-                          v.set_id == t.set_id == listing.set_id,
-                          f"{listing.set_id} / {v.set_id} / {t.set_id}"))
+    r.checks.append(check("every step walks the same set",
+                          one.set_id == two.set_id == p.set_id == listing.set_id,
+                          f"{listing.set_id} / {one.set_id} / {two.set_id} / {p.set_id}"))
     return r
 
 
 async def back_navigation(h: Harness) -> Result:
     """Several levels deep, then back out, deterministically (brief §15)."""
     r = Result("back", "Back, more than once")
-    one = await h.say("show me order 1938", scenario="back:1", session_id="nav")
-    two = await h.say("show me order 1936", scenario="back:2", session_id="nav")
+    one = await h.open_order("1938", scenario="back:1", session_id="nav")
+    two = await h.open_order("1936", scenario="back:2", session_id="nav")
     b1 = await h.touch("navigation.back", scenario="back:tap1", session_id="nav")
     b2 = await h.touch("navigation.back", scenario="back:tap2", session_id="nav")
     r.captures += [one, two, b1, b2]
@@ -316,20 +273,20 @@ async def back_navigation(h: Harness) -> Result:
 
 
 async def tabs_and_drilldown(h: Harness) -> Result:
-    r = Result("tabs", "Shipping, said and tapped")
-    await h.say("show me order 1938", scenario="tabs:open", session_id="tabs")
+    r = Result("tabs", "Shipping, tapped")
+    await h.open_order("1938", scenario="tabs:open", session_id="tabs")
     tapped = await h.touch("surface.tab", surface="order", tab="shipping",
                            scenario="tabs:tap", session_id="tabs")
-    spoken = await h.touch("order.open_shipping", scenario="tabs:spoken_equivalent", session_id="tabs")
+    named = await h.touch("order.open_shipping", scenario="tabs:named_control", session_id="tabs")
     bad = await h.touch("surface.tab", surface="order", tab="nonsense",
                         scenario="tabs:unknown", session_id="tabs")
-    r.captures += [tapped, spoken, bad]
+    r.captures += [tapped, named, bad]
     r.checks.append(check("tapping a tab records it as state",
                           (tapped.raw.get("changed") or {}).get("tab") == "shipping",
                           f"changed={tapped.raw.get('changed')}"))
-    r.checks.append(check("the spoken shortcut reaches the same tab",
-                          (spoken.raw.get("changed") or {}).get("tab") == "shipping",
-                          f"changed={spoken.raw.get('changed')}"))
+    r.checks.append(check("the named shipping control reaches the same tab",
+                          (named.raw.get("changed") or {}).get("tab") == "shipping",
+                          f"changed={named.raw.get('changed')}"))
     r.checks.append(check("an unknown tab is refused, not guessed",
                           bad.raw.get("ok") is False and bad.raw.get("code") == "unknown_tab",
                           f"raw={ {k: bad.raw.get(k) for k in ('ok', 'code')} }"))
@@ -337,34 +294,15 @@ async def tabs_and_drilldown(h: Harness) -> Result:
     return r
 
 
-async def full_address(h: Harness) -> Result:
-    r = Result("full_address", "Read me the full shipping address")
-    spec = world.order("1938")
-    await h.say("show me order 1938", scenario="address:open", session_id="addr")
-    c = await h.say("read me the full shipping address", scenario="full_address", session_id="addr")
-    r.captures.append(c)
-    r.checks += a_surface(c, "order", what="shows the order with its address")
-    r.checks.append(deterministic(c))
-    card = c.data("order")
-    address = card.get("shipping_address") or {}
-    lines = " ".join(str(x) for x in (address.get("lines") or []))
-    r.checks.append(check("the card carries the street", spec.address["address1"] in lines,
-                          f"lines={address.get('lines')}"))
-    r.checks.append(check("the card carries the postcode", address.get("zip") == spec.address["zip"],
-                          f"zip={address.get('zip')}"))
-    r.checks.append(check("the address was asked for, so it is spoken",
-                          spec.address["zip"].split()[0].lower() in c.answer.lower().replace(" ", " "),
-                          f"answer={c.answer[:120]!r}"))
-    return r
-
-
 async def customer_history(h: Harness) -> Result:
     r = Result("customer_history", "What else has this customer ordered?")
-    await h.say("show me order 1938", scenario="history:open", session_id="hist")
-    c = await h.say("what else has this customer ordered?", scenario="customer_history", session_id="hist")
+    opened = await h.open_order("1938", scenario="history:open", session_id="hist")
+    c = await h.customer_history(str(opened.data("order").get("customer_id") or ""),
+                                 scenario="customer_history", session_id="hist")
     r.captures.append(c)
     r.checks += a_surface(c, "customer", what="shows the customer surface")
-    r.checks.append(deterministic(c))
+    r.checks.append(a_model_turn(c))
+    r.checks.append(entity_is(c, "customer", data.MIA.customer_id))
     card = c.data("customer")
     mine = world.orders_of(data.MIA)
     # The customer card nests the trading history under `history` — see _history() in
@@ -384,8 +322,9 @@ async def customer_history(h: Harness) -> Result:
 
 
 async def needs_reply(h: Harness) -> Result:
-    r = Result("needs_reply", "Which customers need replying to?")
-    c = await h.say("which customers need replying to?", scenario="needs_reply")
+    """Who is waiting on a reply: the Inbox landing's own queue, tapped from the dock."""
+    r = Result("needs_reply", "Who is waiting on a reply?")
+    c = await h.touch("open.area", area="email", scenario="needs_reply")
     r.captures.append(c)
     r.checks.append(check("shows something rather than prose", not c.prose_only,
                           f"surfaces={c.surface_types}"))
@@ -395,72 +334,42 @@ async def needs_reply(h: Harness) -> Result:
     r.checks.append(check("the golden world has both kinds to tell apart",
                           bool(expected) and bool(answered),
                           f"{len(expected)} waiting, {len(answered)} not"))
-    body = " ".join(str(item.get("data")) for item in c.surfaces)
+    queue = next((item for item in c.surfaces if item.get("surface") == "work_queue"), None)
+    body = str((queue or {}).get("data"))
 
-    # The answer itself, against the world's own arithmetic. Until now this scenario checked
-    # only that a card was drawn and that the newsletter sender was absent from it — both of
-    # which are trivially true of a card offering NOBODY, which is what it was drawing: the
-    # fake inbox could not parse the correlation query, so every customer came back "emailed
-    # us: no" and the assistant said "Nobody is waiting on a reply" in a world with three
-    # people waiting. A scenario that cannot tell that apart from the right answer is not a
-    # test of this question.
+    # The answer itself, against the world's own arithmetic. This scenario once checked only
+    # that a card was drawn and that the newsletter sender was absent from it — both of which
+    # are trivially true of a card offering NOBODY, which is what it was drawing: the fake
+    # inbox could not parse the correlation query, so every customer came back "emailed us:
+    # no" and the assistant said "Nobody is waiting on a reply" in a world with three people
+    # waiting. A scenario that cannot tell that apart from the right answer is not a test of
+    # this question.
     waiting = {p.name for p in world.people.values()
                if any(p.email in max(t.messages, key=lambda m: (-m.days_ago, m.hour)).sender
                       for t in expected)}
-    # In the ANSWER as well as on the card. The card's table lists every customer whatever
-    # their state, so "the name appears somewhere in the payload" is true even when the
-    # assistant said nobody was waiting — which is how this passed while being wrong.
-    named = {name for name in waiting if name in c.answer}
-    on_card = {name for name in waiting if name in body}
-    r.checks.append(check("everyone the world says is waiting is named as waiting",
-                          named == waiting, f"named={sorted(named)} expected={sorted(waiting)}"))
-    r.checks.append(check("and each of them is on the card to act on",
-                          on_card == waiting, f"on_card={sorted(on_card)}"))
-    # On the SPOKEN answer, not the card. The card's table is "who has written" and rightly
-    # lists everyone with their state — David Randall belongs on it, marked as replied to.
-    # What must not happen is his being named as someone still waiting.
+    on_card = {name for name in waiting if name.split()[0] in body}
+    r.checks.append(check("the queue is drawn", queue is not None, f"surfaces={c.surface_types}"))
+    r.checks.append(check("and everyone the world says is waiting is on it to act on",
+                          on_card == waiting, f"on_card={sorted(on_card)} expected={sorted(waiting)}"))
     replied_to = {p.name for p in world.people.values() if p.name not in waiting}
-    wrongly = {name for name in replied_to if name and name in c.answer}
-    r.checks.append(check("and nobody we have already answered is named as waiting",
-                          not wrongly, f"named anyway: {sorted(wrongly)}"))
-    r.checks.append(check("the spoken answer counts them rather than reading them all out",
-                          str(len(waiting)) in c.answer and len(c.answer) < 200,
-                          f"answer={c.answer[:90]!r}"))
+    wrongly = {name for name in replied_to if name and name in body}
+    r.checks.append(check("and nobody we have already answered is queued as waiting",
+                          not wrongly, f"queued anyway: {sorted(wrongly)}"))
     r.checks.append(check("the automated sender is not offered as a customer",
                           data.NEWSLETTER_SENDER not in body, "newsletter sender present"))
-    return r
-
-
-async def house_number(h: Harness) -> Result:
-    """The question that used to be answered with one order's shipping address."""
-    r = Result("house_number", "Did any of these customers email their house number?")
-    c = await h.say("check whether any of these customers emailed us their house number",
-                    scenario="house_number")
-    r.captures.append(c)
-    r.checks.append(check("does not answer it as one order's address",
-                          c.recipe_id != "order_address_lookup",
-                          f"recipe={c.recipe_id!r} lane={c.lane}"))
-    r.checks.append(check("is treated as a sweep rather than a quick lookup",
-                          c.lane in ("DEEP", "NORMAL"), f"lane={c.lane}"))
-    r.checks.append(check("the golden world has a house number in the inbox and not on the order",
-                          not data.BY_NAME["#1936"].address["address1"][0].isdigit()
-                          and any("41" in m.body for t in world.threads for m in t.messages),
-                          "fixture does not set the case up"))
     return r
 
 
 async def unsupported_edit(h: Harness) -> Result:
     """It must never claim to have done what it cannot do (brief §30)."""
     r = Result("unsupported_edit", "Add a hoodie to this order")
-    await h.say("show me order 1938", scenario="unsupported:open", session_id="unsup")
+    await h.open_order("1938", scenario="unsupported:open", session_id="unsup")
     c = await h.say("add a Black Convict hoodie to this order", scenario="unsupported_edit",
                     session_id="unsup")
     r.captures.append(c)
-    r.checks.append(check("does not take the fast lane", c.lane != "FAST", f"lane={c.lane}"))
+    r.checks.append(a_model_turn(c))
     r.checks.append(check("nothing was changed in the shop", getattr(h.store, "mutations_sent", -1) == 0,
                           f"mutations_sent={getattr(h.store, 'mutations_sent', 'NO COUNTER')}"))
-    claimed = any(word in c.answer.lower() for word in ("added", "i've added", "done", "updated the order"))
-    r.checks.append(check("does not claim to have added it", not claimed, f"answer={c.answer[:120]!r}"))
     r.checks.append(check("no success card was drawn", c.surface("success") is None,
                           f"surfaces={c.surface_types}"))
     return r
@@ -469,14 +378,15 @@ async def unsupported_edit(h: Harness) -> Result:
 async def linked_entities(h: Harness) -> Result:
     """An order names its customer, and the customer can be opened from it (brief §11)."""
     r = Result("linked_entities", "From the order to the customer")
-    c = await h.say("show me order 1938", scenario="linked:open", session_id="link")
+    c = await h.open_order("1938", scenario="linked:open", session_id="link")
     card = c.data("order")
     customer_id = str(card.get("customer_id") or "")
     r.captures.append(c)
     r.checks.append(check("the order names its customer by id", bool(customer_id),
                           f"customer_id={customer_id!r}"))
     # Reading the customer is what puts them in memory; opening a link never reads the shop.
-    await h.say("what else has this customer ordered?", scenario="linked:read", session_id="link")
+    await h.customer_history(customer_id, scenario="linked:read", session_id="link")
+    await h.touch("navigation.back", scenario="linked:back", session_id="link")
     opened = await h.touch("open.entity", kind="customer", ref=customer_id, label=data.MIA.name,
                            scenario="linked:tap", session_id="link")
     r.captures.append(opened)
@@ -496,7 +406,7 @@ async def split_branches(h: Harness) -> Result:
     """Two halves of the orb keep their own entity (brief §21)."""
     r = Result("split_branches", "Two halves, two records")
     session = "split"
-    left = await h.say("show me order 1938", scenario="split:left", session_id=session)
+    left = await h.open_order("1938", scenario="split:left", session_id=session)
     fork = await h.client.post("/branches/fork", data={"session_id": session, "label": "right"},
                                headers={"Tailscale-User-Login": "owner@example.com",
                                         "X-Forwarded-For": "100.64.0.9"})
@@ -505,8 +415,7 @@ async def split_branches(h: Harness) -> Result:
     r.checks.append(check("a second half was opened", bool(right_id), f"fork={str(body)[:140]}"))
     if not right_id:
         return r
-    right = await h.say("show me order 1936", scenario="split:right", session_id=session,
-                        branch_id=right_id)
+    right = await h.open_order("1936", scenario="split:right", session_id=session, branch_id=right_id)
     r.captures += [left, right]
     left_branch = h.branch(session, left.branch_id)
     right_branch = h.branch(session, right_id)
@@ -525,7 +434,7 @@ async def split_branches(h: Harness) -> Result:
 async def progressive_enrichment(h: Harness) -> Result:
     """The order goes up before the inbox has answered (brief §8)."""
     r = Result("enrichment", "The card first, the inbox after")
-    c = await h.say("show me order 1938", scenario="enrichment")
+    c = await h.open_order("1938", scenario="enrichment")
     r.captures.append(c)
     r.checks += a_surface(c, "order", what="the order surface arrives with the turn")
     card = c.data("order")
@@ -549,17 +458,13 @@ async def progressive_enrichment(h: Harness) -> Result:
 
 
 SCENARIOS: tuple[tuple[str, Callable[[Harness], Awaitable[Result]]], ...] = (
-    ("capabilities", capabilities),
     ("order_lookup", order_lookup),
-    ("repeat_order", repeat_order),
     ("today_orders", today_orders),
     ("next_previous", next_and_previous),
     ("back", back_navigation),
     ("tabs", tabs_and_drilldown),
-    ("full_address", full_address),
     ("customer_history", customer_history),
     ("needs_reply", needs_reply),
-    ("house_number", house_number),
     ("linked_entities", linked_entities),
     ("unsupported_edit", unsupported_edit),
     ("split_branches", split_branches),

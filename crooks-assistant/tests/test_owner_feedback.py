@@ -10,8 +10,11 @@ Twice in the live hour:
      assistant button and the next button"
     → "I still have no tool that logs product feedback."
 
-Both sentences are in this file. They are recognised, recorded against the screen he was on,
-and surfaced verbatim in the report (tests/test_experience_analyser.py holds that half).
+Both sentences are in this file. They are recognised, and `feedback.record` writes one down
+against the screen he was on for the report to surface verbatim (tests/test_experience_analyser.py
+holds that half). Nothing records them at turn time since the word-matching lane was removed
+(28 September 2026): a spoken report is a model turn, and the report reads it from the
+transcript.
 
 The other half of the file is the bound: nothing reaches Shopify or Gmail, nothing is
 proposed, approved or armed, no customer's name or address is written down, and outside a
@@ -146,11 +149,10 @@ def test_a_question_the_product_can_answer_is_not_filed_as_a_complaint(said):
     """The D-11/D-12 boundary, in the one place the two workstreams collided.
 
     `what is (?:it|this) doing` was an alternative in the `why_is_it` shape. It was the only
-    one there that is not a "why", and it is step 7 of the physical acceptance script and one
-    of the three sentences `screen_state` (app/families/self_knowledge.py) exists to answer.
-    Recognised feedback takes a turn before anything else does, and `screen_state` blocks on
-    `reports_a_defect`, so the shape won and the question went to the model: the owner asked
-    what was in front of him and was told his complaint had been recorded.
+    one there that is not a "why", and it is step 7 of the physical acceptance script: a
+    question about what is on the glass. When recognised feedback took a turn before anything
+    else did, the shape won: the owner asked what was in front of him and was told his
+    complaint had been recorded.
 
     The rule this pins: BOTH readings of that sentence are fair, and the tie-break is that one
     of them can be ANSWERED. A product able to say what is on its own glass should say it.
@@ -161,10 +163,6 @@ def test_a_question_the_product_can_answer_is_not_filed_as_a_complaint(said):
     shapes generally, only by narrowing this one alternative.
     """
     assert feedback.recognise(said) is None, said
-    # And the question reaches the family that answers it, with no model on the path.
-    import app.families  # noqa: F401 — registers every family, as the app does
-    from app.fastpath.intent import resolve
-    assert resolve(said).family == "screen_state", f"{said!r} -> {resolve(said).family or '(the model)'}"
 
 
 @pytest.mark.parametrize("said", [
@@ -322,94 +320,3 @@ def test_recording_feedback_reaches_neither_shopify_nor_gmail_nor_the_engine():
     for module in imported:
         assert not module.startswith(("app.actions", "app.tools", "app.clients", "app.providers")), module
     assert imported <= {"__future__", "re", "dataclasses", "typing", "app.observability"}
-
-
-def test_the_family_records_and_says_so(recording):
-    from app.families import load_all
-    from app.fastpath.intent import resolve
-    from app.fastpath.models import Ctx
-    from app.fastpath.recipes import RECIPES, assert_read_only
-    from app.reads.scheduler import ReadResult
-
-    load_all()
-    line, store, session = recording
-    assert resolve(SPLIT_BUG).family == "owner_feedback", "the router takes it now"
-
-    recipe = RECIPES["owner_feedback"]
-    assert recipe.read_primitives == ()
-    assert_read_only({"owner_feedback": recipe})
-
-    class FakeSession:
-        session_id = "s1"
-        turn_id = "turn_7afa465dda1d"
-
-    ctx = Ctx(runtime=None, session=FakeSession(), branch=FakeBranch(),
-              intent=resolve(SPLIT_BUG), text=SPLIT_BUG)
-    assert recipe.plan(ctx) is None, "nothing is read to write something down"
-    answer = recipe.render(ctx, ReadResult())
-    assert not answer.deferred, answer.defer
-    assert "Logged" in answer.answer and "owner-reported defects" in answer.answer
-    assert "Nothing was sent anywhere." in answer.answer
-    assert answer.calls == [] and answer.surfaces == []
-    line.flush()
-    assert [e for e in _events(store, session) if e["kind"] == "owner_feedback"]
-
-
-def test_the_family_is_silent_outside_a_test_session():
-    from app.families import load_all
-    from app.fastpath.intent import resolve
-
-    load_all()
-    timeline.install(timeline.NullTimeline())
-    assert resolve(SPLIT_BUG).family != "owner_feedback"
-    assert resolve("the back button is broken").family != "owner_feedback"
-
-
-def test_the_acceptance_script_s_step_nine_both_halves(recording):
-    """§39 step 9, end to end through the router and the family, not just the rule.
-
-    The script asks him to find something he does not like and say it PLAINLY — *"that's
-    wrong, it's showing me two of the same thing"* — and requires the system to confirm it
-    recorded that without him using the word log, record or note. Then it asks him to say
-    something conversational that is not a defect — *"that's quite good actually"* — and
-    requires that NOT to be filed.
-
-    Last time the first sentence was not recorded at all; he had to repeat it sixteen seconds
-    later starting with "log" (D-12).
-    """
-    from app.families import load_all
-    from app.fastpath.intent import resolve
-    from app.fastpath.models import Ctx
-    from app.fastpath.recipes import RECIPES
-    from app.reads.scheduler import ReadResult
-
-    load_all()
-    line, store, session = recording
-    plainly = "that's wrong, it's showing me two of the same thing"
-    complimentary = "that's quite good actually"
-
-    assert resolve(plainly).family == "owner_feedback", "the router must take it without the word"
-    assert resolve(complimentary).family != "owner_feedback", "approval is not a defect report"
-
-    class FakeSession:
-        session_id = "s1"
-        turn_id = "turn_step_nine"
-
-    ctx = Ctx(runtime=None, session=FakeSession(), branch=FakeBranch(),
-              intent=resolve(plainly), text=plainly)
-    answer = RECIPES["owner_feedback"].render(ctx, ReadResult())
-    assert not answer.deferred, answer.defer
-    assert "Logged" in answer.answer, answer.answer
-    line.flush()
-    written = [e for e in _events(store, session) if e["kind"] == "owner_feedback"]
-    assert written, "the defect he stated plainly must be on the timeline"
-    assert written[-1]["text"] == plainly, written[-1]
-    assert written[-1]["shape"] == "wrong", written[-1]
-
-    # And the compliment reaches the family not at all; asked directly, it declines.
-    said_nicely = Ctx(runtime=None, session=FakeSession(), branch=FakeBranch(),
-                      intent=resolve(complimentary), text=complimentary)
-    declined = RECIPES["owner_feedback"].render(said_nicely, ReadResult())
-    assert declined.deferred, declined.answer
-    line.flush()
-    assert len([e for e in _events(store, session) if e["kind"] == "owner_feedback"]) == 1

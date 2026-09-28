@@ -5,10 +5,10 @@ hoodie to this order" had to be refused, and the check was that it was refused h
 is checked here is the other half — that it can now be done, and that doing it goes through
 the picker, the priced card and the hold, in that order, with nothing applied until the last.
 
-The sentence still cannot reach it. `intent.resolve` returns no family for a request carrying
-a mutation signal, which is the fast lane's structural inability to write, so the words arrive
-by touch from the order card's own control. `sentence_still_defers` asserts exactly that
-rather than letting it look like an oversight.
+The sentence does not open the picker: it is the model's, like every sentence, and nothing
+is prepared on the way to it; the picker is reached by touch from the order card's own
+control. `order_add_item_sentence_defers` asserts exactly that rather than letting it look like
+an oversight.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import re
 
 from experience.fixtures import data
 from experience.harness import Harness
-from experience.scenarios import Result, a_surface, check, deterministic, grounded
+from experience.scenarios import Result, a_model_turn, a_surface, check, deterministic, grounded
 
 ORDER = data.BY_NAME["#1938"]                    # Mia Jones, two lines, £89.00, unfulfilled
 CANCELLED = data.BY_NAME["#1929"]                # David Randall, cancelled twelve days ago
@@ -54,7 +54,7 @@ def _facts(c) -> dict[str, str]:
 
 
 async def _open_order(h: Harness, session: str, number: str) -> None:
-    await h.say(f"show me order {number}", scenario=f"order_edit:open:{number}", session_id=session)
+    await h.open_order(number, scenario=f"order_edit:open:{number}", session_id=session)
 
 
 async def order_add_item_picker(h: Harness) -> Result:
@@ -132,7 +132,7 @@ async def order_add_item_picker(h: Harness) -> Result:
                           ran == ["order_edit_begin", "order_edit_add_variant"], f"mutations={ran}"))
     r.checks.append(check("nothing was changed in the shop", getattr(h.store, "mutations_sent", -1) == 0,
                           f"mutations_sent={getattr(h.store, 'mutations_sent', 'NO COUNTER')}"))
-    e = await h.say("show me order 1938 again", scenario="order_add_item_picker", session_id=session)
+    e = await h.open_order("1938", said="show me order 1938 again", scenario="order_add_item_picker", session_id=session)
     r.captures.append(e)
     r.checks.append(check("and the order still reads what it did", _amount(e.data("order").get("total")) == 89.0,
                           f"total={e.data('order').get('total')!r}"))
@@ -198,10 +198,7 @@ async def order_add_item_sentence_defers(h: Harness) -> Result:
     await _open_order(h, session, "1938")
     c = await h.say("add a black medium Convict hoodie to this order", scenario="order_add_item_sentence_defers", session_id=session)
     r.captures.append(c)
-    # This is the fast lane refusing to serve a change, which is the property that makes it
-    # safe — not a gap in this family. When a spoken route to a proposal exists it will be a
-    # deliberate one, and this check is where it will be changed.
-    r.checks.append(check("the fast lane declines a sentence that asks for a change", c.lane != "FAST", f"lane={c.lane}"))
+    r.checks.append(a_model_turn(c))
     r.checks.append(check("no picker and no card came from the words alone",
                           c.surface("variant_picker") is None and c.surface("confirmation") is None,
                           f"surfaces={c.surface_types}"))

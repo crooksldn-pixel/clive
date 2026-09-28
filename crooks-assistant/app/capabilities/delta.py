@@ -2,7 +2,7 @@
 
 "I updated your capabilities earlier. What more can you do now?" took seventy-five seconds
 and zero tool calls in the September test session, and the answer was wrong. It is a
-comparison of two manifests, both of which the Mac holds, and it belongs on the fast path.
+comparison of two manifests, both of which the Mac holds, and needs no read at all.
 
 The previous manifest is kept beside the current one in the log directory. Recording is
 idempotent: a restart with the same code does not invent a new build, because the

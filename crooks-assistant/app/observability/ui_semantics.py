@@ -21,8 +21,8 @@ So: a BOUNDED manifest of first-party UI semantics. Bounded in three senses.
   same way from `app.actions.grammar`, the dock's destinations from `app.families.landings`,
   and the branch states from the session's own vocabulary.
 * **It never generates UI.** This says what a control DOES. It cannot draw one, add one,
-  rename one, or tell the tablet to do anything. It is read by a read family and by the
-  report; both of those are read paths, and neither can stage a change.
+  rename one, or tell the tablet to do anything. It is read by the report, which is a read
+  path and cannot stage a change.
 
 The words are the product's, written once, and they are what the owner hears. A model asked
 the same question without this file answers from nothing.
@@ -43,10 +43,6 @@ GROUPS: tuple[tuple[str, str], ...] = (
     ("surface_state", "What a card is saying"),
     ("composer", "Typing instead of speaking"),
     ("branch_state", "What a half is doing"),
-    # What is on the glass right now, chrome included (D-11). Its entry is registered by
-    # app/families/self_knowledge.py through `extend`, because the answer is derived from live
-    # session state and this table holds only what is stable.
-    ("screen", "What is on the glass"),
 )
 
 
@@ -365,9 +361,8 @@ def _registry() -> dict[str, str]:
         return {}
 
 
-# Entries a family adds from its own file, so two families never edit ENTRIES' same line —
-# the seam `app.fastpath.intent.extend` already gives the family table. Read wherever ENTRIES
-# is read; `check()` holds for these too.
+# Entries a family adds from its own file, so two families never edit ENTRIES' same line.
+# Read wherever ENTRIES is read; `check()` holds for these too.
 EXTRA_ENTRIES: list[Entry] = []
 
 

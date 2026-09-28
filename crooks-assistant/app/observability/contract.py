@@ -53,18 +53,67 @@ _WAITING = re.compile(r"\b(?:tap|swipe|hold|drag|press)\b.{0,40}\b(?:card|to app
 # An answer that says plainly it did not do it.
 _DECLINED = re.compile(r"\b(?:can'?t|cannot|couldn'?t|could not|unable to|not able to|there(?:'s| is) no way|i don'?t have)\b", re.I)
 
-# Whether a request asks for a change is decided in ONE place: app/fastpath/intent.py, which
-# is also what decides whether the fast lane may take the turn. "Any email from him about
-# 1938" is a noun; "email him about 1938" is an instruction; both must read the same way to
-# the router and to the report, or the report will grade a turn against a contract the
-# router never gave it.
+# Whether a request asks for a change, read after the turn for the report. It decides nothing
+# about the turn itself — every sentence is a model turn — and it lives here, beside the
+# contract it grades, since the word-matching lane it was written for was removed (28
+# September 2026). "Any email from him about 1938" is a noun; "email him about 1938" is an
+# instruction.
+#
+# A verb that changes something. Split in two, because English does not agree with itself:
+#
+#   STRONG   only ever an instruction. "Cancel", "refund", "archive".
+#   SOFT     an instruction at the head of one, a noun or a description anywhere else.
+#            "Email" in "email them" is a change; in "any email from her?" it is the inbox.
+#            "Replying" in "who needs replying to" describes a state, not an order given.
+#
+# A SOFT verb counts as a change only when the request is NOT opened as a question.
+MUTATION_STRONG = frozenset({
+    "cancel", "cancelled", "refund", "refunded", "delete", "archive", "unarchive", "fulfil",
+    "fulfill", "dispatch", "restock", "untag", "revoke", "amend", "replace",
+    "resend", "forward", "edit", "editing",
+})
+MUTATION_SOFT = frozenset({
+    # "fulfilled" as a past participle describes a state: "has it been fulfilled" is a
+    # question, "mark it fulfilled" an instruction. "fulfil" and "fulfill" are STRONG.
+    "fulfilled",
+    "add", "adding", "remove", "removing", "send", "sending", "sent", "reply", "replying",
+    "draft", "drafting", "write", "writing", "email", "emailing", "note", "tag", "tagging",
+    "mark", "marking", "set", "setting", "put", "make", "create", "creating", "change",
+    "changing", "update", "updating", "ship", "shipping", "adjust", "adjusting", "apply",
+    "move", "moving",
+})
+MUTATION = MUTATION_STRONG | MUTATION_SOFT
+# A request that opens with one of these is asking, whatever verbs come later in it.
+OPENERS = frozenset({
+    "what", "whats", "which", "who", "whose", "how", "when", "where", "why", "is", "are",
+    "was", "were", "do", "does", "did", "has", "have", "had", "any", "anyone", "anybody",
+    "show", "list", "tell", "give", "find", "check", "read", "look", "whos",
+})
+# A SOFT verb straight after a determiner is a noun, wherever the sentence starts. "Customers
+# who need a reply?" asks about a state of the inbox; "reply to Mia" has no determiner in
+# front of it, and "send a reply to order 2044" still carries "send".
+_DETERMINER = frozenset({"a", "an", "the", "any", "no", "our", "my", "your", "their"})
+_NOUN_READING = frozenset({"reply"})
+
 _ASKING_ABOUT = re.compile(r"^\s*(?:can|could|will|would|is it possible|are you able|do you|how (?:do|would) (?:i|you|we))\b", re.I)
 _WORD = re.compile(r"[a-z0-9'#]+")
 
 
-def _is_change(text: str) -> bool:
-    from app.fastpath.intent import mutating
+def _as_a_noun(words: tuple[str, ...], index: int) -> bool:
+    return words[index] in _NOUN_READING and index > 0 and words[index - 1] in _DETERMINER
 
+
+def mutating(words: tuple[str, ...]) -> bool:
+    """Whether this request asks for a change."""
+    have = set(words)
+    if have & MUTATION_STRONG:
+        return True
+    if not any(w in MUTATION_SOFT and not _as_a_noun(words, i) for i, w in enumerate(words)):
+        return False
+    return not (words and words[0] in OPENERS)
+
+
+def _is_change(text: str) -> bool:
     return mutating(tuple(_WORD.findall((text or "").lower())))
 
 

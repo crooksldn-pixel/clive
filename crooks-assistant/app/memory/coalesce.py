@@ -1,7 +1,7 @@
 """In-flight coalescing: the same read, asked twice, is made once.
 
-Two things ask for order 1938 within the same second — the fast path and, a moment later, a
-tool call the model made. One request goes to Shopify; both callers get its result. The
+Two things ask for order 1938 within the same second — a tapped control's read and, a moment
+later, a tool call the model made. One request goes to Shopify; both callers get its result. The
 second caller is not "cached": it is awaiting the same future, so it cannot be served
 something older than what the first caller gets.
 

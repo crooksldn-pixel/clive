@@ -159,29 +159,6 @@ SHELL_WORDS: dict[str, tuple[str, int]] = {
     "email_thread": ("Email thread", 3),
 }
 
-# Which of the fast lane's families already knows what workspace it is about to draw: its
-# NAME, and the sections coming — so the identity is up before the first read has even been
-# issued. A family that is not here (the model's lane, where the compound questions live) is
-# named by its sections instead, as each read starts, which is still far short of 7,975 ms.
-PLAN_OF_FAMILY: dict[str, tuple[str, tuple[str, ...]]] = {
-    "order_lookup": ("The order", ("order",)),
-    "order_reopen": ("The order", ("order",)),
-    "order_list_period": ("Orders", ("order_list",)),
-    "order_status_lookup": ("The order", ("order",)),
-    "order_address_lookup": ("The order", ("order",)),
-    "delayed_orders": ("Orders", ("order_list",)),
-    "customer_history_lookup": ("The customer", ("customer",)),
-    "customer_purchase_lookup": ("The customer", ("customer",)),
-    "sales_breakdown_period": ("Sales", ("sales_summary",)),
-    "inbox_state": ("The inbox", ("email_list",)),
-    "needs_reply": ("The inbox", ("email_list",)),
-    "stock_cover_analysis": ("Stock", ("inventory",)),
-}
-
-# Phase 4's name for the same table, derived rather than repeated: what a family promises to
-# draw is one fact, and two copies of it could disagree about a family.
-SHELL_OF_FAMILY: dict[str, tuple[str, ...]] = {family: kinds for family, (_title, kinds) in PLAN_OF_FAMILY.items()}
-
 # A card that is worth looking at: it is about a record, or it carries rows. An error, the
 # assistant's own sentence, the context stack and the workspace's own header are none of
 # those, which is why a turn that drew only those is the failure §8 is about rather than a
@@ -534,7 +511,7 @@ class Workspace:
 
         A read's cards go up the moment it lands, before anyone knows whether the answer will
         show them. A recipe that reads a list only to work from it draws its own card instead
-        (`FastAnswer.drawn`), and the list's card was left standing beneath the answer: "any
+        (`RecipeAnswer.drawn`), and the list's card was left standing beneath the answer: "any
         emails need my attention" put a revenue ranking of the 25 customers it had checked,
         and the month's totals, under the reply queue. The glass ends as the answer — the
         workspace's own header and its skeletons are settled by their own rules below.
@@ -666,9 +643,11 @@ def _key(session_id: str, branch_id: str = "") -> str:
     return f"{str(session_id or '')}/{str(branch_id or '')}"
 
 
-def begin(session_id: str, *, turn_id: str = "", branch_id: str = "", family: str = "",
+def begin(session_id: str, *, turn_id: str = "", branch_id: str = "",
           clock: Callable[[], float] | None = None) -> Workspace:
-    """A turn has started: a working shell, now, before anything has been read."""
+    """A turn has started: a working shell, now, before anything has been read. What the
+    shell holds is named by its sections as each read starts (`starting`); nothing guesses
+    from the words what is coming."""
     workspace = Workspace(
         session_id=str(session_id or ""), turn_id=str(turn_id or ""), branch_id=str(branch_id or ""),
         clock=clock or time.perf_counter,
@@ -676,8 +655,7 @@ def begin(session_id: str, *, turn_id: str = "", branch_id: str = "", family: st
     _LIVE[_key(session_id, branch_id)] = workspace
     while len(_LIVE) > MAX_LIVE:
         _LIVE.popitem(last=False)
-    title, kinds = PLAN_OF_FAMILY.get(str(family or ""), ("", ()))
-    workspace.shell(kinds, title=title)
+    workspace.shell(())
     return workspace
 
 

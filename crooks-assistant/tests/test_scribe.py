@@ -1,9 +1,10 @@
 """ElevenLabs Scribe as the primary recogniser, and whisper.cpp catching it when it falls.
 
 Nothing here touches the network or the Keychain: the HTTP layer is a transport double and the
-credential is injected. The rule these tests exist to hold is that the tablet gets an answer —
-every way Scribe can fail ends in a Whisper transcript, normalised the same way — and that the
-API key never reaches a log line, an exception or a health string.
+credential is injected. The rules these tests exist to hold are that the tablet gets an
+answer — every way Scribe can fail ends in a Whisper transcript — that the words come back as
+they were heard, with nothing biasing the recogniser and nothing rewriting them afterwards,
+and that the API key never reaches a log line, an exception or a health string.
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ import pytest
 
 from app.clients.elevenlabs import ScribeClient, ScribeUnavailable
 from app.clients.whisper import Transcript, WhisperClient, WhisperUnavailable
-from app.speech.normalise import from_terms
 from app.speech.transcribe import Transcriber
 
 av = pytest.importorskip("av")
@@ -33,7 +33,7 @@ class FakeWhisper(WhisperClient):
         super().__init__("http://fake")
         self.text, self.fail, self.calls = text, fail, 0
 
-    async def transcribe(self, wav: bytes, *, prompt: str = "") -> Transcript:
+    async def transcribe(self, wav: bytes) -> Transcript:
         self.calls += 1
         if self.fail:
             raise WhisperUnavailable("whisper-server is not running")
@@ -70,14 +70,8 @@ def ok_transcript(text: str = "find the blue wash yard genes"):
     return handler
 
 
-def norm():
-    return from_terms(["Blue Wash Yard Jeans"], {"cross stars tee": "CRXST★RZ T-Shirt"})
-
-
 def make(scribe_client, whisper=None, **kwargs) -> Transcriber:
-    return Transcriber(
-        whisper or FakeWhisper(), norm(), scribe=scribe_client, primary="scribe", **kwargs
-    )
+    return Transcriber(whisper or FakeWhisper(), scribe=scribe_client, primary="scribe", **kwargs)
 
 
 def client(**kwargs) -> ScribeClient:
@@ -90,20 +84,20 @@ def client(**kwargs) -> ScribeClient:
 # --------------------------------------------------------------------------- the happy path
 
 
-async def test_scribe_transcribes_and_normalises(mock_http):
+async def test_scribe_transcribes_and_the_words_are_kept_as_heard(mock_http):
     mock_http(ok_transcript())
     result = await make(client()).from_blob(webm_opus(tone_pcm(1.0)))
     assert result.ok
     assert result.raw_text == "find the blue wash yard genes"
-    # The whole point of keeping the normaliser: Scribe is better, and still says "yard genes".
-    assert "Blue Wash Yard Jeans" in result.text
+    # Nothing rewrites it towards the catalogue: understanding "yard genes" is the model's job.
+    assert result.text == "find the blue wash yard genes"
     assert result.engine == "scribe_v2"
     assert result.fallback is False
     assert result.timings_ms["scribe"] >= 0
     assert "whisper" not in result.timings_ms
 
 
-async def test_request_carries_scribe_v2_english_and_keyterms(mock_http):
+async def test_request_carries_scribe_v2_english_and_no_keyterms(mock_http):
     holder = mock_http(ok_transcript())
     await make(client()).from_blob(webm_opus(tone_pcm(1.0)))
     body = holder["requests"][0].read().decode("utf-8", "replace")
@@ -111,50 +105,20 @@ async def test_request_carries_scribe_v2_english_and_keyterms(mock_http):
     assert 'name="model_id"\r\n\r\nscribe_v2' in body
     assert 'name="language_code"\r\n\r\neng' in body
     assert 'name="file"; filename="audio.wav"' in body
-    # The catalogue biases Scribe exactly as it biases Whisper's prompt.
-    assert 'name="keyterms"\r\n\r\nBlue Wash Yard Jeans' in body
-    assert 'name="keyterms"\r\n\r\nCross Stars Tee' in body
-
-
-async def test_customer_names_are_never_sent_as_keyterms(mock_http):
-    holder = mock_http(ok_transcript())
-    normaliser = from_terms(["Convict Hoodie", "Jane Shopper"], personal=["Jane Shopper"])
-    t = Transcriber(FakeWhisper(), normaliser, scribe=client(), primary="scribe")
-    await t.from_blob(webm_opus(tone_pcm(1.0)))
-    body = holder["requests"][0].read().decode("utf-8", "replace")
-    assert "Convict Hoodie" in body
-    assert "Jane Shopper" not in body, "a customer's name is not speech-bias vocabulary"
-    # It still corrects transcripts here on this Mac.
-    assert "Jane Shopper" in normaliser.catalogue.prompt_terms()
-
-
-async def test_keyterms_can_be_switched_off(mock_http):
-    holder = mock_http(ok_transcript())
-    await make(client(), keyterms=False).from_blob(webm_opus(tone_pcm(1.0)))
-    assert "keyterms" not in holder["requests"][0].read().decode("utf-8", "replace")
-
-
-def test_keyterms_obey_the_api_limits():
-    c = client(max_keyterms=3)
-    terms = c.keyterms(
-        ["x" * 60, "one two three four five six", "Jorts", "Jorts", "Windbreaker", "Cellblock", "Yard Jeans"]
-    )
-    assert terms == ["Windbreaker", "Cellblock", "Yard Jeans"]  # capped, keeping the last ones
-    assert all(len(t) < 50 and len(t.split()) <= 5 for t in terms)
+    # Nothing tells Scribe which words to expect.
+    assert "keyterms" not in body
 
 
 async def test_the_live_tablet_sentence_survives_the_whole_pipeline(mock_http):
-    """The regression as it reached the tablet: Scribe heard it correctly and the normaliser
-    turned "what" into "White". The number is still recovered; nothing else moves."""
+    """The regression as it reached the tablet: Scribe heard it correctly and a normaliser
+    turned "what" into "White". Nothing rewrites the words now, not even the number."""
     raw = "Order one nine three zero and tell me what they, exactly what they ordered"
     mock_http(ok_transcript(raw))
-    normaliser = from_terms(["White", "Black", "Grey", "Blue Wash Yard Jeans"])
-    t = Transcriber(FakeWhisper(), normaliser, scribe=client(), primary="scribe")
+    t = Transcriber(FakeWhisper(), scribe=client(), primary="scribe")
     result = await t.from_blob(webm_opus(tone_pcm(1.0)))
     assert result.ok
     assert result.raw_text == raw
-    assert result.text == "Order 1930 and tell me what they, exactly what they ordered"
-    assert result.normalised.order_numbers == ["1930"]
+    assert result.text == raw
 
 
 async def test_hallucination_filter_still_applies_to_scribe(mock_http):
@@ -239,12 +203,12 @@ async def test_missing_key_falls_back_without_a_request(mock_http):
     assert holder["requests"] == []
 
 
-async def test_fallback_output_is_still_normalised(mock_http):
+async def test_fallback_output_is_kept_as_heard_too(mock_http):
     mock_http(lambda request: httpx.Response(401, text="nope"))
-    whisper = FakeWhisper("find the blue wash yard genes")
+    whisper = FakeWhisper("  find the blue wash yard genes ")
     result = await make(client(), whisper).from_blob(webm_opus(tone_pcm(1.0)))
     assert result.engine == "whisper_fallback"
-    assert "Blue Wash Yard Jeans" in result.text, "the normaliser must run on either engine"
+    assert result.text == "find the blue wash yard genes", "trimmed, and every word as heard"
 
 
 async def test_both_engines_down_is_spoken_not_crashed(mock_http):
@@ -272,7 +236,7 @@ async def test_an_unexpected_error_still_falls_back(mock_http):
 
 async def test_whisper_primary_never_calls_scribe(mock_http):
     holder = mock_http(ok_transcript())
-    t = Transcriber(FakeWhisper(), norm(), scribe=client(), primary="whisper")
+    t = Transcriber(FakeWhisper(), scribe=client(), primary="whisper")
     result = await t.from_blob(webm_opus(tone_pcm(1.0)))
     assert result.ok
     assert result.engine == "whisper"
@@ -314,7 +278,7 @@ async def test_success_clears_a_cooldown(mock_http):
     c = client(cooldown_s=300.0)
     c._cooldown_until = 0.0
     mock_http(ok_transcript("hello"))
-    await c.transcribe(b"wav", keyterms=[])
+    await c.transcribe(b"wav")
     assert not c.cooling_down
     assert c.successes == 1 and c.attempts == 1
 
@@ -426,7 +390,7 @@ async def test_scribe_unavailable_is_the_only_error_shape(mock_http):
     as a 500. Every documented failure must therefore arrive as that one type."""
     mock_http(lambda request: httpx.Response(418, text="teapot"))
     with pytest.raises(ScribeUnavailable) as caught:
-        await client().transcribe(b"wav", keyterms=[])
+        await client().transcribe(b"wav")
     assert caught.value.kind == "http_418"
 
 

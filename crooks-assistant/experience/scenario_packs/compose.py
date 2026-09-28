@@ -1,13 +1,16 @@
 """The composer, and the draft turned into a send (brief §7, §8).
 
-Five scenarios. Each is one of the two bench failures, or something that had to be true for
+Four scenarios. Each is one of the two bench failures, or something that had to be true for
 the fix not to be a new hole:
 
     compose_open            the exact sentence the bench refused draws an editable email
     compose_dictated        an address a microphone heard is marked, then corrected by finger
     compose_stage           the gesture prepares a change; nothing is executed
     compose_send_instead    the draft becomes a send in one gesture, and its card is withdrawn
-    compose_send_spoken     "no, don't save a draft, send it" answers with no model at all
+
+The sentence is the model's, like every sentence (since 28 September 2026): the harness's
+model opens the composer with `gmail_compose_open`, as Claude does, and what is asserted is
+the card the Mac drew from that call and what the owner's taps do to it.
 
 Nothing here reaches Gmail: `experience/fixtures/gmail.py` raises on every write method, so a
 scenario that accidentally sent something would fail loudly rather than pass quietly.
@@ -19,7 +22,7 @@ from typing import Any
 
 from experience.fixtures import data
 from experience.harness import Harness
-from experience.scenarios import Result, a_surface, check, compound, deterministic, grounded
+from experience.scenarios import Result, a_model_turn, a_surface, check, grounded
 
 
 def _ok(c) -> bool:
@@ -43,6 +46,13 @@ def _field(c, name: str) -> dict[str, Any]:
     return got if isinstance(got, dict) else {}
 
 
+def _opens(to: str, *, subject: str = data.COMPOSE_SUBJECT, body: str = data.COMPOSE_BODY) -> tuple[str, dict[str, Any]]:
+    """The composer, opened by the model for the bench sentence: the address as the owner gave
+    it, words of its own, and what it is about in his."""
+    return ("gmail_compose_open", {"to": to, "subject": subject, "body": body,
+                                   "about": "asking if they're free for a shoot next Sunday"})
+
+
 async def _draft_waiting(h: Harness, session_id: str, r: Result) -> Any:
     """Open the composer with the bench sentence, type the words in, and tap Save draft.
 
@@ -50,7 +60,8 @@ async def _draft_waiting(h: Harness, session_id: str, r: Result) -> Any:
     the branch was prepared exactly as production prepares one: the write tool's own handler,
     on the action engine, from the Mac's own copy of the email.
     """
-    opened = await h.say(data.COMPOSE_SENTENCE, session_id=session_id)
+    opened = await h.ask(data.COMPOSE_SENTENCE, _opens(data.COMPOSE_TO, subject="A shoot", body="Are you free?"),
+                         session_id=session_id)
     r.captures.append(opened)
     compose_id = str(_compose(opened).get("compose_id") or "")
     r.checks.append(check("the composer opened", bool(compose_id), f"surfaces={opened.surface_types}"))
@@ -77,12 +88,10 @@ async def _draft_waiting(h: Harness, session_id: str, r: Result) -> Any:
 
 async def compose_open(h: Harness) -> Result:
     r = Result("compose_open", "The sentence the bench refused")
-    c = await h.say(data.COMPOSE_SENTENCE, scenario="compose_open", session_id="cmp1")
+    c = await h.ask(data.COMPOSE_SENTENCE, _opens(data.COMPOSE_TO), scenario="compose_open", session_id="cmp1")
     r.captures.append(c)
     r.checks += a_surface(c, "email_compose", what="draws an editable email")
-    # Not `deterministic`: the composer is drawn by the Mac and the WORDS are Claude's, in the
-    # same turn (§16). One model call, and the card was not waiting on it.
-    r.checks += compound(c, "email_compose_any")
+    r.checks.append(a_model_turn(c))
     card = _compose(c)
     to = _field(c, "to")
     r.checks.append(check("addressed to the address in the sentence, and it reads as sound",
@@ -99,9 +108,10 @@ async def compose_open(h: Harness) -> Result:
         r.checks.append(check("resolves “next Sunday” to the next Sunday, in the shop's zone",
                               isinstance(when, dict) and when.get("date") == data.next_sunday(),
                               f"resolved_when={when} expected={data.next_sunday()}"))
-    r.checks.append(check("the words are not written yet, and the card says so rather than guessing",
-                          _field(c, "body").get("status") == "uncertain" and not _field(c, "body").get("value"),
-                          f"body={_field(c, 'body')}"))
+    r.checks.append(check("the words the model wrote are on the card, as fields he can edit",
+                          _field(c, "subject").get("value") == data.COMPOSE_SUBJECT
+                          and _field(c, "body").get("value") == data.COMPOSE_BODY,
+                          f"subject={_field(c, 'subject')} body={_field(c, 'body')}"))
     r.checks.append(check("nothing was prepared and nothing was sent",
                           not [x for x in c.surface_types if x in ("confirmation", "success", "email_draft")]
                           and not h.runtime.sessions.get_or_create("cmp1").proposals,
@@ -122,10 +132,11 @@ async def compose_open(h: Harness) -> Result:
 
 async def compose_dictated(h: Harness) -> Result:
     r = Result("compose_dictated", "An address heard rather than typed, then corrected")
-    c = await h.say(data.COMPOSE_DICTATED, scenario="compose_dictated", session_id="cmp2")
+    c = await h.ask(data.COMPOSE_DICTATED, _opens("1232 candlestick horse at gmail dot com"),
+                    scenario="compose_dictated", session_id="cmp2")
     r.captures.append(c)
     r.checks += a_surface(c, "email_compose", what="draws the email anyway")
-    r.checks += compound(c, "email_compose_any")
+    r.checks.append(a_model_turn(c))
     to = _field(c, "to")
     r.checks.append(check("a dictated address is marked uncertain, whatever it normalised to",
                           to.get("status") == "uncertain" and bool(to.get("hint")),
@@ -236,42 +247,9 @@ async def compose_send_instead(h: Harness) -> Result:
     return r
 
 
-async def compose_send_spoken(h: Harness) -> Result:
-    r = Result("compose_send_spoken", "“No, don't save a draft, send it”")
-    draft = await _draft_waiting(h, "cmp5", r)
-    if draft is None:
-        return r
-    body_sent = str(draft.execution.get("body") or "")
-    c = await h.say("no, don't save a draft, send it", scenario="compose_send_spoken", session_id="cmp5")
-    r.captures.append(c)
-    # The bench's own failure: twenty-five seconds in Claude, and then nothing.
-    r.checks.append(deterministic(c))
-    r.checks.append(check("answers on the fast lane", c.lane == "FAST" and c.recipe_id == "draft_send_instead",
-                          f"lane={c.lane} recipe={c.recipe_id!r}"))
-    r.checks += a_surface(c, "email_compose", what="draws the same email, ready to send")
-    r.checks.append(check("with the draft's own recipient and the draft's own words",
-                          _field(c, "to").get("value") == draft.execution.get("to")
-                          and _field(c, "body").get("value") == body_sent,
-                          f"to={_field(c, 'to')} body_matches={_field(c, 'body').get('value') == body_sent}"))
-    r.checks.append(check("and the spoken sentence staged nothing at all: the gesture does that",
-                          not [p for p in h.runtime.sessions.get_or_create("cmp5").proposals
-                               if p.operation.startswith("gmail_send_")],
-                          f"proposals={[(p.operation, p.status.value) for p in h.runtime.sessions.get_or_create('cmp5').proposals]}"))
-    compose_id = str(_compose(c).get("compose_id") or "")
-    sent = await h.touch("compose.stage", scenario="compose_send_spoken", session_id="cmp5",
-                         compose_id=compose_id, mode="send")
-    r.captures.append(sent)
-    sends = [p for p in h.runtime.sessions.get_or_create("cmp5").proposals if p.operation.startswith("gmail_send_")]
-    r.checks.append(check("the gesture on that card is what prepares the send",
-                          _ok(sent) and len(sends) == 1 and str(sends[0].execution.get("body") or "") == body_sent,
-                          f"code={_code(sent)!r} detail={_detail(sent)!r} sends={[(p.operation, p.status.value) for p in sends]}"))
-    return r
-
-
 SCENARIOS = (
     ("compose_open", compose_open),
     ("compose_dictated", compose_dictated),
     ("compose_stage", compose_stage),
     ("compose_send_instead", compose_send_instead),
-    ("compose_send_spoken", compose_send_spoken),
 )

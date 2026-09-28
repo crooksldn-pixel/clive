@@ -21,6 +21,7 @@ before the tool ran; this runs afterwards and only shapes what is already known.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -41,8 +42,8 @@ UI_TYPES = frozenset({
     "metric_group", "ranking", "table", "comparison", "variant_matrix", "trend", "working_set",
     # bulk changes (app/actions/batch.py): the card before the gesture, the count after it
     "batch_action", "batch_result",
-    # what this build can do, grouped (app/capabilities/surface.py). Built by a recipe rather
-    # than from a tool result: the manifest is read from the registry, not from the shop.
+    # what this build can do, grouped (app/capabilities/surface.py). Built from the manifest
+    # rather than from a tool result: the manifest is read from the registry, not the shop.
     "capability",
     # the answer to a summary question, as compact rows (app/summaries.py): "returning
     # customers today · 1", one row per person, a tap that opens the full workspace. §13 —
@@ -82,6 +83,10 @@ UI_TYPES = frozenset({
     # that `present()` never builds — it is staged by the progressive layer, from the reads
     # the turn has planned and landed, and patched in place as each section arrives.
     "workspace_plan",
+    # the owner's app becoming the remote for one of his screens (round 9, screen_remote in
+    # app/tools/display_tools.py): the screen's id and name only. The tablet opens its remote
+    # when it draws this card (web/remote.js), and the card stays to open it again.
+    "screen_remote",
 })
 MAX_BATCH_ROWS = 50
 ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_query", "email_query"})
@@ -89,6 +94,9 @@ ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_q
 # Each returns the Mac's own card under `_surfaces`, and `_from_result` below takes it as it
 # is rather than re-shaping state that never came from the shop.
 WORKSPACE_TOOLS = frozenset({"shopify_discount_open", "shopify_order_open", "shopify_store_credit"})
+
+# One of the owner's screens (app/displays/store.py _ID).
+_SCREEN_ID = re.compile(r"^scr_[0-9a-f]{12}$")
 
 # Bounds. The tablet is 8 inches wide; more than this is a spreadsheet, not an answer.
 MAX_ORDERS = 10
@@ -189,7 +197,7 @@ def present(
             continue
         if not isinstance(call.result, dict):
             continue
-        for item in _from_result(call.name, call.result):
+        for item in _from_result(call.name, call.result) + _family_cards(call.name, call.result, session):
             if item["type"] == "email_list" and row_actions.get("email_thread"):
                 for thread in item["data"].get("threads") or []:
                     if thread.get("thread_id"):
@@ -442,7 +450,50 @@ def _only_empty_when_nothing_else(items: list[dict[str, Any]]) -> list[dict[str,
 # --------------------------------------------------------------------------- per tool
 
 
+def _family_cards(name: str, result: dict[str, Any], session: Session | None) -> list[dict[str, Any]]:
+    """The cards a family draws for its own read tool, when the model calls it.
+
+    Built by the family that owns the read (app/summaries.py, app/families/abandoned.py),
+    which validates them against the surface contract, so nothing is re-shaped here. They were
+    drawn by the word-matching lane until that was removed on 28 September 2026; since every
+    sentence is now the model's, the model's call of the same tool is where they come from, and
+    a summary question still gets its compact rows rather than a paragraph.
+    """
+    if name == "commerce_summary":
+        from app import summaries
+
+        period = result.get("period") if isinstance(result.get("period"), dict) else {}
+        label = str(period.get("label") or "")
+        fresh = summaries.freshness_of(result.get("coverage"))
+        task = str(result.get("task") or "")
+        if task == "returning_customers":
+            surface = summaries.returning_customers(result, session=session, period=label or "today", freshness=fresh)
+        elif task == "orders_attention":
+            surface = summaries.attention_rows(result, session=session, period=label if result.get("period_asked") else "",
+                                               freshness=fresh)
+        elif task == "order_list":
+            surface = summaries.order_rows(result, session=session, period=label or "today",
+                                           set_id=str(result.get("set_id") or ""), freshness=fresh)
+        else:
+            return []
+        return [surface.as_ui()]
+    if name == "shopify_abandoned_checkouts":
+        from app.families.abandoned import cards
+
+        return [surface.as_ui() for surface in cards(result)]
+    return []
+
+
 def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
+    if name == "screen_remote":
+        # Round 9: "become the remote". The screen's id (not a secret: its key is) and name, and
+        # the titles of what it shows, bounded; the remote asks for the rest itself, as the owner.
+        screen_id = _text(result.get("screen_id"), 20)
+        if not _SCREEN_ID.fullmatch(screen_id):
+            return []
+        showing = [_text(t, MAX_TEXT_CHARS) for t in _list_strings(result.get("showing"), 2)]
+        return [_ui("screen_remote", {"screen_id": screen_id, "name": _text(result.get("screen"), 40),
+                                      "showing": showing, "on": bool(result.get("on"))})]
     if name in ("gmail_compose_open", "gmail_compose_fill"):
         # The composer's card is built by the family that owns the context
         # (app/families/compose.py `compose_surface`), which copies it key by key and bounds

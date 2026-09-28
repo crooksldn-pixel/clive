@@ -3115,6 +3115,28 @@
     return node;
   }
 
+  // The owner's app as the remote for one of his screens (round 9, app/presentation.py
+  // screen_remote). The app opens the remote the moment it draws this card (web/remote.js reads
+  // data-remote-screen); the button opens it again later. Only the screen's id and name, and the
+  // titles of what it shows, are on it.
+  function renderScreenRemote(d, opts) {
+    const id = text(d.screen_id);
+    const shows = (Array.isArray(d.showing) ? d.showing : []).slice(0, 2).map((t) => text(t)).filter(Boolean);
+    const open = h('button', {
+      class: 'btn primary remote-open', type: 'button',
+      data: /^scr_[0-9a-f]{12}$/.test(id) ? { remoteScreen: id, remoteName: text(d.name, 'Screen') } : null,
+      text: 'Open the remote',
+    });
+    return card('screen_remote', [
+      h('div', { class: 'card-head' }, [h('div', {}, [
+        kicker('Remote'),
+        h('h2', { class: 'card-title', text: text(d.name, 'Screen') }),
+        h('p', { class: 'card-sub', text: shows.length ? shows.join(' · ') : 'Showing nothing' }),
+      ])]),
+      open,
+    ], opts);
+  }
+
   const RENDERERS = {
     assistant: renderAssistant,
     order: renderOrder,
@@ -3149,13 +3171,16 @@
     email_compose: renderEmailCompose,
     workspace: renderWorkspace,
     workspace_plan: renderWorkspacePlan,
+    screen_remote: renderScreenRemote,
   };
   const TYPES = Object.keys(RENDERERS).concat(['context_stack']);
   // Both Phase 5 workstreams added to this list and the merge produced two declarations of
   // it: B's composed workspaces and D's compact summary. Every one of them is a surface the
   // owner can navigate back to, so the two lists are unioned rather than chosen between.
   const CONTEXT_TYPES = ['order', 'order_list', 'customer', 'customer_list', 'customer_workspace', 'order_workspace', 'product', 'inventory', 'sales_summary', 'email_list', 'email_thread', 'email_draft', 'attention', 'confirmation', 'success', 'assistant',
-    'metric_group', 'ranking', 'table', 'comparison', 'variant_matrix', 'trend', 'working_set', 'batch_action', 'batch_result', 'capability', 'summary_list'];
+    'metric_group', 'ranking', 'table', 'comparison', 'variant_matrix', 'trend', 'working_set', 'batch_action', 'batch_result', 'capability', 'summary_list',
+    // The remote's card stays in the deck behind the remote, to open it again (round 9).
+    'screen_remote'];
 
   function isValid(item) {
     return Boolean(item) && typeof item === 'object' && typeof item.type === 'string'
@@ -3249,6 +3274,7 @@
     variant_matrix: ['title'],
     trend: ['title', 'metric'],
     working_set: ['set_id'],
+    screen_remote: ['screen_id'],
     capability: ['build'],
     summary_list: ['task', 'title'],
     reply_state: ['thread_id'],

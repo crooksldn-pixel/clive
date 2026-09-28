@@ -98,12 +98,9 @@ OPENABLE = ("order", "customer", "email_thread")
 
 # --------------------------------------------------------------- intent → desired workspace
 
-# The words that name each section, per workspace kind. Deliberately a table rather than a
-# reuse of `app/fastpath/intent.py`'s signals: those are shaped for ROUTING — which recipe
-# runs — and the question here is a different one, which sections of one record the owner
-# asked about. (Measured on the D-3 sentence, `signals_for` reports no `customer` signal at
-# all and reports `metric`, because "how many times" and "how much" look like an aggregate
-# question. They are not: they are about one named person.)
+# The words that name each section, per workspace kind: which sections of one record the
+# owner asked about, once the model's reads have said which record it is. This shapes the
+# cards a model turn is drawn with; it never decides what the turn does.
 _WANTS: dict[str, dict[str, tuple[str, ...]]] = {
     "customer": {
         "orders": ("order", "orders", "ordered", "bought", "buys", "buying", "purchase",

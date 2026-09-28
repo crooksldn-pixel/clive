@@ -544,29 +544,12 @@ def test_the_picker_command_names_the_recipe_and_only_the_open_order(session, br
     assert not nothing.ok and nothing.code == "no_entity", "no order open, nothing to add to"
 
 
-def test_both_commands_are_touch_only_because_no_sentence_can_reach_them():
+def test_both_commands_are_touch_only():
     from app import commands
-    from app.fastpath.intent import family as intent_family
-    from app.fastpath.intent import resolve, score, signals_for
 
     for name in ("order_edit.find", "order_edit.stage"):
         spec = commands.get(name)
         assert spec is not None and spec.voice is False and spec.touch is True
-
-    # The reachability this family is honest about: `intent.resolve` returns no family at all
-    # for a sentence carrying a mutation signal, and "add" is one. So the family matches the
-    # signals of the request when it is scored — and it is never scored.
-    added = intent_family("order_add_item")
-    assert added is not None, "the family is registered"
-    branch = type("B", (), {"entity": {"kind": "order", "ref": ORDER}, "set_id": "", "workflow": None, "resolutions": {}})()
-    sentence = "add a black medium convict hoodie to this order"
-    sig = signals_for(sentence, branch=branch)
-    assert sig.mutation is True and score(added, sig) > 0
-    assert resolve(sentence, branch=branch).family == "", "and can still never win"
-    assert resolve(sentence, branch=branch).reason == "asks for a change"
-    # With no order open the family is ruled out, which is the brief's other rule.
-    bare = type("B", (), {"entity": None, "set_id": "", "workflow": None, "resolutions": {}})()
-    assert score(added, signals_for("add a hoodie to this order", branch=bare)) == 0.0
 
 
 # ------------------------------------------------------------------ the capability state

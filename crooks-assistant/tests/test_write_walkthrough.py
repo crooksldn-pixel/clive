@@ -52,6 +52,10 @@ class ModelThatAddsANote:
         self.prompts.append(text)
         session = self.runtime.sessions.get_or_create(session_id)
         calls: list = []
+        # It looks the order up first, as Claude does: nothing on the Mac reads it ahead of
+        # the model any more, and the gate holds the note to an order the conversation has
+        # been shown.
+        await dispatch("shopify_find_order", {"query": "1930"}, session=session, timeout_s=5, calls=calls)
         result = await dispatch(
             TOOL, {"order_id": ORDER, "note": NOTE}, session=session, timeout_s=5, calls=calls
         )
@@ -85,7 +89,7 @@ async def walk(monkeypatch, tmp_path):
         base_graphql = store.graphql
 
         async def graphql(query, variables=None):
-            # The search the Mac runs ahead of the model, before it has an id to read by.
+            # The model's search, before it has an id to read by.
             if "orders(first:" in query:
                 return {"data": {"orders": {"edges": [{"node": store._order()}]}}}
             return await base_graphql(query, variables)
@@ -125,10 +129,11 @@ async def walk(monkeypatch, tmp_path):
 async def test_the_owner_asks_for_a_note_and_gets_a_card_that_says_only_that_it_is_ready(walk):
     body = (await walk.post("/turn", json={"text": QUESTION, "session_id": "w1", "speak": True}, headers=PROXIED)).json()
 
-    # The Mac looked the order up before the model was asked, and told it so.
+    # The sentence reached the model as it was said, with nothing read ahead of it; the model
+    # looked the order up itself.
     prompt = walk.runtime.provider.prompts[-1]
-    assert "already ran shopify_find_order" in prompt and "#1930" in prompt
-    assert prompt.startswith("[Now: ")
+    assert prompt.startswith("[Now: ") and prompt.split("\n")[1] == QUESTION
+    assert "already ran" not in prompt
     assert [c["name"] for c in body["tool_calls"]] == ["shopify_find_order", "shopify_order_note_append"]
     assert all(c["ok"] for c in body["tool_calls"])
 

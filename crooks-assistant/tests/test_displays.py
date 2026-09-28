@@ -589,7 +589,8 @@ def test_a_packed_slip_keeps_nothing_about_the_customer(tmp_path):
         assert gone not in kept, gone
     assert not s.journal_path.exists(), "durable, so nothing is owed"
     showing = s.poll(screen["id"], key)["showing"]
-    assert set(showing) == {"kind", "ref", "title", "at", "by", "done_at"}
+    # Round 9: and the pane's version, a number (every pane carries its own).
+    assert set(showing) == {"kind", "ref", "title", "at", "by", "done_at", "v"} and type(showing["v"]) is int
     assert showing["title"] == "Order #1047" and showing["ref"] == ORDER["order_id"]
 
 
@@ -629,7 +630,8 @@ def test_an_order_is_marked_packed_only_once_every_item_was_acknowledged_on_the_
         s.mark_done(screen["id"], 3, screen_key=key, confirmed=True)
     src = (Path(__file__).resolve().parent.parent / "web" / "display.js").read_text()
     assert "+ ' more on the order" not in src and "Ask CLIVE for the rest" not in src
-    assert "items_seen" not in src and "'/seen'" in src and "packedLocked()" in src
+    # Round 9: each pane keeps its own pages, so the lock is asked of a pane.
+    assert "items_seen" not in src and "'/seen'" in src and "packedLocked(P)" in src
     assert "'Next items'" in src and "'Next page'" in src and "X-Screen-Key" in src
 
 
@@ -1463,7 +1465,8 @@ def test_the_page_tells_pages_in_order_waits_when_told_and_confirms_only_from_th
     src = (WEB / "display.js").read_text(encoding="utf-8")
     assert src.count("confirm: true") == 1
     tap = src[src.index("async function markDone("):src.index("// ---- asking CLIVE what to show")]
-    assert "JSON.stringify({ version: S.version, confirm: true })" in tap
+    # Round 9: the tap names its pane, by its place and the pane's own version.
+    assert "JSON.stringify({ version: P.v, pane: P.index, confirm: true })" in tap
     assert "why.code === 'too_soon'" in tap and "why.retry_after_ms" in tap
     pump = src[src.index("function ackPage() {"):src.index("function heardAll(")]
     assert "data.code === 'too_soon') { ackLater(data.retry_after_ms)" in pump
@@ -1497,3 +1500,532 @@ def test_the_screen_takes_a_customer_off_at_once_when_it_may_no_longer_show_it()
     assert "if (tooOld(s)) return null;" in src and "serverNow() - at > SHOW_KEEP_MS" in src
     # Losing the screen itself (404, or another device's key) wipes before it names itself again.
     assert "wipe('');\n    forgetScreen(); S.screen = null; toNaming();" in src
+
+
+# --------------------------------------------------------------------------- round 9: two panes and the remote
+#
+# A screen shows up to two things at once, and the owner's app can be its remote. Every round-8
+# invariant above is held again here for both panes: pairing by code (nothing on a pending screen,
+# in either pane, and no remote for one), the owner's own routes and tools, the purge journal for
+# every deletion across a restart, 503 until a deletion is durable, page acknowledgements scoped to
+# a pane's own version, each pane coming down by its own time, and done rows and done panes that
+# keep no customer's words.
+
+PACK = {
+    **ORDER,
+    "items": [
+        {"title": "Heavyweight Tee", "variant": "Black / Large", "sku": "HW-TEE-BL-L", "quantity": 2, "current_quantity": 2,
+         "unfulfilled_quantity": 2, "image_url": "https://cdn.example.com/tee.jpg"},
+        {"title": "Relaxed Hoodie", "variant": "Washed Grey / Medium", "sku": "RH-WG-M", "quantity": 1, "current_quantity": 1,
+         "unfulfilled_quantity": 1, "image_url": None},
+        {"title": "Five-Panel Cap", "variant": "Navy / One size", "sku": "FP-NV", "quantity": 1, "current_quantity": 1,
+         "unfulfilled_quantity": 1, "image_url": None},
+        {"title": "Canvas Tote", "variant": "Natural", "sku": "CV-TOTE", "quantity": 1, "current_quantity": 1,
+         "unfulfilled_quantity": 0, "image_url": None},
+    ],
+}
+GOAL = views.objective_view({"id": "obj_0123abcd", "title": "Call Sam Carter back", "doing": "Finding the order",
+                             "needs_you": ["Say which size"], "next": ["Send the swap"]}, [])
+CUSTOMER_WORDS = ("Sam Carter", "E8 1AA", "Sample Road", "gift")
+
+
+def _panes(store, screen):
+    now = store.poll(screen["id"], screen["screen_key"])
+    return [p for p in (now["showing"], now["beside"]) if p]
+
+
+def test_two_things_go_up_side_by_side_and_a_third_is_refused_until_the_owner_says_which(s):
+    screen = pair(s, "Packing screen")
+    s.show(screen["id"], views.order_view(PACK))
+    s.show(screen["id"], GOAL, beside=True)
+    first, second = _panes(s, screen)
+    assert first["kind"] == "order" and second["kind"] == "objective"
+    assert first["v"] == 1 and second["v"] == 2, "each pane carries the version it went up at"
+    version = s.poll(screen["id"], screen["screen_key"])["version"]
+    with pytest.raises(store_module.PanesFull, match="first Order #1047, and second Call Sam Carter back. Say which one"):
+        s.show(screen["id"], views.list_view("Today", ["One"]), beside=True)
+    assert s.poll(screen["id"], screen["screen_key"])["version"] == version, "refused: nothing moved"
+    # The second swapped; the first, and its version, untouched.
+    s.show(screen["id"], views.list_view("Today", ["One"]), replace=1)
+    first, second = _panes(s, screen)
+    assert first["v"] == 1 and first["kind"] == "order" and second["title"] == "Today"
+    assert "Call Sam Carter back" not in s.path.read_text(), "what was swapped out is gone from disk"
+    # The first swapped; the second stays.
+    s.show(screen["id"], GOAL, replace=0)
+    first, second = _panes(s, screen)
+    assert first["kind"] == "objective" and second["title"] == "Today"
+    assert "E8 1AA" not in s.path.read_text()
+    # Without beside, what goes up replaces both, as it always has.
+    s.show(screen["id"], views.list_view("Tomorrow", ["Two"]))
+    assert [p["title"] for p in _panes(s, screen)] == ["Tomorrow"]
+    # A pane that is done is resting, and makes way for one beside.
+    s.show(screen["id"], views.list_view("Now", ["Three"]))
+    ack_all(s, screen["id"], screen["screen_key"])
+    s.mark_done(screen["id"], s.poll(screen["id"], screen["screen_key"])["version"], screen_key=screen["screen_key"], confirmed=True)
+    s.show(screen["id"], GOAL, beside=True)
+    s.show(screen["id"], views.list_view("Later", ["Four"]), beside=True)
+    assert [p["kind"] for p in _panes(s, screen)] == ["objective", "list"]
+    with pytest.raises(DisplayError, match="first or the second"):
+        s.show(screen["id"], GOAL, replace=2)
+
+
+def test_each_pane_keeps_its_own_acknowledgements_and_is_marked_done_on_its_own(s):
+    """B-04 for two panes: a page is told for one pane, under that pane's version; a change to
+    the other pane (a tick, a page turn, putting something beside it) never makes it stale; and
+    done needs every page of that pane, whatever the other has had."""
+    screen = pair(s, "Packing screen")
+    key = screen["screen_key"]
+    many = dict(ORDER, items=[dict(ORDER["items"][1], title=f"Tee {i}", sku=f"SKU-{i}") for i in range(20)])
+    s.show(screen["id"], views.order_view(many))
+    later(s)
+    assert s.acknowledge(screen["id"], 1, screen_key=key, start=0, end=10, pane=0) == 10
+    s.show(screen["id"], views.list_view("Today", ["One", "Two"]), beside=True)      # version 2, pane 1
+    s.tick(screen["id"], 1, 0, True, 2)                                                # the screen's version moves on
+    assert s.poll(screen["id"], key)["version"] == 3
+    later(s)
+    assert s.acknowledge(screen["id"], 1, screen_key=key, start=10, end=20, pane=0) == 20, "pane 0's count carried on"
+    with pytest.raises(DisplayError, match="changed before that"):
+        s.acknowledge(screen["id"], 1, screen_key=key, start=0, end=2, pane=1)       # pane 0's version, told for pane 1
+    with pytest.raises(NotSeen):
+        s.mark_done(screen["id"], 2, screen_key=key, confirmed=True, pane=1)
+    later(s)
+    s.mark_done(screen["id"], 1, screen_key=key, confirmed=True, pane=0)
+    first, second = _panes(s, screen)
+    assert first["done_at"] and "order" not in first and second["v"] == 2 and not second.get("done_at")
+    with pytest.raises(DisplayError, match="changed before that tap"):
+        s.mark_done(screen["id"], 1, screen_key=key, confirmed=True, pane=0)          # a late tap on the old version
+    later(s)
+    s.acknowledge(screen["id"], 2, screen_key=key, start=0, end=2, pane=1)
+    later(s)
+    s.mark_done(screen["id"], 2, screen_key=key, confirmed=True, pane=1)
+    assert [r["title"] for r in s.done()] == ["List", "Order #1047"]
+    assert all(p["done_at"] for p in _panes(s, screen))
+
+
+def test_the_remote_ticks_items_and_marks_an_order_packed_only_once_every_item_to_send_is_ticked(tmp_path):
+    path = tmp_path / "displays.json"
+    s = DisplayStore(path, mono=Tick())
+    screen = pair(s, "Packing screen")
+    s.show(screen["id"], views.order_view(PACK))
+    v = 1
+    remote = s.remote(screen["id"])
+    order = remote["panes"][0]
+    assert [i["title"] for i in order["items"]] == ["Heavyweight Tee", "Relaxed Hoodie", "Five-Panel Cap", "Canvas Tote"]
+    assert [i["sent"] for i in order["items"]] == [False, False, False, True] and order["items"][0]["quantity"] == 2
+    assert order["items"][0]["image"] == "https://cdn.example.com/tee.jpg"
+    # The remote is told what to pack, never who it goes to or where.
+    for word in (*CUSTOMER_WORDS, "HW-TEE-BL-L", "07700", "Tracked 48"):
+        assert word not in json.dumps(remote), word
+    with pytest.raises(DisplayError, match="sent already"):
+        s.tick(screen["id"], 0, 3, True, v)
+    s.tick(screen["id"], 0, 0, True, v)
+    s.tick(screen["id"], 0, 1, True, v)
+    with pytest.raises(store_module.NotTicked, match="Tick every item to send first"):
+        s.done_from_remote(screen["id"], 0, v, by=OWNER_LOGIN)
+    # The screen shows the ticks on its next ask, as the item's place and nothing more.
+    assert s.poll(screen["id"], screen["screen_key"])["showing"]["ticked"] == [0, 1]
+    s.tick(screen["id"], 0, 1, False, v)                  # not after all
+    assert s.remote(screen["id"])["panes"][0]["items"][1]["ticked"] is False
+    for item in (1, 2):
+        s.tick(screen["id"], 0, item, True, v)
+    with pytest.raises(store_module.Stale):
+        s.tick(screen["id"], 0, 0, False, v + 7)          # an old view
+    s.done_from_remote(screen["id"], 0, v, by=OWNER_LOGIN)
+    # Exactly the screen's own done: the same row, the slip cut to its summary, on disk too.
+    row = s.done()[0]
+    assert (row["title"], row["ref"], row["by"], row["screen"]) == ("Order #1047", ORDER["order_id"], OWNER_LOGIN, "Packing screen")
+    kept = path.read_text()
+    for word in CUSTOMER_WORDS:
+        assert word not in kept, word
+    assert not s.journal_path.exists()
+    done = s.poll(screen["id"], screen["screen_key"])["showing"]
+    assert done["done_at"] and "ticked" not in done and "order" not in done
+    assert s.remote(screen["id"])["panes"][0] == {"pane": 0, "v": done["v"], "kind": "order", "title": "Order #1047",
+                                                  "at": done["at"], "done_at": done["done_at"]}
+    # Asked again, the same record; and a done pane takes no more ticks.
+    s.done_from_remote(screen["id"], 0, done["v"], by=OWNER_LOGIN)
+    assert len(s.done()) == 1
+    with pytest.raises(store_module.Stale, match="marked done already"):
+        s.tick(screen["id"], 0, 0, True, done["v"])
+
+
+def test_the_remote_marks_a_list_done_and_never_an_objective_or_a_cut_slip(s):
+    screen = pair(s, "Packing screen")
+    s.show(screen["id"], views.list_view("Sam Carter's alterations", ["Hem the trousers", "Take in the waist"]))
+    with pytest.raises(store_module.NotTicked, match="Tick every line first"):
+        s.done_from_remote(screen["id"], 0, 1)
+    s.tick(screen["id"], 0, 0, True, 1)
+    s.tick(screen["id"], 0, 1, True, 1)
+    s.done_from_remote(screen["id"], 0, 1)
+    assert s.done()[0]["title"] == "List" and "Hem the trousers" not in s.path.read_text()
+    s.show(screen["id"], GOAL)
+    with pytest.raises(DisplayError, match="ticked off item by item"):
+        s.tick(screen["id"], 0, 0, True, s.remote(screen["id"])["panes"][0]["v"])
+    with pytest.raises(DisplayError, match="Only an order or a list"):
+        s.done_from_remote(screen["id"], 0, s.remote(screen["id"])["panes"][0]["v"])
+    many = dict(ORDER, items=[dict(ORDER["items"][1], title=f"Tee {i}", sku=f"SKU-{i}") for i in range(views.MAX_ITEMS + 5)])
+    s.show(screen["id"], views.order_view(many))
+    v = s.remote(screen["id"])["panes"][0]["v"]
+    for item in range(views.MAX_ITEMS):
+        s.tick(screen["id"], 0, item, True, v)
+    with pytest.raises(DisplayError, match="more items than a screen shows"):
+        s.done_from_remote(screen["id"], 0, v)
+    assert len(s.done()) == 1
+
+
+def test_off_takes_one_pane_or_the_whole_screen_down_and_says_off_only_once_it_is_durable(tmp_path, monkeypatch):
+    path = tmp_path / "displays.json"
+    s = DisplayStore(path, mono=Tick())
+    screen = pair(s, "Packing screen")
+    s.show(screen["id"], views.order_view(PACK))
+    s.show(screen["id"], views.list_view("Sam Carter's alterations", ["Hem the trousers"]), beside=True)
+    out = s.take_off(screen["id"], 0)
+    assert out["taken_off"] == 1 and [p["kind"] for p in _panes(s, screen)] == ["list"], "the other fills the screen"
+    assert "E8 1AA" not in path.read_text() and not s.journal_path.exists()
+    with pytest.raises(DisplayError, match="shows only one thing"):
+        s.take_off(screen["id"], 1)
+    with pytest.raises(store_module.Stale):
+        s.take_off(screen["id"], 0, expect=99)
+    # The whole screen, with the folder flush failing after the journal: taken down, not said done.
+    _placed, restore = _flaky_record_flush(monkeypatch, fail_from=2)
+    with pytest.raises(NotDurable):
+        s.take_off(screen["id"])
+    assert _panes(s, screen) == []
+    # Asked again while it is owed: still not said off.
+    with pytest.raises(NotDurable):
+        s.take_off(screen["id"])
+    restore()
+    assert s.take_off(screen["id"])["taken_off"] == 0 and not s.journal_path.exists()
+    assert "Hem the trousers" not in path.read_text()
+
+
+def test_the_purge_journal_covers_both_panes_across_a_restart(tmp_path, monkeypatch):
+    """B-03 for two panes: a deletion in one pane that is not yet durable is journaled with what
+    the OTHER pane may keep — only the version it went up at, never what it shows — so a power
+    cut before the record is durable neither brings the deleted one back nor loses the other."""
+    path = tmp_path / "displays.json"
+    s = DisplayStore(path, mono=Tick())
+    screen = pair(s, "Packing screen")
+    key = screen["screen_key"]
+    s.show(screen["id"], views.order_view(PACK))
+    s.show(screen["id"], views.list_view("Sam Carter's alterations", ["Hem the trousers"]), beside=True)
+    durable = path.read_bytes()
+    assert b"Hem the trousers" in durable and b"E8 1AA" in durable
+    # The second pane swapped for an objective, and the record's flush fails.
+    _placed, restore = _flaky_record_flush(monkeypatch, fail_from=2)
+    with pytest.raises(NotDurable):
+        s.show(screen["id"], GOAL, replace=1)
+    restore()
+    journal = s.journal_path.read_text()
+    for word in (*CUSTOMER_WORDS, "Hem the trousers", "Call Sam Carter back"):
+        assert word not in journal, word
+    assert json.loads(journal)["screens"][screen["id"]]["showing"] == {"keep": 1}
+    path.write_bytes(durable)                      # the power went before the rename was on disk
+    restarted = DisplayStore(path, mono=Tick())
+    panes = _panes(restarted, screen)
+    assert [p["kind"] for p in panes] == ["order"] and panes[0]["v"] == 1, "the order stays; the list does not come back"
+    kept = path.read_text()
+    assert "Hem the trousers" not in kept and "Call Sam Carter back" not in kept and "E8 1AA" in kept
+    assert not restarted.journal_path.exists()
+    # The order marked done from the remote, not durable, and a restart: done, and still nobody's words.
+    restarted.show(screen["id"], views.list_view("Today", ["One"]), beside=True)
+    for item in (0, 1, 2):
+        restarted.tick(screen["id"], 0, item, True, 1)
+    durable = path.read_bytes()
+    _placed, restore = _flaky_record_flush(monkeypatch, fail_from=2)
+    with pytest.raises(NotDurable):
+        restarted.done_from_remote(screen["id"], 0, 1, by=OWNER_LOGIN)
+    restore()
+    path.write_bytes(durable)
+    third = DisplayStore(path, mono=Tick())
+    first, second = _panes(third, screen)
+    assert first["done_at"] and "order" not in first and second["title"] == "Today"
+    assert [d["ref"] for d in third.done()] == [ORDER["order_id"]]
+    for word in CUSTOMER_WORDS:
+        assert word not in path.read_text(), word
+    assert third.poll(screen["id"], key)["beside"]["title"] == "Today"
+
+
+def test_a_journal_cannot_put_anything_up_that_the_record_does_not_hold(tmp_path):
+    path = tmp_path / "displays.json"
+    s = DisplayStore(path, mono=Tick())
+    screen = pair(s, "Packing screen")
+    s.show(screen["id"], views.list_view("Today", ["One"]))
+    version = s.poll(screen["id"], screen["screen_key"])["version"]
+    s.journal_path.write_text(json.dumps({"screens": {screen["id"]: {
+        "version": version + 1, "showing": {"keep": 999}, "beside": views.order_view(ORDER)}}}), encoding="utf-8")
+    restarted = DisplayStore(path, mono=Tick())
+    assert _panes(restarted, screen) == [] and "Sam Carter" not in path.read_text()
+    # And an unreadable journal takes both panes down.
+    restarted.show(screen["id"], views.order_view(PACK))
+    restarted.show(screen["id"], views.list_view("Today", ["One"]), beside=True)
+    restarted.journal_path.write_text("{not a journal", encoding="utf-8")
+    third = DisplayStore(path, mono=Tick())
+    assert _panes(third, screen) == [] and "E8 1AA" not in path.read_text()
+
+
+def test_each_pane_comes_down_by_its_own_time(tmp_path, monkeypatch):
+    import datetime as dt
+
+    clock = Clock()
+    monkeypatch.setattr(store_module, "_now_iso", lambda: dt.datetime.fromtimestamp(clock.now, dt.UTC).isoformat(timespec="seconds"))
+    path = tmp_path / "displays.json"
+    s = DisplayStore(path, clock=clock, mono=Tick())
+    screen = pair(s, "Packing screen")
+    s.show(screen["id"], views.order_view(PACK))
+    clock.now += 2 * 3600
+    s.show(screen["id"], views.list_view("Sam Carter's alterations", ["Hem the trousers"]), beside=True)
+    s.tick(screen["id"], 1, 0, True, 2)
+    clock.now += SHOWING_KEEP_S - 2 * 3600 + 60      # the order is past its time; the list is not
+    assert s.sweep() == ""
+    panes = _panes(s, screen)
+    assert [p["kind"] for p in panes] == ["list"] and panes[0]["ticked"] == [0], "the list fills the screen, ticks and all"
+    assert "E8 1AA" not in path.read_text()
+    clock.now += 2 * 3600
+    assert s.remote(screen["id"])["panes"] == []
+    assert "Hem the trousers" not in path.read_text()
+
+
+def test_a_screen_written_before_panes_is_read_as_a_screen_with_one(tmp_path):
+    """The stored shape moved on (round 9): a record with one `showing` and no pane versions is
+    read as a screen with one pane, put up at the screen's version, and works as it did."""
+    path = tmp_path / "displays.json"
+    key = fake_credentials.body("a screen key from before round 9", 32)
+    old = views.list_view("Today", ["One", "Two"])
+    path.write_text(json.dumps({"screens": {"scr_0123456789ab": {
+        "id": "scr_0123456789ab", "name": "Office screen", "key": "office screen", "secret": store_module._key_hash(key),
+        "created_at": "2026-09-27T10:00:00+00:00", "last_seen": "2026-09-27T10:00:00+00:00", "version": 7,
+        "showing": {**old, "at": store_module._now_iso(), "by": "clive"}, "paired": True}}, "done": []}), encoding="utf-8")
+    s = DisplayStore(path, mono=Tick())
+    polled = s.poll("scr_0123456789ab", key)
+    assert polled["showing"]["v"] == 7 and polled["beside"] is None and polled["version"] == 7
+    ack_all(s, "scr_0123456789ab", key)
+    s.mark_done("scr_0123456789ab", 7, screen_key=key, confirmed=True)
+    assert s.done()[0]["title"] == "List"
+    mine = {"id": "scr_0123456789ab", "screen_key": key}
+    s.show("scr_0123456789ab", GOAL, beside=True)
+    assert [p["kind"] for p in _panes(s, mine)] == ["objective"], "the done list rests and makes way"
+    s.show("scr_0123456789ab", old, beside=True)
+    assert [p["kind"] for p in _panes(s, mine)] == ["objective", "list"]
+
+
+def test_a_screen_waiting_for_approval_shows_nothing_in_either_pane_and_has_no_remote(s):
+    waiting = s.register("Packing screen")
+    for step in (lambda: s.show(waiting["id"], GOAL, beside=True),
+                 lambda: s.show(waiting["id"], GOAL, replace=1),
+                 lambda: s.take_off(waiting["id"]),
+                 lambda: s.remote(waiting["id"]),
+                 lambda: s.tick(waiting["id"], 0, 0, True, 0),
+                 lambda: s.turn_page(waiting["id"], 0, 1, 0),
+                 lambda: s.done_from_remote(waiting["id"], 0, 0)):
+        with pytest.raises(NotPaired):
+            step()
+    polled = s.poll(waiting["id"], waiting["screen_key"])
+    assert polled["showing"] is None and polled["beside"] is None
+
+
+def test_the_remote_turns_a_panes_pages_and_the_screen_follows(s):
+    screen = pair(s, "Packing screen")
+    key = screen["screen_key"]
+    many = dict(ORDER, items=[dict(ORDER["items"][1], title=f"Tee {i}", sku=f"SKU-{i}") for i in range(9)])
+    s.show(screen["id"], views.order_view(many))
+    assert s.remote(screen["id"])["panes"][0]["pages"] is None, "not known until the screen lays it out"
+    assert s.turn_page(screen["id"], 0, -1, 1)["page"] == 0
+    assert s.turn_page(screen["id"], 0, 1, 1)["page"] == 1
+    later(s)
+    s.acknowledge(screen["id"], 1, screen_key=key, start=0, end=4)       # the screen lays it out four to a page
+    assert s.remote(screen["id"])["panes"][0]["pages"] == 3
+    assert [s.turn_page(screen["id"], 0, 1, 1)["page"] for _ in range(3)] == [2, 0, 1], "past the last is the first"
+    assert s.poll(screen["id"], key)["showing"]["page"] == 1
+    with pytest.raises(store_module.Stale):
+        s.turn_page(screen["id"], 0, 1, 5)
+    with pytest.raises(DisplayError, match="one at a time"):
+        s.turn_page(screen["id"], 0, 2, 1)
+
+
+def test_the_remote_routes_are_the_owners_alone(s):
+    client = app_with(s)
+    screen = pair(s, "Packing screen")
+    s.show(screen["id"], views.order_view(PACK))
+    sid = screen["id"]
+    routes = (
+        ("get", f"/displays/{sid}/remote", None),
+        ("post", f"/displays/{sid}/remote/tick", {"pane": 0, "item": 0, "packed": True, "version": 1}),
+        ("post", f"/displays/{sid}/remote/page", {"pane": 0, "delta": 1, "version": 1}),
+        ("post", f"/displays/{sid}/remote/done", {"pane": 0, "version": 1}),
+        ("post", f"/displays/{sid}/remote/again", {"pane": 0, "version": 1}),
+        ("post", f"/displays/{sid}/remote/off", {"pane": 0, "version": 1}),
+    )
+    stranger = {**OWNER, "Tailscale-User-Login": "someone@example.com"}
+    for method, path, body in routes:
+        kwargs = {"json": body} if body is not None else {}
+        assert getattr(client, method)(path, **kwargs).status_code == 403, f"{path} from the server itself"
+        assert getattr(client, method)(path, headers=stranger, **kwargs).status_code == 403, f"{path} from a stranger"
+    assert s.remote(sid)["panes"][0]["items"][0]["ticked"] is False, "nothing was ticked by anyone refused"
+    assert _panes(s, screen), "nor taken off"
+    # The owner's own device, with no screen key: the remote is not the screen.
+    seen = client.get(f"/displays/{sid}/remote", headers=OWNER)
+    assert seen.status_code == 200 and seen.headers["cache-control"] == "no-store"
+    assert seen.json()["panes"][0]["title"] == "Order #1047" and "Sam Carter" not in seen.text
+    ticked = client.post(f"/displays/{sid}/remote/tick", json={"pane": 0, "item": 0, "packed": True, "version": 1}, headers=OWNER)
+    assert ticked.status_code == 200 and ticked.json()["ticked"] == [0]
+    assert app_with(s, local_owner=True).get(f"/displays/{sid}/remote").status_code == 200, "the owner said the server is him"
+
+
+def test_the_remote_routes_say_stale_pending_not_ticked_and_not_saved(s, monkeypatch):
+    client = app_with(s)
+    screen = pair(s, "Packing screen")
+    sid = screen["id"]
+    s.show(screen["id"], views.order_view(PACK))
+
+    def post(path, body):
+        return client.post(f"/displays/{sid}/remote/{path}", json=body, headers=OWNER)
+
+    for path, body in (("tick", {"pane": 0, "item": 0, "packed": True, "version": 9}),
+                       ("page", {"pane": 0, "delta": 1, "version": 9}),
+                       ("done", {"pane": 0, "version": 9}),
+                       ("off", {"pane": 0, "version": 9}),
+                       ("tick", {"pane": 1, "item": 0, "packed": True, "version": 1})):
+        answer = post(path, body)
+        assert answer.status_code == 409 and answer.json()["code"] == "stale", (path, body, answer.json())
+    refused = post("done", {"pane": 0, "version": 1})
+    assert refused.status_code == 409 and refused.json()["code"] == "not_ticked"
+    for body in ({"pane": 0, "item": 0, "packed": "true", "version": 1}, {"pane": 0, "item": "0", "packed": True, "version": 1},
+                 {"pane": 2, "item": 0, "packed": True, "version": 1}):
+        assert post("tick", body).status_code == 422, body
+    assert post("page", {"pane": 0, "delta": 0, "version": 1}).status_code == 422
+    assert post("off", {"pane": 0}).status_code == 422, "a pane is named with its version"
+    again = post("again", {"pane": 0, "version": 1})
+    assert again.status_code == 409 and "Only an objective" in again.json()["detail"]
+    waiting = client.post("/displays/register", json={"name": "Office screen"}, headers=OWNER).json()
+    pending = client.get(f"/displays/{waiting['id']}/remote", headers=OWNER)
+    assert pending.status_code == 409 and pending.json()["code"] == "not_approved"
+    pending = client.post(f"/displays/{waiting['id']}/remote/off", json={}, headers=OWNER)
+    assert pending.status_code == 409 and pending.json()["code"] == "not_approved"
+    assert client.get("/displays/scr_000000000000/remote", headers=OWNER).status_code == 404
+    _placed, restore = _flaky_record_flush(monkeypatch, fail_from=2)
+    off = post("off", {})
+    assert off.status_code == 503 and off.json()["code"] == "not_saved"
+    restore()
+    off = post("off", {})
+    assert off.status_code == 200 and off.json()["panes"] == [] and not s.journal_path.exists()
+
+
+def test_the_remote_puts_an_objective_up_again_from_clives_own_record(s, tmp_path):
+    from app.objectives import store as objectives_store
+
+    objectives = objectives_store.install(tmp_path / "objectives-store")
+    obj = objectives.create(title="Get the drop live", request="Get the SS26 drop live by Friday")
+    client = app_with(s)
+    screen = pair(s, "Office screen")
+    s.show(screen["id"], views.list_view("Today", ["One"]))
+    s.show(screen["id"], views.objective_view(obj.summary(), obj.items), beside=True)
+    objectives.propose(obj.id, "Resize the lookbook images", needs_owner=False)
+    answer = client.post(f"/displays/{screen['id']}/remote/again", json={"pane": 1, "version": 2}, headers=OWNER)
+    assert answer.status_code == 200
+    first, second = answer.json()["panes"]
+    assert first["title"] == "Today" and first["v"] == 1, "the other pane is not touched"
+    assert second["objective"]["next"] == ["Resize the lookbook images"] and second["v"] == 3
+    stale = client.post(f"/displays/{screen['id']}/remote/again", json={"pane": 1, "version": 2}, headers=OWNER)
+    assert stale.status_code == 409 and stale.json()["code"] == "stale"
+
+
+def test_the_screen_names_its_pane_when_it_tells_a_page_or_done(s):
+    client = app_with(s)
+    screen = pair(s, "Packing screen")
+    mine = {**OWNER, "X-Screen-Key": screen["screen_key"]}
+    s.show(screen["id"], views.list_view("Today", ["One"]))
+    s.show(screen["id"], views.list_view("Later", ["Two"]), beside=True)
+    s.tick(screen["id"], 0, 0, True, 1)                        # the screen's version is 3 now
+    assert client.post(f"/displays/{screen['id']}/seen", json={"version": 2, "pane": 1, "start": 0, "end": 1}, headers=mine).json() == {"seen": 1}
+    wrong = client.post(f"/displays/{screen['id']}/seen", json={"version": 2, "pane": 0, "start": 0, "end": 1}, headers=mine)
+    assert wrong.status_code == 409
+    later(s)
+    done = client.post(f"/displays/{screen['id']}/done", json={"version": 2, "pane": 1, "confirm": True}, headers=mine)
+    assert done.status_code == 200 and done.json()["beside"]["done_at"] and not done.json()["showing"].get("done_at")
+    assert client.post(f"/displays/{screen['id']}/done", json={"version": 1, "pane": 2, "confirm": True}, headers=mine).status_code == 422
+
+
+def test_screen_show_beside_and_replace_and_screen_off_through_the_tools(s):
+    from app.tools import display_tools
+
+    pair(s, "Packing screen")
+    run(display_tools.screen_show(screen="Packing screen", title="Today", lines=["One"]))
+    out = run(display_tools.screen_show(screen="Packing screen", title="Later", lines=["Two"], beside=True))
+    assert out["panes"] == ["Today", "Later"]
+    with pytest.raises(ToolError, match="already shows two things: first Today, and second Later"):
+        run(display_tools.screen_show(screen="Packing screen", title="Third", lines=["x"], beside=True))
+    out = run(display_tools.screen_show(screen="Packing screen", title="Third", lines=["x"], replace="second"))
+    assert out["panes"] == ["Today", "Third"]
+    with pytest.raises(ToolError, match="replace is first or second"):
+        run(display_tools.screen_show(screen="Packing screen", title="T", lines=["x"], replace="left"))
+    with pytest.raises(ToolError, match="use screen_off"):
+        run(display_tools.screen_show(screen="Packing screen", clear=True, beside=True))
+    # Off: one pane, then everything; the screen may go unnamed when one screen shows anything.
+    pair(s, "Office screen")
+    out = run(display_tools.screen_off(pane="first"))
+    assert out == {"screen": "Packing screen", "taken_off": 1, "showing": "Third"}
+    out = run(display_tools.screen_off(screen="packing"))
+    assert out["taken_off"] == 1 and out["showing"] == "nothing"
+    assert run(display_tools.screen_off(screen="Packing screen"))["note"] == "It was showing nothing already."
+    with pytest.raises(ToolError, match="Which screen should be turned off\\? Office screen, Packing screen"):
+        run(display_tools.screen_off())
+
+
+def test_screen_remote_opens_the_remote_through_the_turns_own_cards(s):
+    """"Become the remote" is CLIVE's to understand: the tool's result is a card like any other
+    (app/presentation.py), and the app opens the remote when it draws it (web/remote.js)."""
+    from app.presentation import UI_TYPES, present
+    from app.providers.base import ToolCall
+    from app.tools import display_tools
+
+    screen = pair(s, "Packing screen")
+    pair(s, "Office screen")
+    with pytest.raises(ToolError, match="Which screen should this app control"):
+        run(display_tools.screen_remote())
+    s.show(screen["id"], views.order_view(PACK))
+    out = run(display_tools.screen_remote())
+    assert out == {"screen": "Packing screen", "screen_id": screen["id"], "remote": "open", "showing": ["Order #1047"], "on": True}
+    items = present([ToolCall(name="screen_remote", args={}, ok=True, result=out)])
+    assert items == [{"type": "screen_remote", "data": {"screen_id": screen["id"], "name": "Packing screen",
+                                                         "showing": ["Order #1047"], "on": True}}]
+    assert "screen_remote" in UI_TYPES
+    assert present([ToolCall(name="screen_remote", args={}, ok=True, result={**out, "screen_id": "../x"})]) == []
+    waiting = s.register("Bedroom TV")
+    with pytest.raises(ToolError, match="hasn't been approved yet"):
+        run(display_tools.screen_remote(screen="Bedroom TV"))
+    assert waiting["pending"]
+    web = (WEB / "app.js").read_text(encoding="utf-8")
+    assert "if (window.CliveRemote) window.CliveRemote.fromTurn(data.ui);" in web
+    remote = (WEB / "remote.js").read_text(encoding="utf-8")
+    assert "fetch('/displays/' + encodeURIComponent(id) + '/remote'" in remote
+    # Understood by CLIVE, never by a phrase match on the page.
+    for phrase in ("become remote", "be the remote", "control the tv"):
+        assert phrase not in web.lower() and phrase not in remote.lower()
+
+
+def test_the_new_screen_tools_answer_only_the_owners_own_request(s):
+    from app.tools import display_tools
+    from app.tools.dispatch import dispatch
+
+    screen = pair(s, "Office screen")
+    s.show(screen["id"], views.list_view("Today", ["One"]))
+    held = owner()
+    service = held.derive("prefetch:screens", 60, tools=set(authority.SERVICE_READS) | {"screen_off", "screen_remote"})
+    assert service is not None and not any(service.permits(n) for n in ("screen_off", "screen_remote"))
+    for who in (service, None):
+        for call in (display_tools.screen_off(screen="Office screen"), display_tools.screen_remote(screen="Office screen"),
+                     display_tools.screen_show(screen="Office screen", title="x", lines=["y"], beside=True)):
+            with pytest.raises(ToolError, match="only the owner's own request"):
+                run(call, held=who)
+    session = _tool_session()
+    for tool, args in (("screen_off", {"screen": "Office screen"}), ("screen_remote", {"screen": "Office screen"})):
+        text = run(dispatch(tool, args, session=session, timeout_s=5), held=service)
+        assert text.startswith(("REFUSED", "ERROR")), text
+    assert [p["title"] for p in _panes(s, screen)] == ["Today"], "nothing was taken off by service work"
+    for tool in ("screen_off", "screen_remote"):
+        decided = gate.classify(tool, {"screen": "Office screen"}, issued_ids=[])
+        assert decided.tier is Tier.GREEN and decided.executes, tool
+    from app.capabilities.families import get as family
+
+    assert set(family("screens").tools) == {"screen_list", "screen_show", "screen_pair", "screen_off", "screen_remote"}

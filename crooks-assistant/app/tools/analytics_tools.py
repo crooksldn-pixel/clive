@@ -416,9 +416,9 @@ _inbox_for = None         # gmail_tools.inbox_threads, or a test's stand-in
 _sent_for = None          # gmail_tools.sent_to: when we last wrote to each address, in any thread
 # The inbox itself, for "is anyone waiting on us" (`email_query` with no set). Every thread
 # the listing returns is asked who spoke last, three at a time (Gmail's slots), and the whole
-# read has to land inside the fast lane's five seconds (app/fastpath/runner.py BUDGET_MS) —
-# so a thread whose turn comes after this deadline is counted as unchecked and said so,
-# rather than the whole answer being lost to the lane's timeout.
+# read has to land inside a tapped Inbox's five seconds (app/recipes.py BUDGET_MS) — so a
+# thread whose turn comes after this deadline is counted as unchecked and said so, rather
+# than the whole answer being lost to the timeout.
 INBOX_DEADLINE_S = 4.0
 
 

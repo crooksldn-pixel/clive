@@ -82,15 +82,18 @@ class WhisperClient:
             await self._http.aclose()
         self._http = None
 
-    async def transcribe(self, wav: bytes, *, prompt: str = "") -> Transcript:
-        """POST a 16 kHz mono WAV to /inference and return the transcript."""
+    async def transcribe(self, wav: bytes) -> Transcript:
+        """POST a 16 kHz mono WAV to /inference and return the transcript.
+
+        No initial prompt is sent. A prompt is a list of words for the decoder to expect, and
+        it finds them whether or not they were said (app/speech/transcribe.py)."""
         started = time.perf_counter()
-        response = await self._post(wav, prompt, vad=self._server_vad)
+        response = await self._post(wav, vad=self._server_vad)
         if response.status_code == 500 and self._server_vad:
             # A server started without a Silero model answers every VAD request with a bare
             # {"error":"failed to process audio"} — the body never says "vad" (measured). So
             # any 500 while VAD is on gets one retry without it; if that works, remember.
-            retry = await self._post(wav, prompt, vad=False)
+            retry = await self._post(wav, vad=False)
             if retry.status_code == 200:
                 log.warning(
                     "whisper-server cannot do per-request VAD (no Silero model?). Continuing "
@@ -113,7 +116,7 @@ class WhisperClient:
         ms = (time.perf_counter() - started) * 1000
         return Transcript(text=text, ms=ms, model=self.model)
 
-    async def _post(self, wav: bytes, prompt: str, *, vad: bool) -> httpx.Response:
+    async def _post(self, wav: bytes, *, vad: bool) -> httpx.Response:
         files = {"file": ("audio.wav", wav, "audio/wav")}
         data = {
             "temperature": "0.0",
@@ -128,8 +131,6 @@ class WhisperClient:
             # too; asking per request as well means a mis-started server still filters.
             # Field name verified against examples/server/server.cpp: it is `vad`.
             data["vad"] = "true"
-        if prompt:
-            data["prompt"] = prompt
         try:
             return await self._client().post(f"{self.base_url}/inference", files=files, data=data)
         except httpx.ConnectError as exc:
@@ -154,7 +155,7 @@ class WhisperClient:
         except Exception as exc:  # noqa: BLE001
             return False, f"whisper-server unreachable at {self.base_url}: {exc}"
         try:
-            await self.transcribe(_silence_wav(0.5), prompt="")
+            await self.transcribe(_silence_wav(0.5))
         except WhisperUnavailable as exc:
             return False, f"whisper-server is up but inference fails: {exc}"
         vad = "server VAD" if self._server_vad else "NO server VAD (start it with a Silero model)"

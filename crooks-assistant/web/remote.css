@@ -1,0 +1,124 @@
+/* The remote for one of the owner's screens (web/remote.js), over the app. iOS in its dark
+   appearance: a glass bar and footer, grouped cells on black, a large title, the accent in iOS
+   blue (the app's --acc, #0A84FF), SF type at iOS sizes, and nothing to tap smaller than 44px. */
+body.rm-on{overflow:hidden}
+.rm{
+  --rm-acc:rgb(var(--acc,10,132,255));
+  --rm-cell:#1c1c1e; --rm-cell-2:#2c2c2e; --rm-sep:rgba(84,84,88,.65);
+  --rm-ink-2:rgba(235,235,245,.6); --rm-ink-3:rgba(235,235,245,.3);
+  --rm-spring:cubic-bezier(.32,.72,0,1);
+  position:fixed;inset:0;z-index:25;display:flex;flex-direction:column;color:#fff;
+  background:radial-gradient(90% 38% at 50% 0%,rgba(96,122,160,.2),rgba(96,122,160,0) 72%),#000;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",system-ui,"Helvetica Neue",Helvetica,sans-serif;
+  -webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;
+  transform:translateY(100%);opacity:.6;transition:transform .46s var(--rm-spring),opacity .3s ease;
+}
+.rm.is-open{transform:none;opacity:1}
+.rm[hidden]{display:none}
+.rm button{font-family:inherit;-webkit-tap-highlight-color:transparent}
+.rm button:focus-visible{outline:3px solid rgba(10,132,255,.9);outline-offset:2px}
+
+/* the bar: glass, like a navigation bar */
+.rm-bar{position:relative;z-index:2;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-height:52px;padding:calc(6px + env(safe-area-inset-top,0px)) 8px 6px 20px;
+  background:rgba(22,22,24,.66);-webkit-backdrop-filter:blur(26px) saturate(180%);backdrop-filter:blur(26px) saturate(180%);
+  box-shadow:inset 0 -.5px 0 rgba(255,255,255,.14)}
+.rm-bar-k{font-size:17px;font-weight:600;letter-spacing:-.41px;color:var(--rm-ink-2)}
+.rm-done{min-width:72px;height:44px;padding:0 16px;border:0;border-radius:22px;font-size:17px;font-weight:600;letter-spacing:-.41px;
+  color:var(--rm-acc);background:transparent;cursor:pointer;transition:opacity .15s ease}
+.rm-done:active{opacity:.45}
+
+/* the page */
+.rm-body{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:12px 16px 28px}
+.rm-body>*{max-width:640px;margin-left:auto;margin-right:auto}
+.rm-large{display:flex;align-items:center;gap:12px;padding:4px 4px 0}
+.rm-name{margin:0;min-width:0;font-size:34px;line-height:41px;font-weight:700;letter-spacing:.37px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rm-dot{flex:none;width:11px;height:11px;border-radius:50%;background:var(--rm-ink-3);box-shadow:0 0 0 3px rgba(235,235,245,.08);transition:background-color .4s ease,box-shadow .4s ease}
+.rm-dot.is-on{background:#30d158;box-shadow:0 0 0 3px rgba(48,209,88,.2),0 0 14px rgba(48,209,88,.55)}
+.rm-state{margin:4px 4px 22px;font-size:15px;line-height:20px;letter-spacing:-.24px;color:var(--rm-ink-2)}
+.rm-state.is-warn{color:#ff9f0a}
+.rm-panes{display:flex;flex-direction:column;gap:30px}
+
+/* a pane: a section of grouped cells */
+.rm-group{display:flex;flex-direction:column;gap:8px}
+.rm-kicker{margin:0 16px;font-size:13px;line-height:18px;letter-spacing:-.08px;text-transform:uppercase;color:var(--rm-ink-2)}
+.rm-ghead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 16px 4px}
+.rm-h{margin:0;min-width:0;font-size:22px;line-height:28px;font-weight:700;letter-spacing:.35px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rm-sub{margin:0;flex:none;font-size:15px;letter-spacing:-.24px;color:var(--rm-ink-2);font-variant-numeric:tabular-nums}
+.rm-sub.is-done{color:#30d158;font-weight:600}
+.rm-ctl{display:flex;flex-direction:column;gap:12px}
+.rm-cells{display:flex;flex-direction:column;border-radius:16px;overflow:hidden;background:var(--rm-cell)}
+.rm-cell{position:relative;display:flex;align-items:center;gap:14px;box-sizing:border-box;width:100%;min-height:64px;margin:0;padding:10px 16px;
+  border:0;text-align:left;font:inherit;color:#fff;background:transparent}
+.rm-cell+.rm-cell::before{content:"";position:absolute;top:0;right:0;left:16px;height:.5px;background:var(--rm-sep)}
+.rm-cell:has(.rm-thumb)+.rm-cell::before{left:82px}
+button.rm-cell{cursor:pointer;transition:background-color .18s ease}
+button.rm-cell:active{background:var(--rm-cell-2)}
+.rm-thumb{position:relative;flex:none;width:52px;height:52px;border-radius:11px;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  color:rgba(235,235,245,.5);background:linear-gradient(160deg,#3a3a3c,#2c2c2e);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.1);transition:opacity .25s ease}
+.rm-thumb svg{width:26px;height:26px}
+.rm-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.rm-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.rm-t{font-size:17px;line-height:22px;letter-spacing:-.41px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .2s ease}
+.rm-d{font-size:15px;line-height:20px;letter-spacing:-.24px;color:var(--rm-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rm-qty{flex:none;min-width:34px;text-align:right;font-size:17px;font-weight:600;letter-spacing:-.41px;font-variant-numeric:tabular-nums;color:var(--rm-ink-2)}
+.rm-check{flex:none;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:transparent;
+  box-shadow:inset 0 0 0 2px var(--rm-ink-3);transition:background-color .2s ease,box-shadow .2s ease,color .2s ease,transform .3s var(--rm-spring)}
+.rm-check svg{width:18px;height:18px}
+.rm-tick.is-ticked .rm-check{color:#fff;background:var(--rm-acc);box-shadow:0 0 0 4px rgba(10,132,255,.18);transform:scale(1.04)}
+.rm-tick.is-ticked .rm-t{color:var(--rm-ink-2);text-decoration:line-through;text-decoration-color:var(--rm-ink-3)}
+.rm-tick.is-ticked .rm-thumb{opacity:.45}
+.rm-cell.is-sent{opacity:.5}
+.rm-sent{flex:none;font-size:15px;color:var(--rm-ink-2)}
+.rm-donecell .rm-check{color:#fff;background:#30d158;box-shadow:none}
+.rm-donecell .rm-t{white-space:normal}
+.rm-fact{flex-direction:column;align-items:flex-start;justify-content:center;gap:2px}
+.rm-k{font-size:13px;line-height:18px;letter-spacing:-.08px;color:var(--rm-ink-2)}
+.rm-fact .rm-t{white-space:normal}
+.rm-fact.is-needs .rm-t{color:var(--rm-acc);font-weight:600}
+.rm-fact.is-late .rm-t{color:#ff453a}
+.rm-fact.is-quiet .rm-t,.rm-cell.is-quiet{color:var(--rm-ink-2)}
+
+/* controls: glass for turning pages and putting up again, filled blue for Packed */
+.rm-glass{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:50px;padding:0 20px;border:0;border-radius:25px;
+  font-size:17px;font-weight:600;letter-spacing:-.41px;color:#fff;cursor:pointer;
+  background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.06));
+  -webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.3),inset 0 0 0 .5px rgba(255,255,255,.14),0 10px 26px -14px rgba(0,0,0,.9);
+  transition:transform .38s var(--rm-spring)}
+.rm-glass:active{transform:scale(.95);transition-duration:.12s}
+.rm-glass svg{width:20px;height:20px;flex:none}
+.rm-round{flex:none;width:50px;padding:0}
+.rm-wide{width:100%}
+.rm-pager{display:flex;align-items:center;gap:12px}
+.rm-page{flex:1;text-align:center;font-size:15px;letter-spacing:-.24px;color:var(--rm-ink-2);font-variant-numeric:tabular-nums}
+.rm-primary{width:100%;height:56px;border:0;border-radius:16px;font-size:19px;font-weight:600;letter-spacing:-.45px;color:#fff;cursor:pointer;
+  background:linear-gradient(180deg,rgb(var(--acc-f1,10,132,255)),rgb(var(--acc-f2,0,100,210)));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 12px 28px -12px rgba(var(--acc-glow,0,122,255),.75);
+  transition:transform .38s var(--rm-spring),background-color .2s ease,box-shadow .2s ease}
+.rm-primary:active{transform:scale(.98);transition-duration:.12s}
+.rm-primary:disabled{cursor:default;color:var(--rm-ink-3);background:var(--rm-cell-2);box-shadow:none}
+.rm-note{margin:0 16px;font-size:13px;line-height:18px;letter-spacing:-.08px;color:var(--rm-ink-2)}
+.rm-destroy{height:50px;border:0;border-radius:16px;font-size:17px;letter-spacing:-.41px;color:#ff453a;background:var(--rm-cell);cursor:pointer;
+  transition:background-color .2s ease,color .2s ease}
+.rm-destroy:active{background:var(--rm-cell-2)}
+.rm-destroy.is-armed{color:#fff;background:#ff453a;font-weight:600}
+.rm-empty{padding:40px 24px;border-radius:16px;text-align:center;background:var(--rm-cell)}
+.rm-empty-t{margin:0 0 6px;font-size:20px;line-height:25px;font-weight:600;letter-spacing:.38px}
+.rm-empty-d{margin:0;font-size:15px;line-height:20px;color:var(--rm-ink-2)}
+
+/* the whole screen: glass, at the foot */
+.rm-foot{flex:none;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));
+  background:rgba(22,22,24,.66);-webkit-backdrop-filter:blur(26px) saturate(180%);backdrop-filter:blur(26px) saturate(180%);
+  box-shadow:inset 0 .5px 0 rgba(255,255,255,.14)}
+.rm-off{display:block;width:100%;max-width:640px;height:54px;margin:0 auto;border:0;border-radius:27px;font-size:17px;font-weight:600;letter-spacing:-.41px;
+  color:#ff453a;cursor:pointer;background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.05));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.24),inset 0 0 0 .5px rgba(255,255,255,.12);transition:transform .38s var(--rm-spring),background-color .2s ease}
+.rm-off:active{transform:scale(.98)}
+.rm-off.is-armed{color:#fff;background:#ff453a;box-shadow:none}
+.rm-off:disabled{cursor:default;color:var(--rm-ink-3)}
+
+/* the card in the app's deck that opens it again (web/ui.js renderScreenRemote) */
+.card-screen_remote .remote-open{margin-top:12px;width:100%;min-height:48px}
+
+@media (prefers-reduced-motion:reduce){.rm,.rm *{transition-duration:.001ms!important}}

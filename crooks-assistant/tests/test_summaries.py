@@ -29,8 +29,6 @@ import pytest
 from app import commands
 from app.analytics.cache import OrderCache
 from app.families import load_all
-from app.fastpath import choose_lane, recipe_for, resolve, runner
-from app.fastpath.models import Ctx
 from app.memory import ENTITY
 from app.memory import current as memory
 from app.presentation import compact, present
@@ -103,33 +101,31 @@ def shop(monkeypatch):
         analytics_tools.bind(None)
 
 
-def ask(text: str, session: Session | None = None, branch: Branch | None = None):
-    """One turn through the fast lane, and the `ui` it would put on the glass.
+async def answer_for(task: str, period: str = "today", session: Session | None = None, branch: Branch | None = None):
+    """The summary read (`commerce_summary`), called as the model calls it, and the cards the
+    turn draws from that call (app/presentation.py), compacted as the glass has them.
 
-    The same composition /turn does (app/routes/turn.py): the recipe's own surfaces in front
-    of the cards its reads imply, then `compact`. Nothing here is a shortcut past the
-    presentation layer — a card this returns is a card the tablet would draw.
+    Every summary question is the model's since 28 September 2026, when the word-matching
+    lane that used to draw these was removed; the model's call of the read is what they are
+    drawn from now.
     """
     session = session or Session(session_id="sum")
     session.turn_id = session.turn_id or "turn_sum"
     branch = branch or Branch(branch_id="br_sum", session_id=session.session_id)
-    intent = resolve(text, branch=branch)
-    recipe = recipe_for(intent.family) if intent.family else None
-    lane, why = choose_lane(intent, recipe=recipe, text=text)
-    return session, branch, intent, recipe, lane, why
+    args = {"task": task, "limit": 12}
+    if task != "orders_attention":
+        args["period"] = period
+    from app.tools.dispatch import dispatch
 
-
-async def answer_for(text: str, session: Session | None = None, branch: Branch | None = None):
-    session, branch, intent, recipe, lane, why = ask(text, session, branch)
-    assert recipe is not None, f"{text!r} has no recipe (family {intent.family!r}, lane {lane}: {why})"
-    assert lane == "FAST", f"{text!r} took {lane}: {why}"
-    fast = await runner.run(recipe, Ctx(runtime=None, session=session, branch=branch,
-                                        intent=intent, text=text))
-    assert not fast.deferred, fast.defer
-    ui = present(list(fast.drawn if fast.drawn is not None else fast.calls), session=session)
-    if fast.surfaces:
-        ui = [s.as_ui() if hasattr(s, "as_ui") else s for s in fast.surfaces] + ui
-    return fast, compact(ui), session, branch
+    # Through the dispatcher, as a read reaches any tool: it is what issues the ids a row's tap
+    # is later checked against.
+    calls: list = []
+    await dispatch("commerce_summary", args, session=session, timeout_s=6.0, calls=calls)
+    assert calls and calls[-1].ok, calls
+    ui = compact(present(calls, session=session))
+    drawn = [item for item in ui if item["type"] == "summary_list"]
+    assert drawn, f"the model's read drew no summary card: {[i['type'] for i in ui]}"
+    return drawn[0], ui, session, branch
 
 
 def summaries():
@@ -174,34 +170,6 @@ def row_labels(item) -> list[str]:
 # ------------------------------------------------ the defect: seven profiles for a count
 
 
-@pytest.mark.parametrize("text", [
-    # The owner's own words, from the timeline.
-    "Has anyone bought today that has bought before, a returning customer?",
-    "any returning customers today",
-    "which customers today are returning customers",
-    "how many returning customers today",
-    # The same question with no "returning" in it at all, which is `returning_customers_before`
-    # rather than `returning_customers` — two shapes, one procedure, one surface.
-    "has anyone bought today that has bought before",
-])
-@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
-async def test_the_returning_customers_question_draws_one_compact_surface(text, shop):
-    """ONE summary surface. Not seven customer profiles, not one profile, not a ranking.
-
-    This is the assertion D-4 needed and nobody had written: the turn is judged on how many
-    cards of which kind reached the glass.
-    """
-    fast, ui, session, _branch = await answer_for(text)
-    assert kinds(ui) == ["summary_list"], f"{text!r} drew {kinds(ui)}"
-    assert "customer" not in kinds(ui), "a summary question must not draw an entity profile"
-    data = ui[0]["data"]
-    assert data["task"] == "returning_customers"
-    # Correct, as it was on the night: one.
-    assert data["count"] == 1, data
-    assert len(data["rows"]) == 1, data["rows"]
-    assert "One" in fast.answer, fast.answer
-
-
 @pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
 async def test_the_compact_row_carries_what_the_brief_asks_for(shop):
     """The brief's own worked example:
@@ -213,7 +181,7 @@ async def test_the_compact_row_carries_what_the_brief_asks_for(shop):
         Lifetime: £120
         2 orders
     """
-    _fast, ui, _session, _branch = await answer_for("any returning customers today")
+    _surface, ui, _session, _branch = await answer_for("returning_customers")
     data = ui[0]["data"]
     assert data["title"] == "Returning customers today" and data["count"] == 1
     (row,) = data["rows"]
@@ -229,7 +197,7 @@ async def test_the_compact_row_carries_what_the_brief_asks_for(shop):
 async def test_the_attention_question_draws_attention_rows_not_a_days_listing(shop):
     """"Which orders need attention?" was answered with a plain period listing of every order
     of the day — the right card for a different question. It gets attention rows."""
-    _fast, ui, _session, _branch = await answer_for("which orders need attention")
+    _surface, ui, _session, _branch = await answer_for("orders_attention")
     assert kinds(ui) == ["summary_list"], kinds(ui)
     data = ui[0]["data"]
     assert data["task"] == "orders_attention", data["task"]
@@ -241,42 +209,6 @@ async def test_the_attention_question_draws_attention_rows_not_a_days_listing(sh
     # The twenty-day-old unpaid order is in it, which is the point of the previous line: the
     # attention question is never narrowed to a day, even when the sentence carries one.
     assert "#1900" in [row["label"] for row in data["rows"]], data["rows"]
-
-
-@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
-async def test_today_in_an_attention_question_is_not_a_filter_on_the_orders(shop):
-    """"Which orders need my attention TODAY" does not mean orders placed today.
-
-    The twenty-day-old unpaid order is exactly what needs attention today, and narrowing to
-    the day would leave it out and be confident about it — the §13 mistake in the other
-    direction: the right shape of answer to a question nobody asked.
-    """
-    _fast, ui, _session, _branch = await answer_for("which orders need my attention today")
-    data = ui[0]["data"]
-    assert data["task"] == "orders_attention", data["task"]
-    assert "#1900" in [row["label"] for row in data["rows"]], data["rows"]
-    assert data["title"] == "Orders that need attention", data["title"]
-
-
-@pytest.mark.parametrize("text", [
-    "show yesterday's orders",
-    "what came in yesterday",
-])
-@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
-async def test_a_list_question_draws_a_compact_list_and_no_order_profiles(text, shop):
-    """"Show yesterday's orders" is rows. Every row is a line, never a page.
-
-    Both shapes have to work: "what came in yesterday" names no noun for an order and took
-    the model, which is free to answer with whatever the last tool returned.
-    """
-    _fast, ui, _session, _branch = await answer_for(text)
-    for profile in PROFILE_KINDS:
-        assert profile not in kinds(ui), f"{text!r} drew a {profile} profile: {kinds(ui)}"
-    compact_ones = row_bearing(ui)
-    assert len(compact_ones) == 1, f"{text!r} drew {len(compact_ones)} row surfaces: {kinds(ui)}"
-    assert compact_ones[0]["data"]["count"] == 2, compact_ones[0]["data"]
-    # Human numbers, in the order they were placed, and never a gid (§26).
-    assert row_labels(compact_ones[0]) == ["#1955", "#1956"], compact_ones[0]["data"]
 
 
 # --------------------------------------------------------------- §18: the tap resolves
@@ -291,7 +223,7 @@ async def test_a_compact_rows_tap_opens_the_real_customer_workspace(shop):
     carries passes the same check `open.entity` applies, and running that command produces a
     `customer` card and no refusal.
     """
-    _fast, ui, session, branch = await answer_for("any returning customers today")
+    _surface, ui, session, branch = await answer_for("returning_customers")
     (row,) = ui[0]["data"]["rows"]
     assert row["tap"] is True and row["kind"] == "customer" and row["command"] == "open.entity"
 
@@ -320,7 +252,7 @@ async def test_a_tap_the_mac_does_not_hold_reads_it_rather_than_refusing(shop):
     may offer a tap when the DESTINATION resolves; whether the Mac happens to have the record
     cached decides whether the tap costs a read, not whether it works.
     """
-    _fast, ui, session, branch = await answer_for("any returning customers today")
+    _surface, ui, session, branch = await answer_for("returning_customers")
     (row,) = ui[0]["data"]["rows"]
     # Nothing is put in the entity cache for this ref: this is the cache-miss case.
     opened = commands.run("open.entity", commands.Ctx(
@@ -420,9 +352,9 @@ async def test_no_compact_surface_ever_shows_an_id(shop):
     never in text (tests/web/ui.test.js asserts that side). Everything else is checked here,
     key by key, by the same guard the builders run at build time.
     """
-    for text in ("any returning customers today", "which orders need attention",
-                 "show yesterday's orders", "what came in yesterday"):
-        _fast, ui, _session, _branch = await answer_for(text)
+    for text, period in (("returning_customers", "today"), ("orders_attention", ""),
+                         ("order_list", "yesterday")):
+        _surface, ui, _session, _branch = await answer_for(text, period)
         assert row_bearing(ui), f"{text!r} drew no compact surface at all: {kinds(ui)}"
         for item in row_bearing(ui):
             if item["type"] == "summary_list":
@@ -558,7 +490,7 @@ async def test_an_empty_answer_is_a_card_in_the_right_sentence(shop):
     orders — so the empty sentence is the Mac's, per task, and reaches the surface."""
     # A day with orders, none of them from a returning buyer: yesterday's two are both first
     # orders, so the same question asked of yesterday finds nobody.
-    _fast, ui, _session, _branch = await answer_for("any returning customers yesterday")
+    _surface, ui, _session, _branch = await answer_for("returning_customers", "yesterday")
     data = ui[0]["data"]
     assert data["count"] == 0 and data["empty"] is True, data
     assert data["empty_words"] == "Nobody who bought yesterday had bought before.", data["empty_words"]
@@ -601,19 +533,6 @@ def test_the_period_the_summary_reports_is_the_period_it_was_asked_for():
 
 
 # -------------------------------------------------------------------- read-only, always
-
-
-def test_the_summary_recipes_read_only_and_call_no_model():
-    from app.fastpath.recipes import RECIPES, assert_read_only
-
-    mine = {k: v for k, v in RECIPES.items()
-            if k in ("returning_customers", "returning_customers_before",
-                     "orders_attention", "order_list_summary")}
-    assert len(mine) == 4, sorted(RECIPES)
-    assert_read_only(mine)
-    for recipe in mine.values():
-        assert recipe.read_primitives == ("commerce_summary",), recipe.recipe_id
-        assert recipe.ui == "summary_list", recipe.recipe_id
 
 
 def test_the_read_tool_is_a_read_and_the_scheduler_would_take_it():

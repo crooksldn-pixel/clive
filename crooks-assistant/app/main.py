@@ -41,6 +41,7 @@ from app.routes import (
     speak,
     support,
     turn,
+    voice,
 )
 from config.settings import get_settings
 
@@ -547,6 +548,7 @@ app.include_router(pad.router)
 app.include_router(support.router)
 app.include_router(objectives.router)
 app.include_router(displays.router)
+app.include_router(voice.router)   # POST /voice/live: the live words' single-use key (owner only)
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")

@@ -1,11 +1,11 @@
-"""The tool and intent-family audit (§32) — derived, never asserted.
+"""The tool audit (§32) — derived, never asserted.
 
 The brief's instruction is the whole design of this file: *do not claim a tool works because
 unit tests pass.* So every column is read from the thing that decides it, and where a column
 cannot be decided it says so rather than being filled in optimistically:
 
     REGISTERED        the tool is in app/tools/registry.py
-    ROUTABLE          something other than the model's free choice reaches it — a fast-path
+    ROUTABLE          something other than the model's free choice reaches it — a tap
                       recipe's read primitives, a semantic command, or a capability family
     DIRECTLY TESTED   a test CALLS this tool: its code — not a comment, not a docstring —
                       passes the tool's name to a call (registry.get, dispatch, classify, the
@@ -14,18 +14,19 @@ cannot be decided it says so rather than being filled in optimistically:
                       tool's handler function by name. The citation is printed; a test that
                       only mentions a tool — in a comment, a docstring, an assertion about a
                       list of names, or a monkeypatch that replaces it — does not count, and a
-                      tool with no citation is reported untested, which is honest. For an
-                      intent family, which a test reaches by routing a sentence to it rather
-                      than by calling it, the column is NAMED IN TEST CODE: its name in a
-                      test's code, not in a comment or a docstring
+                      tool with no citation is reported untested, which is honest
     AUTH-SCOPE        the Shopify or Gmail scope its capability family declares
     READ-WRITE        read, write or batch, from the spec
     STAGING           a write's WriteSpec is complete: prepare, observe, execute, present
     VERIFICATION      how a write is proven — a predicate, or the default exact re-read
     VISIBLE UI        app/presentation.py names it, so its result becomes a card
     ERROR UI          its failure is drawn as a named service rather than a generic error
-    GOLDEN SCENARIO   a golden scenario exercises it — either by naming it, or by asking
-                      a question whose recipe names it as a read primitive
+    GOLDEN SCENARIO   a golden scenario exercises it — either by naming it, or by tapping
+                      a control whose recipe names it as a read primitive
+
+There are no intent families any more: every sentence is a model turn (the owner had the
+word-matching lane removed on 28 September 2026), so what a sentence reaches is what the
+model chooses to call, and the tool rows are the whole of it.
 
 Nothing here runs a tool. The audit is a read of registries and of source text — it must be
 able to run against a shop it may not touch, and a matrix that had to execute a mutation to
@@ -83,21 +84,14 @@ _NOT_CALLING = frozenset({
 @dataclass
 class Citations:
     """What one test file's code does with names, read from its syntax tree: the strings that
-    reach a call as an argument, the functions it calls (as module and name), and every string
-    and identifier in its code, docstrings and comments left out."""
+    reach a call as an argument, and the functions it calls (as module and name)."""
 
     call_strings: set[str] = field(default_factory=set)
     calls: set[tuple[str, str]] = field(default_factory=set)
-    code_words: set[str] = field(default_factory=set)
 
     def calls_tool(self, name: str, module: str, function: str) -> bool:
         """Whether the test calls the tool: passes its name to a call, or calls its handler."""
         return name in self.call_strings or (module, function) in self.calls
-
-    def names(self, name: str) -> bool:
-        """Whether the test's code — not a comment, not a docstring — names it."""
-        return name in self.code_words or any(_named(name, word) for word in self.code_words
-                                              if name in word)
 
 
 def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> Citations:
@@ -112,12 +106,6 @@ def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> C
         tree = ast.parse(text)
     except (SyntaxError, ValueError):
         return code
-    docstrings = {
-        id(node.body[0].value) for node in ast.walk(tree)
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.body and isinstance(node.body[0], ast.Expr)
-        and isinstance(node.body[0].value, ast.Constant) and isinstance(node.body[0].value.value, str)
-    }
     nodes = list(ast.walk(tree))
 
     imported: dict[str, tuple[str, str]] = {}   # alias -> (module, name)
@@ -216,12 +204,6 @@ def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> C
                         one.setdefault(argname.strip(), set()).update(values)
 
     for node in nodes:
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
-            code.code_words.add(node.value)
-        elif isinstance(node, ast.Name):
-            code.code_words.add(node.id)
-        elif isinstance(node, ast.Attribute):
-            code.code_words.add(node.attr)
         if not isinstance(node, ast.Call):
             continue
         if _callee(node.func) not in _NOT_CALLING:
@@ -290,7 +272,6 @@ def load() -> None:
     effect at all.
     """
     import app.families  # noqa: F401
-    import app.fastpath.library  # noqa: F401
     import app.tools.analytics_tools  # noqa: F401
     import app.tools.batch_tools  # noqa: F401
     import app.tools.display_tools  # noqa: F401
@@ -308,8 +289,8 @@ def load() -> None:
 
 
 def _recipe_tools() -> dict[str, list[str]]:
-    """Tool name -> the recipes whose read primitives name it."""
-    from app.fastpath.recipes import RECIPES
+    """Tool name -> the tap recipes whose read primitives name it."""
+    from app.recipes import RECIPES
 
     out: dict[str, list[str]] = {}
     for recipe in RECIPES.values():
@@ -373,17 +354,17 @@ def _scenario_tools() -> dict[str, set[str]]:
     """Tool name -> the golden scenarios that exercise it.
 
     Two ways a scenario counts. It may NAME the tool — an assertion about what was read, a
-    fixture that answers it. Or it may ask a question the fast lane answers with a recipe
-    whose read primitives include the tool, in which case running the scenario runs the tool
-    whether it says so or not; `experience/matrix.py::COVERAGE` is the repository's own
-    mapping of which scenario exercises which intent family, and this walks it through to the
+    fixture that answers it, the read the harness's model makes. Or it may tap a control whose
+    recipe's read primitives include the tool, in which case running the scenario runs the
+    tool whether it says so or not; `experience/matrix.py::COVERAGE` is the repository's own
+    mapping of which scenario exercises which operation, and this walks it through to the
     tools. A write tool also counts its OPERATION name, which is what a scenario asserting on
     a staged change writes down.
 
     Deriving it this way keeps the one property that matters: a tool with no route from any
     scenario is REPORTED as uncovered rather than assumed covered because its unit tests pass.
     """
-    from app.fastpath.recipes import recipe_for
+    from app.recipes import RECIPES
     from app.tools import registry
     from experience.matrix import COVERAGE
     from experience.scenarios import BY_NAME
@@ -393,7 +374,7 @@ def _scenario_tools() -> dict[str, set[str]]:
         named = [s for s in scenarios if s in BY_NAME]
         if not named:
             continue
-        recipe = recipe_for(operation)
+        recipe = RECIPES.get(operation)
         for tool in (recipe.read_primitives if recipe is not None else ()):
             out.setdefault(str(tool), set()).update(named)
     sources = _sources()["scenario"]
@@ -404,14 +385,6 @@ def _scenario_tools() -> dict[str, set[str]]:
             if any(_named(term, text) for term in terms if term):
                 out.setdefault(spec.name, set()).add(path)
     return out
-
-
-def _family_scenarios() -> dict[str, list[str]]:
-    """Intent family -> the golden scenarios that exercise it, from the repository's own map."""
-    from experience.matrix import COVERAGE
-    from experience.scenarios import BY_NAME
-
-    return {name: [s for s in scenarios if s in BY_NAME] for name, scenarios in COVERAGE.items()}
 
 
 # ------------------------------------------------------------------ the rows
@@ -507,37 +480,6 @@ def _error_ui(name: str) -> str:
     return ""
 
 
-def families() -> list[dict[str, Any]]:
-    """One row per intent family: what a sentence can reach without the model."""
-    from app.fastpath.intent import all_families
-    from app.fastpath.recipes import recipe_for
-
-    sources, tests = _sources(), _test_code()
-    covered = _family_scenarios()
-    rows: list[dict[str, Any]] = []
-    for family in all_families():
-        recipe = recipe_for(family.name)
-        primitives = list(recipe.read_primitives) if recipe is not None else []
-        named_by = sorted(path for path, code in tests.items() if code.names(family.name))
-        scenarios = sorted(set(covered.get(family.name, ())) | {
-            path for path, text in sources["scenario"].items() if _named(family.name, text)
-        })
-        rows.append({
-            "name": family.name,
-            "kind": family.kind,
-            "registered": True,
-            "routable": True,
-            "recipe": recipe.recipe_id if recipe is not None else "",
-            "read_primitives": primitives,
-            "serves_mutation_words": family.serves_mutation_words,
-            "named_in_tests": bool(named_by),
-            "named_by": named_by,
-            "golden_scenario": bool(scenarios),
-            "scenarios": scenarios,
-        })
-    return rows
-
-
 # ------------------------------------------------------------------ the document
 
 
@@ -555,20 +497,19 @@ def gaps() -> dict[str, list[str]]:
         "nothing but the model reaches it": [r["name"] for r in rows if not r["routable"]],
         "no card is drawn from it": [r["name"] for r in rows if not r["visible_ui"]],
         "no named error card": [r["name"] for r in rows if not r["error_ui"]],
-        "intent families with no scenario": [r["name"] for r in families() if not r["golden_scenario"]],
     }
 
 
 def markdown() -> str:
     load()
-    rows, family_rows, missing = tools(), families(), gaps()
+    rows, missing = tools(), gaps()
     reads = sum(1 for r in rows if r["read_write"] == "read")
     writes = sum(1 for r in rows if r["read_write"] == "write")
     batches = sum(1 for r in rows if r["read_write"] == "batch")
     out = [
         "# Tool matrix",
         "",
-        "Every registered tool and every routable intent family, audited against §32 of the",
+        "Every registered tool, audited against §32 of the",
         "Phase 4 brief. **Generated** by `experience/tool_matrix.py` — regenerate with",
         "`make tool-matrix`; `tests/test_tool_matrix.py` fails if this file and the registries",
         "disagree.",
@@ -578,14 +519,12 @@ def markdown() -> str:
         "— and the file that does is cited. A test that only mentions the tool, in a comment, a",
         "docstring, an assertion about a list of names or a monkeypatch that replaces it, does",
         "not count, so a tool whose unit tests pass but which no test calls is reported as",
-        "untested. An intent family is reached by routing a sentence to it rather than by a",
-        "call, so for a family the column is **NAMED IN TEST CODE**: a test's code, not a",
-        "comment or a docstring, names it. Tests are read as syntax trees and never run; nothing",
+        "untested. There are no intent families: every sentence is a model turn, so what a",
+        "sentence reaches is what the model calls. Tests are read as syntax trees and never run; nothing",
         "here runs a tool, and nothing here can reach a mutation: the audit is a read of",
         "registries and of source text, so it is safe against a shop it may not touch.",
         "",
-        f"{len(rows)} tools — {reads} reads, {writes} writes, {batches} bulk — and "
-        f"{len(family_rows)} intent families.",
+        f"{len(rows)} tools — {reads} reads, {writes} writes, {batches} bulk.",
         "",
         "## Tools",
         "",
@@ -610,20 +549,6 @@ def markdown() -> str:
         out.append(
             f"| `{r['name']}` | {', '.join(r['reached_by']) or 'the model only'} "
             f"| {', '.join(r['tested_by']) or '—'} | {', '.join(r['scenarios']) or '—'} |"
-        )
-    out += [
-        "",
-        "## Intent families",
-        "",
-        "| Family | For | Recipe | Reads | Serves mutation words | Named in test code | Golden scenario |",
-        "|---|---|---|---|:-:|:-:|:-:|",
-    ]
-    for r in family_rows:
-        out.append(
-            f"| `{r['name']}` | {r['kind']} | {r['recipe'] or '— (the model answers it)'} "
-            f"| {', '.join(f'`{t}`' for t in r['read_primitives']) or '—'} "
-            f"| {_tick(r['serves_mutation_words'])} | {_tick(r['named_in_tests'])} "
-            f"| {_tick(r['golden_scenario'])} |"
         )
     out += ["", "## What this matrix cannot vouch for", ""]
     for heading, names in missing.items():

@@ -202,7 +202,9 @@ def test_a_useful_card_exists_well_before_the_final_one():
     7,900 ms. The owner must be able to READ the orders at 300 ms — and the assertion is on
     the ordering and the timing, not on the end state, which was never the bug."""
     clock = Clock()
-    workspace = progressive.begin("s1", turn_id="t1", family="order_list_period", clock=clock)
+    workspace = progressive.begin("s1", turn_id="t1", clock=clock)
+    # The model's first read goes out at once, and names what the screen is about to hold.
+    workspace.starting("shopify_list_orders")
     assert workspace.timings()["time_to_visible_shell"] == 0.0
 
     clock.at(300)
@@ -296,10 +298,7 @@ def test_every_shell_promises_a_card_the_renderer_can_draw():
     for tool, kind in progressive.SHELL_OF_TOOL.items():
         assert kind in UI_TYPES, f"{tool} promises {kind}, which the Mac cannot send"
         assert kind in renderers, f"{tool} promises {kind}, which the tablet cannot draw"
-    for family, kinds in progressive.SHELL_OF_FAMILY.items():
-        for kind in kinds:
-            assert kind in progressive.SHELL_WORDS, f"{family} promises {kind} with no words"
-            assert kind in renderers, f"{family} promises {kind}, which the tablet cannot draw"
+        assert kind in progressive.SHELL_WORDS, f"{tool} promises {kind} with no words"
 
 
 def test_the_two_sides_name_the_same_cards_the_same_way():

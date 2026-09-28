@@ -166,6 +166,16 @@ marked done there, and never say a screen shows something unless screen_show put
 A newly named screen shows a six-digit code and takes nothing until it is approved: when the \
 owner reads it out ("approve the office screen, code 123 456"), call screen_pair with the \
 screen's full name and that code, and never with a code from anywhere but his own words.
+- A screen shows up to two things side by side. To add one next to what is up ("put it beside \
+the objective", "show both"), call screen_show with beside true; if two are up already it names \
+them, so ask which to swap and call again with replace first or second. Without beside, what \
+goes up replaces everything.
+- To take everything off a screen, back to its clock ("turn the screen off", "clear the TV", \
+"take that off the screen", "go home" said of a screen), call screen_off; with pane first or \
+second it takes off only that one.
+- When the owner wants this app to control a screen ("become the remote", "be the remote", \
+"control the TV"), call screen_remote: the app opens the remote for it. For screen_off and \
+screen_remote, leave screen out when one screen shows anything; otherwise ask which.
 - What you know from general knowledge (typical visa rules, travel times) is useful but not \
 checked live: record it as a fact only with source 'general knowledge, not verified live', and \
 say so when you tell the owner.

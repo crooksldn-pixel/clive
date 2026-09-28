@@ -74,8 +74,9 @@ async def test_health_names_each_subsystem(client):
     assert body["status"] in {"ok", "degraded"}
     assert {
         "claude", "scribe", "whisper", "speech", "tts", "shopify", "gmail", "knowledge_base",
-        "terminology",
     } <= body["checks"].keys()
+    # The catalogue term list is gone with the recogniser biasing it fed (28 September 2026).
+    assert "terminology" not in body["checks"]
     for name, check in body["checks"].items():
         # ok and detail are the contract every check keeps, and the tablet reads nothing else.
         # Two checks add one optional field apiece: `whisper` says disabled=True where the host
@@ -156,12 +157,9 @@ async def test_text_is_capped(client):
 
 
 async def test_turn_goes_through_the_provider_once(client):
-    # The transcript was "hello" until Phase 5 §24, and is a question about the shop now. Not
-    # a weakened expectation — a stronger one, of a different module: "hello" no longer
-    # reaches the model at all (app/families/interaction.py), because a greeting answered by a
-    # round trip to a language model was nine of the live session's unrouted turns. This test
-    # is about the PROVIDER path, so it needs a sentence that takes it; the sentence itself was
-    # always incidental.
+    # Every sentence takes the provider path (the word-matching lane that answered some of
+    # them was removed on 28 September 2026); this one is a question about the shop, and the
+    # sentence itself is incidental.
     said = "how much stock of the yard jeans"
     body = (await client.post("/turn", json={"text": said, "session_id": "once"})).json()
     assert body["answer"].startswith("fake answer")
@@ -176,57 +174,34 @@ async def test_turn_goes_through_the_provider_once(client):
     assert sent.count(said) == 1
 
 
-async def test_a_spoken_order_number_is_looked_up_before_the_model_is_asked(client, monkeypatch):
-    """The Mac already knows "order 1930" is an order number. It runs the lookup the model
-    would have run first, through the same gate, hands the model the result, and the card
-    still comes from the tool call. A mis-heard number costs one Shopify call, not a turn."""
+async def test_a_spoken_order_number_is_not_looked_up_before_the_model_is_asked(client, monkeypatch):
+    """An order number in the sentence used to be looked up ahead of the model and the result
+    pinned to the prompt. The owner removed that on 28 September 2026: a number mentioned in
+    passing meant the record was read (and sometimes answered) before the model had seen what
+    was asked. The model reads what it decides to read."""
     from app.routes import turn as turn_module
 
     seen = []
 
     async def fake_dispatch(name, args, *, session, timeout_s, calls=None):
         seen.append((name, args))
-        session.issue("gid://shopify/Order/1930")
-        if calls is not None:
-            calls.append(ToolCall(name=name, args=args, ok=True, result={"orders": [{"order_id": "gid://shopify/Order/1930", "order_number": "#1930", "payment": "paid", "fulfillment": "unfulfilled", "total": "£60.00"}]}))
-        return '{"orders": [{"order_number": "#1930", "payment": "paid"}]}'
+        return "{}"
 
     monkeypatch.setattr("app.tools.dispatch.dispatch", fake_dispatch)
-    body = (await client.post("/turn", json={"text": "Find order 1930 and add a note saying customer called", "session_id": "pre"})).json()
-    assert seen == [("shopify_find_order", {"query": "1930"})]
+    said = "Find order 1930 and add a note saying customer called"
+    body = (await client.post("/turn", json={"text": said, "session_id": "pre"})).json()
+    assert seen == [], "nothing is read ahead of the model"
     _, sent = app.state.runtime.provider.turns[-1]
-    assert "already ran shopify_find_order" in sent and "#1930" in sent and "do not call shopify_find_order for 1930 again" in sent
-    assert body["question"] == "Find order 1930 and add a note saying customer called"
-    assert [c["name"] for c in body["tool_calls"]][0] == "shopify_find_order"
-    assert body["ui"] and body["ui"][0]["type"] == "order", body["ui"]
-    assert "prefetch" in body["timings_ms"]
-    assert "gid://shopify/Order/1930" in app.state.runtime.sessions.get("pre").issued_ids
-    # No order number, or two: nothing is looked up ahead of the model. A read the fast lane
-    # makes for itself is not a prefetch, so the check is on the prefetch, by tool.
-    seen.clear()
-    body = (await client.post("/turn", json={"text": "how many orders today", "session_id": "pre"})).json()
+    assert "already ran" not in sent and sent.split("\n")[1] == said
+    assert body["question"] == said
     assert "prefetch" not in body["timings_ms"]
-    body = (await client.post("/turn", json={"text": "compare order 1930 with order 1931", "session_id": "pre"})).json()
-    assert "prefetch" not in body["timings_ms"]
-    assert [name for name, _ in seen if name == "shopify_find_order"] == []
+    assert "gid://shopify/Order/1930" not in app.state.runtime.sessions.get("pre").issued_ids
+    # The spoken "yes" that approves a waiting card is still recognised before the model is
+    # asked: that is the write boundary's interlock, not a lookup.
     assert turn_module.is_affirmation("yes") and not turn_module.is_affirmation("yes and cancel it")
     # Words that may answer a question the model asked are not affirmations.
     for word in ("fine", "correct", "that's right", "alright", "please"):
         assert not turn_module.is_affirmation(word), word
-
-
-def test_only_an_order_the_owner_named_is_looked_up_ahead():
-    from app.routes.turn import spoken_order_numbers as spoken
-
-    assert spoken("find order 1938 and add a note") == ["1938"]
-    assert spoken("Order number 1938, has it shipped?") == ["1938"]
-    assert spoken("invoice no. 1905") == ["1905"]
-    assert spoken("order number 2025") == ["2025"], "written as a number, it is an order"
-    assert spoken("order #2031") == ["2031"]
-    for phrase in ("orders over 500 pounds", "orders from 2025", "orders in the last 100 days", "how many orders in 2025",
-                   "order 2025 pounds worth", "the order came in 2025", "order 500 units", "orders today"):
-        assert spoken(phrase) == [], phrase
-    assert spoken("compare order 1930 with order 1931") == ["1930", "1931"]
 
 
 async def test_real_provider_is_never_started_by_tests(client):
@@ -280,7 +255,7 @@ async def test_audio_test_returns_playable_wav(client):
 
 
 async def test_tool_calls_carry_redacted_args(client):
-    from app.providers.base import ToolCall, TurnResult
+    from app.providers.base import TurnResult
 
     async def turn(session_id, text):
         return TurnResult(text="ok", session_id=session_id, tool_calls=[
@@ -454,7 +429,7 @@ async def test_the_configured_voice_is_the_one_that_was_approved(client):
 
 async def test_turn_returns_structured_ui_chosen_from_tool_results(client):
     """The cards come from the tool payloads, and the payloads themselves stay on the Mac."""
-    from app.providers.base import ToolCall, TurnResult
+    from app.providers.base import TurnResult
 
     async def turn(session_id, text):
         app.state.runtime.sessions.get_or_create(session_id)   # as the real provider does
@@ -519,16 +494,6 @@ async def test_health_is_cached_briefly_and_fresh_on_request(client):
     fresh = (await client.get("/health?fresh=1")).json()
     assert first["cached"] is False and second["cached"] is True and fresh["cached"] is False
     assert second["checks"] == first["checks"]
-
-
-async def test_the_catalogue_refresh_never_blocks_a_turn(client):
-    runtime = app.state.runtime
-    runtime._catalogue_refreshed_at = 0.0
-    runtime.refresh_catalogue_soon()
-    task = runtime._catalogue_task
-    assert task is not None and not task.done()   # scheduled, not awaited
-    await task
-    assert runtime._catalogue_refreshed_at > 0
 
 
 # --------------------------------------------------------------------------- the council's tests
@@ -972,114 +937,3 @@ async def test_a_cancel_without_a_half_still_abandons_the_session(client):
     assert (await turn).json()["answer"] == "Too late."
     await asyncio.sleep(0)
     assert calls == []
-
-
-# ------------------------------------- a compound answer is one turn, not two
-
-
-async def test_a_partial_recipe_hands_its_cards_and_its_words_to_the_model_in_one_turn(client):
-    """Brief section 16: the workspace is drawn by the Mac and the sentence is written by
-    Claude, in ONE answer.
-
-    The recipe used to return its own sentence and arm the branch, so the owner had to ask
-    twice — which is what the bench's thirty-five-second compound turn cost him once already.
-    Now a `partial` answer carrying a `continuation` does not end the turn: its cards are kept,
-    its reads reach the log, and the continuation goes in front of the model.
-    """
-    from app.fastpath.models import FastAnswer
-    from app.providers.base import ToolCall, TurnResult
-    from app.surfaces import Freshness, Surface
-
-    runtime = app.state.runtime
-    seen: list[str] = []
-
-    async def turn(session_id, text):
-        seen.append(text)
-        return TurnResult(text="They are waiting on the second hoodie. I have drafted the reply.", session_id=session_id)
-
-    runtime.provider.turn = turn
-
-    drawn = ToolCall(name="shopify_order_detail", args={"order_id": "gid://shopify/Order/1"}, ok=True,
-                     result={"order_id": "gid://shopify/Order/1", "order_number": "#1938", "items": []})
-    surface = Surface(surface_type="reply_state", ui_type="metric_group",
-                      data={"title": "Waiting", "metrics": [{"label": "since", "value": "5h"}]},
-                      title="Waiting", subtitle="", freshness=Freshness(source="gmail", complete=True, caveat=""))
-
-    def answered():
-        return FastAnswer(
-            answer="Mia wrote about 1938 five hours ago.",
-            calls=[drawn], drawn=[drawn], surfaces=[surface], partial=True,
-            continuation="[The Mac has read the order and the thread. Say in one sentence what "
-                         "they are waiting for, then call gmail_draft_reply(thread_id='t1', order_id='o1', body=…).]",
-            trace={"ms": 4.0, "critical_path_ms": 3.7},
-        )
-
-    import app.routes.turn as turn_mod
-    from app.fastpath import RECIPES
-    from app.fastpath.intent import Intent, signals_for
-
-    # The routing of this sentence has its own tests (tests/test_graph.py); what is under test
-    # here is what happens AFTER a recipe says "partial, and here is what to tell Claude".
-    real_fast, real_route = turn_mod._fast, turn_mod._route
-    recipe = RECIPES["order_email_reply"]
-
-    def route(text, branch):
-        return "FAST", "under test", Intent(family=recipe.intent_family, confidence=1.0, signals=signals_for(text, branch=branch)), recipe
-
-    async def fast(runtime_, session, branch, intent, recipe_, text):
-        return answered()
-
-    turn_mod._fast, turn_mod._route = fast, route
-    try:
-        body = (await client.post("/turn", json={"text": "have they emailed about this order and draft the reply",
-                                                 "session_id": "compound"})).json()
-    finally:
-        turn_mod._fast, turn_mod._route = real_fast, real_route
-
-    # ONE answer, in two halves, in that order: the sentence the Mac READ leads, and the
-    # sentence the model WROTE follows it. The order is the point — a fact that was read
-    # cannot be displaced by one that was generated, and it is what the owner still hears
-    # if the model fails.
-    assert body["answer"] == ("Mia wrote about 1938 five hours ago. "
-                              "They are waiting on the second hoodie. I have drafted the reply."), body["answer"]
-    # The model was asked, and the continuation was in front of it.
-    assert seen and "gmail_draft_reply" in seen[-1] and "one sentence" in seen[-1]
-    # The recipe's cards survived into that answer, in front of the model's own.
-    types = [item["type"] for item in body["ui"]]
-    assert "metric_group" in types and "order" in types, types
-    # And the turn is recorded as the NORMAL lane that it became, with the recipe's reads on it.
-    assert body["lane"] == "NORMAL"
-    assert any(call["name"] == "shopify_order_detail" for call in body.get("tool_calls") or []), body.get("tool_calls")
-
-
-async def test_a_partial_recipe_with_nothing_to_hand_over_still_answers_on_its_own(client):
-    """`partial` alone does not mean "ask the model": a recipe that read part of what was asked
-    and said so keeps its own answer. Only a continuation moves the turn on."""
-    from app.fastpath.models import FastAnswer
-    from app.providers.base import TurnResult
-
-    runtime = app.state.runtime
-    asked: list[str] = []
-
-    async def turn(session_id, text):
-        asked.append(text)
-        return TurnResult(text="should not be reached", session_id=session_id)
-
-    runtime.provider.turn = turn
-    import app.routes.turn as turn_mod
-
-    real_fast = turn_mod._fast
-
-    async def fast(runtime_, session, branch, intent, recipe, text):
-        return FastAnswer(answer="Three orders today; the inbox did not answer.", partial=True, trace={"ms": 2.0})
-
-    turn_mod._fast = fast
-    try:
-        body = (await client.post("/turn", json={"text": "show me today's orders", "session_id": "partial-only"})).json()
-    finally:
-        turn_mod._fast = real_fast
-    _ = FastAnswer
-
-    assert body["answer"].startswith("Three orders today")
-    assert body["lane"] == "FAST"
-    assert asked == [], "the model was asked for an answer the recipe had already given"

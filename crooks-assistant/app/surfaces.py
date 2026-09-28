@@ -8,7 +8,7 @@ still loading, how fresh it is, and what should be said aloud about it.
 
 Those lived in three places before — sniffed downstream from data keys (`app/routes/turn.py`
 recovered the entity by trying `order_id`, then `customer_id`, then `thread_id`), hardcoded in
-the renderer, or nowhere. A card built by a fast-path recipe that read no tool could not exist
+the renderer, or nowhere. A card built by a recipe that read no tool could not exist
 at all: the only channel into the `ui` list was a `ToolCall`, so "what can you do now?" — which
 reads nothing — answered in prose and drew no card. That is the regression this module exists
 to close.

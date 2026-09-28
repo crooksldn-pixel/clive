@@ -8,21 +8,19 @@ never wanted.
 
 Three sources decide, in this order, and the report says which one spoke:
 
-    the ROUTER's own verdict          `lane.signals.mutation` and `lane.family`, written to
-                                      the timeline at turn time by app/fastpath/intent.py.
-                                      Where it is on the timeline it is the answer: a second
-                                      classifier that can disagree with the router is a
-                                      second bug.
-    the ROUTER's rule, re-run         a timeline with no `lane` event (an older session, a
-                                      turn that never reached the router). `intent.mutating`
-                                      is imported rather than copied, and the verdict is
-                                      marked `report` so a reader knows the router never saw
-                                      this text.
+    the ROUTER's own verdict          `lane.signals.mutation` and `lane.family`, on a
+                                      timeline recorded before 28 September 2026, when a
+                                      word-matching router still wrote a `lane` event at turn
+                                      time. Where it is on the timeline it is the answer.
+    the report's own rule             every turn since, and any turn with no `lane` event.
+                                      `contract.mutating` reads the words; there is no
+                                      family, because nothing routes by words any more, and
+                                      the verdict is marked `report`.
     ONE narrowing rule on top         a mutation word standing as a noun or a state —
                                       "the refund status", "a draft", "the reply" — which
                                       only ever turns a WRITE reading into a READ one, never
-                                      the reverse, and is reported as a disagreement with
-                                      the router whenever it fires.
+                                      the reverse, and is reported as a disagreement
+                                      whenever it fires.
 
 And once a change HAS been asked for, `app/capabilities/families.py` says what to do about
 it: a change with no family is a capability that does not exist (a candidate new action
@@ -48,17 +46,16 @@ STATE_NOUNS = frozenset({
 # "any refund", "his draft". On its own that is not enough — "give them the refund" is an
 # instruction — so it counts only in a sentence that is opened as an actual QUESTION.
 #
-# "Opened as a question" here is NARROWER than the router's `_OPENERS`, and deliberately: the
-# router counts "show", "list", "give", "find" among the words that open a question, because
-# "show me the sales" is a read and being cautious there costs one model call. Here the cost of
-# being wrong runs the other way — a change wrongly read as a question is an unfulfilled action
-# that goes unreported — so the fetching verbs are taken back out. The set is the router's own,
-# minus a named few, so it can never contain a word the router does not.
+# "Opened as a question" here is NARROWER than `contract.OPENERS`, and deliberately: that set
+# counts "show", "list", "give", "find" among the words that open a question, because "show me
+# the sales" is a read. Here the cost of being wrong runs the other way — a change wrongly read
+# as a question is an unfulfilled action that goes unreported — so the fetching verbs are taken
+# back out. The set is the contract's own, minus a named few.
 DETERMINERS = frozenset({
     "the", "a", "an", "any", "that", "this", "these", "those", "his", "her", "their",
     "my", "our", "its", "some", "no", "which", "what", "whats", "another", "each",
 })
-# Words the router counts as opening a question that are really instructions to fetch. A
+# Words the contract counts as opening a question that are really instructions to fetch. A
 # sentence that begins with one of them is not interrogative enough for a determiner alone to
 # make a mutation word into a noun.
 FETCHING = frozenset({"show", "list", "tell", "give", "find", "check", "read", "look"})
@@ -192,13 +189,13 @@ def nominal_only(text: str) -> str:
     """Every mutation word in this sentence stands as a noun or a state.
 
     Returns the phrase that decided it, or "" when at least one mutation word is an
-    instruction. The words come from the router's own sets (app/fastpath/intent.py) — they are
+    instruction. The words come from the contract's own sets (app/observability/contract.py) —
     imported, never copied — so this rule can only ever say "that word is a noun here"; it can
-    never invent a mutation word the router does not know.
+    never invent a mutation word the contract does not know.
     """
-    from app.fastpath.intent import _OPENERS, MUTATION
+    from app.observability.contract import MUTATION, OPENERS
 
-    asking = _OPENERS - FETCHING
+    asking = OPENERS - FETCHING
     words = _tokens(text)
     if not words:
         return ""
@@ -230,16 +227,16 @@ class Verdict:
     text: str
     mutation: bool
     mutation_source: str          # "router" | "report"
-    family: str                   # the intent family that took it, "" for none
-    family_source: str            # "router" | "report" | "none"
+    family: str                   # the intent family an older router gave it, "" for none
+    family_source: str            # "router" | "none"
     reason: str                   # the router's own words, where it left any
     change: Change | None = None
     disagreement: str = ""        # non-empty when this module narrowed the router's reading
 
     @property
     def unplaced(self) -> bool:
-        """No intent family took this request. The signal §27 asks for: a possible new
-        family, read or action, depending on `mutation`."""
+        """No intent family took this request — always so since the word-matching router was
+        removed. Kept so a verdict read from an older timeline still says what it said."""
         return not self.family
 
     def as_dict(self) -> dict[str, Any]:
@@ -250,11 +247,11 @@ class Verdict:
 
 
 def read_request(text: str, *, lane: dict[str, Any] | None = None) -> Verdict:
-    """The request, read the way the turn's own router read it.
+    """The request, read the way the turn's own router read it when there was one.
 
-    `lane` is the turn's `lane` timeline event. With one, the mutation verdict and the family
-    are the router's; without one they are worked out again from the router's rule and marked
-    as this report's reading, because the router never saw this text.
+    `lane` is the turn's `lane` timeline event, which only a timeline recorded before the
+    router was removed has. With one, the mutation verdict and the family are the router's;
+    without one the mutation is this report's reading and there is no family.
     """
     said = (text or "").strip()
     signals = (lane or {}).get("signals") if isinstance((lane or {}).get("signals"), dict) else {}
@@ -265,27 +262,17 @@ def read_request(text: str, *, lane: dict[str, Any] | None = None) -> Verdict:
         family_source = "router" if family else "none"
         reason = str(lane.get("reason") or "")
     else:
-        from app.fastpath.intent import mutating
+        from app.observability.contract import mutating
 
         mutation = bool(said) and mutating(_tokens(said))
         mutation_source = "report"
         family, family_source, reason = "", "none", ""
-        if said:
-            try:
-                from app.fastpath.intent import resolve
-
-                intent = resolve(said)
-                family = intent.family or ""
-                family_source = "report" if family else "none"
-                reason = intent.reason or ""
-            except Exception:  # noqa: BLE001 — a router that will not run leaves the family unknown
-                family, family_source = "", "none"
     disagreement = ""
     if mutation:
         phrase = nominal_only(said)
         if phrase:
             mutation = False
-            disagreement = f"the router read {phrase!r} as a change; here it is a noun, so the turn is graded as a read"
+            disagreement = f"{phrase!r} reads as a change word; here it is a noun, so the turn is graded as a read"
     change = change_named(said) if mutation else None
     return Verdict(text=said, mutation=mutation, mutation_source=mutation_source, family=family,
                    family_source=family_source, reason=reason, change=change, disagreement=disagreement)

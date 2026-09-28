@@ -485,7 +485,7 @@ def test_the_report_names_the_branch_the_precision_input_and_the_repeats(tmp_pat
     assert "focus changed with nothing redrawn" in what
     assert "a half put aside was never returned to" in what
     assert any("was refused" in x for x in what)
-    for heading in ("### Possible new read families", "### UI component gaps", "### Branch (split orb) UX failures",
+    for heading in ("### UI component gaps", "### Branch (split orb) UX failures",
                     "### Precision input needed", "### Repeated corrections", "### Repeated cross-source workflows"):
         assert heading in markdown, heading
 
@@ -499,7 +499,6 @@ def test_each_detection_becomes_a_candidate_a_person_can_pick_up(tmp_path):
     path = september(tmp_path)
     rec, _ = build_report(path, tools_registered=TOOLS)
     intel = intelligence(rec, TOOLS)
-    assert [n for _shape, n, _ids, _why in intel["new_read_families"] if n >= 2], intel["new_read_families"]
     assert any("typed into the composer" in what for _t, what, _d in intel["precision_input"])
     # CHANGED IN PHASE 5, because the old expectation was provably wrong (§21).
     #
@@ -519,7 +518,7 @@ def test_each_detection_becomes_a_candidate_a_person_can_pick_up(tmp_path):
     assert [n for _shape, n, _ids in intel["cross_source_workflows"] if n >= 2], intel["cross_source_workflows"]
 
     text = write_proposals(path, tmp_path / "reports").read_text(encoding="utf-8")
-    for kind in ("NEW_CAPABILITY_FAMILY", "NEW_READ_FAMILY", "BRANCH_UX", "PRECISION_INPUT",
+    for kind in ("NEW_CAPABILITY_FAMILY", "BRANCH_UX", "PRECISION_INPUT",
                  "CORRECTION", "CROSS_SOURCE_RECIPE"):
         assert kind in text, kind
     assert "create a discount code" in text and "put store credit on a customer" in text

@@ -10,38 +10,29 @@ question. It is a place, and a place has a fixed shape whatever was said before 
     Sales     the week against the week before, today so far, and what is selling
     Products  the best sellers of the month and what is closest to running out
 
-Each is a FAST recipe — deterministic reads through the read scheduler, no model — reached
-two ways that resolve to the same recipe: a tap on the dock posts the semantic command
-`open.area` (touch; `app/routes/command.py` runs the named recipe), and "open orders" /
-"open the inbox" / "show me sales" spoken resolve to the same recipe through an intent
-family. Products by voice has no signal of its own ("products" is not a word the router
-knows) and reaches the model; the tap is the way in, and the report says so.
+Each is a recipe — deterministic reads through the read scheduler, no model — reached by a
+tap: the dock posts the semantic command `open.area`, and `app/routes/command.py` runs the
+named recipe. Home and Back land here too (app/commands.py). A sentence never does: "open the
+inbox" said out loud is a model turn like every other sentence, and Claude reads the inbox
+with its own tools.
+
+The helpers below (the reply queue, the working set a listing opens, money and periods in
+words) live here because the landings are the only thing left that uses them.
 
 Read-only, like every recipe: `assert_read_only` holds for these too.
 """
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from app import commands as commands_mod
 from app.commands import Command, Outcome
 from app.commands import Ctx as CommandCtx
 from app.commands import register as register_command
-from app.fastpath import library
-from app.fastpath.intent import Family, extend, signal
-from app.fastpath.models import Ctx, FastAnswer
-from app.fastpath.recipes import CACHE_ANALYTICS, CACHE_EMAIL, Recipe, register
 from app.reads.scheduler import Read, ReadPlan, ReadResult
-
-# The Products landing's own word. The router knows "stock" and "running out" but not
-# "products", so "open products" — one of the four things the dock offers — reached the model
-# while the other three did not. A family brings its own word (app/fastpath/intent.signal).
-PRODUCT_WORDS = frozenset({"products", "product", "inventory", "merchandise", "range"})
-_SAYS_PRODUCTS = signal(
-    "says_products_area",
-    lambda s: s.stock or bool(set(s.words) & PRODUCT_WORDS),
-)
+from app.recipes import CACHE_ANALYTICS, CACHE_EMAIL, Ctx, Recipe, RecipeAnswer, register
 
 AREAS: dict[str, str] = {
     "orders": "landing_orders",
@@ -53,8 +44,394 @@ AREAS: dict[str, str] = {
 # The same table, where `navigation.home` can find it. A command must not import a family —
 # `app/commands.py` is the bottom of the stack and the families sit on top of it — so the
 # families hand their landings down instead. Home is then "the recipe for this half's area",
-# resolved in one place for the tap and the sentence both (app/commands.py:home_target).
+# resolved in one place (app/commands.py:home_target).
 commands_mod.LANDING_FOR.update(AREAS)
+
+
+# ------------------------------------------------------------------ shared helpers
+
+
+def _hedge(body: dict[str, Any]) -> str:
+    """What the read itself says about its own completeness, added to the answer rather than
+    left in the payload for nobody. The order cache says `complete: False` with a `note`
+    while it is still filling — which is exactly the first questions after a restart."""
+    if not isinstance(body, dict) or body.get("complete") is not False:
+        return ""
+    note = " ".join(str(body.get("note") or "").split())
+    return f" {note}" if note else " The server is still reading recent orders, so this is what it holds so far."
+
+
+def _how_many(body: dict[str, Any], shown: int) -> str:
+    """How many there are, not how many fitted. A limit of 25 against 61 matching orders was
+    being spoken as "25 orders are unfulfilled"."""
+    total = body.get("row_count")
+    if isinstance(total, int) and total > shown:
+        return f"{total} (showing {shown})"
+    return str(shown)
+
+
+def _period_words(body: dict[str, Any], fallback: str = "the period") -> str:
+    """The period as a person says it. The read layer's own label first; its slug, spelled
+    out, second — "last_30_days" was being read aloud with the underscores in it."""
+    period = body.get("period") if isinstance(body.get("period"), dict) else {}
+    label = str(period.get("label") or "").strip()
+    if label:
+        return label
+    slug = str(period.get("name") or period.get("period") or "").strip()
+    return slug.replace("_", " ") if slug else fallback
+
+
+# What the Mac's own reads call money. Shopify's shape is already a string with its currency
+# in it ("45.00 GBP"); the read layer's is a bare number with the currency beside it. One
+# answer must not contain both shapes.
+_SYMBOL = {"GBP": "£", "USD": "$", "EUR": "€"}
+
+
+def _money(value: Any, currency: str = "GBP") -> str:
+    if isinstance(value, str):
+        parts = value.split()
+        if len(parts) == 2 and parts[1].isalpha():
+            value, currency = parts[0], parts[1].upper()
+    try:
+        return f"{_SYMBOL.get(currency.upper(), currency.upper() + ' ')}{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return str(value or "")
+
+
+def _totals_line(totals: dict[str, Any], period: str, currency: str = "GBP") -> str:
+    bits = []
+    if totals.get("revenue") is not None:
+        bits.append(_money(totals["revenue"], currency))
+    if totals.get("orders") is not None:
+        bits.append(f"{int(totals['orders'])} orders")
+    if totals.get("aov") is not None:
+        bits.append(f"{_money(totals['aov'], currency)} average")
+    head = period[:1].upper() + period[1:] if period else "The period"
+    return (f"{head}: " + ", ".join(bits) + ".") if bits else f"Nothing to report for {period}."
+
+
+# How far back "waiting on us" looks in the inbox.
+NEEDS_REPLY_DAYS = 30
+
+
+def _set_id_of(body: Any, key: str = "set") -> str:
+    """The working set a listing made. The read layer publishes it under `set` (the whole
+    public shape) — `set_id` at the top level is what the batch tools' own results use — so
+    both are looked for rather than one being assumed."""
+    if not isinstance(body, dict):
+        return ""
+    held = body.get(key)
+    if isinstance(held, dict) and held.get("set_id"):
+        return str(held["set_id"])
+    return str(body.get("set_id") or "")
+
+
+# The same question, asked again inside this window, gets the short form: the owner has just
+# heard who is waiting and how far back the inbox was read, and is asking whether anything has
+# changed, not for the scope of the check read out a second time.
+NEEDS_REPLY_REPEAT_S = 600.0
+
+
+def _first_names(rows: list[dict[str, Any]], limit: int = 3, *, full: bool = False) -> str:
+    names = [str(r.get("customer_name") or "someone") for r in rows[:limit]]
+    names = names if full else [n.split()[0] for n in names]
+    rest = len(rows) - len(names)
+    if rest > 0:
+        names.append(f"{rest} other{'s' if rest > 1 else ''}")
+    if len(names) <= 1:
+        return names[0] if names else "nobody"
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _asked_again(ctx: Ctx, *, clock=time.time) -> bool:
+    """Whether this is a repeat of the question within the window; stamps the session either
+    way. A session without the attribute (a bare stand-in in a test) is never a repeat."""
+    now = float(clock())
+    last = float(getattr(ctx.session, "last_needs_reply_at", 0.0) or 0.0)
+    try:
+        ctx.session.last_needs_reply_at = now
+    except AttributeError:
+        return False
+    return bool(last) and 0 <= now - last < NEEDS_REPLY_REPEAT_S
+
+
+def _waited_since(row: dict[str, Any]) -> float | None:
+    """When this person started waiting on us: their first message we have not answered, or
+    — from a read that does not say — their latest."""
+    for key in ("waiting_since", "latest_inbound_at"):
+        value = row.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+    return None
+
+
+# How many people the waiting card draws. The same slice is issued and walked, never more.
+WAITING_SHOWN = 10
+
+
+def _longest_waiting_first(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The order the answer names them in, the card lists them in and Next walks them in. The
+    queue came out 11d, 13d, 13d, 5d, …, 1d — the read's own order, which is nobody's."""
+    return sorted(rows, key=lambda r: (_waited_since(r) is None, _waited_since(r) or 0.0))
+
+
+def _reply_scope(body: dict[str, Any], rows: list[dict[str, Any]]) -> tuple[str, str]:
+    """What was checked, in words: (the scope for the sentence, the note for the card).
+
+    The answer said "10 of 25 customers checked" to a question about the inbox. Whatever this
+    read covered is said as what it covered — never as the whole inbox when it was not."""
+    if body.get("scope") != "inbox":
+        counts = body.get("counts") or {}
+        total = int(counts.get("contacted") or 0) + int(counts.get("not_contacted") or 0) + int(counts.get("unchecked") or 0) or len(rows)
+        return f"of the {total} customers checked", ""
+    days = int(body.get("days") or NEEDS_REPLY_DAYS)
+    if body.get("window_complete") is False:
+        listed = int(body.get("threads_listed") or 0)
+        return (f"in the inbox's newest {listed} threads",
+                f"The newest {listed} threads were checked; the last {days} days hold more.")
+    return f"in the inbox's last {days} days", ""
+
+
+def _needs_reply_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
+    body = result.values.get("mail")
+    if not isinstance(body, dict):
+        return RecipeAnswer(answer="", defer="the inbox did not come back")
+    rows = [r for r in (body.get("rows") or []) if isinstance(r, dict)]
+    waiting = _longest_waiting_first([r for r in rows if r.get("needs_reply")])
+    inbox = body.get("scope") == "inbox"
+    counts = body.get("counts") or {}
+    unchecked = int(counts.get("unchecked") or 0)
+    scope, scope_note = _reply_scope(body, rows)
+    again = _asked_again(ctx)
+    # What "next" walks here is the MESSAGES, not the people. Opening the customers set meant
+    # tapping Next on "Waiting on a reply" drew Mia Jones's customer profile — three orders,
+    # £213 lifetime — instead of the message she is waiting on an answer to. The queue is a
+    # queue of things to reply to, so its cursor moves along the threads.
+    #
+    # And the thread ids go into `issued_ids`, because this card puts them on the screen. The
+    # gate's rule is that a conversation may only reach a record it was shown, and the surface
+    # is built here rather than harvested from a tool result, so nothing else would have
+    # issued them — which made every row of this card unopenable by the very check that
+    # exists to protect it.
+    # Only the threads the card draws are issued and walkable (the 2026-09-26 deploy review, F-04):
+    # the gate's rule is that a conversation reaches only a record it was shown.
+    _open_waiting_threads(ctx, body, waiting[:WAITING_SHOWN])
+    waiting_set = _set_id_of(body, "set_needs_reply")
+    if waiting_set and ctx.branch.workflow is None:
+        _open_workflow(ctx, body, kind="customers", operation="reply", set_id=waiting_set)
+    tail = (f" {unchecked} {'thread' if inbox else 'customer'}{'s' if unchecked != 1 else ''} could not be checked." if unchecked else "")
+    unchecked_tail = tail   # before the sent-check caveat joins it
+    # A reply sent as a new email that was not looked for everywhere is said, in the answer and on
+    # the card: someone shown as waiting may already have been answered (the 2026-09-26 deploy
+    # review, F-02). The scan logs why; the owner is told what it means.
+    sent = str(body.get("sent_checked") or "all") if inbox else "all"
+    caveat = ""
+    if waiting and sent != "all":
+        caveat = ("Replies sent as new emails could not be checked, so some of these may already have been answered."
+                  if sent == "none" else
+                  "Only the newest sent emails were checked for replies, so some of these may already have been answered.")
+        tail += " " + caveat
+        scope_note = " ".join(filter(None, [scope_note, caveat]))
+    # A list that may name people already answered is a partial answer, whichever way it is said.
+    partial = bool(unchecked) or bool(caveat) or result.partial
+    if len(waiting) > WAITING_SHOWN:
+        scope_note = " ".join(filter(None, [scope_note, f"The {WAITING_SHOWN} longest waits are shown."]))
+    # A repeat drops the scope sentence, but never what makes the answer less than whole: the
+    # threads that could not be checked and a window that was cut short are said every time
+    # (the 2026-09-26 deploy reviews, F-08).
+    limits = ""
+    if inbox and body.get("window_complete") is False:
+        limits = f" Only the newest {int(body.get('threads_listed') or 0)} threads were checked."
+    if not waiting:
+        if again:
+            answer = f"Still nobody.{unchecked_tail}{limits}"
+        elif inbox:
+            answer = f"Nobody is waiting on a reply {scope} — {int(body.get('threads_checked') or 0)} threads from people checked.{tail}"
+        else:
+            answer = f"Nobody is waiting on a reply — {len(rows)} {scope}.{tail}"
+        return RecipeAnswer(answer=answer, calls=list(result.calls),
+                          partial=partial, trace={"rows": len(rows), "waiting": 0, "unchecked": unchecked, "repeat": again})
+    if again:
+        # "Still just Mia." — no scope sentence: it was said the first time, and the owner is
+        # asking whether anything moved, not how wide the check was. The sent-check caveat is
+        # NOT the scope, though: it says this list may be wrong, and a repeat is the answer he
+        # acts on, so it is said again (the deploy review of 9c37973f, F-02's repeat branch).
+        answer = f"Still {'just ' if len(waiting) == 1 else ''}{_first_names(waiting)}.{unchecked_tail}{limits}" + (f" {caveat}" if caveat else "")
+    elif inbox:
+        who = "person is" if len(waiting) == 1 else "people are"
+        answer = f"{len(waiting)} {who} waiting on a reply {scope}: {_first_names(waiting, full=True)}.{tail}"
+    else:
+        answer = f"{len(waiting)} {scope} {'is' if len(waiting) == 1 else 'are'} waiting on a reply: {_first_names(waiting, full=True)}.{tail}"
+    return RecipeAnswer(
+        answer=answer,
+        surfaces=[_waiting_surface(waiting, unchecked=unchecked, scope=scope_note)], drawn=[],
+        calls=list(result.calls), partial=partial,
+        trace={"rows": len(rows), "waiting": len(waiting), "unchecked": unchecked, "repeat": again},
+    )
+
+
+def _open_waiting_threads(ctx: Ctx, body: dict[str, Any], waiting: list[dict[str, Any]]) -> None:
+    """Make the queue walkable and its rows openable: one set of the threads being waited on."""
+    from app.analytics import sets as working_sets
+
+    threads = [str(r.get("last_thread_id") or "") for r in waiting]
+    threads = [t for t in threads if t]
+    if not threads:
+        return
+    issue = getattr(ctx.session, "issue", None)
+    if callable(issue):
+        issue(*threads)
+    labels = {
+        str(r.get("last_thread_id") or ""): str(r.get("customer_name") or r.get("last_subject") or "")[:60]
+        for r in waiting if r.get("last_thread_id")
+    }
+    detail = {"tool": "email_query", "which": "waiting"}
+    parent = working_sets.get(ctx.session, _set_id_of(body))
+    if parent is not None:
+        made = working_sets.derive(
+            ctx.session, parent, members=threads, label="Waiting on a reply", step="correlate",
+            kind="emails", labels=labels, detail=detail, focus=False,
+        )
+    else:
+        # The inbox read starts from no set, so the queue is a set of its own.
+        made = working_sets.create(
+            ctx.session, kind="emails", members=threads, label="Waiting on a reply",
+            provenance={**detail, "step": "correlate"}, labels=labels, focus=False,
+        )
+    _open_workflow(ctx, body, kind="emails", operation="reply", set_id=made.set_id)
+
+
+def _since(when: Any, *, now: float | None = None) -> str:
+    """How long ago, in the words a person would use. Worked out here because the Mac owns the
+    clock and the shop's timezone; the renderer prints whatever string it is given."""
+    import datetime as _dt
+
+    text = str(when or "").strip()
+    if not text:
+        return ""
+    # Gmail's own stamp is epoch milliseconds, which is what reaches here; an ISO string is
+    # accepted too because the Shopify side speaks that. Anything else is handed back as it
+    # came rather than guessed at — a wrong "3h ago" is worse than a date.
+    if text.lstrip("-").isdigit():
+        value = float(text)
+        at = value / 1000.0 if abs(value) > 1e11 else value
+    else:
+        try:
+            stamp = _dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return text
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=_dt.UTC)
+        at = stamp.timestamp()
+    seconds = (_dt.datetime.now(_dt.UTC).timestamp() if now is None else now) - at
+    if seconds < 0:
+        return "just now"
+    if seconds < 90 * 60:
+        return f"{max(1, int(seconds // 60))}m ago"
+    if seconds < 36 * 3600:
+        return f"{int(seconds // 3600)}h ago"
+    return f"{int(seconds // 86400)}d ago"
+
+
+def _waiting_surface(waiting: list[dict[str, Any]], *, unchecked: int = 0, scope: str = ""):
+    """The people waiting on us, as the thing the question asked for.
+
+    This recipe used to hand its raw reads to `present()`, which built whatever the analytic
+    results implied: a revenue RANKING of recent customers, a working set, a metric group, a
+    table, and a second working set — 1,886 pixels, five cards, three of them titled "Recent
+    customers", and not one of them saying who was waiting. The spoken answer named the three
+    people correctly while the screen showed a leaderboard.
+
+    So the answer is drawn from the rows the recipe already has, and says the three things the
+    owner needs to decide without opening anything: who, what about, and how long they have
+    been waiting. Tapping a row opens that thread — the thread id is on the row, so nothing has
+    to be looked up again.
+    """
+    from app.surfaces import Freshness, Surface
+
+    threads = []
+    for row in waiting[:WAITING_SHOWN]:
+        # The order numbers the THREADS name, when the correlation found any — that is what
+        # the email is about — and the customer's recent orders otherwise. With how sure the
+        # link between this person and these threads is, because the row is a decision to
+        # reply and a wrong link is a reply to the wrong question.
+        related = [str(o).lstrip("#") for o in (row.get("related_orders") or []) if o][:3]
+        orders = [f"#{o}" for o in related] or [str(o) for o in (row.get("orders") or []) if o][:2]
+        confidence = str(row.get("confidence") or "")
+        count = int(row.get("thread_count") or row.get("threads") or 0)
+        threads.append({
+            "thread_id": str(row.get("last_thread_id") or ""),
+            "from": str(row.get("customer_name") or row.get("customer_email") or "someone"),
+            "subject": str(row.get("last_subject") or "(no subject)"),
+            # What ties it to the shop, which is why this is one system and not two.
+            # §26: the confidence in words, not in the correlator's own token. This line
+            # read "#1938 · confident" on the glass — `confident` and `possible` are how
+            # app/families/order_email.py grades a link, and neither is a thing a person
+            # says. A certain link needs no adjective: the order number IS the claim. An
+            # uncertain one must be visibly uncertain, because the row is a decision to
+            # reply and a wrong link is a reply to the wrong question — so it says so.
+            "snippet": " · ".join(filter(None, [
+                # Where it came in: the store's contact form, whose subject is Shopify's own
+                # "New customer message on …" and says nothing about what they asked.
+                "contact form" if row.get("via") == "contact_form" else "",
+                (f"maybe {', '.join(orders)}" if confidence == "possible" and orders
+                 else ", ".join(orders)),
+                "not sure which order" if confidence == "possible" and not orders else "",
+                f"{count} threads" if count > 1 else "",
+            ])),
+            # How long they have waited — the figure the rows are ordered by, so the column
+            # reads down from the longest wait rather than jumping about.
+            "date": _since(int(waited)) if (waited := _waited_since(row)) else "",
+            # The inbox read says who is a customer; a row from a set of customers is one.
+            "known_customer": row.get("known_customer", True) is not False,
+            "related_orders": related,
+            "confidence": confidence[:12],
+        })
+    note = " ".join(filter(None, [scope, f"{unchecked} could not be checked." if unchecked else ""]))
+    return Surface(
+        surface_type="work_queue",
+        ui_type="email_list",
+        data={"title": "Waiting on a reply", "count": len(waiting), "threads": threads, "note": note},
+        title="Waiting on a reply",
+        subtitle=f"{len(waiting)} waiting" + (f" · {note}" if note else ""),
+        freshness=Freshness(source="gmail", complete=not unchecked and not scope,
+                            caveat=note or ""),
+    )
+
+
+# Which of the dock's places a set of each kind belongs to, so a listing lands the branch
+# somewhere Home and Back can name. The reply queue lists CUSTOMERS and is the inbox.
+SET_AREA = {"orders": "orders", "emails": "email", "customers": "email",
+            "products": "products", "variants": "products"}
+
+
+def _open_workflow(ctx: Ctx, body: dict[str, Any], *, kind: str, operation: str, set_id: str = "",
+                   area: str = "") -> None:
+    """A listing becomes something to work through: the branch takes its cursor to the top.
+    "Next" is then arithmetic, which is the whole point.
+
+    And the LISTING ITSELF becomes a stop on the trail. That is new, and it is what makes Back
+    worth pressing: the owner starts at a list, opens a row, follows a relation, and the way
+    back out was missing its first step — the list was never on the trail, because only
+    records were, so the deepest Back he could reach was the first record he had opened.
+    """
+    from app.analytics import sets as working_sets
+    from app.session.branch import LIST_KIND, Workflow
+
+    set_id = set_id or _set_id_of(body)
+    if not set_id:
+        return
+    ws = working_sets.get(ctx.session, set_id)
+    if ws is None or not ws.members:
+        return
+    ctx.branch.set_id = ws.set_id
+    # Before the first member, so the first tap on Next lands on it (app/commands.py
+    # move_cursor counts from -1).
+    workflow_id = f"wf_{int(time.time() * 1000) % 10**9:09d}"
+    ctx.branch.workflow = Workflow(workflow_id=workflow_id, set_id=ws.set_id, kind=kind, label=ws.label, operation=operation, cursor=-1, total=len(ws.members))
+    ctx.branch.enter(area=area or SET_AREA.get(kind, ""), kind=LIST_KIND, ref=ws.set_id,
+                     label=ws.label, set_id=ws.set_id, set_kind=kind, set_label=ws.label,
+                     total=len(ws.members), operation=operation, workflow_id=workflow_id)
 
 
 # ------------------------------------------------------------------------------ orders
@@ -69,7 +446,7 @@ def _arrived(ctx: Ctx, area: str) -> None:
     A landing is a stop on the trail, and the place a Home goes back to. It is recorded here
     rather than in the command that names the recipe, because a landing that could not be
     drawn is not somewhere the owner arrived — and the two landings that open a working set
-    refine this stop with the set a moment later (`library._open_workflow`).
+    refine this stop with the set a moment later (`_open_workflow`).
     """
     from app.session.branch import LANDING_KIND
 
@@ -105,10 +482,10 @@ def _call_named(result: ReadResult, node: str):
     return None
 
 
-def _orders_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
+def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     open_body, today_body = result.values.get("open"), result.values.get("today")
     if not isinstance(open_body, dict) and not isinstance(today_body, dict):
-        return FastAnswer(answer="", defer="the order reads did not answer")
+        return RecipeAnswer(answer="", defer="the order reads did not answer")
     _arrived(ctx, "orders")
     waiting, today = _rows(open_body), _rows(today_body)
     # The set the cursor walks is the operational one: the orders still to go out, oldest
@@ -116,15 +493,15 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     primary = "open" if waiting else "today"
     body = open_body if waiting else today_body
     if isinstance(body, dict):
-        library._open_workflow(ctx, body, kind="orders", operation="review")
+        _open_workflow(ctx, body, kind="orders", operation="review")
     if waiting:
         oldest = waiting[0]
-        words = f"{library._how_many(open_body, len(waiting))} order{'s' if len(waiting) != 1 else ''} to go out; the oldest is {str(oldest.get('order_number') or '').lstrip('#')} at {int(oldest.get('age_days') or 0)} days."
+        words = f"{_how_many(open_body, len(waiting))} order{'s' if len(waiting) != 1 else ''} to go out; the oldest is {str(oldest.get('order_number') or '').lstrip('#')} at {int(oldest.get('age_days') or 0)} days."
     else:
         words = "Nothing is waiting to go out."
     words += f" {len(today)} order{'s' if len(today) != 1 else ''} today." if today else " None in today yet."
     drawn = [c for c in (_call_named(result, primary), _call_named(result, "today" if primary == "open" else "open")) if c is not None]
-    return FastAnswer(answer=words + library._hedge(open_body if isinstance(open_body, dict) else today_body),
+    return RecipeAnswer(answer=words + _hedge(open_body if isinstance(open_body, dict) else today_body),
                       calls=list(result.calls), drawn=drawn, partial=result.partial,
                       trace={"waiting": len(waiting), "today": len(today), "primary": primary})
 
@@ -132,26 +509,45 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
 # ------------------------------------------------------------------------------- inbox
 
 
-def _inbox_plan(ctx: Ctx) -> ReadPlan | None:
+# The recent threads beside the queue: a week of them, which is what the Inbox is a place for.
+RECENT_DAYS = 7
+RECENT_WHEN = "this week"
+
+
+def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG001 — reads only the result
+    body = result.values.get("inbox")
+    if not isinstance(body, dict):
+        return RecipeAnswer(answer="", defer="the inbox did not answer")
+    threads = [t for t in (body.get("threads") or []) if isinstance(t, dict)]
+    real = [t for t in threads if not t.get("likely_bulk")]
+    if not real:
+        return RecipeAnswer(answer=f"Nothing from a person in the inbox {RECENT_WHEN}.", calls=list(result.calls),
+                            trace={"threads": 0, "days": RECENT_DAYS})
+    newest = real[0]
+    return RecipeAnswer(answer=f"{len(real)} threads from people {RECENT_WHEN}; the newest is {newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}.",
+                        calls=list(result.calls), partial=result.partial, trace={"threads": len(real), "days": RECENT_DAYS})
+
+
+def _inbox_plan(ctx: Ctx) -> ReadPlan | None:   # noqa: ARG001 — a place has one shape
     """The needs-reply queue's read of the inbox, and the recent threads beside it. Neither
     waits for the other."""
-    queue = library._needs_reply_plan(ctx)
-    recent = library._inbox_plan(ctx)
-    reads = list(queue.reads if queue else []) + list(recent.reads if recent else [])
-    return ReadPlan(reads, label="landing_inbox", timeout_s=16.0) if reads else None
+    return ReadPlan([
+        Read("mail", "email_query", {"days": NEEDS_REPLY_DAYS}, source="gmail", cost=8.0, timeout_s=10.0, draws=False),
+        Read("inbox", "gmail_search", {"query": "", "days": RECENT_DAYS, "limit": 12}, source="gmail", cost=2.0),
+    ], label="landing_inbox", timeout_s=16.0)
 
 
-def _inbox_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
-    queue = library._needs_reply_render(ctx, result)
-    recent = library._inbox_render(ctx, result)
+def _inbox_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
+    queue = _needs_reply_render(ctx, result)
+    recent = _recent_render(ctx, result)
     if queue.deferred and recent.deferred:
-        return FastAnswer(answer="", defer=f"{queue.defer}; {recent.defer}")
+        return RecipeAnswer(answer="", defer=f"{queue.defer}; {recent.defer}")
     _arrived(ctx, "email")
     parts = [a.answer for a in (queue, recent) if not a.deferred and a.answer]
     surfaces = list(queue.surfaces) if not queue.deferred else []
     # The queue is the recipe's own card; the recent threads are drawn from the search read.
     drawn = [c for c in [_call_named(result, "inbox")] if c is not None] if not recent.deferred else []
-    return FastAnswer(answer=" ".join(parts), calls=list(result.calls), surfaces=surfaces, drawn=drawn,
+    return RecipeAnswer(answer=" ".join(parts), calls=list(result.calls), surfaces=surfaces, drawn=drawn,
                       partial=result.partial or queue.partial or recent.partial,
                       trace={"queue": (queue.trace or {}).get("waiting"), "threads": (recent.trace or {}).get("threads")})
 
@@ -176,8 +572,27 @@ def _sales_plan(ctx: Ctx) -> ReadPlan | None:
     ], label="landing_sales")
 
 
-def _sales_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
-    week = library._breakdown_render(ctx, result)
+def _week_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG001 — reads only the result
+    body = result.values.get("agg")
+    if not isinstance(body, dict):
+        return RecipeAnswer(answer="", defer="the read layer did not answer")
+    totals = body.get("totals") or {}
+    period = _period_words(body)
+    line = _totals_line(totals, period, str(body.get("currency") or "GBP"))
+    # The engine's shape is {metric: {"from", "to", "delta", "pct"}}: the comparison was asked
+    # for, so it is said.
+    compare = body.get("compare") if isinstance(body.get("compare"), dict) else {}
+    change = compare.get("change") if isinstance(compare.get("change"), dict) else {}
+    moved = change.get("revenue") if isinstance(change.get("revenue"), dict) else change.get("orders")
+    if isinstance(moved, dict) and isinstance(moved.get("pct"), (int, float)):
+        pct = moved["pct"]
+        before = _period_words(compare, fallback="the period before")
+        line += f" That is {abs(pct):.0f}% {'up on' if pct >= 0 else 'down on'} {before}."
+    return RecipeAnswer(answer=line + _hedge(body), calls=list(result.calls), partial=result.partial, trace={"period": period})
+
+
+def _sales_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
+    week = _week_render(ctx, result)
     if week.deferred:
         return week
     _arrived(ctx, "sales")
@@ -189,10 +604,10 @@ def _sales_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
         totals = today["totals"]
         revenue, orders = totals.get("revenue"), totals.get("orders")
         if isinstance(revenue, (int, float)):
-            words += f" Today so far, {library._money(revenue, str(today.get('currency') or 'GBP'))}"
+            words += f" Today so far, {_money(revenue, str(today.get('currency') or 'GBP'))}"
             words += f" on {int(orders)} order{'s' if int(orders) != 1 else ''}." if isinstance(orders, (int, float)) else "."
     drawn = [c for c in (_call_named(result, "agg"), _call_named(result, "top")) if c is not None]
-    return FastAnswer(answer=words, calls=list(result.calls), drawn=drawn, partial=result.partial,
+    return RecipeAnswer(answer=words, calls=list(result.calls), drawn=drawn, partial=result.partial,
                       trace={"today": bool(today), "top": len(_rows(result.values.get("top")))})
 
 
@@ -210,11 +625,11 @@ def _products_plan(ctx: Ctx) -> ReadPlan | None:
     ], label="landing_products")
 
 
-def _products_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
+def _products_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     top = _rows(result.values.get("top"))
     stock = _rows(result.values.get("stock"))
     if not isinstance(result.values.get("top"), dict) and not isinstance(result.values.get("stock"), dict):
-        return FastAnswer(answer="", defer="the product reads did not answer")
+        return RecipeAnswer(answer="", defer="the product reads did not answer")
     _arrived(ctx, "products")
     words = []
     if top:
@@ -234,43 +649,28 @@ def _products_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     else:
         words.append("Nothing is close to running out.")
     drawn = [c for c in (_call_named(result, "top"), _call_named(result, "stock")) if c is not None]
-    return FastAnswer(answer=" ".join(words), calls=list(result.calls), drawn=drawn, partial=result.partial,
+    return RecipeAnswer(answer=" ".join(words), calls=list(result.calls), drawn=drawn, partial=result.partial,
                       trace={"top": len(top), "stock": len(stock)})
 
 
 # --------------------------------------------------------------------------- registration
 
 register(Recipe(
-    recipe_id="landing_orders", intent_family="landing_orders", read_primitives=("commerce_query",),
-    parallel_nodes=(("open", "today"),), ui="order_list", cache_policy=CACHE_ANALYTICS,
-    min_confidence=0.72, target_ms=1500, plan=_orders_plan, render=_orders_render,
+    recipe_id="landing_orders", read_primitives=("commerce_query",), parallel_nodes=(("open", "today"),),
+    ui="order_list", cache_policy=CACHE_ANALYTICS, target_ms=1500, plan=_orders_plan, render=_orders_render,
 ))
 register(Recipe(
-    recipe_id="landing_inbox", intent_family="landing_inbox", read_primitives=("email_query", "gmail_search"),
-    parallel_nodes=(("mail", "inbox"),), ui="email_list", cache_policy=CACHE_EMAIL,
-    min_confidence=0.72, target_ms=4000, plan=_inbox_plan, render=_inbox_render,
+    recipe_id="landing_inbox", read_primitives=("email_query", "gmail_search"), parallel_nodes=(("mail", "inbox"),),
+    ui="email_list", cache_policy=CACHE_EMAIL, target_ms=4000, plan=_inbox_plan, render=_inbox_render,
 ))
 register(Recipe(
-    recipe_id="landing_sales", intent_family="landing_sales", read_primitives=("commerce_aggregate",),
-    parallel_nodes=(("agg", "today", "top"),), ui="metric_group", cache_policy=CACHE_ANALYTICS,
-    min_confidence=0.72, target_ms=2500, plan=_sales_plan, render=_sales_render,
+    recipe_id="landing_sales", read_primitives=("commerce_aggregate",), parallel_nodes=(("agg", "today", "top"),),
+    ui="metric_group", cache_policy=CACHE_ANALYTICS, target_ms=2500, plan=_sales_plan, render=_sales_render,
 ))
 register(Recipe(
-    recipe_id="landing_products", intent_family="landing_products", read_primitives=("commerce_aggregate", "inventory_query"),
-    parallel_nodes=(("top", "stock"),), ui="ranking", cache_policy=CACHE_ANALYTICS,
-    min_confidence=0.72, target_ms=2500, plan=_products_plan, render=_products_render,
+    recipe_id="landing_products", read_primitives=("commerce_aggregate", "inventory_query"), parallel_nodes=(("top", "stock"),),
+    ui="ranking", cache_policy=CACHE_ANALYTICS, target_ms=2500, plan=_products_plan, render=_products_render,
 ))
-
-# Spoken: a short "open …" / "show me …" with the area's own word and nothing else in it.
-# Anything more specific — a period, a number, a name, "waiting" — is another family's, and
-# the blocks keep these out of its way: "show me today's orders" stays a list of today's.
-_QUIET = ("mutation", "period", "order_number", "customer", "waiting", "ranking", "running_out", "status", "address", "deixis", "again", "delayed", "bought", "possessive_name")
-extend([
-    Family("landing_orders", needs=("listing", "order"), blocks=_QUIET + ("metric", "email", "stock"), base=0.82, floor=0.72, max_words=4),
-    Family("landing_inbox", needs=("listing", "email"), blocks=_QUIET + ("metric", "order", "stock"), base=0.84, floor=0.72, max_words=4),
-    Family("landing_sales", needs=("listing", "metric"), blocks=_QUIET + ("order", "email", "stock"), base=0.82, floor=0.72, max_words=4),
-    Family("landing_products", needs=("listing", _SAYS_PRODUCTS), blocks=_QUIET + ("metric", "order", "email"), base=0.82, floor=0.72, max_words=4),
-])
 
 
 def _open_area(ctx: CommandCtx) -> Outcome:

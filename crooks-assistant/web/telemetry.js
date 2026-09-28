@@ -292,6 +292,9 @@
           b.removeAttribute('value');
           if (a.type !== 'password' && a.type !== 'hidden' && a.value) b.setAttribute('value', typedMask(a.value));
         } else if (tag === 'TEXTAREA') b.textContent = a.value ? typedMask(a.value) : '';
+        // The live words (web/live-voice.js) are copied as a typed field is: that there were
+        // some, and how many, never what they said.
+        else if (a.hasAttribute && a.hasAttribute('data-spoken')) b.textContent = a.textContent ? typedMask(a.textContent) : '';
         else if (tag === 'CANVAS') {
           try {
             const img = doc.createElement('img');

@@ -19,13 +19,14 @@ from app.providers.base import ClaudeProvider, TurnResult
 from app.routes import turn as turn_module
 from tests.test_scene_planner import REPLY_ANSWER, _september_calls
 
-# A sentence that goes to the model rather than to a recipe (see tests/test_routes.py).
+# Any sentence: every one goes to the model.
 QUESTION = "tell me about the shop"
 # What every turn response had before scenes, in its order. A turn with the setting off has
-# exactly these and no more.
+# exactly these and no more. (`recipe_id` went with the word-matching lane on 28 September
+# 2026; `lane` stays, always NORMAL, for anything that still reads it.)
 KEYS = [
     "session_id", "turn_id", "test_session_id", "turns", "answer", "question", "error_kind", "lost_thread", "state",
-    "last_state", "build", "writes", "revoked", "tool_calls", "transcript", "timings_ms", "ui", "lane", "recipe_id",
+    "last_state", "build", "writes", "revoked", "tool_calls", "transcript", "timings_ms", "ui", "lane",
     "branch", "branches", "partial", "performance", "workspace",
 ]
 

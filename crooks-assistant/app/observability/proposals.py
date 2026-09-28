@@ -84,8 +84,8 @@ def candidates(rec: Reconstruction, *, registered: list[str] | None = None,
         if state == "NO_FAMILY":
             add("NEW_CAPABILITY_FAMILY", f"A change asked for out loud that nothing claims: {what}", ids,
                 "a new capability family (app/families/<name>.py) and its state in app/capabilities/families.py",
-                f"Decide whether `{key}` becomes a family — its tools, its commands, its recipes, its intent family, its "
-                "capability state, all in one file — or whether the assistant should say plainly what it can do instead.",
+                f"Decide whether `{key}` becomes a family — its tools, its commands and its capability state, all in one "
+                "file — or whether the assistant should say plainly what it can do instead.",
                 "the family's own scenario pack, and a capability-state test that the family reports what it really is.",
                 "a new write ships behind the same switches and gestures; a family that is not READY offers no write tool at all.", 3 * n)
         else:
@@ -95,14 +95,6 @@ def candidates(rec: Reconstruction, *, registered: list[str] | None = None,
                 "store admin (or connect the provider), rather than building it a second time.",
                 "the family's probe test: with the scope missing the state is MISSING_SCOPE and names the scope; with it granted, READY.",
                 "nothing is built here; a grant is the owner's to make.", 4 * n)
-    for shape, n, ids, why in intel["new_read_families"]:
-        if n >= 2:
-            add("NEW_READ_FAMILY", f"A read the router places in no family, asked {n} times: {shape}", ids,
-                "the intent families and the fast lane (app/families/, app/fastpath/recipes.py)",
-                f"A family and a read-only recipe would answer this without the model ({why}). Name the signals it needs; a family "
-                "brings its own signal through `intent.signal` rather than editing the shared table.",
-                "the family's scenario, asserting the lane is FAST and the model was not called.",
-                "a recipe names read tools only; the read scheduler refuses a plan with a write in it.", 2 * n)
     for branch, what, detail in intel["branch_failures"]:
         add("BRANCH_UX", f"The split orb cost the owner something: {what}", [branch],
             "the branches (app/routes/branches.py) and the tablet's two halves (web/app.js)",
@@ -118,7 +110,7 @@ def candidates(rec: Reconstruction, *, registered: list[str] | None = None,
             "a posted field is a value the Mac validates; the tablet still sends names and references only.", 2)
     for turn_id, what, said in intel["corrections"]:
         add("CORRECTION", f"The same request said again: {what}", [turn_id],
-            "speech (app/speech), the normaliser, and the answer's own wording",
+            "speech (app/speech) and the answer's own wording",
             f"Read the pair: the owner repeated himself because the first answer missed the question, or because the transcript did "
             f"({said[:80]}).",
             "a bench case for the transcript, or a scenario for the answer, whichever the pair shows.",
@@ -126,11 +118,11 @@ def candidates(rec: Reconstruction, *, registered: list[str] | None = None,
     for shape, n, ids in intel["cross_source_workflows"]:
         if n >= 2:
             add("CROSS_SOURCE_RECIPE", f"A cross-source read repeated {n} times: {shape}", ids,
-                "the read layer and the fast lane's recipes (app/families/, app/reads/)",
-                "One recipe would do this in one pass, with the ids issued once, instead of the model discovering the same sequence "
-                "each time.",
-                "the recipe's scenario, asserting one pass and both sets of ids issued.",
-                "reads compose; a recipe names read tools only.", 2 * n)
+                "the read layer (app/tools/analytics_tools.py, app/reads/)",
+                "One read tool would do this in one call, with the ids issued once, instead of the model discovering the same "
+                "sequence each time.",
+                "a tool test asserting one call and both sets of ids issued.",
+                "reads compose; a read tool has no write spec.", 2 * n)
     for op, n, ids, supported in intel["bulk"]:
         if not supported:
             add("NEW_BULK_ACTION", f"A change asked for in bulk with no batch yet: {op}", ids,
@@ -158,8 +150,6 @@ def candidates(rec: Reconstruction, *, registered: list[str] | None = None,
             f"Either add `{kind}` to the vocabulary on both sides with a bounded data shape, or stop the presentation layer emitting it.",
             "the vocabulary test in tests/web/ui.test.js and the presentation test.",
             "no model-generated markup; a new type is a new renderer with its own bounds.", 2 * n)
-    for row in _recipe_candidates(turns):
-        add(*row)
     # What the OWNER said was wrong, first, and heaviest. A tester narrating defects as they
     # happen is the most valuable thing in an hour, and in September all of it was discarded:
     # he was told twice there was no tool for it and the report did not mention any of it.
@@ -180,12 +170,11 @@ def candidates(rec: Reconstruction, *, registered: list[str] | None = None,
         words = " ".join(str(row.get("text") or "").split())
         add("OWNER_REPORTED", f"The owner reported this and NOTHING recorded it: “{_cell(words, 90)}”",
             [str(row.get("turn_id") or "—")],
-            "owner feedback (app/observability/feedback.py, app/families/owner_feedback.py)",
-            "Two things: fix what he named, and find out why the sentence reached no "
-            "`owner_feedback` event — either the session was not in test mode or the router did "
-            "not take it.",
-            "say the same sentence during an active test session and assert both the event and "
-            "the report's OWNER-REPORTED DEFECTS section.",
+            "owner feedback (app/observability/feedback.py)",
+            "Fix what he named. A spoken report is no longer written down by a word match in front "
+            "of the model (removed 28 September 2026, with the rest of that lane): the model answers "
+            "it, and this report reads it from the transcript.",
+            "the regression test for whatever he named.",
             "none: recording what somebody said is not a change to the shop.", OWNER_FIRST + 1)
     for o in _opportunities(rec, turns, registered, capability_states):
         # The report's own ranked list, carried over as summaries beside the specific rows above.
@@ -200,108 +189,6 @@ def candidates(rec: Reconstruction, *, registered: list[str] | None = None,
         seen.add(c["title"])
         unique.append(c)
     return unique[:24]
-
-
-# What a turn cost when the model answered it, above which it is worth asking whether the
-# Mac could have. The September session's median model time was 12 seconds.
-SLOW_MODEL_MS = 8_000
-# How many times a question must repeat before "write the procedure down" is worth proposing.
-REPEATED = 3
-
-
-def _recipe_candidates(turns: list[Turn]) -> list[tuple]:
-    """Proposals about the fast lane itself (brief section 29).
-
-    Three things the timeline can now say that it could not before: which questions the model
-    answered slowly and repeatedly (a recipe waiting to be written), which recipes deferred
-    and why (a recipe that is not earning its place), and which recipes ran over their own
-    target. All proposals; nothing here writes a recipe.
-    """
-    out: list[tuple] = []
-    slow: Counter = Counter()
-    slow_ids: dict[str, list[str]] = {}
-    defers: Counter = Counter()
-    defer_ids: dict[str, list[str]] = {}
-    over: dict[str, list[str]] = {}
-
-    for turn in turns:
-        lane = (turn.lane or {}).get("lane") if turn.lane else None
-        fast = turn.fast or {}
-        if fast.get("defer"):
-            key = f"{fast.get('recipe_id')}: {fast['defer']}"
-            defers[key] += 1
-            defer_ids.setdefault(key, []).append(turn.turn_id)
-        target, took = fast.get("target_ms"), fast.get("ms")
-        if fast.get("hit") and isinstance(target, (int, float)) and isinstance(took, (int, float)) and took > target:
-            over.setdefault(str(fast.get("recipe_id")), []).append(turn.turn_id)
-        if lane == "NORMAL" and turn.model and isinstance(turn.model.get("ms"), (int, float)) and turn.model["ms"] >= SLOW_MODEL_MS:
-            shape = _shape_of(turn)
-            if shape:
-                slow[shape] += 1
-                slow_ids.setdefault(shape, []).append(turn.turn_id)
-
-    for shape, n in slow.most_common(6):
-        if n < REPEATED:
-            continue
-        out.append((
-            "FAST_PATH_RECIPE", f"A question asked {n} times that the model answered slowly: {shape}",
-            slow_ids[shape][:3], "the fast lane (app/fastpath/intent.py, library.py)",
-            f"Write the procedure down: an intent family for “{shape}”, the reads it needs, and the sentence that answers it. "
-            "It must decline rather than guess when an entity does not resolve.",
-            "a routing test (this phrasing and two near neighbours), a plan test, and a deferral test for the case it cannot serve.",
-            "read-only and navigation-only; a recipe can never stage, arm or commit a change.", 4 * n,
-        ))
-    for key, n in defers.most_common(4):
-        if n < 2:
-            continue
-        out.append((
-            "RECIPE_DEFERRED", f"A recipe took the lane and then could not answer, {n} times: {key}",
-            defer_ids[key][:3], "the fast lane (app/fastpath)",
-            "Either resolve what it could not (an entity, a period, a dimension) or stop routing that shape to it: a recipe that defers is a model call plus its own cost.",
-            "a test that this request either answers or never reaches the recipe.",
-            "deferring is safe and answering wrongly is not; tighten the route rather than loosening the recipe.", 3 * n,
-        ))
-    for recipe_id, ids in sorted(over.items(), key=lambda kv: -len(kv[1]))[:4]:
-        out.append((
-            "RECIPE_SLOW", f"A recipe answered but missed its own target, {len(ids)} time(s): {recipe_id}",
-            ids[:3], "the recipe and its reads (app/fastpath/library.py, app/reads/scheduler.py)",
-            "Look at the read plan on those turns: a wave that could be one, a read that could be cached, or a target that was never realistic.",
-            "make bench-lanes, which fails when a recipe is over target.",
-            "no bound may be widened to make a target: narrow the work instead.", 2 * len(ids),
-        ))
-    return out
-
-
-def _shape_of(turn: Turn) -> str:
-    """A question reduced to its SHAPE, so two askings of the same thing count as two.
-
-    Built from a CLOSED vocabulary — the words the router itself knows (app/fastpath/intent.py)
-    — rather than by dropping a list of stop words. A name, a street, an order number or
-    anything else the owner said about a customer is not in that vocabulary and therefore
-    cannot reach a proposals file, whatever it was. This file is written to disk and read by
-    a person; a deny-list would only be as good as its last omission.
-    """
-    import re
-
-    words = re.findall(r"[a-z]{3,}", (turn.question or "").lower())
-    kept = [w for w in words if w in _VOCABULARY]
-    return " ".join(dict.fromkeys(kept))[:80]
-
-
-def _vocabulary() -> frozenset[str]:
-    from app.fastpath import intent as router
-
-    words: set[str] = set()
-    for name in dir(router):
-        value = getattr(router, name)
-        if isinstance(value, frozenset) and value and all(isinstance(v, str) for v in value):
-            words |= {str(v) for v in value}
-    # The shapes of a question, which the router reads off structure rather than words.
-    words |= {"how", "many", "much", "long", "should", "would", "could", "left", "each", "all", "every", "any", "some", "still"}
-    return frozenset(w for w in words if len(w) >= 3)
-
-
-_VOCABULARY = _vocabulary()
 
 
 def render(rec: Reconstruction, cands: list[dict[str, Any]]) -> str:

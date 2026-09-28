@@ -282,11 +282,6 @@ def test_the_workspace_timing_separates_the_facts_from_the_prose():
     assert workspace == 9010.0
     assert waited == 7820.0, "seven seconds of it was prose about data already read"
 
-    # The fast lane has no model steps; the recipe measures its own reads.
-    fast = {"workspace": 260.0, "total": 262.0}
-    facts, workspace, waited = _workspace_timing(fast, calls=[], measures={"recipe_reads_ms": 240.0})
-    assert (facts, workspace) == (240.0, 260.0) and waited == 22.0
-
     # Neither: fall back to the reads themselves, which ran in parallel where they could.
     class _Call:
         def __init__(self, ms): self.duration_ms = ms
@@ -308,10 +303,12 @@ def test_the_performance_record_names_the_regions_still_loading():
         {"type": "order", "data": {"order_number": "#1938", "pending": ["history", "email"]}},
         {"type": "context_stack", "data": {}},
     ]
-    record = _performance({"total": 500.0, "workspace": 480.0}, lane="FAST", recipe_id="order_lookup",
-                          branch=None, calls=[], partial=False, session=None, measures={}, ui=ui)
+    record = _performance({"total": 500.0, "workspace": 480.0}, branch=None, calls=[], session=None,
+                          measures={}, ui=ui)
     assert record["enrichment_pending"] == ["email", "history"]
     assert record["workspace_ms"] == 480.0
     # And a turn whose cards are complete says nothing rather than an empty list.
-    assert _performance({"total": 500.0}, lane="FAST", recipe_id="x", branch=None, calls=[],
-                        partial=False, session=None, measures={}, ui=[{"type": "order", "data": {}}])["enrichment_pending"] is None
+    assert _performance({"total": 500.0}, branch=None, calls=[], session=None, measures={},
+                        ui=[{"type": "order", "data": {}}])["enrichment_pending"] is None
+    # Every turn is a model turn now, and the record says so rather than leaving it out.
+    assert record["lane"] == "NORMAL" and record["model_calls"] == 1 and "recipe_id" not in record

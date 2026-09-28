@@ -23,13 +23,10 @@ from app.logging.turnlog import TurnLog
 from app.providers.base import ClaudeProvider
 from app.providers.max_agent_sdk import MaxAgentSDKProvider
 from app.session.manager import SessionManager, get_manager
-from app.speech.normalise import Normaliser, from_file
 from app.speech.transcribe import Transcriber
 from config.settings import Settings, get_settings
 
 log = logging.getLogger("crooks.runtime")
-
-CATALOGUE_TTL_S = 3600  # M7: refresh the live product catalogue hourly
 
 
 @dataclass
@@ -39,7 +36,6 @@ class Runtime:
     whisper: WhisperClient
     scribe: ScribeClient
     voice: VoiceClient
-    normaliser: Normaliser
     transcriber: Transcriber
     shopify: ShopifyClient
     gmail: GmailClient
@@ -78,8 +74,6 @@ class Runtime:
     memory: Any = None
     started_at: float = field(default_factory=time.time)
     build: str = ""
-    _catalogue_refreshed_at: float = 0.0
-    _catalogue_task: asyncio.Task | None = None
 
     @property
     def uptime_s(self) -> float:
@@ -134,24 +128,9 @@ class Runtime:
     # change may be applied, both of which happen within seconds of the tablet waking up; until
     # then the card says "unknown", which is the honest answer when nobody has checked.
 
-    def refresh_catalogue_soon(self) -> None:
-        """Kick the hourly catalogue refresh off beside the current turn rather than in front
-        of it. A turn never waits on Shopify for a list it does not need to answer."""
-        if time.time() - self._catalogue_refreshed_at < CATALOGUE_TTL_S:
-            return
-        if self._catalogue_task is not None and not self._catalogue_task.done():
-            return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        self._catalogue_task = loop.create_task(self.maybe_refresh_catalogue())
-
     async def aclose(self) -> None:
         """Release what the process holds open: the provider's subprocesses and every kept
         HTTPS connection."""
-        if self._catalogue_task is not None and not self._catalogue_task.done():
-            self._catalogue_task.cancel()
         await self.provider.stop()
         for client in (self.voice, self.scribe, self.whisper, self.shopify):
             close = getattr(client, "aclose", None)
@@ -160,45 +139,6 @@ class Runtime:
                     await close()
                 except Exception:  # noqa: BLE001 — shutting down; nothing to do about it
                     log.debug("closing %s failed", type(client).__name__, exc_info=True)
-
-    async def maybe_refresh_catalogue(self) -> None:
-        """Repoint the normaliser at the live Shopify catalogue, hourly, cached to disk.
-
-        Failure here is not fatal: the seed terminology file keeps working, which is the whole
-        reason M3 built against a file rather than waiting for M7.
-        """
-        if time.time() - self._catalogue_refreshed_at < CATALOGUE_TTL_S:
-            return
-        self._catalogue_refreshed_at = time.time()
-        try:
-            from app.tools.shopify_tools import catalogue_terms
-
-            live = await catalogue_terms()
-        except Exception as exc:  # noqa: BLE001
-            log.warning("live catalogue unavailable, keeping the seed list: %s", exc)
-            return
-        if not live:
-            return
-        seed = list(self.normaliser.catalogue.terms)
-        cache = self.settings.kb_dir / ".catalogue-cache.txt"
-        try:
-            # Products only. Customer names are personal data and do not belong in a file.
-            cache.write_text("\n".join(t for t in live if t in set(live[: live_product_count(live)])), encoding="utf-8")
-        except OSError:
-            pass
-        # Live terms first, hand-written seed (with its aliases) LAST: the Whisper prompt is
-        # truncated from the front, so the terms the owner wrote must be the ones that survive.
-        merged = live + seed
-        # Everything after the boundary is a person. Those names still correct transcripts on
-        # this Mac; they are held back from the Scribe keyterms, which leave it.
-        # `seed` carries last hour's terms forward, so the names already marked personal are
-        # carried forward with them — a name is never quietly un-marked by the next refresh.
-        # (Catalogue stores personal entries in comparison form; cleaning them twice is a no-op.)
-        customers = live[live_product_count(live) + 1 :] + list(self.normaliser.catalogue.personal)
-        self.normaliser.repoint(
-            merged, aliases=self.normaliser.catalogue.aliases, personal=customers
-        )
-        log.info("normaliser repointed at live catalogue: %d terms", len(merged))
 
     def reload_kb(self) -> KnowledgeBase:
         self.kb = load(self.settings.kb_dir)
@@ -456,7 +396,6 @@ def build(settings: Settings | None = None) -> Runtime:
         language=settings.scribe_language,
         timeout_s=settings.scribe_timeout_s,
         base_url=settings.elevenlabs_base_url,
-        max_keyterms=settings.scribe_max_keyterms,
         cooldown_s=settings.scribe_cooldown_s,
         account=account,
     )
@@ -473,14 +412,13 @@ def build(settings: Settings | None = None) -> Runtime:
         account=account,
     )
     voice.prefetch_enabled = settings.tts_prefetch
-    normaliser = _build_normaliser(settings)
+    # The transcript is what was said: no term list biases either recogniser and nothing
+    # rewrites the words afterwards (app/speech/transcribe.py).
     transcriber = Transcriber(
         whisper,
-        normaliser,
         scribe=scribe,
         primary=settings.stt_primary,
         whisper_enabled=settings.whisper_enabled,
-        keyterms=settings.scribe_keyterms,
         save_dir=settings.bench_audio_dir if settings.save_captures else None,
         max_saved=settings.max_saved_captures,
     )
@@ -494,7 +432,7 @@ def build(settings: Settings | None = None) -> Runtime:
 
     # Register the tool modules. Importing them is what runs the @tool decorators.
     # The Phase 3 capability families, one module each (app/families/*): their tools, commands,
-    # recipes, intent families and capability states register on import, after the core tools.
+    # tap recipes and capability states register on import, after the core tools.
     from app.families import load_all as load_families
     from app.objectives import (
         tools as _objective_tools,  # noqa: F401 — registers the objective tools
@@ -621,13 +559,12 @@ def build(settings: Settings | None = None) -> Runtime:
         log.info("experience recording is ON (transcripts %s); logs/%s/",
                  "kept" if settings.record_transcripts else "as shape only", recorder_module.DIR_NAME)
 
-    # The manifest, and the fast lane's recipes, before the first question. Importing the
-    # library is what registers the recipes; asserting they are read-only is what keeps them
-    # honest, and it happens here so a mistake stops the process rather than a turn.
+    # The manifest, and the recipes the taps name, before the first tap. The families
+    # registered their recipes when they loaded above; asserting they are read-only is what
+    # keeps them honest, and it happens here so a mistake stops the process rather than a tap.
+    from app import recipes as recipe_registry
     from app.capabilities.delta import record_build
     from app.capabilities.manifest import build as build_manifest
-    from app.fastpath import library as _recipes  # noqa: F401 — imported for its registrations
-    from app.fastpath import recipes as recipe_registry
     from app.memory import Memory
     from app.memory import install as install_memory
 
@@ -643,7 +580,6 @@ def build(settings: Settings | None = None) -> Runtime:
         whisper=whisper,
         scribe=scribe,
         voice=voice,
-        normaliser=normaliser,
         transcriber=transcriber,
         shopify=shopify,
         gmail=gmail,
@@ -666,33 +602,6 @@ def build(settings: Settings | None = None) -> Runtime:
     shopify_writes.bind_policy(lambda: runtime.settings)
     gmail_writes.bind(gmail, policy=lambda: runtime.settings)
     return runtime
-
-
-def live_product_count(live: list[str]) -> int:
-    """catalogue_terms() returns products then customers; a sentinel marks the boundary."""
-    try:
-        return live.index(CUSTOMER_BOUNDARY)
-    except ValueError:
-        return len(live)
-
-
-CUSTOMER_BOUNDARY = "\x00customers"
-
-
-def _build_normaliser(settings: Settings) -> Normaliser:
-    seed = settings.kb_dir / "terminology.md"
-    normaliser = from_file(seed)
-    cache = settings.kb_dir / ".catalogue-cache.txt"
-    if cache.exists():
-        # A warm start uses last hour's live catalogue rather than falling back to the seed.
-        try:
-            cached = [t for t in cache.read_text(encoding="utf-8").splitlines() if t.strip()]
-            normaliser.repoint(
-                cached + list(normaliser.catalogue.terms), aliases=normaliser.catalogue.aliases
-            )
-        except OSError:
-            pass
-    return normaliser
 
 
 def _make_customer_lookup(shopify: ShopifyClient):

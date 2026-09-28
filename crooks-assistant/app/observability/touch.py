@@ -496,7 +496,9 @@ def precision_evidence(turn: Any) -> list[tuple[str, str]]:
                         str(event.get("reason") or "typing")))
     stt = turn.stt or {}
     raw, text = str(stt.get("raw_text") or ""), str(stt.get("text") or "")
-    if raw and text and raw != text:
+    # Only a timeline recorded while a normaliser rewrote transcripts can show this: the
+    # recogniser's words are now passed on as heard, trimmed and nothing more.
+    if raw and text and raw.strip() != text.strip():
         out.append(("the normaliser had to correct the transcript before it was usable",
                     f"{len(raw)} → {len(text)} characters"))
     for event in turn.rejected:

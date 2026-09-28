@@ -13,10 +13,10 @@ The shape, end to end:
 
 Three things about it are deliberate.
 
-**The picker is a read.** `order_edit.find` runs a FAST recipe that calls
+**The picker is a read.** `order_edit.find` runs a recipe that calls
 `shopify_variant_search` and draws a `variant_picker`. It stages nothing, proposes nothing and
-cannot: a recipe naming a write tool is a crash at start-up (app/fastpath/recipes.py). The
-owner is choosing, and choosing is not authorising.
+cannot: a recipe naming a write tool is a crash at start-up (app/recipes.py). The owner is
+choosing, and choosing is not authorising.
 
 **The consequence is Shopify's arithmetic, not ours.** `order_edit.stage` prepares through the
 one action engine, and the write tool's PREPARE step runs `orderEditBegin` and
@@ -25,14 +25,10 @@ order. So the card says what the line costs, what the order becomes and what the
 owe, from Shopify itself, before anything is applied. `orderEditCommit` is the only mutation
 the gesture authorises.
 
-**It cannot be reached by voice, and this says so rather than pretending.** `intent.resolve`
-returns no family for any sentence carrying a mutation signal, and "add" is one — that is the
-fast lane's structural inability to write, and it is right. So the intent family below can
-never win a turn: it *requires* the mutation signal that stops resolution before scoring
-begins. It is registered anyway, because a family whose reachability is written down is a
-family whose reachability can be tested (tests/test_order_edit.py), and because when a spoken
-route to a proposal exists this is where it plugs in. Until then the touch path is the whole
-path, and it is complete: a control on the order card, a picker, a card, a hold.
+**Said out loud, it is the model's.** "Add a black hoodie to this order" is a model turn
+like every other sentence; Claude reads the catalogue and stages `shopify_order_add_item` with
+the same tools. The touch path is complete on its own: a control on the order card, a picker,
+a card, a hold.
 """
 
 from __future__ import annotations
@@ -44,11 +40,9 @@ from app.capabilities.families import register as register_family
 from app.commands import Command, Outcome, may_open
 from app.commands import Ctx as CommandCtx
 from app.commands import register as register_command
-from app.fastpath.intent import Family, extend
-from app.fastpath.models import Ctx, FastAnswer
-from app.fastpath.recipes import CACHE_NONE, Recipe, register
 from app.presentation import MAX_PICKER_QUANTITY, variant_picker
 from app.reads.scheduler import Read, ReadPlan, ReadResult
+from app.recipes import CACHE_NONE, Ctx, Recipe, RecipeAnswer, register
 from app.surfaces import Entity, Freshness, Surface
 
 # The write this family stages, and the read that feeds it. Named once, here, so the
@@ -68,10 +62,8 @@ MAX_WORD_CHARS = {"product": 60, "colour": 30, "size": 20}
 
 def _picker_plan(ctx: Ctx) -> ReadPlan | None:
     """One read: the variants matching the words, or the catalogue's first few when there are
-    none. `slots` is where a tap's words arrive and where a sentence's would (app/routes/
-    command.py); `text` is what was actually said, and is the product words when a spoken
-    route to this family exists."""
-    slots = ctx.intent.slots or {}
+    none. `slots` is where a tap's words arrive (app/routes/command.py)."""
+    slots = ctx.slots or {}
     product = str(slots.get("product") or ctx.text or "").strip()[: MAX_WORD_CHARS["product"]]
     return ReadPlan([
         Read("variants", SEARCH_TOOL, {
@@ -83,7 +75,7 @@ def _picker_plan(ctx: Ctx) -> ReadPlan | None:
     ], label="order_add_item")
 
 
-def _picker_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
+def _picker_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     """The picker card, and a sentence that says how many there are to choose from.
 
     Deferring rather than drawing an empty card is the rule here as everywhere: a card
@@ -92,16 +84,16 @@ def _picker_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
     """
     body = result.values.get("variants")
     if not isinstance(body, dict):
-        return FastAnswer(answer="", defer="the catalogue did not answer")
+        return RecipeAnswer(answer="", defer="the catalogue did not answer")
     order_id = ctx.entity("order")
     if not order_id:
         # The command checks this before the recipe runs; a recipe that trusted it would draw
         # a picker whose Add button had no order to add to.
-        return FastAnswer(answer="", defer="no order is open to add to")
+        return RecipeAnswer(answer="", defer="no order is open to add to")
     candidates = [c for c in (body.get("candidates") or []) if isinstance(c, dict)]
     if not candidates:
         asked = " ".join(str(v) for v in (body.get("asked") or {}).values() if str(v or "").strip())
-        return FastAnswer(answer="", defer=f"nothing in the catalogue matches {asked!r}" if asked else "the catalogue is empty")
+        return RecipeAnswer(answer="", defer=f"nothing in the catalogue matches {asked!r}" if asked else "the catalogue is empty")
     label = _order_label(ctx)
     data = variant_picker(body, order_id=order_id, order_number=label, quantity=1)
     surface = Surface(
@@ -121,7 +113,7 @@ def _picker_render(ctx: Ctx, result: ReadResult) -> FastAnswer:
         words = f"{data['count']} to choose from. Pick one and tap Add."
     if data["note"]:
         words = f"{words} {data['note']}"
-    return FastAnswer(
+    return RecipeAnswer(
         answer=words, calls=list(result.calls), drawn=[], surfaces=[surface], partial=result.partial,
         trace={"candidates": len(data["candidates"]), "confident": bool(data["confident_variant_id"])},
     )
@@ -133,24 +125,13 @@ def _order_label(ctx: Ctx) -> str:
 
 
 register(Recipe(
-    recipe_id="order_add_item", intent_family="order_add_item", required_entities=("order",),
+    recipe_id="order_add_item", required_entities=("order",),
     read_primitives=(SEARCH_TOOL,), parallel_nodes=(("variants",),), ui="variant_picker",
     # Never cached: what is for sale and what is in stock is exactly what must not be stale on
     # the card the owner is about to add from.
-    cache_policy=CACHE_NONE, min_confidence=0.75, target_ms=1200,
+    cache_policy=CACHE_NONE, target_ms=1200,
     plan=_picker_plan, render=_picker_render,
 ))
-
-# The spoken family, declared so its unreachability is a fact with a test rather than a
-# comment. `mutation` is in `needs` on purpose: an add is an instruction, and
-# `intent.resolve` returns no family at all for a sentence carrying that signal — so this
-# scores only when scoring is never reached. `has_entity` is the other half of the brief's
-# rule ("block when no order is open"): a need that is not met rules the family out.
-extend([
-    Family("order_add_item", needs=("mutation", "order", "has_entity"),
-           boosts=("deixis",), blocks=("question", "metric", "email", "ranking", "status", "address"),
-           entities=("order",), base=0.8, floor=0.75, max_words=12),
-])
 
 
 # ------------------------------------------------------------------ the commands (touch)
@@ -222,8 +203,8 @@ def _quantity(value: str) -> tuple[int, str]:
     return quantity, ""
 
 
-# Touch only, both of them. There is no sentence that reaches either: a spoken instruction to
-# add something carries a mutation signal, and the fast lane declines every one of those.
+# Touch only, both of them. A spoken instruction to add something is a model turn, and the
+# model stages the same write tool itself.
 register_command(Command("order_edit.find", "Find the item to add to this order", _open_picker,
                          voice=False, needs_entity=("order",)))
 register_command(Command("order_edit.stage", "Prepare adding the chosen item to this order", _stage_add_item,

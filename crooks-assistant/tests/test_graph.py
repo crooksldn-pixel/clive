@@ -398,13 +398,13 @@ async def test_email_query_rows_carry_the_provenance(unbound, monkeypatch):
 
 
 def _needs_reply(session: Session, rows: list[dict]):
-    from app.fastpath.library import _needs_reply_render
-    from app.fastpath.models import Ctx
+    from app.families.landings import _needs_reply_render
     from app.reads.scheduler import ReadResult
+    from app.recipes import Ctx
     from app.session.branch import Branch
 
-    ctx = Ctx(runtime=None, session=session, branch=Branch(branch_id="b", session_id=session.session_id), intent=None, text="who needs replying to")
-    # The inbox read (`email_query` with no set), which is what the recipe asks for now.
+    ctx = Ctx(runtime=None, session=session, branch=Branch(branch_id="b", session_id=session.session_id))
+    # The inbox read (`email_query` with no set), which is what the Inbox landing asks for.
     result = ReadResult(values={"mail": {"scope": "inbox", "days": 30, "window_complete": True, "threads_listed": 12, "threads_checked": 12,
                                          "rows": rows, "counts": {"people": len(rows), "unchecked": 0}}})
     return _needs_reply_render(ctx, result)
@@ -413,15 +413,15 @@ def _needs_reply(session: Session, rows: list[dict]):
 def test_said_again_it_still_names_what_could_not_be_checked():
     """The 2026-09-26 deploy review, F-08: "Still nobody." alone, when threads went unchecked,
     says more than the scan knows."""
-    from app.fastpath.library import _needs_reply_render
-    from app.fastpath.models import Ctx
+    from app.families.landings import _needs_reply_render
     from app.reads.scheduler import ReadResult
+    from app.recipes import Ctx
     from app.session.branch import Branch
 
     session = Session(session_id="s-again-unchecked")
 
     def ask():
-        ctx = Ctx(runtime=None, session=session, branch=Branch(branch_id="b", session_id=session.session_id), intent=None, text="who needs replying to")
+        ctx = Ctx(runtime=None, session=session, branch=Branch(branch_id="b", session_id=session.session_id))
         result = ReadResult(values={"mail": {"scope": "inbox", "days": 30, "window_complete": True, "threads_listed": 12, "threads_checked": 9,
                                              "rows": [], "counts": {"people": 0, "unchecked": 3}}})
         return _needs_reply_render(ctx, result)
@@ -434,15 +434,15 @@ def test_said_again_it_still_names_what_could_not_be_checked():
 
 def test_said_again_with_people_waiting_it_still_says_what_went_unchecked_and_how_far_it_looked():
     """F-08, second round: the repeat that names people waiting keeps both qualifications too."""
-    from app.fastpath.library import _needs_reply_render
-    from app.fastpath.models import Ctx
+    from app.families.landings import _needs_reply_render
     from app.reads.scheduler import ReadResult
+    from app.recipes import Ctx
     from app.session.branch import Branch
 
     session = Session(session_id="s-again-waiting")
 
     def ask():
-        ctx = Ctx(runtime=None, session=session, branch=Branch(branch_id="b", session_id=session.session_id), intent=None, text="who needs replying to")
+        ctx = Ctx(runtime=None, session=session, branch=Branch(branch_id="b", session_id=session.session_id))
         result = ReadResult(values={"mail": {"scope": "inbox", "days": 30, "window_complete": False, "threads_listed": 50,
                                              "threads_checked": 48, "sent_checked": "all",
                                              "rows": [MIA_ROW], "counts": {"people": 1, "unchecked": 2}}})
@@ -463,7 +463,7 @@ PRIYA_ROW = {**MIA_ROW, "customer_id": "gid://shopify/Customer/7004", "customer_
 
 
 def test_the_scope_is_said_once_and_the_repeat_is_short():
-    from app.fastpath import library
+    from app.families import landings as library
 
     session = Session(session_id="s-again")
     first = _needs_reply(session, [MIA_ROW])
@@ -484,7 +484,7 @@ def test_the_scope_is_said_once_and_the_repeat_is_short():
 
 
 def test_the_queue_rows_carry_the_related_orders_and_the_confidence():
-    from app.fastpath.library import _waiting_surface
+    from app.families.landings import _waiting_surface
 
     surface = _waiting_surface([MIA_ROW, PRIYA_ROW])
     mia, priya = surface.data["threads"]
@@ -511,201 +511,6 @@ def test_the_queue_rows_carry_the_related_orders_and_the_confidence():
         "before the number a reader would otherwise take as fact")
 
 
-# ------------------------------------------------- order → email → draft (app/families/order_email.py)
-
-
-def order(number: int = 1938, *, email: str = MIA, name: str = "Mia Jones", oid: int | None = None) -> dict:
-    """An order as `shopify_order_detail` returns it (app/context/order.py:shape_order), with
-    only the keys this family reads."""
-    return {
-        "order_id": f"gid://shopify/Order/{oid or number}", "order_number": f"#{number}",
-        "customer_name": name, "customer_email": email, "total": "£89.00",
-        "fulfillment": "UNFULFILLED", "placed_at": "2026-09-10T08:00:00Z",
-    }
-
-
-def message(sender: str, *, body: str, date: str, subject: str = "Order 1938 — can I add to it?") -> dict:
-    return {"from": sender.split("@")[0].replace(".", " ").title(), "from_email": sender,
-            "subject": subject, "body": body, "date": date}
-
-
-THEIRS = "Thu, 10 Sep 2026 12:00:00 +0100"
-OURS = "Thu, 10 Sep 2026 14:30:00 +0100"
-
-
-def test_a_thread_naming_this_order_from_its_own_customer_is_this_orders_thread():
-    from app.families import order_email
-
-    confidence, why = order_email.about_this_order(
-        {"thread_id": "aa70d3f83dbef06e", "from_email": MIA, "subject": "Order 1938 — can I add to it?", "snippet": "Is it too late?"},
-        order=order(1938), rows=ROWS, clock=clock)
-    assert confidence == "confident"
-    assert why == ["order number 1938 in the subject", "sender is the customer on that order"]
-
-
-def test_a_thread_about_another_of_their_orders_is_not_this_orders_thread():
-    """The mistake this family exists to avoid: David HAS written, about #1939, and the order
-    on screen is #1929. A reply written into that thread answers the wrong parcel."""
-    from app.families import order_email
-
-    confidence, why = order_email.about_this_order(
-        {"thread_id": "58361c4d87dfeee5", "from_email": "david.randall@example.com", "subject": "Where is 1939?", "snippet": "Any tracking yet?"},
-        order=order(1929, email="david.randall@example.com", name="David Randall"), rows=ROWS, clock=clock)
-    assert confidence == "none"
-    assert why == ["the thread is about #1939, not this order"]
-
-
-def test_a_name_is_never_evidence_that_a_thread_is_about_an_order():
-    from app.families import order_email
-
-    impostor = {"thread_id": "a413d264183cfe94", "from_email": "mia.jones@elsewhere.example", "subject": "Hello", "snippet": "any news?"}
-    confidence, _ = order_email.about_this_order(impostor, order=order(1938), rows=ROWS, clock=clock)
-    assert confidence == "none"
-
-
-def test_a_cold_cache_falls_back_to_the_narrow_rule_and_never_upgrades_a_guess():
-    """With no rows the Mac cannot tell this order from the customer's others, so the address
-    alone is POSSIBLE — and possible is never replied from."""
-    from app.families import order_email
-
-    named = {"thread_id": "aa70d3f83dbef06e", "from_email": MIA, "subject": "Order 1938 — can I add to it?", "snippet": ""}
-    bare = {"thread_id": "aa70d3f83dbef06e", "from_email": MIA, "subject": "Delivery address", "snippet": "the house number"}
-    stranger = {"thread_id": "aa70d3f83dbef06e", "from_email": "someone@else.example", "subject": "About 1938", "snippet": ""}
-    assert order_email.about_this_order(named, order=order(1938), rows=[], clock=clock)[0] == "confident"
-    assert order_email.about_this_order(bare, order=order(1938), rows=[], clock=clock)[0] == "possible"
-    assert order_email.about_this_order(stranger, order=order(1938), rows=[], clock=clock)[0] == "possible"
-    chosen, confidence, _ = order_email._choose([bare], order=order(1938), rows=[], clock=clock)
-    assert chosen is None and confidence == "possible", "a possible link is shown, not replied to"
-
-
-def test_the_newest_confident_thread_is_the_one_a_reply_would_go_into():
-    from app.families import order_email
-
-    old = {"thread_id": "old", "from_email": MIA, "subject": "Order 1938", "snippet": "", "date": "Mon, 07 Sep 2026 09:00:00 +0100"}
-    new = {"thread_id": "new", "from_email": MIA, "subject": "Order 1938 again", "snippet": "", "date": THEIRS}
-    chosen, confidence, _ = order_email._choose([old, new], order=order(1938), rows=ROWS, clock=clock)
-    assert confidence == "confident" and chosen["thread_id"] == "new"
-
-
-def test_the_reply_state_is_read_from_the_thread_and_says_who_is_waiting():
-    from app.families import order_email
-
-    waiting = order_email.reply_state([message(MIA, body="Is it too late to add a cap?", date=THEIRS)],
-                                      customer_email=MIA, now=NOW)
-    assert waiting["latest_direction"] == "inbound" and waiting["replied"] is False
-    assert waiting["last_from"] == "Mia" and waiting["latest_outbound_at"] is None
-
-    answered = order_email.reply_state(
-        [message(MIA, body="Any tracking?", date=THEIRS),
-         message("orders@crooksldn.example", body="It went out today.", date=OURS)],
-        customer_email=MIA, now=NOW)
-    assert answered["latest_direction"] == "outbound" and answered["replied"] is True
-    assert answered["last_from"] == "us"
-    # A reply we sent BEFORE their latest message has not answered it.
-    reopened = order_email.reply_state(
-        [message("orders@crooksldn.example", body="It went out today.", date=THEIRS),
-         message(MIA, body="It has not arrived.", date=OURS)],
-        customer_email=MIA, now=NOW)
-    assert reopened["latest_direction"] == "inbound" and reopened["replied"] is False
-
-
-def test_every_stamp_gmail_hands_over_is_understood_and_an_unreadable_one_is_not_guessed():
-    from app.families import order_email
-
-    assert order_email._stamp("Thu, 10 Sep 2026 12:00:00 +0100") == pytest.approx(1_789_038_000.0)
-    assert order_email._stamp("1789038000000") == pytest.approx(1_789_038_000.0)
-    assert order_email._stamp("2026-09-10T11:00:00Z") == pytest.approx(1_789_038_000.0)
-    assert order_email._stamp("sometime last week") is None
-    assert order_email._stamp("") is None
-    # A message with no readable date is left out of the fold rather than counted as now: it
-    # would otherwise become the "latest" and turn a five-hour wait into "just now".
-    state = order_email.reply_state(
-        [message(MIA, body="first", date=THEIRS), message(MIA, body="second", date="who knows")],
-        customer_email=MIA, now=NOW)
-    assert state["messages"] == 2 and state["latest_inbound_at"] == pytest.approx(1_789_038_000.0)
-
-
-def test_the_continuation_names_the_draft_tool_with_both_ids_and_quotes_each_side():
-    from app.families import order_email
-
-    thread = {"thread_id": "aa70d3f83dbef06e", "subject": "Order 1938 — can I add to it?", "message_count": 2,
-              "messages": [message(MIA, body="Is it too late to add a cap?", date=THEIRS),
-                           message("orders@crooksldn.example", body="Let me check the packing table.", date=OURS)]}
-    state = order_email.reply_state(thread["messages"], customer_email=MIA, now=NOW)
-    prompt = order_email.continuation_prompt(order=order(1938), thread=thread, state=state)
-    assert "gmail_draft_reply(thread_id='aa70d3f83dbef06e', order_id='gid://shopify/Order/1938', body=…)" in prompt
-    assert "In one sentence say what they actually want done" in prompt
-    # And the mechanical half is claimed by the Mac, not asked of the model: `_render`'s
-    # sentence leads the answer, so a prompt that asked for it again would have the owner
-    # hear who wrote and whether we replied twice in one breath.
-    assert "Do not repeat that." in prompt
-    assert "issued to you" in prompt and "never send it yourself" in prompt
-    assert "Is it too late to add a cap?" in prompt, "the model must not have to read the thread again"
-    assert "Latest from us" in prompt and "Let me check the packing table." in prompt
-
-
-def test_the_continuation_is_bounded_and_the_instruction_is_never_what_gets_cut():
-    from app.families import order_email
-
-    huge = {"thread_id": "aa70d3f83dbef06e", "subject": "Order 1938 " * 40, "message_count": 40,
-            "messages": [message(MIA, body="what I want is " + "x" * 40_000, date=THEIRS),
-                         message("orders@crooksldn.example", body="y" * 40_000, date=OURS)]}
-    state = order_email.reply_state(huge["messages"], customer_email=MIA, now=NOW)
-    prompt = order_email.continuation_prompt(order=order(1938), thread=huge, state=state)
-    assert len(prompt) <= order_email.CONTINUATION_CHARS, len(prompt)
-    assert "gmail_draft_reply(thread_id='aa70d3f83dbef06e'" in prompt
-    assert "what I want is" in prompt, "the beginning of what they said survives the trim"
-    # And a budget too small for any quote still produces the ask and the instruction.
-    tiny = order_email.continuation_prompt(order=order(1938), thread=huge, state=state, limit=600)
-    assert "gmail_draft_reply" in tiny and "Do not read it again" in tiny
-
-
-def test_the_compound_sentence_is_this_familys_and_a_bare_draft_stays_claudes():
-    """The two routing facts this family turns on, asserted rather than assumed.
-
-    "Check whether they've emailed us … and draft the reply" opens with a question word, so
-    `mutating()` is False and the fast lane may serve it. "Draft the reply" on its own is a
-    mutation and `resolve` refuses it — which is right: `gmail_draft_reply` writes, and this
-    lane cannot.
-    """
-    from app.families import load_all
-    from app.fastpath import recipe_for, resolve
-
-    load_all()
-
-    class _Branch:
-        entity = {"kind": "order", "ref": "gid://shopify/Order/1938", "label": "#1938"}
-        set_id = ""
-        workflow = None
-        resolutions: dict = {}
-
-    compound = resolve("Check whether they've emailed us about this, tell me what they're waiting for, and draft the reply", branch=_Branch())
-    assert compound.family == "order_email_draft", compound.public()
-    recipe = recipe_for(compound.family)
-    assert recipe is not None and recipe.recipe_id == "order_email_reply"
-    assert compound.confidence >= recipe.min_confidence, "it would not reach the fast lane"
-
-    assert resolve("what are they waiting for", branch=_Branch()).family == "order_email_waiting"
-    assert resolve("have they emailed about this order", branch=_Branch()).family == "order_email_draft"
-    assert resolve("check whether they've emailed us about this and draft the reply", branch=_Branch()).family == "order_email_draft"
-
-    for asked in ("draft the reply", "and draft the reply", "reply to her about this"):
-        refused = resolve(asked, branch=_Branch())
-        assert refused.family == "" and refused.reason == "asks for a change", asked
-
-    # Nothing else this branch might be asked is taken away from the family that answers it.
-    assert resolve("where is it", branch=_Branch()).family == "order_status_lookup"
-    assert resolve("what else has this customer ordered", branch=_Branch()).family == "customer_history_lookup"
-    assert resolve("what's in the inbox", branch=_Branch()).family == "inbox_state"
-    assert resolve("which customers need replying to", branch=_Branch()).family == "needs_reply"
-
-    # With nothing open there is no order to be about, so the turn is Claude's.
-    class _Empty(_Branch):
-        entity = None
-
-    assert resolve("have they emailed about this order", branch=_Empty()).family == ""
-
-
 def test_an_unpadded_gmail_body_still_has_words_in_it():
     """Gmail's `body.data` is base64url and its padding is not guaranteed. Unpadded, it raised
     inside `_decode_part`, the raise was swallowed, and the message HAD NO BODY — so the reply
@@ -721,41 +526,3 @@ def test_an_unpadded_gmail_body_still_has_words_in_it():
     assert _decode_part({"mimeType": "text/plain", "body": {"data": unpadded}}) == text
     assert _decode_part({"mimeType": "text/plain", "body": {"data": ""}}) == ""
     assert _decode_part({"mimeType": "text/plain", "body": {"data": "!!!not base64!!!"}}) == ""
-
-
-def test_a_sentence_that_names_a_number_is_not_answered_from_the_order_on_screen():
-    """"Any email from him about 1938" is two candidate subjects — the record on screen and a
-    number that may be an order, a tracking number or a year, because a bare one is
-    deliberately never extracted as an order number. The recipe declines to plan it and Claude
-    takes the turn, which is how it was answered in September."""
-    from app.families import load_all
-    from app.fastpath.intent import resolve
-    from app.fastpath.models import Ctx
-    from app.fastpath.recipes import RECIPES
-    from app.reads.scheduler import ReadResult
-    from app.session.branch import Branch
-    from app.session.models import Session
-
-    load_all()
-    recipe = RECIPES["order_email_reply"]
-    session = Session(session_id="s-number")
-    branch = Branch(branch_id="b", session_id="s-number")
-    branch.visit("order", MIA_ORDER_ID := "gid://shopify/Order/1938", "#1938")
-
-    def ctx_for(text: str) -> Ctx:
-        return Ctx(runtime=None, session=session, branch=branch, intent=resolve(text, branch=branch), text=text)
-
-    about_this = ctx_for("have they emailed about this order")
-    assert recipe.plan(about_this) is not None, "the deictic question is exactly what this recipe is for"
-    assert [r.name for r in recipe.plan(about_this).reads] == ["detail", "threads", "thread"]
-    assert recipe.plan(about_this).reads[0].args == {"order_id": MIA_ORDER_ID}
-
-    for named in ("any email from him about 1938", "has she emailed about 1936"):
-        declined = ctx_for(named)
-        assert recipe.plan(declined) is None, named
-        assert recipe.render(declined, ReadResult()).defer, named
-
-    # And with nothing open there is nothing for "this" to mean.
-    empty = Ctx(runtime=None, session=session, branch=Branch(branch_id="b2", session_id="s-number"),
-                intent=resolve("have they emailed about this order", branch=None), text="have they emailed about this order")
-    assert recipe.plan(empty) is None
