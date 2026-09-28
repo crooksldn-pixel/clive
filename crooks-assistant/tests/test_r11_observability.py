@@ -6,7 +6,9 @@
   balance is still a read.
 - R9-F-observability2-F-OBS2-01: the rules in visible.py wrote a page's own values — the field the
   keyboard left (`tablet_focus.name`), why (`cause`), a control's name — into findings, and so into
-  the report's tables. What a page sent leaves visible.py only as an identifier.
+  the report's tables. What a page sent leaves visible.py only as an identifier, however many
+  strings it sent and in whatever script, and the report prints what a page sent only as an
+  identifier, a number or a path of identifiers.
 - O2-F-01: "Show me the log for order #1938" matched the bare `log` rule and was recorded as a
   defect. A log is an instruction only at the head of a sentence or with what to log after it.
 - R9-F-observability1-F-02: the mark on the ask bar's live words is kept in a screen copy and its
@@ -153,6 +155,184 @@ def test_a_customers_name_a_page_put_in_its_telemetry_never_leaves_visible(tmp_p
 def test_the_report_built_from_that_timeline_carries_none_of_it_either(tmp_path):
     _rec, markdown = build_report(_page_tape(tmp_path))
     assert "Greg" not in markdown and "Hartley" not in markdown and "greg@example.com" not in markdown
+
+
+def _round11_first_rule(text: str, words: set[str]) -> str:
+    """How round 11 first withheld page strings, kept here as the measure the rule is held to: one
+    search a string, longest first, each replaced where it stands whole."""
+    import re
+
+    out = text
+    for word in sorted(words, key=len, reverse=True):
+        if word in out:
+            out = re.sub(rf"(?<![0-9A-Za-z_]){re.escape(word)}(?![0-9A-Za-z_])", "[withheld]", out)
+    return out
+
+
+def _standing_whole(text: str, words: set[str]) -> list[str]:
+    import re
+
+    return [w for part in text.split("[withheld]") for w in words
+            if re.search(rf"(?<![0-9A-Za-z_]){re.escape(w)}(?![0-9A-Za-z_])", part)]
+
+
+def test_every_string_a_page_sent_is_withheld_however_many_it_sent():
+    """R9-F-observability2-F-OBS2-01, finished. The first rule stopped collecting a page's strings
+    at 20,000, so a customer's name sent after them reached the report as it was, and searched every
+    signal once per string, some ten seconds for a day's signals. Every string is collected now and
+    the search is one look at each place a string could begin: the name is withheld, and so is every
+    label, in a small part of that time."""
+    import time
+
+    events = [{"source": "tablet", "kind": "tablet_focus", "turn_id": "t", "name": f"Label {n} Name"}
+              for n in range(25_000)]
+    events.append({"source": "tablet", "kind": "tablet_focus", "turn_id": "t", "name": NAME})
+    words = visible.page_words(events)
+    assert len(words) == 25_001
+    signals = [f"the keyboard left {NAME}'s field when Label {n} Name was drawn" for n in range(3_000)]
+    began = time.perf_counter()
+    out = [visible.withheld(signal, words) for signal in signals]
+    took = time.perf_counter() - began
+    assert out[7] == "the keyboard left [withheld]'s field when [withheld] was drawn", out[7]
+    assert not [s for s in out if "Greg" in s or "Label" in s]
+    assert took < 5.0, f"{took:.1f} s to withhold 3,000 signals"
+
+
+@pytest.mark.parametrize("sent, signal, expected", [
+    ("Иван Петров", "the keyboard left Иван Петров's note", "the keyboard left [withheld]'s note"),
+    ("Zoë Brandt", "a render replaced Zoë Brandt", "a render replaced [withheld]"),
+    ("(Greg)", "two fingers on (Greg) orb", "two fingers on [withheld] orb"),
+    ("Alice Smith", "Alice Smith's card, and Alice Smithson's", "[withheld]'s card, and Alice Smithson's"),
+    ("Greg", "Greg_x and Greg", "Greg_x and [withheld]"),
+])
+def test_a_page_string_in_any_script_is_withheld_where_it_stands_whole_and_nowhere_else(sent, signal, expected):
+    words = visible.page_words([{"source": "tablet", "kind": "tablet_focus", "name": sent}])
+    assert visible.withheld(signal, words) == expected
+
+
+def test_a_page_string_as_deep_as_telemetry_keeps_one_is_withheld_too():
+    """What /telemetry keeps of a page's nesting (app/routes/observe.py _bounded, MAX_DEPTH) is all
+    walked: a name at the deepest level the route lets through is still found and withheld. The
+    first rule stopped four levels down, two short of what the route keeps."""
+    from app.routes import observe
+
+    deep: object = [NAME]
+    for key in ("e", "d", "c", "b", "a"):
+        deep = {key: deep}
+    kept = observe._bounded(deep)
+    assert json.dumps(kept).count(NAME) == 1, "the route keeps it at this depth"
+    words = visible.page_words([{"source": "tablet", "kind": "tablet_render", "state": kept}])
+    assert visible.withheld(f"a card in state {NAME} was drawn", words) == "a card in state [withheld] was drawn"
+
+
+def test_what_is_left_holds_no_page_string_standing_whole_and_no_more_than_the_first_rule_left():
+    """Over thousands of made-up signals and strings (letters of two scripts, digits, punctuation,
+    strings that overlap and strings that stand whole only once a neighbour is withheld): nothing
+    a page sent stands whole in what is left, and what is left is never more than the first rule
+    left — every string that stood whole in a signal is withheld entire."""
+    import random
+
+    pick = random.Random(11)
+    letters = list("abAB-_ .'é#Иx1")
+    for _ in range(4_000):
+        words = {"".join(pick.choice(letters) for _ in range(pick.randint(1, 4))).strip() for _ in range(pick.randint(1, 6))}
+        words.discard("")
+        text = "".join(pick.choice(letters) for _ in range(pick.randint(0, 25)))
+        out = visible.PageWords(words).withhold(text)
+        assert not _standing_whole(out, words), (text, words, out)
+        first = _round11_first_rule(text, words)
+        assert len("".join(out.split("[withheld]"))) <= len("".join(first.split("[withheld]"))), (text, words, out, first)
+
+
+def _screens_tape(tmp_path: Path) -> Path:
+    """Five turns whose renders carry a customer's name in every field section 7, the top problems,
+    the table of cards and an ignored defect print: a card's type, its overflow, its rail action,
+    the document's heights, the viewport, a card it could not draw, a failed image's path, a
+    scroll's depth, the connection's state. And one of each that is an identifier."""
+    from tests.test_analyser import Tape, _finished, _turn
+
+    tape = Tape("ts-20260928-140000-screens")
+    for n in range(5):
+        t = _turn(tape, f"turn_s{n}", said="show me the orders", input_="text")
+        tape.add("tablet_render", source="tablet", turn_id=t, screen="context",
+                 cards=[{"type": f"{NAME} card", "clipped_x": NAME,
+                         "actions": [{"id": f"Refund {NAME}", "enabled": True}, {"id": "order.add_note", "enabled": True}]},
+                        {"type": "order", "clipped_x": 12}],
+                 viewport={"w": NAME, "h": 889, "dpr": 1.33}, document={"cards_height": NAME, "cards_visible": 800},
+                 overflow={"long_scroll": True}, skipped=[f"{NAME} card", "chart"], t=int(tape.now * 1000))
+        tape.add("tablet_image_failed", source="tablet", turn_id=t, src=f"/media/{NAME}.jpg")
+        tape.add("tablet_image_failed", source="tablet", turn_id=t, src="/media/shopify/3fa2/240")
+        tape.add("tablet_scroll", source="tablet", turn_id=t, depth=NAME)
+        tape.add("tablet_connectivity", source="tablet", turn_id=t, state=f"{NAME} offline")
+        _finished(tape, t, answer="Three orders came in.", question="show me the orders")
+    t = _turn(tape, "turn_defect", said="log that the back button is broken", input_="text")
+    tape.add("tablet_render", source="tablet", turn_id=t, screen="context", cards=[{"type": f"{NAME} card"}],
+             t=int(tape.now * 1000))
+    _finished(tape, t, answer="Noted.", question="log that the back button is broken")
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    return tape.write(tmp_path)
+
+
+def test_the_screens_section_and_the_top_problems_print_what_a_page_sent_only_as_identifiers(tmp_path):
+    """F-OBS2-01, the rest of section 7 and what reads the same events: the failed images' paths,
+    the clipped cards, the long scrolls, the viewports, the deepest scroll, the connection's
+    states, the cards the page could not draw, the rail actions never used, and the cards on
+    screen when a defect was said and nothing recorded it. A value a page sent is printed as an
+    identifier, a number as a number and a path of identifiers as a path; anything else is
+    withheld, and a word where a number belongs no longer stops the report."""
+    rec, markdown = build_report(_screens_tape(tmp_path))
+    assert "Greg" not in markdown and "Hartley" not in markdown
+    assert "[withheld]" in markdown
+    assert "/media/shopify/3fa2/240" in markdown, "a path of identifiers is printed as it is"
+    assert "order.add_note" in markdown and "chart" in markdown, "identifiers are printed as they are"
+    assert "Rail actions exposed but never used" in markdown
+    assert [row["screen"] for row in rec.experience.ignored_feedback] == [["[withheld]"]]
+
+
+# Every kind of page event the report, visible.py and touch.py read.
+PAGE_KINDS = ("action_commit", "action_primed", "branch", "collision", "compose_field", "connectivity",
+              "context_failed", "context_landed", "exception", "focus", "gesture", "hold", "image_failed",
+              "keyboard", "navigate", "notify", "rail_tap", "reconcile", "recording_too_short", "render",
+              "scroll", "speak", "tab", "turn_failed", "turn_response", "turn_submitted")
+
+
+@pytest.mark.parametrize("shape", ["flat", "nested"])
+def test_a_name_in_every_field_a_page_may_send_reaches_neither_the_report_nor_the_proposals(tmp_path, shape):
+    """F-OBS2-01, over everything a page can send: every field /telemetry keeps (its allow-list,
+    app/routes/observe.py ALLOWED_FIELDS) of every kind of page event read after, filled with a
+    customer's name — as words where a word, a number or an id belongs and, in the nested shape,
+    inside the cards, their actions, the entities, the viewport and the document too. Neither the
+    report nor the proposals file carries it. A page's free text (an exception's message, its
+    detail) is quoted by its words, scrubbed and bounded, as before, and is left out here."""
+    from app.observability import proposals
+    from app.routes.observe import ALLOWED_FIELDS
+    from tests.test_analyser import Tape, _finished, _turn
+
+    name = "Zed Quorra"
+    fields = sorted(set(ALLOWED_FIELDS) - {"kind", "turn_id", "session_id", "t", "seq", "message", "detail",
+                                           "text", "question"}) + ["a", "b", "cause", "overlap"]
+    tape = Tape(f"ts-20260928-150000-{shape}")
+    for n in range(6):
+        t = _turn(tape, f"turn_p{n}", said="show me the orders", input_="text")
+        for kind in PAGE_KINDS:
+            event = {field: f"{name} {field}" for field in fields}
+            if shape == "nested":
+                event.update(
+                    cards=[{"type": f"{name} c", "ref": f"{name} r", "tab_active": f"{name} t", "sections": [f"{name} s"],
+                            "tabs": [f"{name} t"], "clipped_x": name, "proposal_id": name, "surface": {"state": name},
+                            "actions": [{"id": f"{name} a", "enabled": True, "label": f"{name} l"}]}],
+                    entities=[{"kind": f"{name} k", "ref": f"{name} r"}], entity={"kind": name, "ref": name},
+                    viewport={"w": name, "h": name, "dpr": name}, document={"cards_height": name, "cards_visible": name},
+                    overflow={"long_scroll": True, "clipped": name}, skipped=[f"{name} s"], errors=[f"{name} e"])
+            tape.add(f"tablet_{kind}", source="tablet", turn_id=t, **event)
+        _finished(tape, t, answer="Three orders came in.", question="show me the orders")
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tape.write(tmp_path)
+    _rec, markdown = build_report(path)
+    _rec, cands, proposals_markdown = proposals.build(path)
+    for written in (markdown, json.dumps(cands, default=str), proposals_markdown):
+        leaks = [line for line in written.splitlines() if "Zed" in line or "Quorra" in line]
+        assert not leaks, leaks[:5]
 
 
 # ------------------------------------------------------------------ the log rule (O2-F-01)

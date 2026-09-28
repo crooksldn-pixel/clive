@@ -493,8 +493,10 @@ def precision_evidence(turn: Any) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for event in turn.tablet_events("compose_field"):
         field = as_identifier(event.get("name")) or as_identifier(event.get("label")) or "a field"
+        chars = event.get("chars")     # a count; a page could put words there too
+        chars = chars if isinstance(chars, (int, float)) and not isinstance(chars, bool) else None
         out.append((f"a value was typed into the composer ({field})",
-                    f"{event.get('chars') or '?'} character(s)"))
+                    f"{chars or '?'} character(s)"))
     for event in turn.tablet_events("keyboard"):
         if str(event.get("state") or "") in ("shown", "open"):
             out.append((f"the keyboard was opened on {as_identifier(event.get('name')) or 'a field'}",

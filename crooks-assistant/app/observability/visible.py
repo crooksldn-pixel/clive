@@ -1094,7 +1094,8 @@ def _feedback(rec: Any) -> tuple[list[Finding], list[dict[str, Any]], list[dict[
         answer = _said(turn.answer, _ANSWER_CHARS)
         ignored.append({"turn_id": turn.turn_id, "shape": recognition.kind, "text": _said(recognition.text, 2000),
                         "answer": answer, "at": turn.started_at,
-                        "screen": [str(c.get("type") or "") for r in turn.tablet_events("render")
+                        # The card types a page said it drew: as identifiers, or withheld (round 11, F-OBS2-01).
+                        "screen": [page_identifier(c.get("type")) for r in turn.tablet_events("render")
                                    for c in (r.get("cards") or []) if isinstance(c, dict)][:6]})
         out.append(Finding(
             "OWNER_FEEDBACK_IGNORED", turn.turn_id,
@@ -1344,26 +1345,129 @@ _WITHHELD = WITHHELD
 # card, a state, a cause.
 _FRAME = frozenset({"ts", "iso", "seq", "test_session_id", "source", "kind"})
 _PAGE_TEXT = frozenset({"message", "detail", "text", "question"})
-_PAGE_DEPTH = 4
-_PAGE_WORDS_MAX = 20_000
+# How deep page_words looks into what a page sent: deeper than /telemetry keeps anything
+# (app/routes/observe.py MAX_DEPTH, 6), so every string a page could have sent is found.
+_PAGE_DEPTH = 8
 
 
-# A value a page sent, as the report may count it (screens.page_identifier).
+# A value a page sent, as the report may count it (screens.page_identifier), and the mark it
+# is given when it is not an identifier.
 as_identifier = page_identifier
+WITHHELD_MARK = WITHHELD
+
+
+def as_number(value: Any) -> Any:
+    """A number a page sent, as the report may print it: a number as it is, None as None, and
+    anything else — a page can put words in any field — WITHHELD."""
+    if value is None or (isinstance(value, (int, float)) and not isinstance(value, bool)):
+        return value
+    return _WITHHELD
+
+
+def as_path(value: Any) -> str:
+    """A path a page sent (an image's src, which the page cuts to its path), as the report may print
+    it: kept when what follows its leading slashes is an identifier ('/media/shopify/3fa2/240'),
+    else WITHHELD ('' stays '')."""
+    text = str(value if value is not None else "").strip()
+    rest = text.lstrip("/")
+    shown = page_identifier(rest)
+    return shown if shown in ("", _WITHHELD) else text[: len(text) - len(rest)] + shown
 
 
 def _from_a_page(event: dict[str, Any]) -> bool:
     return str(event.get("source") or "") == "tablet" or str(event.get("kind") or "").startswith("tablet_")
 
 
-def page_words(events: list[dict[str, Any]]) -> list[str]:
-    """Every string a page sent in these events that is not an identifier, longest first. The
-    report's own classifier withholds them from its signals too (report.reconstruct)."""
+class PageWords:
+    """The strings a page sent that are not identifiers (page_words), ready to be withheld from a
+    signal. Each is filed under what it begins with — its first run of ASCII letters, digits and
+    underscores when it begins with one, else its first character — and then by length, longest
+    first. A string can stand whole in a signal only where the signal has such a start (at the
+    beginning, or just after a character that is none of those), and there it begins with exactly
+    the run or the character the signal has there, so withholding is one look at each start and a
+    few set lookups, however many strings a session sent. The first round-11 rule searched each
+    signal once per string: some ten seconds for 3,000 signals against the 20,000 strings it then
+    stopped collecting at, and strings past that cap were not withheld at all. There is no cap now."""
+
+    def __init__(self, words: set[str]) -> None:
+        index: dict[str, dict[int, set[str]]] = {}
+        for word in words:
+            if word:
+                index.setdefault(_lead(word), {}).setdefault(len(word), set()).add(word)
+        self._index = {lead: sorted(by_length.items(), reverse=True) for lead, by_length in index.items()}
+        self._count = sum(len(same) for by_length in index.values() for same in by_length.values())
+
+    def __len__(self) -> int:
+        return self._count
+
+    def withhold(self, text: str) -> str:
+        """`text` with every page string that stands whole in it (no ASCII letter, digit or
+        underscore either side, the rule round 11 began with) replaced by WITHHELD — the longest
+        where two begin at one place, and two that overlap as one — and then looked at again,
+        between the marks, until none is left: withholding one can leave a neighbour standing whole
+        that did not before ('-d' in 'abc-d' once 'abc' is withheld). Each look that finds one
+        withholds at least one character that was not a mark, so this ends; what it returns has no
+        page string standing whole outside a mark."""
+        if not self._index or not text:
+            return text
+        out = self._once(text)
+        while out != text:
+            text = out
+            out = _WITHHELD.join(self._once(part) for part in text.split(_WITHHELD))
+        return out
+
+    def _once(self, text: str) -> str:
+        spans: list[list[int]] = []
+        size = len(text)
+        for start in _STARTS.finditer(text):
+            lengths = self._index.get(start.group())
+            if lengths is None:
+                continue
+            begin = start.start()
+            for length, same in lengths:
+                end = begin + length
+                if end > size or (end < size and _word_char(text[end])) or text[begin:end] not in same:
+                    continue
+                if spans and begin < spans[-1][1]:
+                    spans[-1][1] = max(spans[-1][1], end)     # overlaps the last: one mark for both
+                else:
+                    spans.append([begin, end])
+                break
+        if not spans:
+            return text
+        out: list[str] = []
+        at = 0
+        for begin, end in spans:
+            out.append(text[at:begin])
+            out.append(_WITHHELD)
+            at = end
+        out.append(text[at:])
+        return "".join(out)
+
+
+# Where a page string can begin in a signal, and what it must then begin with: a run of letters,
+# digits and underscores, or one other character, either at the start or after one of those others.
+_STARTS = re.compile(r"(?<![0-9A-Za-z_])(?:[0-9A-Za-z_]+|.)", re.S)
+_RUN = re.compile(r"[0-9A-Za-z_]+")
+
+
+def _lead(word: str) -> str:
+    """What a page string is filed under: its first run of letters, digits and underscores when it
+    begins with one, else its first character (see PageWords)."""
+    run = _RUN.match(word)
+    return run.group() if run else word[0]
+
+
+def _word_char(ch: str) -> bool:
+    return ch.isascii() and (ch.isalnum() or ch == "_")
+
+
+def page_words(events: list[dict[str, Any]]) -> PageWords:
+    """Every string a page sent in these events that is not an identifier. The report's own
+    classifier withholds them from its signals too (report.reconstruct)."""
     found: set[str] = set()
 
     def walk(value: Any, depth: int) -> None:
-        if len(found) >= _PAGE_WORDS_MAX:
-            return
         if isinstance(value, str):
             text = value.strip()
             if text and not (len(text) <= 64 and _IDENTIFIER.fullmatch(text)):
@@ -1381,19 +1485,15 @@ def page_words(events: list[dict[str, Any]]) -> list[str]:
             for key, value in event.items():
                 if key not in _FRAME and key not in _PAGE_TEXT:
                     walk(value, 0)
-    return sorted(found, key=len, reverse=True)
+    return PageWords(found)
 
 
-def withheld(text: str, words: list[str]) -> str:
+def withheld(text: str, words: PageWords) -> str:
     """`text` with every word a page sent withheld, each where it stands as a whole, and then
     passed through the timeline's own rule (credential shapes, contact details, known names)."""
     from app.observability.timeline import scrub_text
 
-    out = str(text or "")
-    for word in words:
-        if word in out:
-            out = re.sub(rf"(?<![0-9A-Za-z_]){re.escape(word)}(?![0-9A-Za-z_])", _WITHHELD, out)
-    return scrub_text(out)
+    return scrub_text(words.withhold(str(text or "")))
 
 
 def _leaving(findings: list[Finding], rec: Any) -> list[Finding]:

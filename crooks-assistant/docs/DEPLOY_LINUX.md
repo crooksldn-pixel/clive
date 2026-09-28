@@ -186,11 +186,11 @@ What every deploy must hold:
   `checks.proxy_identity` says whether the running process has the flag. `make install` checks
   both after the restart — the running process's own command line
   (`/proc/<MainPID>/cmdline`) and that check — and exits non-zero, saying which, if either fails.
-  Since round 11 the unit also bounds uvicorn's graceful drain (`--timeout-graceful-shutdown 15`,
-  before `--no-proxy-headers`) and gives a stop `TimeoutStopSec=45`: 15 s for requests still
-  running, then at most 22 s of the app's own shutdown (housekeeping stopped, the runtime closed,
-  the timeline's accepted events written — `app/main.py`, the SHUTDOWN_* budget), and the rest
-  for the process to exit. The deploy's re-rendered unit is what carries both.
+  Since round 11 the unit also bounds uvicorn's graceful drain (`--timeout-graceful-shutdown 10`,
+  before `--no-proxy-headers`), inside the `TimeoutStopSec=30` a stop has always had: 10 s for
+  requests still running, then at most 13 s of the app's own shutdown (housekeeping stopped, the
+  runtime closed, the timeline's accepted events written — `app/main.py`, the SHUTDOWN_* budget),
+  and the rest for the process to exit. The deploy's re-rendered unit is what carries the flag.
 - **The switches stay as they are.** The table is in CURRENT_TRUTH. A deploy changes no `.env`
   line and no credential.
 - **Tailscale is what the proxy check trusts.** These must all hold, or every owner device is

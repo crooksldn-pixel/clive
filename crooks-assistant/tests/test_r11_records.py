@@ -84,16 +84,26 @@ def test_the_units_stop_and_the_apps_shutdown_budget_are_one_plan():
     assert 0 < m.SHUTDOWN_WAIT_S < m.SHUTDOWN_DEADLINE_S < m.SHUTDOWN_CLOSE_BY_S < m.SHUTDOWN_EXIT_BY_S
     assert m.SHUTDOWN_FLUSH_MIN_S <= m.SHUTDOWN_FLUSH_S
     # The latest the lifespan can end (lifespan: a close is given at least 1 s, a drain at least
-    # SHUTDOWN_FLUSH_MIN_S), after uvicorn's drain and its 0.1 s pause, with the margin to spare.
+    # SHUTDOWN_FLUSH_MIN_S), after uvicorn's tick, its pause and its drain, with the margin to spare.
     lifespan_ends = max(m.SHUTDOWN_EXIT_BY_S, m.SHUTDOWN_CLOSE_BY_S + m.SHUTDOWN_FLUSH_MIN_S,
                         m.SHUTDOWN_DEADLINE_S + 1.0 + m.SHUTDOWN_FLUSH_MIN_S)
-    assert m.SHUTDOWN_GRACEFUL_S + 0.1 + lifespan_ends + m.SHUTDOWN_EXIT_MARGIN_S <= m.UNIT_STOP_S
+    assert m.SHUTDOWN_UVICORN_TICKS_S >= 0.2, "uvicorn/server.py: a 0.1 s tick, then a 0.1 s pause"
+    whole_stop = m.SHUTDOWN_UVICORN_TICKS_S + m.SHUTDOWN_GRACEFUL_S + lifespan_ends
+    assert whole_stop + m.SHUTDOWN_EXIT_MARGIN_S <= m.UNIT_STOP_S, whole_stop
+    # And the Control app's own `systemctl stop` (scripts/service_linux.py) waits the unit's 30 s.
+    assert m.UNIT_STOP_S <= 30
 
 
-def test_the_installer_renders_the_bounded_drain_into_the_unit_it_installs():
-    """`make install` (and so the deploy, which re-renders the unit) writes these lines as they are."""
+def test_the_installer_renders_the_bounded_drain_into_the_unit_it_installs(monkeypatch):
+    """`make install` (and so the deploy, which re-renders the unit) writes these lines as they are,
+    and the proxy check (/health and the installer's look at the running command line) still reads
+    --no-proxy-headers in the new command line."""
     import importlib.util as util
+    import sys
 
+    # The installer puts scripts/ at the head of sys.path as it loads, where scripts/experience.py
+    # would then stand in for the experience package in every test after this one: put it back.
+    monkeypatch.setattr(sys, "path", list(sys.path))
     spec = util.spec_from_file_location("install_systemd_r11", ROOT / "scripts" / "install_systemd.py")
     installer = util.module_from_spec(spec)
     spec.loader.exec_module(installer)
@@ -101,14 +111,17 @@ def test_the_installer_renders_the_bounded_drain_into_the_unit_it_installs():
         "ROOT": "/r", "PYTHON": "/p", "HOME": "/root", "PATH": "/usr/bin", "CLAUDE": "/c",
         "HOST": "127.0.0.1", "PORT": "8000", "SECRET_DIR": "/s", "CREDENTIALS": "",
     })
-    assert ("ExecStart=/p -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --timeout-graceful-shutdown 15 "
+    assert ("ExecStart=/p -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --timeout-graceful-shutdown 10 "
             "--no-proxy-headers") in unit.splitlines()
-    assert "TimeoutStopSec=45" in unit.splitlines()
+    assert "TimeoutStopSec=30" in unit.splitlines()
     from app import identity
 
     argv = ["/p", "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000",
-            "--timeout-graceful-shutdown", "15", "--no-proxy-headers"]
-    assert identity.served_without_proxy_headers(argv)[0] is True, "the proxy check still reads the flag"
+            "--timeout-graceful-shutdown", "10", "--no-proxy-headers"]
+    # A count of rewritten requests another test left behind is this process's, not the argv's.
+    monkeypatch.setattr(identity, "rewritten_seen", 0)
+    assert identity.proxy_headers_off(argv)
+    assert identity.served_without_proxy_headers(argv) == (True, "uvicorn started with --no-proxy-headers")
 
 
 # ------------------------------------------------------------------ an overlong housekeeping step
@@ -502,13 +515,11 @@ def test_the_live_gap_records_shape_comes_through_the_real_start_up_byte_for_byt
 # ------------------------------------------------------------------ R9-E-families1-E-05
 
 # Modules deleted with the fast lane and the word-matching families (commit 4411adde, 28 September
-# 2026). Nothing may import them, name them in code, or load them.
-DELETED = (
-    "app.fastpath", "app.capabilities.ask", "app.capabilities.screen", "app.capabilities.ui_intent",
-    "app.families.navigation_extras", "app.families.order_email", "app.families.owner_feedback",
-    "app.families.query_language", "app.families.self_knowledge", "app.families.ui_intent",
-    "app.speech.normalise", "scripts.bench_lanes",
-)
+# 2026): nothing may import them, name them in code, or load them. The one list is
+# tests/test_no_dangling_imports.py's, which names them there alone — a second copy here was
+# itself a string naming each, which that file's own check rightly refused.
+from tests.test_no_dangling_imports import DELETED  # noqa: E402
+
 OURS = ("app", "scripts", "config", "experience")
 
 

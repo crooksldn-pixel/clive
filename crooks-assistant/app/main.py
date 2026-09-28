@@ -198,31 +198,37 @@ async def drain_timelines(runtime, *, timeout_s: float) -> bool:
 # drawn from them happen on a clock, not only when the next event asks.
 HOUSEKEEPING_S = 15 * 60
 # The whole stop, planned inside systemd's TimeoutStopSec (round 11, R9-A3b-F-04-SHUTDOWN and
-# CFG-02). deploy/systemd/crooks-assistant.service sends SIGINT and gives UNIT_STOP_S before SIGKILL:
+# CFG-02). deploy/systemd/crooks-assistant.service sends SIGINT and gives UNIT_STOP_S before SIGKILL
+# — the 30 s it has always given, which the Control app's own stop (scripts/service_linux.py)
+# waits on too:
 #
-#   uvicorn's graceful drain   SHUTDOWN_GRACEFUL_S (--timeout-graceful-shutdown in ExecStart). A
-#                              connection held open used to keep the lifespan's shutdown from
-#                              starting at all until SIGKILL; now requests still running then are
-#                              cancelled, and the lifespan below starts.
+#   uvicorn notices the signal   at its next tick and pauses once before the drain,
+#                                SHUTDOWN_UVICORN_TICKS_S together (0.1 s each, uvicorn/server.py)
+#   uvicorn's graceful drain     SHUTDOWN_GRACEFUL_S (--timeout-graceful-shutdown in ExecStart). A
+#                                connection held open used to keep the lifespan's shutdown from
+#                                starting at all until SIGKILL; now requests still running then are
+#                                cancelled, and the lifespan below starts.
 #   then the lifespan, timed from its own start:
-#     housekeeping stops       asked at once, and ended within one filesystem call of it (the walks
-#                              read the stop before each entry); waited for SHUTDOWN_WAIT_S, then
-#                              on to SHUTDOWN_DEADLINE_S
-#     the runtime closes       until SHUTDOWN_CLOSE_BY_S at the latest
-#     the timeline drains      until SHUTDOWN_EXIT_BY_S (at most SHUTDOWN_FLUSH_S, at least
-#                              SHUTDOWN_FLUSH_MIN_S), on the normal path and the timed-out one alike
+#     housekeeping stops         asked at once, and ended within one filesystem call of it (the
+#                                walks read the stop before each entry); waited for
+#                                SHUTDOWN_WAIT_S, then on to SHUTDOWN_DEADLINE_S
+#     the runtime closes         until SHUTDOWN_CLOSE_BY_S at the latest (given 1 s at least)
+#     the timeline drains        until SHUTDOWN_EXIT_BY_S (at most SHUTDOWN_FLUSH_S, at least
+#                                SHUTDOWN_FLUSH_MIN_S), on the normal path and the timed-out one alike
 #
-# The lifespan therefore ends by SHUTDOWN_EXIT_BY_S at the latest, the whole stop by 15 + 0.1 + 22 =
-# 37.1 s, leaving about 8 s of the unit's 45 for the interpreter to exit. tests/test_r11_records.py
-# holds the unit's two lines to these numbers and the sum to the margin.
-UNIT_STOP_S = 45
-SHUTDOWN_GRACEFUL_S = 15
-SHUTDOWN_WAIT_S = 3.0
-SHUTDOWN_DEADLINE_S = 8.0
-SHUTDOWN_CLOSE_BY_S = 16.0
-SHUTDOWN_FLUSH_S = 8.0
+# The lifespan therefore ends by SHUTDOWN_EXIT_BY_S at the latest, and the whole stop by
+# 0.2 + 10 + 13 = 23.2 s, leaving SHUTDOWN_EXIT_MARGIN_S and more (6.8 s) of the unit's 30 for the
+# interpreter to exit. tests/test_r11_records.py holds the unit's two lines to these numbers and
+# the sum to the margin.
+UNIT_STOP_S = 30
+SHUTDOWN_UVICORN_TICKS_S = 0.2
+SHUTDOWN_GRACEFUL_S = 10
+SHUTDOWN_WAIT_S = 2.0
+SHUTDOWN_DEADLINE_S = 5.0
+SHUTDOWN_CLOSE_BY_S = 9.0
+SHUTDOWN_FLUSH_S = 4.0
 SHUTDOWN_FLUSH_MIN_S = 0.5
-SHUTDOWN_EXIT_BY_S = 22.0
+SHUTDOWN_EXIT_BY_S = 13.0
 # What the interpreter is left, at least, between the lifespan's end and SIGKILL.
 SHUTDOWN_EXIT_MARGIN_S = 5.0
 # How many times start-up checks the reports before it refuses, and how far apart (round 8,
@@ -375,7 +381,9 @@ class Housekeeper:
     pass already under way to finish before the runtime is closed under it. Shutdown also sets
     `_stop`, which the pass reads between its steps (round 8, F-04-SHUTDOWN), so a long pass ends
     at its next step rather than running on to the unit's kill. /health reads check(): whether a
-    pass has run lately and whether the last one left anything undone."""
+    pass has run lately and whether the last one left anything undone. Since round 11 the same
+    stop is read inside the steps too, before each entry of every walk over the sessions and the
+    reports (session.HOUSEKEEPING_STOP), so a pass asked to stop ends within one filesystem call."""
 
     def __init__(self, runtime, *, interval_s: float | None = None, pass_fn=None) -> None:
         self.runtime = runtime
@@ -393,7 +401,8 @@ class Housekeeper:
 
     def run_pass(self) -> str:
         """One pass, in the calling thread. Nothing once shutdown has begun, and a pass under way
-        is asked to stop at its next step (housekeep_once reads `_stop`)."""
+        is asked to stop, and ends at the next entry it comes to (housekeep_once reads `_stop`,
+        and every walk inside it reads session.HOUSEKEEPING_STOP)."""
         import time
 
         with self._running:
