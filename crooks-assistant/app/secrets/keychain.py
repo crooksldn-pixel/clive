@@ -59,6 +59,9 @@ KNOWN_KEYS = (
     # the backend the first time it starts, read by the command line, opening the three
     # test-session routes and nothing else (the 2026-09-27 deploy review, round 6, F-05A).
     "local_cli_key",
+    # Finds videos for the owner's screens (app/clients/youtube.py): a YouTube Data API v3 key,
+    # read-only by what that API is. Absent, a YouTube link still plays; only search needs it.
+    "youtube_api_key",
 )
 
 

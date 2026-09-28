@@ -58,6 +58,11 @@ HELP = {
         "GitHub -> Settings -> Developer settings -> Fine-grained tokens: the clive repository "
         "only, Contents read and write. CLIVE files build requests with it, on your tap."
     ),
+    "youtube_api_key": (
+        "Google Cloud console -> a project -> APIs & Services -> enable YouTube Data API v3 -> "
+        "Credentials -> Create credentials -> API key, restricted to that API. CLIVE searches "
+        "YouTube with it to play videos on your screens."
+    ),
 }
 
 # What `make secrets` walks through on this host, in the order production needs them.

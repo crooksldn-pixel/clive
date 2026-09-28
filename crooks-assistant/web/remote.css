@@ -42,8 +42,8 @@ body.rm-on{overflow:hidden}
 /* a pane: a section of grouped cells */
 .rm-group{display:flex;flex-direction:column;gap:8px}
 .rm-kicker{margin:0 16px;font-size:13px;line-height:18px;letter-spacing:-.08px;text-transform:uppercase;color:var(--rm-ink-2)}
-.rm-ghead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 16px 4px}
-.rm-h{margin:0;min-width:0;font-size:22px;line-height:28px;font-weight:700;letter-spacing:.35px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rm-ghead{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;column-gap:12px;row-gap:2px;margin:0 16px 4px}
+.rm-h{flex:1 1 60%;margin:0;min-width:0;font-size:22px;line-height:28px;font-weight:700;letter-spacing:.35px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rm-sub{margin:0;flex:none;font-size:15px;letter-spacing:-.24px;color:var(--rm-ink-2);font-variant-numeric:tabular-nums}
 .rm-sub.is-done{color:#30d158;font-weight:600}
 .rm-ctl{display:flex;flex-direction:column;gap:12px}
@@ -106,6 +106,40 @@ button.rm-cell:active{background:var(--rm-cell-2)}
 .rm-empty{padding:40px 24px;border-radius:16px;text-align:center;background:var(--rm-cell)}
 .rm-empty-t{margin:0 0 6px;font-size:20px;line-height:25px;font-weight:600;letter-spacing:.38px}
 .rm-empty-d{margin:0;font-size:15px;line-height:20px;color:var(--rm-ink-2)}
+
+/* a video: its picture and channel, where it is (drag to go there), play and pause between ten
+   seconds back and on, and the volume, like iOS's Now Playing */
+.rm-video{gap:14px}
+.rm-vcard{display:flex;flex-direction:column;gap:10px}
+.rm-vart{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:16px;background:var(--rm-cell);
+  box-shadow:0 18px 40px -22px rgba(0,0,0,.9),inset 0 0 0 .5px rgba(255,255,255,.1)}
+.rm-vwho{margin:0 4px;font-size:15px;line-height:20px;letter-spacing:-.24px;color:var(--rm-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rm-vbar{--rm-fill:0%;-webkit-appearance:none;appearance:none;display:block;width:100%;height:28px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:none}
+.rm-vbar::-webkit-slider-runnable-track{height:6px;border-radius:3px;
+  background:linear-gradient(90deg,rgba(255,255,255,.92) var(--rm-fill),rgba(255,255,255,.2) var(--rm-fill))}
+.rm-vbar::-moz-range-track{height:6px;border-radius:3px;background:rgba(255,255,255,.2)}
+.rm-vbar::-moz-range-progress{height:6px;border-radius:3px;background:rgba(255,255,255,.92)}
+.rm-vbar::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:22px;height:22px;margin-top:-8px;border:0;border-radius:50%;
+  background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+.rm-vbar::-moz-range-thumb{width:22px;height:22px;border:0;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+.rm-vbar:focus-visible{outline:3px solid rgba(10,132,255,.9);outline-offset:2px;border-radius:14px}
+.rm-vtimes{display:flex;justify-content:space-between;margin:-6px 2px 0;font-size:13px;line-height:18px;letter-spacing:-.08px;
+  color:var(--rm-ink-2);font-variant-numeric:tabular-nums}
+.rm-vrow{display:flex;align-items:center;justify-content:center;gap:34px;padding:4px 0 6px}
+.rm-vbtn{position:relative;flex:none;display:flex;align-items:center;justify-content:center;width:64px;height:64px;padding:0;border:0;border-radius:50%;
+  color:#fff;background:transparent;cursor:pointer;transition:transform .38s var(--rm-spring),background-color .2s ease}
+.rm-vbtn:active{transform:scale(.9);background:rgba(255,255,255,.1);transition-duration:.12s}
+.rm-vbtn svg{width:40px;height:40px}
+.rm-vten{position:absolute;top:50%;left:50%;transform:translate(-50%,-44%);font-size:11px;font-weight:700;letter-spacing:-.2px}
+.rm-vplay{width:84px;height:84px}
+.rm-vplay svg{width:52px;height:52px}
+.rm-vvol{display:flex;align-items:center;gap:10px;padding:2px 0}
+.rm-vspk{flex:none;display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:0;border-radius:22px;
+  color:var(--rm-ink-2);background:transparent;cursor:pointer}
+.rm-vspk svg{width:26px;height:26px}
+.rm-vspk.is-muted{color:#ff453a}
+.rm-vlevel{flex:1}
+.rm-note.is-bad{color:#ff453a}
 
 /* the whole screen: glass, at the foot */
 .rm-foot{flex:none;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));

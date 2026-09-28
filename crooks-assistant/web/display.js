@@ -26,6 +26,9 @@
  * owner's remote (web/remote.js) ticks items as they go in the box — a check and a dimmed row
  * here — and turns pages; this screen follows both on its next ask, in place, and when CLIVE
  * turns the screen off it goes back to the orb and the clock like any clearing.
+ *
+ * And a pane can play a YouTube video the owner asked for, in YouTube's own embedded player,
+ * worked from his remote, through CLIVE, or with this TV's own remote (see "a video", below).
  */
 'use strict';
 
@@ -89,6 +92,9 @@
     lastOk: Date.now(),    // when CLIVE last answered this screen
     skew: 0,               // CLIVE's clock less this device's
   };
+  // The videos on this screen (YouTube), by the key of the pane each plays in: kept while the
+  // page is drawn again around them, so a video never starts over because the other pane changed.
+  const VIDEOS = new Map();
 
   // ---- the board: a fixed height, as wide as the screen's shape, scaled to fit -----------
   function layout() {
@@ -725,11 +731,40 @@
     frag.appendChild(foot);
     return frag;
   }
+  // A video: where YouTube's player goes (the player itself lives beside the page, so that the
+  // page can be drawn again without the video starting over: videoSync, below), and under it
+  // its title, its channel and how long it is, and a word on how it is playing.
+  function clockOf(sec) {
+    const s = Math.max(0, Math.floor(Number(sec) || 0)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return (h ? h + ':' + pad(m) : String(m)) + ':' + pad(s % 60);
+  }
+  function renderVideo(P) {
+    const v = P.view, clip = (v.video && typeof v.video === 'object') ? v.video : {};
+    const frag = document.createDocumentFragment();
+    const wrap = el('div', 'cs-vwrap');
+    const slot = el('div', 'cs-vslot');
+    slot.setAttribute('data-dot', 'tile');
+    wrap.appendChild(slot);
+    P.slot = slot; P.vwrap = wrap;
+    frag.appendChild(wrap);
+    const meta = el('div', 'cs-vmeta');
+    const left = el('div', 'cs-vmeta-l');
+    left.appendChild(el('div', 'cs-vtitle', v.title || 'YouTube video'));
+    const length = clip.live ? 'Live' : (Number.isInteger(clip.duration_s) && clip.duration_s > 0 ? clockOf(clip.duration_s) : '');
+    left.appendChild(el('div', 'cs-vsub', [clip.channel, length, 'YouTube'].filter(Boolean).join(' · ')));
+    meta.appendChild(left);
+    const state = el('div', 'cs-vstate');
+    P.vstate = state;
+    meta.appendChild(state);
+    frag.appendChild(meta);
+    return frag;
+  }
   function renderPane(P) {
-    const box = el('section', 'cs-pane');
+    const box = el('section', 'cs-pane' + (P.view.kind === 'video' ? ' cs-vpane' : ''));
     box.setAttribute('data-pane', String(P.index));
     const v = P.view;
-    box.appendChild(v.kind === 'order' ? renderOrder(P) : v.kind === 'objective' ? renderObjective(P) : renderList(P));
+    box.appendChild(v.kind === 'order' ? renderOrder(P) : v.kind === 'objective' ? renderObjective(P)
+      : v.kind === 'video' ? renderVideo(P) : renderList(P));
     P.node = box;
     return box;
   }
@@ -742,7 +777,7 @@
     for (const P of S.drawnView || []) resetPage(P);
     const two = !!panes && panes.length > 1;
     ui.classList.toggle('cs-two', two);
-    if (!panes || !panes.length) return;
+    if (!panes || !panes.length) { videoSync([]); return; }
     ui.appendChild(topBar(panes));
     const row = el('div', 'cs-panes');
     for (const P of panes) { P.two = two; row.appendChild(renderPane(P)); }
@@ -752,10 +787,15 @@
       const k = kept[n];
       if (k && k.per === P.page.per && P.page.fill) { P.page.seen = k.seen; P.page.fill(Math.min(k.index, P.page.pages - 1)); }
     });
+    videoSync(panes);
   }
   function uiState(name) {
     ui.classList.remove('is-hidden', 'is-revealing', 'is-shown', 'is-dissolving');
     ui.classList.add(name);
+    // A video comes in as the page is revealed and goes as it dissolves; it plays once shown.
+    const seen = name === 'is-shown' || name === 'is-revealing';
+    for (const Y of VIDEOS.values()) if (!Y.parked) Y.host.classList.toggle('is-in', seen);
+    if (name === 'is-shown') for (const Y of VIDEOS.values()) if (!Y.parked) videoStart(Y);
   }
 
   // ---- where the dots go ----------------------------------------------------------------
@@ -915,6 +955,13 @@
   // acknowledged as the screen's own button would).
   function follow(P, w) {
     if (P.packed || P.index !== w.index) return;
+    if (P.view.kind === 'video') {
+      // What the owner asked of the video since (play, pause, a volume, a skip): applied once.
+      P.view = w.view;
+      const Y = VIDEOS.get(P.key);
+      if (Y) videoApply(Y, w.view.player);
+      return;
+    }
     const was = ticksOf(P.view), now = ticksOf(w.view);
     const ticked = was.size !== now.size || [...now].some((n) => !was.has(n));
     const turned = pageOf(w.view) !== P.serverPage;
@@ -1131,6 +1178,332 @@
     }).catch(() => { /* turned here; the remote catches up when CLIVE can be reached */ });
   }
 
+  // ---- a video: YouTube, in YouTube's own player ----------------------------------------
+  // The owner asked for a video (app/tools/display_tools.py screen_play). It plays in YouTube's
+  // privacy-enhanced embedded player, built here from the video's id and nothing else CLIVE
+  // sends. No script of YouTube's runs in this page: the player is spoken to with the messages
+  // its own API sends (postMessage), and only messages from YouTube's player, from that frame,
+  // are listened to. The player sits beside the page, over the place drawn for it, so drawing
+  // the page again (the other pane packed, a resize) never starts it over.
+  //
+  // What the owner asks of it — from his remote, through CLIVE, or with the TV's own remote here
+  // — is CLIVE's record (`player`: every command counted, skips added up, the last jump), and
+  // each command is applied here exactly once. How it is actually playing is told back to CLIVE
+  // every couple of seconds and at every change, for the remote and for CLIVE. A browser may
+  // refuse to start a video with sound before anyone has pressed anything on the screen: then it
+  // plays muted, says so, and the sound comes on at the first press of a button here.
+  const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+  const YT_EMBED = 'https://www.youtube-nocookie.com';
+  const YT_ORIGINS = [YT_EMBED, 'https://www.youtube.com'];
+  const YT_STATE = { '-1': 'unstarted', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'cued' };
+  const VIDEO_POLL_MS = 700;           // asked this often while a video is up, so the remote feels immediate
+  const REPORT_MS = 2000;              // how it is playing, told this often while it plays
+  const REPORT_GAP_MS = 1000;          // and never more often than this
+  const SOUND_WAIT_MS = 3500;          // started with sound and not playing by then: try it muted
+  const PARK_MS = 9000;                // a video taken off the page is kept (paused) this long in case it comes back
+  const LISTEN_MS = 250;
+  const LISTEN_TRIES = 60;
+  const MAX_SAID_S = 86400;            // the most CLIVE takes for a position or a length (store.py MAX_JUMP_S * 2)
+  let videoSeq = 0;
+  let pressed = false;                 // someone has pressed something on this screen since it was opened
+  const whole = (n, d) => (Number.isInteger(n) ? n : d);
+
+  function videoSend(Y, func, args) {
+    if (!Y.ready) { Y.queue.push([func, args || []]); return; }
+    try {
+      Y.frame.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args: args || [], id: Y.seq, channel: 'widget' }), YT_EMBED);
+    } catch (e) { /* the player has gone; it is dropped with its pane */ }
+  }
+  function videoListen(Y) {
+    clearInterval(Y.listen);
+    let tries = 0;
+    const hello = () => {
+      if (Y.ready || tries++ >= LISTEN_TRIES || !Y.frame.contentWindow) { clearInterval(Y.listen); return; }
+      try {
+        Y.frame.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: Y.seq, channel: 'widget' }), YT_EMBED);
+      } catch (e) { /* not there yet */ }
+    };
+    hello();
+    Y.listen = setInterval(hello, LISTEN_MS);
+  }
+  function videoMake(P) {
+    const clip = (P.view.video && typeof P.view.video === 'object') ? P.view.video : {};
+    const id = String(clip.id || P.view.ref || '');
+    if (!VIDEO_ID.test(id)) return null;
+    const start = Number.isInteger(clip.start) && clip.start > 0 ? Math.min(clip.start, 43200) : 0;
+    const host = el('div', 'cs-vhost');
+    const frame = document.createElement('iframe');
+    frame.className = 'cs-vframe';
+    frame.title = P.view.title || 'YouTube video';
+    frame.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+    // YouTube's player needs to know which site embeds it (its error 153 otherwise): this origin only.
+    frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    // The TV's own remote talks to this page, not to the player.
+    frame.setAttribute('tabindex', '-1');
+    const query = ['enablejsapi=1', 'autoplay=0', 'controls=0', 'disablekb=1', 'fs=0', 'rel=0', 'playsinline=1',
+      'iv_load_policy=3', 'origin=' + encodeURIComponent(location.origin || '')];
+    if (start) query.push('start=' + start);
+    frame.src = YT_EMBED + '/embed/' + encodeURIComponent(id) + '?' + query.join('&');
+    host.appendChild(frame);
+    const note = el('div', 'cs-vnote');
+    note.hidden = true;
+    host.appendChild(note);
+    const p = (P.view.player && typeof P.view.player === 'object') ? P.view.player : {};
+    const jump = p.jump && typeof p.jump === 'object' ? p.jump : null;
+    const Y = {
+      key: P.key, seq: ++videoSeq, id, host, frame, note, index: P.index, v: P.v, P, ready: false, queue: [], listen: 0,
+      // What was asked of it before this screen drew it is where it starts, not history to replay.
+      applied: { n: whole(p.n, 0), skip: whole(p.skip, 0), jump: jump ? whole(jump.n, 0) : 0 }, want: p,
+      info: { state: -1, at: start, atT: Date.now(), duration: whole(clip.duration_s, 0), volume: null, muted: false },
+      started: false, blocked: false, error: null, parked: 0, parkTimer: 0, soundTimer: 0, reportT: 0, reportTimer: 0,
+    };
+    frame.addEventListener('load', () => videoListen(Y));
+    board.appendChild(host);
+    return Y;
+  }
+  // The videos drawn now, each over the place drawn for it; one no longer drawn is paused and
+  // kept a moment (the page is being laid out again around it), then dropped.
+  function videoSync(panes) {
+    const keep = new Set();
+    for (const P of panes || []) {
+      if (P.view.kind !== 'video') continue;
+      let Y = VIDEOS.get(P.key);
+      if (!Y) {
+        Y = videoMake(P);
+        if (!Y) continue;
+        VIDEOS.set(P.key, Y);
+      }
+      if (Y.parked) { Y.parked = 0; clearTimeout(Y.parkTimer); Y.started = false; }
+      Y.P = P; Y.index = P.index; Y.v = P.v;
+      keep.add(P.key);
+      videoFit(P);
+      Y.host.classList.toggle('is-small', !!P.two);
+      videoPlace(Y, P.slot);
+      videoSay(Y);
+    }
+    for (const Y of VIDEOS.values()) {
+      if (keep.has(Y.key) || Y.parked) continue;
+      Y.parked = Date.now();
+      Y.host.classList.remove('is-in');
+      clearTimeout(Y.soundTimer);
+      videoSend(Y, 'pauseVideo');
+      Y.parkTimer = setTimeout(() => videoDrop(Y), PARK_MS);
+    }
+  }
+  function videoDrop(Y) {
+    clearInterval(Y.listen); clearTimeout(Y.parkTimer); clearTimeout(Y.soundTimer); clearTimeout(Y.reportTimer);
+    if (Y.host.parentNode) Y.host.parentNode.removeChild(Y.host);
+    VIDEOS.delete(Y.key);
+  }
+  function videoDropAll() { for (const Y of [...VIDEOS.values()]) videoDrop(Y); }
+  // As large as the pane allows at 16:9, centred in it.
+  function videoFit(P) {
+    const w = P.vwrap ? P.vwrap.clientWidth : NaN, h = P.vwrap ? P.vwrap.clientHeight : NaN;
+    if (!(w > 0) || !(h > 0)) return;
+    const wide = w / h > 16 / 9;
+    const height = (wide ? h : w * 9 / 16).toFixed(1) + 'px';
+    P.slot.style.width = (wide ? h * 16 / 9 : w).toFixed(1) + 'px';
+    P.slot.style.height = height;
+    // The picture and its title stay together, in the middle of a pane taller than they are.
+    P.vwrap.style.flex = '0 0 ' + height;
+  }
+  function videoPlace(Y, slot) {
+    if (!slot) return;
+    const R0 = board.getBoundingClientRect();
+    const k = R0.width / L.W || 1;
+    const r = slot.getBoundingClientRect();
+    const s = Y.host.style;
+    s.left = ((r.left - R0.left) / k).toFixed(1) + 'px';
+    s.top = ((r.top - R0.top) / k).toFixed(1) + 'px';
+    s.width = (r.width / k).toFixed(1) + 'px';
+    s.height = (r.height / k).toFixed(1) + 'px';
+  }
+  function videoAt(Y) {
+    const I = Y.info;
+    return I.state === 1 ? I.at + (Date.now() - I.atT) / 1000 : I.at;
+  }
+  function videoReady(Y) {
+    if (Y.ready) return;
+    Y.ready = true;
+    clearInterval(Y.listen);
+    videoSend(Y, 'addEventListener', ['onStateChange']);
+    videoSend(Y, 'addEventListener', ['onError']);
+    for (const [func, args] of Y.queue.splice(0)) videoSend(Y, func, args);
+    if (S.phase === 'shown' && !Y.parked) videoStart(Y);
+  }
+  // Shown: it plays (unless the owner paused it), at the volume he chose.
+  function videoStart(Y) {
+    if (!Y.ready || Y.started || Y.error !== null) return;
+    Y.started = true;
+    const p = Y.want || {};
+    if (Number.isInteger(p.volume)) videoSend(Y, 'setVolume', [p.volume]);
+    videoSend(Y, p.muted || Y.blocked ? 'mute' : 'unMute');
+    if (p.paused) return;
+    videoSend(Y, 'playVideo');
+    clearTimeout(Y.soundTimer);
+    Y.soundTimer = setTimeout(() => {
+      // Not playing with sound: this browser wants a press on the screen first. Muted, it may.
+      if (Y.parked || Y.error !== null || (Y.want || {}).paused || Y.info.state === 1 || Y.info.state === 3 || pressed) return;
+      Y.blocked = true;
+      videoSend(Y, 'mute');
+      videoSend(Y, 'playVideo');
+      videoSay(Y);
+      videoReport(Y, true);
+    }, SOUND_WAIT_MS);
+  }
+  // What the owner asked since the last command applied here: each command once.
+  function videoApply(Y, p) {
+    if (!p || typeof p !== 'object') return;
+    const n = whole(p.n, 0);
+    Y.want = p;
+    if (n <= Y.applied.n) return;
+    const jump = p.jump && typeof p.jump === 'object' ? p.jump : null;
+    if (jump && whole(jump.n, 0) > Y.applied.jump) {
+      const to = Math.max(0, whole(jump.to, 0));
+      videoSend(Y, 'seekTo', [to, true]);
+      Y.info.at = to; Y.info.atT = Date.now();
+      Y.applied.jump = whole(jump.n, 0);
+      Y.applied.skip = whole(jump.skip, Y.applied.skip);
+    }
+    const skip = whole(p.skip, 0) - Y.applied.skip;
+    if (skip) {
+      const to = Math.max(0, videoAt(Y) + skip);
+      videoSend(Y, 'seekTo', [to, true]);
+      Y.info.at = to; Y.info.atT = Date.now();
+    }
+    Y.applied.skip = whole(p.skip, 0);
+    Y.applied.n = n;
+    if (!Y.started) return;   // the rest is how it starts, once it is shown
+    if (Number.isInteger(p.volume)) videoSend(Y, 'setVolume', [p.volume]);
+    videoSend(Y, p.muted || Y.blocked ? 'mute' : 'unMute');
+    videoSend(Y, p.paused ? 'pauseVideo' : 'playVideo');
+  }
+  function videoHeard(Y, info) {
+    if (!info || typeof info !== 'object') return;
+    const I = Y.info, was = I.state;
+    if (typeof info.currentTime === 'number' && isFinite(info.currentTime)) { I.at = Math.max(0, info.currentTime); I.atT = Date.now(); }
+    if (typeof info.duration === 'number' && isFinite(info.duration) && info.duration > 0) I.duration = info.duration;
+    if (typeof info.volume === 'number' && isFinite(info.volume)) I.volume = Math.max(0, Math.min(100, Math.round(info.volume)));
+    if (typeof info.muted === 'boolean') I.muted = info.muted;
+    if (Number.isInteger(info.playerState) && YT_STATE[info.playerState] !== undefined) I.state = info.playerState;
+    if (I.state !== was) { videoSay(Y); videoReport(Y, true); }
+  }
+  function videoFailed(Y, code) {
+    Y.error = Number.isInteger(code) ? code : 5;
+    clearTimeout(Y.soundTimer);
+    videoSay(Y);
+    videoReport(Y, true);
+  }
+  // The word under the video, and the note over it when it cannot play.
+  function videoSay(Y) {
+    const P = Y.P, e = Y.error;
+    let note = '';
+    if (e === 101 || e === 150 || e === 153) note = 'YouTube won’t let this video play outside YouTube. Ask CLIVE for another.';
+    else if (e === 100) note = 'This video isn’t on YouTube any more.';
+    else if (e !== null) note = 'YouTube couldn’t play this video.';
+    Y.note.textContent = note;
+    Y.note.hidden = !note;
+    if (!P || !P.vstate) return;
+    const st = Y.info.state;
+    const said = e !== null ? 'Can’t play'
+      : Y.blocked ? 'Sound off · press OK or tap the screen'
+      : st === 2 ? 'Paused' : st === 0 ? 'Finished' : st === 3 ? 'Loading' : '';
+    P.vstate.textContent = said;
+    P.vstate.classList.toggle('is-bad', e !== null);
+    P.vstate.classList.toggle('is-note', e === null && Y.blocked);
+  }
+  // How it is playing, told to CLIVE with this screen's key: at every change, and every couple of
+  // seconds while it plays, never more often than REPORT_GAP_MS.
+  function videoReport(Y, now) {
+    if (!S.screen || Y.parked || !Y.ready) return;
+    const wait = REPORT_GAP_MS - (Date.now() - Y.reportT);
+    if (wait > 0) {
+      if (now && !Y.reportTimer) Y.reportTimer = setTimeout(() => { Y.reportTimer = 0; videoReport(Y, true); }, wait);
+      return;
+    }
+    Y.reportT = Date.now();
+    const I = Y.info;
+    // A live stream's position is how long the stream has run (days, for some): it is not said.
+    const live = !!(Y.P && Y.P.view.video && Y.P.view.video.live);
+    const cap = (n) => Math.round(Math.min(MAX_SAID_S, Math.max(0, n)) * 10) / 10;
+    const body = {
+      pane: Y.index, version: Y.v, state: YT_STATE[I.state] || 'unstarted', at: live ? 0 : cap(videoAt(Y)),
+      duration: !live && I.duration > 0 ? cap(I.duration) : null, volume: I.volume, muted: !!I.muted,
+      blocked: !!Y.blocked, error: Y.error,
+    };
+    fetch('/displays/' + encodeURIComponent(S.screen.id) + '/video', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Screen-Key': S.screen.key },
+      body: JSON.stringify(body),
+    }).then(async (response) => {
+      if (await notThisScreen(response)) return;
+      if (response.status === 403) wipe('refused');
+    }).catch(() => { /* told again at the next change or the next couple of seconds */ });
+  }
+  setInterval(() => {
+    for (const Y of VIDEOS.values()) if (!Y.parked && Y.info.state === 1) videoReport(Y, false);
+  }, REPORT_MS);
+  window.addEventListener('message', (event) => {
+    if (!event || YT_ORIGINS.indexOf(event.origin) === -1) return;
+    let Y = null;
+    for (const y of VIDEOS.values()) if (y.frame.contentWindow && event.source === y.frame.contentWindow) { Y = y; break; }
+    if (!Y) return;
+    let data = null;
+    try { data = typeof event.data === 'string' ? JSON.parse(event.data) : null; } catch (e) { data = null; }
+    if (!data || typeof data !== 'object') return;
+    if (data.event === 'onReady') videoReady(Y);
+    else if (data.event === 'initialDelivery' || data.event === 'infoDelivery') { if (!Y.ready) videoReady(Y); videoHeard(Y, data.info); }
+    else if (data.event === 'onStateChange') videoHeard(Y, { playerState: data.info });
+    else if (data.event === 'onError') videoFailed(Y, data.info);
+  });
+  // The first press of anything on this screen lets the sound come on (a browser's rule).
+  function pressedHere() {
+    if (pressed) return;
+    pressed = true;
+    for (const Y of VIDEOS.values()) {
+      if (!Y.blocked) continue;
+      Y.blocked = false;
+      const p = Y.want || {};
+      if (!p.muted) videoSend(Y, 'unMute');
+      if (Number.isInteger(p.volume)) videoSend(Y, 'setVolume', [p.volume]);
+      videoSay(Y);
+      videoReport(Y, true);
+    }
+  }
+  // The TV's own remote, while a video is up: OK plays and pauses, left and right skip ten
+  // seconds, up and down are louder and quieter. Told to CLIVE like the owner's remote, so they
+  // agree, and applied here from CLIVE's answer.
+  function videoKeys(event) {
+    pressedHere();
+    if (!S.screen || S.phase !== 'shown' || !S.drawnView) return;
+    const target = event.target;
+    if (target && target.closest && target.closest('button, input, form')) return;
+    const P = S.drawnView.find((x) => x.view.kind === 'video');
+    const Y = P ? VIDEOS.get(P.key) : null;
+    if (!Y || Y.parked) return;
+    const k = event.key;
+    let action = '', value = null;
+    if (k === 'Enter' || k === ' ' || k === 'MediaPlayPause' || k === 'k') action = Y.info.state === 1 || Y.info.state === 3 ? 'pause' : 'play';
+    else if (k === 'MediaPlay') action = 'play';
+    else if (k === 'MediaPause' || k === 'MediaStop') action = 'pause';
+    else if (k === 'ArrowRight' || k === 'MediaFastForward') { action = 'skip'; value = 10; }
+    else if (k === 'ArrowLeft' || k === 'MediaRewind') { action = 'skip'; value = -10; }
+    else if (k === 'ArrowUp') action = 'louder';
+    else if (k === 'ArrowDown') action = 'quieter';
+    if (!action) return;
+    if (event.preventDefault) event.preventDefault();
+    const body = { pane: Y.index, version: Y.v, action };
+    if (value !== null) body.value = value;
+    fetch('/displays/' + encodeURIComponent(S.screen.id) + '/remote/video', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }).then(async (response) => {
+      if (response.status === 403) { wipe('refused'); return; }
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && data && data.player && VIDEOS.get(Y.key) === Y) videoApply(Y, data.player);
+    }).catch(() => hint('CLIVE couldn’t be reached, so that didn’t reach the video. Try again.', true));
+  }
+  document.addEventListener('keydown', videoKeys);
+  document.addEventListener('pointerdown', pressedHere);
+
   // ---- asking CLIVE what to show --------------------------------------------------------
   let pollTimer = 0, pollDelay = POLL_MS, polling = false;
   function receive(data) {
@@ -1210,7 +1583,8 @@
       S.lastOk = Date.now();
       if (S.gone) { S.gone = ''; showLine(true); }
       if (S.online !== true) setOnline(true);
-      pollDelay = POLL_MS;
+      // While a video is up the owner's remote is working it: asked more often, so it answers at once.
+      pollDelay = VIDEOS.size ? VIDEO_POLL_MS : POLL_MS;
       if (response.status !== 204) receive(await response.json());
     } catch (e) {
       if (S.online !== false || S.refused) setOnline(false);
@@ -1243,6 +1617,7 @@
     S.showing = null; S.beside = null; S.lastDone = null; S.version = -1;
     for (const P of S.drawnView || []) ackReset(P);
     draw(null);
+    videoDropAll();
     S.drawnView = null; S.drawnKey = ''; S.what = '';
     uiState('is-hidden');
     status(false);

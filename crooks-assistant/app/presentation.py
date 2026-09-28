@@ -84,8 +84,9 @@ UI_TYPES = frozenset({
     # the turn has planned and landed, and patched in place as each section arrives.
     "workspace_plan",
     # the owner's app becoming the remote for one of his screens (round 9, screen_remote in
-    # app/tools/display_tools.py): the screen's id and name only. The tablet opens its remote
-    # when it draws this card (web/remote.js), and the card stays to open it again.
+    # app/tools/display_tools.py, and screen_play when a video goes on one): the screen's id and
+    # name only. The tablet opens its remote when it draws this card (web/remote.js), and the
+    # card stays to open it again.
     "screen_remote",
 })
 MAX_BATCH_ROWS = 50
@@ -485,9 +486,10 @@ def _family_cards(name: str, result: dict[str, Any], session: Session | None) ->
 
 
 def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
-    if name == "screen_remote":
+    if name in ("screen_remote", "screen_play"):
         # Round 9: "become the remote". The screen's id (not a secret: its key is) and name, and
         # the titles of what it shows, bounded; the remote asks for the rest itself, as the owner.
+        # A video put on a screen (screen_play) draws the same card, so the app is its remote.
         screen_id = _text(result.get("screen_id"), 20)
         if not _SCREEN_ID.fullmatch(screen_id):
             return []

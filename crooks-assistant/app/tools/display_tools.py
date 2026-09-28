@@ -20,6 +20,13 @@ or one of the two — "turn the screen off", "clear the TV", "take that off", "g
 `screen_remote` card (app/presentation.py), and the app opens the remote when it draws one
 (web/remote.js). It is understood by CLIVE from the owner's words, never by matching a phrase.
 
+And a screen plays YouTube. `screen_play` puts a video on a screen — found on YouTube from what
+the owner asked for ("the Heat trailer", "lofi girl"), or the link he gave — and its answer is
+the same `screen_remote` card, so the app becomes the video's remote. `screen_video` plays,
+pauses, mutes, sets the volume of, skips through or restarts what is playing ("pause the TV",
+"turn it up", "back thirty seconds"). A video carries nobody's details, so the screen may be
+named in part, or not at all when there is only one it could be.
+
 All of them act on CLIVE's own record of screens (app/displays/store.py) and nothing else: no
 store, inbox or message is changed. A screen is only ever one of the owner's own devices
 (app/routes/displays.py). And all of them answer only the owner's own request (round 8, B-01):
@@ -34,8 +41,9 @@ import re
 from typing import Any
 
 from app.capabilities.families import CapabilityFamily, register
+from app.clients import youtube
 from app.displays import views
-from app.displays.store import DisplayError, store
+from app.displays.store import MAX_JUMP_S, MAX_SKIP_S, DisplayError, store
 from app.tools import authority as tool_authority
 from app.tools.context import current_session
 from app.tools.gate import Tier
@@ -51,13 +59,17 @@ PAIR_TOOL = "screen_pair"
 # _MUTATION_VERBS): both change only CLIVE's own record of screens, or nothing at all.
 OFF_TOOL = "screen_off"
 REMOTE_TOOL = "screen_remote"
+# YouTube on a screen. Neither name holds a verb the gate reads as a store write: both change
+# only CLIVE's own record of screens, and read YouTube.
+PLAY_TOOL = "screen_play"
+VIDEO_TOOL = "screen_video"
 
 register(CapabilityFamily(
     key="screens", label="Screens", area="system",
-    what=("put an order's packing slip, an objective or a list on one of your own screens (two at once), approve "
-          "a new screen by the code it shows, turn a screen off, work it from a remote, and say what was marked "
-          "done there"),
-    tools=(LIST_TOOL, SHOW_TOOL, PAIR_TOOL, OFF_TOOL, REMOTE_TOOL),
+    what=("put an order's packing slip, an objective or a list on one of your own screens (two at once), play a "
+          "YouTube video on one and pause it, turn it up or skip, approve a new screen by the code it shows, turn "
+          "a screen off, work it from a remote, and say what was marked done there"),
+    tools=(LIST_TOOL, SHOW_TOOL, PAIR_TOOL, OFF_TOOL, REMOTE_TOOL, PLAY_TOOL, VIDEO_TOOL),
     state="READY", detail="ready",
 ))
 
@@ -293,3 +305,171 @@ async def screen_pair(screen: str, code: str) -> dict[str, Any]:
         return store().approve(screen, digits)
     except DisplayError as exc:
         raise ToolError(str(exc)) from None
+
+
+# ---- YouTube on a screen ------------------------------------------------------------------
+
+
+def _clip(view: dict[str, Any] | None) -> str:
+    return str((view or {}).get("title") or "")
+
+
+@tool(
+    name=PLAY_TOOL,
+    description=(
+        "Play a YouTube video on a screen: query (the owner's words) or video (a link). choices are the other "
+        "matches. beside/replace as screen_show."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "screen": {"type": "string", "maxLength": 80},
+            "query": {"type": "string", "maxLength": youtube.MAX_QUERY},
+            "video": {"type": "string", "maxLength": 500},
+            "beside": {"type": "boolean"},
+            "replace": {"type": "string", "enum": ["first", "second"]},
+        },
+    },
+    tier=Tier.GREEN,
+)
+async def screen_play(screen: str | None = None, query: str | None = None, video: str | None = None,
+                      beside: bool = False, replace: str | None = None) -> dict[str, Any]:
+    _owners_own()
+    if bool((query or "").strip()) == bool((video or "").strip()):
+        raise ToolError("Say what to find on YouTube (query) or give the link (video), one of the two.")
+    if replace is not None and replace not in _PANE:
+        raise ToolError("replace is first or second.")
+    # Which screen, before YouTube is asked anything.
+    target = _screen_meant(screen, doing="play it")
+    if target.get("paired", True) is not True:
+        raise ToolError(f"The {target['name']} hasn't been approved yet. It shows a six-digit code: it is approved "
+                        "only with the code the owner reads from it.")
+    choices: list[youtube.Video] = []
+    try:
+        if video and video.strip():
+            linked = youtube.parse(video)
+            if linked is None:
+                raise ToolError("That is not a YouTube link. Ask for the link from YouTube's Share button, or say what "
+                                "to search for.")
+            chosen = await youtube.video(linked[0], start=linked[1])
+        else:
+            found = await youtube.search(str(query))
+            if not found:
+                raise ToolError("YouTube found nothing it lets play on a screen for that. Try other words.")
+            chosen, choices = found[0], found[1:]
+    except youtube.YouTubeUnavailable as exc:
+        raise ToolError(str(exc)) from None
+    view = views.video_view(chosen.id, title=chosen.title, channel=chosen.channel, duration_s=chosen.duration_s,
+                            live=chosen.live, start=chosen.start)
+    s = store()
+    try:
+        shown = s.show(target["id"], view, beside=beside is True, replace=_PANE.get(replace or ""))
+    except DisplayError as exc:
+        raise ToolError(str(exc)) from None
+    on = s.online(target["id"])
+    showing = [_clip(shown.get(key)) for key in ("showing", "beside") if isinstance(shown.get(key), dict)]
+    result: dict[str, Any] = {"screen": shown["name"], "screen_id": shown["id"], "playing": chosen.said(),
+                              "showing": showing, "on": on, "remote": "open"}
+    if choices:
+        result["choices"] = [c.said() for c in choices]
+    if not on:
+        result["note"] = f"{shown['name']} has not asked for anything in a while: it plays this when it is next on."
+    return result
+
+
+_VIDEO_ACTIONS = ("play", "pause", "mute", "unmute", "volume", "louder", "quieter", "skip", "restart", "jump")
+
+
+def _video_meant(screen: str | None, pane: str | None) -> tuple[dict[str, Any], int, dict[str, Any]]:
+    """The screen and pane whose video the owner means: the screen he named, or the one screen
+    playing anything; and on it the pane he named, or the one video on it."""
+    s = store()
+    if screen is not None:
+        target = _screen_meant(screen, doing="play")
+        videos = s.playing(target["id"])
+    else:
+        playing = [(x, s.playing(x["id"])) for x in s.screens() if not x.get("pending")]
+        playing = [(x, v) for x, v in playing if v]
+        if not playing:
+            raise ToolError("Nothing is playing on a screen.")
+        if len(playing) > 1:
+            names = ", ".join(sorted(x["name"] for x, _ in playing))
+            raise ToolError(f"Which screen? Videos are playing on {names}.")
+        target, videos = s.find(playing[0][0]["name"], exact=True), playing[0][1]
+    if not videos:
+        raise ToolError(f"Nothing is playing on the {target['name']}.")
+    if pane is not None:
+        wanted = [v for v in videos if v["pane"] == _PANE[pane]]
+        if not wanted:
+            raise ToolError(f"The {pane} thing on the {target['name']} is not a video.")
+        return target, _PANE[pane], wanted[0]
+    if len(videos) > 1:
+        raise ToolError(f"Two videos are on the {target['name']}: say the first or the second.")
+    return target, int(videos[0]["pane"]), videos[0]
+
+
+@tool(
+    name=VIDEO_TOOL,
+    description=(
+        "Control a screen's video. level: the volume, or how much louder/quieter. seconds: how far to skip "
+        "(back is negative) or where to jump to."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": list(_VIDEO_ACTIONS)},
+            "screen": {"type": "string", "maxLength": 80},
+            "pane": {"type": "string", "enum": ["first", "second"]},
+            "level": {"type": "integer", "minimum": 0, "maximum": 100},
+            "seconds": {"type": "integer", "minimum": -MAX_JUMP_S, "maximum": MAX_JUMP_S},
+        },
+        "required": ["action"],
+    },
+    tier=Tier.GREEN,
+)
+async def screen_video(action: str, screen: str | None = None, pane: str | None = None, level: int | None = None,
+                       seconds: int | None = None) -> dict[str, Any]:
+    _owners_own()
+    if action not in _VIDEO_ACTIONS:
+        raise ToolError("action is one of " + ", ".join(_VIDEO_ACTIONS) + ".")
+    if pane is not None and pane not in _PANE:
+        raise ToolError("pane is first or second.")
+    for name, value in (("level", level), ("seconds", seconds)):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+            raise ToolError(f"{name} is a whole number.")
+    value: int | None = None
+    if action == "volume":
+        if level is None:
+            raise ToolError("Say the volume, 0 to 100.")
+        value = level
+    elif action in ("louder", "quieter"):
+        value = level if level else None
+    elif action == "skip":
+        if not seconds or abs(seconds) > MAX_SKIP_S:
+            raise ToolError(f"Say how far to skip: 1 to {MAX_SKIP_S} seconds, negative to go back.")
+        value = seconds
+    elif action == "jump":
+        if seconds is None or seconds < 0:
+            raise ToolError("Say where to jump to, in seconds from the start.")
+        value = seconds
+    elif action == "restart":
+        action, value = "jump", 0
+    target, n, clip = _video_meant(screen, pane)
+    try:
+        state = store().player(target["id"], n, int(clip["v"]), action, value)
+    except DisplayError as exc:
+        raise ToolError(str(exc)) from None
+    player, heard = state["player"], state.get("playing") or {}
+    result: dict[str, Any] = {"screen": target["name"], "video": clip["title"], "done": action,
+                              "paused": player["paused"], "muted": player["muted"]}
+    if player["volume"] is not None:
+        result["volume"] = player["volume"]
+    if heard.get("state"):
+        result["was"] = heard["state"]
+        if heard.get("at") is not None:
+            result["at"] = youtube.clock(int(heard["at"]))
+        if heard.get("blocked"):
+            result["note"] = "The screen can only play it muted until someone there presses a button on it."
+    if not store().online(target["id"]):
+        result["note"] = f"{target['name']} has not asked for anything in a while: it does this when it is next on."
+    return result

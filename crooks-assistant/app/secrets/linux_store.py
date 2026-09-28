@@ -70,6 +70,8 @@ STATIC_KEYS = frozenset({
     "shopify_static_token",
     "claude_oauth_token",
     "github_engineering_inbox_token",
+    # Read by app/clients/youtube.py for each search and never written by the application.
+    "youtube_api_key",
 })
 MUTABLE_KEYS = frozenset({
     "gmail_token",

@@ -313,7 +313,14 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # of the system prompt. What it buys is two things on a screen at once, "turn the screen
     # off" doing exactly that, and the owner's app becoming the screen's remote because CLIVE
     # understood him, not because a phrase matched.
-    assert total <= 37_335, f"the tool block is {total} bytes"
+    #
+    # 38_425 is YouTube on the screens (app/tools/display_tools.py, tests/test_screen_video.py),
+    # +1,088 bytes measured (37,332 before, 38,420 after): screen_play 466 (a screen or none, what
+    # to find or a link, beside and replace) and screen_video 622 (ten actions by name, a screen
+    # or none, which pane, a level and seconds, each bounded). The rules for when to use each are
+    # one paragraph of the system prompt. What it
+    # buys is "play the Heat trailer on the TV" and "turn it up" doing exactly that.
+    assert total <= 38_425, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

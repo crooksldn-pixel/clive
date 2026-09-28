@@ -9,8 +9,9 @@
  * (GET /displays/{id}/remote), so what is ticked here and what the screen shows always agree. Its
  * controls follow what each pane shows (CONTROLS, below): an order's items to tick as they go in
  * the box and a Packed button that wakes once every item to send is ticked; a list's lines to
- * cross off and Mark done; an objective's summary and Put it up again. Every pane can be taken
- * off, and the whole screen turned off, back to its clock. Each change goes to the owner's
+ * cross off and Mark done; an objective's summary and Put it up again; a YouTube video's play and
+ * pause, ten seconds back and on, where it is and its volume. Every pane can be taken off, and
+ * the whole screen turned off, back to its clock. Each change goes to the owner's
  * /displays routes naming the pane and the version it was put up at, so one made on an old view
  * is refused (409) and the panel catches up.
  *
@@ -66,6 +67,14 @@
   const RIGHT = ['m9.5 6 6 6-6 6'];
   const HANGER = ['M10.2 5.6a1.8 1.8 0 1 1 2.6 1.6c-.5.3-.8.7-.8 1.2V9', 'M12 9 3.6 15c-.8.6-.4 1.7.6 1.7h15.6c1 0 1.4-1.1.6-1.7L12 9z'];
   const REFRESH = ['M20 11a8 8 0 1 0-2.3 5.7', 'M20 5v6h-6'];
+  const PLAY = ['M8 5.2v13.6a.8.8 0 0 0 1.2.7l11-6.8a.8.8 0 0 0 0-1.4l-11-6.8A.8.8 0 0 0 8 5.2z'];
+  const PAUSE = ['M6.5 4.5h3.6v15H6.5z', 'M13.9 4.5h3.6v15h-3.6z'];
+  const BACK = ['M4.5 12a7.5 7.5 0 1 0 2.2-5.3', 'M4.5 3.8v4.6h4.6'];
+  const ON = ['M19.5 12a7.5 7.5 0 1 1-2.2-5.3', 'M19.5 3.8v4.6h-4.6'];
+  const SPEAKER = ['M4 9.4h3.6L12.3 5.6v12.8L7.6 14.6H4z'];
+  const WAVES = ['M15.6 9.2a4 4 0 0 1 0 5.6', 'M18.4 6.5a8 8 0 0 1 0 11'];
+  const MUTED = ['m16 9.5 5 5', 'm21 9.5-5 5'];
+  const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
   function pad(n) { return String(n).padStart(2, '0'); }
   function timeOf(iso) {
@@ -84,7 +93,7 @@
     b.addEventListener('click', (event) => { if (event && event.stopPropagation) event.stopPropagation(); onTap(event); });
     return b;
   }
-  const KIND = { order: 'Order', list: 'List', objective: 'Objective' };
+  const KIND = { order: 'Order', list: 'List', objective: 'Objective', video: 'Video' };
 
   // ---- the controls, by what a pane shows -------------------------------------------------
   // Each kind of view draws its own controls. A kind not here gets the one control every pane
@@ -93,11 +102,9 @@
     order: { draw: drawOrder, progress: (p) => progress(p, 'packed') },
     list: { draw: drawList, progress: (p) => progress(p, 'done') },
     objective: { draw: drawObjective },
-    // A `video` pane, when the screens can play one, adds its controls here and needs nothing
-    // else changed:
-    //   video: { draw: (p) => play/pause (POST /displays/{id}/remote/play {pane, version}) and a
-    //            volume slider — an <input type="range"> in an rm-cell, 0 to 100, posting
-    //            /displays/{id}/remote/volume {pane, level, version} as it moves — },
+    // A YouTube video: play and pause, ten seconds back and on, where it is (drag to go there),
+    // and the volume (tap the speaker to mute), each told to CLIVE (POST /remote/video).
+    video: { draw: drawVideo, progress: videoProgress },
   };
 
   // What is ticked of what must be, for a pane of items or lines.
@@ -206,6 +213,133 @@
     box.appendChild(done);
     return box;
   }
+  // ---- a video ------------------------------------------------------------------------------
+  function clockOf(sec) {
+    const s = Math.max(0, Math.floor(Number(sec) || 0)), hh = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return (hh ? hh + ':' + pad(m) : String(m)) + ':' + pad(s % 60);
+  }
+  function filled(paths) {
+    const s = icon(paths, 0);
+    s.setAttribute('fill', 'currentColor');
+    s.setAttribute('stroke', 'none');
+    return s;
+  }
+  // How it is playing, as the screen last said, moved on by the time since this view was asked
+  // for while it plays; and what the owner last asked of it.
+  function heard(p) { return p.playing && typeof p.playing === 'object' ? p.playing : null; }
+  function wantOf(p) { return p.player && typeof p.player === 'object' ? p.player : {}; }
+  function lengthOf(p) {
+    const said = heard(p), clip = p.video || {};
+    if (clip.live) return 0;   // a live stream has no end
+    if (said && typeof said.duration === 'number' && said.duration > 0) return said.duration;
+    return Number.isInteger(clip.duration_s) && clip.duration_s > 0 ? clip.duration_s : 0;
+  }
+  function positionOf(p) {
+    const said = heard(p);
+    if (!said || typeof said.at !== 'number') return 0;
+    const since = said.state === 'playing' && R.dataAt ? (Date.now() - R.dataAt) / 1000 : 0;
+    const len = lengthOf(p);
+    return Math.max(0, len ? Math.min(len, said.at + since) : said.at + since);
+  }
+  function pausedOf(p) {
+    const said = heard(p);
+    if (said && said.state === 'ended') return true;
+    return !!wantOf(p).paused;
+  }
+  function videoProgress(p) {
+    const said = heard(p);
+    if (said && typeof said.error === 'number') return 'Can’t play on the screen';
+    if (said && said.state === 'ended') return 'Finished';
+    const len = lengthOf(p);
+    const where = (p.video || {}).live ? 'Live' : clockOf(positionOf(p)) + (len ? ' of ' + clockOf(len) : '');
+    return (pausedOf(p) ? 'Paused · ' : '') + where;
+  }
+  function drawVideo(p) {
+    const box = h('div', 'rm-ctl rm-video');
+    const clip = p.video || {}, want = wantOf(p), was = heard(p);
+    const card = h('div', 'rm-vcard');
+    if (VIDEO_ID.test(String(clip.id || ''))) {
+      const img = doc().createElement('img');
+      img.className = 'rm-vart';
+      img.alt = '';
+      img.decoding = 'async';
+      img.referrerPolicy = 'no-referrer';
+      img.src = 'https://i.ytimg.com/vi/' + encodeURIComponent(clip.id) + '/hqdefault.jpg';
+      img.addEventListener('error', () => { if (img.parentNode) img.parentNode.removeChild(img); });
+      card.appendChild(img);
+    }
+    card.appendChild(h('p', 'rm-vwho', [clip.channel, clip.live ? 'Live' : '', 'YouTube'].filter(Boolean).join(' · ')));
+    box.appendChild(card);
+    // Where it is: drag to go there. A live stream has no end to go to.
+    const len = lengthOf(p);
+    if (len && !clip.live) {
+      const at = positionOf(p);
+      const bar = doc().createElement('input');
+      bar.type = 'range';
+      bar.className = 'rm-vbar';
+      bar.min = '0'; bar.max = String(Math.round(len)); bar.step = '1'; bar.value = String(Math.round(at));
+      bar.setAttribute('aria-label', 'Where the video is');
+      bar.style.setProperty('--rm-fill', ((at / len) * 100).toFixed(1) + '%');
+      bar.addEventListener('input', () => bar.style.setProperty('--rm-fill', ((Number(bar.value) / len) * 100).toFixed(1) + '%'));
+      bar.addEventListener('change', () => control(p, 'jump', Math.round(Number(bar.value) || 0)));
+      box.appendChild(bar);
+      const times = h('div', 'rm-vtimes');
+      times.appendChild(h('span', '', clockOf(at)));
+      times.appendChild(h('span', '', '−' + clockOf(Math.max(0, len - at))));
+      box.appendChild(times);
+    }
+    const row = h('div', 'rm-vrow');
+    const back = button('rm-vbtn', null, () => control(p, 'skip', -10));
+    back.setAttribute('aria-label', 'Back ten seconds');
+    back.appendChild(icon(BACK, 1.9));
+    back.appendChild(h('span', 'rm-vten', '10'));
+    const paused = pausedOf(p);
+    const main = button('rm-vbtn rm-vplay', null, () => {
+      if (was && was.state === 'ended') { control(p, 'jump', 0); return; }
+      control(p, paused ? 'play' : 'pause');
+    });
+    main.setAttribute('aria-label', paused ? 'Play' : 'Pause');
+    main.appendChild(filled(paused ? PLAY : PAUSE));
+    const on = button('rm-vbtn', null, () => control(p, 'skip', 10));
+    on.setAttribute('aria-label', 'On ten seconds');
+    on.appendChild(icon(ON, 1.9));
+    on.appendChild(h('span', 'rm-vten', '10'));
+    row.appendChild(back); row.appendChild(main); row.appendChild(on);
+    box.appendChild(row);
+    // The volume: the speaker mutes and unmutes; the slider sets it, told as it moves.
+    const level = Number.isInteger(want.volume) ? want.volume : was && Number.isInteger(was.volume) ? was.volume : 100;
+    const muted = !!want.muted;
+    const vol = h('div', 'rm-vvol');
+    const speaker = button('rm-vspk' + (muted ? ' is-muted' : ''), null, () => control(p, muted ? 'unmute' : 'mute'));
+    speaker.setAttribute('aria-label', muted ? 'Sound on' : 'Mute');
+    speaker.setAttribute('aria-pressed', muted ? 'true' : 'false');
+    speaker.appendChild(icon(SPEAKER.concat(muted ? MUTED : WAVES), 1.8));
+    const slider = doc().createElement('input');
+    slider.type = 'range';
+    slider.className = 'rm-vbar rm-vlevel';
+    slider.min = '0'; slider.max = '100'; slider.step = '1'; slider.value = String(muted ? 0 : level);
+    slider.setAttribute('aria-label', 'Volume');
+    slider.style.setProperty('--rm-fill', (muted ? 0 : level) + '%');
+    let told = 0, pending = 0;
+    const tell = () => { told = Date.now(); pending = 0; control(p, 'volume', Math.round(Number(slider.value) || 0), true); };
+    slider.addEventListener('input', () => {
+      slider.style.setProperty('--rm-fill', slider.value + '%');
+      const wait = 300 - (Date.now() - told);
+      if (wait <= 0) tell();
+      else if (!pending) pending = setTimeout(tell, wait);
+    });
+    slider.addEventListener('change', () => { clearTimeout(pending); tell(); });
+    vol.appendChild(speaker);
+    vol.appendChild(slider);
+    box.appendChild(vol);
+    if (was && was.blocked) box.appendChild(h('p', 'rm-note', 'The screen plays it muted until someone presses OK on it or taps it: a rule of its browser.'));
+    if (was && typeof was.error === 'number') {
+      box.appendChild(h('p', 'rm-note is-bad', was.error === 101 || was.error === 150 || was.error === 153
+        ? 'YouTube won’t let this video play outside YouTube. Ask CLIVE for another.' : 'YouTube couldn’t play this video on the screen.'));
+    }
+    return box;
+  }
+
   function drawObjective(p) {
     const g = p.objective || {};
     const box = h('div', 'rm-ctl');
@@ -345,7 +479,7 @@
     if (d && !panes.length) {
       const empty = h('div', 'rm-empty');
       empty.appendChild(h('p', 'rm-empty-t', 'Nothing on the screen'));
-      empty.appendChild(h('p', 'rm-empty-d', 'Ask CLIVE to put an order, a list or an objective on it.'));
+      empty.appendChild(h('p', 'rm-empty-d', 'Ask CLIVE to put an order, a list, an objective or a YouTube video on it.'));
       U.panes.appendChild(empty);
     }
     const armed = R.confirm && R.confirm.key === 'screen' && Date.now() < R.confirm.until;
@@ -386,6 +520,7 @@
       R.gone = '';
       if (R.note === 'CLIVE can’t be reached. Trying again.') R.note = '';
       R.data = data;
+      R.dataAt = Date.now();
       if (typeof data.name === 'string' && data.name) R.name = data.name;
       render();
     } catch (e) {
@@ -461,6 +596,28 @@
     sync();
   }
   function turn(p, delta) { return act('/remote/page', { pane: p.pane, delta, version: p.v }); }
+  // One thing asked of a video: shown here at once, and put right by CLIVE's answer. A volume
+  // told while the slider moves (`quiet`) redraws nothing under the finger.
+  async function control(p, action, value, quiet) {
+    if (!R.open) return;
+    const now = samePane(p);
+    if (now && now.player && !quiet) {
+      if (action === 'play' || action === 'pause') now.player.paused = action === 'pause';
+      if (action === 'mute' || action === 'unmute') now.player.muted = action === 'mute';
+      render();
+    }
+    const body = { pane: p.pane, version: p.v, action };
+    if (value !== undefined && value !== null) body.value = value;
+    const gen = R.gen;
+    const answer = await post('/remote/video', body);
+    if (gen !== R.gen) return;
+    const after = samePane(p);
+    if (answer && answer.player && after) {
+      after.player = answer.player;
+      if (answer.playing) after.playing = answer.playing;
+    }
+    if (!quiet) { render(); sync(); }
+  }
   function markDone(p) { if (ready(p)) return act('/remote/done', { pane: p.pane, version: p.v }); return null; }
   function putUpAgain(p) { return act('/remote/again', { pane: p.pane, version: p.v }); }
   function takeOff(p) { return act('/remote/off', p ? { pane: p.pane, version: p.v } : {}); }
