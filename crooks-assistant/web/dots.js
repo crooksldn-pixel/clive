@@ -16,8 +16,9 @@
 (function (root) {
   const TAU = Math.PI * 2;
   // The colours dots take in their roles. A screen (web/display.js, the one layout with a dot
-  // clock) is steel and white, as its approved design has it; the app's start-up keeps CLIVE's
-  // lilac. `tint` (1) fades either toward GREY, the neutral light of the start-up's flash.
+  // clock) and the app's start-up are both steel and white, as the approved designs have them (the
+  // owner took the purple out of the app on 28 Sep 2026). `tint` (1) fades either toward GREY, the
+  // neutral light of the start-up's flash.
   //   back, mid, front: the orb's far side, its rim and its lit face · ring, dust: their dots ·
   //   seed: a dot before it has a role · spark: the orb's burst · fading: dots on their way out ·
   //   home: stray dots poured back into the orb · pour: a typed name poured in · done: the check.
@@ -25,10 +26,6 @@
     steel: {
       back: [62, 68, 80], mid: [156, 164, 184], front: [250, 252, 255], ring: [206, 214, 228], dust: [198, 206, 220],
       seed: [220, 226, 236], spark: [228, 234, 244], fading: [198, 206, 220], home: [232, 236, 244], pour: [240, 244, 250], done: [48, 209, 88],
-    },
-    lilac: {
-      back: [104, 66, 170], mid: [196, 161, 240], front: [248, 243, 255], ring: [212, 196, 252], dust: [205, 196, 238],
-      seed: [210, 200, 245], spark: [226, 214, 255], fading: [200, 190, 240], home: [230, 220, 255], pour: [240, 232, 255], done: [112, 214, 160],
     },
   };
   const GREY = { back: [60, 66, 78], mid: [152, 162, 182], front: [244, 246, 252], ring: [215, 222, 235], dust: [200, 208, 222] };
@@ -45,7 +42,7 @@
     const DUST_N = Math.min(900, Math.round(N * 0.05));
     const RING_N = Math.min(560, Math.round(N * 0.04));
     const P = [], ORBS = [], RINGS = [], RES = [];
-    const C = PALETTES[o.palette] || (L.clock ? PALETTES.steel : PALETTES.lilac);
+    const C = PALETTES[o.palette] || PALETTES.steel;
     const orbHome = L.orb || { cx: W / 2, cy: H / 2, R: Math.min(W, H) * 0.2 };
     const orb = {
       cx: orbHome.cx, cy: orbHome.cy, R: orbHome.R, e: 0, tcx: orbHome.cx, tcy: orbHome.cy, tR: orbHome.R, te: 1,
