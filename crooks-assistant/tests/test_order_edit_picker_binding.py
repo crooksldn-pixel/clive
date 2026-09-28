@@ -8,7 +8,8 @@ posts the FIRST order. That order was issued to this conversation, so the one ch
 order while its card was labelled with the second order's number.
 
 These hold the repair: a posted order must be the order this half has open, the label is that
-same order's, and the refusal says what to do. The route-level half — the stale picker tapped
+same order's, the item must be one of the rows of the picker this half's screen holds for that
+order, and the refusal says what to do. The route-level half — the stale picker tapped
 through `POST /command` with nothing prepared and no calculation run — is the golden scenario
 `order_add_item_stale_picker` (experience/scenario_packs/order_edit.py).
 """
@@ -73,3 +74,42 @@ def test_with_no_order_open_nothing_is_staged_whatever_was_posted():
     branch.visit("customer", "gid://shopify/Customer/7001", "Mia Jones")
     outcome = commands.run("order_edit.stage", _ctx(session, branch, order_id=FIRST, variant_id=HOODIE))
     assert not outcome.ok and "stage" not in outcome.changed, outcome
+
+
+# ------------------------------------------------ the item is one of THIS picker's rows
+
+
+CAP = "gid://shopify/ProductVariant/9555"
+
+
+def _picker_shown(branch, order_id: str, label: str, *variants: str) -> None:
+    """The half draws a picker, as `order_edit.find` does through the command route: the card
+    goes on the Mac's own copy of the half's screen (`Branch.shown`)."""
+    from app.presentation import variant_picker
+
+    data = variant_picker({"candidates": [{"variant_id": v, "title": "Convict Hoodie", "variant": "Black / M",
+                                           "price": "60.00", "for_sale": True} for v in variants], "count": len(variants)},
+                          order_id=order_id, order_number=label)
+    branch.shown([{"type": "variant_picker", "data": data, "surface": "variant_picker"}], "", "")
+
+
+def test_an_item_the_picker_on_screen_did_not_offer_is_refused():
+    """E-01's second half: bind the variant choice to that picker. The cap was issued to this
+    conversation (an earlier search), so the old check passed it; the picker on screen for
+    #1931 offered only the hoodie, so its Add can only mean the hoodie."""
+    session, branch = _session_on_two_orders()
+    session.issue(CAP)
+    _picker_shown(branch, SECOND, "#1931", HOODIE)
+    refused = commands.run("order_edit.stage", _ctx(session, branch, order_id=SECOND, variant_id=CAP))
+    assert not refused.ok and refused.code == "not_on_picker" and "stage" not in refused.changed, refused
+    offered = commands.run("order_edit.stage", _ctx(session, branch, order_id=SECOND, variant_id=HOODIE))
+    assert offered.ok and offered.changed["stage"]["args"]["variant_id"] == HOODIE, offered.detail
+
+
+def test_a_picker_on_screen_for_another_order_stages_nothing_even_for_the_open_order():
+    """The half's screen still holds #1930's picker while the open record is #1931 — its rows
+    were offered for #1930, so they are not an Add for #1931 whatever the form says."""
+    session, branch = _session_on_two_orders()
+    _picker_shown(branch, FIRST, "#1930", HOODIE)
+    refused = commands.run("order_edit.stage", _ctx(session, branch, order_id=SECOND, variant_id=HOODIE))
+    assert not refused.ok and refused.code == "wrong_order" and "stage" not in refused.changed, refused

@@ -151,3 +151,33 @@ async def test_a_spoken_defect_through_the_turn_route_is_recorded_before_the_mod
     assert [e.get("turn_id") for e in recorded] == [turn_id], recorded
     assert recorded[0]["text"] == said
     assert feedback.RECORDED_LINE in h.provider.calls[-1], "the model is told it was logged"
+
+
+async def test_a_spoken_defect_through_the_turn_route_reaches_the_report_in_his_words(tmp_path):
+    """What holds today, hook or no hook, through the same door and the same report builder,
+    with nothing called in the route's place: a defect said out loud is not lost. Before the
+    turn route calls `feedback.at_turn` the report finds it in the transcript and prints it
+    among the defects NOTHING recorded; once the route calls it, among those recorded. Either
+    way his words are in the report verbatim, against that turn — and never both, and never
+    neither."""
+    from experience.harness import harness
+
+    said = SAID
+    async with harness(admitted=True) as h:
+        store = TestSessions(Path(tmp_path))
+        line = timeline.install(timeline.Timeline(store))
+        session = line.start("round ten, the report")
+        try:
+            capture = await h.say(said, session_id="fb2")
+            line.flush()
+        finally:
+            line.stop()
+            timeline.install(timeline.NullTimeline())
+    assert capture.status == 200 and capture.model_calls == 1, "it is a model turn"
+    rec, markdown = build_report(store.timeline_path(session))
+    turn = rec.turn(str(capture.raw.get("turn_id") or ""))
+    assert turn is not None, "the turn is in the transcript the report read"
+    recorded, ignored = len(rec.experience.feedback), len(rec.experience.ignored_feedback)
+    assert (recorded, ignored) in ((1, 0), (0, 1)), (recorded, ignored)
+    assert ("OWNER_FEEDBACK_IGNORED" in turn.classes) == bool(ignored), turn.classes
+    assert said in markdown, "his words, verbatim"

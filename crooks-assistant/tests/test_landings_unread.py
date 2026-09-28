@@ -62,3 +62,49 @@ async def test_both_read_is_the_landing_it_always_was(stage):
     assert tapped.raw.get("ok") is True, tapped.raw
     assert "could not" not in tapped.answer, tapped.answer
     assert (tapped.raw.get("changed") or {}).get("partial") is False
+
+
+# ------------------------------------- the same rule on the Products and Inbox landings
+
+
+def _failing_tools(monkeypatch, *names: str) -> None:
+    """These read tools raise, as a source that did not answer does; every other runs."""
+    real = registry.invoke
+
+    async def invoke(name, args, *, timeout_s):
+        if name in names:
+            raise ToolError("The source did not answer in time.")
+        return await real(name, args, timeout_s=timeout_s)
+
+    monkeypatch.setattr(registry, "invoke", invoke)
+
+
+async def test_unread_stock_is_never_said_to_be_nothing_running_out(stage, monkeypatch):
+    """The Products landing had E-06's hole too: the stock read down, and the owner was told
+    "Nothing is close to running out."."""
+    _failing_tools(monkeypatch, "inventory_query")
+    tapped = await stage.touch("open.area", area="products", session_id="unread4")
+    assert tapped.raw.get("ok") is True, tapped.raw
+    assert "Nothing is close to running out" not in tapped.answer, tapped.answer
+    assert "could not read the stock levels" in tapped.answer, tapped.answer
+    assert (tapped.raw.get("changed") or {}).get("partial") is True
+
+
+async def test_unread_best_sellers_are_never_said_to_be_nothing_sold(stage, monkeypatch):
+    _failing_tools(monkeypatch, "commerce_aggregate")
+    tapped = await stage.touch("open.area", area="products", session_id="unread5")
+    assert tapped.raw.get("ok") is True, tapped.raw
+    assert "Nothing sold this month" not in tapped.answer, tapped.answer
+    assert "could not read this month's best sellers" in tapped.answer, tapped.answer
+    assert (tapped.raw.get("changed") or {}).get("partial") is True
+
+
+async def test_an_unread_reply_queue_is_said_rather_than_left_out(stage, monkeypatch):
+    """The Inbox landing with the needs-reply read down: the recent threads still come, and
+    the answer says the queue was not read instead of letting them stand in for it."""
+    _failing_tools(monkeypatch, "email_query")
+    tapped = await stage.touch("open.area", area="email", session_id="unread6")
+    assert tapped.raw.get("ok") is True, tapped.raw
+    assert "could not read who is waiting on a reply" in tapped.answer, tapped.answer
+    assert "Nobody is waiting" not in tapped.answer, tapped.answer
+    assert (tapped.raw.get("changed") or {}).get("partial") is True

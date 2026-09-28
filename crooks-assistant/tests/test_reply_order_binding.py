@@ -13,13 +13,16 @@ action engine, exactly as the model's tool call arrives:
   thread's sender, and the sender is not the customer on the order. This was already true of
   the model path; it had no test that said so;
 * **another of the same customer's orders** — her thread about #1930, a reply about #1931 — is
-  refused by `gmail_writes._another_of_theirs`, added in round 10: the right person, the wrong
-  conversation, with a card claiming it answers the parcel she did not ask about. It reads the
-  order cache through the thread card's own graph, so only a number that IS one of her orders
-  counts, and a cold cache falls back to the recipient check alone rather than guessing;
-* a thread from the customer that names no order is hers and is not about a different order:
-  the reply is prepared, and its card names the recipient as the customer on the order, which
-  is the one thing that was checked.
+  refused by `gmail_writes._about_this_order`, added in round 10: the right person, the wrong
+  conversation, with a card claiming it answers the parcel she did not ask about;
+* **a merely possible link** — her thread that names no order, while she has two recent orders
+  — is refused too, as the deleted family refused it: "possible is never good enough to reply
+  from". The same thread is replied in when it can only be about this order (her one recent
+  order), or when the words the conversation was shown name it;
+* the order cache is read through the thread card's own graph, so only a number that IS one of
+  her orders counts — a year or somebody else's order number does not make a thread about a
+  different order of hers — and a cold cache falls back to the narrow rule (this order's number
+  in the thread), never upgrading a guess.
 """
 
 from __future__ import annotations
@@ -53,11 +56,12 @@ def _row(order_id: str) -> dict:
 
 
 class _Cache:
-    def __init__(self, *, warm: bool) -> None:
+    def __init__(self, *, warm: bool, orders: tuple[str, ...] = tuple(ORDERS)) -> None:
         self.warm = warm
+        self.orders = orders
 
     def rows(self) -> list[dict]:
-        return [_row(o) for o in ORDERS]
+        return [_row(o) for o in self.orders]
 
     def status(self) -> dict:
         return {"synced_at": NOW if self.warm else None, "orders": len(ORDERS)}
@@ -134,34 +138,69 @@ async def test_the_thread_that_is_about_the_order_is_replied_in(box, engine, ses
 
 
 @pytest.mark.usefixtures("owner_asking", "warm")
-async def test_a_number_that_is_not_one_of_hers_does_not_make_it_another_orders_thread(box, engine, session):
-    """A year in a subject is four digits and no order of hers; Sam's order is an order, and
-    not hers. Neither says her thread is about a different order of hers."""
-    for subject in ("Your 2026 lookbook", "Re: order 1944"):
-        box.threads[HER_THREAD][0]["headers"]["subject"] = subject
-        text, proposal = await _reply(session, "gmail_draft_reply", HER_THREAD, SECOND, body=f"About {subject}.")
-        assert proposal is not None, (subject, text)
-
-
-@pytest.mark.usefixtures("owner_asking", "warm")
-async def test_her_thread_that_names_no_order_is_hers_to_be_replied_in(box, engine, session):
-    """What the deleted family called "possible" — from her own address, naming no order — is
-    not a different order's thread. The recipient is proven to be the order's customer, and
-    that is what the card says; nothing claims the thread was about the order."""
+@pytest.mark.parametrize("tool", ["gmail_draft_reply", "gmail_send_reply"])
+async def test_a_possible_link_is_never_replied_from(box, engine, session, tool):
+    """What the deleted family called "possible": from her own address, naming no order, while
+    she has two recent orders. Nothing says which one it is about, so a reply about #1931 is
+    not prepared in it — before this round it was, with "#1931 · the customer on the order" on
+    its card. The refusal says how to go on: without naming an order, or a new email."""
     box.threads[HER_THREAD][0]["headers"]["subject"] = "Quick question"
-    text, proposal = await _reply(session, "gmail_draft_reply", HER_THREAD, SECOND)
-    assert proposal is not None, text
-    assert proposal.summary["order_line"] == "#1931 · the customer on the order"
+    text, proposal = await _reply(session, tool, HER_THREAD, SECOND)
+    assert proposal is None, text
+    assert "can't tell that thread is about order 1931" in text and "2 recent orders" in text, text
+    assert "without naming an order" in text
+    assert not box.drafts and not box.sent
 
 
 @pytest.mark.usefixtures("owner_asking")
-async def test_a_cold_order_cache_never_upgrades_a_guess(box, engine, session, monkeypatch):
-    """The replacement for test_graph's deleted cold-cache test. With nothing warm, the Mac
-    cannot tell whether "1930" is one of her orders, so it does not refuse on that ground —
-    and it does not decide anything else from it either: the recipient check alone stands, and
-    another customer's thread is still refused."""
+async def test_a_thread_that_can_only_be_about_her_one_recent_order_is_replied_in(box, engine, session, monkeypatch):
+    """Her one recent order is #1931: a thread from her that names no order can only be about
+    it, and neither a year nor somebody else's order number in its subject makes it a thread
+    about a different order of hers."""
+    monkeypatch.setattr(analytics_tools, "_cache", _Cache(warm=True, orders=(SECOND, SAMS)))
+    for subject in ("Quick question", "Your 2026 lookbook", "Re: order 1944"):
+        box.threads[HER_THREAD][0]["headers"]["subject"] = subject
+        text, proposal = await _reply(session, "gmail_draft_reply", HER_THREAD, SECOND, body=f"About {subject}.")
+        assert proposal is not None, (subject, text)
+        assert proposal.summary["order_line"] == "#1931 · the customer on the order"
+
+
+@pytest.mark.usefixtures("owner_asking", "warm")
+async def test_the_words_the_conversation_was_shown_can_name_the_order(box, engine, session):
+    """The subject says nothing, but the thread this conversation read (the entity cache
+    `gmail_read_thread` fills) has her asking about #1931 — that is a confident link, read off
+    what the Mac already holds and never fetched for the purpose."""
+    from app.memory import ENTITY
+    from app.memory import current as memory
+
+    box.threads[HER_THREAD][0]["headers"]["subject"] = "Quick question"
+    memory().put(ENTITY, f"email_thread:{HER_THREAD}", {"thread_id": HER_THREAD, "messages": [
+        {"from": "Daniel Sear", "from_email": DANIEL, "subject": "Quick question",
+         "body": "Has order 1931 gone out yet?", "outbound": False},
+    ]}, source="gmail")
+    try:
+        text, proposal = await _reply(session, "gmail_draft_reply", HER_THREAD, SECOND)
+        assert proposal is not None, text
+        text, proposal = await _reply(session, "gmail_draft_reply", HER_THREAD, FIRST)
+        assert proposal is None and "That thread is about order 1931, not order 1930" in text, text
+    finally:
+        memory().drop(ENTITY, f"email_thread:{HER_THREAD}")
+
+
+@pytest.mark.usefixtures("owner_asking")
+async def test_a_cold_order_cache_falls_back_to_the_narrow_rule_and_never_upgrades_a_guess(box, engine, session, monkeypatch):
+    """The replacement for test_graph's deleted cold-cache test. With nothing warm the Mac
+    cannot tell her orders apart, so only this order's own number in the thread ties it to
+    this order: another number is not this order, and no number at all is only possible —
+    and neither is replied from. Another customer's thread is still refused on its
+    recipient."""
     monkeypatch.setattr(analytics_tools, "_cache", _Cache(warm=False))
+    text, proposal = await _reply(session, "gmail_draft_reply", HER_THREAD, FIRST)
+    assert proposal is not None, "her thread naming this order is this order's thread"
     text, proposal = await _reply(session, "gmail_draft_reply", HER_THREAD, SECOND)
-    assert proposal is not None, text
+    assert proposal is None and "it names 1930, not 1931" in text, text
+    box.threads[HER_THREAD][0]["headers"]["subject"] = "Quick question"
+    text, proposal = await _reply(session, "gmail_draft_reply", HER_THREAD, SECOND)
+    assert proposal is None and "does not name an order" in text, text
     text, proposal = await _reply(session, "gmail_draft_reply", SAMS_THREAD, FIRST)
     assert proposal is None and "not the customer on order #1930" in text, text
