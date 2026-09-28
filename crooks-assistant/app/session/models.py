@@ -122,7 +122,10 @@ class Session:
     # filed against the half on screen. Set once per turn beside `turn_id`, and read by the
     # layers that only ever receive a session — the action engine, and working sets. Without
     # it a change proposed by one half was stamped with the other, and a "yes" spoken to the
-    # wrong half applied it.
+    # wrong half applied it. It is ONE field for both halves, so it holds whichever half spoke
+    # last: the authority for a proposal is the request's own half, held on its task
+    # (`app/tools/context.py` CURRENT_BRANCH, set by /turn, /command and the provider around
+    # each tool call), and this is only the fallback for code that runs with no request.
     acting_branch: str = ""
     # When "who needs replying to" was last answered in this conversation, on the Mac's clock.
     # The same question again within a few minutes gets the short form ("Still just Mia.")

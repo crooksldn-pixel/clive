@@ -30,6 +30,7 @@ from app.providers.base import ToolCall
 from app.routes.actions import session_matches, writes_context
 from app.speech.decode import DecodeError, decode
 from app.speech.speakable import to_speakable
+from app.tools.context import CURRENT_BRANCH
 
 log = logging.getLogger("crooks.turn")
 
@@ -59,7 +60,6 @@ async def turn(
     runtime = request.app.state.runtime
     started = time.perf_counter()
     timings: dict[str, float] = {}
-    transcript_info: dict | None = None
     expected_turns: int | None = None
     # "I will ask /speak for this answer." Lets the backend start the voice a round trip early.
     speak = False
@@ -108,17 +108,47 @@ async def turn(
         # id gets nothing of it: not the thread, not the cards, not the tap.
         log.warning("turn refused: session belongs to another login")
         return JSONResponse(status_code=403, content={"code": "wrong_session", "detail": "That conversation belongs to another login."})
+    # Which half of the orb is being spoken to, from the first moment: everything this turn
+    # does is filed against that half, the early refusals included.
+    branch = live.branch(branch_id)
+    # And which half this REQUEST acts for, held on the request's own task rather than only on
+    # the session. The session's `acting_branch` is one field for both halves: a turn to the
+    # other half that starts while this one is thinking overwrites it, and anything this turn
+    # stages afterwards on its own task — rather than inside the provider's per-call dispatch,
+    # which sets the same context itself — would be filed against the wrong half (the
+    # 2026-09-28 deploy review, round 9, D2-03). The session field is still written, for the
+    # readers that have only a session and no turn; `app/tools/context.py::acting_branch`
+    # reads this first.
+    token = CURRENT_BRANCH.set(branch.branch_id)
+    try:
+        return await _turn(
+            request, runtime, live, branch, text=text, audio=audio, session_id=session_id, speak=speak,
+            lost_thread=lost_thread, started=started, timings=timings,
+        )
+    finally:
+        CURRENT_BRANCH.reset(token)
+
+
+async def _turn(request: Request, runtime, live, branch, *, text: str | None, audio: UploadFile | None, session_id: str,
+                speak: bool, lost_thread: bool, started: float, timings: dict[str, float]) -> dict:
+    """The turn itself, once the conversation and the half it is addressed to are known."""
+    transcript_info: dict | None = None
     live.heard = ""
     live.abandoned = False
     # This turn's place in the conversation. A hold that abandons the question, or a later
     # question, moves the session past it; the answer then goes unspoken.
     epoch = live.epoch
     # The turn's id: every tool call, proposal and tablet event it causes is written against
-    # it on the test-session timeline (a no-op while no session is on).
-    live.turn_id = timeline.new_id("turn")
+    # it on the test-session timeline (a no-op while no session is on). Kept here as well as on
+    # the session, because the session's copy is the NEXT turn's as soon as one starts.
+    live.turn_id = turn_id = timeline.new_id("turn")
+    # The names this conversation has already been shown, handed to the timeline's redaction
+    # BEFORE this turn writes anything: the focus, the words heard and the answer are all
+    # written below, and a name is not a shape the timeline can find by itself (D1-01).
+    timeline.note_names(live.pii_seen)
     if timeline.current().active is not None:
         timeline.emit(
-            "turn_started", session_id=session_id, turn_id=live.turn_id, input="audio" if audio is not None else "text",
+            "turn_started", session_id=session_id, turn_id=turn_id, input="audio" if audio is not None else "text",
             turns_before=live.turns, epoch=epoch, lost_thread=lost_thread, focus=(live.context[0] if live.context else None),
             # What was WAITING when this turn began: changes the owner has not decided about.
             # An undo offer is not one of those and is recorded separately — the report read
@@ -127,12 +157,26 @@ async def turn(
             undoable=action_engine.undoable_ids(live) or None,
         )
 
+    # What the recogniser heard is written to the timeline once the turn knows the names its
+    # own reads returned, not at the moment it was heard: "what did <a customer> order" names a
+    # person no read has returned yet, and an event is redacted as it is written, never after
+    # (the 2026-09-28 deploy review, round 9, D1-01). It keeps the time it was heard, so the
+    # timeline still reads in the order things happened.
+    heard_event: dict[str, Any] = {}
+
+    def written_heard() -> None:
+        if heard_event and timeline.current().active is not None:
+            timeline.note_names(live.pii_seen)
+            timeline.emit("stt", **heard_event)
+        heard_event.clear()
+
     if audio is not None:
         blob = await audio.read()
         if len(blob) > MAX_UPLOAD_BYTES:
             return await _answer(
                 runtime, session_id, "That recording was too long for me to handle.",
                 request=request, error_kind="audio_too_large", timings=timings, started=started, speak=speak, epoch=epoch,
+                branch=branch, turn_id=turn_id,
             )
         # The Mac says what it is doing while it does it: the tablet reads this rather than
         # guessing from a timer how long the recogniser takes.
@@ -142,26 +186,31 @@ async def turn(
         timings.update(result.timings_ms)
         if timeline.current().active is not None:
             stats = transcript_info.get("stats") or {}
-            timeline.emit(
-                "stt", session_id=session_id, turn_id=live.turn_id, ok=result.ok, engine=result.engine or None, fallback=result.fallback,
+            heard_event.update(
+                session_id=session_id, turn_id=turn_id, ok=result.ok, engine=result.engine or None, fallback=result.fallback,
                 engine_detail=result.engine_detail or None, reason=result.reason or None, raw_text=result.raw_text or None, text=result.text or None,
                 audio_s=stats.get("duration_s"), audio_bytes=len(blob), timings=transcript_info.get("timings_ms"),
+                ts=_timeline_now(),
             )
         if not result.ok:
+            written_heard()
             live.set_state("READY")
             return await _answer(
                 runtime, session_id, result.reason, request=request, error_kind="speech",
                 timings=timings, started=started, transcript=transcript_info, speak=speak, epoch=epoch,
+                branch=branch, turn_id=turn_id,
             )
         # What the recogniser heard, word for word. Nothing rewrites it towards the catalogue
         # first: the owner said "Clive" and a term list turned it into "Plaid".
         text = result.text
 
     if not text or not text.strip():
+        written_heard()
         live.set_state("READY")
         return await _answer(
             runtime, session_id, "I did not catch that.", request=request, error_kind="empty",
             timings=timings, started=started, transcript=transcript_info, speak=speak, epoch=epoch,
+            branch=branch, turn_id=turn_id,
         )
     text = text.strip()[:MAX_TEXT_CHARS]
 
@@ -177,15 +226,16 @@ async def turn(
     # and only on a whole sentence of four words or fewer from a fixed list of bare yeses, it
     # looks nothing up, and sending that yes to the model instead would withdraw the very card
     # he is agreeing to (every new instruction withdraws pending cards, below). "Yes, and
-    # cancel the order" is not a bare yes and goes to the model.
-    # Which half of the orb is being spoken to, before anything is withdrawn: a question
-    # asked over here is not a new instruction to a card waiting over there.
-    branch = live.branch(branch_id)
+    # cancel the order" is not a bare yes and goes to the model, and so does "yes, #1938":
+    # a number, or any word beyond the fixed list, is something he said (`is_affirmation`).
+    # A question asked over here is not a new instruction to a card waiting over there.
     # Everything downstream that is handed only the session — the action engine when it
-    # stages, working sets when they are created — asks the session which half is speaking.
+    # stages, working sets when they are created — asks which half is speaking; the request's
+    # own context answers first (see `turn` above), and the session's field is kept for the rest.
     live.acting_branch = branch.branch_id
     waiting = _waiting_proposal(runtime, live, branch.branch_id)
     if waiting is not None and is_affirmation(text):
+        written_heard()
         live.heard = text
         live.set_state("READY")
         # The card is re-presented as it stands: its clock started when it was delivered and
@@ -194,6 +244,7 @@ async def turn(
         return await _answer(
             runtime, session_id, _affirmation_answer(live, waiting), request=request, timings=timings, started=started,
             transcript=transcript_info, question=text, speak=speak, calls=calls, epoch=epoch, revoked=[],
+            branch=branch, turn_id=turn_id,
         )
 
     # A control was tapped that expects words, and these are the words. The sentence is about
@@ -247,7 +298,7 @@ async def turn(
     branch.begin_turn("working it out")
     # The workspace starts NOW, not when the reads are done (§7, D-5): its sections go up as
     # each read starts (app/tools/dispatch.py) and are collected by the tablet's /state poll.
-    progressive.begin(session_id, turn_id=live.turn_id, branch_id=branch.branch_id)
+    progressive.begin(session_id, turn_id=turn_id, branch_id=branch.branch_id)
 
     await _ensure_provider_started(runtime)
 
@@ -277,9 +328,13 @@ async def turn(
     timings["agent"] = (time.perf_counter() - t0) * 1000
     for step, ms in getattr(result, "steps", None) or []:
         timings[f"step:{step}"] = ms
+    # The names this turn's reads just returned, before the answer that may say them is
+    # written — and before the words heard, which may have named the same person.
+    timeline.note_names(live.pii_seen)
+    written_heard()
     if timeline.current().active is not None:
         timeline.emit(
-            "model", session_id=session_id, turn_id=live.turn_id, ms=round(timings["agent"], 1), steps=list(getattr(result, "steps", None) or []),
+            "model", session_id=session_id, turn_id=turn_id, ms=round(timings["agent"], 1), steps=list(getattr(result, "steps", None) or []),
             error_kind=result.error_kind, stopped_early=result.stopped_early, answer=result.text or None,
             tool_calls=[{"tool": c.name, "ok": c.ok, "tool_call_id": getattr(c, "tool_call_id", "") or None, "proposal_id": c.proposal_id} for c in result.tool_calls or []],
         )
@@ -326,7 +381,17 @@ async def turn(
         writes=writes,
         branch=branch,
         measures=measures,
+        turn_id=turn_id,
     )
+
+
+def _timeline_now() -> float:
+    """The timeline's own clock, for an event written later than the moment it records."""
+    clock = getattr(timeline.current(), "clock", None)
+    try:
+        return float(clock()) if callable(clock) else time.time()
+    except Exception:  # noqa: BLE001 — a clock is not worth a turn
+        return time.time()
 
 
 LOST_THREAD_PREFIX = "I lost our earlier thread, so from the start: "
@@ -528,6 +593,15 @@ def _with_continuation(text: str, continuation: dict) -> str:
     )
 
 
+#: Said once, after where the screen is: the record on screen is the default for "it" and
+#: "this", never for a record he names. The fast lane refused, in code, to answer "where is
+#: 1940" or "what's Millie's address" from the order that happened to be open; the model
+#: reads what it decides to read, so the rule is put to it in words, every turn a record is
+#: open (the 2026-09-28 deploy review, round 9, D2-05). Nothing on the Mac reads the open
+#: record for a sentence any more, and the screen is drawn only from what the model read.
+NAMED_OUTRANKS_SHOWN = "A number or a name he says is the record he means, whatever is on screen"
+
+
 def _branch_line(branch) -> str:
     """Where the conversation is, in one line, so the model does not spend a tool call
     rediscovering it. Position only — never a permission, and never a whole read."""
@@ -543,7 +617,10 @@ def _branch_line(branch) -> str:
     recent = getattr(branch, "recent_results", None) or []
     if recent:
         bits.append("just read: " + "; ".join(str(r.get("summary") or "")[:60] for r in recent[:2]))
-    return f"[Where we are: {'; '.join(bits)}.]" if bits else ""
+    if not bits:
+        return ""
+    rule = f" {NAMED_OUTRANKS_SHOWN}." if entity else ""
+    return f"[Where we are: {'; '.join(bits)}.{rule}]"
 
 # What a spoken yes gets while a card is waiting: the waiting card's own gesture, in a fixed
 # sentence — synthesised once and kept, and never a promise: the gesture is the only thing
@@ -663,8 +740,30 @@ _AFFIRMATIONS = frozenset({
 })
 
 
+# What may sit between the words of a bare yes and change nothing: spaces and the punctuation
+# a recogniser or a keyboard puts round them. Nothing else. A digit, a "#", a "£" or an "@" is
+# something he SAID, and a sentence carrying one is not a bare yes.
+_HARMLESS = re.compile(r"[\s.,!?;:'\"‘’“”…–—-]+")
+_WORD = re.compile(r"[a-z]+")
+
+
 def is_affirmation(text: str) -> bool:
-    words = re.sub(r"[^a-z' ]+", " ", text.lower()).split()
+    """Whether the whole sentence is one of the fixed bare yeses, and nothing more.
+
+    Every character is accounted for: the words must be the fixed list's and everything between
+    them harmless punctuation. It used to delete whatever was not a letter first and then look
+    the rest up, so "yes, #1938" and "yes 1938" were read as a bare "yes" — the model was never
+    asked, the waiting card was not withdrawn, and the order number he named was dropped at the
+    write boundary without a word (the 2026-09-28 deploy review, round 9, D2-02). A sentence
+    with anything more in it is an instruction and goes to the model, which sees the card."""
+    lowered = str(text or "").lower().replace("’", "'")
+    words: list[str] = []
+    for chunk in _HARMLESS.split(lowered):
+        if not chunk:
+            continue
+        if not _WORD.fullmatch(chunk):
+            return False
+        words.append(chunk)
     if not words or len(words) > 4:
         return False
     return " ".join(words) in _AFFIRMATIONS
@@ -710,39 +809,104 @@ _RECORD_CARDS: dict[str, tuple[str, str, str]] = {
     "customer": ("customer", "customer_id", "name"),
     "email_thread": ("email_thread", "thread_id", "subject"),
 }
+#: The composed surfaces that are one record (app/workspace.py `compose`). `present()` puts
+#: one of these in place of the record's own card when the task wanted more than one thing
+#: about it, so it names its record itself: `kind` and `ref`, and a title to call it by.
+_WORKSPACE_CARDS = frozenset({"order_workspace", "customer_workspace"})
+
+
+def _card_record(item: Any) -> tuple[str, str, str] | None:
+    """(kind, ref, label) of the one record a card is, or None for a card that is not one."""
+    if not isinstance(item, dict):
+        return None
+    card = str(item.get("type") or "")
+    data = item.get("data")
+    if not isinstance(data, dict) or data.get("empty"):
+        return None
+    if card in _RECORD_CARDS:
+        kind, id_key, label_key = _RECORD_CARDS[card]
+        ref, label = str(data.get(id_key) or ""), str(data.get(label_key) or "")
+    elif card in _WORKSPACE_CARDS:
+        kind, ref = str(data.get("kind") or ""), str(data.get("ref") or "")
+        # "Order #1938" is the order's title; the branch calls it "#1938", as the card does.
+        title = str(data.get("title") or "")
+        label = title[len("Order "):] if kind == "order" and title.startswith("Order ") else title
+    else:
+        return None
+    return (kind, ref, label) if kind and ref else None
+
+
+def _record_key(kind: str, ref: str) -> str:
+    """One record, however its id arrived: a gid on one card and the same gid on a workspace
+    are one order, and so are the order's number said two ways (app/entities.py)."""
+    from app import entities
+
+    return entities.key(kind, ref) or f"{kind}:{ref}"
+
+
+def _records_shown(ui: list) -> dict[str, tuple[str, str, str]]:
+    """Every distinct record the cards put on the screen, by canonical key, first card first."""
+    out: dict[str, tuple[str, str, str]] = {}
+    for item in ui or []:
+        record = _card_record(item)
+        if record is not None:
+            out.setdefault(_record_key(record[0], record[1]), record)
+    return out
 
 
 def _stand_on_what_was_shown(branch, ui: list) -> None:
-    """The record the model put on the screen is the record the owner is now on.
+    """The record the model put on the screen is the record the owner is now on — when there
+    is exactly one.
 
     Everything the tablet does next under a finger — Add a note, Reply, Back, the next tab —
     acts on the branch's cursor, never on what a card happens to show. Only the word-matching
     lane used to move that cursor for a sentence, so once every sentence became a model turn,
     "show me order 1938" drew the order and left the cursor where it was: Add a note on that
-    card was refused as "no order open". This follows the cards, not the words. One record
-    shown is where he now is; several of one kind is a list, and a list moves nothing.
+    card was refused as "no order open". This follows the cards, not the words.
+
+    One record shown — as its own card or as the workspace composed over it — is where he now
+    is. Anything else moves nothing: several orders are a list, and an order beside a
+    customer is two records, of which the Mac cannot say which he means. It used to take the
+    first record card and count only its own kind, so an order and a customer moved the
+    cursor to whichever came first, and a workspace, which is what `present()` draws in
+    place of the card when the task asked for more than one thing, moved nothing at all and
+    left the cursor on the record before (the 2026-09-28 deploy review, round 9, D2-04,
+    D1-02). Staying put is safe for the write boundary: the one control that binds the cursor
+    to a change — a listening chip such as Add a note — is only offered on the card that IS
+    the cursor (`_bind_listening_to_cursor`), and every other change names its own record (a
+    row's id, an open chip's arguments, or the words said).
     """
-    first = None
-    refs: dict[str, set[str]] = {}
-    for item in ui or []:
-        spec = _RECORD_CARDS.get(str(item.get("type") or "")) if isinstance(item, dict) else None
-        data = item.get("data") if spec is not None else None
-        if not isinstance(data, dict) or data.get("empty"):
-            continue
-        kind, id_key, label_key = spec
-        ref = str(data.get(id_key) or "")
-        if not ref:
-            continue
-        refs.setdefault(kind, set()).add(ref)
-        if first is None:
-            first = (kind, ref, str(data.get(label_key) or ""))
-    if first is None or len(refs.get(first[0], ())) != 1:
+    records = _records_shown(ui)
+    if len(records) != 1:
         return
-    kind, ref, label = first
+    ((kind, ref, label),) = records.values()
     entity = getattr(branch, "entity", None) or {}
-    if entity.get("kind") == kind and entity.get("ref") == ref:
+    if entity.get("kind") == kind and _record_key(kind, str(entity.get("ref") or "")) == _record_key(kind, ref):
         return
     branch.visit(kind, ref, label)
+
+
+def _bind_listening_to_cursor(ui: list, entity: dict | None) -> None:
+    """Keep a listening control only on the card whose record is the half's cursor.
+
+    A rail chip in "ask" mode that names a spoken control (`family`, e.g. order.add_note) binds
+    the next sentence to the record the tablet holds as this half's entity — the cursor — and
+    not to the card the chip is drawn on (web/app.js `primeAction`). On a screen with two
+    records, or with one the cursor did not move to, that chip would bind a record other than
+    the one under the owner's thumb, and the note he dictates would be staged against it. So
+    on every other card the chip loses its `family`: a tap still primes its words, which name
+    that card's own record ("Add a note to #1940"), and the model reads the record from the
+    words. Nothing is removed and nothing can bind the wrong record.
+    """
+    here = entity or {}
+    cursor = _record_key(str(here.get("kind") or ""), str(here.get("ref") or "")) if here.get("ref") else ""
+    for item in ui or []:
+        record = _card_record(item)
+        if record is None or (cursor and _record_key(record[0], record[1]) == cursor):
+            continue
+        for action in (item["data"].get("actions") or []):
+            if isinstance(action, dict) and action.get("family") and str(action.get("mode") or "ask") == "ask":
+                action["family"] = ""
 
 
 #: Where each record a replay rebuilds keeps its id (app/commands.py REPLAY_TOOL).
@@ -918,6 +1082,7 @@ async def _answer(
     branch: Any = None,
     measures: dict | None = None,
     seq: int | None = None,
+    turn_id: str = "",
 ) -> dict:
     tool_calls = tool_calls or []
     turns = 0
@@ -975,55 +1140,92 @@ async def _answer(
         runtime.voice.prefetch(
             to_speakable(answer, max_chars=runtime.voice.max_chars), pin=bool(error_kind) or answer in FIXED_LINES
         )
+    # Replaced, as opposed to merely cancelled: a newer instruction to this half is running
+    # now, and everything that says what this half is doing belongs to it — the session's
+    # state, the chip's WORKING, the count of turns in flight (which that instruction reset
+    # when it began). A turn the owner only cancelled, with nothing after it, still ends here.
+    cancelled = bool(session is not None and (getattr(session, "abandoned", False) or getattr(branch, "abandoned", False)))
+    replaced = abandoned and not cancelled
     # The turn is over: whatever it was doing (hearing, checking Shopify, thinking), the
     # session says so now, so a /state poll that outlives the turn cannot report otherwise.
-    if session is not None and session.state not in ("READY", "ERROR"):
+    if session is not None and not replaced and session.state not in ("READY", "ERROR"):
         session.set_state("ERROR" if error_kind else "READY")
     timings["total"] = (time.perf_counter() - started) * 1000
-    # What the screen shows beside the answer: cards chosen from the tool results, never from
-    # the prose. See app/presentation.py for the vocabulary and the bounds.
-    ui = present(calls, session=session, error_kind=error_kind, writes=rail)
-    # The same turn as a validated scene, when CLIVE_SCENES is on: planned from these reads,
-    # carried as its own field and changing nothing else. Off, nothing here runs.
-    scene = _turn_scene(question or str((transcript or {}).get("text") or ""), answer, calls, session_id)
-    # One cursor, one headline per kind, the rest folded (brief section 22).
-    ui = compact(ui)
-    # When the Mac had cards to show, as a fact and not an inference (brief section 25 asks
-    # for time-to-first-useful-workspace measured APART from the whole turn). Taken here,
-    # after present(), because this is the moment the workspace exists.
-    timings["workspace"] = (time.perf_counter() - started) * 1000
-    turn_id = getattr(session, "turn_id", "") if session is not None else ""
     if branch is None and session is not None:
         branch = session.branch()
-    if branch is not None:
-        # The answer is here. A half the owner is looking at simply goes quiet; one he has
-        # put aside — or simply tapped away from while it was working — says "ready" on its
-        # chip and pulses once, and does not take his attention. The live test found a half
-        # that finished a ten-second turn with zero change on the tablet and an answer that
-        # could never be read: it was not BACKGROUND, only not looked at, so it went idle.
-        elsewhere = bool(session is not None and getattr(session, "focused_branch", "") and session.focused_branch != branch.branch_id)
-        # The turn is over however it ended. Counted down first, so nothing below can leave a
-        # half saying it is working when it is not.
-        branch.end_turn()
-        if error_kind:
-            branch.failed("that did not work")
-        elif branch.status == "BACKGROUND" or elsewhere:
-            branch.ready("there is an answer")
-        else:
+    # The turn's own id, not the session's: the session's is the NEXT turn's as soon as one
+    # has started, and an answer that finished late must not be filed under its replacement.
+    turn_id = turn_id or (getattr(session, "turn_id", "") if session is not None else "")
+    if abandoned:
+        # Nobody is waiting for this answer, and the half has moved on to another question
+        # (the 2026-09-28 deploy review, round 9, D2-01). It publishes nothing: no cards, so the
+        # context stack and the entity graph are not handed an old record as though it were
+        # new; no `shown`, so tapping the half does not redraw it; no cursor, so "cancel it"
+        # and a tapped Add a note act on what the newer answer showed and not on the order
+        # this one read; and no reconciliation, because the live workspace on this half is
+        # the newer turn's. What it read is still kept where a replay finds it — reads are
+        # facts, and Back onto that order later need not ask the shop again.
+        ui: list[dict[str, Any]] = []
+        scene = None
+        timings["workspace"] = (time.perf_counter() - started) * 1000
+        if branch is not None and not replaced:
+            if seq is not None:
+                branch.end_turn()
             branch.idle()
-        # What this half now shows, kept on the Mac so tapping it later draws it (branch.show).
-        branch.shown(ui, answer, question)
-        if not error_kind:
-            _stand_on_what_was_shown(branch, ui)
-    for call in calls or []:
-        if branch is not None and getattr(call, "ok", False):
-            branch.remember_result(call.name, summary=_call_summary(call), ref=_call_ref(call), ms=float(getattr(call, "duration_ms", 0.0) or 0.0))
-    _keep_what_was_read(calls)
-    # The turn's own cards, reconciled against what the progressive workspace already put on
-    # the glass (§7, §25). A card that is unchanged is NOT redrawn — the whole point — and one
-    # that gained its rail or an enrichment is patched in place. The numbers come back for the
-    # performance record; the patches themselves the tablet has already collected from /state.
-    glass = progressive.complete(session, ui, branch_id=getattr(branch, "branch_id", "") or "")
+        _keep_what_was_read(calls)
+        glass: dict[str, Any] = {}
+    else:
+        # What the screen shows beside the answer: cards chosen from the tool results, never
+        # from the prose. See app/presentation.py for the vocabulary and the bounds.
+        ui = present(calls, session=session, error_kind=error_kind, writes=rail)
+        # The same turn as a validated scene, when CLIVE_SCENES is on: planned from these
+        # reads, carried as its own field and changing nothing else. Off, nothing here runs.
+        scene = _turn_scene(question or str((transcript or {}).get("text") or ""), answer, calls, session_id)
+        # One cursor, one headline per kind, the rest folded (brief section 22).
+        ui = compact(ui)
+        # When the Mac had cards to show, as a fact and not an inference (brief section 25
+        # asks for time-to-first-useful-workspace measured APART from the whole turn). Taken
+        # here, after present(), because this is the moment the workspace exists.
+        timings["workspace"] = (time.perf_counter() - started) * 1000
+        if branch is not None:
+            # The answer is here. A half the owner is looking at simply goes quiet; one he has
+            # put aside — or simply tapped away from while it was working — says "ready" on
+            # its chip and pulses once, and does not take his attention. The live test found a
+            # half that finished a ten-second turn with zero change on the tablet and an answer
+            # that could never be read: it was not BACKGROUND, only not looked at, so it went
+            # idle.
+            elsewhere = bool(session is not None and getattr(session, "focused_branch", "") and session.focused_branch != branch.branch_id)
+            # The turn is over however it ended. Counted down first, so nothing below can leave
+            # a half saying it is working when it is not — and only by a turn that counted
+            # itself in: a refusal before the model (nothing heard, a spoken yes) never began,
+            # and must not end the turn another request has in flight on this half.
+            if seq is not None:
+                branch.end_turn()
+            if error_kind:
+                branch.failed("that did not work")
+            elif branch.status == "BACKGROUND" or elsewhere:
+                branch.ready("there is an answer")
+            else:
+                branch.idle()
+            if not error_kind:
+                _stand_on_what_was_shown(branch, ui)
+            # A control on a card that listens for words binds the half's cursor, not the card
+            # it sits on (web/app.js `primeAction` posts the branch's entity). So only the card
+            # that IS the cursor keeps one; every other card's chip primes its words and binds
+            # nothing, and those words name its own record (D2-04, D1-02).
+            _bind_listening_to_cursor(ui, getattr(branch, "entity", None))
+            # What this half now shows, kept on the Mac so tapping it later draws it (branch.show).
+            branch.shown(ui, answer, question)
+        for call in calls or []:
+            if branch is not None and getattr(call, "ok", False):
+                branch.remember_result(call.name, summary=_call_summary(call), ref=_call_ref(call), ms=float(getattr(call, "duration_ms", 0.0) or 0.0))
+        _keep_what_was_read(calls)
+        # The turn's own cards, reconciled against what the progressive workspace already put
+        # on the glass (§7, §25). A card that is unchanged is NOT redrawn — the whole point —
+        # and one that gained its rail or an enrichment is patched in place. The numbers come
+        # back for the performance record; the patches themselves the tablet has already
+        # collected from /state.
+        glass = progressive.complete(session, ui, branch_id=getattr(branch, "branch_id", "") or "")
     # How this turn actually went, in numbers. Every field is measured; none of it is content.
     # This is what the report's speed section and the bench read (brief section 32).
     performance = _performance(timings, branch=branch, calls=calls, session=session, measures=measures or {}, ui=ui, glass=glass)
