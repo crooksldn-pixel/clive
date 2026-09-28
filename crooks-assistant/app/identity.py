@@ -19,6 +19,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 log = logging.getLogger("crooks.identity")
 
@@ -523,7 +524,94 @@ def peer_is_tailscaled(client: tuple[str, int] | None, server: tuple[str, int] |
         return False, f"who opened the connection could not be read: {type(exc).__name__}"
 
 
+# ------------------------------------------------------------------ who took a connection this host made
+#
+# The server's own status readers (`make health`, crooks-status, `make install`, CROOKS Control)
+# carry the server's local command key to /health on loopback (app/local_cli.py). A loopback port
+# is not the service's for being on loopback: while the service restarts, any process on the server
+# that can bind an unprivileged port can take it, answer, and read whatever the next request carries
+# (the 2026-09-28 deploy review, round 9, A1B-KEY). So before the key is sent, the kernel is asked
+# who took the very connection it is to be sent on: the socket at the far end of that connection
+# must be held by a process in the service's own cgroup — which only root can move a process into
+# (cgroup_guarded) — with each process pinned while it is looked at and its open files read afresh,
+# as the tailscaled check above is done. Nothing is remembered between reads.
+
+SERVICE_UNIT = "crooks-assistant.service"
+# How long a reader waits for the far end to accept its connection before it gives up on the key.
+# A socket still waiting in the listener's queue has no inode yet (the kernel lists 0), so who holds
+# it cannot be known until it is accepted.
+ACCEPT_WAIT_S = 2.0
+
+
+def in_unit_cgroup(pid: int, unit: str, *, proc: Path | None = None) -> bool:
+    """Whether /proc/<pid>/cgroup puts the process in exactly this system service's cgroup:
+    `/system.slice/<unit>` in its hierarchy, the whole path and nothing that merely ends like it
+    (a user's own service can carry the same name under user.slice)."""
+    root = proc or PROC
+    try:
+        lines = (root / str(pid) / "cgroup").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    want = f"/system.slice/{unit}"
+    return any(len(line.split(":", 2)) == 3 and line.split(":", 2)[2] == want for line in lines)
+
+
+def far_end_held_by(local: tuple[str, int], remote: tuple[str, int], unit: str = SERVICE_UNIT, *,
+                    wait_s: float = ACCEPT_WAIT_S, proc: Path | None = None,
+                    cgroup: Path | None = None) -> tuple[bool, str]:
+    """Whether the socket at the far end of this machine's own connection local -> remote is held
+    by a process of `unit` (ok, why). Waits up to `wait_s` for the far end to accept the
+    connection; refuses when the kernel's tables cannot be read whole, when the unit's cgroup could
+    be joined by anyone but root, and whenever the holder cannot be shown to be the unit's. Never
+    raises: every failure is "no"."""
+    root = proc or PROC
+    try:
+        if not (root / "net" / "tcp").exists():
+            return False, "this machine cannot say who took the connection (no /proc)"
+        deadline = time.monotonic() + max(0.0, wait_s)
+        while True:
+            try:
+                # The far end's own row: its local address is this connection's remote one.
+                inode = socket_inode(remote, local, proc=root)
+            except MalformedTable:
+                return False, "the kernel's socket table could not be read whole"
+            if inode is not None:
+                break
+            if time.monotonic() >= deadline:
+                return False, "nothing on this machine took the connection in time"
+            time.sleep(0.02)
+        folder = unit_cgroup(unit, cgroup=cgroup)
+        if folder is None:
+            return False, f"{unit} is not running"
+        if not cgroup_guarded(folder):
+            return False, f"{unit}'s cgroup could be joined by a process that is not root"
+        pids = unit_pids(folder=folder)
+        if pids is None:
+            return False, f"{unit}'s list of processes could not be read whole"
+        for pid in pids:
+            try:
+                pinned = pin(pid)
+            except OSError:
+                continue          # gone before it could be pinned
+            try:
+                if not in_unit_cgroup(pid, unit, proc=root):
+                    continue
+                held = socket_inodes(pid, proc=root)
+                # As in _proc_peer_check: everything above was read under a pid, and is believed
+                # only if the process pinned to it is still the one alive now.
+                if not pinned.alive():
+                    continue
+                if inode in held:
+                    return True, f"taken by {unit} (pid {pid})"
+            finally:
+                pinned.close()
+        return False, f"the connection was taken by something other than {unit}"
+    except Exception as exc:  # noqa: BLE001 — every failure is "cannot say", and that sends nothing
+        return False, f"who took the connection could not be read: {type(exc).__name__}"
+
+
 IPV6_OFF = Path("sys/net/ipv6/conf/all/disable_ipv6")    # under /proc
+IPV6_LO_OFF = Path("sys/net/ipv6/conf/lo/disable_ipv6")
 _TRIE_TABLE = re.compile(r"(?:Main|Local|Id \d+):")
 _TRIE_NODE = re.compile(r"\s*\+-- (\d{1,3}(?:\.\d{1,3}){3})/\d{1,2} \d+ \d+ \d+")
 _TRIE_LEAF = re.compile(r"\s*\|-- (\d{1,3}(?:\.\d{1,3}){3})")
@@ -583,7 +671,24 @@ def _ipv6_local(inet6: str) -> frozenset[str]:
     return frozenset(found)
 
 
-def _addresses_once(root: Path) -> tuple[frozenset[str] | None, str]:
+class HostAddresses(NamedTuple):
+    """One reading of this host's own addresses from the kernel's tables."""
+
+    addresses: frozenset[str]
+    # False only when the kernel itself says IPv6 is off (no if_inet6, and its switch reads 1):
+    # then no IPv6 address can be this host's. True whenever an IPv6 table was read.
+    ipv6: bool
+
+
+def _switched_off(root: Path, path: Path) -> bool:
+    """Whether one of the kernel's disable_ipv6 switches reads exactly 1."""
+    try:
+        return _read_table(root / path).removesuffix("\n") == "1"
+    except OSError:
+        return False
+
+
+def _addresses_once(root: Path) -> tuple[HostAddresses | None, str]:
     try:
         trie = _read_table(root / "net" / "fib_trie")
     except OSError:
@@ -598,17 +703,66 @@ def _addresses_once(root: Path) -> tuple[frozenset[str] | None, str]:
         # No table is not proof that there are no IPv6 addresses: only the kernel's own switch
         # saying IPv6 is off is (round 8, F-05B-AVAIL). A missing or renamed table with IPv6 on,
         # or with the switch unreadable, is "cannot say".
-        try:
-            switch = _read_table(root / IPV6_OFF)
-        except OSError:
-            switch = ""
-        if switch.removesuffix("\n") != "1":
+        if not _switched_off(root, IPV6_OFF):
             return None, "/proc/net/if_inet6 is missing and IPv6 is not switched off (net.ipv6.conf.all.disable_ipv6 is not 1)"
-        inet6 = ""
+        try:
+            return HostAddresses(_ipv4_local(trie), ipv6=False), ""
+        except MalformedTable as exc:
+            return None, str(exc)
     try:
-        return _ipv4_local(trie) | _ipv6_local(inet6), ""
+        v4, v6 = _ipv4_local(trie), _ipv6_local(inet6)
     except MalformedTable as exc:
         return None, str(exc)
+    # The IPv6 table's own completeness mark, as 127.0.0.1 is the IPv4 table's (round 9,
+    # F-05B-AVAIL): with IPv6 on, the loopback interface holds ::1, so a table without it — an
+    # empty one above all — is not whole. Only the kernel's switch saying IPv6 is off on the
+    # loopback interface, or everywhere, excuses it.
+    if "::1" not in v6 and not (_switched_off(root, IPV6_LO_OFF) or _switched_off(root, IPV6_OFF)):
+        return None, "/proc/net/if_inet6 does not list ::1 and IPv6 is not switched off"
+    return HostAddresses(v4 | v6, ipv6=True), ""
+
+
+# How many times the tables are read, at most, for one answer: two readings running must agree.
+ADDRESS_READS = 4
+# How long to wait before the next reading, when the one before it failed or differed from the
+# one before that: the first wait, the second, and any after (round 9, A1b F-05B-AVAIL). A reading
+# that goes wrong is a passing thing — the kernel changing a route while it is walked, a read
+# refused for a moment — and a short, growing wait lets it pass rather than refuse the owner's
+# device. Bounded: at most their sum (70 ms) in all, and only ever when a reading went wrong; two
+# readings that agree at once wait for nothing.
+ADDRESS_PAUSES_S = (0.01, 0.02, 0.04)
+_pause = time.sleep
+
+
+def host_addresses(*, proc: Path | None = None) -> tuple[HostAddresses | None, str]:
+    """This host's own addresses, read from the kernel's tables until two readings running agree
+    (round 9, F-05B-AVAIL). The kernel writes these tables while it walks them, so one reading
+    taken while an address or a route is being changed can be well formed and still leave an entry
+    out; two consecutive readings that say the same were not taken across a change. At most
+    ADDRESS_READS readings: a reading that fails, or one that differs from the last, is followed by
+    another after a short wait that grows (ADDRESS_PAUSES_S), and when no two running agree the
+    answer is None — never the reading that happened to come last, and never an address taken as
+    not this host's for want of a reading."""
+    root = proc or PROC
+    last: HostAddresses | None = None
+    failure = ""
+    troubles = 0
+    wrong = False
+    for _ in range(ADDRESS_READS):
+        if wrong:
+            _pause(ADDRESS_PAUSES_S[min(troubles, len(ADDRESS_PAUSES_S)) - 1])
+        found, why = _addresses_once(root)
+        wrong = found is None or (last is not None and found != last)
+        troubles += wrong
+        if found is None:
+            failure, last = why, None
+            continue
+        if last is not None and found == last:
+            return found, ""
+        last = found
+    if failure:
+        return None, f"{failure} (read {ADDRESS_READS} times, never whole twice running)"
+    return None, f"the kernel's address tables changed on every one of {ADDRESS_READS} readings"
 
 
 def this_hosts_addresses(*, proc: Path | None = None) -> tuple[frozenset[str] | None, str]:
@@ -619,22 +773,42 @@ def this_hosts_addresses(*, proc: Path | None = None) -> tuple[frozenset[str] | 
     makes that "every address"), and not asked of a CLI that can be slow or fail.
 
     (addresses, "") or (None, why): None when either table cannot be read, is not whole or is
-    not the kernel's shape, and when the IPv6 table is missing without IPv6 switched off (round
-    8, F-05B-AVAIL) — never a partial set. A failed read is tried once more at once before the
-    answer is None, so a read that fails for an instant does not refuse the owner's devices."""
-    root = proc or PROC
-    found, why = _addresses_once(root)
-    if found is not None:
-        return found, ""
-    found, why = _addresses_once(root)
-    if found is not None:
-        return found, ""
-    return None, f"{why} (read twice)"
+    not the kernel's shape, when the IPv6 table is missing without IPv6 switched off (round 8,
+    F-05B-AVAIL), when it lacks ::1 with IPv6 on, and when no two readings running agree (round
+    9) — never a partial set. A reading that fails for an instant is followed by another at once,
+    so it does not refuse the owner's devices."""
+    found, why = host_addresses(proc=proc)
+    return (found.addresses, "") if found is not None else (None, why)
 
 
 def local_addresses(*, proc: Path | None = None) -> frozenset[str] | None:
     """this_hosts_addresses without the reason."""
     return this_hosts_addresses(proc=proc)[0]
+
+
+def bound_here(ip, *, proc: Path | None = None) -> tuple[bool | None, str]:
+    """Whether any socket on this host has this address as its own end, in the kernel's socket
+    tables (round 9, F-05B-AVAIL): evidence that the address is this host's, from a table read
+    apart from the address tables, and only ever in that direction. A request this server sends
+    through its own `tailscale serve` holds such a socket while it is answered, and so does
+    tailscaled's own listener on the server's tailnet address. (None, why) when a table there
+    cannot be read whole; a table that is not there lists nothing."""
+    root = proc or PROC
+    forms = {table: form.rsplit(":", 1)[0] for table, form in _proc_forms(ip, 0).items()}
+    for table, wanted in forms.items():
+        try:
+            text = (root / table).read_text(encoding="ascii", errors="replace")
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return None, f"/proc/{table} could not be read"
+        try:
+            rows = _tcp_rows(table, text)
+        except MalformedTable as exc:
+            return None, str(exc)
+        if any(parts[1].rsplit(":", 1)[0] == wanted for parts in rows):
+            return True, ""
+    return False, ""
 
 
 _UNREADABLE_SELF = "this server's own addresses could not be read from the kernel"
@@ -645,17 +819,40 @@ def this_host(address: str) -> tuple[bool | None, str]:
     server is on the owner's tailnet login, so a request it sends through its own `tailscale
     serve` arrives stamped with the owner's login; it is still a request made on the server, and
     is judged as one. (None, why) when this host's addresses cannot be read, which the caller
-    refuses."""
+    refuses.
+
+    "Not this host" is the answer that lets a device in, so it is given only on a reading that can
+    be trusted whole (round 9, F-05B-AVAIL): the address is in none of this host's addresses, read
+    twice alike; no socket on this host has it as its own end; and the reading holds this host's
+    own tailnet address of the forwarded address's family. The server is on the tailnet whenever
+    tailscaled brings it a request, so a whole reading lists that address; one that does not could
+    have left out the very address a request the server sent itself would carry, and is "cannot
+    say". IPv6 is excused only when the kernel says IPv6 is off, as then no IPv6 address can be
+    this host's."""
     ip = _ip(forwarded_address(address))
     if ip is None:
         return False, ""
     if _self_check is not None:
         answer = _self_check(str(ip))
         return (None, _UNREADABLE_SELF) if answer is None else (bool(answer), "")
-    mine, why = this_hosts_addresses()
+    mine, why = host_addresses()
     if mine is None:
         return None, f"{_UNREADABLE_SELF}: {why}"
-    return str(ip) in mine, ""
+    if str(ip) in mine.addresses:
+        return True, ""
+    bound, why = bound_here(ip)
+    if bound is None:
+        return None, f"{_UNREADABLE_SELF}: {why}"
+    if bound:
+        return True, ""
+    if ip.version == 6 and not mine.ipv6:
+        return False, ""
+    tailnet = TAILNET_V4 if ip.version == 4 else TAILNET_V6
+    if not any(ipaddress.ip_address(own) in tailnet for own in mine.addresses):
+        family = "IPv4" if ip.version == 4 else "IPv6"
+        return None, (f"{_UNREADABLE_SELF} whole: its own tailnet {family} address is not among them, so a "
+                      "request it sent itself could not be told from a device's")
+    return False, ""
 
 
 def is_this_host(address: str) -> bool | None:

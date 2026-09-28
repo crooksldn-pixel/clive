@@ -270,87 +270,12 @@ def _scripts():
     return launch_common
 
 
-class _Answer:
-    def __init__(self, body: dict):
-        self.body = json.dumps(body).encode()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def read(self):
-        return self.body
-
-
-def test_the_hosts_status_readers_carry_the_key_on_loopback_and_nowhere_else(monkeypatch):
-    """`make health`, crooks-status, `make install` and CROOKS Control read /health through
-    launch_common.fetch_health. It asks plainly; only when the answer is liveness alone does it
-    ask again with the server's key — on the server's own loopback address, never any other, and
-    never through a proxy — so the host keeps the whole document and the key goes nowhere it is
-    not needed."""
-    import io
-    import urllib.error
-    import urllib.request
-
-    lc = _scripts()
-    sent: list[tuple[str, dict[str, str]]] = []
-    server = {"refuses_key": False, "owner_here": False}
-
-    def opened(request, timeout_s):
-        headers = {k.lower(): v for k, v in request.header_items()}
-        sent.append((request.full_url, headers))
-        keyed = local_cli.HEADER.lower() in headers
-        if keyed and server["refuses_key"]:
-            raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(b'{"code": "local_key_misused"}'))
-        whole = keyed or server["owner_here"]
-        return _Answer({"status": "ok", "checks": {}, **({"sessions": 1} if whole else {"limited": True})})
-
-    real_open = lc._open
-    monkeypatch.setattr(lc, "_open", opened)
-    local_cli.bind_key(KEY)
-    for url in ("http://127.0.0.1:8000/health", "http://[::1]:8000/health?fresh=1"):
-        before = len(sent)
-        assert "limited" not in lc.fetch_health(url)
-        assert [local_cli.HEADER.lower() in h for _u, h in sent[before:]] == [False, True], url
-        assert sent[-1][1][local_cli.HEADER.lower()] == KEY
-    for url in ("http://100.64.0.9:8000/health", "https://127.0.0.1:8000/health", "http://localhost:8000/health",
-                "https://crooks.example.com/health"):
-        before = len(sent)
-        assert lc.fetch_health(url)["limited"] is True
-        assert [local_cli.HEADER.lower() in h for _u, h in sent[before:]] == [False], url
-    # Where the reader is already the owner (a Mac that speaks for him), the key is never read.
-    server["owner_here"] = True
-    before = len(sent)
-    assert "limited" not in lc.fetch_health("http://127.0.0.1:8000/health") and len(sent) == before + 1
-    server["owner_here"] = False
-    # A build that does not take the key on /health yet: its liveness answer stands.
-    server["refuses_key"] = True
-    before = len(sent)
-    assert lc.fetch_health("http://127.0.0.1:8000/health")["limited"] is True
-    assert [local_cli.HEADER.lower() in h for _u, h in sent[before:]] == [False, True]
-    # A user who cannot read the key sends none.
-    server["refuses_key"] = False
-    local_cli.bind_key(None)
-    before = len(sent)
-    assert lc.fetch_health("http://127.0.0.1:8000/health")["limited"] is True
-    assert [local_cli.HEADER.lower() in h for _u, h in sent[before:]] == [False]
-
-    # Never through a proxy the environment names.
-    handlers: list = []
-
-    def build(*given):
-        handlers.extend(given)
-        raise OSError("not opened in a test")
-
-    monkeypatch.setattr(lc, "_open", real_open)
-    monkeypatch.setattr(urllib.request, "build_opener", build)
-    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example.com:3128")
-    local_cli.bind_key(KEY)
-    assert lc.fetch_health("http://127.0.0.1:8000/health") is None
-    proxies = [h for h in handlers if isinstance(h, urllib.request.ProxyHandler)]
-    assert proxies and all(h.proxies == {} for h in proxies)
+# The round-8 test of launch_common.fetch_health that stood here ("the host's status readers carry
+# the key on loopback and nowhere else") asked plainly and then again with the key when the answer
+# was limited — the retry round 9 found could hand the key to whatever held the port (A1B-KEY). The
+# key is now decided on before anything is asked and sent only on a connection the kernel says the
+# service took; tests/test_health_key.py holds every case it held (loopback only, never through a
+# proxy, none when unreadable, an older build's refusal) against real listeners, and the new ones.
 
 
 def test_a_status_reader_given_liveness_alone_says_so_and_never_calls_it_well(monkeypatch, capsys):

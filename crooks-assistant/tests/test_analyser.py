@@ -350,21 +350,35 @@ def test_c_a_change_asked_for_out_loud_is_a_capability_the_report_names(tmp_path
     assert intel["new_actions"] == [], "no tool ever asked for these; the old table could not see them"
 
     named = {key: (n, state) for key, n, _ids, state, _scope, _what in intel["spoken_capabilities"]}
-    assert named["order_create"] == (1, semantics.NO_FAMILY)
-    assert named["discount_code"] == (1, semantics.NO_FAMILY)
-    assert named["store_credit"] == (1, semantics.NO_FAMILY)
-    assert "order_add_item" not in named, "order_edit is a registered family: a built capability is not a missing one"
+    # CHANGED IN ROUND 9 (F-03), because the capabilities moved: order creation, discount codes
+    # and store credit have all been built since September, as registered families that are
+    # READY. The table named them "not built" all the same, so a request for store credit — a
+    # live, money-moving write — was reported as a family to build. A READY family is neither a
+    # build nor a grant, so none of the three is named now, exactly as order_edit was not.
+    for key in ("order_create", "discount_code", "store_credit", "order_add_item"):
+        assert key not in named, (key, "a registered, READY family is not a missing capability")
 
     families = {key for key, _n, _ids, _why in intel["new_action_families"]}
-    assert {"order_create", "discount_code", "store_credit"} <= families
-    assert "order_add_item" not in families
+    assert not families & {"order_create", "discount_code", "store_credit", "order_add_item"}
 
     for turn_id in ("turn_create_order", "turn_discount", "turn_credit"):
         turn = rec.turn(turn_id)
-        assert "MISSING_CAPABILITY" in turn.classes, turn_id
-        assert any("no capability family claims it" in s for s in turn.signals), turn.signals
-    assert "create a discount code" in markdown and "put store credit on a customer" in markdown
-    assert "### Possible new action families" in markdown
+        assert not any("no capability family claims it" in s for s in turn.signals), turn.signals
+
+    # What the table is for still works: a change asked for out loud that no family serves.
+    tape = Tape("ts-20260910-131500")
+    turn = _turn(tape, "turn_price", said="change the price of the black hoodie to forty pounds", input_="text")
+    _lane(tape, turn, lane="NORMAL", family=None, mutation=True, reason="asks for a change")
+    _finished(tape, turn, answer="I can't change prices.", question="change the price of the black hoodie to forty pounds")
+    (tmp_path / "price").mkdir()
+    priced, priced_md = build_report(tape.write(tmp_path / "price"), tools_registered=TOOLS)
+    priced_intel = intelligence(priced, TOOLS)
+    assert {key: (n, state) for key, n, _ids, state, _scope, _what in priced_intel["spoken_capabilities"]} == {
+        "price_change": (1, semantics.NO_FAMILY)}
+    assert [key for key, _n, _ids, _why in priced_intel["new_action_families"]] == ["price_change"]
+    assert "MISSING_CAPABILITY" in priced.turn("turn_price").classes
+    assert any("no capability family claims it" in s for s in priced.turn("turn_price").signals)
+    assert "change a price" in priced_md and "### Possible new action families" in priced_md
 
 
 def test_c_a_capability_that_exists_and_lacks_a_scope_is_a_grant_and_not_a_build(tmp_path):
@@ -518,11 +532,13 @@ def test_each_detection_becomes_a_candidate_a_person_can_pick_up(tmp_path):
     assert [n for _shape, n, _ids in intel["cross_source_workflows"] if n >= 2], intel["cross_source_workflows"]
 
     text = write_proposals(path, tmp_path / "reports").read_text(encoding="utf-8")
-    for kind in ("NEW_CAPABILITY_FAMILY", "BRANCH_UX", "PRECISION_INPUT",
-                 "CORRECTION", "CROSS_SOURCE_RECIPE"):
+    for kind in ("BRANCH_UX", "PRECISION_INPUT", "CORRECTION", "CROSS_SOURCE_RECIPE"):
         assert kind in text, kind
-    assert "create a discount code" in text and "put store credit on a customer" in text
-    assert "add, remove or swap a line on an order" not in text, "a family that exists is not a family to build"
+    # Round 9, F-03: the three changes September asked for have been built since, so none is a
+    # family to build (the NEW_CAPABILITY_FAMILY candidate is held by test_c above, for a change
+    # still unbuilt).
+    for built in ("create a discount code", "put store credit on a customer", "add, remove or swap a line on an order"):
+        assert built not in text, "a family that exists is not a family to build"
 
     states = {"order_edit": {"key": "order_edit", "label": "Order item editing", "state": "MISSING_SCOPE",
                              "detail": "not granted", "scope": "write_order_edits"}}

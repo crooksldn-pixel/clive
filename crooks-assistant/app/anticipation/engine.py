@@ -60,6 +60,7 @@ from app.anticipation.models import (
     Signal,
 )
 from app.reads import budget
+from app.tools.context import acting_branch
 
 log = logging.getLogger("crooks.anticipation")
 
@@ -438,12 +439,14 @@ class Anticipator:
         something" is the sentence a caller has, and because a caller that has a session and
         not a scope should not have to build one.
 
-        `acting_branch` is which half this turn is addressed to, set once per turn beside the
-        turn id; empty means one workspace, and then the whole conversation stands down.
+        The half is the one this request is for — `acting_branch(session)`: the running call's
+        own half (CURRENT_BRANCH), else the one the request said it was speaking to, never simply
+        whichever half spoke last (round 10: the session's `acting_branch` is one field for both
+        halves). Empty means one workspace, and then the whole conversation stands down.
         """
         return self.stand_down(budget.Standdown(
             scope=scope_of(session), lane=budget.SPECULATION,
-            branch_id=str(getattr(session, "acting_branch", "") or ""),
+            branch_id=acting_branch(session),
         ))
 
     def stand_down(self, ask: Any) -> int:

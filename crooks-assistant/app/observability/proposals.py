@@ -236,9 +236,10 @@ def build(path: Path, *, registered: list[str] | None = None,
 def write_proposals(path: Path, out_dir: Path, *, registered: list[str] | None = None,
                     capability_states: dict[str, Any] | None = None) -> Path:
     rec, _cands, markdown = build(Path(path), registered=registered, capability_states=capability_states)
-    from app.observability.session import write_private_text
+    from app.observability.session import report_target, write_private_text
 
-    target = Path(out_dir) / f"{rec.session.get('test_session_id') or Path(path).stem}-proposals.md"
+    # As write_report (round 9, F-01): only a session id in its own shape names the file.
+    target = report_target(Path(out_dir), rec.session.get("test_session_id"), Path(path).stem, "-proposals.md")
     return write_private_text(target, markdown)
 
 

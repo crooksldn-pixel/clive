@@ -196,7 +196,11 @@ What every deploy must hold:
   - this server's tailnet address is in the kernel's own tables (`/proc/net/fib_trie`, and
     `/proc/net/if_inet6` for IPv6), each read whole or not believed at all. A missing
     `if_inet6` counts as "no IPv6" only when `net.ipv6.conf.all.disable_ipv6` reads `1`;
-    otherwise every forwarded request is refused.
+    otherwise every forwarded request is refused. Since round 9 a reading is believed only when
+    two taken one after the other agree (up to four, with a wait of at most 70 ms in all, and
+    only when one went wrong); the IPv6 table must list `::1` unless IPv6 is switched off; and
+    a reading without this server's own tailnet address of the forwarded family refuses every
+    request of that family. The journal's refusal says which of these failed.
 - **Reports must be private, or it will not start.** At start-up every report is set to 0600
   and every folder to 0700. Anything that cannot be fixed is moved into `reports/.withheld/`;
   nothing is deleted to get it private. What is in `.withheld/` ages out like any report, by its
@@ -215,8 +219,10 @@ What every deploy must hold:
   overall status, the build, the uptime and two verdicts (`proxy_identity` with its detail,
   `housekeeping` without), marked `"limited": true`. The server's own status readers
   (`make health`, `crooks-status`, `make install`) read the whole document on loopback with the
-  server's local key; run as a user who cannot read that key, they say the detail is the
-  owner's and exit 1.
+  server's local key, sent only on a connection the kernel says `crooks-assistant.service` itself
+  took, and never on a redirect (round 9: whatever held the port during a restart was otherwise
+  sent the key). Run as a user who cannot read that key, or with the port held by anything else,
+  they say the detail is the owner's and exit 1; so does `make status`.
 
 ## The capability-gap record, cleaned at start-up
 
@@ -237,6 +243,12 @@ systemctl start crooks-assistant
 ```
 
 A newer build started afterwards cleans it again, keeping a fresh copy first.
+
+Before a deploy, `python scripts/gap_clean_check.py` (as root, on the server) runs the new build's
+start-up on a private copy of the live record and says, row by row — by number and cleaned key,
+never a label — what it would keep, merge or change, how many copies it keeps, and whether the
+rollback code reads the result. The live record is only read. Start-up forgets no gap, and writes
+nothing to a record that is already clean (round 9).
 
 If the journal says `gap record cleaned at startup: the clean record has replaced the original,
 but is not confirmed on disk`, the folder could not be flushed after the replace: `gaps.json`

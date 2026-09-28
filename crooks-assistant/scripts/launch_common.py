@@ -243,10 +243,21 @@ def _loopback(url: str) -> bool:
     return parts.scheme == "http" and host in ("127.0.0.1", "::1")
 
 
+# Tests: `check(sock) -> (ok, why)` in place of asking the kernel who took the connection.
+_listener_check = None
+
+
+def bind_listener_check(check) -> None:
+    global _listener_check
+    _listener_check = check
+
+
 def _server_key(url: str) -> dict[str, str]:
     """The server's own key (app/local_cli.py), for a request to it on loopback, when this user
-    can read it; nothing otherwise, and never for any other address."""
-    if not _loopback(url):
+    can read it and the connection it goes on can be shown to be the service's; nothing otherwise,
+    and never for any other address. Only a Linux server can show that (from /proc), so elsewhere
+    the key is not even read: a Mac that speaks for the owner answers its own readers in full."""
+    if not _loopback(url) or (_listener_check is None and not is_linux()):
         return {}
     try:
         from app import local_cli
@@ -256,10 +267,31 @@ def _server_key(url: str) -> dict[str, str]:
         return {}
 
 
+def _taken_by_the_service(sock) -> tuple[bool, str]:
+    """Whether the far end of this open connection is held by the service itself (ok, why): the
+    kernel's answer (app/identity.py far_end_held_by), never the port's."""
+    if _listener_check is not None:
+        return _listener_check(sock)
+    try:
+        from app import identity
+
+        return identity.far_end_held_by(tuple(sock.getsockname()[:2]), tuple(sock.getpeername()[:2]), SERVICE_UNIT)
+    except Exception as exc:  # noqa: BLE001 — cannot say is no
+        return False, f"who took the connection could not be read: {type(exc).__name__}"
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is not followed (round 9, A1B-KEY): /health answers where it is asked, and an
+    answer that points somewhere else is not the service's."""
+
+    def redirect_request(self, *args, **kwargs):  # noqa: ARG002
+        return None
+
+
 def _open(request: urllib.request.Request, timeout_s: float):
-    """Straight to the address, never through an HTTP proxy the environment names: a request that
-    carries the server's key must not hand it to anything in between."""
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    """Straight to the address, never through an HTTP proxy the environment names and never on to
+    wherever a redirect points."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
     return opener.open(request, timeout=timeout_s)  # noqa: S310 — loopback
 
 
@@ -271,20 +303,60 @@ def _read(url: str, headers: dict[str, str], timeout_s: float) -> dict | None:
         return None
 
 
+def _read_keyed(url: str, key: dict[str, str], timeout_s: float) -> dict | None:
+    """/health with the server's key, sent on one connection and only once the kernel has said
+    the service itself took that connection (round 9, A1B-KEY). The connection is opened here and
+    the request goes down that same connection — never a second one that another process could
+    have taken in between. No proxy, no redirect (http.client follows none), and anything but a
+    200 with a JSON body is None. None too when the far end is not shown to be the service: the
+    key has then not been sent."""
+    import http.client
+    import socket
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    host, port = parts.hostname or "", parts.port or 80
+    target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout_s)
+    except OSError:
+        return None
+    connection = http.client.HTTPConnection(host, port, timeout=timeout_s)
+    connection.sock = sock
+    try:
+        ok, _why = _taken_by_the_service(sock)
+        if not ok:
+            return None
+        connection.request("GET", target, headers={**key, "Connection": "close"})
+        response = connection.getresponse()
+        if response.status != 200:
+            return None
+        data = json.loads(response.read().decode("utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, http.client.HTTPException, ValueError):
+        return None
+    finally:
+        connection.close()
+
+
 def fetch_health(url: str, timeout_s: float = 8.0) -> dict | None:
-    """/health, or None when nothing answers. Asked plainly first. If the answer is liveness
-    alone — this reader is not the owner (round 8, F-NEW-PAD) — and it is on loopback and this
-    user can read the server's own key (app/local_cli.py), it is asked once more with the key, so
-    the host's own readers keep the whole document; the key goes nowhere else and only when it is
-    needed. Without the key, or if the server will not take it (a build from before it opened
-    /health to it), the limited answer is what comes back, and the readers say so rather than
-    read an absent check as a working one."""
-    plain = _read(url, {}, timeout_s)
-    if not health_limited(plain):
-        return plain
-    keyed = _server_key(url)
-    whole = _read(url, keyed, timeout_s) if keyed else None
-    return whole if whole is not None and not health_limited(whole) else plain
+    """/health, or None when nothing answers.
+
+    Where this user can read the server's own key (app/local_cli.py) and the address is its
+    loopback, it is asked once, with the key, on a connection the kernel says the service itself
+    took — so the host's own readers get the whole document. The key is decided on before anything
+    is asked, never because a plain answer came back limited (round 9, A1B-KEY: whatever holds the
+    port while the service restarts can answer `limited` to be sent the key). When the service
+    cannot be shown to hold the connection, or will not take the key (a build from before it
+    opened /health to it), the question is asked plainly instead and the key is not sent. Without
+    the key the answer to a reader the owner rule refuses is liveness alone (`limited`), and the
+    readers say so rather than read an absent check as a working one."""
+    key = _server_key(url)
+    if key:
+        whole = _read_keyed(url, key, timeout_s)
+        if whole is not None:
+            return whole
+    return _read(url, {}, timeout_s)
 
 
 def health_limited(data: dict | None) -> bool:

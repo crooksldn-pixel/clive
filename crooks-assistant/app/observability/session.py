@@ -14,7 +14,7 @@ import os
 import re
 import stat
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 _log = logging.getLogger("crooks.observe")
@@ -90,6 +90,37 @@ def new_session_id(name: str, now: float) -> str:
     return f"ts-{stamp}-{slug}"
 
 
+# The shape new_session_id() gives a session (and the recorder's "rec-" twin of it): the kind,
+# the day, the time, and the slug of its name — absent from sessions recorded before names were
+# slugged in. Nothing else is a session id (round 9, F-01).
+SESSION_ID = re.compile(r"(?:ts|rec)-[0-9]{8}-[0-9]{6}(?:-[a-z0-9][a-z0-9-]{0,23})?")
+
+
+def safe_session_id(value: object) -> str | None:
+    """`value` when it is a session id in the shape new_session_id() makes, else None. A session
+    id names files — its timeline, its report, its proposals — so anything that is not one is
+    never used as a name (round 9, F-01: `../web/exposed` in an event would have written a report
+    outside reports/)."""
+    text = value if isinstance(value, str) else ""
+    return text if SESSION_ID.fullmatch(text) else None
+
+
+def report_target(out_dir: Path, session_id: object, fallback: object, suffix: str) -> Path:
+    """Where a report drawn from a session goes: `<out_dir>/<session id><suffix>`, the id checked
+    for its shape (the one the timeline's own events carry, or else the timeline file's own name),
+    and the result checked to be directly inside `out_dir` once every link on the way is resolved.
+    Raises ValueError for anything else: a report is never written anywhere but its folder."""
+    carried = str(session_id or "")
+    ident = safe_session_id(carried) if carried else safe_session_id(fallback)
+    if ident is None:
+        raise ValueError("not a test session id: a report is written only under a session's own name")
+    folder = Path(out_dir)
+    target = folder / f"{ident}{suffix}"
+    if target.name != f"{ident}{suffix}" or Path(os.path.realpath(target)).parent != Path(os.path.realpath(folder)):
+        raise ValueError("a report's path must stay inside its folder")
+    return target
+
+
 def _day(ts: float) -> str:
     return time.strftime("%Y%m%d", time.localtime(ts))
 
@@ -112,8 +143,9 @@ def _remove_if_older(path: Path, cutoff: float) -> int:
     written, so an old `ts-…-screens/` could hold a fresh report and was removed whole. Now every
     descendant is looked at first (by its own time, never following a link), and one that is not
     past the cutoff, or one that cannot be looked at, keeps the whole folder. The removal then
-    goes file by file, each checked again just before it goes, and a folder only by rmdir, which
-    refuses one that is not empty: something written while it runs stops it, and is kept."""
+    goes file by file, each removed only if it is still the very file that was looked at and still
+    old (_unlink_if_aged), and a folder only by rmdir, which refuses one that is not empty:
+    something written while it runs stops it, and is kept."""
     try:
         top = os.lstat(path)
     except OSError:
@@ -121,11 +153,7 @@ def _remove_if_older(path: Path, cutoff: float) -> int:
     if top.st_mtime >= cutoff:
         return 0
     if not stat.S_ISDIR(top.st_mode):
-        try:
-            os.unlink(path)
-            return 1
-        except OSError:
-            return 0
+        return 1 if _unlink_if_aged(Path(path), cutoff, top) else 0
     order = _expired_tree(Path(path), cutoff)
     if order is None:
         return 0
@@ -133,14 +161,60 @@ def _remove_if_older(path: Path, cutoff: float) -> int:
         for entry, is_dir in order:
             if is_dir:
                 os.rmdir(entry)
-            else:
-                if os.lstat(entry).st_mtime >= cutoff:
-                    return 0     # written since it was looked at: it, and what holds it, stay
-                os.unlink(entry)
+            elif not _unlink_if_aged(entry, cutoff):
+                return 0     # written since it was looked at: it, and what holds it, stay
         os.rmdir(path)
     except OSError:
         return 0
     return 1
+
+
+def _unlink_if_aged(path: Path, cutoff: float, seen: os.stat_result | None = None) -> bool:
+    """Remove one file (or link) only if the name still holds the very file that was looked at and
+    it is still past `cutoff` (round 9, F-04-REPORT-LOSS). A check and then an unlink by name
+    raced a writer: write_private_text renames a fresh report into place, and a replace landing
+    between the look and the unlink had the fresh report removed.
+
+    So nothing is unlinked by the name that was looked at. The name is first moved, in one step, to
+    one beside it that nothing else uses; what was moved is then looked at again. The very file
+    looked at (the same device and inode), still old: that is removed. Anything else — a report
+    renamed into place meanwhile, or the old one written to since — is put back under its own name
+    with a hard link, which never replaces anything; if the name has been taken again in the
+    meantime, it is left beside it under the moved-to name, which starts with its own, and ages by
+    its own time like any report. Either way it is never removed."""
+    import uuid
+
+    try:
+        before = seen if seen is not None else os.lstat(path)
+    except OSError:
+        return False
+    if stat.S_ISDIR(before.st_mode) or before.st_mtime >= cutoff:
+        return False
+    moved = path.with_name(f"{path.name}.pruning-{uuid.uuid4().hex[:12]}")
+    try:
+        os.rename(path, moved)
+    except OSError:
+        return False
+    try:
+        now = os.lstat(moved)
+    except OSError:
+        return False
+    if (now.st_dev, now.st_ino) == (before.st_dev, before.st_ino) and now.st_mtime < cutoff:
+        try:
+            os.unlink(moved)
+            return True
+        except OSError:
+            return False
+    try:
+        os.link(moved, path, follow_symlinks=False)
+    except (OSError, NotImplementedError):
+        _log.warning("a report written while it was being aged out is kept beside its name: %s", moved.name)
+        return False
+    try:
+        os.unlink(moved)
+    except OSError:
+        pass
+    return False
 
 
 def _expired_tree(top: Path, cutoff: float) -> list[tuple[Path, bool]] | None:
@@ -197,10 +271,18 @@ WITHHELD = ".withheld"
 
 @dataclass
 class Exposure:
-    """What tighten() found: what is still open to anyone else, and what it could not look at."""
+    """What tighten() found: what is still open to anyone else, what it could not look at, and
+    the links, whose privacy cannot be established from where they are (round 9)."""
 
     exposed: list[Path]
     unread: list[str]
+    linked: list[Path] = field(default_factory=list)
+
+
+def _open_to_others(info: os.stat_result) -> bool:
+    """Readable or writable by anyone but this process's own user: by its mode, or because it is
+    someone else's (round 9, F-04-STARTUP: a 0700 folder another user owns is theirs to open)."""
+    return bool(info.st_mode & 0o077) or info.st_uid != os.geteuid()
 
 
 def tighten(folder: Path) -> Exposure:
@@ -209,16 +291,28 @@ def tighten(folder: Path) -> Exposure:
     afterwards (the folder itself first, if it is one), each checked by the kernel's own answer
     rather than assumed from a chmod that did not complain (the 2026-09-27 deploy review, F-04);
     and what could not be looked at, so that "nothing is exposed" and "could not look" are never
-    the same answer (round 7)."""
+    the same answer (round 7).
+
+    Open to others means by mode or by owner (round 9, F-04-STARTUP): a file or folder another
+    user owns is open to that user whatever its mode, since they can change it. The folder itself
+    must be a real folder, not a link to one. A link anywhere inside is neither chmod'ed nor
+    followed, and is said apart (`linked`): what it points at may be readable by another path,
+    and a link's own mode says nothing of that, so its privacy cannot be established here."""
     folder = Path(folder)
     exposed: list[Path] = []
     unread: list[str] = []
+    linked: list[Path] = []
+    try:
+        if stat.S_ISLNK(os.lstat(folder).st_mode):
+            return Exposure(exposed, unread, [folder])
+    except OSError as exc:
+        return Exposure(exposed, [str(getattr(exc, "filename", folder) or folder)])
     try:
         folder.chmod(0o700)
     except OSError:
         pass
     try:
-        if folder.stat().st_mode & 0o077:
+        if _open_to_others(os.lstat(folder)):
             exposed.append(folder)
     except OSError as exc:
         return Exposure(exposed, [str(getattr(exc, "filename", folder) or folder)])
@@ -226,19 +320,20 @@ def tighten(folder: Path) -> Exposure:
         for name in [*dirs, *files]:
             path = Path(here) / name
             if path.is_symlink():
+                linked.append(path)
                 continue
             try:
                 path.chmod(0o700 if path.is_dir() else 0o600)
             except OSError:
                 pass
             try:
-                if path.stat().st_mode & 0o077:
+                if _open_to_others(os.lstat(path)):
                     exposed.append(path)
             except FileNotFoundError:
                 continue   # gone meanwhile: nothing left to expose
             except OSError:
                 unread.append(str(path))
-    return Exposure(exposed, unread)
+    return Exposure(exposed, unread, linked)
 
 
 def _private(folder: Path) -> bool:
@@ -572,6 +667,12 @@ class TestSessions:
         if found.unread:
             problems.append(f"{len(found.unread)} report path(s) could not be checked")
             _log.error("reports that could not be checked: %s", ", ".join(found.unread))
+        # A link is not moved (withheld, what it points at would still be where it was) and not
+        # removed (it is not ours to judge): it is said, and it keeps the reports from being
+        # called private until the owner takes it out (round 9, F-04-STARTUP).
+        if found.linked:
+            problems.append(f"{len(found.linked)} report path(s) are links, whose privacy cannot be established")
+            _log.error("links among the reports: %s", ", ".join(str(p) for p in found.linked))
         # Said in counts, never names: this line reaches /health. Not contained means the start-up
         # refuses to go on (app/main.py).
         self.tidy_problem = "; ".join(problems)
