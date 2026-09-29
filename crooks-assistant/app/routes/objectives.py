@@ -10,7 +10,7 @@ published status and compare built candidates with the trunk (each at most once 
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -54,8 +54,14 @@ def _full(obj) -> dict:
 
 
 @router.get("")
-async def list_objectives() -> dict:
+async def list_objectives(request: Request, session_id: str = "") -> dict:
+    """The owner's live objectives. Asked with the conversation the owner's page is in, each one
+    listed is shown to that conversation, so he can hold it and put it on a screen (round 12,
+    app/displays/put.py)."""
+    from app.displays.put import issue_listed
+
     live = store().live()
+    issue_listed(request, session_id, [o.id for o in live])
     return {"objectives": [o.summary() for o in live],
             "needs_you": sum(len(o.open_("attention")) for o in live)}
 

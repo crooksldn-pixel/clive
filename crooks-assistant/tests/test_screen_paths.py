@@ -157,6 +157,8 @@ def _every_screen_route(sid: str) -> list[tuple[str, str, dict | None]]:
         "/displays/{screen_id}/remote/video": {"pane": 0, "version": 1, "action": "pause"},
         "/displays/{screen_id}/remote/again": {"pane": 0, "version": 1},
         "/displays/{screen_id}/remote/off": {"screen_version": 1},
+        # Round 12: the owner's hand, an order held and dropped on the screen (web/lift.js).
+        "/displays/{screen_id}/show": {"session_id": "s1", "kind": "order", "ref": "gid://shopify/Order/1938"},
     }
     out = []
     for route in displays_route.router.routes:

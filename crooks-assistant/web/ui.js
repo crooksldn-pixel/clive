@@ -150,6 +150,13 @@
     return dl.childNodes && dl.childNodes.length === 0 && !opts ? null : dl;
   }
 
+  // A card that can be held and put on a screen (web/lift.js) can be reached from the keyboard too:
+  // focused, the context-menu key or Shift+F10 opens the same Displays tray a held finger does.
+  function holdable(node) {
+    if (node && text(node.dataset.ref)) node.setAttribute('tabindex', '0');
+    return node;
+  }
+
   function card(kind, children, opts) {
     opts = opts || {};
     const el = h('article', { class: `card card-${kind}${opts.className ? ' ' + opts.className : ''}`, data: { type: kind } }, children);
@@ -872,6 +879,7 @@
     if (!d.detail) {
       const brief = card('order', [head, orderTimeline(d), overview, h('p', { class: 'card-note', text: 'Ask for the order to see its items and shipping.' })], opts);
       brief.dataset.ref = text(d.order_id);
+      holdable(brief);
       return brief;
     }
     const pending = Array.isArray(d.pending) ? d.pending.map((x) => text(x)) : [];
@@ -916,6 +924,7 @@
       tabs(panels, { initial: tabFor('order', d, opts), onChange: tabReporter('order', d, opts) }),
     ], opts);
     full.dataset.ref = text(d.order_id);
+    holdable(full);
     full.dataset.pending = pending.join(' ');
     // Kept on the node because /context/order redraws this region later and its payload is
     // about the ORDER's regions, not about who it belongs to (app/presentation.py
@@ -3086,6 +3095,7 @@
     ]), settings);
     node.dataset.ref = text(d.ref);
     node.dataset.workspace = 'order';
+    holdable(node);
     return node;
   }
 

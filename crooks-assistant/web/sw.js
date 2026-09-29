@@ -56,6 +56,9 @@ const SHELL = [
   // Round 12: an objective in the shape of its kind (web/objective-cards.js).
   '/static/objective-cards.js',
   '/static/objective-cards.css',
+  // Round 12: holding a record to put it on a screen. Code and styles only, like the remote.
+  '/static/lift.js',
+  '/static/lift.css',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',

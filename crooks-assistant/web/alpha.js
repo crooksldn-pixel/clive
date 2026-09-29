@@ -155,7 +155,10 @@
   async function refresh() {
     let needsYou = 0;
     try {
-      const data = await api('/objectives');
+      // With this page's conversation, so each objective listed is one it has been shown: held, it
+      // can be put on a screen (web/lift.js, app/displays/put.py).
+      const conversation = window.CliveAlpha && window.CliveAlpha.sessionId ? window.CliveAlpha.sessionId() : '';
+      const data = await api(conversation ? `/objectives?session_id=${encodeURIComponent(conversation)}` : '/objectives');
       objectives = data.objectives || [];
       needsYou = data.needs_you || 0;
       renderHome(needsYou);
@@ -245,7 +248,8 @@
         : h('span', { class: `alpha-state is-${o.attention}` }, o.attention === 'done' ? icon(ICON.tick, 15) : null);
       const main = rowMain(o.title, sub, when);
       if (shaped && shaped.track) main.append(shaped.track);
-      return h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'objective', 'data-attention': o.attention, 'data-kind': o.kind, onclick: () => openObjective(o.id) },
+      // `data-objective`: which objective the row is, for holding it and putting it on a screen (web/lift.js).
+      return h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'objective', 'data-attention': o.attention, 'data-kind': o.kind, 'data-objective': o.id, onclick: () => openObjective(o.id) },
         lead, main, icon(ICON.chev, 16));
     };
 

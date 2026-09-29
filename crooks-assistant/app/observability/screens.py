@@ -112,6 +112,9 @@ DATA_NAMES = frozenset({
     # Round 9, the screens remote: a pane's place, an item's place, and the screen a card opens
     # the remote for (its id, and its name, which is free text).
     "data-pane", "data-tick", "data-remote-screen", "data-remote-name",
+    # Round 12, holding a record to put it on a screen (web/lift.js): which objective a row on the
+    # home is, and which screen a tile in the Displays tray is. Ids, never words.
+    "data-objective", "data-screen",
 })
 # data- names whose values are free text by what they are for: kept, but empty. `data-words` is
 # the ask bar's account of the live words it shows (round 9, F-02): whatever the page puts there,

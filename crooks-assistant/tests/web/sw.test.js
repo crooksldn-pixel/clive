@@ -130,6 +130,8 @@ const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/st
   '/static/remote.js', '/static/remote.css',
   // Round 12: an objective in the shape of its kind (web/objective-cards.js).
   '/static/objective-cards.js', '/static/objective-cards.css',
+  // Round 12: holding a record to put it on a screen (web/lift.js).
+  '/static/lift.js', '/static/lift.css',
   '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/icon-maskable-192.png', '/static/icon-maskable-512.png'];
 
 async function installed() {
