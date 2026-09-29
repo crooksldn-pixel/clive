@@ -883,7 +883,7 @@ def already_made(workspace: dict[str, Any] | None) -> str:
 
 
 def _put_away(workspace: dict[str, Any]) -> str:
-    """What the model is told when it reaches for an order he has put away."""
+    """What the model is told when it reaches for an order he put away himself."""
     chosen = _chosen_customer(workspace) or {}
     who = f" for {chosen['name']}" if chosen.get("name") else ""
     return (f"Nothing is being built on the owner's screen: the order{who} was put away, and it changes only "
@@ -897,8 +897,8 @@ def where_line(branch: Any) -> str:
     card on the screen rather than starting another. Once the card has made its order it says
     THAT, so "now add a cap to it" is not taken for a change to an order still being built."""
     workspace = ws.held(branch, KIND)
-    if workspace is None or not ws.on_glass(branch, workspace):
-        # Nothing, or one he has put away: not the thing being built, and not offered as it.
+    if workspace is None or ws.is_put_away(workspace):
+        # Nothing, or one he put away himself: not the thing being built, and not offered as it.
         return ""
     chosen = _chosen_customer(workspace)
     who = chosen["name"] if chosen else (ws.value(workspace, "customer") or "nobody yet")
@@ -907,9 +907,14 @@ def where_line(branch: Any) -> str:
         what = (f"is CREATED as order {made.get('order_number') or '(number not read)'}"
                 + (f" (order_id {made['order_id']})" if made.get("order_id") else "")
                 if made.get("state") == "created" else "was sent to Shopify, not confirmed")
-        return (f"the new order on screen ({workspace['workspace_id']}) for {who} {what} — it cannot be changed; "
-                f"anything more is a new order ({OPEN_TOOL})")
+        return (f"the new order{' on screen' if ws.on_glass(branch, workspace) else ''} ({workspace['workspace_id']}) "
+                f"for {who} {what} — it cannot be changed; anything more is a new order ({OPEN_TOOL})")
     count = len(_lines(workspace))
+    if not ws.on_glass(branch, workspace):
+        # Another card took its place (a stock question, an order looked up): still the order
+        # being built, and a change to it puts it back on his screen (round 12's fourth check).
+        return (f"building a new order ({workspace['workspace_id']}) for {who}, {count} line{'s' if count != 1 else ''}, "
+                f"not created — not on his screen at the moment; changing it with {BUILD_TOOL} puts it back")
     return (f"building a new order ({workspace['workspace_id']}) for {who}, {count} line{'s' if count != 1 else ''}, "
             f"not created — change it with {BUILD_TOOL}")
 
@@ -1396,7 +1401,7 @@ async def shopify_order_build(workspace_id: str = "", add: list | None = None, l
     workspace = ws.held(branch, KIND, str(workspace_id or ""))
     if workspace is None:
         raise ToolError("There is no order being built on this half. Open one with shopify_order_open.")
-    if not ws.on_glass(branch, workspace):
+    if ws.is_put_away(workspace):
         raise ToolError(_put_away(workspace))
     made = already_made(workspace)
     if made:
@@ -1988,7 +1993,7 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
     workspace = ws.held(branch, KIND, str(workspace_id))
     if workspace is None:
         raise ToolError("There is no order open on this half to create.")
-    if not ws.on_glass(branch, workspace):
+    if ws.is_put_away(workspace):
         raise ToolError(_put_away(workspace))
     made = already_made(workspace)
     if made:

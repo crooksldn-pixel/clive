@@ -161,15 +161,26 @@ def discard(branch: Any) -> None:
     branch.workspace = None
 
 
+def put_away(branch: Any) -> None:
+    """He has put this half's workspace away himself — "close that" (`close_screen`), his own
+    Back off it, Home — and it was the card on his screen. It is still held, so "pull that back
+    up" brings it back with everything on it (`drawn`); until then it is not the thing being
+    built, and a sentence is not quietly applied to a card he chose to close (round 12's third
+    check). Another card taking its place on the glass is NOT this: a stock question in the
+    middle of an order leaves the order being built (the fourth)."""
+    workspace = held(branch)
+    if workspace is not None and on_glass(branch, workspace):
+        workspace["facts"]["_put_away"] = True
+
+
+def is_put_away(workspace: dict[str, Any] | None) -> bool:
+    return bool(((workspace or {}).get("facts") or {}).get("_put_away"))
+
+
 def on_glass(branch: Any, workspace: dict[str, Any] | None) -> bool:
     """Whether this workspace is the card on this half's screen — what the Mac last drew there
-    (`Branch.last_ui`), or opened, changed or brought back since it last drew anything.
-
-    A workspace he has put away — "close that" (`close_screen`, `Branch.cleared`), his own Back,
-    another screen in its place — is still held, so "pull that back up" brings it back with
-    everything on it; but it is not the thing being built, and a sentence is not quietly applied
-    to a card he cannot see (round 12's third check). There is no flag for this: it is the same
-    record of his screen that the turn reports as `screen`."""
+    (`Branch.last_ui`), or opened, changed or brought back since it last drew anything. Read off
+    the same record of his screen that the turn reports as `screen`."""
     if not isinstance(workspace, dict):
         return False
     if float(workspace.get("at") or 0) >= float(getattr(branch, "last_at", 0.0) or 0.0):
@@ -196,6 +207,7 @@ def drawn(branch: Any, workspace_id: str = "") -> dict[str, Any] | None:
     if workspace is None or module is None:
         return None
     workspace["at"] = _now()
+    workspace.get("facts", {}).pop("_put_away", None)
     import importlib
 
     try:

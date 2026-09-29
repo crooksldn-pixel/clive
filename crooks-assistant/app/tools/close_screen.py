@@ -57,5 +57,10 @@ async def close_screen() -> dict[str, Any]:
         raise ToolError("There is no conversation to close anything in.")
     branch = session.branch(acting_branch(session))
     was = [_label(card) for card in screen.showing(branch) if screen.is_subject(card)]
+    # Something being built that was on the screen is put away with it: still held, so "pull
+    # that back up" brings it back, and not the thing a next sentence changes (round 12, orders).
+    from app.families import _workspace as workspaces
+
+    workspaces.put_away(branch)
     branch.cleared(branch.last_answer, branch.last_question)
     return {"closed": True, "was": was[:4] or "nothing was up"}

@@ -41,7 +41,7 @@ from app.main import app
 from app.session.manager import SessionManager
 from app.tools import shopify_tools
 from tests.test_context import inbox
-from tests.test_r12_orders import PROXIED, THEO, Counter, Scripted, card, open_theo, say, tap
+from tests.test_r12_orders import PROXIED, THEO, Counter, Scripted, card, open_theo, say, tap, vid
 
 SCOPES = ("read_orders", "write_orders", "read_customers", "read_products", "read_draft_orders", "write_draft_orders",
           "read_store_credit_accounts", "write_store_credit_account_transactions", "read_discounts", "write_discounts")
@@ -77,6 +77,30 @@ class Shop(Counter):
         if "CrooksDiscountByCode" in query:
             found = self.codes.get(str(variables.get("code") or "").upper())
             return {"data": {"codeDiscountNodeByCode": copy.deepcopy(found)}}
+        if "query Inventory" in query:
+            from tests.test_r12_orders import CATALOGUE
+
+            term = str(variables.get("q") or "").strip().strip('"').lower()
+            chosen = [p for p in CATALOGUE if any(w in p["title"].lower() for w in term.split())]
+            return {"data": {"products": {"pageInfo": {"hasNextPage": False}, "edges": [{"node": {
+                "id": p["id"], "title": p["title"], "status": p["status"], "totalInventory": sum(v["stock"] for v in p["variants"]),
+                "variants": {"edges": [{"node": {"id": v["id"], "title": v["title"], "sku": v["sku"], "inventoryQuantity": v["stock"],
+                                                  "inventoryPolicy": "DENY", "inventoryItem": {"tracked": True}}}
+                                       for v in p["variants"]]}}} for p in chosen]}}}
+        if "CrooksOrderContext" in query:
+            # An order read in full, for a record Back lands on (the parts the card is drawn from).
+            from tests.test_r12_orders import ORDERS, order_node
+
+            number = int(str(variables.get("id") or "0").rsplit("/", 1)[-1])
+            if not any(o[0] == number for o in ORDERS):
+                return {"data": {"order": None}}
+            node = order_node(number)
+            node.update({"fulfillments": [], "refunds": [], "events": {"edges": []}, "tags": [], "note": ""})
+            for index, edge in enumerate(node["lineItems"]["edges"]):
+                edge["node"].update({"id": f"gid://shopify/LineItem/{number}{index}", "currentQuantity": edge["node"]["quantity"]})
+            return {"data": {"order": node}}
+        if "CrooksCustomerOrders" in query:
+            return {"data": {"customer": None}}
         if "CrooksOrderNote" in query:
             wanted = str(variables.get("id") or "")
             known = wanted == "gid://shopify/Order/3001" and any(d.get("order") for d in self.drafts.values())
@@ -489,3 +513,51 @@ async def test_6_brought_back_it_is_the_order_being_built_again_with_its_lines(s
     both = await say(shop, "bring that order back and take the print off",
                      ("show_again", {"kind": "building"}), ("shopify_order_build", {"lines": [{"line": 2, "quantity": 0}]}))
     assert [r["title"] for r in _workspace(both["ui"], ident)["rows"]] == ["Convict Hoodie", "Crooks Cap"]
+
+
+
+# ============================================================ the fourth check: only his own close puts it away
+#
+# 7. Another card taking the order's place is not him closing it. "Have we got the black hoodie in
+#    large?" in the middle of an order draws a stock card over it; "add it to the order" goes onto
+#    the same order, and the order is back on the glass with it. Only "close that", his Back or
+#    Home puts it away — recorded on the Mac as it happens, not guessed from the glass.
+
+
+async def test_7_a_stock_question_in_the_middle_leaves_the_order_being_built(shop):
+    ident = card(await open_theo(shop))["workspace_id"]
+    stock = await say(shop, "have we got the black hoodie in large?",
+                      ("shopify_inventory", {"product": "black hoodie", "size": "L"}))
+    assert [i["type"] for i in stock["ui"] if i["type"] != "context_stack"][0] == "inventory", "the stock card is up"
+    added = await say(shop, "add it to the order", ("shopify_order_build", {"add": [{"variant_id": vid(9113)}]}))
+    assert f"building a new order ({ident}) for Theo Marsh, 1 line, not created — not on his screen at the moment" \
+        in shop.model.prompts[-1]
+    built = next(c for c in reversed(shop.model.calls) if c.name == "shopify_order_build")
+    assert built.ok, built.error
+    back = card(added)
+    assert back["workspace_id"] == ident, "the same order, not a new one"
+    assert [r["detail"].split(" · ")[0] for r in back["rows"]] == ["Black / M", "Black / L"]
+    branch = shop.runtime.sessions.get("g1").branch()
+    assert any(i["type"] == "workspace" and i["data"]["workspace_id"] == ident for i in branch.last_ui), \
+        "the order is on the glass after"
+    await say(shop, "and a cap", ("shopify_order_build", {"add": [{"item": "cap"}]}))
+    assert f"building a new order ({ident}) for Theo Marsh, 2 lines, not created — change it with" in shop.model.prompts[-1]
+
+
+async def test_7_back_off_the_order_on_the_tablet_puts_it_away(shop):
+    found = await say(shop, "who had the black hoodie sent to SL6 2AB",
+                      ("shopify_find_order", {"item": "black hoodie", "address": "SL6 2AB"}))
+    assert [i["data"]["order_number"] for i in found["ui"] if i["type"] == "order"] == ["#2101"]
+    await say(shop, "and the jeans that went to SL1 1AA", ("shopify_find_order", {"item": "jeans", "address": "SL1 1AA"}))
+    ident = card(await open_theo(shop))["workspace_id"]
+    went = await tap(shop, "navigation.back")
+    assert went["ok"] and str(went["answer"]).startswith("Back"), went.get("answer")
+    assert not [i for i in went["ui"] if i["type"] == "workspace"], "Back took the order off the glass"
+    await say(shop, "add a cap", ("shopify_order_build", {"add": [{"item": "cap"}]}))
+    assert f"({ident})" not in shop.model.prompts[-1]
+    refused = next(c for c in reversed(shop.model.calls) if c.name == "shopify_order_build")
+    assert not refused.ok and "the order for Theo Marsh was put away" in refused.error
+    back = await say(shop, "pull that back up", ("show_again", {"kind": "building"}))
+    assert _workspace(back["ui"], ident)["rows"][0]["title"] == "Convict Hoodie"
+    added = await say(shop, "add a cap", ("shopify_order_build", {"add": [{"item": "cap"}]}))
+    assert [r["title"] for r in card(added)["rows"]] == ["Convict Hoodie", "Crooks Cap"]
