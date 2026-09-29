@@ -238,3 +238,17 @@ async def test_a_draft_of_ours_waiting_in_the_thread_is_not_who_the_reply_is_to(
     assert staged["ok"], staged
     (proposal,) = pending(shop)
     assert proposal.execution["to"] == SENDER
+
+
+async def test_a_card_that_guessed_the_reply_to_still_needs_the_owner_to_see_both(shop, mail):
+    """Claude gave the Reply-To itself, on a thread the Mac has not read: the card shows that
+    address and not the sender, so it has not shown him both. Refused, and told how to get a
+    card that does."""
+    shop.runtime.sessions.get_or_create("g1").issue(THREAD)
+    composer = composer_of(await say(shop, "reply that it went out today",
+                                     ("gmail_compose_open", {"to": ELSEWHERE, "subject": "Re: About my parcel",
+                                                             "body": "It went out today.", "thread_id": THREAD})))
+    assert composer["to"]["value"] == ELSEWHERE and "confirm_to" not in [a["id"] for a in composer["actions"]]
+    staged = await tap(shop, "compose.stage", compose_id=composer["compose_id"], mode="send")
+    assert staged["ok"] is False and "open the reply from it" in staged["detail"], staged
+    assert pending(shop) == [] and not mail.sent

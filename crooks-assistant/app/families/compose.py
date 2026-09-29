@@ -470,16 +470,20 @@ def reply_as_shown(thread_id: str, ctx: dict[str, Any]) -> tuple[str, str]:
     for compose in mine:
         shown = str(compose.get("to") or "").strip().lower()
         if shown != to:
+            # Said with the addresses first: a tap's refusal is cut at 200 characters.
             where = " (where its last message asks replies to go)" if to != sender else ""
             return str(compose["compose_id"]), (
                 f"That reply would go to {to or 'nobody'}{where}, not {shown or 'the address'} as the reply on the "
-                "owner's screen shows. Nothing was prepared. Read the thread again and open the reply from it, so "
-                "the card shows who it goes to.")
+                "screen shows. Nothing was prepared: read the thread again and open the reply from it.")
         if to != sender and str(compose.get("confirmed_to") or "") != to:
+            # A card opened from the thread shows both and has the button; one opened before
+            # the thread was read shows neither, and has to be opened again from it. The step
+            # comes first, because a tap's refusal is cut at 200 characters.
+            how = (f"he taps “{CONFIRM_TO_LABEL}” on the reply card first" if _elsewhere(compose) else
+                   "read the thread and open the reply from it, so the card shows both addresses")
             return str(compose["compose_id"]), (
-                f"The last message in that thread was sent by {sender} and asks for replies to go to {to}. The owner "
-                f"has not confirmed that address on the reply card, so nothing was prepared; he taps "
-                f"“{CONFIRM_TO_LABEL}” there first.")
+                f"Not prepared: {how}. The message is from {sender} and asks for replies to go to {to}, which the "
+                "owner has not confirmed.")
     return str(mine[0]["compose_id"]), ""
 
 
