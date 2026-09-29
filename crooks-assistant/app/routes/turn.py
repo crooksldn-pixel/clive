@@ -12,7 +12,8 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from typing import Any
 
@@ -400,6 +401,9 @@ async def _turn(request: Request, runtime, live, branch, *, text: str | None, au
         branch=branch,
         measures=measures,
         turn_id=turn_id,
+        # The control he tapped before saying this, spent on this sentence: what the model staged
+        # under it is held to the record it bound (`_off_target`), not only told about it.
+        binding=continuation,
     )
 
 
@@ -949,14 +953,25 @@ def _orders_known(session, branch, calls) -> set[str]:
     return known
 
 
-def _orders_named(text: str, known: set[str]) -> frozenset[str]:
+def _order_mentions(text: str, known: set[str] | frozenset[str]) -> Counter:
+    """How many times his words name each order number, counted by PLACE in the sentence: said as
+    an order ("#1940", "order 1940", "CROOKS-1940"), or a number that is an order this conversation
+    holds. One count per place, however many of the patterns find it there."""
+    words = str(text or "")
+    places: dict[int, str] = {}
+    for found in _ORDER_SAID.finditer(words):
+        places[found.start(1)] = found.group(1)
+    for found in _NUMBER.finditer(words):
+        if found.group(1) in known:
+            places.setdefault(found.start(1), found.group(1))
+    return Counter(places.values())
+
+
+def _orders_named(text: str, known: set[str] | frozenset[str]) -> frozenset[str]:
     """The order numbers the owner's own words name — said as an order, or a number that is an
     order this conversation holds. Only his words: never the note a tapped control put beside
     them, which names the record the tap bound and not what he said next."""
-    words = str(text or "")
-    said = set(_ORDER_SAID.findall(words))
-    said.update(n for n in _NUMBER.findall(words) if n in known)
-    return frozenset(said)
+    return frozenset(_order_mentions(text, known))
 
 
 def _spoken_orders(numbers) -> str:
@@ -965,7 +980,7 @@ def _spoken_orders(numbers) -> str:
 
 def _numbers_said(text: str, session, proposed: list[str]) -> frozenset[str]:
     """Every number he said that could be an order's — said as one, or a bare number of three
-    to seven digits that is not money — less the numbers inside what this turn's changes write.
+    to seven digits that is not money — less the places inside what this turn's changes write.
 
     Wider than `_orders_named`, deliberately, and for a narrower purpose. That set decides
     where a change GOES, so it counts only what he plainly said as an order. This one decides
@@ -973,15 +988,25 @@ def _numbers_said(text: str, session, proposed: list[str]) -> frozenset[str]:
     is 1940" with #1938 up is about something that is not on the screen, whether or not this
     conversation has met #1940, and #1938's card must not stand under it. Staying off the
     screen when unsure costs a redraw; staying on it wrongly shows the owner one order's card
-    under another's answer."""
+    under another's answer.
+
+    Counted by place, as `_said_outside` counts: "add a note to order 1940: 1940 goes with the
+    gift box" says 1940 once more than the note carries it, so the sentence is about #1940 and a
+    screen showing #1938 does not stay under it."""
     words = str(text or "")
-    said = set(_ORDER_SAID.findall(words)) | set(_NUMBER.findall(words))
+    places: dict[int, str] = {}
+    for pattern in (_ORDER_SAID, _NUMBER):
+        for found in pattern.finditer(words):
+            places.setdefault(found.start(1), found.group(1))
+    said = Counter(places.values())
+    written: Counter = Counter()
     for proposal_id in proposed or []:
         proposal = session.proposal(proposal_id) if session is not None and not str(proposal_id).startswith("batch_") else None
         if proposal is not None:
-            said -= _written_numbers(proposal)
-            said -= {str(v) for v in (getattr(proposal, "model_args", None) or {}).values() if isinstance(v, (int, float))}
-    return frozenset(said)
+            written.update(_written_counts(proposal))
+            written.update(str(v) for v in (getattr(proposal, "model_args", None) or {}).values()
+                           if isinstance(v, (int, float)) and not isinstance(v, bool))
+    return frozenset(number for number, times in said.items() if times > written.get(number, 0))
 
 
 #: A key whose value names a record rather than saying anything: an order's id, a gid.
@@ -989,19 +1014,23 @@ _ID_KEY = re.compile(r"(?:^|_)(?:id|ids|ref|refs|gid)$", re.I)
 _ANY_NUMBER = re.compile(r"(?<!\d)(\d{3,7})(?!\d)")
 
 
-def _written_numbers(proposal) -> set[str]:
-    """The numbers inside what a change WRITES — a note's words, a tag, a message — as against
-    the record it is written on. "Exchange for order 1912, she wants a medium" dictated as a note
-    on #1938 names #1912 as its content, not as where it goes; so does the tag "drop-007". Read
-    from the model's arguments and from what will be sent, never from an id or a gid."""
-    out: set[str] = set()
+def _written_counts(proposal) -> Counter:
+    """How many times each number stands in what a change WRITES — a note's words, a refund's
+    reason, a tag, a message — as against the record it is written on. "Exchange for order 1912,
+    she wants a medium" dictated as a note on #1938 carries 1912 once as its content; so does the
+    tag "drop-007" carry 007.
+
+    Read from the model's arguments, never from an id or a gid, and never from what will be sent:
+    the sending copy can also hold what is already on the record — a note appended is sent with
+    the old note above it — and the old note is not something he said."""
+    counts: Counter = Counter()
 
     def walk(value: Any, key: str, depth: int) -> None:
         if depth > 5:
             return
         if isinstance(value, str):
             if not _ID_KEY.search(key) and not value.startswith("gid://"):
-                out.update(_ANY_NUMBER.findall(value))
+                counts.update(_ANY_NUMBER.findall(value))
         elif isinstance(value, Mapping):
             for k, v in value.items():
                 walk(v, str(k), depth + 1)
@@ -1009,53 +1038,287 @@ def _written_numbers(proposal) -> set[str]:
             for v in value:
                 walk(v, key, depth + 1)
 
-    for source in (getattr(proposal, "model_args", None), getattr(proposal, "execution", None)):
-        if isinstance(source, Mapping):
-            walk(source, "", 0)
-    return out
+    source = getattr(proposal, "model_args", None)
+    if isinstance(source, Mapping):
+        walk(source, "", 0)
+    return counts
 
 
-def _off_target(proposed: list[str], session, named: frozenset[str]) -> list[str]:
-    """The changes this turn staged on an order the owner did not name, when he named one.
+def _said_outside(text: str, known: set[str] | frozenset[str], proposals: Iterable[Any]) -> frozenset[str]:
+    """The order numbers his words name OUTSIDE what these changes write: the numbers he said more
+    times than the changes' own content carries them.
 
-    A change to an order is the owner's only when it is to the order he said. "Add a note to
-    1940" after Add a note was tapped on #1938, or "yes, #1940" over a refund waiting on #1938,
-    must not come back as a card for #1938, however the model read the words. A change whose
-    order cannot be told from its card is not his either. A bulk change is over a set and a
-    change to anything but an order names its own record; neither is judged here.
+    "Add a note to order 1940: 1940 goes with the gift box" says 1940 twice and the note carries
+    it once, so 1940 is still where the note goes. "Exchange for order 1912, she wants a medium",
+    noted as said, carries its only 1912 in the note and says nothing about where it goes. The
+    check used to take away every number the content carried, as a set, and the first sentence
+    then named no order at all: a note staged on #1938 stood (the round-12 deploy review, S2a-01,
+    R9-I-tests2-I-01, R9-I-tests5-I-03). Counted place by place, a number he said outside the
+    change's own content is where the change goes."""
+    said = _order_mentions(text, known)
+    written: Counter = Counter()
+    for proposal in proposals:
+        if proposal is not None:
+            written.update(_written_counts(proposal))
+    return frozenset(number for number, times in said.items() if times > written.get(number, 0))
 
-    A number he said that is inside what the change writes is its content, not its order
-    (`_written_numbers`): a note on #1938 that says "exchange for order 1912" was withdrawn as
-    not the order named, and so was a tag "drop-007" (the round-11 independent check). When
-    every order he named is content, he named none to hold the change to, and it stands."""
-    off: list[str] = []
-    for proposal_id in proposed:
-        if str(proposal_id).startswith("batch_"):
+
+# ------------------------------------------------ the person he named, and a change to another one
+#
+# A change on a person — store credit — is his only when it is for the person he named, as a change
+# to an order is his only when it is for the order he named. The names are the ones this
+# conversation's reads returned; the words are his, after the model, never in front of it.
+
+_NAME_WORD = re.compile(r"[^\W\d_]+(?:['-][^\W\d_]+)*")
+_POSSESSIVE = re.compile(r"'s\b")
+
+
+def _plain(text: str) -> str:
+    """Words as they are compared for a name: one case, one kind of apostrophe, no possessive
+    "'s" ("Mia's credit" names Mia), single spaces."""
+    folded = str(text or "").replace("’", "'").replace("‘", "'").casefold()
+    return " ".join(_POSSESSIVE.sub("", folded).split())
+
+
+def _name_words(name: str) -> tuple[str, ...]:
+    """A person's name as the words it is said in: letters, with an apostrophe or a hyphen inside a
+    word kept (O'Brien, Mary-Jane). Nothing shorter than two letters."""
+    return tuple(word for word in _NAME_WORD.findall(_plain(name)) if len(word) >= 2)
+
+
+def _looks_like_a_name(text: str) -> bool:
+    """Whether a personal string a read returned is a person's name rather than an address, a
+    street, a postcode or a subject line: one to four words of letters and nothing else."""
+    value = str(text or "")
+    if "@" in value or any(ch.isdigit() for ch in value):
+        return False
+    words = _name_words(value)
+    return 1 <= len(words) <= 4 and " ".join(words) == _plain(value).replace(".", "").strip()
+
+
+def _says(words: str, text: str) -> bool:
+    return re.search(rf"(?<![\w'-]){re.escape(words)}(?![\w'-])", text) is not None
+
+
+def _people_held(session, calls) -> dict[str, str]:
+    """Every customer this conversation holds by name, by id: those on its context stack, those
+    this turn's reads returned, and those its changes were prepared for.
+
+    `name` is a person's only in a customer's record: in an order's it is the order's own name
+    ("CROOKS-1938"), which is why an order record is read by its `customer_name`."""
+    held: dict[str, str] = {}
+    for entry in getattr(session, "context", None) or []:
+        if isinstance(entry, dict) and entry.get("kind") == "customer" and entry.get("ref") and entry.get("label"):
+            held.setdefault(str(entry["ref"]), str(entry["label"]))
+
+    def walk(value: Any, depth: int) -> None:
+        if depth > 6:
+            return
+        if isinstance(value, Mapping):
+            ref = value.get("customer_id")
+            orderish = "order_id" in value or "order_number" in value
+            name = value.get("customer_name") or (None if orderish else value.get("name"))
+            if isinstance(ref, str) and ref and isinstance(name, str) and name.strip():
+                held.setdefault(ref, name.strip())
+            for key, item in value.items():
+                if not str(key).startswith("_"):
+                    walk(item, depth + 1)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item, depth + 1)
+
+    for call in calls or []:
+        if getattr(call, "ok", False) and isinstance(getattr(call, "result", None), dict):
+            walk(call.result, 0)
+    for proposal in getattr(session, "proposals", None) or []:
+        if getattr(proposal, "entity_kind", "") == "customer":
+            name = str((getattr(proposal, "summary", None) or {}).get("customer") or "").strip()
+            if proposal.entity_ref and name:
+                held.setdefault(str(proposal.entity_ref), name)
+    return held
+
+
+def _people_said(text: str, held: dict[str, str], others: Iterable[str] = ()) -> tuple[dict[str, str], set[str]]:
+    """(the customers his words name, each with the words he named them by; those of them named
+    only by a name that another person this conversation has been shown also has).
+
+    A whole name is looked for first and settles it: "Mia Kowalski" is one person when there are
+    two Mias. Then the single words of each name, in what is left of the sentence. `others` are
+    the personal strings this conversation's reads returned (Session.pii_seen); the ones that are
+    names count as people he could mean, so a Mia seen only in a list of search results still
+    makes "Mia" two people. A name that is part of another — "Mia" beside "Mia Kowalski" — is the
+    same person and counts once."""
+    said = _plain(text)
+    people = {ref: words for ref, name in held.items() if (words := _name_words(name))}
+    everyone: list[frozenset[str]] = [frozenset(words) for words in people.values()]
+    for other in others:
+        words = frozenset(_name_words(other)) if _looks_like_a_name(other) else frozenset()
+        if words and not any(words <= known or known <= words for known in everyone):
+            everyone.append(words)
+
+    named: dict[str, str] = {}
+    shared: set[str] = set()
+    rest = said
+    for ref, words in people.items():
+        whole = " ".join(words)
+        if len(words) >= 2 and _says(whole, said):
+            named[ref] = whole
+            if sum(1 for person in everyone if person == frozenset(words)) > 1:
+                shared.add(ref)
+            rest = re.sub(rf"(?<![\w'-]){re.escape(whole)}(?![\w'-])", " ", rest)
+    for ref, words in people.items():
+        if ref in named:
             continue
-        proposal = session.proposal(proposal_id)
-        if proposal is None or getattr(proposal, "entity_kind", "") != "order":
-            continue
-        where = named - _written_numbers(proposal)
-        if not where:
-            continue
-        number = _order_number(getattr(proposal, "entity_label", ""))
-        if not number or number not in where:
-            off.append(proposal_id)
+        hits = [word for word in words if _says(word, rest)]
+        if hits:
+            named[ref] = hits[0]
+            if any(sum(1 for person in everyone if word in person) > 1 for word in hits):
+                shared.add(ref)
+    return named, shared
+
+
+def _as_he_said(words: str, text: str) -> str:
+    """The words he named someone by, in his own capitals when they can be found in his sentence."""
+    found = re.search(rf"(?<![\w'-]){re.escape(words)}", str(text or "").replace("’", "'"), re.I)
+    return found.group(0) if found else words.title()
+
+
+# ------------------------------------------------ a change held to what he named and what he tapped
+
+#: The records a tapped control's words may change, by the kind of record it bound: a note or an
+#: address on an order; a reply, a rewrite or an archive in an email thread; a change to a
+#: customer. A change of one of these kinds made under that control goes on the bound record.
+_BOUND_KINDS: dict[str, frozenset[str]] = {
+    "order": frozenset({"order"}),
+    "email_thread": frozenset({"email", "thread"}),
+    "customer": frozenset({"customer"}),
+}
+
+#: Why a change was withdrawn: the reason it is revoked with, which the ledger keeps.
+NOT_THE_ORDER_NAMED = "not the order the owner named"
+NOT_THE_RECORD_TAPPED = "not the record the owner tapped"
+NOT_THE_PERSON_NAMED = "not the person the owner named"
+A_NAME_TWO_SHARE = "a name two people share"
+
+
+def _same_record(kind: str, one: Any, other: Any) -> bool:
+    return bool(one) and bool(other) and _record_key(kind, str(one)) == _record_key(kind, str(other))
+
+
+def _off_target(proposed: list[str], session, *, question: str, known: set[str] | frozenset[str],
+                binding: Mapping[str, Any] | None = None, cursor: Mapping[str, Any] | None = None,
+                calls: list | None = None) -> list[tuple[str, str, frozenset[str]]]:
+    """The changes this turn staged somewhere the owner did not ask for them, as (proposal id,
+    why, the orders he named for it). Run after the model, on what it staged; nothing here reads
+    anything or answers a sentence.
+
+    An order. A number he said outside the change's own written content is where it goes
+    (`_said_outside`): "add a note to 1940" after Add a note was tapped on #1938, or "yes,
+    #1940" over a refund waiting on #1938, must not come back as a card for #1938, however the
+    model read the words. Failing that, a tapped control's words go on the order it bound.
+    Failing that, an order he named only inside what the change writes still limits where it
+    may go: to an order he named, or the one he is looking at — "add a note: exchange for order
+    1912" is the order on screen's note, never a third order's. A change whose order cannot be
+    told from its card is not his when he named one.
+
+    An email. After a tapped Reply or Rewrite, the reply is in the thread he tapped: his words
+    cannot name a thread, only an order, and a new email about an order he named stands.
+
+    A person. A change on a customer goes to a customer he named, when he named one this
+    conversation holds; when the name he said is two people's, to neither, unless the control
+    he tapped was on one of them. After a tapped control on a customer, with no one named, it
+    goes to that customer.
+
+    A bulk change is over a set, and is not judged here."""
+    bound_kind = str((binding or {}).get("kind") or "")
+    bound_ref = str((binding or {}).get("ref") or "")
+    changes = [(p, session.proposal(p)) for p in proposed if not str(p).startswith("batch_")]
+    changes = [(p, proposal) for p, proposal in changes if proposal is not None]
+    if not changes:
+        return []
+    named_raw = _orders_named(question, known)
+    people: dict[str, str] | None = None
+    shared: set[str] = set()
+    off: list[tuple[str, str, frozenset[str]]] = []
+    for proposal_id, proposal in changes:
+        kind = str(getattr(proposal, "entity_kind", "") or "")
+        ref = str(getattr(proposal, "entity_ref", "") or "")
+        bound_here = kind in _BOUND_KINDS.get(bound_kind, ()) and _same_record(bound_kind, ref, bound_ref)
+        if kind == "order":
+            number = _order_number(getattr(proposal, "entity_label", ""))
+            where = _said_outside(question, known, [proposal])
+            if where:
+                if not number or number not in where:
+                    off.append((proposal_id, NOT_THE_ORDER_NAMED, where))
+            elif bound_kind == "order" and bound_ref:
+                if not bound_here:
+                    off.append((proposal_id, NOT_THE_RECORD_TAPPED, frozenset()))
+            elif named_raw:
+                looked_at = (cursor or {}).get("kind") == "order" and _same_record("order", ref, (cursor or {}).get("ref"))
+                if not looked_at and (not number or number not in named_raw):
+                    off.append((proposal_id, NOT_THE_ORDER_NAMED, named_raw))
+        elif kind in _BOUND_KINDS["email_thread"]:
+            if bound_kind == "email_thread" and bound_ref and not bound_here:
+                number = _order_number(getattr(proposal, "entity_label", ""))
+                if not (number and number in _said_outside(question, known, [proposal])):
+                    off.append((proposal_id, NOT_THE_RECORD_TAPPED, frozenset()))
+        elif kind == "customer":
+            if people is None:
+                people, shared = _people_said(question, _people_held(session, calls),
+                                              getattr(session, "pii_seen", None) or ())
+            named_here = [r for r in people if _same_record("customer", ref, r)]
+            if people:
+                if not named_here:
+                    off.append((proposal_id, NOT_THE_PERSON_NAMED, frozenset()))
+                elif any(r in shared for r in named_here) and not bound_here:
+                    off.append((proposal_id, A_NAME_TWO_SHARE, frozenset()))
+            elif bound_kind == "customer" and bound_ref and not bound_here:
+                off.append((proposal_id, NOT_THE_RECORD_TAPPED, frozenset()))
     return off
 
 
-def _off_target_words(session, off: list[str], named: frozenset[str]) -> str:
-    """What the owner is told instead of the model's sentence about a change that was withdrawn.
-    The orders he said are the ones he named as where it goes, not those in what it writes."""
-    targets = {_order_number(getattr(session.proposal(p), "entity_label", "")) for p in off}
-    targets.discard("")
-    written: set[str] = set()
-    for p in off:
-        written |= _written_numbers(session.proposal(p))
-    named = (named - written) or named
-    were = _spoken_orders(targets) if targets else "another order"
-    return (f"You said {_spoken_orders(named)}, but the change I'd prepared was for {were}, so I've "
-            "withdrawn it. Say which order you want it on.")
+def _off_target_words(session, off: list[tuple[str, str, frozenset[str]]], *, question: str = "",
+                      binding: Mapping[str, Any] | None = None, calls: list | None = None) -> str:
+    """What the owner is told instead of the model's sentence about a change that was withdrawn,
+    in one sentence, for the first reason it was withdrawn: the order he said, the control he
+    tapped, the person he named, or a name two people share."""
+    why = off[0][1]
+    mine = [(session.proposal(p), where) for p, reason, where in off if reason == why]
+    if why == NOT_THE_ORDER_NAMED:
+        targets = {_order_number(getattr(proposal, "entity_label", "")) for proposal, _where in mine}
+        targets.discard("")
+        named = frozenset().union(*(where for _proposal, where in mine))
+        were = _spoken_orders(targets) if targets else "another order"
+        return (f"You said {_spoken_orders(named)}, but the change I'd prepared was for {were}, so I've "
+                "withdrawn it. Say which order you want it on.")
+    if why == NOT_THE_RECORD_TAPPED:
+        tapped = str((binding or {}).get("prompt") or "that control").strip()
+        kind = str((binding or {}).get("kind") or "")
+        label = str((binding or {}).get("label") or "").strip()
+        if kind == "order":
+            targets = {_order_number(getattr(proposal, "entity_label", "")) for proposal, _where in mine}
+            targets.discard("")
+            were = _spoken_orders(targets) if targets else "another order"
+            on = f" on {label}" if label else ""
+            return (f"You'd tapped {tapped}{on}, but the change I'd prepared was for {were}, so I've withdrawn it. "
+                    "Say which order you want it on.")
+        if kind == "customer":
+            on = f" on {label}" if label else ""
+            return (f"You'd tapped {tapped}{on}, but the change I'd prepared was for someone else, so I've "
+                    "withdrawn it. Say who it's for.")
+        return (f"You'd tapped {tapped}, but what I'd prepared was for a different email, so I've withdrawn it. "
+                "Say who it's for.")
+    held = _people_held(session, calls)
+    people, shared = _people_said(question, held, getattr(session, "pii_seen", None) or ())
+    if why == A_NAME_TWO_SHARE:
+        said = " and ".join(dict.fromkeys(_as_he_said(people[r], question) for r in people if r in shared))
+        return (f"{said or 'That name'} could be more than one of your customers, so I've withdrawn the change "
+                "rather than guess. Say which one you mean.")
+    said = " and ".join(dict.fromkeys(_as_he_said(words, question) for words in people.values()))
+    for_whom = sorted({str((getattr(proposal, "summary", None) or {}).get("customer") or held.get(str(proposal.entity_ref), ""))
+                       for proposal, _where in mine} - {""})
+    were = " and ".join(for_whom) if for_whom else "someone else"
+    return f"You said {said}, but the change I'd prepared was for {were}, so I've withdrawn it. Say who it's for."
 
 
 def _stand_on_what_was_shown(branch, ui: list, named: frozenset[str] = frozenset()) -> None:
@@ -1378,6 +1641,7 @@ async def _answer(
     measures: dict | None = None,
     seq: int | None = None,
     turn_id: str = "",
+    binding: Mapping[str, Any] | None = None,
 ) -> dict:
     tool_calls = tool_calls or []
     turns = 0
@@ -1405,31 +1669,32 @@ async def _answer(
         runtime.actions.revoke_ids(proposed, "the owner moved on")
         runtime.batches.revoke_ids(proposed, "the owner moved on")
         proposed = []
-    # The order the owner named, held against what the model did with it — on a model turn
-    # (`seq`), which is the only place a change is staged from words. A change to another order
-    # is withdrawn before it is delivered and drawn nowhere; a read of another order and none
-    # he named is said to be that, in one sentence, and does not move the cursor (see
-    # `_off_target`, `_stand_on_what_was_shown`).
+    # What the owner named and what he tapped, held against what the model did with them — on a
+    # model turn (`seq`), which is the only place a change is staged from words. A change to
+    # another order, another record than the one his tapped control bound, or another person than
+    # the one he named is withdrawn before it is delivered and drawn nowhere; a read of another
+    # order and none he named is said to be that, in one sentence, and does not move the cursor
+    # (see `_off_target`, `_stand_on_what_was_shown`).
     named: frozenset[str] = frozenset()
     withheld: set[str] = set()
     if seq is not None and session is not None and not abandoned:
-        named = _orders_named(question, _orders_known(session, branch, calls))
-    if named:
-        off = _off_target(proposed, session, named)
+        known = _orders_known(session, branch, calls)
+        named = _orders_named(question, known)
+        off = _off_target(proposed, session, question=question, known=known, binding=binding,
+                          cursor=getattr(branch, "entity", None), calls=calls)
         if off:
-            log.warning("withdrew %d change(s) staged on an order the owner did not name", len(off))
-            answer = (LOST_THREAD_PREFIX if lost_thread and answer.startswith(LOST_THREAD_PREFIX) else "") + _off_target_words(session, off, named)
-            runtime.actions.revoke_ids(off, "not the order the owner named")
-            withheld = set(off)
+            log.warning("withdrew %d change(s) staged somewhere the owner did not ask for them", len(off))
+            answer = (LOST_THREAD_PREFIX if lost_thread and answer.startswith(LOST_THREAD_PREFIX) else "") + _off_target_words(
+                session, off, question=question, binding=binding, calls=calls)
+            for reason in dict.fromkeys(why for _p, why, _where in off):
+                runtime.actions.revoke_ids([p for p, why, _where in off if why == reason], reason)
+            withheld = {p for p, _why, _where in off}
             proposed = [p for p in proposed if p not in withheld]
-        else:
+        elif named:
             # An order said only inside what this turn's change writes ("exchange for order
             # 1912", noted on #1938) is not one he asked to read.
-            written: set[str] = set()
-            for p in proposed:
-                if not str(p).startswith("batch_") and session.proposal(p) is not None:
-                    written |= _written_numbers(session.proposal(p))
-            asked = named - written
+            staged = [session.proposal(p) for p in proposed if not str(p).startswith("batch_")]
+            asked = _said_outside(question, known, staged)
             read = _orders_read(calls)
             if read and asked and not (read & asked):
                 answer = f"{answer.rstrip()} That's {_spoken_orders(read)}, not {_spoken_orders(asked)}."
