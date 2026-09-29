@@ -160,6 +160,41 @@ def _redact(text: str) -> str:
 _EMAIL_FALLBACK = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 
 
+# The owner's words, and the answers to them, by the event that carries them: what was heard,
+# the model's answer, the question and the answer the turn finished with, and what was spoken
+# back. A name he says that no read returns is never known to `note_names`, so nothing can
+# redact it from these ("what did Zoe Quill order", answered from nothing, put her name in the
+# always-on timeline three times: the round-12 deploy review, R9-D1-D1-01 and S1-NEW-02). In
+# the day's automatic session they are written by their shape; a session he started by name —
+# his walkthrough — keeps them. A defect he asks to be logged (`owner_feedback`) is his request
+# to have those words written down, and is kept.
+WORDS: dict[str, tuple[str, ...]] = {
+    "stt": ("text", "raw_text"),
+    "model": ("answer",),
+    "turn_finished": ("question", "answer"),
+    "tts": ("text",),
+}
+
+
+def keeps_words(session: TestSession | None) -> bool:
+    """Whether this session keeps the owner's words: one he started by name. The owner can have
+    the automatic session keep them too; that is his decision, and this is the line to change."""
+    from app.observability.session import AUTO_NAME
+
+    return session is not None and str(session.name or "") != AUTO_NAME
+
+
+def _words_by_shape(event: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    """The event with each of these fields written as its length and a digest — the same digest
+    for the same words for the life of the process, and nothing of what they were. Only this
+    timeline's own file: a recording mirror was handed the fields before this, and keeps or drops
+    words by its own rule (app/observability/recorder.py, CROOKS_RECORD_TRANSCRIPTS)."""
+    from app.tools.dispatch import _spoken_shape
+
+    return {key: (_spoken_shape(value) if key in keys and isinstance(value, str) and value else value)
+            for key, value in event.items()}
+
+
 def scrub_text(text: str) -> str:
     """One string made safe to write, by the same rules as every event: credential shapes out,
     then contact details and the customer names this process has been shown."""
@@ -415,6 +450,8 @@ class Timeline:
                 if value is None or key in event:
                     continue
                 event[key] = value
+            if kind in WORDS and not keeps_words(session):
+                event = _words_by_shape(event, WORDS[kind])
             event = scrub(event)
             self._note(event)
             line = json.dumps(event, ensure_ascii=False, default=str)
