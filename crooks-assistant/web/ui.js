@@ -3457,6 +3457,138 @@
     return node;
   }
 
+  // ------------------------------------------------------------------ what stays on the glass
+  //
+  // Round 12. George: "a task is asked, a screen is shown, an edit is asked, the edit succeeds,
+  // however the screen disappears." The Mac now says when an answer CONTINUES the screen that
+  // is up (app/screen.py): the cards it carried over are marked `kept` (the card already on the
+  // glass) or `refreshed` (the same record, read again). These three functions are the glass's
+  // half of that, and nothing here decides what is on screen — the Mac's list does.
+
+  // Which card a node on the glass is. A folded card is its wrapper on the glass and its card
+  // inside it, and it is the card that has an identity.
+  function renderIdOf(node) {
+    if (!node || !node.dataset) return '';
+    if (node.dataset.render) return node.dataset.render;
+    if (node.dataset.type !== 'folded') return '';
+    // `folded` wraps the card two levels down (the fold's body, then the card).
+    for (const kid of node.children || []) {
+      for (const inner of [kid].concat(kid.children || [])) {
+        if (inner && inner.dataset && inner.dataset.render) return text(inner.dataset.render);
+      }
+    }
+    return '';
+  }
+
+  // A card still waiting on the owner's hand — armed, held, being applied. Never redrawn by an
+  // answer: its clock and its gesture are the owner's, and only the Mac settles it.
+  function liveUnderHand(node) {
+    const surface = node && node.querySelector ? node.querySelector('.action-surface') : null;
+    if (!surface || !surface.dataset) return false;
+    const machine = actionState();
+    return machine ? machine.isLive(surface.dataset.state) : true;
+  }
+
+  // Draw an answer that continues the screen on `host`, keeping every node it can.
+  //
+  //   `kept`       the node already there stays exactly as it is: not redrawn, not re-animated,
+  //                its tab, its open rows and anything typed into it untouched;
+  //   `refreshed`  the same card with the Mac's newer copy, drawn in the old one's place;
+  //   anything else already on the glass under the same identity is redrawn in its place too,
+  //   except a card waiting on the owner's hand, which is never redrawn under it;
+  //   anything new is drawn and comes in as new cards do;
+  //   and a card on the glass the answer does not carry is taken away.
+  //
+  // Returns null — having touched nothing — when the answer is not a continuation, or when a
+  // card the Mac says is kept is not on this glass (a reload, a local Back, a half switched):
+  // the caller then draws the answer whole, which is what it always did. Otherwise it returns
+  // what `render` returns, plus how many were kept, redrawn, added and removed, and `first`,
+  // the first new card, so the caller can bring it into view.
+  function continueScreen(host, items, opts) {
+    if (!host || !Array.isArray(items) || !items.some((i) => i && (i.kept === true || i.refreshed === true))) return null;
+    const onGlass = new Map();
+    for (const node of Array.prototype.slice.call(host.children || [])) {
+      const id = renderIdOf(node);
+      if (id && !onGlass.has(id)) onGlass.set(id, node);
+    }
+    for (const item of items) {
+      if (item && item.kept === true && isValid(item) && !onGlass.has(surfaceId(item))) return null;
+    }
+    const out = { nodes: [], skipped: [], stack: null, errors: [], hasContext: true, kept: 0, redrawn: 0, added: 0, removed: 0, first: null };
+    for (const item of items.slice(0, 16)) {
+      if (!isValid(item)) { out.skipped.push(item && typeof item.type === 'string' ? item.type : 'invalid'); continue; }
+      if (item.type === 'context_stack') { out.stack = list(item.data.entries, 6); continue; }
+      if (item.type === 'error') out.errors.push(item.data);
+      const id = surfaceId(item);
+      const there = onGlass.get(id);
+      if (there && (item.kept === true || liveUnderHand(there))) {
+        // Moving a node that is already up must not play its entrance again.
+        there.dataset.patched = '1';
+        out.nodes.push(there);
+        out.kept += 1;
+        continue;
+      }
+      let node = renderItem(item, opts);
+      if (!node) { out.skipped.push(item.type); continue; }
+      if (item.data && item.data.secondary === true) node = folded(node, foldLabel(item));
+      if (there) {
+        // In the old node's place: swapped now, so the reordering below finds it there.
+        node.dataset.patched = '1';
+        host.replaceChild(node, there);
+        out.redrawn += 1;
+      } else {
+        out.added += 1;
+        if (!out.first) out.first = node;
+      }
+      out.nodes.push(node);
+    }
+    // The glass becomes the list: what the answer does not carry goes, and each node takes its
+    // place in the Mac's order. A node already in its place is not touched.
+    const keep = new Set(out.nodes);
+    for (const node of Array.prototype.slice.call(host.children || [])) {
+      if (!keep.has(node)) { host.removeChild(node); out.removed += 1; }
+    }
+    out.nodes.forEach((node, index) => {
+      const at = host.children[index] || null;
+      if (at !== node) host.insertBefore(node, at);
+    });
+    return out;
+  }
+
+  // Whether the first patches of a NEW turn replace the screen that is up (§7's glass, round
+  // 12). The last answer's screen stays until the new turn has something of its own to show:
+  // a new record, a new list, a skeleton for something the screen does not already show.
+  // Patches that only address cards already up — the same order read again, a skeleton for
+  // the kind of card already there — change nothing yet ('hold'): the turn's own answer
+  // settles those cards, and an order he is working on does not blink into a skeleton and
+  // back while CLIVE thinks. Nor does a card for a change (`CHANGE_TYPES`): the card to tap
+  // is ABOUT a screen, and it can reach the glass as a patch a moment before the answer that
+  // says where it goes — on top of the record it changes, or as a screen of its own when it
+  // changes something else. The context stack rides with it and is never a card at all.
+  const CHANGE_TYPES = new Set(['confirmation', 'batch_action', 'success', 'batch_result', 'error', 'email_draft', 'variant_picker']);
+  function landingOf(host, patches) {
+    const shownTypes = new Set();
+    const shownIds = new Set();
+    for (const node of Array.prototype.slice.call((host && host.children) || [])) {
+      const id = renderIdOf(node);
+      if (id) shownIds.add(id);
+      if (node.dataset && node.dataset.type && !node.dataset.shell) shownTypes.add(node.dataset.type);
+    }
+    for (const patch of patches || []) {
+      if (!patch || typeof patch !== 'object' || text(patch.op) === 'remove') continue;
+      const id = text(patch.id);
+      if (!id) continue;
+      const type = text(patch.type) || id.split(':')[0];
+      if (CHANGE_TYPES.has(type) || type === 'context_stack') continue;
+      if (id.endsWith(`:${SHELL_SUFFIX}`)) {
+        if (!shownTypes.has(text(patch.type) || id.split(':')[0])) return 'replace';
+        continue;
+      }
+      if (!shownIds.has(id)) return 'replace';
+    }
+    return 'hold';
+  }
+
   function render(items, opts) {
     const out = { nodes: [], skipped: [], stack: null, errors: [], hasContext: false };
     const moved = [];
@@ -3496,6 +3628,9 @@
     // The progressive workspace's seams: a patch applied to a card already drawn, and the
     // identity a patch addresses it by (web/app.js, tests/web/progressive.test.js).
     applyPatches, surfaceId, KEY_OF,
+    // What stays on the glass (round 12): an answer that continues the screen, and whether a
+    // new turn's first patches replace it (web/app.js, tests/web/keep.test.js).
+    continueScreen, landingOf, renderIdOf,
     // The email workspace's own seams: a proven archive applied to the deck on screen, and
     // the unsaved-typing store a redraw must not delete (web/app.js, tests/web/email.test.js).
     settleThread, clearFieldDrafts, ageFieldDrafts, fieldDraft, FIELD_DRAFT_TTL_MS,
