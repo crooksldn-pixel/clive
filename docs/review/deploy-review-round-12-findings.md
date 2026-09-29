@@ -1993,3 +1993,35 @@ Everything is under `/root/clive-activation/round-12/`:
 The packet builder keeps the fix round 8 needed: the membership test is `grep -qxF` against a
 file, never `echo | grep -q`, because that pipeline races on SIGPIPE under `pipefail` and
 silently dropped files out of packets in an earlier round.
+
+## I. The state everything was left in
+
+```
+=== FINAL STATE — nothing on the server was changed ===
+production HEAD        : 6a29e31013b0b9e543d90434e14ed65deea1ce30
+production dirty       : 0 entries
+service                : active
+MainPID                : 3068091
+running cmdline        : /opt/crooks-os/crooks-assistant/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers 
+installed unit sha256  : 3808af03c0bb0dcfc083ab519b33be3a82299ba92cc418a73678ba60c826722b
+   preflight recorded  : 3808af03c0bb0dcfc083ab519b33be3a82299ba92cc418a73678ba60c826722b
+.env sha256            : 0021c07d9c523d4112420537698eae50c51945f5966d3b0d01501def035693ce
+   preflight recorded  : 0021c07d9c523d4112420537698eae50c51945f5966d3b0d01501def035693ce
+.env mode/size         : 600 3513  (preflight: 600 3513)
+gaps.json sha256       : 7f1a7f6b86a708d0b3872b12b8e75c52ed2a197122f01697359c4f798f8eaf48
+   preflight recorded  : 7f1a7f6b86a708d0b3872b12b8e75c52ed2a197122f01697359c4f798f8eaf48
+gaps backups           : 1 (preflight: 1)
+parked credential      : 0 600 292 1790474150
+   preflight recorded  : 0 600 292 1790474150 (2026-09-27 01:55:50 UTC) — IDENTICAL; never opened, never decrypted
+/etc/crooks-os/credentials/ .cred files: 3 (preflight: 3)
+tailscale serve :8443 handler present? 0 (must be 0 — no staging was raised)
+transient stage unit?  inactive (must not be active)
+reports dir entries    : 2 (preflight: 2)
+displays.json screens  : 3, the same three ids
+```
+
+Read against the preflight's own recorded values: the production checkout is still 6a29e310
+with nothing dirty, the service is up on its original MainPID, the installed unit, the `.env`
+and the gap record are byte-identical, there is still exactly one gap backup, the parked
+engineering credential is untouched and was never opened, no staging handler was added to
+`tailscale serve`, and no transient staging unit exists.
