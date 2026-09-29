@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import subprocess
+import time
 
 import pytest
 
@@ -51,13 +52,19 @@ async def _run(tmp_path) -> dict:
         runtime.provider.will("show me order 1938", *order_reads("1938"), reply="Order 1938.")
         runtime.provider.will("show me the email about 1939", ("gmail_search", {"query": "1939", "days": 30}),
                               ("gmail_read_thread", _thread_about_1939), reply="Here it is.")
-        screens = store_module.install(tmp_path / "screens" / "displays.json")
+        # Named a minute ago: a screen counts as on for ONLINE_S after it last asked, and naming it
+        # is an ask. Named "now", the Packing screen was on for the first thirty seconds of the run
+        # and off after, so the checks that drop on it while it is off passed or failed with the
+        # machine's speed. Only the Office TV's own page, opened below, turns a screen on.
+        minute_ago = [time.time() - 60.0]
+        screens = store_module.install(tmp_path / "screens" / "displays.json", clock=lambda: minute_ago[0])
         named = {}
         for name in ("Office TV", "Packing screen"):
             made = screens.register(name)
             screens.approve(name, made["code"])
             named[name] = {"id": made["id"], "key": made["screen_key"]}
         screens.register("Bedroom TV")
+        screens.clock = time.time
         goals = objectives_module.install(tmp_path / "goals")
         goals.create(title="Autumn drop shoot", request="Get the autumn drop shot by Friday", deadline="2026-10-03", by="owner")
         goals.create(title="Restock the black caps", request="Restock the black caps before the weekend", by="owner")
