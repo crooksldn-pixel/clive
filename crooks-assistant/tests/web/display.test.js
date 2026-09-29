@@ -1667,3 +1667,114 @@ test('something new while the first thing is still forming overtakes it at once:
   assert.equal(pg.state().phase, 'shown');
   assert.ok(!(pg.state().drawnView || []).some((P) => P.forming));
 });
+
+/* Round 13 of the deploy review (R9-B2-B2-04): a slip marked packed keeps nothing of its customer
+ * anywhere on the screen, the old page of a change on its way out included, whether the change
+ * has just ended or is still under way. */
+
+// A slip with an objective beside it; the objective is then taken off, so the slip fills the screen in one
+// change with nothing new to form (the round-12 swap). CLIVE's answers come as `state` says, and
+// a done posted from the screen's own tap makes the slip done.
+async function packingAfterChange() {
+  const box = { state: null };
+  const { pg, at } = await upWith((when) => box.state || { version: 2, showing: Object.assign(slip(when), { v: 1 }), beside: goal(when, 2) }, null, { calm: false });
+  const done = () => ({ version: 4, beside: null, showing: { kind: 'order', ref: 'gid://shopify/Order/1047', title: 'Order #1047', at, by: 'clive',
+    done_at: new Date(pg.clock.now).toISOString(), v: 1 } });
+  // Looked at again at once, as the screen does when it is woken (visibilitychange).
+  const askNow = async () => { for (const fn of pg.docListeners.visibilitychange || []) fn(); await pg.flush(); };
+  assert.equal(pg.els.ui.querySelectorAll('.cs-pane').length, 2, 'two panes up');
+  box.state = { version: 3, showing: Object.assign(slip(at), { v: 1 }), beside: null };
+  for (let i = 0; i < 40 && pg.state().phase !== 'swapping'; i++) await pg.advance(50);
+  assert.equal(pg.state().phase, 'swapping', 'the change is under way');
+  assert.ok(pg.state().leaving, 'the old page is on its way out');
+  assert.ok(pg.els.board.allText().includes('14 Sample Road'), 'and it carries the slip as it was: the test can see it');
+  return { pg, box, done, askNow };
+}
+const customerOnBoard = (pg) => CUSTOMER.filter((d) => onBoard(pg).includes(d));
+
+// Closes R9-B2-B2-04 as the review found it: packed in the moment after the change ends, while the
+// old page is still on its way out.
+test('marked packed just after a change, the old page on its way out keeps nothing of the customer', async () => {
+  const { pg, box, done, askNow } = await packingAfterChange();
+  for (let i = 0; i < 40 && pg.state().phase !== 'shown'; i++) await pg.advance(20);
+  assert.equal(pg.state().phase, 'shown', 'the change has ended');
+  assert.ok(pg.state().leaving && pg.els.board.allText().includes('14 Sample Road'), 'the old page is still on its way out');
+  box.state = done();
+  await askNow();
+  assert.equal(pg.state().phase, 'packing', 'CLIVE says it is packed');
+  assert.deepEqual(customerOnBoard(pg), [], 'nothing of the customer anywhere on the screen');
+  assert.equal(pg.els.board.querySelector('.cs-leave'), null, 'the old page is gone');
+  assert.equal(pg.state().leaving, null);
+  assert.ok(pg.els.ui.allText().includes('Order #1047'), 'the order’s number stays');
+});
+
+// The same, with CLIVE's answer arriving while the change is still under way: it does not wait for
+// the change to end.
+test('marked packed while a change is still under way, the customer leaves at once, the page on its way out included', async () => {
+  const { pg, box, done, askNow } = await packingAfterChange();
+  box.state = done();
+  await askNow();
+  assert.deepEqual(customerOnBoard(pg), [], 'nothing of the customer anywhere on the screen');
+  assert.equal(pg.els.board.querySelector('.cs-leave'), null, 'the old page is gone');
+  assert.equal(pg.state().phase, 'packing', 'packed at once, not when the change would have ended');
+  assert.ok(pg.engine().calls.includes('packOut'), 'the check is drawn');
+  // And the screen settles as a pack does: the done page up, the change's own ending doing nothing.
+  await pg.advance(8000);
+  assert.equal(pg.state().phase, 'shown');
+  assert.deepEqual(customerOnBoard(pg), []);
+  assert.ok(pg.els.ui.allText().includes('Packed at'));
+});
+
+// A change that is putting something new up beside the slip: the new pane comes up as it is, and
+// the slip is packed at once.
+test('marked packed while something new is still forming beside it, the new pane comes up and the slip keeps nothing', async () => {
+  const box = { state: null };
+  const { pg, at } = await upWith((when) => box.state || { version: 1, showing: Object.assign(slip(when), { v: 1 }), beside: null }, null, { calm: false });
+  pg.dots.ctl.held = true;                           // a slow TV: the new pane's dots are still on their way
+  box.state = { version: 2, showing: Object.assign(slip(at), { v: 1 }), beside: goal(at, 2) };
+  for (let i = 0; i < 40 && pg.state().phase !== 'swapping'; i++) await pg.advance(50);
+  assert.equal(pg.state().phase, 'swapping');
+  assert.ok(pg.state().leaving && pg.els.board.allText().includes('14 Sample Road'));
+  box.state = { version: 3, beside: goal(at, 2), showing: { kind: 'order', ref: 'gid://shopify/Order/1047', title: 'Order #1047', at, by: 'clive',
+    done_at: new Date(pg.clock.now).toISOString(), v: 1 } };
+  for (const fn of pg.docListeners.visibilitychange || []) fn();
+  await pg.flush();
+  assert.deepEqual(customerOnBoard(pg), []);
+  assert.equal(pg.state().leaving, null);
+  assert.ok(pg.els.ui.allText().includes('Autumn samples'), 'the objective beside it is up');
+  assert.ok(!(pg.state().drawnView || []).some((P) => P.forming), 'and not left forming');
+  pg.dots.ctl.held = false;
+  await pg.advance(8000);
+  assert.equal(pg.state().phase, 'shown');
+  assert.deepEqual(customerOnBoard(pg), []);
+  assert.ok(pg.els.ui.allText().includes('Autumn samples') && pg.els.ui.allText().includes('Packed at'));
+});
+
+// The same rule while the other pane's pack is still playing: two orders side by side, packed one
+// after the other within a few seconds, as a packing bench has them. The second customer leaves the
+// page, and the dots, the moment CLIVE says so, not when the first check has finished.
+test('an order packed while the one beside it is still packing keeps nothing of its customer, in the page or in dots (the real engine)', async () => {
+  const box = { state: null };
+  const { pg, at } = await realUp((when) => box.state || { version: 1, showing: nextSlip(when, 1), beside: Object.assign(slip(when), { v: 2 }) });
+  const askNow = async () => { for (const fn of pg.docListeners.visibilitychange || []) fn(); await pg.flush(); };
+  const packed = (ref, title, v) => ({ kind: 'order', ref, title, at, by: 'clive', done_at: new Date(pg.clock.now).toISOString(), v });
+  assert.equal(pg.state().phase, 'shown');
+  assert.ok(onBoard(pg).includes('Alex Doe') && onBoard(pg).includes('Sam Carter'), 'both slips up');
+  const first = packed('gid://shopify/Order/1052', 'Order #1052', 1);
+  box.state = { version: 3, showing: first, beside: Object.assign(slip(at), { v: 2 }) };
+  await askNow();
+  assert.equal(pg.state().phase, 'packing', 'the first is packing');
+  await pg.play(1000);
+  assert.equal(pg.state().phase, 'packing', 'and still is');
+  const frames = pg.els.dots.frames;
+  box.state = { version: 4, showing: first, beside: packed('gid://shopify/Order/1047', 'Order #1047', 2) };
+  await askNow();
+  const from = frames.length;
+  assert.deepEqual(customerOnBoard(pg), [], 'the second customer leaves the page at once');
+  await pg.play(7000);
+  assert.ok(frames.length - from > 60, 'the screen went on drawing');
+  assert.equal(redFrames(frames.slice(from)), 0, 'no frame after it was packed draws its customer in dots');
+  assert.equal(pg.state().phase, 'shown', 'and the screen settles');
+  const text = pg.els.ui.allText();
+  assert.ok(text.includes('Order #1047') && text.includes('Order #1052') && !text.includes('Alex Doe') && !text.includes('Sam Carter'), text);
+});
