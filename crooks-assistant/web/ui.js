@@ -3659,6 +3659,24 @@
     return 'hold';
   }
 
+  // What the glass does with a turn's answer — as the Mac says, never guessed (round 12, the
+  // second pass). Every /turn answer carries `screen` (app/screen.py `state_of`):
+  //   'carry'  the Mac kept the screen and sent its cards, marked: drawn onto it (continueScreen);
+  //   'keep'   the Mac kept the screen and sent no card of it: the glass stays as it is;
+  //   'clear'  the Mac cleared it — words about another order (round 9's D2-05), "close that" —
+  //            or there is nothing to show: the orb;
+  //   'draw'   a screen of its own.
+  // An answer from a Mac that does not say is drawn as answers always were: its cards, or the orb.
+  function answerLanding(items, screen, glassUp) {
+    const cards = (Array.isArray(items) ? items : []).filter((i) => i && typeof i === 'object' && i.type !== 'context_stack');
+    if (screen === 'cleared') return 'clear';
+    if (screen === 'kept') {
+      if (cards.some((i) => i.kept === true || i.refreshed === true)) return 'carry';
+      if (glassUp) return 'keep';
+    }
+    return cards.length ? 'draw' : 'clear';
+  }
+
   // Whether a control is on the card of the half's cursor (round 12, C3). A listening chip —
   // Add a note, Reply — binds the CURSOR, never the card it is drawn on (web/app.js
   // `primeAction`), so on any other card it must not listen. The Mac takes the family off such
@@ -3724,7 +3742,7 @@
     applyPatches, surfaceId, KEY_OF,
     // What stays on the glass (round 12): an answer that continues the screen, and whether a
     // new turn's first patches replace it (web/app.js, tests/web/keep.test.js).
-    continueScreen, landingOf, renderIdOf, onCursor,
+    continueScreen, landingOf, renderIdOf, onCursor, answerLanding,
     // The email workspace's own seams: a proven archive applied to the deck on screen, and
     // the unsaved-typing store a redraw must not delete (web/app.js, tests/web/email.test.js).
     settleThread, clearFieldDrafts, ageFieldDrafts, fieldDraft, FIELD_DRAFT_TTL_MS,

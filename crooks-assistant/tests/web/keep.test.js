@@ -180,3 +180,25 @@ test('only a chip on the cursor\'s card may listen; one on any other card, or wi
   assert.equal(UI.onCursor(first, null), false, 'with no cursor no card listens');
   assert.equal(UI.onCursor(shim.document.createElement('button'), null), true, 'a control on no record has nothing to disagree with');
 });
+
+// ------------------------------------------------------------------ the Mac says what the screen does
+
+test('the glass does with an answer what the Mac says: words about the same record keep it, about another order clear it', () => {
+  // Words about #1938 with #1938 up: the Mac carried it (kept) — drawn onto the glass.
+  assert.equal(UI.answerLanding([flag(order(), 'kept')], 'kept', true), 'carry');
+  // Kept, and no card of it sent: the glass stays exactly as it is.
+  assert.equal(UI.answerLanding([], 'kept', true), 'keep');
+  // "Has 1940 shipped?" in words with #1938 up: the Mac cleared the screen, and so does the
+  // glass — #1938 must not stand under an answer about #1940 (round 9, D2-05).
+  assert.equal(UI.answerLanding([], 'cleared', true), 'clear');
+  assert.equal(UI.answerLanding([{ type: 'context_stack', data: { entries: [] } }], 'cleared', true), 'clear');
+  // "Close that": cleared, whatever was up.
+  assert.equal(UI.answerLanding([], 'cleared', false), 'clear');
+  // A new record is a screen of its own.
+  assert.equal(UI.answerLanding([order({ order_id: 'gid://shopify/Order/1940' })], 'new', true), 'draw');
+  // Kept, but nothing up here to keep (a reload): nothing to stand on, so the orb.
+  assert.equal(UI.answerLanding([], 'kept', false), 'clear');
+  // A Mac that does not say: drawn as answers always were — never kept on a guess.
+  assert.equal(UI.answerLanding([], undefined, true), 'clear');
+  assert.equal(UI.answerLanding([order()], undefined, true), 'draw');
+});
