@@ -71,6 +71,33 @@ async def test_a_bare_number_that_is_a_held_order_counts_as_well():
         assert not _the_call(said, "gmail_send_reply")["ok"] and _pending(h) == []
 
 
+@pytest.mark.parametrize("body", [
+    "Your order1938 went out today to 12 Acacia Avenue.",   # a letter right before the number
+    "Your order #\uff11\uff19\uff13\uff18 went out today.",  # full-width digits
+    "Your order #19\u200b38 went out today.",               # a zero-width space inside it
+    "Your order No.1938 went out today.",
+])
+async def test_an_order_written_any_way_is_still_the_order_it_names(body):
+    """The round-13 independent check: the order pattern the thread card uses refuses a number
+    with a letter before it, and reads full-width digits that the held order's number never
+    equals, so these were prepared to David. Written any way, #1938 is Mia's."""
+    async with harness(admitted=True) as h:
+        await _holding_mias_order_and_davids_thread(h)
+        said = await h.ask("reply", ("gmail_send_reply", {"thread_id": DAVIDS_THREAD, "body": body}))
+        call = _the_call(said, "gmail_send_reply")
+        assert not call["ok"] and "1938" in call["error"], (body, call)
+        assert _pending(h) == []
+
+
+async def test_money_and_longer_numbers_are_not_taken_for_a_held_order():
+    """Only whole runs of digits: "£19.38" is not #1938, nor is "19380"."""
+    async with harness(admitted=True) as h:
+        await _holding_mias_order_and_davids_thread(h)
+        said = await h.ask("reply", ("gmail_send_reply", {"thread_id": DAVIDS_THREAD,
+                                                          "body": "We refunded £19.38; the parcel ref is 19380."}))
+        assert _the_call(said, "gmail_send_reply")["ok"], _the_call(said, "gmail_send_reply")
+
+
 async def test_naming_the_right_order_does_not_let_the_words_name_another(tool="gmail_send_reply"):
     """`order_id` given — David's own #1939, which passes the thread's own check — and the words
     carry Mia's #1938 as well. The words are held too."""
@@ -125,6 +152,22 @@ async def test_a_waiting_draft_that_names_another_customers_order_is_not_sent(bo
     raw = gmail_writes.build_raw(sender=mailbox.ME, sender_name="CROOKS", to=binding.SAM, to_name="Sam Other",
                                  subject="Re: Order 1930 — is this mine?", body="Your order #1930 went out today.",
                                  token="<draft-1@crooksldn.com>", in_reply_to="<sam@example.com>")
+    box.create_draft(raw, binding.SAMS_THREAD)
+    text, proposal = await binding._reply(session, "gmail_send_reply", binding.SAMS_THREAD, "", body="")
+    assert proposal is None, text
+    assert "names order 1930" in text and binding.SAM in text, text
+    assert not box.sent
+
+
+@pytest.mark.usefixtures("owner_asking", "warm")
+async def test_a_waiting_draft_whose_own_subject_names_another_customers_order_is_not_sent(box, engine, session):
+    """The waiting draft's subject is held as well as its words, unless it is the thread's own:
+    a subject someone typed in Gmail naming Daniel's #1930 does not go to Sam."""
+    from app.tools import gmail_writes
+
+    raw = gmail_writes.build_raw(sender=mailbox.ME, sender_name="CROOKS", to=binding.SAM, to_name="Sam Other",
+                                 subject="Order 1930 is on its way", body="It went out today.",
+                                 token="<draft-4@crooksldn.com>", in_reply_to="<sam@example.com>")
     box.create_draft(raw, binding.SAMS_THREAD)
     text, proposal = await binding._reply(session, "gmail_send_reply", binding.SAMS_THREAD, "", body="")
     assert proposal is None, text

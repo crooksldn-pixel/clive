@@ -28,6 +28,7 @@ import hashlib
 import logging
 import re
 import time
+import unicodedata
 import uuid
 from email.message import EmailMessage
 from email.utils import formataddr, parseaddr, parsedate_to_datetime
@@ -359,14 +360,29 @@ def _as_the_card_shows(thread_id: str, ctx: dict[str, Any]) -> str:
     return compose_id
 
 
+# Every run of digits in what an email says, however it is written: the round-13 check found
+# "order1938" (a letter before it) and "#１９３８" (full-width digits) both passing the order
+# pattern the thread card uses, so another customer's order could still be named to this one.
+_DIGIT_RUN = re.compile(r"[0-9]+")
+
+
+def _numbers_written(text: str) -> set[str]:
+    """The numbers the words carry, as the reader sees them: any script's digits as ASCII (NFKC,
+    then each decimal digit by its value), invisible format characters (a zero-width space
+    between two digits) taken out, and a number with a letter or a sign before it still a number.
+    Only whole runs: "19380" is not 1938, and "£19.38" is two numbers, 19 and 38."""
+    plain = unicodedata.normalize("NFKC", "".join(ch for ch in str(text or "") if unicodedata.category(ch) != "Cf"))
+    plain = "".join(str(unicodedata.decimal(ch)) if ch.isdecimal() else ch for ch in plain)
+    return set(_DIGIT_RUN.findall(plain))
+
+
 def _orders_named_in(text: str) -> dict[str, str]:
     """{number: order id} for every order this conversation holds whose number the words name:
     on its context stack, under a half's cursor, on a change it staged, read into the entity
     cache, or in the order cache — and always an id issued to this conversation."""
-    from app.context import graph
     from app.tools.context import CURRENT_SESSION
 
-    named = set(graph.order_numbers_in(text))
+    named = _numbers_written(text)
     session = CURRENT_SESSION.get()
     if not named or session is None:
         return {}
@@ -795,7 +811,11 @@ async def gmail_send_reply(thread_id: str, body: str = "", order_id: str = "") -
             "thread_id": str(thread_id), "token": draft["token"], "raw": "", "draft_id": draft["draft_id"], "to": draft["to"], "to_name": draft["to_name"] or ctx["to_name"],
             "subject": draft["subject"] or reply_subject(ctx["subject"]), "body": draft["body"], "state": "sent",
         }
-    await _held_to_the_orders_it_names(execution["body"], ctx)
+    # The waiting draft's own subject is held too, unless it is the thread's: the customer's own
+    # subject line ("Re: Order 1930 — is this mine?") names what they asked about, to them.
+    own = {" ".join(str(ctx["subject"] or "").split()).casefold(), " ".join(reply_subject(ctx["subject"]).split()).casefold()}
+    subject_written = "" if " ".join(str(execution["subject"] or "").split()).casefold() in own else str(execution["subject"] or "")
+    await _held_to_the_orders_it_names(f"{subject_written}\n{execution['body']}", ctx)
     if shown:
         execution["compose_id"] = shown
     before = _thread_fingerprint(ctx, execution["token"])

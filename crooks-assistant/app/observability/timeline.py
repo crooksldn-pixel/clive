@@ -168,11 +168,22 @@ _EMAIL_FALLBACK = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 # the day's automatic session they are written by their shape; a session he started by name —
 # his walkthrough — keeps them. A defect he asks to be logged (`owner_feedback`) is his request
 # to have those words written down, and is kept.
+#
+# The round-13 independent check found his words in more places, each written from inside a tool
+# or a route before any read had told this timeline a name: a working set's label (the title the
+# model gives a listing "in the owner's words", "Cy Cole's orders"), the half that shows it (its
+# headline), a query the language refused (its reason quotes what was asked, and `unknown` names
+# it), and the line spoken when a change is applied ("Reply sent to David.").
 WORDS: dict[str, tuple[str, ...]] = {
     "stt": ("text", "raw_text"),
     "model": ("answer",),
     "turn_finished": ("question", "answer"),
     "tts": ("text",),
+    "working_set": ("label",),
+    "query_rejected": ("reason", "unknown"),
+    "branch_forked": ("headline", "parent_headline"),
+    "branch_focused": ("headline",),
+    "action_commit": ("spoken",),
 }
 
 
@@ -193,8 +204,14 @@ def _words_by_shape(event: dict[str, Any], keys: tuple[str, ...]) -> dict[str, A
     words by its own rule (app/observability/recorder.py, CROOKS_RECORD_TRANSCRIPTS)."""
     from app.tools.dispatch import _spoken_shape
 
-    return {key: (_spoken_shape(value) if key in keys and isinstance(value, str) and value else value)
-            for key, value in event.items()}
+    def shaped(value: Any) -> Any:
+        if isinstance(value, str):
+            return _spoken_shape(value) if value else value
+        if isinstance(value, (list, tuple)):
+            return [shaped(v) for v in value]
+        return value
+
+    return {key: (shaped(value) if key in keys else value) for key, value in event.items()}
 
 
 def scrub_text(text: str) -> str:

@@ -11,6 +11,7 @@ import base64
 import logging
 import re
 import time
+import unicodedata
 import uuid
 from collections import Counter
 from collections.abc import Iterable, Mapping
@@ -953,10 +954,10 @@ def _orders_known(session, branch, calls) -> set[str]:
     return known
 
 
-def _order_mentions(text: str, known: set[str] | frozenset[str]) -> Counter:
-    """How many times his words name each order number, counted by PLACE in the sentence: said as
-    an order ("#1940", "order 1940", "CROOKS-1940"), or a number that is an order this conversation
-    holds. One count per place, however many of the patterns find it there."""
+def _order_places(text: str, known: set[str] | frozenset[str]) -> dict[int, str]:
+    """Every place his words name an order number, by where it starts: said as an order ("#1940",
+    "order 1940", "CROOKS-1940"), or a number that is an order this conversation holds. One place
+    however many of the patterns find it there."""
     words = str(text or "")
     places: dict[int, str] = {}
     for found in _ORDER_SAID.finditer(words):
@@ -964,7 +965,12 @@ def _order_mentions(text: str, known: set[str] | frozenset[str]) -> Counter:
     for found in _NUMBER.finditer(words):
         if found.group(1) in known:
             places.setdefault(found.start(1), found.group(1))
-    return Counter(places.values())
+    return places
+
+
+def _order_mentions(text: str, known: set[str] | frozenset[str]) -> Counter:
+    """How many times his words name each order number, counted by PLACE in the sentence."""
+    return Counter(_order_places(text, known).values())
 
 
 def _orders_named(text: str, known: set[str] | frozenset[str]) -> frozenset[str]:
@@ -990,9 +996,10 @@ def _numbers_said(text: str, session, proposed: list[str]) -> frozenset[str]:
     screen when unsure costs a redraw; staying on it wrongly shows the owner one order's card
     under another's answer.
 
-    Counted by place, as `_said_outside` counts: "add a note to order 1940: 1940 goes with the
-    gift box" says 1940 once more than the note carries it, so the sentence is about #1940 and a
-    screen showing #1938 does not stay under it."""
+    Counted by place: "add a note to order 1940: 1940 goes with the gift box" says 1940 once more
+    than the note carries it, so the sentence is about #1940 and a screen showing #1938 does not
+    stay under it. Only whether a screen stays; where a change goes is `_said_outside`'s, which
+    lets the model's words cancel nothing."""
     words = str(text or "")
     places: dict[int, str] = {}
     for pattern in (_ORDER_SAID, _NUMBER):
@@ -1044,23 +1051,90 @@ def _written_counts(proposal) -> Counter:
     return counts
 
 
-def _said_outside(text: str, known: set[str] | frozenset[str], proposals: Iterable[Any]) -> frozenset[str]:
-    """The order numbers his words name OUTSIDE what these changes write: the numbers he said more
-    times than the changes' own content carries them.
+def _written_strings(proposal) -> list[str]:
+    """The words a change writes — a note, a refund's reason, a tag, a message — from the model's
+    arguments, never an id or a gid (as `_written_counts` reads them)."""
+    out: list[str] = []
 
-    "Add a note to order 1940: 1940 goes with the gift box" says 1940 twice and the note carries
-    it once, so 1940 is still where the note goes. "Exchange for order 1912, she wants a medium",
-    noted as said, carries its only 1912 in the note and says nothing about where it goes. The
-    check used to take away every number the content carried, as a set, and the first sentence
-    then named no order at all: a note staged on #1938 stood (the round-12 deploy review, S2a-01,
-    R9-I-tests2-I-01, R9-I-tests5-I-03). Counted place by place, a number he said outside the
-    change's own content is where the change goes."""
-    said = _order_mentions(text, known)
-    written: Counter = Counter()
+    def walk(value: Any, key: str, depth: int) -> None:
+        if depth > 5:
+            return
+        if isinstance(value, str):
+            if value.strip() and not _ID_KEY.search(key) and not value.startswith("gid://"):
+                out.append(value)
+        elif isinstance(value, Mapping):
+            for k, v in value.items():
+                walk(v, str(k), depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for v in value:
+                walk(v, key, depth + 1)
+
+    source = getattr(proposal, "model_args", None)
+    if isinstance(source, Mapping):
+        walk(source, "", 0)
+    return out
+
+
+_WORD = re.compile(r"\w+")
+
+#: How many of his own words must stand before an order number, inside a passage a change writes
+#: word for word, for that number to be what the change SAYS rather than where it goes.
+_WORDS_BEFORE = 2
+
+
+def _words_of(text: str) -> list[tuple[str, int]]:
+    """His words, compared as the same word whatever their case or width, each with where it
+    starts in what he said."""
+    return [(unicodedata.normalize("NFKC", m.group(0)).casefold(), m.start()) for m in _WORD.finditer(str(text or ""))]
+
+
+def _written_places(text: str, proposals: Iterable[Any], *, dictated: bool = False) -> set[int]:
+    """Where in his words an order number stands inside what these changes write: the places of
+    numbers in a passage of his that a change writes word for word, with at least two of his words
+    before the number inside that passage.
+
+    Never for a change that cannot be undone (a refund, a cancellation): money does not go by how
+    the model worded its reason. Never a passage that begins where his sentence begins, unless a
+    tapped control made his whole sentence the words (`dictated`): a note that carries "add a note
+    to order 1940" carries the request, not something he dictated. And never a number with fewer
+    than two of his words before it in the passage: "refund twenty pounds on order 1940, it
+    arrived torn", written as the reason "Order 1940, it arrived torn", is where the refund goes,
+    whatever the reason repeats.
+
+    The round-12 deploy review (S2a-01, R9-I-tests2-I-01, R9-I-tests5-I-03), and its round-13
+    check: counting the numbers the model's own words carry let the model cancel the places he
+    named, so a refund whose reason repeated "1940" stood on #1938."""
+    said = _words_of(text)
+    tokens = [w for w, _ in said]
+    places: set[int] = set()
     for proposal in proposals:
-        if proposal is not None:
-            written.update(_written_counts(proposal))
-    return frozenset(number for number, times in said.items() if times > written.get(number, 0))
+        if proposal is None or str(getattr(proposal, "risk", "") or "").upper() == "RED":
+            continue
+        for value in _written_strings(proposal):
+            needle = [w for w, _ in _words_of(value)]
+            if len(needle) <= _WORDS_BEFORE or len(needle) > len(tokens):
+                continue
+            for start in range(0, len(tokens) - len(needle) + 1):
+                if tokens[start:start + len(needle)] != needle or (start == 0 and not dictated):
+                    continue
+                places.update(said[i][1] for i in range(start + _WORDS_BEFORE, start + len(needle)))
+    return places
+
+
+def _said_outside(text: str, known: set[str] | frozenset[str], proposals: Iterable[Any], *,
+                  dictated: bool = False) -> frozenset[str]:
+    """The order numbers his words name OUTSIDE what these changes write (`_written_places`):
+    each place he named an order counts, unless it stands inside his own words that a change
+    writes, word for word.
+
+    "Add a note to order 1940: 1940 goes with the gift box" names 1940 as where the note goes,
+    whatever the note says. "Add a note: exchange for order 1912, she wants a medium", noted as
+    said, carries its only 1912 inside the note and says nothing about where it goes. A note
+    that is not his words ("1940: fragile" for "add a note to order 1940 saying fragile"), and
+    any reason on a refund, excuses nothing: the place he said is where it goes."""
+    places = _order_places(text, known)
+    written = _written_places(text, list(proposals), dictated=dictated)
+    return frozenset(number for at, number in places.items() if at not in written)
 
 
 # ------------------------------------------------ the person he named, and a change to another one
@@ -1246,7 +1320,7 @@ def _off_target(proposed: list[str], session, *, question: str, known: set[str] 
         bound_here = kind in _BOUND_KINDS.get(bound_kind, ()) and _same_record(bound_kind, ref, bound_ref)
         if kind == "order":
             number = _order_number(getattr(proposal, "entity_label", ""))
-            where = _said_outside(question, known, [proposal])
+            where = _said_outside(question, known, [proposal], dictated=bound_here)
             if where:
                 if not number or number not in where:
                     off.append((proposal_id, NOT_THE_ORDER_NAMED, where))

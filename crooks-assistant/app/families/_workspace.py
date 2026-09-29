@@ -480,6 +480,13 @@ def after_commit(proposal: Any, session: Any = None) -> None:
     if not ident:
         return
     status = str(getattr(getattr(proposal, "status", None), "value", "") or "")
+    if status in ("EXECUTING", "EXECUTED"):
+        # A commit that found this change still being sent or proven — a retried request that
+        # waited its while and was answered `in_progress` — came to nothing: the commit sending
+        # it settles the card when Shopify answers. Settled here, a retry used to free a card
+        # still at its first read (a second Prepare, a second credit) or lock one as "sent, not
+        # confirmed" that Shopify was about to refuse (the round-13 independent check).
+        return
     entity = getattr(proposal, "entity", None) if isinstance(getattr(proposal, "entity", None), dict) else {}
     now = _NOTED.get(ident) or {}
     reason = str(getattr(proposal, "reason", "") or "")
@@ -499,7 +506,7 @@ def after_commit(proposal: Any, session: Any = None) -> None:
         # It never left, or Shopify answered and refused it: proven not made, whatever the
         # engine's re-read then said. The card is his again, with the reason.
         note(ident, FAILED, why=now.get("why") or reason or "it was not made", unsent="1")
-    elif now.get("left") or status in ("EXECUTED", "UNVERIFIED"):
+    elif now.get("left") or status == "UNVERIFIED":
         # It left, and it is not proven made: the answer was lost, or one re-read made at once
         # still shows nothing changed — which is not proof, since Shopify may yet apply a request
         # it was sent (round 13). Sent, not confirmed; the card makes nothing more.

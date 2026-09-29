@@ -139,6 +139,70 @@ async def test_a_number_said_only_in_the_note_does_not_let_the_note_land_on_a_th
                               "Say which order you want it on."), body["answer"]
 
 
+# ====================== the model's own words cancel nothing (the round-13 independent check)
+#
+# Round 13 first counted the numbers the change's own words carry against the places he said
+# them. The model controls those words: every "1940" it copied into a note or a reason cancelled
+# one place where he named #1940 as where the change goes, and the change stood on #1938. Now only
+# a passage of HIS words that the change writes word for word, with two of his words before the
+# number, keeps a number out of where the change goes — and never for money.
+
+
+@pytest.mark.parametrize("reason", ["1940 arrived torn", "Order 1940, it arrived torn", "it arrived torn, order 1940"])
+async def test_a_refund_whose_reason_copies_the_order_he_named_is_withdrawn(desk, reason):
+    """"Refund twenty pounds on order 1940, it arrived torn", the refund prepared on #1938 with a
+    reason that repeats 1940, in the model's words or in his. Before, the reason's 1940 cancelled
+    his, and the refund card on #1938 was delivered."""
+    sid = f"refund-copies-{abs(hash(reason)) % 1000}"
+    await _on_1938_with_1940_held(desk, sid)
+    desk.model.steps = [reads(("shopify_refund_create", {"order_id": A, "amount": "20.00", "reason": reason}))]
+    body = await say(desk, "refund twenty pounds on order 1940, it arrived torn", sid)
+
+    proposal = _only(desk, sid)
+    assert proposal.entity_ref == A and proposal.status.value == "REVOKED", (reason, proposal.status)
+    assert proposal.delivered_at is None and no_confirmation(body)
+    assert body["answer"] == WITHDRAWN_1940, body["answer"]
+    assert desk.store.mutations == []
+
+
+@pytest.mark.parametrize("note", ["1940: fragile", "Fragile (order 1940)", "Add a note to order 1940 saying fragile",
+                                  "order 1940 saying fragile"])
+async def test_a_note_that_copies_the_order_he_named_is_withdrawn(desk, note):
+    """"Add a note to order 1940 saying fragile", noted on #1938 with 1940 in the note: in the
+    model's own words, as his whole request, or as his words starting at the order. None of them
+    is something he dictated with 1940 inside it."""
+    sid = f"note-copies-{abs(hash(note)) % 1000}"
+    await _on_1938_with_1940_held(desk, sid)
+    desk.model.steps = [notes(A, note)]
+    body = await say(desk, "add a note to order 1940 saying fragile", sid)
+
+    proposal = _only(desk, sid)
+    assert proposal.entity_ref == A and proposal.status.value == "REVOKED", (note, proposal.status)
+    assert no_confirmation(body) and body["answer"] == WITHDRAWN_1940, body["answer"]
+
+
+async def test_after_add_a_note_on_1938_a_note_that_is_not_his_words_cannot_carry_1940_onto_it(desk):
+    """Add a note tapped on #1938, then "add a note to order 1940 saying fragile", and the model
+    notes #1938 with words he did not say. His 1940 is where it goes: withdrawn."""
+    await _on_1938_with_1940_held(desk, "tapped-not-his")
+    assert (await bind_note(desk, "tapped-not-his", kind="order", ref=A))["ok"] is True
+    desk.model.steps = [notes(A, "1940 goes with the gift box")]
+    body = await say(desk, "add a note to order 1940 saying fragile", "tapped-not-his")
+
+    proposal = _only(desk, "tapped-not-his")
+    assert proposal.entity_ref == A and proposal.status.value == "REVOKED" and no_confirmation(body)
+
+
+async def test_after_add_a_note_his_dictation_that_names_another_order_stands(desk):
+    """The control: Add a note tapped on #1938, and he dictates "swap it for the one on order
+    1940". The whole sentence is the note, word for word, as the tap asked: #1938's card."""
+    await _on_1938_with_1940_held(desk, "tapped-dictation")
+    assert (await bind_note(desk, "tapped-dictation", kind="order", ref=A))["ok"] is True
+    desk.model.steps = [notes(A, "Swap it for the one on order 1940.")]
+    card = confirmation(await say(desk, "swap it for the one on order 1940", "tapped-dictation"))
+    assert desk.runtime.actions.find(card["proposal_id"]).entity_ref == A
+
+
 # ============================================ a tapped control binds the record (#14, #15)
 
 

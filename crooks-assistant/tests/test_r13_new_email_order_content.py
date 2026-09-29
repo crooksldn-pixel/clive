@@ -60,6 +60,16 @@ async def test_an_email_to_one_customer_naming_anothers_order_is_refused(tool):
         assert _pending(h) == [] and "confirmation" not in said.surface_types
 
 
+@pytest.mark.parametrize("body", ["Good news: order1938 is packed.", "Good news: #\uff11\uff19\uff13\uff18 is packed."])
+async def test_an_order_written_any_way_in_a_new_email_is_still_the_order_it_names(body):
+    async with harness(admitted=True) as h:
+        _mias, davids = await _holding_both_orders(h)
+        said = await h.ask("email David", ("gmail_send_new", {"order_id": davids["order_id"], "subject": "Your order", "body": body}))
+        call = _the_call(said, "gmail_send_new")
+        assert not call["ok"] and "1938" in call["error"], (body, call)
+        assert _pending(h) == []
+
+
 async def test_the_subject_is_held_as_well_as_the_words():
     async with harness(admitted=True) as h:
         _mias, davids = await _holding_both_orders(h)

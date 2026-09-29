@@ -674,7 +674,7 @@ def test_once_an_old_page_hands_its_key_in_that_key_opens_nothing_and_the_new_on
     assert client.post(f"/displays/{sid}/seen", json={"version": 4, "start": 0, "end": 1}, headers=as_screen(new)).status_code == 200
 
 
-def test_a_new_key_whose_record_is_not_yet_durable_is_still_handed_over(tmp_path, monkeypatch):
+def test_a_new_key_whose_record_is_not_yet_durable_is_not_handed_over_and_the_old_one_still_opens(tmp_path, monkeypatch):
     """B2-01, a failure found reading the store (round 11): a screen naming itself again, while an
     earlier deletion is still owed and the folder cannot be flushed, had its key changed in
     memory and in the file — and was answered 503 with no cookie. Its old key no longer opened

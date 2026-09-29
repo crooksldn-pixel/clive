@@ -277,3 +277,76 @@ async def test_an_error_that_quotes_what_he_said_is_written_with_those_words_by_
     _nowhere([finished], "Quill", "Zoe")
     assert finished["error"].endswith("is not an item I can search by, so nothing was read."), finished["error"]
     assert SHAPE.search(finished["error"]), finished["error"]
+
+
+# ================================ his words written from inside a tool (the round-13 check)
+#
+# The round-13 independent check found his words written from inside a tool, before any read had
+# told the timeline a name: a listing's title, "in the owner's words", became a working set's
+# label; a query the language refused quoted what was asked in its reason. In the automatic
+# session those are written by their shape now, like everything else he said.
+
+
+@pytest.fixture()
+def listing(monkeypatch):
+    """The order cache of tests/test_analytics_tools.py: Cy Cole and others, with a fixed now."""
+    from app.analytics.cache import OrderCache
+    from app.tools import analytics_tools
+    from tests.test_analytics_tools import NOW, Clock, Store, london_now
+
+    london_now(monkeypatch)
+    cache = OrderCache(lambda: Store(), clock=Clock(NOW.timestamp()))
+    analytics_tools.bind(cache)
+    yield
+    analytics_tools.bind(None)
+
+
+async def test_a_listing_titled_in_his_words_is_written_by_its_shape(always_on, listing):
+    """The check's own case: "Cy Cole's orders" as the title of a listing. The working set's label
+    was written as given. So was a customer ranking's, before its names were noted."""
+    from app.session.models import Session
+
+    line, store, session = always_on
+    conversation = Session(session_id="s-listing")
+    with authority.acting_as(authority.for_owner("owner@example.com")):
+        await dispatch("commerce_query", {"entity": "orders", "period": "last_90_days", "title": "Cy Cole's orders"},
+                       session=conversation, timeout_s=5)
+        await dispatch("commerce_aggregate", {"entity": "customers", "period": "last_90_days", "metrics": ["lifetime_spent"],
+                                              "limit": 3, "title": "Top three, Cy Cole first"},
+                       session=conversation, timeout_s=5)
+    events = _events(line, store, session)
+    sets = [e for e in events if e.get("kind") == "working_set"]
+    assert len(sets) == 2 and all(SHAPE.fullmatch(e["label"]) for e in sets), sets
+    _nowhere(events, "Cy Cole", "Cole's")
+
+
+async def test_a_query_the_language_refused_is_written_without_what_was_asked(always_on, listing):
+    from app.session.models import Session
+
+    line, store, session = always_on
+    with authority.acting_as(authority.for_owner("owner@example.com")):
+        await dispatch("commerce_aggregate", {"entity": "orders", "period": "last_90_days", "group_by": ["zoe_quill"],
+                                              "metrics": ["orders"]}, session=Session(session_id="s-refused"), timeout_s=5)
+    events = _events(line, store, session)
+    (refused,) = [e for e in events if e.get("kind") == "query_rejected"]
+    assert SHAPE.fullmatch(refused["reason"]) and all(SHAPE.fullmatch(u) for u in refused["unknown"] or []), refused
+    _nowhere(events, "zoe", "quill")
+
+
+@pytest.mark.parametrize(("kind", "fields"), [
+    ("action_commit", {"spoken": "Reply sent to David."}),
+    ("branch_forked", {"headline": "Cy Cole's orders", "parent_headline": "Orders for Zoe"}),
+    ("branch_focused", {"headline": "Cy Cole's orders"}),
+])
+def test_what_a_change_or_a_half_says_is_written_by_its_shape_in_the_automatic_session(always_on, kind, fields):
+    line, store, session = always_on
+    timeline.emit(kind, session_id="s-said", **fields)
+    (event,) = [e for e in _events(line, store, session) if e.get("kind") == kind]
+    assert all(SHAPE.fullmatch(event[k]) for k in fields), event
+
+
+def test_what_a_change_says_is_kept_in_a_session_he_named(walkthrough):
+    line, store, session = walkthrough
+    timeline.emit("action_commit", session_id="s-named", spoken="Reply sent to David.")
+    (event,) = [e for e in _events(line, store, session) if e.get("kind") == "action_commit"]
+    assert event["spoken"] == "Reply sent to David."
