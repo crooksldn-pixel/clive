@@ -1251,7 +1251,20 @@ function drawConn() {
   el.conn.dataset.state = state;
   el.connText.textContent = text;
   el.conn.hidden = state !== 'down' && state !== 'degraded';
+  reserveConnRoom();
 }
+
+// The pill is laid over the top right of the answer line (web/alpha.css: the header floats over
+// the orb band). While it shows, the line keeps clear of it instead of running under it — the
+// owner, 29 September: "text ... hidden behind an invisible barrier looks cheap". Its width is
+// the room the line leaves (`--conn-room`, read by alpha.css), measured again if it changes size.
+function reserveConnRoom() {
+  const root = document.documentElement;
+  if (!root || !root.style || typeof root.style.setProperty !== 'function') return;
+  const rect = !el.conn.hidden && typeof el.conn.getBoundingClientRect === 'function' ? el.conn.getBoundingClientRect() : null;
+  root.style.setProperty('--conn-room', (rect && rect.width ? Math.ceil(rect.width) + 8 : 0) + 'px');
+}
+if (typeof ResizeObserver === 'function' && el.conn) new ResizeObserver(reserveConnRoom).observe(el.conn);
 
 pollHealth();
 setInterval(() => pollHealth(false), 45000);   // /ping watches reachability far more often; this is the detail

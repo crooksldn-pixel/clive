@@ -300,7 +300,8 @@ body.alpha .compare-k,body.alpha .matrix th,body.alpha .mtable th,body.alpha .tl
 body.alpha .field-label,body.alpha .ws-fact dt,body.alpha .action-meta,body.alpha .action-target,body.alpha .bar-day,
 body.alpha .chip .chip-kind,body.alpha .recent-kicker,body.alpha .attention .t,body.alpha .card-kicker{letter-spacing:.03em}
 body.alpha .link-btn{letter-spacing:0;text-transform:none;font-size:15px}
-body.alpha[data-mode="context"] .orb-zone{padding-right:64px}
+/* 64px for the settings button, and the pill's own width while it shows (web/app.js reserveConnRoom) */
+body.alpha[data-mode="context"] .orb-zone{padding-right:calc(64px + var(--conn-room, 0px))}
 /* the home scrolls under the bar and fades as it goes, at the top as well as the bottom, and only
    where there is more beyond the edge (web/edges.js writes the mask as it scrolls) */
 
