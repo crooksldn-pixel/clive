@@ -337,6 +337,20 @@ def test_a_check_in_falls_due_when_the_record_goes_quiet(s):
     assert date.fromisoformat(s.get(obj.id).updated_at[:10]) == today
 
 
+def test_the_design_is_not_written_out_again_as_a_to_do_list(s):
+    """The complaint's own failure, refused where it would happen: CLIVE proposing each of the
+    people's tasks, or a stage, as its own work items."""
+    tasks = s.create(title="Jobs", request=DELEGATE, kind="tasks", tasks=[{"who": "Rosa", "text": "Steam the AW samples"}])
+    for said in ("Rosa: steam the AW samples", "Steam the AW samples"):
+        with pytest.raises(ObjectiveError, match="already Rosa's task"):
+            s.propose(tasks.id, said, needs_owner=False)
+    project = s.create(title="AW drop", request=SAMPLES, kind="project", stages=STAGES, stage="Sampling")
+    with pytest.raises(ObjectiveError, match="already a stage"):
+        s.propose(project.id, "approval", needs_owner=False)
+    s.propose(project.id, "Chase Northfield for a sample date", needs_owner=False)
+    assert [i["text"] for i in s.get(project.id).items] == ["Chase Northfield for a sample date"]
+
+
 def test_the_ladder_is_untouched_by_the_design(s):
     """Tasks and stages are records of what people are doing; they cannot approve CLIVE's own
     work items, and the model's tool still cannot authorise or close."""
@@ -399,7 +413,8 @@ def test_the_prompt_teaches_the_kinds_by_what_the_thing_is(tmp_path):
     for phrase in ("chosen by what the thing is, not by the words", "is a project at Sampling",
                    "never a list of to-dos", "one task per job, each with who",
                    "nothing is sent to them, so never say you told them", "ONE short question",
-                   "never a list or a form", "orders, books and pays for nothing", "only from what he said"):
+                   "never a list or a form", "orders, books and pays for nothing", "only from what he said",
+                   "never propose them again as work items"):
         assert phrase in prompt, phrase
 
 

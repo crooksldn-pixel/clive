@@ -791,10 +791,26 @@ class ObjectiveStore:
 
     def propose(self, objective_id: str, text: str, *, needs_owner: bool, by: str = "clive") -> Objective:
         def fn(o):
+            self._not_the_plan_again(o, text)
             o.items.append({"id": _new_id("w"), "text": _clean(text), "state": "proposed", "needs_owner": bool(needs_owner),
                             "evidence": None, "history": [{"state": "proposed", "at": _now(), "by": by}]})
             self._event(o, "proposed", f"{text}{' (needs your approval)' if needs_owner else ''}", by)
         return self._change(objective_id, fn, by=by)
+
+    @staticmethod
+    def _not_the_plan_again(o: Objective, text: str) -> None:
+        """A work item that repeats one of the people's tasks or a stage is the design written out
+        a second time as a to-do list, which is exactly the complaint round 12 answers: refused,
+        with what to do instead. "Rosa: steam the samples" and "Steam the samples" both repeat
+        Rosa's task."""
+        said = _key(text)
+        for task in o.tasks:
+            if said in (_key(task["text"]), _key(f"{task['who']}: {task['text']}")):
+                raise ObjectiveError(f"That is already {task['who']}'s task; tasks are not work items. "
+                                     "Use action task to change it.")
+        for stage in o.stages:
+            if said == _key(stage["name"]):
+                raise ObjectiveError(f"{stage['name']} is already a stage of this project; move it with action stage.")
 
     def advance(self, objective_id: str, item_id: str, to: str, *, evidence: str = "", by: str = "clive") -> Objective:
         """Move a work item up the ladder. The owner's approval is never taken from here."""
