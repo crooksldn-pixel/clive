@@ -53,9 +53,11 @@ const SHELL = [
   // Round 9: the remote for the screens. Code and styles only; what it shows is asked for.
   '/static/remote.js',
   '/static/remote.css',
-  // Round 12: soft scroll edges.
+  // Round 12: soft scroll edges, and cards that form out of CLIVE's dots.
   '/static/edges.js',
   '/static/edges.css',
+  '/static/dots-app.js',
+  '/static/dots-app.css',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',
