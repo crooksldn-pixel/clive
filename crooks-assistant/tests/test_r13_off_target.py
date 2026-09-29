@@ -128,8 +128,8 @@ async def test_with_nothing_tapped_a_note_naming_another_order_is_asked_about_th
     cannot parse it, and it stood. Which of his numbers is where a note goes is the sentence's
     structure — the model's to read, and exactly what is checked here — so with nothing tapped,
     a change on an order he did not name is withdrawn and he is asked. "On this one" puts it on
-    #1938. (After Add a note is tapped on #1938, what he says is dictation, and stands: see
-    tests/test_r11_turn.py.)"""
+    #1938. (After Add a note is tapped on #1938 he is asked the same way: see
+    test_after_add_a_note_a_dictation_naming_another_order_is_asked_about_then_placed.)"""
     await _on_1938_with_1940_held(desk, "content-only")
     desk.model.steps = [notes(A, "Swap it for the one on order 1940")]
     body = await say(desk, "add a note: swap it for the one on order 1940", "content-only")
@@ -570,3 +570,21 @@ async def test_store_credit_asked_for_without_a_name_is_the_model_s_to_place(des
     desk.model.steps = [credits(MIA)]
     card = confirmation(await say(desk, "give her fifteen pounds credit", "no-name"))
     assert desk.runtime.actions.find(card["proposal_id"]).entity_ref == MIA
+
+
+def test_what_was_withdrawn_is_told_only_to_the_half_it_happened_in():
+    """Round 13's fifth check: the notice was the session's, and the other half's model was told
+    about a change it never prepared, while the half it happened in lost it."""
+    from types import SimpleNamespace
+
+    from app.routes.turn import _context_lines
+    from app.session.models import Session
+
+    session = Session(session_id="halves")
+    session.last_withdrawn = {"left": "You said #1940, but the change I'd prepared was for #1938."}
+    right = _context_lines(session, "and the other one?", branch=SimpleNamespace(branch_id="right"))
+    assert not any("CLIVE withdrew" in line for line in right)
+    left = _context_lines(session, "on this one", branch=SimpleNamespace(branch_id="left"))
+    assert any("CLIVE withdrew" in line and "#1940" in line for line in left)
+    again = _context_lines(session, "and now?", branch=SimpleNamespace(branch_id="left"))
+    assert not any("CLIVE withdrew" in line for line in again), "told once"

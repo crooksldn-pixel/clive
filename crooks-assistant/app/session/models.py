@@ -101,9 +101,9 @@ class Session:
     last_outcome: str = ""
     # What the Mac told the owner when it withdrew a change the model had just prepared (a note
     # on an order he did not name, an email to someone he did not name), told to the model once
-    # at the next question: its own last answer still says the card is ready, and "on this one"
-    # is only an answer if it knows the question.
-    last_withdrawn: str = ""
+    # at that half's next question: its own last answer still says the card is ready, and "on
+    # this one" is only an answer if it knows the question.
+    last_withdrawn: dict[str, str] = field(default_factory=dict)   # by half (branch id)
     # The last read-layer query, as the Mac ran it, so "just this week" and "by size" keep
     # its shape rather than starting over.
     last_query: dict[str, Any] | None = None

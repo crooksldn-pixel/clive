@@ -538,3 +538,15 @@ def test_numbers_are_never_taken_for_names(always_on):
     (event,) = [e for e in _events(line, store, session) if e.get("kind") == "anything"]
     assert event["iso"].startswith("20") and "[name]" not in event["iso"], event["iso"]
     assert event["order"] == "#1940" and event["ref"] == "gid://shopify/Order/1940" and event["who"] == "[name]", event
+
+
+def test_a_single_word_he_said_does_not_take_the_mac_s_own_words_out_of_an_error():
+    """Round 13's fifth check: matching his words in any case and inside "a_b" turned a note of
+    "Order" into "the <5 chars> may have been deleted". One word is matched as he wrote it."""
+    from app.tools.dispatch import _without_what_was_said
+
+    error = "The order may have been deleted. Groups are product, product_type, variant."
+    kept = _without_what_was_said(error, "shopify_order_note_append", {"order_id": "gid://shopify/Order/1", "note": "Order"})
+    assert kept == error, kept
+    grouped = _without_what_was_said(error, "commerce_aggregate", {"group_by": ["type"]})
+    assert "product_type" in grouped, grouped

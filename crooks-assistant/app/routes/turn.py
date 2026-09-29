@@ -326,7 +326,7 @@ async def _turn(request: Request, runtime, live, branch, *, text: str | None, au
     told, write_feedback = feedback.held_at_turn(text, branch=branch, session_id=session_id, turn_id=turn_id)
     if told:
         prompt_text = f"{prompt_text}\n\n{told}"
-    for extra in _context_lines(live, text, runtime=runtime):
+    for extra in _context_lines(live, text, runtime=runtime, branch=branch):
         prompt_text = f"{prompt_text}\n\n{extra}"
     where = _branch_line(branch)
     if where:
@@ -658,18 +658,20 @@ AFFIRMATION_ANSWER = words_for("tap_commit")["affirmation"]
 AFFIRMATION_BLOCKED_ANSWER = AFFIRMATION_BLOCKED
 FIXED_LINES = GRAMMAR_FIXED_LINES
 
-def _context_lines(session, text: str, runtime=None) -> list[str]:
+def _context_lines(session, text: str, runtime=None, branch=None) -> list[str]:
     """What the Mac knows that the model would otherwise guess at, one line each: the last
     gesture's counted outcome (once), the last query's shape (for a follow-up), and which
     composable capability the question's words name (so it is reached for, not declined)."""
     from app.observability import claims
 
     lines: list[str] = []
-    withdrawn = str(getattr(session, "last_withdrawn", "") or "").strip()
+    # Told to the half it happened in, once: the two halves are two conversations with the model.
+    half = str(getattr(branch, "branch_id", "") or "")
+    kept = getattr(session, "last_withdrawn", None)
+    withdrawn = str(kept.pop(half, "") if isinstance(kept, dict) else "").strip()
     if withdrawn:
         lines.append(f'[CLIVE withdrew the change you prepared last time before the owner saw it, and told him: "{withdrawn[:240]}" '
                      "Nothing is on a card. If what he says now answers that, prepare the change again where he says.]")
-        session.last_withdrawn = ""
     outcome = str(getattr(session, "last_outcome", "") or "").strip()
     if outcome:
         lines.append(f'[The last change, as CLIVE proved it: "{outcome[:200]}". If asked whether it worked, say this; do not propose it again.]')
@@ -1804,6 +1806,7 @@ async def _answer(
     # (see `_off_target`, `_stand_on_what_was_shown`).
     named: frozenset[str] = frozenset()
     withheld: set[str] = set()
+    withdrawn_words = ""
     if seq is not None and session is not None and not abandoned:
         known = _orders_known(session, branch, calls)
         named = _orders_named(question, known)
@@ -1815,7 +1818,7 @@ async def _answer(
                 session, off, question=question, binding=binding, calls=calls)
             for reason in dict.fromkeys(why for _p, why, _where in off):
                 runtime.actions.revoke_ids([p for p, why, _where in off if why == reason], reason)
-            session.last_withdrawn = answer
+            withdrawn_words = answer
             withheld = {p for p, _why, _where in off}
             proposed = [p for p in proposed if p not in withheld]
         elif named:
@@ -1903,6 +1906,12 @@ async def _answer(
                 cancelled = bool(getattr(session, "abandoned", False) or getattr(branch, "abandoned", False))
                 replaced = not cancelled
                 ui, scene, on_screen_claim = [], None, None
+    if withdrawn_words and not abandoned and session is not None:
+        # What he was told about a withdrawn change, for this half's model at its next question —
+        # only when he was told it: an abandoned answer told him nothing.
+        if not isinstance(getattr(session, "last_withdrawn", None), dict):
+            session.last_withdrawn = {}
+        session.last_withdrawn[str(getattr(branch, "branch_id", "") or "")] = withdrawn_words
     if abandoned:
         # Nobody is waiting for this answer, and the half has moved on to another question
         # (the 2026-09-28 deploy review, round 9, D2-01). It publishes nothing: no cards, so the

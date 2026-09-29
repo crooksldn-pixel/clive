@@ -700,7 +700,9 @@ def _words_run_out(text: str, value: str, shape: str) -> str:
     """`text` with every run of `value`'s words — in order, whatever their case and whatever joins
     them (a space, "_", "-") — replaced by `shape`."""
     wanted = [w.casefold() for w in _PLAIN_WORD.findall(value)]
-    if not wanted or sum(len(w) for w in wanted) < 3:
+    if len(wanted) < 2:
+        # One word is matched as written, above: matched in any case and inside "a_b", a value
+        # of "order" or "customer" took the Mac's own words out of the error.
         return text
     found = [(m.group(0).casefold(), m.start(), m.end()) for m in _PLAIN_WORD.finditer(text)]
     spans: list[tuple[int, int]] = []
