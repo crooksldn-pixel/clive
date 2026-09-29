@@ -32,5 +32,5 @@ defect once the code is read or not a blocker by the rule's own terms, with the 
 record gives them, `parts` naming the round-12 part (or the round-11 entry's parts for an
 evidence finding), and `excerpts` given as line ranges (`lines 503-600: what they are`) that
 `tests/test_r13_evidence_index.py` holds to the tree. Where writing the evidence showed a real
-defect instead, the entry says `LEFT (real defect found)` and its answer names the reproducing
-test, kept in the tree marked `xfail(strict=True)` until the defect is fixed.
+defect instead, it was fixed in the same round and the entry says `FIXED`, naming first the tests
+that fail on the code before the fix.
