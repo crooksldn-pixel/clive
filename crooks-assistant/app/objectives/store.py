@@ -822,10 +822,18 @@ class ObjectiveStore:
                 if here is None:
                     raise ObjectiveError("waiting_on belongs to the stage it is at now; say which stage that is.")
                 here[1]["waiting_on"] = _optional(waiting_on, limit=MAX_NAME * 2)
-        for task in (tasks or [])[:MAX_TASKS]:
+        # Every task he listed, or none (round 13, S6-02): past the limit `_add_task` refuses the
+        # whole objective rather than keep the first sixty.
+        for task in tasks or []:
             if not isinstance(task, dict):
                 raise ObjectiveError("Each task has who and text.")
-            self._add_task(obj, who=task.get("who"), text=task.get("text"), due=task.get("due"))
+            found, added = self._add_task(obj, who=task.get("who"), text=task.get("text"), due=task.get("due"))
+            when = _date(task.get("due"), what="task's date")
+            if not added and when and when != found.get("due"):
+                if found.get("due"):
+                    raise ObjectiveError(f"{found['who']}'s task {found['text']!r} is listed twice with two dates, "
+                                         f"{_on(found['due'])} and {_on(when)}; say which, and nothing was recorded.")
+                found["due"] = when
         self._event(obj, "created", "Objective recorded from the owner's request.", by)
         with self._lock:
             self._write(obj)
@@ -834,11 +842,15 @@ class ObjectiveStore:
     # ---- the design: stages, tasks, people, dates -------------------------------------
     @staticmethod
     def _people(entries: list) -> list[dict]:
+        """The people named, each once. Past the limit, refused whole rather than cut (round 13,
+        S6-02): the thirteenth person named is not quietly left off."""
         out: list[dict] = []
-        for entry in list(entries)[:MAX_PEOPLE]:
+        for entry in list(entries):
             person = _person(entry)
             if all(_key(p["name"]) != _key(person["name"]) for p in out):
                 out.append(person)
+            if len(out) > MAX_PEOPLE:
+                raise ObjectiveError(f"An objective names at most {MAX_PEOPLE} people; nothing was recorded.")
         return out
 
     @staticmethod
@@ -861,7 +873,26 @@ class ObjectiveStore:
                 "id": _new_id("s"), "name": name, "state": "upcoming", "due": None, "waiting_on": None,
                 "started_at": None, "done_at": None,
             })
+        ObjectiveStore._in_order(out)
         return out
+
+    @staticmethod
+    def _in_order(stages: list[dict]) -> None:
+        """Every done stage before the one the project is at, and every stage not yet reached
+        after it (round 13, S6-04). A stage keeps its state by name when the list is reordered,
+        and moving on (`_move`) goes by place: a done stage placed after the current one was made
+        upcoming again by the next "next", and when it was done was wiped. So an order that would
+        put a stage where its state does not belong is refused, in words that say which."""
+        rank = {"done": 0, "current": 1, "upcoming": 2}
+        for before, after in zip(stages, stages[1:], strict=False):
+            if rank[before["state"]] <= rank[after["state"]]:
+                continue
+            if after["state"] == "done":
+                raise ObjectiveError(f"{after['name']} is done, so it cannot come after {before['name']}, which is "
+                                     f"not; nothing was changed.")
+            raise ObjectiveError(f"{before['name']} has not been reached, so it cannot come before {after['name']}, "
+                                 f"where the project is now; put it after, or move the project back first. "
+                                 f"Nothing was changed.")
 
     @staticmethod
     def _stage_index(obj: Objective, stage: str) -> int:
@@ -908,18 +939,21 @@ class ObjectiveStore:
                 return known
         return _proper(name)
 
-    def _add_task(self, obj: Objective, *, who: Any, text: Any, due: Any) -> dict:
+    def _add_task(self, obj: Objective, *, who: Any, text: Any, due: Any) -> tuple[dict, bool]:
+        """The task, and whether it is new. Said twice is one task, not two: the one already
+        there comes back, and what to do with a date said with it is the caller's (a new date
+        is applied, never passed over: round 13, S6-03)."""
         person, words = self._who(obj, who), _clean(text, limit=300, what="task")
         same = next((t for t in obj.tasks if not t.get("done") and _key(t["who"]) == _key(person)
                      and _key(t["text"]) == _key(words)), None)
         if same is not None:
-            return same  # said twice is one task, not two
+            return same, False
         if len(obj.tasks) >= MAX_TASKS:
-            raise ObjectiveError(f"An objective holds at most {MAX_TASKS} tasks.")
+            raise ObjectiveError(f"An objective holds at most {MAX_TASKS} tasks; nothing was recorded.")
         task = {"id": _new_id("t"), "who": person, "text": words, "due": _date(due, what="task's date"),
                 "done": False, "done_at": None, "at": _now()}
         obj.tasks.append(task)
-        return task
+        return task, True
 
     def design(self, objective_id: str, *, by: str = "clive", title: str | None = None, kind: str | None = None,
                deadline: str | None = None, purpose: str | None = None, done_when: str | None = None,
@@ -1035,7 +1069,12 @@ class ObjectiveStore:
                 return
             if who is None or text is None:
                 raise ObjectiveError("A new task needs who is to do it and what it is.")
-            added = self._add_task(o, who=who, text=text, due=due)
+            added, new = self._add_task(o, who=who, text=text, due=due)
+            when = _date(due, what="task's date")
+            if not new and when and when != added.get("due"):
+                # Said again with another date: the date he gives now is the task's date.
+                self._edit_task(o, added, who=None, text=None, due=when, done=done or None, by=by)
+                return
             if done:
                 self._edit_task(o, added, who=None, text=None, due=None, done=True, by=by)
             self._event(o, "task", f"For {added['who']}: {added['text']}"
