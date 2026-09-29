@@ -231,15 +231,42 @@ def _write_all(fd: int, data: bytes) -> tuple[int, OSError | None]:
     return done, None
 
 
-def _take_back(fd: int, partial: int) -> None:
-    """The last `partial` bytes of an append-only file off again: the part of a line that did not
-    finish. If the file cannot be cut, the part-line is ended, so the next line starts whole."""
-    if partial <= 0:
-        return
+def _hold_file(fd: int) -> bool:
+    """This append's own hold on the timeline file: exclusive, for as long as the fd is open
+    (closing it lets go). Another writer on the same file waits for it rather than landing its
+    line between this append's part-line and the take-back of it (round 13, O1-01). False when
+    it cannot be taken; then nothing is written, as with no hold on the writer lock."""
     try:
-        os.ftruncate(fd, max(0, os.fstat(fd).st_size - partial))
+        import fcntl
+    except ImportError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except OSError as exc:
+        log.debug("timeline file could not be held for an append: %s", exc)
+        return False
+    return True
+
+
+def _take_back(fd: int, keep_to: int, wrote_to: int) -> bool:
+    """The part of a line that did not finish, off again: the file cut back to `keep_to`, the end
+    of the last whole line this append wrote, from where this append began (round 13, O1-01). The
+    file's size at the time is not used: it is where the file ends, not where this append's own
+    bytes end, and a line another writer added after them is theirs, counted written. The append
+    holds the file alone (`_hold_file`), so nothing is after `wrote_to` but what it wrote.
+
+    If the file cannot be cut, the part-line is ended, so the next line starts whole. True when
+    the file now ends at the end of a line; False when neither worked, and the file ends in a
+    part-line anything written next would be glued to (`Timeline._broken`)."""
+    if wrote_to <= keep_to:
+        return True
+    try:
+        os.ftruncate(fd, keep_to)
+        return True
     except OSError:
-        _write_all(fd, b"\n")
+        pass
+    done, error = _write_all(fd, b"\n")
+    return error is None and done == 1
 
 
 class Timeline:
@@ -279,6 +306,9 @@ class Timeline:
         self._lock_busy_until = 0.0
         self._lock_guard = threading.Lock()
         self._full: set[Path] = set()
+        # Files that end in a part-line that could be neither cut off nor ended: nothing more is
+        # written to one, and what would have been is counted dropped (round 13, O1-01).
+        self._broken: set[Path] = set()
         # The last few CORRELATION ids to go past, so something being written down now can say
         # what was happening around it without reading the file back. Owner feedback is the
         # caller (app/observability/feedback.py): "log that the split is broken" is worth far
@@ -330,7 +360,7 @@ class Timeline:
         # Whether everything reached the file is kept and said, never assumed (the 2026-09-27
         # deploy review, round 6, F-10): `counts` after this reports what is still pending, and a
         # stop that could not settle in time is logged as such.
-        self.stop_settled = self.flush()
+        self.stop_settled = self.flush() and self.sessions.timeline_path(current) not in self._broken
         if not self.stop_settled:
             log.warning("test session %s stopped with events still being written; its count is not final",
                         current.test_session_id)
@@ -547,9 +577,15 @@ class Timeline:
             path.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             try:
-                if path in self._full:
+                if path in self._full or path in self._broken:
                     return 0, len(lines)
-                room = MAX_TIMELINE_BYTES - os.fstat(fd).st_size
+                if not _hold_file(fd):
+                    log.error("timeline: %d event(s) not written, the file could not be held for the append", len(lines))
+                    return 0, len(lines)
+                # Where this append begins, under its hold: every byte from here to the end is
+                # this append's, which is what lets a failed write take back exactly its own.
+                start = os.lseek(fd, 0, os.SEEK_END)
+                room = MAX_TIMELINE_BYTES - start
                 keep: list[bytes] = []
                 for line in lines:
                     data = (line + "\n").encode("utf-8")
@@ -569,7 +605,12 @@ class Timeline:
                                 break
                             used += len(data)
                             whole += 1
-                        _take_back(fd, done - used)
+                        if not _take_back(fd, start + used, start + done):
+                            # A part-line is at the end and stays: the next line would be glued to
+                            # it and counted, so there is no next line in this file.
+                            self._broken.add(path)
+                            log.error("timeline %s ends in a part-line that could not be taken back; "
+                                      "nothing more is written to it", path.name)
                         log.warning("could not write the timeline whole: %s", error)
                         return whole, len(lines) - whole
                 if len(keep) < len(lines):
