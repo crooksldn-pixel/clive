@@ -1778,3 +1778,24 @@ test('an order packed while the one beside it is still packing keeps nothing of 
   const text = pg.els.ui.allText();
   assert.ok(text.includes('Order #1047') && text.includes('Order #1052') && !text.includes('Alex Doe') && !text.includes('Sam Carter'), text);
 });
+
+
+// Round 13 (S3-02): a tick CLIVE could not keep safely is answered 503 and not made. The touched
+// screen says so, and draws no tick; the same tap again, once CLIVE can keep it, ticks it.
+test('a touched screen’s tick CLIVE could not save says so, draws nothing, and ticks on the next tap', async () => {
+  let refuse = true;
+  const { pg } = await upWith((at) => ({ version: 2, showing: Object.assign(slip(at), { v: 1 }), beside: list(at, 2) }), (request) => {
+    if (!request.url.endsWith('/remote/tick')) return null;
+    if (refuse) return { status: 503, body: { code: 'not_saved', detail: 'That could not be saved just now; nothing was changed. Try again.' } };
+    return { status: 200, body: { version: 3, v: request.body.version, ticked: [request.body.item], page: 0 } };
+  });
+  const tap = async () => { pg.els.ui.querySelectorAll('.cs-task')[1].listeners.click[0]({ stopPropagation() {} }); await pg.flush(); };
+  await tap();
+  assert.equal(pg.els.ui.querySelectorAll('.cs-task')[1].classList.contains('is-ticked'), false, 'not crossed off');
+  assert.equal(pg.els.hint.textContent, 'CLIVE could not save that yet, so it was not ticked. Tap again in a moment.');
+  refuse = false;
+  await tap();
+  assert.ok(pg.els.ui.querySelectorAll('.cs-task')[1].classList.contains('is-ticked'), 'crossed off on the next tap');
+  const ticks = pg.requests.filter((r) => r.url.endsWith('/remote/tick')).map((r) => r.body);
+  assert.deepEqual(ticks, [{ pane: 1, item: 1, packed: true, version: 2 }, { pane: 1, item: 1, packed: true, version: 2 }], 'the same tick, asked twice');
+});

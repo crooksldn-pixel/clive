@@ -36,7 +36,8 @@ need no screen key: the remote is not the screen. Each names what it was made fo
 its version, or for the whole screen off the screen's version (round 9, B-REMOTE-OFF) — so a
 tap on an older view moves nothing: a pane or screen that has moved on is 409 (`stale`), a
 screen still waiting for approval is 409 (`not_approved`), and a deletion not yet durable is
-503.
+503. So is a tick the disk could not keep, and a screen's key that could not be changed durably
+(round 13): neither is made, so the same tap, or the same naming, again makes it once.
 
 What a screen can have from here (round 9, F-A3B-SCREEN-EVIDENCE; tests/test_screen_paths.py and
 tests/test_r11_screens_server.py). With its cookie, its own record and nothing else: what it
@@ -440,7 +441,8 @@ async def remote(screen_id: str) -> dict | JSONResponse:
 
 @router.post("/{screen_id}/remote/tick", response_model=None)
 async def remote_tick(screen_id: str, body: TickBody) -> dict | JSONResponse:
-    """One item packed, or not after all. The screen shows the tick on its next ask."""
+    """One item packed, or not after all. The screen shows the tick on its next ask. Answered 503,
+    and not made, when the record holding it could not be made durable (round 13, S3-02)."""
     try:
         return _fresh(store().tick(screen_id, body.pane, body.item, body.packed, body.version))
     except DisplayError as exc:

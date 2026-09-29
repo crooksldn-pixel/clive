@@ -1564,6 +1564,9 @@
       if (response.ok && Array.isArray(data.ticked) && S.drawnView && S.drawnView.indexOf(P) !== -1 && !P.packed) {
         P.view = Object.assign({}, P.view, { ticked: data.ticked });
         if (P.page.fill) P.page.fill(P.page.index);
+      } else if (response.status === 503) {
+        // Not made: CLIVE could not keep it safely yet (round 13, S3-02). The same tap again ticks it.
+        hint('CLIVE could not save that yet, so it was not ticked. Tap again in a moment.', true);
       }
     } catch (e) {
       if (!stale()) hint('CLIVE could not be reached, so that was not ticked. Tap again.', true);

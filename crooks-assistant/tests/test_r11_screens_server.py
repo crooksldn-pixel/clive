@@ -676,7 +676,14 @@ def test_a_new_key_whose_record_is_not_yet_durable_is_still_handed_over(tmp_path
     earlier deletion is still owed and the folder cannot be flushed, had its key changed in
     memory and in the file — and was answered 503 with no cookie. Its old key no longer opened
     anything and it never had the new one: the screen was lost until the owner removed it and
-    approved it again. The change stands, so the key is handed over; the old key is spent."""
+    approved it again. Round 11 handed the new key over.
+
+    Round 13 (R9-B2-B2-01, screens-server) moved the behaviour; the intent held here is the same,
+    that the screen is never left without a key that opens it. Handed over before its record is
+    durable, a power cut could bring back the record in which the new key opens nothing and the
+    old one opens the slip again (tests/test_r13_screens.py). So the key is not changed at all:
+    503 and no cookie, and the key the screen holds still opens it; named again once the disk is
+    well, it is handed the new key and the old one is spent."""
     from tests.test_displays import _flaky_record_flush
 
     path = tmp_path / "objectives" / "displays.json"
@@ -688,10 +695,15 @@ def test_a_new_key_whose_record_is_not_yet_durable_is_still_handed_over(tmp_path
     _placed, restore = _flaky_record_flush(monkeypatch, fail_from=1, records_only=True)
     with pytest.raises(NotDurable):
         s.show(other["id"], None)                         # a deletion owed: its journal durable, its record not
+    refused = client.post("/displays/register", json={"name": "Packing screen"}, headers=as_screen(tv["screen_key"]))
+    assert refused.status_code == 503 and "set-cookie" not in refused.headers
+    assert client.get(f"/displays/{tv['id']}?v=-1", headers=as_screen(tv["screen_key"])).status_code == 200, \
+        "the key it holds still opens it"
+    assert s.get(other["id"])["showing"] is None, "and the deletion owed stays made"
+    restore()
     renamed = client.post("/displays/register", json={"name": "Packing screen"}, headers=as_screen(tv["screen_key"]))
     assert renamed.status_code == 200 and renamed.json()["pending"] is False
     new = handed_key(renamed)
-    restore()
     assert client.get(f"/displays/{tv['id']}?v=-1", headers=as_screen(new)).status_code == 200
     spent = client.get(f"/displays/{tv['id']}?v=-1", headers=as_screen(tv["screen_key"]))
     assert spent.status_code == 403 and spent.json()["code"] == "not_this_screen"
