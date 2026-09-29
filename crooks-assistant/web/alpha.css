@@ -299,8 +299,8 @@ body.alpha .field-label,body.alpha .ws-fact dt,body.alpha .action-meta,body.alph
 body.alpha .chip .chip-kind,body.alpha .recent-kicker,body.alpha .attention .t,body.alpha .card-kicker{letter-spacing:.03em}
 body.alpha .link-btn{letter-spacing:0;text-transform:none;font-size:15px}
 body.alpha[data-mode="context"] .orb-zone{padding-right:64px}
-/* the home scrolls under the bar, and fades as it goes */
-.alpha-home{-webkit-mask-image:linear-gradient(180deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(180deg,#000 calc(100% - 28px),transparent)}
+/* the home scrolls under the bar and fades as it goes, at the top as well as the bottom, and only
+   where there is more beyond the edge (web/edges.js writes the mask as it scrolls) */
 
 @media (max-width:640px){
   body.alpha{--orb:148px}

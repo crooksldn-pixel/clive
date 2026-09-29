@@ -1,0 +1,14 @@
+/* Soft scroll edges (web/edges.js). The fade itself is a mask the script writes on each scrolling
+   area as it scrolls; this is the blur band laid over a big area's fading edge, where the device
+   can afford one: its backdrop blurred most at the very edge and not at all on its inner side,
+   so a line going out of view goes soft as well as faint. Never touched, never read aloud. */
+.edge-veil{position:absolute;z-index:1;pointer-events:none;opacity:0;
+  -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+.edge-veil[data-edge="start"]{
+  -webkit-mask-image:linear-gradient(to bottom,#000 0,rgba(0,0,0,.55) 40%,rgba(0,0,0,0) 100%);
+  mask-image:linear-gradient(to bottom,#000 0,rgba(0,0,0,.55) 40%,rgba(0,0,0,0) 100%)}
+.edge-veil[data-edge="end"]{
+  -webkit-mask-image:linear-gradient(to top,#000 0,rgba(0,0,0,.55) 40%,rgba(0,0,0,0) 100%);
+  mask-image:linear-gradient(to top,#000 0,rgba(0,0,0,.55) 40%,rgba(0,0,0,0) 100%)}
+/* The weak tablet keeps the fade and does without the blur (web/app.js marks it lite). */
+html[data-lite] .edge-veil{display:none}
