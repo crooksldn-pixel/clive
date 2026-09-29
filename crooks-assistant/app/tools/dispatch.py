@@ -76,7 +76,12 @@ def _harvest_ids(payload: Any, session: Session, *, in_customer: bool = False) -
             elif key in _PII_LIST_KEYS and isinstance(value, list):
                 session.remember_pii(*(v for v in value if isinstance(v, str)))
             else:
-                _harvest_ids(value, session, in_customer=customerish and not is_order)
+                # A key beginning with an underscore is the runtime's own bookkeeping — a card
+                # the family drew (`_surfaces`) — and does not inherit the record's context: a
+                # workspace card's fields are {"name": "email", ...}, and a customer's order
+                # being built once made "email", "note" and "customer" names to redact, so the
+                # timeline wrote "email_thread" as "[name]_thread" for the rest of the process.
+                _harvest_ids(value, session, in_customer=customerish and not is_order and not str(key).startswith("_"))
     elif isinstance(payload, list):
         for item in payload:
             _harvest_ids(item, session, in_customer=in_customer)

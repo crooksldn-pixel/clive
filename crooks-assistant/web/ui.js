@@ -2773,6 +2773,44 @@
       rows: num(f.rows) || null, placeholder: text(f.placeholder),
     }, settings));
 
+    // What is ON it (an order's lines) and what is on OFFER for it ("which of these?"): rows the
+    // Mac drew, each with at most one button, which names a command and the row it is about —
+    // "Remove" posts the line's key, "Add" the variant the Mac offered — and nothing of what
+    // either means. A discount and a stock warning are words on the row, never colour alone.
+    const wsRow = (r, offered) => {
+      const button = r.button && typeof r.button === 'object' && text(r.button.command) ? r.button : null;
+      const shade = text(r.tone);
+      const meta = [
+        text(r.discount) ? h('span', { class: 'ws-row-off', text: text(r.discount) }) : null,
+        text(r.stock) ? h('span', { class: `ws-row-stock${shade ? ' tone-' + shade : ''}`, text: text(r.stock) }) : null,
+      ].filter(Boolean);
+      return h('li', { class: `ws-row${offered ? ' is-offer' : ''}`, data: { key: text(r.key) } }, [
+        num(r.number) !== null ? h('span', { class: 'ws-row-no', 'aria-hidden': 'true', text: String(r.number) }) : null,
+        h('div', { class: 'ws-row-main' }, [
+          h('span', { class: 'ws-row-title', text: text(r.title, '—') }),
+          text(r.detail) ? h('span', { class: 'ws-row-detail', text: text(r.detail) }) : null,
+          meta.length ? h('span', { class: 'ws-row-meta' }, meta) : null,
+        ]),
+        h('div', { class: 'ws-row-side' }, [
+          h('span', { class: 'ws-row-amount', text: text(r.amount) }),
+          text(r.was) ? h('s', { class: 'ws-row-was', text: text(r.was) }) : null,
+          text(r.quantity) ? h('span', { class: 'ws-row-qty', text: text(r.quantity) }) : null,
+        ]),
+        button ? h('button', {
+          class: `ws-row-btn${offered ? ' is-add' : ''}`, type: 'button',
+          'aria-label': `${text(button.label)} ${text(r.title)} ${text(r.detail)}`.trim(),
+          data: { command: text(button.command), args: text(button.args) },
+        }, [h('span', { text: text(button.label) })]) : null,
+      ]);
+    };
+    const lineRows = list(d.rows, 20);
+    const pickRows = list(d.picks, 8);
+    const lines = lineRows.length ? h('ol', { class: 'ws-rows', 'aria-label': 'On it' }, lineRows.map((r) => wsRow(r, false))) : null;
+    const picks = pickRows.length ? h('div', { class: 'ws-picks', role: 'group', 'aria-label': text(d.picks_title, 'Which one?') }, [
+      h('p', { class: 'ws-picks-title', text: text(d.picks_title, 'Which one?') }),
+      h('ul', { class: 'ws-rows' }, pickRows.map((r) => wsRow(r, true))),
+    ]) : null;
+
     const buttons = list(d.actions, 4).map((a) => {
       const button = h('button', {
         class: `compose-btn${text(a.risk) === 'red' ? ' risk-red' : ''}${a.enabled === false ? ' quiet' : ''}`,
@@ -2795,6 +2833,8 @@
         ]),
         h('div', { class: 'badges' }, [badge(blocked ? 'Not ready' : 'Draft', blocked ? 'warn' : '')]),
       ]),
+      lines,
+      picks,
       factRows,
       inputs.length ? h('div', { class: 'ws-fields' }, inputs) : null,
       choiceRows.length ? h('div', { class: 'ws-choices' }, choiceRows) : null,
@@ -3182,7 +3222,12 @@
   const CONTEXT_TYPES = ['order', 'order_list', 'customer', 'customer_list', 'customer_workspace', 'order_workspace', 'product', 'inventory', 'sales_summary', 'email_list', 'email_thread', 'email_draft', 'attention', 'confirmation', 'success', 'assistant',
     'metric_group', 'ranking', 'table', 'comparison', 'variant_matrix', 'trend', 'working_set', 'batch_action', 'batch_result', 'capability', 'summary_list',
     // The remote's card stays in the deck behind the remote, to open it again (round 9).
-    'screen_remote'];
+    'screen_remote',
+    // Something being built — an order, a discount, a credit (app/families/_workspace.py).
+    // Round 12: a spoken change to an order returns that order's card and nothing else, and
+    // without this the page took a turn whose only card was the workspace for a turn with
+    // nothing to show, and went back to the orb — the edit made, the screen gone.
+    'workspace'];
 
   function isValid(item) {
     return Boolean(item) && typeof item === 'object' && typeof item.type === 'string'

@@ -632,6 +632,13 @@ def _branch_line(branch) -> str:
     workflow = getattr(branch, "workflow", None)
     if workflow is not None and workflow.total:
         bits.append(f"working through {workflow.total} {workflow.kind}, at {workflow.position}")
+    # A new order being built on this half: "add a print to it" is a change to THAT card, and
+    # the model is told it is there rather than left to open another (round 12).
+    from app.families.order_create import where_line
+
+    building = where_line(branch)
+    if building:
+        bits.append(building)
     recent = getattr(branch, "recent_results", None) or []
     if recent:
         bits.append("just read: " + "; ".join(str(r.get("summary") or "")[:60] for r in recent[:2]))

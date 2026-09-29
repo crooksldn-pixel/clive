@@ -48,6 +48,10 @@ MAX_FACTS = 10
 MAX_NOTES = 4
 MAX_ACTIONS = 4
 MAX_VALUE_CHARS = 500
+# The rows of a thing being built (an order's lines) and the choices offered for one ("which
+# of these hoodies?"). An order made from here carries at most twenty lines.
+MAX_ROWS = 20
+MAX_PICKS = 8
 
 # What a typed value may come back as, and what each one means to the owner. The same three
 # the composer uses, and the same three rings in web/ui.js: ok, uncertain (heard rather than
@@ -240,11 +244,18 @@ def surface(
     field_command: str = "",
     blocked: str = "",
     spoken: str = "",
+    rows: list[dict[str, Any]] | None = None,
+    picks: list[dict[str, Any]] | None = None,
+    picks_title: str = "",
 ) -> Surface:
     """The workspace as a card. Every value copied key by key and bounded, which is
     `app/presentation.py`'s rule kept here because this card is built outside it: nothing
     from the shop, from the inbox or from the model reaches the tablet except through one of
     these copies.
+
+    `rows` are the things on it (an order's lines) and `picks` the choices offered for one
+    ("which of these?"), each with at most one button — a command name and its arguments,
+    which the MAC put there, and which say which row and nothing of what to do with it.
     """
     ident = str(workspace["workspace_id"])
     return Surface(
@@ -288,6 +299,9 @@ def surface(
                 for f in (facts or [])[:MAX_FACTS]
             ],
             "notes": [str(n)[:220] for n in (notes or [])[:MAX_NOTES] if str(n or "").strip()],
+            "rows": [_row(r, ident) for r in (rows or [])[:MAX_ROWS] if isinstance(r, dict)],
+            "picks": [_row(r, ident) for r in (picks or [])[:MAX_PICKS] if isinstance(r, dict)],
+            "picks_title": str(picks_title or "")[:80],
             "blocked": str(blocked or "")[:220],
             "actions": [
                 {"id": a.id, "label": a.label, "command": a.command,
@@ -298,3 +312,29 @@ def surface(
         },
         spoken_summary=str(spoken or "Nothing is created until you authorise the card that follows.")[:200],
     )
+
+
+def _row(row: dict[str, Any], ident: str) -> dict[str, Any]:
+    """One row of a workspace, bounded key by key. Its button, when it has one, carries the
+    workspace's id first and then the row's own identity — never a value of the change."""
+    button = row.get("button") if isinstance(row.get("button"), dict) else None
+    out = {
+        "key": str(row.get("key") or "")[:40],
+        "number": int(row["number"]) if isinstance(row.get("number"), int) and not isinstance(row.get("number"), bool) else None,
+        "title": str(row.get("title") or "")[:80],
+        "detail": str(row.get("detail") or "")[:120],
+        "quantity": str(row.get("quantity") or "")[:8],
+        "amount": str(row.get("amount") or "")[:24],
+        "was": str(row.get("was") or "")[:24],
+        "discount": str(row.get("discount") or "")[:40],
+        "stock": str(row.get("stock") or "")[:40],
+        "tone": str(row.get("tone") or "")[:8],
+    }
+    if button is not None:
+        args = {"workspace_id": ident, **{str(k): str(v) for k, v in (button.get("args") or {}).items()}}
+        out["button"] = {
+            "label": str(button.get("label") or "")[:24],
+            "command": str(button.get("command") or "")[:40],
+            "args": "&".join(f"{k}={v}" for k, v in args.items())[:300],
+        }
+    return out

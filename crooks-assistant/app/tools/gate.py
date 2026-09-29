@@ -116,6 +116,13 @@ _KNOWN_TOOLS = frozenset({
     "shopify_discount_check", "shopify_discount_open",
     "shopify_abandoned_checkouts",
     "shopify_order_open", "shopify_store_credit",
+    # Round 12: the spoken changes to an order being built (app/families/order_create.py) —
+    # an item, a custom item, a quantity, a discount, the postage, where it goes. Like
+    # shopify_order_open it changes only the Mac's own copy of a workspace that has not been
+    # prepared: no store is touched, nothing is staged, and the one write it could lead to is
+    # still shopify_order_create, behind the owner's tap and hold. Named "build" because the
+    # verbs above read "add_" and "update" as a store write.
+    "shopify_order_build",
     # The summary read (app/families/summaries.py). One cache view and pure aggregation on
     # the Mac: it reads no record individually, stages nothing, and returns a count with a
     # few rows. Named here one by one like every other, because this is an allow-list.

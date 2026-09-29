@@ -320,7 +320,24 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # or none, which pane, a level and seconds, each bounded). The rules for when to use each are
     # one paragraph of the system prompt. What it
     # buys is "play the Heat trailer on the TV" and "turn it up" doing exactly that.
-    assert total <= 38_425, f"the tool block is {total} bytes"
+    #
+    # 40_443 is round 12's orders (app/families/order_create.py, app/tools/shopify_tools.py,
+    # tests/test_r12_orders.py), +2,018 bytes measured (38,420 before, 40,438 after):
+    #
+    #   shopify_order_build   1,583   new. Every spoken change to an order being built — an
+    #                                 item by words, SKU or variant, a custom item (title and
+    #                                 price), a line's quantity or discount, a discount on the
+    #                                 order, postage, note, customer, where it goes, paid. The
+    #                                 owner: "it couldn't add the item, or a custom item … a line
+    #                                 discount or percent discount". Nested properties carry no
+    #                                 bounds or descriptions: the tool checks every value itself
+    #                                 and says which it could not use.
+    #   shopify_find_order    +224    name, email, address and item as evidence, each checked.
+    #   shopify_order_open    +143    customer_id, order_id, variant_id and size_step: a new
+    #                                 order from a found one, "in the next size up".
+    #   shopify_find_customer +68     one sentence pointing "who bought this, sent where" at
+    #                                 shopify_find_order instead of a customer screen first.
+    assert total <= 40_443, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

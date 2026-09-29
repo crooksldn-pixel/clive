@@ -1805,6 +1805,42 @@ body[data-mode="context"] .branch-chip .branch-bare{display:none}
 .ws-opt.is-on{color:var(--ink);font-weight:600;border-color:var(--border-active);background:var(--glass-control-active);box-shadow:var(--inset-hi)}
 .ws-opt:active{transform:scale(.96);transition-duration:var(--motion-press)}
 .card-note.tone-warn{color:var(--warn)}
+/* What is ON a thing being built — an order's lines — and the choices offered for one ("which
+   of these hoodies?"), round 12. One grouped list, a hairline between rows: the line's name and
+   options on the left, its money on the right (the price before a discount struck through
+   under it), and at most one control, Remove or Add, at the full --tap height. A discount is a
+   blue pill of words and a stock warning is words, so neither rests on colour alone. */
+.ws-rows{list-style:none;margin:12px 0 0;padding:0;border-radius:var(--radius-control);border:1px solid var(--border-subtle);background:var(--glass-control)}
+.ws-row{display:flex;align-items:center;gap:12px;min-height:var(--tap);padding:10px 12px}
+.ws-row + .ws-row{border-top:1px solid var(--border-subtle)}
+.ws-row-no{flex:0 0 auto;width:22px;height:22px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--ink-2);background:var(--glass-2);font-variant-numeric:tabular-nums}
+.ws-row-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ws-row-title{font-size:15px;font-weight:600;color:var(--ink);word-break:break-word}
+.ws-row-detail{font-size:12px;color:var(--ink-3);word-break:break-word}
+.ws-row-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:2px}
+.ws-row-off{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;color:rgb(var(--acc-t1,64,156,255));background:rgba(var(--acc,10,132,255),.16)}
+.ws-row-stock{font-size:12px;color:var(--ink-4)}
+.ws-row-stock.tone-warn{color:var(--warn)}
+.ws-row-stock.tone-bad{color:var(--bad)}
+.ws-row-side{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ws-row-amount{font-size:15px;font-weight:600;color:var(--ink)}
+.ws-row-was{font-size:12px;color:var(--ink-4)}
+.ws-row-qty{font-size:12px;color:var(--ink-3)}
+.ws-row-btn{
+  flex:0 0 auto;min-height:var(--tap);min-width:var(--tap);padding:0 12px;
+  font:inherit;font-size:14px;font-weight:600;color:var(--bad);cursor:pointer;
+  border-radius:var(--radius-control);border:1px solid var(--border-subtle);background:transparent;
+  transition:transform var(--t-1),background var(--t-1);
+}
+.ws-row-btn.is-add{color:rgb(var(--acc-t1,64,156,255));border-color:rgba(var(--acc,10,132,255),.45)}
+.ws-row-btn:active{transform:scale(.96);background:var(--glass-control-active);transition-duration:var(--motion-press)}
+.ws-picks{margin:12px 0 0}
+.ws-picks-title{margin:0 0 6px;font-size:13px;font-weight:600;color:var(--ink-2);word-break:break-word}
+.ws-picks .ws-rows{margin-top:0}
+html[data-lite] .ws-row-btn{transition:none}
+@media (prefers-reduced-motion: reduce){.ws-row-btn{transition:none}.ws-row-btn:active{transform:none}}
+/* A phone: the line's number gives its room to the name, which then fits on one line. */
+@media (max-width: 440px){.ws-row{gap:10px;padding:10px}.ws-row-no{display:none}.ws-row-btn{padding:0 10px;font-size:13px}}
 
 /* ------------------------------------------------ the workspace as it arrives (§7, §8, §28)
  *

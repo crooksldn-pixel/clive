@@ -67,7 +67,7 @@ COVERAGE: dict[str, tuple[str, ...]] = {
     "order.open": ("order_new", "order_new_ambiguous"),
     "order.field": ("order_new", "order_new_ambiguous"),
     "order.additem": ("order_new",),
-    "order.stage": ("order_new",),
+    "order.stage": ("order_new", "order_by_voice"),
     "credit.field": ("store_credit_give",),
     "credit.stage": ("store_credit_give",),
     # `order_customer`, `order_line`, `order.choose`, `order.customer`, `order.removeitem`,
@@ -118,6 +118,7 @@ TAP_STAGED: dict[str, tuple[str, ...]] = {
     "compose_send_spoken": ("gmail_draft_new",),
     "discount_new_code": ("shopify_discount_create",),
     "order_new": ("shopify_order_create",),
+    "order_by_voice": ("shopify_order_create",),
     "order_add_item_picker": ("shopify_order_add_item",),
     "store_credit_give": ("shopify_store_credit_add",),
 }
