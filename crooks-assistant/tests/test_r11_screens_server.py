@@ -249,6 +249,9 @@ async def production(tmp_path, monkeypatch):
         # Tailscale interface itself (an ioctl a test cannot make; the door's round-11 change):
         # the fake /proc's own. Set whether or not this build asks it.
         monkeypatch.setattr(identity, "interface_ipv4", lambda name="tailscale0": HOST_TAILNET[0], raising=False)
+        # And every address it holds, asked over netlink (round 13, R9-A1a-F-05B-AVAIL): the same.
+        monkeypatch.setattr(identity, "interface_addresses", lambda name="tailscale0": frozenset([*HOST_TAILNET, *HOST_TAILNET6]),
+                            raising=False)
         _whois({PHONE: OWNER_LOGIN, TV: OWNER_LOGIN, STRANGER_DEVICE: STRANGER, HOST_TAILNET[0]: OWNER_LOGIN})
         monkeypatch.setattr(shopify_tools, "_client", shopify_tools._client)
         monkeypatch.setattr(shopify_tools, "_hydrator", shopify_tools._hydrator)

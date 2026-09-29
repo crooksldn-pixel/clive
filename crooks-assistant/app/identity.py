@@ -9,12 +9,14 @@ different person: the change is refused — a claim is never trusted for want of
 
 from __future__ import annotations
 
+import errno
 import ipaddress
 import json
 import logging
 import os
 import re
 import shutil
+import struct
 import subprocess
 import threading
 import time
@@ -701,6 +703,115 @@ def interface_ipv4(name: str = TAILSCALE_INTERFACE) -> str:
     return socket.inet_ntoa(answer[20:24])
 
 
+# Asking the kernel for an interface's addresses over netlink (linux/netlink.h, linux/rtnetlink.h,
+# linux/if_addr.h): an RTM_GETADDR dump, answered with one RTM_NEWADDR message per address and
+# ended with NLMSG_DONE. The kernel marks any message of a dump that ran across a change to what
+# it lists with NLM_F_DUMP_INTR.
+_NETLINK_ROUTE = 0
+_RTM_NEWADDR, _RTM_GETADDR = 20, 22
+_NLMSG_NOOP, _NLMSG_ERROR, _NLMSG_DONE = 1, 2, 3
+_NLM_F_REQUEST, _NLM_F_DUMP, _NLM_F_DUMP_INTR = 0x1, 0x300, 0x10
+_IFA_ADDRESS, _IFA_LOCAL = 1, 2
+_NLMSG = struct.Struct("=IHHII")        # length, type, flags, sequence, sender's port
+_IFADDRMSG = struct.Struct("=BBBBI")    # family, prefix length, flags, scope, interface index
+_RTATTR = struct.Struct("=HH")          # length, type
+_NETLINK_BUFFER = 1 << 17
+NETLINK_TIMEOUT_S = 1.0
+_AF_INET, _AF_INET6 = 2, 10             # Linux's own numbers, as the kernel writes them
+
+
+class _NotWhole(OSError):
+    """A netlink answer that is not the kernel's whole answer: nothing in it is believed."""
+
+
+def _align(length: int) -> int:
+    return (length + 3) & ~3
+
+
+def _netlink_address(data: bytes, start: int, end: int, family: int) -> str:
+    """The address one RTM_NEWADDR message carries: IFA_LOCAL, this host's end, when there is one
+    (for IPv4 on a point-to-point link IFA_ADDRESS is the far end), else IFA_ADDRESS."""
+    size = 4 if family == _AF_INET else 16
+    local = address = None
+    pos = start
+    while pos + _RTATTR.size <= end:
+        length, kind = _RTATTR.unpack_from(data, pos)
+        if length < _RTATTR.size or pos + length > end:
+            raise _NotWhole("an address attribute runs past its message")
+        value = bytes(data[pos + _RTATTR.size:pos + length])
+        if kind == _IFA_LOCAL:
+            local = value
+        elif kind == _IFA_ADDRESS:
+            address = value
+        pos += _align(length)
+    chosen = local if local is not None else address
+    if chosen is None or len(chosen) != size:
+        raise _NotWhole("an address message carries no address of its family's size")
+    return str(ipaddress.ip_address(chosen))
+
+
+def _netlink_chunk(data: bytes, sequence: int, index: int, found: set[str]) -> bool:
+    """One read of the kernel's answer to an address dump: the addresses on interface `index` are
+    added to `found`. True once the dump has ended. Raises _NotWhole (an OSError) for a message cut
+    short or out of the kernel's shape, one answering another request, a dump the kernel marks as
+    interrupted by a change, an error, and anything an address dump does not hold."""
+    offset = 0
+    while offset < len(data):
+        if len(data) - offset < _NLMSG.size:
+            raise _NotWhole("a netlink message cut short")
+        length, kind, flags, seq, _port = _NLMSG.unpack_from(data, offset)
+        if length < _NLMSG.size or offset + length > len(data):
+            raise _NotWhole("a netlink message whose length is not its own")
+        if seq != sequence:
+            raise _NotWhole("a netlink message answering another request")
+        if flags & _NLM_F_DUMP_INTR:
+            raise _NotWhole("the addresses changed while they were listed")
+        if kind == _NLMSG_DONE:
+            return True
+        if kind == _NLMSG_ERROR:
+            code = struct.unpack_from("=i", data, offset + _NLMSG.size)[0] if length >= _NLMSG.size + 4 else 0
+            raise OSError(-code if code < 0 else errno.EIO, "the kernel would not list its addresses")
+        if kind == _RTM_NEWADDR:
+            if length < _NLMSG.size + _IFADDRMSG.size:
+                raise _NotWhole("an address message cut short")
+            family, _prefix, _flags, _scope, held_by = _IFADDRMSG.unpack_from(data, offset + _NLMSG.size)
+            if held_by == index and family in (_AF_INET, _AF_INET6):
+                found.add(_netlink_address(data, offset + _NLMSG.size + _IFADDRMSG.size, offset + length, family))
+        elif kind != _NLMSG_NOOP:
+            raise _NotWhole(f"a netlink message of type {kind} in an address dump")
+        offset += _align(length)
+    return False
+
+
+def interface_addresses(name: str = TAILSCALE_INTERFACE) -> frozenset[str]:
+    """Every address the kernel holds on one interface, IPv4 and IPv6, asked of the kernel itself
+    over netlink (round 13, R9-A1a-F-05B-AVAIL): an RTM_GETADDR dump, read apart from
+    /proc/net/fib_trie and /proc/net/if_inet6, needing no privilege and no other program. Taken
+    whole or not at all: a dump the kernel marks as interrupted by a change to its addresses, an
+    error, an answer cut short, out of the kernel's shape, or not from the kernel, and an
+    interface that is not there, raise OSError. Asked afresh every time; nothing is remembered.
+    Tests stand in for it."""
+    import socket
+
+    index = socket.if_nametoindex(name)
+    sequence = 1        # a socket of this call's own: nothing else is answered on it
+    request = (_NLMSG.pack(_NLMSG.size + _IFADDRMSG.size, _RTM_GETADDR, _NLM_F_REQUEST | _NLM_F_DUMP, sequence, 0)
+               + _IFADDRMSG.pack(socket.AF_UNSPEC, 0, 0, 0, 0))
+    with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, _NETLINK_ROUTE) as sock:
+        sock.settimeout(NETLINK_TIMEOUT_S)
+        sock.bind((0, 0))
+        sock.sendto(request, (0, 0))
+        found: set[str] = set()
+        while True:
+            data, _ancillary, flags, sender = sock.recvmsg(_NETLINK_BUFFER)
+            if flags & socket.MSG_TRUNC or not data:
+                raise _NotWhole("the kernel's answer was cut short")
+            if sender[0] != 0:
+                raise _NotWhole("an answer that is not the kernel's")
+            if _netlink_chunk(data, sequence, index, found):
+                return frozenset(found)
+
+
 class HostAddresses(NamedTuple):
     """One reading of this host's own addresses from the kernel's tables."""
 
@@ -873,7 +984,12 @@ def this_host(address: str) -> tuple[bool | None, str]:
     For IPv4 the kernel is asked what TAILSCALE_INTERFACE holds (interface_ipv4, read apart from
     the tables), and the reading must hold that very address; for IPv6 the IPv6 table must list a
     tailnet address on that interface. When the interface cannot say, or the reading does not hold
-    what it says, the answer is "cannot say", and the caller refuses."""
+    what it says, the answer is "cannot say", and the caller refuses.
+
+    An interface can hold more than one tailnet address of a family, and the two answers above
+    each see one (round 13, R9-A1a-F-05B-AVAIL). So every tailnet address the interface holds, as
+    the kernel says over netlink apart from the tables (interface_addresses), must be in the
+    reading too; netlink that cannot say is "cannot say" again."""
     ip = _ip(forwarded_address(address))
     if ip is None:
         return False, ""
@@ -905,7 +1021,9 @@ def _holds_own_tailnet_address(version: int, mine: HostAddresses) -> tuple[bool,
     missing = (f"{_UNREADABLE_SELF} whole: its own tailnet {family} address is not among them, so a "
                "request it sent itself could not be told from a device's")
     if version == 6:
-        return (True, "") if mine.tailnet6 else (False, missing)
+        if not mine.tailnet6:
+            return False, missing
+        return _holds_every_tailnet_address(version, mine)
     try:
         own = _ip(interface_ipv4(TAILSCALE_INTERFACE))
     except (OSError, ValueError) as exc:
@@ -915,13 +1033,44 @@ def _holds_own_tailnet_address(version: int, mine: HostAddresses) -> tuple[bool,
     if own is None or own.version != 4 or own not in TAILNET_V4:
         return False, (f"{_UNREADABLE_SELF} whole: {TAILSCALE_INTERFACE} does not hold a tailnet IPv4 address, so a "
                        "request it sent itself could not be told from a device's")
-    return (True, "") if str(own) in mine.addresses else (False, missing)
+    if str(own) not in mine.addresses:
+        return False, missing
+    return _holds_every_tailnet_address(version, mine)
+
+
+def _holds_every_tailnet_address(version: int, mine: HostAddresses) -> tuple[bool, str]:
+    """Whether this reading holds EVERY tailnet address of one family that the Tailscale interface
+    holds (round 13, R9-A1a-F-05B-AVAIL). The checks above see one address each: for IPv4 the
+    one the ioctl names, the interface's primary address only; for IPv6 whatever the reading itself
+    lists on the interface, the table vouching for itself. An interface can hold more than one,
+    and a reading that left a second one out let the server's own request carrying it in as a
+    device's. So which addresses the interface holds is asked of the kernel apart from the tables
+    the reading was taken from — over netlink (interface_addresses), afresh for every request,
+    and whole or not at all — and every one of them in the tailnet's range must be in the reading.
+    One the interface holds outside that range (a link-local address) is not an address a request
+    through `tailscale serve` can carry, and is not asked for. (whole, why not)."""
+    family = "IPv4" if version == 4 else "IPv6"
+    tailnet = TAILNET_V4 if version == 4 else TAILNET_V6
+    try:
+        held = interface_addresses(TAILSCALE_INTERFACE)
+    except (OSError, ValueError) as exc:
+        detail = getattr(exc, "strerror", None) or str(exc)[:120] or type(exc).__name__
+        return False, (f"{_UNREADABLE_SELF} whole: {TAILSCALE_INTERFACE}'s addresses could not be read over netlink "
+                       f"({detail}), so a request it sent itself could not be told from a device's")
+    own = {ip for ip in (_ip(a) for a in held) if ip is not None and ip.version == version and ip in tailnet}
+    if not own:
+        return False, (f"{_UNREADABLE_SELF} whole: netlink says {TAILSCALE_INTERFACE} holds no tailnet {family} address, so "
+                       "a request it sent itself could not be told from a device's")
+    if any(str(ip) not in mine.addresses for ip in own):
+        return False, (f"{_UNREADABLE_SELF} whole: {TAILSCALE_INTERFACE} holds a tailnet {family} address the reading does "
+                       "not, so a request it sent itself could not be told from a device's")
+    return True, ""
 
 
 def tailnet_self_check() -> tuple[bool, str]:
     """Whether this host can tell its own requests from a device's now, for each family it has:
-    its address tables read whole, and each holding the Tailscale interface's own tailnet address
-    (IPv6 only when IPv6 is on). (ok, why). What `make install` asks of the host before it keeps a
+    its address tables read whole, and each holding every tailnet address the Tailscale interface
+    holds (IPv6 only when IPv6 is on), asked over netlink as a request asks it (round 13). (ok, why). What `make install` asks of the host before it keeps a
     new build (scripts/install_systemd.py running_problems): a server on which this is not so
     refuses every request from the owner's devices, and the install says so rather than leave it
     for his phone to find."""
