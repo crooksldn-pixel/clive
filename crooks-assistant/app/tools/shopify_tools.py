@@ -99,28 +99,55 @@ _ORDER_FIELDS = """
 @tool(
     name="shopify_find_order",
     description=(
-        "Find a CROOKS order by its number (with or without the #), or by a customer's name or email. "
-        "Returns matching orders with fulfilment, payment, total, date and customer — enough for 'has "
-        "it shipped', 'how much', 'when'; answer from this when it already answers. Call "
-        'shopify_order_detail only for the items, shipping, tracking or note.'
+        "Find a CROOKS order by its order number, or by a customer's name or email, or by part "
+        "of the delivery address and an item on it — each in its own field, any combination. "
+        "Returns matching orders with fulfilment, payment, total and date; each matches ALL of "
+        "it, with the items that matched. `one` is a clear answer; several are a choice to read "
+        "back. shopify_order_detail is for tracking or the note."
     ),
     input_schema={
         "type": "object",
         "properties": {
-            "query": {
-                "type": "string",
-                "description": "Order number, customer name or email.",
-            },
-            "limit": {"type": "integer", "description": "Maximum orders to return (1-50).",
-                      "default": 5},
+            "query": {"type": "string", "description": "An order number, or a name or email."},
+            "name": {"type": "string"},
+            "email": {"type": "string"},
+            "address": {"type": "string", "description": "Postcode, street or town."},
+            "item": {"type": "string", "description": "Words or a SKU."},
+            "limit": {"type": "integer", "description": "Maximum orders (1-50).", "default": 5},
         },
-        "required": ["query"],
     },
     tier=Tier.GREEN,
 )
-async def shopify_find_order(query: str, limit: int = 5) -> dict:
-    client = _c()
+async def shopify_find_order(query: str = "", limit: int = 5, name: str = "", email: str = "",
+                             address: str = "", item: str = "") -> dict:
+    """An order by its number, or orders by EVIDENCE.
+
+    The first shape is the one this tool always had: one query, a number or a person. The
+    second is what the owner actually says when he does not have the number — "the one who
+    ordered the black hoodie to SL4" — and it is answered by `_find_by_evidence`, which asks
+    Shopify for what Shopify can search and checks every order that comes back against every
+    piece of evidence, so nothing is returned that has not been shown to match.
+    """
     limit = max(1, min(int(limit), MAX_PAGE))
+    extra = {k: " ".join(str(v or "").split())[:bound] for k, v, bound in
+             (("name", name, 80), ("email", email, 254), ("address", address, 80), ("item", item, 60))}
+    if any(extra.values()):
+        evidence = {k: v for k, v in extra.items() if v}
+        said = _strip_order_prefix(query) if str(query or "").strip() else ""
+        if said.isdigit():
+            evidence["number"] = said
+        elif said and "@" in said:
+            evidence.setdefault("email", said)
+        elif said:
+            evidence.setdefault("name", said)
+        return await _find_by_evidence(evidence, limit)
+    return await _find_by_query(query, limit)
+
+
+async def _find_by_query(query: str, limit: int) -> dict:
+    """One query: a number, or a customer's name or email. The shape every caller before
+    round 12 used, kept exactly — its reads, its answer, its notes."""
+    client = _c()
     term = _strip_order_prefix(query)
     if not term:
         raise ToolError("No order number or customer given.")
@@ -208,6 +235,281 @@ def _order_summary(node: dict) -> dict:
         "customer_id": customer.get("id"),
         "customer_email": (customer.get("defaultEmailAddress") or {}).get("emailAddress"),
     }
+
+
+# ------------------------------------------------------------- orders, found by evidence
+#
+# "Find the customer who ordered the black hoodie to SL4 1QN" gives three facts and no number.
+# Shopify's order search can filter by some of them and not others: by a customer id, an
+# email, an order name and a SKU, but not by a street or a postcode, and not by a product's
+# words. So each fact goes to Shopify in the form Shopify CAN search — a name becomes the
+# customers it names, an item's words become the SKUs of the variants they describe — and
+# every order that comes back is then checked here against every fact, including the ones
+# Shopify could not search. An order is returned only when all of them match, and it says
+# which lines matched. Nothing is a best guess: none is said as none, several as several.
+
+# The orders read and checked in one pass. Twenty-five orders with ten lines each stays well
+# under Shopify's 1,000-point query cost (about 28 points an order).
+MAX_EVIDENCE_ORDERS = 25
+MAX_EVIDENCE_LINES = 10
+# SKUs put in one search: enough for a garment in every colour and size.
+MAX_EVIDENCE_SKUS = 40
+
+ORDER_EVIDENCE_QUERY = """
+query CrooksOrderEvidence($q: String, $n: Int!) {
+  orders(first: $n, query: $q, sortKey: CREATED_AT, reverse: true) {
+    pageInfo { hasNextPage }
+    edges { node {
+      id
+      name
+      createdAt
+      processedAt
+      cancelledAt
+      email
+      displayFulfillmentStatus
+      displayFinancialStatus
+      currentTotalPriceSet { shopMoney { amount currencyCode } }
+      customer { id displayName defaultEmailAddress { emailAddress } }
+      shippingAddress { firstName lastName address1 address2 city zip countryCodeV2 }
+      lineItems(first: 10) { edges { node { title variantTitle sku quantity variant { id } } } }
+    } }
+  }
+}
+"""
+
+# Words that are not evidence: "the black hoodie in medium" is two facts and a size.
+_FILLER = frozenset({"a", "an", "the", "of", "in", "size", "one", "ones", "and", "with", "their", "his", "her"})
+
+
+def item_words(text: str) -> list[str]:
+    """The words of an item as said, lowercased, without the filler around them."""
+    return [w for w in re.split(r"[^a-z0-9]+", str(text or "").lower()) if w and w not in _FILLER]
+
+
+def _found(word: str, words: set[str]) -> bool:
+    """A word said is among a thing's words, allowing the plural a person says ("hoodies")."""
+    if word in words:
+        return True
+    for tail in ("es", "s"):
+        if word.endswith(tail) and len(word) > len(tail) + 2 and word[: -len(tail)] in words:
+            return True
+    return False
+
+
+def line_words(title: str, variant: str, sku: str) -> set[str]:
+    """Everything a person could call a line: the product's words, the variant's options
+    with their size aliases ("M" is "medium"), and the parts of the SKU."""
+    words = {w for w in re.split(r"[^a-z0-9]+", f"{title} {variant} {sku}".lower()) if w}
+    for part in str(variant or "").split("/"):
+        words |= _size_aliases(part)
+    return words
+
+
+def item_matches(item: str, title: str, variant: str, sku: str) -> bool:
+    """Whether a line is the item the owner described: its SKU exactly, or every word he said."""
+    said = " ".join(str(item or "").split())
+    if not said:
+        return False
+    if sku and said.upper() == str(sku).upper():
+        return True
+    words = item_words(said)
+    have = line_words(title, variant, sku)
+    return bool(words) and all(_found(w, have) for w in words)
+
+
+def _tokens(text: str) -> list[str]:
+    return [t for t in re.split(r"[^A-Z0-9]+", str(text or "").upper()) if t]
+
+
+def address_matches(said: str, address: dict[str, Any]) -> bool:
+    """Whether what the owner said is part of this delivery address.
+
+    A postcode is compared as a postcode — "SL41QN" is "SL4 1QN", and "SL4" is its first half
+    — and never as a substring, because "SL4" is inside "SL41" and those are different towns.
+    Anything else must be a run of whole words in the street lines, the town or the postcode:
+    "Bridge Street" is in "12 Bridge Street", "Windsor" is the town.
+    """
+    wanted = _tokens(said)
+    if not wanted or not isinstance(address, dict):
+        return False
+    postcode = _tokens(address.get("zip"))
+    if postcode and ("".join(wanted) == "".join(postcode) or wanted == postcode[: len(wanted)]):
+        return True
+    for field_ in ("address1", "address2", "city", "zip"):
+        have = _tokens(address.get(field_))
+        for start in range(len(have) - len(wanted) + 1):
+            if have[start: start + len(wanted)] == wanted:
+                return True
+    joined = _tokens(" ".join(str(address.get(f) or "") for f in ("address1", "address2", "city", "zip")))
+    return any(joined[i: i + len(wanted)] == wanted for i in range(len(joined) - len(wanted) + 1))
+
+
+def name_matches(said: str, *names: str) -> bool:
+    """Every word of the name said is a word of one of the names on the order (the customer's,
+    or the name on the parcel). One letter is an initial, and matches a word it begins."""
+    words = [w for w in re.split(r"[^a-z0-9'-]+", str(said or "").lower()) if w]
+    if not words:
+        return False
+    for whole in names:
+        have = [w for w in re.split(r"[^a-z0-9'-]+", str(whole or "").lower()) if w]
+        if have and all(any(h == w or (len(w) == 1 and h.startswith(w)) for h in have) for w in words):
+            return True
+    return False
+
+
+def _evidence_lines(node: dict[str, Any]) -> list[dict[str, Any]]:
+    out = []
+    for edge in ((node.get("lineItems") or {}).get("edges") or [])[:MAX_EVIDENCE_LINES]:
+        line = (edge or {}).get("node") or {}
+        out.append({
+            "title": str(line.get("title") or ""),
+            "variant": str(line.get("variantTitle") or ""),
+            "sku": str(line.get("sku") or ""),
+            "quantity": _int_or_none(line.get("quantity")),
+            "variant_id": str((line.get("variant") or {}).get("id") or ""),
+        })
+    return out
+
+
+def _ships_to(address: dict[str, Any]) -> str:
+    """The town and the postcode's first half, which is what the model is told of an address
+    everywhere else (app/context/order.py model_view)."""
+    postcode = str(address.get("zip") or "").strip().upper()
+    return ", ".join(p for p in (str(address.get("city") or "").strip(), postcode.split(" ")[0] if postcode else "") if p)
+
+
+def _check_evidence(node: dict[str, Any], evidence: dict[str, str]) -> dict[str, Any]:
+    """Each fact the owner gave, held against one order: {fact: True/False}, and the lines the
+    item matched. The order is an answer only when every fact is True."""
+    customer = node.get("customer") or {}
+    address = node.get("shippingAddress") or {}
+    lines = _evidence_lines(node)
+    held: dict[str, bool] = {}
+    if "number" in evidence:
+        digits = str(node.get("name") or "").rsplit("-", 1)[-1].lstrip("#")
+        held["number"] = digits == evidence["number"]
+    if "email" in evidence:
+        said = evidence["email"].lower()
+        have = {str(node.get("email") or "").lower(),
+                str(((customer.get("defaultEmailAddress") or {}).get("emailAddress")) or "").lower()}
+        held["email"] = said in have
+    if "name" in evidence:
+        parcel = " ".join(str(address.get(k) or "") for k in ("firstName", "lastName"))
+        held["name"] = name_matches(evidence["name"], str(customer.get("displayName") or ""), parcel)
+    if "address" in evidence:
+        held["address"] = address_matches(evidence["address"], address)
+    matched_lines = lines
+    if "item" in evidence:
+        matched_lines = [line for line in lines if item_matches(evidence["item"], line["title"], line["variant"], line["sku"])]
+        held["item"] = bool(matched_lines)
+    return {"held": held, "lines": matched_lines}
+
+
+_EVIDENCE_WORDS = {
+    "number": "order {}", "name": "the name {}", "email": "the email {}",
+    "address": "{} in the delivery address", "item": "{} on it",
+}
+
+
+def _said(evidence: dict[str, str], keys) -> str:
+    parts = [_EVIDENCE_WORDS[k].format(evidence[k]) for k in ("number", "name", "email", "item", "address") if k in keys and k in evidence]
+    return ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1] if parts else ""
+
+
+def _sku_clause(skus: list[str]) -> str:
+    usable = [s for s in dict.fromkeys(skus) if s and re.fullmatch(r"[A-Za-z0-9._/-]{1,60}", s)][:MAX_EVIDENCE_SKUS]
+    return "(" + " OR ".join(f"sku:{s}" for s in usable) + ")" if usable else ""
+
+
+async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, Any]:
+    """Orders that match every fact given. See the section comment above for the method."""
+    client = _c()
+    clauses: list[str] = []
+    searched: list[str] = []
+    if "number" in evidence:
+        clauses.append(f"name:{evidence['number']}")
+        searched.append("number")
+    if "email" in evidence:
+        clauses.append(f'email:"{_search_term(evidence["email"])}"')
+        searched.append("email")
+    if "name" in evidence:
+        customers = await _search_customers(client, evidence["name"], limit=10)
+        if customers:
+            clauses.append("(" + " OR ".join(f"customer_id:{c['id'].rsplit('/', 1)[-1]}" for c in customers) + ")")
+            searched.append("name")
+        elif not ({"address", "item"} & set(evidence)):
+            return {"asked": dict(evidence), "orders": [], "count": 0, "one": False,
+                    "note": f"No customer is called {evidence['name']!r}."}
+    if "item" in evidence:
+        # The item's words become the SKUs of the variants they describe, which Shopify can
+        # search orders by. Words the catalogue does not know (a garment no longer sold) are
+        # still checked below, on the lines of whichever orders the rest of the evidence found.
+        variants, _wanted_words = await catalogue_candidates(client, evidence["item"])
+        clause = _sku_clause([v["sku"] for v in variants])
+        if clause:
+            clauses.append(clause)
+            searched.append("item")
+    search = " AND ".join(clauses) or None
+    payload = await client.graphql(ORDER_EVIDENCE_QUERY, {"q": search, "n": MAX_EVIDENCE_ORDERS})
+    connection = (payload.get("data") or {}).get("orders") or {}
+    nodes = [(e or {}).get("node") or {} for e in connection.get("edges") or []]
+    more = bool((connection.get("pageInfo") or {}).get("hasNextPage"))
+    checked = [(node, _check_evidence(node, evidence)) for node in nodes if node.get("id")]
+    rows = []
+    for node, check in checked:
+        if not all(check["held"].values()):
+            continue
+        row = _order_summary(node)
+        row["matched"] = _said(evidence, check["held"])
+        row["matched_items"] = check["lines"]
+        row["ships_to"] = _ships_to(node.get("shippingAddress") or {})
+        if node.get("cancelledAt"):
+            row["cancelled"] = True
+        rows.append(row)
+    result: dict[str, Any] = {
+        "asked": dict(evidence),
+        "matched_on": search or f"the newest {MAX_EVIDENCE_ORDERS} orders",
+        "looked_through": len(checked),
+        "orders": rows[:limit],
+        "count": len(rows),
+        "one": len(rows) == 1,
+    }
+    if payload.get("_partial_errors"):
+        result["partial"] = payload["_partial_errors"]
+    people = {r["customer_id"] for r in rows if r.get("customer_id")}
+    if len(people) == 1:
+        first = rows[0]
+        result["customer"] = {"customer_id": first["customer_id"], "customer_name": first["customer_name"],
+                              "customer_email": first["customer_email"]}
+    if len(rows) > 1:
+        result["ambiguous"] = True
+        result["instruction"] = ("Several orders match all of that. Read them back briefly — number, date, "
+                                 "the matching item — and ask which; do not choose.")
+    if len(rows) > limit:
+        result["truncated"] = True
+    if not rows:
+        result["note"] = _none_found(evidence, searched, checked)
+        result["visible"] = "Without the read_all_orders scope only the last 60 days of orders are visible."
+    if search is None or set(evidence) - set(searched):
+        # Some of what he said is not something Shopify can search, so it was checked here, on
+        # the orders Shopify returned — which are the newest ones when nothing else narrowed
+        # them. Said, so that "none" is never taken for "none ever".
+        if more:
+            result["coverage"] = (f"Checked the newest {len(checked)} orders"
+                                  + (f" with {_said(evidence, searched)}" if searched else "")
+                                  + "; an older one would not be here.")
+    return result
+
+
+def _none_found(evidence: dict[str, str], searched: list[str], checked: list[tuple[dict, dict]]) -> str:
+    """Why nothing matched, plainly: what Shopify found, and which fact none of it had."""
+    if not checked:
+        return f"No order has {_said(evidence, searched)}." if searched else "The shop returned no orders to check."
+    for key in ("number", "name", "email", "item", "address"):
+        if key in evidence and key not in searched and not any(c["held"].get(key) for _, c in checked):
+            basis = f" with {_said(evidence, searched)}" if searched else ""
+            return f"I checked {len(checked)} order{'s' if len(checked) != 1 else ''}{basis}; none has {_said(evidence, [key])}."
+    return f"No single order has all of that: {_said(evidence, evidence.keys())}."
 
 
 @tool(
@@ -413,7 +715,8 @@ async def _search_customers(client: ShopifyClient, term: str, limit: int = 5) ->
     name="shopify_find_customer",
     description=(
         "Find a CROOKS customer by name or email address. Returns every close match — if more "
-        "than one comes back, ask which one rather than choosing."
+        "than one comes back, ask which one rather than choosing. Who bought something, or had "
+        "it sent somewhere: shopify_find_order."
     ),
     input_schema={
         "type": "object",
@@ -1257,6 +1560,82 @@ query CrooksVariantSearch($q: String!, $n: Int!) {
 """
 
 
+_SKU_SHAPE = re.compile(r"^[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+$")
+
+
+def _wanted(product: str, colour: str, size: str) -> list[set[str]]:
+    """What a candidate has to have matched: the product as each of its words, the colour and
+    the size as single words with their aliases. An empty field asks for nothing."""
+    wanted: list[set[str]] = [{w} for w in item_words(product)]
+    for value in (colour, size):
+        if value:
+            wanted.append({value.lower()} | _size_aliases(value))
+    return wanted
+
+
+def _describes(wanted: list[set[str]], product: str, title: str, variant: dict[str, Any]) -> bool:
+    """Whether the words asked for describe this variant: its SKU exactly, or every word."""
+    words = _variant_words(title, variant)
+    groups = wanted
+    if product and _SKU_SHAPE.match(product) and str(variant.get("sku") or "").upper() == product.upper():
+        groups = wanted[len(item_words(product)):]      # the SKU said it; colour and size still must
+    return all(any(_found(w, words) for w in group) for group in groups)
+
+
+def _search_terms(product: str) -> list[str]:
+    """What to ask Shopify's product search, in order, until something matches.
+
+    The words as said first — that is what the search is for. Then, because Shopify indexes a
+    product's own words and a person uses others ("black hoodie" for the Convict Hoodie in
+    black), each longer word on its own, longest first, skipping sizes, which are never in a
+    product's title. A SKU is asked for as a SKU before anything else."""
+    said = " ".join(str(product or "").split())
+    terms = [f"sku:{said}"] if _SKU_SHAPE.match(said) else []
+    terms.append(_product_query(said))
+    words = [w for w in item_words(said) if len(w) > 2 and not (_size_aliases(w) - {w})]
+    if len(words) > 1:
+        terms += sorted(dict.fromkeys(words), key=len, reverse=True)[:2]
+    return list(dict.fromkeys(terms))
+
+
+async def catalogue_candidates(client: ShopifyClient, product: str = "", colour: str = "",
+                               size: str = "") -> tuple[list[dict[str, Any]], list[set[str]]]:
+    """The ACTIVE catalogue's variants that the words describe, and the word groups they were
+    held to. One product search, and up to three more only when the words as said found
+    nothing (`_search_terms`); every candidate still has to match every word."""
+    wanted = _wanted(product, colour, size)
+    candidates: list[dict[str, Any]] = []
+    for term in _search_terms(product):
+        payload = await client.graphql(VARIANT_SEARCH_QUERY, {"q": term, "n": MAX_PRODUCTS})
+        products = (payload.get("data") or {}).get("products") or {}
+        for edge in products.get("edges") or []:
+            node = (edge or {}).get("node") or {}
+            if str(node.get("status") or "ACTIVE").upper() != "ACTIVE":
+                continue   # a draft or archived product is not something to add to an order
+            title = str(node.get("title") or "")
+            for variant_edge in (node.get("variants") or {}).get("edges") or []:
+                variant = (variant_edge or {}).get("node") or {}
+                if not variant.get("id") or not _describes(wanted, product, title, variant):
+                    continue
+                options = _variant_options(variant)
+                price = _decimal_text(variant.get("price"))
+                candidates.append({
+                    "variant_id": str(variant["id"]),
+                    "product_id": str(node.get("id") or ""),
+                    "title": title,
+                    "options": options,
+                    "variant": str(variant.get("title") or " / ".join(options)),
+                    "sku": str(variant.get("sku") or ""),
+                    "price": price,
+                    "price_display": _display_price(price),
+                    "available": _int_or_none(variant.get("inventoryQuantity")),
+                    "for_sale": bool(variant.get("availableForSale")),
+                })
+        if candidates or not wanted:
+            break
+    return candidates, wanted
+
+
 @tool(
     name="shopify_variant_search",
     description=(
@@ -1281,45 +1660,7 @@ async def shopify_variant_search(product: str = "", colour: str = "", size: str 
     client = _c()
     limit = max(1, min(int(limit or MAX_VARIANT_CANDIDATES), MAX_VARIANT_CANDIDATES))
     asked = [str(v or "").strip() for v in (product, colour, size)]
-    # What a candidate has to have matched: the colour and the size as single words (with
-    # their aliases), the product as each of its words. An empty field asks for nothing.
-    wanted: list[set[str]] = []
-    for index, value in enumerate(asked):
-        if not value:
-            continue
-        if index == 0:
-            wanted += [{w} for w in re.split(r"[^a-z0-9]+", value.lower()) if w]
-        else:
-            wanted.append({value.lower()} | _size_aliases(value))
-    payload = await client.graphql(VARIANT_SEARCH_QUERY, {"q": _product_query(product), "n": MAX_PRODUCTS})
-    products = (payload.get("data") or {}).get("products") or {}
-    candidates: list[dict[str, Any]] = []
-    for edge in products.get("edges") or []:
-        node = (edge or {}).get("node") or {}
-        if str(node.get("status") or "ACTIVE").upper() != "ACTIVE":
-            continue   # a draft or archived product is not something to add to a paid order
-        title = str(node.get("title") or "")
-        for variant_edge in (node.get("variants") or {}).get("edges") or []:
-            variant = (variant_edge or {}).get("node") or {}
-            if not variant.get("id"):
-                continue
-            words = _variant_words(title, variant)
-            if any(not (group & words) for group in wanted):
-                continue
-            options = _variant_options(variant)
-            price = _decimal_text(variant.get("price"))
-            candidates.append({
-                "variant_id": str(variant["id"]),
-                "product_id": str(node.get("id") or ""),
-                "title": title,
-                "options": options,
-                "variant": str(variant.get("title") or " / ".join(options)),
-                "sku": str(variant.get("sku") or ""),
-                "price": price,
-                "price_display": _display_price(price),
-                "available": _int_or_none(variant.get("inventoryQuantity")),
-                "for_sale": bool(variant.get("availableForSale")),
-            })
+    candidates, wanted = await catalogue_candidates(client, *asked)
     result: dict[str, Any] = {
         "asked": {"product": asked[0], "colour": asked[1], "size": asked[2]},
         "candidates": candidates[:limit],

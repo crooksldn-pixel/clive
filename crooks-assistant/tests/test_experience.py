@@ -105,7 +105,7 @@ def test_a_call_claude_could_not_make_is_named_as_such():
     assert "no tool of that name" in model_could_make(runtime, "shopify_order_remove_item", {"order_id": "x"})
     assert "withheld" in model_could_make(runtime, "shopify_order_cancel", {"order_id": "x"}), "writes are off"
     assert "no argument 'order'" in model_could_make(runtime, "shopify_find_order", {"query": "1938", "order": "x"})
-    assert "requires 'query'" in model_could_make(runtime, "shopify_find_order", {})
+    assert "requires 'order_id'" in model_could_make(runtime, "shopify_order_detail", {})
     assert "int where the schema says string" in model_could_make(runtime, "shopify_find_order", {"query": 1938})
     assert "bool where the schema says integer" in model_could_make(runtime, "shopify_find_order", {"query": "1", "limit": True})
 
