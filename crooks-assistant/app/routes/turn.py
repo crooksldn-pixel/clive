@@ -1402,6 +1402,15 @@ async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, 
     missing = named_in_claim - on_it
     if showing and not missing:
         return answer, ui, None
+    # What this turn drew of its own — a record it read, not one kept up from the screen before.
+    # A claim about another record never replaces it: "show me order 1940", #1940 read, and "Order
+    # #1938 is on your screen" drew #1938 in #1940's place and put the cursor on it (the round-12
+    # deploy review, S2T-01). The screen is what the turn read; the sentence that says otherwise
+    # is taken out, and when nothing else was said, what IS on the screen is said instead.
+    own = [item for item in showing if screen.is_subject(item) and not item.get("kept")]
+    if own:
+        kept = claims.without_the_claim(answer).removesuffix(claims.NOT_ON_SCREEN).strip()
+        return (kept or _what_is_up(own)), ui, claims.screen_claim(corrected=True, named=sorted(missing | (said - on_it)))
     target = None
     if len(missing) == 1:
         target = _order_held(session, branch, next(iter(missing)))
@@ -1416,6 +1425,19 @@ async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, 
         bookkeeping = [item for item in ui if item.get("type") in screen.BOOKKEEPING]
         return answer, drawn + bookkeeping, claims.screen_claim(drew=target[2] or target[0], named=sorted(missing))
     return claims.without_the_claim(answer), ui, claims.screen_claim(corrected=True, named=sorted(missing | (said - on_it)))
+
+
+def _what_is_up(own: list) -> str:
+    """One true sentence about what this turn put on the screen, for an answer whose only
+    sentence was a claim about something else: the order or the customer, when it drew one."""
+    records = _records_shown(own)
+    if len(records) == 1:
+        ((kind, _ref, label),) = records.values()
+        if kind == "order" and _order_number(label):
+            return f"#{_order_number(label)} is on your screen."
+        if kind == "customer" and label.strip():
+            return f"{label.strip()} is on your screen."
+    return "What I read is on your screen."
 
 
 def _order_held(session, branch, number: str) -> tuple[str, str, str] | None:
@@ -1659,15 +1681,46 @@ async def _answer(
     # `app/observability/timeline.py::scrub` takes contact details out by SHAPE on every event
     # whether or not this runs; a NAME is not a shape, and this is the place that knows them.
     timeline.note_names(names)
+    # Where this half stood when the answer began, for an answer that never counted itself in on
+    # the half (a spoken yes, an early refusal): a newer instruction to the half, or a cancel aimed
+    # at it, moves such an answer on as surely as it moves on a model turn, which has its `seq`.
+    entry = ((int(getattr(branch, "instruction_seq", 0) or 0), bool(getattr(branch, "abandoned", False)))
+             if branch is not None else None)
+
+    def moved_on_since() -> bool:
+        """Whether this answer is no longer the half's current one, asked again after an await.
+
+        A newer sentence to the same half, or a cancel aimed at it, can land in any await this
+        answer makes — the claim repair can wait up to six seconds on the shop — and an answer
+        that publishes after that puts its cursor and its screen over the newer one's (the
+        round-12 deploy review, R9-D2-D2-01). A sentence to the OTHER half is not a newer
+        question to this one."""
+        if session is None:
+            return False
+        if seq is not None:
+            return _moved_on(session, branch, epoch=epoch, seq=seq)
+        if bool(getattr(session, "abandoned", False)):
+            return True
+        if entry is None:
+            return False
+        return (int(getattr(branch, "instruction_seq", 0) or 0) != entry[0]
+                or (bool(getattr(branch, "abandoned", False)) and not entry[1]))
+
+    def withdraw(ids: list[str]) -> None:
+        """Changes staged into a conversation that has moved past this answer. Nobody asked for
+        them there: withdrawn, unsent."""
+        if ids:
+            runtime.actions.revoke_ids(ids, "the owner moved on")
+            runtime.batches.revoke_ids(ids, "the owner moved on")
+
     # Abandoned: the owner cancelled, or asked something else while this was being answered.
     # The session's position has moved past this turn's; nobody is waiting for its voice.
     abandoned = bool(session is not None and _moved_on(session, branch, epoch=epoch, seq=seq))
     proposed = [c.proposal_id for c in (calls or []) if getattr(c, "proposal_id", None)]
     if abandoned and proposed:
         # Claude was still running when the owner moved on, and staged a change into the
-        # conversation's new position. Nobody asked for it there: withdrawn, unsent.
-        runtime.actions.revoke_ids(proposed, "the owner moved on")
-        runtime.batches.revoke_ids(proposed, "the owner moved on")
+        # conversation's new position.
+        withdraw(proposed)
         proposed = []
     # What the owner named and what he tapped, held against what the model did with them — on a
     # model turn (`seq`), which is the only place a change is staged from words. A change to
@@ -1702,6 +1755,11 @@ async def _answer(
     # tablet could apply it — a card that cannot be applied must never look as if it can.
     if proposed and writes is None and request is not None:
         writes = await writes_context(request)
+        if not abandoned and moved_on_since():
+            # Moved on while the scope was asked: nothing of this answer is delivered.
+            abandoned = True
+            withdraw(proposed)
+            proposed = []
     if proposed and writes is not None and not writes["allowed"] and writes["spoken"]:
         answer = f"{answer.rstrip()} {writes['spoken']}"
     # `writes` on the wire is about a proposal: it tells the tablet whether a tap on the card
@@ -1739,27 +1797,9 @@ async def _answer(
     # What the Mac did about an answer that said something was on the screen when this turn
     # had put nothing there (`_hold_to_the_screen`); written beside the decline claims below.
     on_screen_claim: dict[str, Any] | None = None
-    if abandoned:
-        # Nobody is waiting for this answer, and the half has moved on to another question
-        # (the 2026-09-28 deploy review, round 9, D2-01). It publishes nothing: no cards, so the
-        # context stack and the entity graph are not handed an old record as though it were
-        # new; no `shown`, so tapping the half does not redraw it; no cursor, so "cancel it"
-        # and a tapped Add a note act on what the newer answer showed and not on the order
-        # this one read; and no reconciliation, because the live workspace on this half is
-        # the newer turn's. What it read is still kept where a replay finds it — reads are
-        # facts, and Back onto that order later need not ask the shop again.
-        ui: list[dict[str, Any]] = []
-        # The newer turn's answer says what happens to the screen; this one leaves it alone.
-        screen_state = screen.SCREEN_KEPT
-        scene = None
-        timings["workspace"] = (time.perf_counter() - started) * 1000
-        if branch is not None and not replaced:
-            if seq is not None:
-                branch.end_turn()
-            branch.idle()
-        _keep_what_was_read(calls)
-        glass: dict[str, Any] = {}
-    else:
+    ui: list[dict[str, Any]] = []
+    scene = None
+    if not abandoned:
         # What the screen shows beside the answer: cards chosen from the tool results, never
         # from the prose. See app/presentation.py for the vocabulary and the bounds.
         ui = present([c for c in (calls or []) if getattr(c, "proposal_id", None) not in withheld] if withheld else calls,
@@ -1782,6 +1822,35 @@ async def _answer(
         if seq is not None and not error_kind:
             answer, ui, on_screen_claim = await _hold_to_the_screen(
                 answer, ui, session=session, branch=branch, calls=calls, said=said_numbers, rail=rail)
+            if moved_on_since():
+                # A newer sentence to this half, or a cancel aimed at it, landed while the claim
+                # was being held to the screen. From here this answer is the abandoned one: no
+                # cursor, no screen, nothing of it staged for the glass, and its changes withdrawn.
+                abandoned = True
+                withdraw(proposed)
+                proposed, writes = [], None
+                cancelled = bool(getattr(session, "abandoned", False) or getattr(branch, "abandoned", False))
+                replaced = not cancelled
+                ui, scene, on_screen_claim = [], None, None
+    if abandoned:
+        # Nobody is waiting for this answer, and the half has moved on to another question
+        # (the 2026-09-28 deploy review, round 9, D2-01). It publishes nothing: no cards, so the
+        # context stack and the entity graph are not handed an old record as though it were
+        # new; no `shown`, so tapping the half does not redraw it; no cursor, so "cancel it"
+        # and a tapped Add a note act on what the newer answer showed and not on the order
+        # this one read; and no reconciliation, because the live workspace on this half is
+        # the newer turn's. What it read is still kept where a replay finds it — reads are
+        # facts, and Back onto that order later need not ask the shop again.
+        # The newer turn's answer says what happens to the screen; this one leaves it alone.
+        screen_state = screen.SCREEN_KEPT
+        timings["workspace"] = (time.perf_counter() - started) * 1000
+        if branch is not None and not replaced:
+            if seq is not None:
+                branch.end_turn()
+            branch.idle()
+        _keep_what_was_read(calls)
+        glass: dict[str, Any] = {}
+    else:
         if speak and answer:
             # Start the voice now: by the time the tablet has this JSON and asks /speak, the MP3
             # is already generating. The same request it would make anyway, just earlier. An
