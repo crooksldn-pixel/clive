@@ -228,7 +228,11 @@ def plain(item: dict[str, Any]) -> dict[str, Any]:
 def _fuller(fresh: dict[str, Any], shown: dict[str, Any]) -> bool:
     """Whether the answer's card of a record says at least as much as the one on the screen.
     An order found by a search is a line; the same order read in full, or composed as its
-    workspace, is the screen he was working on, and a search must not shrink it."""
+    workspace, is the screen he was working on, and a search must not shrink it. The other way
+    round holds too: the record he had up as its card, composed by this answer as its workspace
+    ("her orders, and is she in Gmail"), is the workspace he asked for."""
+    if kind(fresh) in _WORKSPACE_READ and kind(shown) != kind(fresh):
+        return True
     if kind(fresh) != kind(shown):
         return False
     if kind(fresh) == "order":
@@ -467,11 +471,19 @@ def _with_rail(item: dict[str, Any], entity: Any, writes: dict[str, Any] | None)
     data = item.get("data") if isinstance(item.get("data"), dict) else None
     if data is None or data.get("actions") or str(data.get("order_id") or "") != str(entity.get("order_id") or ""):
         return item
-    from app.presentation import _actions
+    from app.presentation import _actions, _attention_items
 
     capabilities = writes.get("capabilities") if isinstance(writes.get("capabilities"), dict) else {}
     try:
-        return {**item, "data": {**data, "actions": _actions(entity, capabilities)}}
+        fresh = {**data, "actions": _actions(entity, capabilities)}
+        # And the one or two lines of what it needs, on the card, as the turn drew them
+        # (app/presentation.py `present`): "Customer emailed…" does not vanish because a note
+        # was added.
+        attention = _attention_items(entity)
+        if attention and not fresh.get("attention_top"):
+            fresh["attention_top"] = [{"title": a["title"], "level": a["level"], "kind": a["kind"]}
+                                      for a in sorted(attention, key=lambda a: 0 if a.get("level") == "red" else 1)[:2]]
+        return {**item, "data": fresh}
     except Exception as exc:  # noqa: BLE001 — a card without its rail still says what is true
         log.debug("no rail for the re-read order: %s", type(exc).__name__)
         return item

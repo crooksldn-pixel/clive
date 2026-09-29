@@ -91,6 +91,9 @@ async def test_the_order_stays_on_screen_while_a_note_is_prepared_and_after_it_i
     assert applied.status_code == 200 and body["status"] == "verified", applied.text
     fresh = the_order(body, A)
     assert "Gift wrap it" in (fresh["data"].get("note") or ""), fresh["data"].get("note")
+    # Redrawn as the turn drew it: its rail, and the line of what it needs at the top.
+    assert fresh["data"].get("actions"), sorted(fresh["data"])
+    assert fresh["data"].get("attention_top") == the_order(shown, A)["data"].get("attention_top")
 
     # A reload, or a tap back onto this half, draws the Mac's copy of the screen: the order with
     # its note and the proof, never the card as it stood before the gesture.
@@ -127,6 +130,28 @@ async def test_a_change_to_another_order_is_not_drawn_over_this_one(desk):
     body = await say(desk, "add a note to 1940 saying fragile", "other")
     assert confirmation(body)["entity_ref"] == B
     assert "order" not in kinds(body), kinds(body)
+
+
+async def test_the_customer_on_screen_asked_about_whole_becomes_her_workspace_not_her_card_again(desk):
+    """Her card is up and he asks for her orders and her email. The answer composes her
+    workspace from what the conversation holds; keeping the screen must not shrink that back
+    to the card that was there (found by the browser gate's shot 10, round 12)."""
+    desk.model.steps = [reads(("shopify_find_customer", {"query": "Kowalski"})), answers("One order, and one email from her.")]
+    first = await say(desk, "who is Kowalski?", "whole")
+    assert "customer" in kinds(first), kinds(first)
+    body = await say(desk, "what are her orders, and is she in Gmail anywhere?", "whole")
+    assert kinds(body)[0] == "customer_workspace", kinds(body)
+    assert "customer" not in kinds(body), "her workspace was shrunk back to the card on the glass"
+
+
+async def test_the_order_on_screen_asked_about_in_parts_becomes_its_workspace(desk):
+    """The same for an order: #1938 is up as its card and he asks for its items and shipping."""
+    desk.model.steps = [show_order("1938"), answers("Two items, not shipped yet.")]
+    await say(desk, "show me order 1938", "parts")
+    body = await say(desk, "what are the items and the shipping on it?", "parts")
+    workspaces = [c for c in cards(body) if c["type"] == "order_workspace"]
+    assert [w["data"]["ref"] for w in workspaces] == [A], kinds(body)
+    assert "order" not in kinds(body), "the workspace was shrunk back to the card on the glass"
 
 
 async def test_a_new_subject_replaces_the_screen(desk):
