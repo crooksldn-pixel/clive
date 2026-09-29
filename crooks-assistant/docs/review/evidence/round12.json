@@ -37,9 +37,9 @@
         "lines 97-223: principal_check, principal_verdict, require_principal, proxy_state, caller_identity, session_matches"
       ],
       "crooks-assistant/app/routes/displays.py": [
-        "lines 96-98: the screens router, with require_principal as its dependency",
-        "lines 185-194: HeldBody, the only body the drop takes",
-        "lines 526-543: show_held"
+        "lines 97-99: the screens router, with require_principal as its dependency",
+        "lines 186-195: HeldBody, the only body the drop takes",
+        "lines 532-545: show_held"
       ],
       "crooks-assistant/app/tools/gate.py": [
         "lines 170-207: _ISSUED_ID_ARGS (screen_show: order_id, objective_id) and _ID_KIND",
@@ -47,11 +47,11 @@
         "lines 354-383: _optional_args and _check_issued_ids"
       ],
       "crooks-assistant/app/tools/dispatch.py": [
-        "lines 114-179: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
+        "lines 121-186: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
       ],
       "crooks-assistant/app/tools/display_tools.py": [
-        "lines 80-86: _owners_own",
-        "lines 129-216: screen_show"
+        "lines 89-95: _owners_own",
+        "lines 138-229: screen_show"
       ],
       "crooks-assistant/tests/test_screen_paths.py": [
         "lines 1-175: the world fixture (the real app, production's switches, the real provider's _dispatch), refused_callers and _every_screen_route"
@@ -99,9 +99,9 @@
         "lines 97-223: principal_check, principal_verdict, require_principal, proxy_state, caller_identity, session_matches"
       ],
       "crooks-assistant/app/routes/displays.py": [
-        "lines 96-98: the screens router, with require_principal as its dependency",
-        "lines 185-194: HeldBody, the only body the drop takes",
-        "lines 526-543: show_held"
+        "lines 97-99: the screens router, with require_principal as its dependency",
+        "lines 186-195: HeldBody, the only body the drop takes",
+        "lines 532-545: show_held"
       ],
       "crooks-assistant/app/tools/gate.py": [
         "lines 170-207: _ISSUED_ID_ARGS (screen_show: order_id, objective_id) and _ID_KIND",
@@ -109,11 +109,11 @@
         "lines 354-383: _optional_args and _check_issued_ids"
       ],
       "crooks-assistant/app/tools/dispatch.py": [
-        "lines 114-179: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
+        "lines 121-186: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
       ],
       "crooks-assistant/app/tools/display_tools.py": [
-        "lines 80-86: _owners_own",
-        "lines 129-216: screen_show"
+        "lines 89-95: _owners_own",
+        "lines 138-229: screen_show"
       ],
       "crooks-assistant/tests/test_screen_paths.py": [
         "lines 1-175: the world fixture (the real app, production's switches, the real provider's _dispatch), refused_callers and _every_screen_route"
@@ -160,9 +160,9 @@
         "lines 97-223: principal_check, principal_verdict, require_principal, proxy_state, caller_identity, session_matches"
       ],
       "crooks-assistant/app/routes/displays.py": [
-        "lines 96-98: the screens router, with require_principal as its dependency",
-        "lines 185-194: HeldBody, the only body the drop takes",
-        "lines 526-543: show_held"
+        "lines 97-99: the screens router, with require_principal as its dependency",
+        "lines 186-195: HeldBody, the only body the drop takes",
+        "lines 532-545: show_held"
       ],
       "crooks-assistant/app/tools/gate.py": [
         "lines 170-207: _ISSUED_ID_ARGS (screen_show: order_id, objective_id) and _ID_KIND",
@@ -170,11 +170,11 @@
         "lines 354-383: _optional_args and _check_issued_ids"
       ],
       "crooks-assistant/app/tools/dispatch.py": [
-        "lines 114-179: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
+        "lines 121-186: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
       ],
       "crooks-assistant/app/tools/display_tools.py": [
-        "lines 80-86: _owners_own",
-        "lines 129-216: screen_show"
+        "lines 89-95: _owners_own",
+        "lines 138-229: screen_show"
       ],
       "crooks-assistant/tests/test_screen_paths.py": [
         "lines 1-175: the world fixture (the real app, production's switches, the real provider's _dispatch), refused_callers and _every_screen_route"
@@ -228,9 +228,9 @@
         "lines 97-223: principal_check, principal_verdict, require_principal, proxy_state, caller_identity, session_matches"
       ],
       "crooks-assistant/app/routes/displays.py": [
-        "lines 96-98: the screens router, with require_principal as its dependency",
-        "lines 185-194: HeldBody, the only body the drop takes",
-        "lines 526-543: show_held"
+        "lines 97-99: the screens router, with require_principal as its dependency",
+        "lines 186-195: HeldBody, the only body the drop takes",
+        "lines 532-545: show_held"
       ],
       "crooks-assistant/app/tools/gate.py": [
         "lines 170-207: _ISSUED_ID_ARGS (screen_show: order_id, objective_id) and _ID_KIND",
@@ -238,11 +238,11 @@
         "lines 354-383: _optional_args and _check_issued_ids"
       ],
       "crooks-assistant/app/tools/dispatch.py": [
-        "lines 114-179: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
+        "lines 121-186: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
       ],
       "crooks-assistant/app/tools/display_tools.py": [
-        "lines 80-86: _owners_own",
-        "lines 129-216: screen_show"
+        "lines 89-95: _owners_own",
+        "lines 138-229: screen_show"
       ],
       "crooks-assistant/tests/test_screen_paths.py": [
         "lines 1-175: the world fixture (the real app, production's switches, the real provider's _dispatch), refused_callers and _every_screen_route"
@@ -286,16 +286,16 @@
         "lines 422-455: _dispatch"
       ],
       "crooks-assistant/app/tools/dispatch.py": [
-        "lines 114-179: dispatch",
-        "lines 303-360: _stage",
-        "lines 627-677: make_pretooluse_hook"
+        "lines 121-186: dispatch",
+        "lines 314-372: _stage",
+        "lines 734-784: make_pretooluse_hook"
       ],
       "crooks-assistant/app/actions/engine.py": [
         "lines 98-169: stage: a PENDING proposal, nothing sent",
         "lines 379-447: commit, the one place a write is sent"
       ],
       "crooks-assistant/app/routes/actions.py": [
-        "lines 469-545: POST /actions/{id}/commit"
+        "lines 469-551: POST /actions/{id}/commit"
       ],
       "crooks-assistant/tests/test_r11_turn.py": [
         "lines 412-571: Cli (the SDK subprocess's stand-in, running the provider's own hook and tool), the sdk fixture and the test"
@@ -313,38 +313,54 @@
       "crooks-assistant/app/routes/actions.py",
       "crooks-assistant/app/families/_workspace.py",
       "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/app/presentation.py",
       "crooks-assistant/app/families/store_credit.py",
       "crooks-assistant/app/families/order_create.py",
-      "crooks-assistant/tests/test_r13_evidence_made_once.py"
+      "crooks-assistant/tests/test_r13_evidence_made_once.py",
+      "crooks-assistant/tests/test_r13_retry_in_progress.py",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_retry_in_progress.py::test_a_retry_answered_in_progress_does_not_lock_a_card_shopify_then_refuses",
+      "crooks-assistant/tests/test_r13_retry_in_progress.py::test_a_retry_answered_in_progress_does_not_free_a_card_still_at_its_first_read",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_a_withdrawn_hold_card_committed_meanwhile_leaves_the_sending_card_finished",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_timed_out_credit_is_sent_not_confirmed_on_every_surface",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_a_withdrawn_hold_card_committed_while_nothing_is_in_flight_frees_nothing_and_takes_nothing",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_two_hold_cards_from_one_order_committed_at_once_make_one_order",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_a_commit_retried_while_the_first_is_sending_waits_for_it_and_sends_nothing",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_a_prepare_tapped_while_the_hold_is_sending_is_refused",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_a_commit_without_its_hold_sends_nothing_and_leaves_the_card_his",
       "crooks-assistant/tests/test_r12_made_once.py::test_1_a_credit_given_is_given_once",
-      "crooks-assistant/tests/test_r12_made_once.py::test_1_a_code_created_is_created_once"
+      "crooks-assistant/tests/test_r12_made_once.py::test_1_a_code_created_is_created_once",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_credit_proven_never_sent_still_says_not_applied",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_credit_that_landed_is_never_called_not_confirmed_once_proven[read-back]",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_credit_that_landed_is_never_called_not_confirmed_once_proven[unreadable]"
     ],
-    "answer": "FIXED in round 13. The reservation was atomic; its release was not bound to the commit that made it. Atomic, then and now: in POST /actions/{id}/commit, workspaces.commit_refused, workspaces.before_commit and the engine's claim run with no await between them (app/routes/actions.py; app/actions/engine.py commit awaits nothing before `proposal.status = EXECUTING`), so of two hold cards of one card committed at once the second finds the card `sending` and is 409 already_made with nothing sent; a retry of the same card waits for the first commit's outcome (already_executed); Prepare while it sends is refused; a commit without its hold is 409 not_armed and leaves the card his. The defect, at 361b0138: before_commit noted `sending, by=commit` with no proposal id, and after_commit removed that note for ANY proposal of the workspace whose outcome was not VERIFIED, EXECUTED, UNVERIFIED or FAILED. A commit of a hold card the same card had withdrawn (it passes commit_refused, which refuses PENDING cards only) came back `revoked` and freed the card while another hold was still at its precondition read: Prepare was taken, a second hold card staged and held, and a second credit sent. The fix, in app/families/_workspace.py alone: before_commit notes the reservation as `sending, by=commit, proposal=<the committing proposal's id>` (with what a failed card said before, to say again if nothing is sent); ws.sending carries that proposal onto the notes it makes as the change leaves; and after_commit takes proof that the thing was made (VERIFIED) from any commit, and anything else only from the commit the reservation names — any other commit of the card returns without touching it. test_s2a_03_a_withdrawn_hold_card_committed_meanwhile_leaves_the_sending_card_finished failed at 361b0138 with 'AssertionError: 2 credits sent: Prepare was taken while the first was being applied; balance now £55.00' and passes now: the stray commit is `revoked`, Prepare is refused, one credit. The edge test passes before and after: the same stray commit with nothing in flight reserves and releases only for itself — nothing is noted, the live hold card still gives its one £20 — and on a card whose send was proven never to have left, a stray commit of that failed card leaves it given back with its reason. The one-proposal-per-request rule in ActionEngine.stage normally keeps two hold cards of one card from waiting at once; the concurrency test sets it aside so that the route's own check is what is tested. Round 12's follow-up ruled this finding a defect but the record does not print its reasoning (followup-collected.json is on the server only); the defect fixed here is the one this boundary had. Production (6a29e310) has no made-once at all.",
+    "answer": "FIXED in round 13: 05564a5f, then a7c4e6d1 after the round-13 independent check; d65cf011 made every surface say what the card says. The reservation was atomic; its release was bound neither to the commit that made it nor to that commit's outcome. Atomic, then and now: in POST /actions/{id}/commit, workspaces.commit_refused, workspaces.before_commit and the engine's claim run with no await between them (app/routes/actions.py; app/actions/engine.py commit awaits nothing before `proposal.status = EXECUTING`), so of two hold cards of one card committed at once the second finds the card `sending` and is 409 already_made with nothing sent; a retry of the same card waits for the first commit's outcome and is handed it (_terminal: already_executed, never a second send); Prepare while it sends is refused; a commit without its hold is 409 not_armed and leaves the card his. The defect, at 361b0138: before_commit noted `sending, by=commit` with no proposal id, and after_commit removed that note for ANY proposal of the workspace whose outcome was not VERIFIED, EXECUTED, UNVERIFIED or FAILED. A commit of a hold card the same card had withdrawn (it passes commit_refused, which refuses PENDING cards only) came back `revoked` and freed the card while another hold was still at its precondition read: Prepare was taken, a second hold card staged and held, and a second credit sent. The fix, in app/families/_workspace.py: before_commit notes the reservation as `sending, by=commit, proposal=<the committing proposal's id>` (with what a failed card said before, to say again if nothing is sent); ws.sending carries that proposal onto the notes it makes as the change leaves; and after_commit takes proof that the thing was made (VERIFIED) from any commit, and anything else only from the commit the reservation names — any other commit of the card returns without touching it. The independent check found the same hole in the reserving card's own retry: a commit that finds its proposal still EXECUTING or EXECUTED — a retried request, an Android double-fire — waits WAIT_FOR_OUTCOME_S (25 s) for the first commit's outcome and, failing that, is answered `in_progress` (ActionEngine.commit); after_commit took that answer for the outcome, since it names the same proposal and so passes the holder check. With the change already left, it noted the card UNCONFIRMED, which note() never lets fall back, so when Shopify then refused the first commit the card stayed 'sent, not confirmed' (and the retry was answered as that); with the first commit still at its precondition read, it fell through to the release, and the card was free for a second Prepare, and so a second credit or order, while the first was on its way. Now after_commit returns at once for a proposal still EXECUTING or EXECUTED: only the commit sending the change settles the card, when Shopify answers (a7c4e6d1). What the owner is told follows the card (d65cf011): sent_not_confirmed(proposal) is true only for the hold card whose own commit left its card UNCONFIRMED (the note names that proposal), and for it the commit route answers status and code 'unverified' with SENT_NOT_CONFIRMED ('Sent to Shopify, not confirmed. Check it in Shopify Admin before asking again.') as the spoken line and session.last_outcome, present_action draws the outcome card 'Could not confirm' with those words where the engine's code, service_unavailable, titled it 'Not applied' (_OUTCOME_WORDS), and /actions/states reports it 'unverified' on every reconciliation. Invariant: only the commit that reserved a card, and only with its own outcome, releases or settles it; anyone else's commit settles it only with proof that it was made. test_a_retry_answered_in_progress_does_not_lock_a_card_shopify_then_refuses failed at 604c7f92 with the retry answered 'unverified' ('Sent to Shopify, not confirmed') instead of in_progress, and test_a_retry_answered_in_progress_does_not_free_a_card_still_at_its_first_read with Prepare taken while the first commit was still reading; both pass now. test_s2a_03_a_withdrawn_hold_card_committed_meanwhile_leaves_the_sending_card_finished failed at 361b0138 with 'AssertionError: 2 credits sent: Prepare was taken while the first was being applied; balance now £55.00' and passes now: the stray commit is `revoked`, Prepare is refused, one credit. test_a_timed_out_credit_is_sent_not_confirmed_on_every_surface failed before d65cf011 with the commit answered ('failed', 'service_unavailable') and passes now; its edges — a credit that never left still says 'Not applied', one read back as landed says applied, one landed and unreadable says unverified and never 'Nothing was' — pass before and after. The stray-commit edge passes before and after: the same stray commit with nothing in flight reserves and releases only for itself — nothing is noted, the live hold card still gives its one £20 — and on a card whose send was proven never to have left, a stray commit of that failed card leaves it given back with its reason. The one-proposal-per-request rule in ActionEngine.stage normally keeps two hold cards of one card from waiting at once; the concurrency test sets it aside so that the route's own check is what is tested. Round 12's follow-up ruled this finding a defect but the record does not print its reasoning (followup-collected.json is on the server only); the defect fixed here is the one this boundary had. Production (6a29e310) has no made-once at all.",
     "excerpts": {
       "crooks-assistant/app/routes/actions.py": [
-        "lines 469-580: commit, with commit_refused and before_commit ahead of the engine's claim and after_commit behind it"
+        "lines 469-587: commit, with commit_refused and before_commit ahead of the engine's claim, after_commit behind it, and sent_not_confirmed deciding what the commit, the voice and the result card say",
+        "lines 595-647: states: a change sent and not confirmed stays unverified on every reconciliation"
       ],
       "crooks-assistant/app/families/_workspace.py": [
-        "lines 220-528: made once: note, noted, finished, failed, card_state, still_as_prepared, prepared, touched, withdraw, never_left, sending, commit_refused, before_commit, after_commit"
+        "lines 220-552: made once: note, noted, finished, failed, makes, card_state, still_as_prepared, prepared, touched, withdraw, never_left, sending, commit_refused, before_commit, after_commit (a commit that finds its change still EXECUTING or EXECUTED, a retry answered in_progress, settles nothing), SENT_NOT_CONFIRMED, sent_not_confirmed and _workspace_of"
       ],
       "crooks-assistant/app/actions/engine.py": [
+        "lines 50-51: WAIT_FOR_OUTCOME_S",
         "lines 98-169: stage (one proposal per request in one position)",
-        "lines 379-482: commit: the claim, the precondition read, the send",
-        "lines 484-562: _prove and _settle_by_observation"
+        "lines 379-482: commit: a commit of a proposal already executing (it waits WAIT_FOR_OUTCOME_S, then is answered in_progress), the claim, the precondition read, the send",
+        "lines 484-562: _prove and _settle_by_observation",
+        "lines 579-593: _terminal: a later commit is handed the outcome, never a second send"
+      ],
+      "crooks-assistant/app/presentation.py": [
+        "lines 1284-1298: present_action: a change sent and not confirmed (sent_not_confirmed) is drawn as unverified, with SENT_NOT_CONFIRMED",
+        "lines 1541-1555: _OUTCOME_WORDS: 'Could not confirm' for unverified, 'Not applied' for service_unavailable"
       ],
       "crooks-assistant/app/families/store_credit.py": [
         "lines 437-466: _observe and _execute (ws.sending)"
       ],
       "crooks-assistant/app/families/order_create.py": [
-        "lines 1826-1864: _observe (as_prepared) and _execute (ws.sending)"
+        "lines 1956-1994: _observe (as_prepared) and _execute (ws.sending)"
       ]
     }
   },
@@ -360,12 +376,18 @@
       "crooks-assistant/app/families/_workspace.py",
       "crooks-assistant/app/actions/engine.py",
       "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/presentation.py",
       "crooks-assistant/app/clients/shopify.py",
-      "crooks-assistant/tests/test_r13_evidence_made_once.py"
+      "crooks-assistant/tests/test_r13_evidence_made_once.py",
+      "crooks-assistant/tests/test_r13_retry_in_progress.py",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_retry_in_progress.py::test_a_retry_answered_in_progress_does_not_lock_a_card_shopify_then_refuses",
+      "crooks-assistant/tests/test_r13_retry_in_progress.py::test_a_retry_answered_in_progress_does_not_free_a_card_still_at_its_first_read",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_timed_out_credit_the_reread_finds_unmade_is_not_given_again",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_timed_out_credit_is_drawn_as_sent_not_confirmed_and_prepares_nothing",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_timed_out_credit_is_sent_not_confirmed_on_every_surface",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_whose_answer_was_lost_is_locked_against_a_second_hold_card[made-and-unreadable]",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_whose_answer_was_lost_is_locked_against_a_second_hold_card[unmade-and-unreadable]",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_whose_answer_was_lost_is_locked_against_a_second_hold_card[made-and-read-back]",
@@ -373,9 +395,12 @@
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_proven_not_given_is_given_back_and_the_next_hold_gives_one[refused]",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_proven_not_given_is_given_back_and_the_next_hold_gives_one[failed before it was sent]",
       "crooks-assistant/tests/test_r12_made_once.py::test_1_a_credit_given_is_given_once",
-      "crooks-assistant/tests/test_r12_made_once.py::test_2_a_credit_or_a_code_changed_after_prepare_withdraws_its_hold_card"
+      "crooks-assistant/tests/test_r12_made_once.py::test_2_a_credit_or_a_code_changed_after_prepare_withdraws_its_hold_card",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_credit_proven_never_sent_still_says_not_applied",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_credit_that_landed_is_never_called_not_confirmed_once_proven[read-back]",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_credit_that_landed_is_never_called_not_confirmed_once_proven[unreadable]"
     ],
-    "answer": "FIXED in round 13. store_credit._execute sends through ws.sending, which notes the card `sending` before the mutation leaves and `failed` only when it certainly did not happen (never_left: Shopify answered and refused it, or it was never sent); the engine then decides a lost answer with one re-read (ActionEngine._settle_by_observation). Read back as made, the card is DONE; unreadable, UNVERIFIED and so UNCONFIRMED: locked either way, then and now. The defect, at 361b0138: when the re-read made at once still showed £15, the engine finished the proposal FAILED 'service_unavailable' (write.settle is None for a credit) and after_commit turned that into the card's FAILED — 'Store credit · not given — The credit was not given: … Nothing was credited; prepare it again.', Prepare live — although a read timeout is a request that left (ShopifyClient._post makes httpx.ReadTimeout a plain ShopifyError, neither unsent nor refused) and Shopify may still apply it. A second hold card then sent a second £20. The fix, in app/families/_workspace.py (app/actions/engine.py, protected, is unchanged): ws.sending marks the note `left` as the change leaves; after_commit, for the commit that reserved the card, makes a send that left and is not proven made UNCONFIRMED, whatever the engine's re-read said; only FAILED with `unsent` (never left, or refused) or a failure before the send (the reservation never reached the family's send — the precondition read) gives the card back, as before. note() keeps an unconfirmed card unconfirmed until proof that it was made. The card now says 'Store credit · sent, not confirmed' and 'Sent to Shopify, not confirmed: check the customer's account in Admin before giving it again.', with nothing to type or prepare; Prepare is refused in the same words; a second hold card is 409 already_made. What unlocks an unconfirmed card is what always did: nothing on the card itself — it is finished — but a new card, opened afresh (said again, or after Discard, or once the card lapses after 30 minutes); and for an order, proof that it was made turns it into made. test_s2b_02_a_timed_out_credit_the_reread_finds_unmade_is_not_given_again failed at 361b0138 with 'assert (200 == 409)' (the second card's commit went through: two mutations) and test_s2b_02_a_timed_out_credit_is_drawn_as_sent_not_confirmed_and_prepares_nothing with 'AssertionError: 2 credits sent; the card came back as 'Store credit · not given''; both pass now. The edge test passes before and after: a credit that never left, that Shopify refused, or whose balance read failed before sending comes back 'not given' with the reason, and the next hold gives one £20. Still to follow up, outside this file: the hold card's own outcome card is titled 'Not applied' (app/presentation.py words for the engine's code service_unavailable), with the credit's line 'I couldn't confirm the credit. Check the customer's account before asking again.' beneath it. The engine rule is the same at 6a29e310, where there is no made-once at all.",
+    "answer": "FIXED in round 13: 05564a5f, then a7c4e6d1 after the round-13 independent check; d65cf011 made every surface say what the card says. store_credit._execute sends through ws.sending, which notes the card `sending` and `left` before the mutation leaves and `failed` only when it certainly did not happen (never_left: Shopify answered and refused it, or it was never sent); the engine then decides a lost answer with one re-read (ActionEngine._settle_by_observation). Read back as made, the card is DONE; unreadable, UNVERIFIED and so UNCONFIRMED: locked either way, then and now. The defect, at 361b0138: when the re-read made at once still showed £15, the engine finished the proposal FAILED 'service_unavailable' (write.settle is None for a credit) and after_commit turned that into the card's FAILED — 'Store credit · not given — The credit was not given: … Nothing was credited; prepare it again.', Prepare live — although a read timeout is a request that left (ShopifyClient._post makes httpx.ReadTimeout a plain ShopifyError, neither unsent nor refused) and Shopify may still apply it. A second hold card then sent a second £20. The fix, in app/families/_workspace.py (app/actions/engine.py, protected, is unchanged): after_commit, for the commit that reserved the card, makes a send that left and is not proven made UNCONFIRMED, whatever the engine's re-read said; only FAILED with `unsent` (never left, or refused) or a failure before the send (the reservation never reached the family's send — the precondition read) gives the card back, as before. note() keeps an unconfirmed card unconfirmed until proof that it was made. The card says 'Store credit · sent, not confirmed' and 'Sent to Shopify, not confirmed: check the customer's account in Admin before giving it again.', with nothing to type or prepare; Prepare is refused in the same words; a second hold card is 409 already_made. What unlocks an unconfirmed card is what always did: nothing on the card itself — it is finished — but a new card, opened afresh (said again, or after Discard, or once the card lapses after 30 minutes); and for an order, proof that it was made turns it into made. Two things round 13 first left beside that are closed. The hold card's own answer: at 05564a5f its outcome card was still titled 'Not applied' (_OUTCOME_WORDS for the engine's code service_unavailable), with the credit's 'I couldn't confirm the credit. Check the customer's account before asking again.' beneath it, beside a card that said sent, not confirmed. What the owner is told follows the card (d65cf011): sent_not_confirmed(proposal) is true only for the hold card whose own commit left its card UNCONFIRMED (the note names that proposal), and for it the commit route answers status and code 'unverified' with SENT_NOT_CONFIRMED ('Sent to Shopify, not confirmed. Check it in Shopify Admin before asking again.') as the spoken line and session.last_outcome, present_action draws the outcome card 'Could not confirm' with those words where the engine's code, service_unavailable, titled it 'Not applied' (_OUTCOME_WORDS), and /actions/states reports it 'unverified' on every reconciliation. And a retry of that hold card: a commit that finds its proposal still EXECUTING or EXECUTED — a retried request, an Android double-fire — waits WAIT_FOR_OUTCOME_S (25 s) for the first commit's outcome and, failing that, is answered `in_progress` (ActionEngine.commit); after_commit took that answer for the outcome, since it names the same proposal and so passes the holder check. With the change already left, it noted the card UNCONFIRMED, which note() never lets fall back, so when Shopify then refused the first commit the card stayed 'sent, not confirmed' (and the retry was answered as that); with the first commit still at its precondition read, it fell through to the release, and the card was free for a second Prepare, and so a second credit or order, while the first was on its way. Now after_commit returns at once for a proposal still EXECUTING or EXECUTED: only the commit sending the change settles the card, when Shopify answers (a7c4e6d1). Invariant: a credit that may have been given is never given back to be given again, and every surface says it was sent and not confirmed. test_a_retry_answered_in_progress_does_not_lock_a_card_shopify_then_refuses failed at 604c7f92 with the retry answered 'unverified' ('Sent to Shopify, not confirmed') instead of in_progress, and test_a_retry_answered_in_progress_does_not_free_a_card_still_at_its_first_read with Prepare taken while the first commit was still reading; both pass now. test_s2b_02_a_timed_out_credit_the_reread_finds_unmade_is_not_given_again failed at 361b0138 with 'assert (200 == 409)' (the second card's commit went through: two mutations) and test_s2b_02_a_timed_out_credit_is_drawn_as_sent_not_confirmed_and_prepares_nothing with 'AssertionError: 2 credits sent; the card came back as 'Store credit · not given''; both pass now. test_a_timed_out_credit_is_sent_not_confirmed_on_every_surface failed before d65cf011 with the commit answered ('failed', 'service_unavailable') and passes now; its edges — a credit that never left still says 'Not applied', one read back as landed says applied, one landed and unreadable says unverified and never 'Nothing was' — pass before and after. The given-back edge passes before and after: a credit that never left, that Shopify refused, or whose balance read failed before sending comes back 'not given' with the reason, and the next hold gives one £20. The engine rule is the same at 6a29e310, where there is no made-once at all.",
     "excerpts": {
       "crooks-assistant/app/families/store_credit.py": [
         "lines 266-322: _makes, given, the given card (its words when not confirmed)",
@@ -383,19 +408,26 @@
         "lines 532-630: the write tool and its prepare"
       ],
       "crooks-assistant/app/families/_workspace.py": [
-        "lines 220-528: made once: note, noted, finished, failed, card_state, still_as_prepared, prepared, touched, withdraw, never_left, sending, commit_refused, before_commit, after_commit"
+        "lines 220-552: made once: note, noted, finished, failed, makes, card_state, still_as_prepared, prepared, touched, withdraw, never_left, sending, commit_refused, before_commit, after_commit (a commit that finds its change still EXECUTING or EXECUTED, a retry answered in_progress, settles nothing), SENT_NOT_CONFIRMED, sent_not_confirmed and _workspace_of"
       ],
       "crooks-assistant/app/actions/engine.py": [
+        "lines 50-51: WAIT_FOR_OUTCOME_S",
         "lines 98-169: stage (one proposal per request in one position)",
-        "lines 379-482: commit: the claim, the precondition read, the send",
-        "lines 484-562: _prove and _settle_by_observation"
+        "lines 379-482: commit: a commit of a proposal already executing (it waits WAIT_FOR_OUTCOME_S, then is answered in_progress), the claim, the precondition read, the send",
+        "lines 484-562: _prove and _settle_by_observation",
+        "lines 579-593: _terminal: a later commit is handed the outcome, never a second send"
       ],
       "crooks-assistant/app/routes/actions.py": [
-        "lines 469-580: commit, with commit_refused and before_commit ahead of the engine's claim and after_commit behind it"
+        "lines 469-587: commit, with commit_refused and before_commit ahead of the engine's claim, after_commit behind it, and sent_not_confirmed deciding what the commit, the voice and the result card say",
+        "lines 595-647: states: a change sent and not confirmed stays unverified on every reconciliation"
+      ],
+      "crooks-assistant/app/presentation.py": [
+        "lines 1284-1298: present_action: a change sent and not confirmed (sent_not_confirmed) is drawn as unverified, with SENT_NOT_CONFIRMED",
+        "lines 1541-1555: _OUTCOME_WORDS: 'Could not confirm' for unverified, 'Not applied' for service_unavailable"
       ],
       "crooks-assistant/app/clients/shopify.py": [
         "lines 31-69: the error classes: refused, unsent",
-        "lines 1076-1090: _post: a connect error is ShopifyUnreached (unsent); any other transport error, a read timeout among them, is a plain ShopifyError"
+        "lines 1077-1091: _post: a connect error is ShopifyUnreached (unsent); any other transport error, a read timeout among them, is a plain ShopifyError"
       ]
     }
   },
@@ -424,20 +456,20 @@
     "answer": "Yes, three times over. (1) Every new sentence withdraws the half's waiting cards before the model is asked (app/routes/turn.py: revoke_pending, then advance_epoch). (2) Every change to the card — shopify_order_build by voice, order.field, order.choose, order.additem, order.removeitem by tap — reads what the card would make before and after (ws.card_state) and withdraws the hold cards prepared from it when that differs (order_create._touch -> ws.touched -> ws.withdraw -> engine.revoke_ids); a REVOKED card is terminal and the engine never sends it. (3) Beneath those, the floor: commit_refused compares the card's digest when it was prepared (facts._prepared) with what it would make now and refuses 409 'The card changed since this was prepared'; and the order's own precondition carries `as_prepared` (_observe -> ws.still_as_prepared), so even a commit that reached the engine would be stale. Round 13's route test prepares, arms the old hold card (its token in hand), says 'add five pounds postage' and types a note, then commits the old card with its token: not verified (revoked), zero draft_order_complete; prepared again, the hold makes one order, with the £5 postage the card now says. The second test changes the card without passing through any withdrawal and commits the old card with its token: 409, zero completions.",
     "excerpts": {
       "crooks-assistant/app/families/order_create.py": [
-        "lines 1355-1481: shopify_order_build, the card read before and _touch after",
-        "lines 1752-1771: _makes, what the card would make",
-        "lines 1826-1864: _observe (as_prepared) and _execute",
-        "lines 1946-1981: the write tool's precondition keys",
-        "lines 2160-2342: the tap commands, _touch and _stage"
+        "lines 1480-1609: shopify_order_build, the card read before and _touch after",
+        "lines 1882-1901: _makes, what the card would make",
+        "lines 1956-1994: _observe (as_prepared) and _execute",
+        "lines 2076-2111: the write tool's precondition keys",
+        "lines 2299-2487: the tap commands, _touch and _stage"
       ],
       "crooks-assistant/app/families/_workspace.py": [
         "lines 307-468: makes, card_state, still_as_prepared, prepared, touched, withdraw, never_left, sending, commit_refused, before_commit"
       ],
       "crooks-assistant/app/routes/turn.py": [
-        "lines 255-285: a new instruction withdraws what was waiting and moves the position"
+        "lines 274-288: a new instruction withdraws what was waiting and moves the position"
       ],
       "crooks-assistant/app/routes/actions.py": [
-        "lines 469-580: commit, with commit_refused and before_commit ahead of the engine's claim and after_commit behind it"
+        "lines 469-587: commit, with commit_refused and before_commit ahead of the engine's claim, after_commit behind it, and sent_not_confirmed deciding what the commit, the voice and the result card say"
       ],
       "crooks-assistant/app/actions/engine.py": [
         "lines 379-447: commit: a terminal proposal is never sent; the precondition read"
@@ -484,7 +516,7 @@
         "lines 647-775: the write tool and its prepare"
       ],
       "crooks-assistant/app/routes/actions.py": [
-        "lines 469-580: commit, with commit_refused and before_commit ahead of the engine's claim and after_commit behind it"
+        "lines 469-587: commit, with commit_refused and before_commit ahead of the engine's claim, after_commit behind it, and sent_not_confirmed deciding what the commit, the voice and the result card say"
       ],
       "crooks-assistant/app/actions/engine.py": [
         "lines 379-447: commit: the claim and the precondition read"
@@ -503,35 +535,55 @@
       "crooks-assistant/app/families/_workspace.py",
       "crooks-assistant/app/families/order_create.py",
       "crooks-assistant/app/clients/shopify.py",
-      "crooks-assistant/tests/test_r13_evidence_made_once.py"
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/presentation.py",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py",
+      "crooks-assistant/tests/test_r13_retry_in_progress.py",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_retry_in_progress.py::test_a_retry_answered_in_progress_does_not_lock_a_card_shopify_then_refuses",
+      "crooks-assistant/tests/test_r13_retry_in_progress.py::test_a_retry_answered_in_progress_does_not_free_a_card_still_at_its_first_read",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_t3_02_a_completion_that_left_is_never_given_back_as_not_made",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_t3_02_a_completion_that_left_and_landed_after_the_mac_gave_up_is_never_made_twice",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_timed_out_credit_is_sent_not_confirmed_on_every_surface",
       "crooks-assistant/tests/test_r13_evidence_made_once.py::test_t3_02_a_completion_that_never_left_gives_the_card_back_and_the_next_hold_makes_one",
       "crooks-assistant/tests/test_r12_made_once.py::test_3_a_completion_shopify_refused_gives_the_card_back_with_the_reason",
       "crooks-assistant/tests/test_r12_made_once.py::test_3_a_completion_that_never_left_gives_the_card_back",
-      "crooks-assistant/tests/test_r12_made_once.py::test_3_a_completion_that_left_and_was_never_answered_stays_locked"
+      "crooks-assistant/tests/test_r12_made_once.py::test_3_a_completion_that_left_and_was_never_answered_stays_locked",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_credit_proven_never_sent_still_says_not_applied",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_credit_that_landed_is_never_called_not_confirmed_once_proven[read-back]",
+      "crooks-assistant/tests/test_r13_unconfirmed_title.py::test_a_credit_that_landed_is_never_called_not_confirmed_once_proven[unreadable]"
     ],
-    "answer": "FIXED in round 13, with S2b/S2b-02 (the same rule). The reviewer was right that the round-12 test proved nothing about the completion: test_3_a_completion_that_never_left_gives_the_card_back sets reads_fail before the hold, so the precondition read fails first and draft_order_complete is never attempted (it stays, as the test of a failure before sending). test_t3_02_a_completion_that_never_left… lets every read through and fails draft_order_complete itself before it leaves (ShopifyUnreached, `unsent`): attempted once, the card given back with the reason, the next hold makes one order — then and now. The defect, at 361b0138: a completion that LEFT and whose answer was lost was given back too when the re-read made at once showed the draft still open — the engine finished it FAILED and after_commit made the card FAILED: 'A new order · not created — The order was not created: … Nothing was made; prepare it again.' Change the card then (postage) and Prepare priced a new draft while the first was open, the check of the drafts this card made found the first still open, Shopify finished the first, and the hold on the new one made a second order. The fix is S2b-02's, in app/families/_workspace.py: a send that left and is not proven made is UNCONFIRMED — 'Sent · not confirmed', 'Look at it in Admin before making it again.', no actions — and Prepare on it is refused ('This order was sent to Shopify and it has not said whether it made it (…); look in Admin before making it again, or say 'a new order for …' to start another.'). A completion Shopify refused (`refused`), one that never left (`unsent`) and one that failed before it was sent still give the card back. test_t3_02_a_completion_that_left_is_never_given_back_as_not_made failed at 361b0138 with 'AssertionError: 2 orders made; after the lost answer the card came back as 'A new order · not created''; test_t3_02_a_completion_that_left_and_landed… (which at 361b0138 showed the drafts re-read catching an unchanged card) now holds the card unconfirmed and failed at 361b0138 with \"assert ('' == 'unconfirmed'\"; both pass now. The engine's commit and _settle_by_observation are unchanged (protected) and identical at 6a29e310.",
+    "answer": "FIXED in round 13, with S2b/S2b-02 (the same rule: 05564a5f, then a7c4e6d1; d65cf011 for what every surface says). The reviewer was right that the round-12 test proved nothing about the completion: test_3_a_completion_that_never_left_gives_the_card_back sets reads_fail before the hold, so the precondition read fails first and draft_order_complete is never attempted (it stays, as the test of a failure before sending). test_t3_02_a_completion_that_never_left… lets every read through and fails draft_order_complete itself before it leaves (ShopifyUnreached, `unsent`): attempted once, the card given back with the reason, the next hold makes one order — then and now. The defect, at 361b0138: a completion that LEFT and whose answer was lost was given back too when the re-read made at once showed the draft still open — the engine finished it FAILED and after_commit made the card FAILED: 'A new order · not created — The order was not created: … Nothing was made; prepare it again.' Change the card then (postage) and Prepare priced a new draft while the first was open, the check of the drafts this card made found the first still open, Shopify finished the first, and the hold on the new one made a second order. The fix is S2b-02's, in app/families/_workspace.py: a send that left and is not proven made is UNCONFIRMED — 'Sent · not confirmed', 'Look at it in Admin before making it again.', no actions — and Prepare on it is refused ('This order was sent to Shopify and it has not said whether it made it (…); look in Admin before making it again, or say 'a new order for …' to start another.'). A completion Shopify refused (`refused`), one that never left (`unsent`) and one that failed before it was sent still give the card back. Only the commit sending the completion classifies it: a commit that finds its proposal still EXECUTING or EXECUTED — a retried request, an Android double-fire — waits WAIT_FOR_OUTCOME_S (25 s) for the first commit's outcome and, failing that, is answered `in_progress` (ActionEngine.commit); after_commit took that answer for the outcome, since it names the same proposal and so passes the holder check. With the change already left, it noted the card UNCONFIRMED, which note() never lets fall back, so when Shopify then refused the first commit the card stayed 'sent, not confirmed' (and the retry was answered as that); with the first commit still at its precondition read, it fell through to the release, and the card was free for a second Prepare, and so a second credit or order, while the first was on its way. Now after_commit returns at once for a proposal still EXECUTING or EXECUTED: only the commit sending the change settles the card, when Shopify answers (a7c4e6d1). That rule is after_commit's, the same for every workspace; the retry tests drive a credit card. What the owner is told follows the card (d65cf011): sent_not_confirmed(proposal) is true only for the hold card whose own commit left its card UNCONFIRMED (the note names that proposal), and for it the commit route answers status and code 'unverified' with SENT_NOT_CONFIRMED ('Sent to Shopify, not confirmed. Check it in Shopify Admin before asking again.') as the spoken line and session.last_outcome, present_action draws the outcome card 'Could not confirm' with those words where the engine's code, service_unavailable, titled it 'Not applied' (_OUTCOME_WORDS), and /actions/states reports it 'unverified' on every reconciliation. Invariant: a completion that may have left is never given back to be made again, and every surface says it was sent and not confirmed. test_a_retry_answered_in_progress_does_not_lock_a_card_shopify_then_refuses failed at 604c7f92 with the retry answered 'unverified' ('Sent to Shopify, not confirmed') instead of in_progress, and test_a_retry_answered_in_progress_does_not_free_a_card_still_at_its_first_read with Prepare taken while the first commit was still reading; both pass now. test_t3_02_a_completion_that_left_is_never_given_back_as_not_made failed at 361b0138 with 'AssertionError: 2 orders made; after the lost answer the card came back as 'A new order · not created''; test_t3_02_a_completion_that_left_and_landed… (which at 361b0138 showed the drafts re-read catching an unchanged card) now holds the card unconfirmed and failed at 361b0138 with \"assert ('' == 'unconfirmed'\"; both pass now. test_a_timed_out_credit_is_sent_not_confirmed_on_every_surface failed before d65cf011 with the commit answered ('failed', 'service_unavailable') and passes now; its edges — a credit that never left still says 'Not applied', one read back as landed says applied, one landed and unreadable says unverified and never 'Nothing was' — pass before and after. The engine's commit and _settle_by_observation are unchanged (protected) and identical at 6a29e310.",
     "excerpts": {
       "crooks-assistant/app/actions/engine.py": [
-        "lines 379-482: commit: `sent`, the exception before it and after it",
-        "lines 484-562: _prove and _settle_by_observation"
+        "lines 50-51: WAIT_FOR_OUTCOME_S",
+        "lines 379-482: commit: `sent`, the exception before it and after it, and a commit of a proposal already executing (answered in_progress after WAIT_FOR_OUTCOME_S)",
+        "lines 484-562: _prove and _settle_by_observation",
+        "lines 579-593: _terminal: a later commit is handed the outcome, never a second send"
       ],
       "crooks-assistant/app/families/_workspace.py": [
-        "lines 404-528: never_left, sending, commit_refused, before_commit, after_commit"
+        "lines 404-552: never_left, sending, commit_refused, before_commit, after_commit (a commit that finds its change still EXECUTING or EXECUTED settles nothing), SENT_NOT_CONFIRMED, sent_not_confirmed and _workspace_of"
       ],
       "crooks-assistant/app/families/order_create.py": [
-        "lines 738-752: _notes, the card's words for a failed completion",
-        "lines 784-827: _made_surface, the made card, and its words when not confirmed",
-        "lines 872-882: already_made",
-        "lines 1826-1864: _observe and _execute",
-        "lines 1982-2080: shopify_order_create: the drafts this card made, read again"
+        "lines 864-878: _notes, the card's words for a failed completion",
+        "lines 910-951: _made_surface, the made card, and its words when not confirmed",
+        "lines 998-1008: already_made",
+        "lines 1956-1994: _observe and _execute",
+        "lines 2112-2219: shopify_order_create: the drafts this card made, read again"
       ],
       "crooks-assistant/app/clients/shopify.py": [
         "lines 31-69: the error classes: refused, unsent",
-        "lines 1076-1090: _post: which transport errors are unsent"
+        "lines 1077-1091: _post: which transport errors are unsent"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 469-587: commit, with commit_refused and before_commit ahead of the engine's claim, after_commit behind it, and sent_not_confirmed deciding what the commit, the voice and the result card say",
+        "lines 595-647: states: a change sent and not confirmed stays unverified on every reconciliation"
+      ],
+      "crooks-assistant/app/presentation.py": [
+        "lines 1284-1298: present_action: a change sent and not confirmed (sent_not_confirmed) is drawn as unverified, with SENT_NOT_CONFIRMED",
+        "lines 1541-1555: _OUTCOME_WORDS: 'Could not confirm' for unverified, 'Not applied' for service_unavailable"
       ]
     }
   },
@@ -623,10 +675,10 @@
         "lines 318-350: card, which redraws itself on every tick"
       ],
       "crooks-assistant/web/alpha.js": [
-        "lines 330-380: openObjective and drawObjective, whose shape is given a redraw"
+        "lines 339-394: openObjective and drawObjective, whose shape is given a redraw"
       ],
       "crooks-assistant/web/ui.js": [
-        "lines 3194-3199: renderObjective"
+        "lines 3198-3203: renderObjective"
       ],
       "crooks-assistant/app/routes/objectives.py": [
         "lines 44-54: _refused and _full, the record and its card",
@@ -665,8 +717,8 @@
         "lines 49-122: settings, call, failed, _refused, _why"
       ],
       "crooks-assistant/app/identity.py": [
-        "lines 271-360: socket_inode, unit_cgroup, unit_pids and cgroup_guarded",
-        "lines 546-602: in_unit_cgroup and far_end_held_by"
+        "lines 273-357: socket_inode, unit_cgroup, unit_pids and cgroup_guarded",
+        "lines 548-612: in_unit_cgroup and far_end_held_by"
       ],
       "crooks-assistant/scripts/accept.py": [
         "lines 63-88: get and post, with no key"
@@ -699,14 +751,14 @@
     "excerpts": {
       "crooks-assistant/web/display.js": [
         "lines 100-136: loadScreen, saveScreen, forgetStored, forgetScreen",
-        "lines 1932-2028: notThisScreen and migrate"
+        "lines 1978-2074: notThisScreen and migrate"
       ],
       "crooks-assistant/app/routes/displays.py": [
-        "lines 216-330: _screen_key, _old_screen_key, _handed, _not_this_screen and register"
+        "lines 217-328: _screen_key, _old_screen_key, _handed, _not_this_screen and register"
       ],
       "crooks-assistant/app/displays/store.py": [
-        "lines 913-1003: register, rotate and _keyed",
-        "lines 1078-1087: _holds and _holder"
+        "lines 939-1037: register, rotate and _keyed",
+        "lines 1114-1123: _holds and _holder"
       ]
     }
   },
@@ -845,12 +897,12 @@
     "answer": "No. The fast lane never wrote, so no write-side check went with it. Its own source at the commit before the deletion says so in code, and round 13's test_r13_evidence_history.py reads it from git on every run: `git show 4411adde^:crooks-assistant/app/fastpath/recipes.py` defines assert_read_only (line 111), which raised for any recipe naming a tool with a write or batch definition ('the fast lane cannot write'); app/runtime.py at that commit called it when the runtime was built (recipe_registry.assert_read_only()) and app/fastpath/runner.py before every run; and `git show 4411adde^:crooks-assistant/app/fastpath/intent.py` lists 'cancel', 'refund' and 'archive' among MUTATION_STRONG, words that took a sentence out of the lane for the model before any recipe was scored; and no recipe named any store-credit tool (a recipe naming the write shopify_store_credit_add would have stopped start-up). So a refund, a cancellation or a store credit was never the lane's to serve, before 4411adde or after. The path they take now, and took then: /turn (every new sentence withdraws what was waiting, then the model) -> MaxAgentSDKProvider (tools=[], its PreToolUse hook: owner authority, then the gate against the conversation's issued ids) -> _dispatch -> dispatch -> gate.classify -> the tool's own prepare from a fresh read -> ActionEngine.stage: a PENDING, RED card held to a gesture graver than a tap. The tests drive a refund, a cancellation and a store credit from a sentence through the scripted model and through the real provider: each is a red card on the record read, a commit without the hold is 409 not_armed, a spoken yes applies nothing, a record the conversation never read is denied by the hook, and the shop receives nothing.",
     "excerpts": {
       "crooks-assistant/app/routes/turn.py": [
-        "lines 255-340: the turn: what was waiting withdrawn, then the model"
+        "lines 274-342: the turn: what was waiting withdrawn, then the model"
       ],
       "crooks-assistant/app/tools/dispatch.py": [
-        "lines 114-179: dispatch",
-        "lines 303-360: _stage",
-        "lines 627-677: make_pretooluse_hook"
+        "lines 121-186: dispatch",
+        "lines 314-372: _stage",
+        "lines 734-784: make_pretooluse_hook"
       ],
       "crooks-assistant/app/providers/max_agent_sdk.py": [
         "lines 330-376: _options and _hook_for",
@@ -900,14 +952,14 @@
     "excerpts": {
       "crooks-assistant/app/displays/store.py": [
         "lines 196-212: how_marked",
-        "lines 1481-1700: mark_done, done_from_remote and the acknowledgements they need",
-        "lines 1923-1945: done"
+        "lines 1517-1739: mark_done, done_from_remote and the acknowledgements they need",
+        "lines 1962-1984: done"
       ],
       "crooks-assistant/app/routes/displays.py": [
-        "lines 362-470: /seen, /done and /remote/done"
+        "lines 363-474: /seen, /done and /remote/done"
       ],
       "crooks-assistant/app/tools/display_tools.py": [
-        "lines 105-127: screen_list, the one reader of done rows"
+        "lines 114-136: screen_list, the one reader of done rows"
       ]
     }
   },
@@ -1037,7 +1089,7 @@
     "answer": "FIXED in round 13 (5804d81a; d65cf011 carried the same rule into the timeline). At 361b0138 TestSessions._prune chose keep_days when f\"-{AUTO_NAME}\" appeared anywhere in a file name, so a session started as 'review always on' (ts-…-review-always-on) was deleted at 14 days instead of 90, and a name that slugged to exactly always-on made an id nobody could tell from the day's own. Now: new_session_id(name, now, named=True) — the only way start() makes an id — rewrites a slug that is always-on or ends -always-on after its 24-character cut so that it ends NAMED_ENDING ('-named') within the same 24 characters; the day session, made by _keep_alive with new_session_id(AUTO_NAME, now), is the only id that ends -always-on. _prune gives keep_days only to an id that fullmatches AUTO_ID (ts-<8 digits>-<6 digits>-always-on) and keep_named_days to every other, which also keeps an id an earlier build already wrote with the words in its slug. is_automatic(session) — the name always-on and an id not ending -named — replaces the name test in active() (the named-session cap), _keep_alive (the midnight roll) and start() (the take-over), so a session he named always-on neither rolls at midnight nor is closed by the next start; and timeline.keeps_words asks the same is_automatic, so that session keeps his words like any other he named. Invariant: only an id the backend made for the day session ends -always-on, and only such an id gets keep_days. test_a_session_started_by_name_is_kept_as_a_named_one_whatever_its_name_says[review always on] failed at 361b0138 at its first assertion (the id was ts-…-review-always-on) and passes now; test_a_named_session_recorded_before_this_round_is_classified_by_its_whole_id failed with the 30-day-old ts-20260801-100000-review-always-on pruned. test_a_session_he_named_always_on_is_his_and_keeps_his_words cannot import at 361b0138 (is_automatic is new) and passes now. The day session's own 14 days, its id and its yielding to a named session are held by the tests after them, which pass before and after.",
     "excerpts": {
       "crooks-assistant/app/observability/timeline.py": [
-        "lines 171-197: WORDS, keeps_words (is_automatic) and _words_by_shape"
+        "lines 177-214: WORDS, keeps_words (is_automatic) and _words_by_shape"
       ]
     }
   },
@@ -1150,6 +1202,12 @@
       "crooks-assistant/tests/test_gmail_writes.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_an_order_written_any_way_is_still_the_order_it_names[Your order1938 went out today to 12 Acacia Avenue.]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_an_order_written_any_way_is_still_the_order_it_names[Your order #\\uff11\\uff19\\uff13\\uff18 went out today.]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_an_order_written_any_way_is_still_the_order_it_names[Your order #19\\u200b38 went out today.]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_waiting_draft_whose_own_subject_names_another_customers_order_is_not_sent",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_order_written_any_way_in_a_new_email_is_still_the_order_it_names[Good news: order1938 is packed.]",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_order_written_any_way_in_a_new_email_is_still_the_order_it_names[Good news: #\\uff11\\uff19\\uff13\\uff18 is packed.]",
       "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_send_reply]",
       "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_draft_reply]",
       "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_bare_number_that_is_a_held_order_counts_as_well",
@@ -1166,12 +1224,14 @@
       "crooks-assistant/tests/test_r13_new_email_order_content.py::test_a_waiting_draft_naming_the_customers_own_order_is_offered_to_send",
       "crooks-assistant/tests/test_reply_order_binding.py::test_the_thread_that_is_about_the_order_is_replied_in",
       "crooks-assistant/tests/test_reply_order_binding.py::test_a_thread_that_can_only_be_about_her_one_recent_order_is_replied_in",
-      "crooks-assistant/tests/test_gmail_writes.py::test_a_reply_named_with_an_order_must_be_to_that_orders_customer"
+      "crooks-assistant/tests/test_gmail_writes.py::test_a_reply_named_with_an_order_must_be_to_that_orders_customer",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_an_order_written_any_way_is_still_the_order_it_names[Your order No.1938 went out today.]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_money_and_longer_numbers_are_not_taken_for_a_held_order"
     ],
-    "answer": "FIXED in round 13 (0c5cc2e5 for the replies; d65cf011 for new emails), in the protected app/tools/gmail_writes.py for exactly this. At 361b0138 gmail_send_reply and gmail_draft_reply ran _check_order only `if order_id`, so a reply whose words named another customer's order, placed in someone else's thread with order_id left out, was prepared with no order line and the owner's hold as the only guard. Now both reply tools call _held_to_the_orders_it_names on the words that would leave — the new body, or the text of the draft waiting in Gmail that gmail_send_reply sends — after _check_order, whether or not order_id was given. _orders_named_in reads the words for order numbers (graph.order_numbers_in) and keeps those that are orders this conversation holds, each by an id issued to it (on its context stack, under a half's cursor, on a change it staged, in the warm order cache or the entity cache); _an_order_not_theirs reads each one's customer (_order_customer) and returns the first whose email is not the thread's recipient (ctx['to_email']), and the tool raises a ToolError naming the order and the recipient, never whose order it is: nothing is prepared. The integration commit d65cf011 carried the same rule to new emails: gmail_draft_new and gmail_send_new (fresh words and the waiting draft alike) hold the subject and the body to the recipient through _new_email_held_to_the_orders_it_names, which shares _an_order_not_theirs. A number that is no order this conversation was shown is words, not an order. Invariant: a reply or email whose words name an order this conversation holds goes only to that order's customer, whether or not the model said which order it was about. test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_send_reply] failed at 361b0138 with the call ok and a reply staged in David's thread naming Mia's #1938, and passes now: refused, nothing pending. The new-email tests failed there the same way. The controls (his own order in his own thread, a number no order, the round-11 thread binding) pass before and after; one body in test_reply_order_binding.py was changed so it no longer names another customer's order, since that is now refused on its own.",
+    "answer": "FIXED in round 13 (0c5cc2e5 for the replies; d65cf011 for new emails; a7c4e6d1 for how the words are read and for a waiting draft's own subject), in the protected app/tools/gmail_writes.py for exactly this. At 361b0138 gmail_send_reply and gmail_draft_reply ran _check_order only `if order_id`, so a reply whose words named another customer's order, placed in someone else's thread with order_id left out, was prepared with no order line and the owner's hold as the only guard. Now both reply tools call _held_to_the_orders_it_names on what would leave, after _check_order, whether or not order_id was given: gmail_draft_reply on the new body (its subject is always the thread's own, reply_subject); gmail_send_reply on the new body, or on the draft waiting in Gmail together with that draft's own subject, unless the subject is the thread's or its reply form (compared with spaces collapsed and case folded): the customer's own subject line names what they asked about, to them. _orders_named_in reads the numbers the words carry through _numbers_written, as a reader sees them: digits of any script as their ASCII value (NFKC, then unicodedata.decimal), invisible format characters taken out (Unicode category Cf, such as a zero-width space inside a number), and every whole run of digits whatever stands before it ('order1938', 'No.1938'); only whole runs, so '19380' is not 1938 and '£19.38' is 19 and 38. It keeps those that are orders this conversation holds, each by an id issued to it (on its context stack, under a half's cursor, on a change it staged, in the warm order cache or the entity cache); _an_order_not_theirs reads each one's customer (_order_customer) and returns the first whose email is not the thread's recipient (ctx['to_email']), and the tool raises a ToolError naming the order and the recipient, never whose order it is: nothing is prepared. Until a7c4e6d1 the words were read by graph.order_numbers_in, whose pattern (four or five digits with no letter or digit before them) missed 'order1938', read '#１９３８' as full-width digits that no order's number equals, and split a number at a zero-width space; it is still what _about_this_order uses to tell which of her orders a thread is about, and it no longer reads what would leave. The integration commit d65cf011 carried the same rule to new emails: gmail_draft_new and gmail_send_new (fresh words and the waiting draft alike) hold the subject and the body to the recipient through _new_email_held_to_the_orders_it_names, which shares _an_order_not_theirs and so the same reading. A number that is no order this conversation was shown is words, not an order. Invariant: a reply or email whose words name an order this conversation holds, however the number is written, goes only to that order's customer, whether or not the model said which order it was about. test_an_order_written_any_way_is_still_the_order_it_names ('order1938', full-width digits, a zero-width space inside the number), its new-email twin ('order1938', full-width digits) and test_a_waiting_draft_whose_own_subject_names_another_customers_order_is_not_sent failed at 604c7f92 (the reply or email prepared to David; the draft whose subject names Daniel's #1930 offered to send to Sam) and pass now. test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_send_reply] failed at 361b0138 with the call ok and a reply staged in David's thread naming Mia's #1938, and passes now: refused, nothing pending. The new-email tests failed there the same way. The controls pass before and after: his own order in his own thread, a number that is no order, the round-11 thread binding, 'No.1938' (which the old pattern read as well), and money and longer numbers; one body in test_reply_order_binding.py was changed so it no longer names another customer's order, since that is now refused on its own.",
     "excerpts": {
       "crooks-assistant/app/context/graph.py": [
-        "lines 44-51: order_numbers_in"
+        "lines 39-51: _NUMBER and order_numbers_in, the pattern the thread card's linked-order strip and _about_this_order use; since a7c4e6d1 it no longer reads what a reply or an email says (gmail_writes._numbers_written does)"
       ]
     }
   },
@@ -1191,6 +1251,12 @@
       "crooks-assistant/tests/test_gmail_writes.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_an_order_written_any_way_is_still_the_order_it_names[Your order1938 went out today to 12 Acacia Avenue.]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_an_order_written_any_way_is_still_the_order_it_names[Your order #\\uff11\\uff19\\uff13\\uff18 went out today.]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_an_order_written_any_way_is_still_the_order_it_names[Your order #19\\u200b38 went out today.]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_waiting_draft_whose_own_subject_names_another_customers_order_is_not_sent",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_order_written_any_way_in_a_new_email_is_still_the_order_it_names[Good news: order1938 is packed.]",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_order_written_any_way_in_a_new_email_is_still_the_order_it_names[Good news: #\\uff11\\uff19\\uff13\\uff18 is packed.]",
       "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_send_reply]",
       "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_draft_reply]",
       "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_bare_number_that_is_a_held_order_counts_as_well",
@@ -1207,12 +1273,14 @@
       "crooks-assistant/tests/test_r13_new_email_order_content.py::test_a_waiting_draft_naming_the_customers_own_order_is_offered_to_send",
       "crooks-assistant/tests/test_reply_order_binding.py::test_the_thread_that_is_about_the_order_is_replied_in",
       "crooks-assistant/tests/test_reply_order_binding.py::test_a_thread_that_can_only_be_about_her_one_recent_order_is_replied_in",
-      "crooks-assistant/tests/test_gmail_writes.py::test_a_reply_named_with_an_order_must_be_to_that_orders_customer"
+      "crooks-assistant/tests/test_gmail_writes.py::test_a_reply_named_with_an_order_must_be_to_that_orders_customer",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_an_order_written_any_way_is_still_the_order_it_names[Your order No.1938 went out today.]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_money_and_longer_numbers_are_not_taken_for_a_held_order"
     ],
-    "answer": "FIXED in round 13 with R9-E-families1-E-04, which is the same defect seen from the tests (0c5cc2e5; d65cf011 for new emails). The round-11 tests refused a wrong thread only when the call supplied order_id; the new tests drive the optional-argument path through the real POST /turn, the dispatcher and the gate, with the model's calls scripted and no order_id at all. At 361b0138 gmail_send_reply and gmail_draft_reply ran _check_order only `if order_id`, so a reply whose words named another customer's order, placed in someone else's thread with order_id left out, was prepared with no order line and the owner's hold as the only guard. Now both reply tools call _held_to_the_orders_it_names on the words that would leave — the new body, or the text of the draft waiting in Gmail that gmail_send_reply sends — after _check_order, whether or not order_id was given. _orders_named_in reads the words for order numbers (graph.order_numbers_in) and keeps those that are orders this conversation holds, each by an id issued to it (on its context stack, under a half's cursor, on a change it staged, in the warm order cache or the entity cache); _an_order_not_theirs reads each one's customer (_order_customer) and returns the first whose email is not the thread's recipient (ctx['to_email']), and the tool raises a ToolError naming the order and the recipient, never whose order it is: nothing is prepared. The integration commit d65cf011 carried the same rule to new emails: gmail_draft_new and gmail_send_new (fresh words and the waiting draft alike) hold the subject and the body to the recipient through _new_email_held_to_the_orders_it_names, which shares _an_order_not_theirs. A number that is no order this conversation was shown is words, not an order. Invariant: a reply or email whose words name an order this conversation holds goes only to that order's customer, whether or not the model said which order it was about. The first two tests failed at 361b0138 with the reply staged in the wrong thread and pass now; the bare-number, right-order-plus-another and waiting-draft cases failed there too.",
+    "answer": "FIXED in round 13 with R9-E-families1-E-04, which is the same defect seen from the tests (0c5cc2e5; d65cf011 for new emails; a7c4e6d1 for how the words are read and for a waiting draft's own subject). The round-11 tests refused a wrong thread only when the call supplied order_id; the new tests drive the optional-argument path through the real POST /turn, the dispatcher and the gate, with the model's calls scripted and no order_id at all. At 361b0138 gmail_send_reply and gmail_draft_reply ran _check_order only `if order_id`, so a reply whose words named another customer's order, placed in someone else's thread with order_id left out, was prepared with no order line and the owner's hold as the only guard. Now both reply tools call _held_to_the_orders_it_names on what would leave, after _check_order, whether or not order_id was given: gmail_draft_reply on the new body (its subject is always the thread's own, reply_subject); gmail_send_reply on the new body, or on the draft waiting in Gmail together with that draft's own subject, unless the subject is the thread's or its reply form (compared with spaces collapsed and case folded): the customer's own subject line names what they asked about, to them. _orders_named_in reads the numbers the words carry through _numbers_written, as a reader sees them: digits of any script as their ASCII value (NFKC, then unicodedata.decimal), invisible format characters taken out (Unicode category Cf, such as a zero-width space inside a number), and every whole run of digits whatever stands before it ('order1938', 'No.1938'); only whole runs, so '19380' is not 1938 and '£19.38' is 19 and 38. It keeps those that are orders this conversation holds, each by an id issued to it (on its context stack, under a half's cursor, on a change it staged, in the warm order cache or the entity cache); _an_order_not_theirs reads each one's customer (_order_customer) and returns the first whose email is not the thread's recipient (ctx['to_email']), and the tool raises a ToolError naming the order and the recipient, never whose order it is: nothing is prepared. Until a7c4e6d1 the words were read by graph.order_numbers_in, whose pattern (four or five digits with no letter or digit before them) missed 'order1938', read '#１９３８' as full-width digits that no order's number equals, and split a number at a zero-width space; it is still what _about_this_order uses to tell which of her orders a thread is about, and it no longer reads what would leave. The integration commit d65cf011 carried the same rule to new emails: gmail_draft_new and gmail_send_new (fresh words and the waiting draft alike) hold the subject and the body to the recipient through _new_email_held_to_the_orders_it_names, which shares _an_order_not_theirs and so the same reading. A number that is no order this conversation was shown is words, not an order. Invariant: a reply or email whose words name an order this conversation holds, however the number is written, goes only to that order's customer, whether or not the model said which order it was about. test_an_order_written_any_way_is_still_the_order_it_names ('order1938', full-width digits, a zero-width space inside the number), its new-email twin ('order1938', full-width digits) and test_a_waiting_draft_whose_own_subject_names_another_customers_order_is_not_sent failed at 604c7f92 (the reply or email prepared to David; the draft whose subject names Daniel's #1930 offered to send to Sam) and pass now. The first two tests of the round-13 files failed at 361b0138 with the reply staged in the wrong thread and pass now; the bare-number, right-order-plus-another and waiting-draft cases failed there too. 'No.1938', which the old pattern read as well, and money and longer numbers (test_money_and_longer_numbers_are_not_taken_for_a_held_order) pass before and after.",
     "excerpts": {
       "crooks-assistant/app/context/graph.py": [
-        "lines 44-51: order_numbers_in"
+        "lines 39-51: _NUMBER and order_numbers_in, the pattern the thread card's linked-order strip and _about_this_order use; since a7c4e6d1 it no longer reads what a reply or an email says (gmail_writes._numbers_written does)"
       ]
     }
   },
@@ -1259,12 +1327,17 @@
       "crooks-assistant/app/tools/dispatch.py",
       "crooks-assistant/app/observability/timeline.py",
       "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/app/tools/analytics_tools.py",
+      "crooks-assistant/app/routes/branches.py",
+      "crooks-assistant/app/routes/actions.py",
       "crooks-assistant/tests/test_r13_timeline_names.py",
       "crooks-assistant/tests/test_tool_args_redaction.py",
       "crooks-assistant/tests/test_observability_redaction.py",
       "crooks-assistant/tests/test_turn_boundary.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_listing_titled_in_his_words_is_written_by_its_shape",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_query_the_language_refused_is_written_without_what_was_asked",
       "crooks-assistant/tests/test_r13_timeline_names.py::test_a_customer_a_read_returns_is_nowhere_in_the_automatic_session",
       "crooks-assistant/tests/test_r13_timeline_names.py::test_every_free_string_in_a_read_s_arguments_is_written_by_its_shape",
       "crooks-assistant/tests/test_r13_timeline_names.py::test_a_structured_argument_keeps_ids_catalogue_and_query_words_and_shapes_the_rest[filters0-kept0]",
@@ -1276,11 +1349,22 @@
       "crooks-assistant/tests/test_tool_args_redaction.py::test_a_name_an_earlier_read_returned_is_redacted_wherever_it_is_in_the_arguments",
       "crooks-assistant/tests/test_observability_redaction.py::test_the_names_a_turn_knows_reach_every_event_after_it"
     ],
-    "answer": "FIXED in round 13 (03d9a923 and 3345b443, app/tools/dispatch.py and app/observability/timeline.py). At 361b0138 _result_shape kept a result's top-level `name` verbatim, and dispatch wrote the read's tool_finished before the turn had told the timeline that name (note_names ran only at the turn's edges); _spoken_fields kept a string under any key not in SPOKEN_ARGS; and an error was written as raised. Now: dispatch calls timeline.note_names with every personal string _harvest_ids found in the result before trace.finish writes a line of that read (and _stage does the same for a prepared change's pii), so scrub redacts the name from the read's own events and everything after; _result_shape writes `name` by its length like any other text; loggable_args writes every string of a read's arguments through _as_written, which keeps only an id under an id key, a catalogue word (CATALOGUE_ARGS), a word of the query language's own (_query_words) or a value the tool's schema enumerates, and writes anything else by _spoken_shape (length and a per-process digest); _spoken_fields and _spoken_item apply that at every depth and inside lists; and _Trace.finish writes an error through _without_what_was_said, which replaces any of the call's own words it quotes by their shape. The owner's words in the automatic session are the next finding's (R9-D1-D1-01), fixed in the same round. Invariant: no name a read returned, and no free string of a call's arguments, is written to the always-on timeline in the clear. test_a_customer_a_read_returns_is_nowhere_in_the_automatic_session failed at 361b0138 with 'Quill' in the history read's tool_finished, and passes now; the argument, structured-argument, error and named-session tests failed there too (the version of the file before d65cf011 was run against 361b0138, since the integration commit's version imports session.is_automatic, which is new). The last structured-argument case, and the round-9 and round-10 redaction tests after it, pass before and after.",
+    "answer": "FIXED in round 13 (03d9a923 and 3345b443, app/tools/dispatch.py and app/observability/timeline.py; a7c4e6d1 for what a tool writes before it returns). At 361b0138 _result_shape kept a result's top-level `name` verbatim, and dispatch wrote the read's tool_finished before the turn had told the timeline that name (note_names ran only at the turn's edges); _spoken_fields kept a string under any key not in SPOKEN_ARGS; and an error was written as raised. Now: dispatch calls timeline.note_names with every personal string _harvest_ids found in the result before trace.finish writes a line of that read (and _stage does the same for a prepared change's pii), so scrub redacts the name from the read's own events and everything after; _result_shape writes `name` by its length like any other text; loggable_args writes every string of a read's arguments through _as_written, which keeps only an id under an id key, a catalogue word (CATALOGUE_ARGS), a word of the query language's own (_query_words) or a value the tool's schema enumerates, and writes anything else by _spoken_shape (length and a per-process digest); _spoken_fields and _spoken_item apply that at every depth and inside lists; and _Trace.finish writes an error through _without_what_was_said, which replaces any of the call's own words it quotes by their shape. The round-13 independent check found a read writing before it returns: a customer ranking's working_set event, emitted inside the tool, carried its title ('Top three, Cy Cole first') before dispatch had noted the names the ranking found. analytics_tools._set_from now notes a customer set's names (timeline.note_names over the set's labels) before that event (a7c4e6d1). In the automatic session the label is written by its shape anyway, since a7c4e6d1 put working_set label, and a refused query's reason and unknown (query_rejected, which quote what was asked), in timeline.WORDS; in a session he named, which keeps his words, it is this order that takes the names the read found out of the label, and no test here isolates that case. The owner's words in the automatic session are the next finding's (R9-D1-D1-01), fixed in the same round. Invariant: no name a read returned, and no free string of a call's arguments, is written to the always-on timeline in the clear. test_a_listing_titled_in_his_words_is_written_by_its_shape and test_a_query_the_language_refused_is_written_without_what_was_asked failed at 604c7f92 with the working sets' labels and the refused query's reason written as given, and pass now. test_a_customer_a_read_returns_is_nowhere_in_the_automatic_session failed at 361b0138 with 'Quill' in the history read's tool_finished, and passes now; the argument, structured-argument, error and named-session tests failed there too (the version of the file before d65cf011 was run against 361b0138, since the integration commit's version imports session.is_automatic, which is new). The last structured-argument case, and the round-9 and round-10 redaction tests after it, pass before and after.",
     "excerpts": {
       "crooks-assistant/app/observability/session.py": [
         "lines 54-54: AUTO_NAME",
         "lines 115-140: new_session_id, NAMED_ENDING, AUTO_ID and is_automatic"
+      ],
+      "crooks-assistant/app/tools/analytics_tools.py": [
+        "lines 138-189: _set_from: a customer set's names noted (timeline.note_names) before its working_set event, whose label is the listing's title",
+        "lines 218-231: _run: a query the language refused, written as query_rejected with its reason and what it did not know"
+      ],
+      "crooks-assistant/app/routes/branches.py": [
+        "lines 134-138: branch_forked, with each half's headline",
+        "lines 166-168: branch_focused, with its headline"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 552-556: the action_commit event, with the line spoken"
       ]
     }
   },
@@ -1295,24 +1379,44 @@
       "crooks-assistant/app/tools/dispatch.py",
       "crooks-assistant/app/observability/timeline.py",
       "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/app/tools/analytics_tools.py",
+      "crooks-assistant/app/routes/branches.py",
+      "crooks-assistant/app/routes/actions.py",
       "crooks-assistant/tests/test_r13_timeline_names.py",
       "crooks-assistant/tests/test_tool_args_redaction.py",
       "crooks-assistant/tests/test_observability_redaction.py",
       "crooks-assistant/tests/test_turn_boundary.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_listing_titled_in_his_words_is_written_by_its_shape",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_query_the_language_refused_is_written_without_what_was_asked",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_what_a_change_or_a_half_says_is_written_by_its_shape_in_the_automatic_session[action_commit-fields0]",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_what_a_change_or_a_half_says_is_written_by_its_shape_in_the_automatic_session[branch_forked-fields1]",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_what_a_change_or_a_half_says_is_written_by_its_shape_in_the_automatic_session[branch_focused-fields2]",
       "crooks-assistant/tests/test_r13_timeline_names.py::test_a_name_said_that_no_read_returns_is_nowhere_in_the_automatic_session",
       "crooks-assistant/tests/test_r13_timeline_names.py::test_a_typed_question_is_written_by_its_shape_in_the_automatic_session_too",
       "crooks-assistant/tests/test_r13_timeline_names.py::test_a_session_he_named_always_on_is_his_and_keeps_his_words",
       "crooks-assistant/tests/test_r13_timeline_names.py::test_a_session_started_by_name_keeps_his_words_and_still_loses_the_names_reads_return",
       "crooks-assistant/tests/test_turn_boundary.py::test_a_customer_named_aloud_is_redacted_from_what_the_turn_writes_even_before_a_read_names_her",
-      "crooks-assistant/tests/test_observability_redaction.py::test_the_names_a_turn_knows_reach_every_event_after_it"
+      "crooks-assistant/tests/test_observability_redaction.py::test_the_names_a_turn_knows_reach_every_event_after_it",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_what_a_change_says_is_kept_in_a_session_he_named"
     ],
-    "answer": "FIXED in round 13 (03d9a923; d65cf011 for which session keeps words). No redactor can find a name nobody has told it, and a name he says that no read returns is never told to note_names, so at 361b0138 stt.text, model.answer and turn_finished.question kept it. Now Timeline.emit writes the fields that carry his words and the answers to them — WORDS: stt text and raw_text, model answer, turn_finished question and answer, tts text — by _words_by_shape (dispatch._spoken_shape: length and a per-process digest, the same for the same words, nothing of what they were) whenever keeps_words(session) is false, that is in the day's automatic session; keeps_words asks session.is_automatic, the rule housekeeping uses (O2-N-01), so a session he started by name — his walkthrough, even one he named always-on — keeps his words, and names that reads returned are still taken out of it by scrub. This is the product decision the fix map put to George, made as the fix map proposed it; keeps_words is the one line to change if he rules otherwise. owner_feedback, his own request to have words written down, is not in WORDS. Invariant: in the automatic session no free text the owner spoke, and no answer to it, is written in the clear. test_a_name_said_that_no_read_returns_is_nowhere_in_the_automatic_session failed at 361b0138 with the name in the stt, model and turn_finished events (run as the file stood before d65cf011, whose version imports the new is_automatic), and passes now; the named-session tests hold that a walkthrough keeps his words.",
+    "answer": "FIXED in round 13 (03d9a923; d65cf011 for which session keeps words; a7c4e6d1 for five more fields). No redactor can find a name nobody has told it, and a name he says that no read returns is never told to note_names, so at 361b0138 stt.text, model.answer and turn_finished.question kept it. Now Timeline.emit writes the fields that carry his words and the answers to them by _words_by_shape (dispatch._spoken_shape: length and a per-process digest, the same for the same words, nothing of what they were) whenever keeps_words(session) is false, that is in the day's automatic session. Those fields are timeline.WORDS: stt text and raw_text, model answer, turn_finished question and answer, tts text; and, since a7c4e6d1, where the round-13 independent check found his words written from inside a tool or a route before any read had named anyone, working_set label (a listing's title, which the model gives in the owner's words: 'Cy Cole's orders'), query_rejected reason and unknown (a query the language refused quotes what was asked), branch_forked headline and parent_headline, branch_focused headline, and action_commit spoken ('Reply sent to David.'). _words_by_shape shapes every string of a list field too (unknown is one). keeps_words asks session.is_automatic, the rule housekeeping uses (O2-N-01), so a session he started by name — his walkthrough, even one he named always-on — keeps his words, and names that reads returned are still taken out of it by scrub; analytics_tools._set_from notes a customer set's names before its working_set event, so that holds for a set's label too. This is the product decision the fix map put to George, made as the fix map proposed it; keeps_words is the one line to change if he rules otherwise. owner_feedback, his own request to have words written down, is not in WORDS. Invariant: in the automatic session no free text the owner spoke, and no answer to it, is written in the clear. test_a_listing_titled_in_his_words_is_written_by_its_shape, test_a_query_the_language_refused_is_written_without_what_was_asked and test_what_a_change_or_a_half_says_is_written_by_its_shape_in_the_automatic_session (action_commit, branch_forked, branch_focused) failed at 604c7f92 with those fields written as given, and pass now. test_a_name_said_that_no_read_returns_is_nowhere_in_the_automatic_session failed at 361b0138 with the name in the stt, model and turn_finished events (run as the file stood before d65cf011, whose version imports the new is_automatic), and passes now; the named-session tests hold that a walkthrough keeps his words, and test_what_a_change_says_is_kept_in_a_session_he_named passes at 604c7f92 and now.",
     "excerpts": {
       "crooks-assistant/app/observability/session.py": [
         "lines 54-54: AUTO_NAME",
         "lines 115-140: new_session_id, NAMED_ENDING, AUTO_ID and is_automatic"
+      ],
+      "crooks-assistant/app/tools/analytics_tools.py": [
+        "lines 138-189: _set_from: a customer set's names noted (timeline.note_names) before its working_set event, whose label is the listing's title",
+        "lines 218-231: _run: a query the language refused, written as query_rejected with its reason and what it did not know"
+      ],
+      "crooks-assistant/app/routes/branches.py": [
+        "lines 134-138: branch_forked, with each half's headline",
+        "lines 166-168: branch_focused, with its headline"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 552-556: the action_commit event, with the line spoken"
       ]
     }
   },
@@ -1373,6 +1477,14 @@
       "crooks-assistant/tests/test_touch_to_voice.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_refund_whose_reason_copies_the_order_he_named_is_withdrawn[1940 arrived torn]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_refund_whose_reason_copies_the_order_he_named_is_withdrawn[Order 1940, it arrived torn]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_refund_whose_reason_copies_the_order_he_named_is_withdrawn[it arrived torn, order 1940]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[1940: fragile]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[Fragile (order 1940)]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[Add a note to order 1940 saying fragile]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[order 1940 saying fragile]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_on_1938_a_note_that_is_not_his_words_cannot_carry_1940_onto_it",
       "crooks-assistant/tests/test_r13_off_target.py::test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said]",
       "crooks-assistant/tests/test_r13_off_target.py::test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said-after-add-a-note-on-1938]",
       "crooks-assistant/tests/test_r13_off_target.py::test_a_refund_whose_reason_repeats_the_order_number_is_held_to_that_order",
@@ -1381,15 +1493,16 @@
       "crooks-assistant/tests/test_r13_off_target.py::test_a_number_said_only_in_the_note_does_not_move_the_note_off_the_order_he_is_on",
       "crooks-assistant/tests/test_r11_turn.py::test_a_note_naming_where_it_goes_is_still_held_to_that_order_whatever_it_mentions",
       "crooks-assistant/tests/test_r11_turn.py::test_a_note_that_mentions_another_order_is_his_note_not_a_change_aimed_elsewhere[exchange for order 1912, she wants a medium instead-Exchange for order 1912, she wants a medium instead]",
-      "crooks-assistant/tests/test_r11_turn.py::test_a_change_to_an_order_other_than_the_one_named_is_refused_at_the_write_boundary"
+      "crooks-assistant/tests/test_r11_turn.py::test_a_change_to_an_order_other_than_the_one_named_is_refused_at_the_write_boundary",
+      "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_his_dictation_that_names_another_order_stands"
     ],
-    "answer": "FIXED in round 13 (b2203550, app/routes/turn.py). At 361b0138 _off_target took away, as a set, every number the change's content carried (`named - _written_numbers(proposal)`), so a number he said as where the change goes and again inside it was no longer named. Now _said_outside counts: _order_mentions counts each place in his words that names an order (said as one, or a number that is an order this conversation holds), _written_counts counts each number in the model's own arguments for the change (never an id, a gid, or the sending copy, which for a note holds the old note too), and a number he said more times than the change writes it is where the change goes; _off_target withdraws an order change whose order is not among those numbers (NOT_THE_ORDER_NAMED), and _answer revokes it before it is delivered or drawn, with _off_target_words saying which order he named. An order he named only inside the content still limits it: the change may stand on the order he is looking at (the round-11 content rule) or on one he named, but not on a third order. Invariant: a number the owner said outside the change's own content is where the change goes. test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said] — 'add a note to order 1940: 1940 goes with the gift box', noted by the model on #1938 — failed at 361b0138 with the note PENDING, and passes now: REVOKED, and the answer names #1940. The refund whose reason repeats its number, and the third-order case, failed there too; the controls and the round-11 content tests pass before and after. Production (6a29e310) has no post-model target check at all; this closes the residual hole in the candidate's.",
+    "answer": "FIXED in round 13: b2203550, then a7c4e6d1 after the round-13 independent check (app/routes/turn.py). At 361b0138 _off_target took away, as a set, every number the change's content carried (`named - _written_numbers(proposal)`), so a number he said as where the change goes and again inside it was no longer named. b2203550 counted instead, and so let the model's own words cancel his: a number he said more times than the model's arguments carried it was where the change went, so every '1940' the model copied into a note or a refund's reason took away one place where he had named #1940, and 'refund twenty pounds on order 1940, it arrived torn', prepared on #1938 with the reason '1940 arrived torn', stood. Now nothing the model writes cancels a place he named. _order_places finds every place in his words that names an order, one per place: said as one (_ORDER_SAID: '#1940', 'order 1940', 'CROOKS-1940') or a bare number that is an order this conversation holds (_NUMBER over _orders_known). _written_places keeps out only a place that stands inside a passage of his own words that the change writes word for word: each string of the model's arguments (_written_strings, never an id-keyed value or a gid) is compared with runs of his words, word by word whatever their case or width (_words_of: NFKC, casefolded), and a place inside a matching run is kept out only when the run is more than two words long, the number has at least two of his words before it inside the run (_WORDS_BEFORE), the run does not begin where his sentence begins unless the change is on the record a tapped control bound (dictated=bound_here, from _off_target), and the change is not RED: a refund, a cancellation or anything else that cannot be undone is never excused by how its reason is worded. _said_outside is what is left, and it is where the change goes. _off_target withdraws an order change whose order is not among those numbers (NOT_THE_ORDER_NAMED), and _answer revokes it before it is delivered or drawn, with _off_target_words naming the order he said. An order he named only inside his own words that the change writes still limits it (_orders_named): the change may stand on the order he is looking at or on one he named, never on a third. _written_counts now serves only _numbers_said, which decides whether the screen he is on stays under the answer, not where a change goes. Invariant: every place the owner named an order is where the change goes, unless it stands inside his own words that the change writes verbatim, and never for a RED change. test_a_refund_whose_reason_copies_the_order_he_named_is_withdrawn (three reasons that repeat 1940), test_a_note_that_copies_the_order_he_named_is_withdrawn (four notes) and test_after_add_a_note_on_1938_a_note_that_is_not_his_words_cannot_carry_1940_onto_it failed at 604c7f92 with the change PENDING on #1938, and pass now. test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said] — 'add a note to order 1940: 1940 goes with the gift box', noted by the model on #1938 — failed at 361b0138 with the note PENDING, and passes now: REVOKED, and the answer names #1940; the refund whose reason repeats its number and the third-order case failed there too. The controls pass before and after: the same note on #1940, and his 'swap it for the one on order 1940' noted as he said it on the order he is looking at; and test_after_add_a_note_his_dictation_that_names_another_order_stands — Add a note tapped on #1938, then 'swap it for the one on order 1940', noted on #1938 word for word — is #1938's card at 604c7f92 and now. Production (6a29e310) has no post-model target check at all.",
     "excerpts": {
       "crooks-assistant/app/routes/turn.py": [
-        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
-        "lines 597-615: _with_continuation: the binding beside his words, for the model",
-        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
-        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+        "lines 135-408: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 598-616: _with_continuation: the binding beside his words, for the model",
+        "lines 893-1395: the orders he named, place by place (_ORDER_SAID, _NUMBER, _orders_known, _order_places, _order_mentions, _orders_named; _numbers_said with _written_counts, for the screen only), what a change writes in his own words (_written_strings, _words_of, _written_places) and so where it goes (_said_outside), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1718-2121: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
       ],
       "crooks-assistant/app/session/branch.py": [
         "lines 757-788: bind_voice, voice_target, release_voice"
@@ -1418,21 +1531,27 @@
       "crooks-assistant/tests/test_touch_to_voice.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_on_1938_a_note_that_is_not_his_words_cannot_carry_1940_onto_it",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[1940: fragile]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[Fragile (order 1940)]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[Add a note to order 1940 saying fragile]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[order 1940 saying fragile]",
       "crooks-assistant/tests/test_r13_off_target.py::test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said-after-add-a-note-on-1938]",
       "crooks-assistant/tests/test_r13_off_target.py::test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said]",
       "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_the_order_he_names_still_wins",
       "crooks-assistant/tests/test_r11_turn.py::test_add_a_note_bound_to_1938_then_1940_named_stages_nothing_on_1938[add a note to order 1940: fragile]",
       "crooks-assistant/tests/test_r11_turn.py::test_add_a_note_bound_to_1938_then_1940_named_stages_nothing_on_1938[#1940: fragile, handle with care]",
       "crooks-assistant/tests/test_r11_turn.py::test_add_a_note_bound_to_1938_then_a_note_for_1940_as_asked_lands_on_1940",
-      "crooks-assistant/tests/test_turn_boundary.py::test_a_question_about_another_order_after_a_tapped_note_stages_nothing_on_the_first"
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_question_about_another_order_after_a_tapped_note_stages_nothing_on_the_first",
+      "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_his_dictation_that_names_another_order_stands"
     ],
-    "answer": "FIXED in round 13 (b2203550), with S2a/S2a-01: round 12 ruled it STILL PRESENT because a note bound to #1938, said for #1940 with 1940 inside the note, lost #1940 to the set subtraction. At 361b0138 _off_target took away, as a set, every number the change's content carried (`named - _written_numbers(proposal)`), so a number he said as where the change goes and again inside it was no longer named. Now _said_outside counts: _order_mentions counts each place in his words that names an order (said as one, or a number that is an order this conversation holds), _written_counts counts each number in the model's own arguments for the change (never an id, a gid, or the sending copy, which for a note holds the old note too), and a number he said more times than the change writes it is where the change goes; _off_target withdraws an order change whose order is not among those numbers (NOT_THE_ORDER_NAMED), and _answer revokes it before it is delivered or drawn, with _off_target_words saying which order he named. An order he named only inside the content still limits it: the change may stand on the order he is looking at (the round-11 content rule) or on one he named, but not on a third order. A number he said outside the note outranks the tapped binding as well: in _off_target the numbers from _said_outside are asked first, and only when there are none does the binding decide. test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said-after-add-a-note-on-1938] failed at 361b0138 with the note PENDING on #1938 and passes now; the round-11 binding tests, where the note does not repeat the number, pass before and after.",
+    "answer": "FIXED in round 13 (b2203550, then a7c4e6d1), with S2a/S2a-01: round 12 ruled it STILL PRESENT because a note bound to #1938, said for #1940 with 1940 inside the note, lost #1940 to the set subtraction. At 361b0138 _off_target took away, as a set, every number the change's content carried (`named - _written_numbers(proposal)`), so a number he said as where the change goes and again inside it was no longer named. b2203550 counted places instead, but still let the model's own words cancel his: a note on #1938 in which the model wrote '1940' took away the place where he had said #1940. Now (a7c4e6d1) what the model writes cancels nothing. _order_places finds every place in his words that names an order, one per place: said as one (_ORDER_SAID: '#1940', 'order 1940', 'CROOKS-1940') or a bare number that is an order this conversation holds (_NUMBER over _orders_known). _written_places keeps out only a place that stands inside a passage of his own words that the change writes word for word: each string of the model's arguments (_written_strings, never an id-keyed value or a gid) is compared with runs of his words, word by word whatever their case or width (_words_of: NFKC, casefolded), and a place inside a matching run is kept out only when the run is more than two words long, the number has at least two of his words before it inside the run (_WORDS_BEFORE), the run does not begin where his sentence begins unless the change is on the record a tapped control bound (dictated=bound_here, from _off_target), and the change is not RED: a refund, a cancellation or anything else that cannot be undone is never excused by how its reason is worded. _said_outside is what is left, and it is where the change goes. The binding decides two things. A number he said outside what the note writes outranks it: in _off_target the numbers from _said_outside are asked first, and a note bound to #1938 but said for #1940 is withdrawn (NOT_THE_ORDER_NAMED), _answer revoking it before it is delivered or drawn and _off_target_words naming #1940. And only for a change on the bound record may his words be dictation from the start of his sentence: after Add a note on #1938, 'swap it for the one on order 1940', noted on #1938 as he said it, is his note and his card; 'add a note to order 1940 saying fragile', noted on #1938 as '1940 goes with the gift box', is withdrawn. Only when he named no order as where it goes does the binding hold the change to the tapped record (R9-D1-D1-02). test_after_add_a_note_on_1938_a_note_that_is_not_his_words_cannot_carry_1940_onto_it and test_a_note_that_copies_the_order_he_named_is_withdrawn (four notes that repeat 1940) failed at 604c7f92 with the note PENDING on #1938 and pass now. test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said-after-add-a-note-on-1938] failed at 361b0138 with the note PENDING on #1938 and passes now; the round-11 binding tests, where the note does not repeat the number, pass before and after; and the dictation control, test_after_add_a_note_his_dictation_that_names_another_order_stands, is #1938's card at 604c7f92 and now.",
     "excerpts": {
       "crooks-assistant/app/routes/turn.py": [
-        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
-        "lines 597-615: _with_continuation: the binding beside his words, for the model",
-        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
-        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+        "lines 135-408: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 598-616: _with_continuation: the binding beside his words, for the model",
+        "lines 893-1395: the orders he named, place by place (_ORDER_SAID, _NUMBER, _orders_known, _order_places, _order_mentions, _orders_named; _numbers_said with _written_counts, for the screen only), what a change writes in his own words (_written_strings, _words_of, _written_places) and so where it goes (_said_outside), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1718-2121: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
       ],
       "crooks-assistant/app/session/branch.py": [
         "lines 757-788: bind_voice, voice_target, release_voice"
@@ -1461,21 +1580,29 @@
       "crooks-assistant/tests/test_touch_to_voice.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_refund_whose_reason_copies_the_order_he_named_is_withdrawn[1940 arrived torn]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_refund_whose_reason_copies_the_order_he_named_is_withdrawn[Order 1940, it arrived torn]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_refund_whose_reason_copies_the_order_he_named_is_withdrawn[it arrived torn, order 1940]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[1940: fragile]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[Fragile (order 1940)]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[Add a note to order 1940 saying fragile]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_note_that_copies_the_order_he_named_is_withdrawn[order 1940 saying fragile]",
       "crooks-assistant/tests/test_r13_off_target.py::test_a_refund_whose_reason_repeats_the_order_number_is_held_to_that_order",
       "crooks-assistant/tests/test_r13_off_target.py::test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said]",
       "crooks-assistant/tests/test_r13_off_target.py::test_a_number_said_only_in_the_note_does_not_let_the_note_land_on_a_third_order",
       "crooks-assistant/tests/test_r13_off_target.py::test_the_same_note_on_the_order_he_named_is_his_card",
       "crooks-assistant/tests/test_r11_turn.py::test_a_change_to_an_order_other_than_the_one_named_is_refused_at_the_write_boundary",
       "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[refund]",
-      "crooks-assistant/tests/test_r11_turn.py::test_yes_with_another_order_number_over_a_waiting_refund_is_an_instruction_about_that_order[the order he said]"
+      "crooks-assistant/tests/test_r11_turn.py::test_yes_with_another_order_number_over_a_waiting_refund_is_an_instruction_about_that_order[the order he said]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_his_dictation_that_names_another_order_stands"
     ],
-    "answer": "FIXED in round 13 (b2203550), with S2a/S2a-01, which is the same subtraction. At 361b0138 _off_target took away, as a set, every number the change's content carried (`named - _written_numbers(proposal)`), so a number he said as where the change goes and again inside it was no longer named. Now _said_outside counts: _order_mentions counts each place in his words that names an order (said as one, or a number that is an order this conversation holds), _written_counts counts each number in the model's own arguments for the change (never an id, a gid, or the sending copy, which for a note holds the old note too), and a number he said more times than the change writes it is where the change goes; _off_target withdraws an order change whose order is not among those numbers (NOT_THE_ORDER_NAMED), and _answer revokes it before it is delivered or drawn, with _off_target_words saying which order he named. An order he named only inside the content still limits it: the change may stand on the order he is looking at (the round-11 content rule) or on one he named, but not on a third order. test_a_refund_whose_reason_repeats_the_order_number_is_held_to_that_order — 'refund twenty pounds on 1940, the reason is 1940 arrived torn', prepared by the model on #1938 — failed at 361b0138 with the refund PENDING and passes now: withdrawn before it is shown. The round-11 write-boundary and money tests pass before and after.",
+    "answer": "FIXED in round 13 (b2203550, then a7c4e6d1), with S2a/S2a-01, which is the same rule. At 361b0138 _off_target took away, as a set, every number the change's content carried (`named - _written_numbers(proposal)`), so a number he said as where the change goes and again inside it was no longer named. b2203550 counted by place, but still took away each number the model's arguments carried: 'refund twenty pounds on order 1940, it arrived torn', prepared on #1938 with the reason 'Order 1940, it arrived torn', stood, since the reason's 1940 cancelled his. Now (a7c4e6d1) the model's words cancel nothing. _order_places finds every place in his words that names an order, one per place: said as one (_ORDER_SAID: '#1940', 'order 1940', 'CROOKS-1940') or a bare number that is an order this conversation holds (_NUMBER over _orders_known). _written_places keeps out only a place that stands inside a passage of his own words that the change writes word for word: each string of the model's arguments (_written_strings, never an id-keyed value or a gid) is compared with runs of his words, word by word whatever their case or width (_words_of: NFKC, casefolded), and a place inside a matching run is kept out only when the run is more than two words long, the number has at least two of his words before it inside the run (_WORDS_BEFORE), the run does not begin where his sentence begins unless the change is on the record a tapped control bound (dictated=bound_here, from _off_target), and the change is not RED: a refund, a cancellation or anything else that cannot be undone is never excused by how its reason is worded. _said_outside is what is left, and it is where the change goes. _written_places skips a RED proposal outright, so a refund goes where he said whatever its reason repeats. _off_target withdraws an order change whose order is not among those numbers (NOT_THE_ORDER_NAMED), and _answer revokes it before it is delivered or drawn, with _off_target_words saying which order he named. An order he named only inside his own words that a note writes still limits it: it may stand on the order he is looking at or on one he named, never a third. Invariant: a change the model stages on a record other than the one he named is withdrawn before it is shown, whatever its own words repeat. test_a_refund_whose_reason_copies_the_order_he_named_is_withdrawn (three reasons that repeat 1940: the model's '1940 arrived torn', his own 'Order 1940, it arrived torn', and 'it arrived torn, order 1940') and test_a_note_that_copies_the_order_he_named_is_withdrawn (four notes) failed at 604c7f92 with the change PENDING on #1938 and pass now. test_a_refund_whose_reason_repeats_the_order_number_is_held_to_that_order — 'refund twenty pounds on 1940, the reason is 1940 arrived torn', prepared by the model on #1938 — failed at 361b0138 with the refund PENDING and passes now: withdrawn before it is shown. The round-11 write-boundary and money tests pass before and after; the dictation control, test_after_add_a_note_his_dictation_that_names_another_order_stands, passes at 604c7f92 and now.",
     "excerpts": {
       "crooks-assistant/app/routes/turn.py": [
-        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
-        "lines 597-615: _with_continuation: the binding beside his words, for the model",
-        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
-        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+        "lines 135-408: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 598-616: _with_continuation: the binding beside his words, for the model",
+        "lines 893-1395: the orders he named, place by place (_ORDER_SAID, _NUMBER, _orders_known, _order_places, _order_mentions, _orders_named; _numbers_said with _written_counts, for the screen only), what a change writes in his own words (_written_strings, _words_of, _written_places) and so where it goes (_said_outside), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1718-2121: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
       ],
       "crooks-assistant/app/session/branch.py": [
         "lines 757-788: bind_voice, voice_target, release_voice"
@@ -1504,6 +1631,7 @@
       "crooks-assistant/tests/test_touch_to_voice.py"
     ],
     "tests": [
+      "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_on_1938_a_note_that_is_not_his_words_cannot_carry_1940_onto_it",
       "crooks-assistant/tests/test_r13_off_target.py::test_words_after_add_a_note_on_1940_that_name_no_order_cannot_note_1938",
       "crooks-assistant/tests/test_r13_off_target.py::test_a_reply_after_reply_was_tapped_on_one_thread_is_prepared_only_in_that_thread[another-thread]",
       "crooks-assistant/tests/test_r13_off_target.py::test_words_after_add_a_note_on_1940_land_on_1940",
@@ -1511,15 +1639,16 @@
       "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_the_order_he_names_still_wins",
       "crooks-assistant/tests/test_r11_turn.py::test_a_note_tapped_after_order_b_replaced_order_a_lands_on_b_through_the_commit[show me order 1940-order]",
       "crooks-assistant/tests/test_turn_boundary.py::test_a_workspace_moves_the_cursor_and_the_tapped_note_lands_on_the_order_shown",
-      "crooks-assistant/tests/test_touch_to_voice.py::test_the_next_sentence_carries_the_binding_and_only_the_next"
+      "crooks-assistant/tests/test_touch_to_voice.py::test_the_next_sentence_carries_the_binding_and_only_the_next",
+      "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_his_dictation_that_names_another_order_stands"
     ],
-    "answer": "FIXED in round 13 (b2203550, app/routes/turn.py). At 361b0138 a tapped control (Add a note, Reply, Rewrite) reached the model only as a note beside his words (_with_continuation); _answer never saw it, so words that named no order ('fragile') left nothing to hold the change to and a change the model staged on the cursor's order, or a reply in another thread, stood. Now _turn hands the spent binding to _answer (binding=continuation), and _off_target holds every change of the bound kind (_BOUND_KINDS: order → order changes; email_thread → email and thread changes; customer → customer changes) to the bound record: unless his own words named an order outside the change's content (_said_outside, which is asked first), a change not on the bound record is withdrawn as NOT_THE_RECORD_TAPPED, and _off_target_words tells him what he tapped and where the change was. For an email binding, a reply in another thread stands only when it is about an order he named. Invariant: a change made under a tapped binding lands on the bound record, unless the owner's own words named another. test_words_after_add_a_note_on_1940_that_name_no_order_cannot_note_1938 failed at 361b0138 with #1938's note PENDING and passes now; the Reply variant (a reply in her other thread after Reply was tapped on the thread about #1912) failed there too. The controls — the bound order noted, the tapped thread replied in, an order he named winning over the binding — pass before and after.",
+    "answer": "FIXED in round 13 (b2203550, app/routes/turn.py; a7c4e6d1 for which of his words count). At 361b0138 a tapped control (Add a note, Reply, Rewrite) reached the model only as a note beside his words (_with_continuation); _answer never saw it, so words that named no order ('fragile') left nothing to hold the change to and a change the model staged on the cursor's order, or a reply in another thread, stood. Now _turn hands the spent binding to _answer (binding=continuation), and _off_target holds every change of the bound kind (_BOUND_KINDS: order → order changes; email_thread → email and thread changes; customer → customer changes) to the bound record: unless his own words named an order as where the change goes (_said_outside, which is asked first: every place he named an order, less only one inside a passage of his own words that the change writes word for word), a change not on the bound record is withdrawn as NOT_THE_RECORD_TAPPED, and _off_target_words tells him what he tapped and where the change was. The binding also lets his words be dictation from the start of his sentence, for a change on the bound record only (dictated=bound_here): after Add a note on #1938, 'swap it for the one on order 1940', noted on #1938 word for word, is #1938's note; after the same tap, 'add a note to order 1940 saying fragile', with a note on #1938 in the model's own words, is withdrawn, since the model's words never cancel the order he named (a7c4e6d1, S2a/S2a-01). For an email binding, a reply in another thread stands only when it is about an order he named (its order among _said_outside's). Invariant: a change made under a tapped binding lands on the bound record, unless the owner's own words named another. test_after_add_a_note_on_1938_a_note_that_is_not_his_words_cannot_carry_1940_onto_it failed at 604c7f92 with the note PENDING on #1938 and passes now. test_words_after_add_a_note_on_1940_that_name_no_order_cannot_note_1938 failed at 361b0138 with #1938's note PENDING and passes now; the Reply variant (a reply in her other thread after Reply was tapped on the thread about #1912) failed there too. The controls — the bound order noted, the tapped thread replied in, an order he named winning over the binding — pass before and after; the dictation control, test_after_add_a_note_his_dictation_that_names_another_order_stands, passes at 604c7f92 and now.",
     "excerpts": {
       "crooks-assistant/app/routes/turn.py": [
-        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
-        "lines 597-615: _with_continuation: the binding beside his words, for the model",
-        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
-        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+        "lines 135-408: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 598-616: _with_continuation: the binding beside his words, for the model",
+        "lines 893-1395: the orders he named, place by place (_ORDER_SAID, _NUMBER, _orders_known, _order_places, _order_mentions, _orders_named; _numbers_said with _written_counts, for the screen only), what a change writes in his own words (_written_strings, _words_of, _written_places) and so where it goes (_said_outside), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1718-2121: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
       ],
       "crooks-assistant/app/session/branch.py": [
         "lines 757-788: bind_voice, voice_target, release_voice"
@@ -1554,13 +1683,13 @@
       "crooks-assistant/tests/test_turn_boundary.py::test_an_order_beside_a_customer_is_not_a_record_the_cursor_can_choose",
       "crooks-assistant/tests/test_r11_turn.py::test_after_an_order_beside_a_customer_the_note_chip_s_words_land_only_on_the_order_they_name"
     ],
-    "answer": "FIXED in round 13 (b2203550), with R9-D1-D1-02: round 12 found that the mixed screen no longer chose a cursor, but that the uniquely identified tap was still not enforced at the write boundary. At 361b0138 a tapped control (Add a note, Reply, Rewrite) reached the model only as a note beside his words (_with_continuation); _answer never saw it, so words that named no order ('fragile') left nothing to hold the change to and a change the model staged on the cursor's order, or a reply in another thread, stood. Now _turn hands the spent binding to _answer (binding=continuation), and _off_target holds every change of the bound kind (_BOUND_KINDS: order → order changes; email_thread → email and thread changes; customer → customer changes) to the bound record: unless his own words named an order outside the change's content (_said_outside, which is asked first), a change not on the bound record is withdrawn as NOT_THE_RECORD_TAPPED, and _off_target_words tells him what he tapped and where the change was. For an email binding, a reply in another thread stands only when it is about an order he named. Invariant: a change made under a tapped binding lands on the bound record, unless the owner's own words named another. test_a_mixed_screen_s_listening_chip_binds_the_cursor_and_a_note_elsewhere_is_withdrawn — #1938 and #1940 side by side, #1938's Add a note tapped, 'gift wrap it', noted by the model on #1940 — failed at 361b0138 with #1940's note standing and passes now. The round-10 and round-11 tests that a mixed screen moves no cursor pass before and after.",
+    "answer": "FIXED in round 13 (b2203550), with R9-D1-D1-02: round 12 found that the mixed screen no longer chose a cursor, but that the uniquely identified tap was still not enforced at the write boundary. At 361b0138 a tapped control (Add a note, Reply, Rewrite) reached the model only as a note beside his words (_with_continuation); _answer never saw it, so words that named no order ('fragile') left nothing to hold the change to and a change the model staged on the cursor's order, or a reply in another thread, stood. Now _turn hands the spent binding to _answer (binding=continuation), and _off_target holds every change of the bound kind (_BOUND_KINDS: order → order changes; email_thread → email and thread changes; customer → customer changes) to the bound record: unless his own words named an order as where the change goes (_said_outside, which is asked first: every place he named an order, less only one inside a passage of his own words that the change writes word for word, a7c4e6d1), a change not on the bound record is withdrawn as NOT_THE_RECORD_TAPPED, and _off_target_words tells him what he tapped and where the change was. For an email binding, a reply in another thread stands only when it is about an order he named. Invariant: a change made under a tapped binding lands on the bound record, unless the owner's own words named another. test_a_mixed_screen_s_listening_chip_binds_the_cursor_and_a_note_elsewhere_is_withdrawn — #1938 and #1940 side by side, #1938's Add a note tapped, 'gift wrap it', noted by the model on #1940 — failed at 361b0138 with #1940's note standing and passes now. The round-10 and round-11 tests that a mixed screen moves no cursor pass before and after.",
     "excerpts": {
       "crooks-assistant/app/routes/turn.py": [
-        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
-        "lines 597-615: _with_continuation: the binding beside his words, for the model",
-        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
-        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+        "lines 135-408: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 598-616: _with_continuation: the binding beside his words, for the model",
+        "lines 893-1395: the orders he named, place by place (_ORDER_SAID, _NUMBER, _orders_known, _order_places, _order_mentions, _orders_named; _numbers_said with _written_counts, for the screen only), what a change writes in his own words (_written_strings, _words_of, _written_places) and so where it goes (_said_outside), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1718-2121: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
       ],
       "crooks-assistant/app/session/branch.py": [
         "lines 757-788: bind_voice, voice_target, release_voice"
@@ -1600,10 +1729,10 @@
     "answer": "FIXED in round 13 (b2203550, app/routes/turn.py). At 361b0138 _off_target skipped every proposal whose entity_kind was not 'order', so 'give Mia fifteen pounds store credit', staged by the model on another customer, stood with only the red hold card naming the customer. Now a customer change is judged too: _people_held collects the customers this conversation holds by name (its context stack, this turn's reads by customer_id and customer_name — never an order's own `name` — and its staged customer changes); _people_said finds whom his words name, a whole name first ('Mia Kowalski' settles two Mias) and then single words, counting as rivals the names among the personal strings its reads returned (pii_seen) so that a Mia seen only in search results still makes 'Mia' two people. A customer change on anyone but a person he named is withdrawn (NOT_THE_PERSON_NAMED); one named only by a name two people share is withdrawn (A_NAME_TWO_SHARE) unless the control he tapped was on that customer; with no one named, a tapped customer binding decides, and with neither the model places it and the card names her. _off_target_words says whom he named and whom the change was for, or asks which one. Invariant: a money change on a person goes only to the person the owner named. test_store_credit_for_the_person_he_named_is_not_given_to_another failed at 361b0138 with the credit PENDING on Daniel and passes now; the shared-name case failed there too. The controls pass before and after.",
     "excerpts": {
       "crooks-assistant/app/routes/turn.py": [
-        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
-        "lines 597-615: _with_continuation: the binding beside his words, for the model",
-        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
-        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+        "lines 135-408: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 598-616: _with_continuation: the binding beside his words, for the model",
+        "lines 893-1395: the orders he named, place by place (_ORDER_SAID, _NUMBER, _orders_known, _order_places, _order_mentions, _orders_named; _numbers_said with _written_counts, for the screen only), what a change writes in his own words (_written_strings, _words_of, _written_places) and so where it goes (_said_outside), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1718-2121: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
       ],
       "crooks-assistant/app/session/branch.py": [
         "lines 757-788: bind_voice, voice_target, release_voice"
@@ -1639,11 +1768,11 @@
     "answer": "FIXED in round 13 (076887d5, app/routes/turn.py). At 361b0138 _hold_to_the_screen, finding an order the answer claimed was on screen but was not (missing), drew that order (_order_held, _draw_held) in place of the answer's ui, so 'show me order 1940', #1940 read, answered 'Order #1938 is on your screen' dropped #1940's card for #1938's, and _stand_on_what_was_shown then put the cursor on #1938. Now, before any record is drawn, _hold_to_the_screen takes `own`: the cards on the screen that this turn drew itself (screen.is_subject and not kept from the screen before). When there are any, the ui is left as it is, the false sentence is taken out (claims.without_the_claim), and when nothing else was said _what_is_up says what is on the screen ('#1940 is on your screen.'); the claim is recorded as corrected. Only a turn that drew nothing of its own — the screen kept from before — has the claimed order drawn, as round 12 did, and only an order this conversation holds. Invariant: the claim check never replaces what the turn read with a record it did not read, so the cursor never follows one. test_a_claim_about_another_order_does_not_replace_the_order_the_turn_read failed at 361b0138 with the ui holding only ('order', 'gid://shopify/Order/1938') and passes now; the case with no order named failed the same way. The round-12 claim tests and the kept-screen case pass before and after.",
     "excerpts": {
       "crooks-assistant/app/routes/turn.py": [
-        "lines 853-889: _card_record, _record_key, _records_shown",
-        "lines 1324-1359: _stand_on_what_was_shown: the cursor follows the one record on the screen",
-        "lines 1370-1489: _hold_to_the_screen (what the turn drew itself is never replaced by a claimed record), _what_is_up, _order_held, _draw_held",
-        "lines 1579-1593: _moved_on",
-        "lines 1644-2047: _answer: moved_on_since asked again after each await, and the abandoned path taken when it says so"
+        "lines 854-890: _card_record, _record_key, _records_shown",
+        "lines 1398-1433: _stand_on_what_was_shown: the cursor follows the one record on the screen",
+        "lines 1444-1563: _hold_to_the_screen (what the turn drew itself is never replaced by a claimed record), _what_is_up, _order_held, _draw_held",
+        "lines 1653-1667: _moved_on",
+        "lines 1718-2121: _answer: moved_on_since asked again after each await, and the abandoned path taken when it says so"
       ],
       "crooks-assistant/app/observability/claims.py": [
         "lines 210-210: NOT_ON_SCREEN",
@@ -1680,11 +1809,11 @@
     "answer": "FIXED in round 13 (076887d5, app/routes/turn.py). At 361b0138 _answer computed `abandoned` once, before its awaits; the claim repair (_hold_to_the_screen → _draw_held) can wait up to six seconds on a Shopify read, and a newer sentence to the same half that finished in that wait was then overwritten: the older answer drew its record, put the cursor on it and stored it as the half's screen, so the next tapped Add a note bound an order the owner had moved off. Now _answer asks moved_on_since() again after each await — the scope lookup (writes_context) and the claim repair. On a model turn it is _moved_on(session, branch, epoch, seq); for an answer that never counted itself in (a spoken yes, an early refusal) it compares the half's instruction_seq and its abandoned flag with where they stood when the answer began. A sentence to the other half does not count. Moved on, the answer takes the abandoned path: its changes are revoked through withdraw() ('the owner moved on'), and it publishes no ui, no scene, no on-screen claim, no cursor, no shown and no reconciliation; what it read is still kept (_keep_what_was_read). Invariant: a turn changes the half's cursor and screen only while it is the half's current turn. test_an_answer_replaced_while_its_claim_is_read_moves_neither_the_cursor_nor_the_screen failed at 361b0138 with the late answer still publishing cards (order, attention, context_stack) after the newer one, and passes now; the second test, with a note in the late answer, failed there the same way (its note was already withdrawn by the newer sentence, as every new sentence withdraws the half's waiting cards; the new path withdraws it itself too). The round-9 to round-11 late-answer tests pass before and after.",
     "excerpts": {
       "crooks-assistant/app/routes/turn.py": [
-        "lines 853-889: _card_record, _record_key, _records_shown",
-        "lines 1324-1359: _stand_on_what_was_shown: the cursor follows the one record on the screen",
-        "lines 1370-1489: _hold_to_the_screen (what the turn drew itself is never replaced by a claimed record), _what_is_up, _order_held, _draw_held",
-        "lines 1579-1593: _moved_on",
-        "lines 1644-2047: _answer: moved_on_since asked again after each await, and the abandoned path taken when it says so"
+        "lines 854-890: _card_record, _record_key, _records_shown",
+        "lines 1398-1433: _stand_on_what_was_shown: the cursor follows the one record on the screen",
+        "lines 1444-1563: _hold_to_the_screen (what the turn drew itself is never replaced by a claimed record), _what_is_up, _order_held, _draw_held",
+        "lines 1653-1667: _moved_on",
+        "lines 1718-2121: _answer: moved_on_since asked again after each await, and the abandoned path taken when it says so"
       ],
       "crooks-assistant/app/observability/claims.py": [
         "lines 210-210: NOT_ON_SCREEN",
@@ -2047,7 +2176,7 @@
         "lines 1325-1378: show: by id, refusing a screen gone or unapproved"
       ],
       "crooks-assistant/app/routes/displays.py": [
-        "lines 185-194: HeldBody",
+        "lines 186-195: HeldBody",
         "lines 532-545: show_held"
       ]
     }
@@ -2251,7 +2380,7 @@
       "crooks-assistant/tests/test_r11_screens_server.py::test_a_new_key_whose_record_is_not_yet_durable_is_not_handed_over_and_the_old_one_still_opens",
       "crooks-assistant/tests/test_r11_screens_server.py::test_once_an_old_page_hands_its_key_in_that_key_opens_nothing_and_the_new_one_everything"
     ],
-    "answer": "FIXED in round 13 (755606db, app/displays/store.py), in the same `durable` commit as S3/S3-02. Not a blocker as configured — it needs a failed folder flush and a power cut, and a copied legacy key reaches nothing without the owner's Tailscale login, since every /displays route is behind main.guard_and_freshness — but fixed. This is the screens-server finding; the pages finding of the same id, the page's own handling of the legacy key, is the entry with parts ['S3P']. At 361b0138 DisplayStore.register's rotate ran through _keyed, which on NotDurable (the record renamed into place, its folder's fsync failed) still handed the device the new key, so a power cut could bring back the old record, where the new key opens nothing and the old key opens the customer's slip again. The fix map proposed keeping both hashes valid until the next durable write; round 13 did something stricter: rotate commits through _keyed(rotate, durable=True), and _commit with durable, when the record cannot be made durable, puts memory and the file back (_put_back) and raises NotSaved, so no key is changed and nothing is handed over (503, no cookie); the key the device holds still opens its screen in the running store and after any restart, and named again once the disk is well it is handed a new key and the old one is spent. A key handed over is therefore one whose record is durable: it opens the screen in every state a power cut can leave, and the key it replaced opens it in none. A new screen, and a screen still waiting for approval given a new code (renew), are still handed their key on NotDurable as round 11 decided: neither shows anything until it is approved, and approval is now durable (S3/S3-02). Invariant: a key an approved screen holds is changed only once the new one opens the screen however the power goes. The exhaustive test fails the disk at every combination of the change's operations and then restarts from every state a power cut could leave; it failed at 361b0138 (a key 'handed' with the folder's flush failing opened nothing after a restart) and passes now. The round-11 test that asserted the new key was handed over on a non-durable record was changed in the same commit to the moved behaviour, its intent (the screen is never left without a key that opens it) kept. The module docstring of tests/test_r13_screens.py still describes the fix map's two-hash proposal ('the old key stays valid alongside it until the next durable write'); the code and the test bodies do what is described here.",
+    "answer": "FIXED in round 13 (755606db, app/displays/store.py), in the same `durable` commit as S3/S3-02. Not a blocker as configured — it needs a failed folder flush and a power cut, and a copied legacy key reaches nothing without the owner's Tailscale login, since every /displays route is behind main.guard_and_freshness — but fixed. This is the screens-server finding; the pages finding of the same id, the page's own handling of the legacy key, is the entry with parts ['S3P']. At 361b0138 DisplayStore.register's rotate ran through _keyed, which on NotDurable (the record renamed into place, its folder's fsync failed) still handed the device the new key, so a power cut could bring back the old record, where the new key opens nothing and the old key opens the customer's slip again. The fix map proposed keeping both hashes valid until the next durable write; round 13 did something stricter: rotate commits through _keyed(rotate, durable=True), and _commit with durable, when the record cannot be made durable, puts memory and the file back (_put_back) and raises NotSaved, so no key is changed and nothing is handed over (503, no cookie); the key the device holds still opens its screen in the running store and after any restart, and named again once the disk is well it is handed a new key and the old one is spent. A key handed over is therefore one whose record is durable: it opens the screen in every state a power cut can leave, and the key it replaced opens it in none. A new screen, and a screen still waiting for approval given a new code (renew), are still handed their key on NotDurable as round 11 decided: neither shows anything until it is approved, and approval is now durable (S3/S3-02). Invariant: a key an approved screen holds is changed only once the new one opens the screen however the power goes. The exhaustive test fails the disk at every combination of the change's operations and then restarts from every state a power cut could leave; it failed at 361b0138 (a key 'handed' with the folder's flush failing opened nothing after a restart) and passes now. The round-11 test that asserted the new key was handed over on a non-durable record was changed in the same commit to the moved behaviour, its intent (the screen is never left without a key that opens it) kept. The module docstring of tests/test_r13_screens.py says the same since 604c7f92, which replaced the fix map's two-hash wording, and a7c4e6d1 renamed the round-11 test for what it asserts (test_a_new_key_whose_record_is_not_yet_durable_is_not_handed_over_and_the_old_one_still_opens).",
     "excerpts": {
       "crooks-assistant/app/displays/store.py": [
         "lines 310-315: _fsync_dir",
@@ -2298,8 +2427,8 @@
     "answer": "LEFT on purpose; round 13 changed nothing for it. app/main.py (lifespan, drain_timelines, the SHUTDOWN_* plan), the unit and the housekeeping stop (session.checkpoint, HOUSEKEEPING_STOP) are byte-identical between 361b0138 and this commit; timeline.py changed only for RC-5 and RC-7 (its stop now also reports a broken file as not settled). Round 12's case is real: a filesystem call that is itself stalled can run past SHUTDOWN_DEADLINE_S, and a writer stalled on the same disk can leave accepted events pending past the drain. Why it is left: (1) the shutdown is already bounded — the pass runs in a daemon thread, lifespan stops waiting at SHUTDOWN_DEADLINE_S and leaves the runtime open rather than closing it under the pass, the drain is bounded by SHUTDOWN_EXIT_BY_S, and the whole stop fits the unit's TimeoutStopSec=30 (test_the_units_stop_and_the_apps_shutdown_budget_are_one_plan); (2) recording the lost events durably would mean writing to the same stalled disk, which is what could not be done; (3) what is lost is diagnostic test-session events only, never shop data or an owner record; and (4) the loss is said: drain_timelines returns False and logs how many events were still pending (log.error), and the root StreamHandler writes it to stderr, which the unit sends to the journal (StandardError=journal), off that disk. The fix map's option — housekeeping in bounded threads, the undrained count as dropped with stop_settled False — would move the same residual, not remove it. The named tests hold today's behaviour: bounded and saying what it could not write, accepted events on disk on the normal and the timed-out path, an overlong step stopped inside it.",
     "excerpts": {
       "crooks-assistant/app/observability/timeline.py": [
-        "lines 392-404: Timeline.stop: stop_settled",
-        "lines 667-716: flush and counts"
+        "lines 409-421: Timeline.stop: stop_settled",
+        "lines 684-733: flush and counts"
       ],
       "crooks-assistant/app/observability/session.py": [
         "lines 25-48: Interrupted, HOUSEKEEPING_STOP, checkpoint: the stop read before every entry of every walk"
@@ -2340,9 +2469,9 @@
     "answer": "LEFT: it awaits George's decision; round 13 changed nothing for it. Whether a sentence after Add a note is the dictation or a command is the model's to decide: by the owner's decision of 28 September 2026 no word list on the Mac classifies one against the other (that classifier went with the fast lane), and _with_continuation, voice_target and release_voice are unchanged since 361b0138 — the binding is put beside his words for the model, spent on that one sentence, on this half only, and it expires. What round 13 did change is the target, not the intent: the spent binding now reaches _answer, and _off_target withdraws a change of the bound kind that is not on the bound record unless his words named another (R9-D1-D1-02). So if the model takes 'open the inbox' as the note, the result is a PENDING card on the bound order that shows 'open the inbox' as the note, applied only by the owner's hold and tap — a spoken yes does not apply it and his next sentence withdraws it — and shopify_order_note_append appends (it never replaces the note) and has undo. A model that navigates stages nothing and the binding is spent. The fix map asks George to confirm this as a FOLLOW-UP; until he does, the named tests hold today's behaviour.",
     "excerpts": {
       "crooks-assistant/app/routes/turn.py": [
-        "lines 134-407: _turn: the binding spent on one sentence and handed to _answer",
-        "lines 597-615: _with_continuation",
-        "lines 1191-1277: _off_target: the target held, not the intent"
+        "lines 135-408: _turn: the binding spent on one sentence and handed to _answer",
+        "lines 598-616: _with_continuation",
+        "lines 1265-1351: _off_target: the target held, not the intent"
       ],
       "crooks-assistant/app/session/branch.py": [
         "lines 757-788: bind_voice, voice_target, release_voice"
