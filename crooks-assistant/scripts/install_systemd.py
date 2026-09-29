@@ -22,6 +22,7 @@ The unit runs as root for now, because the Claude Max login this machine holds l
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -97,6 +98,36 @@ def preflight() -> list[str]:
     return problems
 
 
+def write_unit(target: Path, data: bytes) -> None:
+    """`data` as the unit file, whole or not at all (round 13, S5-01): written to a file beside it,
+    flushed to the disk, renamed over it, and the folder flushed, so systemd never reads half a
+    unit and a power cut leaves the old unit or the new one. A write that fails before the rename
+    leaves the unit that was there byte for byte, and takes its own half-written file away."""
+    tmp = target.with_name(target.name + ".new")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        view, done = memoryview(data), 0
+        while done < len(data):
+            done += os.write(fd, view[done:])
+        os.fchmod(fd, 0o644)
+        os.fsync(fd)
+    except BaseException:
+        os.close(fd)
+        tmp.unlink(missing_ok=True)
+        raise
+    os.close(fd)
+    os.replace(tmp, target)
+    folder = os.open(target.parent, os.O_RDONLY)
+    try:
+        os.fsync(folder)
+    finally:
+        os.close(folder)
+
+
+def _unit_now(target: Path) -> bytes | None:
+    return target.read_bytes() if target.is_file() else None
+
+
 def install(port: int) -> int:
     """Install, start, and keep the new unit only if the service it runs passes every gate.
 
@@ -115,8 +146,19 @@ def install(port: int) -> int:
     lc.LOG_DIR.mkdir(parents=True, exist_ok=True)
     target = lc.SYSTEMD_UNIT_PATH
     before = Before.read(target)
-    target.write_text(rendered_unit(), encoding="utf-8")
-    target.chmod(0o644)
+    try:
+        write_unit(target, rendered_unit().encode("utf-8"))
+    except OSError as exc:
+        print(f"  FAIL   unit not written: {exc}")
+        try:
+            unchanged = _unit_now(target) == before.unit
+        except OSError:
+            unchanged = False
+        if unchanged:
+            # The write failed before its rename: the unit, and so the service, are as they were.
+            print("  The unit is as it was; nothing else was changed.")
+            return 1
+        return roll_back(before)
     print(f"  ok     unit → {target}")
 
     out = systemctl("daemon-reload")
@@ -190,8 +232,7 @@ def roll_back(before: Before) -> int:
         steps.append(("daemon-reload", systemctl("daemon-reload").returncode == 0))
     else:
         try:
-            target.write_bytes(before.unit)
-            target.chmod(0o644)
+            write_unit(target, before.unit)          # whole or not at all, as the install's own write
             steps.append(("unit put back as it was", True))
         except OSError:
             steps.append(("unit put back as it was", False))
