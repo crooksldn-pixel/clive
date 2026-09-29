@@ -542,22 +542,28 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
         return _refuse(409, "not_armed", "Hold the card first.")
 
     proposal = result.proposal
+    # A change that left for Shopify from a workspace and was not proven made is sent, not
+    # confirmed, on every surface — the response the hold card settles from, the voice, the
+    # result card — and never "not applied" (app/families/_workspace.py `sent_not_confirmed`).
+    unconfirmed = workspaces.sent_not_confirmed(proposal)
+    code = "unverified" if unconfirmed else result.code
+    spoken = workspaces.SENT_NOT_CONFIRMED if unconfirmed else result.spoken
     log.info("action %s %s → %s (%s)", proposal.proposal_id, proposal.operation, proposal.status.value, result.code)
     timeline.emit(
         "action_commit", session_id=session_id.strip(), proposal_id=proposal.proposal_id, turn_id=proposal.turn_id or None,
         operation=proposal.operation, code=result.code, status=proposal.status.value, verified=proposal.verified,
         spoken=result.spoken, detail=getattr(result, "detail", "") or None, nonce_present=bool(nonce), undo_id=proposal.undo_id, ms=_elapsed(started),
     )
-    if result.spoken:
+    if spoken:
         # A fixed line, synthesised once and kept: the tablet asks /speak for it next.
         # Pinned only when fixed: a success line names the order and is not worth a slot.
-        runtime.voice.prefetch(to_speakable(result.spoken, max_chars=runtime.voice.max_chars), pin=result.code != "verified")
+        runtime.voice.prefetch(to_speakable(spoken, max_chars=runtime.voice.max_chars), pin=code != "verified")
     try:
         session = runtime.sessions.peek(session_id.strip())
     except KeyError:
         session = None
-    if session is not None and result.spoken and result.code in ("verified", "stale", "unverified", "failed", "refused", "service_unavailable"):
-        session.last_outcome = result.spoken
+    if session is not None and spoken and code in ("verified", "stale", "unverified", "failed", "refused", "service_unavailable"):
+        session.last_outcome = spoken
     undo = None
     if proposal.undo_id and session is not None:
         undo_proposal = session.proposal(proposal.undo_id)
@@ -573,8 +579,9 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
     )
     return {
         **proposal.public(),
-        "code": result.code,
-        "spoken": result.spoken,
+        **({"status": "unverified"} if unconfirmed else {}),
+        "code": code,
+        "spoken": spoken,
         "ui": ui,
         "undo": undo,
     }
@@ -617,7 +624,11 @@ async def states(request: Request, session_id: str = "", ids: str = "") -> JSONR
         else:
             proposal = runtime.actions.state(proposal_id, session_id)
             if proposal is not None:
-                found[proposal_id] = {**proposal.public(), "kind": "action"}
+                # Sent, not confirmed stays that on every wake, as the commit answered it.
+                from app.families import _workspace as workspaces
+
+                unconfirmed = {"status": "unverified", "code": "unverified"} if workspaces.sent_not_confirmed(proposal) else {}
+                found[proposal_id] = {**proposal.public(), **unconfirmed, "kind": "action"}
                 continue
         # The Mac has never heard of it, or it belonged to a conversation that has gone.
         # Either way the tablet must stop showing it as live.

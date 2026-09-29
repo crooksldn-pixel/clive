@@ -1288,6 +1288,12 @@ def present_action(result, *, session: Session | None = None, writes: dict[str, 
     proposal = result.proposal
     if proposal is None:
         return []
+    from app.families import _workspace as workspaces
+
+    if workspaces.sent_not_confirmed(proposal):
+        # It left for Shopify and nothing proved it made: not "Nothing was changed", whatever the
+        # engine's one re-read said — the card it came from says sent, not confirmed, and so does this.
+        return present_proposal_state(proposal, session=session, code="unverified", writes=writes, recovery=workspaces.SENT_NOT_CONFIRMED)
     recovery = result.spoken if result.code in ("stale", "unverified", "failed", "service_unavailable") else ""
     return present_proposal_state(proposal, session=session, code=result.code, writes=writes, recovery=recovery)
 

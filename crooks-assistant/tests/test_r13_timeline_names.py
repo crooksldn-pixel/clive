@@ -30,7 +30,7 @@ import re
 import pytest
 
 from app.observability import timeline
-from app.observability.session import AUTO_NAME, TestSessions
+from app.observability.session import AUTO_NAME, TestSessions, is_automatic
 from app.tools import authority, registry
 from app.tools.dispatch import dispatch, loggable_args
 from tests import test_r11_turn
@@ -179,6 +179,27 @@ async def test_a_session_started_by_name_keeps_his_words_and_still_loses_the_nam
     _nowhere(read, "Quill")
     finished = next(e for e in read if e["kind"] == "turn_finished")
     assert finished["question"] == "What did [name] order?", finished["question"]
+
+
+async def test_a_session_he_named_always_on_is_his_and_keeps_his_words(desk, tmp_path):
+    """The name is not what makes the day's session (O2-N-01, `session.is_automatic`): a session
+    he started and called "always-on" is his walkthrough, and keeps what he said like any other
+    he named. Words are kept or shaped by the same rule housekeeping keeps or prunes by."""
+    timeline.forget_names()
+    store = TestSessions(tmp_path / "sessions", always=True)
+    line = timeline.install(timeline.Timeline(store))
+    try:
+        session = line.start("always-on")
+        assert session.name == AUTO_NAME and not is_automatic(session), session.test_session_id
+        desk.model.steps = [says("Nobody by that name.")]
+        await _heard(desk, "What did Zoe Quill order?", "named-always-on")
+        events = [e for e in _events(line, store, session) if e.get("session_id") == "named-always-on"]
+        finished = next(e for e in events if e["kind"] == "turn_finished")
+        assert finished["question"] == "What did Zoe Quill order?", finished["question"]
+    finally:
+        line.stop()
+        timeline.install(timeline.NullTimeline())
+        timeline.forget_names()
 
 
 # =========================================================== what a tool call is written as

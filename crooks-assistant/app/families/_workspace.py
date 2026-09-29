@@ -503,7 +503,7 @@ def after_commit(proposal: Any, session: Any = None) -> None:
         # It left, and it is not proven made: the answer was lost, or one re-read made at once
         # still shows nothing changed — which is not proof, since Shopify may yet apply a request
         # it was sent (round 13). Sent, not confirmed; the card makes nothing more.
-        note(ident, UNCONFIRMED, why=reason or "the answer never came back")
+        note(ident, UNCONFIRMED, why=reason or "the answer never came back", proposal=holder)
     elif status == "FAILED":
         # It failed before it was sent — the precondition read, a cancellation before sending:
         # nothing left this Mac. The card is his again, with the reason.
@@ -515,6 +515,23 @@ def after_commit(proposal: Any, session: Any = None) -> None:
     else:
         # Nothing was sent after all: the reservation is let go.
         _NOTED.pop(ident, None)
+
+
+# What the owner is told — by the hold card, the result card and the voice alike — about a change
+# that left for Shopify and was not proven made. The engine settles such a send as failed with
+# "Nothing was changed" when its one re-read still shows the thing as it was; the card it was
+# prepared from knows it left (`sending`), and nothing on the screen may say otherwise (round 13).
+SENT_NOT_CONFIRMED = "Sent to Shopify, not confirmed. Check it in Shopify Admin before asking again."
+
+
+def sent_not_confirmed(proposal: Any) -> bool:
+    """Whether this hold card's own commit sent its change and nothing proved it made: the card
+    it was prepared from is noted unconfirmed, by this proposal and no other."""
+    ident = _workspace_of(proposal)
+    if not ident or str(getattr(getattr(proposal, "status", None), "value", "") or "") == "VERIFIED":
+        return False
+    now = _NOTED.get(ident) or {}
+    return now.get("state") == UNCONFIRMED and bool(now.get("proposal")) and now.get("proposal") == str(getattr(proposal, "proposal_id", "") or "")
 
 
 # What of a proven change's re-read the finished card may say: numbers and names the owner

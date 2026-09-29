@@ -179,9 +179,11 @@ WORDS: dict[str, tuple[str, ...]] = {
 def keeps_words(session: TestSession | None) -> bool:
     """Whether this session keeps the owner's words: one he started by name. The owner can have
     the automatic session keep them too; that is his decision, and this is the line to change."""
-    from app.observability.session import AUTO_NAME
+    # The same test housekeeping and the day's roll use (session.is_automatic): a session the
+    # owner himself named "always-on" is his, and keeps his words like any other he named.
+    from app.observability.session import is_automatic
 
-    return session is not None and str(session.name or "") != AUTO_NAME
+    return session is not None and not is_automatic(session)
 
 
 def _words_by_shape(event: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:

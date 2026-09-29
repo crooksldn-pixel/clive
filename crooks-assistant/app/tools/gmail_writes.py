@@ -410,14 +410,38 @@ async def _held_to_the_orders_it_names(text: str, ctx: dict[str, Any]) -> None:
     the model passed `order_id`, so another customer's order could be answered in anyone's
     thread with no check but the owner's hold. The refusal names the order and the recipient,
     never whose order it is."""
+    number = await _an_order_not_theirs(text, str(ctx["to_email"] or ""))
+    if number:
+        raise ToolError(
+            f"That reply names order {number}, and it would go to {ctx['to_email'] or 'an unknown address'}, who is "
+            "not the customer on that order. Nothing was prepared. Take the order out of the reply, or answer "
+            "that order's customer in their own thread."
+        )
+
+
+async def _new_email_held_to_the_orders_it_names(text: str, customer: dict[str, Any]) -> None:
+    """The same for a new email: its subject and body name only orders whose customer it goes
+    to (round 13, integration). The orders builder closed the reply and left the new email: an
+    email to David, written from his own order or from an address the owner dictated, could
+    carry "#1938 is packed" — Mia's order, read a moment ago — with nothing between it and
+    David's inbox but the owner's hold."""
+    number = await _an_order_not_theirs(text, str(customer.get("email") or ""))
+    if number:
+        raise ToolError(
+            f"That email names order {number}, and it would go to {customer.get('email') or 'an unknown address'}, who "
+            "is not the customer on that order. Nothing was prepared. Take the order out of the email, or write to "
+            "that order's customer."
+        )
+
+
+async def _an_order_not_theirs(text: str, email: str) -> str:
+    """The first order, by number, that the words name, that this conversation holds, and whose
+    customer is not `email`; "" when every order named is theirs (or none is named)."""
     for number, order_id in sorted(_orders_named_in(text).items()):
         customer = await _order_customer(order_id)
-        if not customer.get("email") or customer["email"] != ctx["to_email"]:
-            raise ToolError(
-                f"That reply names order {number}, and it would go to {ctx['to_email'] or 'an unknown address'}, who is "
-                "not the customer on that order. Nothing was prepared. Take the order out of the reply, or answer "
-                "that order's customer in their own thread."
-            )
+        if not customer.get("email") or customer["email"] != email.strip().lower():
+            return number
+    return ""
 
 
 def _held_messages(thread_id: str) -> list[dict[str, Any]]:
@@ -860,6 +884,7 @@ async def gmail_draft_new(subject: str, body: str, order_id: str = "", customer_
     customer = await _recipient(order_id, customer_id, to, to_name, compose_id)
     text = clean_body(body)
     line = clean_subject(subject)
+    await _new_email_held_to_the_orders_it_names(f"{line}\n{text}", customer)
     sender = await asyncio.to_thread(client.address)
     token = new_token(sender)
     raw = build_raw(sender=sender, sender_name=str(getattr(_settings(), "gmail_from_name", "") or ""), to=customer["email"], to_name=customer.get("name", ""), subject=line, body=text, token=token)
@@ -915,6 +940,8 @@ async def gmail_send_new(subject: str = "", body: str = "", order_id: str = "", 
             raise ToolError(f"There are {len(ours)} drafts waiting for {who}; delete the extra ones in Gmail first.")
         draft = ours[0]
         execution = {"thread_id": "", "token": draft["token"], "raw": "", "draft_id": draft["draft_id"], "to": customer["email"], "to_name": draft["to_name"] or customer.get("name", ""), "subject": draft["subject"], "body": draft["body"], "state": "sent"}
+    # Fresh words or the draft Gmail holds, the words that would leave are held the same way.
+    await _new_email_held_to_the_orders_it_names(f"{execution['subject']}\n{execution['body']}", customer)
     before = await _token_state(execution["token"])
     if before["sent"]:
         raise ToolError("That was already sent.")

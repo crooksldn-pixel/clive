@@ -106,7 +106,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `close_screen` | family:put_away | test_r12_surfaces.py | — |
 | `commerce_aggregate` | recipe:landing_sales, recipe:landing_products, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_working_sets.py | landing_products, landing_sales |
 | `commerce_capabilities` | family:capability_reads | — | — |
-| `commerce_query` | recipe:landing_orders, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_query_engine_p3.py, test_r11_families.py, test_read_budget.py, test_working_sets.py | landing_orders, next_previous |
+| `commerce_query` | recipe:landing_orders, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_query_engine_p3.py, test_r11_families.py, test_r13_timeline_names.py, test_read_budget.py, test_working_sets.py | landing_orders, next_previous |
 | `commerce_summary` | family:summary_surfaces | test_n_plus_one.py, test_summaries.py | — |
 | `email_query` | recipe:landing_inbox, family:email_reads | test_council_fixes.py, test_graph.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_r11_families.py, test_working_sets.py | graph_thread_to_order, landing_inbox, needs_reply |
 | `engineering_status` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_engineering_bridge_bounds.py, test_r11_engineering_off.py | — |
@@ -117,7 +117,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_find_in_email` | family:email_reads | test_gaps.py, test_tool_args_redaction.py | — |
 | `gmail_read_thread` | command:cursor:emails, family:email_reads | test_address.py, test_gmail_tools.py | — |
 | `gmail_search` | recipe:landing_inbox, family:email_reads | test_gmail_tools.py, test_read_dedupe.py, test_tool_args_redaction.py | graph_thread_to_order, landing_inbox, needs_reply |
-| `gmail_send_new` | command:a tapped control, family:email_compose | test_compose_provenance.py, test_gmail_writes.py | compose_send_instead, compose_send_spoken |
+| `gmail_send_new` | command:a tapped control, family:email_compose | test_compose_provenance.py, test_gmail_writes.py, test_r13_new_email_order_content.py | compose_send_instead, compose_send_spoken |
 | `gmail_send_reply` | command:a tapped control, family:email_sends | test_gmail_writes.py, test_reply_order_binding.py, test_tool_boundary.py | — |
 | `gmail_thread_archive` | command:a tapped control, family:email_archive | test_gmail_writes.py | — |
 | `inventory_query` | recipe:landing_products, family:product_reads | test_analytics_tools.py | landing_products |
@@ -138,7 +138,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_discount_create` | command:a tapped control, family:discount_create | test_discounts.py | discount_new_code, discount_sentence_defers |
 | `shopify_discount_open` | family:discount_create | test_discounts.py | discount_sentence_defers |
 | `shopify_find_customer` | recipe:order_customer, family:customer_reads | test_r11_turn.py, test_shopify_tools.py, test_tool_args_redaction.py | — |
-| `shopify_find_order` | family:order_reads | test_context.py, test_experience.py, test_progressive_turn.py, test_r11_turn.py, test_read_dedupe.py, test_shopify_tools.py, test_tap_reads_only.py, test_tool_args_redaction.py, test_tool_boundary.py, test_turn_boundary.py, test_write_walkthrough.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_by_voice, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
+| `shopify_find_order` | family:order_reads | test_context.py, test_experience.py, test_progressive_turn.py, test_r11_turn.py, test_r13_timeline_names.py, test_read_dedupe.py, test_shopify_tools.py, test_tap_reads_only.py, test_tool_args_redaction.py, test_tool_boundary.py, test_turn_boundary.py, test_write_walkthrough.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_by_voice, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
 | `shopify_fulfillment_tracking_set` | family:order_fulfil | test_tracking.py | — |
 | `shopify_inventory` | family:product_reads | test_n_plus_one.py, test_shopify_tools.py, test_tool_args_redaction.py | — |
 | `shopify_inventory_adjust` | family:inventory_set | test_inventory.py | — |
@@ -158,8 +158,8 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_product_info` | family:product_reads | test_shopify_tools.py | — |
 | `shopify_refund_create` | family:order_refund | test_refund.py | — |
 | `shopify_sales_summary` | family:analytics | test_shopify_tools.py | — |
-| `shopify_store_credit` | family:store_credit | test_r11_turn.py, test_store_credit.py | store_credit_give, store_credit_not_on_this_store |
-| `shopify_store_credit_add` | command:a tapped control, family:store_credit | test_r11_turn.py, test_store_credit.py | store_credit_give |
+| `shopify_store_credit` | family:store_credit | test_r11_turn.py, test_r13_off_target.py, test_store_credit.py | store_credit_give, store_credit_not_on_this_store |
+| `shopify_store_credit_add` | command:a tapped control, family:store_credit | test_r11_turn.py, test_r13_off_target.py, test_store_credit.py | store_credit_give |
 | `shopify_variant_search` | recipe:order_line, recipe:order_add_item, family:order_edit | test_order_edit.py | order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers |
 | `show_again` | family:recall | test_r12_surfaces.py | — |
 | `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_r11_engineering_off.py | — |
