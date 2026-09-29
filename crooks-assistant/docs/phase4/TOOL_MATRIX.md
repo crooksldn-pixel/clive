@@ -90,7 +90,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_store_credit` | AMBER | yes | yes | yes | write_store_credit_account_transactions | read | — | — | a workspace | shopify | read |
 | `shopify_store_credit_add` | RED | yes | yes | yes | write_store_credit_account_transactions | write | prepared from a fresh read, held as store_credit_credit, tap_commit | a predicate over the re-read | the change's own card | shopify | staged, never applied |
 | `shopify_variant_search` | GREEN | yes | yes | yes | write_order_edits | read | — | — | presentation.py | shopify | read |
-| `show_again` | GREEN | yes | — | yes | none needed | read | — | — | presentation.py | — | — |
+| `show_again` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `submit_engineering_request` | RED | yes | yes | yes | — | write | prepared from a fresh read, held as engineering_request_file, tap_commit | a predicate over the re-read | the change's own card | — | — |
 
 ### What cites each tool
@@ -159,7 +159,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_store_credit` | family:store_credit | test_r11_turn.py, test_store_credit.py | store_credit_give, store_credit_not_on_this_store |
 | `shopify_store_credit_add` | command:a tapped control, family:store_credit | test_r11_turn.py, test_store_credit.py | store_credit_give |
 | `shopify_variant_search` | recipe:order_line, recipe:order_add_item, family:order_edit | test_order_edit.py | order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers |
-| `show_again` | the model only | test_r12_surfaces.py | — |
+| `show_again` | family:recall | test_r12_surfaces.py | — |
 | `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_r11_engineering_off.py | — |
 
 ## What this matrix cannot vouch for
@@ -172,9 +172,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 `batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `submit_engineering_request`
 
-**nothing but the model reaches it (6)**
+**nothing but the model reaches it (5)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `show_again`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`
 
 **no card is drawn from it (10)**
 
