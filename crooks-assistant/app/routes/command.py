@@ -467,6 +467,15 @@ async def _stage_change(request: Request, runtime, session, branch, staging: dic
         timeline.emit("command_stage", session_id=session.session_id, branch_id=getattr(branch, "branch_id", None),
                       tool=tool, ok=False, detail=why[:200])
         return commands.Outcome.refused("not_prepared", why[:200])
+    moved = _moved_meanwhile(session, staging)
+    if moved:
+        # Prepared from an email that was edited or closed while this was being prepared
+        # (round 13, S2b-03): what it would send is not what the owner is looking at, so it is
+        # withdrawn before it is ever offered.
+        runtime.actions.revoke_ids([proposal_id], moved)
+        timeline.emit("command_stage", session_id=session.session_id, branch_id=getattr(branch, "branch_id", None),
+                      tool=tool, ok=False, detail="changed while it was being prepared")
+        return commands.Outcome.refused("changed_meanwhile", moved)
     runtime.actions.deliver(proposal_id)
     proposal = runtime.actions.find(proposal_id)
     # The card this one replaces — a draft turned into a send. Withdrawn only now that the
@@ -486,6 +495,16 @@ async def _stage_change(request: Request, runtime, session, branch, staging: dic
                  "operation": spec.write.operation, "revoked": withdrawn,
                  "what": str(staging.get("what") or "")[:80]},
     )
+
+
+def _moved_meanwhile(session, staging: dict) -> str:
+    """Why a change a tap has just prepared no longer matches what it was prepared from, or "".
+    Only a composer's staging says what it was prepared from (`compose._compose_stage`)."""
+    if not staging.get("compose_id"):
+        return ""
+    from app.families.compose import moved_since
+
+    return moved_since(session, staging)
 
 
 def _staged_words(proposal) -> str:

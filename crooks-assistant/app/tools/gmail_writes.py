@@ -347,6 +347,79 @@ def _digits(number: Any) -> str:
     return str(number or "").rsplit("-", 1)[-1].lstrip("#").strip()
 
 
+def _as_the_card_shows(thread_id: str, ctx: dict[str, Any]) -> str:
+    """A reply goes only to the address the reply card on the owner's screen shows, and a
+    Reply-To that is not the sender only once he has confirmed it there (round 13, S2b-01).
+    Returns the id of the composer it is prepared from, "" when none is open for the thread."""
+    from app.families.compose import reply_as_shown
+
+    compose_id, why = reply_as_shown(str(thread_id), ctx)
+    if why:
+        raise ToolError(why)
+    return compose_id
+
+
+def _orders_named_in(text: str) -> dict[str, str]:
+    """{number: order id} for every order this conversation holds whose number the words name:
+    on its context stack, under a half's cursor, on a change it staged, read into the entity
+    cache, or in the order cache — and always an id issued to this conversation."""
+    from app.context import graph
+    from app.tools.context import CURRENT_SESSION
+
+    named = set(graph.order_numbers_in(text))
+    session = CURRENT_SESSION.get()
+    if not named or session is None:
+        return {}
+    issued = {str(i) for i in (getattr(session, "issued_ids", None) or ()) if str(i).startswith("gid://shopify/Order/")}
+    held: dict[str, str] = {}
+
+    def hold(label: Any, ref: Any) -> None:
+        if str(ref or "") in issued and _digits(label) in named:
+            held.setdefault(_digits(label), str(ref))
+
+    for entry in getattr(session, "context", None) or []:
+        if isinstance(entry, dict) and entry.get("kind") == "order":
+            hold(entry.get("label"), entry.get("ref"))
+    for branch in (getattr(session, "branches", None) or {}).values():
+        entity = getattr(branch, "entity", None) or {}
+        if isinstance(entity, dict) and entity.get("kind") == "order":
+            hold(entity.get("label"), entity.get("ref"))
+    for proposal in getattr(session, "proposals", None) or []:
+        if getattr(proposal, "entity_kind", "") == "order":
+            hold(getattr(proposal, "entity_label", ""), getattr(proposal, "entity_ref", ""))
+    for row in _warm_rows():
+        hold(row.get("order_number"), row.get("order_id"))
+    try:
+        from app.memory import ENTITY
+        from app.memory import current as memory
+
+        for ref in sorted(issued):
+            entry = memory().get(ENTITY, f"order:{ref}", allow_stale=True)
+            value = getattr(entry, "value", None) if entry is not None else None
+            if isinstance(value, dict):
+                hold(value.get("order_number"), ref)
+    except Exception:  # noqa: BLE001 — no memory bound (a unit test, a cold start) is fewer orders held
+        pass
+    return held
+
+
+async def _held_to_the_orders_it_names(text: str, ctx: dict[str, Any]) -> None:
+    """A reply whose words name an order this conversation holds goes to that order's customer,
+    or it is not prepared — whether or not the model said which order it was about (round 13,
+    R9-E-families1-E-04 / R9-I-tests3-I-02). Before, the order was held to the reply only when
+    the model passed `order_id`, so another customer's order could be answered in anyone's
+    thread with no check but the owner's hold. The refusal names the order and the recipient,
+    never whose order it is."""
+    for number, order_id in sorted(_orders_named_in(text).items()):
+        customer = await _order_customer(order_id)
+        if not customer.get("email") or customer["email"] != ctx["to_email"]:
+            raise ToolError(
+                f"That reply names order {number}, and it would go to {ctx['to_email'] or 'an unknown address'}, who is "
+                "not the customer on that order. Nothing was prepared. Take the order out of the reply, or answer "
+                "that order's customer in their own thread."
+            )
+
+
 def _held_messages(thread_id: str) -> list[dict[str, Any]]:
     """The thread's messages as this conversation was shown them, when the Mac holds the
     thread (`gmail_read_thread` puts it in the entity cache); empty otherwise. Read, never
@@ -639,14 +712,17 @@ async def gmail_draft_reply(thread_id: str, body: str, order_id: str = "") -> Pr
     client = _g()
     ctx = await thread_context(str(thread_id))
     _the_thread_for_a_reply(ctx, order_id)
+    shown = _as_the_card_shows(str(thread_id), ctx)
     customer = await _check_order(order_id, ctx) if order_id else None
     text = clean_body(body)
+    await _held_to_the_orders_it_names(text, ctx)
     sender = await asyncio.to_thread(client.address)
     token = new_token(sender)
     subject = reply_subject(ctx["subject"])
     raw = build_raw(sender=sender, sender_name=str(getattr(_settings(), "gmail_from_name", "") or ""), to=ctx["to_email"], to_name=ctx["to_name"],
                     subject=subject, body=text, token=token, in_reply_to=ctx["in_reply_to"], references=ctx["references"])
-    execution = {"thread_id": str(thread_id), "token": token, "raw": raw, "to": ctx["to_email"], "to_name": ctx["to_name"], "subject": subject, "body": text, "state": "draft"}
+    execution = {"thread_id": str(thread_id), "token": token, "raw": raw, "to": ctx["to_email"], "to_name": ctx["to_name"], "subject": subject, "body": text, "state": "draft",
+                 **({"compose_id": shown} if shown else {})}
     before = _thread_fingerprint(ctx, token)
     return _prepared_email(execution=execution, before=before, expected_after={**before, "drafts": 1}, entity_ref=str(thread_id), ctx=ctx, customer=customer,
                            sending=False, title="Save a draft reply", sender=sender, kind="draft_reply")
@@ -675,6 +751,7 @@ async def gmail_send_reply(thread_id: str, body: str = "", order_id: str = "") -
     client = _g()
     ctx = await thread_context(str(thread_id))
     _the_thread_for_a_reply(ctx, order_id)
+    shown = _as_the_card_shows(str(thread_id), ctx)
     customer = await _check_order(order_id, ctx) if order_id else None
     sender = await asyncio.to_thread(client.address)
     if str(body or "").strip():
@@ -694,6 +771,9 @@ async def gmail_send_reply(thread_id: str, body: str = "", order_id: str = "") -
             "thread_id": str(thread_id), "token": draft["token"], "raw": "", "draft_id": draft["draft_id"], "to": draft["to"], "to_name": draft["to_name"] or ctx["to_name"],
             "subject": draft["subject"] or reply_subject(ctx["subject"]), "body": draft["body"], "state": "sent",
         }
+    await _held_to_the_orders_it_names(execution["body"], ctx)
+    if shown:
+        execution["compose_id"] = shown
     before = _thread_fingerprint(ctx, execution["token"])
     if before["sent"]:
         raise ToolError("That was already sent.")

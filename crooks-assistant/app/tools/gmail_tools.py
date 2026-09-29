@@ -732,21 +732,33 @@ async def gmail_read_thread(thread_id: str) -> dict:
     for message in messages:
         headers = _headers(message)
         sender_name, sender_email = parseaddr(headers.get("from", ""))
-        out.append(
-            {
-                "message_id": str(message.get("id") or ""),
-                "from": sender_name or sender_email,
-                "from_email": sender_email,
-                "date": headers.get("date", ""),
-                "subject": headers.get("subject", ""),
-                "body": _extract_body(message.get("payload", {})),
-                # Gmail's own label, not a guess from the address: who sent this one. The
-                # thread card needs it to say whether anybody is waiting on us (section 8
-                # asks the email surface for a needs-reply state), and `reply_state` above
-                # already reads the same label for the same reason.
-                "outbound": "SENT" in (message.get("labelIds") or []),
-            }
-        )
+        entry = {
+            "message_id": str(message.get("id") or ""),
+            "from": sender_name or sender_email,
+            "from_email": sender_email,
+            "date": headers.get("date", ""),
+            "subject": headers.get("subject", ""),
+            "body": _extract_body(message.get("payload", {})),
+            # Gmail's own label, not a guess from the address: who sent this one. The
+            # thread card needs it to say whether anybody is waiting on us (section 8
+            # asks the email surface for a needs-reply state), and `reply_state` above
+            # already reads the same label for the same reason.
+            "outbound": "SENT" in (message.get("labelIds") or []),
+        }
+        # Where a reply to it goes, when that is not its sender: a contact form's customer, or a
+        # message asking for the answer somewhere else. The reply tools answer there
+        # (`gmail_writes.thread_context`), so the reply composer shows it (app/families/compose.py;
+        # round 13, S2b-01). Present only when it differs, so its presence says so; an address
+        # and a name under the keys the dispatcher already remembers as personal data.
+        reply_name, reply_email = parseaddr(headers.get("reply-to", ""))
+        reply_email = reply_email.strip().lower()
+        if "@" in reply_email and reply_email != sender_email.strip().lower():
+            entry["reply_to"] = {"email": reply_email, "name": " ".join(reply_name.split())}
+        if "DRAFT" in (message.get("labelIds") or []):
+            # A draft of ours waiting in the thread: not a message anybody sent, and not the one
+            # a reply answers (`compose._last_inbound`, as `gmail_writes.thread_context`).
+            entry["draft"] = True
+        out.append(entry)
 
     directions = [bool(m["outbound"]) for m in out]
     return {

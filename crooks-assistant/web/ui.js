@@ -2707,7 +2707,9 @@
       : fieldStatic({
         name: 'to', label: reply ? 'Replying to' : 'To',
         value: [text(d.to_name), text(to.value)].filter(Boolean).join(' · '),
-        hint: reply ? 'whoever wrote last in this thread — read from the thread, not typed' : text(to.hint),
+        // The Mac's own line when it has one: who sent the message, when the reply goes to the
+        // address it asked for instead (round 13, S2b-01), or that the address is not yet read.
+        hint: text(to.hint) || (reply ? 'whoever wrote last in this thread — read from the thread, not typed' : ''),
       });
     const line = typable(subject, true)
       ? field({
