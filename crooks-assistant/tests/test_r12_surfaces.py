@@ -22,7 +22,7 @@ import pytest
 from app.tools.dispatch import dispatch
 from tests import test_r11_turn
 from tests.test_r11_turn import commit, confirmation
-from tests.test_turn_boundary import A, B, reads, say, show_order, tap
+from tests.test_turn_boundary import A, B, found_order, reads, say, show_order, tap
 
 # The desk of tests/test_r11_turn.py: the real routes, the real gate and engine, a scripted model
 # and a fake shop that takes one change, an order's note, so a tapped change can be followed to
@@ -430,6 +430,97 @@ def records_on(body: dict) -> set[str]:
     return {c["data"].get("order_id") for c in cards(body) if c["type"] == "order"} - {None}
 
 
+# The independent check of round 12 (C1): the numbers a claim is about are the claim's own.
+
+
+async def test_a_true_claim_beside_a_sentence_about_another_order_changes_nothing(desk):
+    """"Order #1938 is on your screen. #1940 shipped yesterday." with #1938 up: the claim is
+    about #1938, which is up, so nothing is drawn and nothing is cut. It used to take #1940 from
+    the second sentence and swap #1938's card for #1940's."""
+    desk.model.steps = [show_order("1940"), show_order("1938"),
+                        claims_only("Order #1938 is on your screen. #1940 shipped yesterday.")]
+    await say(desk, "show me order 1940", "c1")
+    await say(desk, "show me order 1938", "c1")
+    body = await say(desk, "what's up with my orders?", "c1")
+    assert body["answer"] == "Order #1938 is on your screen. #1940 shipped yesterday.", body["answer"]
+    assert the_order(body, A).get("kept") is True
+    assert records_on(body) == {A}, records_on(body)
+
+
+async def test_a_true_claim_beside_an_order_the_conversation_never_saw_is_not_cut(desk):
+    """The same with a second order this conversation was never shown: the true claim stayed
+    cut and CLIVE said "I haven't put it on screen" with #1938 up in front of him."""
+    from app.observability import claims
+
+    desk.model.steps = [show_order("1938"), claims_only("Order #1938 is on your screen. #1999 shipped yesterday.")]
+    await say(desk, "show me order 1938", "c1b")
+    body = await say(desk, "anything else going on?", "c1b")
+    assert body["answer"] == "Order #1938 is on your screen. #1999 shipped yesterday.", body["answer"]
+    assert claims.NOT_ON_SCREEN not in body["answer"]
+    assert the_order(body, A).get("kept") is True
+
+
+async def test_the_claiming_sentence_still_names_the_order_it_is_about(desk):
+    """And the other way round: the claim names #1940, which is not up, and the sentence beside
+    it names #1938, which is. #1940 is the one drawn."""
+    desk.model.steps = [show_order("1940"), show_order("1938"),
+                        claims_only("#1938 is paid. Order #1940 is on your screen now.")]
+    await say(desk, "show me order 1940", "c1c")
+    await say(desk, "show me order 1938", "c1c")
+    body = await say(desk, "and the other one?", "c1c")
+    assert the_order(body, B)
+    assert A not in records_on(body), records_on(body)
+
+
+# The independent check of round 12 (C2): what is, and is not, a claim that something is on HIS screen.
+
+NOT_CLAIMS = [
+    "They're up again this week.",
+    "I haven't put the prices up.",
+    "I can't show that on the screen.",
+    "It's up now on the office TV.",
+    "Sales are up on last week, and returns are back up too.",
+    "I've put the price up to £45.",
+    "It isn't on your screen yet; say show it and I will.",
+    "It's on the screen in the shop.",
+]
+CLAIMS = [
+    "Confirmed, order 1940 on screen.",
+    "It's on your screen now.",
+    "Orders 1938 and 1940 are both on your screen.",
+    "Order 1999 is on your screen.",
+    "It's up on your screen.",
+    "I've put it on the tablet for you.",
+    "It's showing on the screen now.",
+    "That's up here now.",
+    "Paid, not shipped. It's on your screen now.",
+]
+
+
+@pytest.mark.parametrize("words", NOT_CLAIMS)
+def test_a_sentence_that_does_not_put_something_on_his_screen_is_not_a_claim(words):
+    from app.observability import claims
+
+    assert not claims.claims_on_screen(words), words
+
+
+@pytest.mark.parametrize("words", CLAIMS)
+def test_a_sentence_that_puts_something_on_his_screen_is_a_claim(words):
+    from app.observability import claims
+
+    assert claims.claims_on_screen(words), words
+
+
+@pytest.mark.parametrize("words", NOT_CLAIMS[:4])
+async def test_an_ordinary_sentence_over_an_empty_screen_is_spoken_as_it_was_said(desk, words):
+    """Nothing is up and nothing is drawn, and the answer is none of the ways of saying
+    something is on his screen: it is left exactly as the model said it, and no claim is
+    written."""
+    desk.model.steps = [claims_only(words)]
+    body = await say(desk, "how are we doing?", "c2")
+    assert body["answer"] == words, body["answer"]
+
+
 async def test_the_claim_is_written_to_the_timeline_beside_the_decline_claims(desk, tmp_path):
     import json
     from pathlib import Path
@@ -442,8 +533,10 @@ async def test_the_claim_is_written_to_the_timeline_beside_the_decline_claims(de
     line = timeline.install(timeline.Timeline(store))
     session = line.start("on-screen claims")
     try:
+        # "It's up now for you." was the second claim here; "up" with no screen named is no
+        # longer a claim (C2), so the sentence names his screen. What is written is unchanged.
         desk.model.steps = [show_order("1940"), show_order("1938"), claims_only("Confirmed, order 1940 on screen."),
-                            claims_only("It's up now for you.")]
+                            claims_only("It's up on your screen now.")]
         await say(desk, "show me order 1940", "tl")
         await say(desk, "show me order 1938", "tl")
         await say(desk, "put 1940 up", "tl")
@@ -456,3 +549,94 @@ async def test_the_claim_is_written_to_the_timeline_beside_the_decline_claims(de
         timeline.forget_names()
     claimed = [e for e in events if e.get("kind") == "unsupported_claim" and e.get("claim") == "on_screen"]
     assert [(e["session_id"], bool(e.get("drew")), e["corrected"]) for e in claimed] == [("tl", True, False), ("tl-fresh", False, True)], claimed
+
+
+# ============================== a listening control only on the cursor's card (round-12 check, C3)
+#
+# "Add a note" in listening mode binds the half's CURSOR, not the card it is drawn on (web/app.js
+# `primeAction`). So only the card that is the cursor may keep one — after a sentence, and just
+# as much after a hold and after a tap, where a card kept on the glass is never redrawn.
+
+
+def listening(body_or_ui, ref: str) -> str:
+    """The family of the note chip on the order card for `ref` — "" when it only primes words."""
+    items = body_or_ui.get("ui") if isinstance(body_or_ui, dict) else body_or_ui
+    (card,) = [i for i in items or [] if i.get("type") == "order" and (i.get("data") or {}).get("order_id") == ref]
+    (chip,) = [a for a in card["data"].get("actions") or [] if a.get("id") == "note"]
+    return str(chip.get("family") or "")
+
+
+def flagged(body: dict, ref: str) -> str:
+    (card,) = [i for i in body["ui"] if i.get("type") == "order" and (i.get("data") or {}).get("order_id") == ref]
+    return "kept" if card.get("kept") else "refreshed" if card.get("refreshed") else "drawn"
+
+
+SIDE_BY_SIDE = reads(("shopify_order_detail", {"order_id": A}), ("shopify_find_order", {"query": "1940"}),
+                     ("shopify_order_detail", {"order_id": found_order}))
+
+
+async def _both_up(desk, sid: str) -> dict:
+    await say(desk, "show me order 1938", sid)
+    both = await say(desk, "put 1938 and 1940 side by side", sid)
+    assert both["branch"]["entity"]["ref"] == A
+    assert (listening(both, A), listening(both, B)) == ("order.add_note", ""), "the setup the check names"
+    return both
+
+
+async def test_after_a_hold_on_another_order_its_redrawn_card_does_not_listen_for_the_cursor(desk):
+    """#1938 and #1940 up, the cursor on #1938. A note is added to #1940 and held: #1940 is
+    redrawn with its new state, and its Add a note must not be the listening kind — it would
+    bind #1938, the cursor. #1938 keeps its own. The Mac's copy of the screen says the same."""
+    desk.model.steps = [show_order("1938"), SIDE_BY_SIDE, notes_order(B, "Fragile")]
+    await _both_up(desk, "hold")
+    noted = await say(desk, "add a note to 1940 saying fragile", "hold")
+    applied = await commit(desk, confirmation(noted)["proposal_id"], "hold")
+    body = applied.json()
+    assert applied.status_code == 200 and body["status"] == "verified", applied.text
+    assert "Fragile" in (the_order(body, B)["data"].get("note") or "")
+    assert listening(body, B) == "", "#1940's redrawn Add a note would bind the cursor, #1938"
+
+    again = await tap(desk, "branch.show", "hold")
+    assert again["branch"]["entity"]["ref"] == A
+    assert (listening(again, A), listening(again, B)) == ("order.add_note", "")
+
+
+async def test_after_a_tap_that_moves_the_cursor_the_card_left_behind_stops_listening_and_is_redrawn(desk):
+    """#1938 and #1940 up, the cursor on #1938; he taps to open #1940. The cursor is #1940 now,
+    so #1938's Add a note must stop listening — and because the glass never redraws a card it
+    keeps, #1938 comes back to be redrawn (`refreshed`), not kept with its chip still live."""
+    desk.model.steps = [show_order("1938"), SIDE_BY_SIDE]
+    await _both_up(desk, "tapped")
+    opened = await tap(desk, "open.entity", "tapped", kind="order", ref=B, label="#1940")
+    assert opened["ok"] is True and opened["branch"]["entity"]["ref"] == B, opened.get("answer")
+    assert listening(opened, B) == "order.add_note", "the cursor's card listens"
+    assert listening(opened, A) == "", "#1938's Add a note would bind the cursor, #1940"
+    assert flagged(opened, A) != "kept", "a card kept on the glass is not redrawn: its live chip would stay"
+
+    again = await tap(desk, "branch.show", "tapped")
+    assert (listening(again, A), listening(again, B)) == ("", "order.add_note")
+
+
+async def test_after_a_sentence_every_listening_chip_is_on_the_cursor_s_card_only(desk):
+    """The turn path, for completeness: a sentence answered in words over both orders keeps
+    them, and the chips stay where the cursor is."""
+    desk.model.steps = [show_order("1938"), SIDE_BY_SIDE, answers("Both are paid.")]
+    await _both_up(desk, "said")
+    body = await say(desk, "are they paid?", "said")
+    assert (listening(body, A), listening(body, B)) == ("order.add_note", "")
+
+
+async def test_after_show_again_only_the_cursor_s_card_listens(desk):
+    """The fourth path: `show_again`. #1940 put back beside #1938, with the cursor still on
+    #1938, comes back read again with a fresh rail — and does not listen for #1938; #1938,
+    kept, still does. Put back on its own, the record it brings is the cursor, and listens."""
+    told: list[str] = []
+    desk.model.steps = [show_order("1938"), SIDE_BY_SIDE, again(told, ref=B), show_order("1940"), again(told)]
+    await _both_up(desk, "recall")
+    body = await say(desk, "show me 1940 again", "recall")
+    assert body["branch"]["entity"]["ref"] == A
+    assert (listening(body, A), listening(body, B)) == ("order.add_note", ""), (flagged(body, A), flagged(body, B))
+
+    await say(desk, "show me order 1940", "recall")
+    back = await say(desk, "pull that up again", "recall")
+    assert back["branch"]["entity"]["ref"] == A and listening(back, A) == "order.add_note"

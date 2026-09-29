@@ -391,6 +391,7 @@ async def row(request: Request, session_id: str = Form(default=""), action: str 
     # this half now shows, so a reload or a switch of halves draws the same.
     half = owner_session.branch(row_half)
     ui = screen.carry(ui, branch=half, session=owner_session)
+    ui = screen.listening_on_cursor(ui, getattr(half, "entity", None))
     half.shown(ui, half.last_answer, half.last_question)
     return {"staged": True, "proposal_id": proposal_id, "ui": ui}
 

@@ -180,6 +180,9 @@ async def _tap(request: Request, runtime, session, branch, name: str, named: dic
         # composer — is drawn beside what this half was showing, not instead of it
         # (app/screen.py). `branch.show` is exempt because its cards ARE that screen.
         ui = screen.carry(ui, branch=branch, session=session)
+    # A listening control only on the cursor's card, the cursor as this tap left it: a tap that
+    # opened #1940 beside #1938 leaves #1938's Add a note binding #1940 otherwise (C3).
+    ui = screen.listening_on_cursor(ui, getattr(branch, "entity", None))
     if any(item.get("type") != "context_stack" for item in ui):
         # What this half now shows, kept on the Mac: a tap that drew cards is as much this
         # half's workspace as a sentence that did, and `branch.show` redraws it after a
