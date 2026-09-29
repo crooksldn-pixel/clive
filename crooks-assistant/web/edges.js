@@ -109,9 +109,10 @@
   }
 
   function create(win, doc) {
-    const areas = new Map();                  // element -> { spec, mask, start, end, veils }
+    const areas = new Map();                  // element -> { spec, mask, start, end, veils, placed }
     const dirty = new Set();
-    let raf = 0;
+    let raf = 0, veils = null;                // veils: whether this device gets blur bands, asked once
+    const wantVeils = () => (veils === null ? (veils = veilsWanted(win, doc)) : veils);
     const R = typeof win.requestAnimationFrame === 'function' ? win.requestAnimationFrame.bind(win) : (fn) => setTimeout(fn, 16);
     const resizes = typeof win.ResizeObserver === 'function' ? new win.ResizeObserver((entries) => {
       for (const e of entries) {
@@ -152,7 +153,7 @@
     // The two bands sit beside the area (its next sibling, so they share its containing block),
     // laid over its top and bottom edges. Made the first time an edge fades, never before.
     function placeVeils(el, state, f) {
-      if (!veilsWanted(win, doc)) { if (state.veils) dropVeils(state); return; }
+      if (!wantVeils()) { if (state.veils) dropVeils(state); return; }
       if (!f.start && !f.end && !state.veils) return;
       if (!state.veils) {
         const make = (edge) => {
@@ -171,6 +172,10 @@
       const top = el.offsetTop + el.clientTop, left = el.offsetLeft + el.clientLeft;
       const w = el.clientWidth, h = el.clientHeight;
       const most = Math.max(1, Math.min(state.spec.size, Math.floor(h * MAX_SHARE)));
+      // Written only when something about them changed: a scroll that moves no fade writes nothing.
+      const key = `${top},${left},${w},${h},${f.start},${f.end}`;
+      if (key === state.placed) return;
+      state.placed = key;
       const put = (v, y, k) => {
         v.style.left = left + 'px'; v.style.top = y + 'px'; v.style.width = w + 'px'; v.style.height = most + 'px';
         v.style.opacity = k > 0 ? String(Math.min(1, k)) : '0';
@@ -182,6 +187,7 @@
       if (!state.veils) return;
       for (const v of [state.veils.start, state.veils.end]) if (v.parentNode) v.parentNode.removeChild(v);
       state.veils = null;
+      state.placed = '';
     }
     function flush() {
       raf = 0;
@@ -201,7 +207,7 @@
       if (areas.has(el)) return;
       const spec = specFor(el);
       if (!spec) return;
-      const state = { spec, mask: '', start: -1, end: -1, veils: null, onScroll: () => touch(el) };
+      const state = { spec, mask: '', start: -1, end: -1, veils: null, placed: '', onScroll: () => touch(el) };
       areas.set(el, state);
       el.addEventListener('scroll', state.onScroll, { passive: true });
       if (resizes) { resizes.observe(el); watchChildren(el); }
