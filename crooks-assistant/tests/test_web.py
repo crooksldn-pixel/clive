@@ -167,7 +167,9 @@ def test_voice_wins_over_a_tap():
 def test_success_is_shown_only_from_the_verified_answer():
     body = function_body(APP_JS, "function settleAction(node, payload, status)")
     assert "payload.status === 'verified'" in body
-    assert "if (payload.spoken) speakAnswer(String(payload.spoken)" in body
+    # The Mac's sentence for the outcome is spoken, and (round 12) also written on the line over
+    # the cards, in place of the turn's "tap to apply".
+    assert "if (payload.spoken) {" in body and "speakAnswer(String(payload.spoken), { isError: !proven })" in body
     assert "window.confirm" not in APP_JS and "alert(" not in APP_JS and "prompt(" not in APP_JS
 
 
@@ -527,6 +529,9 @@ def test_a_proved_change_replaces_its_own_affordance_and_retires_the_others():
     # Round 12: a node whose card is already up (the order kept under the change) is redrawn in
     # its own place (refreshInPlace), and only the rest take the affordance's slot, in the glass
     # and in the deck's history alike.
+    # Round 12: after a gesture the line over the cards says what happened, in the words spoken,
+    # instead of still asking him to tap what he has just applied.
+    assert "el.answer.textContent = String(payload.spoken);" in body
     assert "refreshInPlace(oldNode, newNodes)" in replace
     assert "entry.nodes.splice(at, 1, ...here)" in replace and "refreshEntityCards(node)" in replace
 

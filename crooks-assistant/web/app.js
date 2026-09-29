@@ -3492,7 +3492,13 @@ function settleAction(node, payload, status) {
     setState('SUCCESS');
     setTimeout(() => { if (!busy && !recording && el.stage.dataset.state === 'SUCCESS') setState('READY'); }, 1400);
   }
-  if (payload.spoken) speakAnswer(String(payload.spoken), { isError: !proven });
+  if (payload.spoken) {
+    // The line over the cards says what happened, as it is spoken. It still said the turn's
+    // "The note is ready on the card; tap to apply." above "Note added" (round 12: the owner's
+    // screen should never contradict itself).
+    el.answer.textContent = String(payload.spoken);
+    speakAnswer(String(payload.spoken), { isError: !proven });
+  }
 }
 
 // The words for every outcome either side can produce live in web/action-state.js, beside the
