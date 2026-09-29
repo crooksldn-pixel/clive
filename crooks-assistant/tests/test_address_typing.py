@@ -223,10 +223,10 @@ def test_the_gesture_names_the_tool_and_the_arguments_the_mac_built(branch, sess
     assert out.ok, out.detail
     staged = out.changed["stage"]
     assert staged["tool"] == "shopify_order_shipping_address_set"
+    # Only what he changed, and the second line a new street takes with it (round 13, F/F-01):
+    # the tool keeps every part it is not given exactly as the order has it.
     assert staged["args"] == {
-        "order_id": ORDER_ID, "address1": "41 Sefton Park Road", "address2": "",
-        "city": "Bristol", "postcode": "BS7 9AL", "country_code": "GB",
-        "province_code": "", "name": "Millie Fenwick", "from_owner": True,
+        "order_id": ORDER_ID, "address1": "41 Sefton Park Road", "address2": "", "from_owner": True,
     }
     assert not out.calls, "the command itself must not prepare anything"
 

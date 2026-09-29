@@ -166,6 +166,15 @@ _NOT_ABOUT_THE_PRODUCT = re.compile(
 _ABOUT_THE_SHOP = re.compile(
     r"\b(?:order|orders|customer|customers|refund|invoice|address|delivery|parcel|tracking|"
     r"stock|price|product|discount|payment)\b", re.I)
+# "Note that…" and "make a note…" are also how he asks for a note on an ORDER: "make a note on
+# order 1940 that she's collecting it", "note that Zoe is picking up 1940 on Saturday". Those
+# were filed, word for word and with the customer's name, as a defect in CLIVE, and the model was
+# told to say it was logged (round 13's second independent check). A note or record instruction
+# that names an order — the word, or a number an order could have — is the model's to make, and
+# is not filed. "Note that the address field is wrong" names none, and is still his feedback; so
+# is anything he asks to "log", which is only ever about CLIVE.
+_ABOUT_AN_ORDER = re.compile(r"\border(?:s)?\b|(?<![\d.,£$€])\d{3,7}(?![\d.,])", re.I)
+_HELD_TO_NO_ORDER = frozenset({"note", "record"})
 
 
 @dataclass(frozen=True)
@@ -204,6 +213,8 @@ def recognise(text: str) -> Recognition | None:
     for kind, pattern in KINDS:
         if not pattern.search(said):
             continue
+        if kind in _HELD_TO_NO_ORDER and _ABOUT_AN_ORDER.search(said):
+            return None
         if kind not in _BY_SHAPE:
             return Recognition(kind=kind, text=said[:MAX_FEEDBACK_CHARS])
         if _ABOUT_THE_SHOP.search(said) or _NOT_A_COMPLAINT.search(said):
@@ -292,7 +303,7 @@ def active() -> bool:
 # product. The recording is the Mac's and has already happened; the model's part is to say so
 # truthfully and to do anything else the sentence asked for. The second line exists because
 # the one thing worse than not recording a defect is saying it was recorded when nothing was.
-RECORDED_LINE = ("[CLIVE has written this down, word for word, as the owner's feedback about CLIVE itself, "
+RECORDED_LINE = ("[CLIVE has written this down as the owner's feedback about CLIVE itself, "
                  "with the screen he was on, for this test session's report. Say it is logged, in a few "
                  "words; if the sentence also asks for something, do that too. Do not say there is no tool "
                  "for logging feedback.]")

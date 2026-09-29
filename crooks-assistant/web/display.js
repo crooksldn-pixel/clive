@@ -1057,6 +1057,11 @@
       const next = wanted();
       if (next.length && (layoutKey(next) !== S.drawnKey || next.some((w, n) => !stays(S.drawnView[n], w)))) { S.pending = false; overtake(next); return; }
     }
+    // A pane drawn here that CLIVE now says is done, while a change or another pane's pack is still
+    // under way (round 13, R9-B2-B2-04): what it showed of the customer goes now, as it does on a
+    // still screen (markedDone), not when that animation ends. What is under way stops where it
+    // is, and the pane is packed below as on any still screen.
+    if ((S.phase === 'swapping' || S.phase === 'packing') && doneNow()) cutShort();
     if (S.busy || !E) { S.pending = true; return; }
     const want = wanted();
     if (S.phase === 'idle') { if (want.length) push(want); return; }
@@ -1075,6 +1080,13 @@
       // The same things as are drawn: only the owner's ticks and page turns, in place.
       want.forEach((w, n) => follow(S.drawnView[n], w));
     }
+  }
+  // Whether CLIVE now says a pane drawn here, and not yet packed here, is done.
+  function doneNow() {
+    return wanted().some((w) => {
+      const P = (S.drawnView || []).find((x) => x.key === keyOf(w.view));
+      return !!P && !!w.view.done_at && !P.packed;
+    });
   }
   // The owner's ticks and page turns, from his remote (round 9), on a pane already drawn: the
   // rows are drawn again in place, with no journey, and a page he turned to goes up here (and is
@@ -1222,6 +1234,25 @@
   // Each change's own count: what it set going later is dropped once the page has moved on (a
   // resize finishes a change at once and lays the page out afresh).
   let swapRun = 0;
+  // What is under way stopped where it is (round 13, R9-B2-B2-04), so that a pane CLIVE says is
+  // done can be packed at once. Nothing it set going runs after this (its count has moved on).
+  // A change: the old page on its way out goes now, and the panes new to it are up as they are,
+  // their pages told to CLIVE as at the change's own end. Another pane's pack: that pane is
+  // already drawn done, and it still rests when its own time is up.
+  function cutShort() {
+    if (S.phase === 'swapping') {
+      swapRun++;
+      dropLeaving();
+      for (const P of S.drawnView || []) if (P.forming) paneIn(P, '');
+      ackPage();
+    } else if (S.phase === 'packing') {
+      packRun++;
+      if (packing) scheduleRest(packing.view);
+    }
+    packing = null;
+    S.phase = 'shown';
+    S.busy = false;
+  }
   function swap(list) {
     const run = ++swapRun;
     S.busy = true;
@@ -1347,6 +1378,9 @@
     S.phase = 'shown';
     swap(want);
   }
+  // Each pack's own count, and the pane it is packing: what a pack set going does nothing once
+  // another has cut it short (cutShort).
+  let packRun = 0, packing = null;
   // One pane marked done: the dots swirl into a check, and the page comes back with that pane in
   // its done state (the other, if any, as it was). What the pane showed of the customer goes the
   // moment CLIVE says it is done (round 10, B2-04): the copy drawn here, its pages and all, is
@@ -1354,16 +1388,25 @@
   // dots have moved. And the dots let go of the page they drew, now (round 11, B2-04): not one of
   // them keeps a place sampled from the slip, so none forms it again — the check comes out of
   // the orb (web/dots.js packOut), and the page they go back into is the done page, sampled anew.
+  //
+  // Round 13 (R9-B2-B2-04): the old page of a change on its way out holds a copy of the slip as it
+  // was, so it goes now too, before anything else is drawn; nothing of the customer is left on the
+  // screen, in the page or under it.
   function markedDone(P, view) {
+    const run = ++packRun;
+    const current = () => run === packRun;
     S.busy = true;
     S.phase = 'packing';
+    packing = P;
     P.packed = true;
     P.view = doneOf(view);
     P.page = freshPage();
+    dropLeaving();
     if (E) E.forget();
     const label = (P.view.kind === 'order' ? 'Packed at ' : 'Done at ') + timeOf(P.view.done_at);
     if (calm) {
       draw(S.drawnView);
+      packing = null;
       S.phase = 'shown';
       settle();
       scheduleRest(P.view);
@@ -1373,9 +1416,9 @@
     E.packOut(checkTargets(label));
     uiState('is-dissolving');
     draw(S.drawnView);
-    E.at(T0 + 2.3, () => E.packIn(sampleUi(), T0 + 2.6));
-    E.at(T0 + 3.8, () => { E.sweepOut(T0 + 3.8, 1.3); uiState('is-revealing'); });
-    E.at(T0 + 5.2, () => { S.phase = 'shown'; uiState('is-shown'); settle(); scheduleRest(P.view); });
+    E.at(T0 + 2.3, () => { if (current()) E.packIn(sampleUi(), T0 + 2.6); });
+    E.at(T0 + 3.8, () => { if (!current()) return; E.sweepOut(T0 + 3.8, 1.3); uiState('is-revealing'); });
+    E.at(T0 + 5.2, () => { if (!current()) return; packing = null; S.phase = 'shown'; uiState('is-shown'); settle(); scheduleRest(P.view); });
   }
   function scheduleRest(v) {
     const left = DONE_HOLD_MS - (serverNow() - Date.parse(v.done_at || ''));
@@ -1521,6 +1564,9 @@
       if (response.ok && Array.isArray(data.ticked) && S.drawnView && S.drawnView.indexOf(P) !== -1 && !P.packed) {
         P.view = Object.assign({}, P.view, { ticked: data.ticked });
         if (P.page.fill) P.page.fill(P.page.index);
+      } else if (response.status === 503) {
+        // Not made: CLIVE could not keep it safely yet (round 13, S3-02). The same tap again ticks it.
+        hint('CLIVE could not save that yet, so it was not ticked. Tap again in a moment.', true);
       }
     } catch (e) {
       if (!stale()) hint('CLIVE could not be reached, so that was not ticked. Tap again.', true);

@@ -61,11 +61,12 @@ function app({ answer, start = Date.UTC(2026, 8, 28, 12, 0, 0) } = {}) {
   };
   const response = (status, data) => ({ status, ok: status >= 200 && status < 300, json: async () => (data === undefined ? {} : JSON.parse(JSON.stringify(data))) });
   // CLIVE's answer, at once, or when a test lets it go (a promise): an answer still on its way.
+  // `raw` is a response the test made itself (one whose body never arrives, say).
   const fetch = (url, opts = {}) => {
     const request = { url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null, at: clock.now };
     requests.push(request);
     const said = answer(request);
-    const give = (s) => (s === 'network' ? Promise.reject(new TypeError('Failed to fetch')) : response(s.status, s.body));
+    const give = (s) => (s === 'network' ? Promise.reject(new TypeError('Failed to fetch')) : s.raw ? s.raw : response(s.status, s.body));
     if (said && typeof said.then === 'function') return said.then(give);
     return said === 'network' ? give(said) : Promise.resolve(give(said));
   };
@@ -630,4 +631,99 @@ test('a refused change under the finger that made it takes everything away at on
   assert.equal(pg.R.state().data, null);
   assert.equal(pg.R.state().shown, null, 'nor kept as what was drawn');
   assert.ok(ui.querySelector('.rm-state').textContent.includes('isn’t allowed'));
+});
+
+/* Round 13 of the deploy review (RC-10): an answer from before a change never draws over it, and
+ * a refusal is acted on the moment it is known. */
+
+// Closes S3P-NEW-01 (round 12): the owner takes a pane off while the once-a-second ask is on its
+// way. That ask was answered by CLIVE before the change, so it still lists the pane; it must not
+// put it back on the panel, nor into what the page holds.
+test('an ask on its way when a pane is taken off never puts it back', async () => {
+  const gate = { hold: null };
+  const offs = [];
+  let after = false;
+  const pg = await opened((p) => view(p, after ? [objective(p)] : [order(p), objective(p)], { version: after ? 6 : 5 }), (request) => {
+    if (request.url.endsWith('/remote') && gate.hold) { const h = gate.hold; gate.hold = null; return h.promise; }
+    if (request.url.endsWith('/remote/off')) {
+      offs.push(request.body);
+      after = true;
+      return { status: 200, body: view(pg, [objective(pg)], { version: 6 }) };
+    }
+    return null;
+  });
+  const ui = pg.panel();
+  const shows = () => ui.allText().includes('Heavyweight Tee');
+  assert.ok(shows());
+  const late = held();
+  gate.hold = late;
+  await pg.advance(1100);                      // the next ask goes out, and waits
+  assert.equal(gate.hold, null, 'the ask is on its way');
+  await pg.tap(all(ui, '.rm-destroy')[0]);
+  await pg.tap(all(ui, '.rm-destroy')[0]);     // taken off, at the second tap
+  assert.deepEqual(offs, [{ pane: 0, version: 1 }]);
+  assert.ok(!shows(), 'gone with CLIVE’s answer');
+  // The older ask is answered now, with the screen as it was before the change.
+  late.let({ status: 200, body: view(pg, [order(pg), objective(pg)], { version: 5 }) });
+  await pg.flush();
+  assert.ok(!shows(), 'the older answer does not put it back');
+  assert.ok(!keeps(pg, 'Heavyweight Tee'), 'nor is it kept in the page');
+  assert.ok(ui.allText().includes('Get the drop live'), 'the other pane stays');
+  await pg.advance(1100);
+  assert.ok(!shows(), 'and the next ask, made after the change, agrees');
+});
+
+// The same, for an ask that set off while the change itself was on its way and is answered after
+// the change's own answer: CLIVE may have read the screen before the change landed.
+test('an ask made while a change is on its way is not drawn over the change’s answer', async () => {
+  const gate = { hold: null, off: null };
+  let after = false;
+  const pg = await opened((p) => view(p, after ? [objective(p)] : [order(p), objective(p)], { version: after ? 6 : 5 }), (request) => {
+    if (request.url.endsWith('/remote') && gate.hold) { const h = gate.hold; gate.hold = null; return h.promise; }
+    if (request.url.endsWith('/remote/off')) { gate.off = held(); return gate.off.promise; }
+    return null;
+  });
+  const ui = pg.panel();
+  const shows = () => ui.allText().includes('Heavyweight Tee');
+  await pg.tap(all(ui, '.rm-destroy')[0]);
+  await pg.tap(all(ui, '.rm-destroy')[0]);
+  assert.ok(gate.off, 'the change is on its way');
+  const late = held();
+  gate.hold = late;
+  await pg.advance(1100);                      // an ask goes out meanwhile, and waits
+  assert.equal(gate.hold, null, 'the remote kept asking while the change was on its way');
+  after = true;
+  gate.off.let({ status: 200, body: view(pg, [objective(pg)], { version: 6 }) });
+  await pg.flush();
+  assert.ok(!shows(), 'the change’s answer is drawn');
+  late.let({ status: 200, body: view(pg, [order(pg), objective(pg)], { version: 5 }) });
+  await pg.flush();
+  assert.ok(!shows(), 'and an ask older than that answer never draws over it');
+  assert.ok(!keeps(pg, 'Heavyweight Tee'));
+});
+
+// Closes R9-B2-B2-02 (round 12): CLIVE refuses a change from this device, and the body of that
+// refusal is slow to arrive (or never does). What the remote shows leaves it on the status alone.
+test('a refused change takes everything away at once, without waiting for the refusal’s body', async () => {
+  let reads = 0;
+  const never = { status: 403, ok: false, json: () => { reads += 1; return new Promise(() => {}); } };
+  const pg = await opened((p) => view(p, [order(p), objective(p)]), (request) => (
+    request.url.endsWith('/remote/again') || request.url.endsWith('/remote/tick') ? { raw: never } : null));
+  const ui = pg.panel();
+  assert.ok(ui.allText().includes('Get the drop live'));
+  await pg.tap(ui.querySelector('.rm-glass'));               // Put it up again, refused
+  assert.equal(all(ui, '.rm-group').length, 0, 'gone at once');
+  assert.equal(pg.R.state().data, null);
+  assert.equal(pg.R.state().shown, null);
+  assert.equal(pg.R.state().busy, false, 'the controls are not left waiting on it');
+  assert.ok(ui.querySelector('.rm-state').textContent.includes('isn’t allowed'));
+  assert.equal(reads, 0, 'the refusal’s body is never read');
+  // A tick refused the same way, once a fresh ask has put the panes back.
+  await pg.advance(4100);
+  assert.ok(ui.allText().includes('Heavyweight Tee'));
+  all(ui, '.rm-tick')[0].listeners.click[0]({ stopPropagation() {} });
+  await pg.flush();
+  assert.equal(all(ui, '.rm-group').length, 0, 'a refused tick too');
+  assert.equal(pg.R.state().data, null);
+  assert.equal(reads, 0);
 });

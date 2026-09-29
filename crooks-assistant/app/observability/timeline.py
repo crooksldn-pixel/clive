@@ -44,7 +44,8 @@ import queue
 import re
 import threading
 import time
-from collections import deque
+import unicodedata
+from collections import OrderedDict, deque
 from pathlib import Path
 from typing import Any
 
@@ -71,13 +72,28 @@ WITHHELD_KEYS = frozenset({
     "token", "access_token", "refresh_token", "id_token", "oauth_token", "client_secret", "secret",
     "password", "nonce", "arm_nonce", "x-crooks-arm", "headers", "raw_headers", "credentials", "credential",
 })
-# How many of the names a session has been told about are kept. Bounded, because this is a
-# process-lifetime set and a long session reads a lot of customers.
-MAX_NAMES = 256
-# The names to replace wherever they appear in a written event, newest first. Fed by
-# `note_names` from the place that already knows them (a turn's own tool results); empty
-# until something tells it, and shape redaction runs whether or not anything has.
-_names: deque[str] = deque(maxlen=MAX_NAMES)
+# How many of the names this process has been told about are kept: every customer a busy season's
+# conversations read, and still bounded, because this is a process-lifetime set. It was 256, fed
+# every turn from a conversation's whole unordered `pii_seen`: past 256 which names survived was
+# the set's iteration order, and the customer on screen could be one that did not (round 13's
+# second independent check). Names are found through a tree of their words, so a string costs
+# the same to redact however many are kept (under a millisecond for six thousand characters
+# against fifty thousand names); the least recently told go first.
+MAX_NAMES = 50_000
+# The names to replace wherever they appear in a written event: each as the words it is written
+# with, least recently told first, and a tree of their words to find them by, so a string costs
+# the same to redact whether ten names are known or fifty thousand. Fed by `note_names` from the
+# place that already knows them (a turn's own tool results); empty until something tells it, and
+# shape redaction runs whether or not anything has.
+_names: OrderedDict[str, tuple[str, ...]] = OrderedDict()
+_tree: dict[str, Any] = {}
+_END = "\x00end"
+_names_lock = threading.Lock()
+_NAME_WORD = re.compile(r"\w+")
+
+
+def _name_words(text: str) -> tuple[str, ...]:
+    return tuple(unicodedata.normalize("NFKC", w).casefold() for w in _NAME_WORD.findall(text))
 
 # Strings shaped like a credential, scrubbed wherever they appear.
 _SECRET = re.compile(
@@ -113,6 +129,9 @@ def scrub(value: Any, depth: int = 0) -> Any:
     if isinstance(value, bytes):
         return f"<{len(value)} bytes>"
     text = value if isinstance(value, str) else str(value)
+    # Cut near the length that is kept before redacting: a megabyte of text is not searched for
+    # names to be thrown away after. The margin keeps what straddles the final cut out of it.
+    text = text[:MAX_STRING + 400]
     text = _SECRET.sub("[secret]", text)
     text = _redact(text)
     return text if len(text) <= MAX_STRING else text[:MAX_STRING] + "…"
@@ -129,13 +148,85 @@ def note_names(names: Any) -> None:
     """
     for name in names or ():
         text = str(name or "").strip()
-        if len(text) >= 3 and text not in _names:
-            _names.append(text)
+        if len(text) < 3 or not any(ch.isalpha() for ch in text):
+            # A postcode's digits, a house number, an order number: not a name, and taken for one
+            # they turned the event's own time and ids into "[name]".
+            continue
+        words = _name_words(text)
+        if not words:
+            continue
+        with _names_lock:
+            if text in _names:
+                _names.move_to_end(text)
+                continue
+            _names[text] = words
+            node = _tree
+            for word in words:
+                node = node.setdefault(word, {})
+            node.setdefault(_END, set()).add(text)
+            while len(_names) > MAX_NAMES:
+                _forget_one(*_names.popitem(last=False))
+
+
+def _forget_one(name: str, words: tuple[str, ...]) -> None:
+    path = [_tree]
+    for word in words:
+        nxt = path[-1].get(word)
+        if nxt is None:
+            return
+        path.append(nxt)
+    ends = path[-1].get(_END)
+    if ends is not None:
+        ends.discard(name)
+        if not ends:
+            del path[-1][_END]
+    for depth in range(len(words), 0, -1):
+        if path[depth]:
+            break
+        del path[depth - 1][words[depth - 1]]
 
 
 def forget_names() -> None:
     """Empty the name set. For tests, and for a process handed to a different shop."""
-    _names.clear()
+    with _names_lock:
+        _names.clear()
+        _tree.clear()
+
+
+def _names_out(text: str) -> str:
+    """Every name this process has been told, taken out of one string: found by its words, in
+    order, whatever their case or width and whatever stands between them — "Mia Kowalski's" and
+    "MIA  KOWALSKI" are both her name — the longest where two names start at the same word."""
+    found = [(unicodedata.normalize("NFKC", m.group(0)).casefold(), m.start(), m.end()) for m in _NAME_WORD.finditer(text)]
+    if not found:
+        return text
+    spans: list[tuple[int, int]] = []
+    with _names_lock:
+        i = 0
+        while i < len(found):
+            node, longest, j = _tree, 0, i
+            while j < len(found):
+                node = node.get(found[j][0])
+                if node is None:
+                    break
+                j += 1
+                if _END in node:
+                    longest = j - i
+            if longest:
+                spans.append((found[i][1], found[i + longest - 1][2]))
+                i += longest
+            else:
+                i += 1
+    if not spans:
+        return text
+    out: list[str] = []
+    at = 0
+    for start, end in spans:
+        out.append(text[at:start])
+        out.append("[name]")
+        at = end
+    out.append(text[at:])
+    return "".join(out)
 
 
 def _redact(text: str) -> str:
@@ -151,13 +242,98 @@ def _redact(text: str) -> str:
     try:
         from app.logging.turnlog import redact_text
 
-        return redact_text(text, tuple(_names))
+        # Shapes first — an address is "[email]" whole, not a name and a domain — then names.
+        return _names_out(redact_text(text))
     except Exception:  # noqa: BLE001 — observability never takes a turn down
         # Belt and braces: the one shape that actually leaked, with no import behind it.
         return _EMAIL_FALLBACK.sub("[email]", text)
 
 
 _EMAIL_FALLBACK = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
+
+
+# The owner's words, and the answers to them, by the event that carries them: what was heard,
+# the model's answer, the question and the answer the turn finished with, and what was spoken
+# back. A name he says that no read returns is never known to `note_names`, so nothing can
+# redact it from these ("what did Zoe Quill order", answered from nothing, put her name in the
+# always-on timeline three times: the round-12 deploy review, R9-D1-D1-01 and S1-NEW-02). In
+# the day's automatic session they are written by their shape; a session he started by name —
+# his walkthrough — keeps them. A defect he asks to be logged (`owner_feedback`) is kept word for
+# word in his walkthrough and, like everything else he says, by its shape in the day's session:
+# the recogniser reads his words by pattern, and every pattern that filed a defect also filed, in
+# the round-13 second check, a note he was asking for on an order with a customer's name in it.
+#
+# The round-13 independent check found his words in more places, each written from inside a tool
+# or a route before any read had told this timeline a name: a working set's label (the title the
+# model gives a listing "in the owner's words", "Cy Cole's orders"), the half that shows it (its
+# headline), a query the language refused (its reason quotes what was asked, and `unknown` names
+# it), and the line spoken when a change is applied ("Reply sent to David.").
+WORDS: dict[str, tuple[str, ...]] = {
+    "stt": ("text", "raw_text"),
+    "model": ("answer",),
+    "turn_finished": ("question", "answer"),
+    "tts": ("text",),
+    "working_set": ("label",),
+    "query_rejected": ("reason", "unknown"),
+    "branch_forked": ("headline", "parent_headline"),
+    "branch_focused": ("headline",),
+    "action_commit": ("spoken",),
+    "owner_feedback": ("text",),
+    # What the turn began on: an email's subject is its label, and a subject can carry a name.
+    "turn_started": ("focus.label",),
+    # A refusal a tap or a row met, as the tool gave it: it can quote what was typed or said.
+    "command_stage": ("detail",),
+    "row_action": ("detail",),
+}
+# What the tablet sends about itself (POST /telemetry, `tablet_<kind>`) that echoes what the Mac
+# drew or what he said: a listing's label (his words), a half's label and the headlines of the
+# halves on a switch (a customer's name, a listing), and any question. Only these: the rest of a
+# tablet event's `name`, `label` and `detail` are the page's own vocabulary — "same_screen", a
+# tab's name — which the report reads (round 13's second and third checks).
+TABLET_WORDS: dict[str, tuple[str, ...]] = {
+    "tablet_working_set": ("label", "question"),
+    "tablet_branch": ("label", "question"),
+    "tablet_branch_switch": ("detail", "question"),
+}
+
+
+def _words_for(kind: str) -> tuple[str, ...]:
+    if kind in WORDS:
+        return WORDS[kind]
+    return TABLET_WORDS.get(kind, ("question",)) if kind.startswith("tablet_") else ()
+
+
+def keeps_words(session: TestSession | None) -> bool:
+    """Whether this session keeps the owner's words: one he started by name. The owner can have
+    the automatic session keep them too; that is his decision, and this is the line to change."""
+    # The same test housekeeping and the day's roll use (session.is_automatic): a session the
+    # owner himself named "always-on" is his, and keeps his words like any other he named.
+    from app.observability.session import is_automatic
+
+    return session is not None and not is_automatic(session)
+
+
+def _words_by_shape(event: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    """The event with each of these fields written as its length and a digest — the same digest
+    for the same words for the life of the process, and nothing of what they were. Only this
+    timeline's own file: a recording mirror was handed the fields before this, and keeps or drops
+    words by its own rule (app/observability/recorder.py, CROOKS_RECORD_TRANSCRIPTS)."""
+    from app.tools.dispatch import _spoken_shape
+
+    def shaped(value: Any) -> Any:
+        if isinstance(value, str):
+            return _spoken_shape(value) if value else value
+        if isinstance(value, (list, tuple)):
+            return [shaped(v) for v in value]
+        return value
+
+    out = {key: (shaped(value) if key in keys else value) for key, value in event.items()}
+    for key in keys:
+        # "focus.label": a field inside a field, the rest of it kept.
+        outer, _, inner = key.partition(".")
+        if inner and isinstance(out.get(outer), dict) and inner in out[outer]:
+            out[outer] = {**out[outer], inner: shaped(out[outer][inner])}
+    return out
 
 
 def scrub_text(text: str) -> str:
@@ -231,15 +407,42 @@ def _write_all(fd: int, data: bytes) -> tuple[int, OSError | None]:
     return done, None
 
 
-def _take_back(fd: int, partial: int) -> None:
-    """The last `partial` bytes of an append-only file off again: the part of a line that did not
-    finish. If the file cannot be cut, the part-line is ended, so the next line starts whole."""
-    if partial <= 0:
-        return
+def _hold_file(fd: int) -> bool:
+    """This append's own hold on the timeline file: exclusive, for as long as the fd is open
+    (closing it lets go). Another writer on the same file waits for it rather than landing its
+    line between this append's part-line and the take-back of it (round 13, O1-01). False when
+    it cannot be taken; then nothing is written, as with no hold on the writer lock."""
     try:
-        os.ftruncate(fd, max(0, os.fstat(fd).st_size - partial))
+        import fcntl
+    except ImportError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except OSError as exc:
+        log.debug("timeline file could not be held for an append: %s", exc)
+        return False
+    return True
+
+
+def _take_back(fd: int, keep_to: int, wrote_to: int) -> bool:
+    """The part of a line that did not finish, off again: the file cut back to `keep_to`, the end
+    of the last whole line this append wrote, from where this append began (round 13, O1-01). The
+    file's size at the time is not used: it is where the file ends, not where this append's own
+    bytes end, and a line another writer added after them is theirs, counted written. The append
+    holds the file alone (`_hold_file`), so nothing is after `wrote_to` but what it wrote.
+
+    If the file cannot be cut, the part-line is ended, so the next line starts whole. True when
+    the file now ends at the end of a line; False when neither worked, and the file ends in a
+    part-line anything written next would be glued to (`Timeline._broken`)."""
+    if wrote_to <= keep_to:
+        return True
+    try:
+        os.ftruncate(fd, keep_to)
+        return True
     except OSError:
-        _write_all(fd, b"\n")
+        pass
+    done, error = _write_all(fd, b"\n")
+    return error is None and done == 1
 
 
 class Timeline:
@@ -279,6 +482,9 @@ class Timeline:
         self._lock_busy_until = 0.0
         self._lock_guard = threading.Lock()
         self._full: set[Path] = set()
+        # Files that end in a part-line that could be neither cut off nor ended: nothing more is
+        # written to one, and what would have been is counted dropped (round 13, O1-01).
+        self._broken: set[Path] = set()
         # The last few CORRELATION ids to go past, so something being written down now can say
         # what was happening around it without reading the file back. Owner feedback is the
         # caller (app/observability/feedback.py): "log that the split is broken" is worth far
@@ -330,7 +536,7 @@ class Timeline:
         # Whether everything reached the file is kept and said, never assumed (the 2026-09-27
         # deploy review, round 6, F-10): `counts` after this reports what is still pending, and a
         # stop that could not settle in time is logged as such.
-        self.stop_settled = self.flush()
+        self.stop_settled = self.flush() and self.sessions.timeline_path(current) not in self._broken
         if not self.stop_settled:
             log.warning("test session %s stopped with events still being written; its count is not final",
                         current.test_session_id)
@@ -385,7 +591,13 @@ class Timeline:
                 if value is None or key in event:
                     continue
                 event[key] = value
-            event = scrub(event)
+            words = _words_for(str(kind))
+            if words and not keeps_words(session):
+                event = _words_by_shape(event, words)
+            # The envelope — its time, sequence, session and kind — is the timeline's own, and is
+            # never redacted: a customer's postcode digits once turned `iso` into "[name]-09-29".
+            envelope = {key: event[key] for key in ("ts", "iso", "seq", "test_session_id", "source", "kind")}
+            event = {**envelope, **scrub({k: v for k, v in event.items() if k not in envelope})}
             self._note(event)
             line = json.dumps(event, ensure_ascii=False, default=str)
             size = len(line.encode("utf-8"))
@@ -547,9 +759,15 @@ class Timeline:
             path.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             try:
-                if path in self._full:
+                if path in self._full or path in self._broken:
                     return 0, len(lines)
-                room = MAX_TIMELINE_BYTES - os.fstat(fd).st_size
+                if not _hold_file(fd):
+                    log.error("timeline: %d event(s) not written, the file could not be held for the append", len(lines))
+                    return 0, len(lines)
+                # Where this append begins, under its hold: every byte from here to the end is
+                # this append's, which is what lets a failed write take back exactly its own.
+                start = os.lseek(fd, 0, os.SEEK_END)
+                room = MAX_TIMELINE_BYTES - start
                 keep: list[bytes] = []
                 for line in lines:
                     data = (line + "\n").encode("utf-8")
@@ -569,7 +787,12 @@ class Timeline:
                                 break
                             used += len(data)
                             whole += 1
-                        _take_back(fd, done - used)
+                        if not _take_back(fd, start + used, start + done):
+                            # A part-line is at the end and stays: the next line would be glued to
+                            # it and counted, so there is no next line in this file.
+                            self._broken.add(path)
+                            log.error("timeline %s ends in a part-line that could not be taken back; "
+                                      "nothing more is written to it", path.name)
                         log.warning("could not write the timeline whole: %s", error)
                         return whole, len(lines) - whole
                 if len(keep) < len(lines):

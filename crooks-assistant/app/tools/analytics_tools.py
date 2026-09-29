@@ -181,6 +181,10 @@ def _set_from(result: dict[str, Any], query: Query, *, tool: str) -> dict[str, A
         ws = working_sets.derive(session, parent, members=members, label=label, step="filter", kind=kind if kind == parent.kind else kind, detail={"tool": tool, "filters": {k: v for k, v in query.filters.items() if k != "in_set"}, "entity": query.entity}, sample=sample, totals=totals, labels={**{m: parent.labels[m] for m in members if m in parent.labels}, **labels})
     else:
         ws = working_sets.create(session, kind=kind, members=members, label=label, provenance={"tool": tool, "step": "query", "query": {"entity": query.entity, "period": query.period.label, "filters": dict(query.filters), "group_by": list(query.group_by)}}, sample=sample, totals=totals, labels=labels)
+    if kind == "customers":
+        # The people this read found are known to the timeline before its first event about them,
+        # not after the tool returns: a label in the owner's words may carry one of their names.
+        timeline.note_names(labels.values())
     timeline.emit("working_set", session_id=getattr(session, "session_id", None), turn_id=getattr(session, "turn_id", None) or None, set_id=ws.set_id, set_kind=ws.kind, count=ws.count, label=ws.label, parent=ws.parent, step=ws.step, tool=tool)
     return ws.public()
 

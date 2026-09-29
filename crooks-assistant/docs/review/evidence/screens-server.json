@@ -177,7 +177,7 @@
     ],
     "tests": [
       "crooks-assistant/tests/test_r11_screens_server.py::test_once_an_old_page_hands_its_key_in_that_key_opens_nothing_and_the_new_one_everything",
-      "crooks-assistant/tests/test_r11_screens_server.py::test_a_new_key_whose_record_is_not_yet_durable_is_still_handed_over",
+      "crooks-assistant/tests/test_r11_screens_server.py::test_a_new_key_whose_record_is_not_yet_durable_is_not_handed_over_and_the_old_one_still_opens",
       "crooks-assistant/tests/test_screen_cookie.py::test_a_screen_paired_before_the_cookie_moves_over_once_and_stays_approved",
       "crooks-assistant/tests/test_screen_cookie.py::test_a_wrong_or_borrowed_old_key_is_no_way_in",
       "crooks-assistant/tests/test_screen_cookie.py::test_every_screen_request_is_known_by_its_cookie_and_never_by_the_old_header"

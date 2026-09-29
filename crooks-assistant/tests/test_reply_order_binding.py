@@ -158,9 +158,12 @@ async def test_a_thread_that_can_only_be_about_her_one_recent_order_is_replied_i
     it, and neither a year nor somebody else's order number in its subject makes it a thread
     about a different order of hers."""
     monkeypatch.setattr(analytics_tools, "_cache", _Cache(warm=True, orders=(SECOND, SAMS)))
-    for subject in ("Quick question", "Your 2026 lookbook", "Re: order 1944"):
+    for n, subject in enumerate(("Quick question", "Your 2026 lookbook", "Re: order 1944")):
         box.threads[HER_THREAD][0]["headers"]["subject"] = subject
-        text, proposal = await _reply(session, "gmail_draft_reply", HER_THREAD, SECOND, body=f"About {subject}.")
+        # The reply's own words name no order: since round 13 a reply that names Sam's #1944 to
+        # Daniel is refused for that alone (tests/test_r13_reply_order_content.py), and what this
+        # holds is the thread's subject, not the reply's words.
+        text, proposal = await _reply(session, "gmail_draft_reply", HER_THREAD, SECOND, body=f"About your message ({n}).")
         assert proposal is not None, (subject, text)
         assert proposal.summary["order_line"] == "#1931 · the customer on the order"
 

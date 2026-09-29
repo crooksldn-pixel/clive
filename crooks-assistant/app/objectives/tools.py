@@ -20,7 +20,16 @@ from __future__ import annotations
 from typing import Any
 
 from app.objectives import cards
-from app.objectives.store import BLOCKER_KINDS, KINDS, LADDER, ObjectiveError, store
+from app.objectives.store import (
+    BLOCKER_KINDS,
+    KINDS,
+    LADDER,
+    MAX_PEOPLE,
+    MAX_STAGES,
+    MAX_TASKS,
+    ObjectiveError,
+    store,
+)
 from app.tools.gate import Tier
 from app.tools.registry import ToolError, tool
 
@@ -31,6 +40,11 @@ _KIND_CHOICE = ["project", "tasks", "business", "build"]
 assert set(_KIND_CHOICE) == set(KINDS)
 _DATE = {"type": "string", "description": "YYYY-MM-DD"}
 _NAMES = {"type": "array", "items": {"type": "string"}}
+# The store's own limits, said to the model. They are not where the limits are kept: these tools
+# are reads to the gate, so nothing checks a schema bound on them, and the store refuses a list
+# past its limit whole rather than cut it (round 13, S6-02).
+_PEOPLE = {**_NAMES, "maxItems": MAX_PEOPLE}
+_STAGES = {**_NAMES, "maxItems": MAX_STAGES}
 
 
 def _short(obj) -> dict[str, Any]:
@@ -60,12 +74,12 @@ def _full(obj) -> dict[str, Any]:
             "deadline": _DATE,
             "purpose": {"type": "string"},
             "done_when": {"type": "string"},
-            "people": {**_NAMES, "description": "Name (role)"},
+            "people": {**_PEOPLE, "description": "Name (role)"},
             "check_every_days": {"type": "integer"},
-            "stages": {**_NAMES, "description": "project: in order"},
+            "stages": {**_STAGES, "description": "project: in order"},
             "stage": {"type": "string", "description": "where it is now"},
             "waiting_on": {"type": "string", "description": "who that stage waits on"},
-            "tasks": {"type": "array", "items": {"type": "object", "properties": {
+            "tasks": {"type": "array", "maxItems": MAX_TASKS, "items": {"type": "object", "properties": {
                 "who": {"type": "string"}, "text": {"type": "string"}, "due": _DATE}, "required": ["who", "text"]}},
         },
         "required": ["title", "request", "kind"],
@@ -146,9 +160,9 @@ async def objective_show(objective_id: str) -> dict:
             "deadline": {"type": "string"},
             "purpose": {"type": "string"},
             "done_when": {"type": "string"},
-            "people": _NAMES,
+            "people": _PEOPLE,
             "check_every_days": {"type": "integer"},
-            "stages": _NAMES,
+            "stages": _STAGES,
             "stage": {"type": "string"},
             "waiting_on": {"type": "string"},
             "who": {"type": "string"},

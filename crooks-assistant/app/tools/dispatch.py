@@ -7,6 +7,7 @@ compact string for the model. If a call did not come through here, it did not ha
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import hmac
 import json
@@ -53,13 +54,15 @@ _PII_LIST_KEYS = ("lines",)
 def harvest_ids(payload: Any, session: Session) -> None:
     """Issue every id a read model exposed to the session, and remember every personal
     string in it, for a result that did not come through `dispatch` (a lookup the Mac ran
-    ahead of the model, an order's history collected after the turn)."""
-    _harvest_ids(payload, session)
+    ahead of the model, an order's history collected after the turn). The names are the
+    timeline's at once, as they are for a read through `dispatch`."""
+    timeline.note_names(_harvest_ids(payload, session))
 
 
-def _harvest_ids(payload: Any, session: Session, *, in_customer: bool = False) -> None:
+def _harvest_ids(payload: Any, session: Session, *, in_customer: bool = False, found: list[str] | None = None) -> list[str]:
     """Walk a tool result: record every id it exposed (so follow-up lookups are permitted) and
-    every personal string (so the turn log can scrub it)."""
+    every personal string (so the turn log can scrub it). Returns the personal strings found."""
+    found = [] if found is None else found
     if isinstance(payload, dict):
         is_order = "order_id" in payload or "order_number" in payload
         customerish = in_customer or ("customer_id" in payload and not is_order) or any(
@@ -73,18 +76,22 @@ def _harvest_ids(payload: Any, session: Session, *, in_customer: bool = False) -
                 # customer record, never inside an order record.
                 if key != "name" or (customerish and not is_order):
                     session.remember_pii(value)
+                    found.append(value)
             elif key in _PII_LIST_KEYS and isinstance(value, list):
-                session.remember_pii(*(v for v in value if isinstance(v, str)))
+                lines = [v for v in value if isinstance(v, str)]
+                session.remember_pii(*lines)
+                found.extend(lines)
             else:
                 # A key beginning with an underscore is the runtime's own bookkeeping — a card
                 # the family drew (`_surfaces`) — and does not inherit the record's context: a
                 # workspace card's fields are {"name": "email", ...}, and a customer's order
                 # being built once made "email", "note" and "customer" names to redact, so the
                 # timeline wrote "email_thread" as "[name]_thread" for the rest of the process.
-                _harvest_ids(value, session, in_customer=customerish and not is_order and not str(key).startswith("_"))
+                _harvest_ids(value, session, in_customer=customerish and not is_order and not str(key).startswith("_"), found=found)
     elif isinstance(payload, list):
         for item in payload:
-            _harvest_ids(item, session, in_customer=in_customer)
+            _harvest_ids(item, session, in_customer=in_customer, found=found)
+    return found
 
 
 _EMAIL_TEXT_KEYS = ("snippet", "body")
@@ -213,7 +220,9 @@ async def dispatch(
     except _READABLE_ERRORS as exc:
         # Client errors carry a message written to be read out ("Shopify is rate-limiting
         # us"). They must reach the model intact, not as "failed unexpectedly".
-        log.warning("tool=%s failed: %s", name, exc)
+        # The process log keeps the error as the timeline does: any of the call's own words it
+        # quotes back by their shape (round 13's third check found them in assistant.log).
+        log.warning("tool=%s failed: %s", name, _without_what_was_said(str(exc), name, args))
         if calls is not None:
             calls.append(trace.call(ToolCall(name=name, args=args, ok=False, error=str(exc), duration_ms=_elapsed(started))))
         trace.finish("error", error=str(exc), ms=_elapsed(started))
@@ -238,7 +247,11 @@ async def dispatch(
     finally:
         CURRENT_SESSION.reset(token)
 
-    _harvest_ids(payload, session)
+    # The names this read returned are the timeline's before a line of this read is written:
+    # its own `tool_finished`, the cards it stages on the glass, and everything after. The turn
+    # tells the timeline its names only at its edges, and a read's events are written between
+    # them (the round-12 deploy review, S1-NEW-02).
+    timeline.note_names(_harvest_ids(payload, session))
     ms = payload.get("_ms") if isinstance(payload, dict) else None
     trace.finish("ok", ms=ms if ms is not None else _elapsed(started), result=_result_shape(payload), cost=(plan_cost or None), query=(_query_shape(payload) if planned else None))
     if calls is not None:
@@ -322,7 +335,7 @@ async def _stage(
         with budget.using(budget.PRECONDITION, f"stage:{trace.tool_call_id}"):
             prepared = await registry.invoke(name, args, timeout_s=timeout_s)
     except _READABLE_ERRORS as exc:
-        log.warning("tool=%s could not be prepared: %s", name, exc)
+        log.warning("tool=%s could not be prepared: %s", name, _without_what_was_said(str(exc), name, args))
         if calls is not None:
             calls.append(trace.call(ToolCall(name=name, args=args, ok=False, error=str(exc))))
         trace.finish("unprepared", error=str(exc), ms=_elapsed(started))
@@ -346,6 +359,7 @@ async def _stage(
     pii = prepared.summary.get("pii")
     if isinstance(pii, (list, tuple)):
         session.remember_pii(*(p for p in pii if isinstance(p, str)))
+        timeline.note_names(p for p in pii if isinstance(p, str))
     proposal, created = current_engine().stage(session, spec, args, prepared)
     trace.finish("staged", ms=_elapsed(started), proposal_id=proposal.proposal_id, new=created, risk=proposal.risk, interaction=proposal.interaction)
     if calls is not None:
@@ -473,10 +487,11 @@ class _Trace:
     """One tool call as the test-session timeline sees it: requested, then finished, under one
     tool_call_id, against the session and the turn in progress. Off, both are a no-op."""
 
-    __slots__ = ("name", "session", "tool_call_id", "started", "active")
+    __slots__ = ("name", "args", "session", "tool_call_id", "started", "active")
 
     def __init__(self, name: str, args: dict[str, Any], session: Session, decision) -> None:
         self.name = name
+        self.args = args
         self.session = session
         self.tool_call_id = timeline.new_id("tc")
         self.started = time.perf_counter()
@@ -494,7 +509,8 @@ class _Trace:
             return
         timeline.emit(
             "tool_finished", session_id=self.session.session_id, turn_id=self.session.turn_id or None, tool_call_id=self.tool_call_id,
-            tool=self.name, ok=outcome in ("ok", "staged"), outcome=outcome, error=(str(error)[:400] if error else None),
+            tool=self.name, ok=outcome in ("ok", "staged"), outcome=outcome,
+            error=(_without_what_was_said(str(error), self.name, self.args)[:400] if error else None),
             ms=(round(float(ms), 1) if ms is not None else _elapsed(self.started)), **fields,
         )
 
@@ -504,19 +520,21 @@ class _Trace:
 
 
 def loggable_args(name: str, args: dict[str, Any], *, names: Any = ()) -> dict[str, Any]:
-    """A tool call's arguments as the timeline keeps them: ids and short plain values as they
-    are; the text of a change (a note, an email body) by its length; the owner's own words in a
-    read — a search — by their shape (_spoken_shape). Redacted by shape, and by `names`: the
-    customer names this conversation's reads have already returned (Session.pii_seen), the set
-    the turn's own record is redacted with."""
+    """A tool call's arguments as the timeline keeps them: numbers and flags as they are; the
+    text of a change (a note, an email body) by its length; and every other string by its shape
+    (`_as_written`) unless it is an id, a catalogue word or a word of the query language's own.
+    Redacted by shape, and by `names`: the customer names this conversation's reads have already
+    returned (Session.pii_seen), the set the turn's own record is redacted with."""
     from app.logging.turnlog import redact
 
     # A tool this process does not have (a name the model made up) is not known to be a read, so
     # its text is kept as a change's is: by length.
     write = True
+    properties: dict[str, Any] = {}
     try:
         spec = registry.get(name)
         write = spec.write is not None or spec.batch is not None
+        properties = (spec.input_schema or {}).get("properties") or {}
     except KeyError:
         pass
     out: dict[str, Any] = {}
@@ -533,7 +551,8 @@ def loggable_args(name: str, args: dict[str, Any], *, names: Any = ()) -> dict[s
         elif key.lower() in SPOKEN_ARGS:
             out[key] = _spoken_shape(str(value))
         else:
-            out[key] = str(value)[:120]
+            declared = (properties.get(key) or {}).get("enum") if isinstance(properties.get(key), dict) else None
+            out[key] = _as_written(key, str(value), allowed=declared or ())
     return redact(out, tuple(str(n) for n in (names or ()) if n))
 
 
@@ -543,17 +562,24 @@ def loggable_args(name: str, args: dict[str, Any], *, names: Any = ()) -> dict[s
 # (tool_requested) before its read has returned anything, so the timeline's name set — fed from
 # what reads return (timeline.note_names, Session.pii_seen) — cannot yet hold the name he has
 # just said, and a name has no shape for the redactor to find (round 9: "orders for Jo Bloggs" was
-# written to the always-on timeline as it was said). Product words (`product`, `colour`, `size`)
-# are the catalogue's and stay as they are.
+# written to the always-on timeline as it was said). These are always written by their shape;
+# every other string is too, unless `_as_written` finds it is an id, a catalogue word or a word of
+# the query language.
 SPOKEN_ARGS = frozenset({
     "query", "q", "search", "term", "terms", "contains", "sender", "mentions", "name", "to_name", "customer",
     "customer_name", "who", "title", "text", "words", "label",
 })
+# The catalogue's words, not the owner's about a person: a product, its type, its variant, its
+# SKU, its size and colour. Kept as they are, so a report can read what was looked for.
+CATALOGUE_ARGS = frozenset({"product", "product_type", "variant", "sku", "size", "colour", "color"})
 # What of the owner's words may be kept as it is: one identifier, whole — an order's number
 # ("1930", "#1930", "CROOKS-1930"), a Shopify id, a hex id — or an email address, which the
 # redactor turns into "[email]" on the way out.
 _IDENTIFIER = re.compile(r"#?\d{1,10}|[A-Za-z]{2,12}-\d{1,10}|gid://shopify/\w+/\d+|[0-9a-f]{16,64}")
 _EMAIL_ONLY = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+# An id as the Mac's own ids are written — a gid, a thread's hex, "ws_…", "set_…" — one run of
+# no spaces with a digit in it. Words under an id's key are not an id and are shaped.
+_ID_SHAPED = re.compile(r"[\w:/.#+-]{1,120}")
 # A digest the same for the same words for the life of this process and unrelated to them
 # otherwise: the report tells a search repeated from a new one (report._duplicate_calls) without
 # the words being on disk, and the key is never written anywhere.
@@ -570,22 +596,134 @@ def _spoken_shape(text: str) -> str:
     return f"<{len(words)} chars ~{digest}>"
 
 
+def _is_id_key(key: str) -> bool:
+    lowered = key.lower()
+    return lowered in ("id", "ids", "ref", "refs", "gid") or lowered.endswith(("_id", "_ids", "_ref", "_refs"))
+
+
+@functools.lru_cache(maxsize=1)
+def _query_words() -> frozenset[str]:
+    """The query language's own words: its entities, groupings, metrics, views, filters and the
+    values an enumerated filter takes, its sorts and its named periods (app/analytics/query.py,
+    app/analytics/periods.py). A string that is one of these is a term of the query, not the
+    owner's words about anyone, and a report needs it: "unfulfilled", "last_week", "orders"."""
+    from app.analytics import periods, query
+
+    words = {*query.ENTITIES, *query.GROUPS, *query.METRICS, *query.VIEWS, *query.FILTERS, *query.ALIASES,
+             *query.SORT_WORDS, *query.LISTING_SORT_KEYS, *periods.NAMED, *periods.ALIASES, "asc", "desc"}
+    for kind, _entities, _aliases in query.FILTERS.values():
+        if kind.startswith("enum:"):
+            words.update(kind[len("enum:"):].split(","))
+    return frozenset(word.lower() for word in words)
+
+
+def _as_written(key: str, text: str, *, allowed: Any = ()) -> str:
+    """One string in a read's arguments as the timeline keeps it. Kept as it is: a catalogue
+    word; an id under an id's key; a word of the query language's own; a value the tool's schema
+    lists as one of its choices. Everything else is free text — the owner's words, which can hold
+    a person's name no read has returned yet — and is written by its shape (the round-12 deploy
+    review, S1-NEW-02: a city, a tag, an address searched for were written as said)."""
+    lowered = key.lower()
+    if lowered in CATALOGUE_ARGS:
+        return text[:120]
+    if _is_id_key(lowered) and _ID_SHAPED.fullmatch(text) and any(ch.isdigit() for ch in text):
+        return text[:120]
+    if text.strip().lower() in _query_words() or text in tuple(allowed or ()):
+        return text[:120]
+    return _spoken_shape(text)
+
+
 def _spoken_fields(value: dict[str, Any], depth: int = 0) -> dict[str, Any]:
-    """A structured argument (a query's filters) with the owner's words in it shaped the same way."""
+    """A structured argument (a query's filters) with every free string in it shaped the same
+    way, at every depth and inside every list; a structure deeper than three is its size."""
     out: dict[str, Any] = {}
     for key, item in value.items():
-        if depth < 3 and isinstance(item, dict):
-            out[key] = _spoken_fields(item, depth + 1)
-        elif isinstance(item, str) and str(key).lower() in SPOKEN_ARGS:
-            out[key] = _spoken_shape(item)
-        else:
-            out[key] = item
+        out[key] = _spoken_item(str(key), item, depth)
     return out
+
+
+def _spoken_item(key: str, item: Any, depth: int) -> Any:
+    if isinstance(item, dict):
+        return _spoken_fields(item, depth + 1) if depth < 3 else f"<{len(item)} keys>"
+    if isinstance(item, (list, tuple)):
+        return [_spoken_item(key, element, depth + 1) for element in list(item)[:20]] if depth < 3 else f"<list of {len(item)}>"
+    if isinstance(item, str):
+        return _spoken_shape(item) if key.lower() in SPOKEN_ARGS else _as_written(key, item)
+    return item
+
+
+def _without_what_was_said(error: str, tool: str, args: Any) -> str:
+    """An error as the timeline keeps it: the Mac's own words as they are, and any of the call's
+    own words it quotes back written by their shape, as `loggable_args` writes them. A refusal can
+    quote what it was given — "'Zoe Quill' is not an address I can send to" — and those are the
+    owner's words about a person, which no read may ever have returned (S1-NEW-02)."""
+    try:
+        spec = registry.get(tool)
+        write = spec.write is not None or spec.batch is not None
+    except KeyError:
+        write = True
+    said: list[str] = []
+
+    def walk(key: str, value: Any, depth: int) -> None:
+        if depth > 4:
+            return
+        if isinstance(value, dict):
+            for k, v in value.items():
+                walk(str(k), v, depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for v in list(value)[:20]:
+                walk(key, v, depth + 1)
+        elif isinstance(value, str) and len(value.strip()) >= 3:
+            kept = (key.endswith("_id") and _as_written(key, value) == value[:120]) if write else (
+                key.lower() not in SPOKEN_ARGS and _as_written(key, value) == value[:120])
+            if not kept and _spoken_shape(value) != value.strip()[:120]:
+                said.append(value)
+
+    walk("", args, 0)
+    for value in sorted(set(said), key=len, reverse=True):
+        shape = _spoken_shape(value)
+        # Whole, and as far as an error that cut it short at eighty characters quoted it.
+        for quoted in dict.fromkeys((value, value.strip(), value.strip()[:80])):
+            if len(quoted) >= 3:
+                error = re.sub(rf"(?<!\w){re.escape(quoted)}(?!\w)", lambda _found, shape=shape: shape, error)
+        # And as a tool re-wrote it before quoting it: the query language quotes "Zoe Quill" back
+        # as "zoe_quill" (round 13's fourth check). The same words, in order, in any case and
+        # joined by anything, are his words.
+        error = _words_run_out(error, value, shape)
+    return error
+
+
+_PLAIN_WORD = re.compile(r"[^\W_]+")
+
+
+def _words_run_out(text: str, value: str, shape: str) -> str:
+    """`text` with every run of `value`'s words — in order, whatever their case and whatever joins
+    them (a space, "_", "-") — replaced by `shape`."""
+    wanted = [w.casefold() for w in _PLAIN_WORD.findall(value)]
+    if len(wanted) < 2:
+        # One word is matched as written, above: matched in any case and inside "a_b", a value
+        # of "order" or "customer" took the Mac's own words out of the error.
+        return text
+    found = [(m.group(0).casefold(), m.start(), m.end()) for m in _PLAIN_WORD.finditer(text)]
+    spans: list[tuple[int, int]] = []
+    i = 0
+    while i + len(wanted) <= len(found):
+        if [w for w, _s, _e in found[i:i + len(wanted)]] == wanted:
+            spans.append((found[i][1], found[i + len(wanted) - 1][2]))
+            i += len(wanted)
+        else:
+            i += 1
+    for start, end in reversed(spans):
+        text = text[:start] + shape + text[end:]
+    return text
 
 
 def _result_shape(payload: Any) -> dict[str, Any] | None:
     """What a result was, never what it said: its keys, the lengths of its lists, and the
-    ids it carried (an order's, a customer's, a thread's), for the reconstruction of the turn."""
+    ids it carried (an order's, a customer's, a thread's), for the reconstruction of the turn.
+
+    A `name` is written by its length like any other text: in a customer's record it is the
+    customer (S1-NEW-02), and this is written before anything later in the turn could redact it."""
     if not isinstance(payload, dict):
         return None
     shape: dict[str, Any] = {}
@@ -600,7 +738,7 @@ def _result_shape(payload: Any) -> dict[str, Any] | None:
                 shape[key]["ids"] = ids[:20]
         elif isinstance(value, dict):
             shape[key] = {"keys": sorted(str(k) for k in value)[:20]}
-        elif key in _ID_KEYS or key in ("order_number", "name", "available", "truncated", "count", "total", "ok", "state") or isinstance(value, (bool, int, float)):
+        elif key in _ID_KEYS or key in ("order_number", "available", "truncated", "count", "total", "ok", "state") or isinstance(value, (bool, int, float)):
             shape[key] = value if isinstance(value, (bool, int, float)) else str(value)[:80]
         elif isinstance(value, str):
             shape[key] = f"<{len(value)} chars>"

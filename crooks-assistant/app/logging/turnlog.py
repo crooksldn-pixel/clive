@@ -70,9 +70,20 @@ class RedactingFilter(logging.Filter):
             message = record.getMessage()
         except Exception:  # noqa: BLE001
             return True
-        record.msg = redact_text(message)
+        record.msg = _with_names_out(redact_text(message))
         record.args = ()
         return True
+
+
+def _with_names_out(text: str) -> str:
+    """And the customer names this process has been told (the timeline's set): a log line can
+    carry one a read returned — "Mia Kowalski has no email address" — as well as a shape."""
+    try:
+        from app.observability.timeline import _names_out
+
+        return _names_out(text)
+    except Exception:  # noqa: BLE001 — a log line is never lost to its own redaction
+        return text
 
 
 def redact(value: Any, names: Iterable[str] = ()) -> Any:
