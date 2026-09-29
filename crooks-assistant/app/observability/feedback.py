@@ -303,7 +303,7 @@ def active() -> bool:
 # product. The recording is the Mac's and has already happened; the model's part is to say so
 # truthfully and to do anything else the sentence asked for. The second line exists because
 # the one thing worse than not recording a defect is saying it was recorded when nothing was.
-RECORDED_LINE = ("[CLIVE has written this down, word for word, as the owner's feedback about CLIVE itself, "
+RECORDED_LINE = ("[CLIVE has written this down as the owner's feedback about CLIVE itself, "
                  "with the screen he was on, for this test session's report. Say it is logged, in a few "
                  "words; if the sentence also asks for something, do that too. Do not say there is no tool "
                  "for logging feedback.]")

@@ -4,12 +4,13 @@ review of 361b0138, RC-4a).
 Every sentence is the model's (the owner's decision of 28 September 2026). What these hold is the
 check that runs AFTER the model, on what it did (`app/routes/turn.py` `_off_target`):
 
-* every place the owner named an order is where the change goes, unless it stands inside his
-  own words that the change writes word for word, with two of his words before it, not from the
-  start of his sentence unless a tapped control made it the dictation, and never on a change
-  that cannot be undone (`_written_places`). So "add a note to order 1940: 1940 goes with the
-  gift box" still names #1940 as where it goes, and the model's own words — "1940: fragile", a
-  refund's reason repeating 1940 — cancel nothing (S2a-01, R9-I-tests2-I-01, R9-I-tests5-I-03);
+* when the owner's words name an order, the change is on an order they name; nothing the change
+  itself writes excuses a number he said. After Add a note is tapped, what he says is the note,
+  and a number inside the words it carries word for word is the note's (`_dictated_places`),
+  never on a change that cannot be undone. So "add a note to order 1940: 1940 goes with the gift
+  box" still names #1940 as where it goes, and the model's own words — "1940: fragile", a
+  refund's reason repeating 1940, his own sentence copied onto #1938 — excuse nothing (S2a-01,
+  R9-I-tests2-I-01, R9-I-tests5-I-03);
 * a change made under a tapped control — Add a note, Reply — lands on the record the tap bound,
   unless his own words named another (R9-D1-D1-02, R9-D2-D2-04);
 * a change on a person — store credit — goes only to the person he named, and not at all when
@@ -173,13 +174,13 @@ async def test_a_number_said_only_in_the_note_does_not_let_the_note_land_on_a_th
                               "Say which order you want it on."), body["answer"]
 
 
-# ====================== the model's own words cancel nothing (the round-13 independent check)
+# ====================== the model's own words cancel nothing (round 13's independent checks)
 #
 # Round 13 first counted the numbers the change's own words carry against the places he said
-# them. The model controls those words: every "1940" it copied into a note or a reason cancelled
-# one place where he named #1940 as where the change goes, and the change stood on #1938. Now only
-# a passage of HIS words that the change writes word for word, with two of his words before the
-# number, keeps a number out of where the change goes — and never for money.
+# them, then matched his words word for word. The model controls those words: every "1940" it
+# copied into a note or a reason cancelled a place where he named #1940 as where the change goes,
+# and the change stood on #1938. Now nothing the change writes excuses a number he said, except,
+# after a tap, the words he dictated (`_dictated_places`).
 
 
 @pytest.mark.parametrize("reason", ["1940 arrived torn", "Order 1940, it arrived torn", "it arrived torn, order 1940"])
