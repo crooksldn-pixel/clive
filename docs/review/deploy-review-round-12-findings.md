@@ -2025,3 +2025,102 @@ with nothing dirty, the service is up on its original MainPID, the installed uni
 and the gap record are byte-identical, there is still exactly one gap backup, the parked
 engineering credential is untouched and was never opened, no staging handler was added to
 `tailscale serve`, and no transient staging unit exists.
+
+## J. What can be deployed, and what needs vital repair
+
+This section was added after the review, to answer two questions the findings list does not
+answer on its own: is there anything here that *could* ship, and which repairs are vital.
+
+### J.1 The test that matters: would deploying make it worse?
+
+A finding that blocks under the ship rule is not automatically a reason to hold *this* deploy.
+What matters operationally is whether the deploy **introduces** the defect or **newly exposes**
+it, or whether it is already live at 6a29e310 and the hold changes nothing. Each of the 35
+demonstrated blockers was therefore compared against production **at function level**, not file
+level — a file can change for unrelated reasons while the defective function is untouched.
+
+| | Count |
+|---|---|
+| Demonstrated blockers this range **introduces or newly exposes** | **33** |
+| Demonstrated blockers **already live in production today** | **2** |
+| Blockers that are unsettled doubt rather than a demonstrated defect | 27 |
+
+The gate allow-list is the hinge for the worst of them. Production allows **36** tools; the
+candidate allows **44**. The five newly exposed are `shopify_order_build`, `show_again`,
+`close_screen`, `screen_off` and `screen_play`.
+
+### J.2 Nothing in this range can be deployed
+
+| Candidate | Verdict |
+|---|---|
+| `361b0138` (#57, the head) | **No** — 62 blocking, 33 of the 35 demonstrated ones newly introduced or exposed. |
+| `3f05f5f0` (#56) | **No** — #57 changed only 3 files and 24 lines (`app.js`, `style.css`, `test_web.py`): the line over the cards and an amber→blue colour. Dropping it removes no blocker. |
+| `547f652f` (#55, the round-10 fix round) | **No** — on a file-level check, 50 of the 62 blockers rest entirely on code already present there; and it has never been reviewed at that SHA, because the round-11 prompt was never run. Shipping it would be shipping an unreviewed SHA. |
+| `81c78948` (#54) | **No** — round 10 reviewed it and it was blocked. |
+| **Stay at `6a29e310`** | **Yes.** This is where production is, and it stays there. |
+
+There is no smaller safe slice. The two customer-data leaks ride on `order_create.py`, which is
+only reachable once `shopify_order_build` joins the allow-list — so the leaks arrive with the
+"orders by voice" feature, not before it. But the objectives, screens and records defects are
+spread across #51 through #56, so cutting the range does not isolate them.
+
+### J.3 Two defects are ALREADY LIVE — holding the deploy does not protect against them
+
+These are the most important lines in this document, because the decision not to deploy does
+**nothing** about them. Both were checked function-by-function against production.
+
+1. **`F/F-01` — customer order addresses can be silently shortened. LIVE NOW.**
+   `app/families/address.py:_from_order` and `_stage` are **byte-identical at 6a29e310**.
+   `_from_order` truncates every field it loads (`address1`/`address2`/`city` to `MAX_LINE`,
+   `name` to 80, `postcode` to 12, `province_code` to 5, `country_code` to 2), those truncated
+   values become the workspace's starting values, and `_stage` submits every field, not only the
+   edited one. `_open` is a tablet command, not a gated model tool, so it is reachable today.
+   Correcting a postcode on an order whose street is longer than `MAX_LINE` shortens that street
+   on the customer's order, now.
+
+2. **`O2/O2-N-01` — named test sessions can be pruned early. LIVE NOW.**
+   `app/observability/session.py:_prune` is **byte-identical at 6a29e310**. It classifies a
+   session by whether its slug *contains* `-always-on` rather than by the session's real name, so
+   a manually named session such as `review-always-on-notes` is given the short automatic
+   retention period and deleted early. `CROOKS_TEST_SESSION_ALWAYS=true` on production.
+
+### J.4 The vital repairs, in the order they should be done
+
+**Tier 0 — fix regardless of any deploy; these are live on production today.**
+
+| | Finding | Where | Harm |
+|---|---|---|---|
+| 1 | `F/F-01` | `app/families/address.py` `_from_order`, `_stage` | loses customer address data |
+| 2 | `O2/O2-N-01` | `app/observability/session.py` `_prune` | loses named test sessions early |
+
+**Tier 1 — customer-data leaks; must close before this range can ship.**
+
+| | Finding | Where | Harm |
+|---|---|---|---|
+| 3 | `S2Ba/F-01` | `order_create.py` `_choose_customer`, `_draft_input` | one customer's order confirmation to another customer's email |
+| 4 | `S2Ba/F-02` | `order_create.py` `_from_order`, `_customer_by_id` | a new customer's order delivered to the previous customer's address |
+| 5 | `S3/S3-03` | `app/displays/put.py`, `display_tools.py` | leak **and** exploitable |
+| 6 | `S3/S3-01` | `app/displays/put.py` | order details to a replacement screen reusing a name |
+| 7 | `S2b/S2b-01` | `compose.py` `_thread_sender` | a deceptive Reply-To sends the reply elsewhere |
+| 8 | `S3P/S3P-NEW-01` | the screens pages | screen-side leak |
+| 9 | `R9-B2-B2-02`, `R9-I-tests3-I-02` | evidence entries | leak / leak+loss |
+
+Items 3 and 4 are gated behind `shopify_order_build`. **If the orders-by-voice feature were held
+back — that one tool left off the allow-list — both leaks become unreachable.** That is the one
+genuine partial-ship option in this range, and it is worth considering for the next round.
+
+**Tier 2 — data loss in round-12's new code; close before shipping those features.**
+
+`S6/S6-01`–`S6-04` (objectives: unflushed three-step write, silent 60-task and 12-people
+truncation, a dropped due date, stage reorder losing completion state) · `O1/O1-01` (timeline
+`_take_back` race) · `S3/S3-02` (`_commit` reports success after `NotFlushed`) · `S2a/S2a-01`
+(`_off_target` lets a note land on the wrong order) · `S5/S5-01` (`install()` overwrites the unit
+outside rollback protection) · `W2/W2-03` (out-of-order `openObjective` responses) ·
+`O2/O2-N-02` (`_tidy_reports` follows a symlink before the privacy check).
+
+**Tier 3 — the 27 unsettled blockers are a reviewability problem, not 27 defects.**
+
+They block because the rule says unsettled is blocking, not because anyone showed the code is
+wrong. The evidence index halved this problem — 52 of 100 entries came back REPAIRED — but did
+not end it. The cheapest repair is not to the code: extend the index so these 27 carry the
+bodies and tests that settle them, as was done for the 52 that closed.
