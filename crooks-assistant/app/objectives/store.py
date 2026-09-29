@@ -71,6 +71,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from app.objectives.gaps import _fsync_dir
+
 log = logging.getLogger("crooks.objectives")
 
 __all__ = [
@@ -549,11 +551,35 @@ class ObjectiveStore:
         return self._path(objective_id).parent / DESIGN_DIR / f"{objective_id}.next.json"
 
     @staticmethod
+    def _folder(folder: Path) -> None:
+        """A folder, made where it is not, each one it makes named durably in its parent: a file
+        renamed into a folder whose own name did not reach the disk is lost with it."""
+        if folder.is_dir():
+            return
+        ObjectiveStore._folder(folder.parent)
+        folder.mkdir(exist_ok=True)
+        _fsync_dir(folder.parent)
+
+    @staticmethod
     def _atomic(path: Path, data: dict[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        """`data` at `path`, whole or not at all, and on the disk before this returns (round 13,
+        S6-01): the content is flushed and fsynced before the rename, and the folder after it.
+        Without both, a power cut could keep a later step of `_write` and lose this one, and the
+        order the three steps are written in is what keeps an objective whole."""
+        ObjectiveStore._folder(path.parent)
         tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, indent=2, ensure_ascii=False))
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(tmp, path)
+        _fsync_dir(path.parent)
+
+    def _promote(self, objective_id: str) -> None:
+        """Step 3: the pending design becomes the design, and that is on the disk too."""
+        design = self._design_path(objective_id)
+        os.replace(self._pending_path(objective_id), design)
+        _fsync_dir(design.parent)
 
     def _write(self, obj: Objective) -> None:
         """Three atomic steps, in an order that leaves the whole old objective or the whole new
@@ -572,13 +598,16 @@ class ObjectiveStore:
         (a change that changes nothing is not written, ``_change``), which is what makes "more
         history" certain. The store before round 12 reads only obj_x.json, and at every point
         that is a whole record, old or new.
+
+        "Wherever it stops" includes a power cut, because each step is on the disk, content and
+        folder, before the next begins (`_atomic`, `_promote`). A pending design that is damaged
+        all the same beside a record that has moved on is said to the owner (`_read`).
         """
         record, design = _split(obj)
         self._settle(obj.id)
-        pending = self._pending_path(obj.id)
-        self._atomic(pending, design)
+        self._atomic(self._pending_path(obj.id), design)
         self._atomic(self._path(obj.id), record)
-        os.replace(pending, self._design_path(obj.id))
+        self._promote(obj.id)
 
     def _settle(self, objective_id: str) -> None:
         """Before a write: finish or discard what the last one left. A pending design the record
@@ -596,14 +625,18 @@ class ObjectiveStore:
         chosen = self._design_for(objective_id, record)
         pending = self._pending_path(objective_id)
         if chosen is not None and chosen[0] == "pending":
-            os.replace(pending, self._design_path(objective_id))
+            self._promote(objective_id)
         elif pending.exists():
             pending.unlink()
             log.info("objective %s: a change that stopped before its record was written was not applied", objective_id)
 
     def _design_for(self, objective_id: str, record: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+        return self._judge(objective_id, record)[0]
+
+    def _judge(self, objective_id: str, record: dict[str, Any]) -> tuple[tuple[str, dict[str, Any]] | None, bool]:
         """The design that belongs with this record — ("design" or "pending", the design) — or
-        None, and what to do with the files that do not.
+        None, and what to do with the files that do not; and whether a file was set aside as
+        damage (unreadable, another objective's, a format this build does not know).
 
         A pending design that agrees is the newer of the two (step 3 of a write did not happen),
         and the design it supersedes is left for ``_settle`` to replace, whatever its verdict,
@@ -625,6 +658,7 @@ class ObjectiveStore:
         if agreeing:
             slot = max(agreeing, key=lambda k: (agreeing[k]["events"], k == "pending"))
             chosen = (slot, agreeing[slot])
+        damaged = False
         for slot, (verdict, _design) in judged.items():
             if verdict == "agrees":
                 continue
@@ -632,8 +666,9 @@ class ObjectiveStore:
                 continue                                   # an unfinished write: _settle discards it
             if slot == "design" and chosen and chosen[0] == "pending" and verdict not in _DAMAGE:
                 continue                                   # superseded: _settle replaces it
+            damaged = damaged or verdict in _DAMAGE
             self._set_aside(objective_id, slots[slot], verdict, record)
-        return chosen
+        return chosen, damaged
 
     def _set_aside(self, objective_id: str, path: Path, verdict: str, record: dict[str, Any]) -> None:
         """Keep a design that cannot be used, renamed where no read or write will touch it again,
@@ -654,8 +689,38 @@ class ObjectiveStore:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 raise ValueError("an objective record is a JSON object")
-            chosen = self._design_for(path.stem, raw) if _ID.fullmatch(path.stem) else None
-            return _from_record(raw, chosen[1] if chosen else None)
+            if not _ID.fullmatch(path.stem):
+                return _from_record(raw, None)
+            chosen, damaged = self._judge(path.stem, raw)
+            obj = _from_record(raw, chosen[1] if chosen else None)
+            if damaged and (chosen is None or chosen[1]["events"] < len(raw.get("events") or [])):
+                self._say_lost(obj, chosen is not None)
+            return obj
+
+    def _say_lost(self, obj: Objective, kept: bool) -> None:
+        """A design file was damaged, and the record has moved past the design being read: the
+        record's latest change to the stages, tasks or people did not come back from the disk
+        (round 13, T6-01). The design read is the one before it, or none. That is not passed
+        over: it is put to the owner as an open question on the objective, with the change the
+        record says was made, and written, so the next read and the next restart still say it.
+        A record the store production rolls back to moved on, with no damaged file beside it,
+        asks nothing (`_verdict`)."""
+        last = str((obj.events[-1] if obj.events else {}).get("text") or "").strip()
+        what = f" The last change recorded was: {last}" if last else ""
+        if kept:
+            text = ("The last change to its stages, tasks or people could not be read back from the disk, "
+                    f"so they are shown as they were before it.{what} Say it again to put it back.")
+        else:
+            text = (f"Its stages, tasks and people could not be read back from the disk, so it shows as a plain "
+                    f"{obj.kind} objective.{what} Say them again to put them back.")
+        text = _clean(text)
+        obj.attention.append({"id": _new_id("a"), "text": text, "at": _now(), "resolved_at": None})
+        self._event(obj, "needs_owner", text, "clive")
+        try:
+            self._write(obj)
+        except OSError:
+            log.warning("objective %s: a lost design change could not be written down as a question; "
+                        "it is shown on this read only", obj.id)
 
     def get(self, objective_id: str) -> Objective:
         path = self._path(objective_id)
@@ -757,10 +822,18 @@ class ObjectiveStore:
                 if here is None:
                     raise ObjectiveError("waiting_on belongs to the stage it is at now; say which stage that is.")
                 here[1]["waiting_on"] = _optional(waiting_on, limit=MAX_NAME * 2)
-        for task in (tasks or [])[:MAX_TASKS]:
+        # Every task he listed, or none (round 13, S6-02): past the limit `_add_task` refuses the
+        # whole objective rather than keep the first sixty.
+        for task in tasks or []:
             if not isinstance(task, dict):
                 raise ObjectiveError("Each task has who and text.")
-            self._add_task(obj, who=task.get("who"), text=task.get("text"), due=task.get("due"))
+            found, added = self._add_task(obj, who=task.get("who"), text=task.get("text"), due=task.get("due"))
+            when = _date(task.get("due"), what="task's date")
+            if not added and when and when != found.get("due"):
+                if found.get("due"):
+                    raise ObjectiveError(f"{found['who']}'s task {found['text']!r} is listed twice with two dates, "
+                                         f"{_on(found['due'])} and {_on(when)}; say which, and nothing was recorded.")
+                found["due"] = when
         self._event(obj, "created", "Objective recorded from the owner's request.", by)
         with self._lock:
             self._write(obj)
@@ -769,11 +842,15 @@ class ObjectiveStore:
     # ---- the design: stages, tasks, people, dates -------------------------------------
     @staticmethod
     def _people(entries: list) -> list[dict]:
+        """The people named, each once. Past the limit, refused whole rather than cut (round 13,
+        S6-02): the thirteenth person named is not quietly left off."""
         out: list[dict] = []
-        for entry in list(entries)[:MAX_PEOPLE]:
+        for entry in list(entries):
             person = _person(entry)
             if all(_key(p["name"]) != _key(person["name"]) for p in out):
                 out.append(person)
+            if len(out) > MAX_PEOPLE:
+                raise ObjectiveError(f"An objective names at most {MAX_PEOPLE} people; nothing was recorded.")
         return out
 
     @staticmethod
@@ -796,7 +873,26 @@ class ObjectiveStore:
                 "id": _new_id("s"), "name": name, "state": "upcoming", "due": None, "waiting_on": None,
                 "started_at": None, "done_at": None,
             })
+        ObjectiveStore._in_order(out)
         return out
+
+    @staticmethod
+    def _in_order(stages: list[dict]) -> None:
+        """Every done stage before the one the project is at, and every stage not yet reached
+        after it (round 13, S6-04). A stage keeps its state by name when the list is reordered,
+        and moving on (`_move`) goes by place: a done stage placed after the current one was made
+        upcoming again by the next "next", and when it was done was wiped. So an order that would
+        put a stage where its state does not belong is refused, in words that say which."""
+        rank = {"done": 0, "current": 1, "upcoming": 2}
+        for before, after in zip(stages, stages[1:], strict=False):
+            if rank[before["state"]] <= rank[after["state"]]:
+                continue
+            if after["state"] == "done":
+                raise ObjectiveError(f"{after['name']} is done, so it cannot come after {before['name']}, which is "
+                                     f"not; nothing was changed.")
+            raise ObjectiveError(f"{before['name']} has not been reached, so it cannot come before {after['name']}, "
+                                 f"where the project is now; put it after, or move the project back first. "
+                                 f"Nothing was changed.")
 
     @staticmethod
     def _stage_index(obj: Objective, stage: str) -> int:
@@ -843,18 +939,21 @@ class ObjectiveStore:
                 return known
         return _proper(name)
 
-    def _add_task(self, obj: Objective, *, who: Any, text: Any, due: Any) -> dict:
+    def _add_task(self, obj: Objective, *, who: Any, text: Any, due: Any) -> tuple[dict, bool]:
+        """The task, and whether it is new. Said twice is one task, not two: the one already
+        there comes back, and what to do with a date said with it is the caller's (a new date
+        is applied, never passed over: round 13, S6-03)."""
         person, words = self._who(obj, who), _clean(text, limit=300, what="task")
         same = next((t for t in obj.tasks if not t.get("done") and _key(t["who"]) == _key(person)
                      and _key(t["text"]) == _key(words)), None)
         if same is not None:
-            return same  # said twice is one task, not two
+            return same, False
         if len(obj.tasks) >= MAX_TASKS:
-            raise ObjectiveError(f"An objective holds at most {MAX_TASKS} tasks.")
+            raise ObjectiveError(f"An objective holds at most {MAX_TASKS} tasks; nothing was recorded.")
         task = {"id": _new_id("t"), "who": person, "text": words, "due": _date(due, what="task's date"),
                 "done": False, "done_at": None, "at": _now()}
         obj.tasks.append(task)
-        return task
+        return task, True
 
     def design(self, objective_id: str, *, by: str = "clive", title: str | None = None, kind: str | None = None,
                deadline: str | None = None, purpose: str | None = None, done_when: str | None = None,
@@ -970,7 +1069,12 @@ class ObjectiveStore:
                 return
             if who is None or text is None:
                 raise ObjectiveError("A new task needs who is to do it and what it is.")
-            added = self._add_task(o, who=who, text=text, due=due)
+            added, new = self._add_task(o, who=who, text=text, due=due)
+            when = _date(due, what="task's date")
+            if not new and when and when != added.get("due"):
+                # Said again with another date: the date he gives now is the task's date.
+                self._edit_task(o, added, who=None, text=None, due=when, done=done or None, by=by)
+                return
             if done:
                 self._edit_task(o, added, who=None, text=None, due=None, done=True, by=by)
             self._event(o, "task", f"For {added['who']}: {added['text']}"

@@ -112,10 +112,32 @@ def session_dir(log_dir: Path, dir_name: str = DIR_NAME) -> Path:
     return Path(log_dir) / dir_name
 
 
-def new_session_id(name: str, now: float) -> str:
+def new_session_id(name: str, now: float, *, named: bool = False) -> str:
+    """The id of a session started now under `name`: the kind, the day, the time, and the slug.
+
+    `named` is a session the owner started by name (`TestSessions.start`). Its id never ends
+    with the day session's own `-always-on`: a slug that would ("always on", "review always
+    on", a long name cut there) ends in `-named` instead, within the same 24 characters. Only
+    the backend's own day session is made with that ending, and housekeeping keeps a session
+    for the day session's shorter time only by that exact shape (round 13, O2-N-01)."""
     slug = _SLUG.sub("-", (name or "").lower()).strip("-")[:24] or "session"
+    if named and (slug == AUTO_NAME or slug.endswith(f"-{AUTO_NAME}")):
+        slug = slug[:24 - len(NAMED_ENDING)].rstrip("-") + NAMED_ENDING
     stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
     return f"ts-{stamp}-{slug}"
+
+
+# What a named session's slug ends in instead of the day session's `-always-on`.
+NAMED_ENDING = "-named"
+# The id of the day session the backend starts itself, and only that: retention and the daily
+# roll tell it from a session the owner named by this whole shape, never by a part of a name.
+AUTO_ID = re.compile(rf"ts-[0-9]{{8}}-[0-9]{{6}}-{AUTO_NAME}")
+
+
+def is_automatic(session: TestSession) -> bool:
+    """The day session the backend started itself. Its name is `always-on`; a session the owner
+    named `always-on` has that name too, but an id `start` gave it, which ends `-named`."""
+    return session.name == AUTO_NAME and not session.test_session_id.endswith(NAMED_ENDING)
 
 
 # The shape new_session_id() gives a session (and the recorder's "rec-" twin of it): the kind,
@@ -464,9 +486,17 @@ def withhold(folder: Path, exposed: list[Path]) -> tuple[int, list[Path]]:
 
 def prune_reports(out_dir: Path, keep_days: int, *, now: float | None = None) -> int:
     """Reports drawn from sessions (ts-….md, ts-…-proposals.md, ts-…-screens/) older than
-    `keep_days`: they carry what the sessions carried, so they go when the sessions would."""
+    `keep_days`: they carry what the sessions carried, so they go when the sessions would.
+
+    Only in a real folder of this process's own, looked at without following a link (round 13,
+    O2-N-02): `is_dir()` follows one, so a reports path that was a link had the folder it
+    pointed at pruned, whatever that folder was."""
     out_dir = Path(out_dir)
-    if not out_dir.is_dir():
+    try:
+        info = os.lstat(out_dir)
+    except OSError:
+        return 0
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
         return 0
     cutoff = (time.time() if now is None else now) - max(1, int(keep_days)) * 86_400
     return sum(_remove_if_older(path, cutoff) for path in out_dir.glob("ts-*"))
@@ -585,7 +615,7 @@ class TestSessions:
             return self._cached
         self._checked_at = now
         current = self._read_active()
-        if current is not None and current.name != AUTO_NAME and now - current.started_at > NAMED_MAX_S:
+        if current is not None and not is_automatic(current) and now - current.started_at > NAMED_MAX_S:
             try:
                 self._ensure_root()
                 self._close(current, now)
@@ -611,7 +641,7 @@ class TestSessions:
         """Today's always-on session: kept if it is running, started if nothing is, rolled if
         the one running is an always-on session from another day. A session started by name is
         never touched."""
-        if current is not None and not (current.name == AUTO_NAME and _day(current.started_at) != _day(now)):
+        if current is not None and not (is_automatic(current) and _day(current.started_at) != _day(now)):
             return current
         try:
             self._ensure_root()
@@ -637,14 +667,19 @@ class TestSessions:
 
     def _prune(self, now: float) -> int:
         """Delete always-on days older than `keep_days`, and sessions started by name older
-        than `keep_named_days`, each with its screens. The session running is never touched."""
+        than `keep_named_days`, each with its screens. The session running is never touched.
+
+        A day session is known by its whole id (`AUTO_ID`), never by a part of it: "review always
+        on" slugs to `…-review-always-on`, which held the words and was pruned at 14 days as if it
+        were the day's own (round 13, O2-N-01). An id made before `start` stopped making that
+        ending is judged the same way, so it keeps its named session's time too."""
         running = self._cached.test_session_id if self._cached is not None else None
         removed = 0
         for path in self.root.glob("ts-*"):
             ident = path.name.removesuffix(".jsonl").removesuffix(SCREENS_SUFFIX)
             if running and ident == running:
                 continue
-            days = self.keep_days if path.name.startswith("ts-") and f"-{AUTO_NAME}" in path.name else self.keep_named_days
+            days = self.keep_days if AUTO_ID.fullmatch(ident) else self.keep_named_days
             removed += _remove_if_older(path, now - days * 86_400)
         return removed
 
@@ -679,13 +714,22 @@ class TestSessions:
     def _tidy_reports(self, now: float | None) -> int:
         folder = self.reports_dir
         try:
-            info = os.stat(folder)
+            # lstat, not stat (round 13, O2-N-02): a reports path that is a link is refused here,
+            # before anything is pruned, not found by the privacy check after the pruning ran
+            # through it into whatever folder it points at.
+            info = os.lstat(folder)
         except FileNotFoundError:
             self.tidy_contained = True     # not there: no report to expose
             return 0
         except OSError as exc:
             self.tidy_problem = "the reports folder could not be checked"
             _log.error("reports folder could not be looked at: %s", exc)
+            return 0
+        if stat.S_ISLNK(info.st_mode):
+            # Said as tighten() says a link: its privacy cannot be established from here. Not
+            # contained, so the start-up refuses to go on until the owner puts a folder there.
+            self.tidy_problem = "1 report path(s) are links, whose privacy cannot be established"
+            _log.error("reports folder is a link; nothing was pruned or checked through it: %s", folder)
             return 0
         if not stat.S_ISDIR(info.st_mode):
             self.tidy_problem = "the reports path is not a folder, so it could not be checked"
@@ -734,7 +778,7 @@ class TestSessions:
     def start(self, name: str) -> TestSession:
         self._ensure_root()
         current = self.active()
-        if current is not None and self.always and current.name == AUTO_NAME:
+        if current is not None and self.always and is_automatic(current):
             # A session started by name takes over from the day's own; the day's resumes as a
             # new always-on session when the named one is stopped.
             self._close(current, self.clock())
@@ -742,7 +786,8 @@ class TestSessions:
         if current is not None:
             raise AlreadyActive(current.test_session_id)
         now = self.clock()
-        session = TestSession(test_session_id=new_session_id(name, now), name=(name or "").strip()[:80] or "session", started_at=now)
+        session = TestSession(test_session_id=new_session_id(name, now, named=True),
+                              name=(name or "").strip()[:80] or "session", started_at=now)
         _write_private(self.active_path, session.as_dict())
         self._checked_at = -1.0
         return session

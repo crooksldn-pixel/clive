@@ -365,7 +365,13 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # no arguments. What it buys is "close that", "clear the screen" and "put it away" doing it,
     # now that an answer in words leaves the screen he is working on up. The ceiling is raised by
     # exactly what was measured.
-    assert total <= 42_706, f"the tool block is {total} bytes"
+    #
+    # 42_786 is the objectives' limits said to the model (round 13, S6-02, app/objectives/tools.py,
+    # tests/test_r13_objective_design_rules.py), +80 bytes measured (42,684 before, 42,764 after):
+    # `maxItems` on objective_open's people, stages and tasks (+48) and objective_note's people and
+    # stages (+32). The store refuses a list past its limit whole; these tell the model the limit
+    # before it is refused. The ceiling is raised by exactly what was measured.
+    assert total <= 42_786, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

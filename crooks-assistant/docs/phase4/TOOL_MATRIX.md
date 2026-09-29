@@ -123,7 +123,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `inventory_query` | recipe:landing_products, family:product_reads | test_analytics_tools.py | landing_products |
 | `objective_list` | family:objectives | test_displays.py, test_tool_boundary.py | — |
 | `objective_note` | family:objectives | test_objective_design.py, test_objectives.py, test_tool_boundary.py | — |
-| `objective_open` | family:objectives | test_objective_design.py | — |
+| `objective_open` | family:objectives | test_objective_design.py, test_r13_objective_design_rules.py | — |
 | `objective_show` | family:objectives | test_objective_design.py | — |
 | `screen_list` | family:screens | test_displays.py, test_r11_screens_server.py, test_screens_r10.py, test_tool_boundary.py | — |
 | `screen_off` | family:screens | test_displays.py, test_screens_r10.py | — |
