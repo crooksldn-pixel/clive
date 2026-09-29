@@ -3,9 +3,10 @@ says every entry is.
 
 Round 12's review BLOCKED on findings whose reviewers could not settle them from the files they
 were handed. An entry names the bodies and the tests that settle one; this keeps each entry true
-to that: one entry for each finding round 13 took on, every file in the tree, every excerpt a
-range of its file, every entry's bodies within one review packet, and every test it names a test
-that exists — a pytest node id (a parametrised one as pytest collects it) or a node test's title.
+to that: one entry for each of round 12's 62 blocking findings (an id the record gives twice has
+two, told apart by their parts), every file in the tree, every excerpt a range of its file, every
+entry's bodies within one review packet, and every test it names a test that exists — a pytest
+node id (a parametrised one as pytest collects it) or a node test's title.
 The node tests it names are run here too, so the ones no other test runs are run somewhere.
 """
 
@@ -17,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -32,14 +34,26 @@ STATUSES = {"FIXED", "EVIDENCED", "DEPLOY-TIME", "LEFT", "LEFT (real defect foun
 BUDGET = 250 * 1024
 RANGE = re.compile(r"^lines (\d+)-(\d+)\b")
 
-# Round 12's blocking findings that are not defects once read (class D) or not blockers by the
-# rule's own terms (class C), as round 13's fix map sorts them, with the ids as the record gives them.
-FINDINGS = {
+# All 62 of round 12's blocking findings, as round 13's fix map sorts them, with the ids as the record
+# gives them. The record gives one id twice: R9-B2-B2-01 is a finding of the pages evidence and
+# another of the screens-server evidence, and each has its own entry, told apart by its parts (the
+# round-11 evidence file's: pages ['S3P'], screens-server ['S3P', 'S3']).
+FINDINGS = [
+    # Class A: real, blocking (fixed in round 13).
+    "F/F-01", "O2/O2-N-01", "S2Ba/F-01", "S2b/S2b-01", "R9-E-families1-E-04", "R9-I-tests3-I-02", "S2b/S2b-03",
+    "S1/S1-NEW-02", "R9-D1-D1-01", "S2Ba/F-02", "S2a/S2a-01", "R9-I-tests2-I-01", "R9-I-tests5-I-03", "R9-D1-D1-02",
+    "R9-D2-D2-04", "R9-D2-D2-05", "S2T/S2T-01", "R9-D2-D2-01", "S6/S6-01", "T4/T4-02", "T6/T6-01", "S6/S6-02",
+    "S6/S6-03", "S6/S6-04",
+    # Class B: real, not a blocker as configured (fixed, or left with the reason).
+    "O1/O1-01", "R9-A3b-F-A3B-SHORT-WRITE", "O2/O2-N-02", "S3/S3-02", "S5/S5-01", "S3/S3-01", "W2/W2-03", "T1/T1-02",
+    "S3P/S3P-NEW-01", "R9-B2-B2-02", "R9-B2-B2-04", "R9-A1a-F-05B-AVAIL", "R9-B2-B2-01", "R9-A3b-F-04-SHUTDOWN",
+    "R9-I-tests5-I-01",
+    # Class D: not a defect once read; class C: not a blocker by the rule's own terms.
     "S3/S3-03", "S3T1/S3T1-01", "T5/T5-01", "R9-B1-B-01-B-05-PATH", "S2T/S2T-02", "S2a/S2a-03", "S2b/S2b-02",
     "T1/T1-01", "T3/T3-01", "T3/T3-02", "T4/T4-01", "T7/T7-01", "W3/W3-02", "S1-KEY-SENDER", "R9-B2-B2-01",
     "R9-G-G-01", "R9-C-C-03", "R9-H-experience1-H-04", "R9-D1-D1-03",
     "R9-G-G-03", "R9-B1-B-04", "R9-A3a-A3a-LIVE-CLEAN", "R9-E-families1-E-05",
-}
+]
 
 
 def _entries() -> list[dict]:
@@ -52,7 +66,11 @@ def _named_tests() -> list[tuple[str, str]]:
 
 def test_there_is_one_entry_for_each_finding_round_13_took_on():
     found = [e["finding"] for e in _entries()]
-    assert sorted(found) == sorted(FINDINGS), set(found) ^ FINDINGS
+    assert len(FINDINGS) == 62
+    assert Counter(found) == Counter(FINDINGS), (Counter(found) - Counter(FINDINGS), Counter(FINDINGS) - Counter(found))
+    # An id the record gives twice is two findings, one entry each, told apart by their parts.
+    parts = Counter((e["finding"], tuple(e["parts"])) for e in _entries())
+    assert max(parts.values()) == 1, [key for key, n in parts.items() if n > 1]
 
 
 def test_every_entry_is_the_shape_the_readme_gives():

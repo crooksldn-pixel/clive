@@ -960,5 +960,1399 @@
       "crooks-assistant/tests/test_r11_records.py::test_every_capability_and_every_change_the_report_names_is_one_this_build_has"
     ],
     "answer": "Yes, by execution at this exact SHA. Acceptance run 36567654914 (workflow 'acceptance', event push, clive/trunk, head_sha 361b01380737f8f48020dd30cef1e5f750e700bb, job 109403584488, conclusion success) recorded in its provenance: candidate_sha 361b0138…, clean worktree, and the gate pytest_offline_full — `python -m pytest tests -m \"not live\" -q -p no:cacheprovider` — exit 0, '5946 passed, 26 skipped, 2 deselected in 350.26s'; ruff 'All checks passed!'; secret scan 'no leaks found'. The log is quiet (-q), so it has no line per test; neither tests/test_no_dangling_imports.py nor tests/test_r11_records.py carries a skip mark or a live mark, so every test named here was among the 5946 that passed. They pass again at this commit locally (20 passed). What they do: every module under app/ is imported by name; every import statement in app/, experience/, scripts/, tests/ and bench/ — at the top of a file or inside a function — names a module that exists and a name it has; no dotted string names a deleted module and each deleted one is really gone; in a fresh interpreter every module under app/, scripts/ and config/ imports and every lazy import in them resolves; and app.families.load_all() returns every family module the package holds (load_all only logs a failed family, so this comparison is what would show one). Start-up under production's configuration is the deploy's own restart and /health."
+  },
+  {
+    "finding": "F/F-01",
+    "parts": [
+      "F"
+    ],
+    "status": "FIXED",
+    "question": "Does the address card send the write tool only what the owner changed, so that no part he did not edit — the recipient above all, which the tool re-splits on its first space — and no value the Mac shortened reaches the order?",
+    "files": [
+      "crooks-assistant/app/families/address.py",
+      "crooks-assistant/app/families/_workspace.py",
+      "crooks-assistant/app/tools/shopify_writes.py",
+      "crooks-assistant/tests/test_r13_address_resubmit.py",
+      "crooks-assistant/tests/test_address_typing.py",
+      "crooks-assistant/tests/test_address.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_a_postcode_fix_sends_the_postcode_and_leaves_the_recipient_as_it_was",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_a_recipient_with_only_a_surname_keeps_it_as_a_surname",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_a_name_too_long_for_its_box_is_shown_whole_and_marked_not_cut",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_a_value_typed_past_its_limit_is_refused_not_cut",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_a_street_too_long_to_edit_here_is_left_alone_and_never_resent",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_clearing_the_second_line_under_a_street_too_long_to_resend_is_refused",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_a_new_street_under_a_second_line_too_long_to_resend_is_refused",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_a_new_street_carries_the_second_line_with_it",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_a_second_line_changed_alone_goes_alone",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_a_second_line_cleared_is_cleared",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_retyping_what_is_there_is_not_a_change",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_an_untouched_card_with_a_region_code_is_not_a_change",
+      "crooks-assistant/tests/test_r13_address_resubmit.py::test_a_name_the_owner_types_is_sent",
+      "crooks-assistant/tests/test_address_typing.py::test_the_gesture_names_the_tool_and_the_arguments_the_mac_built",
+      "crooks-assistant/tests/test_address_typing.py::test_an_address_that_has_not_changed_is_not_a_change",
+      "crooks-assistant/tests/test_address_typing.py::test_opening_it_starts_from_the_address_as_it_stands",
+      "crooks-assistant/tests/test_address_typing.py::test_a_shipped_or_cancelled_order_says_so_before_a_word_is_typed",
+      "crooks-assistant/tests/test_address.py::test_a_second_line_alone_keeps_the_street",
+      "crooks-assistant/tests/test_address.py::test_a_dictated_address_is_staged_and_says_it_was_dictated"
+    ],
+    "answer": "FIXED in round 13 (6490a0df), in app/families/address.py alone; the protected write tool is unchanged. At 361b0138 _stage handed shopify_order_shipping_address_set all seven fields on every change, from values _from_order had cut on the way in (the name to 80, the lines and the town to 120). The tool merges what it is given into the address as it stands and re-splits a given name on its first space (the `given[\"name\"]` branch of shopify_order_shipping_address_set), so a postcode fix rewrote \"Mary Ann\" \"Smith\" as \"Mary\" \"Ann Smith\" and a surname-only recipient as a first name, and a name of 81 to 100 characters, which passes both the gate's schema bound and _clean_field (MAX_ADDRESS_CHARS, 100), went back cut to 80. A line or town over 100 was already refused by those two checks, never cut, as the fix map records. Now: _from_order reads every part whole, spaced and cased as its box's own cleaner would leave it, and _open keeps those values as facts['original']; a part longer than its box (FIELDS maxlength: MAX_NAME 80, MAX_LINE = MAX_ADDRESS_CHARS 100, postcode 12, region 5, country 2) is shown whole and marked invalid with TOO_LONG_HERE, never cut. _text refuses a typed value past its limit ('too long — at most N characters') instead of shortening it. _edited compares each field with facts['original']; _change sends only the edited fields, plus the tool's own merge rule — a new street takes the card's second line with it (the tool drops address2 whenever it is given address1), and an emptied second line takes the street as it stands (the tool clears address2 only beside address1) — and _stage builds its arguments from _change alone, with order_id and from_owner. _blocked refuses a field only when it would be sent: a too-long part left alone stops nothing, and one a change needs refuses the change in its own words. 'Nothing has changed yet' is now _edited being empty; the old check compared two strings joined in different orders, so an address with a region code was never unchanged. Invariant: an argument the owner did not edit is never sent, and no value sent was shortened by the Mac. test_a_postcode_fix_sends_the_postcode_and_leaves_the_recipient_as_it_was failed at 361b0138 with the staged arguments holding address1, address2, city, name and the rest against {order_id, postcode, from_owner}, and passes now; every test in that file failed there. test_address_typing's gesture test was changed in the same commit to expect only the changed fields, its intent (the Mac builds the arguments) kept; the tool's merge rules are held by test_address.py, unchanged.",
+    "excerpts": {
+      "crooks-assistant/app/tools/shopify_writes.py": [
+        "lines 688-688: MAX_ADDRESS_CHARS",
+        "lines 722-726: _clean_field",
+        "lines 979-1183: shopify_order_shipping_address_set: its schema, and the merge (a new street drops the second line; a given name re-split on its first space)"
+      ]
+    }
+  },
+  {
+    "finding": "O2/O2-N-01",
+    "parts": [
+      "O2"
+    ],
+    "status": "FIXED",
+    "question": "Is a test session the owner started by name kept for keep_named_days whatever its name says, with keep_days, the midnight roll and the take-over applied only to the day session the backend starts itself?",
+    "files": [
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/tests/test_r13_housekeeping.py",
+      "crooks-assistant/tests/test_r13_timeline_names.py",
+      "crooks-assistant/tests/test_screen_privacy.py",
+      "crooks-assistant/tests/test_observability.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_a_session_started_by_name_is_kept_as_a_named_one_whatever_its_name_says[review always on]",
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_a_session_started_by_name_is_kept_as_a_named_one_whatever_its_name_says[Checkout flow - always on]",
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_a_session_started_by_name_is_kept_as_a_named_one_whatever_its_name_says[Always On]",
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_a_session_started_by_name_is_kept_as_a_named_one_whatever_its_name_says[always-on]",
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_a_named_session_recorded_before_this_round_is_classified_by_its_whole_id",
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_a_session_named_always_on_is_the_owner_s_not_the_day_s",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_session_he_named_always_on_is_his_and_keeps_his_words",
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_the_day_s_own_session_still_goes_at_keep_days",
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_the_day_s_own_session_keeps_its_own_id",
+      "crooks-assistant/tests/test_screen_privacy.py::test_always_on_days_and_named_sessions_both_age_out_and_the_running_one_never",
+      "crooks-assistant/tests/test_observability.py::test_test_mode_always_on_keeps_one_session_a_day_and_yields_to_a_named_one"
+    ],
+    "answer": "FIXED in round 13 (5804d81a; d65cf011 carried the same rule into the timeline). At 361b0138 TestSessions._prune chose keep_days when f\"-{AUTO_NAME}\" appeared anywhere in a file name, so a session started as 'review always on' (ts-…-review-always-on) was deleted at 14 days instead of 90, and a name that slugged to exactly always-on made an id nobody could tell from the day's own. Now: new_session_id(name, now, named=True) — the only way start() makes an id — rewrites a slug that is always-on or ends -always-on after its 24-character cut so that it ends NAMED_ENDING ('-named') within the same 24 characters; the day session, made by _keep_alive with new_session_id(AUTO_NAME, now), is the only id that ends -always-on. _prune gives keep_days only to an id that fullmatches AUTO_ID (ts-<8 digits>-<6 digits>-always-on) and keep_named_days to every other, which also keeps an id an earlier build already wrote with the words in its slug. is_automatic(session) — the name always-on and an id not ending -named — replaces the name test in active() (the named-session cap), _keep_alive (the midnight roll) and start() (the take-over), so a session he named always-on neither rolls at midnight nor is closed by the next start; and timeline.keeps_words asks the same is_automatic, so that session keeps his words like any other he named. Invariant: only an id the backend made for the day session ends -always-on, and only such an id gets keep_days. test_a_session_started_by_name_is_kept_as_a_named_one_whatever_its_name_says[review always on] failed at 361b0138 at its first assertion (the id was ts-…-review-always-on) and passes now; test_a_named_session_recorded_before_this_round_is_classified_by_its_whole_id failed with the 30-day-old ts-20260801-100000-review-always-on pruned. test_a_session_he_named_always_on_is_his_and_keeps_his_words cannot import at 361b0138 (is_automatic is new) and passes now. The day session's own 14 days, its id and its yielding to a named session are held by the tests after them, which pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/observability/timeline.py": [
+        "lines 171-197: WORDS, keeps_words (is_automatic) and _words_by_shape"
+      ]
+    }
+  },
+  {
+    "finding": "S2Ba/F-01",
+    "parts": [
+      "S2Ba"
+    ],
+    "status": "FIXED",
+    "question": "When the customer on a new order is changed — by voice, by id or by name, or by retyping the name on the card — is the confirmation email the new customer's own, or one typed after that customer was chosen, so that no draft is made for one customer with another's address on it?",
+    "files": [
+      "crooks-assistant/app/families/order_create.py",
+      "crooks-assistant/app/families/_workspace.py",
+      "crooks-assistant/tests/test_r13_order_customer_change.py",
+      "crooks-assistant/tests/test_r12_orders.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f01_a_customer_changed_by_voice_takes_the_new_customers_own_email",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f01_a_customer_changed_by_name_by_voice_takes_the_new_customers_own_email",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f01_a_customer_retyped_on_the_card_takes_the_new_customers_own_email",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f01_between_the_retype_and_the_lookup_the_old_address_is_not_on_the_card",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f01_two_of_one_name_and_the_one_he_picks_gets_her_own_email",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f01_an_address_he_typed_is_taken_off_when_the_customer_changes_and_is_typed_again",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f01_an_address_he_typed_is_taken_off_on_the_touch_path_too",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f01_prepare_refuses_an_email_that_is_not_the_chosen_customers",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f01_an_address_he_typed_that_is_the_new_customers_own_stays",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f01_the_same_customer_chosen_again_keeps_the_address_he_typed",
+      "crooks-assistant/tests/test_r12_orders.py::test_the_customer_changed_by_voice_and_two_of_one_name_are_not_guessed",
+      "crooks-assistant/tests/test_r12_orders.py::test_a2_a_card_with_no_confirmation_address_takes_the_customer_s_own_and_nobody_else_s",
+      "crooks-assistant/tests/test_r12_orders.py::test_the_hold_creates_exactly_the_lines_and_discounts_on_the_card",
+      "crooks-assistant/tests/test_r12_orders.py::test_taps_still_build_it"
+    ],
+    "answer": "FIXED in round 13 (9ef008da, app/families/order_create.py). At 361b0138 the confirmation email was typed in from the first customer chosen, and only while it was empty (choose_row, _choose_customer), and nothing took it off when the customer changed — by id (shopify_order_build customer_id → _customer_by_id), by name (_resolve_customer), or by retyping the name on the card (_field popped customer, candidates and by_id but not the email; _customer_render → choose_row). expected_card and card_differences compare the draft with the card, so Bob's draft carrying Alice's email was called consistent; the hold card's 'Bob · alice@…' was the only guard. Now every change of customer goes through _set_customer(workspace, customer or None): choose_row, _choose_customer, _customer_by_id, _resolve_customer, the re-reads in shopify_order_create, the retype in _field and _customer_render. Its _email_for_customer keeps whose the email is in facts['email_for'] = {customer_id, how}: one read off a customer ('read') is replaced by the new customer's own; one he typed ('typed', set by _field when he types into the email box) for another customer, or before anyone was chosen, is taken off, the box marked uncertain with _TYPE_IT_AGAIN naming the new customer — unless what he typed is the new customer's own address; and while nobody is chosen (between a retype and the card's lookup) an email read off the customer before is cleared at once. The floor: _blocked, which every Prepare runs, refuses an uncertain email, and _not_theirs refuses an email whose email_for is not the chosen customer's id with how read or typed; shopify_order_create re-reads the customer by id and asks _not_theirs again before anything is built. Invariant: a draft's email is the chosen customer's own, or one typed after that customer was chosen. test_f01_a_customer_changed_by_voice_takes_the_new_customers_own_email failed at 361b0138 with the card's 'Confirmation to' still theo.marsh@example.com after the change to Ava, and passes now; the retype on the card failed the same way. The two f01 tests after the floor test, and the round-12 order tests, pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/families/order_create.py": [
+        "lines 589-648: _blocked: every Prepare, tapped or said, is refused while an email is uncertain or not the chosen customer's (_not_theirs)",
+        "lines 670-767: whose it is: _set_customer (the one way the customer changes), _email_for_customer, _address_for_customer, _named, _not_theirs",
+        "lines 1223-1304: _resolve_customer, choose_row, _choose_customer, _customer_by_id (all through _set_customer) and _from_order (source.customer_id)",
+        "lines 1480-1609: shopify_order_build: the customer_id and customer branches",
+        "lines 1734-1753: _given_address: given_for records whose name is on a spoken address",
+        "lines 1826-1869: _going_to, expected_card and card_differences, the draft check",
+        "lines 1915-1953: _draft_input: email, customerId, shippingAddress or useCustomerDefaultAddress",
+        "lines 2076-2296: shopify_order_create: the customer re-read by id, _not_theirs again, and the source order's customer re-read",
+        "lines 2344-2381: _field: email typed (email_for how=typed) and the customer retyped (_set_customer(None))",
+        "lines 2399-2417: _pick_customer",
+        "lines 2527-2577: the card's own customer lookup, through choose_row"
+      ]
+    }
+  },
+  {
+    "finding": "S2b/S2b-01",
+    "parts": [
+      "S2b"
+    ],
+    "status": "FIXED",
+    "question": "Is a reply prepared only to the address the reply composer showed the owner — and, when a message's Reply-To differs from its sender, only after the card has shown both and he has confirmed the Reply-To?",
+    "files": [
+      "crooks-assistant/app/families/compose.py",
+      "crooks-assistant/app/tools/gmail_writes.py",
+      "crooks-assistant/app/tools/gmail_tools.py",
+      "crooks-assistant/web/ui.js",
+      "crooks-assistant/tests/test_r13_reply_recipient.py",
+      "crooks-assistant/tests/web/r13-reply-to.test.js",
+      "crooks-assistant/tests/test_gmail_writes.py",
+      "crooks-assistant/tests/test_compose.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_reply_recipient.py::test_the_tapped_reply_shows_where_it_goes_and_waits_for_him_to_confirm_it[send]",
+      "crooks-assistant/tests/test_r13_reply_recipient.py::test_the_tapped_reply_shows_where_it_goes_and_waits_for_him_to_confirm_it[draft]",
+      "crooks-assistant/tests/test_r13_reply_recipient.py::test_the_model_cannot_send_past_a_card_that_is_waiting_to_be_confirmed",
+      "crooks-assistant/tests/test_r13_reply_recipient.py::test_a_card_that_guessed_the_recipient_cannot_be_sent_to_another",
+      "crooks-assistant/tests/test_r13_reply_recipient.py::test_a_thread_that_changed_since_the_card_was_drawn_is_not_replied_to_elsewhere",
+      "crooks-assistant/tests/test_r13_reply_recipient.py::test_a_draft_of_ours_waiting_in_the_thread_is_not_who_the_reply_is_to",
+      "crooks-assistant/tests/test_r13_reply_recipient.py::test_a_card_that_guessed_the_reply_to_still_needs_the_owner_to_see_both",
+      "crooks-assistant/tests/test_r13_reply_recipient.py::test_the_read_thread_carries_where_replies_go_when_it_is_not_the_sender",
+      "crooks-assistant/tests/web/r13-reply-to.test.js::a reply going to a Reply-To shows the sender beside it, in the Mac's own words",
+      "crooks-assistant/tests/test_r13_reply_recipient.py::test_a_reply_to_that_is_the_sender_is_not_mentioned",
+      "crooks-assistant/tests/test_r13_reply_recipient.py::test_a_reply_with_no_reply_to_is_the_sender_and_needs_no_confirming",
+      "crooks-assistant/tests/web/r13-reply-to.test.js::the confirm button posts the Mac's command and nothing of the email",
+      "crooks-assistant/tests/web/r13-reply-to.test.js::a reply with no hint of its own still says where it goes",
+      "crooks-assistant/tests/test_gmail_writes.py::test_a_reply_goes_where_the_message_asks_and_the_card_says_so",
+      "crooks-assistant/tests/test_gmail_writes.py::test_preparing_a_draft_reply_addresses_it_from_the_thread_and_saves_nothing",
+      "crooks-assistant/tests/test_compose.py::test_a_reply_never_carries_its_own_recipient",
+      "crooks-assistant/tests/test_compose.py::test_a_reply_still_refuses_a_recipient_argument"
+    ],
+    "answer": "FIXED in round 13 (0c5cc2e5 and 70285783). The protected app/tools/gmail_writes.py changed for this and the two findings after it only. At 361b0138 the write tools replied to a thread's Reply-To (thread_context, unchanged), while the reply composer showed the last inbound From, marked ok (_compose_reply, _thread_sender), and only the final hold card named the real address. Now gmail_read_thread carries a message's reply_to when it differs from its sender, and marks our own drafts in the thread (draft), so _last_inbound never takes one for the message being answered. The composer decides the recipient as thread_context does (_reply_recipient: the Reply-To, else the From); _show_recipient marks a Reply-To that is not the sender to_status 'uncertain' with the sender named in the hint, compose_actions adds the 'Yes, reply to this address' button (compose.confirm_to → _compose_confirm_to, which records confirmed_to), and _ready_to_stage refuses Save draft and Send until then (_awaiting_confirmation). Whoever calls the reply tools — the card's tap or the model — gmail_draft_reply and gmail_send_reply first ask _as_the_card_shows → compose.reply_as_shown with the thread as Gmail holds it now: with a reply composer for that thread on the owner's screen, a recipient that is not the address its card shows is refused, and a Reply-To that is not the sender is refused unless confirmed_to is that address; a card opened before the thread was read, which never showed both, is told how to get one that does (70285783). The staged reply carries compose_id. ui.js draws the Mac's own hint under the recipient instead of its fixed 'whoever wrote last' line. Invariant: a reply is prepared only to the address the composer showed, and a differing Reply-To only once he has confirmed it there. With no composer for the thread the hold card still names the recipient, as before. test_the_tapped_reply_shows_where_it_goes_and_waits_for_him_to_confirm_it[send] failed at 361b0138 with the card's recipient {'value': 'ann.sender@example.com', 'status': 'ok'} while the reply went to the Reply-To, and passes now; the web test failed with the card's own 'whoever wrote last' line under a Reply-To.",
+    "excerpts": {
+      "crooks-assistant/app/tools/gmail_tools.py": [
+        "lines 693-774: gmail_read_thread: reply_to when it is not the sender, and our own drafts marked"
+      ],
+      "crooks-assistant/web/ui.js": [
+        "lines 2655-2757: fieldStatic and renderEmailCompose: the recipient's hint is the Mac's own"
+      ]
+    }
+  },
+  {
+    "finding": "R9-E-families1-E-04",
+    "parts": [
+      "F",
+      "T3"
+    ],
+    "status": "FIXED",
+    "question": "Is an order-specific reply held to that order on the model's own path even when the model leaves order_id out, so that one customer's order cannot be answered into another customer's thread?",
+    "files": [
+      "crooks-assistant/app/tools/gmail_writes.py",
+      "crooks-assistant/app/context/graph.py",
+      "crooks-assistant/tests/test_r13_reply_order_content.py",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py",
+      "crooks-assistant/tests/test_reply_order_binding.py",
+      "crooks-assistant/tests/test_gmail_writes.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_send_reply]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_draft_reply]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_bare_number_that_is_a_held_order_counts_as_well",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_naming_the_right_order_does_not_let_the_words_name_another",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_waiting_draft_that_names_another_customers_order_is_not_sent",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_email_to_one_customer_naming_anothers_order_is_refused[gmail_send_new]",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_email_to_one_customer_naming_anothers_order_is_refused[gmail_draft_new]",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_the_subject_is_held_as_well_as_the_words",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_email_from_the_composer_to_an_address_naming_a_held_order_is_refused",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_a_waiting_draft_that_names_another_customers_order_is_not_sent",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_reply_naming_the_recipients_own_order_is_prepared",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_number_that_is_no_order_this_conversation_holds_is_not_taken_for_one",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_email_naming_the_recipients_own_order_is_prepared[gmail_send_new]",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_a_waiting_draft_naming_the_customers_own_order_is_offered_to_send",
+      "crooks-assistant/tests/test_reply_order_binding.py::test_the_thread_that_is_about_the_order_is_replied_in",
+      "crooks-assistant/tests/test_reply_order_binding.py::test_a_thread_that_can_only_be_about_her_one_recent_order_is_replied_in",
+      "crooks-assistant/tests/test_gmail_writes.py::test_a_reply_named_with_an_order_must_be_to_that_orders_customer"
+    ],
+    "answer": "FIXED in round 13 (0c5cc2e5 for the replies; d65cf011 for new emails), in the protected app/tools/gmail_writes.py for exactly this. At 361b0138 gmail_send_reply and gmail_draft_reply ran _check_order only `if order_id`, so a reply whose words named another customer's order, placed in someone else's thread with order_id left out, was prepared with no order line and the owner's hold as the only guard. Now both reply tools call _held_to_the_orders_it_names on the words that would leave — the new body, or the text of the draft waiting in Gmail that gmail_send_reply sends — after _check_order, whether or not order_id was given. _orders_named_in reads the words for order numbers (graph.order_numbers_in) and keeps those that are orders this conversation holds, each by an id issued to it (on its context stack, under a half's cursor, on a change it staged, in the warm order cache or the entity cache); _an_order_not_theirs reads each one's customer (_order_customer) and returns the first whose email is not the thread's recipient (ctx['to_email']), and the tool raises a ToolError naming the order and the recipient, never whose order it is: nothing is prepared. The integration commit d65cf011 carried the same rule to new emails: gmail_draft_new and gmail_send_new (fresh words and the waiting draft alike) hold the subject and the body to the recipient through _new_email_held_to_the_orders_it_names, which shares _an_order_not_theirs. A number that is no order this conversation was shown is words, not an order. Invariant: a reply or email whose words name an order this conversation holds goes only to that order's customer, whether or not the model said which order it was about. test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_send_reply] failed at 361b0138 with the call ok and a reply staged in David's thread naming Mia's #1938, and passes now: refused, nothing pending. The new-email tests failed there the same way. The controls (his own order in his own thread, a number no order, the round-11 thread binding) pass before and after; one body in test_reply_order_binding.py was changed so it no longer names another customer's order, since that is now refused on its own.",
+    "excerpts": {
+      "crooks-assistant/app/context/graph.py": [
+        "lines 44-51: order_numbers_in"
+      ]
+    }
+  },
+  {
+    "finding": "R9-I-tests3-I-02",
+    "parts": [
+      "T3"
+    ],
+    "status": "FIXED",
+    "question": "On the live dispatch path, is a reply whose words name a different customer's order refused as a destination even when the call carries no order_id — the optional-argument path the round-11 tests left open?",
+    "files": [
+      "crooks-assistant/app/tools/gmail_writes.py",
+      "crooks-assistant/app/context/graph.py",
+      "crooks-assistant/tests/test_r13_reply_order_content.py",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py",
+      "crooks-assistant/tests/test_reply_order_binding.py",
+      "crooks-assistant/tests/test_gmail_writes.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_send_reply]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_reply_naming_another_customers_order_is_refused_without_order_id[gmail_draft_reply]",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_bare_number_that_is_a_held_order_counts_as_well",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_naming_the_right_order_does_not_let_the_words_name_another",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_waiting_draft_that_names_another_customers_order_is_not_sent",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_email_to_one_customer_naming_anothers_order_is_refused[gmail_send_new]",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_email_to_one_customer_naming_anothers_order_is_refused[gmail_draft_new]",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_the_subject_is_held_as_well_as_the_words",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_email_from_the_composer_to_an_address_naming_a_held_order_is_refused",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_a_waiting_draft_that_names_another_customers_order_is_not_sent",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_reply_naming_the_recipients_own_order_is_prepared",
+      "crooks-assistant/tests/test_r13_reply_order_content.py::test_a_number_that_is_no_order_this_conversation_holds_is_not_taken_for_one",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_an_email_naming_the_recipients_own_order_is_prepared[gmail_send_new]",
+      "crooks-assistant/tests/test_r13_new_email_order_content.py::test_a_waiting_draft_naming_the_customers_own_order_is_offered_to_send",
+      "crooks-assistant/tests/test_reply_order_binding.py::test_the_thread_that_is_about_the_order_is_replied_in",
+      "crooks-assistant/tests/test_reply_order_binding.py::test_a_thread_that_can_only_be_about_her_one_recent_order_is_replied_in",
+      "crooks-assistant/tests/test_gmail_writes.py::test_a_reply_named_with_an_order_must_be_to_that_orders_customer"
+    ],
+    "answer": "FIXED in round 13 with R9-E-families1-E-04, which is the same defect seen from the tests (0c5cc2e5; d65cf011 for new emails). The round-11 tests refused a wrong thread only when the call supplied order_id; the new tests drive the optional-argument path through the real POST /turn, the dispatcher and the gate, with the model's calls scripted and no order_id at all. At 361b0138 gmail_send_reply and gmail_draft_reply ran _check_order only `if order_id`, so a reply whose words named another customer's order, placed in someone else's thread with order_id left out, was prepared with no order line and the owner's hold as the only guard. Now both reply tools call _held_to_the_orders_it_names on the words that would leave — the new body, or the text of the draft waiting in Gmail that gmail_send_reply sends — after _check_order, whether or not order_id was given. _orders_named_in reads the words for order numbers (graph.order_numbers_in) and keeps those that are orders this conversation holds, each by an id issued to it (on its context stack, under a half's cursor, on a change it staged, in the warm order cache or the entity cache); _an_order_not_theirs reads each one's customer (_order_customer) and returns the first whose email is not the thread's recipient (ctx['to_email']), and the tool raises a ToolError naming the order and the recipient, never whose order it is: nothing is prepared. The integration commit d65cf011 carried the same rule to new emails: gmail_draft_new and gmail_send_new (fresh words and the waiting draft alike) hold the subject and the body to the recipient through _new_email_held_to_the_orders_it_names, which shares _an_order_not_theirs. A number that is no order this conversation was shown is words, not an order. Invariant: a reply or email whose words name an order this conversation holds goes only to that order's customer, whether or not the model said which order it was about. The first two tests failed at 361b0138 with the reply staged in the wrong thread and pass now; the bare-number, right-order-plus-another and waiting-draft cases failed there too.",
+    "excerpts": {
+      "crooks-assistant/app/context/graph.py": [
+        "lines 44-51: order_numbers_in"
+      ]
+    }
+  },
+  {
+    "finding": "S2b/S2b-03",
+    "parts": [
+      "S2b"
+    ],
+    "status": "FIXED",
+    "question": "After Send or Save draft is prepared from the composer, does an edit to the recipient, the subject or the words withdraw what was prepared, so that no hold card can send an earlier revision of the email?",
+    "files": [
+      "crooks-assistant/app/families/compose.py",
+      "crooks-assistant/app/routes/command.py",
+      "crooks-assistant/app/tools/gmail_writes.py",
+      "crooks-assistant/tests/test_r13_compose_edit.py",
+      "crooks-assistant/tests/test_compose.py",
+      "crooks-assistant/tests/test_gmail_writes.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_compose_edit.py::test_retyping_a_prepared_reply_withdraws_it_and_the_old_words_are_never_sent[body-Actually it goes out tomorrow.]",
+      "crooks-assistant/tests/test_r13_compose_edit.py::test_retyping_any_part_of_a_prepared_email_withdraws_it[to-someone.else@example.org]",
+      "crooks-assistant/tests/test_r13_compose_edit.py::test_retyping_any_part_of_a_prepared_email_withdraws_it[subject-Sunday, 10am]",
+      "crooks-assistant/tests/test_r13_compose_edit.py::test_retyping_any_part_of_a_prepared_email_withdraws_it[body-Are you free on Sunday morning?]",
+      "crooks-assistant/tests/test_r13_compose_edit.py::test_retyping_any_part_of_a_prepared_email_withdraws_it[to_name-Sam]",
+      "crooks-assistant/tests/test_r13_compose_edit.py::test_a_prepared_draft_is_withdrawn_the_same_way",
+      "crooks-assistant/tests/test_r13_compose_edit.py::test_cancelling_the_email_withdraws_what_was_prepared_from_it",
+      "crooks-assistant/tests/test_r13_compose_edit.py::test_the_models_own_rewrite_of_the_email_withdraws_it_too",
+      "crooks-assistant/tests/test_r13_compose_edit.py::test_an_edit_that_lands_while_send_is_being_prepared_withdraws_that_send",
+      "crooks-assistant/tests/test_r13_compose_edit.py::test_a_keystroke_that_changes_nothing_withdraws_nothing",
+      "crooks-assistant/tests/test_compose.py::test_discarding_leaves_nothing_behind",
+      "crooks-assistant/tests/test_compose.py::test_forgetting_the_draft_withdraws_its_card",
+      "crooks-assistant/tests/test_compose.py::test_the_gesture_stages_through_the_engine_and_applies_nothing"
+    ],
+    "answer": "FIXED in round 13 (0c5cc2e5, app/families/compose.py and app/routes/command.py). At 361b0138 _compose_field changed the composer and nothing else, and POST /command revoked only what a staging named in `revoke`, so a Send prepared before an edit stayed PENDING and holding it sent the old words to the old address (which that card did name). Now revision(compose) is a digest of what a gesture would send (kind, thread, to, to_name, subject, body); _compose_field and the model's gmail_compose_fill compare it before and after, and when it moved call withdraw_prepared, which revokes through the engine every PENDING gmail_draft_*/gmail_send_* proposal prepared from this composer — named by entity_ref or execution.compose_id, or, for a reply, any reply waiting in its thread — and returns the ids in changed['withdrawn'] with EDITED for the tablet to settle; a keystroke that leaves the revision as it was withdraws nothing. _compose_discard withdraws them too ('The email was cancelled.'). A Send tapped while an edit lands: _compose_stage puts compose_id and the revision in the staging, and _stage_change in POST /command asks _moved_meanwhile → compose.moved_since once the proposal is made; a composer edited or closed meanwhile has the new proposal revoked before it is delivered, and the tap is answered changed_meanwhile. The reply tools carry compose_id in their execution (gmail_writes), which is what lets a reply be found by the composer it came from. Invariant: a composer edit leaves no pending send or draft prepared from an earlier revision. test_retyping_a_prepared_reply_withdraws_it_and_the_old_words_are_never_sent[…] failed at 361b0138 with the proposal 'PENDING' where 'REVOKED' was expected, and passes now; every case of the file but the unchanged keystroke failed there. The composer's own tests pass before and after."
+  },
+  {
+    "finding": "S1/S1-NEW-02",
+    "parts": [
+      "S1"
+    ],
+    "status": "FIXED",
+    "question": "Can a customer's name reach the always-on timeline in the clear — a read's tool_finished result carrying `name` before the turn noted it, a string nested under an argument key the dispatcher does not list, or an error quoting what was said?",
+    "files": [
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/tests/test_r13_timeline_names.py",
+      "crooks-assistant/tests/test_tool_args_redaction.py",
+      "crooks-assistant/tests/test_observability_redaction.py",
+      "crooks-assistant/tests/test_turn_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_customer_a_read_returns_is_nowhere_in_the_automatic_session",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_every_free_string_in_a_read_s_arguments_is_written_by_its_shape",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_structured_argument_keeps_ids_catalogue_and_query_words_and_shapes_the_rest[filters0-kept0]",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_structured_argument_keeps_ids_catalogue_and_query_words_and_shapes_the_rest[filters1-kept1]",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_an_error_that_quotes_what_he_said_is_written_with_those_words_by_their_shape",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_session_started_by_name_keeps_his_words_and_still_loses_the_names_reads_return",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_structured_argument_keeps_ids_catalogue_and_query_words_and_shapes_the_rest[filters2-kept2]",
+      "crooks-assistant/tests/test_tool_args_redaction.py::test_a_name_the_owner_says_in_a_search_never_reaches_the_timeline_or_a_recording",
+      "crooks-assistant/tests/test_tool_args_redaction.py::test_a_name_an_earlier_read_returned_is_redacted_wherever_it_is_in_the_arguments",
+      "crooks-assistant/tests/test_observability_redaction.py::test_the_names_a_turn_knows_reach_every_event_after_it"
+    ],
+    "answer": "FIXED in round 13 (03d9a923 and 3345b443, app/tools/dispatch.py and app/observability/timeline.py). At 361b0138 _result_shape kept a result's top-level `name` verbatim, and dispatch wrote the read's tool_finished before the turn had told the timeline that name (note_names ran only at the turn's edges); _spoken_fields kept a string under any key not in SPOKEN_ARGS; and an error was written as raised. Now: dispatch calls timeline.note_names with every personal string _harvest_ids found in the result before trace.finish writes a line of that read (and _stage does the same for a prepared change's pii), so scrub redacts the name from the read's own events and everything after; _result_shape writes `name` by its length like any other text; loggable_args writes every string of a read's arguments through _as_written, which keeps only an id under an id key, a catalogue word (CATALOGUE_ARGS), a word of the query language's own (_query_words) or a value the tool's schema enumerates, and writes anything else by _spoken_shape (length and a per-process digest); _spoken_fields and _spoken_item apply that at every depth and inside lists; and _Trace.finish writes an error through _without_what_was_said, which replaces any of the call's own words it quotes by their shape. The owner's words in the automatic session are the next finding's (R9-D1-D1-01), fixed in the same round. Invariant: no name a read returned, and no free string of a call's arguments, is written to the always-on timeline in the clear. test_a_customer_a_read_returns_is_nowhere_in_the_automatic_session failed at 361b0138 with 'Quill' in the history read's tool_finished, and passes now; the argument, structured-argument, error and named-session tests failed there too (the version of the file before d65cf011 was run against 361b0138, since the integration commit's version imports session.is_automatic, which is new). The last structured-argument case, and the round-9 and round-10 redaction tests after it, pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/observability/session.py": [
+        "lines 54-54: AUTO_NAME",
+        "lines 115-140: new_session_id, NAMED_ENDING, AUTO_ID and is_automatic"
+      ]
+    }
+  },
+  {
+    "finding": "R9-D1-D1-01",
+    "parts": [
+      "O1"
+    ],
+    "status": "FIXED",
+    "question": "Can a customer name the owner says, which no read of the turn returns, reach the always-on timeline in the words heard, the model's answer, the question or the answer the turn finished with, or what is spoken back?",
+    "files": [
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/tests/test_r13_timeline_names.py",
+      "crooks-assistant/tests/test_tool_args_redaction.py",
+      "crooks-assistant/tests/test_observability_redaction.py",
+      "crooks-assistant/tests/test_turn_boundary.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_name_said_that_no_read_returns_is_nowhere_in_the_automatic_session",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_typed_question_is_written_by_its_shape_in_the_automatic_session_too",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_session_he_named_always_on_is_his_and_keeps_his_words",
+      "crooks-assistant/tests/test_r13_timeline_names.py::test_a_session_started_by_name_keeps_his_words_and_still_loses_the_names_reads_return",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_customer_named_aloud_is_redacted_from_what_the_turn_writes_even_before_a_read_names_her",
+      "crooks-assistant/tests/test_observability_redaction.py::test_the_names_a_turn_knows_reach_every_event_after_it"
+    ],
+    "answer": "FIXED in round 13 (03d9a923; d65cf011 for which session keeps words). No redactor can find a name nobody has told it, and a name he says that no read returns is never told to note_names, so at 361b0138 stt.text, model.answer and turn_finished.question kept it. Now Timeline.emit writes the fields that carry his words and the answers to them — WORDS: stt text and raw_text, model answer, turn_finished question and answer, tts text — by _words_by_shape (dispatch._spoken_shape: length and a per-process digest, the same for the same words, nothing of what they were) whenever keeps_words(session) is false, that is in the day's automatic session; keeps_words asks session.is_automatic, the rule housekeeping uses (O2-N-01), so a session he started by name — his walkthrough, even one he named always-on — keeps his words, and names that reads returned are still taken out of it by scrub. This is the product decision the fix map put to George, made as the fix map proposed it; keeps_words is the one line to change if he rules otherwise. owner_feedback, his own request to have words written down, is not in WORDS. Invariant: in the automatic session no free text the owner spoke, and no answer to it, is written in the clear. test_a_name_said_that_no_read_returns_is_nowhere_in_the_automatic_session failed at 361b0138 with the name in the stt, model and turn_finished events (run as the file stood before d65cf011, whose version imports the new is_automatic), and passes now; the named-session tests hold that a walkthrough keeps his words.",
+    "excerpts": {
+      "crooks-assistant/app/observability/session.py": [
+        "lines 54-54: AUTO_NAME",
+        "lines 115-140: new_session_id, NAMED_ENDING, AUTO_ID and is_automatic"
+      ]
+    }
+  },
+  {
+    "finding": "S2Ba/F-02",
+    "parts": [
+      "S2Ba"
+    ],
+    "status": "FIXED",
+    "question": "After the customer on a new order changes, can the order still go to the delivery address of the order it was made from — the previous customer's door — or carry the previous customer's name on an address the owner said?",
+    "files": [
+      "crooks-assistant/app/families/order_create.py",
+      "crooks-assistant/app/families/_workspace.py",
+      "crooks-assistant/tests/test_r13_order_customer_change.py",
+      "crooks-assistant/tests/test_r12_orders.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f02_an_order_address_is_dropped_when_the_customer_changes_by_voice",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f02_an_order_address_is_dropped_when_the_name_is_retyped_on_the_card",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f02_an_address_he_said_carries_the_name_of_whoever_it_is_for_now",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f02_prepare_refuses_an_order_whose_customer_is_not_the_one_chosen",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f02_prepare_refuses_an_order_address_that_is_another_customers",
+      "crooks-assistant/tests/test_r13_order_customer_change.py::test_f02_the_same_customer_again_keeps_the_address_of_their_order",
+      "crooks-assistant/tests/test_r12_orders.py::test_postage_a_note_and_where_it_goes_by_voice",
+      "crooks-assistant/tests/test_r12_orders.py::test_the_hold_creates_exactly_the_lines_and_discounts_on_the_card"
+    ],
+    "answer": "FIXED in round 13 (9ef008da, app/families/order_create.py), in the same _set_customer as S2Ba/F-01. At 361b0138 _from_order stored the made-from order's address in facts['source'] and chose address=order, and no later change of customer (_customer_by_id, the build branches, the retype) touched either; _draft_input then sent that order's shippingAddress for the new customer, Prepare re-read only the source order's address, not whose it was, and _given_address had stamped the then-chosen customer's name on a spoken address. Now _from_order records source.customer_id; _set_customer's _address_for_customer drops facts['source'] when its customer_id is not the new customer's and moves the address choice from 'order' to 'customer' (the new customer's own address: useCustomerDefaultAddress, no shippingAddress), saying so to the model; a spoken address is re-named for the new customer (_named) and given_for records whose name is on it; the same customer chosen again keeps both. The floor: _not_theirs refuses ship == 'order' when source.customer_id is not the chosen customer's, and ship == 'given' when given_for is not; shopify_order_create re-reads the source order at Prepare and refuses when its customer.id is not the chosen customer's (merged or reassigned in Admin since). Invariant: an address taken off an order is used only for that order's customer, and the name on an address he said is that of whoever the order is for. test_f02_an_order_address_is_dropped_when_the_customer_changes_by_voice failed at 361b0138 with the address choice still ['order'] after the change to Ava, and passes now; the other four f02 refusals failed there too. The same customer again, and the round-12 order tests, pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/families/order_create.py": [
+        "lines 589-648: _blocked: every Prepare, tapped or said, is refused while an email is uncertain or not the chosen customer's (_not_theirs)",
+        "lines 670-767: whose it is: _set_customer (the one way the customer changes), _email_for_customer, _address_for_customer, _named, _not_theirs",
+        "lines 1223-1304: _resolve_customer, choose_row, _choose_customer, _customer_by_id (all through _set_customer) and _from_order (source.customer_id)",
+        "lines 1480-1609: shopify_order_build: the customer_id and customer branches",
+        "lines 1734-1753: _given_address: given_for records whose name is on a spoken address",
+        "lines 1826-1869: _going_to, expected_card and card_differences, the draft check",
+        "lines 1915-1953: _draft_input: email, customerId, shippingAddress or useCustomerDefaultAddress",
+        "lines 2076-2296: shopify_order_create: the customer re-read by id, _not_theirs again, and the source order's customer re-read",
+        "lines 2344-2381: _field: email typed (email_for how=typed) and the customer retyped (_set_customer(None))",
+        "lines 2399-2417: _pick_customer",
+        "lines 2527-2577: the card's own customer lookup, through choose_row"
+      ]
+    }
+  },
+  {
+    "finding": "S2a/S2a-01",
+    "parts": [
+      "S2a"
+    ],
+    "status": "FIXED",
+    "question": "When the owner names an order as where a change goes and the change's own words repeat that number, is the change still held to that order, so a note or refund the model stages on another order is withdrawn?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/session/branch.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/tests/test_r13_off_target.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_touch_to_voice.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_off_target.py::test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said-after-add-a-note-on-1938]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_refund_whose_reason_repeats_the_order_number_is_held_to_that_order",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_number_said_only_in_the_note_does_not_let_the_note_land_on_a_third_order",
+      "crooks-assistant/tests/test_r13_off_target.py::test_the_same_note_on_the_order_he_named_is_his_card",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_number_said_only_in_the_note_does_not_move_the_note_off_the_order_he_is_on",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_note_naming_where_it_goes_is_still_held_to_that_order_whatever_it_mentions",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_note_that_mentions_another_order_is_his_note_not_a_change_aimed_elsewhere[exchange for order 1912, she wants a medium instead-Exchange for order 1912, she wants a medium instead]",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_change_to_an_order_other_than_the_one_named_is_refused_at_the_write_boundary"
+    ],
+    "answer": "FIXED in round 13 (b2203550, app/routes/turn.py). At 361b0138 _off_target took away, as a set, every number the change's content carried (`named - _written_numbers(proposal)`), so a number he said as where the change goes and again inside it was no longer named. Now _said_outside counts: _order_mentions counts each place in his words that names an order (said as one, or a number that is an order this conversation holds), _written_counts counts each number in the model's own arguments for the change (never an id, a gid, or the sending copy, which for a note holds the old note too), and a number he said more times than the change writes it is where the change goes; _off_target withdraws an order change whose order is not among those numbers (NOT_THE_ORDER_NAMED), and _answer revokes it before it is delivered or drawn, with _off_target_words saying which order he named. An order he named only inside the content still limits it: the change may stand on the order he is looking at (the round-11 content rule) or on one he named, but not on a third order. Invariant: a number the owner said outside the change's own content is where the change goes. test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said] — 'add a note to order 1940: 1940 goes with the gift box', noted by the model on #1938 — failed at 361b0138 with the note PENDING, and passes now: REVOKED, and the answer names #1940. The refund whose reason repeats its number, and the third-order case, failed there too; the controls and the round-11 content tests pass before and after. Production (6a29e310) has no post-model target check at all; this closes the residual hole in the candidate's.",
+    "excerpts": {
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 597-615: _with_continuation: the binding beside his words, for the model",
+        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+      ],
+      "crooks-assistant/app/session/branch.py": [
+        "lines 757-788: bind_voice, voice_target, release_voice"
+      ],
+      "crooks-assistant/app/commands.py": [
+        "lines 767-804: _bind_voice: voice.bind, the tapped control"
+      ]
+    }
+  },
+  {
+    "finding": "R9-I-tests2-I-01",
+    "parts": [
+      "T2",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "After Add a note is bound to one order and the next sentence names another, can a note the model stages on the first stand — including when the note's own words repeat the number he named?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/session/branch.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/tests/test_r13_off_target.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_touch_to_voice.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_off_target.py::test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said-after-add-a-note-on-1938]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_the_order_he_names_still_wins",
+      "crooks-assistant/tests/test_r11_turn.py::test_add_a_note_bound_to_1938_then_1940_named_stages_nothing_on_1938[add a note to order 1940: fragile]",
+      "crooks-assistant/tests/test_r11_turn.py::test_add_a_note_bound_to_1938_then_1940_named_stages_nothing_on_1938[#1940: fragile, handle with care]",
+      "crooks-assistant/tests/test_r11_turn.py::test_add_a_note_bound_to_1938_then_a_note_for_1940_as_asked_lands_on_1940",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_question_about_another_order_after_a_tapped_note_stages_nothing_on_the_first"
+    ],
+    "answer": "FIXED in round 13 (b2203550), with S2a/S2a-01: round 12 ruled it STILL PRESENT because a note bound to #1938, said for #1940 with 1940 inside the note, lost #1940 to the set subtraction. At 361b0138 _off_target took away, as a set, every number the change's content carried (`named - _written_numbers(proposal)`), so a number he said as where the change goes and again inside it was no longer named. Now _said_outside counts: _order_mentions counts each place in his words that names an order (said as one, or a number that is an order this conversation holds), _written_counts counts each number in the model's own arguments for the change (never an id, a gid, or the sending copy, which for a note holds the old note too), and a number he said more times than the change writes it is where the change goes; _off_target withdraws an order change whose order is not among those numbers (NOT_THE_ORDER_NAMED), and _answer revokes it before it is delivered or drawn, with _off_target_words saying which order he named. An order he named only inside the content still limits it: the change may stand on the order he is looking at (the round-11 content rule) or on one he named, but not on a third order. A number he said outside the note outranks the tapped binding as well: in _off_target the numbers from _said_outside are asked first, and only when there are none does the binding decide. test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said-after-add-a-note-on-1938] failed at 361b0138 with the note PENDING on #1938 and passes now; the round-11 binding tests, where the note does not repeat the number, pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 597-615: _with_continuation: the binding beside his words, for the model",
+        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+      ],
+      "crooks-assistant/app/session/branch.py": [
+        "lines 757-788: bind_voice, voice_target, release_voice"
+      ],
+      "crooks-assistant/app/commands.py": [
+        "lines 767-804: _bind_voice: voice.bind, the tapped control"
+      ]
+    }
+  },
+  {
+    "finding": "R9-I-tests5-I-03",
+    "parts": [
+      "T5",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "Beyond the fixed-model walkthrough, is a change the model stages on a record other than the one the owner named refused at the write boundary — including a refund or note whose own words repeat the order he named?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/session/branch.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/tests/test_r13_off_target.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_touch_to_voice.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_refund_whose_reason_repeats_the_order_number_is_held_to_that_order",
+      "crooks-assistant/tests/test_r13_off_target.py::test_an_order_named_as_where_and_again_in_the_note_still_holds_the_note_to_it[said]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_number_said_only_in_the_note_does_not_let_the_note_land_on_a_third_order",
+      "crooks-assistant/tests/test_r13_off_target.py::test_the_same_note_on_the_order_he_named_is_his_card",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_change_to_an_order_other_than_the_one_named_is_refused_at_the_write_boundary",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[refund]",
+      "crooks-assistant/tests/test_r11_turn.py::test_yes_with_another_order_number_over_a_waiting_refund_is_an_instruction_about_that_order[the order he said]"
+    ],
+    "answer": "FIXED in round 13 (b2203550), with S2a/S2a-01, which is the same subtraction. At 361b0138 _off_target took away, as a set, every number the change's content carried (`named - _written_numbers(proposal)`), so a number he said as where the change goes and again inside it was no longer named. Now _said_outside counts: _order_mentions counts each place in his words that names an order (said as one, or a number that is an order this conversation holds), _written_counts counts each number in the model's own arguments for the change (never an id, a gid, or the sending copy, which for a note holds the old note too), and a number he said more times than the change writes it is where the change goes; _off_target withdraws an order change whose order is not among those numbers (NOT_THE_ORDER_NAMED), and _answer revokes it before it is delivered or drawn, with _off_target_words saying which order he named. An order he named only inside the content still limits it: the change may stand on the order he is looking at (the round-11 content rule) or on one he named, but not on a third order. test_a_refund_whose_reason_repeats_the_order_number_is_held_to_that_order — 'refund twenty pounds on 1940, the reason is 1940 arrived torn', prepared by the model on #1938 — failed at 361b0138 with the refund PENDING and passes now: withdrawn before it is shown. The round-11 write-boundary and money tests pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 597-615: _with_continuation: the binding beside his words, for the model",
+        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+      ],
+      "crooks-assistant/app/session/branch.py": [
+        "lines 757-788: bind_voice, voice_target, release_voice"
+      ],
+      "crooks-assistant/app/commands.py": [
+        "lines 767-804: _bind_voice: voice.bind, the tapped control"
+      ]
+    }
+  },
+  {
+    "finding": "R9-D1-D1-02",
+    "parts": [
+      "AC1",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "Can a change made under a tapped control — a note after Add a note, a reply after Reply — land on a record other than the one the tap bound, when the owner's next words name no record?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/session/branch.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/tests/test_r13_off_target.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_touch_to_voice.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_off_target.py::test_words_after_add_a_note_on_1940_that_name_no_order_cannot_note_1938",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_reply_after_reply_was_tapped_on_one_thread_is_prepared_only_in_that_thread[another-thread]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_words_after_add_a_note_on_1940_land_on_1940",
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_reply_after_reply_was_tapped_on_one_thread_is_prepared_only_in_that_thread[the-tapped-thread]",
+      "crooks-assistant/tests/test_r13_off_target.py::test_after_add_a_note_the_order_he_names_still_wins",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_note_tapped_after_order_b_replaced_order_a_lands_on_b_through_the_commit[show me order 1940-order]",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_workspace_moves_the_cursor_and_the_tapped_note_lands_on_the_order_shown",
+      "crooks-assistant/tests/test_touch_to_voice.py::test_the_next_sentence_carries_the_binding_and_only_the_next"
+    ],
+    "answer": "FIXED in round 13 (b2203550, app/routes/turn.py). At 361b0138 a tapped control (Add a note, Reply, Rewrite) reached the model only as a note beside his words (_with_continuation); _answer never saw it, so words that named no order ('fragile') left nothing to hold the change to and a change the model staged on the cursor's order, or a reply in another thread, stood. Now _turn hands the spent binding to _answer (binding=continuation), and _off_target holds every change of the bound kind (_BOUND_KINDS: order → order changes; email_thread → email and thread changes; customer → customer changes) to the bound record: unless his own words named an order outside the change's content (_said_outside, which is asked first), a change not on the bound record is withdrawn as NOT_THE_RECORD_TAPPED, and _off_target_words tells him what he tapped and where the change was. For an email binding, a reply in another thread stands only when it is about an order he named. Invariant: a change made under a tapped binding lands on the bound record, unless the owner's own words named another. test_words_after_add_a_note_on_1940_that_name_no_order_cannot_note_1938 failed at 361b0138 with #1938's note PENDING and passes now; the Reply variant (a reply in her other thread after Reply was tapped on the thread about #1912) failed there too. The controls — the bound order noted, the tapped thread replied in, an order he named winning over the binding — pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 597-615: _with_continuation: the binding beside his words, for the model",
+        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+      ],
+      "crooks-assistant/app/session/branch.py": [
+        "lines 757-788: bind_voice, voice_target, release_voice"
+      ],
+      "crooks-assistant/app/commands.py": [
+        "lines 767-804: _bind_voice: voice.bind, the tapped control"
+      ]
+    }
+  },
+  {
+    "finding": "R9-D2-D2-04",
+    "parts": [
+      "AC2",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "On a screen showing several records, is a tapped control's binding enforced at the write boundary, so a change the model stages on another record — the old cursor's order — is withdrawn?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/session/branch.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/tests/test_r13_off_target.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_touch_to_voice.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_off_target.py::test_a_mixed_screen_s_listening_chip_binds_the_cursor_and_a_note_elsewhere_is_withdrawn",
+      "crooks-assistant/tests/test_r13_off_target.py::test_words_after_add_a_note_on_1940_land_on_1940",
+      "crooks-assistant/tests/test_turn_boundary.py::test_two_orders_on_one_screen_move_nothing_and_neither_card_can_bind_the_other",
+      "crooks-assistant/tests/test_turn_boundary.py::test_an_order_beside_a_customer_is_not_a_record_the_cursor_can_choose",
+      "crooks-assistant/tests/test_r11_turn.py::test_after_an_order_beside_a_customer_the_note_chip_s_words_land_only_on_the_order_they_name"
+    ],
+    "answer": "FIXED in round 13 (b2203550), with R9-D1-D1-02: round 12 found that the mixed screen no longer chose a cursor, but that the uniquely identified tap was still not enforced at the write boundary. At 361b0138 a tapped control (Add a note, Reply, Rewrite) reached the model only as a note beside his words (_with_continuation); _answer never saw it, so words that named no order ('fragile') left nothing to hold the change to and a change the model staged on the cursor's order, or a reply in another thread, stood. Now _turn hands the spent binding to _answer (binding=continuation), and _off_target holds every change of the bound kind (_BOUND_KINDS: order → order changes; email_thread → email and thread changes; customer → customer changes) to the bound record: unless his own words named an order outside the change's content (_said_outside, which is asked first), a change not on the bound record is withdrawn as NOT_THE_RECORD_TAPPED, and _off_target_words tells him what he tapped and where the change was. For an email binding, a reply in another thread stands only when it is about an order he named. Invariant: a change made under a tapped binding lands on the bound record, unless the owner's own words named another. test_a_mixed_screen_s_listening_chip_binds_the_cursor_and_a_note_elsewhere_is_withdrawn — #1938 and #1940 side by side, #1938's Add a note tapped, 'gift wrap it', noted by the model on #1940 — failed at 361b0138 with #1940's note standing and passes now. The round-10 and round-11 tests that a mixed screen moves no cursor pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 597-615: _with_continuation: the binding beside his words, for the model",
+        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+      ],
+      "crooks-assistant/app/session/branch.py": [
+        "lines 757-788: bind_voice, voice_target, release_voice"
+      ],
+      "crooks-assistant/app/commands.py": [
+        "lines 767-804: _bind_voice: voice.bind, the tapped control"
+      ]
+    }
+  },
+  {
+    "finding": "R9-D2-D2-05",
+    "parts": [
+      "AC3",
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "Is a change on a person — store credit — held to the person the owner named, so the model cannot stage it on another customer, and is a name two customers share refused rather than guessed?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/session/branch.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/tests/test_r13_off_target.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_touch_to_voice.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_off_target.py::test_store_credit_for_the_person_he_named_is_not_given_to_another",
+      "crooks-assistant/tests/test_r13_off_target.py::test_store_credit_for_a_name_two_people_share_is_withdrawn_rather_than_guessed",
+      "crooks-assistant/tests/test_r13_off_target.py::test_store_credit_for_the_person_he_named_is_his_card",
+      "crooks-assistant/tests/test_r13_off_target.py::test_the_whole_name_settles_which_of_two_people_he_meant",
+      "crooks-assistant/tests/test_r13_off_target.py::test_store_credit_asked_for_without_a_name_is_the_model_s_to_place",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_named_person_with_another_customer_s_order_open_is_answered_from_that_person",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[store credit]"
+    ],
+    "answer": "FIXED in round 13 (b2203550, app/routes/turn.py). At 361b0138 _off_target skipped every proposal whose entity_kind was not 'order', so 'give Mia fifteen pounds store credit', staged by the model on another customer, stood with only the red hold card naming the customer. Now a customer change is judged too: _people_held collects the customers this conversation holds by name (its context stack, this turn's reads by customer_id and customer_name — never an order's own `name` — and its staged customer changes); _people_said finds whom his words name, a whole name first ('Mia Kowalski' settles two Mias) and then single words, counting as rivals the names among the personal strings its reads returned (pii_seen) so that a Mia seen only in search results still makes 'Mia' two people. A customer change on anyone but a person he named is withdrawn (NOT_THE_PERSON_NAMED); one named only by a name two people share is withdrawn (A_NAME_TWO_SHARE) unless the control he tapped was on that customer; with no one named, a tapped customer binding decides, and with neither the model places it and the card names her. _off_target_words says whom he named and whom the change was for, or asks which one. Invariant: a money change on a person goes only to the person the owner named. test_store_credit_for_the_person_he_named_is_not_given_to_another failed at 361b0138 with the credit PENDING on Daniel and passes now; the shared-name case failed there too. The controls pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 134-407: _turn: the tapped binding is spent on this one sentence (voice_target, release_voice) and handed to _answer as binding",
+        "lines 597-615: _with_continuation: the binding beside his words, for the model",
+        "lines 920-1321: the numbers he said counted by place (_order_mentions, _said_outside, _written_counts), the people he named (_people_held, _people_said), and _off_target and _off_target_words",
+        "lines 1644-2047: _answer: _off_target run after the model on what it staged, with the binding; a change off target withdrawn before it is delivered"
+      ],
+      "crooks-assistant/app/session/branch.py": [
+        "lines 757-788: bind_voice, voice_target, release_voice"
+      ],
+      "crooks-assistant/app/commands.py": [
+        "lines 767-804: _bind_voice: voice.bind, the tapped control"
+      ]
+    }
+  },
+  {
+    "finding": "S2T/S2T-01",
+    "parts": [
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "When the model says a record is on the screen that the turn did not read, can the on-screen claim repair replace the record the turn read with the claimed one, and move the cursor to it?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/screen.py",
+      "crooks-assistant/app/observability/claims.py",
+      "crooks-assistant/tests/test_r13_screen_claim.py",
+      "crooks-assistant/tests/test_r12_surfaces.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_screen_claim.py::test_a_claim_about_another_order_does_not_replace_the_order_the_turn_read",
+      "crooks-assistant/tests/test_r13_screen_claim.py::test_with_nothing_named_the_claim_still_cannot_move_the_cursor_to_a_record_not_read",
+      "crooks-assistant/tests/test_r13_screen_claim.py::test_a_claim_over_a_screen_the_turn_left_to_the_record_before_is_still_made_true",
+      "crooks-assistant/tests/test_r12_surfaces.py::test_an_order_claimed_on_screen_and_not_drawn_is_drawn",
+      "crooks-assistant/tests/test_r12_surfaces.py::test_a_claim_with_nothing_to_stand_on_is_corrected_before_it_is_spoken",
+      "crooks-assistant/tests/test_r12_surfaces.py::test_two_orders_claimed_and_neither_drawn_is_corrected_not_guessed",
+      "crooks-assistant/tests/test_r12_surfaces.py::test_an_order_the_conversation_never_saw_is_not_drawn_to_make_a_claim_true"
+    ],
+    "answer": "FIXED in round 13 (076887d5, app/routes/turn.py). At 361b0138 _hold_to_the_screen, finding an order the answer claimed was on screen but was not (missing), drew that order (_order_held, _draw_held) in place of the answer's ui, so 'show me order 1940', #1940 read, answered 'Order #1938 is on your screen' dropped #1940's card for #1938's, and _stand_on_what_was_shown then put the cursor on #1938. Now, before any record is drawn, _hold_to_the_screen takes `own`: the cards on the screen that this turn drew itself (screen.is_subject and not kept from the screen before). When there are any, the ui is left as it is, the false sentence is taken out (claims.without_the_claim), and when nothing else was said _what_is_up says what is on the screen ('#1940 is on your screen.'); the claim is recorded as corrected. Only a turn that drew nothing of its own — the screen kept from before — has the claimed order drawn, as round 12 did, and only an order this conversation holds. Invariant: the claim check never replaces what the turn read with a record it did not read, so the cursor never follows one. test_a_claim_about_another_order_does_not_replace_the_order_the_turn_read failed at 361b0138 with the ui holding only ('order', 'gid://shopify/Order/1938') and passes now; the case with no order named failed the same way. The round-12 claim tests and the kept-screen case pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 853-889: _card_record, _record_key, _records_shown",
+        "lines 1324-1359: _stand_on_what_was_shown: the cursor follows the one record on the screen",
+        "lines 1370-1489: _hold_to_the_screen (what the turn drew itself is never replaced by a claimed record), _what_is_up, _order_held, _draw_held",
+        "lines 1579-1593: _moved_on",
+        "lines 1644-2047: _answer: moved_on_since asked again after each await, and the abandoned path taken when it says so"
+      ],
+      "crooks-assistant/app/observability/claims.py": [
+        "lines 210-210: NOT_ON_SCREEN",
+        "lines 244-256: without_the_claim and screen_claim"
+      ]
+    }
+  },
+  {
+    "finding": "R9-D2-D2-01",
+    "parts": [
+      "S2",
+      "S2T"
+    ],
+    "status": "FIXED",
+    "question": "When an older answer finishes after its replacement — here, while its on-screen claim waits on the shop — can it publish cards, move the half's cursor or stored screen, or leave a change it staged tappable?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/observability/claims.py",
+      "crooks-assistant/tests/test_r13_screen_claim.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_r11_turn.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_screen_claim.py::test_an_answer_replaced_while_its_claim_is_read_moves_neither_the_cursor_nor_the_screen",
+      "crooks-assistant/tests/test_r13_screen_claim.py::test_a_change_staged_by_an_answer_replaced_while_its_claim_is_read_is_withdrawn",
+      "crooks-assistant/tests/test_r13_screen_claim.py::test_an_answer_nobody_replaced_still_waits_for_its_claim_and_draws_it",
+      "crooks-assistant/tests/test_r13_screen_claim.py::test_an_answer_to_one_half_is_not_abandoned_by_a_question_to_the_other",
+      "crooks-assistant/tests/test_turn_boundary.py::test_an_answer_replaced_by_a_newer_question_moves_nothing_when_it_finishes_last",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_late_answer_does_not_end_the_newer_turn_still_running_on_its_half",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_cancelled_answer_ends_its_own_turn_and_moves_nothing",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_change_staged_by_an_answer_the_owner_has_moved_on_from_is_withdrawn_unsent",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_late_answer_about_a_does_not_take_the_tapped_note_back_to_a"
+    ],
+    "answer": "FIXED in round 13 (076887d5, app/routes/turn.py). At 361b0138 _answer computed `abandoned` once, before its awaits; the claim repair (_hold_to_the_screen → _draw_held) can wait up to six seconds on a Shopify read, and a newer sentence to the same half that finished in that wait was then overwritten: the older answer drew its record, put the cursor on it and stored it as the half's screen, so the next tapped Add a note bound an order the owner had moved off. Now _answer asks moved_on_since() again after each await — the scope lookup (writes_context) and the claim repair. On a model turn it is _moved_on(session, branch, epoch, seq); for an answer that never counted itself in (a spoken yes, an early refusal) it compares the half's instruction_seq and its abandoned flag with where they stood when the answer began. A sentence to the other half does not count. Moved on, the answer takes the abandoned path: its changes are revoked through withdraw() ('the owner moved on'), and it publishes no ui, no scene, no on-screen claim, no cursor, no shown and no reconciliation; what it read is still kept (_keep_what_was_read). Invariant: a turn changes the half's cursor and screen only while it is the half's current turn. test_an_answer_replaced_while_its_claim_is_read_moves_neither_the_cursor_nor_the_screen failed at 361b0138 with the late answer still publishing cards (order, attention, context_stack) after the newer one, and passes now; the second test, with a note in the late answer, failed there the same way (its note was already withdrawn by the newer sentence, as every new sentence withdraws the half's waiting cards; the new path withdraws it itself too). The round-9 to round-11 late-answer tests pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 853-889: _card_record, _record_key, _records_shown",
+        "lines 1324-1359: _stand_on_what_was_shown: the cursor follows the one record on the screen",
+        "lines 1370-1489: _hold_to_the_screen (what the turn drew itself is never replaced by a claimed record), _what_is_up, _order_held, _draw_held",
+        "lines 1579-1593: _moved_on",
+        "lines 1644-2047: _answer: moved_on_since asked again after each await, and the abandoned path taken when it says so"
+      ],
+      "crooks-assistant/app/observability/claims.py": [
+        "lines 210-210: NOT_ON_SCREEN",
+        "lines 244-256: without_the_claim and screen_claim"
+      ]
+    }
+  },
+  {
+    "finding": "S6/S6-01",
+    "parts": [
+      "S6"
+    ],
+    "status": "FIXED",
+    "question": "Is each step of an objective's three-step write — pending design, record, design — on the disk before the next begins, so a power cut cannot keep a later step and lose an earlier one?",
+    "files": [
+      "crooks-assistant/app/objectives/store.py",
+      "crooks-assistant/app/objectives/gaps.py",
+      "crooks-assistant/tests/test_r13_objective_durability.py",
+      "crooks-assistant/tests/test_objective_design_file.py",
+      "crooks-assistant/tests/test_objective_rollback.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_each_step_of_a_change_is_on_the_disk_before_the_next_begins",
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_a_new_objective_is_on_the_disk_before_create_returns",
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_a_pending_design_lost_after_its_record_is_said_not_silently_replaced",
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_a_pending_design_that_was_never_recorded_is_not_a_loss",
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_a_record_the_old_store_moved_on_is_not_a_loss",
+      "crooks-assistant/tests/test_objective_design_file.py::test_a_write_cut_short_at_any_step_leaves_the_old_objective_or_the_new[a new task-1]",
+      "crooks-assistant/tests/test_objective_design_file.py::test_a_write_cut_short_at_any_step_leaves_the_old_objective_or_the_new[a new task-2]",
+      "crooks-assistant/tests/test_objective_design_file.py::test_a_write_cut_short_at_any_step_leaves_the_old_objective_or_the_new[a new task-3]",
+      "crooks-assistant/tests/test_objective_rollback.py::test_rolled_back_changed_and_rolled_forward_nothing_is_lost"
+    ],
+    "answer": "FIXED in round 13 (1e70ae89, app/objectives/store.py). At 361b0138 ObjectiveStore._atomic wrote a temporary file and renamed it, with no fsync of the file or of its folder, and _write's step 3 was a bare os.replace; so after a power cut the record of step 2 could be on the disk while the pending design of step 1 was empty or missing, the old design — which still agrees with that record by its history (_verdict) — was read, and the change was lost while the record's event said it was made. Now _atomic creates any missing folder durably (_folder: each one named in its parent with _fsync_dir), writes the content, flushes and os.fsyncs it before os.replace, and fsyncs the folder after; _promote (step 3, used by _write and _settle) fsyncs the design folder after its rename. _fsync_dir (app/objectives/gaps.py) raises on failure, so a step that cannot be made durable fails the write rather than passing on. And a design file still found damaged beside a record that has moved past the design being read is not passed over: _read asks _judge whether a file was set aside as damage and, when the record has more events than the design read, _say_lost puts an open question on the objective with the last change the record says was made, and writes it so the next read and a restart still say it; a pending design never recorded, and a record the rollback store moved on, ask nothing. Invariant: each step is on the disk, content and folder, before the next begins. test_each_step_of_a_change_is_on_the_disk_before_the_next_begins records every fsync (by inode) and rename: it failed at 361b0138 with 'nothing fsynced … before step 0' and passes now; the power-cut case (the pending design truncated after its record landed) failed there with no question on the objective. The cut-short, never-recorded and rollback tests pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/objectives/gaps.py": [
+        "lines 626-634: _fsync_dir: a folder flushed, its failure raised"
+      ]
+    }
+  },
+  {
+    "finding": "T4/T4-02",
+    "parts": [
+      "T4"
+    ],
+    "status": "FIXED",
+    "question": "Do the three-step objective write and the pre-round-12 readability hold when a write fails or the power goes at each step — existing records surviving, and damaged or disagreeing designs set aside — and is that tested beyond a successful write and reload?",
+    "files": [
+      "crooks-assistant/app/objectives/store.py",
+      "crooks-assistant/app/objectives/gaps.py",
+      "crooks-assistant/tests/test_r13_objective_durability.py",
+      "crooks-assistant/tests/test_objective_design_file.py",
+      "crooks-assistant/tests/test_objective_rollback.py",
+      "crooks-assistant/tests/fixtures/objectives/store_547f652f.py.txt",
+      "crooks-assistant/tests/test_objective_design.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_each_step_of_a_change_is_on_the_disk_before_the_next_begins",
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_a_pending_design_lost_after_its_record_is_said_not_silently_replaced",
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_a_new_objective_is_on_the_disk_before_create_returns",
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_a_pending_design_that_was_never_recorded_is_not_a_loss",
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_a_record_the_old_store_moved_on_is_not_a_loss",
+      "crooks-assistant/tests/test_objective_design_file.py::test_a_write_cut_short_at_any_step_leaves_the_old_objective_or_the_new[a kind change-2]",
+      "crooks-assistant/tests/test_objective_design_file.py::test_a_write_cut_short_is_still_readable_by_the_store_production_rolls_back_to",
+      "crooks-assistant/tests/test_objective_design_file.py::test_a_design_that_does_not_agree_with_its_record_is_ignored_and_kept_aside[unreadable-change4]",
+      "crooks-assistant/tests/test_objective_rollback.py::test_the_store_production_rolls_back_to_lists_and_opens_every_round_12_record",
+      "crooks-assistant/tests/test_objective_rollback.py::test_rolled_back_changed_and_rolled_forward_nothing_is_lost",
+      "crooks-assistant/tests/test_objective_design.py::test_a_record_written_before_round_12_reads_exactly_as_it_did[business_v1.json]"
+    ],
+    "answer": "FIXED in round 13 (1e70ae89), with S6/S6-01; round 12's follow-up settled T4-02 as a defect of the same write. At 361b0138 ObjectiveStore._atomic wrote a temporary file and renamed it, with no fsync of the file or of its folder, and _write's step 3 was a bare os.replace; so after a power cut the record of step 2 could be on the disk while the pending design of step 1 was empty or missing, the old design — which still agrees with that record by its history (_verdict) — was read, and the change was lost while the record's event said it was made. Now _atomic creates any missing folder durably (_folder: each one named in its parent with _fsync_dir), writes the content, flushes and os.fsyncs it before os.replace, and fsyncs the folder after; _promote (step 3, used by _write and _settle) fsyncs the design folder after its rename. _fsync_dir (app/objectives/gaps.py) raises on failure, so a step that cannot be made durable fails the write rather than passing on. And a design file still found damaged beside a record that has moved past the design being read is not passed over: _read asks _judge whether a file was set aside as damage and, when the record has more events than the design read, _say_lost puts an open question on the objective with the last change the record says was made, and writes it so the next read and a restart still say it; a pending design never recorded, and a record the rollback store moved on, ask nothing. Invariant: each step is on the disk, content and folder, before the next begins. What the review asked for is in the files: failure injected at each step with the objective read back (test_objective_design_file.py, every step of four kinds of change), a power cut after the record with the pending design lost (test_r13_objective_durability.py), damaged and disagreeing designs set aside (_set_aside, test_a_design_that_does_not_agree_with_its_record_is_ignored_and_kept_aside), and the store production rolls back to, run from its own source (tests/fixtures/objectives/store_547f652f.py.txt, byte-identical to 6a29e310's app/objectives/store.py: the T7-01 entry), listing, opening and changing every round-12 record. The first three tests failed at 361b0138 and pass now; the rest pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/objectives/gaps.py": [
+        "lines 626-634: _fsync_dir: a folder flushed, its failure raised"
+      ]
+    }
+  },
+  {
+    "finding": "T6/T6-01",
+    "parts": [
+      "T6"
+    ],
+    "status": "FIXED",
+    "question": "Would an interrupted objective write lose data across a restart — is the write order durable, and do the tests simulate the restart and compare stage and task ids exactly rather than only raising at os.replace?",
+    "files": [
+      "crooks-assistant/app/objectives/store.py",
+      "crooks-assistant/app/objectives/gaps.py",
+      "crooks-assistant/tests/test_r13_objective_durability.py",
+      "crooks-assistant/tests/test_objective_design_file.py",
+      "crooks-assistant/tests/test_objective_rollback.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_a_pending_design_lost_after_its_record_is_said_not_silently_replaced",
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_each_step_of_a_change_is_on_the_disk_before_the_next_begins",
+      "crooks-assistant/tests/test_r13_objective_durability.py::test_a_pending_design_that_was_never_recorded_is_not_a_loss",
+      "crooks-assistant/tests/test_objective_design_file.py::test_a_write_cut_short_at_any_step_leaves_the_old_objective_or_the_new[a stage move-1]",
+      "crooks-assistant/tests/test_objective_design_file.py::test_a_write_cut_short_at_any_step_leaves_the_old_objective_or_the_new[a stage move-2]",
+      "crooks-assistant/tests/test_objective_design_file.py::test_a_write_cut_short_at_any_step_leaves_the_old_objective_or_the_new[a stage move-3]",
+      "crooks-assistant/tests/test_objective_design_file.py::test_a_write_cut_short_at_any_step_leaves_the_old_objective_or_the_new[a tick-2]",
+      "crooks-assistant/tests/test_objective_rollback.py::test_rolled_back_changed_and_rolled_forward_nothing_is_lost"
+    ],
+    "answer": "FIXED in round 13 (1e70ae89), with S6/S6-01, the store defect this test gap hid. At 361b0138 ObjectiveStore._atomic wrote a temporary file and renamed it, with no fsync of the file or of its folder, and _write's step 3 was a bare os.replace; so after a power cut the record of step 2 could be on the disk while the pending design of step 1 was empty or missing, the old design — which still agrees with that record by its history (_verdict) — was read, and the change was lost while the record's event said it was made. Now _atomic creates any missing folder durably (_folder: each one named in its parent with _fsync_dir), writes the content, flushes and os.fsyncs it before os.replace, and fsyncs the folder after; _promote (step 3, used by _write and _settle) fsyncs the design folder after its rename. _fsync_dir (app/objectives/gaps.py) raises on failure, so a step that cannot be made durable fails the write rather than passing on. And a design file still found damaged beside a record that has moved past the design being read is not passed over: _read asks _judge whether a file was set aside as damage and, when the record has more events than the design read, _say_lost puts an open question on the objective with the last change the record says was made, and writes it so the next read and a restart still say it; a pending design never recorded, and a record the rollback store moved on, ask nothing. Invariant: each step is on the disk, content and folder, before the next begins. The test gap: test_a_pending_design_lost_after_its_record_is_said_not_silently_replaced is the restart the review asked for — the write stopped after step 2, the pending design truncated to nothing as a power cut before a flush leaves it, and a fresh ObjectiveStore reads the objective: it failed at 361b0138 (no question on the objective, the change silently gone) and passes now. test_each_step_of_a_change_is_on_the_disk_before_the_next_begins holds the durable order by recording every fsync and rename. And test_objective_design_file's _same now compares stage and task ids, which _counted_ids makes the same in the run cut short and its twin, so a design read from the wrong write can no longer compare equal; those parametrised cases pass before and after, as a tighter oracle does on a store whose exception path was already right.",
+    "excerpts": {
+      "crooks-assistant/app/objectives/gaps.py": [
+        "lines 626-634: _fsync_dir: a folder flushed, its failure raised"
+      ]
+    }
+  },
+  {
+    "finding": "S6/S6-02",
+    "parts": [
+      "S6"
+    ],
+    "status": "FIXED",
+    "question": "Are tasks past the sixtieth and people past the twelfth refused rather than dropped without a word, when an objective is opened or its design changed?",
+    "files": [
+      "crooks-assistant/app/objectives/store.py",
+      "crooks-assistant/app/objectives/tools.py",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py",
+      "crooks-assistant/tests/test_objective_design.py",
+      "crooks-assistant/tests/test_registry.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_more_tasks_than_an_objective_holds_are_refused_and_nothing_is_recorded",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_more_people_than_an_objective_names_are_refused_when_opened_or_changed",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_the_model_is_told_the_limits_and_is_refused_past_them",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_as_many_tasks_as_it_holds_are_all_kept_and_a_task_said_twice_is_one",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_one_task_past_the_limit_on_a_full_objective_is_refused",
+      "crooks-assistant/tests/test_objective_design.py::test_a_project_needs_its_stages_and_tasks_need_their_people",
+      "crooks-assistant/tests/test_registry.py::test_the_tool_block_offered_to_the_model_stays_within_its_budget"
+    ],
+    "answer": "FIXED in round 13 (04c22030). At 361b0138 create() iterated `(tasks or [])[:MAX_TASKS]` and _people `list(entries)[:MAX_PEOPLE]` (used by create and design), so the 61st task and the 13th person were dropped and the owner told it was done; the objective tools are reads to the gate, so no schema bound applied either. Now create() passes every task to _add_task, which raises ObjectiveError('An objective holds at most 60 tasks; nothing was recorded.') once the objective is full, before anything is written; _people raises 'An objective names at most 12 people; nothing was recorded.' as soon as a thirteenth distinct person is named (the same name twice is one person), in create and in design. The limits are also said to the model as maxItems on objective_open's people, stages and tasks and objective_note's people and stages (app/objectives/tools.py: _PEOPLE, _STAGES), which is where the model learns them; the store is where they are kept. test_registry's ceiling for the tool block was raised by exactly the 80 bytes measured. Invariant: nothing the owner listed is dropped silently. test_more_tasks_than_an_objective_holds_are_refused_and_nothing_is_recorded failed at 361b0138 ('DID NOT RAISE ObjectiveError': 61 tasks opened as 60) and passes now; the people and schema tests failed there too. Sixty kept, a task said twice being one, and a full objective refusing one more pass before and after."
+  },
+  {
+    "finding": "S6/S6-03",
+    "parts": [
+      "S6"
+    ],
+    "status": "FIXED",
+    "question": "When a task already there is said again with a different due date, is the new date applied (or the repeat refused), rather than ignored while the history records the repeat?",
+    "files": [
+      "crooks-assistant/app/objectives/store.py",
+      "crooks-assistant/app/objectives/tools.py",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py",
+      "crooks-assistant/tests/test_objective_design.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_a_task_said_again_with_a_new_date_takes_the_new_date",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_one_task_listed_twice_with_two_dates_is_asked_about_not_guessed",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_a_task_said_again_with_its_own_date_or_none_is_unchanged",
+      "crooks-assistant/tests/test_objective_design.py::test_tasks_are_added_ticked_and_moved_by_voice"
+    ],
+    "answer": "FIXED in round 13 (04c22030). At 361b0138 _add_task returned the open task with the same person and words and ignored `due`, and task() then recorded an event with the old date. Now _add_task returns (task, new); task() applies a different date given with a repeat through _edit_task(due=…), which records its own history line; create() takes a date given with a repeat when the first mention had none, and refuses, with nothing recorded, one task listed twice with two different dates ('… is listed twice with two dates, … and …; say which'). A repeat with its own date, or none, is unchanged. Invariant: a date the owner gives is applied or refused, never ignored. test_a_task_said_again_with_a_new_date_takes_the_new_date failed at 361b0138 with the due still 2026-10-02 where 2026-10-09 was said, and passes now; the listed-twice case failed there too."
+  },
+  {
+    "finding": "S6/S6-04",
+    "parts": [
+      "S6"
+    ],
+    "status": "FIXED",
+    "question": "When a project's stages are reordered, can a done stage end up after the current one (or an upcoming one before it), so that the next 'next' makes it upcoming again and wipes when it was done?",
+    "files": [
+      "crooks-assistant/app/objectives/store.py",
+      "crooks-assistant/app/objectives/tools.py",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py",
+      "crooks-assistant/tests/test_objective_design.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_a_reorder_that_puts_a_done_stage_after_the_current_one_is_refused",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_a_new_stage_before_where_the_project_is_is_refused",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_an_upcoming_stage_before_a_done_one_is_refused_with_no_stage_current",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_a_reorder_that_keeps_the_order_of_what_is_done_is_made[stages0-states0]",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_a_reorder_that_keeps_the_order_of_what_is_done_is_made[stages1-states1]",
+      "crooks-assistant/tests/test_r13_objective_design_rules.py::test_a_reorder_that_keeps_the_order_of_what_is_done_is_made[stages2-states2]",
+      "crooks-assistant/tests/test_objective_design.py::test_a_project_is_moved_on_and_redated_by_voice",
+      "crooks-assistant/tests/test_objective_design.py::test_the_design_is_changed_only_where_it_is_said"
+    ],
+    "answer": "FIXED in round 13 (04c22030). At 361b0138 _stages kept each stage's state by name wherever the new order put it, and _stage_index ('next') and _move work by position, so A(done), B(current), C(upcoming) reordered to B, C, A and moved on made C current and reset A to upcoming, clearing its done_at. Now _stages ends with _in_order, which requires the states to run done, then current, then upcoming along the list and refuses any other order with ObjectiveError in words that name the stage and why ('… is done, so it cannot come after …, which is not' / '… has not been reached, so it cannot come before …, where the project is now'); nothing is changed. A reorder that keeps that order is made. Invariant: stage states stay monotone along the list, so moving on by position never un-does a stage. test_a_reorder_that_puts_a_done_stage_after_the_current_one_is_refused failed at 361b0138 ('DID NOT RAISE ObjectiveError') and passes now; the new-stage-before-current and no-current cases failed there too; the reorders that keep the order, and the round-12 design tests, pass before and after."
+  },
+  {
+    "finding": "O1/O1-01",
+    "parts": [
+      "O1"
+    ],
+    "status": "FIXED",
+    "question": "When a timeline write fails part way while another writer appends to the same session file, can the take-back cut that writer's whole line, or leave this writer's part-line in place?",
+    "files": [
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/tests/test_r13_timeline_takeback.py",
+      "crooks-assistant/tests/test_housekeeping_round9.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_timeline_takeback.py::test_a_second_writer_s_line_is_never_cut_by_this_writer_s_take_back",
+      "crooks-assistant/tests/test_r13_timeline_takeback.py::test_a_part_line_that_can_be_neither_cut_nor_ended_stops_the_file_and_the_stop_says_so",
+      "crooks-assistant/tests/test_r13_timeline_takeback.py::test_a_part_line_that_cannot_be_cut_is_ended_and_the_file_goes_on",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_short_write_is_finished_and_every_line_is_whole",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_write_that_fails_part_way_counts_only_whole_lines_and_leaves_no_part_line",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_writer_that_cannot_hold_the_lock_writes_nothing_a_command_would_miss"
+    ],
+    "answer": "FIXED in round 13 (b741f0b7, app/observability/timeline.py). Not a blocker as configured — a second writer needs a second process writing the same session folder, and only app/runtime.py makes a Timeline — but cheap, and fixed. At 361b0138 _take_back cut the file to its size at the time less the part-line's bytes (fstat().st_size - partial), under only the shared writer lock, so a whole line another writer appended between the failed write and the cut had its end cut off (a line counted written by its writer) while this writer's part-line stayed; and when the cut failed, its fallback newline was written with its result ignored, so a part-line that could be neither cut nor ended had the next batch glued onto it and counted, and the session's stop said its count was final. Now Timeline._append holds the file alone for each append (_hold_file: fcntl.flock LOCK_EX on the fd, released when it closes; no hold, nothing is written and the batch is counted dropped), takes start = os.lseek(fd, 0, SEEK_END) under that hold, and on a failed write counts the whole lines it wrote and calls _take_back(fd, start + used, start + done), which cuts back to exactly the end of its own last whole line and never uses the file's size. If the cut fails the part-line is ended with a newline; if that fails too (_take_back returns False) the file goes into Timeline._broken: every later batch for it is counted dropped, and stop() sets stop_settled False for a session whose file is broken, logging that its count is not final. Invariant: bytes of a line counted written are never removed, and a part-line is never followed by a counted line. test_a_second_writer_s_line_is_never_cut_by_this_writer_s_take_back fails batch one short and then with an error, and appends a second writer's whole line in between: it failed at 361b0138 ('the file ends at the end of a line') and passes now. The round-9 short-write tests, and a cut that fails but whose newline lands, pass before and after."
+  },
+  {
+    "finding": "R9-A3b-F-A3B-SHORT-WRITE",
+    "parts": [
+      "O1"
+    ],
+    "status": "FIXED",
+    "question": "Can a write failure after a short write, followed by a failed truncation, leave an incomplete JSONL line that later lines are appended to and counted, with a stop reporting its count as final?",
+    "files": [
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/tests/test_r13_timeline_takeback.py",
+      "crooks-assistant/tests/test_housekeeping_round9.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_timeline_takeback.py::test_a_part_line_that_can_be_neither_cut_nor_ended_stops_the_file_and_the_stop_says_so",
+      "crooks-assistant/tests/test_r13_timeline_takeback.py::test_a_second_writer_s_line_is_never_cut_by_this_writer_s_take_back",
+      "crooks-assistant/tests/test_r13_timeline_takeback.py::test_a_part_line_that_cannot_be_cut_is_ended_and_the_file_goes_on",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_short_write_is_finished_and_every_line_is_whole",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_write_that_fails_part_way_counts_only_whole_lines_and_leaves_no_part_line",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_writer_that_cannot_hold_the_lock_writes_nothing_a_command_would_miss"
+    ],
+    "answer": "FIXED in round 13 (b741f0b7), with O1/O1-01; round 12 ruled it STILL PRESENT because _take_back ignored its own fallback's failure. At 361b0138 _take_back cut the file to its size at the time less the part-line's bytes (fstat().st_size - partial), under only the shared writer lock, so a whole line another writer appended between the failed write and the cut had its end cut off (a line counted written by its writer) while this writer's part-line stayed; and when the cut failed, its fallback newline was written with its result ignored, so a part-line that could be neither cut nor ended had the next batch glued onto it and counted, and the session's stop said its count was final. Now Timeline._append holds the file alone for each append (_hold_file: fcntl.flock LOCK_EX on the fd, released when it closes; no hold, nothing is written and the batch is counted dropped), takes start = os.lseek(fd, 0, SEEK_END) under that hold, and on a failed write counts the whole lines it wrote and calls _take_back(fd, start + used, start + done), which cuts back to exactly the end of its own last whole line and never uses the file's size. If the cut fails the part-line is ended with a newline; if that fails too (_take_back returns False) the file goes into Timeline._broken: every later batch for it is counted dropped, and stop() sets stop_settled False for a session whose file is broken, logging that its count is not final. Invariant: bytes of a line counted written are never removed, and a part-line is never followed by a counted line. test_a_part_line_that_can_be_neither_cut_nor_ended_stops_the_file_and_the_stop_says_so patches ftruncate and the newline write to fail: at 361b0138 the next batch was counted written onto the part-line ((1, 0) where (0, 1) was expected), and now it is counted dropped and stop_settled is False. Round 9's own short-write tests pass before and after."
+  },
+  {
+    "finding": "O2/O2-N-02",
+    "parts": [
+      "O2"
+    ],
+    "status": "FIXED",
+    "question": "When the reports path is a symbolic link, can housekeeping prune the folder it points at before the privacy check reports the link — from the backend's own tidy or from the command line?",
+    "files": [
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/tests/test_r13_housekeeping.py",
+      "crooks-assistant/tests/test_r11_records.py",
+      "crooks-assistant/tests/test_housekeeping_round9.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_a_reports_folder_that_is_a_link_is_not_pruned_through",
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_prune_reports_refuses_a_linked_folder_from_the_command_line_too",
+      "crooks-assistant/tests/test_r13_housekeeping.py::test_a_real_reports_folder_is_still_pruned",
+      "crooks-assistant/tests/test_r11_records.py::test_start_up_refuses_with_a_reports_folder_that_is_a_link",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_a_link_among_the_reports_is_not_called_private",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_an_old_report_nobody_touches_still_ages_out"
+    ],
+    "answer": "FIXED in round 13 (5804d81a, app/observability/session.py). Not a blocker as configured (production leaves CROOKS_REPORTS_DIR unset, so the reports root is a real folder; 6a29e310 behaves the same), but fixed. At 361b0138 TestSessions._tidy_reports looked at the folder with os.stat, which follows a link, and ran prune_reports and prune_withheld through it before tighten reported the link; prune_reports itself checked is_dir(), which follows one too. Now _tidy_reports takes os.lstat of the folder and, when it is a link, sets tidy_problem ('1 report path(s) are links, whose privacy cannot be established') and returns before anything is pruned or checked through it, leaving tidy_contained False, so start-up refuses to go on (lifespan's _reports_contained) until the owner puts a folder there; and prune_reports prunes only in a real folder, looked at with os.lstat, owned by this process's effective user, so the command line cannot prune through a link either. Invariant: nothing is pruned through a link. test_a_reports_folder_that_is_a_link_is_not_pruned_through failed at 361b0138 with the 200-day-old report in the link's target deleted (1 pruned where 0 was expected) and passes now; so did the command-line case. A real folder is still pruned, and start-up still refuses a linked folder, before and after.",
+    "excerpts": {
+      "crooks-assistant/app/observability/session.py": [
+        "lines 25-48: Interrupted, HOUSEKEEPING_STOP, checkpoint",
+        "lines 188-224: _remove_if_older",
+        "lines 346-395: tighten",
+        "lines 487-502: prune_reports: only a real folder of this process's own, looked at with lstat",
+        "lines 686-768: tidy_reports and _tidy_reports: lstat, and a link refused before anything is pruned"
+      ]
+    }
+  },
+  {
+    "finding": "S3/S3-02",
+    "parts": [
+      "S3"
+    ],
+    "status": "FIXED",
+    "question": "When the screens' folder cannot be flushed, is a tick from the owner's remote, or his approval of a screen, answered as saved although a power cut could undo it?",
+    "files": [
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/tools/display_tools.py",
+      "crooks-assistant/web/display.js",
+      "crooks-assistant/tests/test_r13_screens.py",
+      "crooks-assistant/tests/test_displays.py",
+      "crooks-assistant/tests/web/display.test.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_screens.py::test_a_tick_the_disk_could_not_keep_is_answered_503_and_a_retry_ticks_it_once",
+      "crooks-assistant/tests/test_r13_screens.py::test_an_approval_the_disk_could_not_keep_is_not_made_and_the_code_still_approves_it",
+      "crooks-assistant/tests/test_r13_screens.py::test_the_screen_pair_tool_says_an_approval_was_not_saved",
+      "crooks-assistant/tests/web/display.test.js::a touched screen’s tick CLIVE could not save says so, draws nothing, and ticks on the next tap",
+      "crooks-assistant/tests/test_displays.py::test_the_remote_ticks_items_and_marks_an_order_packed_only_once_every_item_to_send_is_ticked",
+      "crooks-assistant/tests/test_displays.py::test_the_remote_routes_say_stale_pending_not_ticked_and_not_saved",
+      "crooks-assistant/tests/test_displays.py::test_screen_pair_approves_only_with_the_code_the_owner_said",
+      "crooks-assistant/tests/test_displays.py::test_a_change_that_could_not_be_written_is_not_made"
+    ],
+    "answer": "FIXED in round 13 (755606db). Not a blocker as configured — it needs a failed folder flush (EIO) and then a power cut, and sweep() rewrote the record meanwhile — but fixed. At 361b0138 DisplayStore._commit, for a change that is not a deletion, answered success when the record was in place but _write raised NotFlushed (the folder's fsync failed): the owner's tick was 200 and a screen's approval 'approved' although a power cut could bring back the record without them. Now _commit takes `durable`: for such a change (and no deletion owed by it) a NotFlushed puts memory back as it was, puts the file back to match (_put_back, at best effort, leaving `unsaved` for sweep), and raises NotSaved — 'nothing was changed', which the remote routes answer 503 not_saved. tick() and approve() commit with durable=True, so neither is made until it would outlive a power cut; a tick names the item and whether it is packed, not a toggle, so the same tap again ticks it once. screen_pair turns the refusal into the tool's own words, not a success. The touched screen's own tick (web/display.js tickRow) says 'CLIVE could not save that yet, so it was not ticked' on a 503 and draws nothing. Invariant: a tick or an approval is answered as made only once it is durable. test_a_tick_the_disk_could_not_keep_is_answered_503_and_a_retry_ticks_it_once failed at 361b0138 with 200 and {'ticked': [0]} while the folder's flush failed, and passes now; the approval, the tool and the web test failed there too. The round-9 to round-11 remote and pairing tests pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/displays/store.py": [
+        "lines 310-315: _fsync_dir",
+        "lines 387-399: NotSaved, NotDurable, NotFlushed",
+        "lines 446-446: _NOT_SAVED",
+        "lines 742-852: _write, _commit (durable: a change not made unless it would outlive a power cut) and _put_back",
+        "lines 899-906: sweep: an unsaved record written again on every pass",
+        "lines 1039-1086: approve: committed durably",
+        "lines 1617-1644: tick: committed durably"
+      ],
+      "crooks-assistant/app/tools/display_tools.py": [
+        "lines 306-330: screen_pair: a refusal in the tool's words"
+      ],
+      "crooks-assistant/web/display.js": [
+        "lines 1540-1575: tickRow: a 503 says the tick was not saved and draws nothing"
+      ],
+      "crooks-assistant/tests/test_displays.py": [
+        "lines 1-131: the screens tests' imports, fakes and fixtures",
+        "lines 408-439: app_with, as_screen, handed_key",
+        "lines 931-987: test_a_change_that_could_not_be_written_is_not_made",
+        "lines 1208-1243: test_screen_pair_approves_only_with_the_code_the_owner_said",
+        "lines 1659-1703: test_the_remote_ticks_items_and_marks_an_order_packed_only_once_every_item_to_send_is_ticked",
+        "lines 1929-1970: test_the_remote_routes_say_stale_pending_not_ticked_and_not_saved"
+      ]
+    }
+  },
+  {
+    "finding": "S5/S5-01",
+    "parts": [
+      "S5"
+    ],
+    "status": "FIXED",
+    "question": "Can `make install` on the server leave a half-written systemd unit behind when writing it fails — outside the rollback, and with the rollback's own write in place too?",
+    "files": [
+      "crooks-assistant/scripts/install_systemd.py",
+      "crooks-assistant/tests/test_r13_install_unit.py",
+      "crooks-assistant/tests/test_r11_install_gate.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_install_unit.py::test_a_unit_write_that_fails_part_way_leaves_the_unit_that_was_there",
+      "crooks-assistant/tests/test_r13_install_unit.py::test_a_first_install_whose_unit_write_fails_leaves_no_unit",
+      "crooks-assistant/tests/test_r13_install_unit.py::test_the_rollback_puts_the_unit_back_whole_or_leaves_the_new_one_whole",
+      "crooks-assistant/tests/test_r13_install_unit.py::test_the_unit_is_on_the_disk_before_systemd_is_told_to_read_it",
+      "crooks-assistant/tests/test_r11_install_gate.py::test_a_service_that_was_stopped_and_disabled_is_left_so",
+      "crooks-assistant/tests/test_r11_install_gate.py::test_a_rollback_step_that_fails_is_said_and_the_rest_are_still_tried",
+      "crooks-assistant/tests/test_r11_install_gate.py::test_every_gate_passed_keeps_the_new_unit_and_says_what_the_phone_must_show"
+    ],
+    "answer": "FIXED in round 13 (579669ac, scripts/install_systemd.py). Not a blocker as configured — an operator's script, and production's installer has the same write with no rollback at all — but fixed. At 361b0138 install() read the old unit (Before.read) and then wrote the new one in place with Path.write_text, outside the try the rest of the install runs in: a disk that filled or failed part way left half a unit in /etc/systemd/system, the install ended in a traceback, and nothing was put back; roll_back's own write_bytes was the same in-place write. Now write_unit writes the bytes to <unit>.new (O_WRONLY|O_CREAT|O_TRUNC, 0644, every byte written), fsyncs it, os.replaces it over the unit and fsyncs the folder; a failure before the rename closes and removes its own .new and raises. install() catches that OSError: if the unit on disk is still byte for byte the one before, it says so and exits 1 with nothing else changed; otherwise it runs roll_back. roll_back puts the old unit back through the same write_unit. Invariant: the unit is the old one or the new one, whole, and on the disk before systemd is told to read it. test_a_unit_write_that_fails_part_way_leaves_the_unit_that_was_there failed at 361b0138 with the OSError (No space left on device) raised out of install() and passes now: exit 1, the old unit byte-identical. All four tests in the file failed there; the round-11 install-gate tests pass before and after."
+  },
+  {
+    "finding": "S3/S3-01",
+    "parts": [
+      "S3"
+    ],
+    "status": "FIXED",
+    "question": "Can a record the owner drops on a screen go to a different device than the one the drop route checked by id — the screen forgotten and a new device named and approved under the same name before screen_show looks it up by name?",
+    "files": [
+      "crooks-assistant/app/displays/put.py",
+      "crooks-assistant/app/tools/display_tools.py",
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/tests/test_r13_screens.py",
+      "crooks-assistant/tests/test_r12_put_on_screen.py",
+      "crooks-assistant/tests/test_displays.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_screens.py::test_a_drop_goes_to_the_screen_the_route_checked_and_never_to_a_new_one_of_the_same_name",
+      "crooks-assistant/tests/test_r13_screens.py::test_the_tool_refuses_a_name_that_is_not_the_bound_screen[scr_000000000000]",
+      "crooks-assistant/tests/test_r13_screens.py::test_the_screen_the_route_checked_still_takes_the_drop",
+      "crooks-assistant/tests/test_r13_screens.py::test_the_model_cannot_name_a_screen_by_its_id",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_nobody_but_the_owner_reaches_the_drop",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_a_record_this_conversation_was_not_issued_is_refused_before_anything_is_read",
+      "crooks-assistant/tests/test_displays.py::test_a_slip_goes_only_to_the_screen_named_in_full"
+    ],
+    "answer": "FIXED in round 13 (cf219b6e). Not a blocker as configured — the window between the route's check and the tool's look-up is milliseconds and needs the owner to forget the screen, approve a new one of the same name and say its code — but fixed. At 361b0138 put._put validated the screen by its id, turned it into its exact name and dispatched screen_show with the name only; screen_show looked the name up again (DisplayStore.find(name, exact=True)), so in that window the order's slip went to the new device. Now display_tools.DROP_SCREEN is a ContextVar in no tool's schema or signature; _put sets it to the id it checked around its one dispatch of screen_show and resets it in a finally, so no later call inherits it; screen_show, after finding the screen by name, refuses with a ToolError before anything is read when DROP_SCREEN is set and the name now leads to another id, and the route answers 409 not_shown in the tool's words. Unbound — the model's own screen_show — the name decides as before, and the model cannot pass an id (the schema has none and an unknown argument is refused). DisplayStore.show is by id and refuses a screen gone or unapproved meanwhile. Invariant: a drop goes to the screen id the route validated, or nowhere. test_a_drop_goes_to_the_screen_the_route_checked_and_never_to_a_new_one_of_the_same_name failed at 361b0138 with 200 {'screen': 'Office TV', 'screen_id': <the old id>, 'showing': 'Order CROOKS-1938'} while the slip went to the new device, and passes now; the two tests after it fail at 361b0138 because DROP_SCREEN does not exist there. The model's missing id, and round 12's own drop tests, pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/displays/store.py": [
+        "lines 1125-1137: forget",
+        "lines 1162-1185: find: a name to one screen, exactly",
+        "lines 1325-1378: show: by id, refusing a screen gone or unapproved"
+      ],
+      "crooks-assistant/app/routes/displays.py": [
+        "lines 185-194: HeldBody",
+        "lines 532-545: show_held"
+      ]
+    }
+  },
+  {
+    "finding": "W2/W2-03",
+    "parts": [
+      "W2"
+    ],
+    "status": "FIXED",
+    "question": "When the owner opens one objective and then another before the first answer arrives, can the earlier answer be drawn over the later sheet, so that Mark done closes the wrong objective?",
+    "files": [
+      "crooks-assistant/web/alpha.js",
+      "crooks-assistant/web/objective-cards.js",
+      "crooks-assistant/tests/web/alpha-open.test.js",
+      "crooks-assistant/tests/web/r13-evidence-objective-cards.test.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/alpha-open.test.js::an objective tapped earlier and answered later is never drawn over the one tapped last",
+      "crooks-assistant/tests/web/alpha-open.test.js::an answer that arrives after another sheet was opened, or after the sheet was put away, is not drawn",
+      "crooks-assistant/tests/web/alpha-open.test.js::a tick answered after the owner moved to another objective does not draw the first one back",
+      "crooks-assistant/tests/web/r13-evidence-objective-cards.test.js::the home sheet hands its shape a redraw on every tick (W3-02)"
+    ],
+    "answer": "FIXED in round 13 (db7e206f, web/alpha.js). Not a blocker as configured — the sheet drawn names the objective its Mark done acts on, and a status can be set back; the same code is live at production — but fixed. At 361b0138 openObjective drew whatever /objectives/{id} returned, whenever it returned, and Mark done's confirm said only 'Close this objective as done?'. Now a module-level sheetSeq counter fences every sheet: openObjective takes the next number and draws its answer only if it is still the latest (an error is flashed only then too); openGap, openNewObjective, openSupport and closeSheet each take the next number, so an answer for an earlier sheet, or one arriving after the sheet was put away, is never drawn. drawObjective carries its seq, and `current()` (seq is the latest and the sheet is open) guards everything a control does after an answer from the Mac: the answer form and Approve reopen only while current, a tick's onChange redraws only while current, and Mark done closes the sheet only while current. Mark done's confirm names the objective — `Close \"${o.title}\" as done?` — and posts to the objective its sheet was drawn from. Invariant: the sheet on screen is the one the owner asked for last, and Mark done names and closes that one. The first test failed at 361b0138 with the earlier objective's title drawn over the later one, and passes now; all three failed there. The W3-02 evidence test, which reads alpha.js's own onChange, passes before and after.",
+    "excerpts": {
+      "crooks-assistant/web/objective-cards.js": [
+        "lines 196-258: taskRow: a tick posts, and hands the Mac's record to onChange"
+      ]
+    }
+  },
+  {
+    "finding": "T1/T1-02",
+    "parts": [
+      "T1"
+    ],
+    "status": "FIXED",
+    "question": "When Shopify has more orders than the page a search by evidence reads, can a single match on that page be called the one order, and its customer named as the customer?",
+    "files": [
+      "crooks-assistant/app/tools/shopify_tools.py",
+      "crooks-assistant/tests/test_r13_evidence_pages.py",
+      "crooks-assistant/tests/test_r12_orders.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_evidence_pages.py::test_one_match_on_a_page_with_more_behind_it_is_not_one_and_names_nobody",
+      "crooks-assistant/tests/test_r13_evidence_pages.py::test_a_search_shopify_answered_in_full_but_cut_at_the_page_is_incomplete_too",
+      "crooks-assistant/tests/test_r13_evidence_pages.py::test_the_fake_shop_says_there_are_more_when_there_are",
+      "crooks-assistant/tests/test_r13_evidence_pages.py::test_a_whole_answer_is_still_one_and_still_names_its_customer",
+      "crooks-assistant/tests/test_r12_orders.py::test_a_name_and_a_postcode_tell_two_customers_of_one_name_apart",
+      "crooks-assistant/tests/test_r12_orders.py::test_an_item_and_a_postcode_with_no_name_find_the_one_order",
+      "crooks-assistant/tests/test_r12_orders.py::test_several_that_fit_are_a_short_choice_and_none_is_chosen",
+      "crooks-assistant/tests/test_r12_orders.py::test_an_order_number_and_an_email_are_evidence_too",
+      "crooks-assistant/tests/test_r12_orders.py::test_d_a_name_search_that_stops_short_says_so"
+    ],
+    "answer": "FIXED in round 13 (ca7b8eb5, app/tools/shopify_tools.py). Not a blocker as configured — the hold card that follows names the order — but it feeds writes, and is fixed. At 361b0138 _find_by_evidence set `one` to len(rows) == 1 and named the customer whenever the rows held one customer, whether or not Shopify had more past the page (pageInfo.hasNextPage, read into `more`); a coverage note appeared only when some evidence had been checked locally. Now `one` is len(rows) == 1 and not more; the customer is inferred only when not more; and whenever more is true the result carries incomplete: True and a coverage sentence saying how many orders were checked and that an older one that fits would not be here. The fake shop in tests/test_r12_orders.py (Counter.graphql, CrooksOrderEvidence) now reports hasNextPage as Shopify does. Invariant: 'one' and a named customer are said only of a whole answer. test_one_match_on_a_page_with_more_behind_it_is_not_one_and_names_nobody failed at 361b0138 with one True and the customer named ('SL6': Zoë's order on the page, Theo's SL6 order behind it) and passes now; so did the email case. A whole answer is still one, and round 12's evidence-search tests pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/tools/shopify_tools.py": [
+        "lines 100-145: shopify_find_order: the tool and its description of `one`",
+        "lines 550-661: _find_by_evidence: `more`, `one`, `customer`, `incomplete` and `coverage`"
+      ]
+    }
+  },
+  {
+    "finding": "S3P/S3P-NEW-01",
+    "parts": [
+      "S3P"
+    ],
+    "status": "FIXED",
+    "question": "On the owner's remote, can an answer to an ask made before a change (a pane taken off, the screen turned off) be drawn after that change, putting back what it took away?",
+    "files": [
+      "crooks-assistant/web/remote.js",
+      "crooks-assistant/tests/web/remote.test.js",
+      "crooks-assistant/app/displays/store.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/remote.test.js::an ask on its way when a pane is taken off never puts it back",
+      "crooks-assistant/tests/web/remote.test.js::an ask made while a change is on its way is not drawn over the change’s answer",
+      "crooks-assistant/tests/web/remote.test.js::taking a pane off, and turning the screen off, each take a second tap",
+      "crooks-assistant/tests/web/remote.test.js::an answer to an ask made before a refusal never puts anything back; a fresh ask can",
+      "crooks-assistant/tests/web/remote.test.js::the whole screen is turned off as it was seen; a screen that changed since is refused and shown as it is"
+    ],
+    "answer": "FIXED in round 13 (10817210, web/remote.js). Not a blocker as configured: the remote's view carries no customer data (DisplayStore._remote_view: the order's number, its items and an objective's words; the title is 'Order #N'), so this was a stale view on the owner's own phone. At 361b0138 act() did not advance R.gen, and its sync() was swallowed by R.polling, so a GET that started before a successful 'take off' or 'screen off' finished after it and sync() accepted its older panes. Now letGo() — R.gen++, abort the GET on its way (R.ctl), clear the timer and R.polling — is called by act() before it posts, so no answer CLIVE gave before the change is read; act() keeps asking while the change is on its way (R.timer = setTimeout(sync, POLL_MS)) so the remote still lets go of what it shows if CLIVE is out of reach; and when the change is answered act() calls letGo() again, since an ask made during the change may have been answered from the screen before the change landed, then draws the change's own answer and asks afresh. wipe() is letGo() plus clearing what is drawn. Invariant: nothing asked before a change is drawn after it. The first two tests failed at 361b0138 ('the older answer does not put it back': false) and pass now; the round-9 to round-11 remote tests pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/displays/store.py": [
+        "lines 1847-1920: remote and _remote_view: what the remote is given — order number, items and objective words; no name, address, phone or note"
+      ]
+    }
+  },
+  {
+    "finding": "R9-B2-B2-02",
+    "parts": [
+      "S3P",
+      "S3T2"
+    ],
+    "status": "FIXED",
+    "question": "On a 403 to a change from the owner's remote, is what the remote shows cleared from the status alone, without waiting for the refusal's body — which may be slow or never come?",
+    "files": [
+      "crooks-assistant/web/remote.js",
+      "crooks-assistant/tests/web/remote.test.js",
+      "crooks-assistant/app/displays/store.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/remote.test.js::a refused change takes everything away at once, without waiting for the refusal’s body",
+      "crooks-assistant/tests/web/remote.test.js::a refusal takes what the remote shows away at once, even with a finger on the panel",
+      "crooks-assistant/tests/web/remote.test.js::a refused change under the finger that made it takes everything away at once, and nothing of it is kept",
+      "crooks-assistant/tests/web/remote.test.js::what the remote shows leaves it on a 403, after two minutes out of reach, and when it is closed"
+    ],
+    "answer": "FIXED in round 13 (10817210, web/remote.js). Not a blocker as configured: the panes carry no customer data (DisplayStore._remote_view). At 361b0138 post() awaited response.json() before it looked at the status, so a 403 whose body stalled kept the panes on the panel for as long as the body took. Now post() checks response.status === 403 and calls wipe('refused') before it reads the body; the body is read only for other statuses. wipe() lets go of every ask (letGo) and clears what is drawn, under a finger or not (the round-11 rule). Invariant: a refusal of this device clears the remote synchronously, from its status. test 'a refused change takes everything away at once, without waiting for the refusal’s body' failed at 361b0138 with 2 panes still drawn where 0 were expected, and passes now; the round-10 and round-11 refusal tests pass before and after.",
+    "excerpts": {
+      "crooks-assistant/app/displays/store.py": [
+        "lines 1847-1920: remote and _remote_view: what the remote is given — order number, items and objective words; no name, address, phone or note"
+      ]
+    }
+  },
+  {
+    "finding": "R9-B2-B2-04",
+    "parts": [
+      "S3P"
+    ],
+    "status": "FIXED",
+    "question": "After a slip is marked packed during a change on the TV — the two-pane-to-one swap, or another pane's pack — is anything of the customer left in the page, including the old page still on its way out?",
+    "files": [
+      "crooks-assistant/web/display.js",
+      "crooks-assistant/tests/web/display.test.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/display.test.js::marked packed just after a change, the old page on its way out keeps nothing of the customer",
+      "crooks-assistant/tests/web/display.test.js::marked packed while a change is still under way, the customer leaves at once, the page on its way out included",
+      "crooks-assistant/tests/web/display.test.js::marked packed while something new is still forming beside it, the new pane comes up and the slip keeps nothing",
+      "crooks-assistant/tests/web/display.test.js::an order packed while the one beside it is still packing keeps nothing of its customer, in the page or in dots (the real engine)",
+      "crooks-assistant/tests/web/display.test.js::marked packed, no frame after the tap shows the customer in dots, and the dots keep nothing of the slip (the real engine)",
+      "crooks-assistant/tests/web/display.test.js::marked packed, the dots are told to forget the slip before anything else is drawn, calm or not",
+      "crooks-assistant/tests/web/display.test.js::the old slip on its way out of a change comes down the moment its time runs out, and what replaced it stays",
+      "crooks-assistant/tests/web/display.test.js::a refusal in the middle of a change takes the old slip and the new one down at once, dots and all"
+    ],
+    "answer": "FIXED in round 13 (84de3e38, web/display.js). Not a blocker as configured: DOM kept for a few hundred milliseconds on the owner's own TV, and not visible. At 361b0138 a pane marked done on a still screen dropped the customer at once (markedDone, round 10), but the old page of a change still on its way out (S.leaving, kept by leaveNow/dropLeaving for up to LEAVE_MS) held a copy of the slip, and a pane marked done while a change or another pane's pack was playing waited for that animation to end. Now markedDone calls dropLeaving() before anything else is drawn, so the leaving layer and its copy of the slip go at once; reconcile() checks doneNow() — a pane drawn here that CLIVE now says is done and is not yet packed here — and, while S.phase is 'swapping' or 'packing', calls cutShort(), which stops what is under way where it is: a change's callbacks are fenced by advancing swapRun, its leaving layer dropped, the panes new to it put up as they are and their pages told to CLIVE; another pane's pack is fenced by packRun (its later E.at callbacks check current()) with its rest still scheduled. The pane is then packed at once as on a still screen. Invariant: once CLIVE says a pane is done, no DOM node, pane data or dot keeps its customer. The first four tests failed at 361b0138 and pass now; the round-10 to round-12 packing and leaving tests pass before and after.",
+    "excerpts": {
+      "crooks-assistant/web/display.js": [
+        "lines 1041-1091: expireDrawn, reconcile (doneNow → cutShort) and doneNow",
+        "lines 1184-1197: leaveNow and dropLeaving",
+        "lines 1233-1255: swapRun and cutShort",
+        "lines 1381-1426: packRun, markedDone (dropLeaving first; its later steps fenced by current()) and scheduleRest"
+      ]
+    }
+  },
+  {
+    "finding": "R9-A1a-F-05B-AVAIL",
+    "parts": [
+      "S1"
+    ],
+    "status": "FIXED",
+    "question": "Can a well-formed reading of this host's addresses that leaves out a second tailnet address on tailscale0 let a request the server sent itself, carrying that address, be taken for an owner's device?",
+    "files": [
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/scripts/install_systemd.py",
+      "crooks-assistant/tests/test_r13_door.py",
+      "crooks-assistant/tests/test_host_addresses.py",
+      "crooks-assistant/tests/test_proxy_identity.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_door.py::test_a_second_ipv4_address_on_tailscale0_left_out_of_a_reading_is_never_the_owner",
+      "crooks-assistant/tests/test_r13_door.py::test_a_second_ipv6_address_on_tailscale0_left_out_of_a_reading_is_never_the_owner",
+      "crooks-assistant/tests/test_r13_door.py::test_what_tailscale0_holds_is_asked_afresh_for_every_request",
+      "crooks-assistant/tests/test_r13_door.py::test_tailscale0_that_cannot_be_asked_or_holds_no_tailnet_address_is_cannot_say",
+      "crooks-assistant/tests/test_r13_door.py::test_the_install_check_asks_for_every_address_too",
+      "crooks-assistant/tests/test_r13_door.py::test_on_this_machine_netlink_names_the_loopback_interfaces_addresses",
+      "crooks-assistant/tests/test_r13_door.py::test_the_netlink_answer_is_taken_whole_or_not_at_all",
+      "crooks-assistant/tests/test_host_addresses.py::test_the_servers_own_request_with_its_tailnet_address_left_out_is_never_the_owner",
+      "crooks-assistant/tests/test_host_addresses.py::test_the_tailscale_interfaces_own_ipv4_address_decides_whether_a_reading_is_whole",
+      "crooks-assistant/tests/test_host_addresses.py::test_with_a_decoy_on_another_interface_no_omission_ever_admits_the_servers_own_request",
+      "crooks-assistant/tests/test_host_addresses.py::test_the_install_can_ask_whether_this_host_can_tell_its_own_requests_apart",
+      "crooks-assistant/tests/test_proxy_identity.py::test_what_tailscaled_brings_from_another_device_is_judged_by_its_login",
+      "crooks-assistant/tests/test_proxy_identity.py::test_the_server_asking_itself_through_tailscale_is_the_server"
+    ],
+    "answer": "FIXED in round 13 (63dbbb4c and 98b435a2, app/identity.py). Not a blocker as configured — tailscale0 normally holds one address per family, and exploiting this needs code running on the server; production's identity check is weaker still — but fixed. At 361b0138 this_host took a reading as whole when it held the one IPv4 address the SIOCGIFADDR ioctl names (interface_ipv4: the interface's primary address only) and, for IPv6, when the reading's own table listed any tailnet address on tailscale0 — the table vouching for itself. Now _holds_own_tailnet_address ends with _holds_every_tailnet_address, which asks the kernel apart from the tables which addresses tailscale0 holds — interface_addresses, an RTM_GETADDR netlink dump on a socket of the call's own, no privilege and no other program, asked afresh for every request and taken whole or not at all (_netlink_chunk raises for a dump marked NLM_F_DUMP_INTR, an error, a message cut short or out of shape, an answer to another request or not from the kernel) — and requires every one of them in the tailnet's range, of the forwarded address's family, to be in the reading; netlink that cannot answer (OSError, including where AF_NETLINK does not exist, 98b435a2), or says tailscale0 holds no tailnet address, is 'cannot say', which the door refuses. The existing checks stand before it, so it can only refuse more. tailnet_self_check, which make install asks (install_systemd.running_problems), asks the same. Invariant: a reading is trusted to say 'not this host' only when it holds every tailnet address tailscale0 holds. test_a_second_ipv4_address_on_tailscale0_left_out_of_a_reading_is_never_the_owner failed at 361b0138 with 'the server's own request is never the owner' (run with the shared tailscale0 stand-in told to tolerate the netlink function that tree lacks; as committed, the stand-in errors there at setup) and passes now; the netlink reader's own tests run against this machine's kernel for its loopback interface. The round-9 to round-11 door tests pass now, the shared stand-in answering for netlink as the server's interface would, and passed at 361b0138 under the same tolerant stand-in.",
+    "excerpts": {
+      "crooks-assistant/scripts/install_systemd.py": [
+        "lines 267-290: running_problems: the install asks identity.tailnet_self_check"
+      ]
+    }
+  },
+  {
+    "finding": "R9-B2-B2-01",
+    "parts": [
+      "S3P",
+      "S3"
+    ],
+    "status": "FIXED",
+    "question": "Server side: when a screen's key is changed on register (an old page handing its legacy key back, or a screen with its cookie), can the new key be handed over before the record holding it is durable, so that a power cut revives the old key and leaves the new one opening nothing?",
+    "files": [
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/tests/test_r13_screens.py",
+      "crooks-assistant/tests/test_r11_screens_server.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_screens.py::test_a_key_is_handed_over_only_once_it_opens_the_screen_however_the_power_goes[cookie-nothing owed]",
+      "crooks-assistant/tests/test_r13_screens.py::test_a_key_is_handed_over_only_once_it_opens_the_screen_however_the_power_goes[cookie-a deletion owed]",
+      "crooks-assistant/tests/test_r13_screens.py::test_a_key_is_handed_over_only_once_it_opens_the_screen_however_the_power_goes[legacy-nothing owed]",
+      "crooks-assistant/tests/test_r13_screens.py::test_a_key_is_handed_over_only_once_it_opens_the_screen_however_the_power_goes[legacy-a deletion owed]",
+      "crooks-assistant/tests/test_r13_screens.py::test_a_key_change_the_disk_could_not_keep_is_answered_503_and_the_screen_keeps_working",
+      "crooks-assistant/tests/test_r11_screens_server.py::test_a_new_key_whose_record_is_not_yet_durable_is_still_handed_over",
+      "crooks-assistant/tests/test_r11_screens_server.py::test_once_an_old_page_hands_its_key_in_that_key_opens_nothing_and_the_new_one_everything"
+    ],
+    "answer": "FIXED in round 13 (755606db, app/displays/store.py), in the same `durable` commit as S3/S3-02. Not a blocker as configured — it needs a failed folder flush and a power cut, and a copied legacy key reaches nothing without the owner's Tailscale login, since every /displays route is behind main.guard_and_freshness — but fixed. This is the screens-server finding; the pages finding of the same id, the page's own handling of the legacy key, is the entry with parts ['S3P']. At 361b0138 DisplayStore.register's rotate ran through _keyed, which on NotDurable (the record renamed into place, its folder's fsync failed) still handed the device the new key, so a power cut could bring back the old record, where the new key opens nothing and the old key opens the customer's slip again. The fix map proposed keeping both hashes valid until the next durable write; round 13 did something stricter: rotate commits through _keyed(rotate, durable=True), and _commit with durable, when the record cannot be made durable, puts memory and the file back (_put_back) and raises NotSaved, so no key is changed and nothing is handed over (503, no cookie); the key the device holds still opens its screen in the running store and after any restart, and named again once the disk is well it is handed a new key and the old one is spent. A key handed over is therefore one whose record is durable: it opens the screen in every state a power cut can leave, and the key it replaced opens it in none. A new screen, and a screen still waiting for approval given a new code (renew), are still handed their key on NotDurable as round 11 decided: neither shows anything until it is approved, and approval is now durable (S3/S3-02). Invariant: a key an approved screen holds is changed only once the new one opens the screen however the power goes. The exhaustive test fails the disk at every combination of the change's operations and then restarts from every state a power cut could leave; it failed at 361b0138 (a key 'handed' with the folder's flush failing opened nothing after a restart) and passes now. The round-11 test that asserted the new key was handed over on a non-durable record was changed in the same commit to the moved behaviour, its intent (the screen is never left without a key that opens it) kept. The module docstring of tests/test_r13_screens.py still describes the fix map's two-hash proposal ('the old key stays valid alongside it until the next durable write'); the code and the test bodies do what is described here.",
+    "excerpts": {
+      "crooks-assistant/app/displays/store.py": [
+        "lines 310-315: _fsync_dir",
+        "lines 387-399: NotSaved, NotDurable, NotFlushed",
+        "lines 446-446: _NOT_SAVED",
+        "lines 742-852: _write, _commit (durable: a change not made unless it would outlive a power cut) and _put_back",
+        "lines 899-906: sweep: an unsaved record written again on every pass",
+        "lines 931-937: _answer",
+        "lines 939-1037: register (rotate: _keyed(rotate, durable=True)) and _keyed",
+        "lines 1115-1118: _holds: a key opens a screen by its stored hash alone",
+        "lines 1258-1286: poll"
+      ],
+      "crooks-assistant/app/routes/displays.py": [
+        "lines 305-328: POST /displays/register"
+      ]
+    }
+  },
+  {
+    "finding": "R9-A3b-F-04-SHUTDOWN",
+    "parts": [
+      "AC2",
+      "O1",
+      "S1"
+    ],
+    "status": "LEFT",
+    "question": "On the always-on server, can a housekeeping filesystem call that outlasts the stop deadline, with a stalled writer, leave accepted timeline events unwritten at exit — and is that a loss the shutdown should record durably?",
+    "files": [
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/observability/timeline.py",
+      "crooks-assistant/app/observability/session.py",
+      "crooks-assistant/deploy/systemd/crooks-assistant.service",
+      "crooks-assistant/tests/test_housekeeping_round9.py",
+      "crooks-assistant/tests/test_r11_records.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_the_drain_is_bounded_and_says_what_it_could_not_write[True]",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_the_drain_is_bounded_and_says_what_it_could_not_write[False]",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_accepted_events_are_on_disk_when_a_pass_outruns_the_shutdown_deadline",
+      "crooks-assistant/tests/test_housekeeping_round9.py::test_accepted_events_are_on_disk_after_a_normal_shutdown_too",
+      "crooks-assistant/tests/test_r11_records.py::test_an_overlong_housekeeping_step_is_stopped_inside_it_so_the_runtime_closes_and_the_timeline_drains",
+      "crooks-assistant/tests/test_r11_records.py::test_the_units_stop_and_the_apps_shutdown_budget_are_one_plan",
+      "crooks-assistant/tests/test_r11_records.py::test_a_connection_held_open_at_a_stop_no_longer_keeps_the_apps_shutdown_from_running"
+    ],
+    "answer": "LEFT on purpose; round 13 changed nothing for it. app/main.py (lifespan, drain_timelines, the SHUTDOWN_* plan), the unit and the housekeeping stop (session.checkpoint, HOUSEKEEPING_STOP) are byte-identical between 361b0138 and this commit; timeline.py changed only for RC-5 and RC-7 (its stop now also reports a broken file as not settled). Round 12's case is real: a filesystem call that is itself stalled can run past SHUTDOWN_DEADLINE_S, and a writer stalled on the same disk can leave accepted events pending past the drain. Why it is left: (1) the shutdown is already bounded — the pass runs in a daemon thread, lifespan stops waiting at SHUTDOWN_DEADLINE_S and leaves the runtime open rather than closing it under the pass, the drain is bounded by SHUTDOWN_EXIT_BY_S, and the whole stop fits the unit's TimeoutStopSec=30 (test_the_units_stop_and_the_apps_shutdown_budget_are_one_plan); (2) recording the lost events durably would mean writing to the same stalled disk, which is what could not be done; (3) what is lost is diagnostic test-session events only, never shop data or an owner record; and (4) the loss is said: drain_timelines returns False and logs how many events were still pending (log.error), and the root StreamHandler writes it to stderr, which the unit sends to the journal (StandardError=journal), off that disk. The fix map's option — housekeeping in bounded threads, the undrained count as dropped with stop_settled False — would move the same residual, not remove it. The named tests hold today's behaviour: bounded and saying what it could not write, accepted events on disk on the normal and the timed-out path, an overlong step stopped inside it.",
+    "excerpts": {
+      "crooks-assistant/app/observability/timeline.py": [
+        "lines 392-404: Timeline.stop: stop_settled",
+        "lines 667-716: flush and counts"
+      ],
+      "crooks-assistant/app/observability/session.py": [
+        "lines 25-48: Interrupted, HOUSEKEEPING_STOP, checkpoint: the stop read before every entry of every walk"
+      ],
+      "crooks-assistant/deploy/systemd/crooks-assistant.service": [
+        "lines 55-75: the unit's stop: TimeoutStopSec, and StandardError=journal"
+      ]
+    }
+  },
+  {
+    "finding": "R9-I-tests5-I-01",
+    "parts": [
+      "T5",
+      "S2",
+      "S2T"
+    ],
+    "status": "LEFT",
+    "question": "After Add a note is bound, can a sentence meant as a command ('open the inbox') be taken as the dictated note and staged as a note on the bound order?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/session/branch.py",
+      "crooks-assistant/app/commands.py",
+      "crooks-assistant/app/tools/shopify_tools.py",
+      "crooks-assistant/tests/test_r11_turn.py",
+      "crooks-assistant/tests/test_turn_boundary.py",
+      "crooks-assistant/tests/test_touch_to_voice.py",
+      "crooks-assistant/tests/test_r13_off_target.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_turn.py::test_open_the_inbox_after_add_a_note_was_tapped_stages_no_note_when_the_model_navigates",
+      "crooks-assistant/tests/test_turn_boundary.py::test_a_navigation_command_after_a_tapped_note_cannot_become_a_change_by_itself",
+      "crooks-assistant/tests/test_touch_to_voice.py::test_the_next_sentence_carries_the_binding_and_only_the_next",
+      "crooks-assistant/tests/test_touch_to_voice.py::test_a_binding_does_not_leak_across_the_split",
+      "crooks-assistant/tests/test_touch_to_voice.py::test_a_binding_expires",
+      "crooks-assistant/tests/test_r13_off_target.py::test_words_after_add_a_note_on_1940_land_on_1940",
+      "crooks-assistant/tests/test_r13_off_target.py::test_words_after_add_a_note_on_1940_that_name_no_order_cannot_note_1938"
+    ],
+    "answer": "LEFT: it awaits George's decision; round 13 changed nothing for it. Whether a sentence after Add a note is the dictation or a command is the model's to decide: by the owner's decision of 28 September 2026 no word list on the Mac classifies one against the other (that classifier went with the fast lane), and _with_continuation, voice_target and release_voice are unchanged since 361b0138 — the binding is put beside his words for the model, spent on that one sentence, on this half only, and it expires. What round 13 did change is the target, not the intent: the spent binding now reaches _answer, and _off_target withdraws a change of the bound kind that is not on the bound record unless his words named another (R9-D1-D1-02). So if the model takes 'open the inbox' as the note, the result is a PENDING card on the bound order that shows 'open the inbox' as the note, applied only by the owner's hold and tap — a spoken yes does not apply it and his next sentence withdraws it — and shopify_order_note_append appends (it never replaces the note) and has undo. A model that navigates stages nothing and the binding is spent. The fix map asks George to confirm this as a FOLLOW-UP; until he does, the named tests hold today's behaviour.",
+    "excerpts": {
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 134-407: _turn: the binding spent on one sentence and handed to _answer",
+        "lines 597-615: _with_continuation",
+        "lines 1191-1277: _off_target: the target held, not the intent"
+      ],
+      "crooks-assistant/app/session/branch.py": [
+        "lines 757-788: bind_voice, voice_target, release_voice"
+      ],
+      "crooks-assistant/app/commands.py": [
+        "lines 767-804: _bind_voice"
+      ],
+      "crooks-assistant/app/tools/shopify_tools.py": [
+        "lines 1402-1454: shopify_order_note_append: appended, amber, with undo"
+      ]
+    }
   }
 ]

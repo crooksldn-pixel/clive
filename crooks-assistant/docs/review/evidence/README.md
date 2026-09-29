@@ -34,3 +34,10 @@ evidence finding), and `excerpts` given as line ranges (`lines 503-600: what the
 `tests/test_r13_evidence_index.py` holds to the tree. Where writing the evidence showed a real
 defect instead, it was fixed in the same round and the entry says `FIXED`, naming first the tests
 that fail on the code before the fix.
+
+It now holds all 62: the entries above, and one for each of the 39 findings round 13's fix map
+found real (blocking, or real but not a blocker as configured). Each of those says `FIXED`, naming
+first the tests that fail at `361b0138` and then the neighbouring tests that hold the rest, or
+`LEFT` with the reason: R9-A3b-F-04-SHUTDOWN on purpose, and R9-I-tests5-I-01 until George
+decides it. The record gives one id twice — R9-B2-B2-01, a finding of the pages evidence and
+another of the screens-server evidence — so it has two entries, told apart by their `parts`.
