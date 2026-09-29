@@ -113,14 +113,46 @@ async def test_a_refund_whose_reason_repeats_the_order_number_is_held_to_that_or
     assert desk.store.mutations == []
 
 
-async def test_a_number_said_only_in_the_note_does_not_move_the_note_off_the_order_he_is_on(desk):
-    """What must not get worse (the round-11 independent check): with #1938 in front of him and
-    nothing tapped, "add a note: swap it for the one on order 1940" names #1940 only as what the
-    note says. A model that notes #1938, the order he is looking at, gives #1938's card."""
+async def test_with_nothing_tapped_a_note_naming_another_order_is_asked_about_then_lands_where_he_says(desk):
+    """With #1938 in front of him and nothing tapped, "add a note: swap it for the one on order
+    1940". Round 11 let a note on #1938 stand here, reading 1940 as what the note says. Round 13's
+    two independent checks showed the other side of that reading: "can you add a note to order
+    1940 saying fragile", copied word for word onto #1938, is the same sentence to any check that
+    cannot parse it, and it stood. Which of his numbers is where a note goes is the sentence's
+    structure — the model's to read, and exactly what is checked here — so with nothing tapped,
+    a change on an order he did not name is withdrawn and he is asked. "On this one" puts it on
+    #1938. (After Add a note is tapped on #1938, what he says is dictation, and stands: see
+    tests/test_r11_turn.py.)"""
     await _on_1938_with_1940_held(desk, "content-only")
     desk.model.steps = [notes(A, "Swap it for the one on order 1940")]
-    card = confirmation(await say(desk, "add a note: swap it for the one on order 1940", "content-only"))
-    assert desk.runtime.actions.find(card["proposal_id"]).entity_ref == A
+    body = await say(desk, "add a note: swap it for the one on order 1940", "content-only")
+    proposal = _only(desk, "content-only")
+    assert proposal.entity_ref == A and proposal.status.value == "REVOKED" and no_confirmation(body)
+    assert body["answer"] == WITHDRAWN_1940, body["answer"]
+
+    desk.model.steps = [notes(A, "Swap it for the one on order 1940")]
+    card = confirmation(await say(desk, "on this one", "content-only"))
+    placed = desk.runtime.actions.find(card["proposal_id"])
+    assert placed.entity_ref == A and placed.status.value == "PENDING"
+
+
+@pytest.mark.parametrize(("said", "note"), [
+    ("can you add a note to order 1940 saying fragile", "Add a note to order 1940 saying fragile"),
+    ("please add a note to order 1940 saying fragile", "add a note to order 1940 saying fragile"),
+    ("can you put a note on order 1940 that she wants it gift wrapped", "note on order 1940 that she wants it gift wrapped"),
+    ("right, the parcel for order 1940 came back, stick a note on it", "The parcel for order 1940 came back"),
+])
+async def test_with_nothing_tapped_his_own_words_copied_onto_the_order_on_screen_do_not_move_where_he_said(desk, said, note):
+    """Round 13's second independent check: each of these stood on #1938, the note copying a run
+    of his words that carried "order 1940"."""
+    sid = f"copied-{abs(hash(said)) % 1000}"
+    await _on_1938_with_1940_held(desk, sid)
+    desk.model.steps = [notes(A, note)]
+    body = await say(desk, said, sid)
+    proposal = _only(desk, sid)
+    assert proposal.entity_ref == A and proposal.status.value == "REVOKED", (said, proposal.status)
+    assert no_confirmation(body) and body["answer"] == WITHDRAWN_1940, body["answer"]
+    assert desk.store.mutations == []
 
 
 async def test_a_number_said_only_in_the_note_does_not_let_the_note_land_on_a_third_order(desk):

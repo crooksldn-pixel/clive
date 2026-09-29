@@ -44,7 +44,8 @@ import queue
 import re
 import threading
 import time
-from collections import deque
+import unicodedata
+from collections import OrderedDict, deque
 from pathlib import Path
 from typing import Any
 
@@ -71,13 +72,25 @@ WITHHELD_KEYS = frozenset({
     "token", "access_token", "refresh_token", "id_token", "oauth_token", "client_secret", "secret",
     "password", "nonce", "arm_nonce", "x-crooks-arm", "headers", "raw_headers", "credentials", "credential",
 })
-# How many of the names a session has been told about are kept. Bounded, because this is a
-# process-lifetime set and a long session reads a lot of customers.
-MAX_NAMES = 256
-# The names to replace wherever they appear in a written event, newest first. Fed by
-# `note_names` from the place that already knows them (a turn's own tool results); empty
-# until something tells it, and shape redaction runs whether or not anything has.
-_names: deque[str] = deque(maxlen=MAX_NAMES)
+# How many of the names this process has been told about are kept: every customer a busy season's
+# conversations read, and still bounded, because this is a process-lifetime set. It was 256, fed
+# every turn from a conversation's whole unordered `pii_seen`: past 256 which names survived was
+# the set's iteration order, and the customer on screen could be one that did not (round 13's
+# second independent check). Names are found by their words, so the number kept costs nothing
+# per event; the least recently told go first.
+MAX_NAMES = 50_000
+# The names to replace wherever they appear in a written event: each as the words it is written
+# with, least recently told first, and indexed by its first word. Fed by `note_names` from the
+# place that already knows them (a turn's own tool results); empty until something tells it,
+# and shape redaction runs whether or not anything has.
+_names: OrderedDict[str, tuple[str, ...]] = OrderedDict()
+_by_first_word: dict[str, set[str]] = {}
+_names_lock = threading.Lock()
+_NAME_WORD = re.compile(r"\w+")
+
+
+def _name_words(text: str) -> tuple[str, ...]:
+    return tuple(unicodedata.normalize("NFKC", w).casefold() for w in _NAME_WORD.findall(text))
 
 # Strings shaped like a credential, scrubbed wherever they appear.
 _SECRET = re.compile(
@@ -129,13 +142,65 @@ def note_names(names: Any) -> None:
     """
     for name in names or ():
         text = str(name or "").strip()
-        if len(text) >= 3 and text not in _names:
-            _names.append(text)
+        if len(text) < 3:
+            continue
+        words = _name_words(text)
+        if not words:
+            continue
+        with _names_lock:
+            if text in _names:
+                _names.move_to_end(text)
+                continue
+            _names[text] = words
+            _by_first_word.setdefault(words[0], set()).add(text)
+            while len(_names) > MAX_NAMES:
+                old, old_words = _names.popitem(last=False)
+                bucket = _by_first_word.get(old_words[0])
+                if bucket is not None:
+                    bucket.discard(old)
+                    if not bucket:
+                        del _by_first_word[old_words[0]]
 
 
 def forget_names() -> None:
     """Empty the name set. For tests, and for a process handed to a different shop."""
-    _names.clear()
+    with _names_lock:
+        _names.clear()
+        _by_first_word.clear()
+
+
+def _names_out(text: str) -> str:
+    """Every name this process has been told, taken out of one string: found by its words, in
+    order, whatever their case or width and whatever stands between them — "Mia Kowalski's" and
+    "MIA  KOWALSKI" are both her name — the longest where two names start at the same word."""
+    found = [(unicodedata.normalize("NFKC", m.group(0)).casefold(), m.start(), m.end()) for m in _NAME_WORD.finditer(text)]
+    if not found:
+        return text
+    spans: list[tuple[int, int]] = []
+    with _names_lock:
+        i = 0
+        while i < len(found):
+            longest = 0
+            for name in _by_first_word.get(found[i][0], ()):
+                words = _names[name]
+                n = len(words)
+                if n > longest and i + n <= len(found) and all(found[i + j][0] == words[j] for j in range(n)):
+                    longest = n
+            if longest:
+                spans.append((found[i][1], found[i + longest - 1][2]))
+                i += longest
+            else:
+                i += 1
+    if not spans:
+        return text
+    out: list[str] = []
+    at = 0
+    for start, end in spans:
+        out.append(text[at:start])
+        out.append("[name]")
+        at = end
+    out.append(text[at:])
+    return "".join(out)
 
 
 def _redact(text: str) -> str:
@@ -151,7 +216,8 @@ def _redact(text: str) -> str:
     try:
         from app.logging.turnlog import redact_text
 
-        return redact_text(text, tuple(_names))
+        # Shapes first — an address is "[email]" whole, not a name and a domain — then names.
+        return _names_out(redact_text(text))
     except Exception:  # noqa: BLE001 — observability never takes a turn down
         # Belt and braces: the one shape that actually leaked, with no import behind it.
         return _EMAIL_FALLBACK.sub("[email]", text)
@@ -166,8 +232,10 @@ _EMAIL_FALLBACK = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 # redact it from these ("what did Zoe Quill order", answered from nothing, put her name in the
 # always-on timeline three times: the round-12 deploy review, R9-D1-D1-01 and S1-NEW-02). In
 # the day's automatic session they are written by their shape; a session he started by name —
-# his walkthrough — keeps them. A defect he asks to be logged (`owner_feedback`) is his request
-# to have those words written down, and is kept.
+# his walkthrough — keeps them. A defect he asks to be logged (`owner_feedback`) is kept word for
+# word in his walkthrough and, like everything else he says, by its shape in the day's session:
+# the recogniser reads his words by pattern, and every pattern that filed a defect also filed, in
+# the round-13 second check, a note he was asking for on an order with a customer's name in it.
 #
 # The round-13 independent check found his words in more places, each written from inside a tool
 # or a route before any read had told this timeline a name: a working set's label (the title the
@@ -184,7 +252,20 @@ WORDS: dict[str, tuple[str, ...]] = {
     "branch_forked": ("headline", "parent_headline"),
     "branch_focused": ("headline",),
     "action_commit": ("spoken",),
+    "owner_feedback": ("text",),
+    # A refusal a tap or a row met, as the tool gave it: it can quote what was typed or said.
+    "command_stage": ("detail",),
+    "row_action": ("detail",),
 }
+# What the tablet sends about itself (POST /telemetry, `tablet_<kind>`) may carry, under these
+# fields, a card's title — a customer's name, a listing titled in his words — or his question:
+# the page echoes what the Mac drew (round 13's second check found the half's headline, shaped
+# on the Mac's own event, written again in the clear as the tablet's).
+TABLET_WORDS: tuple[str, ...] = ("label", "question", "name", "detail")
+
+
+def _words_for(kind: str) -> tuple[str, ...]:
+    return WORDS.get(kind) or (TABLET_WORDS if kind.startswith("tablet_") else ())
 
 
 def keeps_words(session: TestSession | None) -> bool:
@@ -469,8 +550,9 @@ class Timeline:
                 if value is None or key in event:
                     continue
                 event[key] = value
-            if kind in WORDS and not keeps_words(session):
-                event = _words_by_shape(event, WORDS[kind])
+            words = _words_for(str(kind))
+            if words and not keeps_words(session):
+                event = _words_by_shape(event, words)
             event = scrub(event)
             self._note(event)
             line = json.dumps(event, ensure_ascii=False, default=str)

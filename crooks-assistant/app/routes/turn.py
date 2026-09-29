@@ -998,8 +998,8 @@ def _numbers_said(text: str, session, proposed: list[str]) -> frozenset[str]:
 
     Counted by place: "add a note to order 1940: 1940 goes with the gift box" says 1940 once more
     than the note carries it, so the sentence is about #1940 and a screen showing #1938 does not
-    stay under it. Only whether a screen stays; where a change goes is `_said_outside`'s, which
-    lets the model's words cancel nothing."""
+    stay under it. Only whether a screen stays; where a change goes is `_off_target`'s, which
+    lets the model's words excuse nothing."""
     words = str(text or "")
     places: dict[int, str] = {}
     for pattern in (_ORDER_SAID, _NUMBER):
@@ -1052,8 +1052,8 @@ def _written_counts(proposal) -> Counter:
 
 
 def _written_strings(proposal) -> list[str]:
-    """The words a change writes — a note, a refund's reason, a tag, a message — from the model's
-    arguments, never an id or a gid (as `_written_counts` reads them)."""
+    """The words a change writes — a note, a tag, a message — from the model's arguments, never
+    an id or a gid (as `_written_counts` reads them)."""
     out: list[str] = []
 
     def walk(value: Any, key: str, depth: int) -> None:
@@ -1077,64 +1077,37 @@ def _written_strings(proposal) -> list[str]:
 
 _WORD = re.compile(r"\w+")
 
-#: How many of his own words must stand before an order number, inside a passage a change writes
-#: word for word, for that number to be what the change SAYS rather than where it goes.
-_WORDS_BEFORE = 2
-
 
 def _words_of(text: str) -> list[tuple[str, int]]:
-    """His words, compared as the same word whatever their case or width, each with where it
-    starts in what he said."""
+    """Words, compared as the same word whatever their case or width, each with where it starts."""
     return [(unicodedata.normalize("NFKC", m.group(0)).casefold(), m.start()) for m in _WORD.finditer(str(text or ""))]
 
 
-def _written_places(text: str, proposals: Iterable[Any], *, dictated: bool = False) -> set[int]:
-    """Where in his words an order number stands inside what these changes write: the places of
-    numbers in a passage of his that a change writes word for word, with at least two of his words
-    before the number inside that passage.
+def _dictated_places(text: str, proposal: Any) -> set[int]:
+    """Where in his words a number stands inside what he DICTATED to a control he tapped: a
+    passage of two or more of his words that the change writes word for word.
 
-    Never for a change that cannot be undone (a refund, a cancellation): money does not go by how
-    the model worded its reason. Never a passage that begins where his sentence begins, unless a
-    tapped control made his whole sentence the words (`dictated`): a note that carries "add a note
-    to order 1940" carries the request, not something he dictated. And never a number with fewer
-    than two of his words before it in the passage: "refund twenty pounds on order 1940, it
-    arrived torn", written as the reason "Order 1940, it arrived torn", is where the refund goes,
-    whatever the reason repeats.
-
-    The round-12 deploy review (S2a-01, R9-I-tests2-I-01, R9-I-tests5-I-03), and its round-13
-    check: counting the numbers the model's own words carry let the model cancel the places he
-    named, so a refund whose reason repeated "1940" stood on #1938."""
+    Only after a tap (`_off_target` asks only then). Add a note tapped on #1938 named the order
+    with his hand, and made what he says next the note: "exchange for order 1912, she wants a
+    medium instead", noted on #1938 as he said it, is #1938's note (the round-11 independent
+    check). Words the change writes that are not his ("1940 goes with the gift box" for "add a
+    note to order 1940 saying fragile") excuse nothing, and nor does anything on a change that
+    cannot be undone. Whether a whole sentence said after the tap that starts "add a note to
+    order 1940" is dictation or a new command is the owner's decision still open
+    (R9-I-tests5-I-01); until he makes it, word for word is dictation."""
+    if proposal is None or str(getattr(proposal, "risk", "") or "").upper() == "RED":
+        return set()
     said = _words_of(text)
     tokens = [w for w, _ in said]
     places: set[int] = set()
-    for proposal in proposals:
-        if proposal is None or str(getattr(proposal, "risk", "") or "").upper() == "RED":
+    for value in _written_strings(proposal):
+        needle = [w for w, _ in _words_of(value)]
+        if len(needle) < 2 or len(needle) > len(tokens):
             continue
-        for value in _written_strings(proposal):
-            needle = [w for w, _ in _words_of(value)]
-            if len(needle) <= _WORDS_BEFORE or len(needle) > len(tokens):
-                continue
-            for start in range(0, len(tokens) - len(needle) + 1):
-                if tokens[start:start + len(needle)] != needle or (start == 0 and not dictated):
-                    continue
-                places.update(said[i][1] for i in range(start + _WORDS_BEFORE, start + len(needle)))
+        for start in range(0, len(tokens) - len(needle) + 1):
+            if tokens[start:start + len(needle)] == needle:
+                places.update(said[i][1] for i in range(start, start + len(needle)))
     return places
-
-
-def _said_outside(text: str, known: set[str] | frozenset[str], proposals: Iterable[Any], *,
-                  dictated: bool = False) -> frozenset[str]:
-    """The order numbers his words name OUTSIDE what these changes write (`_written_places`):
-    each place he named an order counts, unless it stands inside his own words that a change
-    writes, word for word.
-
-    "Add a note to order 1940: 1940 goes with the gift box" names 1940 as where the note goes,
-    whatever the note says. "Add a note: exchange for order 1912, she wants a medium", noted as
-    said, carries its only 1912 inside the note and says nothing about where it goes. A note
-    that is not his words ("1940: fragile" for "add a note to order 1940 saying fragile"), and
-    any reason on a refund, excuses nothing: the place he said is where it goes."""
-    places = _order_places(text, known)
-    written = _written_places(text, list(proposals), dictated=dictated)
-    return frozenset(number for at, number in places.items() if at not in written)
 
 
 # ------------------------------------------------ the person he named, and a change to another one
@@ -1286,14 +1259,21 @@ def _off_target(proposed: list[str], session, *, question: str, known: set[str] 
     why, the orders he named for it). Run after the model, on what it staged; nothing here reads
     anything or answers a sentence.
 
-    An order. A number he said outside the change's own written content is where it goes
-    (`_said_outside`): "add a note to 1940" after Add a note was tapped on #1938, or "yes,
-    #1940" over a refund waiting on #1938, must not come back as a card for #1938, however the
-    model read the words. Failing that, a tapped control's words go on the order it bound.
-    Failing that, an order he named only inside what the change writes still limits where it
-    may go: to an order he named, or the one he is looking at — "add a note: exchange for order
-    1912" is the order on screen's note, never a third order's. A change whose order cannot be
-    told from its card is not his when he named one.
+    An order. When his words name an order, the change is on an order they name: "add a note to
+    1940" after Add a note was tapped on #1938, or "yes, #1940" over a refund waiting on #1938,
+    must not come back as a card for #1938, however the model read the words. Nothing the change
+    itself writes excuses a number he said. Which of his numbers is where the change goes and
+    which is what it says is a matter of how the sentence is built, which is the model's to read
+    and is exactly what this checks; every attempt to excuse a number by the change's own words
+    — counting them, then matching them word for word — let a model that copied "order 1940"
+    into a note on #1938 through (the round-12 deploy review, S2a-01, R9-I-tests2-I-01,
+    R9-I-tests5-I-03, and round 13's two independent checks). So "add a note: exchange for order
+    1912", with #1938 on screen and nothing tapped, is withdrawn and he is asked which order;
+    "on this one", or "1938", puts it there. After Add a note tapped on an order, what he says
+    is the note: a number inside the words the note carries word for word is the note's, not
+    where it goes (`_dictated_places`). Failing a named order, a tapped control's words go on the
+    order it bound. A change whose order cannot be told from its card is not his when he named
+    one.
 
     An email. After a tapped Reply or Rewrite, the reply is in the thread he tapped: his words
     cannot name a thread, only an order, and a new email about an order he named stands.
@@ -1320,21 +1300,22 @@ def _off_target(proposed: list[str], session, *, question: str, known: set[str] 
         bound_here = kind in _BOUND_KINDS.get(bound_kind, ()) and _same_record(bound_kind, ref, bound_ref)
         if kind == "order":
             number = _order_number(getattr(proposal, "entity_label", ""))
-            where = _said_outside(question, known, [proposal], dictated=bound_here)
+            where = named_raw
+            if where and bound_here:
+                # After his tap on this order, a number inside what he dictated is the note's.
+                dictated = _dictated_places(question, proposal)
+                where = frozenset(n for at, n in _order_places(question, known).items() if at not in dictated)
             if where:
+                # He named an order: the change is on one he named.
                 if not number or number not in where:
                     off.append((proposal_id, NOT_THE_ORDER_NAMED, where))
             elif bound_kind == "order" and bound_ref:
                 if not bound_here:
                     off.append((proposal_id, NOT_THE_RECORD_TAPPED, frozenset()))
-            elif named_raw:
-                looked_at = (cursor or {}).get("kind") == "order" and _same_record("order", ref, (cursor or {}).get("ref"))
-                if not looked_at and (not number or number not in named_raw):
-                    off.append((proposal_id, NOT_THE_ORDER_NAMED, named_raw))
         elif kind in _BOUND_KINDS["email_thread"]:
             if bound_kind == "email_thread" and bound_ref and not bound_here:
                 number = _order_number(getattr(proposal, "entity_label", ""))
-                if not (number and number in _said_outside(question, known, [proposal])):
+                if not (number and number in named_raw):
                     off.append((proposal_id, NOT_THE_RECORD_TAPPED, frozenset()))
         elif kind == "customer":
             if people is None:
@@ -1818,13 +1799,9 @@ async def _answer(
             withheld = {p for p, _why, _where in off}
             proposed = [p for p in proposed if p not in withheld]
         elif named:
-            # An order said only inside what this turn's change writes ("exchange for order
-            # 1912", noted on #1938) is not one he asked to read.
-            staged = [session.proposal(p) for p in proposed if not str(p).startswith("batch_")]
-            asked = _said_outside(question, known, staged)
             read = _orders_read(calls)
-            if read and asked and not (read & asked):
-                answer = f"{answer.rstrip()} That's {_spoken_orders(read)}, not {_spoken_orders(asked)}."
+            if read and not (read & named):
+                answer = f"{answer.rstrip()} That's {_spoken_orders(read)}, not {_spoken_orders(named)}."
     # A change was proposed this turn. Say, now and in the same breath, whether a tap on THIS
     # tablet could apply it — a card that cannot be applied must never look as if it can.
     if proposed and writes is None and request is not None:

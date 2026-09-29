@@ -365,3 +365,88 @@ async def test_in_a_session_he_named_a_ranking_s_names_are_taken_out_of_its_own_
                        session=Session(session_id="s-named-ranking"), timeout_s=5)
     (made,) = [e for e in _events(line, store, session) if e.get("kind") == "working_set"]
     assert "Cy Cole" not in made["label"] and made["label"].startswith("Top three"), made["label"]
+
+
+# =================================== a note he asks for is not a defect (the round-13 second check)
+#
+# "Make a note on order 1940 that Zoe Quill is collecting it" matched the feedback recogniser's
+# "make a note" and was written, word for word and with her name, to the day's session as a
+# defect in CLIVE, and the model was told to say it was logged. A note or record instruction that
+# names an order is the model's to make now; and in the day's session a defect he does ask to be
+# logged is written by its shape, like everything else he says.
+
+
+@pytest.mark.parametrize("said", [
+    "make a note on order 1940 that Zoe Quill is collecting it for her mum",
+    "note that Zoe Quill is picking up order 1940 on Saturday",
+    "record that Zoe Quill paid cash for 1940",
+])
+async def test_a_note_he_asks_for_on_an_order_is_not_filed_as_a_defect(desk, always_on, said):
+    line, store, session = always_on
+    desk.model.steps = [says("Done.")]
+    sid = f"order-note-{abs(hash(said)) % 1000}"
+    await _heard(desk, said, sid)
+    events = [e for e in _events(line, store, session) if e.get("session_id") == sid]
+    assert not [e for e in events if e["kind"] == "owner_feedback"], "a note on an order is not a defect in CLIVE"
+    assert "written this down" not in desk.model.prompts[-1], "the model is not told it was logged"
+    _nowhere(events, "Zoe", "Quill")
+
+
+def test_feedback_that_names_no_order_is_still_his_feedback():
+    from app.observability import feedback
+
+    assert feedback.recognise("note that the address field is quite good but wrong") is not None
+    assert feedback.recognise("log that order 1940's card shows two of the same") is not None
+
+
+async def test_a_defect_he_logs_is_written_by_its_shape_in_the_day_s_session(desk, always_on):
+    line, store, session = always_on
+    desk.model.steps = [says("Logged.")]
+    await _heard(desk, "log that the split view for Zoe Quill shows two of the same", "logged-day")
+    events = [e for e in _events(line, store, session) if e.get("session_id") == "logged-day"]
+    (logged,) = [e for e in events if e["kind"] == "owner_feedback"]
+    assert SHAPE.fullmatch(logged["text"]), logged
+    _nowhere(events, "Zoe", "Quill")
+
+
+async def test_a_defect_he_logs_in_his_walkthrough_is_kept_word_for_word(desk, walkthrough):
+    line, store, session = walkthrough
+    desk.model.steps = [says("Logged.")]
+    await _heard(desk, "log that the split view shows two of the same", "logged-named")
+    (logged,) = [e for e in _events(line, store, session) if e.get("kind") == "owner_feedback"]
+    assert logged["text"] == "log that the split view shows two of the same"
+
+
+# ======================= every name a long day's conversation was shown (the round-13 second check)
+
+
+def test_a_name_told_early_in_a_long_day_is_still_taken_out(always_on):
+    """The name set held 256, and each turn fed it the conversation's whole `pii_seen`, an
+    unordered set: past 256, which names survived was the set's order, and the customer on screen
+    could be one that did not (`turn_started.focus` then wrote her name). Four hundred other
+    people's details are nothing to it now."""
+    line, store, session = always_on
+    timeline.note_names(["Mia Kowalski"])
+    timeline.note_names([f"Person{n} Surname{n}" for n in range(400)] + [f"person{n}@example.com" for n in range(400)])
+    timeline.note_names({"Mia Kowalski", *(f"Person{n} Surname{n}" for n in range(400))})
+    timeline.emit("turn_started", session_id="s-long", focus={"kind": "customer", "label": "Mia Kowalski", "ref": "gid://shopify/Customer/8"},
+                  said="MIA KOWALSKI's parcel, and Person399 Surname399")
+    (event,) = [e for e in _events(line, store, session) if e.get("kind") == "turn_started"]
+    assert event["focus"]["label"] == "[name]", event
+    assert "Kowalski" not in event["said"] and "Surname399" not in event["said"], event["said"]
+
+
+@pytest.mark.parametrize(("kind", "fields"), [
+    ("tablet_branch_switch", {"detail": "Cy Cole's orders → Orders for Zoe"}),
+    ("tablet_working_set", {"label": "Cy Cole's orders"}),
+    ("tablet_action", {"label": "Zoe Quill", "question": "what did Zoe Quill order"}),
+    ("command_stage", {"detail": "'Zoe Quill' is not an address I can send to."}),
+    ("row_action", {"detail": "Zoe Quill's order changed meanwhile."}),
+])
+def test_what_the_tablet_echoes_and_what_a_tap_was_refused_are_written_by_shape(always_on, kind, fields):
+    """Round 13's second check: the page re-sends the titles the Mac drew, and a tap's refusal
+    can quote what was typed. In the day's session, by their shape."""
+    line, store, session = always_on
+    timeline.emit(kind, session_id="s-echo", **fields)
+    (event,) = [e for e in _events(line, store, session) if e.get("kind") == kind]
+    assert all(SHAPE.fullmatch(event[k]) for k in fields), event
