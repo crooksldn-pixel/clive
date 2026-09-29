@@ -7,9 +7,10 @@
 - S3-02 (RC-6): a change the owner makes from his remote is not answered as saved until it is
   kept. When the folder's flush fails the answer is a retryable 503, and a retry does not apply
   the change twice.
-- R9-B2-B2-01, screens-server (RC-6): a key handed over in a rotation whose record was not kept
-  durably still opens the screen after a power cut brings the old record back; the old key stays
-  valid alongside it until the next durable write, and not after.
+- R9-B2-B2-01, screens-server (RC-6): a key is handed over only once the record that holds it is
+  kept durably, so a power cut can never bring back a record the screen's key does not open. A
+  change of key whose record could not be kept is refused (503, no cookie) and the key the screen
+  already has goes on working.
 
 Everything goes through the real app where a person would: the door, the screens router, the
 route, the dispatcher and the gate (tests/test_screen_paths.py world). The model, Shopify and the
