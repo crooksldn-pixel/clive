@@ -665,6 +665,11 @@ def _context_lines(session, text: str, runtime=None) -> list[str]:
     from app.observability import claims
 
     lines: list[str] = []
+    withdrawn = str(getattr(session, "last_withdrawn", "") or "").strip()
+    if withdrawn:
+        lines.append(f'[CLIVE withdrew the change you prepared last time before the owner saw it, and told him: "{withdrawn[:240]}" '
+                     "Nothing is on a card. If what he says now answers that, prepare the change again where he says.]")
+        session.last_withdrawn = ""
     outcome = str(getattr(session, "last_outcome", "") or "").strip()
     if outcome:
         lines.append(f'[The last change, as CLIVE proved it: "{outcome[:200]}". If asked whether it worked, say this; do not propose it again.]')
@@ -1185,6 +1190,7 @@ _BOUND_KINDS: dict[str, frozenset[str]] = {
 NOT_THE_ORDER_NAMED = "not the order the owner named"
 NOT_THE_RECORD_TAPPED = "not the record the owner tapped"
 NOT_THE_PERSON_NAMED = "not the person the owner named"
+MORE_THAN_ONE_NAMED = "more than one person named"
 A_NAME_TWO_SHARE = "a name two people share"
 
 
@@ -1231,6 +1237,8 @@ def _off_target(proposed: list[str], session, *, question: str, known: set[str] 
     named_raw = _orders_named(question, known)
     people: dict[str, str] | None = None
     shared: set[str] = set()
+    email_people: dict[str, str] | None = None
+    email_named: dict[str, str] | None = None
     off: list[tuple[str, str, frozenset[str]]] = []
     for proposal_id, proposal in changes:
         kind = str(getattr(proposal, "entity_kind", "") or "")
@@ -1243,16 +1251,38 @@ def _off_target(proposed: list[str], session, *, question: str, known: set[str] 
                 # order he named is not the one he tapped: which one it is for is his to say.
                 if not number or number not in named_raw:
                     off.append((proposal_id, NOT_THE_ORDER_NAMED, named_raw))
-            elif bound_kind == "order" and bound_ref:
-                if not bound_here:
-                    off.append((proposal_id, NOT_THE_RECORD_TAPPED, frozenset()))
-        elif kind in _BOUND_KINDS["email_thread"]:
-            # After a tapped Reply or Rewrite, what is written is in the thread he tapped. An
-            # order his words name — which may be one he is telling this customer about — does
-            # not send it to that order's customer instead (round 13's third check: "David's
-            # order 1939 went to you by mistake", dictated to Priya, became an email to David).
-            if bound_kind == "email_thread" and bound_ref and not bound_here:
+            elif bound_kind and bound_ref and not bound_here:
+                # Named nothing, and tapped a control on another record — an order's, or an
+                # email's Reply: the change is not what the tap was for.
                 off.append((proposal_id, NOT_THE_RECORD_TAPPED, frozenset()))
+        elif kind in _BOUND_KINDS["email_thread"]:
+            number = _order_number(getattr(proposal, "entity_label", ""))
+            if bound_kind == "email_thread" and bound_ref and not bound_here:
+                # After a tapped Reply or Rewrite, what is written is in the thread he tapped. An
+                # order his words name — which may be one he is telling this customer about —
+                # does not send it to that order's customer instead (round 13's third check:
+                # "David's order 1939 went to you by mistake", dictated to Priya, became an email
+                # to David).
+                off.append((proposal_id, NOT_THE_RECORD_TAPPED, frozenset()))
+            elif ref.startswith("gid://shopify/Order/") and named_raw and (not number or number not in named_raw):
+                # A new email is written to an order's customer: the order is held to the orders
+                # he named, as any change on an order is (round 13's fourth check).
+                off.append((proposal_id, NOT_THE_ORDER_NAMED, named_raw))
+            elif str(getattr(proposal, "tool_name", "") or "") in _NEW_EMAIL_TOOLS:
+                # And to a person he named, when he named one this conversation has been shown:
+                # "email Priya: David's order 1939 went to you by mistake", written to #1939's
+                # customer, names #1939 and goes to David (round 13's fourth check). Anyone its
+                # reads have shown counts, not only the customers it holds by id: a recipient is
+                # a name on an order, and so is the person he means.
+                if email_people is None:
+                    email_named = _names_seen(session, calls)
+                    email_people, _shared = _people_said(question, email_named, getattr(session, "pii_seen", None) or ())
+                if email_people and not _to_one_named(proposal, email_people, email_named or {}):
+                    off.append((proposal_id, NOT_THE_PERSON_NAMED, frozenset()))
+                elif len({_name_words((email_named or {}).get(r, "")) for r in email_people}) > 1:
+                    # He named two people, and it goes to one: which one it is to, and which one
+                    # it is about, is how the sentence is built — his to say, not a rule's.
+                    off.append((proposal_id, MORE_THAN_ONE_NAMED, frozenset()))
         elif kind == "customer":
             if people is None:
                 people, shared = _people_said(question, _people_held(session, calls),
@@ -1266,6 +1296,44 @@ def _off_target(proposed: list[str], session, *, question: str, known: set[str] 
             elif bound_kind == "customer" and bound_ref and not bound_here:
                 off.append((proposal_id, NOT_THE_RECORD_TAPPED, frozenset()))
     return off
+
+
+_NEW_EMAIL_TOOLS = frozenset({"gmail_draft_new", "gmail_send_new"})
+
+
+def _names_seen(session, calls) -> dict[str, str]:
+    """Every customer this conversation knows by name: those it holds by id (`_people_held`), and
+    the customer of every order it was issued, as the entity cache holds that order — so a
+    customer read two turns ago, on an order, is a person he can name now."""
+    named = dict(_people_held(session, calls))
+    try:
+        from app.memory import ENTITY
+        from app.memory import current as memory
+
+        for ref in sorted(str(i) for i in (getattr(session, "issued_ids", None) or ()) if str(i).startswith("gid://shopify/Order/")):
+            entry = memory().get(ENTITY, f"order:{ref}", allow_stale=True)
+            value = getattr(entry, "value", None) if entry is not None else None
+            if not isinstance(value, Mapping):
+                continue
+            customer = value.get("customer") if isinstance(value.get("customer"), Mapping) else {}
+            who = str(customer.get("customer_id") or value.get("customer_id") or f"order-customer:{ref}")
+            name = str(value.get("customer_name") or customer.get("name") or "").strip()
+            if name:
+                named.setdefault(who, name)
+    except Exception:  # noqa: BLE001 — no memory bound (a unit test, a cold start) is fewer names
+        pass
+    return named
+
+
+def _to_one_named(proposal, people: Mapping[str, Any], held: Mapping[str, str]) -> bool:
+    """Whether a new email goes to one of the people he named: the customer it was written to by
+    id, or the recipient whose name on the order is that person's whole name."""
+    ref = str(getattr(proposal, "entity_ref", "") or "")
+    if any(_same_record("customer", ref, r) for r in people):
+        return True
+    execution = getattr(proposal, "execution", None) if isinstance(getattr(proposal, "execution", None), Mapping) else {}
+    to = _name_words(str(execution.get("to_name") or ""))
+    return bool(to) and any(_name_words(held.get(r, "")) == to for r in people)
 
 
 def _off_target_words(session, off: list[tuple[str, str, frozenset[str]]], *, question: str = "",
@@ -1286,14 +1354,14 @@ def _off_target_words(session, off: list[tuple[str, str, frozenset[str]]], *, qu
             # On the order he tapped, and his words named another: he is asked, not corrected.
             tapped = str((binding or {}).get("prompt") or "that control").strip()
             return (f"You'd tapped {tapped} on {were} and said {_spoken_orders(named)}, so I haven't put it "
-                    "on either yet. Say which order it's for.")
+                    f"on {were}. Say which order it's for.")
         return (f"You said {_spoken_orders(named)}, but the change I'd prepared was for {were}, so I've "
                 "withdrawn it. Say which order you want it on.")
     if why == NOT_THE_RECORD_TAPPED:
         tapped = str((binding or {}).get("prompt") or "that control").strip()
         kind = str((binding or {}).get("kind") or "")
         label = str((binding or {}).get("label") or "").strip()
-        if kind == "order":
+        if kind == "order" or all(getattr(proposal, "entity_kind", "") == "order" for proposal, _where in mine):
             targets = {_order_number(getattr(proposal, "entity_label", "")) for proposal, _where in mine}
             targets.discard("")
             were = _spoken_orders(targets) if targets else "another order"
@@ -1306,6 +1374,13 @@ def _off_target_words(session, off: list[tuple[str, str, frozenset[str]]], *, qu
                     "withdrawn it. Say who it's for.")
         return (f"You'd tapped {tapped}, but what I'd prepared was for a different email, so I've withdrawn it. "
                 "Say who it's for.")
+    if why == MORE_THAN_ONE_NAMED:
+        to = sorted({str((getattr(proposal, "summary", None) or {}).get("spoken_to") or "") for proposal, _where in mine} - {""})
+        named = _names_seen(session, calls)
+        said_people, _shared = _people_said(question, named, getattr(session, "pii_seen", None) or ())
+        said = " and ".join(dict.fromkeys(_as_he_said(words, question) for words in said_people.values()))
+        return (f"You named {said or 'more than one person'}, and the email I'd prepared was to "
+                f"{' and '.join(to) or 'one of them'}, so I haven't put it on a card. Say who it's to.")
     held = _people_held(session, calls)
     people, shared = _people_said(question, held, getattr(session, "pii_seen", None) or ())
     if why == A_NAME_TWO_SHARE:
@@ -1313,7 +1388,8 @@ def _off_target_words(session, off: list[tuple[str, str, frozenset[str]]], *, qu
         return (f"{said or 'That name'} could be more than one of your customers, so I've withdrawn the change "
                 "rather than guess. Say which one you mean.")
     said = " and ".join(dict.fromkeys(_as_he_said(words, question) for words in people.values()))
-    for_whom = sorted({str((getattr(proposal, "summary", None) or {}).get("customer") or held.get(str(proposal.entity_ref), ""))
+    for_whom = sorted({str((getattr(proposal, "summary", None) or {}).get("customer") or held.get(str(proposal.entity_ref), "")
+                           or (getattr(proposal, "summary", None) or {}).get("spoken_to") or "")
                        for proposal, _where in mine} - {""})
     were = " and ".join(for_whom) if for_whom else "someone else"
     return f"You said {said}, but the change I'd prepared was for {were}, so I've withdrawn it. Say who it's for."
@@ -1739,6 +1815,7 @@ async def _answer(
                 session, off, question=question, binding=binding, calls=calls)
             for reason in dict.fromkeys(why for _p, why, _where in off):
                 runtime.actions.revoke_ids([p for p, why, _where in off if why == reason], reason)
+            session.last_withdrawn = answer
             withheld = {p for p, _why, _where in off}
             proposed = [p for p in proposed if p not in withheld]
         elif named:

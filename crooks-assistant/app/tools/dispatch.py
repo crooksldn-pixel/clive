@@ -686,7 +686,34 @@ def _without_what_was_said(error: str, tool: str, args: Any) -> str:
         for quoted in dict.fromkeys((value, value.strip(), value.strip()[:80])):
             if len(quoted) >= 3:
                 error = re.sub(rf"(?<!\w){re.escape(quoted)}(?!\w)", lambda _found, shape=shape: shape, error)
+        # And as a tool re-wrote it before quoting it: the query language quotes "Zoe Quill" back
+        # as "zoe_quill" (round 13's fourth check). The same words, in order, in any case and
+        # joined by anything, are his words.
+        error = _words_run_out(error, value, shape)
     return error
+
+
+_PLAIN_WORD = re.compile(r"[^\W_]+")
+
+
+def _words_run_out(text: str, value: str, shape: str) -> str:
+    """`text` with every run of `value`'s words — in order, whatever their case and whatever joins
+    them (a space, "_", "-") — replaced by `shape`."""
+    wanted = [w.casefold() for w in _PLAIN_WORD.findall(value)]
+    if not wanted or sum(len(w) for w in wanted) < 3:
+        return text
+    found = [(m.group(0).casefold(), m.start(), m.end()) for m in _PLAIN_WORD.finditer(text)]
+    spans: list[tuple[int, int]] = []
+    i = 0
+    while i + len(wanted) <= len(found):
+        if [w for w, _s, _e in found[i:i + len(wanted)]] == wanted:
+            spans.append((found[i][1], found[i + len(wanted) - 1][2]))
+            i += len(wanted)
+        else:
+            i += 1
+    for start, end in reversed(spans):
+        text = text[:start] + shape + text[end:]
+    return text
 
 
 def _result_shape(payload: Any) -> dict[str, Any] | None:

@@ -4,17 +4,20 @@ review of 361b0138, RC-4a).
 Every sentence is the model's (the owner's decision of 28 September 2026). What these hold is the
 check that runs AFTER the model, on what it did (`app/routes/turn.py` `_off_target`):
 
-* when the owner's words name an order, the change is on an order they name; nothing the change
-  itself writes excuses a number he said. After Add a note is tapped, what he says is the note,
-  and a number inside the words it carries word for word is the note's (`_dictated_places`),
-  never on a change that cannot be undone. So "add a note to order 1940: 1940 goes with the gift
-  box" still names #1940 as where it goes, and the model's own words — "1940: fragile", a
-  refund's reason repeating 1940, his own sentence copied onto #1938 — excuse nothing (S2a-01,
-  R9-I-tests2-I-01, R9-I-tests5-I-03);
+* when the owner's words name an order, the change is on an order they name, tapped or not;
+  nothing the change itself writes excuses a number he said. On the order he tapped he is asked
+  which order it is for, and "on this one" places it. So "add a note to order 1940: 1940 goes
+  with the gift box" still names #1940 as where it goes, and the model's own words — "1940:
+  fragile", a refund's reason repeating 1940, his own sentence copied onto #1938 — excuse
+  nothing (S2a-01, R9-I-tests2-I-01, R9-I-tests5-I-03);
 * a change made under a tapped control — Add a note, Reply — lands on the record the tap bound,
-  unless his own words named another (R9-D1-D1-02, R9-D2-D2-04);
+  unless his own words named another; after a tapped Reply, anything written is in the tapped
+  thread (R9-D1-D1-02, R9-D2-D2-04);
+* a new email goes to an order he named and a person he named; when he named two people he is
+  asked which it is to;
 * a change on a person — store credit — goes only to the person he named, and not at all when
-  the name he said is two people's (R9-D2-D2-05).
+  the name he said is two people's (R9-D2-D2-05);
+* the model is told, once, at the next question, what was withdrawn and what he was asked.
 
 The routes, the gate, the dispatcher, the action engine and the presentation are the real ones,
 against the fake shop of tests/test_r11_turn.py; the only stand-in is Claude, a scripted model
@@ -50,7 +53,7 @@ desk = test_r11_turn.desk
 WITHDRAWN_1940 = ("You said #1940, but the change I'd prepared was for #1938, so I've withdrawn it. "
                   "Say which order you want it on.")
 # The same, after Add a note was tapped on #1938: he is asked, not corrected.
-ASKED_AFTER_THE_TAP_1940 = ("You'd tapped Add a note on #1938 and said #1940, so I haven't put it on either yet. "
+ASKED_AFTER_THE_TAP_1940 = ("You'd tapped Add a note on #1938 and said #1940, so I haven't put it on #1938. "
                             "Say which order it's for.")
 # A third order, for Daniel: an order the owner neither names nor is looking at.
 C = "gid://shopify/Order/1941"
@@ -182,8 +185,7 @@ async def test_a_number_said_only_in_the_note_does_not_let_the_note_land_on_a_th
 # Round 13 first counted the numbers the change's own words carry against the places he said
 # them, then matched his words word for word. The model controls those words: every "1940" it
 # copied into a note or a reason cancelled a place where he named #1940 as where the change goes,
-# and the change stood on #1938. Now nothing the change writes excuses a number he said, except,
-# after a tap, the words he dictated (`_dictated_places`).
+# and the change stood on #1938. Now nothing the change writes excuses a number he said.
 
 
 @pytest.mark.parametrize("reason", ["1940 arrived torn", "Order 1940, it arrived torn", "it arrived torn, order 1940"])
@@ -399,6 +401,93 @@ async def test_after_reply_was_tapped_an_order_he_dictates_does_not_send_it_to_t
     assert proposal.status.value == "REVOKED" and proposal.delivered_at is None, proposal.status
     assert proposal.reason == "not the record the owner tapped"
     assert not said.surface("confirmation"), said.surface_types
+
+
+@pytest.mark.parametrize("tool", ["gmail_draft_new", "gmail_send_new"])
+async def test_a_new_email_is_held_to_the_order_he_named(world, tool):
+    """Round 13's fourth check: a new email is written to an order's customer, and was held to no
+    order. "Email the customer on order 1940 that it went out", written on #1939, went to David."""
+    sid = f"new-order-{tool[-3:]}"
+    davids = (await world.open_order("1939", session_id=sid)).data("order")
+    await world.open_order("1940", session_id=sid)
+    said = await world.ask("email the customer on order 1940 that it went out this morning",
+                           (tool, {"order_id": davids["order_id"], "subject": "Your order",
+                                   "body": "Your parcel went out this morning with Royal Mail."}), session_id=sid)
+    (proposal,) = [p for p in world.runtime.sessions.get(sid).proposals if p.tool_name == tool]
+    assert proposal.status.value == "REVOKED" and proposal.reason == "not the order the owner named", proposal.status
+    assert not said.surface("confirmation") and said.answer.startswith("You said #1940"), said.answer
+
+
+@pytest.mark.parametrize("tool", ["gmail_draft_new", "gmail_send_new"])
+async def test_a_new_email_is_held_to_the_person_he_named(world, tool):
+    """The same check, with nothing tapped: "email Priya: … David's order 1939 went to you by
+    mistake", written on #1939 — he named #1939, so the order passed — goes to David, with
+    Priya's name and what happened to her."""
+    sid = f"new-person-{tool[-3:]}"
+    davids = (await world.open_order("1939", session_id=sid)).data("order")
+    await world.open_order("1940", session_id=sid)
+    body = "Hi Priya, so sorry, David's order 1939 went to you by mistake, we'll swap it."
+    said = await world.ask("email Priya: " + body,
+                           (tool, {"order_id": davids["order_id"], "subject": "Your order", "body": body}), session_id=sid)
+    (proposal,) = [p for p in world.runtime.sessions.get(sid).proposals if p.tool_name == tool]
+    assert proposal.status.value == "REVOKED", proposal.status
+    assert proposal.reason in ("not the person the owner named", "more than one person named"), proposal.reason
+    assert not said.surface("confirmation"), said.surface_types
+    assert said.answer.startswith("You named Priya and David"), said.answer
+
+
+@pytest.mark.parametrize("tool", ["gmail_draft_new", "gmail_send_new"])
+async def test_a_new_email_to_someone_he_did_not_name_is_withdrawn(world, tool):
+    """He named only Priya, and the email was written on David's order."""
+    sid = f"new-other-{tool[-3:]}"
+    davids = (await world.open_order("1939", session_id=sid)).data("order")
+    await world.open_order("1940", session_id=sid)
+    said = await world.ask("email Priya that it went out this morning",
+                           (tool, {"order_id": davids["order_id"], "subject": "Your order", "body": "It went out this morning."}),
+                           session_id=sid)
+    (proposal,) = [p for p in world.runtime.sessions.get(sid).proposals if p.tool_name == tool]
+    assert proposal.status.value == "REVOKED" and proposal.reason == "not the person the owner named", proposal.status
+    assert not said.surface("confirmation"), said.surface_types
+
+
+async def test_a_new_email_to_the_person_and_order_he_named_is_his_card(world):
+    sid = "new-right"
+    await world.open_order("1939", session_id=sid)
+    priyas = (await world.open_order("1940", session_id=sid)).data("order")
+    said = await world.ask("email Priya that order 1940 went out this morning",
+                           ("gmail_draft_new", {"order_id": priyas["order_id"], "subject": "Your order",
+                                                "body": "Your order went out this morning."}), session_id=sid)
+    (proposal,) = [p for p in world.runtime.sessions.get(sid).proposals if p.tool_name == "gmail_draft_new"]
+    assert proposal.status.value == "PENDING" and said.surface("confirmation"), (proposal.status, said.surface_types)
+
+
+async def test_after_reply_was_tapped_a_note_on_an_order_he_did_not_name_is_withdrawn(world):
+    """Round 13's fourth check: under a tapped Reply, an order change was held to nothing."""
+    sid = "reply-then-note"
+    davids = (await world.open_order("1939", session_id=sid)).data("order")
+    await world.open_order("1940", session_id=sid)
+    bound = await world.touch("voice.bind", session_id=sid, family="email.reply", kind="email_thread", ref=PRIYAS_THREAD)
+    assert bound.raw.get("ok") is True, bound.raw
+    said = await world.ask("tell her it's on its way", ("shopify_order_note_append", {"order_id": davids["order_id"], "note": "On its way"}),
+                           session_id=sid)
+    notes_made = [p for p in world.runtime.sessions.get(sid).proposals if p.tool_name == "shopify_order_note_append"]
+    assert notes_made and all(p.status.value == "REVOKED" for p in notes_made), [p.status for p in notes_made]
+    assert notes_made[0].reason == "not the record the owner tapped" and not said.surface("confirmation")
+
+
+async def test_the_model_is_told_what_was_withdrawn_once_at_the_next_question(desk):
+    """Round 13's fourth check: the model's own last answer still said the card was ready, so
+    "on this one" was only an answer if it knew the question."""
+    await _on_1938_with_1940_held(desk, "told")
+    desk.model.steps = [notes(A, "Swap it for the one on order 1940")]
+    await say(desk, "add a note: swap it for the one on order 1940", "told")
+    desk.model.steps = [notes(A, "Swap it for the one on order 1940")]
+    await say(desk, "on this one", "told")
+    assert "CLIVE withdrew the change you prepared last time" in desk.model.prompts[-1]
+    assert WITHDRAWN_1940 in desk.model.prompts[-1]
+    desk.model.steps = [reads()]
+    await say(desk, "and its shipping?", "told")
+    assert "CLIVE withdrew the change" not in desk.model.prompts[-1], "told once"
 
 
 # ============================================ a change on a person, held to the person named (#16)

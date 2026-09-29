@@ -1028,7 +1028,7 @@ async def test_add_a_note_bound_to_1938_then_1940_named_stages_nothing_on_1938(d
     (proposal,) = session.proposals
     assert proposal.entity_ref == A and proposal.status.value == "REVOKED" and proposal.delivered_at is None
     assert no_confirmation(body)
-    assert body["answer"] == ("You'd tapped Add a note on #1938 and said #1940, so I haven't put it on either yet. "
+    assert body["answer"] == ("You'd tapped Add a note on #1938 and said #1940, so I haven't put it on #1938. "
                               "Say which order it's for."), body["answer"]
     assert session.branch().voice_target() is None
     desk.model.steps = [reads()]
@@ -1055,7 +1055,7 @@ async def test_a_note_that_mentions_another_order_is_asked_about_then_is_his_not
     desk.model.steps = [notes(A, note)]
     body = await say(desk, said, sid)
     assert no_confirmation(body) and body["answer"].startswith("You'd tapped Add a note on #1938 and said #"), body["answer"]
-    assert "haven't put it on either" in body["answer"] and "withdrawn" not in body["answer"], body["answer"]
+    assert "haven't put it on #1938" in body["answer"] and "withdrawn" not in body["answer"], body["answer"]
     desk.model.steps = [notes(A, note)]
     card = confirmation(await say(desk, "on this one", sid))
     assert (await commit(desk, card["proposal_id"], sid)).json()["status"] == "verified"
@@ -1070,7 +1070,7 @@ async def test_a_note_naming_where_it_goes_is_still_held_to_that_order_whatever_
     body = await say(desk, "add a note to order 1940: exchange for order 1912", "content-held")
     assert no_confirmation(body)
     assert body["answer"] == ("You'd tapped Add a note on #1938 and said #1912 and #1940, so I haven't put it on "
-                              "either yet. Say which order it's for."), body["answer"]
+                              "#1938. Say which order it's for."), body["answer"]
     assert desk.store.mutations == []
 
 

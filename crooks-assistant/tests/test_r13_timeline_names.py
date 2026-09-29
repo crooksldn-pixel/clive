@@ -320,6 +320,20 @@ async def test_a_listing_titled_in_his_words_is_written_by_its_shape(always_on, 
     _nowhere(events, "Cy Cole", "Cole's")
 
 
+async def test_a_tool_error_re_written_by_the_tool_is_still_his_words_in_tool_finished(always_on, listing):
+    """Round 13's fourth check: "Zoe Quill" as a group was quoted back as "zoe_quill", which the
+    exact match in `_without_what_was_said` did not find, so `tool_finished.error` kept it."""
+    from app.session.models import Session
+
+    line, store, session = always_on
+    with authority.acting_as(authority.for_owner("owner@example.com")):
+        await dispatch("commerce_aggregate", {"entity": "orders", "period": "last_90_days", "group_by": ["Zoe Quill"],
+                                              "metrics": ["orders"]}, session=Session(session_id="s-rewritten"), timeout_s=5)
+    events = [e for e in _events(line, store, session) if e.get("kind") == "tool_finished"]
+    assert events and "Query not understood" in events[-1]["error"], events
+    _nowhere(events, "zoe", "quill")
+
+
 async def test_a_query_the_language_refused_is_written_without_what_was_asked(always_on, listing):
     from app.session.models import Session
 
@@ -471,7 +485,8 @@ def test_the_page_s_own_vocabulary_is_kept_for_the_report(always_on, kind, field
 # ================================================== the process log (the round-13 third check)
 
 
-async def test_a_tool_s_refusal_in_the_process_log_keeps_his_words_only_by_their_shape(listing, caplog):
+@pytest.mark.parametrize("said", ["zoe_quill", "Zoe Quill", "ZOE-QUILL"])
+async def test_a_tool_s_refusal_in_the_process_log_keeps_his_words_only_by_their_shape(listing, caplog, said):
     """assistant.log is written through RedactingFilter, which took out shapes only: a refused
     query's "Unknown group_by: zoe_quill" went to disk as said. The log line now quotes the call's
     own words by their shape, as the timeline does."""
@@ -481,7 +496,7 @@ async def test_a_tool_s_refusal_in_the_process_log_keeps_his_words_only_by_their
 
     caplog.set_level(logging.WARNING, logger="crooks.tools")
     with authority.acting_as(authority.for_owner("owner@example.com")):
-        await dispatch("commerce_aggregate", {"entity": "orders", "period": "last_90_days", "group_by": ["zoe_quill"],
+        await dispatch("commerce_aggregate", {"entity": "orders", "period": "last_90_days", "group_by": [said],
                                               "metrics": ["orders"]}, session=Session(session_id="s-log"), timeout_s=5)
     lines = [r.getMessage() for r in caplog.records if "commerce_aggregate failed" in r.getMessage()]
     assert lines and all("zoe" not in line.lower() for line in lines), lines
