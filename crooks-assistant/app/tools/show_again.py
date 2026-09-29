@@ -27,6 +27,7 @@ import time
 from typing import Any
 
 from app import screen
+from app.capabilities.families import CapabilityFamily, register
 from app.tools.context import acting_branch, current_session
 from app.tools.gate import Tier
 from app.tools.registry import ToolError, tool
@@ -34,6 +35,15 @@ from app.tools.registry import ToolError, tool
 log = logging.getLogger("crooks.tools.show_again")
 
 AGAIN_TOOL = "show_again"
+
+# Named in the family table like every read the model is offered (tests/test_families.py): /health
+# and the settings sheet list it, and the manifest's delta sees it.
+register(CapabilityFamily(
+    key="recall", label="Bring it back", area="system",
+    what="put back on your screen something this conversation already showed you, read again so it is current",
+    tools=(AGAIN_TOOL,),
+    state="READY", detail="ready",
+))
 
 # The words the model may use for what to bring back, and the cards each one means.
 KINDS = ("order", "customer", "email", "draft", "objective", "building", "list")

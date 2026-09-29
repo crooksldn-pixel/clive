@@ -338,6 +338,8 @@ const DETAIL_WORDS = {
   screen_off: ['Turning', 'the screen off'], screen_remote: ['Opening', 'the remote'],
   // YouTube on a screen: finding a video and putting it on, and working what plays.
   screen_play: ['Finding', 'it on YouTube'], screen_video: ['Telling', 'the video'],
+  // Round 12: putting back what this conversation already showed, read again (app/tools/show_again.py).
+  show_again: ['Bringing back', 'what you had open'],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;

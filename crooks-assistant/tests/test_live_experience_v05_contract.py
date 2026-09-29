@@ -209,6 +209,10 @@ def _shipped_tools() -> dict[str, bool]:
     from experience import tool_matrix
 
     tool_matrix.load()
+    # Imported here, not left to whichever test module ran before this one in the worker: run
+    # alone, or after a different neighbour, this file found the diagnostics missing and failed
+    # (seen on trunk run alone, and in round 12's first full run).
+    import app.tools.mock  # noqa: F401
     from app.tools import registry
 
     DIAGNOSTICS = "app.tools.mock"

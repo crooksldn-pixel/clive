@@ -355,7 +355,10 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # for choosing a kind are in the system prompt once. What it buys is "samples have started for
     # the AW drop" opening a project at its sampling stage, and "give Rosa and Kit these for later"
     # opening their tasks by person, instead of both becoming the same list of proposed items.
-    assert total <= 99_999, f"the tool block is {total} bytes"  # re-measured below
+    #
+    # Together, as merged for round 12: 42,441 bytes measured (38,420 + 2,018 + 474 + 1,529 — the
+    # three add exactly, as none of them touched another's tool).
+    assert total <= 42_445, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

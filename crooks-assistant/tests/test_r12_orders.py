@@ -693,7 +693,9 @@ async def test_an_order_number_and_an_email_are_evidence_too(shop):
                      ("shopify_find_order", {"query": "2104", "email": "ava.stone@example.com", "address": "Slough"}))
     assert [i["data"]["order_number"] for i in body["ui"] if i["type"] == "order"] == ["#2104"]
     wrong = await say(shop, "order 2104 for theo", ("shopify_find_order", {"query": "2104", "name": "Theo Marsh"}))
-    assert not [i for i in wrong["ui"] if i["type"] == "order"], "an order that is not his is not his"
+    # What this turn drew: nothing is offered as Theo's. #2104 may stay on the glass as it was
+    # (round 12's keep rule, `kept`), as the order he named, never as a result of this search.
+    assert not [i for i in wrong["ui"] if i["type"] == "order" and not i.get("kept")], "an order that is not his is not his"
 
 
 async def test_an_order_is_returned_only_when_it_is_shown_to_match(shop):
