@@ -96,8 +96,9 @@ test('the home sheet hands its shape a redraw on every tick (W3-02)', () => {
   const alpha = fs.readFileSync(path.join(WEB, 'alpha.js'), 'utf8');
   const calls = alpha.match(/cards\.shape\([^\n]*/g) || [];
   assert.equal(calls.length, 1, 'the sheet is the one place alpha.js draws a shape');
-  assert.match(calls[0], /onChange: \(record\) => \{ drawObjective\(record, true\); refresh\(\); \}/);
-  const drawn = alpha.match(/function drawObjective\(o, keepScroll\) \{[\s\S]*?\n {2}\}\n/);
+  // Its onChange draws the sheet again from the record the Mac answered with.
+  assert.match(calls[0], /onChange: \(record\) => \{[^}]*\bdrawObjective\(record\b/);
+  const drawn = alpha.match(/function drawObjective\(o, keepScroll\b[^)]*\) \{[\s\S]*?\n {2}\}\n/);
   assert.ok(drawn && drawn[0].includes('cards.shape(o.card'), 'drawObjective draws the shape from the record it is given');
 });
 
