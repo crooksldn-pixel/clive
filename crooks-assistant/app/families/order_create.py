@@ -120,6 +120,8 @@ DRAFT_TAG = "CROOKS assistant"
 # The drafts a card has made that are read again before it prepares another: each could have
 # become the order since (`shopify_order_create`). A card is rarely prepared more than twice.
 MAX_DRAFTS_CHECKED = 5
+# What the card says when a hold card prepared from it was withdrawn because it changed.
+CHANGED = "The order changed — prepare it again."
 
 
 # --------------------------------------------------------------------------- the reads
@@ -734,7 +736,12 @@ def _pick_rows(workspace: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _notes(workspace: dict[str, Any]) -> list[str]:
-    notes = [
+    notes = []
+    if ws.failed(workspace):
+        # The last hold did not make it (Shopify refused it, or it never left): said, and the
+        # card is his to prepare again.
+        notes.append(f"The order was not created: {ws.failed(workspace)}. Nothing was made; prepare it again.")
+    notes += [
         "Shopify prices it as a draft order when you tap Prepare. The draft is not an order "
         f"and nobody is charged for it; it is tagged {DRAFT_TAG!r} so you can find it in Admin.",
     ]
@@ -843,44 +850,23 @@ def _spoken(workspace: dict[str, Any]) -> str:
 
 # --------------------------------------------------------------------------- made once
 #
-# The completion is sent by the action engine, which knows the proposal and not the half it was
-# made on; the workspace is on that half. So what happened to a workspace's completion is noted
-# here by its (unguessable, per-conversation) id — "sending" the moment before the mutation
-# leaves, "created" once Shopify has said which order it made or a re-read shows one — and the
-# workspace reads it back (`finished`), keeping "created" as a fact of its own from then on.
-# Bounded: the oldest are let go long after their workspaces have lapsed (WORKSPACE_TTL_S).
-
-MAX_NOTED = 512
-_NOTED: dict[str, dict[str, str]] = {}
-
-
-def _note(workspace_id: str, **state: str) -> None:
-    ident = str(workspace_id or "")
-    if not ident:
-        return
-    if _NOTED.get(ident, {}).get("state") == "created" and state.get("state") != "created":
-        return                       # made is made: nothing later un-makes it
-    _NOTED.pop(ident, None)
-    _NOTED[ident] = {k: str(v or "")[:120] for k, v in state.items()}
-    while len(_NOTED) > MAX_NOTED:
-        _NOTED.pop(next(iter(_NOTED)))
+# A card makes one order, and what happened to its completion is kept where every workspace's
+# is (app/families/_workspace.py "made once"): `sending` from the moment before it leaves,
+# `done` once Shopify has said which order it made or a re-read shows one, `unconfirmed` when it
+# left and could not be proven, `failed` — back to his to build, with the reason — when Shopify
+# refused it or it never left.
 
 
 def finished(workspace: dict[str, Any] | None) -> dict[str, str] | None:
     """The order this card has made — {"state": "created", "order_id", "order_number"} — or, when
-    the completion left for Shopify and no answer came back, {"state": "sending", "draft_name"};
-    None while it is still being built. Either way it is not something to build on any more."""
-    if not isinstance(workspace, dict):
+    the completion left for Shopify and nothing proved it either way, {"state": "sending",
+    "draft_name"}; None while it is still being built. Either way it is not built on again."""
+    made = ws.finished(workspace)
+    if made is None:
         return None
-    made = ws.fact(workspace, "created")
-    if isinstance(made, dict) and made.get("state") == "created":
-        return made
-    noted = _NOTED.get(str(workspace.get("workspace_id") or ""))
-    if noted is None:
-        return None
-    if noted.get("state") == "created":
-        workspace["facts"]["created"] = dict(noted)
-    return dict(noted)
+    if made.get("state") == ws.DONE:
+        return {**made, "state": "created"}
+    return {**made, "state": "sending"}
 
 
 def already_made(workspace: dict[str, Any] | None) -> str:
@@ -908,8 +894,9 @@ def where_line(branch: Any) -> str:
     who = chosen["name"] if chosen else (ws.value(workspace, "customer") or "nobody yet")
     made = finished(workspace)
     if made is not None:
-        what = (f"is CREATED as order {made.get('order_number') or '(number not read)'}" if made.get("state") == "created"
-                else "was sent to Shopify, not confirmed")
+        what = (f"is CREATED as order {made.get('order_number') or '(number not read)'}"
+                + (f" (order_id {made['order_id']})" if made.get("order_id") else "")
+                if made.get("state") == "created" else "was sent to Shopify, not confirmed")
         return (f"the new order on screen ({workspace['workspace_id']}) for {who} {what} — it cannot be changed; "
                 f"anything more is a new order ({OPEN_TOOL})")
     count = len(_lines(workspace))
@@ -1405,6 +1392,8 @@ async def shopify_order_build(workspace_id: str = "", add: list | None = None, l
     if not any(v not in (None, "", []) for v in (add, lines, percent_off, amount_off, postage, note, customer,
                                                  customer_id, ship_to, address, paid)):
         raise ToolError("Say what to change on the order.")
+    # A hold card prepared from the card as it was is for that, not for what it is about to say.
+    ws.touched(session, workspace, CHANGED)
     done: list[str] = []
     not_done: list[dict[str, Any]] = []
 
@@ -1809,9 +1798,9 @@ async def _observe(execution: dict) -> Observed:
     if order.get("id"):
         # However it got there — this hold, a hold whose answer was lost, Admin — the draft is
         # an order now, and the card it was prepared from has made it (`finished`).
-        _note(str(execution.get("workspace_id") or ""), state="created", order_id=str(order["id"]),
-              order_number=str(order.get("name") or ""), draft_id=str(execution.get("draft_id") or ""))
-    return Observed(fingerprint=draft_fingerprint(node), entity={
+        ws.note(str(execution.get("workspace_id") or ""), ws.DONE, order_id=str(order["id"]),
+                order_number=str(order.get("name") or ""), draft_id=str(execution.get("draft_id") or ""))
+    return Observed(fingerprint={**draft_fingerprint(node), "as_prepared": ws.still_as_prepared(execution)}, entity={
         "draft_id": str(node.get("id") or ""), "draft_name": str(node.get("name") or ""),
         "status": str(node.get("status") or ""),
         "order_id": str(order.get("id") or ""), "order_number": str(order.get("name") or ""),
@@ -1827,19 +1816,20 @@ async def _execute(execution: dict) -> dict:
 
     The card is marked as sending BEFORE the mutation leaves: from then on Shopify may have
     made the order whether or not its answer arrives, and a card that could be prepared again
-    in that state is how an order is made twice (`finished`)."""
+    in that state is how an order is made twice (`finished`). A completion Shopify refused, or
+    one that never left, is noted as failed, and the card is his to prepare again
+    (`ws.sending`)."""
     workspace_id = str(execution.get("workspace_id") or "")
-    _note(workspace_id, state="sending", draft_name=str(execution.get("draft_name") or ""))
-    payload = await _c().mutate("draft_order_complete", {
+    payload = await ws.sending(workspace_id, _c().mutate("draft_order_complete", {
         "id": str(execution["draft_id"]),
         "paymentPending": bool(execution["payment_pending"]),
-    })
+    }), draft_name=str(execution.get("draft_name") or ""))
     body = ((payload.get("data") or {}).get("draftOrderComplete") or {}).get("draftOrder") or {}
     order = body.get("order") or {}
     if not order.get("id"):
         raise ShopifyError("Shopify did not confirm which order it created.")
-    _note(workspace_id, state="created", order_id=str(order["id"]), order_number=str(order.get("name") or ""),
-          draft_id=str(execution.get("draft_id") or ""))
+    ws.note(workspace_id, ws.DONE, order_id=str(order["id"]), order_number=str(order.get("name") or ""),
+            draft_id=str(execution.get("draft_id") or ""))
     return {"order_id": str(order["id"])}
 
 
@@ -1949,12 +1939,13 @@ def _discount_words(workspace: dict[str, Any]) -> str:
         # card said (who, where to, postage), not its total: the total is on the fingerprint
         # for the proof, and a courtesy reading must not make a draft that has not moved look
         # changed.
-        precondition_keys=("status", "order", "lines", "card"),
+        precondition_keys=("status", "order", "lines", "card", "as_prepared"),
         # Not "Order {label}": the label is the DRAFT's name ("#D12"), which is not the order's
         # number, and the card he held it from now shows the order's own number (`_made_surface`).
         spoken_success="The order is created, {amount}.",
         spoken_failure="I couldn't confirm the order was created. Look at the draft in Admin before asking again.",
-        spoken_stale="The draft changed since this was prepared, so I haven't completed it.",
+        # The draft changed in Admin, or the card it was prepared from changed (`as_prepared`).
+        spoken_stale="The order or its draft changed since this was prepared, so I haven't created it. Prepare it again.",
     ),
 )
 async def shopify_order_create(workspace_id: str) -> Prepared:
@@ -1989,8 +1980,8 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
             continue                 # deleted in Admin: it made nothing
         order = earlier.get("order") or {}
         if order.get("id"):
-            _note(str(workspace["workspace_id"]), state="created", order_id=str(order["id"]),
-                  order_number=str(order.get("name") or ""), draft_id=str(draft_id))
+            ws.note(str(workspace["workspace_id"]), ws.DONE, order_id=str(order["id"]),
+                    order_number=str(order.get("name") or ""), draft_id=str(draft_id))
             raise ToolError(already_made(workspace))
     chosen = _chosen_customer(workspace) or {}
     if not ws.fact(workspace, "by_id"):
@@ -2087,6 +2078,7 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
     )
     lines_digest = _digest(draft_signature(node))
     card_digest = _card_digest(draft_card(node))
+    ws.prepared(workspace)
     return Prepared(
         execution={
             "workspace_id": str(workspace["workspace_id"]),
@@ -2096,8 +2088,11 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
             "total": f"{total:.2f}",
             "lines": lines_digest,
             "card": card_digest,
+            # The card as it said when this was prepared: a hold card is held to it, and a card
+            # changed since is stale (`_observe`, `ws.still_as_prepared`).
+            "prepared_as": ws.card_state(workspace),
         },
-        before=draft_fingerprint(node),
+        before={**draft_fingerprint(node), "as_prepared": "same"},
         expected_after={"status": "COMPLETED", "order": "", "total": f"{total:.2f}", "lines": lines_digest,
                         "card": card_digest},
         # The workspace is what the gate held to this conversation, and the draft is what the
@@ -2136,6 +2131,12 @@ def _no_workspace() -> Outcome:
     return Outcome.refused("no_workspace", "There is no order being built on this half.")
 
 
+def _withdrew(gone: list[str], changed: dict[str, Any]) -> dict[str, Any]:
+    """A command's `changed`, naming the hold cards its change withdrew (`ws.touched`) and the
+    line the tablet settles them with."""
+    return {**changed, "withdrawn": gone, "withdrawn_words": CHANGED} if gone else changed
+
+
 def _made(workspace: dict[str, Any]) -> Outcome:
     """A tap on a card that has made its order — one drawn before it did, still on a screen.
     Nothing it posts may build on the order again (`finished`)."""
@@ -2169,6 +2170,7 @@ def _field(ctx: CommandCtx) -> Outcome:
     ok, why = ws.type_into(workspace, FIELDS, name, str(ctx.args.get("value") or ""))
     if not ok:
         return Outcome.refused("unknown_field", why)
+    gone = ws.touched(ctx.session, workspace, CHANGED)
     if name == "customer":
         # The name moved: whoever the card said it was is now about the old one.
         workspace["facts"].pop("customer", None)
@@ -2176,16 +2178,16 @@ def _field(ctx: CommandCtx) -> Outcome:
         workspace["facts"].pop("by_id", None)
         workspace["facts"].pop("draft", None)
         if ws.value(workspace, "customer"):
-            return Outcome(answer="", changed={"recipe": "order_customer", "workspace_id": str(workspace["workspace_id"]),
-                                               "field": name})
+            return Outcome(answer="", changed=_withdrew(gone, {"recipe": "order_customer",
+                                                               "workspace_id": str(workspace["workspace_id"]), "field": name}))
     if name in ("item", "quantity", "discount", "postage", "email", "note"):
         # Anything that changes what the draft would be makes a draft already made stale.
         workspace["facts"].pop("draft", None)
     if name == "email" and ws.value(workspace, "email"):
         ctx.session.remember_pii(ws.value(workspace, "email"))
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
-                   changed={"workspace_id": str(workspace["workspace_id"]), "field": name,
-                            "status": ws.status(workspace, name)})
+                   changed=_withdrew(gone, {"workspace_id": str(workspace["workspace_id"]), "field": name,
+                                            "status": ws.status(workspace, name)}))
 
 
 def _choose(ctx: CommandCtx) -> Outcome:
@@ -2197,9 +2199,10 @@ def _choose(ctx: CommandCtx) -> Outcome:
     ok, why = ws.choose(workspace, _choices(workspace), ctx.arg("field"), ctx.arg("option"))
     if not ok:
         return Outcome.refused("unknown_choice", why)
+    gone = ws.touched(ctx.session, workspace, CHANGED)
     workspace["facts"].pop("draft", None)
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
-                   changed={"workspace_id": str(workspace["workspace_id"]), "chose": ctx.arg("option")})
+                   changed=_withdrew(gone, {"workspace_id": str(workspace["workspace_id"]), "chose": ctx.arg("option")}))
 
 
 def _pick_customer(ctx: CommandCtx) -> Outcome:
@@ -2217,10 +2220,11 @@ def _pick_customer(ctx: CommandCtx) -> Outcome:
         # Fail closed. The tablet may only choose one of the people the Mac itself found;
         # a posted id that was not among them is not a choice, it is a guess.
         return Outcome.refused("unknown_customer", "That is not one of the customers I found.")
+    gone = ws.touched(ctx.session, workspace, CHANGED)
     workspace["facts"]["chose_customer"] = wanted
     workspace["facts"].pop("draft", None)
-    return Outcome(answer="", changed={"recipe": "order_customer", "workspace_id": str(workspace["workspace_id"]),
-                                       "customer_id": wanted})
+    return Outcome(answer="", changed=_withdrew(gone, {"recipe": "order_customer", "workspace_id": str(workspace["workspace_id"]),
+                                                       "customer_id": wanted}))
 
 
 def _add_item(ctx: CommandCtx) -> Outcome:
@@ -2240,16 +2244,18 @@ def _add_item(ctx: CommandCtx) -> Outcome:
         pick = next((p for p in ws.fact(workspace, "picks") or [] if str(p.get("variant_id")) == wanted), None)
         if pick is None:
             return Outcome.refused("not_offered", "That is not one of the items this order offered; search for it again.")
+        gone = ws.touched(ctx.session, workspace, CHANGED)
         quantity = int(ws.fact(workspace, "picks_quantity") or 1)
         add_variant(workspace, pick, quantity)
         ws.type_into(workspace, FIELDS, "item", "")
         ws.type_into(workspace, FIELDS, "quantity", "1")
         return Outcome(answer=_spoken(workspace), surfaces=[workspace_surface(workspace)],
-                       changed={"workspace_id": str(workspace["workspace_id"]), "added": wanted})
+                       changed=_withdrew(gone, {"workspace_id": str(workspace["workspace_id"]), "added": wanted}))
     if not ws.value(workspace, "item"):
         return Outcome.refused("no_item", "Type a SKU, or the words for the item, first.")
-    return Outcome(answer="", changed={"recipe": "order_line", "workspace_id": str(workspace["workspace_id"]),
-                                       "slots": {"product": ws.value(workspace, "item")}})
+    gone = ws.touched(ctx.session, workspace, CHANGED)
+    return Outcome(answer="", changed=_withdrew(gone, {"recipe": "order_line", "workspace_id": str(workspace["workspace_id"]),
+                                                       "slots": {"product": ws.value(workspace, "item")}}))
 
 
 def _remove_item(ctx: CommandCtx) -> Outcome:
@@ -2264,9 +2270,10 @@ def _remove_item(ctx: CommandCtx) -> Outcome:
     lines = [line for line in current if line["key"] != key]
     if not key or len(lines) == len(current):
         return Outcome.refused("no_line", "There is no line for that on this order.")
+    gone = ws.touched(ctx.session, workspace, CHANGED)
     _set_lines(workspace, lines)
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
-                   changed={"workspace_id": str(workspace["workspace_id"]), "removed": key})
+                   changed=_withdrew(gone, {"workspace_id": str(workspace["workspace_id"]), "removed": key}))
 
 
 def _stage(ctx: CommandCtx) -> Outcome:
@@ -2294,6 +2301,8 @@ def _discard(ctx: CommandCtx) -> Outcome:
         return _no_workspace()
     draft = ws.fact(workspace, "draft") or {}
     made = finished(workspace)
+    # A hold card for a card thrown away is not something to hold.
+    gone = ws.touched(ctx.session, workspace, "The order was discarded.")
     ws.discard(ctx.branch)
     if made is not None:
         # The card goes; the order it made does not.
@@ -2303,7 +2312,8 @@ def _discard(ctx: CommandCtx) -> Outcome:
     tail = f" Draft {draft['name']} is still in Admin; delete it there if you do not want it." if draft.get("name") else ""
     return Outcome(answer=f"Gone. No order was created.{tail}",
                    changed={"workspace": None, "discarded": str(workspace["workspace_id"]),
-                            "draft": draft.get("name") or None})
+                            "draft": draft.get("name") or None,
+                            **({"withdrawn": gone, "withdrawn_words": "The order was discarded."} if gone else {})})
 
 
 register_command(Command("order.open", "Start a new order", _open, voice=False))

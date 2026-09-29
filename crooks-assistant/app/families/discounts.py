@@ -391,17 +391,57 @@ ACTIONS: tuple[ws.Action, ...] = (
     ws.Action(id="prepare", label="Prepare the code", command="discount.stage", risk="red"),
     ws.Action(id="discard", label="Discard", command="discount.discard"),
 )
+# What the card says when a hold card prepared from it was withdrawn because it changed.
+CHANGED = "The code changed — prepare it again."
+
+
+def created(workspace: dict[str, Any] | None) -> str:
+    """Why nothing more may be done to this card — the code exists, or it left and was not
+    proven — or "" while it is still his to write (app/families/_workspace.py "made once")."""
+    made = ws.finished(workspace)
+    if made is None:
+        return ""
+    code = ws.value(workspace, "code") or "That code"
+    if made.get("state") == ws.DONE:
+        return f"{code} is created; another discount is a new code — open a new one."
+    return f"{code} was sent to Shopify and it has not said whether it was made; look in Admin before making it again."
+
+
+def _created_surface(workspace: dict[str, Any], made: dict[str, str]):
+    """The card once its code exists: the code, what it takes off and when, and nothing to type,
+    tap or prepare. The same card in the same place."""
+    code = ws.value(workspace, "code")
+    done = made.get("state") == ws.DONE
+    facts = [{"label": "Takes off", "value": str(made.get("takes_off") or "")},
+             {"label": "Status", "value": str(made.get("status") or "").lower() or "created", "tone": "ok"}] if done \
+        else [{"label": "Code", "value": "sent to Shopify; it has not said whether it made it", "tone": "warn"}]
+    return ws.surface(
+        workspace, fields=(), choices=(),
+        kicker="Discount code · created" if done else "Discount code · sent, not confirmed",
+        title=code or "A discount code", subtitle=_window_words(workspace),
+        facts=[f for f in facts if f["value"]], actions=(),
+        notes=["It cannot be edited from here; it can be deactivated in Admin."] if done
+        else ["Look at the discounts in Admin before making it again."],
+        settled="created" if done else "unconfirmed",
+        spoken=f"{code} is created." if done else "Sent to Shopify, not confirmed.",
+    )
 
 
 def workspace_surface(workspace: dict[str, Any]):
+    made = ws.finished(workspace)
+    if made is not None:
+        return _created_surface(workspace, made)
     blocked = _blocked(workspace)
     code = ws.value(workspace, "code")
+    notes = _notes(workspace)
+    if ws.failed(workspace):
+        notes = [f"The code was not created: {ws.failed(workspace)}. Nothing was made; prepare it again.", *notes]
     return ws.surface(
         workspace, fields=FIELDS, choices=CHOICES,
         kicker="Discount code · not created",
         title=code or "A discount code",
         subtitle=_window_words(workspace),
-        facts=_facts(workspace), notes=_notes(workspace), actions=ACTIONS,
+        facts=_facts(workspace), notes=notes, actions=ACTIONS,
         field_command="discount.field", blocked=blocked,
         spoken="Nothing is created until you hold the card that follows.",
     )
@@ -541,10 +581,13 @@ async def _observe(execution: dict) -> Observed:
 
 
 async def _execute(execution: dict) -> dict:
-    payload = await _c().mutate("discount_code_create", {"basicCodeDiscount": dict(execution["input"])})
+    payload = await ws.sending(str(execution.get("workspace_id") or ""),
+                               _c().mutate("discount_code_create", {"basicCodeDiscount": dict(execution["input"])}))
     node = ((payload.get("data") or {}).get("discountCodeBasicCreate") or {}).get("codeDiscountNode") or {}
     if not node.get("id"):
         raise ShopifyError("Shopify did not confirm the discount was created.")
+    # Shopify has said which discount it made: the code exists, proven or not.
+    ws.note(str(execution.get("workspace_id") or ""), ws.DONE, code=str(execution.get("code") or ""))
     return {"discount_id": str(node["id"])}
 
 
@@ -634,6 +677,8 @@ async def shopify_discount_create(workspace_id: str) -> Prepared:
     workspace = ws.held(branch, KIND, str(workspace_id))
     if workspace is None:
         raise ToolError("There is no discount open on this half to create.")
+    if created(workspace):
+        raise ToolError(created(workspace))
     blocked = _blocked(workspace)
     if blocked:
         raise ToolError(blocked)
@@ -682,6 +727,7 @@ async def shopify_discount_create(workspace_id: str) -> Prepared:
     if once:
         uses_words = f"{uses_words}, once per customer"
     read_back = f"create the code {code} for {words} off, {_window_words(workspace)}"
+    ws.prepared(workspace)
     return Prepared(
         execution={
             "workspace_id": str(workspace["workspace_id"]),
@@ -755,31 +801,39 @@ def _field(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id") or ctx.arg("compose_id"))
     if workspace is None:
         return _no_workspace()
+    if created(workspace):
+        return Outcome.refused("already_created", created(workspace))
     name = ctx.arg("field")
     ok, why = ws.type_into(workspace, FIELDS, name, str(ctx.args.get("value") or ""))
     if not ok:
         return Outcome.refused("unknown_field", why)
+    gone = ws.touched(ctx.session, workspace, CHANGED)
+    withdrew = {"withdrawn": gone, "withdrawn_words": CHANGED} if gone else {}
     if name == "code":
         # The code moved: what the card says about the collision is now about the old one.
         workspace["facts"].pop("checked_code", None)
         workspace["facts"].pop("taken_by", None)
         if ws.status(workspace, "code") == "ok":
             return Outcome(answer="", changed={"recipe": "discount_code", "workspace_id": str(workspace["workspace_id"]),
-                                               "field": name, "status": ws.status(workspace, name)})
+                                               "field": name, "status": ws.status(workspace, name), **withdrew})
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
                    changed={"workspace_id": str(workspace["workspace_id"]), "field": name,
-                            "status": ws.status(workspace, name)})
+                            "status": ws.status(workspace, name), **withdrew})
 
 
 def _choose(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id"))
     if workspace is None:
         return _no_workspace()
+    if created(workspace):
+        return Outcome.refused("already_created", created(workspace))
     ok, why = ws.choose(workspace, CHOICES, ctx.arg("field"), ctx.arg("option"))
     if not ok:
         return Outcome.refused("unknown_choice", why)
+    gone = ws.touched(ctx.session, workspace, CHANGED)
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
-                   changed={"workspace_id": str(workspace["workspace_id"]), "chose": ctx.arg("option")})
+                   changed={"workspace_id": str(workspace["workspace_id"]), "chose": ctx.arg("option"),
+                            **({"withdrawn": gone, "withdrawn_words": CHANGED} if gone else {})})
 
 
 def _stage(ctx: CommandCtx) -> Outcome:
@@ -793,6 +847,8 @@ def _stage(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id"))
     if workspace is None:
         return _no_workspace()
+    if created(workspace):
+        return Outcome.refused("already_created", created(workspace))
     blocked = _blocked(workspace)
     if blocked:
         return Outcome.refused("not_ready", blocked)
@@ -810,9 +866,16 @@ def _discard(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id"))
     if workspace is None:
         return _no_workspace()
+    made = ws.finished(workspace)
+    gone = ws.touched(ctx.session, workspace, "The code was discarded.")
     ws.discard(ctx.branch)
+    if made is not None:
+        return Outcome(answer="The card is put away; the code it made stays." if made.get("state") == ws.DONE
+                       else "The card is put away. Look in Admin for the code it was sending.",
+                       changed={"workspace": None, "discarded": str(workspace["workspace_id"])})
     return Outcome(answer="Gone. Nothing was created.",
-                   changed={"workspace": None, "discarded": str(workspace["workspace_id"])})
+                   changed={"workspace": None, "discarded": str(workspace["workspace_id"]),
+                            **({"withdrawn": gone, "withdrawn_words": "The code was discarded."} if gone else {})})
 
 
 # Touch only, all five. A spoken instruction to make a discount is a model turn, and Claude
@@ -846,6 +909,10 @@ def _render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     workspace = ws.held(ctx.branch, KIND)
     if workspace is None:
         return RecipeAnswer(answer="", defer="the discount was closed while the shop was being read")
+    if created(workspace):
+        # Made while this was being read: nothing read now goes onto it.
+        return RecipeAnswer(answer=created(workspace), calls=list(result.calls), drawn=[],
+                            surfaces=[workspace_surface(workspace)], partial=result.partial)
     body = result.values.get("discount")
     if isinstance(body, dict) and str(body.get("code") or "") == ws.value(workspace, "code"):
         workspace["facts"]["checked_code"] = str(body["code"])

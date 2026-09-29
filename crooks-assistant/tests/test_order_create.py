@@ -662,7 +662,8 @@ async def test_a_draft_changed_in_admin_between_the_card_and_the_gesture_is_stal
     store.drafts[dict(proposal.execution)["draft_id"]]["status"] = "INVOICE_SENT"
     result = await drag(engine, proposal)
     assert result.code == "stale" and proposal.status is ActionStatus.STALE
-    assert result.spoken == "The draft changed since this was prepared, so I haven't completed it."
+    # Round 12's second check: the same line now covers the card changing as well as the draft.
+    assert result.spoken == "The order or its draft changed since this was prepared, so I haven't created it. Prepare it again."
     assert not any(n == "draft_order_complete" for n, _ in store.mutations)
 
 
