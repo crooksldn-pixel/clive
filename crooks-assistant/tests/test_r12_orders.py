@@ -73,7 +73,12 @@ CAP = {"id": "gid://shopify/Product/9003", "title": "Crooks Cap", "status": "ACT
 TOTE = {"id": "gid://shopify/Product/9004", "title": "Yard Tote", "status": "ACTIVE", "variants": [
     _variant(9401, "Natural", None, "CRK-TOTE-NAT", "20.00", 12),
 ]}
-CATALOGUE = [HOODIE, JEANS, CAP, TOTE]
+# Spelt as its maker spells it, and not as he says it: "a grey tee" is this.
+TEE = {"id": "gid://shopify/Product/9005", "title": "Convict T-Shirt", "status": "ACTIVE", "variants": [
+    _variant(9501, "Gray", "S", "CRK-TEE-GRY-S", "30.00", 6),
+    _variant(9502, "Gray", "M", "CRK-TEE-GRY-M", "30.00", 4),
+]}
+CATALOGUE = [HOODIE, JEANS, CAP, TOTE, TEE]
 VARIANTS = {v["id"]: (p, v) for p in CATALOGUE for v in p["variants"]}
 
 
@@ -91,6 +96,18 @@ PEOPLE = {
     AVA: {"name": "Ava Stone", "email": "ava.stone@example.com", "orders": 2, "home": None},
     RAVI: {"name": "Ravi Patel", "email": "ravi.patel@example.com", "orders": 1, "home": None},
 }
+# Names as their owners write them, and not as he says them (round 12's independent check, D).
+ZOE, POPPY, ANNE, SAM = (f"gid://shopify/Customer/{n}" for n in (8106, 8107, 8108, 8131))
+PEOPLE[ZOE] = {"name": "Zoë Adams", "email": "zoe.adams@example.com", "orders": 1, "home": None}
+PEOPLE[POPPY] = {"name": "Poppy De-Witt", "email": "poppy.dewitt@example.com", "orders": 1, "home": None}
+PEOPLE[ANNE] = {"name": "Anne Rowe", "email": "anne.rowe@example.com", "orders": 1, "home": None}
+# Eleven customers Shopify's search finds for "Sam Cole" — every word of it begins a word of
+# theirs — and none of them is Sam Cole; she is the twelfth, and the only one with an order.
+for _n, _name in enumerate(("Samuel Coleman", "Samantha Coles", "Sammy Colebrook", "Samir Coleridge", "Samson Coleman",
+                            "Sami Coles", "Samuel Colebrook", "Samantha Coleridge", "Sammy Coleman", "Samir Coles",
+                            "Samson Colebrook")):
+    PEOPLE[f"gid://shopify/Customer/{8120 + _n}"] = {"name": _name, "email": f"s{_n}@example.org", "orders": 0, "home": None}
+PEOPLE[SAM] = {"name": "Sam Cole", "email": "sam.cole@example.com", "orders": 1, "home": None}
 
 
 def _parcel(customer: str, address1: str, city: str, postcode: str) -> dict[str, Any]:
@@ -108,6 +125,10 @@ ORDERS = [
     (2106, AVA, 5, [(9113, 1)], _parcel(AVA, "7 Station Road", "Slough", "SL1 1AA")),
     (2107, MIA, 3, [(9112, 1)], _parcel(MIA, "12 Bridge Street", "Windsor", "SL4 1QN")),
     (2109, RAVI, 8, [(9228, 1), (9401, 1)], _parcel(RAVI, "22 Newhall Street", "Birmingham", "B3 3AS")),
+    (2110, ZOE, 6, [(9401, 1)], _parcel(ZOE, "5 Elm Grove", "Maidenhead", "SL6 7HY")),
+    (2111, POPPY, 9, [(9301, 1)], _parcel(POPPY, "9 Park Road", "Marlow", "SL7 1AA")),
+    (2112, ANNE, 11, [(9502, 1)], _parcel(ANNE, "2 Quay Street", "Henley", "RG9 1AB")),
+    (2113, SAM, 14, [(9232, 1)], _parcel(SAM, "1 Canal Walk", "Oxford", "OX1 2AA")),
 ]
 
 
@@ -153,6 +174,8 @@ class Counter(ShopifyClient):
         self.drop_lines = False                 # a Shopify that makes a draft without its lines
         self.ignore_search = False              # a Shopify whose search ignores the filters
         self.fail_orders = False                # a Shopify that does not answer an order search
+        self.twist: dict[str, Any] = {}         # what a draft carries that the card did not say
+        self.twist_on_complete: dict[str, Any] = {}
 
     # ---- the reads
 
@@ -196,14 +219,28 @@ class Counter(ShopifyClient):
         }
 
     def _people(self, q: str) -> list[dict[str, Any]]:
+        """Customers as Shopify's search finds them, as far as this fake knows it: every word said
+        begins a word of the name (a hyphen divides words), case aside and accents not — "zoe"
+        does not begin "zoë" — in the shop's own order."""
+        import re
+
         term = q.strip().strip('"').lower()
         if term.startswith("email:"):
             wanted = term[6:].strip().strip('"')
             rows = [(i, p) for i, p in PEOPLE.items() if p["email"] == wanted]
         else:
-            rows = [(i, p) for i, p in PEOPLE.items() if term and (term in p["name"].lower() or term == p["email"])]
+            said = term.split()
+            rows = [(i, p) for i, p in PEOPLE.items() if said and (term == p["email"] or all(
+                any(have.startswith(w) for have in re.split(r"[\s-]+", p["name"].lower())) for w in said))]
         return [{"id": i, "displayName": p["name"], "numberOfOrders": str(p["orders"]),
                  "defaultEmailAddress": {"emailAddress": p["email"]}, "amountSpent": _money(100)} for i, p in rows]
+
+    @staticmethod
+    def _home(customer: str) -> dict[str, Any] | None:
+        home = PEOPLE[customer]["home"]
+        return None if not home else {"firstName": PEOPLE[customer]["name"].split()[0], "lastName": PEOPLE[customer]["name"].split()[-1],
+                                      "address1": home["address1"], "address2": home["address2"] or None, "city": home["city"],
+                                      "zip": home["zip"], "countryCodeV2": home["countryCodeV2"]}
 
     async def graphql(self, query: str, variables: dict | None = None) -> dict:
         variables = dict(variables or {})
@@ -220,8 +257,13 @@ class Counter(ShopifyClient):
         if "CrooksOrderForNewOrder" in query:
             number = int(str(variables.get("id") or "0").rsplit("/", 1)[-1])
             return {"data": {"order": order_node(number) if any(o[0] == number for o in ORDERS) else None}}
-        if "FindCustomers" in query or "CrooksCustomerCandidates" in query:
-            return {"data": {"customers": {"edges": [{"node": n} for n in self._people(str(variables.get("q") or ""))]}}}
+        if "FindCustomers" in query or "CrooksCustomerCandidates" in query or "CrooksCustomersNamed" in query:
+            everyone = self._people(str(variables.get("q") or ""))
+            start, size = int(variables.get("after") or 0), int(variables.get("n") or 5)
+            page = everyone[start: start + size]
+            return {"data": {"customers": {
+                "pageInfo": {"hasNextPage": start + size < len(everyone), "endCursor": str(start + size)},
+                "edges": [{"node": n} for n in page]}}}
         if "CrooksCustomerForOrder" in query:
             person = PEOPLE.get(str(variables.get("id") or ""))
             return {"data": {"customer": person and {
@@ -269,6 +311,19 @@ class Counter(ShopifyClient):
                 "appliedDiscount": dict(off) or None, "originalUnitPriceSet": _money(unit),
                 "discountedTotalSet": _money((unit - each) * line["quantity"])}
 
+    @staticmethod
+    def _twisted(draft: dict[str, Any], twist: dict[str, Any]) -> None:
+        """A draft that is not quite what was asked for: another customer, another email,
+        another address, other postage — each a thing the card says and the owner holds."""
+        if "customer" in twist:
+            draft["customer"] = {"id": twist["customer"], "displayName": PEOPLE[twist["customer"]]["name"]}
+        if "email" in twist:
+            draft["email"] = twist["email"]
+        if "shippingAddress" in twist:
+            draft["shippingAddress"] = twist["shippingAddress"]
+        if "postage" in twist:
+            draft["totalShippingPriceSet"] = _money(twist["postage"])
+
     async def mutate(self, name: str, variables: dict) -> dict:
         reviewed = REVIEWED_MUTATIONS[name]
         assert set(variables) == set(reviewed.variables), "the reviewed variable set, exactly"
@@ -286,19 +341,26 @@ class Counter(ShopifyClient):
             postage = float((body.get("shippingLine") or {}).get("price") or 0)
             self.draft_number += 1
             draft_id = f"gid://shopify/DraftOrder/{self.draft_number}"
+            if body.get("shippingAddress"):
+                given = dict(body["shippingAddress"])
+                ship = {**{k: v for k, v in given.items() if k != "countryCode"}, "countryCodeV2": given.get("countryCode")}
+            else:
+                ship = self._home(body["customerId"]) if body.get("useCustomerDefaultAddress") else None
             self.drafts[draft_id] = {
                 "id": draft_id, "name": f"#D{self.draft_number}", "status": "OPEN",
                 "totalPriceSet": _money(round(goods - cut + postage, 2)), "subtotalPriceSet": _money(round(goods - cut, 2)),
                 "totalShippingPriceSet": _money(postage), "totalTaxSet": _money(0),
                 "appliedDiscount": dict(off) or None,
                 "customer": {"id": body["customerId"], "displayName": PEOPLE[body["customerId"]]["name"]},
-                "email": body.get("email") or "", "order": None,
+                "email": body.get("email") or "", "order": None, "shippingAddress": ship,
                 "lineItems": {"edges": [] if self.drop_lines else [{"node": line} for line in lines]},
             }
+            self._twisted(self.drafts[draft_id], self.twist)
             return {"data": {"draftOrderCreate": {"draftOrder": copy.deepcopy(self.drafts[draft_id]), "userErrors": []}}}
         if name == "draft_order_complete":
             draft = self.drafts[variables["id"]]
             draft["status"], draft["order"] = "COMPLETED", {"id": "gid://shopify/Order/3001", "name": "CROOKS-3001"}
+            self._twisted(draft, self.twist_on_complete)
             return {"data": {"draftOrderComplete": {"draftOrder": copy.deepcopy(draft), "userErrors": []}}}
         raise AssertionError(f"nothing else may reach the shop ({name})")
 
@@ -975,3 +1037,246 @@ async def test_in_the_golden_world_the_sentence_finds_mias_two_hoodies_and_asks_
                               ("shopify_order_open", opened))
         facts = {f["label"]: f["value"] for f in largest.data("workspace")["facts"]}
         assert facts["That item"] == "L is the largest size Convict Hoodie comes in."
+
+
+# ============================================================ the independent check (round 12)
+#
+# What an independent reading of this work found, each reproduced first as it would reach him.
+
+
+def _prompt_line(shop) -> str:
+    return shop.model.prompts[-1]
+
+
+async def _built_and_held(shop) -> tuple[str, dict]:
+    ident = card(await open_theo(shop))["workspace_id"]
+    await say(shop, "and a print at twelve pounds", ("shopify_order_build", {"add": [{"title": "Custom back print", "price": 12}]}))
+    held = await _prepare_and_hold(shop, ident)
+    assert held["done"]["status"] == "verified", held["done"]
+    return ident, held
+
+
+def _the_workspace(ui: list[dict], ident: str) -> dict:
+    (found,) = [i["data"] for i in ui if i["type"] == "workspace" and i["data"]["workspace_id"] == ident]
+    return found
+
+
+async def test_a1_a_created_order_is_finished_and_is_never_made_a_second_time(shop):
+    """A1. After the hold the order being built was still "not created" with Prepare live: the
+    next "now add a cap to it" went onto it, Prepare made a new draft, and a second hold made the
+    order twice. Now the card becomes the order that was created, the model is told so, and
+    every way back into building it is refused in so many words."""
+    ident, held = await _built_and_held(shop)
+
+    # The card he held it from is drawn again, where it stands, as the order it made.
+    done = _the_workspace(held["done"]["ui"], ident)
+    assert done["title"] == "CROOKS-3001" and "created" in done["kicker"].lower() and done["settled"] == "created"
+    assert not [a for a in done["actions"] if a["id"] == "prepare"] and done["fields"] == []
+    assert all("button" not in row for row in done["rows"])
+
+    # The model is told it is made, not that it is being built.
+    body = await say(shop, "now add a cap to it", ("shopify_order_build", {"workspace_id": ident, "add": [{"item": "cap"}]}))
+    assert "CROOKS-3001" in _prompt_line(shop) and "not created — change it with shopify_order_build" not in _prompt_line(shop)
+    refused = next(c for c in reversed(shop.model.calls) if c.name == "shopify_order_build")
+    assert not refused.ok and "CROOKS-3001 is already created; say 'a new order for …' to start another" in refused.error
+    assert not [i for i in body["ui"] if i["type"] == "workspace" and "button" in str(i["data"].get("rows"))]
+
+    # Nothing a tap can post puts it back to building, and nothing reaches the shop.
+    for command, fields in (("order.stage", {}), ("order.additem", {"variant_id": vid(9301)}),
+                            ("order.field", {"field": "postage", "value": "3"}), ("order.removeitem", {"line": "v9112"}),
+                            ("order.choose", {"field": "payment", "option": "paid"})):
+        tapped = await tap(shop, command, workspace_id=ident, **fields)
+        assert tapped["ok"] is False and "CROOKS-3001 is already created" in tapped["detail"], (command, tapped)
+    assert [name for name, _ in shop.store.mutations] == ["draft_order_create", "draft_order_complete"]
+
+    # "Bring it back" brings back the order it made, never a card that could make it again.
+    again = await say(shop, "pull that up again", ("show_again", {"kind": "building"}))
+    shown = _the_workspace(again["ui"], ident)
+    assert shown["title"] == "CROOKS-3001" and not [a for a in shown["actions"] if a["id"] == "prepare"]
+
+
+async def test_a1_a_draft_completed_meanwhile_is_not_prepared_again(shop):
+    """A1, the other way in: the draft this card made was completed (in Admin, or by a hold
+    whose answer never came back). Preparing again used to see "not open" and make a NEW draft
+    for the same order. Now the card is the order that exists, and no second draft is made."""
+    ident = card(await open_theo(shop))["workspace_id"]
+    staged = await tap(shop, "order.stage", workspace_id=ident)
+    assert [i for i in staged["ui"] if i["type"] == "confirmation"]
+    (draft,) = shop.store.drafts.values()
+    draft["status"], draft["order"] = "COMPLETED", {"id": "gid://shopify/Order/3002", "name": "CROOKS-3002"}
+    again = await tap(shop, "order.stage", workspace_id=ident)
+    assert again["ok"] is False and "CROOKS-3002 is already created" in again["detail"], again
+    assert [name for name, _ in shop.store.mutations] == ["draft_order_create"]
+
+
+async def test_h_prepare_keeps_the_order_being_built_on_the_glass(shop):
+    """H. Tapping Prepare drew the hold card ALONE: it is about the draft, which is on no card,
+    so the keep rule took it for another subject and the order he was building went. The hold
+    card leads and the order being built stays under it — by tap and by voice."""
+    ident = card(await open_theo(shop))["workspace_id"]
+    staged = await tap(shop, "order.stage", workspace_id=ident)
+    kinds = [(i["type"], i["data"].get("workspace_id")) for i in staged["ui"] if i["type"] != "context_stack"]
+    assert kinds[0][0] == "confirmation" and ("workspace", ident) in kinds, kinds
+
+    other = card(await say(shop, "an order for Ava Stone", ("shopify_order_open", {"customer": "Ava Stone", "item": "cap"})))
+    said = await say(shop, "prepare it", ("shopify_order_create", {"workspace_id": other["workspace_id"]}))
+    kinds = [(i["type"], i["data"].get("workspace_id")) for i in said["ui"] if i["type"] != "context_stack"]
+    assert kinds[0][0] == "confirmation" and ("workspace", other["workspace_id"]) in kinds, kinds
+
+
+@pytest.mark.parametrize("twist,said", [
+    ({"customer": MIA}, "the customer"),
+    ({"email": "someone.else@example.org"}, "the confirmation email"),
+    ({"shippingAddress": {"firstName": "Theo", "lastName": "Marsh", "address1": "1 Other Street", "address2": None,
+                          "city": "Bray", "zip": "SL6 2AB", "countryCodeV2": "GB"}}, "the delivery address"),
+    ({"shippingAddress": None}, "the delivery address"),
+    ({"postage": 9.0}, "the postage"),
+])
+async def test_a2_a_draft_that_is_not_the_card_is_never_offered(shop, twist, said):
+    """A2. Only the lines were held to the card. A draft for another customer, with another
+    confirmation address, going somewhere else, or with other postage, was offered for the hold
+    as if it were the card. Now each is compared and the hold is not offered."""
+    ident = card(await open_theo(shop))["workspace_id"]
+    await say(shop, "four pounds postage", ("shopify_order_build", {"postage": 4}))
+    shop.store.twist = twist
+    staged = await tap(shop, "order.stage", workspace_id=ident)
+    assert not [i for i in staged["ui"] if i["type"] == "confirmation"], staged["ui"]
+    assert said in str(staged.get("detail") or staged), staged
+    assert [name for name, _ in shop.store.mutations] == ["draft_order_create"]
+
+
+async def test_a2_a_draft_changed_after_it_was_offered_is_not_completed(shop):
+    """A2, between the card and the hold: the draft's address was changed in Admin after he was
+    shown the card. The hold does not complete a draft that no longer says what he read."""
+    ident = card(await open_theo(shop))["workspace_id"]
+    staged = await tap(shop, "order.stage", workspace_id=ident)
+    proposal_id = next(i["data"]["proposal_id"] for i in staged["ui"] if i["type"] == "confirmation")
+    (draft,) = shop.store.drafts.values()
+    draft["shippingAddress"] = {**draft["shippingAddress"], "address1": "1 Other Street"}
+    armed = await shop.post(f"/actions/{proposal_id}/arm", data={"session_id": "g1"}, headers=PROXIED)
+    shop.runtime.actions.find(proposal_id).armed_at -= 1.0
+    done = (await shop.post(f"/actions/{proposal_id}/commit", data={"session_id": "g1"},
+                            headers={**PROXIED, "X-Crooks-Arm": armed.json()["nonce"]})).json()
+    assert done["status"] == "stale", done
+    assert [name for name, _ in shop.store.mutations] == ["draft_order_create"]
+
+
+async def test_a2_an_order_made_unlike_the_card_is_said_after_the_hold(shop):
+    """A2, after the order exists: what it carries is compared with the card once more, and a
+    difference is said with the proof — the order is made, and he is told to look at it."""
+    shop.store.twist_on_complete = {"email": "someone.else@example.org"}
+    _ident, held = await _built_and_held(shop)
+    assert "the confirmation email" in held["done"]["spoken"] and "check the order" in held["done"]["spoken"]
+
+
+async def test_a3_typed_postage_is_held_to_the_bound_voice_is(shop):
+    """A3. "9999" typed as postage went to Shopify; said, it was refused over £1,000."""
+    ident = card(await open_theo(shop))["workspace_id"]
+    typed = await tap(shop, "order.field", workspace_id=ident, field="postage", value="9999")
+    field_ = next(f for f in card(typed)["fields"] if f["name"] == "postage")
+    assert field_["status"] == "invalid" and field_["hint"] == "Postage is an amount between £0 and £1,000.00."
+    assert "Postage is an amount between £0 and £1,000.00." in card(typed)["blocked"]
+    staged = await tap(shop, "order.stage", workspace_id=ident)
+    assert staged["ok"] is False and shop.store.mutations == []
+
+
+@pytest.mark.parametrize("typed", ["nan", "NaN", "inf", "-inf", "1e400", "5000"])
+async def test_a3_a_typed_discount_that_is_not_a_usable_number_is_said_plainly(shop, typed):
+    """A3. "nan" typed as the discount passed as a number: the card said "nan% off" and the
+    Prepare failed with a raw AssertionError on the tablet. Now the field says why, in words,
+    and nothing reaches the shop."""
+    ident = card(await open_theo(shop))["workspace_id"]
+    tapped = await tap(shop, "order.field", workspace_id=ident, field="discount", value=typed)
+    data = card(tapped)
+    field_ = next(f for f in data["fields"] if f["name"] == "discount")
+    assert field_["status"] == "invalid" and field_["hint"] in ("That is not a number.", "A discount is at most £1,000.00 off, or 100%.")
+    assert "Discount" not in {f["label"] for f in data["facts"]} and "nan" not in str(data).lower().replace("nan'", "")
+    staged = await tap(shop, "order.stage", workspace_id=ident)
+    assert staged["ok"] is False and field_["hint"] in staged["detail"] and shop.store.mutations == []
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("Zoe Adams", ["#2110"]), ("zoë adams", ["#2110"]), ("ZOE ADAMS", ["#2110"]),
+    ("Poppy De Witt", ["#2111"]), ("Poppy Dewitt", ["#2111"]), ("poppy de-witt", ["#2111"]),
+    ("Anne Rowe", ["#2112"]), ("Ann Rowe", []),
+])
+async def test_d_names_match_as_people_say_them_and_never_inside_a_word(shop, name, expected):
+    """D. "Zoe" is Zoë, "De Witt" and "Dewitt" are De-Witt, case is nobody's business — and
+    "Ann" is still not Anne."""
+    body = await say(shop, f"the order for {name}", ("shopify_find_order", {"name": name}))
+    assert [i["data"]["order_number"] for i in body["ui"] if i["type"] == "order" and not i.get("kept")] == expected, body["ui"]
+
+
+async def test_d_a_name_with_a_postcode_is_still_never_inside_a_word(shop):
+    body = await say(shop, "Ann Rowe's order to RG9 1AB", ("shopify_find_order", {"name": "Ann Rowe", "address": "RG9 1AB"}))
+    assert not [i for i in body["ui"] if i["type"] == "order"]
+
+
+@pytest.mark.parametrize("item", ["grey tee", "gray t-shirt", "grey tshirt", "Gray T Shirt", "grey tees"])
+async def test_d_item_words_match_as_people_say_them(shop, item):
+    """D. The maker writes "Convict T-Shirt" in "Gray"; he says "a grey tee"."""
+    body = await say(shop, f"who had the {item} sent to RG9 1AB", ("shopify_find_order", {"item": item, "address": "RG9 1AB"}))
+    assert [i["data"]["order_number"] for i in body["ui"] if i["type"] == "order"] == ["#2112"]
+
+
+async def test_d_a_shirt_is_not_a_tee_unless_the_product_says_so(shop):
+    body = await say(shop, "who had the grey hoodie sent to RG9 1AB", ("shopify_find_order", {"item": "grey hoodie", "address": "RG9 1AB"}))
+    assert not [i for i in body["ui"] if i["type"] == "order"]
+
+
+async def test_d_an_item_said_his_way_is_found_to_add_to_an_order(shop):
+    await open_theo(shop)
+    body = await say(shop, "and a grey tee", ("shopify_order_build", {"add": [{"item": "grey tee"}]}))
+    assert card(body)["picks_title"] == "Which one? 2 match 'grey tee'"
+    assert [p["detail"].split(" · ")[0] for p in card(body)["picks"]] == ["Gray / S", "Gray / M"]
+
+
+async def test_d_a_name_many_customers_begin_with_is_paged_through(shop):
+    """D. Shopify's search finds twelve customers for "Sam Cole"; the one who ordered is the
+    twelfth. The first ten were all that was looked at, so her order was "not found"."""
+    body = await say(shop, "Sam Cole's order", ("shopify_find_order", {"name": "Sam Cole"}))
+    assert [i["data"]["order_number"] for i in body["ui"] if i["type"] == "order"] == ["#2113"]
+
+
+async def test_d_a_name_search_that_stops_short_says_so(shop, monkeypatch):
+    """D. There is always a bound. When the customers Shopify found for a name run past it, the
+    answer says how many were looked at, so "none" is never taken for "none ever"."""
+    monkeypatch.setattr(shopify_tools, "CUSTOMER_PAGE", 5)
+    monkeypatch.setattr(shopify_tools, "MAX_NAME_CUSTOMERS", 10)
+    await say(shop, "Sam Cole's order", ("shopify_find_order", {"name": "Sam Cole"}))
+    told = last(shop.model.calls, "shopify_find_order")
+    assert told["count"] == 0
+    assert "I looked at the first 10 customers Shopify found for 'Sam Cole'" in told["coverage"], told
+
+
+
+def test_a2_a_card_with_no_confirmation_address_takes_the_customer_s_own_and_nobody_else_s():
+    """A card with no confirmation address sends the draft none, and Shopify may give it the
+    customer's own: that is still the card. Anybody else's is not."""
+    from app.families.order_create import card_differences
+
+    card_ = {"customer": THEO, "email": "", "email_if_none": "theo.marsh@example.com", "address": None, "postage": "0.00"}
+    draft = {"customer": THEO, "address": None, "postage": "0.00"}
+    assert card_differences(card_, {**draft, "email": ""}) == []
+    assert card_differences(card_, {**draft, "email": "theo.marsh@example.com"}) == []
+    assert card_differences(card_, {**draft, "email": "someone.else@example.org"}) == ["the confirmation email"]
+    assert card_differences({**card_, "email": "theo.marsh@example.com"}, {**draft, "email": ""}) == ["the confirmation email"]
+
+
+async def test_a1_the_card_after_the_hold_is_the_order_that_was_prepared_not_a_later_change(shop):
+    """He prepares, then takes a line off with a tap, then holds the card he was shown. What is
+    made is the draft he held — so the card that becomes the order shows THAT order, not the
+    change made after it."""
+    ident = card(await open_theo(shop))["workspace_id"]
+    await say(shop, "and a cap", ("shopify_order_build", {"add": [{"item": "cap"}]}))
+    staged = await tap(shop, "order.stage", workspace_id=ident)
+    proposal_id = next(i["data"]["proposal_id"] for i in staged["ui"] if i["type"] == "confirmation")
+    await tap(shop, "order.removeitem", workspace_id=ident, line="v9301")
+    armed = await shop.post(f"/actions/{proposal_id}/arm", data={"session_id": "g1"}, headers=PROXIED)
+    shop.runtime.actions.find(proposal_id).armed_at -= 1.0
+    done = (await shop.post(f"/actions/{proposal_id}/commit", data={"session_id": "g1"},
+                            headers={**PROXIED, "X-Crooks-Arm": armed.json()["nonce"]})).json()
+    assert done["status"] == "verified"
+    assert [line["variantId"] for line in shop.store.mutations[0][1]["input"]["lineItems"]] == [vid(9112), vid(9301)]
+    made = _the_workspace(done["ui"], ident)
+    assert [r["title"] for r in made["rows"]] == ["Convict Hoodie", "Crooks Cap"], made["rows"]

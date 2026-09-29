@@ -714,6 +714,11 @@ def _draft_order_create(store: FixtureShopify, v: dict) -> dict:
     total = round(goods - discount + postage, 2)
     store.draft_number += 1
     draft_id = f"gid://shopify/DraftOrder/{store.draft_number}"
+    # Where it goes, as Shopify keeps it: the address given, or the customer's own when that was
+    # asked for — and the golden world's people have none (`_customer_for_order`).
+    given = body.get("shippingAddress") or None
+    shipping = ({**{k: v for k, v in given.items() if k != "countryCode"}, "countryCodeV2": given.get("countryCode")}
+                if given else None)
     node = {
         "id": draft_id,
         "name": f"#D{store.draft_number}",
@@ -726,6 +731,7 @@ def _draft_order_create(store: FixtureShopify, v: dict) -> dict:
         "customer": ({"id": person.customer_id, "displayName": person.name} if person else None),
         "email": str(body.get("email") or ""),
         "order": None,
+        "shippingAddress": shipping,
         "lineItems": {"edges": [{"node": line} for line in lines]},
     }
     store.drafts.append(copy.deepcopy(body))

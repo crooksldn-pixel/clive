@@ -13,6 +13,9 @@
  *     was the one being built: "the edit succeeds however the screen disappears");
  *   - several matches are a choice on the card, and a tap on Add, then on Remove, changes
  *     that same card;
+ *   - Prepare puts the hold card up and the order being built stays on the glass with it; the
+ *     hold and the drag, made with the pointer, then turn that same card into the order it
+ *     made — its number, nothing to type, nothing to prepare again;
  *   - every control on a line is at least 44 px, nothing leaves the card's edge, the page does
  *     not scroll sideways, and nothing throws — on the tablet (601 x 889 at DPR 1.33), a phone
  *     (390 x 844), a TV (1920 x 1080), and the tablet again as the weak device with reduced
@@ -78,9 +81,9 @@ async function run(browser, size, weak) {
     await page.evaluate(() => { const sheet = document.querySelector('#settings'); if (sheet && sheet.open) sheet.close(); });
     await sleep(400);
   };
-  const shot = async (name) => {
+  const shot = async (name, at) => {
     if (!OUT) return;
-    await page.evaluate(() => { const c = document.querySelector('#cards .card-workspace'); if (c) c.scrollIntoView({ block: 'start' }); });
+    await page.evaluate((sel) => { const c = document.querySelector(sel); if (c) c.scrollIntoView({ block: 'start' }); }, at || '#cards .card-workspace');
     await page.waitForTimeout(350);
     const file = path.join(OUT, `orders-${tag}-${name}.png`);
     await page.screenshot({ path: file, fullPage: false, animations: 'disabled' });
@@ -139,6 +142,59 @@ async function run(browser, size, weak) {
   if (removes[2]) { await removes[2].click(); await sleep(1100); }
   s = await screen();
   check(`${tag}: a tap on Remove takes that line off and the card stays`, s.mode === 'context' && s.workspace === first && s.lines.length === 2, JSON.stringify(s));
+
+  // Prepare: the hold card comes up, and the order being built stays on the glass with it. It
+  // used to go — the hold card is about the draft, which no card showed (round 12, H).
+  await page.evaluate(() => {
+    const b = document.querySelector('#cards .card-workspace button[data-action="prepare"]');
+    if (b) { b.scrollIntoView({ block: 'center' }); b.click(); }
+  });
+  await sleep(1800);
+  s = await screen();
+  check(`${tag}: Prepare puts the hold card up and the order being built stays on the glass with it`,
+    s.mode === 'context' && s.cards.includes('confirmation') && s.workspace === first && s.lines.length === 2, JSON.stringify(s));
+  await shot('5-prepared', '#cards [data-type="confirmation"]');
+
+  // The hold and the drag, as a finger makes them, and then the same card is the order it made:
+  // its number, nothing to type and nothing to prepare (round 12, A1).
+  const surface = () => page.evaluate(() => {
+    const el = document.querySelector('#cards [data-type="confirmation"] .action-surface');
+    if (!el) return null;
+    el.scrollIntoView({ block: 'center' });
+    const r = el.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  });
+  await surface();
+  await sleep(900);
+  const box = await surface();
+  if (box) {
+    const y = box.y + box.h / 2;
+    const x0 = box.x + 24;
+    await page.mouse.move(x0, y);
+    await page.mouse.down();
+    await sleep(1800);
+    for (let i = 1; i <= 12; i += 1) { await page.mouse.move(x0 + ((box.w - 36) * i) / 12, y); await sleep(25); }
+    await page.mouse.up();
+    await sleep(2400);
+  }
+  const made = await page.evaluate(() => {
+    const ws = document.querySelector('#cards .card-workspace');
+    const pick = (sel) => (ws && ws.querySelector(sel) ? ws.querySelector(sel).textContent.trim() : '');
+    return {
+      cards: Array.from(document.querySelectorAll('#cards .card')).map((c) => c.dataset.type || ''),
+      workspace: ws ? ws.dataset.workspace : '',
+      kicker: pick('.card-kicker'), title: pick('.card-title'), badge: pick('.badge'),
+      prepare: Boolean(ws && ws.querySelector('button[data-action="prepare"]')),
+      buttons: ws ? ws.querySelectorAll('.ws-row-btn').length : -1,
+      inputs: ws ? ws.querySelectorAll('input, textarea').length : -1,
+      lines: ws ? ws.querySelectorAll('ol.ws-rows > .ws-row').length : 0,
+    };
+  });
+  check(`${tag}: after the hold the same card is the order it made, by its number, with nothing left to build`,
+    made.workspace === first && /created/i.test(made.kicker) && /#1999/.test(made.title)
+      && made.badge === 'Created' && !made.prepare && made.buttons === 0 && made.inputs === 0 && made.lines === 2
+      && made.cards.includes('success'), JSON.stringify(made));
+  await shot('6-created');
   check(`${tag}: nothing on the page threw`, errors.length === 0, errors.join(' | '));
   await context.close();
 }

@@ -2760,6 +2760,7 @@
     const facts = list(d.facts, 10);
     const choices = list(d.choices, 4);
     const blocked = text(d.blocked);
+    const settled = text(d.settled) === 'created' || text(d.settled) === 'unconfirmed' ? text(d.settled) : '';
 
     const factRows = facts.length ? h('dl', { class: 'ws-facts' }, facts.map((f) => h('div', { class: `ws-fact${text(f.tone) ? ' tone-' + text(f.tone) : ''}` }, [
       h('dt', { text: text(f.label) }),
@@ -2840,7 +2841,10 @@
           h('h2', { class: 'card-title', text: text(d.title, 'Building') }),
           h('p', { class: 'card-sub', text: text(d.subtitle) }),
         ]),
-        h('div', { class: 'badges' }, [badge(blocked ? 'Not ready' : 'Draft', blocked ? 'warn' : '')]),
+        // Once it has made what it was for, it says so: "Created", or "Not confirmed" when the
+        // change left and no answer came back (app/families/_workspace.py `settled`).
+        h('div', { class: 'badges' }, [settled === 'created' ? badge('Created', 'ok')
+          : settled ? badge('Not confirmed', 'warn') : badge(blocked ? 'Not ready' : 'Draft', blocked ? 'warn' : '')]),
       ]),
       lines,
       picks,
@@ -2850,7 +2854,7 @@
       blocked ? h('p', { class: 'card-note tone-warn', text: blocked }) : null,
       strings(d.notes, 4).map((n) => h('p', { class: 'card-note', text: n })),
       buttons.length ? h('div', { class: 'compose-actions', role: 'group', 'aria-label': 'What to do with this' }, buttons) : null,
-      h('p', { class: 'future', text: 'Nothing is created until you authorise the card that follows.' }),
+      settled ? null : h('p', { class: 'future', text: 'Nothing is created until you authorise the card that follows.' }),
     ], settings);
     node.dataset.workspace = id;
     return node;

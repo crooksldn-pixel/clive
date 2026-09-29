@@ -103,3 +103,17 @@ test('a hostile line lands as text, never as markup', () => {
   (function walk(el) { for (const c of el.children) { tags.add(c.tagName); walk(c); } })(node);
   assert.ok(!tags.has('IMG') && !tags.has('SCRIPT'));
 });
+
+test('a card that has made its order says so, and no longer promises that nothing is created', () => {
+  const open = draw();
+  assert.deepEqual(open.querySelectorAll('.badge').map((b) => b.textContent), ['Draft']);
+  assert.equal(open.querySelectorAll('.future').length, 1);
+  const made = draw({ settled: 'created', title: '#1950', kicker: 'Order created', rows: ORDER.rows.map((r) => Object.assign({}, r, { button: undefined })) });
+  assert.deepEqual(made.querySelectorAll('.badge').map((b) => b.textContent), ['Created']);
+  assert.equal(made.querySelectorAll('.future').length, 0, '"nothing is created" is not true of it any more');
+  assert.equal(made.querySelectorAll('.ws-row-btn').length, 0);
+  const lost = draw({ settled: 'unconfirmed' });
+  assert.deepEqual(lost.querySelectorAll('.badge').map((b) => b.textContent), ['Not confirmed']);
+  const hostile = draw({ settled: HOSTILE });
+  assert.deepEqual(hostile.querySelectorAll('.badge').map((b) => b.textContent), ['Draft'], 'only the two states the Mac sends');
+});

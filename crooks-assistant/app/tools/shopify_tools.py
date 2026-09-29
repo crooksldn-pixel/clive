@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import re
+import unicodedata
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -247,6 +248,12 @@ def _order_summary(node: dict) -> dict:
 # every order that comes back is then checked here against every fact, including the ones
 # Shopify could not search. An order is returned only when all of them match, and it says
 # which lines matched. Nothing is a best guess: none is said as none, several as several.
+#
+# "Match" is as a person says it, and no looser (round 12's independent check): case and
+# accents set aside ("Zoe" is Zoë), a hyphen the same as a space and parts run together the
+# same as apart ("De Witt", "Dewitt", De-Witt), "grey" and "gray" one colour, "tee", "t shirt"
+# and "tshirt" one garment — but a word is never found inside another ("Ann" is not Anne). A
+# name's customers are looked for a page at a time, bounded, and the bound is said.
 
 # The orders read and checked in one pass. Twenty-five orders with ten lines each stays well
 # under Shopify's 1,000-point query cost (about 28 points an order).
@@ -254,6 +261,30 @@ MAX_EVIDENCE_ORDERS = 25
 MAX_EVIDENCE_LINES = 10
 # SKUs put in one search: enough for a garment in every colour and size.
 MAX_EVIDENCE_SKUS = 40
+# The customers a NAME is looked for among: Shopify's search, a page at a time, as far as this
+# bound — then every one is held to the name here (`name_matches`). A name with more customers
+# than this behind it is said to have been bounded, never taken for a complete answer.
+CUSTOMER_PAGE = 50
+MAX_NAME_CUSTOMERS = 100
+# Customer ids put in one order search.
+IDS_PER_SEARCH = 50
+# When the name as said finds nobody it is, its longest parts are asked for one at a time:
+# "Poppy Dewitt" finds nobody, "Poppy" finds Poppy De-Witt, and the name is then held to her.
+MAX_NAME_RETRIES = 2
+
+CUSTOMERS_NAMED_QUERY = """
+query CrooksCustomersNamed($q: String, $n: Int!, $after: String) {
+  customers(first: $n, query: $q, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    edges { node {
+      id
+      displayName
+      defaultEmailAddress { emailAddress }
+      numberOfOrders
+    } }
+  }
+}
+"""
 
 ORDER_EVIDENCE_QUERY = """
 query CrooksOrderEvidence($q: String, $n: Int!) {
@@ -281,9 +312,36 @@ query CrooksOrderEvidence($q: String, $n: Int!) {
 _FILLER = frozenset({"a", "an", "the", "of", "in", "size", "one", "ones", "and", "with", "their", "his", "her"})
 
 
+def fold(text: Any) -> str:
+    """Case and accents set aside, as a person does when he says a name: "Zoë" is "zoe", "JOSÉ"
+    is "jose". Nothing else changes — a letter is never dropped or guessed."""
+    decomposed = unicodedata.normalize("NFKD", str(text or ""))
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+
+
+# One garment, however it is spelt: the maker writes "T-Shirt" and "Gray", he says "tee" and
+# "grey". Each spelling becomes the one word on BOTH sides, so what he says finds the product's
+# own word and never a word the product does not have ("shirt" is not a tee).
+_SPELLINGS = (
+    (re.compile(r"\bt[\s-]?shirts?\b"), "tshirt"),
+    (re.compile(r"\btees?\b"), "tshirt"),
+    (re.compile(r"\bgr[ae]ys?\b"), "grey"),
+)
+# How a word that stands for several spellings is asked of Shopify's own search.
+_SEARCHED_AS = {"tshirt": "t-shirt"}
+
+
+def item_text(text: Any) -> str:
+    folded = fold(text)
+    for pattern, word in _SPELLINGS:
+        folded = pattern.sub(word, folded)
+    return folded
+
+
 def item_words(text: str) -> list[str]:
-    """The words of an item as said, lowercased, without the filler around them."""
-    return [w for w in re.split(r"[^a-z0-9]+", str(text or "").lower()) if w and w not in _FILLER]
+    """The words of an item as said, case, accents and spelling set aside (`item_text`), without
+    the filler around them."""
+    return [w for w in re.split(r"[^a-z0-9]+", item_text(text)) if w and w not in _FILLER]
 
 
 def _found(word: str, words: set[str]) -> bool:
@@ -299,7 +357,7 @@ def _found(word: str, words: set[str]) -> bool:
 def line_words(title: str, variant: str, sku: str) -> set[str]:
     """Everything a person could call a line: the product's words, the variant's options
     with their size aliases ("M" is "medium"), and the parts of the SKU."""
-    words = {w for w in re.split(r"[^a-z0-9]+", f"{title} {variant} {sku}".lower()) if w}
+    words = {w for w in re.split(r"[^a-z0-9]+", item_text(f"{title} {variant} {sku}")) if w}
     for part in str(variant or "").split("/"):
         words |= _size_aliases(part)
     return words
@@ -344,15 +402,39 @@ def address_matches(said: str, address: dict[str, Any]) -> bool:
     return any(joined[i: i + len(wanted)] == wanted for i in range(len(joined) - len(wanted) + 1))
 
 
+def _name_parts(text: Any) -> list[str]:
+    """A name as its parts: case and accents set aside (`fold`), and a hyphen, an apostrophe or a
+    full stop dividing parts as a space does — "De-Witt" is "de" and "witt"."""
+    return [p for p in re.split(r"[\W_]+", fold(text)) if p]
+
+
+# How many parts, run together, may stand for one ("Dewitt" for "De Witt", "Annemarie" for
+# "Anne Marie"). Three is a double-barrelled surname with a particle; more is not a name.
+_RUN = 3
+
+
 def name_matches(said: str, *names: str) -> bool:
-    """Every word of the name said is a word of one of the names on the order (the customer's,
-    or the name on the parcel). One letter is an initial, and matches a word it begins."""
-    words = [w for w in re.split(r"[^a-z0-9'-]+", str(said or "").lower()) if w]
+    """Every part of the name said is a whole part of one of the names on the order (the
+    customer's, or the name on the parcel) — or parts run together, on either side, that are
+    the same letters: "Zoe" is Zoë, "De Witt" and "Dewitt" are De-Witt. A part is never found
+    INSIDE another: "Ann" is not Anne. One letter is an initial, and matches a part it begins."""
+    words = _name_parts(said)
     if not words:
         return False
     for whole in names:
-        have = [w for w in re.split(r"[^a-z0-9'-]+", str(whole or "").lower()) if w]
-        if have and all(any(h == w or (len(w) == 1 and h.startswith(w)) for h in have) for w in words):
+        have = _name_parts(whole)
+        if not have:
+            continue
+        forms = {"".join(have[i:j]) for i in range(len(have)) for j in range(i + 1, min(len(have), i + _RUN) + 1)}
+        covered = [True] + [False] * len(words)
+        for i in range(len(words)):
+            if not covered[i]:
+                continue
+            for j in range(i + 1, min(len(words), i + _RUN) + 1):
+                run = "".join(words[i:j])
+                if run in forms or (j == i + 1 and len(run) == 1 and any(h.startswith(run) for h in have)):
+                    covered[j] = True
+        if covered[-1]:
             return True
     return False
 
@@ -421,11 +503,57 @@ def _sku_clause(skus: list[str]) -> str:
     return "(" + " OR ".join(f"sku:{s}" for s in usable) + ")" if usable else ""
 
 
+async def _customer_pages(client: ShopifyClient, term: str) -> tuple[list[dict[str, Any]], bool]:
+    """Shopify's customers for a search term, a page at a time up to MAX_NAME_CUSTOMERS, and
+    whether there were more than that."""
+    found: list[dict[str, Any]] = []
+    after: str | None = None
+    while len(found) < MAX_NAME_CUSTOMERS:
+        size = max(1, min(CUSTOMER_PAGE, MAX_NAME_CUSTOMERS - len(found)))
+        payload = await client.graphql(CUSTOMERS_NAMED_QUERY, {"q": _search_term(term) or None, "n": size, "after": after})
+        page = (payload.get("data") or {}).get("customers") or {}
+        for edge in page.get("edges") or []:
+            node = (edge or {}).get("node") or {}
+            if node.get("id"):
+                found.append({"id": str(node["id"]), "name": str(node.get("displayName") or "")})
+        info = page.get("pageInfo") or {}
+        if not info.get("hasNextPage") or not info.get("endCursor"):
+            return found, False
+        after = str(info["endCursor"])
+    return found, True
+
+
+async def _customers_called(client: ShopifyClient, name: str) -> tuple[list[dict[str, Any]], bool]:
+    """The customers whose name IS the name said, and whether the looking was bounded.
+
+    Shopify's search finds the candidates — every page of them, as far as MAX_NAME_CUSTOMERS —
+    and each is then held to the name here, loosely but never inside a word (`name_matches`):
+    a search for "Ann" that returns every Anne returns no Anne. When the name as said finds
+    nobody it is, its longest parts are asked for one at a time, because Shopify's words are
+    not always his ("Dewitt" for De-Witt, "Zoe" for Zoë)."""
+    terms = [name] + sorted({p for p in _name_parts(name) if len(p) > 2}, key=len, reverse=True)[:MAX_NAME_RETRIES]
+    bounded = False
+    for term in dict.fromkeys(terms):
+        people, more = await _customer_pages(client, term)
+        bounded = bounded or more
+        chosen = {p["id"]: p for p in people if name_matches(name, p["name"])}
+        if chosen:
+            return list(chosen.values()), bounded
+    return [], bounded
+
+
+def _bounded_words(name: str) -> str:
+    return (f"I looked at the first {MAX_NAME_CUSTOMERS} customers Shopify found for {name!r}; there are more, "
+            "so a postcode, an item or an email would narrow it.")
+
+
 async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, Any]:
     """Orders that match every fact given. See the section comment above for the method."""
     client = _c()
     clauses: list[str] = []
     searched: list[str] = []
+    name_ids: list[str] = []
+    bounded = False
     if "number" in evidence:
         clauses.append(f"name:{evidence['number']}")
         searched.append("number")
@@ -433,13 +561,17 @@ async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, A
         clauses.append(f'email:"{_search_term(evidence["email"])}"')
         searched.append("email")
     if "name" in evidence:
-        customers = await _search_customers(client, evidence["name"], limit=10)
+        customers, bounded = await _customers_called(client, evidence["name"])
         if customers:
-            clauses.append("(" + " OR ".join(f"customer_id:{c['id'].rsplit('/', 1)[-1]}" for c in customers) + ")")
+            name_ids = [c["id"].rsplit("/", 1)[-1] for c in customers]
             searched.append("name")
         elif not ({"address", "item"} & set(evidence)):
-            return {"asked": dict(evidence), "orders": [], "count": 0, "one": False,
-                    "note": f"No customer is called {evidence['name']!r}."}
+            nobody = {"asked": dict(evidence), "orders": [], "count": 0, "one": False,
+                      "note": f"No customer is called {evidence['name']!r}."}
+            if bounded:
+                nobody["note"] = f"None of the first {MAX_NAME_CUSTOMERS} customers Shopify found is called {evidence['name']!r}."
+                nobody["coverage"] = _bounded_words(evidence["name"])
+            return nobody
     if "item" in evidence:
         # The item's words become the SKUs of the variants they describe, which Shopify can
         # search orders by. Words the catalogue does not know (a garment no longer sold) are
@@ -449,12 +581,28 @@ async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, A
         if clause:
             clauses.append(clause)
             searched.append("item")
-    search = " AND ".join(clauses) or None
-    payload = await client.graphql(ORDER_EVIDENCE_QUERY, {"q": search, "n": MAX_EVIDENCE_ORDERS})
-    connection = (payload.get("data") or {}).get("orders") or {}
-    nodes = [(e or {}).get("node") or {} for e in connection.get("edges") or []]
-    more = bool((connection.get("pageInfo") or {}).get("hasNextPage"))
-    checked = [(node, _check_evidence(node, evidence)) for node in nodes if node.get("id")]
+    # The name's customers go to Shopify as their ids, a bounded number to a search; several
+    # searches when a common name has more customers than one search should carry.
+    if name_ids:
+        searches = [" AND ".join([*clauses, "(" + " OR ".join(f"customer_id:{i}" for i in name_ids[at: at + IDS_PER_SEARCH]) + ")"])
+                    for at in range(0, len(name_ids), IDS_PER_SEARCH)]
+    else:
+        searches = [" AND ".join(clauses) or None]
+    search = searches[0] if len(searches) == 1 else f"{searches[0]} (and {len(searches) - 1} more like it)"
+    nodes: dict[str, dict[str, Any]] = {}
+    more = False
+    partial: list[Any] = []
+    for query in searches:
+        payload = await client.graphql(ORDER_EVIDENCE_QUERY, {"q": query, "n": MAX_EVIDENCE_ORDERS})
+        connection = (payload.get("data") or {}).get("orders") or {}
+        for edge in connection.get("edges") or []:
+            node = (edge or {}).get("node") or {}
+            if node.get("id"):
+                nodes.setdefault(str(node["id"]), node)
+        more = more or bool((connection.get("pageInfo") or {}).get("hasNextPage"))
+        partial += list(payload.get("_partial_errors") or [])
+    newest = sorted(nodes.values(), key=lambda n: str(n.get("createdAt") or ""), reverse=True)
+    checked = [(node, _check_evidence(node, evidence)) for node in newest]
     rows = []
     for node, check in checked:
         if not all(check["held"].values()):
@@ -474,8 +622,8 @@ async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, A
         "count": len(rows),
         "one": len(rows) == 1,
     }
-    if payload.get("_partial_errors"):
-        result["partial"] = payload["_partial_errors"]
+    if partial:
+        result["partial"] = partial
     people = {r["customer_id"] for r in rows if r.get("customer_id")}
     if len(people) == 1:
         first = rows[0]
@@ -490,7 +638,7 @@ async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, A
     if not rows:
         result["note"] = _none_found(evidence, searched, checked)
         result["visible"] = "Without the read_all_orders scope only the last 60 days of orders are visible."
-    if search is None or set(evidence) - set(searched):
+    if searches[0] is None or set(evidence) - set(searched):
         # Some of what he said is not something Shopify can search, so it was checked here, on
         # the orders Shopify returned — which are the newest ones when nothing else narrowed
         # them. Said, so that "none" is never taken for "none ever".
@@ -498,6 +646,9 @@ async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, A
             result["coverage"] = (f"Checked the newest {len(checked)} orders"
                                   + (f" with {_said(evidence, searched)}" if searched else "")
                                   + "; an older one would not be here.")
+    if bounded:
+        # The name's customers ran past the bound: the ones looked at are said, whatever was found.
+        result["coverage"] = " ".join(p for p in (_bounded_words(evidence["name"]), result.get("coverage")) if p)
     return result
 
 
@@ -1529,10 +1680,10 @@ def _variant_options(node: dict[str, Any]) -> list[str]:
 def _variant_words(product_title: str, node: dict[str, Any]) -> set[str]:
     """Everything a person could call this variant, lowercased: the product's words, its
     options, and the size aliases of each option ("medium" finds "M")."""
-    words = {w for w in re.split(r"[^a-z0-9]+", f"{product_title} {node.get('title') or ''}".lower()) if w}
+    words = {w for w in re.split(r"[^a-z0-9]+", item_text(f"{product_title} {node.get('title') or ''}")) if w}
     for value in _variant_options(node):
-        words.add(value.lower())
-        words |= {w for w in re.split(r"[^a-z0-9]+", value.lower()) if w}
+        words.add(item_text(value))
+        words |= {w for w in re.split(r"[^a-z0-9]+", item_text(value)) if w}
         words |= _size_aliases(value)
     return words
 
@@ -1569,7 +1720,7 @@ def _wanted(product: str, colour: str, size: str) -> list[set[str]]:
     wanted: list[set[str]] = [{w} for w in item_words(product)]
     for value in (colour, size):
         if value:
-            wanted.append({value.lower()} | _size_aliases(value))
+            wanted.append({item_text(value)} | _size_aliases(value))
     return wanted
 
 
@@ -1594,7 +1745,10 @@ def _search_terms(product: str) -> list[str]:
     terms.append(_product_query(said))
     words = [w for w in item_words(said) if len(w) > 2 and not (_size_aliases(w) - {w})]
     if len(words) > 1:
-        terms += sorted(dict.fromkeys(words), key=len, reverse=True)[:2]
+        # A word that stands for several spellings ("tee", "t shirt") is asked as the maker
+        # writes it (`_SEARCHED_AS`).
+        terms += [_SEARCHED_AS.get(w, w) for w in sorted(dict.fromkeys(words), key=len, reverse=True)[:2]]
+    terms += [_SEARCHED_AS[w] for w in words if w in _SEARCHED_AS]
     return list(dict.fromkeys(terms))
 
 

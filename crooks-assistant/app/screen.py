@@ -37,6 +37,7 @@ import copy
 import logging
 import re
 import time
+from collections.abc import Mapping
 from typing import Any
 
 from app.render import render_id
@@ -164,7 +165,7 @@ def about(change: dict[str, Any], session: Any = None) -> set[str]:
     data = change.get("data") if isinstance(change.get("data"), dict) else {}
     card = kind(change)
     if card == "confirmation":
-        return {str(data.get("entity_ref") or "")} - {""}
+        return ({str(data.get("entity_ref") or "")} | _prepared_from(data, session)) - {""}
     if card == "batch_action":
         scope = data.get("set") if isinstance(data.get("set"), dict) else {}
         return {str(scope.get("set_id") or "")} - {""}
@@ -172,8 +173,20 @@ def about(change: dict[str, Any], session: Any = None) -> set[str]:
         return {str(data.get("order_id") or "")} - {""}
     if card == "success" and session is not None:
         proposal = session.proposal(str(data.get("proposal_id") or ""))
-        return {str(getattr(proposal, "entity_ref", "") or "")} - {""}
+        return ({str(getattr(proposal, "entity_ref", "") or "")} | _prepared_from(data, session)) - {""}
     return set()
+
+
+def _prepared_from(data: dict[str, Any], session: Any) -> set[str]:
+    """The workspace a change was prepared from, when it was one. A new order is priced as a
+    draft, and its hold card is about that draft — which no card on the screen shows — so,
+    taken at its word, the card was "about something else" and replaced the order being built
+    (round 12's independent check, H). It is as much about the card it was prepared from."""
+    if session is None:
+        return set()
+    proposal = session.proposal(str(data.get("proposal_id") or ""))
+    execution = getattr(proposal, "execution", None)
+    return {str(execution.get("workspace_id") or "")} if isinstance(execution, Mapping) else set()
 
 
 # ---------------------------------------------------------------------- what the half shows
@@ -497,6 +510,11 @@ def after_gesture(items: list[dict[str, Any]], *, session: Any, proposal_id: str
     branch = _holding(session, targets)
     screen = list(getattr(branch, "last_ui", None) or []) if branch is not None else []
     out = [_with_rail(item, entity if entity_kind == "order" else None, writes) for item in items]
+    built = _built_from(session, proposal_id, branch)
+    if built is not None:
+        # The card the change was prepared from, drawn again as it now is — a new order that has
+        # made its order says so, by its number, where it stands (round 12, A1).
+        out = [item for item in out if render_id(item) != render_id(built)] + [built]
     shown_workspace = next((item for item in screen if kind(item) == "order_workspace"), None)
     if shown_workspace is not None and entity_kind == "order" and isinstance(entity, dict):
         for index, item in enumerate(out):
@@ -513,6 +531,22 @@ def after_gesture(items: list[dict[str, Any]], *, session: Any, proposal_id: str
         if settled is not None:
             branch.shown(settled, branch.last_answer, branch.last_question)
     return out
+
+
+def _built_from(session: Any, proposal_id: str, branch: Any) -> dict[str, Any] | None:
+    """The workspace a gesture's change was prepared from, drawn by its family as it is after the
+    gesture — or None when the change was not prepared from one, or its half no longer holds it."""
+    proposal = session.proposal(proposal_id) if hasattr(session, "proposal") else None
+    execution = getattr(proposal, "execution", None)
+    ident = str(execution.get("workspace_id") or "") if isinstance(execution, Mapping) else ""
+    if not ident:
+        return None
+    half = branch or (getattr(session, "branches", None) or {}).get(str(getattr(proposal, "branch_id", "") or ""))
+    if half is None:
+        return None
+    from app.families import _workspace as ws
+
+    return ws.drawn(half, ident)
 
 
 def _with_rail(item: dict[str, Any], entity: Any, writes: dict[str, Any] | None) -> dict[str, Any]:
