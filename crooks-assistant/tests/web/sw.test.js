@@ -132,6 +132,8 @@ const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/st
   '/static/objective-cards.js', '/static/objective-cards.css',
   // Round 12: holding a record to put it on a screen (web/lift.js).
   '/static/lift.js', '/static/lift.css',
+  // Round 12: soft scroll edges (web/edges.js) and cards formed of dots (web/dots-app.js).
+  '/static/edges.js', '/static/edges.css', '/static/dots-app.js', '/static/dots-app.css',
   '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/icon-maskable-192.png', '/static/icon-maskable-512.png'];
 
 async function installed() {

@@ -59,6 +59,11 @@ const SHELL = [
   // Round 12: holding a record to put it on a screen. Code and styles only, like the remote.
   '/static/lift.js',
   '/static/lift.css',
+  // Round 12: soft scroll edges, and cards that form out of the orb and its dots.
+  '/static/edges.js',
+  '/static/edges.css',
+  '/static/dots-app.js',
+  '/static/dots-app.css',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',

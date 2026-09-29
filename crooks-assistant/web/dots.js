@@ -6,7 +6,7 @@
  * passes, and hand over to the real page. Each dot is either in a role (orb, ring, dust, rest) or
  * flying a queued segment. They are added, not painted, into one pixel buffer, with a quarter-size
  * copy blurred beneath for bloom; a second canvas carries the light that is not dots (the start-up's
- * spark, flash and glints, and the orb's glass body).
+ * waking light and glints, and the orb's glass body).
  *
  * Nothing here reads or sends anything: the pages decide what the dots form (web/display.js,
  * web/startup.js). Paused when off screen or hidden; cheaper when shown small.
@@ -27,7 +27,7 @@
   // The colours dots take in their roles. A screen (web/display.js, the one layout with a dot
   // clock) and the app's start-up are both steel and white, as the approved designs have them (the
   // owner took the purple out of the app on 28 Sep 2026). `tint` (1) fades either toward GREY, the
-  // neutral light of the start-up's flash.
+  // neutral steel the start-up's orb wakes in.
   //   back, mid, front: the orb's far side, its rim and its lit face · ring, dust: their dots ·
   //   seed: a dot before it has a role · spark: the orb's burst · fading: dots on their way out ·
   //   home: stray dots poured back into the orb · pour: a typed name poured in · done: the check.
@@ -359,6 +359,27 @@
       fctx.strokeStyle = 'rgba(200,212,230,' + f3(0.12 * a) + ')';
       fctx.beginPath(); fctx.arc(x, y, R * 0.9, Math.PI * 0.2, Math.PI * 0.8); fctx.stroke();
     }
+    // The orb waking (round 12). The start-up used to open on a point of light that grew a cross
+    // flare and then flashed the whole screen grey; the owner: "the start flash/star — that looks
+    // terrible". Now a soft light in the app's one accent (iOS blue) gathers where the orb will be
+    // while its dots draw in from around it (boot), closes in on the orb as they arrive, and sinks
+    // into the glass as they land. It never reaches past the orb's own neighbourhood, and it never
+    // lights the screen.
+    const WAKE_END = 2.8;
+    function wakeLight(S, bt) {
+      if (bt <= 0 || bt >= WAKE_END) return;
+      // It follows the dots in: rising as they arrive, gone once the glass has them.
+      const k = Math.max(0, Math.min(1, (bt - 0.4) / 1.1)), rise = k * k * (3 - 2 * k);
+      const f = bt < 1.6 ? 0 : (bt - 1.6) / (WAKE_END - 1.6), fall = (1 - f) * (1 - f);
+      const a = (calm ? 0.12 : 0.3) * rise * fall;
+      if (a <= 0.004) return;
+      const R = Math.max(1, orb.R * (2.3 - 1.2 * rise));
+      const g = fctx.createRadialGradient(S.x, S.y, 0, S.x, S.y, R);
+      g.addColorStop(0, 'rgba(64,156,255,' + f3(a) + ')');
+      g.addColorStop(0.42, 'rgba(10,132,255,' + f3(a * 0.5) + ')');
+      g.addColorStop(1, 'rgba(10,132,255,0)');
+      fctx.fillStyle = g; fctx.beginPath(); fctx.arc(S.x, S.y, R, 0, TAU); fctx.fill();
+    }
     let fxDirty = true;
     function drawFx() {
       const bt = T - bootT0;
@@ -384,29 +405,7 @@
         }
       }
       if (bootOn) {
-        const S = bootS;
-        if (bt >= 0 && bt < 1.6) {
-          const k = Math.min(1, bt / 0.95), grow = k * k * k;
-          let I = bt < 0.95 ? 0.3 + 0.7 * grow : Math.max(0, 1 - (bt - 0.95) / 0.6);
-          I *= 0.92 + 0.08 * Math.sin(T * 47);
-          const len = bt < 0.95 ? grow : 1;
-          glow(S.x, S.y, U * (8 + 90 * len), 0.95 * I);
-          arm(S.x - W * 0.5 * len, S.y, S.x + W * 0.5 * len, S.y, I, U * 1.6);
-          arm(S.x, S.y - H * 0.34 * len, S.x, S.y + H * 0.34 * len, I * 0.8, U * 1.2);
-        }
-        if (bt > 0.85 && bt < 2.4) {
-          const peak = calm ? 0.15 : 0.6;
-          const a = bt < 1.0 ? (bt - 0.85) / 0.15 * peak : peak * Math.exp(-(bt - 1.0) * 4.2);
-          if (a > 0.004) {
-            fctx.globalCompositeOperation = 'source-over';
-            const g = fctx.createRadialGradient(S.x, S.y, 0, S.x, S.y, Math.max(W, H) * 0.9);
-            g.addColorStop(0, 'rgba(244,247,252,' + f3(a) + ')');
-            g.addColorStop(0.35, 'rgba(214,222,236,' + f3(a * 0.75) + ')');
-            g.addColorStop(1, 'rgba(160,172,192,' + f3(a * 0.4) + ')');
-            fctx.fillStyle = g; fctx.fillRect(0, 0, W, H);
-            fctx.globalCompositeOperation = 'lighter';
-          }
-        }
+        wakeLight(bootS, bt);
         for (let i = 0; i < glints.length; i++) {
           const gl = glints[i];
           let k = (bt - gl.t) / 0.42;
@@ -886,8 +885,8 @@
         ];
       }
     }
-    // The full start-up: a point of light grows a cross flare and flashes; the flash becomes the
-    // orb; C L I V E condense out of it one by one with a glint across each; the letters swing
+    // The full start-up: the orb wakes, its dots gathering in out of the dark round a soft blue
+    // light (wakeLight); C L I V E condense out of it one by one with a glint across each; the letters swing
     // into the name (the page moves them; the dots throw sparks along their path); then the
     // name pours into the orb, which settles at home. `B.handoffAt` (seconds) is when; the page
     // may hold it back (web/startup.js waits for the app to be ready) by calling handoff().
@@ -899,14 +898,27 @@
       orb.e = orb.te = 1; orb.idle = orb.tidle = 0; orb.tint = orb.ttint = 1;
       body.a = body.ta = 0; net.a = net.ta = 0;
       dustLevel = 0; dustTarget = calm ? 0.1 : 0.16;
+      // The orb gathers (round 12): its dots are drawn in from all round it, curving the same way
+      // like light pulled into a turning sphere, arriving as the accent's blue and cooling to
+      // steel as they land. They used to burst out of a flash at its centre.
       for (let i = 0; i < ORBS.length; i++) {
-        ORBS[i].q = [{ t0: T0 + 1.0 + rnd() * 0.12, d: 0.8 + rnd() * 0.35, ease: 'out', from: [B.S.x + (rnd() - 0.5) * 6, B.S.y + (rnd() - 0.5) * 6], fromA: 0, kx: (rnd() - 0.5) * B.R * 1.2, ky: (rnd() - 0.5) * B.R * 1.2, then: 'orb', tx: 0, ty: 0, r1: 0, g1: 0, b1: 0, a1: 0, s1: 1 }];
+        const p = ORBS[i], ang = rnd() * TAU, far = B.R * (1.35 + Math.pow(rnd(), 0.6) * 2.6), sw = far * (0.26 + rnd() * 0.14);
+        const x = B.S.x + Math.cos(ang) * far, y = B.S.y + Math.sin(ang) * far * 0.9, t = T0 + rnd() * 0.5;
+        p.r = 150; p.g = 196; p.b = 255; p.s = 1.8;
+        p.q = [
+          // a mote of light comes up out of the dark, already drifting in
+          { t0: t, d: 0.35, ease: 'out', from: [B.S.x + Math.cos(ang) * far * 1.12, B.S.y + Math.sin(ang) * far * 1.01], fromA: 0, tx: x, ty: y, r1: 150, g1: 196, b1: 255, a1: 0.5 + rnd() * 0.3, s1: 1.8, then: 'rest' },
+          // and is drawn into the orb, cooling to steel as it lands
+          { t0: t + 0.35 + rnd() * 0.25, d: 0.9 + rnd() * 0.4, ease: 'inout', kx: -Math.sin(ang) * sw, ky: Math.cos(ang) * sw, then: 'orb', tx: 0, ty: 0, r1: 0, g1: 0, b1: 0, a1: 0, s1: 1 },
+        ];
       }
       for (let i = 0; i < RINGS.length; i++) {
-        RINGS[i].q = [{ t0: T0 + 1.25 + rnd() * 0.45, d: 1.1 + rnd() * 0.3, ease: 'out', from: [B.S.x, B.S.y], fromA: 0, kx: (rnd() - 0.5) * B.R * 2, ky: (rnd() - 0.5) * B.R, then: 'ring', tx: 0, ty: 0, r1: 0, g1: 0, b1: 0, a1: 0, s1: 1 }];
+        const p = RINGS[i], ang = rnd() * TAU, far = B.R * (2.2 + rnd() * 1.6);
+        p.r = 110; p.g = 172; p.b = 255;
+        p.q = [{ t0: T0 + 0.55 + rnd() * 0.6, d: 1.1 + rnd() * 0.4, ease: 'inout', from: [B.S.x + Math.cos(ang) * far, B.S.y + Math.sin(ang) * far * 0.55], fromA: 0, kx: -Math.sin(ang) * far * 0.3, ky: Math.cos(ang) * far * 0.2, then: 'ring', tx: 0, ty: 0, r1: 0, g1: 0, b1: 0, a1: 0, s1: 1 }];
       }
-      at(T0 + 1.05, () => { body.ta = 1; });
-      at(T0 + 1.5, () => { net.ta = 1; });
+      at(T0 + 1.2, () => { body.ta = 1; });
+      at(T0 + 1.6, () => { net.ta = 1; });
       at(T0 + 2.45, () => { orb.tR = B.R * 0.8; orb.te = 0.4; body.ta = 0.35; net.ta = 0.12; });
       const rows = B.rows || [];
       for (let i = 0; i < rows.length; i++) {

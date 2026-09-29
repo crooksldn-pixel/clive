@@ -338,12 +338,9 @@ body[data-mode="context"] .app{padding-bottom:calc(var(--dock) + env(safe-area-i
   -webkit-backdrop-filter:blur(var(--blur-surface));backdrop-filter:blur(var(--blur-surface));
   overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;
 }
-/* The far edge fades only when there is more beyond it. A mask applied always faded the
-   last chip of a rail that fitted, which read as a chip that was switched off. */
-.context-nav[data-overflow="1"]{
-  -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent);
-  mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent);
-}
+/* Either end fades only when there is more beyond it, and by how much more (web/edges.js). A
+   mask applied always faded the last chip of a rail that fitted, which read as a chip that was
+   switched off; one on the right end only cut the chips scrolled off the left. */
 .context-nav::-webkit-scrollbar{display:none}
 .chip{
   flex:none;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;

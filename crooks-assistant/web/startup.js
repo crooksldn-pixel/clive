@@ -1,4 +1,8 @@
-/* The app's start-up: a point of light, a flash, CLIVE's orb, then the name.
+/* The app's start-up: CLIVE's orb waking, then the name.
+ *
+ * The orb gathers out of the dark: its dots are drawn in from around it towards a soft light in the
+ * app's blue, and settle into the glass (web/dots.js, boot). There is no flash and no flare; the
+ * owner found the old point-of-light, cross-flare and screen flash "terrible" (29 Sep 2026).
  *
  * The whole of it plays the first time the app opens on a day and after CLIVE has been updated
  * (the build the page was served with is not the one this device last started); every other
