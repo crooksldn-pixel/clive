@@ -25,6 +25,12 @@ workspace has (app/families/_workspace.py):
 * The gesture stages `shopify_order_shipping_address_set` with the arguments built HERE, from
   the Mac's copy, and `from_owner=True` — which is what that argument is for: the owner gave
   this address, not an email, so there is no message for the tool to check it against.
+* Only the parts the owner changed are sent (`_change`). The tool merges what it is given into
+  the address as it stands, so a part left out is a part kept exactly as Shopify has it; a part
+  sent back unchanged is not, because the tool re-shapes some of them (it splits a recipient's
+  name on its first space).
+* Nothing is shortened to fit. A part of the address as it stands that is too long for its box
+  is shown whole and marked as too long to edit here; left alone it is not part of the change.
 * Nothing here can apply anything. The write tool re-reads the order, merges, prints the
   difference, and the owner's hold on the card that comes back is what sends it.
 
@@ -42,11 +48,20 @@ from app.commands import Command, Outcome, may_open
 from app.commands import Ctx as CommandCtx
 from app.commands import register as register_command
 from app.families import _workspace as ws
+from app.tools.shopify_writes import MAX_ADDRESS_CHARS
 
 KIND = "address"
 WRITE_TOOL = "shopify_order_shipping_address_set"
 
-MAX_LINE = 120
+# What each box may hold is what the write tool takes: its schema's `maxLength`, which the gate
+# holds every write to, and its own `_clean_field`. A hundred characters for a line of the
+# address and for the town, eighty for the recipient, twelve for a postcode. A box that held
+# more would let the owner type something the tool then refuses, in a schema's words.
+MAX_LINE = MAX_ADDRESS_CHARS
+MAX_NAME = 80
+# What a part of the address as it stands is marked when it is longer than its box. Shown
+# whole, never cut: a cut name or street sent back is a different one.
+TOO_LONG_HERE = "too long to edit here — change it in Shopify Admin"
 # Loose on purpose. A postcode is not one format — GB, IE, US and CA all differ, and a
 # validator that knows one of them refuses the other three. What this rejects is what cannot
 # be a postcode anywhere: punctuation that belongs to a sentence, and lengths the write tool
@@ -56,18 +71,25 @@ _COUNTRY = re.compile(r"^[A-Z]{2}$")
 _PROVINCE = re.compile(r"^[A-Z0-9]{2,5}$")
 
 
-def _line(limit: int):
-    def clean(raw: str) -> tuple[str, str, str]:
-        return " ".join(str(raw or "").split())[:limit], "ok", ""
-    return clean
-
-
 # TOO LONG IS INVALID, NEVER TRUNCATED. This is the one rule in this file worth stating
 # twice: a value cut to fit is a different value, and for a code it is a plausible one
 # belonging to somewhere else. "britain" truncated to two letters is BR, which is Brazil, and
 # the card would have shown it as `ok`. Every cleaner here bounds the value it SHOWS — the
 # card must not grow — and refuses what would not fit rather than shortening it into
-# something that validates.
+# something that validates. The same holds for a name or a street: eighty-one characters of
+# recipient cut to eighty is somebody else's name on the label.
+def _text(limit: int, *, needed: str = ""):
+    """One line of plain text: spacing collapsed, refused past `limit`, and refused empty
+    when the delivery `needed` it (the words say why)."""
+    def clean(raw: str) -> tuple[str, str, str]:
+        value = " ".join(str(raw or "").split())
+        if len(value) > limit:
+            return value[:limit], "invalid", f"too long — at most {limit} characters"
+        if not value and needed:
+            return "", "invalid", needed
+        return value, "ok", ""
+    return clean
+
 def _bounded(raw: str, *, limit: int, squash: bool) -> tuple[str, bool]:
     value = ("".join if squash else " ".join)(str(raw or "").split()).upper()
     return value[:limit], len(value) > limit
@@ -100,28 +122,15 @@ def _province(raw: str) -> tuple[str, str, str]:
     return value, "ok", ""
 
 
-def _city(raw: str) -> tuple[str, str, str]:
-    value = " ".join(str(raw or "").split())[:MAX_LINE]
-    if not value:
-        return "", "invalid", "a delivery needs a town"
-    return value, "ok", ""
-
-
-def _street(raw: str) -> tuple[str, str, str]:
-    value = " ".join(str(raw or "").split())[:MAX_LINE]
-    if not value:
-        return "", "invalid", "a delivery needs a number and a street"
-    return value, "ok", ""
-
-
 # The fields, in the order a label is written. Every one of them carries a `kind` the
 # renderer knows (web/ui.js FIELD_KINDS), which is what gives the postcode a keyboard with
 # no autocorrect on it and the street one with capitals.
 FIELDS: tuple[ws.Field, ...] = (
-    ws.Field("name", "Recipient", kind="text", maxlength=80, rows=1, clean=_line(80)),
-    ws.Field("address1", "Number and street", kind="address", maxlength=MAX_LINE, rows=2, clean=_street),
-    ws.Field("address2", "Second line", kind="address", maxlength=MAX_LINE, rows=2, clean=_line(MAX_LINE)),
-    ws.Field("city", "Town", kind="text", maxlength=MAX_LINE, rows=1, clean=_city),
+    ws.Field("name", "Recipient", kind="text", maxlength=MAX_NAME, rows=1, clean=_text(MAX_NAME)),
+    ws.Field("address1", "Number and street", kind="address", maxlength=MAX_LINE, rows=2,
+             clean=_text(MAX_LINE, needed="a delivery needs a number and a street")),
+    ws.Field("address2", "Second line", kind="address", maxlength=MAX_LINE, rows=2, clean=_text(MAX_LINE)),
+    ws.Field("city", "Town", kind="text", maxlength=MAX_LINE, rows=1, clean=_text(MAX_LINE, needed="a delivery needs a town")),
     ws.Field("postcode", "Postcode", kind="code", maxlength=12, clean=_postcode),
     ws.Field("province_code", "Region code", kind="code", maxlength=5, clean=_province),
     ws.Field("country_code", "Country", kind="code", maxlength=2, clean=_country),
@@ -191,27 +200,68 @@ def _from_order(order: dict[str, Any]) -> dict[str, str]:
     This is the whole reason the workspace is worth having. The live session's own case is an
     order with a street and no house number: with the current address in the boxes the owner
     types four characters, and with empty boxes he retypes a stranger's address from memory.
+
+    Each part is spaced and cased as its box's own rule would leave it, so a part the owner
+    types back unchanged compares equal and is not a change. None is cut to its box: a part too
+    long for it is shown whole and marked (`_open`). The one bound is the most a keystroke may
+    post (`ws.MAX_VALUE_CHARS`), far past every box's limit, so it never decides what is sent.
     """
     address = order.get("shipping_address") if isinstance(order.get("shipping_address"), dict) else {}
     lines = [str(line) for line in (address.get("lines") or []) if str(line or "").strip()]
+
+    def spaced(raw: object) -> str:
+        return " ".join(str(raw or "").split())[:ws.MAX_VALUE_CHARS]
+
+    def squashed(raw: object) -> str:
+        return "".join(str(raw or "").split()).upper()[:ws.MAX_VALUE_CHARS]
+
     return {
-        "name": str(address.get("name") or "")[:80],
-        "address1": (lines[0] if lines else "")[:MAX_LINE],
-        "address2": (lines[1] if len(lines) > 1 else "")[:MAX_LINE],
-        "city": str(address.get("city") or "")[:MAX_LINE],
-        "postcode": str(address.get("zip") or "").upper()[:12],
-        "province_code": str(address.get("province_code") or "").upper()[:5],
-        "country_code": str(address.get("country_code") or "").upper()[:2],
+        "name": spaced(address.get("name")),
+        "address1": spaced(lines[0] if lines else ""),
+        "address2": spaced(lines[1] if len(lines) > 1 else ""),
+        "city": spaced(address.get("city")),
+        "postcode": spaced(address.get("zip")).upper(),
+        "province_code": squashed(address.get("province_code")),
+        "country_code": squashed(address.get("country_code")),
     }
 
 
+def _edited(workspace: dict[str, Any]) -> list[str]:
+    """The fields whose value is not the address as it stood when the card opened."""
+    original = ws.fact(workspace, "original", {}) or {}
+    return [spec.name for spec in FIELDS if ws.value(workspace, spec.name) != str(original.get(spec.name) or "")]
+
+
+def _change(workspace: dict[str, Any]) -> list[str]:
+    """The fields to send: the ones the owner changed, and the one rule the tool's merge needs.
+
+    The tool clears the second line whenever it is given a street, because an old flat number
+    on a new street is a wrong address; so a new street always takes the card's second line
+    with it, changed or not. And the tool clears a second line only alongside a street, so a
+    second line emptied by the owner takes the street as it stands with it. Nothing else the
+    owner did not touch is sent: in particular the recipient, which the tool would re-split on
+    its first space ("Mary Ann" "Smith" coming back as "Mary" "Ann Smith").
+    """
+    send = set(_edited(workspace))
+    if "address1" in send:
+        send.add("address2")
+    if "address2" in send and not ws.value(workspace, "address2"):
+        send.add("address1")
+    return [spec.name for spec in FIELDS if spec.name in send]
+
+
 def _blocked(workspace: dict[str, Any]) -> str:
-    """Why this cannot be prepared yet. The order's own state first, then the fields."""
+    """Why this cannot be prepared yet. The order's own state first, then the fields.
+
+    A field is refused only when it would be SENT. A part of the address too long to edit
+    here, left alone, is not part of the change and stops nothing; the same part needed
+    alongside a change (a street under a second line being cleared) stops it, in its own words.
+    """
     standing = str(ws.fact(workspace, "why_not", "") or "")
     if standing:
         return standing
     for spec in FIELDS:
-        if ws.status(workspace, spec.name) == "invalid":
+        if spec.name in _change(workspace) and ws.status(workspace, spec.name) == "invalid":
             hint = str((workspace.get("hints") or {}).get(spec.name) or "")
             return f"{spec.label}: {hint or 'that is not something I can send to'}."
     if not ws.value(workspace, "address1").strip():
@@ -222,7 +272,7 @@ def _blocked(workspace: dict[str, Any]) -> str:
         return "Postcode: a delivery needs a postcode."
     if not ws.value(workspace, "country_code").strip():
         return "Country: two letters, like GB."
-    if _written(workspace) == str(ws.fact(workspace, "written", "") or ""):
+    if not _edited(workspace):
         return "Nothing has changed yet. Type over the part that is wrong."
     return ""
 
@@ -270,8 +320,13 @@ def _open(ctx: CommandCtx) -> Outcome:
     workspace = ws.open_workspace(
         ctx.branch, kind=KIND, workspace_id=ws.new_id("adr"), values=values,
         facts={"order_id": order_id, "order_number": number, "why_not": why_not,
-               "written": ", ".join(v for v in values.values() if v.strip())},
+               "original": dict(values)},
     )
+    workspace["facts"]["written"] = _written(workspace)
+    for spec in FIELDS:
+        if len(values[spec.name]) > spec.maxlength:
+            workspace["status"][spec.name] = "invalid"
+            workspace["hints"][spec.name] = TOO_LONG_HERE
     ctx.session.issue(str(workspace["workspace_id"]))
     remember = getattr(ctx.session, "remember_pii", None)
     if callable(remember):
@@ -322,19 +377,14 @@ def _stage(ctx: CommandCtx) -> Outcome:
     order_id = _order_of(workspace)
     if not may_open(ctx, "order", order_id):
         return Outcome.refused("not_held", "I do not have that order to hand; look it up again.")
-    args: dict[str, Any] = {
-        "order_id": order_id,
-        "address1": ws.value(workspace, "address1"),
-        "address2": ws.value(workspace, "address2"),
-        "city": ws.value(workspace, "city"),
-        "postcode": ws.value(workspace, "postcode"),
-        "country_code": ws.value(workspace, "country_code"),
-        "province_code": ws.value(workspace, "province_code"),
-        "name": ws.value(workspace, "name"),
-        # What this argument is for: the owner typed this, so there is no email for the tool
-        # to check it against, and the card must say as much before the hold.
-        "from_owner": True,
-    }
+    # Only what he changed (`_change`); the tool keeps every part it is not given exactly as
+    # the order has it.
+    args: dict[str, Any] = {"order_id": order_id}
+    for name in _change(workspace):
+        args[name] = ws.value(workspace, name)
+    # What this argument is for: the owner typed this, so there is no email for the tool to
+    # check it against, and the card must say as much before the hold.
+    args["from_owner"] = True
     return Outcome(answer="", changed={
         "workspace_id": ident,
         "stage": {"tool": WRITE_TOOL, "args": args, "what": "change the delivery address"},
