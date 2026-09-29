@@ -38,6 +38,7 @@ dispatcher lets through.
 from __future__ import annotations
 
 import re
+from contextvars import ContextVar
 from typing import Any
 
 from app.capabilities.families import CapabilityFamily, register
@@ -75,6 +76,14 @@ register(CapabilityFamily(
 
 # The two panes of a screen as the owner and CLIVE name them (app/displays/store.py PANES).
 _PANE = {"first": 0, "second": 1}
+
+# The screen a drop was checked for, by its id (round 13, S3-01). Set by the drop's own route
+# (app/displays/put.py) around its one call to screen_show, and by nothing else: it is in no tool's
+# schema or signature, so the model can neither pass it nor see it. While it is set, screen_show
+# puts the record on that screen and no other. The name the route passes is looked up as always,
+# and a name that no longer leads to that id (the screen forgotten and another device named and
+# approved in its place meanwhile) is refused before anything is read.
+DROP_SCREEN: ContextVar[str] = ContextVar("crooks_drop_screen", default="")
 
 
 def _owners_own() -> None:
@@ -169,6 +178,10 @@ async def screen_show(screen: str, order_id: str | None = None, objective_id: st
         target = s.find(screen, exact=True)
     except DisplayError as exc:
         raise ToolError(str(exc)) from None
+    bound = DROP_SCREEN.get()
+    if bound and target.get("id") != bound:
+        raise ToolError(f"The {target['name']} is not the screen the record was dropped on any more (it was "
+                        "forgotten and named again), so nothing was put on it.")
     if target.get("paired", True) is not True:
         # Before an order is read for it (round 8, B-02); the store refuses it again.
         raise ToolError(f"The {target['name']} hasn't been approved yet. It shows a six-digit code: it is approved "

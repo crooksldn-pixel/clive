@@ -19,7 +19,8 @@ so a drop can put on a screen nothing a sentence could not.
 The tap names the screen by its id — the tray drew it from the owner's own list (GET /displays) —
 and the record by its kind and id, as the card it was held on carries them. The id is turned into
 the screen's exact name here, which is what screen_show takes: that screen and no other, never the
-nearest match. Before the tool is asked, the things a drop can meet that the page must put in its
+nearest match. The call is bound to that id too (display_tools.DROP_SCREEN, round 13): a name that
+has come to mean another device by the time the tool looks it up is refused. Before the tool is asked, the things a drop can meet that the page must put in its
 own words are answered here, each with its own code: the conversation has gone or is another
 login's, the screen has gone or is waiting for approval, the record was never shown to this
 conversation. What the tool refuses after that is said in the tool's own words.
@@ -40,7 +41,7 @@ from fastapi import Request
 
 from app.displays.store import store
 from app.routes.actions import session_matches
-from app.tools.display_tools import SHOW_TOOL
+from app.tools.display_tools import DROP_SCREEN, SHOW_TOOL
 from app.tools.gate import Disposition, classify
 
 # The kinds a screen shows that the owner can hold, and the screen_show argument each goes in.
@@ -141,7 +142,13 @@ async def _put(request: Request, screen_id: str, kind: str, ref: str, *, session
         raise _not_issued(kind)
     runtime = request.app.state.runtime
     calls: list[Any] = []
-    said = await dispatch(SHOW_TOOL, args, session=session, timeout_s=float(runtime.settings.tool_timeout_s), calls=calls)
+    # The tool looks the screen up by the name above; bound to the id checked here, it refuses a
+    # name that has come to mean another device since (round 13, S3-01). Only this call is bound.
+    bound = DROP_SCREEN.set(screen["id"])
+    try:
+        said = await dispatch(SHOW_TOOL, args, session=session, timeout_s=float(runtime.settings.tool_timeout_s), calls=calls)
+    finally:
+        DROP_SCREEN.reset(bound)
     call = calls[-1] if calls else None
     result = call.result if call is not None and call.ok and isinstance(call.result, dict) else None
     if result is None:
