@@ -136,6 +136,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
         gmail_writes,
         shopify_tools,
         shopify_writes,
+        show_again,
     )
 
     # The engineering bridge and the screens are imported here for the same reason as the
@@ -320,7 +321,13 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # or none, which pane, a level and seconds, each bounded). The rules for when to use each are
     # one paragraph of the system prompt. What it
     # buys is "play the Heat trailer on the TV" and "turn it up" doing exactly that.
-    assert total <= 38_425, f"the tool block is {total} bytes"
+    #
+    # 38_895 is bringing a screen back (app/tools/show_again.py, tests/test_r12_surfaces.py),
+    # +474 bytes measured (38,420 before, 38,894 after): show_again, an id or a kind, both
+    # optional. What it buys is "pull that up again", "show me the order again" and "bring back
+    # the draft" doing exactly that — the owner's round-12 complaint that pulling a screen up
+    # again was not something he could say. When to use it is one line of the system prompt.
+    assert total <= 38_895, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

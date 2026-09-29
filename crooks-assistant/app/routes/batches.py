@@ -14,7 +14,7 @@ import time
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse
 
-from app import readonly
+from app import readonly, screen
 from app.actions import grammar
 from app.observability import timeline
 from app.presentation import present_batch, present_batch_state
@@ -127,11 +127,15 @@ async def commit(request: Request, batch_id: str, session_id: str = Form(default
         # The next question is asked with the outcome in hand: "did that work?" is answered
         # from what the Mac counted, never guessed (app/routes/turn.py).
         session.last_outcome = result.spoken
+    # The half's own copy of its screen settled to what the tablet now draws: the count in the
+    # batch card's place, and the list it was about still there (app/screen.py).
+    ui = screen.after_gesture(present_batch(result, session=session, writes=await writes_context(request, batch.child_operation)),
+                              session=session, proposal_id=batch.batch_id, undo_of=batch.undo_of or "")
     return {
         **batch.public(),
         "code": result.code,
         "spoken": result.spoken,
-        "ui": present_batch(result, session=session, writes=await writes_context(request, batch.child_operation)),
+        "ui": ui,
         "undo": _undo_of(batch, session),
     }
 

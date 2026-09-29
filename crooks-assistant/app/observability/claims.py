@@ -148,6 +148,46 @@ def follow_up_shape(question: str) -> str | None:
     return None
 
 
+# ------------------------------------------------------- "it's on your screen" when it is not
+#
+# The other claim an answer can make that the Mac can hold it to: that something is ON the
+# owner's screen. George, 29 September: "it can say stuff like confirmed order xyz on screen
+# but there is nothing." This is read from the ANSWER — what the model said — and judged against
+# what the turn actually drew (app/routes/turn.py `_hold_to_the_screen`); it never reads, routes
+# or answers the owner's sentence. Narrow on purpose: the phrases that put a thing on his
+# screen, not every sentence that mentions one, and never one of his named TV screens ("on the
+# office screen" does not say "on the screen", and a turn that used a screen tool is not judged).
+ON_SCREEN_RE = re.compile(
+    r"\bon(?:[- ]?|\s+(?:your|the)\s+)(?:screen|tablet)\b"
+    r"|\b(?:up|back|showing)\s+(?:now\s+)?on\s+(?:your|the)\s+(?:screen|tablet|app)\b"
+    r"|\b(?:pulled|brought|put|got)\s+(?:it|that|them|this|those|the\s+\w+(?:\s+\w+)?)\s+(?:back\s+)?up\b"
+    r"|\b(?:it's|it is|that's|that is|they're|they are)\s+(?:back\s+)?up\s+(?:now|again|there|for you)\b",
+    re.I,
+)
+# The correction, when nothing is on the screen and the Mac cannot tell what the answer meant.
+NOT_ON_SCREEN = "I haven't put it on screen; say “show it” and I will."
+_SENTENCE = re.compile(r"[^.!?]+[.!?]*")
+
+
+def claims_on_screen(answer: str) -> bool:
+    return bool(ON_SCREEN_RE.search(str(answer or "")))
+
+
+def without_the_claim(answer: str) -> str:
+    """The answer with every sentence that claims something is on the screen taken out, and
+    the correction said instead. What else the answer said stands: "Paid, not shipped. It's on
+    your screen." keeps the first sentence."""
+    kept = [s.strip() for s in _SENTENCE.findall(str(answer or "")) if s.strip() and not ON_SCREEN_RE.search(s)]
+    return " ".join([*kept, NOT_ON_SCREEN])
+
+
+def screen_claim(*, drew: str = "", corrected: bool = False, named: list[str] | None = None) -> dict[str, Any]:
+    """The timeline's record of an answer that said something was on the screen when this turn
+    had put nothing there: what the Mac drew to make it true, or that it corrected the answer.
+    Written as `unsupported_claim` with `claim: on_screen`, beside the decline claims."""
+    return {"claim": "on_screen", "drew": drew or None, "corrected": bool(corrected), "named": list(named or []) or None}
+
+
 def registered() -> frozenset[str]:
     """The tools this process holds, for a claim judged at turn time."""
     try:
@@ -158,4 +198,5 @@ def registered() -> frozenset[str]:
         return frozenset()
 
 
-__all__ = ["CANNOT_RE", "CAPABILITIES", "Capability", "bulk_request", "claim", "declined", "follow_up_shape", "match_capabilities", "registered"]
+__all__ = ["CANNOT_RE", "CAPABILITIES", "NOT_ON_SCREEN", "ON_SCREEN_RE", "Capability", "bulk_request", "claim", "claims_on_screen", "declined",
+           "follow_up_shape", "match_capabilities", "registered", "screen_claim", "without_the_claim"]

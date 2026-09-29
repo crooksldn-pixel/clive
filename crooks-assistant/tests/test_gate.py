@@ -246,8 +246,11 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     assert {"screen_list", "screen_show", "screen_pair"} <= gate._KNOWN_TOOLS
     assert {"screen_off", "screen_remote"} <= gate._KNOWN_TOOLS
     assert {"screen_play", "screen_video"} <= gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 41, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
-                                          "screen_off and screen_remote, then screen_play and screen_video")
+    # Round 12: show_again, a read that puts back on the owner's app what the conversation
+    # already showed him; its `ref` is an issued-id argument declared on its ToolSpec.
+    assert "show_again" in gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 42, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+                                          "screen_off and screen_remote, then screen_play and screen_video, then show_again")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",

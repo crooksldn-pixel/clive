@@ -167,7 +167,7 @@ def present(
     """
     items: list[dict[str, Any]] = []
     errors: dict[str, dict[str, Any]] = {}
-    calls = list(calls or [])
+    calls = _with_redraws(list(calls or []))
     capabilities = writes.get("capabilities") if isinstance(writes, dict) and isinstance(writes.get("capabilities"), dict) else {}
 
     # What a row on a card may offer, decided here rather than by the tablet
@@ -259,6 +259,29 @@ def present(
             ", ".join(sorted({item["type"] for item in out if item["type"] not in UI_TYPES})),
         )
     return kept
+
+
+#: The read that puts back something this conversation already showed (app/tools/show_again.py).
+AGAIN_TOOL = "show_again"
+
+
+def _with_redraws(calls: list[ToolCall]) -> list[ToolCall]:
+    """Each `show_again` followed by the reads it made, as if the model had made them.
+
+    `show_again` reads a record again through the registered read tool and hands the result
+    back under `_reads`. Drawing that read through the ordinary path — rather than a card built
+    inside the tool — is what gives the record its rail, its attention lines and the workspace
+    composition, from the same code and the same writes table as the first time it was drawn.
+    """
+    out: list[ToolCall] = []
+    for call in calls:
+        out.append(call)
+        if call.name != AGAIN_TOOL or not call.ok or not isinstance(call.result, dict):
+            continue
+        for read in call.result.get("_reads") or []:
+            if isinstance(read, dict) and isinstance(read.get("result"), dict) and read.get("tool") != AGAIN_TOOL:
+                out.append(ToolCall(name=str(read.get("tool") or ""), args={}, ok=True, result=read["result"]))
+    return out
 
 
 # --------------------------------------------------------------- the task's own workspace
@@ -504,6 +527,16 @@ def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
         # `present()` filters against UI_TYPES again on the way out.
         return [item for item in (result.get("_surfaces") or [])
                 if isinstance(item, dict) and item.get("type") == "email_compose" and isinstance(item.get("data"), dict)]
+    if name == AGAIN_TOOL:
+        # What `show_again` drew from the Mac's own copy — a workspace composed again, a
+        # composer, a half-built order, a list as it was shown. Every one of them is a card
+        # this module or a family built for this conversation before, and each is checked
+        # against the vocabulary again on the way out of `present()`.
+        # A plain order or thread card never comes this way: those are read again and drawn
+        # from the read (`_with_redraws`), which is where their rail is decided.
+        return [item for item in (result.get("_surfaces") or [])
+                if isinstance(item, dict) and item.get("type") in UI_TYPES - {"order", "email_thread"}
+                and isinstance(item.get("data"), dict)]
     if name in WORKSPACE_TOOLS:
         # The workspace's card, for exactly the same reason: it is built by the family that
         # owns the context (app/families/_workspace.py `surface`), which copies it key by key
