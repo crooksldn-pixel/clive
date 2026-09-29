@@ -367,8 +367,8 @@ def owner_checked(compose_id: str, address: str) -> str:
     return ""
 
 
-def _thread_sender(thread_id: str) -> tuple[str, str] | None:
-    """(address, name) of whoever wrote last into a thread the Mac holds, or None.
+def _thread_sender(thread_id: str) -> dict[str, str] | None:
+    """Who a reply in a thread the Mac holds goes to (`_reply_recipient`), or None.
 
     Read off the entity cache only — the thread this conversation was shown — never fetched:
     opening a composer reads nothing. A miss is not an error; the card then says who decides.
@@ -382,11 +382,172 @@ def _thread_sender(thread_id: str) -> tuple[str, str] | None:
     thread = getattr(entry, "value", None) if entry is not None else None
     if not isinstance(thread, dict):
         return None
-    message = _last_inbound(thread)
-    address = str(message.get("from_email") or "").strip().lower()
-    if not address or not EMAIL_ADDRESS.match(address):
+    return _reply_recipient(_last_inbound(thread))
+
+
+# --------------------------------------------------------------------------- where a reply goes
+#
+# Round 13 (the round-12 deploy review, S2b-01). A message can ask for replies somewhere other
+# than its sender, with a Reply-To header: a storefront contact form does it honestly, and a
+# spoofed message does it to take the answer. The write tools have always answered the Reply-To
+# (`gmail_writes.thread_context`); the reply composer showed the From, marked checked, and only the
+# final hold card named where the reply was really going. Now the composer decides the recipient
+# as the tool does, shows both addresses when they differ, and will not prepare anything until the
+# owner has confirmed the Reply-To on the card. The tools hold the same line (`reply_as_shown`):
+# a reply goes only to the address the card on the screen shows.
+
+CONFIRM_TO_LABEL = "Yes, reply to this address"
+
+
+def _reply_recipient(message: dict[str, Any]) -> dict[str, str] | None:
+    """Who a reply to this message goes to, decided as the write tool decides it: the address its
+    Reply-To names, when the thread read says it names one other than its sender, and otherwise
+    its From. {"to", "to_name", "sender"}; None when that is not an address."""
+    sender = str(message.get("from_email") or "").strip().lower()
+    asked = message.get("reply_to") if isinstance(message.get("reply_to"), dict) else {}
+    reply_to = str(asked.get("email") or "").strip().lower()
+    if reply_to and "@" in reply_to:
+        to, name = reply_to, str(asked.get("name") or "")
+    else:
+        to, name = sender, str(message.get("from") or "")
+    if not to or not EMAIL_ADDRESS.match(to):
         return None
-    return address, str(message.get("from") or "")
+    return {"to": to, "to_name": " ".join(name.split())[:80], "sender": sender}
+
+
+def _show_recipient(compose: dict[str, Any], recipient: dict[str, str]) -> None:
+    """The recipient on a reply composer: read off a record Gmail served, so `ok` — unless it is
+    a Reply-To that is not the sender, when the card shows both and waits for the owner to
+    confirm it (`compose.confirm_to`)."""
+    compose.update({"to": recipient["to"], "to_name": recipient["to_name"] or compose.get("to_name", ""),
+                    "sender": recipient["sender"], "confirmed_to": ""})
+    if _elsewhere(compose):
+        compose.update({"to_status": "uncertain",
+                        "to_hint": f"sent by {recipient['sender']}, asking for replies here — confirm it below"})
+    else:
+        compose.update({"to_status": "ok", "to_hint": ""})
+
+
+def _elsewhere(compose: dict[str, Any]) -> bool:
+    """Whether this reply goes somewhere other than the sender of the message it answers."""
+    sender = str(compose.get("sender") or "").strip().lower()
+    return compose.get("kind") == "reply" and bool(sender) and sender != str(compose.get("to") or "").strip().lower()
+
+
+def _awaiting_confirmation(compose: dict[str, Any]) -> bool:
+    return _elsewhere(compose) and str(compose.get("confirmed_to") or "") != str(compose.get("to") or "")
+
+
+def _composers(session: Any) -> list[dict[str, Any]]:
+    """Every composer still open on this conversation, the acting half's first."""
+    from app.tools.context import acting_branch
+
+    branches = dict(getattr(session, "branches", None) or {})
+    first = acting_branch(session)
+    order = sorted(branches, key=lambda ident: ident != first)
+    return [found for found in (held(branches[ident]) for ident in order) if found is not None]
+
+
+def reply_as_shown(thread_id: str, ctx: dict[str, Any]) -> tuple[str, str]:
+    """(the composer a reply in this thread is prepared from, why it may not be), asked by the
+    reply tools themselves (`app/tools/gmail_writes.py`) with the thread as Gmail holds it now.
+
+    When a reply composer for the thread is open on the owner's screen, the reply goes to the
+    address its card shows or it is not prepared — and when that address is a Reply-To that is
+    not the sender, only once he has confirmed it there. With no composer for the thread there is
+    no card to hold it to, and the final hold card names the recipient as it always has."""
+    from app.tools.context import CURRENT_SESSION
+
+    session = CURRENT_SESSION.get()
+    if session is None:
+        return "", ""
+    mine = [c for c in _composers(session)
+            if c.get("kind") == "reply" and str(c.get("thread_id") or "") == str(thread_id or "")]
+    if not mine:
+        return "", ""
+    to = str(ctx.get("to_email") or "").strip().lower()
+    sender = str(ctx.get("from_email") or "").strip().lower()
+    for compose in mine:
+        shown = str(compose.get("to") or "").strip().lower()
+        if shown != to:
+            # Said with the addresses first: a tap's refusal is cut at 200 characters.
+            where = " (where its last message asks replies to go)" if to != sender else ""
+            return str(compose["compose_id"]), (
+                f"That reply would go to {to or 'nobody'}{where}, not {shown or 'the address'} as the reply on the "
+                "screen shows. Nothing was prepared: read the thread again and open the reply from it.")
+        if to != sender and str(compose.get("confirmed_to") or "") != to:
+            # A card opened from the thread shows both and has the button; one opened before
+            # the thread was read shows neither, and has to be opened again from it. The step
+            # comes first, because a tap's refusal is cut at 200 characters.
+            how = (f"he taps “{CONFIRM_TO_LABEL}” on the reply card first" if _elsewhere(compose) else
+                   "read the thread and open the reply from it, so the card shows both addresses")
+            return str(compose["compose_id"]), (
+                f"Not prepared: {how}. The message is from {sender} and asks for replies to go to {to}, which the "
+                "owner has not confirmed.")
+    return str(mine[0]["compose_id"]), ""
+
+
+# --------------------------------------------------------------------------- what was prepared from it
+#
+# Round 13 (the round-12 deploy review, S2b-03). Send on the composer prepares a hold card that
+# carries the email as it read at that moment. An edit afterwards changed the composer and not the
+# hold card, so holding it sent the old words to the old address. Now an edit that changes what
+# would be sent withdraws every change still waiting that was prepared from the composer — by his
+# tap or by the model, a send or a draft — and a Send being prepared while an edit lands is
+# withdrawn as it arrives (`moved_since`, asked by `POST /command`).
+
+EDITED = "The email changed on the screen, so what was prepared from it before was withdrawn."
+
+
+def revision(compose: dict[str, Any]) -> str:
+    """What a gesture on this composer would send, as one short digest: where, to whom, under
+    which subject, and the words."""
+    import hashlib
+    import json
+
+    what = [compose.get(k) for k in ("kind", "thread_id", "to", "to_name", "subject", "body")]
+    return hashlib.sha256(json.dumps(what, default=str).encode()).hexdigest()[:16]
+
+
+def withdraw_prepared(session: Any, compose: dict[str, Any], words: str = EDITED) -> list[str]:
+    """Withdraw every email change still waiting that was prepared from this composer: one named
+    by its id (a new email, or a reply that carries it), and any reply waiting in its thread.
+    Returns the ids, for the tablet to settle."""
+    from collections.abc import Mapping
+
+    ident = str(compose.get("compose_id") or "")
+    thread = str(compose.get("thread_id") or "")
+    ids = []
+    for proposal in list(getattr(session, "proposals", None) or []):
+        operation = str(getattr(proposal, "operation", "") or "")
+        if (getattr(getattr(proposal, "status", None), "value", "") != "PENDING" or getattr(proposal, "undo_of", None)
+                or not operation.startswith(("gmail_draft_", "gmail_send_"))):
+            continue
+        execution = getattr(proposal, "execution", None)
+        execution = execution if isinstance(execution, Mapping) else {}
+        if (str(getattr(proposal, "entity_ref", "") or "") == ident or str(execution.get("compose_id") or "") == ident
+                or (compose.get("kind") == "reply" and thread and operation.endswith("_reply")
+                    and str(execution.get("thread_id") or "") == thread)):
+            ids.append(str(proposal.proposal_id))
+    if ids:
+        from app.actions.engine import current
+
+        current().revoke_ids(ids, words)
+    return ids
+
+
+def moved_since(session: Any, staging: dict[str, Any]) -> str:
+    """Why a change a tap on the composer has just prepared is not the email on the screen any
+    more — it was edited, or closed, while the change was being prepared — or "" when it still is."""
+    ident = str(staging.get("compose_id") or "")
+    if not ident:
+        return ""
+    compose = _composer_anywhere(session, ident)
+    if compose is None:
+        return "The email was closed while it was being prepared, so nothing is waiting to be sent."
+    if revision(compose) != str(staging.get("revision") or ""):
+        return "The email changed while it was being prepared, so nothing is waiting to be sent. Tap it again."
+    return ""
 
 
 ACTIONS: tuple[dict[str, Any], ...] = (
@@ -413,6 +574,11 @@ def compose_actions(compose: dict[str, Any]) -> list[dict[str, Any]]:
     ident = str(compose["compose_id"])
     out: list[dict[str, Any]] = []
     thread_id = str(compose.get("thread_id") or "")
+    if _awaiting_confirmation(compose):
+        # The one thing standing between this reply and Send: the owner saying the Reply-To
+        # on the card is where it should go (`_compose_confirm_to`).
+        out.append({"id": "confirm_to", "label": CONFIRM_TO_LABEL, "command": "compose.confirm_to",
+                    "args": f"compose_id={ident}"})
     if compose.get("kind") == "reply" and thread_id:
         out.append({
             "id": "dictate", "label": "Dictate", "mode": "arm", "command": "voice.bind",
@@ -474,6 +640,9 @@ def _spoken(compose: dict[str, Any]) -> str:
     when = (compose.get("resolved_when") or {}).get("date") or ""
     if when:
         line += f", about {when}"
+    if _awaiting_confirmation(compose):
+        return (f"{line}. The message came from {compose.get('sender')} and asks for replies to go to this "
+                "address instead — confirm it on the card. Nothing is saved or sent.")
     if compose.get("to_status") == "uncertain":
         return f"{line}. That address is from what you said, not typed — check it. Nothing is saved or sent."
     return f"{line}. Nothing is saved or sent until you tap."
@@ -532,22 +701,23 @@ async def gmail_compose_open(to: str, subject: str, body: str, to_name: str = ""
         raise ToolError(f"{str(to)[:80]!r} is not an address I can send to, so no composer was opened.")
     if compose.get("kind") == "reply":
         # A reply's recipient is not the model's to give: the write tool re-reads the thread
-        # and answers whoever wrote last there. When the Mac holds that thread, the card shows
-        # that sender — read off a record Gmail served, so it is `ok`. When it does not, the
-        # card says who decides, and the owner reads the real recipient on the card that
-        # follows before anything is saved. Either way `_ready_to_stage` does not hold a reply
-        # to this field, which the owner cannot type into.
-        sender = _thread_sender(thread_id)
-        if sender:
-            compose.update({"to": sender[0], "to_name": sender[1][:80] or compose.get("to_name", ""),
-                            "to_status": "ok", "to_hint": ""})
+        # and answers whoever wrote last there, at the address they asked for. When the Mac
+        # holds that thread, the card shows that address — read off a record Gmail served, so
+        # `ok`, or waiting for the owner to confirm a Reply-To that is not the sender
+        # (`_show_recipient`). When it does not, the card shows the address the model gave and
+        # says so, and the write tool prepares the reply only if the thread's own recipient is
+        # that address (`reply_as_shown`).
+        recipient = _thread_sender(thread_id)
+        if recipient:
+            _show_recipient(compose, recipient)
         else:
-            compose["to_hint"] = "the reply goes to whoever wrote last in the thread; the card before it is saved names them"
+            compose["to_hint"] = ("the reply goes to whoever wrote last in the thread; it is prepared only if that "
+                                  "is this address")
     # The id becomes an id this conversation has been handed, which is the whole permission
     # story for the address behind it. The address is remembered as personal data so the turn
     # log scrubs it.
     session.issue(compose_id)
-    session.remember_pii(*[v for v in (compose.get("to"), compose.get("to_name")) if v])
+    session.remember_pii(*[v for v in (compose.get("to"), compose.get("to_name"), compose.get("sender")) if v])
     return {
         "compose_id": compose_id, "kind": compose.get("kind"), "to": compose.get("to"),
         "to_status": compose.get("to_status"), "to_hint": compose.get("to_hint"),
@@ -580,7 +750,7 @@ async def gmail_compose_open(to: str, subject: str, body: str, to_name: str = ""
 async def gmail_compose_fill(compose_id: str, subject: str, body: str) -> dict[str, Any]:
     """The words, into the Mac's own copy. The recipient is not touched: the model may write
     the email and may not change who it goes to."""
-    _session, branch = _session_and_branch()
+    session, branch = _session_and_branch()
     compose = held(branch, compose_id)
     if compose is None:
         raise ToolError("That composer is closed. Open one with gmail_compose_open.")
@@ -588,10 +758,14 @@ async def gmail_compose_fill(compose_id: str, subject: str, body: str) -> dict[s
     text = str(body or "").replace("\r\n", "\n")[:MAX_BODY_CHARS]
     if not line or not text.strip():
         raise ToolError("A composer needs both a subject and a body.")
+    before = revision(compose)
     compose.update({"subject": line, "subject_status": "ok", "body": text, "body_status": "ok", "at": _now()})
+    # Rewritten: what was prepared from the words before is not this email (round 13, S2b-03).
+    withdrawn = withdraw_prepared(session, compose) if revision(compose) != before else []
     return {
         "compose_id": str(compose["compose_id"]), "subject": line, "body": text,
         "_surfaces": [compose_surface(compose).as_ui()], "staged": False,
+        **({"withdrawn": withdrawn} if withdrawn else {}),
         "note": "On screen. Save draft or Send is the owner's gesture, not yours.",
     }
 
@@ -674,10 +848,11 @@ def _compose_field(ctx: CommandCtx) -> Outcome:
         # A reply's recipient and subject. The card draws them fixed; this is why they are.
         return Outcome.refused(
             "not_editable",
-            "A reply goes back to whoever wrote last in the thread, under the thread's own "
-            "subject. I read both there when the reply is prepared.",
+            "A reply goes back to whoever wrote last in the thread, at the address their message "
+            "asks for, under the thread's own subject. I read both there when the reply is prepared.",
         )
     raw = str(ctx.args.get("value") or "")
+    before = revision(compose)
     if name == "to":
         value, status, hint = check_address(raw)
         compose.update({"to": value, "to_status": status, "to_hint": hint})
@@ -691,9 +866,14 @@ def _compose_field(ctx: CommandCtx) -> Outcome:
         compose.update({"body": text, "body_status": "ok" if text.strip() else "uncertain"})
     compose["at"] = _now()
     ctx.session.remember_pii(*[v for v in (compose.get("to"), compose.get("to_name")) if v])
+    # A hold card prepared from the email as it read before this keystroke would send that, not
+    # this: withdrawn now, and named so the tablet settles it (round 13, S2b-03). A keystroke
+    # that leaves the email as it was withdraws nothing.
+    withdrawn = withdraw_prepared(ctx.session, compose) if revision(compose) != before else []
     return Outcome(answer="", surfaces=[compose_surface(compose)],
                    changed={"compose_id": str(compose["compose_id"]), "field": name,
-                            "status": str(compose.get(f"{name}_status") or "ok")})
+                            "status": str(compose.get(f"{name}_status") or "ok"),
+                            **({"withdrawn": withdrawn, "withdrawn_words": EDITED} if withdrawn else {})})
 
 
 def _held_record(ctx: CommandCtx, kind: str, ref: str) -> tuple[dict[str, Any] | None, Outcome | None]:
@@ -736,7 +916,9 @@ def _last_inbound(thread: dict[str, Any]) -> dict[str, Any]:
     """
     messages = [m for m in (thread.get("messages") or []) if isinstance(m, dict)]
     for message in reversed(messages):
-        if not message.get("outbound") and (message.get("from_email") or message.get("from")):
+        # A draft of ours waiting in the thread is not a message that came in, and the write
+        # tool never answers one (`gmail_writes.thread_context`).
+        if not message.get("outbound") and not message.get("draft") and (message.get("from_email") or message.get("from")):
             return message
     return messages[-1] if messages else {}
 
@@ -761,10 +943,12 @@ def _compose_reply(ctx: CommandCtx) -> Outcome:
     """Reply, tapped on an email thread. Opens the reply; stages nothing; reads nothing.
 
     The tablet posts a thread id and nothing else. Everything on the card is read off the
-    Mac's own copy of that thread: who wrote in last, under what subject, in which thread. The
-    recipient is shown and is NOT editable, because it is not the composer's to decide — the
-    write tool re-reads the thread when the gesture comes and replies to whoever wrote last,
-    exactly as it did before this control existed.
+    Mac's own copy of that thread: who wrote in last, where they asked for the answer to go,
+    under what subject, in which thread. The recipient is shown and is NOT editable, because it
+    is not the composer's to decide — the write tool re-reads the thread when the gesture comes
+    and replies to the address the last message asks for (its Reply-To, else its From), which is
+    the address this card shows (`_reply_recipient`) and the only one it will prepare to
+    (`reply_as_shown`).
 
     D-11: Reply was rendered on twenty-four email cards in the live session and used on none.
     It armed the microphone and wrote a label to the dock, 788 pixels below the finger, which
@@ -776,8 +960,8 @@ def _compose_reply(ctx: CommandCtx) -> Outcome:
         return refused
     assert thread is not None
     message = _last_inbound(thread)
-    address = str(message.get("from_email") or "").strip()
-    if not address or not EMAIL_ADDRESS.match(address):
+    recipient = _reply_recipient(message)
+    if recipient is None:
         return Outcome.refused(
             "no_sender",
             "I cannot tell who to reply to in that thread, so I have not opened a reply.",
@@ -787,17 +971,17 @@ def _compose_reply(ctx: CommandCtx) -> Outcome:
     from app.tools.gmail_writes import reply_subject
 
     compose_id = open_compose(
-        ctx.branch, kind="reply", to=address, to_name=str(message.get("from") or ""),
+        ctx.branch, kind="reply", to=recipient["to"], to_name=recipient["to_name"],
         subject=reply_subject(subject), body="", thread_id=thread_id,
         about=f"a reply to {_first_word(str(message.get('from') or '')) or 'them'}",
         origin_text="",
     )
     compose = held(ctx.branch, compose_id) or {}
-    # This address came off a thread Gmail served, not out of a microphone. Marking it
-    # `uncertain` would be a lie, and `_ready_to_stage` would then refuse to prepare it.
-    compose["to_status"], compose["to_hint"] = "ok", ""
+    # This address came off a thread Gmail served, not out of a microphone: `ok`, unless it is a
+    # Reply-To that is not the sender, which the owner confirms on the card (`_show_recipient`).
+    _show_recipient(compose, recipient)
     ctx.session.issue(compose_id)
-    ctx.session.remember_pii(*[v for v in (compose.get("to"), compose.get("to_name")) if v])
+    ctx.session.remember_pii(*[v for v in (compose.get("to"), compose.get("to_name"), compose.get("sender")) if v])
     _stand_on(ctx, "email_thread", thread_id, subject[:80], tab="")
     return Outcome(answer=_spoken(compose), surfaces=[compose_surface(compose)],
                    changed={"compose_id": compose_id, "thread_id": thread_id, "kind": "reply"})
@@ -902,6 +1086,7 @@ def _stage_args(compose: dict[str, Any], mode: str) -> tuple[str, dict[str, Any]
     if kind == "reply":
         # A reply's recipient and subject are re-read from the thread by the tool itself, as
         # they always have been. Passing them would be the model's-recipient bug in a new hat.
+        # The tool holds the recipient it reads to the one this card shows (`reply_as_shown`).
         return tool_name, {"thread_id": str(compose["thread_id"]), "body": str(compose["body"])}
     return tool_name, {
         "compose_id": str(compose["compose_id"]), "to": str(compose["to"]),
@@ -916,6 +1101,9 @@ def _ready_to_stage(compose: dict[str, Any]) -> str:
         if compose.get("to_status") == "uncertain":
             return "That address came from what you said, not from your typing. Tap it, check it, and then I'll prepare this."
         return "There is no address I can send to yet."
+    if _awaiting_confirmation(compose):
+        return (f"This message was sent by {compose.get('sender')} and asks for replies to go to {compose.get('to')}. "
+                f"Tap “{CONFIRM_TO_LABEL}” if that is right; otherwise write a new email to {compose.get('sender')}.")
     # A reply's subject is the thread's, read there when the change is prepared; a thread with
     # no subject line at all is not a reason to refuse to answer it.
     if compose["kind"] == "new" and not str(compose.get("subject") or "").strip():
@@ -950,8 +1138,26 @@ def _compose_stage(ctx: CommandCtx) -> Outcome:
     return Outcome(answer="", changed={
         "compose_id": str(compose["compose_id"]),
         "stage": {"tool": tool_name, "args": args, "revoke": revoke,
-                  "what": "send the email" if mode == "send" else "save the draft"},
+                  "what": "send the email" if mode == "send" else "save the draft",
+                  # Which email, as it reads now: the change prepared from it is withdrawn if it
+                  # is edited or closed before the preparing is done (`moved_since`).
+                  "compose_id": str(compose["compose_id"]), "revision": revision(compose)},
     })
+
+
+def _compose_confirm_to(ctx: CommandCtx) -> Outcome:
+    """"Yes, reply to this address", tapped on a reply that goes to a Reply-To other than the
+    sender. The address confirmed is the one on the card, recorded as such: a thread that asks
+    for replies somewhere else by the time it is prepared is refused there (`reply_as_shown`)."""
+    compose = held(ctx.branch, ctx.arg("compose_id"))
+    if compose is None:
+        return _no_composer()
+    if not _elsewhere(compose):
+        return Outcome.refused("nothing_to_confirm", "This reply goes to the person who wrote; there is nothing to confirm.")
+    compose.update({"confirmed_to": str(compose.get("to") or ""), "to_status": "ok",
+                    "to_hint": f"sent by {compose.get('sender')}; you confirmed replies go here", "at": _now()})
+    return Outcome(answer="", surfaces=[compose_surface(compose)],
+                   changed={"compose_id": str(compose["compose_id"]), "field": "to", "status": "ok"})
 
 
 def _compose_discard(ctx: CommandCtx) -> Outcome:
@@ -959,8 +1165,11 @@ def _compose_discard(ctx: CommandCtx) -> Outcome:
     if compose is None:
         return _no_composer()
     ctx.branch.compose = None
+    # A hold card prepared from an email he has just thrown away is not one to hold.
+    withdrawn = withdraw_prepared(ctx.session, compose, "The email was cancelled.")
     return Outcome(answer="Gone. Nothing was saved.",
-                   changed={"compose": None, "discarded": str(compose["compose_id"])})
+                   changed={"compose": None, "discarded": str(compose["compose_id"]),
+                            **({"withdrawn": withdrawn, "withdrawn_words": "The email was cancelled."} if withdrawn else {})})
 
 
 def _draft_send_instead(ctx: CommandCtx) -> Outcome:
@@ -1036,6 +1245,8 @@ register_command(Command("compose.to_customer", "Open an email to this order's c
 register_command(Command("compose.to_person", "Open an email to this customer", _compose_to_person, voice=False))
 register_command(Command("compose.field", "Type into the email being written", _compose_field, voice=False))
 register_command(Command("compose.stage", "Save the email as a draft, or send it", _compose_stage, voice=False))
+register_command(Command("compose.confirm_to", "Confirm where a reply goes when it is not the sender", _compose_confirm_to,
+                         voice=False))
 register_command(Command("compose.discard", "Throw away the email being written", _compose_discard, voice=False))
 # Send and Discard on a draft card.
 register_command(Command("draft.send_instead", "Send the draft instead of saving it", _draft_send_instead))

@@ -252,8 +252,12 @@ class Counter(ShopifyClient):
         if "CrooksOrderEvidence" in query:
             if self.fail_orders:
                 raise ShopifyError("Shopify did not answer.")
-            orders = self._orders(variables.get("q"))[: int(variables.get("n") or 25)]
-            return {"data": {"orders": {"pageInfo": {"hasNextPage": False}, "edges": [{"node": o} for o in orders]}}}
+            # A page, and whether there is more past it, as Shopify says (round 13, T1-02): a fake
+            # that always said "no more" could not show a single match on a cut page being taken
+            # for the only one.
+            found, size = self._orders(variables.get("q")), int(variables.get("n") or 25)
+            return {"data": {"orders": {"pageInfo": {"hasNextPage": len(found) > size},
+                                        "edges": [{"node": o} for o in found[:size]]}}}
         if "CrooksOrderForNewOrder" in query:
             number = int(str(variables.get("id") or "0").rsplit("/", 1)[-1])
             return {"data": {"order": order_node(number) if any(o[0] == number for o in ORDERS) else None}}
