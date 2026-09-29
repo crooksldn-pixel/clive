@@ -559,15 +559,21 @@
   }
   // The screen's version as drawn here now, or null when nothing is.
   function screenVersion() { return R.shown && Number.isInteger(R.shown.version) ? R.shown.version : null; }
-  // What the remote shows leaves it, at once (the screen's own rule, NEW-B-LOCAL-SLIP): drawn away
-  // now, under a finger or not (B2-02). Everything asked before it is let go — its answer is never
-  // read (B2-03), a change on its way is no longer waited for — and the next ask goes afresh.
-  function wipe(why) {
+  // Every ask for the view made before now is let go: the one on its way is aborted, and its answer,
+  // if it comes anyway, is never read (its generation has passed). No next ask is set here; the
+  // caller sets one. What is drawn stays as it is.
+  function letGo() {
     R.gen++;
     if (R.ctl) { try { R.ctl.abort(); } catch (e) { /* already settled */ } }
     R.ctl = null;
     R.polling = false;
     clearTimeout(R.timer);
+  }
+  // What the remote shows leaves it, at once (the screen's own rule, NEW-B-LOCAL-SLIP): drawn away
+  // now, under a finger or not (B2-02). Everything asked before it is let go — its answer is never
+  // read (B2-03), a change on its way is no longer waited for — and the next ask goes afresh.
+  function wipe(why) {
+    letGo();
     R.data = null;
     R.confirm = null;
     R.busy = false;
@@ -618,14 +624,16 @@
       }
     }
   }
-  // A change, told to CLIVE as the owner: the answer, or why not, in plain words.
+  // A change, told to CLIVE as the owner: the answer, or why not, in plain words. A refusal of this
+  // device is acted on from its status alone, before its body is read: a body slow to arrive, or
+  // one that never does, must not keep what is shown on the panel (round 13, R9-B2-B2-02).
   async function post(path, body) {
     try {
       const response = await fetch('/displays/' + encodeURIComponent(R.id) + path, {
         method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      const data = await response.json().catch(() => ({}));
       if (response.status === 403) { wipe('refused'); return null; }
+      const data = await response.json().catch(() => ({}));
       if (response.ok) return data && typeof data === 'object' ? data : {};
       if (response.status === 503) say('CLIVE could not save that yet. Try again in a moment.');
       else if (data.code === 'stale') say('That changed on the screen, so nothing was done. Here it is as it is now.');
@@ -666,14 +674,24 @@
     render();
     sync();
   }
+  // A change the owner makes: take off, put up again, mark done, turn a page, turn the screen off.
+  // Every ask for the view made before it is let go first: CLIVE answered it before the change, so
+  // drawn after the change's own answer it would put back what the change took away (round 13,
+  // S3P-NEW-01). The asks go on while the change is on its way, so the remote still lets go of
+  // what it shows when CLIVE is out of reach. When the change is answered, every ask still on its
+  // way is let go again, since CLIVE may have read the screen for it before the change landed, and
+  // the next ask is made afresh.
   async function act(path, body) {
     if (!R.open || R.busy) return;
     R.busy = true;
+    letGo();
     render();
     const gen = R.gen;
+    R.timer = setTimeout(sync, POLL_MS);
     const answer = await post(path, body);
     // Taken down meanwhile (a refusal, or closed): its answer is not read, and wipe let go of busy.
     if (gen !== R.gen) return;
+    letGo();
     R.busy = false;
     if (answer && Array.isArray(answer.panes)) { R.data = answer; R.lastOk = Date.now(); }
     render();
