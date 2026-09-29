@@ -15,6 +15,10 @@
  * its letters. So what a page drew can be let go of at once (forget); the check for a slip
  * marked packed comes out of the orb rather than out of the slip (packOut); and an engine
  * destroyed forgets every dot's place and empties its canvases there and then (destroy).
+ *
+ * Round 12. Something new put in place of what is up goes straight there (swap): the dots come
+ * out of the small orb in the corner to the new page, with no journey home to the clock first.
+ * A forgotten dot is put back in the orb, so it keeps not even the position of what it drew.
  */
 'use strict';
 
@@ -662,6 +666,9 @@
     // note, as the shape of its letters — is taken out of it where it is: gone at once, with no
     // place, no flight queued back to it and none of its colour. The canvas is drawn again at
     // once without them, not at the next frame. Nothing sampled from that page is drawn again.
+    // Round 12: not even where it was. Each forgotten dot is put back in the orb, so a flight
+    // that later starts from where a dot happens to be (the clock's, a push's) never starts from
+    // the shape of the page it drew.
     function forgetPage() {
       const inUi = new Set(uiSet);
       for (let i = 0; i < P.length; i++) {
@@ -669,6 +676,7 @@
         if (!p.uiT && !inUi.has(p)) continue;
         p.uiT = null; p.q = []; p.seg = null; p.fade = null; p.shim = 0; p.dr = false;
         p.role = 'gone'; p.a = 0; p.r = C.seed[0]; p.g = C.seed[1]; p.b = C.seed[2];
+        p.x = orb.cx; p.y = orb.cy;
       }
       uiSet = []; noise = null;
     }
@@ -705,6 +713,50 @@
         set.push(p);
       }
       uiSet = set;
+    }
+    // Something new in place of what is up (round 12). The owner asked for one thing and then
+    // another: the screen goes straight from the one to the other — no journey home to the clock,
+    // and no burst. The orb, small in its corner while something is shown, swells a moment and
+    // the new page's dots stream out of it to where its letters and panels are, landing as
+    // coarse blocks top first and then sharp, while the page above dissolves what was there.
+    // `rev` says when the page starts to resolve under them and for how long (seconds from now);
+    // each dot fades as that sweep passes its row, once it has landed (a fade set before a dot's
+    // last leg began would be dropped when the leg starts, so it is part of the flight).
+    // Never a dot of what was there: the page has the engine forget it first (forget), and
+    // every dot here starts in the orb, none from where it last was. Returns how long, from now,
+    // until the last dot has landed.
+    function swap(tg, rev) {
+      const T0 = T, mini = L.mini || orbHome, cell = L.cell || 24;
+      const revAt = rev && rev.at > 0 ? rev.at : 0.45, revD = rev && rev.d > 0 ? rev.d : 0.9;
+      noise = null;
+      orb.tcx = mini.cx; orb.tcy = mini.cy; orb.tR = mini.R * 1.6; orb.te = 1; orb.tidle = 0; orb.ttint = 0;
+      at(T0 + 0.4, () => { orb.tR = mini.R; });
+      const pool = moversList().filter((p) => p.role === 'gone' && !p.q.length);
+      const M = pool.length, tgt = fit(tg, M), n = tgt.length;
+      const order = tgt.map((t) => ({ t, k: t.y + (rnd() - 0.5) * H * 0.15 })).sort((a, b) => a.k - b.k);
+      uiSet = [];
+      let last = 0;
+      for (let j = 0; j < n; j++) {
+        const p = pool[Math.min(M - 1, Math.floor(j * M / n))], t = order[j].t;
+        const yk = Math.max(0, Math.min(1, t.y / H));
+        const a = rnd() * TAU, r = rnd() * mini.R;
+        const cx = Math.floor(t.x / cell) * cell + cell / 2 + (rnd() - 0.5) * cell * 0.4;
+        const cy = Math.floor(t.y / cell) * cell + cell / 2 + (rnd() - 0.5) * cell * 0.4;
+        const t1 = T0 + 0.05 + yk * 0.3 + rnd() * 0.12, d1 = 0.45 + rnd() * 0.2;
+        const t2 = Math.max(T0 + 0.72 + yk * 0.3 + rnd() * 0.08, t1 + d1);
+        const t3 = Math.max(T0 + revAt + revD * (0.2 + 0.56 * yk), t2 + 0.32);
+        p.q = [
+          { t0: t1, d: d1, ease: 'out', from: [mini.cx + Math.cos(a) * r, mini.cy + Math.sin(a) * r], fromA: 0,
+            tx: cx, ty: cy, kx: (rnd() - 0.5) * 60, ky: (rnd() - 0.5) * 60, r1: t.r, g1: t.g, b1: t.b, a1: 0.32, s1: cell * 0.15, then: 'rest' },
+          { t0: t2, d: 0.32, ease: 'back', tx: t.x, ty: t.y, r1: t.r, g1: t.g, b1: t.b, a1: t.a, s1: t.s, then: 'rest' },
+          { t0: t3, d: 0.32, ease: 'out', tx: t.x, ty: t.y, r1: t.r, g1: t.g, b1: t.b, a1: 0, s1: t.s, then: rnd() < 0.04 ? 'dust' : 'gone' },
+        ];
+        p.fade = null;
+        p.uiT = t;
+        uiSet.push(p);
+        last = Math.max(last, t2 + 0.32 - T0);
+      }
+      return last;
     }
     // ...and back out of the check into the page, now in its done state.
     function packIn(tg, t0) {
@@ -921,7 +973,7 @@
       time: () => T,
       setSpeed: (s) => { speed = Math.max(0.2, Math.min(3, s || 1)); },
       at,
-      idleIntro, idleNow, clockTo, push, sweepOut, place, packOut, packIn, clear, forget,
+      idleIntro, idleNow, clockTo, push, sweepOut, place, packOut, packIn, clear, forget, swap,
       nameIntro, nameTo, nameToOrb,
       boot, quick, handoff: (B) => (B.quick ? quickHandoff(B) : handoff(B)), setHome,
       simulate,

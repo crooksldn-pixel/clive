@@ -12,6 +12,9 @@
  *   shows the page, and the check does come.
  * - destroy (NEW-B-LOCAL-SLIP): its canvases are emptied there and then, and nothing is drawn by
  *   it again, not even the frame it was destroyed in.
+ * - swap (round 12): something new in place of the page comes straight out of the orb; the dots
+ *   let go of the old page keep not even where they were, none flies from it, and nothing but
+ *   drifting dust is drawn where the old page was while the new one forms.
  */
 'use strict';
 
@@ -37,13 +40,14 @@ function canvas() {
     createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
     putImageData(img) {
       const d = img.data;
-      let red = 0, green = 0, lit = 0;
+      let red = 0, green = 0, blue = 0, lit = 0;
       for (let j = 0; j < d.length; j += 4) {
         if (d[j] || d[j + 1] || d[j + 2]) lit++;
         if (d[j] >= 24 && d[j + 1] === 0 && d[j + 2] === 0) red++;
         if (d[j + 1] >= 24 && d[j + 1] > d[j] * 2) green++;
+        if (d[j + 2] >= 24 && d[j] === 0 && d[j + 1] === 0) blue++;
       }
-      c.frames.push({ red, green, lit });
+      c.frames.push({ red, green, blue, lit });
     },
     clearRect() { c.cleared++; },
     drawImage() {}, setTransform() {}, beginPath() {}, arc() {}, fill() {}, stroke() {}, moveTo() {}, lineTo() {}, fillRect() {},
@@ -65,7 +69,10 @@ function engine() {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(SOURCE.replace("typeof window !== 'undefined' ? window : globalThis", 'window'), sandbox, { filename: 'dots.js' });
+  // Round 12: its dots, each with where it is, where it is going and what it holds, are the
+  // test's to look at (`window.__dotsP`).
+  vm.runInContext(SOURCE.replace("typeof window !== 'undefined' ? window : globalThis", 'window')
+    .replace('const P = [], ORBS = []', 'const P = root.__dotsP = [], ORBS = []'), sandbox, { filename: 'dots.js' });
   const dots = canvas(), bloom = canvas(), fx = canvas();
   const host = { getBoundingClientRect: () => ({ width: W, height: H }) };
   const E = sandbox.window.CliveDots.create({ canvas: dots, bloom, fx, root: host, W, H, L, density: 3000, speed: 1, calm: false, palette: 'steel' });
@@ -73,7 +80,7 @@ function engine() {
   const play = (ms) => {
     for (let t = 0; t < ms; t += 66) { now += 66; for (const fn of frames.splice(0)) fn(now); }
   };
-  return { E, dots, bloom, fx, play, frames };
+  return { E, dots, bloom, fx, play, frames, P: () => sandbox.window.__dotsP };
 }
 
 // A page, as a screen samples it: a block of text, in pure red.
@@ -89,6 +96,12 @@ function check() {
   return out;
 }
 const red = (frames) => frames.filter((f) => f.red > 0).length;
+// Round 12: the page that replaces it, in pure blue, in the lower left, well away from the first.
+function nextPage() {
+  const out = [];
+  for (let y = 200; y < 280; y += 3) for (let x = 20; x < 150; x += 3) out.push({ x, y, r: 0, g: 0, b: 255, a: 0.9, s: 1.7 });
+  return out;
+}
 
 // The page landed and resting in dots, as a screen's page is while its dots are still showing it.
 function landed() {
@@ -153,4 +166,41 @@ test('destroyed from inside its own frame, that frame is not drawn', () => {
   d.play(200);
   assert.equal(d.dots.frames.length, from + 1, 'only the blank the destroy put');
   assert.equal(d.dots.frames[from].lit, 0);
+});
+
+// Round 12.
+test('swap: after forget the new page comes straight out of the orb, and no dot keeps or crosses the old page', () => {
+  const d = landed();
+  d.E.sweepOut(d.E.time(), 0.4);                  // revealed, as a screen's page is once it is shown
+  d.play(1500);
+  const holders = d.P().filter((p) => p.uiT);
+  assert.ok(holders.length > 50, 'the dots hold the page’s places: the test can see them');
+  d.E.forget();
+  const mini = L.mini;
+  for (const p of holders) {
+    assert.equal(p.uiT, null, 'let go of');
+    assert.ok(Math.hypot(p.x - mini.cx, p.y - mini.cy) < 1, 'and not left where it was: back in the orb, at ' + p.x + ',' + p.y);
+  }
+  const from = d.dots.frames.length;
+  const lands = d.E.swap(nextPage(), { at: 0.45, d: 0.9 });
+  assert.ok(lands > 0.5 && lands < 2, 'lands within two seconds: ' + lands);
+  const bound = d.P().filter((p) => p.uiT);
+  assert.ok(bound.length > 50);
+  for (const p of bound) {
+    const f = p.q[0].from;
+    assert.ok(f && Math.hypot(f[0] - mini.cx, f[1] - mini.cy) <= mini.R * 2 + 1, 'sets off from the orb: ' + f);
+    assert.ok(p.uiT.b === 255 && p.uiT.r === 0, 'bound for the new page');
+  }
+  // Frame by frame while it forms: nothing but drifting dust inside the old page's box.
+  const inOld = (p) => p.x >= 180 && p.x < 360 && p.y >= 60 && p.y < 120;
+  for (let i = 0; i < 40; i++) {
+    d.play(66);
+    const there = d.P().filter((p) => p.role !== 'dust' && p.role !== 'gone' && p.a > 0.004 && inOld(p));
+    assert.equal(there.length, 0, 'drawn where the old page was: ' + there.slice(0, 3).map((p) => p.role + '@' + p.x.toFixed(0) + ',' + p.y.toFixed(0)).join(' '));
+  }
+  const after = d.dots.frames.slice(from);
+  assert.equal(red(after), 0, 'no frame shows the old page');
+  assert.ok(after.some((f) => f.blue > 50), 'and the new page forms');
+  d.play(2000);
+  assert.ok(d.P().filter((p) => p.uiT && p.role !== 'gone' && p.role !== 'dust').length === 0, 'and its dots fade once the page is up');
 });

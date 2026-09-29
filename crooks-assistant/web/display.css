@@ -411,3 +411,29 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-portrait .cs-donemark,.cs-two .cs-donemark{width:112px;height:112px}
 .cs-portrait .cs-donemark svg,.cs-two .cs-donemark svg{width:60px;height:60px}
 .cs-portrait .cs-donet,.cs-two .cs-donet{font-size:30px}
+
+/* round 12: something new in place of what is up is one change, never the clock first. The old
+   page leaves on a layer of its own beneath the new one (display.js leave): a pane that goes
+   dissolves where it is to a veil, and as the new page is uncovered from the top (cs-resolve) the
+   veil is wiped away from the top in step (cs-wipe, the same mask turned over), so every line of
+   the screen shows the one or the other and never neither. A pane that stays fades as its new
+   self arrives in its new place. A pane new to the change is hidden while its dots form it. */
+.cs-ui.cs-leave{pointer-events:none}
+.cs-leave .cs-pane.is-leaving{animation:cs-leave .45s ease both}
+.cs-leave.is-gone .cs-pane.is-leaving{-webkit-mask-image:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0) 46%,#000 54%,#000 100%);mask-image:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0) 46%,#000 54%,#000 100%);-webkit-mask-size:100% 280%;mask-size:100% 280%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;animation:cs-leave .45s ease both,cs-wipe 900ms cubic-bezier(.35,.1,.25,1) both}
+.cs-leave .cs-pane.is-stay{animation:cs-stay .3s ease both}
+@keyframes cs-leave{to{opacity:.3;filter:blur(8px) brightness(1.3)}}
+@keyframes cs-wipe{0%{-webkit-mask-position:0 100%;mask-position:0 100%}100%{-webkit-mask-position:0 0;mask-position:0 0}}
+@keyframes cs-stay{to{opacity:0}}
+/* A pane that goes while one that stays moves over its place: out of the way first, quickly. */
+.cs-leave .cs-pane.is-leaving.is-quick,.cs-leave.is-gone .cs-pane.is-leaving.is-quick{-webkit-mask-image:none;mask-image:none;animation:cs-stay .16s ease both}
+.cs-pane.is-forming{opacity:0;pointer-events:none}
+.cs-pane.is-revealing{pointer-events:none;-webkit-mask-image:linear-gradient(180deg,#000 0%,#000 46%,rgba(0,0,0,0) 54%,rgba(0,0,0,0) 100%);mask-image:linear-gradient(180deg,#000 0%,#000 46%,rgba(0,0,0,0) 54%,rgba(0,0,0,0) 100%);-webkit-mask-size:100% 280%;mask-size:100% 280%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;animation:cs-resolve 900ms cubic-bezier(.35,.1,.25,1) both}
+@keyframes cs-resolve{0%{-webkit-mask-position:0 100%;mask-position:0 100%;filter:blur(10px) brightness(1.5) saturate(.5)}55%{filter:blur(3px) brightness(1.15) saturate(.85)}100%{-webkit-mask-position:0 0;mask-position:0 0;filter:blur(0) brightness(1) saturate(1)}}
+/* A weak screen (the SM-T290, a small TV's browser) keeps the change and drops the blur: a blur
+   over a layer the size of the screen costs it half its frames. */
+.is-weak .cs-leave .cs-pane.is-leaving{animation-name:cs-veil}
+.is-weak .cs-leave.is-gone .cs-pane.is-leaving{animation-name:cs-veil,cs-wipe}
+@keyframes cs-veil{to{opacity:.3}}
+.is-weak .cs-pane.is-revealing{animation-name:cs-resolve-lite}
+@keyframes cs-resolve-lite{0%{-webkit-mask-position:0 100%;mask-position:0 100%}100%{-webkit-mask-position:0 0;mask-position:0 0}}
