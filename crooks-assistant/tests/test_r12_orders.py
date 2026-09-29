@@ -1261,3 +1261,22 @@ def test_a2_a_card_with_no_confirmation_address_takes_the_customer_s_own_and_nob
     assert card_differences(card_, {**draft, "email": "theo.marsh@example.com"}) == []
     assert card_differences(card_, {**draft, "email": "someone.else@example.org"}) == ["the confirmation email"]
     assert card_differences({**card_, "email": "theo.marsh@example.com"}, {**draft, "email": ""}) == ["the confirmation email"]
+
+
+async def test_a1_the_card_after_the_hold_is_the_order_that_was_prepared_not_a_later_change(shop):
+    """He prepares, then takes a line off with a tap, then holds the card he was shown. What is
+    made is the draft he held — so the card that becomes the order shows THAT order, not the
+    change made after it."""
+    ident = card(await open_theo(shop))["workspace_id"]
+    await say(shop, "and a cap", ("shopify_order_build", {"add": [{"item": "cap"}]}))
+    staged = await tap(shop, "order.stage", workspace_id=ident)
+    proposal_id = next(i["data"]["proposal_id"] for i in staged["ui"] if i["type"] == "confirmation")
+    await tap(shop, "order.removeitem", workspace_id=ident, line="v9301")
+    armed = await shop.post(f"/actions/{proposal_id}/arm", data={"session_id": "g1"}, headers=PROXIED)
+    shop.runtime.actions.find(proposal_id).armed_at -= 1.0
+    done = (await shop.post(f"/actions/{proposal_id}/commit", data={"session_id": "g1"},
+                            headers={**PROXIED, "X-Crooks-Arm": armed.json()["nonce"]})).json()
+    assert done["status"] == "verified"
+    assert [line["variantId"] for line in shop.store.mutations[0][1]["input"]["lineItems"]] == [vid(9112), vid(9301)]
+    made = _the_workspace(done["ui"], ident)
+    assert [r["title"] for r in made["rows"]] == ["Convict Hoodie", "Crooks Cap"], made["rows"]

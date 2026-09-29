@@ -66,6 +66,7 @@ next "now add a cap to it" made a second draft of the same order, which a second
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -776,7 +777,14 @@ def workspace_surface(workspace: dict[str, Any]):
 def _made_surface(workspace: dict[str, Any], made: dict[str, str]):
     """The card once it has made its order: the order, by its number, with what is on it — and
     nothing to type, tap or prepare. The same card in the same place, so the glass does not jump;
-    only what it says has changed."""
+    only what it says has changed. What it says is the card as the draft that became the order
+    was made from it, not a change tapped in after that."""
+    snapshot = (ws.fact(workspace, "prepared") or {}).get(str(made.get("draft_id") or ""))
+    if isinstance(snapshot, dict):
+        workspace = {**workspace, "values": {**(workspace.get("values") or {}), **snapshot["values"]},
+                     "choices": {**(workspace.get("choices") or {}), **snapshot["choices"]},
+                     "facts": {**(workspace.get("facts") or {}), "lines": snapshot["lines"],
+                               **({"customer": snapshot["customer"]} if snapshot.get("customer") else {})}}
     chosen = _chosen_customer(workspace) or {}
     lines = _lines(workspace)
     created = made.get("state") == "created"
@@ -1802,7 +1810,7 @@ async def _observe(execution: dict) -> Observed:
         # However it got there — this hold, a hold whose answer was lost, Admin — the draft is
         # an order now, and the card it was prepared from has made it (`finished`).
         _note(str(execution.get("workspace_id") or ""), state="created", order_id=str(order["id"]),
-              order_number=str(order.get("name") or ""))
+              order_number=str(order.get("name") or ""), draft_id=str(execution.get("draft_id") or ""))
     return Observed(fingerprint=draft_fingerprint(node), entity={
         "draft_id": str(node.get("id") or ""), "draft_name": str(node.get("name") or ""),
         "status": str(node.get("status") or ""),
@@ -1830,7 +1838,8 @@ async def _execute(execution: dict) -> dict:
     order = body.get("order") or {}
     if not order.get("id"):
         raise ShopifyError("Shopify did not confirm which order it created.")
-    _note(workspace_id, state="created", order_id=str(order["id"]), order_number=str(order.get("name") or ""))
+    _note(workspace_id, state="created", order_id=str(order["id"]), order_number=str(order.get("name") or ""),
+          draft_id=str(execution.get("draft_id") or ""))
     return {"order_id": str(order["id"])}
 
 
@@ -1981,7 +1990,7 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
         order = earlier.get("order") or {}
         if order.get("id"):
             _note(str(workspace["workspace_id"]), state="created", order_id=str(order["id"]),
-                  order_number=str(order.get("name") or ""))
+                  order_number=str(order.get("name") or ""), draft_id=str(draft_id))
             raise ToolError(already_made(workspace))
     chosen = _chosen_customer(workspace) or {}
     if not ws.fact(workspace, "by_id"):
@@ -2056,6 +2065,13 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
             "so I have not offered it. Nothing was created; the draft is in Admin to look at."
         )
     workspace["facts"]["draft"] = {"id": str(node["id"]), "name": str(node.get("name") or ""), "fingerprint": fingerprint}
+    # The card as this draft was made from it. The hold makes THIS draft, and the card may be
+    # changed with a tap before it is held: once the order exists, it is drawn from this.
+    prepared = dict(ws.fact(workspace, "prepared") or {})
+    prepared[str(node["id"])] = {"lines": copy.deepcopy(_lines(workspace)), "values": dict(workspace.get("values") or {}),
+                                 "choices": dict(workspace.get("choices") or {}),
+                                 "customer": copy.deepcopy(ws.fact(workspace, "customer"))}
+    workspace["facts"]["prepared"] = dict(list(prepared.items())[-MAX_DRAFTS_CHECKED:])
 
     currency = _currency(node.get("totalPriceSet"))
     total = _money(node.get("totalPriceSet"))
