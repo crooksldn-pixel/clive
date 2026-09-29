@@ -46,19 +46,32 @@ first, to ``design/obj_x.json``: a folder the old store never lists, since it re
 ``obj_*.json`` at the top. After a rollback every objective still lists and opens, as a plain one;
 rolled forward again, its design is where it was. A record with no design file (written before
 round 12, or by an older build after a rollback) is whole without one (``_from_record``).
+
+Two files must never split an objective, so a design is used only when it agrees with its record
+(same id, same kind, this format, and the record has the very event the design was written after)
+and a write goes down in three atomic steps: the new design as a pending file, the record, then
+the pending design becomes the design (``ObjectiveStore._write`` says why that order is safe). A
+design that cannot be read or does not agree never hides or breaks the objective: it reads as its
+plain kind from its record, and the file is logged (never its content) and kept aside, renamed
+``.damaged``, never overwritten.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 import re
 import secrets
 import threading
+import time
 from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger("crooks.objectives")
 
 __all__ = [
     "LADDER",
@@ -79,8 +92,14 @@ KINDS = ("business", "build", "project", "tasks")
 STAGE_STATES = ("done", "current", "upcoming")
 _ID = re.compile(r"^obj_[0-9a-f]{8}$")
 MAX_TEXT = 2000
-# The design file's own format. 2: the design fields of round 12 (1 is a record without one).
-VERSION = 2
+# The design file's own format. 3: the design fields, with the record they were written with (its
+# id, kind and last event), so a design is only ever read with that record or one grown from it
+# (``_verdict``). 2 was round 12's first sidecar, never deployed: it named no record, and is set
+# aside when met. 1 is a record without a design.
+VERSION = 3
+# A design file whose record is gone (a creation cut short) is tidied once it is this old.
+ORPHAN_AGE_S = 24 * 3600
+TIDY_EVERY_S = 3600
 # The keys of obj_x.json: exactly what the store before round 12 reads (547f652f), in that order.
 RECORD_FIELDS = ("id", "title", "request", "created_at", "updated_at", "status", "status_set_by", "deadline",
                  "facts", "unknowns", "blockers", "items", "attention", "events", "kind", "engineering")
@@ -399,6 +418,8 @@ def _from_record(raw: Any, design: Any = None) -> Objective:
     data.setdefault("kind", "business")
     data.setdefault("engineering", [])
     shape = {**inline, **(design or {})}
+    for stamp in _STAMP:
+        shape.pop(stamp, None)
     try:
         written_as = int(shape.pop("version", None) or VERSION)
     except (TypeError, ValueError) as exc:
@@ -416,12 +437,89 @@ def _from_record(raw: Any, design: Any = None) -> Objective:
 
 def _split(obj: Objective) -> tuple[dict[str, Any], dict[str, Any]]:
     """The two files an objective is written as: the record the store before round 12 can read,
-    key for key, and its design."""
+    key for key, and its design, stamped with that record."""
     data = obj.to_dict()
     record = {k: data[k] for k in RECORD_FIELDS}
-    design = {"version": getattr(obj, "_design_version", VERSION), **getattr(obj, "_design_extra", {}),
-              **{k: data[k] for k in DESIGN_FIELDS}}
+    design = {"version": getattr(obj, "_design_version", VERSION), **_stamp_of(record),
+              **getattr(obj, "_design_extra", {}), **{k: data[k] for k in DESIGN_FIELDS}}
     return record, design
+
+
+# The keys that tie a design to its record.
+_STAMP = ("id", "kind", "events", "after")
+# Verdicts that mean the file itself is wrong, not merely out of step with its record.
+_DAMAGE = frozenset({"unreadable", "foreign", "version"})
+
+
+def _mark(event: Any) -> str:
+    """One event, as a short fingerprint: the record's history never rewrites an event, so the
+    same event at the same place means the same history up to there."""
+    return hashlib.sha256(json.dumps(event, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+def _stamp_of(record: dict[str, Any]) -> dict[str, Any]:
+    events = record.get("events") or []
+    return {"id": record.get("id"), "kind": record.get("kind") or "business", "events": len(events),
+            "after": _mark(events[-1]) if events else None}
+
+
+def _well_formed(design: Any) -> bool:
+    """Whether a design has the shape the rest of this file reads without checking again."""
+    if not isinstance(design, dict):
+        return False
+    def text_or_none(value: Any) -> bool:
+        return value is None or isinstance(value, str)
+
+    try:
+        return all((
+            isinstance(design.get("version"), int), isinstance(design.get("id"), str),
+            isinstance(design.get("kind"), str), isinstance(design.get("events"), int) and design["events"] >= 0,
+            text_or_none(design.get("after")),
+            text_or_none(design.get("purpose")), text_or_none(design.get("done_when")),
+            design.get("check_every_days") is None or isinstance(design.get("check_every_days"), int),
+            isinstance(design.get("people", []), list) and all(
+                isinstance(p, dict) and isinstance(p.get("name"), str) and text_or_none(p.get("role"))
+                for p in design.get("people", [])),
+            isinstance(design.get("stages", []), list) and all(
+                isinstance(st, dict) and isinstance(st.get("name"), str) and st.get("state") in STAGE_STATES
+                and text_or_none(st.get("due")) and text_or_none(st.get("waiting_on"))
+                for st in design.get("stages", [])),
+            isinstance(design.get("tasks", []), list) and all(
+                isinstance(t, dict) and isinstance(t.get("id"), str) and isinstance(t.get("who"), str)
+                and isinstance(t.get("text"), str) and isinstance(t.get("done", False), bool) and text_or_none(t.get("due"))
+                for t in design.get("tasks", [])),
+        ))
+    except (TypeError, AttributeError):
+        return False
+
+
+def _verdict(design: Any, record: dict[str, Any]) -> str:
+    """Whether this design belongs with this record: "agrees", or why not.
+
+    unreadable  not a design of the shape this file reads
+    foreign     another objective's
+    version     a format this build does not know
+    ahead       written with a record that has more history than this one: a write that stopped
+                before its record went down
+    history     written after an event this record does not have at that place
+    kind        written for another kind than the record now is (the store production rolls back
+                to can make any objective a build)
+    """
+    if not _well_formed(design):
+        return "unreadable"
+    if design["id"] != record.get("id"):
+        return "foreign"
+    if design["version"] != VERSION:
+        return "version"
+    events = record.get("events") or []
+    count = design["events"]
+    if count > len(events):
+        return "ahead"
+    if (_mark(events[count - 1]) if count else None) != design.get("after"):
+        return "history"
+    if design["kind"] != (record.get("kind") or "business"):
+        return "kind"
+    return "agrees"
 
 
 def _days_left(deadline: str | None) -> int | None:
@@ -447,6 +545,9 @@ class ObjectiveStore:
     def _design_path(self, objective_id: str) -> Path:
         return self._path(objective_id).parent / DESIGN_DIR / f"{objective_id}.json"
 
+    def _pending_path(self, objective_id: str) -> Path:
+        return self._path(objective_id).parent / DESIGN_DIR / f"{objective_id}.next.json"
+
     @staticmethod
     def _atomic(path: Path, data: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -455,34 +556,156 @@ class ObjectiveStore:
         os.replace(tmp, path)
 
     def _write(self, obj: Objective) -> None:
-        """The design first, then the record: a write cut short between the two leaves the
-        record's history saying less than the design, never more."""
+        """Three atomic steps, in an order that leaves the whole old objective or the whole new
+        one wherever it stops:
+
+        1. the new design, as design/obj_x.next.json, stamped with the new record;
+        2. the record, obj_x.json;
+        3. the pending design becomes design/obj_x.json.
+
+        Stopped before 2 finishes, the record is the old one: the pending design is ahead of it
+        (written for a record with an event this one does not have) and is not read, and the
+        design is the old one, which agrees — the old objective. Stopped after 2, the record is
+        the new one and both designs agree with it (its history holds the old design's event
+        too); the one written after more of that history is read — the pending one, the new
+        objective. After 3 there is one design and it is the new one. Every write adds an event
+        (a change that changes nothing is not written, ``_change``), which is what makes "more
+        history" certain. The store before round 12 reads only obj_x.json, and at every point
+        that is a whole record, old or new.
+        """
         record, design = _split(obj)
-        self._atomic(self._design_path(obj.id), design)
+        self._settle(obj.id)
+        pending = self._pending_path(obj.id)
+        self._atomic(pending, design)
         self._atomic(self._path(obj.id), record)
+        os.replace(pending, self._design_path(obj.id))
+
+    def _settle(self, objective_id: str) -> None:
+        """Before a write: finish or discard what the last one left. A pending design the record
+        has (step 3 did not happen) becomes the design; one it does not have (the write stopped
+        before its record) is discarded, since the change it carried was never made."""
+        path = self._path(objective_id)
+        if not path.exists():
+            return
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if not isinstance(record, dict):
+            return
+        chosen = self._design_for(objective_id, record)
+        pending = self._pending_path(objective_id)
+        if chosen is not None and chosen[0] == "pending":
+            os.replace(pending, self._design_path(objective_id))
+        elif pending.exists():
+            pending.unlink()
+            log.info("objective %s: a change that stopped before its record was written was not applied", objective_id)
+
+    def _design_for(self, objective_id: str, record: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+        """The design that belongs with this record — ("design" or "pending", the design) — or
+        None, and what to do with the files that do not.
+
+        A pending design that agrees is the newer of the two (step 3 of a write did not happen),
+        and the design it supersedes is left for ``_settle`` to replace, whatever its verdict,
+        unless it is damage of its own (unreadable, another objective's, an unknown format). A
+        pending design that is only ahead of its record is an unfinished write, also left for
+        ``_settle``. Anything else that cannot be used is set aside."""
+        slots = {"design": self._design_path(objective_id), "pending": self._pending_path(objective_id)}
+        judged: dict[str, tuple[str, Any]] = {}
+        for slot, path in slots.items():
+            if not path.exists():
+                continue
+            try:
+                design = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                design = None
+            judged[slot] = (_verdict(design, record), design)
+        agreeing = {slot: design for slot, (verdict, design) in judged.items() if verdict == "agrees"}
+        chosen = None
+        if agreeing:
+            slot = max(agreeing, key=lambda k: (agreeing[k]["events"], k == "pending"))
+            chosen = (slot, agreeing[slot])
+        for slot, (verdict, _design) in judged.items():
+            if verdict == "agrees":
+                continue
+            if slot == "pending" and verdict in ("ahead", "kind"):
+                continue                                   # an unfinished write: _settle discards it
+            if slot == "design" and chosen and chosen[0] == "pending" and verdict not in _DAMAGE:
+                continue                                   # superseded: _settle replaces it
+            self._set_aside(objective_id, slots[slot], verdict, record)
+        return chosen
+
+    def _set_aside(self, objective_id: str, path: Path, verdict: str, record: dict[str, Any]) -> None:
+        """Keep a design that cannot be used, renamed where no read or write will touch it again,
+        and say so without a word of what is in it."""
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        kept = path.with_name(f"{objective_id}.{stamp}.{verdict}.damaged")
+        try:
+            os.replace(path, kept)
+        except OSError:
+            log.warning("objective %s: its design file (%s) could not be used or set aside; it reads as a plain %s",
+                        objective_id, verdict, record.get("kind") or "business")
+            return
+        log.warning("objective %s: its design file could not be used (%s) and is kept aside as %s; the objective "
+                    "reads as a plain %s from its record", objective_id, verdict, kept.name, record.get("kind") or "business")
 
     def _read(self, path: Path) -> Objective:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        beside = self._design_path(path.stem) if _ID.fullmatch(path.stem) else None
-        design = json.loads(beside.read_text(encoding="utf-8")) if beside is not None and beside.exists() else None
-        return _from_record(raw, design)
+        with self._lock:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                raise ValueError("an objective record is a JSON object")
+            chosen = self._design_for(path.stem, raw) if _ID.fullmatch(path.stem) else None
+            return _from_record(raw, chosen[1] if chosen else None)
 
     def get(self, objective_id: str) -> Objective:
         path = self._path(objective_id)
         if not path.exists():
             raise ObjectiveError(f"There is no objective {objective_id!r}.")
-        return self._read(path)
+        try:
+            return self._read(path)
+        except (OSError, ValueError, TypeError) as exc:
+            # The record itself is damaged: skipped on the home (all), and said, not a 500, here.
+            raise ObjectiveError(f"The record of objective {objective_id!r} cannot be read; it is kept as it is.") from exc
 
     def all(self) -> list[Objective]:
         if not self.root.exists():
             return []
-        out = []
-        for path in sorted(self.root.glob("obj_*.json")):
-            try:
-                out.append(self._read(path))
-            except (ValueError, TypeError):
-                continue  # a damaged file is skipped, never silently rewritten
+        with self._lock:
+            self._tidy()
+            out = []
+            for path in sorted(self.root.glob("obj_*.json")):
+                try:
+                    out.append(self._read(path))
+                except (OSError, ValueError, TypeError):
+                    continue  # a damaged file is skipped, never silently rewritten
         return sorted(out, key=lambda o: o.updated_at, reverse=True)
+
+    def _tidy(self) -> None:
+        """At most hourly: a design file (or its pending one, or a half-written one) whose record
+        does not exist is a creation that stopped before its record was written; once it is a day
+        old it is removed. Files kept aside as .damaged are evidence and stay. Objectives are never
+        deleted, so a design with a record is never removed."""
+        now = time.time()
+        if now - getattr(self, "_tidied", 0.0) < TIDY_EVERY_S:
+            return
+        self._tidied = now
+        folder = self.root / DESIGN_DIR
+        if not folder.is_dir():
+            return
+        for path in folder.iterdir():
+            name = path.name
+            if not (name.endswith(".json") or name.endswith(".json.tmp")):
+                continue
+            objective_id = name.split(".", 1)[0]
+            if not _ID.fullmatch(objective_id) or (self.root / f"{objective_id}.json").exists():
+                continue
+            try:
+                if now - path.stat().st_mtime < ORPHAN_AGE_S:
+                    continue
+                path.unlink()
+            except OSError:
+                continue
+            log.info("objective %s: a design file with no record, a day old, was removed", objective_id)
 
     def live(self) -> list[Objective]:
         return [o for o in self.all() if o.status not in ("done", "dropped")]
@@ -492,10 +715,14 @@ class ObjectiveStore:
         obj.updated_at = _now()
 
     def _change(self, objective_id: str, fn, *, by: str) -> Objective:
+        """One change, under the lock. A change that changes nothing is not written: every write
+        then adds an event, which is what ties a design to its record without doubt (_write)."""
         with self._lock:
             obj = self.get(objective_id)
+            before = _split(obj)
             fn(obj)
-            self._write(obj)
+            if _split(obj) != before:
+                self._write(obj)
             return obj
 
     # ---- creation ---------------------------------------------------------------

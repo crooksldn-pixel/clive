@@ -154,13 +154,16 @@ def test_round_12s_first_cut_is_read_and_split_so_the_old_store_can_read_it(tmp_
     assert [t["text"] for t in ObjectiveStore(root).get(raw["id"]).tasks] == ["Pack the returns"]
 
 
-def test_a_design_key_from_a_newer_build_is_kept_not_dropped(tmp_path):
+def test_a_design_from_a_newer_build_is_kept_aside_not_dropped(tmp_path):
+    """A design in a format this build does not know is not guessed at: the objective reads as
+    its plain kind, and the file is kept aside, never overwritten, for the build that wrote it."""
     root = tmp_path / "objectives"
     s = ObjectiveStore(root)
     obj = s.create(title="t", request="r", kind="tasks", tasks=[{"who": "Kit", "text": "x"}])
     path = root / "design" / f"{obj.id}.json"
-    design = json.loads(path.read_text(encoding="utf-8"))
-    path.write_text(json.dumps({**design, "version": 3, "colour": "blue"}), encoding="utf-8")
+    newer = {**json.loads(path.read_text(encoding="utf-8")), "version": 4, "colour": "blue"}
+    path.write_text(json.dumps(newer), encoding="utf-8")
+    assert s.get(obj.id).tasks == []
     s.progress(obj.id, "Still going")
-    kept = json.loads(path.read_text(encoding="utf-8"))
-    assert kept["colour"] == "blue" and kept["version"] == 3 and kept["tasks"][0]["text"] == "x"
+    (kept,) = (root / "design").glob("*.damaged")
+    assert json.loads(kept.read_text(encoding="utf-8")) == newer
