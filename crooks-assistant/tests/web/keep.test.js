@@ -163,3 +163,20 @@ test('a folded card is known by the card inside it', () => {
   const out = UI.continueScreen(host, [flag(ranking, 'kept')], OPTS);
   assert.equal(out.kept, 1);
 });
+
+// ------------------------------------------------------------------ a chip that listens (C3)
+
+test('only a chip on the cursor\'s card may listen; one on any other card, or with no cursor, may not', () => {
+  const rail = [{ id: 'note', label: 'Add a note', enabled: true, instruction: 'Add a note to this order', mode: 'ask', family: 'order.add_note' }];
+  const other = { order_id: 'gid://shopify/Order/1940', order_number: '#1940' };
+  const host = glassOf([order({ actions: rail }), order(Object.assign({ actions: rail }, other))]);
+  const chipOf = (node) => node.querySelectorAll('.rail-chip').find((c) => c.dataset.family === 'order.add_note');
+  const [first, second] = host.children.map(chipOf);
+  assert.ok(first && second, 'both cards drew their listening chip');
+  const cursor = { kind: 'order', ref: ORDER.order_id };
+  assert.equal(UI.onCursor(first, cursor), true);
+  assert.equal(UI.onCursor(second, cursor), false, 'a chip on #1940 would bind the cursor, #1938');
+  assert.equal(UI.onCursor(second, { kind: 'order', ref: other.order_id }), true);
+  assert.equal(UI.onCursor(first, null), false, 'with no cursor no card listens');
+  assert.equal(UI.onCursor(shim.document.createElement('button'), null), true, 'a control on no record has nothing to disagree with');
+});

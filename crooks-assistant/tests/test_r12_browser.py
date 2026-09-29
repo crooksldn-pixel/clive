@@ -49,12 +49,17 @@ async def _run(out: str) -> dict:
     provider.will("add a note saying gift wrap it",
                   ("shopify_order_note_append", {"order_id": order_1938, "note": "Gift wrap it"}),
                   reply="The note is ready on the card; tap to apply.")
+    provider.will("has 1940 shipped?", reply="Yes, it went out yesterday.")
     provider.will("show me order 1940", *_order_reads("1940"), reply="Order 1940.")
     provider.will("pull that up again", ("show_again", {}), reply="Order 1938 is back.")
+    provider.will("put 1938 and 1940 side by side", *_order_reads("1938"), *_order_reads("1940"), reply="Both are up.")
+    provider.will("add a note to 1940 saying fragile",
+                  ("shopify_order_note_append", {"order_id": data.BY_NAME["#1940"].order_id, "note": "Fragile"}),
+                  reply="The note is ready on #1940's card; tap to apply.")
 
     # The one change the walk applies. The golden world refuses every mutation; for this run
     # it takes an order's note, as Shopify would, so the proof re-reads what was written.
-    before = spec.note
+    notes = {name: data.BY_NAME[name].note for name in ("#1938", "#1940")}
     refuse = store.mutate
 
     async def mutate(name: str, variables: dict) -> dict:
@@ -73,7 +78,8 @@ async def _run(out: str) -> dict:
             env={**os.environ, "CROOKS_CHROMIUM": browser.CHROMIUM},
         )
     finally:
-        spec.note = before
+        for name, note in notes.items():
+            data.BY_NAME[name].note = note
         store.mutate = refuse
         await browser._stop(server, task)
     for line in reversed((result.stdout or "").strip().splitlines()):

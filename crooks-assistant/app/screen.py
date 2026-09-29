@@ -417,6 +417,54 @@ def recompose(shown: dict[str, Any], read: dict[str, Any] | None, *, session: An
 # ------------------------------------------------------------------ after the gesture
 
 
+def listening_on_cursor(ui: list[dict[str, Any]], entity: Any) -> list[dict[str, Any]]:
+    """The cards, with a listening control only on the card whose record is the half's cursor.
+
+    A rail chip in "ask" mode that names a spoken control (`family`, e.g. order.add_note) binds
+    the next sentence to the half's CURSOR, not to the card it is drawn on (web/app.js
+    `primeAction`). On any other card it would bind a record other than the one under his
+    thumb, so there it loses its `family`: a tap still primes its words, which name that card's
+    own record ("Add a note to #1940"), and the model reads the record from the words. With no
+    cursor, no card listens.
+
+    Every path that hands the tablet cards goes through here — a sentence, a tap, a hold, a
+    row's action — because each can change which card is the cursor's, or redraw a record
+    with a fresh rail (the round-12 independent check, C3). And a card the glass keeps is never
+    redrawn there, so one that loses its chip here is sent `refreshed` instead of `kept`: the
+    live chip on the glass is replaced, not left bound to a record that is no longer the cursor.
+    Returns new items; the ones it does not change are the same objects.
+    """
+    from app import entities
+
+    here = entity if isinstance(entity, dict) else {}
+    kind_here, ref_here = str(here.get("kind") or ""), str(here.get("ref") or "")
+    cursor = (entities.key(kind_here, ref_here) or f"{kind_here}:{ref_here}") if kind_here and ref_here else ""
+    out: list[dict[str, Any]] = []
+    for item in ui or []:
+        record = record_of(item)
+        data = item.get("data") if isinstance(item, dict) and isinstance(item.get("data"), dict) else None
+        actions = data.get("actions") if data is not None and isinstance(data.get("actions"), list) else []
+        live = [a for a in actions if isinstance(a, dict) and a.get("family") and str(a.get("mode") or "ask") == "ask"]
+        if record is None or not live or (cursor and record == (kind_here, cursor)):
+            out.append(item)
+            continue
+        quiet = [{**a, "family": ""} if any(a is x for x in live) else a for a in actions]
+        fixed = {k: v for k, v in item.items() if k not in ("kept", "refreshed")}
+        fixed["data"] = {**data, "actions": quiet}
+        if item.get("kept") or item.get("refreshed"):
+            fixed["refreshed"] = True
+        out.append(fixed)
+    return out
+
+
+def _focused(session: Any) -> Any:
+    """The half the owner is on, when no half's screen holds the card a gesture was made on."""
+    try:
+        return session.branch()
+    except Exception:  # noqa: BLE001 — no half means no cursor, and then nothing listens
+        return None
+
+
 def _holding(session: Any, targets: set[str]) -> Any:
     """The half whose screen holds the card a gesture was made on."""
     for branch in (getattr(session, "branches", None) or {}).values():
@@ -456,6 +504,10 @@ def after_gesture(items: list[dict[str, Any]], *, session: Any, proposal_id: str
                 rebuilt = recompose(shown_workspace, entity, session=session)
                 if rebuilt is not None:
                     out[index] = rebuilt
+    # A record re-read with a fresh rail listens only if it is the half's cursor (C3): #1940
+    # redrawn after a note while #1938 is the cursor must not offer a chip that binds #1938.
+    half = branch if branch is not None else _focused(session)
+    out = listening_on_cursor(out, getattr(half, "entity", None))
     if branch is not None:
         settled = settle(screen, out, targets)
         if settled is not None:

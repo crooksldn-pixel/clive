@@ -1077,7 +1077,7 @@ def _stand_on_what_was_shown(branch, ui: list, named: frozenset[str] = frozenset
     left the cursor on the record before (the 2026-09-28 deploy review, round 9, D2-04,
     D1-02). Staying put is safe for the write boundary: the one control that binds the cursor
     to a change — a listening chip such as Add a note — is only offered on the card that IS
-    the cursor (`_bind_listening_to_cursor`), and every other change names its own record (a
+    the cursor (app/screen.py `listening_on_cursor`), and every other change names its own record (a
     row's id, an open chip's arguments, or the words said).
 
     Nor does it follow an order the owner did not name when he named one (`named`): "what's
@@ -1108,8 +1108,14 @@ async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, 
                               rail: dict | None) -> tuple[str, list, dict | None]:
     """(answer, ui, what was done) for an answer that says something is on his screen.
 
+    What the claim is about is read from the sentences that MAKE it, never from the rest of the
+    answer: "Order #1938 is on your screen. #1940 shipped yesterday." is a claim about #1938,
+    and with #1938 up it is true and nothing changes (the round-12 independent check, C1: it
+    used to take #1940 from the second sentence and swap the cards, or, for an order never
+    shown, cut the true claim).
+
     True already when the screen shows something — this turn's cards or the ones kept up —
-    and every order the answer names as an order is on it. Otherwise the Mac makes it true
+    and every order the claim names as an order is on it. Otherwise the Mac makes it true
     when it can tell, unambiguously, which one record the answer is about: the one order it
     names that the screen does not show; else the one order the owner named that it does not
     show; else, when he named none, the record this half is on. That record is drawn from what
@@ -1122,14 +1128,15 @@ async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, 
     """
     from app.observability import claims
 
-    if session is None or branch is None or not claims.claims_on_screen(answer):
+    claiming = claims.claiming_sentences(answer) if session is not None and branch is not None else []
+    if not claiming:
         return answer, ui, None
     if any(str(getattr(c, "name", "") or "").startswith("screen_") for c in calls or []):
         return answer, ui, None
     showing = [item for item in ui if item.get("type") not in screen.BOOKKEEPING and item.get("type") != "error"]
-    named_in_answer = frozenset(_ORDER_SAID.findall(str(answer or "")))
+    named_in_claim = frozenset(n for sentence in claiming for n in _ORDER_SAID.findall(sentence))
     on_it = screen.numbers_on(showing)
-    missing = named_in_answer - on_it
+    missing = named_in_claim - on_it
     if showing and not missing:
         return answer, ui, None
     target = None
@@ -1195,29 +1202,6 @@ async def _draw_held(session, target: tuple[str, str, str], rail: dict | None) -
         return []
     drawn = compact(present([ToolCall(name=tool_name, args={}, ok=True, result=body)], session=session, writes=rail))
     return [item for item in drawn if item.get("type") != "context_stack"]
-
-
-def _bind_listening_to_cursor(ui: list, entity: dict | None) -> None:
-    """Keep a listening control only on the card whose record is the half's cursor.
-
-    A rail chip in "ask" mode that names a spoken control (`family`, e.g. order.add_note) binds
-    the next sentence to the record the tablet holds as this half's entity — the cursor — and
-    not to the card the chip is drawn on (web/app.js `primeAction`). On a screen with two
-    records, or with one the cursor did not move to, that chip would bind a record other than
-    the one under the owner's thumb, and the note he dictates would be staged against it. So
-    on every other card the chip loses its `family`: a tap still primes its words, which name
-    that card's own record ("Add a note to #1940"), and the model reads the record from the
-    words. Nothing is removed and nothing can bind the wrong record.
-    """
-    here = entity or {}
-    cursor = _record_key(str(here.get("kind") or ""), str(here.get("ref") or "")) if here.get("ref") else ""
-    for item in ui or []:
-        record = _card_record(item)
-        if record is None or (cursor and _record_key(record[0], record[1]) == cursor):
-            continue
-        for action in (item["data"].get("actions") or []):
-            if isinstance(action, dict) and action.get("family") and str(action.get("mode") or "ask") == "ask":
-                action["family"] = ""
 
 
 #: Where each record a replay rebuilds keeps its id (app/commands.py REPLAY_TOOL).
@@ -1571,7 +1555,7 @@ async def _answer(
             # it sits on (web/app.js `primeAction` posts the branch's entity). So only the card
             # that IS the cursor keeps one; every other card's chip primes its words and binds
             # nothing, and those words name its own record (D2-04, D1-02).
-            _bind_listening_to_cursor(ui, getattr(branch, "entity", None))
+            ui = screen.listening_on_cursor(ui, getattr(branch, "entity", None))
             # What this half now shows, kept on the Mac so tapping it later draws it (branch.show).
             branch.shown(ui, answer, question)
         for call in calls or []:

@@ -88,6 +88,26 @@ async function walk(browser, size, full) {
     }
   });
   const mark = () => page.evaluate(() => { for (const n of document.querySelectorAll('#cards > [data-type="order"]')) n.__keep = true; });
+  // What the Mac holds as this half's screen, asked the way a reload or a switch of halves asks
+  // (`branch.show`): the order numbers on it. The page is not touched.
+  const macScreen = () => page.evaluate(async () => {
+    const form = new FormData();
+    form.set('session_id', window.CliveAlpha.sessionId());
+    form.set('command', 'branch.show');
+    const body = await (await fetch('/command', { method: 'POST', body: form, cache: 'no-store' })).json();
+    return (body.ui || []).filter((i) => i.type === 'order').map((i) => String((i.data || {}).order_number || ''));
+  });
+  // Which order cards on the glass carry a LISTENING chip — an "ask" chip with a spoken control
+  // behind it, which binds the half's cursor — by order number, folded cards included. An
+  // "open" chip names its own record in what it posts, and binds nothing.
+  const listeners = () => page.evaluate(() => {
+    const out = {};
+    for (const card of document.querySelectorAll('#cards [data-render^="order:"]')) {
+      const number = ((card.textContent || '').match(/#(\d{4})/) || [])[1] || card.dataset.ref;
+      out[number] = card.querySelectorAll('.rail-chip[data-mode="ask"][data-family]:not([data-family=""])').length;
+    }
+    return out;
+  });
   const ask = (text) => page.evaluate((t) => window.CliveAlpha.ask(t), text);
   // Asked while sampling the glass every frame, so a screen that went away for a moment and
   // came back is caught, not only one that stayed away.
@@ -172,6 +192,20 @@ async function walk(browser, size, full) {
   check(at('and nothing else asks for a tap'), !seen.types.includes('confirmation'), JSON.stringify(seen.types));
   await shot('04-note-applied');
 
+  // ---- 4b. a question about another order, answered in words (the round-12 check, H): the
+  // screen he is on stays — the same card — and the Mac holds the same screen.
+  await mark();
+  const beforeWords = await glass();
+  await ask('has 1940 shipped?');
+  seen = await glass();
+  check(at('an answer in words about another order leaves his screen up, the same card'),
+    seen.mode === 'context' && seen.orders.length === 1 && /1938/.test(seen.orders[0]) && seen.marked[0] === true,
+    `${beforeWords.types} -> ${seen.mode} ${JSON.stringify(seen.types)}`);
+  const held = await macScreen();
+  check(at('and the Mac holds the screen the glass shows'), held.length === 1 && /1938/.test(held[0]) && seen.mode === 'context' && /1938/.test(seen.text),
+    `mac ${JSON.stringify(held)} glass ${JSON.stringify(seen.orders)}`);
+  await shot('04b-words-about-another');
+
   if (full) {
     // ---- 5. a new subject replaces the screen
     await ask('show me order 1940');
@@ -185,6 +219,64 @@ async function walk(browser, size, full) {
     check(at('"pull that up again" brings the order he moved away from back, read again'),
       seen.orders.length === 1 && /1938/.test(seen.orders[0]) && /Gift wrap it/.test(seen.text), JSON.stringify(seen).slice(0, 300));
     await shot('06-back-again');
+
+    // ---- 7. two orders up, the cursor on #1938: only #1938's card listens (C3)
+    await ask('put 1938 and 1940 side by side');
+    let chips = await listeners();
+    check(at('two orders up: only the cursor\'s card, #1938, has a listening chip'), chips['1938'] > 0 && chips['1940'] === 0, JSON.stringify(chips));
+
+    // ---- 8. a note on #1940, held: #1940 is redrawn and does not listen for #1938
+    await ask('add a note to 1940 saying fragile');
+    await sleep(900);
+    await page.evaluate(() => {
+      const surface = document.querySelector('#cards [data-type="confirmation"] .action-surface');
+      if (!surface) return;
+      surface.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 8 }));
+      surface.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 8 }));
+    });
+    try { await page.waitForFunction(() => /Note added/.test(document.getElementById('cards').textContent || '') && /Fragile/.test(document.getElementById('cards').textContent || ''), null, { timeout: 10000 }); } catch { /* checked below */ }
+    await sleep(400);
+    chips = await listeners();
+    check(at('after the hold on #1940, #1940\'s redrawn card does not listen; #1938\'s still does'), chips['1938'] > 0 && chips['1940'] === 0, JSON.stringify(chips));
+    await shot('08-held-on-the-other');
+
+    // ---- 9. a tap that opens #1940: the cursor moves, and only #1940's card listens
+    await page.evaluate(() => {
+      // A row naming #1940, as a list or a customer's orders draw one; the deck's own click
+      // handler opens it (`open.entity`).
+      const card = Array.from(document.querySelectorAll('#cards [data-render^="order:"]')).find((c) => /#1940\b/.test(c.textContent || ''));
+      const row = document.createElement('button');
+      row.dataset.kind = 'order';
+      row.dataset.ref = card ? card.dataset.ref : '';
+      row.textContent = 'Order #1940';
+      document.getElementById('cards').appendChild(row);
+      row.click();
+    });
+    try { await page.waitForFunction(() => !document.querySelector('#cards > button[data-kind="order"]'), null, { timeout: 8000 }); } catch { /* checked below */ }
+    await sleep(500);
+    chips = await listeners();
+    const others = Object.keys(chips).filter((n) => n !== '1940').map((n) => chips[n]);
+    check(at('after a tap opens #1940, #1940\'s card listens and no other card does'), chips['1940'] > 0 && others.every((n) => n === 0), JSON.stringify(chips));
+    // And his thumb on that Add a note binds #1940, the record the tap moved the cursor to —
+    // what the page posts is what is checked.
+    const binds = [];
+    const onRequest = (r) => {
+      if (!r.url().endsWith('/command')) return;
+      const body = r.postData() || '';
+      if (/voice\.bind/.test(body)) binds.push(/Order\/1940/.test(body) ? '1940' : /Order\/1938/.test(body) ? '1938' : 'other');
+    };
+    page.on('request', onRequest);
+    const pressed = await page.evaluate(() => {
+      const card = Array.from(document.querySelectorAll('#cards [data-render^="order:"]')).find((c) => /#1940\b/.test(c.textContent || ''));
+      const chip = card ? Array.from(card.querySelectorAll('.rail-chip')).find((c) => c.dataset.action === 'note') : null;
+      if (!chip) return false;
+      chip.click();
+      return true;
+    });
+    await sleep(800);
+    page.off('request', onRequest);
+    check(at('Add a note on the card he opened binds #1940'), pressed && binds.join(',') === '1940', JSON.stringify({ pressed, binds }));
+    await shot('09-opened-the-other');
   }
 
   check(at('no page errors'), errors.length === 0, errors.join(' | '));

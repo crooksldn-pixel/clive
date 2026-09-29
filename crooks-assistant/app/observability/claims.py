@@ -154,30 +154,71 @@ def follow_up_shape(question: str) -> str | None:
 # owner's screen. George, 29 September: "it can say stuff like confirmed order xyz on screen
 # but there is nothing." This is read from the ANSWER — what the model said — and judged against
 # what the turn actually drew (app/routes/turn.py `_hold_to_the_screen`); it never reads, routes
-# or answers the owner's sentence. Narrow on purpose: the phrases that put a thing on his
-# screen, not every sentence that mentions one, and never one of his named TV screens ("on the
-# office screen" does not say "on the screen", and a turn that used a screen tool is not judged).
+# or answers the owner's sentence.
+#
+# Narrow on purpose (the round-12 independent check, C2): a claim is a sentence that says,
+# positively, that something is on HIS screen — "on your screen", "on the tablet", "on screen" —
+# or up here. Not "up" on its own ("they're up again this week", "I've put the price up"), not
+# a sentence that says it is not there or cannot be ("I can't show that on the screen"), and
+# never one of his TVs or named screens ("on the office screen", "on the screen in the shop",
+# "up on the office TV"), which `screen_show` keeps honest itself.
+_HIS_SCREEN = r"(?:your|the|this)\s+(?:screen|tablet)"
 ON_SCREEN_RE = re.compile(
-    r"\bon(?:[- ]?|\s+(?:your|the)\s+)(?:screen|tablet)\b"
-    r"|\b(?:up|back|showing)\s+(?:now\s+)?on\s+(?:your|the)\s+(?:screen|tablet|app)\b"
-    r"|\b(?:pulled|brought|put|got)\s+(?:it|that|them|this|those|the\s+\w+(?:\s+\w+)?)\s+(?:back\s+)?up\b"
-    r"|\b(?:it's|it is|that's|that is|they're|they are)\s+(?:back\s+)?up\s+(?:now|again|there|for you)\b",
+    r"\bon[- ]?screen\b"
+    rf"|\bon\s+{_HIS_SCREEN}\b"
+    r"|\b(?:up|showing|shown|open|displayed)\s+(?:right\s+)?here\b",
+    re.I,
+)
+# Said before the phrase, in its own clause: the sentence says it is not there, or cannot be.
+_NEGATED = re.compile(
+    r"\b(?:not|no|never|nothing|cannot|unable)\b|n['’]t\b",
+    re.I,
+)
+# Where a clause starts: what comes before it is another thing said ("Not shipped yet, but it's
+# on your screen" makes the claim; "Paid, not shipped" does not take it back).
+_CLAUSE = re.compile(r"[,;:—–]|\b(?:but|and|so|though|although)\b", re.I)
+# A television or a screen he has named: that screen, not this one.
+_ELSEWHERE = re.compile(
+    r"\b(?:tv|tvs|telly|television|projector)\b"
+    r"|\b(?!(?:your|the|this|on|my|a|an|home)\b)[a-z]+\s+screen\b"
+    r"|\bscreen\s+(?:in|at|by|over|on)\s+the\b",
     re.I,
 )
 # The correction, when nothing is on the screen and the Mac cannot tell what the answer meant.
 NOT_ON_SCREEN = "I haven't put it on screen; say “show it” and I will."
-_SENTENCE = re.compile(r"[^.!?]+[.!?]*")
+_SENTENCES = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _sentences(answer: str) -> list[str]:
+    return [s.strip() for s in _SENTENCES.split(str(answer or "")) if s and s.strip()]
+
+
+def _claims(sentence: str) -> bool:
+    """Whether this one sentence says, positively, that something is on his screen."""
+    if _ELSEWHERE.search(sentence):
+        return False
+    for found in ON_SCREEN_RE.finditer(sentence):
+        before = sentence[:found.start()]
+        clause = _CLAUSE.split(before)[-1]
+        if not _NEGATED.search(clause):
+            return True
+    return False
+
+
+def claiming_sentences(answer: str) -> list[str]:
+    """The sentences of an answer that say something is on his screen, in order."""
+    return [s for s in _sentences(answer) if _claims(s)]
 
 
 def claims_on_screen(answer: str) -> bool:
-    return bool(ON_SCREEN_RE.search(str(answer or "")))
+    return bool(claiming_sentences(answer))
 
 
 def without_the_claim(answer: str) -> str:
     """The answer with every sentence that claims something is on the screen taken out, and
     the correction said instead. What else the answer said stands: "Paid, not shipped. It's on
     your screen." keeps the first sentence."""
-    kept = [s.strip() for s in _SENTENCE.findall(str(answer or "")) if s.strip() and not ON_SCREEN_RE.search(s)]
+    kept = [s for s in _sentences(answer) if not _claims(s)]
     return " ".join([*kept, NOT_ON_SCREEN])
 
 
@@ -198,5 +239,6 @@ def registered() -> frozenset[str]:
         return frozenset()
 
 
-__all__ = ["CANNOT_RE", "CAPABILITIES", "NOT_ON_SCREEN", "ON_SCREEN_RE", "Capability", "bulk_request", "claim", "claims_on_screen", "declined",
-           "follow_up_shape", "match_capabilities", "registered", "screen_claim", "without_the_claim"]
+__all__ = ["CANNOT_RE", "CAPABILITIES", "NOT_ON_SCREEN", "ON_SCREEN_RE", "Capability", "bulk_request", "claim", "claiming_sentences",
+           "claims_on_screen", "declined", "follow_up_shape", "match_capabilities", "registered", "screen_claim",
+           "without_the_claim"]
