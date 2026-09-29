@@ -7,11 +7,17 @@ on the golden world — not in the ASGI tests, which see only what the backend s
 
 Claude is scripted for the four sentences `scripts/browser/orders.js` types; the cards are the
 real presenters' and the taps are real clicks. Skipped, loudly, where there is no browser.
+
+The golden world never completes a draft (experience/fixtures/shopify.py refuses every mutation
+but `draftOrderCreate`). Here, and only here, it does — as Shopify would, naming the order it
+made — because what the owner sees after the hold is the point: the card he held it from turns
+into that order, and nothing on it can make it again (round 12's independent check, A1).
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import subprocess
@@ -19,8 +25,16 @@ import subprocess
 import pytest
 
 from experience.browser import CHROMIUM, ROOT, _free_port, _stop, available, serve_fixture_world
+from experience.fixtures import shopify as golden
 
 SCRIPT = ROOT / "scripts" / "browser" / "orders.js"
+
+
+def _completed(store, variables: dict) -> dict:
+    """`draftOrderComplete`, as Shopify answers it: the draft completed, with the order it made."""
+    node = store.drafts_by_id[str(variables["id"])]
+    node["status"], node["order"] = "COMPLETED", {"id": "gid://shopify/Order/1999", "name": "#1999"}
+    return {"data": {"draftOrderComplete": {"draftOrder": copy.deepcopy(node), "userErrors": []}}}
 
 
 def _opened(calls):
@@ -29,13 +43,14 @@ def _opened(calls):
     return {"order_id": order["order_id"], "variant_id": order["matched_items"][0]["variant_id"], "size_step": 1}
 
 
-async def test_an_order_built_by_voice_stays_on_the_screen_at_every_size():
+async def test_an_order_built_by_voice_stays_on_the_screen_at_every_size(monkeypatch):
     ok, why = available()
     if not ok:
         pytest.skip(f"browser checks need a browser: {why}")
     from app.main import app
     from app.tools import shopify_tools
 
+    monkeypatch.setitem(golden._DRAFTS, "draft_order_complete", _completed)
     port = _free_port()
     server, task, _store = await serve_fixture_world(port)
     bound = shopify_tools._client, shopify_tools._hydrator
@@ -75,4 +90,4 @@ async def test_an_order_built_by_voice_stays_on_the_screen_at_every_size():
     names = " | ".join(c["name"] for c in payload["checks"])
     for size in ("tablet:", "phone:", "tv:", "tablet-weak:"):
         assert size in names, f"nothing was checked at {size}"
-    assert len(payload["checks"]) == 32, "eight checks at each of four sizes"
+    assert len(payload["checks"]) == 40, "ten checks at each of four sizes"
