@@ -848,8 +848,13 @@ def _v6() -> Request:
 def tailscale_interface(monkeypatch, address) -> dict:
     """What the kernel says TAILSCALE_INTERFACE holds (identity.interface_ipv4, an ioctl a test
     cannot make): `address`, or no IPv4 address at all when it is None. The answer is kept in
-    the dict returned, so a test can change it as the host's address changes."""
-    held = {"v4": address}
+    the dict returned, so a test can change it as the host's address changes.
+
+    Round 13 (R9-A1a-F-05B-AVAIL): the door also asks netlink for every address the interface
+    holds (identity.interface_addresses, which a test cannot make of a tailscale0 either). It is
+    stood in for with the same answer: the IPv4 address above, and the host's own tailnet IPv6
+    address (`held["v6"]`), so the interface holds one of each, as the server's does."""
+    held = {"v4": address, "v6": list(HOST_TAILNET6)}
 
     def asked(name=identity.TAILSCALE_INTERFACE):
         assert name == identity.TAILSCALE_INTERFACE
@@ -857,7 +862,12 @@ def tailscale_interface(monkeypatch, address) -> dict:
             raise OSError(99, "Cannot assign requested address")
         return held["v4"]
 
+    def listed(name=identity.TAILSCALE_INTERFACE):
+        assert name == identity.TAILSCALE_INTERFACE
+        return frozenset([*([held["v4"]] if held["v4"] else []), *held["v6"]])
+
     monkeypatch.setattr(identity, "interface_ipv4", asked)
+    monkeypatch.setattr(identity, "interface_addresses", listed)
     return held
 
 

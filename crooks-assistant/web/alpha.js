@@ -128,11 +128,19 @@
   const sheet = h('dialog', { id: 'alpha-sheet', class: 'sheet alpha-sheet', 'aria-label': 'Details' });
   document.body.append(sheet);
   sheet.addEventListener('click', (event) => { if (event.target === sheet) closeSheet(); });
+  // Which sheet the owner asked for last. Opening any sheet, or putting it away, takes the next
+  // number; an answer from the Mac for a sheet asked for before that is never drawn (round 13,
+  // W2-03). Mark done acts on the objective its sheet was drawn from, so that sheet must be the
+  // one he tapped last, whatever order the answers come back in.
+  let sheetSeq = 0;
   function openSheet(...kids) {
     sheet.replaceChildren(h('div', { class: 'sheet-grip', 'aria-hidden': 'true' }), h('div', { class: 'sheet-scroll alpha-scroll' }, ...kids.filter(Boolean)));
     if (!sheet.open) sheet.showModal();
   }
-  function closeSheet() { if (sheet.open) sheet.close(); }
+  function closeSheet() {
+    sheetSeq += 1;
+    if (sheet.open) sheet.close();
+  }
   function head(title, sub) {
     return h('div', { class: 'alpha-sheet-head' },
       h('div', {}, h('h2', { text: title }), sub ? h('p', { class: 'alpha-muted', text: sub }) : null),
@@ -286,6 +294,7 @@
 
   // ------------------------------------------------------------------ one gap
   function openGap(g) {
+    sheetSeq += 1;
     const titles = (g.objectives || []).map((id) => (objectives.find((o) => o.id === id) || {}).title).filter(Boolean);
     const s = gaps.summary || {};
     const title = g.title || g.label;
@@ -328,14 +337,19 @@
   const STATE = { proposed: 'Proposed', authorised: 'Approved by you', started: 'In progress', completed: 'Done by CLIVE', verified: 'Verified' };
 
   async function openObjective(id) {
+    const seq = ++sheetSeq;
     let o;
-    try { o = await api(`/objectives/${encodeURIComponent(id)}`); } catch (err) { flash(String(err.message || err)); return; }
-    drawObjective(o);
+    try { o = await api(`/objectives/${encodeURIComponent(id)}`); } catch (err) { if (seq === sheetSeq) flash(String(err.message || err)); return; }
+    if (seq !== sheetSeq) return;   // another sheet was asked for, or this one put away, meanwhile
+    drawObjective(o, false, seq);
   }
 
   // The sheet for one objective, from the record the Mac returned. Drawn again, in place and at
-  // the same scroll, when a tick on it comes back, so its header and history agree with it.
-  function drawObjective(o, keepScroll) {
+  // the same scroll, when a tick on it comes back, so its header and history agree with it; but
+  // only while it is still the sheet the owner has open (`seq`, above). Anything a control on it
+  // does after an answer from the Mac is done only while that holds, too.
+  function drawObjective(o, keepScroll, seq) {
+    const current = () => seq === sheetSeq && sheet.open;
     const open = (list) => list.filter((x) => !x.resolved_at);
     const cards = window.CliveObjectiveCards;
     const shapedKind = cards && o.card && (o.kind === 'project' || o.kind === 'tasks');
@@ -362,7 +376,7 @@
             event.preventDefault();
             try { await api(`/objectives/${o.id}/answer/${a.id}`, { text: answer.value }); } catch (err) { flash(String(err.message || err)); return; }
             await refresh();
-            openObjective(o.id);
+            if (current()) openObjective(o.id);
           },
         }, answer, h('button', { class: 'btn primary', type: 'submit', text: 'Answer', 'data-alpha': 'answer' }))));
       }
@@ -372,7 +386,7 @@
     // it is for, drawn from the same payload as the conversation's card. A tick redraws the sheet
     // and the home. Nothing is drawn for a field nobody filled, so an older objective reads as before.
     const body = cards && o.card
-      ? cards.shape(o.card, { sheet: true, onChange: (record) => { drawObjective(record, true); refresh(); } }) : null;
+      ? cards.shape(o.card, { sheet: true, onChange: (record) => { if (current()) drawObjective(record, true, seq); refresh(); } }) : null;
     if (body && body.childNodes.length) blocks.push(h('div', { class: 'alpha-shape', 'data-objective': o.id }, body));
 
     const live = o.items.filter((i) => i.state !== 'verified');
@@ -383,7 +397,7 @@
           ? h('button', { class: 'btn', type: 'button', text: 'Approve', 'data-alpha': 'approve', onclick: async () => {
               if (!confirm(`Approve: ${item.text}?\n\nThis records your approval. CLIVE still cannot book, pay, submit or send anything itself yet.`)) return;
               try { await api(`/objectives/${o.id}/items/${item.id}/authorise`, {}); } catch (err) { flash(String(err.message || err)); return; }
-              openObjective(o.id);
+              if (current()) openObjective(o.id);
             } })
           : null;
         blocks.push(h('div', { class: 'alpha-item', 'data-state': item.state },
@@ -437,9 +451,11 @@
     }
     blocks.push(h('div', { class: 'row-btns' },
       h('button', { class: 'btn', type: 'button', text: 'Mark done', 'data-alpha': 'mark_done', onclick: async () => {
-        if (!confirm('Close this objective as done?')) return;
+        // Named, so the owner confirms the objective this closes, not whichever he thinks is open.
+        if (!confirm(`Close "${o.title}" as done?`)) return;
         await api(`/objectives/${o.id}/status`, { status: 'done' }).catch((err) => flash(String(err.message || err)));
-        closeSheet(); refresh();
+        if (current()) closeSheet();
+        refresh();
       } })));
     const was = sheet.querySelector('.sheet-scroll');
     const top = keepScroll && was ? was.scrollTop : 0;
@@ -449,6 +465,7 @@
   }
 
   function openNewObjective() {
+    sheetSeq += 1;
     const request = h('textarea', { class: 'alpha-text', rows: '5', placeholder: 'What do you want handled? Include any date.', 'aria-label': 'Objective' });
     openSheet(head('New objective', 'CLIVE keeps it alive and works out the steps.'), h('form', {
       onsubmit: async (event) => {
@@ -466,6 +483,7 @@
 
   // ------------------------------------------------------------------ support
   function openSupport() {
+    sheetSeq += 1;
     const message = h('textarea', { class: 'alpha-text', rows: '6', placeholder: "Paste the customer's message", 'aria-label': "Customer's message" });
     const sender = h('input', { class: 'alpha-field', type: 'email', placeholder: "Customer's email (optional)", 'aria-label': "Customer's email" });
     const out = h('div', { class: 'alpha-support-out', 'aria-live': 'polite' });

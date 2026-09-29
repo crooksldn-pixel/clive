@@ -390,7 +390,9 @@ class NotSaved(DisplayError):
 
 class NotDurable(NotSaved):
     """The change was made and is in the record, but the record could not be made durable yet:
-    it is not reported as done. A deletion is kept in the purge journal meanwhile."""
+    it is not reported as done. A deletion is kept in the purge journal meanwhile. (A change that
+    must be durable before it is made at all — a tick, an approval, a key changed — is instead
+    not made, and NotSaved: _commit, `durable`.)"""
 
 
 class NotFlushed(OSError):
@@ -764,7 +766,8 @@ class DisplayStore:
         self._purges = {}
         self._drop_journal()
 
-    def _commit(self, change: Callable[[], Any], *, owes: Callable[[], dict[str, dict[str, Any]]] | None = None) -> Any:
+    def _commit(self, change: Callable[[], Any], *, owes: Callable[[], dict[str, dict[str, Any]]] | None = None,
+                durable: bool = False) -> Any:
         """One change, written down or not made at all: on a failed write the record in memory
         is put back as it was and the change is refused.
 
@@ -778,7 +781,15 @@ class DisplayStore:
         still owed, since that write carries it. A journal put in place whose folder could not
         be flushed is not durable: unless the record itself then is, the deletion does not
         stand — it is put back, the journal is put back as it was, and the caller is told
-        nothing was changed (round 9, B-03)."""
+        nothing was changed (round 9, B-03).
+
+        `durable` (round 13, S3-02 and R9-B2-B2-01): a change that is not a deletion and must not
+        be answered as made until it would outlive a power cut — the owner's tick, his approval
+        of a screen, a screen's key changed. If its record is put in place but the folder cannot
+        be flushed, the change is not made: the record in memory is put back as it was, the file
+        is put back to match (_put_back), and the caller is told nothing was changed (NotSaved,
+        503), so the same change asked again is made once. An earlier deletion the write carried
+        stays made: it was made before this change, so it is in what is put back."""
         before = copy.deepcopy(self._data)
         carries = bool(self._purges)
         result = change()
@@ -811,6 +822,11 @@ class DisplayStore:
                 log.error("screens deletion not made: neither its journal nor the record is durable: %s", exc)
                 raise NotSaved(_NOT_SAVED) from exc
             if isinstance(exc, NotFlushed):
+                if durable and owes is None:
+                    self._data = before
+                    self._put_back()
+                    log.error("screens record in place but not durable; the change was not made: %s", exc)
+                    raise NotSaved(_NOT_SAVED) from exc
                 if owes is not None or carries:
                     raise NotDurable(_NOT_DURABLE) from exc
                 # Not a deletion: the change is the file, and that it may not survive a power cut
@@ -824,6 +840,16 @@ class DisplayStore:
             log.error("screens record not written; the change was not made: %s", exc)
             raise NotSaved(_NOT_SAVED) from exc
         return result
+
+    def _put_back(self) -> None:
+        """The record on disk put back to what memory holds, after a change that was not made
+        (_commit, `durable`). At best effort: until the record is durable, `unsaved` stands and
+        sweep() writes it again on every pass."""
+        try:
+            self._write()
+        except OSError as exc:
+            self.unsaved = True
+            log.error("screens record not yet put back after a change that was not made: %s", exc)
 
     def _restore_journal(self) -> None:
         """The purge journal put back to what is still owed (nothing at all: no journal), after
@@ -960,7 +986,7 @@ class DisplayStore:
                         _asked_from(screen, device)
                         return self._answer(screen, secret, None)
 
-                    out = self._keyed(rotate)
+                    out = self._keyed(rotate, durable=True)
                 self._touch(screen["id"])
                 return out
 
@@ -981,7 +1007,7 @@ class DisplayStore:
             self._touch(out["id"])
             return out
 
-    def _keyed(self, change: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    def _keyed(self, change: Callable[[], dict[str, Any]], *, durable: bool = False) -> dict[str, Any]:
         """A change that hands a device its key — a new screen, a new code, a new key for the
         screen it holds — written as every change is (_commit). It deletes nothing, so _commit
         says NotDurable of it only when the record holding it was put in place but its folder
@@ -989,7 +1015,15 @@ class DisplayStore:
         memory and in the file on disk, and so the device is handed its key (round 11, B2-01).
         Refusing it then would leave the screen with the hash of a key no device holds: the old
         key no longer its, and the new one never given. A change not made at all (NotSaved)
-        hands nothing, and the key the device held still works."""
+        hands nothing, and the key the device held still works.
+
+        `durable` (round 13, R9-B2-B2-01): a key an approved screen already holds is changed only
+        once the record holding the new key would outlive a power cut. Handed over before that, a
+        power cut could bring back the record in which the new key opens nothing and the old one,
+        which a copy of an old page's storage may hold, opens the customer's slip again. So a
+        change of key whose record cannot be made durable is not made at all (NotSaved, _commit):
+        nothing is handed over, and the key the device holds opens its screen in the running
+        store and, once the record is durable again, after any restart."""
         made: dict[str, Any] = {}
 
         def run() -> dict[str, Any]:
@@ -997,7 +1031,7 @@ class DisplayStore:
             return made["answer"]
 
         try:
-            return self._commit(run)
+            return self._commit(run, durable=durable)
         except NotDurable:
             log.error("a screen was handed its key; the record holding it is in place but not yet durable")
             return made["answer"]
@@ -1033,7 +1067,9 @@ class DisplayStore:
                     screen["paired"] = True
                     screen.pop("pairing", None)
 
-                self._commit(pair)
+                # Approved only once that would outlive a power cut (round 13, S3-02): otherwise
+                # nothing is approved, and the same code approves it when said again.
+                self._commit(pair, durable=True)
                 return {"screen": screen["name"], "approved": True}
             tries = _whole(pairing.get("tries")) + 1
             if tries >= PAIR_TRIES:
@@ -1602,7 +1638,10 @@ class DisplayStore:
                 screen["version"] = _whole(screen.get("version")) + 1
                 return self._remote_state(screen, showing)
 
-            return self._commit(change)
+            # Answered as saved only once it would outlive a power cut (round 13, S3-02): the
+            # owner's packing progress. Otherwise it is not made (503), and the same tap again
+            # ticks it once: a tick names the item and whether it is packed, not a toggle.
+            return self._commit(change, durable=True)
 
     def turn_page(self, screen_id: str, pane: int, delta: int, version: int) -> dict[str, Any]:
         """The remote turns a pane's page on the screen, one at a time (the screen puts it up and

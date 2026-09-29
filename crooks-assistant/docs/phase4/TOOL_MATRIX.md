@@ -127,10 +127,10 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `objective_show` | family:objectives | test_objective_design.py | — |
 | `screen_list` | family:screens | test_displays.py, test_r11_screens_server.py, test_screens_r10.py, test_tool_boundary.py | — |
 | `screen_off` | family:screens | test_displays.py, test_screens_r10.py | — |
-| `screen_pair` | family:screens | test_displays.py | — |
+| `screen_pair` | family:screens | test_displays.py, test_r13_screens.py | — |
 | `screen_play` | family:screens | test_screen_video.py | — |
 | `screen_remote` | family:screens | test_displays.py | — |
-| `screen_show` | family:screens | test_displays.py, test_screens_r10.py, test_tool_boundary.py | — |
+| `screen_show` | family:screens | test_displays.py, test_r13_screens.py, test_screens_r10.py, test_tool_boundary.py | — |
 | `screen_video` | family:screens | test_r11_screens_server.py, test_screen_video.py | — |
 | `shopify_abandoned_checkouts` | family:abandoned_checkouts | test_abandoned.py, test_r11_families.py | abandoned_checkouts, abandoned_window |
 | `shopify_customer_history` | command:cursor:customers, family:customer_reads | test_context.py, test_n_plus_one.py | customer_history, linked_entities, nav_home_landing, store_credit_give, store_credit_not_on_this_store |
