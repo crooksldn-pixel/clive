@@ -245,14 +245,35 @@ async def test_asking_where_it_is_shows_it_in_its_shape(desk):
     assert card["objective_id"] == obj.id and card["stages"][0]["state"] == "current"
 
 
-async def test_nothing_an_objective_holds_reaches_the_shop(desk):
-    """Stages move and tasks tick on CLIVE's own record: no read of the shop, no change sent."""
-    mutations = getattr(desk.store, "mutations_sent", None)
-    await desk.ask(SAMPLES, *open_project())
+async def test_nothing_an_objective_holds_reaches_the_shop(desk, monkeypatch):
+    """Stages move and tasks tick on CLIVE's own record: no read of the shop, no change sent.
+
+    The shop's `mutate` is watched here, so every change the application asks of it is counted
+    whatever it is — before the fixture shop's own refusal of any real change
+    (experience/fixtures/shopify.py) — and the ledger must stay empty. A counter that might not
+    exist, compared with itself, proved nothing (round 12, T4-01)."""
+    asked: list[str] = []
+    real = desk.store.mutate
+
+    async def mutate(name, variables):
+        asked.append(name)
+        return await real(name, variables)
+
+    monkeypatch.setattr(desk.store, "mutate", mutate)
+    opened = await desk.ask(SAMPLES, *open_project())
     (project,) = desk.objectives.live()
-    said = await desk.ask("Move it to production", note(project.id, action="stage", stage="Production"))
-    assert said.reads == [] and getattr(desk.store, "mutations_sent", None) == mutations
-    assert not [i for i in said.surfaces if i["type"] in ("confirmation", "batch_action")], "nothing to confirm: nothing is sent"
+    moved = await desk.ask("Move it to production", note(project.id, action="stage", stage="Production"))
+    delegated = await desk.ask(DELEGATE, *open_tasks())
+    (tasks,) = [o for o in desk.objectives.live() if o.id != project.id]
+    reads = len(desk.store.queries)
+    ticked = await desk.client.post(f"/objectives/{tasks.id}/tasks/{tasks.tasks[0]['id']}", json={"done": True}, headers=_owner())
+    assert ticked.status_code == 200 and ticked.json()["card"]["groups"][0]["done"] == 1, ticked.text
+    assert desk.objectives.get(project.id).summary()["stage"]["name"] == "Production"
+    assert opened.reads == moved.reads == delegated.reads == [] and len(desk.store.queries) == reads, "no read of the shop"
+    assert asked == [], f"a change was asked of the shop: {asked}"
+    assert desk.store.mutations_sent == 0 and desk.store.calculations == [] and desk.store.drafts == []
+    for said in (opened, moved, delegated):
+        assert not [i for i in said.surfaces if i["type"] in ("confirmation", "batch_action")], "nothing to confirm: nothing is sent"
 
 
 async def test_a_tick_and_a_turn_on_the_same_objective_both_land(desk):
