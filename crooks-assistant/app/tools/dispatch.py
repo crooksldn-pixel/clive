@@ -220,7 +220,9 @@ async def dispatch(
     except _READABLE_ERRORS as exc:
         # Client errors carry a message written to be read out ("Shopify is rate-limiting
         # us"). They must reach the model intact, not as "failed unexpectedly".
-        log.warning("tool=%s failed: %s", name, exc)
+        # The process log keeps the error as the timeline does: any of the call's own words it
+        # quotes back by their shape (round 13's third check found them in assistant.log).
+        log.warning("tool=%s failed: %s", name, _without_what_was_said(str(exc), name, args))
         if calls is not None:
             calls.append(trace.call(ToolCall(name=name, args=args, ok=False, error=str(exc), duration_ms=_elapsed(started))))
         trace.finish("error", error=str(exc), ms=_elapsed(started))
@@ -333,7 +335,7 @@ async def _stage(
         with budget.using(budget.PRECONDITION, f"stage:{trace.tool_call_id}"):
             prepared = await registry.invoke(name, args, timeout_s=timeout_s)
     except _READABLE_ERRORS as exc:
-        log.warning("tool=%s could not be prepared: %s", name, exc)
+        log.warning("tool=%s could not be prepared: %s", name, _without_what_was_said(str(exc), name, args))
         if calls is not None:
             calls.append(trace.call(ToolCall(name=name, args=args, ok=False, error=str(exc))))
         trace.finish("unprepared", error=str(exc), ms=_elapsed(started))

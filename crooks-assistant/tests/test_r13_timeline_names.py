@@ -429,9 +429,10 @@ def test_a_name_told_early_in_a_long_day_is_still_taken_out(always_on):
     timeline.note_names(["Mia Kowalski"])
     timeline.note_names([f"Person{n} Surname{n}" for n in range(400)] + [f"person{n}@example.com" for n in range(400)])
     timeline.note_names({"Mia Kowalski", *(f"Person{n} Surname{n}" for n in range(400))})
-    timeline.emit("turn_started", session_id="s-long", focus={"kind": "customer", "label": "Mia Kowalski", "ref": "gid://shopify/Customer/8"},
+    # A kind whose fields are not written by their shape, so it is the name set that takes her out.
+    timeline.emit("branch_merged", session_id="s-long", focus={"kind": "customer", "label": "Mia Kowalski", "ref": "gid://shopify/Customer/8"},
                   said="MIA KOWALSKI's parcel, and Person399 Surname399")
-    (event,) = [e for e in _events(line, store, session) if e.get("kind") == "turn_started"]
+    (event,) = [e for e in _events(line, store, session) if e.get("kind") == "branch_merged"]
     assert event["focus"]["label"] == "[name]", event
     assert "Kowalski" not in event["said"] and "Surname399" not in event["said"], event["said"]
 
@@ -439,7 +440,8 @@ def test_a_name_told_early_in_a_long_day_is_still_taken_out(always_on):
 @pytest.mark.parametrize(("kind", "fields"), [
     ("tablet_branch_switch", {"detail": "Cy Cole's orders → Orders for Zoe"}),
     ("tablet_working_set", {"label": "Cy Cole's orders"}),
-    ("tablet_action", {"label": "Zoe Quill", "question": "what did Zoe Quill order"}),
+    ("tablet_branch", {"label": "Zoe Quill"}),
+    ("tablet_action", {"question": "what did Zoe Quill order"}),
     ("command_stage", {"detail": "'Zoe Quill' is not an address I can send to."}),
     ("row_action", {"detail": "Zoe Quill's order changed meanwhile."}),
 ])
@@ -450,3 +452,74 @@ def test_what_the_tablet_echoes_and_what_a_tap_was_refused_are_written_by_shape(
     timeline.emit(kind, session_id="s-echo", **fields)
     (event,) = [e for e in _events(line, store, session) if e.get("kind") == kind]
     assert all(SHAPE.fullmatch(event[k]) for k in fields), event
+
+
+@pytest.mark.parametrize(("kind", "fields"), [
+    ("tablet_branch_switch", {"name": "same_screen"}),
+    ("tablet_tab", {"label": "Emails", "name": "order"}),
+    ("tablet_navigate", {"name": "split by customer"}),
+])
+def test_the_page_s_own_vocabulary_is_kept_for_the_report(always_on, kind, fields):
+    """The report reads these: a switch that left the screen the same, which tab he tapped."""
+    line, store, session = always_on
+    timeline.emit(kind, session_id="s-vocab", **fields)
+    (event,) = [e for e in _events(line, store, session) if e.get("kind") == kind]
+    assert all(event[k] == v for k, v in fields.items()), event
+
+
+
+# ================================================== the process log (the round-13 third check)
+
+
+async def test_a_tool_s_refusal_in_the_process_log_keeps_his_words_only_by_their_shape(listing, caplog):
+    """assistant.log is written through RedactingFilter, which took out shapes only: a refused
+    query's "Unknown group_by: zoe_quill" went to disk as said. The log line now quotes the call's
+    own words by their shape, as the timeline does."""
+    import logging
+
+    from app.session.models import Session
+
+    caplog.set_level(logging.WARNING, logger="crooks.tools")
+    with authority.acting_as(authority.for_owner("owner@example.com")):
+        await dispatch("commerce_aggregate", {"entity": "orders", "period": "last_90_days", "group_by": ["zoe_quill"],
+                                              "metrics": ["orders"]}, session=Session(session_id="s-log"), timeout_s=5)
+    lines = [r.getMessage() for r in caplog.records if "commerce_aggregate failed" in r.getMessage()]
+    assert lines and all("zoe" not in line.lower() for line in lines), lines
+
+
+def test_the_process_log_loses_the_names_this_process_was_told():
+    import logging
+
+    from app.logging.turnlog import RedactingFilter
+
+    timeline.forget_names()
+    timeline.note_names(["Mia Kowalski"])
+    try:
+        record = logging.LogRecord("crooks.tools", logging.WARNING, __file__, 1, "tool=%s failed: %s has no email address",
+                                   ("gmail_send_new", "Mia Kowalski"), None)
+        assert RedactingFilter().filter(record)
+        assert "Kowalski" not in record.getMessage() and "[name]" in record.getMessage(), record.getMessage()
+    finally:
+        timeline.forget_names()
+
+
+def test_what_a_turn_began_on_keeps_its_kind_and_ref_and_loses_its_label_s_words(always_on):
+    """Round 13's third check: `turn_started.focus` wrote an email's subject, which can carry a
+    name no read returned."""
+    line, store, session = always_on
+    timeline.emit("turn_started", session_id="s-focus",
+                  focus={"kind": "email_thread", "label": "Re: Zoe Quill's parcel", "ref": "58361c4d87dfeee5"})
+    (event,) = [e for e in _events(line, store, session) if e.get("kind") == "turn_started"]
+    assert event["focus"]["kind"] == "email_thread" and event["focus"]["ref"] == "58361c4d87dfeee5"
+    assert SHAPE.fullmatch(event["focus"]["label"]), event
+
+
+def test_numbers_are_never_taken_for_names(always_on):
+    """A postcode's digits told as a customer's detail turned the event's own time into "[name]"
+    and an order's id into "#[name]"."""
+    line, store, session = always_on
+    timeline.note_names(["2026", "1940", "12", "Mia Kowalski"])
+    timeline.emit("anything", session_id="s-numbers", order="#1940", ref="gid://shopify/Order/1940", who="Mia Kowalski")
+    (event,) = [e for e in _events(line, store, session) if e.get("kind") == "anything"]
+    assert event["iso"].startswith("20") and "[name]" not in event["iso"], event["iso"]
+    assert event["order"] == "#1940" and event["ref"] == "gid://shopify/Order/1940" and event["who"] == "[name]", event

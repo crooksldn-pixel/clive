@@ -1028,8 +1028,8 @@ async def test_add_a_note_bound_to_1938_then_1940_named_stages_nothing_on_1938(d
     (proposal,) = session.proposals
     assert proposal.entity_ref == A and proposal.status.value == "REVOKED" and proposal.delivered_at is None
     assert no_confirmation(body)
-    assert body["answer"] == ("You said #1940, but the change I'd prepared was for #1938, so I've withdrawn it. "
-                              "Say which order you want it on.")
+    assert body["answer"] == ("You'd tapped Add a note on #1938 and said #1940, so I haven't put it on either yet. "
+                              "Say which order it's for."), body["answer"]
     assert session.branch().voice_target() is None
     desk.model.steps = [reads()]
     await say(desk, "and its shipping?", sid)
@@ -1042,32 +1042,35 @@ async def test_add_a_note_bound_to_1938_then_1940_named_stages_nothing_on_1938(d
     ("part of drop-007, send it with the others", "Part of drop-007, send it with the others"),
     ("replacement for #1936", "Replacement for #1936"),
 ])
-async def test_a_note_that_mentions_another_order_is_his_note_not_a_change_aimed_elsewhere(desk, said, note):
-    """The round-11 independent check: a number said INSIDE what he is dictating is the note's
-    content, not the order it goes on. Add a note tapped on #1938, then "exchange for order 1912,
-    she wants a medium instead" noted on #1938 as asked, was withdrawn with "You said #1912, but
-    the change I'd prepared was for #1938" — and so was a tag or note carrying a code such as
-    "drop-007". The card stands, the answer does not tell him he read another order, and the
-    commit sends #1938's note."""
+async def test_a_note_that_mentions_another_order_is_asked_about_then_is_his_note(desk, said, note):
+    """The round-11 independent check found Add a note tapped on #1938, then "exchange for order
+    1912, she wants a medium instead" noted on #1938, withdrawn with "You said #1912, but the
+    change I'd prepared was for #1938" — a correction he had not earned, and the note lost. Round
+    13's independent checks found the other side: after the same tap, "no, put it on order 1940,
+    fragile", copied onto #1938, stood as dictation. No rule over the words tells the two apart,
+    so he is asked — neutrally, naming the order he tapped and the one he said — and "on this
+    one" makes it #1938's note. The commit sends #1938's note and nothing else."""
     sid = f"content-{abs(hash(said)) % 1000}"
     await _bound_to_1938(desk, sid)
     desk.model.steps = [notes(A, note)]
     body = await say(desk, said, sid)
-    card = confirmation(body)
-    assert "withdrawn" not in body["answer"] and "not #" not in body["answer"], body["answer"]
+    assert no_confirmation(body) and body["answer"].startswith("You'd tapped Add a note on #1938 and said #"), body["answer"]
+    assert "haven't put it on either" in body["answer"] and "withdrawn" not in body["answer"], body["answer"]
+    desk.model.steps = [notes(A, note)]
+    card = confirmation(await say(desk, "on this one", sid))
     assert (await commit(desk, card["proposal_id"], sid)).json()["status"] == "verified"
     assert [(n, v["id"]) for n, v in desk.store.mutations] == [("order_note_set", A)]
 
 
 async def test_a_note_naming_where_it_goes_is_still_held_to_that_order_whatever_it_mentions(desk):
     """The other side of the same rule: he names #1940 as where the note goes and mentions #1912
-    in it; a model that notes #1938 still gets nothing staged, and he is told #1940, not #1912."""
+    in it; a model that notes #1938 still gets nothing staged, and he is asked which order."""
     await _bound_to_1938(desk, "content-held")
     desk.model.steps = [notes(A, "Exchange for order 1912")]
     body = await say(desk, "add a note to order 1940: exchange for order 1912", "content-held")
     assert no_confirmation(body)
-    assert body["answer"] == ("You said #1940, but the change I'd prepared was for #1938, so I've withdrawn it. "
-                              "Say which order you want it on.")
+    assert body["answer"] == ("You'd tapped Add a note on #1938 and said #1912 and #1940, so I haven't put it on "
+                              "either yet. Say which order it's for."), body["answer"]
     assert desk.store.mutations == []
 
 

@@ -49,6 +49,9 @@ desk = test_r11_turn.desk
 
 WITHDRAWN_1940 = ("You said #1940, but the change I'd prepared was for #1938, so I've withdrawn it. "
                   "Say which order you want it on.")
+# The same, after Add a note was tapped on #1938: he is asked, not corrected.
+ASKED_AFTER_THE_TAP_1940 = ("You'd tapped Add a note on #1938 and said #1940, so I haven't put it on either yet. "
+                            "Say which order it's for.")
 # A third order, for Daniel: an order the owner neither names nor is looking at.
 C = "gid://shopify/Order/1941"
 
@@ -86,7 +89,7 @@ async def test_an_order_named_as_where_and_again_in_the_note_still_holds_the_not
     assert proposal.entity_ref == A
     assert proposal.status.value == "REVOKED" and proposal.reason == "not the order the owner named", proposal.status
     assert proposal.delivered_at is None and no_confirmation(body)
-    assert body["answer"] == WITHDRAWN_1940, body["answer"]
+    assert body["answer"] == (ASKED_AFTER_THE_TAP_1940 if tapped else WITHDRAWN_1940), body["answer"]
     assert desk.store.mutations == []
 
 
@@ -228,14 +231,42 @@ async def test_after_add_a_note_on_1938_a_note_that_is_not_his_words_cannot_carr
     assert proposal.entity_ref == A and proposal.status.value == "REVOKED" and no_confirmation(body)
 
 
-async def test_after_add_a_note_his_dictation_that_names_another_order_stands(desk):
-    """The control: Add a note tapped on #1938, and he dictates "swap it for the one on order
-    1940". The whole sentence is the note, word for word, as the tap asked: #1938's card."""
+async def test_after_add_a_note_a_dictation_naming_another_order_is_asked_about_then_placed(desk):
+    """Add a note tapped on #1938, and he dictates "swap it for the one on order 1940". Round 11
+    let the note stand at once, reading 1940 as what the tap made the note say. Round 13's third
+    check showed a tap cannot tell that from a redirect either: "no, put it on order 1940,
+    fragile", with "order 1940, fragile" noted on #1938, stood the same way. So after a tap too,
+    his words naming another order are asked about — neutrally, not as a correction — and "on
+    this one" places the note on #1938."""
     await _on_1938_with_1940_held(desk, "tapped-dictation")
     assert (await bind_note(desk, "tapped-dictation", kind="order", ref=A))["ok"] is True
     desk.model.steps = [notes(A, "Swap it for the one on order 1940.")]
-    card = confirmation(await say(desk, "swap it for the one on order 1940", "tapped-dictation"))
-    assert desk.runtime.actions.find(card["proposal_id"]).entity_ref == A
+    body = await say(desk, "swap it for the one on order 1940", "tapped-dictation")
+    proposal = _only(desk, "tapped-dictation")
+    assert proposal.entity_ref == A and proposal.status.value == "REVOKED" and no_confirmation(body)
+    assert body["answer"] == ASKED_AFTER_THE_TAP_1940, body["answer"]
+
+    desk.model.steps = [notes(A, "Swap it for the one on order 1940.")]
+    card = confirmation(await say(desk, "on this one", "tapped-dictation"))
+    placed = desk.runtime.actions.find(card["proposal_id"])
+    assert placed.entity_ref == A and placed.status.value == "PENDING"
+
+
+@pytest.mark.parametrize(("said", "note"), [
+    ("no, put it on order 1940, fragile", "order 1940, fragile"),
+    ("add a note to 1940", "note to 1940"),
+])
+async def test_after_add_a_note_his_own_words_copied_onto_the_tapped_order_do_not_move_where_he_said(desk, said, note):
+    """Round 13's third check: after a tap on #1938, these stood on #1938 with his words copied."""
+    sid = f"tapped-copied-{abs(hash(said)) % 1000}"
+    await _on_1938_with_1940_held(desk, sid)
+    assert (await bind_note(desk, sid, kind="order", ref=A))["ok"] is True
+    desk.model.steps = [notes(A, note)]
+    body = await say(desk, said, sid)
+    proposal = _only(desk, sid)
+    assert proposal.entity_ref == A and proposal.status.value == "REVOKED", (said, proposal.status)
+    assert no_confirmation(body) and body["answer"] == ASKED_AFTER_THE_TAP_1940, body["answer"]
+    assert desk.store.mutations == []
 
 
 # ============================================ a tapped control binds the record (#14, #15)
@@ -343,6 +374,31 @@ async def test_a_reply_after_reply_was_tapped_on_one_thread_is_prepared_only_in_
         assert not said.surface("confirmation"), said.surface_types
         assert said.answer.startswith("You'd tapped Reply to this"), said.answer
     assert getattr(world.store, "mutations_sent", -1) == 0
+
+
+PRIYAS_THREAD = "c28cf65d31fe6cbb"        # the golden world's thread from Priya Raman
+
+
+@pytest.mark.parametrize("tool", ["gmail_draft_new", "gmail_send_new"])
+async def test_after_reply_was_tapped_an_order_he_dictates_does_not_send_it_to_that_order_s_customer(world, tool):
+    """Round 13's third check. Reply tapped on Priya's email; he dictates "Hi Priya, so sorry,
+    David's order 1939 went to you by mistake, we'll swap it", and the model writes a NEW email
+    on #1939 — to David, with Priya's name and what happened to her. The Reply binding let an
+    order his words named send it elsewhere. Now what is written after a tapped Reply is in the
+    tapped thread, or withdrawn."""
+    sid = f"reply-new-{tool[-3:]}"
+    davids = (await world.open_order("1939", session_id=sid)).data("order")
+    await world.open_order("1940", session_id=sid)
+    bound = await world.touch("voice.bind", session_id=sid, family="email.reply", kind="email_thread", ref=PRIYAS_THREAD)
+    assert bound.raw.get("ok") is True, bound.raw
+    body = "Hi Priya, so sorry, David's order 1939 went to you by mistake, we'll swap it."
+    said = await world.ask("reply to her: " + body,
+                           (tool, {"order_id": davids["order_id"], "subject": "Your order", "body": body}),
+                           session_id=sid)
+    (proposal,) = [p for p in world.runtime.sessions.get(sid).proposals if p.tool_name == tool]
+    assert proposal.status.value == "REVOKED" and proposal.delivered_at is None, proposal.status
+    assert proposal.reason == "not the record the owner tapped"
+    assert not said.surface("confirmation"), said.surface_types
 
 
 # ============================================ a change on a person, held to the person named (#16)

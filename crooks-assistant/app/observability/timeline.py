@@ -76,15 +76,18 @@ WITHHELD_KEYS = frozenset({
 # conversations read, and still bounded, because this is a process-lifetime set. It was 256, fed
 # every turn from a conversation's whole unordered `pii_seen`: past 256 which names survived was
 # the set's iteration order, and the customer on screen could be one that did not (round 13's
-# second independent check). Names are found by their words, so the number kept costs nothing
-# per event; the least recently told go first.
+# second independent check). Names are found through a tree of their words, so a string costs
+# the same to redact however many are kept (under a millisecond for six thousand characters
+# against fifty thousand names); the least recently told go first.
 MAX_NAMES = 50_000
 # The names to replace wherever they appear in a written event: each as the words it is written
-# with, least recently told first, and indexed by its first word. Fed by `note_names` from the
-# place that already knows them (a turn's own tool results); empty until something tells it,
-# and shape redaction runs whether or not anything has.
+# with, least recently told first, and a tree of their words to find them by, so a string costs
+# the same to redact whether ten names are known or fifty thousand. Fed by `note_names` from the
+# place that already knows them (a turn's own tool results); empty until something tells it, and
+# shape redaction runs whether or not anything has.
 _names: OrderedDict[str, tuple[str, ...]] = OrderedDict()
-_by_first_word: dict[str, set[str]] = {}
+_tree: dict[str, Any] = {}
+_END = "\x00end"
 _names_lock = threading.Lock()
 _NAME_WORD = re.compile(r"\w+")
 
@@ -126,6 +129,9 @@ def scrub(value: Any, depth: int = 0) -> Any:
     if isinstance(value, bytes):
         return f"<{len(value)} bytes>"
     text = value if isinstance(value, str) else str(value)
+    # Cut near the length that is kept before redacting: a megabyte of text is not searched for
+    # names to be thrown away after. The margin keeps what straddles the final cut out of it.
+    text = text[:MAX_STRING + 400]
     text = _SECRET.sub("[secret]", text)
     text = _redact(text)
     return text if len(text) <= MAX_STRING else text[:MAX_STRING] + "…"
@@ -142,7 +148,9 @@ def note_names(names: Any) -> None:
     """
     for name in names or ():
         text = str(name or "").strip()
-        if len(text) < 3:
+        if len(text) < 3 or not any(ch.isalpha() for ch in text):
+            # A postcode's digits, a house number, an order number: not a name, and taken for one
+            # they turned the event's own time and ids into "[name]".
             continue
         words = _name_words(text)
         if not words:
@@ -152,21 +160,37 @@ def note_names(names: Any) -> None:
                 _names.move_to_end(text)
                 continue
             _names[text] = words
-            _by_first_word.setdefault(words[0], set()).add(text)
+            node = _tree
+            for word in words:
+                node = node.setdefault(word, {})
+            node.setdefault(_END, set()).add(text)
             while len(_names) > MAX_NAMES:
-                old, old_words = _names.popitem(last=False)
-                bucket = _by_first_word.get(old_words[0])
-                if bucket is not None:
-                    bucket.discard(old)
-                    if not bucket:
-                        del _by_first_word[old_words[0]]
+                _forget_one(*_names.popitem(last=False))
+
+
+def _forget_one(name: str, words: tuple[str, ...]) -> None:
+    path = [_tree]
+    for word in words:
+        nxt = path[-1].get(word)
+        if nxt is None:
+            return
+        path.append(nxt)
+    ends = path[-1].get(_END)
+    if ends is not None:
+        ends.discard(name)
+        if not ends:
+            del path[-1][_END]
+    for depth in range(len(words), 0, -1):
+        if path[depth]:
+            break
+        del path[depth - 1][words[depth - 1]]
 
 
 def forget_names() -> None:
     """Empty the name set. For tests, and for a process handed to a different shop."""
     with _names_lock:
         _names.clear()
-        _by_first_word.clear()
+        _tree.clear()
 
 
 def _names_out(text: str) -> str:
@@ -180,12 +204,14 @@ def _names_out(text: str) -> str:
     with _names_lock:
         i = 0
         while i < len(found):
-            longest = 0
-            for name in _by_first_word.get(found[i][0], ()):
-                words = _names[name]
-                n = len(words)
-                if n > longest and i + n <= len(found) and all(found[i + j][0] == words[j] for j in range(n)):
-                    longest = n
+            node, longest, j = _tree, 0, i
+            while j < len(found):
+                node = node.get(found[j][0])
+                if node is None:
+                    break
+                j += 1
+                if _END in node:
+                    longest = j - i
             if longest:
                 spans.append((found[i][1], found[i + longest - 1][2]))
                 i += longest
@@ -253,19 +279,28 @@ WORDS: dict[str, tuple[str, ...]] = {
     "branch_focused": ("headline",),
     "action_commit": ("spoken",),
     "owner_feedback": ("text",),
+    # What the turn began on: an email's subject is its label, and a subject can carry a name.
+    "turn_started": ("focus.label",),
     # A refusal a tap or a row met, as the tool gave it: it can quote what was typed or said.
     "command_stage": ("detail",),
     "row_action": ("detail",),
 }
-# What the tablet sends about itself (POST /telemetry, `tablet_<kind>`) may carry, under these
-# fields, a card's title — a customer's name, a listing titled in his words — or his question:
-# the page echoes what the Mac drew (round 13's second check found the half's headline, shaped
-# on the Mac's own event, written again in the clear as the tablet's).
-TABLET_WORDS: tuple[str, ...] = ("label", "question", "name", "detail")
+# What the tablet sends about itself (POST /telemetry, `tablet_<kind>`) that echoes what the Mac
+# drew or what he said: a listing's label (his words), a half's label and the headlines of the
+# halves on a switch (a customer's name, a listing), and any question. Only these: the rest of a
+# tablet event's `name`, `label` and `detail` are the page's own vocabulary — "same_screen", a
+# tab's name — which the report reads (round 13's second and third checks).
+TABLET_WORDS: dict[str, tuple[str, ...]] = {
+    "tablet_working_set": ("label", "question"),
+    "tablet_branch": ("label", "question"),
+    "tablet_branch_switch": ("detail", "question"),
+}
 
 
 def _words_for(kind: str) -> tuple[str, ...]:
-    return WORDS.get(kind) or (TABLET_WORDS if kind.startswith("tablet_") else ())
+    if kind in WORDS:
+        return WORDS[kind]
+    return TABLET_WORDS.get(kind, ("question",)) if kind.startswith("tablet_") else ()
 
 
 def keeps_words(session: TestSession | None) -> bool:
@@ -292,7 +327,13 @@ def _words_by_shape(event: dict[str, Any], keys: tuple[str, ...]) -> dict[str, A
             return [shaped(v) for v in value]
         return value
 
-    return {key: (shaped(value) if key in keys else value) for key, value in event.items()}
+    out = {key: (shaped(value) if key in keys else value) for key, value in event.items()}
+    for key in keys:
+        # "focus.label": a field inside a field, the rest of it kept.
+        outer, _, inner = key.partition(".")
+        if inner and isinstance(out.get(outer), dict) and inner in out[outer]:
+            out[outer] = {**out[outer], inner: shaped(out[outer][inner])}
+    return out
 
 
 def scrub_text(text: str) -> str:
@@ -553,7 +594,10 @@ class Timeline:
             words = _words_for(str(kind))
             if words and not keeps_words(session):
                 event = _words_by_shape(event, words)
-            event = scrub(event)
+            # The envelope — its time, sequence, session and kind — is the timeline's own, and is
+            # never redacted: a customer's postcode digits once turned `iso` into "[name]-09-29".
+            envelope = {key: event[key] for key in ("ts", "iso", "seq", "test_session_id", "source", "kind")}
+            event = {**envelope, **scrub({k: v for k, v in event.items() if k not in envelope})}
             self._note(event)
             line = json.dumps(event, ensure_ascii=False, default=str)
             size = len(line.encode("utf-8"))
