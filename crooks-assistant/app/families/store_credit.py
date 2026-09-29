@@ -267,6 +267,17 @@ ACTIONS: tuple[ws.Action, ...] = (
 CHANGED = "The credit changed — prepare it again."
 
 
+def _makes(workspace: dict[str, Any]) -> dict[str, Any]:
+    """What this card would give (app/families/_workspace.py `makes`): whose account, how much,
+    in what currency. The reason is on the card for the record and is not sent."""
+    return {"customer": _customer(workspace).get("customer_id"),
+            "amount": ws.value(workspace, "amount") if ws.status(workspace, "amount") == "ok" else None,
+            "currency": ws.value(workspace, "currency", "GBP").upper()}
+
+
+ws.makes(KIND, _makes)
+
+
 def given(workspace: dict[str, Any] | None) -> str:
     """Why nothing more may be done to this card — the credit is given, or it left and was not
     proven — or "" while it is still his to decide (app/families/_workspace.py "made once")."""
@@ -627,10 +638,13 @@ def _field(ctx: CommandCtx) -> Outcome:
         return _no_workspace()
     if given(workspace):
         return Outcome.refused("already_given", given(workspace))
+    before = ws.card_state(workspace)
     ok, why = ws.type_into(workspace, FIELDS, ctx.arg("field"), str(ctx.args.get("value") or ""))
     if not ok:
         return Outcome.refused("unknown_field", why)
-    gone = ws.touched(ctx.session, workspace, CHANGED)
+    # Withdrawn only when the credit it would give changes: the same amount again, or the
+    # reason (which is on the card for the record and is not sent), leaves the hold card.
+    gone = ws.touched(ctx.session, workspace, CHANGED, before=before)
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
                    changed={"workspace_id": str(workspace["workspace_id"]), "field": ctx.arg("field"),
                             "status": ws.status(workspace, ctx.arg("field")),
@@ -663,7 +677,7 @@ def _discard(ctx: CommandCtx) -> Outcome:
     if workspace is None:
         return _no_workspace()
     made = ws.finished(workspace)
-    gone = ws.touched(ctx.session, workspace, "The credit was discarded.")
+    gone = ws.withdraw(ctx.session, workspace, "The credit was discarded.")
     ws.discard(ctx.branch)
     if made is not None:
         return Outcome(answer="The card is put away; the credit it gave stays given." if made.get("state") == ws.DONE

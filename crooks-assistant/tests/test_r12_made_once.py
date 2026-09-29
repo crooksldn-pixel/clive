@@ -381,3 +381,111 @@ async def test_4_the_order_the_hold_just_made_can_be_noted_without_finding_it(sh
     assert call.ok and call.proposal_id, call.error
     assert [i for i in body["ui"] if i["type"] == "confirmation"]
     assert re.search(r"CREATED as order CROOKS-3001 \(order_id gid://shopify/Order/3001\)", shop.model.prompts[-1])
+
+
+# ============================================================ the third check: friction he would hit
+#
+# 5. A change that changes nothing withdrew the hold card — and each Prepare after it made another
+#    draft in Admin. Re-tapping "Not paid", the same email again and "cap" typed into the search
+#    made three drafts for no change. Only what the hold card would MAKE decides it now.
+# 6. "Close that" left the half-built order live: the next sentence was still told it was being
+#    built, and "add a cap" quietly went back onto the order he had put away.
+
+
+def drafts(shop) -> int:
+    return sent(shop, "draft_order_create")
+
+
+async def test_5_a_tap_that_changes_nothing_the_hold_card_makes_leaves_it_and_its_draft(shop):
+    ident = card(await open_theo(shop))["workspace_id"]
+    first = _hold_card(await tap(shop, "order.stage", workspace_id=ident))
+    for command, fields in (("order.choose", {"field": "payment", "option": "pending"}),       # "Not paid", again
+                            ("order.field", {"field": "email", "value": "theo.marsh@example.com"}),  # the same email
+                            ("order.field", {"field": "item", "value": "cap"}),                 # a search, not an item
+                            ("order.field", {"field": "quantity", "value": "2"})):              # how many of the search
+        tapped = await tap(shop, command, workspace_id=ident, **fields)
+        assert tapped["ok"] and "withdrawn" not in tapped["changed"], (command, tapped["changed"])
+        assert shop.runtime.actions.find(first["proposal_id"]).status.value == "PENDING", command
+        assert _workspace(tapped["ui"], ident)["notes"][0] != "The order changed — prepare it again."
+    again = _hold_card(await tap(shop, "order.stage", workspace_id=ident))
+    assert again["proposal_id"] == first["proposal_id"] and drafts(shop) == 1, "the same hold card, the same draft"
+
+    # A real change still withdraws it: paid, which the hold card would carry.
+    paid = await tap(shop, "order.choose", workspace_id=ident, field="payment", option="paid")
+    assert paid["changed"]["withdrawn"] == [first["proposal_id"]]
+    second = _hold_card(await tap(shop, "order.stage", workspace_id=ident))
+    assert second["proposal_id"] != first["proposal_id"]
+    assert drafts(shop) == 1, "paid or not is the completion's, not the draft's: the draft is reused"
+    # And an item actually added from the search is a change, where the search itself was not.
+    added = await tap(shop, "order.additem", workspace_id=ident)
+    assert [r["title"] for r in card(added)["rows"]] == ["Convict Hoodie", "Crooks Cap"]
+    assert shop.runtime.actions.find(second["proposal_id"]).status.value == "REVOKED"
+    assert card(added)["notes"][0] == "The order changed — prepare it again."
+    assert (await _hold(shop, second["proposal_id"])).status_code != 200
+
+
+async def test_5_a_credit_or_a_code_retyped_as_it_was_keeps_its_hold_card(shop):
+    ident = await open_credit(shop)
+    first = _hold_card(await tap(shop, "credit.stage", workspace_id=ident))
+    for fields in ({"field": "amount", "value": "20"}, {"field": "amount", "value": "£20.00"},
+                   {"field": "currency", "value": "gbp"}, {"field": "reason", "value": "a loyal customer"}):
+        tapped = await tap(shop, "credit.field", workspace_id=ident, **fields)
+        assert "withdrawn" not in tapped["changed"], fields
+    assert _hold_card(await tap(shop, "credit.stage", workspace_id=ident))["proposal_id"] == first["proposal_id"]
+    moved = await tap(shop, "credit.field", workspace_id=ident, field="amount", value="30")
+    assert moved["changed"]["withdrawn"] == [first["proposal_id"]]
+
+    code = await open_code(shop)
+    first = _hold_card(await tap(shop, "discount.stage", workspace_id=code))
+    for command, fields in (("discount.field", {"field": "code", "value": "autumn20"}),
+                            ("discount.field", {"field": "value", "value": "20"}),
+                            ("discount.choose", {"field": "basis", "option": "percentage"})):
+        tapped = await tap(shop, command, workspace_id=code, **fields)
+        assert "withdrawn" not in tapped["changed"], (command, fields)
+    assert shop.runtime.actions.find(first["proposal_id"]).status.value == "PENDING"
+    moved = await tap(shop, "discount.choose", workspace_id=code, field="basis", option="amount")
+    assert moved["changed"]["withdrawn"] == [first["proposal_id"]]
+
+
+async def test_5_the_floor_still_refuses_a_hold_card_whose_card_would_make_something_else(shop):
+    """The safety net is as it was: a change that did not pass through the withdrawal is still
+    refused at the door, and a search typed is still not such a change."""
+    ident = card(await open_theo(shop))["workspace_id"]
+    first = _hold_card(await tap(shop, "order.stage", workspace_id=ident))
+    workspace = shop.runtime.sessions.get("g1").branch().workspace
+    workspace["values"]["item"] = "a search nobody finished"
+    workspace["choices"]["payment"] = "paid"                 # moved, and nothing withdrew it
+    refused = await _hold(shop, first["proposal_id"])
+    assert refused.status_code == 409 and "The card changed since this was prepared" in refused.text
+    assert sent(shop, "draft_order_complete") == 0
+
+
+async def test_6_an_order_he_closed_is_not_what_add_a_cap_goes_onto(shop):
+    ident = card(await open_theo(shop))["workspace_id"]
+    closed = await say(shop, "close that", ("close_screen", {}))
+    assert closed.get("screen") == "cleared", closed.get("screen")
+    body = await say(shop, "add a cap", ("shopify_order_build", {"add": [{"item": "cap"}]}))
+    assert f"({ident})" not in shop.model.prompts[-1] and "building a new order" not in shop.model.prompts[-1]
+    refused = next(c for c in reversed(shop.model.calls) if c.name == "shopify_order_build")
+    assert not refused.ok and "the order for Theo Marsh was put away" in refused.error
+    assert "Ask which order he means, or open a new one" in refused.error
+    assert not [i for i in body["ui"] if i["type"] == "workspace"]
+    branch = shop.runtime.sessions.get("g1").branch()
+    assert [line["title"] for line in branch.workspace["facts"]["lines"]] == ["Convict Hoodie"], "nothing went onto it"
+
+
+async def test_6_brought_back_it_is_the_order_being_built_again_with_its_lines(shop):
+    ident = card(await open_theo(shop))["workspace_id"]
+    await say(shop, "and a print at twelve pounds", ("shopify_order_build", {"add": [{"title": "Print", "price": 12}]}))
+    await say(shop, "close that", ("close_screen", {}))
+    back = await say(shop, "pull that back up", ("show_again", {"kind": "building"}))
+    assert [r["title"] for r in _workspace(back["ui"], ident)["rows"]] == ["Convict Hoodie", "Print"]
+    added = await say(shop, "add a cap", ("shopify_order_build", {"add": [{"item": "cap"}]}))
+    assert f"building a new order ({ident})" in shop.model.prompts[-1]
+    assert [r["title"] for r in card(added)["rows"]] == ["Convict Hoodie", "Print", "Crooks Cap"]
+
+    # And in one breath: brought back and changed in the same sentence.
+    await say(shop, "close that", ("close_screen", {}))
+    both = await say(shop, "bring that order back and take the print off",
+                     ("show_again", {"kind": "building"}), ("shopify_order_build", {"lines": [{"line": 2, "quantity": 0}]}))
+    assert [r["title"] for r in _workspace(both["ui"], ident)["rows"]] == ["Convict Hoodie", "Crooks Cap"]

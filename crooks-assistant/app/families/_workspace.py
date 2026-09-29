@@ -161,6 +161,25 @@ def discard(branch: Any) -> None:
     branch.workspace = None
 
 
+def on_glass(branch: Any, workspace: dict[str, Any] | None) -> bool:
+    """Whether this workspace is the card on this half's screen — what the Mac last drew there
+    (`Branch.last_ui`), or opened, changed or brought back since it last drew anything.
+
+    A workspace he has put away — "close that" (`close_screen`, `Branch.cleared`), his own Back,
+    another screen in its place — is still held, so "pull that back up" brings it back with
+    everything on it; but it is not the thing being built, and a sentence is not quietly applied
+    to a card he cannot see (round 12's third check). There is no flag for this: it is the same
+    record of his screen that the turn reports as `screen`."""
+    if not isinstance(workspace, dict):
+        return False
+    if float(workspace.get("at") or 0) >= float(getattr(branch, "last_at", 0.0) or 0.0):
+        return True
+    ident = str(workspace.get("workspace_id") or "")
+    return any(isinstance(item, dict) and item.get("type") == "workspace"
+               and str((item.get("data") or {}).get("workspace_id") or "") == ident
+               for item in (getattr(branch, "last_ui", None) or []))
+
+
 # The family that draws each kind of workspace, by module, for the two places that draw one
 # again without being that family: the answer to a gesture (app/screen.py `after_gesture`) and
 # "bring it back" (app/tools/show_again.py). Each module has `workspace_surface(workspace)`.
@@ -170,11 +189,13 @@ _DRAWN_BY = {"order_draft": "app.families.order_create", "discount": "app.famili
 
 def drawn(branch: Any, workspace_id: str = "") -> dict[str, Any] | None:
     """This half's workspace drawn as its family draws it now, as a `ui` item — or None when
-    the half holds no such workspace, or its family cannot draw it."""
+    the half holds no such workspace, or its family cannot draw it. Drawn means put back on the
+    glass: from now it is the card on his screen again (`on_glass`)."""
     workspace = held(branch, workspace_id=workspace_id)
     module = _DRAWN_BY.get(str((workspace or {}).get("kind") or ""))
     if workspace is None or module is None:
         return None
+    workspace["at"] = _now()
     import importlib
 
     try:
@@ -262,17 +283,34 @@ def live(workspace_id: str) -> dict[str, Any] | None:
     return _LIVE.get(str(workspace_id or ""))
 
 
+# What each kind of workspace would MAKE, as its family says it (`makes`): the lines and the
+# money, who it is for and where it goes — never a word typed into a search box. A hold card is
+# for exactly that, so that and nothing else decides whether a change to the card has made the
+# hold card stale (round 12's third check: re-tapping the choice already made, re-posting the
+# same email or typing "cap" into "Add an item" each withdrew the hold card, and each Prepare
+# after it made another draft in Admin, for no change at all).
+_MAKES: dict[str, Callable[[dict[str, Any]], Any]] = {}
+
+
+def makes(kind: str, what: Callable[[dict[str, Any]], Any]) -> None:
+    """A family's word on what its workspace would make — anything JSON can carry."""
+    _MAKES[str(kind)] = what
+
+
 def card_state(workspace: dict[str, Any] | None) -> str:
-    """What the card says — every value and every choice — as one short digest. A change
-    carries the digest of the card it was prepared from (`prepared_as`), and before it is
-    applied the card is read again: a card changed since is a change nobody has authorised."""
+    """What the card would make, as one short digest. A change carries the digest of the card it
+    was prepared from (`prepared_as`), and before it is applied the card is read again: a card
+    that would now make something else is a change nobody has authorised. A family that has not
+    said what its card makes is held to every value, every choice and its lines."""
     if not isinstance(workspace, dict):
         return ""
     import hashlib
     import json
 
-    body = {"values": workspace.get("values") or {}, "choices": workspace.get("choices") or {},
-            "lines": (workspace.get("facts") or {}).get("lines")}
+    what = _MAKES.get(str(workspace.get("kind") or ""))
+    body = what(workspace) if what is not None else {
+        "values": workspace.get("values") or {}, "choices": workspace.get("choices") or {},
+        "lines": (workspace.get("facts") or {}).get("lines")}
     return hashlib.sha256(json.dumps(body, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
@@ -299,14 +337,25 @@ def _clear_failure(workspace: dict[str, Any]) -> None:
         _NOTED.pop(ident, None)
 
 
-def touched(session: Any, workspace: dict[str, Any] | None, words: str) -> list[str]:
-    """The card has just been changed, by a tap or by voice. A hold card still waiting that was
-    prepared from it is for what the card USED to say — holding it would make that — so it is
-    withdrawn, and the card says so in `words` until it is prepared again. Returns the ids of the
-    hold cards withdrawn, for the tablet to settle (round 12's second check).
+def touched(session: Any, workspace: dict[str, Any] | None, words: str, *, before: str) -> list[str]:
+    """The card has just been changed, by a tap or by voice; `before` is what it would have made
+    just before (`card_state`). When it would now make something else, a hold card still waiting
+    that was prepared from it is for what it USED to make — holding it would make that — so it is
+    withdrawn, and the card says so in `words` until it is prepared again. When it would make the
+    same thing — the choice already made tapped again, the same email, a word typed into a search
+    — nothing is withdrawn and the hold card stands. Returns the ids of the hold cards withdrawn,
+    for the tablet to settle (round 12's second and third checks).
 
     A spoken change has usually been beaten to it — every new instruction withdraws what was
     waiting (app/routes/turn.py) — and the line on the card is said all the same."""
+    if not isinstance(workspace, dict) or card_state(workspace) == before:
+        return []
+    return withdraw(session, workspace, words)
+
+
+def withdraw(session: Any, workspace: dict[str, Any] | None, words: str) -> list[str]:
+    """Withdraw every hold card still waiting that was prepared from this card, whatever the
+    card says now — for a card that has changed (`touched`) or been thrown away."""
     if not isinstance(workspace, dict):
         return []
     ident = str(workspace.get("workspace_id") or "")

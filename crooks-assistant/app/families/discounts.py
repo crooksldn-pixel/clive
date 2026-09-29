@@ -395,6 +395,15 @@ ACTIONS: tuple[ws.Action, ...] = (
 CHANGED = "The code changed — prepare it again."
 
 
+def _makes(workspace: dict[str, Any]) -> dict[str, Any]:
+    """What this card would make (app/families/_workspace.py `makes`): the code, what it takes
+    off, when, how often — every field and choice on it, each of which goes into the code."""
+    return {"values": dict(workspace.get("values") or {}), "choices": dict(workspace.get("choices") or {})}
+
+
+ws.makes(KIND, _makes)
+
+
 def created(workspace: dict[str, Any] | None) -> str:
     """Why nothing more may be done to this card — the code exists, or it left and was not
     proven — or "" while it is still his to write (app/families/_workspace.py "made once")."""
@@ -804,12 +813,14 @@ def _field(ctx: CommandCtx) -> Outcome:
     if created(workspace):
         return Outcome.refused("already_created", created(workspace))
     name = ctx.arg("field")
+    before, was = ws.card_state(workspace), ws.value(workspace, name)
     ok, why = ws.type_into(workspace, FIELDS, name, str(ctx.args.get("value") or ""))
     if not ok:
         return Outcome.refused("unknown_field", why)
-    gone = ws.touched(ctx.session, workspace, CHANGED)
+    # Withdrawn only when the code it would make changes: the same value typed again is not.
+    gone = ws.touched(ctx.session, workspace, CHANGED, before=before)
     withdrew = {"withdrawn": gone, "withdrawn_words": CHANGED} if gone else {}
-    if name == "code":
+    if name == "code" and ws.value(workspace, "code") != was:
         # The code moved: what the card says about the collision is now about the old one.
         workspace["facts"].pop("checked_code", None)
         workspace["facts"].pop("taken_by", None)
@@ -827,10 +838,11 @@ def _choose(ctx: CommandCtx) -> Outcome:
         return _no_workspace()
     if created(workspace):
         return Outcome.refused("already_created", created(workspace))
+    before = ws.card_state(workspace)
     ok, why = ws.choose(workspace, CHOICES, ctx.arg("field"), ctx.arg("option"))
     if not ok:
         return Outcome.refused("unknown_choice", why)
-    gone = ws.touched(ctx.session, workspace, CHANGED)
+    gone = ws.touched(ctx.session, workspace, CHANGED, before=before)
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
                    changed={"workspace_id": str(workspace["workspace_id"]), "chose": ctx.arg("option"),
                             **({"withdrawn": gone, "withdrawn_words": CHANGED} if gone else {})})
@@ -867,7 +879,7 @@ def _discard(ctx: CommandCtx) -> Outcome:
     if workspace is None:
         return _no_workspace()
     made = ws.finished(workspace)
-    gone = ws.touched(ctx.session, workspace, "The code was discarded.")
+    gone = ws.withdraw(ctx.session, workspace, "The code was discarded.")
     ws.discard(ctx.branch)
     if made is not None:
         return Outcome(answer="The card is put away; the code it made stays." if made.get("state") == ws.DONE

@@ -882,13 +882,23 @@ def already_made(workspace: dict[str, Any] | None) -> str:
             "making it again, or say 'a new order for …' to start another.")
 
 
+def _put_away(workspace: dict[str, Any]) -> str:
+    """What the model is told when it reaches for an order he has put away."""
+    chosen = _chosen_customer(workspace) or {}
+    who = f" for {chosen['name']}" if chosen.get("name") else ""
+    return (f"Nothing is being built on the owner's screen: the order{who} was put away, and it changes only "
+            "once he asks for it back (show_again). Ask which order he means, or open a new one with "
+            f"{OPEN_TOOL}.")
+
+
 def where_line(branch: Any) -> str:
     """One clause for the turn's "where we are" (app/routes/turn.py): that a new order is being
     built on this half, for whom, and how it is changed — so a sentence about it goes to the
     card on the screen rather than starting another. Once the card has made its order it says
     THAT, so "now add a cap to it" is not taken for a change to an order still being built."""
     workspace = ws.held(branch, KIND)
-    if workspace is None:
+    if workspace is None or not ws.on_glass(branch, workspace):
+        # Nothing, or one he has put away: not the thing being built, and not offered as it.
         return ""
     chosen = _chosen_customer(workspace)
     who = chosen["name"] if chosen else (ws.value(workspace, "customer") or "nobody yet")
@@ -1386,14 +1396,17 @@ async def shopify_order_build(workspace_id: str = "", add: list | None = None, l
     workspace = ws.held(branch, KIND, str(workspace_id or ""))
     if workspace is None:
         raise ToolError("There is no order being built on this half. Open one with shopify_order_open.")
+    if not ws.on_glass(branch, workspace):
+        raise ToolError(_put_away(workspace))
     made = already_made(workspace)
     if made:
         raise ToolError(made)
     if not any(v not in (None, "", []) for v in (add, lines, percent_off, amount_off, postage, note, customer,
                                                  customer_id, ship_to, address, paid)):
         raise ToolError("Say what to change on the order.")
-    # A hold card prepared from the card as it was is for that, not for what it is about to say.
-    ws.touched(session, workspace, CHANGED)
+    # A hold card prepared from the card as it was is for that; whether this changes what the
+    # card would make is decided once every part of the request has been applied (below).
+    before = ws.card_state(workspace)
     done: list[str] = []
     not_done: list[dict[str, Any]] = []
 
@@ -1456,6 +1469,7 @@ async def shopify_order_build(workspace_id: str = "", add: list | None = None, l
         ws.choose(workspace, _choices(workspace), "payment", "paid" if paid else "pending")
         _changed(workspace)
         done.append("marked as already paid" if paid else "not paid — to be invoiced")
+    _touch(session, workspace, before)
     return {
         **_state(workspace, session), "done": done, "not_done": not_done,
         "note": "On the owner's screen; nothing is created. Prepare the order is his tap, then a hold.",
@@ -1730,12 +1744,13 @@ def _joined(parts: list[str]) -> str:
     return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
-def _line_fingerprint(workspace: dict[str, Any]) -> str:
-    """A hash of everything a draft is built from, so a draft already made can be REUSED
-    when nothing has changed and never when something has. Without this, preparing twice —
-    a card that expired, a second epoch — leaves two drafts in Admin and completes one."""
+def _makes(workspace: dict[str, Any]) -> dict[str, Any]:
+    """What this card would make (app/families/_workspace.py `makes`): who it is for, where the
+    confirmation and the parcel go, every line and discount, the postage, the note and whether it
+    is paid. Not what is typed into "Add an item" — a search is not an order — and not how the
+    chosen customer's own address was last read, which Prepare reads again."""
     chosen = _chosen_customer(workspace) or {}
-    body = {
+    return {
         "customer": chosen.get("customer_id"),
         "email": ws.value(workspace, "email"),
         "lines": expected_signature(workspace),
@@ -1744,10 +1759,21 @@ def _line_fingerprint(workspace: dict[str, Any]) -> str:
         "address": ws.chosen(workspace, "address", "customer"),
         "source": (ws.fact(workspace, "source") or {}).get("address"),
         "given": ws.fact(workspace, "given_address"),
-        # The customer's own address as read at this prepare: moved in Admin since the last
-        # draft, it is a different draft.
-        "postal": (_chosen_customer(workspace) or {}).get("postal"),
+        "paid": ws.chosen(workspace, "payment", "pending"),
     }
+
+
+ws.makes(KIND, _makes)
+
+
+def _line_fingerprint(workspace: dict[str, Any]) -> str:
+    """A hash of everything a draft is built from, so a draft already made can be REUSED
+    when nothing has changed and never when something has. Without this, preparing twice —
+    a card that expired, a second epoch — leaves two drafts in Admin and completes one."""
+    body = {k: v for k, v in _makes(workspace).items() if k != "paid"}
+    # The customer's own address as read at this prepare: moved in Admin since the last
+    # draft, it is a different draft.
+    body["postal"] = (_chosen_customer(workspace) or {}).get("postal")
     return _digest(body)
 
 
@@ -1962,6 +1988,8 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
     workspace = ws.held(branch, KIND, str(workspace_id))
     if workspace is None:
         raise ToolError("There is no order open on this half to create.")
+    if not ws.on_glass(branch, workspace):
+        raise ToolError(_put_away(workspace))
     made = already_made(workspace)
     if made:
         raise ToolError(made)
@@ -2131,6 +2159,17 @@ def _no_workspace() -> Outcome:
     return Outcome.refused("no_workspace", "There is no order being built on this half.")
 
 
+def _touch(session: Any, workspace: dict[str, Any], before: str) -> list[str]:
+    """After a change: when the card would now make something else, the hold card prepared from
+    it is withdrawn (`ws.touched`); and when the draft priced for it no longer carries what the
+    card says, it is not this order any more. Paid or not is the completion's and not the
+    draft's, so a draft outlives it and Prepare reuses it: no draft in Admin for nothing."""
+    draft = ws.fact(workspace, "draft") or {}
+    if draft and draft.get("fingerprint") != _line_fingerprint(workspace):
+        workspace["facts"].pop("draft", None)
+    return ws.touched(session, workspace, CHANGED, before=before)
+
+
 def _withdrew(gone: list[str], changed: dict[str, Any]) -> dict[str, Any]:
     """A command's `changed`, naming the hold cards its change withdrew (`ws.touched`) and the
     line the tablet settles them with."""
@@ -2167,22 +2206,24 @@ def _field(ctx: CommandCtx) -> Outcome:
     if already_made(workspace):
         return _made(workspace)
     name = ctx.arg("field")
+    before, was = ws.card_state(workspace), ws.value(workspace, name)
     ok, why = ws.type_into(workspace, FIELDS, name, str(ctx.args.get("value") or ""))
     if not ok:
         return Outcome.refused("unknown_field", why)
-    gone = ws.touched(ctx.session, workspace, CHANGED)
-    if name == "customer":
+    if name == "customer" and ws.value(workspace, "customer") != was:
         # The name moved: whoever the card said it was is now about the old one.
         workspace["facts"].pop("customer", None)
         workspace["facts"].pop("candidates", None)
         workspace["facts"].pop("by_id", None)
-        workspace["facts"].pop("draft", None)
+        gone = _touch(ctx.session, workspace, before)
         if ws.value(workspace, "customer"):
             return Outcome(answer="", changed=_withdrew(gone, {"recipe": "order_customer",
                                                                "workspace_id": str(workspace["workspace_id"]), "field": name}))
-    if name in ("item", "quantity", "discount", "postage", "email", "note"):
-        # Anything that changes what the draft would be makes a draft already made stale.
-        workspace["facts"].pop("draft", None)
+    # Whether the hold card waiting still stands is what the card would MAKE: the same email
+    # again, or a word typed into "Add an item", makes nothing else. (A draft already made is
+    # reused only while it is exactly this card — `_line_fingerprint` at Prepare — so nothing
+    # here has to throw it away.)
+    gone = _touch(ctx.session, workspace, before)
     if name == "email" and ws.value(workspace, "email"):
         ctx.session.remember_pii(ws.value(workspace, "email"))
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
@@ -2196,11 +2237,11 @@ def _choose(ctx: CommandCtx) -> Outcome:
         return _no_workspace()
     if already_made(workspace):
         return _made(workspace)
+    before = ws.card_state(workspace)
     ok, why = ws.choose(workspace, _choices(workspace), ctx.arg("field"), ctx.arg("option"))
     if not ok:
         return Outcome.refused("unknown_choice", why)
-    gone = ws.touched(ctx.session, workspace, CHANGED)
-    workspace["facts"].pop("draft", None)
+    gone = _touch(ctx.session, workspace, before)
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
                    changed=_withdrew(gone, {"workspace_id": str(workspace["workspace_id"]), "chose": ctx.arg("option")}))
 
@@ -2220,11 +2261,10 @@ def _pick_customer(ctx: CommandCtx) -> Outcome:
         # Fail closed. The tablet may only choose one of the people the Mac itself found;
         # a posted id that was not among them is not a choice, it is a guess.
         return Outcome.refused("unknown_customer", "That is not one of the customers I found.")
-    gone = ws.touched(ctx.session, workspace, CHANGED)
+    # The recipe reads who that is and chooses them, and says whether that changed the card.
     workspace["facts"]["chose_customer"] = wanted
-    workspace["facts"].pop("draft", None)
-    return Outcome(answer="", changed=_withdrew(gone, {"recipe": "order_customer", "workspace_id": str(workspace["workspace_id"]),
-                                                       "customer_id": wanted}))
+    return Outcome(answer="", changed={"recipe": "order_customer", "workspace_id": str(workspace["workspace_id"]),
+                                       "customer_id": wanted})
 
 
 def _add_item(ctx: CommandCtx) -> Outcome:
@@ -2244,18 +2284,19 @@ def _add_item(ctx: CommandCtx) -> Outcome:
         pick = next((p for p in ws.fact(workspace, "picks") or [] if str(p.get("variant_id")) == wanted), None)
         if pick is None:
             return Outcome.refused("not_offered", "That is not one of the items this order offered; search for it again.")
-        gone = ws.touched(ctx.session, workspace, CHANGED)
+        before = ws.card_state(workspace)
         quantity = int(ws.fact(workspace, "picks_quantity") or 1)
         add_variant(workspace, pick, quantity)
         ws.type_into(workspace, FIELDS, "item", "")
         ws.type_into(workspace, FIELDS, "quantity", "1")
+        gone = _touch(ctx.session, workspace, before)
         return Outcome(answer=_spoken(workspace), surfaces=[workspace_surface(workspace)],
                        changed=_withdrew(gone, {"workspace_id": str(workspace["workspace_id"]), "added": wanted}))
     if not ws.value(workspace, "item"):
         return Outcome.refused("no_item", "Type a SKU, or the words for the item, first.")
-    gone = ws.touched(ctx.session, workspace, CHANGED)
-    return Outcome(answer="", changed=_withdrew(gone, {"recipe": "order_line", "workspace_id": str(workspace["workspace_id"]),
-                                                       "slots": {"product": ws.value(workspace, "item")}}))
+    # Only a search so far: the recipe reads the catalogue, and an item it adds is the change.
+    return Outcome(answer="", changed={"recipe": "order_line", "workspace_id": str(workspace["workspace_id"]),
+                                       "slots": {"product": ws.value(workspace, "item")}})
 
 
 def _remove_item(ctx: CommandCtx) -> Outcome:
@@ -2270,8 +2311,9 @@ def _remove_item(ctx: CommandCtx) -> Outcome:
     lines = [line for line in current if line["key"] != key]
     if not key or len(lines) == len(current):
         return Outcome.refused("no_line", "There is no line for that on this order.")
-    gone = ws.touched(ctx.session, workspace, CHANGED)
+    before = ws.card_state(workspace)
     _set_lines(workspace, lines)
+    gone = _touch(ctx.session, workspace, before)
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
                    changed=_withdrew(gone, {"workspace_id": str(workspace["workspace_id"]), "removed": key}))
 
@@ -2302,7 +2344,7 @@ def _discard(ctx: CommandCtx) -> Outcome:
     draft = ws.fact(workspace, "draft") or {}
     made = finished(workspace)
     # A hold card for a card thrown away is not something to hold.
-    gone = ws.touched(ctx.session, workspace, "The order was discarded.")
+    gone = ws.withdraw(ctx.session, workspace, "The order was discarded.")
     ws.discard(ctx.branch)
     if made is not None:
         # The card goes; the order it made does not.
@@ -2355,6 +2397,7 @@ def _customer_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     body = result.values.get("customer")
     if not isinstance(body, dict):
         return RecipeAnswer(answer="", defer="the shop did not answer about that customer")
+    before = ws.card_state(workspace)
     found = [c for c in (body.get("customers") or []) if isinstance(c, dict) and c.get("customer_id")]
     workspace["facts"]["candidates"] = [
         {"customer_id": str(c["customer_id"]), "name": str(c.get("name") or ""),
@@ -2370,6 +2413,8 @@ def _customer_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
         one = workspace["facts"]["candidates"][0]
     if one is not None:
         choose_row(workspace, one)
+    # Another customer is another order; the one already chosen, chosen again, is not.
+    _touch(ctx.session, workspace, before)
     chosen = _chosen_customer(workspace)
     if chosen:
         ctx.session.remember_pii(*[v for v in (chosen.get("name"), chosen.get("email"), chosen.get("address")) if v])
@@ -2412,10 +2457,13 @@ def _line_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     candidates = [c for c in (body.get("candidates") or []) if isinstance(c, dict) and c.get("variant_id")]
     words = str((ctx.slots or {}).get("product") or ws.value(workspace, "item"))
     quantity = int(ws.value(workspace, "quantity", "1") or 1) if ws.status(workspace, "quantity") == "ok" else 1
+    before = ws.card_state(workspace)
     found = offer(workspace, candidates, words, quantity)
     if "added" in found:
         ws.type_into(workspace, FIELDS, "item", "")
         ws.type_into(workspace, FIELDS, "quantity", "1")
+    # An item added is a change to what the card makes; a choice offered is not yet.
+    _touch(ctx.session, workspace, before)
     return RecipeAnswer(
         answer=_spoken(workspace), calls=list(result.calls), drawn=[],
         surfaces=[workspace_surface(workspace)], partial=result.partial,
