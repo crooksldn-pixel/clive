@@ -4,10 +4,12 @@ review of 361b0138, RC-4a).
 Every sentence is the model's (the owner's decision of 28 September 2026). What these hold is the
 check that runs AFTER the model, on what it did (`app/routes/turn.py` `_off_target`):
 
-* a number the owner said outside the change's own written content is where the change goes,
-  counted place by place rather than subtracted as a set, so "add a note to order 1940: 1940 goes
-  with the gift box" still names #1940 as where it goes (S2a-01, R9-I-tests2-I-01,
-  R9-I-tests5-I-03);
+* every place the owner named an order is where the change goes, unless it stands inside his
+  own words that the change writes word for word, with two of his words before it, not from the
+  start of his sentence unless a tapped control made it the dictation, and never on a change
+  that cannot be undone (`_written_places`). So "add a note to order 1940: 1940 goes with the
+  gift box" still names #1940 as where it goes, and the model's own words — "1940: fragile", a
+  refund's reason repeating 1940 — cancel nothing (S2a-01, R9-I-tests2-I-01, R9-I-tests5-I-03);
 * a change made under a tapped control — Add a note, Reply — lands on the record the tap bound,
   unless his own words named another (R9-D1-D1-02, R9-D2-D2-04);
 * a change on a person — store credit — goes only to the person he named, and not at all when

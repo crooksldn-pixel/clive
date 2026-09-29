@@ -4,10 +4,10 @@ The evidence builder's open item. A £20 store credit is sent, and Shopify's ans
 back (a read timeout: neither `unsent` nor `refused`). The engine settles it as failed,
 `service_unavailable`, because its one re-read still shows £15. The card the credit was prepared
 from already knew better (round 13, S2b-02): it left, so it is "sent, not confirmed" and makes
-nothing more. But beside it the result card read "Not applied — Shopify could not be reached.
-Nothing was changed.", the hold card settled from the same code to "Not applied", and the voice
-said the same. On the owner's screen that is two answers, and one of them invites him to give the
-credit again in Admin.
+nothing more. But beside it the result card was titled "Not applied", the hold card settled from
+the same code (`service_unavailable`) to "Not applied", and /actions/states went on calling it
+failed. On the owner's screen that is two answers, and one of them invites him to give the credit
+again.
 
 Now the commit's answer, the result card, the voice and every later reconciliation say what the
 workspace says: sent, not confirmed. A send proven not to have left keeps saying "Not applied",

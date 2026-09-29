@@ -350,3 +350,18 @@ def test_what_a_change_says_is_kept_in_a_session_he_named(walkthrough):
     timeline.emit("action_commit", session_id="s-named", spoken="Reply sent to David.")
     (event,) = [e for e in _events(line, store, session) if e.get("kind") == "action_commit"]
     assert event["spoken"] == "Reply sent to David."
+
+
+async def test_in_a_session_he_named_a_ranking_s_names_are_taken_out_of_its_own_label(walkthrough, listing):
+    """His walkthrough keeps his words, and still loses the names a read returns — including in
+    the event the read writes about itself, before the tool has returned: a customer ranking's
+    names are noted before its working set is written."""
+    from app.session.models import Session
+
+    line, store, session = walkthrough
+    with authority.acting_as(authority.for_owner("owner@example.com")):
+        await dispatch("commerce_aggregate", {"entity": "customers", "period": "last_90_days", "metrics": ["lifetime_spent"],
+                                              "limit": 3, "title": "Top three, Cy Cole first"},
+                       session=Session(session_id="s-named-ranking"), timeout_s=5)
+    (made,) = [e for e in _events(line, store, session) if e.get("kind") == "working_set"]
+    assert "Cy Cole" not in made["label"] and made["label"].startswith("Top three"), made["label"]

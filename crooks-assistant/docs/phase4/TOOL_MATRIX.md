@@ -104,7 +104,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `batch_order_tags_add` | the model only | test_batch.py, test_council_fixes.py | — |
 | `batch_order_tags_remove` | the model only | test_batch.py | — |
 | `close_screen` | family:put_away | test_r12_surfaces.py | — |
-| `commerce_aggregate` | recipe:landing_sales, recipe:landing_products, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_working_sets.py | landing_products, landing_sales |
+| `commerce_aggregate` | recipe:landing_sales, recipe:landing_products, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_r13_timeline_names.py, test_working_sets.py | landing_products, landing_sales |
 | `commerce_capabilities` | family:capability_reads | — | — |
 | `commerce_query` | recipe:landing_orders, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_query_engine_p3.py, test_r11_families.py, test_r13_timeline_names.py, test_read_budget.py, test_working_sets.py | landing_orders, next_previous |
 | `commerce_summary` | family:summary_surfaces | test_n_plus_one.py, test_summaries.py | — |
