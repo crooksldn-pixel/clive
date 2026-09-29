@@ -56,7 +56,13 @@ every other owner route of the app: the screens do not change that, app/main.py.
 
 A screen using the remote's routes is still a screen (round 11, B-04): a done it marks there is
 recorded as a screen's word, not the owner's remote (DisplayStore.screen_device, told by the key
-it carries or the tailnet address its key-holder asks from)."""
+it carries or the tailnet address its key-holder asks from).
+
+And the owner's own hand (round 12, web/lift.js): he holds an order or an objective on his app
+and drops it on one of his screens, or taps the screen in the tray that rises. `POST
+/displays/{id}/show` names the conversation it was held in and the record as its card carries it,
+and nothing else; it is the screen_show tool run for his tap, through the gate
+(app/displays/put.py), so a drop can put up nothing a sentence could not."""
 
 from __future__ import annotations
 
@@ -174,6 +180,18 @@ class PlayingBody(BaseModel):
     blocked: bool = Field(default=False, strict=True)
     # YouTube's own error number, when the player would not play it (not embeddable, gone, ...).
     error: int | None = Field(default=None, ge=0, le=999, strict=True)
+
+
+class HeldBody(BaseModel):
+    """What the owner's hand put on a screen (round 12): the conversation it was held in, and the
+    record as the card carried it — its kind and id. Nothing else is taken (422): what the screen
+    shows of it is built from CLIVE's own record by the screen_show tool, never from the page."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=1, max_length=200)
+    kind: Literal["order", "objective"]
+    ref: str = Field(min_length=1, max_length=200)
 
 
 class OffBody(BaseModel):
@@ -504,3 +522,22 @@ async def remote_off(screen_id: str, body: OffBody) -> dict | JSONResponse:
         return _fresh(store().remote(screen_id))
     except DisplayError as exc:
         return _remote_refusal(exc)
+
+
+# ---- the owner's own hand (round 12) ------------------------------------------------------
+
+
+@router.post("/{screen_id}/show", response_model=None)
+async def show_held(screen_id: str, body: HeldBody, request: Request) -> dict | JSONResponse:
+    """An order or an objective the owner held and dropped on this screen, or picked it for in
+    the tray (web/lift.js): put up as his spoken request would put it up, by the screen_show tool
+    through the gate (app/displays/put.py). Refused when the conversation has gone or is another
+    login's, when the screen has gone or is waiting for approval, and when the record was not
+    shown in this conversation; then nothing is read and nothing on the screen changes."""
+    from app.displays import put
+
+    try:
+        return _fresh(await put.put_held(request, screen_id, body.kind, body.ref, session_id=body.session_id))
+    except put.Refused as exc:
+        return JSONResponse(status_code=exc.status, content={"code": exc.code, "detail": exc.detail},
+                            headers={"Cache-Control": "no-store"})
