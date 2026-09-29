@@ -1,0 +1,131 @@
+{
+  "id": "obj_ac108561",
+  "title": "Get the SS26 lookbook shot",
+  "request": "Get the SS26 lookbook shot before the drop on the 14th",
+  "created_at": "2026-09-29T00:57:49Z",
+  "updated_at": "2026-09-29T00:57:49Z",
+  "status": "blocked",
+  "status_set_by": null,
+  "deadline": "2026-10-14",
+  "facts": [
+    {
+      "id": "f_aa602d98",
+      "text": "The drop goes live on the 14th",
+      "source": "owner",
+      "at": "2026-09-29T00:57:49Z"
+    }
+  ],
+  "unknowns": [
+    {
+      "id": "u_4f8c2c6e",
+      "text": "Which studio is free that week",
+      "at": "2026-09-29T00:57:49Z",
+      "resolved_at": null
+    }
+  ],
+  "blockers": [
+    {
+      "id": "b_083a230e",
+      "text": "No studio-booking tool",
+      "kind": "missing_capability",
+      "at": "2026-09-29T00:57:49Z",
+      "resolved_at": null,
+      "capability": "studio booking"
+    }
+  ],
+  "items": [
+    {
+      "id": "w_d3011b47",
+      "text": "Shortlist three studios",
+      "state": "started",
+      "needs_owner": false,
+      "evidence": null,
+      "history": [
+        {
+          "state": "proposed",
+          "at": "2026-09-29T00:57:49Z",
+          "by": "clive"
+        },
+        {
+          "state": "started",
+          "at": "2026-09-29T00:57:49Z",
+          "by": "clive"
+        }
+      ]
+    },
+    {
+      "id": "w_c15a1c32",
+      "text": "Book the studio",
+      "state": "proposed",
+      "needs_owner": true,
+      "evidence": null,
+      "history": [
+        {
+          "state": "proposed",
+          "at": "2026-09-29T00:57:49Z",
+          "by": "clive"
+        }
+      ]
+    }
+  ],
+  "attention": [
+    {
+      "id": "a_6609dbdb",
+      "text": "Which models do you want?",
+      "at": "2026-09-29T00:57:49Z",
+      "resolved_at": null
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-09-29T00:57:49Z",
+      "kind": "created",
+      "text": "Objective recorded from the owner's request.",
+      "by": "clive"
+    },
+    {
+      "at": "2026-09-29T00:57:49Z",
+      "kind": "fact",
+      "text": "The drop goes live on the 14th (source: owner)",
+      "by": "clive"
+    },
+    {
+      "at": "2026-09-29T00:57:49Z",
+      "kind": "unknown",
+      "text": "Which studio is free that week",
+      "by": "clive"
+    },
+    {
+      "at": "2026-09-29T00:57:49Z",
+      "kind": "blocker",
+      "text": "missing_capability: No studio-booking tool",
+      "by": "clive"
+    },
+    {
+      "at": "2026-09-29T00:57:49Z",
+      "kind": "needs_owner",
+      "text": "Which models do you want?",
+      "by": "clive"
+    },
+    {
+      "at": "2026-09-29T00:57:49Z",
+      "kind": "proposed",
+      "text": "Shortlist three studios",
+      "by": "clive"
+    },
+    {
+      "at": "2026-09-29T00:57:49Z",
+      "kind": "proposed",
+      "text": "Book the studio (needs your approval)",
+      "by": "clive"
+    },
+    {
+      "at": "2026-09-29T00:57:49Z",
+      "kind": "started",
+      "text": "Shortlist three studios",
+      "by": "clive"
+    }
+  ],
+  "kind": "business",
+  "engineering": []
+}

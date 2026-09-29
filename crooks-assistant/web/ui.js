@@ -3179,6 +3179,13 @@
     ], opts);
   }
 
+  // One of the owner's objectives, in the shape of its kind (round 12). Drawn by
+  // web/objective-cards.js, which the page loads beside this file; without it nothing is drawn.
+  function renderObjective(d, opts) {
+    const cards = typeof window !== 'undefined' ? window.CliveObjectiveCards : globalThis.CliveObjectiveCards;
+    return cards ? cards.card(d, opts) : null;
+  }
+
   const RENDERERS = {
     assistant: renderAssistant,
     order: renderOrder,
@@ -3214,6 +3221,7 @@
     workspace: renderWorkspace,
     workspace_plan: renderWorkspacePlan,
     screen_remote: renderScreenRemote,
+    objective: renderObjective,
   };
   const TYPES = Object.keys(RENDERERS).concat(['context_stack']);
   // Both Phase 5 workstreams added to this list and the merge produced two declarations of
@@ -3227,7 +3235,9 @@
     // Round 12: a spoken change to an order returns that order's card and nothing else, and
     // without this the page took a turn whose only card was the workspace for a turn with
     // nothing to show, and went back to the orb — the edit made, the screen gone.
-    'workspace'];
+    'workspace',
+    // An objective opened, shown or changed by voice is what the owner asked to see (round 12).
+    'objective'];
 
   function isValid(item) {
     return Boolean(item) && typeof item === 'object' && typeof item.type === 'string'
@@ -3322,6 +3332,7 @@
     trend: ['title', 'metric'],
     working_set: ['set_id'],
     screen_remote: ['screen_id'],
+    objective: ['objective_id'],
     capability: ['build'],
     summary_list: ['task', 'title'],
     reply_state: ['thread_id'],

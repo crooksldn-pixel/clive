@@ -1,0 +1,47 @@
+{
+  "business_v1.json": {
+    "id": "obj_ac108561",
+    "title": "Get the SS26 lookbook shot",
+    "status": "blocked",
+    "attention": "needs_you",
+    "attention_reason": "open question: Which models do you want?",
+    "deadline": "2026-10-14",
+    "doing": "Shortlist three studios",
+    "next": [
+      "Book the studio"
+    ],
+    "blocked_by": [
+      "No studio-booking tool"
+    ],
+    "needs_you": [
+      "Which models do you want?"
+    ],
+    "unknowns": 1,
+    "facts": 1,
+    "updated_at": "2026-09-29T00:57:49Z",
+    "kind": "business",
+    "engineering": []
+  },
+  "build_v1.json": {
+    "id": "obj_9881b68d",
+    "title": "Packing screen",
+    "status": "active",
+    "attention": "doing",
+    "attention_reason": "in progress: Build it with the engineering loop (request eng_1a2b3c)",
+    "deadline": null,
+    "doing": "Build it with the engineering loop (request eng_1a2b3c)",
+    "next": [],
+    "blocked_by": [],
+    "needs_you": [],
+    "unknowns": 0,
+    "facts": 0,
+    "updated_at": "2026-09-29T00:57:49Z",
+    "kind": "build",
+    "engineering": [
+      {
+        "request_id": "eng_1a2b3c",
+        "host": "clive-worker-01"
+      }
+    ]
+  }
+}

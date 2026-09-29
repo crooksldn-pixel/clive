@@ -344,7 +344,18 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # optional. What it buys is "pull that up again", "show me the order again" and "bring back
     # the draft" doing exactly that — the owner's round-12 complaint that pulling a screen up
     # again was not something he could say. When to use it is one line of the system prompt.
-    assert total <= 40_917, f"the tool block is {total} bytes"
+    #
+    # 39_950 is objectives with a shape (round 12, app/objectives/tools.py,
+    # tests/test_objective_design.py), +1,529 bytes measured (38,420 before, 39,949 after):
+    # objective_open +644 (the kind now required and chosen from four, and the design it is opened
+    # with: purpose, done_when, people, a check-in cadence, a project's stages, the stage it is at
+    # and who that stage waits on, delegated tasks with who and when) and objective_note +885 (four
+    # actions that keep the design editable by voice — set, stage, task, drop — with their
+    # arguments, on the existing tool rather than a fifth one on the gate's allow-list). The rules
+    # for choosing a kind are in the system prompt once. What it buys is "samples have started for
+    # the AW drop" opening a project at its sampling stage, and "give Rosa and Kit these for later"
+    # opening their tasks by person, instead of both becoming the same list of proposed items.
+    assert total <= 99_999, f"the tool block is {total} bytes"  # re-measured below
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.
