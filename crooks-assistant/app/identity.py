@@ -793,11 +793,14 @@ def interface_addresses(name: str = TAILSCALE_INTERFACE) -> frozenset[str]:
     Tests stand in for it."""
     import socket
 
+    netlink = getattr(socket, "AF_NETLINK", None)
+    if netlink is None:
+        raise OSError(errno.EAFNOSUPPORT, "netlink is a Linux kernel's, and this is not one")
     index = socket.if_nametoindex(name)
     sequence = 1        # a socket of this call's own: nothing else is answered on it
     request = (_NLMSG.pack(_NLMSG.size + _IFADDRMSG.size, _RTM_GETADDR, _NLM_F_REQUEST | _NLM_F_DUMP, sequence, 0)
                + _IFADDRMSG.pack(socket.AF_UNSPEC, 0, 0, 0, 0))
-    with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, _NETLINK_ROUTE) as sock:
+    with socket.socket(netlink, socket.SOCK_RAW, _NETLINK_ROUTE) as sock:
         sock.settimeout(NETLINK_TIMEOUT_S)
         sock.bind((0, 0))
         sock.sendto(request, (0, 0))
