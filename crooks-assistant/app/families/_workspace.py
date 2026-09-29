@@ -227,18 +227,26 @@ def drawn(branch: Any, workspace_id: str = "") -> dict[str, Any] | None:
 #
 # What happened to the one change a workspace was prepared for is noted by the workspace's id:
 #
-#     sending      the change has left, or is leaving, and no answer is back yet
+#     sending      a hold is applying it: reserved by that hold's commit (`before_commit`, which
+#                  names the proposal), and from the moment the family sends it, left or leaving
 #     done         proven made (or, for an order, Shopify said which order it made)
-#     unconfirmed  it left and it could not be proven either way
-#     failed       it did not happen — Shopify refused it, it never left the Mac, or the re-read
-#                  shows nothing changed — and the card is his to build and prepare again
+#     unconfirmed  it left and it could not be proven either way — which includes an answer that
+#                  never came back and a re-read, made at once, that still shows nothing changed:
+#                  Shopify may yet apply a request it was sent (round 13)
+#     failed       it certainly did not happen — Shopify answered and refused it, it never left
+#                  the Mac, or the commit failed before sending it — and the card is his to build
+#                  and prepare again
 #
-# `done` is final: nothing later un-makes a thing that exists. `sending`, `done` and
-# `unconfirmed` all mean the card is finished (`finished`): drawn as what it made, or as sent,
-# and every later change to it refused by its family in its own words. Noted by id rather than
-# on the workspace itself because the engine sends the change knowing only the execution, and
-# the commit route settles it knowing only the proposal (app/routes/actions.py). Bounded: the
-# oldest are let go long after their workspaces have lapsed (WORKSPACE_TTL_S).
+# `done` is final: nothing later un-makes a thing that exists; and `unconfirmed` becomes nothing
+# but `done`, since nothing later can prove that a request Shopify was sent was not applied.
+# `sending`, `done` and `unconfirmed` all mean the card is finished (`finished`): drawn as what it
+# made, or as sent and not confirmed, and every later change to it refused by its family in its
+# own words; more of the same is a new card. Only the commit that reserved the card settles it:
+# another hold card's commit — one withdrawn, expired or long settled, posted meanwhile — leaves it
+# as it is (round 13). Noted by id rather than on the workspace itself because the engine sends the
+# change knowing only the execution, and the commit route settles it knowing only the proposal
+# (app/routes/actions.py). Bounded: the oldest are let go long after their workspaces have lapsed
+# (WORKSPACE_TTL_S).
 
 SENDING, DONE, UNCONFIRMED, FAILED = "sending", "done", "unconfirmed", "failed"
 MAX_NOTED = 512
@@ -257,6 +265,8 @@ def note(workspace_id: str, state: str, **info: Any) -> None:
     now = _NOTED.get(ident) or {}
     if now.get("state") == DONE and state != DONE:
         return                           # made is made
+    if now.get("state") == UNCONFIRMED and state not in (DONE, UNCONFIRMED):
+        return                           # sent is sent: only proof that it was made moves it on
     if state == DONE and now.get("state") == DONE:
         info = {**now, **{k: v for k, v in info.items() if v}}
     _NOTED.pop(ident, None)
@@ -401,15 +411,19 @@ def never_left(exc: BaseException) -> bool:
 
 
 async def sending(workspace_id: str, send: Any, **info: Any) -> Any:
-    """Send the one change a workspace was prepared for, noting it: `sending` before it leaves —
-    from then on it may have been made whether or not an answer comes back — and `failed`, with
-    Shopify's own reason, when it certainly was not."""
-    note(workspace_id, SENDING, **info)
+    """Send the one change a workspace was prepared for, noting it: `sending` and `left` before it
+    leaves — from then on it may have been made whether or not an answer comes back — and
+    `failed`, with Shopify's own reason, when it certainly was not. The hold whose commit reserved
+    the card (`before_commit`) is carried on both, so that commit, and no other, settles it."""
+    ident = str(workspace_id or "")
+    now = _NOTED.get(ident) or {}
+    holder = now.get("proposal", "") if now.get("state") == SENDING else ""
+    note(ident, SENDING, **info, left="1", proposal=holder)
     try:
         return await send
     except Exception as exc:
         if never_left(exc):
-            note(workspace_id, FAILED, why=_reason(exc), unsent="1")
+            note(ident, FAILED, why=_reason(exc), unsent="1", proposal=holder)
         raise
 
 
@@ -439,22 +453,36 @@ def commit_refused(proposal: Any) -> str:
 def before_commit(proposal: Any) -> None:
     """The owner's gesture is about to apply a change prepared from a workspace: until the
     engine has an answer the card is finished, so a second Prepare meanwhile cannot make a
-    second one."""
+    second one. The reservation names the proposal whose commit made it: only that commit's
+    outcome settles or releases it (`after_commit`). What a failed card said before is kept with
+    it, for the card to say again if nothing is sent after all."""
     ident = _workspace_of(proposal)
-    if ident and (_NOTED.get(ident) or {}).get("state") in (None, FAILED):
-        note(ident, SENDING, by="commit")
+    if not ident:
+        return
+    now = _NOTED.get(ident) or {}
+    if now.get("state") not in (None, FAILED):
+        return
+    was = {"was_why": now.get("why"), "was_unsent": now.get("unsent")} if now.get("state") == FAILED else {}
+    note(ident, SENDING, by="commit", proposal=str(getattr(proposal, "proposal_id", "") or ""), **was)
 
 
 def after_commit(proposal: Any, session: Any = None) -> None:
     """What the gesture came to, noted for the card it was prepared from (see above) — and the
     records a proven change made, issued to the conversation like any id a read returned, so
-    "add a note to it" can follow the order the hold just made."""
+    "add a note to it" can follow the order the hold just made.
+
+    Proof that it was made is taken from any commit. Anything else is taken only from the commit
+    that reserved the card: a commit of another hold card of the same card — withdrawn, expired
+    or long settled, posted by a page that had not caught up — came to nothing the card is
+    waiting on, and neither frees it nor says it failed (round 13: such a commit used to free a
+    card whose own hold was still at Shopify, and a second credit went through)."""
     ident = _workspace_of(proposal)
     if not ident:
         return
     status = str(getattr(getattr(proposal, "status", None), "value", "") or "")
     entity = getattr(proposal, "entity", None) if isinstance(getattr(proposal, "entity", None), dict) else {}
     now = _NOTED.get(ident) or {}
+    reason = str(getattr(proposal, "reason", "") or "")
     if status == "VERIFIED":
         note(ident, DONE, **{k: entity.get(k) for k in _MADE_KEYS if entity.get(k)})
         if session is not None:
@@ -463,14 +491,29 @@ def after_commit(proposal: Any, session: Any = None) -> None:
             for key in ("order_id", "customer_id"):
                 if id_kind_ok(key, entity.get(key)):
                     session.issue(str(entity[key]))
-    elif status in ("EXECUTED", "UNVERIFIED"):
-        if not (now.get("state") == FAILED and now.get("unsent")):
-            note(ident, UNCONFIRMED, why=str(getattr(proposal, "reason", "") or ""))
+        return
+    holder = str(now.get("proposal") or "")
+    if now.get("state") not in (SENDING, FAILED) or not holder or holder != str(getattr(proposal, "proposal_id", "") or ""):
+        return
+    if now.get("state") == FAILED and now.get("unsent"):
+        # It never left, or Shopify answered and refused it: proven not made, whatever the
+        # engine's re-read then said. The card is his again, with the reason.
+        note(ident, FAILED, why=now.get("why") or reason or "it was not made", unsent="1")
+    elif now.get("left") or status in ("EXECUTED", "UNVERIFIED"):
+        # It left, and it is not proven made: the answer was lost, or one re-read made at once
+        # still shows nothing changed — which is not proof, since Shopify may yet apply a request
+        # it was sent (round 13). Sent, not confirmed; the card makes nothing more.
+        note(ident, UNCONFIRMED, why=reason or "the answer never came back")
     elif status == "FAILED":
-        # The engine's word: the re-read shows nothing changed, or it never left.
-        note(ident, FAILED, why=now.get("why") or str(getattr(proposal, "reason", "") or "it was not made"))
-    elif now.get("state") == SENDING and now.get("by") == "commit":
-        # Nothing was sent after all — not armed, stale, withdrawn, read-only.
+        # It failed before it was sent — the precondition read, a cancellation before sending:
+        # nothing left this Mac. The card is his again, with the reason.
+        note(ident, FAILED, why=reason or now.get("was_why") or "it was not made")
+    elif now.get("was_why") or now.get("was_unsent"):
+        # Nothing was sent after all — not armed, stale, withdrawn, read-only — on a card whose
+        # last attempt had failed: it says that again.
+        note(ident, FAILED, why=now.get("was_why"), unsent=now.get("was_unsent"))
+    else:
+        # Nothing was sent after all: the reservation is let go.
         _NOTED.pop(ident, None)
 
 

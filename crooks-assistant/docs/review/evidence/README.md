@@ -26,3 +26,11 @@ answer out, that is a finding.
 Round 11 wrote these for all 100 open findings: every material finding of round 10's nineteen
 reviewed parts, and every round-9 finding round 10 ruled STILL PRESENT, CANNOT TELL, or could
 not rule on because its part was never reviewed.
+
+Round 13 added `round12.json`, one entry for each of round 12's blocking findings that is not a
+defect once the code is read or not a blocker by the rule's own terms, with the ids as round 12's
+record gives them, `parts` naming the round-12 part (or the round-11 entry's parts for an
+evidence finding), and `excerpts` given as line ranges (`lines 503-600: what they are`) that
+`tests/test_r13_evidence_index.py` holds to the tree. Where writing the evidence showed a real
+defect instead, it was fixed in the same round and the entry says `FIXED`, naming first the tests
+that fail on the code before the fix.

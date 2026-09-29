@@ -1,0 +1,964 @@
+[
+  {
+    "finding": "S3/S3-03",
+    "parts": [
+      "S3"
+    ],
+    "status": "EVIDENCED",
+    "question": "Is the new hold route (POST /displays/{screen_id}/show) bound to the admitted owner — the door's authority, his own conversation and a record that conversation was issued — before any tool runs, any record is read or any screen changes, given that put_held calls dispatch without passing the request?",
+    "files": [
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/tools/authority.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/displays/put.py",
+      "crooks-assistant/app/tools/gate.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/tools/display_tools.py",
+      "crooks-assistant/tests/test_screen_paths.py",
+      "crooks-assistant/tests/test_r12_put_on_screen.py",
+      "crooks-assistant/tests/test_r13_evidence_screens.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_evidence_screens.py::test_an_order_issued_to_one_conversation_posted_with_another_is_refused_before_anything_runs",
+      "crooks-assistant/tests/test_r13_evidence_screens.py::test_a_pending_screen_or_another_logins_conversation_is_refused_before_anything_runs",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_nobody_but_the_owner_reaches_the_drop",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_a_record_this_conversation_was_not_issued_is_refused_before_anything_is_read",
+      "crooks-assistant/tests/test_screen_paths.py::test_a_refused_caller_reaches_no_screen_route_and_no_screen_tool",
+      "crooks-assistant/tests/test_screen_paths.py::test_screen_show_puts_up_only_an_order_this_conversation_was_issued",
+      "crooks-assistant/tests/test_displays.py::test_the_screen_tools_answer_only_the_owners_own_request"
+    ],
+    "answer": "Yes. The chain, at this commit. The door: app/main.py guard_and_freshness refuses a request proxy_state calls forged, a proxied one with no login and a login not on the allow-list, then for every path that is not public asks principal_verdict (app/routes/actions.py: his login on the list and, with CROOKS_TAILSCALE_VERIFY on — production's unset value resolves to on, config/settings.py — Tailscale confirming the device is his; a request made on the server itself only when CROOKS_WRITES_LOCAL_OWNER or CROOKS_LOCAL_OWNER says so, and both are off in production) and answers 403 before any route runs. Only then does it make the owner's authority (tool_authority.for_owner) and set it on the request's context (TOOL_AUTHORITY), revoking it once the answer has been sent. The screens router asks the same rule again as its own dependency (displays.router: Depends(require_principal)). The route: show_held -> put.put_held -> put._put, which refuses, in this order and before anything is dispatched or read: a kind a screen does not show (422; HeldBody takes session_id, kind and ref and nothing else); a conversation CLIVE has let go of (409 no_session) or one bound to another login (403 wrong_session, session_matches); a screen that is gone (404 not_found) or waiting for its code (409 not_approved); and a record THAT conversation was not issued — classify(SHOW_TOOL, args, session.issued_ids) is DENY, because screen_show's issued-id arguments (order_id, objective_id) are optional in its schema, so an absent one is skipped and a supplied one must be in the session's issued ids (gate._check_issued_ids) — 403 not_issued. Only then is dispatch called, with the session _conversation resolved and never with the request: authority does not travel in the request object, it is the context variable the door set. dispatch refuses when no active authority is held (tool_authority.current()), asks classify again against session.issued_ids and refuses a DENY before any handler; screen_show itself refuses any authority that is not OWNER (display_tools._owners_own) and a screen not approved, both before an order is read. So nothing the body carries can stand in for the owner or for the conversation: the authority is the door's, the conversation is the one this login holds, and the record must have been issued to it by one of its own reads. New at round 13, tests/test_r13_evidence_screens.py watches dispatch and DisplayStore.show while the admitted owner posts order 1938, issued to his conversation A, with his conversation B: 403 not_issued, dispatch never called, show never called, Shopify not read, the record of screens the same bytes; the same drop with A dispatches screen_show once and puts the slip up, so the watch is real. The route does not exist at 6a29e310 (no app/displays/put.py there).",
+    "excerpts": {
+      "crooks-assistant/app/main.py": [
+        "lines 503-600: guard_and_freshness, where the door refuses anyone but the owner before any route and stamps the owner's authority (tool_authority.for_owner, TOOL_AUTHORITY), revoked once the answer is sent"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 97-223: principal_check, principal_verdict, require_principal, proxy_state, caller_identity, session_matches"
+      ],
+      "crooks-assistant/app/routes/displays.py": [
+        "lines 96-98: the screens router, with require_principal as its dependency",
+        "lines 185-194: HeldBody, the only body the drop takes",
+        "lines 526-543: show_held"
+      ],
+      "crooks-assistant/app/tools/gate.py": [
+        "lines 170-207: _ISSUED_ID_ARGS (screen_show: order_id, objective_id) and _ID_KIND",
+        "lines 221-279: classify, the read path that holds every issued-id argument to the session",
+        "lines 354-383: _optional_args and _check_issued_ids"
+      ],
+      "crooks-assistant/app/tools/dispatch.py": [
+        "lines 114-179: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
+      ],
+      "crooks-assistant/app/tools/display_tools.py": [
+        "lines 80-86: _owners_own",
+        "lines 129-216: screen_show"
+      ],
+      "crooks-assistant/tests/test_screen_paths.py": [
+        "lines 1-175: the world fixture (the real app, production's switches, the real provider's _dispatch), refused_callers and _every_screen_route"
+      ],
+      "crooks-assistant/tests/test_r12_put_on_screen.py": [
+        "lines 1-83: the shop fixture and the looked_up and drop helpers"
+      ]
+    }
+  },
+  {
+    "finding": "S3T1/S3T1-01",
+    "parts": [
+      "S3T1"
+    ],
+    "status": "EVIDENCED",
+    "question": "For an admitted owner, does POST /displays/{id}/show check that the supplied session and record belong together and that the target screen is approved, and does a refusal put nothing on any screen?",
+    "files": [
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/tools/authority.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/displays/put.py",
+      "crooks-assistant/app/tools/gate.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/tools/display_tools.py",
+      "crooks-assistant/tests/test_screen_paths.py",
+      "crooks-assistant/tests/test_r12_put_on_screen.py",
+      "crooks-assistant/tests/test_r13_evidence_screens.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_evidence_screens.py::test_an_order_issued_to_one_conversation_posted_with_another_is_refused_before_anything_runs",
+      "crooks-assistant/tests/test_r13_evidence_screens.py::test_a_pending_screen_or_another_logins_conversation_is_refused_before_anything_runs",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_an_order_he_was_shown_and_drops_on_a_screen_goes_up_there",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_a_record_this_conversation_was_not_issued_is_refused_before_anything_is_read",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_a_screen_that_is_gone_unknown_or_waiting_for_approval_is_refused",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_a_conversation_that_has_gone_or_is_another_logins_is_refused",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_the_body_names_the_conversation_and_the_record_and_nothing_else"
+    ],
+    "answer": "Yes, and the route-level tests the finding asked for exist and pass. The chain, at this commit. The door: app/main.py guard_and_freshness refuses a request proxy_state calls forged, a proxied one with no login and a login not on the allow-list, then for every path that is not public asks principal_verdict (app/routes/actions.py: his login on the list and, with CROOKS_TAILSCALE_VERIFY on — production's unset value resolves to on, config/settings.py — Tailscale confirming the device is his; a request made on the server itself only when CROOKS_WRITES_LOCAL_OWNER or CROOKS_LOCAL_OWNER says so, and both are off in production) and answers 403 before any route runs. Only then does it make the owner's authority (tool_authority.for_owner) and set it on the request's context (TOOL_AUTHORITY), revoking it once the answer has been sent. The screens router asks the same rule again as its own dependency (displays.router: Depends(require_principal)). The route: show_held -> put.put_held -> put._put, which refuses, in this order and before anything is dispatched or read: a kind a screen does not show (422; HeldBody takes session_id, kind and ref and nothing else); a conversation CLIVE has let go of (409 no_session) or one bound to another login (403 wrong_session, session_matches); a screen that is gone (404 not_found) or waiting for its code (409 not_approved); and a record THAT conversation was not issued — classify(SHOW_TOOL, args, session.issued_ids) is DENY, because screen_show's issued-id arguments (order_id, objective_id) are optional in its schema, so an absent one is skipped and a supplied one must be in the session's issued ids (gate._check_issued_ids) — 403 not_issued. Only then is dispatch called, with the session _conversation resolved and never with the request: authority does not travel in the request object, it is the context variable the door set. dispatch refuses when no active authority is held (tool_authority.current()), asks classify again against session.issued_ids and refuses a DENY before any handler; screen_show itself refuses any authority that is not OWNER (display_tools._owners_own) and a screen not approved, both before an order is read. The tests, all through the real app with production's switches: an admitted owner showing a record his conversation was issued puts it up (test_an_order_he_was_shown_and_drops_on_a_screen_goes_up_there); a record issued to another of his conversations, or never issued, is 403 not_issued with no Shopify read (test_a_record_this_conversation_was_not_issued..., and round 13's test that watches dispatch and DisplayStore.show: neither is called); a screen waiting for its code is 409 not_approved and a conversation bound to another login is 403 wrong_session, again with dispatch and show never called and the record of screens unchanged (round 13's second test); a body naming anything but the conversation and the record is 422. On every refusal nothing is put on any screen: DisplayStore.show is the only way a pane goes up, and it is not reached.",
+    "excerpts": {
+      "crooks-assistant/app/main.py": [
+        "lines 503-600: guard_and_freshness, where the door refuses anyone but the owner before any route and stamps the owner's authority (tool_authority.for_owner, TOOL_AUTHORITY), revoked once the answer is sent"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 97-223: principal_check, principal_verdict, require_principal, proxy_state, caller_identity, session_matches"
+      ],
+      "crooks-assistant/app/routes/displays.py": [
+        "lines 96-98: the screens router, with require_principal as its dependency",
+        "lines 185-194: HeldBody, the only body the drop takes",
+        "lines 526-543: show_held"
+      ],
+      "crooks-assistant/app/tools/gate.py": [
+        "lines 170-207: _ISSUED_ID_ARGS (screen_show: order_id, objective_id) and _ID_KIND",
+        "lines 221-279: classify, the read path that holds every issued-id argument to the session",
+        "lines 354-383: _optional_args and _check_issued_ids"
+      ],
+      "crooks-assistant/app/tools/dispatch.py": [
+        "lines 114-179: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
+      ],
+      "crooks-assistant/app/tools/display_tools.py": [
+        "lines 80-86: _owners_own",
+        "lines 129-216: screen_show"
+      ],
+      "crooks-assistant/tests/test_screen_paths.py": [
+        "lines 1-175: the world fixture (the real app, production's switches, the real provider's _dispatch), refused_callers and _every_screen_route"
+      ],
+      "crooks-assistant/tests/test_r12_put_on_screen.py": [
+        "lines 1-83: the shop fixture and the looked_up and drop helpers"
+      ]
+    }
+  },
+  {
+    "finding": "T5/T5-01",
+    "parts": [
+      "T5"
+    ],
+    "status": "EVIDENCED",
+    "question": "On the new screen-show route, is a drop refused before an unissued record is read or a screen is changed — and what do the route, the dispatcher and the imported test fixtures actually do?",
+    "files": [
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/tools/authority.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/displays/put.py",
+      "crooks-assistant/app/tools/gate.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/tools/display_tools.py",
+      "crooks-assistant/tests/test_screen_paths.py",
+      "crooks-assistant/tests/test_r12_put_on_screen.py",
+      "crooks-assistant/tests/test_r13_evidence_screens.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_nobody_but_the_owner_reaches_the_drop",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_a_record_this_conversation_was_not_issued_is_refused_before_anything_is_read",
+      "crooks-assistant/tests/test_r13_evidence_screens.py::test_an_order_issued_to_one_conversation_posted_with_another_is_refused_before_anything_runs",
+      "crooks-assistant/tests/test_r13_evidence_screens.py::test_a_pending_screen_or_another_logins_conversation_is_refused_before_anything_runs",
+      "crooks-assistant/tests/test_screen_paths.py::test_a_refused_caller_reaches_no_screen_route_and_no_screen_tool",
+      "crooks-assistant/tests/test_screen_paths.py::test_screen_show_puts_up_only_an_order_this_conversation_was_issued"
+    ],
+    "answer": "Yes. The chain, at this commit. The door: app/main.py guard_and_freshness refuses a request proxy_state calls forged, a proxied one with no login and a login not on the allow-list, then for every path that is not public asks principal_verdict (app/routes/actions.py: his login on the list and, with CROOKS_TAILSCALE_VERIFY on — production's unset value resolves to on, config/settings.py — Tailscale confirming the device is his; a request made on the server itself only when CROOKS_WRITES_LOCAL_OWNER or CROOKS_LOCAL_OWNER says so, and both are off in production) and answers 403 before any route runs. Only then does it make the owner's authority (tool_authority.for_owner) and set it on the request's context (TOOL_AUTHORITY), revoking it once the answer has been sent. The screens router asks the same rule again as its own dependency (displays.router: Depends(require_principal)). The route: show_held -> put.put_held -> put._put, which refuses, in this order and before anything is dispatched or read: a kind a screen does not show (422; HeldBody takes session_id, kind and ref and nothing else); a conversation CLIVE has let go of (409 no_session) or one bound to another login (403 wrong_session, session_matches); a screen that is gone (404 not_found) or waiting for its code (409 not_approved); and a record THAT conversation was not issued — classify(SHOW_TOOL, args, session.issued_ids) is DENY, because screen_show's issued-id arguments (order_id, objective_id) are optional in its schema, so an absent one is skipped and a supplied one must be in the session's issued ids (gate._check_issued_ids) — 403 not_issued. Only then is dispatch called, with the session _conversation resolved and never with the request: authority does not travel in the request object, it is the context variable the door set. dispatch refuses when no active authority is held (tool_authority.current()), asks classify again against session.issued_ids and refuses a DENY before any handler; screen_show itself refuses any authority that is not OWNER (display_tools._owners_own) and a screen not approved, both before an order is read. The fixtures the two round-12 tests import are in the files: tests/test_screen_paths.py `world` enters the real app's lifespan with production's switches (allowed_logins the owner, tailscale_verify on, local_owner and writes_local_owner off), stands in only for the kernel's and Tailscale's answers about who opened a connection and whose device an address is, and runs the model's tool calls through the real in-process MCP server into the real provider's _dispatch; tests/test_r12_put_on_screen.py `shop` binds a Shopify that records every query (tests/test_context.py Store), so 'nothing was read' is len(shop.queries) unchanged. The refusals are therefore the app's own. Round 13 adds the watch the reviewer could not see: dispatch and DisplayStore.show are wrapped and are never called on a refused drop.",
+    "excerpts": {
+      "crooks-assistant/app/main.py": [
+        "lines 503-600: guard_and_freshness, where the door refuses anyone but the owner before any route and stamps the owner's authority (tool_authority.for_owner, TOOL_AUTHORITY), revoked once the answer is sent"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 97-223: principal_check, principal_verdict, require_principal, proxy_state, caller_identity, session_matches"
+      ],
+      "crooks-assistant/app/routes/displays.py": [
+        "lines 96-98: the screens router, with require_principal as its dependency",
+        "lines 185-194: HeldBody, the only body the drop takes",
+        "lines 526-543: show_held"
+      ],
+      "crooks-assistant/app/tools/gate.py": [
+        "lines 170-207: _ISSUED_ID_ARGS (screen_show: order_id, objective_id) and _ID_KIND",
+        "lines 221-279: classify, the read path that holds every issued-id argument to the session",
+        "lines 354-383: _optional_args and _check_issued_ids"
+      ],
+      "crooks-assistant/app/tools/dispatch.py": [
+        "lines 114-179: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
+      ],
+      "crooks-assistant/app/tools/display_tools.py": [
+        "lines 80-86: _owners_own",
+        "lines 129-216: screen_show"
+      ],
+      "crooks-assistant/tests/test_screen_paths.py": [
+        "lines 1-175: the world fixture (the real app, production's switches, the real provider's _dispatch), refused_callers and _every_screen_route"
+      ],
+      "crooks-assistant/tests/test_r12_put_on_screen.py": [
+        "lines 1-83: the shop fixture and the looked_up and drop helpers"
+      ]
+    }
+  },
+  {
+    "finding": "R9-B1-B-01-B-05-PATH",
+    "parts": [
+      "S1",
+      "S3T1",
+      "S3"
+    ],
+    "status": "EVIDENCED",
+    "question": "With production's switches as configured (CROOKS_TAILSCALE_VERIFY and CROOKS_LOCAL_OWNER unset), how do the screen routes authenticate a caller, and how does a screen tool call pass through the gate — can a refused caller reach any screen route or tool, or a slip go up for an id the conversation was not issued?",
+    "files": [
+      "crooks-assistant/app/main.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/tools/authority.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/displays/put.py",
+      "crooks-assistant/app/tools/gate.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/tools/display_tools.py",
+      "crooks-assistant/tests/test_screen_paths.py",
+      "crooks-assistant/tests/test_r12_put_on_screen.py",
+      "crooks-assistant/tests/test_r13_evidence_screens.py",
+      "crooks-assistant/config/settings.py",
+      "crooks-assistant/app/providers/max_agent_sdk.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_screens_server.py::test_on_productions_own_switches_nobody_but_the_owner_reaches_a_screen_and_a_slip_needs_a_real_lookup",
+      "crooks-assistant/tests/test_screen_paths.py::test_a_refused_caller_reaches_no_screen_route_and_no_screen_tool",
+      "crooks-assistant/tests/test_screen_paths.py::test_screen_show_puts_up_only_an_order_this_conversation_was_issued",
+      "crooks-assistant/tests/test_displays.py::test_the_screen_tools_answer_only_the_owners_own_request",
+      "crooks-assistant/tests/test_displays.py::test_the_gate_lets_a_slip_through_only_for_an_order_this_conversation_looked_up",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_nobody_but_the_owner_reaches_the_drop",
+      "crooks-assistant/tests/test_r12_put_on_screen.py::test_a_record_this_conversation_was_not_issued_is_refused_before_anything_is_read",
+      "crooks-assistant/tests/test_r13_evidence_screens.py::test_an_order_issued_to_one_conversation_posted_with_another_is_refused_before_anything_runs",
+      "crooks-assistant/tests/test_r13_evidence_screens.py::test_a_pending_screen_or_another_logins_conversation_is_refused_before_anything_runs"
+    ],
+    "answer": "No. The routes: every screen route is behind the door (app/main.py guard_and_freshness asks principal_verdict for every path that is not public) and behind the screens router's own dependency, require_principal (app/routes/displays.py). Unset, config/settings.py resolves tailscale_verify=True and local_owner=False, and production's .env has CROOKS_WRITES_LOCAL_OWNER=false, so a forged forwarding header, a proxied request with no login, a stranger's login, his login on a device Tailscale does not confirm and the server's own request are each 403 before any route. The tools: a screen tool the model calls goes MaxAgentSDKProvider._dispatch (refused without the turn's active authority) -> dispatch (refused without tool_authority.current(); classify against the session's issued ids; a DENY before any handler) -> screen_show (display_tools._owners_own: OWNER authority only; an unapproved screen refused before an order is read). A slip needs a real lookup: screen_show's order_id is one of gate._ISSUED_ID_ARGS, so an id the conversation was not issued by its own read is 'NOT YET' and nothing is read or shown. The round-12 drop route runs the same gate for the conversation the drop names (app/displays/put.py; see the S3/S3-03 entry). The tests run, they are not only read: the named tests pass at this commit, and acceptance run 36567654914 (push, 361b0138) ran the whole offline suite with them in it: 5946 passed, 26 skipped, exit 0. test_on_productions_own_switches... deletes both variables from the environment and lets the app's own lifespan resolve them.",
+    "excerpts": {
+      "crooks-assistant/app/main.py": [
+        "lines 503-600: guard_and_freshness, where the door refuses anyone but the owner before any route and stamps the owner's authority (tool_authority.for_owner, TOOL_AUTHORITY), revoked once the answer is sent"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 97-223: principal_check, principal_verdict, require_principal, proxy_state, caller_identity, session_matches"
+      ],
+      "crooks-assistant/app/routes/displays.py": [
+        "lines 96-98: the screens router, with require_principal as its dependency",
+        "lines 185-194: HeldBody, the only body the drop takes",
+        "lines 526-543: show_held"
+      ],
+      "crooks-assistant/app/tools/gate.py": [
+        "lines 170-207: _ISSUED_ID_ARGS (screen_show: order_id, objective_id) and _ID_KIND",
+        "lines 221-279: classify, the read path that holds every issued-id argument to the session",
+        "lines 354-383: _optional_args and _check_issued_ids"
+      ],
+      "crooks-assistant/app/tools/dispatch.py": [
+        "lines 114-179: dispatch: no authority, no tool; the gate asked again; a refusal before any handler"
+      ],
+      "crooks-assistant/app/tools/display_tools.py": [
+        "lines 80-86: _owners_own",
+        "lines 129-216: screen_show"
+      ],
+      "crooks-assistant/tests/test_screen_paths.py": [
+        "lines 1-175: the world fixture (the real app, production's switches, the real provider's _dispatch), refused_callers and _every_screen_route"
+      ],
+      "crooks-assistant/tests/test_r12_put_on_screen.py": [
+        "lines 1-83: the shop fixture and the looked_up and drop helpers"
+      ],
+      "crooks-assistant/config/settings.py": [
+        "lines 118-133: writes_local_owner, local_owner and tailscale_verify, with their defaults"
+      ],
+      "crooks-assistant/app/providers/max_agent_sdk.py": [
+        "lines 422-455: _dispatch, the model's tool calls into dispatch under the turn's authority"
+      ]
+    }
+  },
+  {
+    "finding": "S2T/S2T-02",
+    "parts": [
+      "S2T"
+    ],
+    "status": "EVIDENCED",
+    "question": "On the live provider, do Claude's tool calls keep the prepare-only boundary — does a write the model calls pass through the gate and stage a proposal, with no mutation executed before the owner's gesture?",
+    "files": [
+      "crooks-assistant/app/providers/max_agent_sdk.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/tests/test_r11_turn.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_turn.py::test_money_through_the_real_provider_is_held_on_the_right_record_and_a_stranger_record_is_denied_first[refund]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_through_the_real_provider_is_held_on_the_right_record_and_a_stranger_record_is_denied_first[cancel]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_through_the_real_provider_is_held_on_the_right_record_and_a_stranger_record_is_denied_first[store credit]",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_change_staged_through_the_sdk_callback_belongs_to_its_conversation_s_half",
+      "crooks-assistant/tests/test_screen_paths.py::test_screen_show_puts_up_only_an_order_this_conversation_was_issued"
+    ],
+    "answer": "Yes. MaxAgentSDKProvider._options gives the Agent SDK no built-in tools (tools=[]), only CLIVE's in-process MCP server built from the registry, with the tools it withholds disallowed as well, permission_mode 'dontAsk', no settings inherited, and a PreToolUse hook (make_pretooluse_hook, app/tools/dispatch.py) that fires on every call and denies what the gate denies. The MCP server's handler for every tool is the provider's _dispatch: refused without the turn's active owner authority, refused once the owner has moved on, then dispatch() under that authority. dispatch classifies the call (app/tools/gate.py); a write classifies STAGE_FOR_OWNER and goes to _stage, which runs the tool's own prepare from a fresh read and hands the result to ActionEngine.stage — a PENDING proposal on the session, nothing sent. The only code that executes a write is ActionEngine.commit, and its only callers are POST /actions/{id}/commit (after the owner's gesture: for a red card, the arm, the hold and its token) and the batch route's; no path from the provider reaches it. The test runs the provider's own code, not a stand-in for it: tests/test_r11_turn.py `sdk` replaces only the `claude` subprocess (Cli), which runs the provider's own hook and its own in-process tool handler on a task carrying none of the request's context, as the SDK does; a refund, a cancellation and a store credit asked for out loud are each a red PENDING card, a commit without the hold is 409 not_armed, a spoken 'yes' applies nothing, the same change on a record the conversation never read is denied by the hook, and sdk.store.mutations == [] throughout.",
+    "excerpts": {
+      "crooks-assistant/app/providers/max_agent_sdk.py": [
+        "lines 330-376: _options (tools=[], the in-process server, the hook) and _hook_for",
+        "lines 422-455: _dispatch"
+      ],
+      "crooks-assistant/app/tools/dispatch.py": [
+        "lines 114-179: dispatch",
+        "lines 303-360: _stage",
+        "lines 627-677: make_pretooluse_hook"
+      ],
+      "crooks-assistant/app/actions/engine.py": [
+        "lines 98-169: stage: a PENDING proposal, nothing sent",
+        "lines 379-447: commit, the one place a write is sent"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 469-545: POST /actions/{id}/commit"
+      ],
+      "crooks-assistant/tests/test_r11_turn.py": [
+        "lines 412-571: Cli (the SDK subprocess's stand-in, running the provider's own hook and tool), the sdk fixture and the test"
+      ]
+    }
+  },
+  {
+    "finding": "S2a/S2a-03",
+    "parts": [
+      "S2a"
+    ],
+    "status": "FIXED",
+    "question": "Does the made-once write boundary stop a second order or credit being made from one card, for concurrent, unarmed and retried commits — is its reservation atomic, and is it correctly released afterwards?",
+    "files": [
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/families/_workspace.py",
+      "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/app/families/store_credit.py",
+      "crooks-assistant/app/families/order_create.py",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_a_withdrawn_hold_card_committed_meanwhile_leaves_the_sending_card_finished",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_a_withdrawn_hold_card_committed_while_nothing_is_in_flight_frees_nothing_and_takes_nothing",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_two_hold_cards_from_one_order_committed_at_once_make_one_order",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_a_commit_retried_while_the_first_is_sending_waits_for_it_and_sends_nothing",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_a_prepare_tapped_while_the_hold_is_sending_is_refused",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2a_03_a_commit_without_its_hold_sends_nothing_and_leaves_the_card_his",
+      "crooks-assistant/tests/test_r12_made_once.py::test_1_a_credit_given_is_given_once",
+      "crooks-assistant/tests/test_r12_made_once.py::test_1_a_code_created_is_created_once"
+    ],
+    "answer": "FIXED in round 13. The reservation was atomic; its release was not bound to the commit that made it. Atomic, then and now: in POST /actions/{id}/commit, workspaces.commit_refused, workspaces.before_commit and the engine's claim run with no await between them (app/routes/actions.py; app/actions/engine.py commit awaits nothing before `proposal.status = EXECUTING`), so of two hold cards of one card committed at once the second finds the card `sending` and is 409 already_made with nothing sent; a retry of the same card waits for the first commit's outcome (already_executed); Prepare while it sends is refused; a commit without its hold is 409 not_armed and leaves the card his. The defect, at 361b0138: before_commit noted `sending, by=commit` with no proposal id, and after_commit removed that note for ANY proposal of the workspace whose outcome was not VERIFIED, EXECUTED, UNVERIFIED or FAILED. A commit of a hold card the same card had withdrawn (it passes commit_refused, which refuses PENDING cards only) came back `revoked` and freed the card while another hold was still at its precondition read: Prepare was taken, a second hold card staged and held, and a second credit sent. The fix, in app/families/_workspace.py alone: before_commit notes the reservation as `sending, by=commit, proposal=<the committing proposal's id>` (with what a failed card said before, to say again if nothing is sent); ws.sending carries that proposal onto the notes it makes as the change leaves; and after_commit takes proof that the thing was made (VERIFIED) from any commit, and anything else only from the commit the reservation names — any other commit of the card returns without touching it. test_s2a_03_a_withdrawn_hold_card_committed_meanwhile_leaves_the_sending_card_finished failed at 361b0138 with 'AssertionError: 2 credits sent: Prepare was taken while the first was being applied; balance now £55.00' and passes now: the stray commit is `revoked`, Prepare is refused, one credit. The edge test passes before and after: the same stray commit with nothing in flight reserves and releases only for itself — nothing is noted, the live hold card still gives its one £20 — and on a card whose send was proven never to have left, a stray commit of that failed card leaves it given back with its reason. The one-proposal-per-request rule in ActionEngine.stage normally keeps two hold cards of one card from waiting at once; the concurrency test sets it aside so that the route's own check is what is tested. Round 12's follow-up ruled this finding a defect but the record does not print its reasoning (followup-collected.json is on the server only); the defect fixed here is the one this boundary had. Production (6a29e310) has no made-once at all.",
+    "excerpts": {
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 469-580: commit, with commit_refused and before_commit ahead of the engine's claim and after_commit behind it"
+      ],
+      "crooks-assistant/app/families/_workspace.py": [
+        "lines 220-528: made once: note, noted, finished, failed, card_state, still_as_prepared, prepared, touched, withdraw, never_left, sending, commit_refused, before_commit, after_commit"
+      ],
+      "crooks-assistant/app/actions/engine.py": [
+        "lines 98-169: stage (one proposal per request in one position)",
+        "lines 379-482: commit: the claim, the precondition read, the send",
+        "lines 484-562: _prove and _settle_by_observation"
+      ],
+      "crooks-assistant/app/families/store_credit.py": [
+        "lines 437-466: _observe and _execute (ws.sending)"
+      ],
+      "crooks-assistant/app/families/order_create.py": [
+        "lines 1826-1864: _observe (as_prepared) and _execute (ws.sending)"
+      ]
+    }
+  },
+  {
+    "finding": "S2b/S2b-02",
+    "parts": [
+      "S2b"
+    ],
+    "status": "FIXED",
+    "question": "After a store-credit send whose answer never came back, or with a second hold card prepared from the same card, is the card locked so that the account cannot be credited twice?",
+    "files": [
+      "crooks-assistant/app/families/store_credit.py",
+      "crooks-assistant/app/families/_workspace.py",
+      "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/clients/shopify.py",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_timed_out_credit_the_reread_finds_unmade_is_not_given_again",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_timed_out_credit_is_drawn_as_sent_not_confirmed_and_prepares_nothing",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_whose_answer_was_lost_is_locked_against_a_second_hold_card[made-and-unreadable]",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_whose_answer_was_lost_is_locked_against_a_second_hold_card[unmade-and-unreadable]",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_whose_answer_was_lost_is_locked_against_a_second_hold_card[made-and-read-back]",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_proven_not_given_is_given_back_and_the_next_hold_gives_one[never left]",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_proven_not_given_is_given_back_and_the_next_hold_gives_one[refused]",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_s2b_02_a_credit_proven_not_given_is_given_back_and_the_next_hold_gives_one[failed before it was sent]",
+      "crooks-assistant/tests/test_r12_made_once.py::test_1_a_credit_given_is_given_once",
+      "crooks-assistant/tests/test_r12_made_once.py::test_2_a_credit_or_a_code_changed_after_prepare_withdraws_its_hold_card"
+    ],
+    "answer": "FIXED in round 13. store_credit._execute sends through ws.sending, which notes the card `sending` before the mutation leaves and `failed` only when it certainly did not happen (never_left: Shopify answered and refused it, or it was never sent); the engine then decides a lost answer with one re-read (ActionEngine._settle_by_observation). Read back as made, the card is DONE; unreadable, UNVERIFIED and so UNCONFIRMED: locked either way, then and now. The defect, at 361b0138: when the re-read made at once still showed £15, the engine finished the proposal FAILED 'service_unavailable' (write.settle is None for a credit) and after_commit turned that into the card's FAILED — 'Store credit · not given — The credit was not given: … Nothing was credited; prepare it again.', Prepare live — although a read timeout is a request that left (ShopifyClient._post makes httpx.ReadTimeout a plain ShopifyError, neither unsent nor refused) and Shopify may still apply it. A second hold card then sent a second £20. The fix, in app/families/_workspace.py (app/actions/engine.py, protected, is unchanged): ws.sending marks the note `left` as the change leaves; after_commit, for the commit that reserved the card, makes a send that left and is not proven made UNCONFIRMED, whatever the engine's re-read said; only FAILED with `unsent` (never left, or refused) or a failure before the send (the reservation never reached the family's send — the precondition read) gives the card back, as before. note() keeps an unconfirmed card unconfirmed until proof that it was made. The card now says 'Store credit · sent, not confirmed' and 'Sent to Shopify, not confirmed: check the customer's account in Admin before giving it again.', with nothing to type or prepare; Prepare is refused in the same words; a second hold card is 409 already_made. What unlocks an unconfirmed card is what always did: nothing on the card itself — it is finished — but a new card, opened afresh (said again, or after Discard, or once the card lapses after 30 minutes); and for an order, proof that it was made turns it into made. test_s2b_02_a_timed_out_credit_the_reread_finds_unmade_is_not_given_again failed at 361b0138 with 'assert (200 == 409)' (the second card's commit went through: two mutations) and test_s2b_02_a_timed_out_credit_is_drawn_as_sent_not_confirmed_and_prepares_nothing with 'AssertionError: 2 credits sent; the card came back as 'Store credit · not given''; both pass now. The edge test passes before and after: a credit that never left, that Shopify refused, or whose balance read failed before sending comes back 'not given' with the reason, and the next hold gives one £20. Still to follow up, outside this file: the hold card's own outcome card is titled 'Not applied' (app/presentation.py words for the engine's code service_unavailable), with the credit's line 'I couldn't confirm the credit. Check the customer's account before asking again.' beneath it. The engine rule is the same at 6a29e310, where there is no made-once at all.",
+    "excerpts": {
+      "crooks-assistant/app/families/store_credit.py": [
+        "lines 266-322: _makes, given, the given card (its words when not confirmed)",
+        "lines 437-466: _observe and _execute",
+        "lines 532-630: the write tool and its prepare"
+      ],
+      "crooks-assistant/app/families/_workspace.py": [
+        "lines 220-528: made once: note, noted, finished, failed, card_state, still_as_prepared, prepared, touched, withdraw, never_left, sending, commit_refused, before_commit, after_commit"
+      ],
+      "crooks-assistant/app/actions/engine.py": [
+        "lines 98-169: stage (one proposal per request in one position)",
+        "lines 379-482: commit: the claim, the precondition read, the send",
+        "lines 484-562: _prove and _settle_by_observation"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 469-580: commit, with commit_refused and before_commit ahead of the engine's claim and after_commit behind it"
+      ],
+      "crooks-assistant/app/clients/shopify.py": [
+        "lines 31-69: the error classes: refused, unsent",
+        "lines 1076-1090: _post: a connect error is ShopifyUnreached (unsent); any other transport error, a read timeout among them, is a plain ShopifyError"
+      ]
+    }
+  },
+  {
+    "finding": "T1/T1-01",
+    "parts": [
+      "T1"
+    ],
+    "status": "EVIDENCED",
+    "question": "After Prepare, does editing that same order by voice and by tap make its old hold card unable to complete a draft?",
+    "files": [
+      "crooks-assistant/app/families/order_create.py",
+      "crooks-assistant/app/families/_workspace.py",
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_t1_01_an_order_changed_by_voice_and_by_tap_after_prepare_never_completes_the_old_hold_card",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_t1_01_the_old_hold_card_is_refused_even_when_nothing_withdrew_it",
+      "crooks-assistant/tests/test_r12_made_once.py::test_2_a_spoken_change_after_prepare_withdraws_the_hold_card_too",
+      "crooks-assistant/tests/test_r12_made_once.py::test_2_a_tap_after_prepare_withdraws_the_hold_card_and_prepare_again_holds_the_card",
+      "crooks-assistant/tests/test_r12_made_once.py::test_2_a_hold_card_whose_card_moved_is_never_applied_whatever_the_path"
+    ],
+    "answer": "Yes, three times over. (1) Every new sentence withdraws the half's waiting cards before the model is asked (app/routes/turn.py: revoke_pending, then advance_epoch). (2) Every change to the card — shopify_order_build by voice, order.field, order.choose, order.additem, order.removeitem by tap — reads what the card would make before and after (ws.card_state) and withdraws the hold cards prepared from it when that differs (order_create._touch -> ws.touched -> ws.withdraw -> engine.revoke_ids); a REVOKED card is terminal and the engine never sends it. (3) Beneath those, the floor: commit_refused compares the card's digest when it was prepared (facts._prepared) with what it would make now and refuses 409 'The card changed since this was prepared'; and the order's own precondition carries `as_prepared` (_observe -> ws.still_as_prepared), so even a commit that reached the engine would be stale. Round 13's route test prepares, arms the old hold card (its token in hand), says 'add five pounds postage' and types a note, then commits the old card with its token: not verified (revoked), zero draft_order_complete; prepared again, the hold makes one order, with the £5 postage the card now says. The second test changes the card without passing through any withdrawal and commits the old card with its token: 409, zero completions.",
+    "excerpts": {
+      "crooks-assistant/app/families/order_create.py": [
+        "lines 1355-1481: shopify_order_build, the card read before and _touch after",
+        "lines 1752-1771: _makes, what the card would make",
+        "lines 1826-1864: _observe (as_prepared) and _execute",
+        "lines 1946-1981: the write tool's precondition keys",
+        "lines 2160-2342: the tap commands, _touch and _stage"
+      ],
+      "crooks-assistant/app/families/_workspace.py": [
+        "lines 307-468: makes, card_state, still_as_prepared, prepared, touched, withdraw, never_left, sending, commit_refused, before_commit"
+      ],
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 255-285: a new instruction withdraws what was waiting and moves the position"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 469-580: commit, with commit_refused and before_commit ahead of the engine's claim and after_commit behind it"
+      ],
+      "crooks-assistant/app/actions/engine.py": [
+        "lines 379-447: commit: a terminal proposal is never sent; the precondition read"
+      ]
+    }
+  },
+  {
+    "finding": "T3/T3-01",
+    "parts": [
+      "T3"
+    ],
+    "status": "EVIDENCED",
+    "question": "Can a store-credit or discount-code hold card whose card changed without passing through the withdrawal still be applied — the stale-card check shown for orders, for credits and codes?",
+    "files": [
+      "crooks-assistant/app/families/_workspace.py",
+      "crooks-assistant/app/families/store_credit.py",
+      "crooks-assistant/app/families/discounts.py",
+      "crooks-assistant/app/routes/actions.py",
+      "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_t3_01_a_credit_whose_card_moved_without_a_withdrawal_is_never_given",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_t3_01_a_code_whose_card_moved_without_a_withdrawal_is_never_created",
+      "crooks-assistant/tests/test_r12_made_once.py::test_2_a_credit_or_a_code_changed_after_prepare_withdraws_its_hold_card",
+      "crooks-assistant/tests/test_r12_made_once.py::test_5_a_credit_or_a_code_retyped_as_it_was_keeps_its_hold_card",
+      "crooks-assistant/tests/test_r12_made_once.py::test_1_a_credit_given_is_given_once",
+      "crooks-assistant/tests/test_r12_made_once.py::test_1_a_code_created_is_created_once"
+    ],
+    "answer": "No. The floor is the workspace's, not the order family's: commit_refused (app/families/_workspace.py) refuses any PENDING hold card whose card now digests differently from when it was prepared (facts._prepared, set by ws.prepared in every family's prepare), 409 'The card changed since this was prepared', before the engine is asked. What a credit's card makes is its customer, amount and currency (store_credit._makes); a code's is every value and choice on it (discounts._makes). Round 13's direct tests change the card without any withdrawal — the credit's amount, then its customer; the code's value, then its basis — and hold the old card: 409 each time, no store_credit_credit and no discount_code_create sent. Two more things hold even past that floor: each hold card carries its own amount in its execution, fixed at Prepare (store_credit: execution.input; discounts: the code's input), so a card is never applied for more than it said; and a credit is held to its balance (precondition_keys balance and currency) — round 13's test moves the balance in Admin after Prepare and the hold is `stale`, nothing sent. A duplicate needed a finished card to be freed again, which were the S2a-03 and S2b-02 defects (fixed in round 13), not a stale card.",
+    "excerpts": {
+      "crooks-assistant/app/families/_workspace.py": [
+        "lines 307-468: makes, card_state, still_as_prepared, prepared, touched, withdraw, never_left, sending, commit_refused, before_commit"
+      ],
+      "crooks-assistant/app/families/store_credit.py": [
+        "lines 266-295: _makes and given",
+        "lines 437-466: _observe and _execute",
+        "lines 532-630: the write tool (precondition keys) and its prepare",
+        "lines 635-652: credit.field, withdrawing through ws.touched"
+      ],
+      "crooks-assistant/app/families/discounts.py": [
+        "lines 395-418: _makes and created",
+        "lines 592-601: _execute",
+        "lines 647-775: the write tool and its prepare"
+      ],
+      "crooks-assistant/app/routes/actions.py": [
+        "lines 469-580: commit, with commit_refused and before_commit ahead of the engine's claim and after_commit behind it"
+      ],
+      "crooks-assistant/app/actions/engine.py": [
+        "lines 379-447: commit: the claim and the precondition read"
+      ]
+    }
+  },
+  {
+    "finding": "T3/T3-02",
+    "parts": [
+      "T3"
+    ],
+    "status": "FIXED",
+    "question": "Is a completion that failed classified correctly — does only a completion that provably never left give the order card back to be prepared again, so that one that left can never make a second order?",
+    "files": [
+      "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/app/families/_workspace.py",
+      "crooks-assistant/app/families/order_create.py",
+      "crooks-assistant/app/clients/shopify.py",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_t3_02_a_completion_that_left_is_never_given_back_as_not_made",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_t3_02_a_completion_that_left_and_landed_after_the_mac_gave_up_is_never_made_twice",
+      "crooks-assistant/tests/test_r13_evidence_made_once.py::test_t3_02_a_completion_that_never_left_gives_the_card_back_and_the_next_hold_makes_one",
+      "crooks-assistant/tests/test_r12_made_once.py::test_3_a_completion_shopify_refused_gives_the_card_back_with_the_reason",
+      "crooks-assistant/tests/test_r12_made_once.py::test_3_a_completion_that_never_left_gives_the_card_back",
+      "crooks-assistant/tests/test_r12_made_once.py::test_3_a_completion_that_left_and_was_never_answered_stays_locked"
+    ],
+    "answer": "FIXED in round 13, with S2b/S2b-02 (the same rule). The reviewer was right that the round-12 test proved nothing about the completion: test_3_a_completion_that_never_left_gives_the_card_back sets reads_fail before the hold, so the precondition read fails first and draft_order_complete is never attempted (it stays, as the test of a failure before sending). test_t3_02_a_completion_that_never_left… lets every read through and fails draft_order_complete itself before it leaves (ShopifyUnreached, `unsent`): attempted once, the card given back with the reason, the next hold makes one order — then and now. The defect, at 361b0138: a completion that LEFT and whose answer was lost was given back too when the re-read made at once showed the draft still open — the engine finished it FAILED and after_commit made the card FAILED: 'A new order · not created — The order was not created: … Nothing was made; prepare it again.' Change the card then (postage) and Prepare priced a new draft while the first was open, the check of the drafts this card made found the first still open, Shopify finished the first, and the hold on the new one made a second order. The fix is S2b-02's, in app/families/_workspace.py: a send that left and is not proven made is UNCONFIRMED — 'Sent · not confirmed', 'Look at it in Admin before making it again.', no actions — and Prepare on it is refused ('This order was sent to Shopify and it has not said whether it made it (…); look in Admin before making it again, or say 'a new order for …' to start another.'). A completion Shopify refused (`refused`), one that never left (`unsent`) and one that failed before it was sent still give the card back. test_t3_02_a_completion_that_left_is_never_given_back_as_not_made failed at 361b0138 with 'AssertionError: 2 orders made; after the lost answer the card came back as 'A new order · not created''; test_t3_02_a_completion_that_left_and_landed… (which at 361b0138 showed the drafts re-read catching an unchanged card) now holds the card unconfirmed and failed at 361b0138 with \"assert ('' == 'unconfirmed'\"; both pass now. The engine's commit and _settle_by_observation are unchanged (protected) and identical at 6a29e310.",
+    "excerpts": {
+      "crooks-assistant/app/actions/engine.py": [
+        "lines 379-482: commit: `sent`, the exception before it and after it",
+        "lines 484-562: _prove and _settle_by_observation"
+      ],
+      "crooks-assistant/app/families/_workspace.py": [
+        "lines 404-528: never_left, sending, commit_refused, before_commit, after_commit"
+      ],
+      "crooks-assistant/app/families/order_create.py": [
+        "lines 738-752: _notes, the card's words for a failed completion",
+        "lines 784-827: _made_surface, the made card, and its words when not confirmed",
+        "lines 872-882: already_made",
+        "lines 1826-1864: _observe and _execute",
+        "lines 1982-2080: shopify_order_create: the drafts this card made, read again"
+      ],
+      "crooks-assistant/app/clients/shopify.py": [
+        "lines 31-69: the error classes: refused, unsent",
+        "lines 1076-1090: _post: which transport errors are unsent"
+      ]
+    }
+  },
+  {
+    "finding": "T4/T4-01",
+    "parts": [
+      "T4"
+    ],
+    "status": "EVIDENCED",
+    "question": "Does the objective test detect a Shopify write at all — is there a mutation ledger it checks — so that opening and changing an objective is proven to leave the shop untouched?",
+    "files": [
+      "crooks-assistant/tests/test_objective_design.py",
+      "crooks-assistant/experience/fixtures/shopify.py",
+      "crooks-assistant/experience/harness.py",
+      "crooks-assistant/app/objectives/tools.py",
+      "crooks-assistant/app/clients/shopify.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_objective_design.py::test_nothing_an_objective_holds_reaches_the_shop",
+      "crooks-assistant/tests/test_experience.py::test_the_fixture_world_refuses_every_write"
+    ],
+    "answer": "It does now. The reviewer was right: `getattr(desk.store, 'mutations_sent', None)` compared with itself proved nothing. The attribute does exist on the fixture shop (ShopifyClient.__init__ sets mutations_sent = 0 and FixtureShopify calls it; forget_scenario resets it), but FixtureShopify.mutate never counts into it: it refuses every real mutation by raising FixtureWriteAttempted, and records an order edit's calculations and a draft in `calculations` and `drafts` instead (experience/fixtures/shopify.py). So round 13 changes the test (its intent kept: 'no read of the shop, no change sent') to watch the shop's `mutate` on the instance the families use (shopify_tools is bound to desk.store by the harness), counting every change asked of it whatever it is, and to cover what its docstring says: open a project, move its stage by voice, open delegated tasks, and tick one through the owner's route. It asserts: no read of the shop for any of the three spoken turns and none for the tick; the ledger empty; mutations_sent == 0, calculations == [] and drafts == []; nothing to confirm on any card. Nothing under app/objectives/ names Shopify at all: the objective tools import the objectives store, its cards, the gate's tiers and the tool registry, and nothing else of the app.",
+    "excerpts": {
+      "crooks-assistant/tests/test_objective_design.py": [
+        "lines 1-90: the desk fixture and the scripted calls",
+        "lines 248-277: test_nothing_an_objective_holds_reaches_the_shop"
+      ],
+      "crooks-assistant/experience/fixtures/shopify.py": [
+        "lines 55-180: FixtureShopify: queries, calculations, drafts, and a mutate that refuses every real change"
+      ],
+      "crooks-assistant/experience/harness.py": [
+        "lines 552-659: harness(): the fixture shop bound as the app binds the real one"
+      ],
+      "crooks-assistant/app/clients/shopify.py": [
+        "lines 872-900: ShopifyClient.__init__ (mutations_sent)"
+      ]
+    }
+  },
+  {
+    "finding": "T7/T7-01",
+    "parts": [
+      "T7"
+    ],
+    "status": "EVIDENCED",
+    "question": "Can production's previous objectives store read and update round-12 records — is the store the rollback test runs really the one production (6a29e310) runs?",
+    "files": [
+      "crooks-assistant/tests/test_objective_rollback.py",
+      "crooks-assistant/tests/fixtures/objectives/store_547f652f.py.txt",
+      "crooks-assistant/app/objectives/store.py",
+      "crooks-assistant/tests/test_r13_evidence_history.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_evidence_history.py::test_the_rollback_fixture_is_the_store_production_runs_byte_for_byte",
+      "crooks-assistant/tests/test_objective_rollback.py::test_the_store_production_rolls_back_to_lists_and_opens_every_round_12_record",
+      "crooks-assistant/tests/test_objective_rollback.py::test_rolled_back_changed_and_rolled_forward_nothing_is_lost",
+      "crooks-assistant/tests/test_objective_rollback.py::test_the_old_store_does_not_trip_over_the_design_folder",
+      "crooks-assistant/tests/test_objective_rollback.py::test_round_12s_first_cut_is_read_and_split_so_the_old_store_can_read_it",
+      "crooks-assistant/tests/test_objective_rollback.py::test_a_design_from_a_newer_build_is_kept_aside_not_dropped"
+    ],
+    "answer": "Yes, and it is now checked on every run rather than stated. tests/fixtures/objectives/store_547f652f.py.txt is byte-identical to `git show 6a29e310:crooks-assistant/app/objectives/store.py` (cmp: no difference; both sha256 d853fb05e96ae63e74461d6907abd6524c91983bdc5ce27322887a08d670f7f9, 19,270 bytes) and to the same file at 547f652f. tests/test_objective_rollback.py already holds the fixture to 547f652f whenever that commit is in the checkout (_trunk_source); round 13's test_r13_evidence_history.py holds it to 6a29e310 as well. The rollback test loads that source as a module of its own, points it at a folder the round-12 store wrote every kind of objective into, and lists and opens every one; changes them with the old store; and rolls forward, reading the design and every change back."
+  },
+  {
+    "finding": "W3/W3-02",
+    "parts": [
+      "W3"
+    ],
+    "status": "EVIDENCED",
+    "question": "Do the conversation card and the home sheet redraw a task after a tick, so that a second tap sends the task's new state rather than the one the button was drawn with?",
+    "files": [
+      "crooks-assistant/web/objective-cards.js",
+      "crooks-assistant/web/alpha.js",
+      "crooks-assistant/web/ui.js",
+      "crooks-assistant/app/routes/objectives.py",
+      "crooks-assistant/tests/web/r13-evidence-objective-cards.test.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/r13-evidence-objective-cards.test.js::two taps in a row on a conversation card post done, then not done (W3-02)",
+      "crooks-assistant/tests/web/r13-evidence-objective-cards.test.js::three taps on the card itself, the Mac answering each, alternate done and not done (W3-02)",
+      "crooks-assistant/tests/web/r13-evidence-objective-cards.test.js::the home sheet hands its shape a redraw on every tick (W3-02)",
+      "crooks-assistant/tests/web/r13-evidence-objective-cards.test.js::a shape drawn with no redraw sends the same done again, which changes nothing (W3-02)",
+      "crooks-assistant/tests/web/objective-cards.test.js::a tick fills at once, asks the Mac, and the card is drawn again from its answer",
+      "crooks-assistant/tests/web/objective-cards.test.js::a second tap while the first is on its way is not a second change",
+      "crooks-assistant/tests/test_r13_evidence_index.py::test_the_node_tests_the_index_names_pass[crooks-assistant/tests/web/r13-evidence-objective-cards.test.js]"
+    ],
+    "answer": "Yes, both. The conversation's card: ui.js renderObjective draws it with CliveObjectiveCards.card, and `card` always hands its body an onChange that redraws the card from the Mac's answer (draw(record.card)) before calling any onChange of the caller's; the Mac's answer to a tick always carries `card` (app/routes/objectives.py _full). So after a tick every task button is new, made from the task as the Mac now holds it, and the next tap sends the opposite. The home sheet: the one call of cards.shape in web/alpha.js passes onChange: (record) => { drawObjective(record, true); refresh(); }, and drawObjective draws the shape again from record.card. Round 13's node test drives the conversation card through ui.js and the page's own postTick (fetch), with a Mac that keeps the task's state: two taps post {\"done\":true} then {\"done\":false}, and three alternate. Were a shape ever drawn without a redraw, its button would send `done: true` again — the same state, so nothing on the Mac would change and nothing would be lost; the test pins that too. A second tap while the first is on its way is dropped (dataset.pending). tests/web/objective-cards.test.js was run by no Python test before this; tests/test_r13_evidence_index.py now runs every node test this index names.",
+    "excerpts": {
+      "crooks-assistant/web/objective-cards.js": [
+        "lines 193-256: taskRow, toggle and postTick",
+        "lines 318-350: card, which redraws itself on every tick"
+      ],
+      "crooks-assistant/web/alpha.js": [
+        "lines 330-380: openObjective and drawObjective, whose shape is given a redraw"
+      ],
+      "crooks-assistant/web/ui.js": [
+        "lines 3194-3199: renderObjective"
+      ],
+      "crooks-assistant/app/routes/objectives.py": [
+        "lines 44-54: _refused and _full, the record and its card",
+        "lines 140-148: tick"
+      ]
+    }
+  },
+  {
+    "finding": "S1-KEY-SENDER",
+    "parts": [
+      "S1"
+    ],
+    "status": "EVIDENCED",
+    "question": "Does every place that sends the server's local command key check the connected far end (far_end_held_by) before sending, never follow a redirect and never go through a proxy — with launch_common's implementation in hand?",
+    "files": [
+      "crooks-assistant/scripts/launch_common.py",
+      "crooks-assistant/scripts/session_ops.py",
+      "crooks-assistant/app/identity.py",
+      "crooks-assistant/app/local_cli.py",
+      "crooks-assistant/scripts/accept.py",
+      "crooks-assistant/scripts/record.py",
+      "crooks-assistant/tests/test_r11_key_senders.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_key_senders.py::test_the_key_leaves_through_one_function_only",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_a_competitor_holding_the_port_is_never_sent_the_key_by_the_session_commands",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_the_key_goes_down_the_very_connection_the_kernel_was_asked_about",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_a_redirect_is_an_answer_and_never_a_place_to_send_the_key",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_the_commands_never_go_through_a_proxy_the_environment_names",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_the_key_goes_only_on_its_own_routes_and_only_where_it_can_be_read_and_checked",
+      "crooks-assistant/tests/test_r11_key_senders.py::test_every_status_reader_asks_a_competitor_plainly_and_never_with_the_key"
+    ],
+    "answer": "Yes; the body the round-12 packet lacked is here whole (scripts/launch_common.py). The key is read in one place, launch_common._server_key (local_cli.headers(), only for a loopback URL, and only where the far end can be shown), and leaves in one: _one_connection opens the socket itself, asks _taken_by_the_service about that very socket — identity.far_end_held_by(getsockname, getpeername, the service's unit), which finds the far end's socket in /proc/net/tcp, the unit's cgroup (root-only), and a pinned pid of the unit holding that inode — and only on a yes sends the request down the same connection with http.client, which reads no proxy from the environment and follows no redirect (a 3xx is an answer). On a no nothing is sent and the key stays. call_service (the test-session commands, scripts/session_ops.call) and fetch_health (health, status, install, Control) both go through it, and _keyed_route sends the key only on its own routes (local_cli.ROUTES). The other urllib users send no key: scripts/accept.py get/post and scripts/record.py _health build requests with no local_cli header. test_the_key_leaves_through_one_function_only holds that nothing else in app/, scripts/ or experience/ reads the key to send it; the competitor tests use the real kernel check against a listener in no crooks-assistant.service cgroup.",
+    "excerpts": {
+      "crooks-assistant/scripts/session_ops.py": [
+        "lines 49-122: settings, call, failed, _refused, _why"
+      ],
+      "crooks-assistant/app/identity.py": [
+        "lines 271-360: socket_inode, unit_cgroup, unit_pids and cgroup_guarded",
+        "lines 546-602: in_unit_cgroup and far_end_held_by"
+      ],
+      "crooks-assistant/scripts/accept.py": [
+        "lines 63-88: get and post, with no key"
+      ],
+      "crooks-assistant/scripts/record.py": [
+        "lines 40-56: _health, with no key"
+      ]
+    }
+  },
+  {
+    "finding": "R9-B2-B2-01",
+    "parts": [
+      "S3P"
+    ],
+    "status": "EVIDENCED",
+    "question": "Page side: once a screen named before round 10 hands its legacy key back on /displays/register, does registration rotate that key so the old one opens nothing — the server's half the page relies on?",
+    "files": [
+      "crooks-assistant/web/display.js",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/displays/store.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_screens_server.py::test_once_an_old_page_hands_its_key_in_that_key_opens_nothing_and_the_new_one_everything",
+      "crooks-assistant/tests/test_screen_cookie.py::test_a_screen_paired_before_the_cookie_moves_over_once_and_stays_approved",
+      "crooks-assistant/tests/test_screen_cookie.py::test_a_wrong_or_borrowed_old_key_is_no_way_in",
+      "crooks-assistant/tests/test_screen_cookie.py::test_every_screen_request_is_known_by_its_cookie_and_never_by_the_old_header",
+      "crooks-assistant/tests/web/display.test.js::a screen named before round 10 hands its key back once, stays approved, and forgets it"
+    ],
+    "answer": "Yes. The page (web/display.js) takes the legacy key off the device the moment it reads it (loadScreen rewrites the record to {id, name}) and hands it back once from memory, as X-Screen-Key on POST /displays/register (migrate). The server reads that header on /register alone (routes/displays.py _old_screen_key) and passes it as old_key to DisplayStore.register, which treats it exactly as holding the screen's key; for an approved screen it then runs `rotate`: screen['secret'] becomes the hash of a fresh key (secrets.token_urlsafe(24)), handed back only as the HttpOnly, Secure, SameSite=Strict cookie (_handed), never in the answer. Every later check is DisplayStore._holds, which compares a presented key with the one stored hash, and every screen route other than /register reads only the cookie (_screen_key). So from the rotation on, the old key matches nothing: the test sends the spent key as a copier would — as the cookie — to the ask, /seen, /done, /video and /register, and each is refused, while the new cookie opens them. (Whether a rotation survives a power cut between the rename and the folder flush is the screens-server finding of the same id, class B, not this one.)",
+    "excerpts": {
+      "crooks-assistant/web/display.js": [
+        "lines 100-136: loadScreen, saveScreen, forgetStored, forgetScreen",
+        "lines 1932-2028: notThisScreen and migrate"
+      ],
+      "crooks-assistant/app/routes/displays.py": [
+        "lines 216-330: _screen_key, _old_screen_key, _handed, _not_this_screen and register"
+      ],
+      "crooks-assistant/app/displays/store.py": [
+        "lines 913-1003: register, rotate and _keyed",
+        "lines 1078-1087: _holds and _holder"
+      ]
+    }
+  },
+  {
+    "finding": "R9-G-G-01",
+    "parts": [
+      "S3P"
+    ],
+    "status": "EVIDENCED",
+    "question": "What is the live-words key's lifetime and destination, and where do the live words and telemetry go from the page — with sendAudio and the visibility handlers in the packet?",
+    "files": [
+      "crooks-assistant/web/app.js",
+      "crooks-assistant/web/live-voice.js",
+      "crooks-assistant/web/telemetry.js",
+      "crooks-assistant/app/routes/voice.py",
+      "crooks-assistant/config/settings.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/live-words-page.test.js::the live words and the key reach no telemetry, storage, console, request or address bar (C-03, G-01)",
+      "crooks-assistant/tests/web/live-words-page.test.js::the callbacks the page hands live-voice.js let it ask for its key, and record its own words, and nothing else (G-01)",
+      "crooks-assistant/tests/web/live-voice.test.js::a key is used within the life the Mac gave it, counted from the ask, or not at all (C-02)",
+      "crooks-assistant/tests/web/live-voice.test.js::an answer with no life the page can honour opens nothing, and a long one is held to a minute (C-02)",
+      "crooks-assistant/tests/web/live-voice.test.js::one key, one socket, one hold: every hold asks afresh and no socket is ever opened twice (C-02)",
+      "crooks-assistant/tests/web/live-voice.test.js::nothing the socket says reaches telemetry: not its message type, its error text or its close reason (C-04)",
+      "crooks-assistant/tests/web/live-voice.test.js::this file reaches no storage, no address bar, no cookie, no console and no other endpoint"
+    ],
+    "answer": "The key: one per hold, from POST /voice/live (app/routes/voice.py live), which the door and the route itself both hold to the owner rule; it mints a single-use token at ElevenLabs with the server's key, refuses anything that is not key-shaped or that is the server's own key, and answers {token, url, params, expires_in_s} with no-store. live-voice.js keeps it for the life the Mac gave, counted from the ask and capped at a minute, puts it only in the URL of the one socket it opens to the wss base the Mac named, and never opens a second socket with it. The preflight's live check (round 12 record, 1.11: live_key_check.py --expiry, exit 0) found ElevenLabs' key single-use and dead after 16 minutes unused. The words: onWords is showLiveWords, which writes three text nodes marked data-spoken (#ask-words, #ask-heard, and the tablet's line under the orb while he holds); a copy of the screen masks data-spoken nodes. sendAudio posts audio, session_id, turns, speak and branch_id, and nothing else — never the words. Telemetry: the page's record callback passes only the live_transcript event, through LiveVoice.telemetryFields (fixed words and whole numbers), to web/telemetry.js, which sends to its own origin. Going out of sight cancels the live words (the visibilitychange in the live-words block) and the page's other hidden and pagehide handlers stop speaking, release the microphone, clear pointers and flush telemetry, none of which carries the words. live_transcript defaults to True (config/settings.py) and production leaves CROOKS_LIVE_TRANSCRIPT unset, so this is the configuration production would run. The page tests run app.js's own text with the real live-voice.js and telemetry.js and find neither the words nor the key in telemetry, storage, the console, any request or the address bar.",
+    "excerpts": {
+      "crooks-assistant/web/app.js": [
+        "lines 136-136: the telemetry stand-in, T",
+        "lines 396-414: the page's own visibilitychange and pagehide",
+        "lines 1340-1445: the live-words block: LiveVoice.create (its fetch refuses all but /voice/live; its record passes only live_transcript through telemetryFields), liveBegin, liveEnd, showLiveWords, showHeardWords, settleLiveWords, and the visibilitychange that cancels the live words",
+        "lines 1511-1583: startRecording and stopRecording",
+        "lines 3796-3966: submit and sendAudio",
+        "lines 4175-4180: pointers cleared on blur, pagehide and hidden",
+        "lines 4272-4277: telemetry flushed on pagehide and hidden"
+      ],
+      "crooks-assistant/config/settings.py": [
+        "lines 85-91: live_transcript, True unless CROOKS_LIVE_TRANSCRIPT says otherwise"
+      ]
+    }
+  },
+  {
+    "finding": "R9-C-C-03",
+    "parts": [
+      "W1",
+      "C"
+    ],
+    "status": "EVIDENCED",
+    "question": "Are live words display-only — never submitted, never in telemetry or kept context — and cleared on every path that ends a turn (done, error, cancel, refusal, navigation), with sendAudio and the visibility handlers in the packet?",
+    "files": [
+      "crooks-assistant/web/app.js",
+      "crooks-assistant/web/live-voice.js",
+      "crooks-assistant/web/telemetry.js"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/live-words-page.test.js::answered, refused or failed, a turn keeps nothing of the live words: not on the page, in its state or anything sent (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::a hold cancelled mid-word leaves the live words nowhere and sends nothing (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::the app going out of sight, mid-hold or while the question is out, takes the live words off (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::a question the network drops leaves no live words anywhere (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::a turn that fails leaves no live words on the bar (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::a hold too short to be a question leaves no live words on the bar (C-03)",
+      "crooks-assistant/tests/web/live-words-page.test.js::the live words and the key reach no telemetry, storage, console, request or address bar (C-03, G-01)",
+      "crooks-assistant/tests/web/live-voice.test.js::the words go to onWords and nowhere else, and are forgotten when the hold is over (C-03)",
+      "crooks-assistant/tests/web/live-voice.test.js::drop(): once the Mac has said what it heard, the live words are cleared and their socket let go (C-03)"
+    ],
+    "answer": "Yes. The two things round 12's packet omitted are in the excerpts now. sendAudio (web/app.js) builds a FormData of audio, session_id, turns, speak and, when the orb is divided, branch_id, and calls submit: the live words are not in it, and submit sends nothing else of them. Navigation: the live-words block ends with a visibilitychange handler that cancels them the moment the page is hidden (liveWords.cancel -> onWords('')), and the page's other hidden and pagehide handlers stop speaking, release the microphone, clear pointers and flush telemetry — none carries the words. Every other ending: answered -> settleLiveWords(data.question, hold); refused, failed or dropped -> submit's finally, settleLiveWords('', hold); a cancelled hold -> stopRecording(true) -> liveEnd -> liveWords.cancel(); too short -> settleLiveWords(''). live-voice.js gives the words to onWords only and forgets them in close()/drop(). Telemetry takes only the live_transcript event through telemetryFields. The page tests drive each path with app.js's own text and search every text node of the page, its state and everything it sent: the words are found while he holds (the search works) and nowhere after.",
+    "excerpts": {
+      "crooks-assistant/web/app.js": [
+        "lines 136-136: the telemetry stand-in, T",
+        "lines 396-414: the page's own visibilitychange and pagehide",
+        "lines 1340-1445: the live-words block: LiveVoice.create (its fetch refuses all but /voice/live; its record passes only live_transcript through telemetryFields), liveBegin, liveEnd, showLiveWords, showHeardWords, settleLiveWords, and the visibilitychange that cancels the live words",
+        "lines 1511-1583: startRecording and stopRecording",
+        "lines 3796-3966: submit and sendAudio",
+        "lines 4175-4180: pointers cleared on blur, pagehide and hidden",
+        "lines 4272-4277: telemetry flushed on pagehide and hidden"
+      ]
+    }
+  },
+  {
+    "finding": "R9-H-experience1-H-04",
+    "parts": [
+      "X"
+    ],
+    "status": "EVIDENCED",
+    "question": "Is the restored spoken 'no, don't save a draft, send it' scenario actually collected and run — does scenario_packs.collect put compose_send_spoken into the SCENARIOS the golden test runs?",
+    "files": [
+      "crooks-assistant/experience/scenario_packs/compose.py",
+      "crooks-assistant/experience/scenario_packs/__init__.py",
+      "crooks-assistant/experience/scenarios.py",
+      "crooks-assistant/tests/test_experience.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_experience.py::test_the_golden_scenarios[compose_send_spoken]",
+      "crooks-assistant/tests/test_r11_tests.py::test_a_spoken_change_scenario_fails_when_the_model_attempts_nothing[compose_send_spoken]"
+    ],
+    "answer": "Yes. experience/scenario_packs/compose.py lists ('compose_send_spoken', compose_send_spoken) in its own SCENARIOS tuple. experience/scenario_packs/__init__.py collect() imports every module of the package (pkgutil.iter_modules, sorted, private names skipped) and appends each (name, coroutine) of its SCENARIOS; experience/scenarios.py appends collect()'s scenarios to its own literal tuple (SCENARIOS = SCENARIOS + … _collect_packs()), and tests/test_experience.py parametrises test_the_golden_scenarios over that SCENARIOS. The local tuple the reviewer saw is scenarios.py's own first part; the pack's scenarios are added after it. Collected at this commit, pytest names tests/test_experience.py::test_the_golden_scenarios[compose_send_spoken], and it passes; test_r11_tests.py shows the same scenario fails when the model attempts nothing.",
+    "excerpts": {
+      "crooks-assistant/experience/scenarios.py": [
+        "lines 551-571: SCENARIOS, and the packs added to it"
+      ],
+      "crooks-assistant/tests/test_experience.py": [
+        "lines 1-96: the stage fixture and test_the_golden_scenarios"
+      ],
+      "crooks-assistant/experience/scenario_packs/compose.py": [
+        "lines 250-322: compose_send_spoken and SCENARIOS"
+      ]
+    }
+  },
+  {
+    "finding": "R9-D1-D1-03",
+    "parts": [
+      "S1",
+      "S2",
+      "S2T"
+    ],
+    "status": "EVIDENCED",
+    "question": "Did removing the fast lane (4411adde) leave a reachable write — refund, cancellation, store credit — with weaker refusal or disambiguation than before, along turn -> provider -> dispatch -> gate -> engine?",
+    "files": [
+      "crooks-assistant/app/routes/turn.py",
+      "crooks-assistant/app/tools/dispatch.py",
+      "crooks-assistant/app/providers/max_agent_sdk.py",
+      "crooks-assistant/app/actions/engine.py",
+      "crooks-assistant/tests/test_r13_evidence_history.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r13_evidence_history.py::test_the_fast_lane_that_was_deleted_could_not_write",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_through_the_real_provider_is_held_on_the_right_record_and_a_stranger_record_is_denied_first[refund]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_through_the_real_provider_is_held_on_the_right_record_and_a_stranger_record_is_denied_first[cancel]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_through_the_real_provider_is_held_on_the_right_record_and_a_stranger_record_is_denied_first[store credit]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[refund]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[cancel]",
+      "crooks-assistant/tests/test_r11_turn.py::test_money_asked_for_out_loud_is_a_held_card_on_the_right_record_that_a_spoken_yes_cannot_apply[store credit]",
+      "crooks-assistant/tests/test_r11_turn.py::test_a_store_credit_opened_on_one_half_cannot_be_prepared_from_the_other"
+    ],
+    "answer": "No. The fast lane never wrote, so no write-side check went with it. Its own source at the commit before the deletion says so in code, and round 13's test_r13_evidence_history.py reads it from git on every run: `git show 4411adde^:crooks-assistant/app/fastpath/recipes.py` defines assert_read_only (line 111), which raised for any recipe naming a tool with a write or batch definition ('the fast lane cannot write'); app/runtime.py at that commit called it when the runtime was built (recipe_registry.assert_read_only()) and app/fastpath/runner.py before every run; and `git show 4411adde^:crooks-assistant/app/fastpath/intent.py` lists 'cancel', 'refund' and 'archive' among MUTATION_STRONG, words that took a sentence out of the lane for the model before any recipe was scored; and no recipe named any store-credit tool (a recipe naming the write shopify_store_credit_add would have stopped start-up). So a refund, a cancellation or a store credit was never the lane's to serve, before 4411adde or after. The path they take now, and took then: /turn (every new sentence withdraws what was waiting, then the model) -> MaxAgentSDKProvider (tools=[], its PreToolUse hook: owner authority, then the gate against the conversation's issued ids) -> _dispatch -> dispatch -> gate.classify -> the tool's own prepare from a fresh read -> ActionEngine.stage: a PENDING, RED card held to a gesture graver than a tap. The tests drive a refund, a cancellation and a store credit from a sentence through the scripted model and through the real provider: each is a red card on the record read, a commit without the hold is 409 not_armed, a spoken yes applies nothing, a record the conversation never read is denied by the hook, and the shop receives nothing.",
+    "excerpts": {
+      "crooks-assistant/app/routes/turn.py": [
+        "lines 255-340: the turn: what was waiting withdrawn, then the model"
+      ],
+      "crooks-assistant/app/tools/dispatch.py": [
+        "lines 114-179: dispatch",
+        "lines 303-360: _stage",
+        "lines 627-677: make_pretooluse_hook"
+      ],
+      "crooks-assistant/app/providers/max_agent_sdk.py": [
+        "lines 330-376: _options and _hook_for",
+        "lines 422-455: _dispatch"
+      ],
+      "crooks-assistant/app/actions/engine.py": [
+        "lines 98-169: stage"
+      ]
+    }
+  },
+  {
+    "finding": "R9-G-G-03",
+    "parts": [
+      "G"
+    ],
+    "status": "LEFT",
+    "question": "Is the move from lilac to iOS blue an appearance change only?",
+    "files": [
+      "crooks-assistant/web/alpha.css",
+      "crooks-assistant/web/index.html"
+    ],
+    "tests": [
+      "crooks-assistant/tests/web/accent.test.js::the accent is iOS systemBlue, set once on body.alpha, and the lilac is gone (G-03)",
+      "crooks-assistant/tests/web/accent.test.js::the app’s stylesheets reach nothing: a colour is all they can change (G-03)"
+    ],
+    "answer": "A follow-up by round 12's own ruling, not a blocker: the ruling reads 'CANNOT TELL — FOLLOW-UP: This does not block production as configured because the unverified claim concerns the accent's appearance, not an identified exploit, data-loss or data-leak path.' It sits in the blocking list only because its status was CANNOT TELL. The change (0bdfe58c) rewrote the colour values of the accent tokens on body.alpha in web/alpha.css to iOS systemBlue #0A84FF and its filled-button blues; the accent tests check the tokens, that the six lilac values appear in no page file, and that no stylesheet the page loads contains url(), @import, image-set() or expression(), so a stylesheet can change how the page looks and nothing else. Left as the FOLLOW-UP the ruling names; nothing to repair."
+  },
+  {
+    "finding": "R9-B1-B-04",
+    "parts": [
+      "S3"
+    ],
+    "status": "LEFT",
+    "question": "What does a screen's own 'Mark packed' mean: may an approved screen's tap, which the server cannot tell from a key holder's paced requests, be recorded as packed at all?",
+    "files": [
+      "crooks-assistant/app/displays/store.py",
+      "crooks-assistant/app/routes/displays.py",
+      "crooks-assistant/app/tools/display_tools.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_r11_screens_server.py::test_a_screen_using_the_remotes_routes_is_still_a_screen_and_never_the_owners_remote",
+      "crooks-assistant/tests/test_screens_r10.py::test_a_key_holder_that_never_draws_a_page_is_held_to_the_servers_plan_and_its_done_is_its_word",
+      "crooks-assistant/tests/test_displays.py::test_pages_are_told_in_order_one_size_and_not_too_fast_and_done_needs_the_tap",
+      "crooks-assistant/tests/test_displays.py::test_the_done_record_keeps_no_ones_words"
+    ],
+    "answer": "Left for George's ruling. The reviewer is right about the mechanism: an approved screen's key holder that paces its /seen requests to the server's own plan and then posts /done with confirm true gets a done row, and the server cannot tell that from a packer's tap — round 10's test does exactly that. What that row is and does, at this commit: DisplayStore.mark_done and done_from_remote write CLIVE's own record of screens and nothing else; nothing in app/displays/ calls Shopify (the only mention is the order-id pattern), and the only reader of the done rows is screen_list, which tells the owner what was marked and how (how_marked: 'that screen's word, not a check'). No order is fulfilled, changed or hidden by it. Forging one needs an approved screen's key, which only a device on the owner's login is ever given. Whether a screen's own tap should be recorded as packed at all, or only as the screen's word as now, or not accepted, is what the round-11 entry already said is George's to decide; the code does not decide it. When he rules, this is relabelled FOLLOW-UP or the tap is taken out.",
+    "excerpts": {
+      "crooks-assistant/app/displays/store.py": [
+        "lines 196-212: how_marked",
+        "lines 1481-1700: mark_done, done_from_remote and the acknowledgements they need",
+        "lines 1923-1945: done"
+      ],
+      "crooks-assistant/app/routes/displays.py": [
+        "lines 362-470: /seen, /done and /remote/done"
+      ],
+      "crooks-assistant/app/tools/display_tools.py": [
+        "lines 105-127: screen_list, the one reader of done rows"
+      ]
+    }
+  },
+  {
+    "finding": "R9-A3a-A3a-LIVE-CLEAN",
+    "parts": [
+      "S5"
+    ],
+    "status": "DEPLOY-TIME",
+    "question": "Can the gap ledger's start-up clean lose any of the owner's rows or fields on the live record itself?",
+    "files": [
+      "crooks-assistant/scripts/gap_clean_check.py",
+      "crooks-assistant/app/objectives/gaps.py",
+      "crooks-assistant/tests/rollback/gaps_3e77f215.py",
+      "crooks-assistant/docs/DEPLOY_LINUX.md"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_gap_clean_property.py::test_the_deploys_check_says_row_by_row_what_start_up_would_do_without_touching_the_record",
+      "crooks-assistant/tests/test_gap_clean_property.py::test_the_ten_row_shape_of_the_live_record_is_cleaned_without_losing_a_row_or_a_field",
+      "crooks-assistant/tests/test_r11_records.py::test_the_live_gap_records_shape_comes_through_the_real_start_up_byte_for_byte"
+    ],
+    "answer": "Settled at deploy time by the check built for it, and it has been run on the live record at this commit. scripts/gap_clean_check.py copies the record byte for byte into a private (0700) temporary folder, runs this build's own start-up on the copy (GapLedger.repair, then the seed), reports row by row by number and field names only, checks that the code a rollback returns to (3e77f215, vendored in tests/rollback) reads the result, and only reads the live file. Round 12's preflight (record, section D, 1.6b) ran it at 361b0138 as root with the production interpreter against /var/lib/crooks-assistant/objectives/gaps.json: exit 0; 10 gap rows before and 10 after; file unchanged; rows 1-10 each 'kept as it was'; rollback code reads and reports the result: yes; VERDICT: nothing lost. The live record's sha256 7f1a7f6b86a708d0b3872b12b8e75c52ed2a197122f01697359c4f798f8eaf48 is the same as in rounds 9 and 10 and was the same after both runs, with exactly one before-clean backup. Run bare it exits 2, not 0 (1.6c). docs/DEPLOY_LINUX.md makes it a step before every deploy, run as root on the server: exit 0 is 'nothing lost', 1 that something would be lost with no copy kept, 2 that nothing was checked.",
+    "excerpts": {
+      "crooks-assistant/docs/DEPLOY_LINUX.md": [
+        "lines 274-278: the check, before every deploy"
+      ]
+    }
+  },
+  {
+    "finding": "R9-E-families1-E-05",
+    "parts": [
+      "F",
+      "O1"
+    ],
+    "status": "EVIDENCED",
+    "question": "Does every module import at this SHA, does every import resolve, does nothing name a module deleted with the fast lane, and does test-session capture run — settled by executing it rather than by reading two modules?",
+    "files": [
+      "crooks-assistant/tests/test_no_dangling_imports.py",
+      "crooks-assistant/tests/test_r11_records.py",
+      "crooks-assistant/app/families/__init__.py",
+      "crooks-assistant/app/capabilities/families.py"
+    ],
+    "tests": [
+      "crooks-assistant/tests/test_no_dangling_imports.py::test_every_module_under_app_imports",
+      "crooks-assistant/tests/test_no_dangling_imports.py::test_every_import_of_our_own_code_resolves_to_something_that_exists",
+      "crooks-assistant/tests/test_no_dangling_imports.py::test_no_dotted_name_in_the_code_points_at_a_deleted_module",
+      "crooks-assistant/tests/test_no_dangling_imports.py::test_a_deleted_module_is_really_gone",
+      "crooks-assistant/tests/test_no_dangling_imports.py::test_boot_loads_every_family_and_none_is_lost_to_an_import_error",
+      "crooks-assistant/tests/test_r11_records.py::test_every_module_imports_and_every_import_in_them_resolves_and_nothing_names_a_deleted_one",
+      "crooks-assistant/tests/test_r11_records.py::test_every_capability_and_every_change_the_report_names_is_one_this_build_has"
+    ],
+    "answer": "Yes, by execution at this exact SHA. Acceptance run 36567654914 (workflow 'acceptance', event push, clive/trunk, head_sha 361b01380737f8f48020dd30cef1e5f750e700bb, job 109403584488, conclusion success) recorded in its provenance: candidate_sha 361b0138…, clean worktree, and the gate pytest_offline_full — `python -m pytest tests -m \"not live\" -q -p no:cacheprovider` — exit 0, '5946 passed, 26 skipped, 2 deselected in 350.26s'; ruff 'All checks passed!'; secret scan 'no leaks found'. The log is quiet (-q), so it has no line per test; neither tests/test_no_dangling_imports.py nor tests/test_r11_records.py carries a skip mark or a live mark, so every test named here was among the 5946 that passed. They pass again at this commit locally (20 passed). What they do: every module under app/ is imported by name; every import statement in app/, experience/, scripts/, tests/ and bench/ — at the top of a file or inside a function — names a module that exists and a name it has; no dotted string names a deleted module and each deleted one is really gone; in a fresh interpreter every module under app/, scripts/ and config/ imports and every lazy import in them resolves; and app.families.load_all() returns every family module the package holds (load_all only logs a failed family, so this comparison is what would show one). Start-up under production's configuration is the deploy's own restart and /health."
+  }
+]
