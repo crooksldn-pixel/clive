@@ -489,8 +489,11 @@ def test_a_record_written_before_round_12_reads_exactly_as_it_did(tmp_path, name
     assert list(rewritten) == list(RECORD_FIELDS)
     assert rewritten["facts"] == raw["facts"] and rewritten["items"] == raw["items"]
     design = json.loads((root / "design" / f"{raw['id']}.json").read_text(encoding="utf-8"))
-    assert design == {"version": 2, "purpose": None, "done_when": None, "people": [], "stages": [], "tasks": [],
-                      "check_every_days": None}
+    kept = json.loads((root / f"{raw['id']}.json").read_text(encoding="utf-8"))
+    assert {k: design[k] for k in ("version", "id", "kind", "events")} == {
+        "version": 3, "id": raw["id"], "kind": raw["kind"], "events": len(kept["events"])}, "stamped with its record"
+    assert {k: design[k] for k in ("purpose", "done_when", "people", "stages", "tasks", "check_every_days")} == {
+        "purpose": None, "done_when": None, "people": [], "stages": [], "tasks": [], "check_every_days": None}
 
 
 def test_a_record_older_still_without_kind_loads_as_business(tmp_path):
