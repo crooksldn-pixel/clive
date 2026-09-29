@@ -37,6 +37,16 @@ def _thread_about_1939(calls):
     return {"thread_id": ""}
 
 
+def _autumn_drop(calls):
+    """The objective the list in this turn found by its title, as the next call's argument."""
+    for call in calls:
+        found = (getattr(call, "result", None) or {}).get("objectives") if call.name == "objective_list" else None
+        for goal in found or []:
+            if isinstance(goal, dict) and goal.get("title") == "Autumn drop shoot":
+                return {"objective_id": goal.get("id")}
+    return {"objective_id": ""}
+
+
 async def _run(tmp_path) -> dict:
     from app.displays import store as store_module
     from app.main import app
@@ -52,6 +62,8 @@ async def _run(tmp_path) -> dict:
         runtime.provider.will("show me order 1938", *order_reads("1938"), reply="Order 1938.")
         runtime.provider.will("show me the email about 1939", ("gmail_search", {"query": "1939", "days": 30}),
                               ("gmail_read_thread", _thread_about_1939), reply="Here it is.")
+        runtime.provider.will("show me the autumn drop shoot", ("objective_list", {}), ("objective_show", _autumn_drop),
+                              reply="Here it is.")
         # Named a minute ago: a screen counts as on for ONLINE_S after it last asked, and naming it
         # is an ask. Named "now", the Packing screen was on for the first thirty seconds of the run
         # and off after, so the checks that drop on it while it is off passed or failed with the

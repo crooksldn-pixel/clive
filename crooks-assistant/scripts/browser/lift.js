@@ -48,9 +48,37 @@ async function open(browser, kind, name, extra, query) {
   });
   const posts = [];
   page.on('request', (r) => { if (r.method() === 'POST') posts.push({ path: r.url().replace(BASE, ''), body: r.postData() || '' }); });
+  // What the checks read from inside the page: the non-passive touchmove listeners on the
+  // document (the scroll guard must be there only during a gesture), and when a press went down,
+  // began to rise and lifted.
+  await page.addInitScript(() => {
+    const guards = new Set();
+    const add = EventTarget.prototype.addEventListener;
+    const remove = EventTarget.prototype.removeEventListener;
+    EventTarget.prototype.addEventListener = function (type, fn, options) {
+      if (this === document && type === 'touchmove' && options && typeof options === 'object' && options.passive === false) guards.add(fn);
+      return add.call(this, type, fn, options);
+    };
+    EventTarget.prototype.removeEventListener = function (type, fn, options) {
+      if (this === document && type === 'touchmove') guards.delete(fn);
+      return remove.call(this, type, fn, options);
+    };
+    window.__guards = () => guards.size;
+    window.__times = {};
+    add.call(document, 'pointerdown', () => { window.__times = { down: performance.now() }; }, true);
+    new MutationObserver((records) => {
+      for (const r of records) {
+        const t = r.target;
+        if (r.type === 'attributes' && t.classList && t.classList.contains('lift-priming') && !window.__times.prime) window.__times.prime = performance.now();
+        for (const n of r.addedNodes || []) if (n.classList && n.classList.contains('lift-chip') && !window.__times.chip) window.__times.chip = performance.now();
+      }
+    }).observe(document, { attributes: true, attributeFilter: ['class'], subtree: true, childList: true });
+  });
   await page.route('**/speak', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false,"kind":"no_key","reason":"no voice under test"}' }));
   await page.goto(`${BASE}/?startup=off${query || ''}`, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('#ask-bar', { timeout: 15000 });
+  await page.waitForSelector('#ask-bar', { timeout: 15000 }).catch((e) => {
+    throw new Error(`${e.message} (page errors: ${errors.join(' | ') || 'none'})`);
+  });
   await sleep(900);
   const cdp = kind.hasTouch ? await context.newCDPSession(page) : null;
   const shot = async (file) => {
@@ -60,7 +88,8 @@ async function open(browser, kind, name, extra, query) {
     shots.push(path.basename(where));
   };
   const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
-  return { context, page, errors, posts, cdp, shot, touch, quiet };
+  const guards = () => page.evaluate(() => window.__guards());
+  return { context, page, errors, posts, cdp, shot, touch, quiet, guards };
 }
 
 async function ask(t, words, selector) {
@@ -134,7 +163,7 @@ const shownPosts = (t) => t.posts.filter((p) => /\/displays\/scr_[0-9a-f]{12}\/s
 // screen's tile in steps; still down. Returns what was lifted and the tile it is over.
 async function dragOnto(t, from, name) {
   await t.touch('touchStart', from.x, from.y);
-  await sleep(480);
+  await sleep(640);
   const lifted = await tray(t);
   await sleep(420);
   const to = name ? await tile(t, name) : { x: from.x, y: 90 };
@@ -193,20 +222,27 @@ async function main() {
   await sleep(700);
   let now = await tray(tab);
   check('a flick on an order row lifts nothing and opens no tray', now.hidden && !now.chip && now.sources === 0 && !shownPosts(tab).length, JSON.stringify(now));
+  check('after the flick no listener that could hold up a scroll is left on the page', (await tab.guards()) === 0, await tab.guards());
   const top1 = await tab.page.evaluate(() => ({ top: document.getElementById('cards').scrollTop, room: document.getElementById('cards').scrollHeight - document.getElementById('cards').clientHeight }));
   check('and the list scrolls as it did (when there is room to)', top1.room <= 0 || top1.top !== top0, JSON.stringify({ top0, top1 }));
   await tab.page.evaluate(() => { document.getElementById('cards').scrollTop = 0; });
   await sleep(300);
 
-  // Held for less than the hold: nothing yet.
+  // At rest, nothing on the page can hold up a scroll.
+  check('at rest, no listener that could hold up a scroll is on the page', (await tab.guards()) === 0, await tab.guards());
+  // Held for less than the hold: nothing yet — a thumb resting before it scrolls lifts nothing.
   const start = await centre(tab, row);
   await tab.touch('touchStart', start.x, start.y);
-  await sleep(220);
+  await sleep(380);
   now = await tray(tab);
-  check('a press shorter than the hold lifts nothing yet', now.hidden && !now.chip, JSON.stringify(now));
-  await sleep(260);
-  now = await tray(tab);
+  check('a press held 380 ms lifts nothing yet', now.hidden && !now.chip, JSON.stringify(now));
+  check('while the press waits, the scroll guard is on for this gesture', (await tab.guards()) === 1, await tab.guards());
+  now = await waitFor(tab, async () => { const s = await tray(tab); return s.chip ? s : null; }, 4000) || await tray(tab);
   check('a still press lifts the order: the chip is under the finger and the row is dimmed', now.chip && now.sources === 1 && /^Order #\d+/.test(now.chipTitle), JSON.stringify(now));
+  const times = await tab.page.evaluate(() => window.__times);
+  check('the row begins to rise at 300 ms and lifts at 500 ms, not before',
+    times.prime - times.down >= 290 && times.chip - times.down >= 490 && times.prime < times.chip,
+    JSON.stringify({ rise: Math.round(times.prime - times.down), lift: Math.round(times.chip - times.down) }));
   await tab.shot('1-lift');
   await tile(tab, 'Office TV');
   now = await waitFor(tab, async () => { const s = await tray(tab); return s.names.length && s.note ? s : null; }, 8000) || await tray(tab);
@@ -227,6 +263,7 @@ async function main() {
   check('over a screen, its tile lights and says what letting go does', over && over.over && over.line === 'Let go to show it here', JSON.stringify(over));
   const scrolled = await tab.page.evaluate(() => document.getElementById('cards').scrollTop);
   check('dragging did not scroll the list', scrolled === 0, scrolled);
+  check('while dragging, the scroll guard is on for this gesture alone', (await tab.guards()) === 1, await tab.guards());
   await tab.shot('3-over');
   tab.posts.length = 0;
   await tab.touch('touchEnd');
@@ -247,6 +284,7 @@ async function main() {
   const barBack = await tab.page.evaluate(() => getComputedStyle(document.querySelector('.alpha-composer')).pointerEvents);
   check('then the tray settles away, the row is itself again and the ask bar is back', now.hidden && now.sources === 0 && !now.chip && barBack !== 'none',
     JSON.stringify({ now, barBack }));
+  check('and the scroll guard is off again once the drag is over', (await tab.guards()) === 0, await tab.guards());
 
   // The TV, as it is on the wall.
   const onTv = await (async () => {
@@ -278,6 +316,7 @@ async function main() {
   now = await tray(tab);
   check('let go away from the tray, the order goes back and nothing is posted', now.hidden && now.sources === 0 && !now.chip && shownPosts(tab).length === 0,
     JSON.stringify({ now, posts: tab.posts.map((p) => p.path) }));
+  check('put back, the scroll guard is off', (await tab.guards()) === 0, await tab.guards());
   list = await screensNow(tab);
   check('and the screens are as they were', ['Office TV', 'Packing screen'].every((n) => shows(list, n) === shows(before, n)),
     JSON.stringify({ before, list }));
@@ -286,11 +325,12 @@ async function main() {
   const third = await centre(tab, `${row}:nth-child(3)`);
   const thirdLabel = await tab.page.evaluate((sel) => document.querySelector(sel).dataset.label, `${row}:nth-child(3)`);
   await tab.touch('touchStart', third.x, third.y);
-  await sleep(480);
+  await sleep(640);
   await tab.touch('touchEnd');
   await sleep(600);
   now = await tray(tab);
   check('held and let go without dragging, the tray stays open to tap a screen', now.open && now.mode === 'pick' && /^Choose a screen for Order/.test(now.hint), JSON.stringify(now));
+  check('the finger is off the glass, and so is the scroll guard, while the tray waits for a tap', (await tab.guards()) === 0, await tab.guards());
   await tab.shot('6-pick');
   // A refusal the server makes is said in its words, and the tray stays.
   tab.quiet.refused = true;
@@ -353,12 +393,27 @@ async function main() {
   await ask(tab, 'show me the email about 1939', '#cards .card-email_thread');
   const mail = await centre(tab, '#cards .card-email_thread .msg-latest');
   await tab.touch('touchStart', mail.x, mail.y);
-  await sleep(520);
+  await sleep(700);
   now = await tray(tab);
   check('held, an email lifts nothing and says a screen shows orders and objectives', now.hidden && !now.chip && /^A screen shows orders and objectives, not emails\./.test(now.say), JSON.stringify(now));
   await tab.shot('10-email');
+  check('and the scroll guard comes off with the line: nothing is lifted', (await tab.guards()) === 0, await tab.guards());
   await tab.touch('touchEnd');
   await sleep(300);
+
+  // An objective's card in the conversation is held like an order's.
+  await ask(tab, 'show me the autumn drop shoot', '#cards .card-objective[data-objective]');
+  const goalCard = await centre(tab, '#cards .card-objective[data-objective] .card-head');
+  const held = await dragOnto(tab, { x: goalCard.x - 100, y: goalCard.y }, 'Office TV');
+  check('an objective\'s card in the conversation lifts as that objective', held.lifted.chip && held.lifted.chipTitle === 'Autumn drop shoot' && held.over && held.over.over,
+    JSON.stringify(held));
+  await tab.shot('11-objective-card');
+  await tab.touch('touchEnd');
+  now = await waitFor(tab, async () => { const s = await tray(tab); return s.done ? s : null; }, 6000) || await tray(tab);
+  check('dropped on the Office TV, the objective is up there', now.done && now.words === 'Autumn drop shoot is on the Office TV.', JSON.stringify(now));
+  list = await screensNow(tab);
+  check('CLIVE says the Office TV shows the objective from the card', shows(list, 'Office TV') === 'Autumn drop shoot', JSON.stringify(list));
+  await sleep(2600);
   check('the tablet page threw nothing', tab.errors.length === 0, tab.errors.join(' | '));
   await tab.context.close();
 
@@ -369,7 +424,7 @@ async function main() {
   const goal = await centre(phone, '#alpha-home [data-objective]');
   const goalTitle = await phone.page.evaluate(() => document.querySelector('#alpha-home [data-objective] .alpha-row-title').textContent);
   await phone.touch('touchStart', goal.x, goal.y);
-  await sleep(480);
+  await sleep(640);
   await phone.shot('1-lift');
   await sleep(420);
   const officeTile = await tile(phone, 'Office TV');
@@ -385,6 +440,25 @@ async function main() {
   await phone.shot('3-done');
   list = await screensNow(phone);
   check('CLIVE says the Office TV shows the objective', shows(list, 'Office TV') === goalTitle, JSON.stringify(list));
+  await sleep(2600);
+  // Its sheet: opened with a tap, and held by its head. The tray rises inside the sheet, which stays.
+  const rowAt = await centre(phone, '#alpha-home [data-objective]');
+  await phone.page.touchscreen.tap(rowAt.x, rowAt.y);
+  await phone.page.waitForSelector('#alpha-sheet[open] .alpha-sheet-head[data-objective]', { timeout: 10000 });
+  await sleep(900);
+  const sheetTitle = await phone.page.evaluate(() => document.querySelector('#alpha-sheet .alpha-sheet-head h2').textContent);
+  const sheetHead = await centre(phone, '#alpha-sheet .alpha-sheet-head h2');
+  const inSheet = await dragOnto(phone, sheetHead, 'Packing screen');
+  const where = await phone.page.evaluate(() => Boolean(document.querySelector('#alpha-sheet .lift-tray')));
+  check('an objective\'s sheet, held by its head, lifts it, with the tray inside the sheet',
+    inSheet.lifted.chip && inSheet.lifted.chipTitle === sheetTitle && where && inSheet.over && inSheet.over.over, JSON.stringify({ inSheet, where }));
+  await phone.shot('4-sheet-over');
+  await phone.touch('touchEnd');
+  now = await waitFor(phone, async () => { const s = await tray(phone); return s.done ? s : null; }, 6000) || await tray(phone);
+  check('dropped on the Packing screen, it goes up there, and the sheet is still open',
+    now.done && now.words === `${sheetTitle} goes on the Packing screen when it’s next on.`
+      && await phone.page.evaluate(() => document.getElementById('alpha-sheet').open), JSON.stringify(now));
+  await phone.shot('5-sheet-done');
   check('the phone page threw nothing', phone.errors.length === 0, phone.errors.join(' | '));
   await phone.context.close();
 
@@ -394,13 +468,14 @@ async function main() {
   const m = await centre(desk, row);
   await desk.page.mouse.move(m.x, m.y);
   await desk.page.mouse.down();
-  await sleep(460);
+  await sleep(640);
   await sleep(420);
   const mTarget = await tile(desk, 'Office TV');
   await desk.page.mouse.move(mTarget.x, mTarget.y, { steps: 10 });
   const mOver = await litTile(desk, 'Office TV');
   now = await tray(desk);
   check('with a mouse, a held row lifts and the tile under the pointer lights', now.chip && mOver.over, JSON.stringify({ now, mOver }));
+  check('a mouse never scrolls by dragging, so no scroll guard is put on for it', (await desk.guards()) === 0, await desk.guards());
   await desk.shot('1-over');
   await desk.page.mouse.up();
   now = await waitFor(desk, async () => { const s = await tray(desk); return s.done ? s : null; }, 6000) || await tray(desk);
@@ -459,7 +534,7 @@ async function main() {
   await calm.page.evaluate(() => { window.CliveLift.state().screensAt = 0; });
   c = await centre(calm, row);
   await calm.touch('touchStart', c.x, c.y);
-  await sleep(480);
+  await sleep(640);
   const cTile = await tile(calm, 'Office TV');
   for (let i = 1; i <= 8; i++) { await calm.touch('touchMove', Math.round(c.x + ((cTile.x - c.x) * i) / 8), Math.round(c.y + ((cTile.y - c.y) * i) / 8)); await sleep(24); }
   await sleep(150);
@@ -471,6 +546,13 @@ async function main() {
 
   check('the TV page threw nothing, all along', tvErrors.length === 0, tvErrors.join(' | '));
   await tv.close();
+  // ===================================================================== iOS
+  // WebKit decides as a touch begins whether the page may stop it scrolling, so there the guard is
+  // on from the start (the one place it is).
+  const iphone = await open(browser, PHONE, 'ios', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+  check('with an iPhone\'s browser the scroll guard is on from the start', (await iphone.guards()) === 1, await iphone.guards());
+  await iphone.context.close();
+
   // ===================================================================== a weak device
   // The tablet's own lite path (html[data-lite]: no blur) on a processor slowed four times.
   const weak = await open(browser, TABLET, 'lite', {}, '&lite=1');

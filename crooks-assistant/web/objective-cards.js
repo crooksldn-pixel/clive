@@ -321,6 +321,12 @@
     const kind = kindOf(data);
     const node = h('article', `card card-objective oc-card is-${kind}`);
     node.dataset.type = 'objective';
+    // Which objective this is, so it can be held and put on a screen (web/lift.js), and focused
+    // for the context-menu key to do the same. Only an id of an objective's own shape is carried.
+    if (/^obj_[0-9a-f]{8}$/.test(text(data.objective_id))) {
+      node.dataset.objective = text(data.objective_id);
+      node.setAttribute('tabindex', '0');
+    }
     const draw = (payload) => {
       const line = statusLine(payload, now);
       const settings = Object.assign({}, opts || {}, {

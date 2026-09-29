@@ -345,7 +345,12 @@
     const sub = shapedKind
       ? [cards.KIND_WORD[o.kind], cards.statusLine(o.card), standing].filter(Boolean).join(' · ')
       : o.deadline ? `By ${o.deadline} · ${labelFor(o.summary.attention)}` : labelFor(o.summary.attention);
-    const blocks = [head(o.title, sub)];
+    // The head and the shape are the objective itself: held, either lifts it to put on a screen
+    // (web/lift.js); the head is focusable for the context-menu key to do the same.
+    const lead = head(o.title, sub);
+    lead.dataset.objective = o.id;
+    lead.setAttribute('tabindex', '0');
+    const blocks = [lead];
 
     const asks = open(o.attention);
     if (asks.length) {
@@ -368,7 +373,7 @@
     // and the home. Nothing is drawn for a field nobody filled, so an older objective reads as before.
     const body = cards && o.card
       ? cards.shape(o.card, { sheet: true, onChange: (record) => { drawObjective(record, true); refresh(); } }) : null;
-    if (body && body.childNodes.length) blocks.push(h('div', { class: 'alpha-shape' }, body));
+    if (body && body.childNodes.length) blocks.push(h('div', { class: 'alpha-shape', 'data-objective': o.id }, body));
 
     const live = o.items.filter((i) => i.state !== 'verified');
     if (live.length) {
