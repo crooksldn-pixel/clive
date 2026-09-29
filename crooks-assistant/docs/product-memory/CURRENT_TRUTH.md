@@ -8,21 +8,30 @@ This file is intentionally not a historical transcript. It answers: **what is tr
 
 For historical rationale, use Git and DECISIONS.md. For release evolution rules, use EVOLUTION_POLICY.md.
 
-## Now — 2026-09-28
+## Now — 2026-09-29
 
 Where anything further down this file disagrees with this section, this section is the current truth and the text below is history.
 
 | | SHA | What it is |
 |---|---|---|
 | **Production** (`/opt/crooks-os`) | `6a29e310` | Deployed on 27 Sep under the owner's waiver of the round-8 findings ("sure - lets waive review - go"). Both phone checks passed. Record: `claude/deploy-review-round-8-findings` (`74bd8301`). |
-| **Candidate** | the `clive/trunk` head | PR #51 (the round-8 findings, the screens restyled), PR #52 (iOS blue, live voice, no fast lane, the TV remote), PR #53 (YouTube on the screens), PR #54 (round 10: round 9's findings), and round 11's PR (round 10's findings, and the evidence below). |
+| **Candidate** | the `clive/trunk` head | PR #51 (the round-8 findings, the screens restyled), PR #52 (iOS blue, live voice, no fast lane, the TV remote), PR #53 (YouTube on the screens), PR #54 (round 10: round 9's findings), PR #55 (round 11: round 10's findings, and the evidence index), and round 12's PR (the owner's own list of 29 September, below). |
 | **Last review** | round 10, of `81c78948` | Not deployed. The reviewer's API account ran out of credits after 19 of 29 parts. Record: `claude/deploy-review-round-10-findings` (`7510202c`). Round 9 (of `c6c640d7`): not deployed; `claude/deploy-review-round-9-findings`. |
 
-**Next:** the owner tops up the reviewer's API account; then the round-11 prompt on the production host reviews the candidate under his ship rule — only a finding that can be exploited, would lose data or would leak data, on production as configured, blocks the deploy; every other finding is a follow-up. The switches, the parked engineering credential and "code and unit in one operation" are as in the 27 Sep section below. The unit changes in this deploy (`--timeout-graceful-shutdown 10`), and each TV is reloaded once after it (`docs/DEPLOY_LINUX.md`).
+**Next:** the owner tops up the reviewer's API account; then the round-12 prompt on the production host reviews the candidate under his ship rule — only a finding that can be exploited, would lose data or would leak data, on production as configured, blocks the deploy; every other finding is a follow-up. It supersedes the round-11 prompt (which reviewed 547f652f, before round 12). The switches, the parked engineering credential and "code and unit in one operation" are as in the 27 Sep section below. The unit changes in this deploy (`--timeout-graceful-shutdown 10`), and each TV is reloaded once after it (`docs/DEPLOY_LINUX.md`).
+
+**Round 12, the owner's list of 29 September.** Built overnight by six builders, each reproducing his complaint as a failing test first, then checked three times by an independent reviewer that had not written the code (two blockers and two money bugs found and fixed on the way).
+- **Orders by voice** — `shopify_order_build`: add an item by words or SKU (a choice when several match), a custom item (title and price), a line or order discount (per cent or amount), postage, note, customer, address; every change redraws the same card. `shopify_find_order` takes a name, an email, part of an address or postcode, an item and an order number as evidence, checks every one on every order, and never guesses. "In the next size up" is one sentence from a found order. A made order, credit or code is made once: the card is finished and refuses every later change; a change after Prepare withdraws the hold card.
+- **Screens that stay** — the record he is working on stays on screen through a change; `show_again` brings back anything the conversation showed; `close_screen` puts it away; every answer says whether the screen stands (`screen`); CLIVE never says something is on screen when nothing is.
+- **Objectives with a shape** — a project with stages ("samples have started…" is a project at its sampling stage) and delegated tasks by person ("give these two of the team these tasks…"), drawn as what they are, editable by voice; only what is missing is asked. Records stay readable by the code before round 12 (the design is in `design/` beside them), so a rollback loses nothing.
+- **The TVs** — something new replaces what is up in one change, with no clock between (readable in 1.45 s by the page's clock, from 7.26 s).
+- **Hold to put it on a TV** — hold an order, an order row, an order being built or an objective; a Displays tray rises; drop it on a screen (or tap one). Emails are not held: whether a customer's email may go on a TV is the owner's call.
+- **The look** — the start-up's flash and star replaced by the orb waking; every scrolling area fades at an edge with more beyond it, top and bottom; cards form out of CLIVE's dots; the "Speech offline" pill no longer covers the answer; no yellow left in the app (warnings are iOS orange).
+- **Shipping its own fixes** — planned, not built: `docs/plans/2026-09-29-clive-ships-its-own-fixes.md`, with the six decisions that are his.
 
 **Why rounds 9 and 10 did not converge, and what changed.** Most of their blocking findings were a reviewer saying "I cannot settle this from my files": each part held one slice of the tree. Round 11 fixed the real defects (eight in round 10, three of them on the TVs) and wrote, for every open finding, the files and tests that settle it: `docs/review/evidence/` (README there). The next review hands a reviewer those files with the question, instead of a slice.
 
-**Still the owner's to rule:** whether a TV's own "Mark packed" counts as packed (B-04; each done row records how it was marked); the regression-only ship rule (proposed 28 Sep, unanswered); whether "open the inbox" after binding Add a note should be held only by his tap (as now) or also by a check on the words (round 9, I-tests5 I-01).
+**Still the owner's to rule:** whether a TV's own "Mark packed" counts as packed (B-04; each done row records how it was marked); the regression-only ship rule (proposed 28 Sep, unanswered); whether "open the inbox" after binding Add a note should be held only by his tap (as now) or also by a check on the words (round 9, I-tests5 I-01); whether an email may be put on a TV; whether CLIVE may delete the unused drafts its Prepare leaves in Shopify Admin; the six self-shipping decisions (the plan above).
 
 **YouTube on the screens.** "Play the Heat trailer on the TV" finds the video on YouTube and plays it on a screen, in YouTube's own privacy-enhanced embedded player; the owner's app becomes its remote (play, pause, ten seconds either way, where it is, the volume), and so does the TV's own remote. "Pause the TV", "turn it up" and "back thirty seconds" work through CLIVE.
 
