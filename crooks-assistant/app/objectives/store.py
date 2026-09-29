@@ -71,6 +71,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from app.objectives.gaps import _fsync_dir
+
 log = logging.getLogger("crooks.objectives")
 
 __all__ = [
@@ -549,11 +551,35 @@ class ObjectiveStore:
         return self._path(objective_id).parent / DESIGN_DIR / f"{objective_id}.next.json"
 
     @staticmethod
+    def _folder(folder: Path) -> None:
+        """A folder, made where it is not, each one it makes named durably in its parent: a file
+        renamed into a folder whose own name did not reach the disk is lost with it."""
+        if folder.is_dir():
+            return
+        ObjectiveStore._folder(folder.parent)
+        folder.mkdir(exist_ok=True)
+        _fsync_dir(folder.parent)
+
+    @staticmethod
     def _atomic(path: Path, data: dict[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        """`data` at `path`, whole or not at all, and on the disk before this returns (round 13,
+        S6-01): the content is flushed and fsynced before the rename, and the folder after it.
+        Without both, a power cut could keep a later step of `_write` and lose this one, and the
+        order the three steps are written in is what keeps an objective whole."""
+        ObjectiveStore._folder(path.parent)
         tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, indent=2, ensure_ascii=False))
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(tmp, path)
+        _fsync_dir(path.parent)
+
+    def _promote(self, objective_id: str) -> None:
+        """Step 3: the pending design becomes the design, and that is on the disk too."""
+        design = self._design_path(objective_id)
+        os.replace(self._pending_path(objective_id), design)
+        _fsync_dir(design.parent)
 
     def _write(self, obj: Objective) -> None:
         """Three atomic steps, in an order that leaves the whole old objective or the whole new
@@ -572,13 +598,16 @@ class ObjectiveStore:
         (a change that changes nothing is not written, ``_change``), which is what makes "more
         history" certain. The store before round 12 reads only obj_x.json, and at every point
         that is a whole record, old or new.
+
+        "Wherever it stops" includes a power cut, because each step is on the disk, content and
+        folder, before the next begins (`_atomic`, `_promote`). A pending design that is damaged
+        all the same beside a record that has moved on is said to the owner (`_read`).
         """
         record, design = _split(obj)
         self._settle(obj.id)
-        pending = self._pending_path(obj.id)
-        self._atomic(pending, design)
+        self._atomic(self._pending_path(obj.id), design)
         self._atomic(self._path(obj.id), record)
-        os.replace(pending, self._design_path(obj.id))
+        self._promote(obj.id)
 
     def _settle(self, objective_id: str) -> None:
         """Before a write: finish or discard what the last one left. A pending design the record
@@ -596,14 +625,18 @@ class ObjectiveStore:
         chosen = self._design_for(objective_id, record)
         pending = self._pending_path(objective_id)
         if chosen is not None and chosen[0] == "pending":
-            os.replace(pending, self._design_path(objective_id))
+            self._promote(objective_id)
         elif pending.exists():
             pending.unlink()
             log.info("objective %s: a change that stopped before its record was written was not applied", objective_id)
 
     def _design_for(self, objective_id: str, record: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+        return self._judge(objective_id, record)[0]
+
+    def _judge(self, objective_id: str, record: dict[str, Any]) -> tuple[tuple[str, dict[str, Any]] | None, bool]:
         """The design that belongs with this record — ("design" or "pending", the design) — or
-        None, and what to do with the files that do not.
+        None, and what to do with the files that do not; and whether a file was set aside as
+        damage (unreadable, another objective's, a format this build does not know).
 
         A pending design that agrees is the newer of the two (step 3 of a write did not happen),
         and the design it supersedes is left for ``_settle`` to replace, whatever its verdict,
@@ -625,6 +658,7 @@ class ObjectiveStore:
         if agreeing:
             slot = max(agreeing, key=lambda k: (agreeing[k]["events"], k == "pending"))
             chosen = (slot, agreeing[slot])
+        damaged = False
         for slot, (verdict, _design) in judged.items():
             if verdict == "agrees":
                 continue
@@ -632,8 +666,9 @@ class ObjectiveStore:
                 continue                                   # an unfinished write: _settle discards it
             if slot == "design" and chosen and chosen[0] == "pending" and verdict not in _DAMAGE:
                 continue                                   # superseded: _settle replaces it
+            damaged = damaged or verdict in _DAMAGE
             self._set_aside(objective_id, slots[slot], verdict, record)
-        return chosen
+        return chosen, damaged
 
     def _set_aside(self, objective_id: str, path: Path, verdict: str, record: dict[str, Any]) -> None:
         """Keep a design that cannot be used, renamed where no read or write will touch it again,
@@ -654,8 +689,38 @@ class ObjectiveStore:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 raise ValueError("an objective record is a JSON object")
-            chosen = self._design_for(path.stem, raw) if _ID.fullmatch(path.stem) else None
-            return _from_record(raw, chosen[1] if chosen else None)
+            if not _ID.fullmatch(path.stem):
+                return _from_record(raw, None)
+            chosen, damaged = self._judge(path.stem, raw)
+            obj = _from_record(raw, chosen[1] if chosen else None)
+            if damaged and (chosen is None or chosen[1]["events"] < len(raw.get("events") or [])):
+                self._say_lost(obj, chosen is not None)
+            return obj
+
+    def _say_lost(self, obj: Objective, kept: bool) -> None:
+        """A design file was damaged, and the record has moved past the design being read: the
+        record's latest change to the stages, tasks or people did not come back from the disk
+        (round 13, T6-01). The design read is the one before it, or none. That is not passed
+        over: it is put to the owner as an open question on the objective, with the change the
+        record says was made, and written, so the next read and the next restart still say it.
+        A record the store production rolls back to moved on, with no damaged file beside it,
+        asks nothing (`_verdict`)."""
+        last = str((obj.events[-1] if obj.events else {}).get("text") or "").strip()
+        what = f" The last change recorded was: {last}" if last else ""
+        if kept:
+            text = ("The last change to its stages, tasks or people could not be read back from the disk, "
+                    f"so they are shown as they were before it.{what} Say it again to put it back.")
+        else:
+            text = (f"Its stages, tasks and people could not be read back from the disk, so it shows as a plain "
+                    f"{obj.kind} objective.{what} Say them again to put them back.")
+        text = _clean(text)
+        obj.attention.append({"id": _new_id("a"), "text": text, "at": _now(), "resolved_at": None})
+        self._event(obj, "needs_owner", text, "clive")
+        try:
+            self._write(obj)
+        except OSError:
+            log.warning("objective %s: a lost design change could not be written down as a question; "
+                        "it is shown on this read only", obj.id)
 
     def get(self, objective_id: str) -> Objective:
         path = self._path(objective_id)

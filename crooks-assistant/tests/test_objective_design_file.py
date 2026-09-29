@@ -221,10 +221,12 @@ def test_a_write_cut_short_at_any_step_leaves_the_old_objective_or_the_new(s, mo
         target = twin.root / path.relative_to(s.root)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(path.read_bytes())
+    _counted_ids(monkeypatch)
     CHANGES[change](twin, obj)
     after = _state(twin, obj.id)
     assert after != before
 
+    _counted_ids(monkeypatch)            # the same ids again, so the two runs compare id for id
     _break_at(monkeypatch, s, obj.id, step)
     with pytest.raises(OSError):
         CHANGES[change](s, obj)
@@ -243,13 +245,23 @@ def test_a_write_cut_short_at_any_step_leaves_the_old_objective_or_the_new(s, mo
     assert not (s.root / "design" / f"{obj.id}.next.json").exists()
 
 
+def _counted_ids(monkeypatch):
+    """New stage and task ids from a counter, started again for each run of a change, so the run
+    cut short and its twin give a new stage or task the same id."""
+    import itertools
+
+    counter = itertools.count(1)
+    monkeypatch.setattr(store_module, "_new_id", lambda prefix: f"{prefix}_{next(counter):08x}")
+
+
 def _same(one: dict, other: dict) -> bool:
-    """The same objective, but for what differs between two runs of one change: the random ids
-    it gives a new stage or task, and the times it stamps."""
+    """The same objective, but for the times it stamps, which differ between two runs of one
+    change. Stage and task ids are compared (round 13, T6-01): they are what tells one design's
+    stages and tasks from another's, and a comparison without them could not catch a design read
+    from the wrong write."""
     def plain(value):
         if isinstance(value, dict):
-            return {k: plain(v) for k, v in value.items()
-                    if k not in ("updated_at", "at", "started_at", "done_at") and not (k == "id" and str(v)[:2] in ("s_", "t_"))}
+            return {k: plain(v) for k, v in value.items() if k not in ("updated_at", "at", "started_at", "done_at")}
         if isinstance(value, list):
             return [plain(v) for v in value]
         return value
