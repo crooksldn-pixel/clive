@@ -27,15 +27,17 @@ it goes. And an order can be opened FROM another order ("the customer who ordere
 hoodie to SL4 — a new one in the next size up"): its customer, its delivery address and the
 next size of its item, worked out from the product's own sizes (app/families/_sizes.py).
 
-Four things about it are deliberate.
+Five things about it are deliberate.
 
 **The draft is the reviewable intermediate, and that is the whole reason to use it.** PREPARE
 runs `draftOrderCreate`, which makes a draft order: a real object, visible in Admin, priced
 by Shopify, for which nobody is charged and which is not an order. So every number on the
 card the owner holds — the line prices, the discounts, the postage, the total — is Shopify's
 own arithmetic on the thing about to become the order, and not ours and never the model's.
-And the draft Shopify made is checked against the card before the card is offered: the same
-lines, the same quantities, the same discounts, or nothing is offered at all.
+And the draft Shopify made is checked against the card before the card is offered — the same
+lines, quantities and discounts, the same customer, confirmation address, delivery address and
+postage — or nothing is offered at all; the hold completes it only while it still says all of
+that, and the order it made is held to the card once more afterwards.
 
 **An ambiguous customer is refused, not guessed.** Two people called Jones is the commonest
 real case, and the wrong one is a stranger's order with somebody else's address on it. So
@@ -53,6 +55,13 @@ figure, bounded, and on the card he holds.
 **The order is never created because the model thinks it has enough.** `shopify_order_create`
 refuses to prepare a workspace `_blocked` says is not ready, whoever asks, and it only ever
 PREPARES: the completion is the owner's hold.
+
+**A card makes one order.** Once the hold has made it — or once the completion has left for
+Shopify and no answer came back — the card IS that order: drawn with its number, its fields and
+buttons gone, and every way back into building it (a spoken change, a tap, Prepare, "bring it
+back") refused with the order's number (`finished`). Anything more is a new order. Until round
+12's independent check the card stayed "not created" with Prepare live after the hold, and the
+next "now add a cap to it" made a second draft of the same order, which a second hold made.
 """
 
 from __future__ import annotations
@@ -60,6 +69,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 from typing import Any
 
@@ -106,6 +116,9 @@ MAX_PICKS = 8
 # not a sentence.
 MAX_ADDS = 5
 DRAFT_TAG = "CROOKS assistant"
+# The drafts a card has made that are read again before it prepares another: each could have
+# become the order since (`shopify_order_create`). A card is rarely prepared more than twice.
+MAX_DRAFTS_CHECKED = 5
 
 
 # --------------------------------------------------------------------------- the reads
@@ -137,8 +150,9 @@ query CrooksCustomerForOrder($id: ID!) {
 }
 """
 
-# Validated against the Admin API schema (round 12). The lines and the discounts are read so
-# that what Shopify holds can be compared with what the owner is authorising.
+# Validated against the Admin API schema (round 12). The lines, the discounts, who it is for,
+# where the confirmation goes and where the parcel goes are read so that what Shopify holds can
+# be compared with what the owner is authorising (`expected_card`, `draft_card`).
 DRAFT_ORDER_QUERY = """
 query CrooksDraftOrder($id: ID!) {
   draftOrder(id: $id) {
@@ -152,6 +166,7 @@ query CrooksDraftOrder($id: ID!) {
     order { id name }
     customer { id displayName }
     email
+    shippingAddress { address1 address2 city zip countryCodeV2 }
     lineItems(first: 20) {
       edges { node { title quantity custom variantTitle variant { id } appliedDiscount { title value valueType } originalUnitPriceSet { shopMoney { amount currencyCode } } discountedTotalSet { shopMoney { amount currencyCode } } } }
     }
@@ -210,6 +225,10 @@ def display(amount: float | None, currency: str = "GBP") -> str:
         return "—"
     symbol = {"GBP": "£", "USD": "$", "EUR": "€"}.get(currency.upper())
     return f"{symbol}{amount:,.2f}" if symbol else f"{amount:,.2f} {currency}"
+
+
+# Said and typed alike (`shopify_order_build`, `_clean_postage`).
+POSTAGE_BOUND = f"Postage is an amount between £0 and {display(MAX_CUSTOM_LINE_PRICE)}."
 
 
 async def _candidates(client: ShopifyClient, name: str) -> list[dict[str, Any]]:
@@ -299,9 +318,10 @@ def draft_fingerprint(node: dict[str, Any]) -> dict[str, Any]:
     """What the draft must still look like for this completion to be the one prepared.
 
     `order` is the whole precondition for "execute at most once": a draft already completed
-    has an order on it. `status` catches a draft cancelled or invoiced in Admin meanwhile, and
-    `lines` a line or a discount changed there — the owner authorised THESE lines, and a draft
-    that no longer carries them is not what his hold means. `total` is on the fingerprint for
+    has an order on it. `status` catches a draft cancelled or invoiced in Admin meanwhile,
+    `lines` a line or a discount changed there, and `card` its customer, confirmation address,
+    delivery address or postage — the owner authorised THIS order, and a draft that no longer
+    carries it is not what his hold means. `total` is on the fingerprint for
     the proof, not the precondition: a total that moved is said after the fact.
     """
     total = _money(node.get("totalPriceSet"))
@@ -310,6 +330,8 @@ def draft_fingerprint(node: dict[str, Any]) -> dict[str, Any]:
         "order": str(((node.get("order") or {}).get("id")) or ""),
         "total": f"{total:.2f}" if total is not None else "",
         "lines": _digest(draft_signature(node)),
+        # Who, where to and the postage (`draft_card`), part by part, so the proof can say which.
+        "card": _card_digest(draft_card(node)),
     }
 
 
@@ -349,16 +371,47 @@ def _clean_quantity(raw: str) -> tuple[str, str, str]:
     return str(quantity), "ok", ""
 
 
-def _clean_decimal(raw: str) -> tuple[str, str, str]:
-    said = str(raw or "").strip().replace(",", "").lstrip("£$€").rstrip("%")
+def _typed_amount(raw: str) -> tuple[str, float | None, str]:
+    """(what was typed, the amount, why it is not one). An amount is a finite number: "nan",
+    "inf" and "1e400" all parse as floats and none of them is money — "nan" reached the card
+    as "nan% off" and the Prepare as a raw AssertionError before round 12's independent check."""
+    said = str(raw or "").strip().replace(",", "").lstrip("£$€").rstrip("%").strip()
+    if not said:
+        return "", None, ""
+    try:
+        amount = float(said)
+    except ValueError:
+        return said[:10], None, f"{said[:20]!r} is not a number."
+    if not math.isfinite(amount):
+        return said[:10], None, "That is not a number."
+    return said[:10], round(amount, 2), ""
+
+
+def _clean_postage(raw: str) -> tuple[str, str, str]:
+    """Postage, typed: the bound a spoken postage is held to (`shopify_order_build`), so the
+    thumb cannot send what the voice may not."""
+    said, amount, why = _typed_amount(raw)
     if not said:
         return "", "ok", ""
-    try:
-        amount = round(float(said), 2)
-    except ValueError:
-        return said[:10], "invalid", f"{said[:20]!r} is not a number."
+    if amount is None:
+        return said, "invalid", why
+    if not 0 <= amount <= MAX_CUSTOM_LINE_PRICE:
+        return said, "invalid", POSTAGE_BOUND
+    return f"{amount:g}", "ok", ""
+
+
+def _clean_discount(raw: str) -> tuple[str, str, str]:
+    """A discount on the order, typed: a percentage or an amount (the basis is a choice of its
+    own, and `_blocked` holds a percentage to 100), never more than a spoken one may be."""
+    said, amount, why = _typed_amount(raw)
+    if not said:
+        return "", "ok", ""
+    if amount is None:
+        return said, "invalid", why
     if amount < 0:
-        return f"{amount:g}", "invalid", "It cannot be negative."
+        return said, "invalid", "It cannot be negative."
+    if amount > MAX_CUSTOM_LINE_PRICE:
+        return said, "invalid", f"A discount is at most {display(MAX_CUSTOM_LINE_PRICE)} off, or 100%."
     return f"{amount:g}", "ok", ""
 
 
@@ -371,8 +424,8 @@ FIELDS: tuple[ws.Field, ...] = (
     ws.Field(name="email", label="Confirmation to", kind="email", placeholder="their address", maxlength=254, clean=_clean_email),
     ws.Field(name="item", label="Add an item", kind="sku", placeholder="a SKU, or the words", maxlength=60, clean=_clean_words),
     ws.Field(name="quantity", label="How many", kind="quantity", placeholder="1", maxlength=4, clean=_clean_quantity),
-    ws.Field(name="discount", label="Discount on the order", kind="money", placeholder="none", maxlength=8, clean=_clean_decimal),
-    ws.Field(name="postage", label="Postage", kind="money", placeholder="none", maxlength=8, clean=_clean_decimal),
+    ws.Field(name="discount", label="Discount on the order", kind="money", placeholder="none", maxlength=8, clean=_clean_discount),
+    ws.Field(name="postage", label="Postage", kind="money", placeholder="none", maxlength=8, clean=_clean_postage),
     ws.Field(name="note", label="Note", kind="text", placeholder="on the order", maxlength=MAX_NOTE_CHARS, rows=2, clean=_clean_note),
 )
 FIELD_NAMES = tuple(f.name for f in FIELDS)
@@ -510,9 +563,10 @@ def _chosen_customer(workspace: dict[str, Any]) -> dict[str, Any] | None:
 
 def _decimal(value: str) -> float | None:
     try:
-        return round(float(value), 2)
+        amount = float(value)
     except (TypeError, ValueError):
         return None
+    return round(amount, 2) if math.isfinite(amount) else None
 
 
 def _goods(workspace: dict[str, Any]) -> float:
@@ -521,6 +575,8 @@ def _goods(workspace: dict[str, Any]) -> float:
 
 
 def _order_off(workspace: dict[str, Any]) -> dict[str, Any] | None:
+    if ws.status(workspace, "discount") != "ok":
+        return None                  # what was typed is not a discount; the field says why
     value = _decimal(ws.value(workspace, "discount"))
     if value is None or value <= 0:
         return None
@@ -558,7 +614,9 @@ def _blocked(workspace: dict[str, Any]) -> str:
         return f"An order made from here carries at most {MAX_DRAFT_LINES} lines."
     for name in ("discount", "postage", "quantity"):
         if ws.status(workspace, name) != "ok":
-            return f"The {name} is not a number I can use."
+            hint = str((workspace.get("hints") or {}).get(name) or "")
+            label = {"discount": "The discount", "postage": "The postage", "quantity": "How many"}[name]
+            return f"{label}: {hint}" if hint else f"{label} is not a number I can use."
     for line in lines:
         if line["kind"] == "variant" and line.get("for_sale") is False:
             return f"{line['title']} ({line.get('variant') or 'that one'}) is not for sale, so it cannot go on an order. Take it off or choose another."
@@ -619,7 +677,7 @@ def _facts(workspace: dict[str, Any]) -> list[dict[str, Any]]:
     order_off = _order_off(workspace)
     if order_off:
         rows.append({"label": "Discount", "value": f"{_off_words(order_off, each=False)} the order"})
-    if ws.value(workspace, "postage"):
+    if ws.value(workspace, "postage") and ws.status(workspace, "postage") == "ok":
         rows.append({"label": "Postage", "value": display(_decimal(ws.value(workspace, "postage")))})
     rows.append({"label": "Payment", "value": "already paid" if ws.chosen(workspace, "payment", "pending") == "paid" else "not paid — invoice it"})
     if ws.fact(workspace, "item_note"):
@@ -694,6 +752,9 @@ ACTIONS: tuple[ws.Action, ...] = (
 
 
 def workspace_surface(workspace: dict[str, Any]):
+    made = finished(workspace)
+    if made is not None:
+        return _made_surface(workspace, made)
     chosen = _chosen_customer(workspace)
     blocked = _blocked(workspace)
     lines = _lines(workspace)
@@ -712,9 +773,48 @@ def workspace_surface(workspace: dict[str, Any]):
     )
 
 
+def _made_surface(workspace: dict[str, Any], made: dict[str, str]):
+    """The card once it has made its order: the order, by its number, with what is on it — and
+    nothing to type, tap or prepare. The same card in the same place, so the glass does not jump;
+    only what it says has changed."""
+    chosen = _chosen_customer(workspace) or {}
+    lines = _lines(workspace)
+    created = made.get("state") == "created"
+    number = made.get("order_number") or "The order"
+    facts = [{"label": "Customer", "value": f"{chosen.get('name') or ''} · {ws.value(workspace, 'email') or 'no address'}"}]
+    if chosen:
+        facts.append(_address_fact(workspace, chosen))
+    discount = _discount_words(workspace)
+    if discount:
+        facts.append({"label": "Discount", "value": discount})
+    if ws.value(workspace, "postage") and ws.status(workspace, "postage") == "ok":
+        facts.append({"label": "Postage", "value": display(_decimal(ws.value(workspace, "postage")))})
+    facts.append({"label": "Payment", "value": "already paid" if ws.chosen(workspace, "payment", "pending") == "paid"
+                  else "not paid — invoice it"})
+    if created:
+        facts.append({"label": "Order", "value": f"{number} is created", "tone": "ok"})
+    else:
+        facts.append({"label": "Order", "value": "sent to Shopify; it has not said whether it made it", "tone": "warn"})
+    rows = [{k: v for k, v in row.items() if k != "button"} for row in _rows(workspace)]
+    return ws.surface(
+        workspace, fields=(), choices=(),
+        kicker="Order created" if created else "Sent · not confirmed",
+        title=number if created else (chosen.get("name") or "The new order"),
+        subtitle=(f"for {chosen.get('name') or 'the customer'} · {len(lines)} line{'s' if len(lines) != 1 else ''}, "
+                  f"{display(_goods(workspace))} of goods"),
+        facts=facts,
+        notes=["Anything more is a new order: say 'a new order for …'."] if created else
+        ["Look at it in Admin before making it again."],
+        actions=(), rows=rows, settled="created" if created else "unconfirmed",
+        spoken=f"Order {number} is created." if created else "Sent to Shopify, not confirmed.",
+    )
+
+
 def _spoken(workspace: dict[str, Any]) -> str:
     """The grounded half of the answer: what the Mac read and what it is waiting for. When a
     recipe draws this workspace it LEADS the answer and Claude's words follow it."""
+    if already_made(workspace):
+        return already_made(workspace)
     blocked = _blocked(workspace)
     chosen = _chosen_customer(workspace)
     candidates = ws.fact(workspace, "candidates") or []
@@ -733,15 +833,77 @@ def _spoken(workspace: dict[str, Any]) -> str:
     return f"An order for {who}: {what}, {display(_goods(workspace))} of goods.{tail}"
 
 
+# --------------------------------------------------------------------------- made once
+#
+# The completion is sent by the action engine, which knows the proposal and not the half it was
+# made on; the workspace is on that half. So what happened to a workspace's completion is noted
+# here by its (unguessable, per-conversation) id — "sending" the moment before the mutation
+# leaves, "created" once Shopify has said which order it made or a re-read shows one — and the
+# workspace reads it back (`finished`), keeping "created" as a fact of its own from then on.
+# Bounded: the oldest are let go long after their workspaces have lapsed (WORKSPACE_TTL_S).
+
+MAX_NOTED = 512
+_NOTED: dict[str, dict[str, str]] = {}
+
+
+def _note(workspace_id: str, **state: str) -> None:
+    ident = str(workspace_id or "")
+    if not ident:
+        return
+    if _NOTED.get(ident, {}).get("state") == "created" and state.get("state") != "created":
+        return                       # made is made: nothing later un-makes it
+    _NOTED.pop(ident, None)
+    _NOTED[ident] = {k: str(v or "")[:120] for k, v in state.items()}
+    while len(_NOTED) > MAX_NOTED:
+        _NOTED.pop(next(iter(_NOTED)))
+
+
+def finished(workspace: dict[str, Any] | None) -> dict[str, str] | None:
+    """The order this card has made — {"state": "created", "order_id", "order_number"} — or, when
+    the completion left for Shopify and no answer came back, {"state": "sending", "draft_name"};
+    None while it is still being built. Either way it is not something to build on any more."""
+    if not isinstance(workspace, dict):
+        return None
+    made = ws.fact(workspace, "created")
+    if isinstance(made, dict) and made.get("state") == "created":
+        return made
+    noted = _NOTED.get(str(workspace.get("workspace_id") or ""))
+    if noted is None:
+        return None
+    if noted.get("state") == "created":
+        workspace["facts"]["created"] = dict(noted)
+    return dict(noted)
+
+
+def already_made(workspace: dict[str, Any] | None) -> str:
+    """Why nothing more may be done to this card, in the owner's words — or "" while it is still
+    his to build."""
+    made = finished(workspace)
+    if made is None:
+        return ""
+    if made.get("state") == "created":
+        return f"{made.get('order_number') or 'That order'} is already created; say 'a new order for …' to start another."
+    draft = f" ({made['draft_name']})" if made.get("draft_name") else ""
+    return (f"This order was sent to Shopify and it has not said whether it made it{draft}; look in Admin before "
+            "making it again, or say 'a new order for …' to start another.")
+
+
 def where_line(branch: Any) -> str:
     """One clause for the turn's "where we are" (app/routes/turn.py): that a new order is being
     built on this half, for whom, and how it is changed — so a sentence about it goes to the
-    card on the screen rather than starting another."""
+    card on the screen rather than starting another. Once the card has made its order it says
+    THAT, so "now add a cap to it" is not taken for a change to an order still being built."""
     workspace = ws.held(branch, KIND)
     if workspace is None:
         return ""
     chosen = _chosen_customer(workspace)
     who = chosen["name"] if chosen else (ws.value(workspace, "customer") or "nobody yet")
+    made = finished(workspace)
+    if made is not None:
+        what = (f"is CREATED as order {made.get('order_number') or '(number not read)'}" if made.get("state") == "created"
+                else "was sent to Shopify, not confirmed")
+        return (f"the new order on screen ({workspace['workspace_id']}) for {who} {what} — it cannot be changed; "
+                f"anything more is a new order ({OPEN_TOOL})")
     count = len(_lines(workspace))
     return (f"building a new order ({workspace['workspace_id']}) for {who}, {count} line{'s' if count != 1 else ''}, "
             f"not created — change it with {BUILD_TOOL}")
@@ -830,13 +992,15 @@ def add_custom(workspace: dict[str, Any], title: str, price: float, quantity: in
 
 
 def _number(value: Any) -> float | None:
-    """A number the model sent, or None when it is not one. A yes/no is not a number."""
+    """A number the model sent, or None when it is not one. A yes/no is not a number, and nor
+    is "nan" or an infinity, which `float` takes and every comparison after it gets wrong."""
     if isinstance(value, bool):
         return None
     try:
-        return round(float(value), 2)
+        number = float(value)
     except (TypeError, ValueError):
         return None
+    return round(number, 2) if math.isfinite(number) else None
 
 
 def _quantity(value: Any) -> tuple[int, str]:
@@ -969,6 +1133,8 @@ async def _choose_customer(workspace: dict[str, Any], customer_id: str) -> None:
         "email": str(((node.get("defaultEmailAddress") or {}).get("emailAddress")) or ""),
         "orders": str(node.get("numberOfOrders") or "0"),
         "address": address_line(address) if address.get("address1") else "",
+        # The same address as Shopify takes one, for holding the draft to it (`expected_card`).
+        "postal": _mailing(address) if address.get("address1") else {},
     }
     if not ws.value(workspace, "email"):
         ws.type_into(workspace, FIELDS, "email", workspace["facts"]["customer"]["email"])
@@ -1225,6 +1391,9 @@ async def shopify_order_build(workspace_id: str = "", add: list | None = None, l
     workspace = ws.held(branch, KIND, str(workspace_id or ""))
     if workspace is None:
         raise ToolError("There is no order being built on this half. Open one with shopify_order_open.")
+    made = already_made(workspace)
+    if made:
+        raise ToolError(made)
     if not any(v not in (None, "", []) for v in (add, lines, percent_off, amount_off, postage, note, customer,
                                                  customer_id, ship_to, address, paid)):
         raise ToolError("Say what to change on the order.")
@@ -1266,7 +1435,7 @@ async def shopify_order_build(workspace_id: str = "", add: list | None = None, l
     if postage is not None:
         amount = _number(postage)
         if amount is None or not 0 <= amount <= MAX_CUSTOM_LINE_PRICE:
-            not_done.append({"asked": "postage", "why": f"Postage is an amount between £0 and {display(MAX_CUSTOM_LINE_PRICE)}."})
+            not_done.append({"asked": "postage", "why": POSTAGE_BOUND})
         else:
             ws.type_into(workspace, FIELDS, "postage", f"{round(amount, 2):g}" if amount > 0 else "")
             _changed(workspace)
@@ -1485,6 +1654,85 @@ def draft_signature(node: dict[str, Any]) -> list[Any]:
     return [lines, _off_sign(node.get("appliedDiscount"))]
 
 
+# The rest of what the owner reads on the card and holds, beside the lines: who it is for, where
+# the confirmation goes, where the parcel goes, and the postage. Before round 12's independent
+# check only the lines were held to the card, and a draft for somebody else, or to somewhere
+# else, would have been offered as if it were the one he read.
+_CARD_PARTS = (("customer", "the customer"), ("email", "the confirmation email"),
+               ("address", "the delivery address"), ("postage", "the postage"))
+
+
+def _address_key(address: Any) -> list[str] | None:
+    """An address as it is compared: the street, the town, the postcode and the country, with
+    case, spacing and the postcode's own space set aside — Shopify tidies those — and nothing
+    else. None for no address."""
+    if not isinstance(address, dict) or not str(address.get("address1") or "").strip():
+        return None
+
+    def fold(value: Any) -> str:
+        return " ".join(str(value or "").split()).casefold()
+
+    return [fold(address.get("address1")), fold(address.get("address2")), fold(address.get("city")),
+            "".join(str(address.get("zip") or "").split()).upper(),
+            str(address.get("countryCode") or address.get("countryCodeV2") or "").upper()]
+
+
+def _going_to(workspace: dict[str, Any]) -> dict[str, Any] | None:
+    """The address the card says the parcel goes to, as the Mac read it."""
+    ship = ws.chosen(workspace, "address", "customer")
+    if ship == "order":
+        return (ws.fact(workspace, "source") or {}).get("address") or None
+    if ship == "given":
+        return ws.fact(workspace, "given_address") or None
+    if ship == "customer":
+        return (_chosen_customer(workspace) or {}).get("postal") or None
+    return None
+
+
+def expected_card(workspace: dict[str, Any]) -> dict[str, Any]:
+    chosen = _chosen_customer(workspace) or {}
+    postage = _decimal(ws.value(workspace, "postage")) if ws.status(workspace, "postage") == "ok" else None
+    return {
+        "customer": str(chosen.get("customer_id") or ""),
+        # The confirmation address on the card. Left empty, the draft is sent none and Shopify
+        # may give it the customer's own — which is then what the card says (`_present`).
+        "email": ws.value(workspace, "email").strip().lower(),
+        "email_if_none": str(chosen.get("email") or "").strip().lower(),
+        "address": _address_key(_going_to(workspace)),
+        "postage": f"{postage or 0.0:.2f}",
+    }
+
+
+def draft_card(node: dict[str, Any]) -> dict[str, Any]:
+    """The same, read off the draft Shopify holds."""
+    return {
+        "customer": str(((node.get("customer") or {}).get("id")) or ""),
+        "email": str(node.get("email") or "").strip().lower(),
+        "address": _address_key(node.get("shippingAddress")),
+        "postage": f"{_money(node.get('totalShippingPriceSet')) or 0.0:.2f}",
+    }
+
+
+def card_differences(expected: dict[str, Any], got: dict[str, Any]) -> list[str]:
+    out = []
+    for key, words in _CARD_PARTS:
+        if key == "email" and not expected.get("email") and got.get("email") in ("", expected.get("email_if_none")):
+            continue
+        if expected.get(key) != got.get(key):
+            out.append(words)
+    return out
+
+
+def _card_digest(card: dict[str, Any]) -> dict[str, str]:
+    """Each part as a digest: what the proof compares, and never an address kept in the clear
+    on a proposal."""
+    return {key: _digest(card.get(key)) for key, _words in _CARD_PARTS}
+
+
+def _joined(parts: list[str]) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
 def _line_fingerprint(workspace: dict[str, Any]) -> str:
     """A hash of everything a draft is built from, so a draft already made can be REUSED
     when nothing has changed and never when something has. Without this, preparing twice —
@@ -1499,6 +1747,9 @@ def _line_fingerprint(workspace: dict[str, Any]) -> str:
         "address": ws.chosen(workspace, "address", "customer"),
         "source": (ws.fact(workspace, "source") or {}).get("address"),
         "given": ws.fact(workspace, "given_address"),
+        # The customer's own address as read at this prepare: moved in Admin since the last
+        # draft, it is a different draft.
+        "postal": (_chosen_customer(workspace) or {}).get("postal"),
     }
     return _digest(body)
 
@@ -1547,6 +1798,11 @@ def _draft_input(workspace: dict[str, Any]) -> dict[str, Any]:
 async def _observe(execution: dict) -> Observed:
     node = await _read_draft(_c(), str(execution["draft_id"]))
     order = node.get("order") or {}
+    if order.get("id"):
+        # However it got there — this hold, a hold whose answer was lost, Admin — the draft is
+        # an order now, and the card it was prepared from has made it (`finished`).
+        _note(str(execution.get("workspace_id") or ""), state="created", order_id=str(order["id"]),
+              order_number=str(order.get("name") or ""))
     return Observed(fingerprint=draft_fingerprint(node), entity={
         "draft_id": str(node.get("id") or ""), "draft_name": str(node.get("name") or ""),
         "status": str(node.get("status") or ""),
@@ -1559,7 +1815,13 @@ async def _observe(execution: dict) -> Observed:
 async def _execute(execution: dict) -> dict:
     """The completion, and only the completion. The draft was made and priced at PREPARE
     time; this turns it into an order. `paymentPending` is what the owner chose on the
-    workspace, decided on the Mac, and nothing new is decided here."""
+    workspace, decided on the Mac, and nothing new is decided here.
+
+    The card is marked as sending BEFORE the mutation leaves: from then on Shopify may have
+    made the order whether or not its answer arrives, and a card that could be prepared again
+    in that state is how an order is made twice (`finished`)."""
+    workspace_id = str(execution.get("workspace_id") or "")
+    _note(workspace_id, state="sending", draft_name=str(execution.get("draft_name") or ""))
     payload = await _c().mutate("draft_order_complete", {
         "id": str(execution["draft_id"]),
         "paymentPending": bool(execution["payment_pending"]),
@@ -1568,6 +1830,7 @@ async def _execute(execution: dict) -> dict:
     order = body.get("order") or {}
     if not order.get("id"):
         raise ShopifyError("Shopify did not confirm which order it created.")
+    _note(workspace_id, state="created", order_id=str(order["id"]), order_number=str(order.get("name") or ""))
     return {"order_id": str(order["id"])}
 
 
@@ -1575,16 +1838,21 @@ def _verify(before: dict, observed: dict, execution: dict) -> tuple[bool, str]:
     """Proof, by re-reading the draft: it is completed, and it now has an order on it.
 
     "Completed" alone would not do — a draft invoiced in Admin also leaves OPEN — so the
-    order's own id is what is checked. The total and the lines are compared with the card
-    because money or a garment that moved means what the owner agreed to is not what was
-    made: the order exists, and he is told to look at it.
+    order's own id is what is checked. The lines, who it is for, where it goes, the postage and
+    the total are compared with the card because any of them moved means what the owner agreed
+    to is not what was made: the order exists, and he is told what differs and to look at it.
     """
     if not str(observed.get("order") or ""):
         return False, ""
     if str(observed.get("status") or "").upper() != "COMPLETED":
         return False, ""
+    differs = []
     if execution.get("lines") and str(observed.get("lines") or "") != str(execution["lines"]):
-        return True, "the order's lines are not the lines on the card; check the order."
+        differs.append("the lines")
+    wanted, seen = execution.get("card") or {}, observed.get("card") or {}
+    differs += [words for key, words in _CARD_PARTS if key in wanted and wanted.get(key) != seen.get(key)]
+    if differs:
+        return True, f"the order is not what the card said ({_joined(differs)}); check the order."
     if str(observed.get("total") or "") != str(execution.get("total") or ""):
         return True, "the order's total is not the figure on the card; check the order."
     return True, ""
@@ -1668,11 +1936,14 @@ def _discount_words(workspace: dict[str, Any]) -> str:
         # gesture this build has — a hold and a drag onto the target.
         op_class="money",
         reversible=False,
-        # The precondition is the draft's state, its order and its lines, not its total: the
-        # total is on the fingerprint for the proof, and a courtesy reading must not make a
-        # draft that has not moved look changed.
-        precondition_keys=("status", "order", "lines"),
-        spoken_success="Order {label} is created, {amount}.",
+        # The precondition is the draft's state, its order, its lines and the rest of what the
+        # card said (who, where to, postage), not its total: the total is on the fingerprint
+        # for the proof, and a courtesy reading must not make a draft that has not moved look
+        # changed.
+        precondition_keys=("status", "order", "lines", "card"),
+        # Not "Order {label}": the label is the DRAFT's name ("#D12"), which is not the order's
+        # number, and the card he held it from now shows the order's own number (`_made_surface`).
+        spoken_success="The order is created, {amount}.",
         spoken_failure="I couldn't confirm the order was created. Look at the draft in Admin before asking again.",
         spoken_stale="The draft changed since this was prepared, so I haven't completed it.",
     ),
@@ -1691,11 +1962,27 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
     workspace = ws.held(branch, KIND, str(workspace_id))
     if workspace is None:
         raise ToolError("There is no order open on this half to create.")
+    made = already_made(workspace)
+    if made:
+        raise ToolError(made)
     blocked = _blocked(workspace)
     if blocked:
         raise ToolError(blocked)
 
     client = _c()
+    # A draft this card made that has become an order since — completed in Admin, or by a hold
+    # whose answer never came back — means the order exists. Preparing again would make a second
+    # draft of the same order, and a second hold a second order.
+    for draft_id in list(ws.fact(workspace, "drafts_made") or [])[-MAX_DRAFTS_CHECKED:]:
+        try:
+            earlier = await _read_draft(client, str(draft_id))
+        except ToolError:
+            continue                 # deleted in Admin: it made nothing
+        order = earlier.get("order") or {}
+        if order.get("id"):
+            _note(str(workspace["workspace_id"]), state="created", order_id=str(order["id"]),
+                  order_number=str(order.get("name") or ""))
+            raise ToolError(already_made(workspace))
     chosen = _chosen_customer(workspace) or {}
     if not ws.fact(workspace, "by_id"):
         # The customer, re-read at the moment of preparing. A name that has become two people
@@ -1755,14 +2042,18 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
         node = ((payload.get("data") or {}).get("draftOrderCreate") or {}).get("draftOrder") or {}
         if not node.get("id"):
             raise ShopifyError("Shopify did not make the draft, so nothing has been priced.")
-    if draft_signature(node) != expected_signature(workspace):
+        workspace["facts"]["drafts_made"] = [*(ws.fact(workspace, "drafts_made") or []), str(node["id"])][-MAX_DRAFTS_CHECKED:]
+    differs = (["the lines and discounts"] if draft_signature(node) != expected_signature(workspace) else []) \
+        + card_differences(expected_card(workspace), draft_card(node))
+    if differs:
         # Shopify made a draft that is not the card: a line it dropped, a discount it did not
-        # apply. The hold would authorise something the owner has not read, so there is no
-        # hold. The draft is in Admin, tagged, and is not an order.
+        # apply, another customer, somewhere else to send it. The hold would authorise something
+        # the owner has not read, so there is no hold. The draft is in Admin, tagged, and is
+        # not an order.
         workspace["facts"].pop("draft", None)
         raise ToolError(
-            f"Shopify's draft {node.get('name') or ''} does not carry exactly the lines and discounts on "
-            "the card, so I have not offered it. Nothing was created; the draft is in Admin to look at."
+            f"Shopify's draft {node.get('name') or ''} does not carry exactly {_joined(differs)} on the card, "
+            "so I have not offered it. Nothing was created; the draft is in Admin to look at."
         )
     workspace["facts"]["draft"] = {"id": str(node["id"]), "name": str(node.get("name") or ""), "fingerprint": fingerprint}
 
@@ -1779,6 +2070,7 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
         f"{display(total, currency)}{', not paid' if pending else ', already paid'}"
     )
     lines_digest = _digest(draft_signature(node))
+    card_digest = _card_digest(draft_card(node))
     return Prepared(
         execution={
             "workspace_id": str(workspace["workspace_id"]),
@@ -1787,9 +2079,11 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
             "payment_pending": pending,
             "total": f"{total:.2f}",
             "lines": lines_digest,
+            "card": card_digest,
         },
         before=draft_fingerprint(node),
-        expected_after={"status": "COMPLETED", "order": "", "total": f"{total:.2f}", "lines": lines_digest},
+        expected_after={"status": "COMPLETED", "order": "", "total": f"{total:.2f}", "lines": lines_digest,
+                        "card": card_digest},
         # The workspace is what the gate held to this conversation, and the draft is what the
         # mutation names; the entity the OWNER is authorising is the order about to exist, and
         # the draft's own name is how a person finds it.
@@ -1797,7 +2091,9 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
         entity_label=str(node.get("name") or "the order"),
         summary={
             "customer": str(chosen.get("name") or ""),
-            "email": ws.value(workspace, "email"),
+            # Where the confirmation goes as the DRAFT says it, which `card_differences` has held
+            # to the card: the one typed, or the customer's own when none was.
+            "email": str(node.get("email") or ws.value(workspace, "email")),
             "address": _address_for_card(workspace, chosen),
             "lines": lines_words,
             "subtotal": f"{subtotal:.2f}" if subtotal is not None else "0.00",
@@ -1824,6 +2120,12 @@ def _no_workspace() -> Outcome:
     return Outcome.refused("no_workspace", "There is no order being built on this half.")
 
 
+def _made(workspace: dict[str, Any]) -> Outcome:
+    """A tap on a card that has made its order — one drawn before it did, still on a screen.
+    Nothing it posts may build on the order again (`finished`)."""
+    return Outcome.refused("already_created", already_made(workspace))
+
+
 def _open(ctx: CommandCtx) -> Outcome:
     """A control. Opens an EMPTY workspace and reads nothing — a command is synchronous by
     design — so the customer is looked up by the recipe when a name is typed."""
@@ -1845,6 +2147,8 @@ def _field(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id") or ctx.arg("compose_id"))
     if workspace is None:
         return _no_workspace()
+    if already_made(workspace):
+        return _made(workspace)
     name = ctx.arg("field")
     ok, why = ws.type_into(workspace, FIELDS, name, str(ctx.args.get("value") or ""))
     if not ok:
@@ -1872,6 +2176,8 @@ def _choose(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id"))
     if workspace is None:
         return _no_workspace()
+    if already_made(workspace):
+        return _made(workspace)
     ok, why = ws.choose(workspace, _choices(workspace), ctx.arg("field"), ctx.arg("option"))
     if not ok:
         return Outcome.refused("unknown_choice", why)
@@ -1887,6 +2193,8 @@ def _pick_customer(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id"))
     if workspace is None:
         return _no_workspace()
+    if already_made(workspace):
+        return _made(workspace)
     wanted = ctx.arg("customer_id")
     candidates = ws.fact(workspace, "candidates") or []
     if not any(c["customer_id"] == wanted for c in candidates):
@@ -1907,6 +2215,8 @@ def _add_item(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id"))
     if workspace is None:
         return _no_workspace()
+    if already_made(workspace):
+        return _made(workspace)
     if len(_lines(workspace)) >= MAX_DRAFT_LINES:
         return Outcome.refused("too_many", f"An order made from here carries at most {MAX_DRAFT_LINES} lines.")
     wanted = ctx.arg("variant_id")
@@ -1931,6 +2241,8 @@ def _remove_item(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id"))
     if workspace is None:
         return _no_workspace()
+    if already_made(workspace):
+        return _made(workspace)
     key = ctx.arg("line") or (_key_for_variant(ctx.arg("variant_id")) if ctx.arg("variant_id") else "")
     current = _lines(workspace)
     lines = [line for line in current if line["key"] != key]
@@ -1946,6 +2258,8 @@ def _stage(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id"))
     if workspace is None:
         return _no_workspace()
+    if already_made(workspace):
+        return _made(workspace)
     blocked = _blocked(workspace)
     if blocked:
         return Outcome.refused("not_ready", blocked)
@@ -1963,7 +2277,13 @@ def _discard(ctx: CommandCtx) -> Outcome:
     if workspace is None:
         return _no_workspace()
     draft = ws.fact(workspace, "draft") or {}
+    made = finished(workspace)
     ws.discard(ctx.branch)
+    if made is not None:
+        # The card goes; the order it made does not.
+        return Outcome(answer=f"The card is put away; order {made.get('order_number') or ''} stays created."
+                       if made.get("state") == "created" else "The card is put away. Look in Admin for the order it was sending.",
+                       changed={"workspace": None, "discarded": str(workspace["workspace_id"])})
     tail = f" Draft {draft['name']} is still in Admin; delete it there if you do not want it." if draft.get("name") else ""
     return Outcome(answer=f"Gone. No order was created.{tail}",
                    changed={"workspace": None, "discarded": str(workspace["workspace_id"]),
@@ -2002,6 +2322,10 @@ def _customer_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     workspace = ws.held(ctx.branch, KIND)
     if workspace is None:
         return RecipeAnswer(answer="", defer="the order was closed while the customer was being looked up")
+    if already_made(workspace):
+        # Made while this was being read: nothing read now goes onto it.
+        return RecipeAnswer(answer=already_made(workspace), calls=list(result.calls), drawn=[],
+                            surfaces=[workspace_surface(workspace)], partial=result.partial)
     body = result.values.get("customer")
     if not isinstance(body, dict):
         return RecipeAnswer(answer="", defer="the shop did not answer about that customer")
@@ -2052,6 +2376,10 @@ def _line_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     workspace = ws.held(ctx.branch, KIND)
     if workspace is None:
         return RecipeAnswer(answer="", defer="the order was closed while the catalogue was being read")
+    if already_made(workspace):
+        # Made while this was being read: nothing read now goes onto it.
+        return RecipeAnswer(answer=already_made(workspace), calls=list(result.calls), drawn=[],
+                            surfaces=[workspace_surface(workspace)], partial=result.partial)
     body = result.values.get("variants")
     if not isinstance(body, dict):
         return RecipeAnswer(answer="", defer="the catalogue did not answer")

@@ -268,24 +268,12 @@ async def _objective(card: dict[str, Any], objective_id: str, *, label: str) -> 
 
 
 def _building(branch: Any, workspace_id: str) -> dict[str, Any] | None:
-    """A half-built discount, order or credit, drawn from the Mac's own copy of it."""
+    """A half-built discount, order or credit, drawn from the Mac's own copy of it — or, once it
+    has made what it was for, drawn as that (an order card that has made its order comes back as
+    the order, by its number, and never as something that could make it again)."""
     from app.families import _workspace as ws
 
-    held = ws.held(branch, workspace_id=workspace_id)
-    if held is None:
-        return None
-    surfaces = {"order_draft": "app.families.order_create", "discount": "app.families.discounts",
-                "store_credit": "app.families.store_credit"}
-    module = surfaces.get(str(held.get("kind") or ""))
-    if module is None:
-        return None
-    import importlib
-
-    try:
-        return importlib.import_module(module).workspace_surface(held).as_ui()
-    except Exception as exc:  # noqa: BLE001 — said, not raised
-        log.warning("could not draw the workspace again: %s", type(exc).__name__)
-        return None
+    return ws.drawn(branch, workspace_id)
 
 
 def _withdrawn_draft(session: Any, branch: Any) -> dict[str, Any] | None:

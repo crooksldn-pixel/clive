@@ -203,6 +203,13 @@ class OrderStore(FakeStore):
                 "appliedDiscount": dict(off) or None,
                 "customer": {"id": body["customerId"], "displayName": self.people[body["customerId"]]["name"]},
                 "email": body.get("email") or "",
+                # Where it goes, as Shopify keeps it: the customer's own address when asked for
+                # (the one `CrooksCustomerForOrder` answers with), or the one given.
+                "shippingAddress": (
+                    {"address1": "12 Kiln Road", "address2": None, "city": "Windsor", "zip": "SL4 1AA", "countryCodeV2": "GB"}
+                    if body.get("useCustomerDefaultAddress") and self.people[body["customerId"]].get("orders")
+                    else ({**{k: v for k, v in body["shippingAddress"].items() if k != "countryCode"},
+                           "countryCodeV2": body["shippingAddress"].get("countryCode")} if body.get("shippingAddress") else None)),
                 "order": None,
                 "lineItems": {"edges": [{"node": line} for line in lines if not self.drop_lines]},
             }
@@ -625,7 +632,8 @@ async def test_a_drag_completes_the_draft_once_and_proves_it_by_re_reading_it(st
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
     result = await drag(engine, proposal)
     assert result.code == "verified", result.detail
-    assert result.spoken == "Order D4001 is created, £60.00."
+    # The draft's name is not the order's number, so it is not said as one (round 12).
+    assert result.spoken == "The order is created, £60.00."
     completes = [v for name, v in store.mutations if name == "draft_order_complete"]
     assert len(completes) == 1 and completes[0]["paymentPending"] is True
     assert proposal.status is ActionStatus.VERIFIED and proposal.undo_id is None

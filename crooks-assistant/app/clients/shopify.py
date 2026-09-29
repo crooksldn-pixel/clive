@@ -430,6 +430,7 @@ REVIEWED_MUTATIONS: dict[str, ReviewedMutation] = {
                   appliedDiscount { title value valueType }
                   customer { id displayName }
                   email
+                  shippingAddress { address1 address2 city zip countryCodeV2 }
                   lineItems(first: 20) {
                     edges { node {
                       id title quantity custom variantTitle

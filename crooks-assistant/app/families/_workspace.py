@@ -157,6 +157,29 @@ def discard(branch: Any) -> None:
     branch.workspace = None
 
 
+# The family that draws each kind of workspace, by module, for the two places that draw one
+# again without being that family: the answer to a gesture (app/screen.py `after_gesture`) and
+# "bring it back" (app/tools/show_again.py). Each module has `workspace_surface(workspace)`.
+_DRAWN_BY = {"order_draft": "app.families.order_create", "discount": "app.families.discounts",
+             "store_credit": "app.families.store_credit"}
+
+
+def drawn(branch: Any, workspace_id: str = "") -> dict[str, Any] | None:
+    """This half's workspace drawn as its family draws it now, as a `ui` item — or None when
+    the half holds no such workspace, or its family cannot draw it."""
+    workspace = held(branch, workspace_id=workspace_id)
+    module = _DRAWN_BY.get(str((workspace or {}).get("kind") or ""))
+    if workspace is None or module is None:
+        return None
+    import importlib
+
+    try:
+        return importlib.import_module(module).workspace_surface(workspace).as_ui()
+    except Exception as exc:  # noqa: BLE001 — a card not redrawn is the card as it was
+        log.warning("could not draw the workspace again: %s", type(exc).__name__)
+        return None
+
+
 def plain(limit: int) -> Callable[[str], tuple[str, str, str]]:
     """The default rule: one line of bounded text, always acceptable, never uncertain."""
 
@@ -247,6 +270,7 @@ def surface(
     rows: list[dict[str, Any]] | None = None,
     picks: list[dict[str, Any]] | None = None,
     picks_title: str = "",
+    settled: str = "",
 ) -> Surface:
     """The workspace as a card. Every value copied key by key and bounded, which is
     `app/presentation.py`'s rule kept here because this card is built outside it: nothing
@@ -256,6 +280,10 @@ def surface(
     `rows` are the things on it (an order's lines) and `picks` the choices offered for one
     ("which of these?"), each with at most one button — a command name and its arguments,
     which the MAC put there, and which say which row and nothing of what to do with it.
+
+    `settled` is set once the workspace has made what it was for — "created", or "unconfirmed"
+    when the change left and no answer came back — and the card then says so rather than
+    "nothing is created until you authorise the card that follows".
     """
     ident = str(workspace["workspace_id"])
     return Surface(
@@ -303,6 +331,7 @@ def surface(
             "picks": [_row(r, ident) for r in (picks or [])[:MAX_PICKS] if isinstance(r, dict)],
             "picks_title": str(picks_title or "")[:80],
             "blocked": str(blocked or "")[:220],
+            "settled": settled if settled in ("created", "unconfirmed") else "",
             "actions": [
                 {"id": a.id, "label": a.label, "command": a.command,
                  "args": "&".join(f"{k}={v}" for k, v in {"workspace_id": ident, **a.args}.items()),
