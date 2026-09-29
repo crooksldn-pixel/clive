@@ -485,10 +485,11 @@ class _Trace:
     """One tool call as the test-session timeline sees it: requested, then finished, under one
     tool_call_id, against the session and the turn in progress. Off, both are a no-op."""
 
-    __slots__ = ("name", "session", "tool_call_id", "started", "active")
+    __slots__ = ("name", "args", "session", "tool_call_id", "started", "active")
 
     def __init__(self, name: str, args: dict[str, Any], session: Session, decision) -> None:
         self.name = name
+        self.args = args
         self.session = session
         self.tool_call_id = timeline.new_id("tc")
         self.started = time.perf_counter()
@@ -506,7 +507,8 @@ class _Trace:
             return
         timeline.emit(
             "tool_finished", session_id=self.session.session_id, turn_id=self.session.turn_id or None, tool_call_id=self.tool_call_id,
-            tool=self.name, ok=outcome in ("ok", "staged"), outcome=outcome, error=(str(error)[:400] if error else None),
+            tool=self.name, ok=outcome in ("ok", "staged"), outcome=outcome,
+            error=(_without_what_was_said(str(error), self.name, self.args)[:400] if error else None),
             ms=(round(float(ms), 1) if ms is not None else _elapsed(self.started)), **fields,
         )
 
@@ -646,6 +648,43 @@ def _spoken_item(key: str, item: Any, depth: int) -> Any:
     if isinstance(item, str):
         return _spoken_shape(item) if key.lower() in SPOKEN_ARGS else _as_written(key, item)
     return item
+
+
+def _without_what_was_said(error: str, tool: str, args: Any) -> str:
+    """An error as the timeline keeps it: the Mac's own words as they are, and any of the call's
+    own words it quotes back written by their shape, as `loggable_args` writes them. A refusal can
+    quote what it was given — "'Zoe Quill' is not an address I can send to" — and those are the
+    owner's words about a person, which no read may ever have returned (S1-NEW-02)."""
+    try:
+        spec = registry.get(tool)
+        write = spec.write is not None or spec.batch is not None
+    except KeyError:
+        write = True
+    said: list[str] = []
+
+    def walk(key: str, value: Any, depth: int) -> None:
+        if depth > 4:
+            return
+        if isinstance(value, dict):
+            for k, v in value.items():
+                walk(str(k), v, depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for v in list(value)[:20]:
+                walk(key, v, depth + 1)
+        elif isinstance(value, str) and len(value.strip()) >= 3:
+            kept = (key.endswith("_id") and _as_written(key, value) == value[:120]) if write else (
+                key.lower() not in SPOKEN_ARGS and _as_written(key, value) == value[:120])
+            if not kept and _spoken_shape(value) != value.strip()[:120]:
+                said.append(value)
+
+    walk("", args, 0)
+    for value in sorted(set(said), key=len, reverse=True):
+        shape = _spoken_shape(value)
+        # Whole, and as far as an error that cut it short at eighty characters quoted it.
+        for quoted in dict.fromkeys((value, value.strip(), value.strip()[:80])):
+            if len(quoted) >= 3:
+                error = re.sub(rf"(?<!\w){re.escape(quoted)}(?!\w)", lambda _found, shape=shape: shape, error)
+    return error
 
 
 def _result_shape(payload: Any) -> dict[str, Any] | None:

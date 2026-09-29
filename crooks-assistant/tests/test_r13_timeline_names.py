@@ -232,3 +232,27 @@ def test_a_structured_argument_keeps_ids_catalogue_and_query_words_and_shapes_th
     assert "Quill" not in written and "Zoe" not in written, written
     for word in kept:
         assert word in written, written
+
+
+async def test_an_error_that_quotes_what_he_said_is_written_with_those_words_by_their_shape(always_on, monkeypatch):
+    """A refusal can quote the words it was given: the composer's "'Zoe Quill' is not an address
+    I can send to", a query's "customer_id='Zoe Quill' is not a Shopify Customer id". The error is
+    the Mac's, and a report needs it; the words it quotes are his, and are written by their shape
+    as they are in the call's own arguments."""
+    from app.session.models import Session
+    from app.tools.registry import ToolError
+
+    line, store, session = always_on
+
+    async def refused(name, args, *, timeout_s):
+        raise ToolError(f"{str(args.get('item'))[:80]!r} is not an item I can search by, so nothing was read.")
+
+    monkeypatch.setattr(registry, "invoke", refused)
+    with authority.acting_as(authority.for_owner("owner@example.com")):
+        told = await dispatch("shopify_find_order", {"item": "the jacket Zoe Quill bought"},
+                              session=Session(session_id="s-error"), timeout_s=5)
+    assert "Zoe Quill" in told, "the model is still told the error as it was"
+    (finished,) = [e for e in _events(line, store, session) if e.get("kind") == "tool_finished"]
+    _nowhere([finished], "Quill", "Zoe")
+    assert finished["error"].endswith("is not an item I can search by, so nothing was read."), finished["error"]
+    assert SHAPE.search(finished["error"]), finished["error"]
