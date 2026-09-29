@@ -26,7 +26,8 @@ QUESTION = "tell me about the shop"
 # 2026; `lane` stays, always NORMAL, for anything that still reads it.)
 KEYS = [
     "session_id", "turn_id", "test_session_id", "turns", "answer", "question", "error_kind", "lost_thread", "state",
-    "last_state", "build", "writes", "revoked", "tool_calls", "transcript", "timings_ms", "ui", "lane",
+    # `screen` (round 12): what the answer does to the half's screen, which the tablet obeys.
+    "last_state", "build", "writes", "revoked", "tool_calls", "transcript", "timings_ms", "ui", "screen", "lane",
     "branch", "branches", "partial", "performance", "workspace",
 ]
 

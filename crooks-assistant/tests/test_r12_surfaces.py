@@ -483,6 +483,20 @@ NOT_CLAIMS = [
     "I've put the price up to £45.",
     "It isn't on your screen yet; say show it and I will.",
     "It's on the screen in the shop.",
+    # The second pass (item 1): a question, an offer, the future and a condition say nothing is
+    # on his screen now.
+    "Shall I put #1940 on your screen too?",
+    "Want me to put it up on your screen?",
+    "Would you like it on your screen?",
+    "Say show it and it will appear on your screen.",
+    "It'll be on your screen in a moment.",
+    "I can put it on your screen.",
+    "I'll put it on your screen.",
+    "Let me put it on your screen.",
+    "If you say show it, it's on your screen straight away.",
+    "Once it's read, it goes on your screen.",
+    "When it's ready it goes on your screen.",
+    "I'd put it on your screen, but it hasn't loaded.",
 ]
 CLAIMS = [
     "Confirmed, order 1940 on screen.",
@@ -494,6 +508,15 @@ CLAIMS = [
     "It's showing on the screen now.",
     "That's up here now.",
     "Paid, not shipped. It's on your screen now.",
+    # The second pass (item 1): the ways of saying it that stay unambiguous.
+    "It's on your tablet screen.",
+    "It's on the order screen now.",
+    "It's on the app now.",
+    "I've pulled it up.",
+    "I've pulled up order 1938.",
+    "It's in front of you now.",
+    "It's on your screen, not the TV.",
+    "I've just put it on your screen.",
 ]
 
 
@@ -640,3 +663,92 @@ async def test_after_show_again_only_the_cursor_s_card_listens(desk):
     await say(desk, "show me order 1940", "recall")
     back = await say(desk, "pull that up again", "recall")
     assert back["branch"]["entity"]["ref"] == A and listening(back, A) == "order.add_note"
+
+
+
+# ======================== the second pass of the round-12 check: an offer is not a claim (item 1)
+
+
+async def test_an_offer_to_put_another_order_up_is_not_a_claim_and_changes_nothing(desk):
+    """"#1938 has shipped. Shall I put #1940 on your screen too?" with #1938 up: a question, an
+    offer. #1938's card stays; #1940 is not drawn in its place."""
+    offer = "#1938 has shipped. Shall I put #1940 on your screen too?"
+    desk.model.steps = [show_order("1940"), show_order("1938"), claims_only(offer)]
+    await say(desk, "show me order 1940", "offer")
+    await say(desk, "show me order 1938", "offer")
+    body = await say(desk, "has it shipped?", "offer")
+    assert body["answer"] == offer, body["answer"]
+    assert the_order(body, A).get("kept") is True
+    assert records_on(body) == {A}, records_on(body)
+
+
+async def test_how_to_put_it_up_over_a_lapsed_screen_draws_nothing(desk):
+    """"Say show it and it will appear on your screen", over a screen that lapsed half an hour
+    ago: the future is not a claim, so nothing is drawn — not even the order the half was on —
+    and the answer stands as said."""
+    howto = "Say show it and it will appear on your screen."
+    desk.model.steps = [show_order("1938"), claims_only(howto)]
+    await say(desk, "show me order 1938", "howto")
+    desk.runtime.sessions.get("howto").branch().last_at -= 2 * 60 * 60
+    body = await say(desk, "how do I get it up?", "howto")
+    assert body["answer"] == howto, body["answer"]
+    assert kinds(body) == [], kinds(body)
+
+
+# ============================ the second pass: the Mac says whether the screen stands (item 2)
+
+
+async def test_every_answer_says_whether_the_screen_stands(desk):
+    """Words about the record that is up keep it (`screen: kept`); words about another order
+    clear it, on the Mac as on the glass (`screen: cleared`, round 9's D2-05: #1938's card must
+    not stand under an answer about #1940); a new record is a new screen (`screen: new`)."""
+    desk.model.steps = [show_order("1938"), answers("It says leave with the neighbour."),
+                        answers("Yes, it went out yesterday."), show_order("1940")]
+    shown = await say(desk, "show me order 1938", "stands")
+    assert shown["screen"] == "new", shown.get("screen")
+    same = await say(desk, "what's the note on it?", "stands")
+    assert same["screen"] == "kept" and the_order(same, A).get("kept") is True, same.get("screen")
+    other = await say(desk, "has 1940 shipped?", "stands")
+    assert other["screen"] == "cleared" and kinds(other) == [], (other.get("screen"), kinds(other))
+    half = desk.runtime.sessions.get("stands").branch()
+    assert half.last_ui == [], "the Mac still holds #1938 as the screen the glass has let go"
+    assert half.entity["ref"] == A, "the cursor stays where it was (D2-05)"
+    again = await say(desk, "show me order 1940", "stands")
+    assert again["screen"] == "new"
+
+
+# ================================== the second pass: "close that" by voice (item 3)
+
+
+def closes():
+    """Claude asked to close what is up: it calls close_screen and says so."""
+    async def step(session, calls, text):
+        await dispatch("close_screen", {}, session=session, timeout_s=5, calls=calls)
+        return "Done."
+    return step
+
+
+async def test_close_that_clears_the_screen_and_pull_that_up_again_brings_it_back(desk):
+    told: list[str] = []
+    desk.model.steps = [show_order("1938"), closes(), again(told)]
+    await say(desk, "show me order 1938", "close")
+    closed = await say(desk, "close that", "close")
+    assert closed["screen"] == "cleared" and kinds(closed) == [], (closed.get("screen"), kinds(closed))
+    assert desk.runtime.sessions.get("close").branch().last_ui == []
+    back = await say(desk, "pull that up again", "close")
+    assert the_order(back, A) and back["screen"] == "new"
+
+
+async def test_close_screen_is_a_green_tool_with_no_ids_that_touches_no_shop(desk):
+    from app.tools import gate
+    from app.tools.registry import get
+
+    spec = get("close_screen")
+    assert spec is not None and spec.tier == gate.Tier.GREEN
+    assert not spec.issued_id_args and not (spec.input_schema.get("properties") or {})
+    assert "close_screen" in gate._KNOWN_TOOLS
+    desk.model.steps = [show_order("1938"), closes()]
+    await say(desk, "show me order 1938", "green")
+    queries, mutations = len(desk.store.queries), len(desk.store.mutations)
+    await say(desk, "put it away", "green")
+    assert (len(desk.store.queries), len(desk.store.mutations)) == (queries, mutations)

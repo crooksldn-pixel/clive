@@ -161,12 +161,21 @@ def follow_up_shape(question: str) -> str | None:
 # or up here. Not "up" on its own ("they're up again this week", "I've put the price up"), not
 # a sentence that says it is not there or cannot be ("I can't show that on the screen"), and
 # never one of his TVs or named screens ("on the office screen", "on the screen in the shop",
-# "up on the office TV"), which `screen_show` keeps honest itself.
-_HIS_SCREEN = r"(?:your|the|this)\s+(?:screen|tablet)"
+# "up on the office TV"), which `screen_show` keeps honest itself. And only something said to be
+# there NOW, or just put there (the second pass): a question, an offer, the future and a
+# condition are not claims ("Shall I put #1940 on your screen too?", "it will appear on your
+# screen").
+
+# His own screen: said as his, as the one he is looking at, or as the app's own view of a record
+# ("on your tablet screen", "on the order screen", "on the app").
+_VIEWS = r"(?:tablet|app|order|orders|customer|customers|email|inbox)"
+_HIS_SCREEN = rf"(?:your|the|this)\s+(?:{_VIEWS}\s+)?screen|(?:your|the|this)\s+(?:tablet|app(?!\s+store))"
 ON_SCREEN_RE = re.compile(
     r"\bon[- ]?screen\b"
-    rf"|\bon\s+{_HIS_SCREEN}\b"
-    r"|\b(?:up|showing|shown|open|displayed)\s+(?:right\s+)?here\b",
+    rf"|\bon\s+(?:{_HIS_SCREEN})\b"
+    r"|\b(?:up|showing|shown|open|displayed)\s+(?:right\s+)?here\b"
+    r"|\bin\s+front\s+of\s+you\b"
+    r"|\bpulled\s+(?:(?:it|that|this|them|those)\s+(?:back\s+)?up\b|up\s+(?:the|your|order|orders|#))",
     re.I,
 )
 # Said before the phrase, in its own clause: the sentence says it is not there, or cannot be.
@@ -174,13 +183,26 @@ _NEGATED = re.compile(
     r"\b(?:not|no|never|nothing|cannot|unable)\b|n['’]t\b",
     re.I,
 )
+# Said before the phrase, in its own clause: it is not there NOW — it will be, it could be, he
+# is being offered it (the second pass of the round-12 check: "Shall I put #1940 on your screen
+# too?", "it will appear on your screen").
+_NOT_NOW = re.compile(
+    r"\b(?:will|shall|would|could|can|may|might|should|going\s+to|gonna|let\s+me|want\s+me\s+to|like\s+me\s+to)\b"
+    r"|['’](?:ll|d)\b",
+    re.I,
+)
+# Anywhere before the phrase in the sentence: it is so only on a condition ("If you say show it,
+# it's on your screen", "Once it's read, it goes on your screen").
+_CONDITION = re.compile(r"\b(?:if|once|when|whenever|unless|as\s+soon\s+as)\b", re.I)
 # Where a clause starts: what comes before it is another thing said ("Not shipped yet, but it's
 # on your screen" makes the claim; "Paid, not shipped" does not take it back).
 _CLAUSE = re.compile(r"[,;:—–]|\b(?:but|and|so|though|although)\b", re.I)
-# A television or a screen he has named: that screen, not this one.
+# A television or a screen he has named, in the clause that makes the claim: that screen, not
+# this one. In another clause it is the contrast — "It's on your screen, not the TV" — and the
+# claim stands.
 _ELSEWHERE = re.compile(
     r"\b(?:tv|tvs|telly|television|projector)\b"
-    r"|\b(?!(?:your|the|this|on|my|a|an|home)\b)[a-z]+\s+screen\b"
+    rf"|\b(?!(?:your|the|this|on|my|a|an|home|{_VIEWS})\b)[a-z]+\s+screen\b"
     r"|\bscreen\s+(?:in|at|by|over|on)\s+the\b",
     re.I,
 )
@@ -194,14 +216,19 @@ def _sentences(answer: str) -> list[str]:
 
 
 def _claims(sentence: str) -> bool:
-    """Whether this one sentence says, positively, that something is on his screen."""
-    if _ELSEWHERE.search(sentence):
+    """Whether this one sentence asserts that something is on his screen NOW, or was just put
+    there. A question is not that, nor an offer, the future or a condition."""
+    if sentence.rstrip(" \"'”’)]").endswith("?"):
         return False
     for found in ON_SCREEN_RE.finditer(sentence):
-        before = sentence[:found.start()]
-        clause = _CLAUSE.split(before)[-1]
-        if not _NEGATED.search(clause):
-            return True
+        before, after = sentence[:found.start()], sentence[found.end():]
+        clause_before = _CLAUSE.split(before)[-1]
+        clause_after = _CLAUSE.split(after)[0]
+        if _NEGATED.search(clause_before) or _NOT_NOW.search(clause_before) or _CONDITION.search(before):
+            continue
+        if _ELSEWHERE.search(clause_before + found.group(0) + clause_after):
+            continue
+        return True
     return False
 
 

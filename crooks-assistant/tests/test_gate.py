@@ -253,9 +253,12 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     # that puts back on the owner's app what the conversation already showed him; its `ref` is
     # an issued-id argument declared on its ToolSpec.
     assert {"shopify_order_build", "show_again"} <= gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 43, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    # And close_screen, which clears the owner's own app ("close that", "put it away"): no
+    # arguments, and nothing but the Mac's record of what the half shows is touched.
+    assert "close_screen" in gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 44, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
-                                          "then round 12's shopify_order_build and show_again")
+                                          "then round 12's shopify_order_build, show_again and close_screen")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",
