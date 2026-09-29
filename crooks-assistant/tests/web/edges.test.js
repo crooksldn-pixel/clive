@@ -116,6 +116,8 @@ function page(opts) {
   const flush = () => { for (const fn of frames.splice(0)) fn(); };
   return { body, doc, win, edges, flush };
 }
+// What the engine drew on an area: its top (or left) and bottom (or right) fade, in px.
+const fades = (p, el) => { const st = p.edges.state(el); return st ? [st.start, st.end] : null; };
 function area(p, id, cls, box) {
   const wrap = p.body.appendChild(new Stub('', 'wrap'));
   const el = wrap.appendChild(new Stub(id, cls, box));
@@ -127,17 +129,14 @@ function area(p, id, cls, box) {
 test('a long list: no top fade at the top, both edges once scrolled, no bottom fade at the end', () => {
   const p = page();
   const home = area(p, 'alpha-home', 'alpha-home', { clientHeight: 600, scrollHeight: 1400 });
-  assert.equal(home.dataset.edgeStart, undefined, 'at the top of the list, no top fade');
-  assert.equal(home.dataset.edgeEnd, '44', 'the bottom fades: there is more below');
+  assert.deepEqual(fades(p, home), [0, 44], 'at the top of the list no top fade; the bottom fades, there is more below');
   assert.ok(home.style.maskImage && home.style.webkitMaskImage, 'the mask is written for Chrome and Safari alike');
   home.scroll(12); p.flush();
-  assert.equal(home.dataset.edgeStart, '12', 'twelve pixels down: the top fade has grown to twelve');
+  assert.deepEqual(fades(p, home), [12, 44], 'twelve pixels down: the top fade has grown to twelve');
   home.scroll(300); p.flush();
-  assert.equal(home.dataset.edgeStart, '44');
-  assert.equal(home.dataset.edgeEnd, '44');
+  assert.deepEqual(fades(p, home), [44, 44]);
   home.scroll(800); p.flush();
-  assert.equal(home.dataset.edgeStart, '44');
-  assert.equal(home.dataset.edgeEnd, undefined, 'at the end, the last row is whole');
+  assert.deepEqual(fades(p, home), [44, 0], 'at the end, the last row is whole');
   assert.doesNotMatch(home.style.maskImage, /calc\(100% - \d/, 'and the mask has no bottom ramp');
 });
 
@@ -145,33 +144,33 @@ test('an area that fits carries no mask at all', () => {
   const p = page();
   const deck = area(p, 'cards', 'cards', { clientHeight: 700, scrollHeight: 700 });
   assert.equal(deck.style.maskImage, undefined, 'never written');
-  assert.deepEqual(deck.attrs, {});
+  assert.deepEqual(fades(p, deck), [0, 0]);
+  assert.deepEqual(deck.attrs, {}, 'and nothing else is written on it');
   // It grows past the screen (a card added): the bottom fade comes; it shrinks back: it goes.
   deck.scrollHeight = 1100; p.edges.touch(deck); p.flush();
-  assert.equal(deck.dataset.edgeEnd, '44');
+  assert.deepEqual(fades(p, deck), [0, 44]);
   deck.scrollHeight = 700; p.edges.touch(deck); p.flush();
   assert.equal(deck.style.maskImage, '', 'taken off again');
-  assert.equal(deck.dataset.edgeEnd, undefined);
+  assert.deepEqual(fades(p, deck), [0, 0]);
 });
 
 test('the sideways strips fade left and right the same way', () => {
   const p = page();
   const nav = area(p, 'context-nav', 'context-nav', { clientWidth: 573, scrollWidth: 900 });
-  assert.equal(nav.dataset.edgeStart, undefined, 'at the start of the trail, no left fade');
-  assert.equal(nav.dataset.edgeEnd, '32');
+  assert.deepEqual(fades(p, nav), [0, 32], 'at the start of the trail, no left fade');
   assert.match(nav.style.maskImage, /to right/);
   nav.scrollLeft = 327; nav.listeners.scroll(); p.flush();
-  assert.equal(nav.dataset.edgeStart, '32', 'scrolled to the end: the chips gone off the left fade');
-  assert.equal(nav.dataset.edgeEnd, undefined);
+  assert.deepEqual(fades(p, nav), [32, 0], 'scrolled to the end: the chips gone off the left fade');
 });
 
 test('the blur band: laid over a big area\'s fading edges where the device is not lite, and gone with the area', () => {
   const p = page();
   const deck = area(p, 'cards', 'cards', { clientHeight: 600, scrollHeight: 1400, offsetTop: 120, offsetLeft: 0, clientWidth: 601 });
-  const veils = deck.parentNode.children.filter((c) => c.className === 'edge-veil');
+  const veils = deck.parentNode.children.filter((c) => /^edge-veil /.test(c.className));
   assert.equal(veils.length, 2, 'two bands, beside the area');
   const [start, end] = veils;
-  assert.equal(start.attrs['data-edge'], 'start');
+  assert.equal(start.className, 'edge-veil edge-veil-start');
+  assert.equal(end.className, 'edge-veil edge-veil-end');
   assert.equal(start.style.top, '120px');
   assert.equal(start.style.opacity, '0', 'no band at the top of the list');
   assert.equal(end.style.top, `${120 + 600 - 44}px`);
@@ -181,18 +180,18 @@ test('the blur band: laid over a big area\'s fading edges where the device is no
   // The area is taken off the page: its bands go too.
   deck.connected = false;
   p.edges.touch(deck); p.flush();
-  assert.equal(deck.parentNode.children.filter((c) => c.className === 'edge-veil').length, 0);
+  assert.equal(deck.parentNode.children.filter((c) => /^edge-veil /.test(c.className)).length, 0);
   assert.equal(p.edges.size(), 0);
 });
 
 test('the weak tablet keeps the fade and does without the blur band', () => {
   const lite = page({ lite: true });
   const deck = area(lite, 'cards', 'cards', { clientHeight: 600, scrollHeight: 1400 });
-  assert.equal(deck.dataset.edgeEnd, '44', 'the fade is there');
-  assert.equal(deck.parentNode.children.filter((c) => c.className === 'edge-veil').length, 0, 'no band');
+  assert.deepEqual(fades(lite, deck), [0, 44], 'the fade is there');
+  assert.equal(deck.parentNode.children.filter((c) => /^edge-veil /.test(c.className)).length, 0, 'no band');
   const old = page({ noBlur: true });
   const d2 = area(old, 'cards', 'cards', { clientHeight: 600, scrollHeight: 1400 });
-  assert.equal(d2.parentNode.children.filter((c) => c.className === 'edge-veil').length, 0, 'nor where backdrop-filter is not there');
+  assert.equal(d2.parentNode.children.filter((c) => /^edge-veil /.test(c.className)).length, 0, 'nor where backdrop-filter is not there');
 });
 
 test('areas added later are found as they are put on the page', () => {
@@ -202,7 +201,7 @@ test('areas added later are found as they are put on the page', () => {
   p.body.appendChild(sheet);
   p.edges.scan();
   p.flush();
-  assert.equal(scroll.dataset.edgeEnd, '36');
+  assert.deepEqual(fades(p, scroll), [0, 36]);
 });
 
 // ---- every scrolling area of the app is named ------------------------------------------------

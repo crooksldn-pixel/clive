@@ -144,9 +144,9 @@
         el.style.webkitMaskImage = mask;
         el.style.maskImage = mask;
       }
-      // Said on the element as well, so a stylesheet (and a check) can see which edges fade.
-      if (f.start) el.setAttribute('data-edge-start', String(f.start)); else el.removeAttribute('data-edge-start');
-      if (f.end) el.setAttribute('data-edge-end', String(f.end)); else el.removeAttribute('data-edge-end');
+      // What it drew is kept here, not on the element: a copy of the screen (web/telemetry.js)
+      // keeps only the data- names app/observability/screens.py lists, and these say nothing
+      // about the business. A check reads it with state().
       return f;
     }
     // The two bands sit beside the area (its next sibling, so they share its containing block),
@@ -157,8 +157,7 @@
       if (!state.veils) {
         const make = (edge) => {
           const v = doc.createElement('div');
-          v.className = 'edge-veil';
-          v.setAttribute('data-edge', edge);
+          v.className = `edge-veil edge-veil-${edge}`;
           v.setAttribute('aria-hidden', 'true');
           return v;
         };
@@ -231,7 +230,7 @@
 
     // Anything added anywhere may be a new area, or new content in one. Content changing inside
     // an area is caught by the size of its children (above); a child added or taken away here.
-    const mutations = typeof win.MutationObserver === 'function' ? new win.MutationObserver((records) => {
+    const watcher = typeof win.MutationObserver === 'function' ? new win.MutationObserver((records) => {
       for (const r of records) {
         for (const n of r.addedNodes) {
           find(n);
@@ -247,7 +246,7 @@
 
     function start() {
       scan();
-      if (mutations && (doc.body || doc.documentElement)) mutations.observe(doc.body || doc.documentElement, { childList: true, subtree: true });
+      if (watcher && (doc.body || doc.documentElement)) watcher.observe(doc.body || doc.documentElement, { childList: true, subtree: true });
       if (typeof win.addEventListener === 'function') {
         win.addEventListener('resize', everything, { passive: true });
         // A picture that loads, or a font that arrives, makes a list longer with no other sign.

@@ -187,7 +187,7 @@ async function edges(browser, size) {
     const el = document.querySelector(s);
     if (!el) return null;
     const state = window.CliveEdges && window.CliveEdges.page ? window.CliveEdges.page.state(el) : null;
-    return { top: el.scrollTop, room: el.scrollHeight - el.clientHeight, start: +(el.dataset.edgeStart || 0), end: +(el.dataset.edgeEnd || 0), mask: (el.style.maskImage || el.style.webkitMaskImage || ''), state };
+    return { top: el.scrollTop, room: el.scrollHeight - el.clientHeight, start: state ? state.start : -1, end: state ? state.end : -1, mask: (el.style.maskImage || el.style.webkitMaskImage || '').slice(0, 90) };
   }, sel);
   const scrollTo = async (sel, y) => {
     await page.evaluate(([s, v]) => { const el = document.querySelector(s); el.scrollTop = v === 'end' ? el.scrollHeight : v; }, [sel, y]);

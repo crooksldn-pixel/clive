@@ -4,10 +4,10 @@
    so a line going out of view goes soft as well as faint. Never touched, never read aloud. */
 .edge-veil{position:absolute;z-index:1;pointer-events:none;opacity:0;
   -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
-.edge-veil[data-edge="start"]{
+.edge-veil-start{
   -webkit-mask-image:linear-gradient(to bottom,#000 0,rgba(0,0,0,.55) 40%,rgba(0,0,0,0) 100%);
   mask-image:linear-gradient(to bottom,#000 0,rgba(0,0,0,.55) 40%,rgba(0,0,0,0) 100%)}
-.edge-veil[data-edge="end"]{
+.edge-veil-end{
   -webkit-mask-image:linear-gradient(to top,#000 0,rgba(0,0,0,.55) 40%,rgba(0,0,0,0) 100%);
   mask-image:linear-gradient(to top,#000 0,rgba(0,0,0,.55) 40%,rgba(0,0,0,0) 100%)}
 /* The weak tablet keeps the fade and does without the blur (web/app.js marks it lite). */
