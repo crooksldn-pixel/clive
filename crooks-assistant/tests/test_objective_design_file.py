@@ -38,7 +38,7 @@ from app.objectives import store as store_module
 from app.objectives.store import RECORD_FIELDS, ObjectiveStore
 
 STAGES = ["Sampling", "Approval", "Production", "Delivery"]
-SECRET = "Northfield-private-price-list-4471"   # a word no log line may carry
+PRIVATE_WORDS = "Northfield-private-price-list-4471"   # a word no log line may carry
 
 
 @pytest.fixture
@@ -82,8 +82,8 @@ def owner_client():
 
 
 @pytest.mark.parametrize("damage", [
-    f'{{"version": 3, "stages": [{{"name": "{SECRET}"',                        # cut off mid-write
-    f'["{SECRET}"]',                                                            # JSON, not a design
+    f'{{"version": 3, "stages": [{{"name": "{PRIVATE_WORDS}"',                        # cut off mid-write
+    f'["{PRIVATE_WORDS}"]',                                                            # JSON, not a design
     "",                                                                         # empty
 ])
 def test_a_design_that_cannot_be_read_never_hides_or_breaks_the_objective(s, caplog, damage):
@@ -99,7 +99,7 @@ def test_a_design_that_cannot_be_read_never_hides_or_breaks_the_objective(s, cap
     assert (s.root / "design" / kept[0]).read_text(encoding="utf-8") == damage, "kept aside exactly as it was"
     said = [r.getMessage() for r in caplog.records if "design" in r.getMessage()]
     assert said, "the damage is logged"
-    assert not any(SECRET in line for line in said), "and not a word of its content with it"
+    assert not any(PRIVATE_WORDS in line for line in said), "and not a word of its content with it"
     # The next change writes a fresh design; the damaged one is not touched.
     s.progress(obj.id, "Still going")
     assert (s.root / "design" / kept[0]).read_text(encoding="utf-8") == damage

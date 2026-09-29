@@ -88,6 +88,11 @@ def only(items: list[dict], kind: str) -> dict:
 
 
 def session(said: str, sid: str = "ws") -> Session:
+    # A new conversation. Each conversation's entity graph lives in a process-wide table keyed
+    # by its id (app/entities.py graph_for), so a fresh Session under an id another test used
+    # (tests/test_r11_turn.py also has an "inbox") inherited that test's orders and customers:
+    # run after it, the inbox row below found two orders and offered no order link.
+    entities.forget(sid)
     live = Session(session_id=sid)
     live.heard = said
     return live
