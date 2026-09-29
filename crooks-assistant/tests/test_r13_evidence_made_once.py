@@ -16,15 +16,18 @@ drive the commit route itself (docs/review/deploy-review-round-12-findings.md):
   Only a completion that certainly never left gives the card back; one that left is never made
   twice.
 
-Most of that holds. Two things do not, and each is reproduced here as it was found, marked
-`xfail(strict=True)` with the defect named (RELEASED, AMBIGUOUS below):
+Two things did not hold at 361b0138; each was reproduced here as found, and is fixed in
+app/families/_workspace.py (round 13):
 
-* the made-once mark is released by the commit of any hold card of the card, not only by the
-  commit that set it, so a withdrawn card committed while another hold is still at its
-  precondition read frees the card for a second Prepare and a second credit (S2a-03);
-* a send that left and whose answer was lost, read back unchanged at once, is ruled "not made"
-  and the card is given back — "Nothing was credited; prepare it again" — although Shopify may
-  still apply it: a second credit, and with the card changed a second order (S2b-02, T3-02).
+* the made-once mark was released by the commit of any hold card of the card, not only by the
+  commit that set it, so a withdrawn card committed while another hold was still at its
+  precondition read freed the card for a second Prepare and a second credit (S2a-03). The
+  reservation now names its proposal, and only that proposal's commit settles or releases it;
+* a send that left and whose answer was lost, read back unchanged at once, was ruled "not made"
+  and the card given back — "Nothing was credited; prepare it again" — although Shopify may still
+  apply it: a second credit, and with the card changed a second order (S2b-02, T3-02). It is now
+  sent, not confirmed, and the card makes nothing more; only a send proven not to have left, or
+  refused by Shopify, gives the card back.
 
 Everything reaches the Mac as the tablet does: /turn with Claude scripted, /command for taps,
 /actions for the hold. The fake shop is round 12's (tests/test_r12_made_once.py Shop), which
@@ -57,17 +60,6 @@ from tests.test_r12_orders import PROXIED, card, open_theo, say, tap
 # back: httpx's ReadTimeout is an HTTPError that is not a connect error, and `ShopifyClient._post`
 # turns it into a plain ShopifyError — neither `unsent` nor `refused` (app/clients/shopify.py).
 TIMED_OUT = "Could not reach Shopify: " + str(httpx.ReadTimeout("The read operation timed out"))
-
-# Round 13 found two real defects in the made-once boundary while writing this evidence. Each test
-# below that carries one of these marks is its reproduction, unchanged: it fails at this commit for
-# the reason given, and `strict` makes the suite say so the moment a fix makes it pass, so that the
-# mark is taken off with the fix.
-RELEASED = ("real defect (round 13): after_commit releases the made-once mark for ANY hold card of the card, so a "
-            "withdrawn card's commit frees the card while another hold is still sending (app/families/_workspace.py)")
-AMBIGUOUS = ("real defect (round 13): a send that left and timed out, read back unchanged at once, is ruled FAILED "
-             "by the engine and the card is given back as 'nothing was made' (app/actions/engine.py "
-             "_settle_by_observation, app/families/_workspace.py after_commit)")
-
 
 async def _arm(client, proposal_id: str) -> str:
     """The owner's hold begins: the token the commit must carry, and the hold's dwell spent."""
@@ -191,7 +183,6 @@ async def test_s2a_03_a_prepare_tapped_while_the_hold_is_sending_is_refused(shop
     assert asked.count("draft_order_complete") == 1
 
 
-@pytest.mark.xfail(strict=True, reason=RELEASED)
 async def test_s2a_03_a_withdrawn_hold_card_committed_meanwhile_leaves_the_sending_card_finished(shop):  # noqa: F811 - the fixture is tests/test_r12_made_once.py shop
     """The reservation belongs to the commit that made it. A £20 credit is being applied: its hold
     has claimed the card and Shopify is answering its balance read (£15), slowly. Meanwhile a hold
@@ -235,6 +226,46 @@ async def test_s2a_03_a_withdrawn_hold_card_committed_meanwhile_leaves_the_sendi
         f"{sent(shop, 'store_credit_credit')} credits sent: Prepare {'was taken' if again['ok'] else 'was refused'} while the "
         f"first was being applied; balance now £{shop.store.balance:.2f}")
     assert again["ok"] is False, "Prepare was taken while the first credit was still being applied"
+
+
+async def test_s2a_03_a_withdrawn_hold_card_committed_while_nothing_is_in_flight_frees_nothing_and_takes_nothing(shop):  # noqa: F811 - the fixture is tests/test_r12_made_once.py shop
+    """The edge of the fix: the same stray commit with no hold in flight. It is answered `revoked`,
+    sends nothing, and leaves the card exactly as it was — his, with its live hold card still
+    waiting, which then gives the one £20. And on a card whose last send was proven never to have
+    left, the stray commit of that failed card leaves the card given back with its reason."""
+    from app.families import _workspace as ws
+
+    ident = await open_credit(shop)
+    withdrawn = _hold_card(await tap(shop, "credit.stage", workspace_id=ident))["proposal_id"]
+    await tap(shop, "credit.field", workspace_id=ident, field="amount", value="25")
+    await tap(shop, "credit.field", workspace_id=ident, field="amount", value="20")
+    live = _hold_card(await tap(shop, "credit.stage", workspace_id=ident))["proposal_id"]
+    stray = await _commit(shop, withdrawn)
+    assert stray.json().get("code") == "revoked", stray.text
+    workspace = shop.runtime.sessions.get("g1").branch().workspace
+    assert ws.noted(workspace) is None, "nothing noted against the card"
+    assert shop.runtime.actions.find(live).status.value == "PENDING"
+    assert (await _hold(shop, live)).json()["status"] == "verified"
+    assert sent(shop, "store_credit_credit") == 1 and shop.store.balance == 35.0
+
+    ident = await open_credit(shop)            # a new card, whose send never leaves
+    failed = _hold_card(await tap(shop, "credit.stage", workspace_id=ident))["proposal_id"]
+    real = shop.store.mutate
+
+    async def unreached(name: str, variables: dict) -> dict:
+        if name == "store_credit_credit":
+            raise ShopifyUnreached("Could not reach Shopify: connection refused")
+        return await real(name, variables)
+
+    shop.store.mutate = unreached
+    assert (await _hold(shop, failed)).json()["status"] == "failed"
+    shop.store.mutate = real
+    again = await _commit(shop, failed)
+    assert again.status_code == 200 and again.json()["status"] == "failed", again.text     # the engine's settled answer
+    back = _workspace(again.json()["ui"], ident)
+    assert back["kicker"] == "Store credit · not given" and "Could not reach Shopify" in back["notes"][0], back
+    assert (await tap(shop, "credit.stage", workspace_id=ident))["ok"], "the card is still his to prepare"
+    assert sent(shop, "store_credit_credit") == 1
 
 
 async def test_s2a_03_a_commit_without_its_hold_sends_nothing_and_leaves_the_card_his(shop):  # noqa: F811 - the fixture is tests/test_r12_made_once.py shop
@@ -302,7 +333,6 @@ async def test_s2b_02_a_credit_whose_answer_was_lost_is_locked_against_a_second_
     assert shop.store.balance == (35.0 if landed else 15.0)
 
 
-@pytest.mark.xfail(strict=True, reason=AMBIGUOUS)
 async def test_s2b_02_a_timed_out_credit_the_reread_finds_unmade_is_not_given_again(shop):  # noqa: F811 - the fixture is tests/test_r12_made_once.py shop
     """The case the one re-read cannot settle. The £20 credit left and its answer never came back
     (a read timeout, which is neither `unsent` nor `refused`); read again at once, the balance is
@@ -324,7 +354,6 @@ async def test_s2b_02_a_timed_out_credit_the_reread_finds_unmade_is_not_given_ag
     assert asked.count("store_credit_credit") == 1 and sent(shop, "store_credit_credit") == 1
 
 
-@pytest.mark.xfail(strict=True, reason=AMBIGUOUS)
 async def test_s2b_02_a_timed_out_credit_is_drawn_as_sent_not_confirmed_and_prepares_nothing(shop):  # noqa: F811 - the fixture is tests/test_r12_made_once.py shop
     """The same timed-out £20, on the path the owner is actually on: the card that comes back. It
     may have been given, so it says so — sent, not confirmed — and Prepare on it is refused; one
@@ -341,6 +370,47 @@ async def test_s2b_02_a_timed_out_credit_is_drawn_as_sent_not_confirmed_and_prep
     assert asked.count("store_credit_credit") == 1, (
         f"{asked.count('store_credit_credit')} credits sent; the card came back as {back['kicker']!r}: {back['notes'][0]!r}")
     assert back["settled"] == "unconfirmed" and again["ok"] is False
+
+
+@pytest.mark.parametrize("how", ["never left", "refused", "failed before it was sent"])
+async def test_s2b_02_a_credit_proven_not_given_is_given_back_and_the_next_hold_gives_one(shop, how):  # noqa: F811 - the fixture is tests/test_r12_made_once.py shop
+    """The edge of the fix: where CLIVE has proof that nothing was given, the card is his again, as
+    before. The connection was never made (`unsent`); Shopify answered and refused it (`refused`);
+    or the balance read before sending failed, so nothing was sent. Each time the card comes back
+    "not given" with the reason, Prepare works, and the next hold gives the one £20."""
+    from app.clients.shopify import ShopifyRefused
+
+    ident = await open_credit(shop)
+    first = _hold_card(await tap(shop, "credit.stage", workspace_id=ident))["proposal_id"]
+    real_mutate, real_graphql = shop.store.mutate, shop.store.graphql
+    once = {"left": False}
+
+    async def mutate(name: str, variables: dict) -> dict:
+        if name == "store_credit_credit" and not once["left"]:
+            once["left"] = True
+            if how == "never left":
+                raise ShopifyUnreached("Could not reach Shopify: connection refused")
+            if how == "refused":
+                shop.store.mutations.append((name, copy.deepcopy(variables)))
+                raise ShopifyRefused("The store credit account is disabled.")
+        return await real_mutate(name, variables)
+
+    async def graphql(query: str, variables: dict | None = None) -> dict:
+        if how == "failed before it was sent" and "CrooksStoreCredit" in query and not once["left"]:
+            once["left"] = True
+            raise ShopifyError("Could not reach Shopify: the balance could not be read")
+        return await real_graphql(query, variables)
+
+    shop.store.mutate, shop.store.graphql = mutate, graphql
+    done = (await _hold(shop, first)).json()
+    assert done["status"] == "failed", done
+    back = _workspace(done["ui"], ident)
+    assert back["kicker"] == "Store credit · not given" and back["settled"] == "", back
+    assert back["notes"][0].startswith("The credit was not given: "), back["notes"]
+    again = _hold_card(await tap(shop, "credit.stage", workspace_id=ident))["proposal_id"]
+    assert (await _hold(shop, again)).json()["status"] == "verified"
+    assert shop.store.balance == 35.0
+    assert sent(shop, "store_credit_credit") == (2 if how == "refused" else 1)
 
 
 # ============================================================ T1-01: an order changed after Prepare
@@ -470,8 +540,9 @@ async def test_t3_02_a_completion_that_never_left_gives_the_card_back_and_the_ne
 
 async def test_t3_02_a_completion_that_left_and_landed_after_the_mac_gave_up_is_never_made_twice(shop):  # noqa: F811 - the fixture is tests/test_r12_made_once.py shop
     """The completion left and its answer never came back; read again at once the draft is still
-    open, so the engine says it was not made and gives the card back. Shopify then finishes it. The
-    next Prepare reads the drafts this card made, finds the order, and prepares nothing: one order."""
+    open. The card stays sent, not confirmed (at 361b0138 it was given back, and only the next
+    Prepare's read of the drafts this card made stood between it and a second order). Shopify then
+    finishes it. Prepare is refused on the card itself, and no second completion is sent."""
     ident = card(await open_theo(shop))["workspace_id"]
     first = _hold_card(await tap(shop, "order.stage", workspace_id=ident))["proposal_id"]
     asked: list[str] = []
@@ -488,22 +559,27 @@ async def test_t3_02_a_completion_that_left_and_landed_after_the_mac_gave_up_is_
     shop.store.mutate = mutate
     done = (await _hold(shop, first)).json()
     assert asked == ["draft_order_complete"] and done["status"] in ("failed", "unverified"), done
+    kept = _workspace(done["ui"], ident)
+    assert kept["settled"] == "unconfirmed" and kept["kicker"] == "Sent · not confirmed", kept
+    assert kept["notes"] == ["Look at it in Admin before making it again."] and kept["actions"] == []
     draft = shop.store.drafts[late[0]]
     draft["status"], draft["order"] = "COMPLETED", {"id": "gid://shopify/Order/3001", "name": "CROOKS-3001"}
 
     again = await tap(shop, "order.stage", workspace_id=ident)
-    assert again["ok"] is False and "already created" in again["detail"], again
+    assert again["ok"] is False and "has not said whether it made it" in again["detail"], again
+    assert "look in Admin before making it again" in again["detail"]
     assert asked == ["draft_order_complete"], "no second completion was sent"
 
 
-@pytest.mark.xfail(strict=True, reason=AMBIGUOUS)
 async def test_t3_02_a_completion_that_left_is_never_given_back_as_not_made(shop):  # noqa: F811 - the fixture is tests/test_r12_made_once.py shop
     """The reviewer's rule for T3-02: only a completion that certainly never left gives the card
     back. This one left — a read timeout, neither `unsent` nor `refused` — and read again at once
     the draft is still open, which proves nothing about a request Shopify may still be applying.
-    The card must stay finished (sent, not confirmed). Given back instead, he adds postage — so the
-    next Prepare prices a NEW draft, and the check of the drafts this card made finds the first
-    still open — Shopify then finishes the first, and the hold on the new one makes a second order."""
+    The card must stay finished (sent, not confirmed), and Prepare on it is refused. At 361b0138 it
+    was given back instead: he added postage — so the next Prepare priced a NEW draft, and the check
+    of the drafts this card made found the first still open — Shopify then finished the first,
+    and the hold on the new one made a second order. Shopify finishes the first here whatever the
+    Mac said, after his next Prepare."""
     ident = card(await open_theo(shop))["workspace_id"]
     first = _hold_card(await tap(shop, "order.stage", workspace_id=ident))["proposal_id"]
     asked: list[str] = []
@@ -522,11 +598,11 @@ async def test_t3_02_a_completion_that_left_is_never_given_back_as_not_made(shop
     back = _workspace(done["ui"], ident)
     if back["settled"] == "":
         await say(shop, "add five pounds postage", ("shopify_order_build", {"postage": 5}))
-        again = await tap(shop, "order.stage", workspace_id=ident)
-        draft = shop.store.drafts[late[0]]         # Shopify finishes the first completion now
-        draft["status"], draft["order"] = "COMPLETED", {"id": "gid://shopify/Order/3001", "name": "CROOKS-3001"}
-        if again["ok"]:
-            await _hold(shop, again["changed"]["proposal_id"])
+    again = await tap(shop, "order.stage", workspace_id=ident)
+    draft = shop.store.drafts[late[0]]             # Shopify finishes the first completion now
+    draft["status"], draft["order"] = "COMPLETED", {"id": "gid://shopify/Order/3001", "name": "CROOKS-3001"}
+    if again["ok"]:
+        await _hold(shop, again["changed"]["proposal_id"])
     completed = [d["id"] for d in shop.store.drafts.values() if d["status"] == "COMPLETED"]
     assert len(completed) == 1, (
         f"{len(completed)} orders made; after the lost answer the card came back as {back['kicker']!r}: {back['notes'][0]!r}")

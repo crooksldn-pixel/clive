@@ -291,7 +291,7 @@ def given(workspace: dict[str, Any] | None) -> str:
         return (f"This credit is given — {amount} is on {person.get('name') or 'their'} account; "
                 "open a new credit to give more.")
     return (f"This credit of {amount} was sent to Shopify and it has not said whether it was given; "
-            "check the customer's account before giving it again.")
+            "check the customer's account in Admin before giving it again.")
 
 
 def _given_surface(workspace: dict[str, Any], made: dict[str, str]):
@@ -314,7 +314,7 @@ def _given_surface(workspace: dict[str, Any], made: dict[str, str]):
         subtitle=f"{display(amount, currency)} onto their account",
         facts=facts, actions=(),
         notes=["More credit is a new credit: open one for them again."] if done
-        else ["Check the customer's account before giving it again."],
+        else ["Sent to Shopify, not confirmed: check the customer's account in Admin before giving it again."],
         settled="created" if done else "unconfirmed", settled_word="Given" if done else "Not confirmed",
         spoken=f"{display(amount, currency)} is on their account." if done else "Sent to Shopify, not confirmed.",
     )
