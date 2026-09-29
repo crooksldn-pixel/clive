@@ -608,8 +608,15 @@ def _blocked(workspace: dict[str, Any]) -> str:
         if not candidates:
             return f"Nobody in the shop is called {ws.value(workspace, 'customer')!r}. Check the spelling, or make the customer in Admin first."
         return "The customer has not been chosen yet."
+    if ws.status(workspace, "email") == "uncertain":
+        # An address he typed for the customer before, taken off when this one was chosen
+        # (`_set_customer`): the hint names who it is for now.
+        return str((workspace.get("hints") or {}).get("email") or "") or _TYPE_IT_AGAIN.format(name=chosen["name"])
     if ws.status(workspace, "email") != "ok":
         return "That is not an address the confirmation could go to."
+    not_theirs = _not_theirs(workspace, chosen)
+    if not_theirs:
+        return not_theirs
     lines = _lines(workspace)
     if not lines:
         return "It has nothing on it. Add an item."
@@ -638,6 +645,125 @@ def _blocked(workspace: dict[str, Any]) -> str:
         return "The order it came from has no delivery address to send this to."
     if ship == "given" and not ws.fact(workspace, "given_address"):
         return "There is no address given to send it to."
+    return ""
+
+
+# --------------------------------------------------------------------------- whose it is
+#
+# Round 13 (the round-12 deploy review, S2Ba/F-01 and S2Ba/F-02). What the card carries about a
+# person — where the confirmation goes, the door the parcel goes to, the name on it — belongs to
+# one customer, and the customer can change: by voice, by id or by name, or by retyping the name
+# on the card. Before this, the confirmation address was filled in from the first customer and
+# only while it was empty, and an order's delivery address and a spoken address's name stayed
+# whoever's they were: a change to Bob made Bob's order with Alice's email on it (Shopify's
+# confirmation and shipping mails for his order in her inbox) or with his goods going to her
+# door, and the draft check called that consistent because it compared the draft with the card.
+#
+# So each of those facts records whose it is, every change of customer goes through
+# `_set_customer`, and `_blocked` — which every Prepare, tapped or said, runs — refuses a card
+# where one of them is not the chosen customer's. The invariants:
+#
+#   * a draft's email is the chosen customer's own, or one typed after that customer was chosen;
+#   * an address taken off an order is used only for that order's customer;
+#   * the name on an address he said is the name of whoever the order is for.
+
+_TYPE_IT_AGAIN = ("Type the confirmation address for {name}: the one typed was for the customer "
+                  "before, so it was taken off.")
+
+
+def _set_customer(workspace: dict[str, Any], customer: dict[str, Any] | None) -> list[str]:
+    """Who the order is for — None while nobody is — and every fact on the card that came from
+    whoever it was for before, made the new customer's or taken off. The one way the customer
+    changes: the model's open and build, the card's own lookup (`choose_row`), the re-read at
+    Prepare and the name retyped on the card all come here. Returns what it changed besides
+    the customer, in words the model can read back."""
+    if customer is None:
+        workspace["facts"].pop("customer", None)
+    else:
+        workspace["facts"]["customer"] = customer
+    return _email_for_customer(workspace, customer) + _address_for_customer(workspace, customer)
+
+
+def _email_for_customer(workspace: dict[str, Any], customer: dict[str, Any] | None) -> list[str]:
+    """The confirmation address, as whose it is (`email_for`: the customer it was read off or
+    typed for, and which). Read off the customer before: replaced with the new one's own. Typed
+    for the customer before: taken off, and the card waits for him to type one for this one —
+    unless what he typed IS this customer's own address."""
+    held = dict(ws.fact(workspace, "email_for") or {})
+    value = ws.value(workspace, "email")
+    if customer is None:
+        if held.get("how") == "read":
+            # Theirs, not whoever the card turns out to be for next.
+            ws.type_into(workspace, FIELDS, "email", "")
+            workspace["facts"].pop("email_for", None)
+        return []
+    new_id = str(customer.get("customer_id") or "")
+    own = str(customer.get("email") or "").strip().lower()
+    if held.get("customer_id") == new_id and held.get("how") in ("read", "typed", "cleared"):
+        return []                              # already this customer's, or already waiting for theirs
+    if held.get("how") == "cleared" or (held.get("how") != "read" and value and value != own):
+        # Typed for somebody else (or typed before anybody was chosen): not this customer's.
+        ws.type_into(workspace, FIELDS, "email", "")
+        workspace["status"]["email"] = "uncertain"
+        workspace["hints"]["email"] = _TYPE_IT_AGAIN.format(name=customer.get("name") or "this customer")[:160]
+        workspace["facts"]["email_for"] = {"customer_id": new_id, "how": "cleared"}
+        return [] if held.get("how") == "cleared" else [
+            f"the confirmation address typed for the customer before was taken off; the owner types "
+            f"{customer.get('name') or 'the new customer'}'s on the card"]
+    ws.type_into(workspace, FIELDS, "email", own)
+    workspace["facts"]["email_for"] = {"customer_id": new_id, "how": "read"}
+    if held.get("how") == "read" and value and value != own:
+        return [f"the confirmation goes to {customer.get('name') or 'the new customer'}'s own address"]
+    return []
+
+
+def _address_for_customer(workspace: dict[str, Any], customer: dict[str, Any] | None) -> list[str]:
+    """Where it goes, as whose it is. The order it was made from is that order's customer's: for
+    anybody else it is taken off, with its "as on the order" choice, and the parcel goes to the
+    new customer's own address. An address he said stands — it is where he said — with the new
+    customer's name on it. Nothing changes while nobody is chosen: the same customer chosen
+    again keeps both."""
+    if customer is None:
+        return []
+    new_id = str(customer.get("customer_id") or "")
+    said: list[str] = []
+    source = ws.fact(workspace, "source") or {}
+    if source and str(source.get("customer_id") or "") != new_id:
+        workspace["facts"].pop("source", None)
+        if ws.chosen(workspace, "address", "customer") == "order":
+            ws.choose(workspace, _choices(workspace), "address", "customer")
+            said.append(f"it goes to {customer.get('name') or 'the new customer'}'s own address, not the address on "
+                        f"{source.get('order_number') or 'the order it was made from'}")
+    given = ws.fact(workspace, "given_address")
+    if isinstance(given, dict) and str(ws.fact(workspace, "given_for") or "") != new_id:
+        workspace["facts"]["given_address"] = _named(given, customer)
+        workspace["facts"]["given_for"] = new_id
+    return said
+
+
+def _named(address: dict[str, Any], customer: dict[str, Any]) -> dict[str, str]:
+    """An address the owner said, with the name of the customer it goes to on it."""
+    first, _, last = str(customer.get("name") or "").partition(" ")
+    return _mailing({**{k: v for k, v in address.items() if k not in ("firstName", "lastName")},
+                     "firstName": first, "lastName": last})
+
+
+def _not_theirs(workspace: dict[str, Any], chosen: dict[str, Any]) -> str:
+    """Why what the card carries about a person is not the chosen customer's, in the owner's
+    words; empty when it all is. `_set_customer` keeps it so; this is the floor under it, so a
+    card that got here any other way is refused rather than prepared."""
+    ident = str(chosen.get("customer_id") or "")
+    who = chosen.get("name") or "the customer"
+    held = ws.fact(workspace, "email_for") or {}
+    if ws.value(workspace, "email") and not (held.get("customer_id") == ident and held.get("how") in ("read", "typed")):
+        return _TYPE_IT_AGAIN.format(name=who)
+    ship = ws.chosen(workspace, "address", "customer")
+    source = ws.fact(workspace, "source") or {}
+    if ship == "order" and str(source.get("customer_id") or "") != ident:
+        return (f"{source.get('order_number') or 'The order it was made from'} is not {who}'s order, so its "
+                f"delivery address is not theirs to send to. Choose where it goes.")
+    if ship == "given" and str(ws.fact(workspace, "given_for") or "") != ident:
+        return f"The address you gave carries another customer's name. Say it again for {who}."
     return ""
 
 
@@ -1094,42 +1220,41 @@ def _session_and_branch() -> tuple[Any, Any]:
     return session, session.branch(acting_branch(session))
 
 
-async def _resolve_customer(workspace: dict[str, Any]) -> None:
+async def _resolve_customer(workspace: dict[str, Any]) -> list[str]:
     """Who the name means, if it means exactly one person. Never a best guess: the
     candidates are stored as they came back, and `_blocked` refuses everything until the
     owner has picked one."""
     name = ws.value(workspace, "customer")
-    workspace["facts"].pop("customer", None)
+    _set_customer(workspace, None)
     workspace["facts"].pop("candidates", None)
     if not name:
-        return
+        return []
     try:
         found = await _candidates(_c(), name)
     except (ShopifyError, ToolError) as exc:
         log.info("the customer lookup did not answer: %s", exc)
-        return
+        return []
     workspace["facts"]["candidates"] = found
     if len(found) == 1:
-        await _choose_customer(workspace, found[0]["customer_id"])
+        return await _choose_customer(workspace, found[0]["customer_id"])
+    return []
 
 
-def choose_row(workspace: dict[str, Any], row: dict[str, Any]) -> None:
+def choose_row(workspace: dict[str, Any], row: dict[str, Any]) -> list[str]:
     """One of the candidates, chosen. Synchronous, and that is not an accident: a recipe's
     `render` runs synchronously (app/recipes.py), so a tapped read can only ever choose from
     what it has already read. The `address` key is deliberately ABSENT here
     rather than empty — "not read yet" and "none on file" are different facts, and the card
     says which."""
-    workspace["facts"]["customer"] = {
+    return _set_customer(workspace, {
         "customer_id": str(row["customer_id"]),
         "name": str(row.get("name") or ""),
         "email": str(row.get("email") or ""),
         "orders": str(row.get("orders") or "0"),
-    }
-    if not ws.value(workspace, "email") and row.get("email"):
-        ws.type_into(workspace, FIELDS, "email", str(row["email"]))
+    })
 
 
-async def _choose_customer(workspace: dict[str, Any], customer_id: str) -> None:
+async def _choose_customer(workspace: dict[str, Any], customer_id: str) -> list[str]:
     """The same customer, read authoritatively by id: their address as the shop holds it now.
 
     Run when the workspace is opened and again at the moment of preparing — never from a
@@ -1137,7 +1262,7 @@ async def _choose_customer(workspace: dict[str, Any], customer_id: str) -> None:
     not something carried from a search."""
     node = await _customer(_c(), customer_id)
     address = node.get("defaultAddress") or {}
-    workspace["facts"]["customer"] = {
+    return _set_customer(workspace, {
         "customer_id": str(node["id"]),
         "name": str(node.get("displayName") or ""),
         "email": str(((node.get("defaultEmailAddress") or {}).get("emailAddress")) or ""),
@@ -1145,24 +1270,24 @@ async def _choose_customer(workspace: dict[str, Any], customer_id: str) -> None:
         "address": address_line(address) if address.get("address1") else "",
         # The same address as Shopify takes one, for holding the draft to it (`expected_card`).
         "postal": _mailing(address) if address.get("address1") else {},
-    }
-    if not ws.value(workspace, "email"):
-        ws.type_into(workspace, FIELDS, "email", workspace["facts"]["customer"]["email"])
+    })
 
 
-async def _customer_by_id(workspace: dict[str, Any], customer_id: str) -> None:
+async def _customer_by_id(workspace: dict[str, Any], customer_id: str) -> list[str]:
     """A customer named by id — one a search or an order already showed this conversation —
     is who the order is for. There is no name to be ambiguous about, so there are no
     candidates to choose from: the one is the one."""
-    await _choose_customer(workspace, customer_id)
+    moved = await _choose_customer(workspace, customer_id)
     chosen = _chosen_customer(workspace) or {}
     ws.type_into(workspace, FIELDS, "customer", chosen.get("name") or "")
     workspace["facts"]["candidates"] = [{k: chosen.get(k, "") for k in ("customer_id", "name", "email", "orders")}]
     workspace["facts"]["by_id"] = True
+    return moved
 
 
 async def _from_order(workspace: dict[str, Any], order_id: str) -> dict[str, Any]:
-    """The order this one is made from: whose it is and where it went, read now."""
+    """The order this one is made from: whose it is and where it went, read now. The address is
+    that customer's and nobody else's (`_address_for_customer`)."""
     node = await _read_source(_c(), order_id)
     customer = node.get("customer") or {}
     if not customer.get("id"):
@@ -1170,6 +1295,7 @@ async def _from_order(workspace: dict[str, Any], order_id: str) -> dict[str, Any
     address = _mailing(node.get("shippingAddress") or {})
     workspace["facts"]["source"] = {
         "order_id": str(node["id"]), "order_number": str(node.get("name") or ""),
+        "customer_id": str(customer["id"]),
         "address": address if mailing_address_ok(address) else {},
         "line": address_line(address) if mailing_address_ok(address) else "",
     }
@@ -1416,17 +1542,19 @@ async def shopify_order_build(workspace_id: str = "", add: list | None = None, l
     not_done: list[dict[str, Any]] = []
 
     if customer_id:
-        await _customer_by_id(workspace, str(customer_id))
+        moved = await _customer_by_id(workspace, str(customer_id))
         workspace["facts"].pop("draft", None)
         done.append(f"the customer is {(_chosen_customer(workspace) or {}).get('name')}")
+        done += moved
     elif customer:
         ws.type_into(workspace, FIELDS, "customer", customer)
         workspace["facts"].pop("by_id", None)
-        await _resolve_customer(workspace)
+        moved = await _resolve_customer(workspace)
         workspace["facts"].pop("draft", None)
         chosen = _chosen_customer(workspace)
         if chosen:
             done.append(f"the customer is {chosen['name']}")
+            done += moved
         else:
             not_done.append({"asked": "customer", "why": _blocked(workspace)})
 
@@ -1618,6 +1746,8 @@ def _given_address(workspace: dict[str, Any], said: dict[str, Any], done: list[s
         not_done.append({"asked": "the address", "why": "That is not an address I can send: it needs a street, a town, a postcode and a two-letter country."})
         return
     workspace["facts"]["given_address"] = address
+    # Whose name is on it: a change of customer puts the new one's there (`_address_for_customer`).
+    workspace["facts"]["given_for"] = str(chosen.get("customer_id") or "")
     ws.choose(workspace, _choices(workspace), "address", "given")
     _changed(workspace)
     done.append(f"to {address_line(address)}")
@@ -2025,18 +2155,22 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
         again = await _candidates(client, ws.value(workspace, "customer"))
         if len(again) > 1 and not any(c["customer_id"] == chosen.get("customer_id") for c in again):
             workspace["facts"]["candidates"] = again
-            workspace["facts"].pop("customer", None)
+            _set_customer(workspace, None)
             raise ToolError(f"{len(again)} customers now match that name; nothing was created. Choose one.")
     try:
         await _choose_customer(workspace, str(chosen["customer_id"]))
     except ToolError:
         # Read by id and gone: merged, deleted, or a request for erasure carried out. The
         # order must not be made for an id the shop no longer has.
-        workspace["facts"].pop("customer", None)
+        _set_customer(workspace, None)
         raise ToolError(
             f"{chosen.get('name') or 'That customer'} is not in the shop any more; nothing was created."
         ) from None
     chosen = _chosen_customer(workspace) or {}
+    # Everything on the card that is about a person is this customer's, as re-read just now.
+    not_theirs = _not_theirs(workspace, chosen)
+    if not_theirs:
+        raise ToolError(not_theirs)
 
     # Every catalogue line, priced by Shopify and checked for sale. A variant withdrawn since
     # it was added is refused here rather than making an order with a line nobody can fulfil.
@@ -2052,6 +2186,11 @@ async def shopify_order_create(workspace_id: str) -> Prepared:
         # Where the last parcel went, read again: an address corrected on that order since
         # this one was opened is the address the owner means.
         node = await _read_source(client, str(source["order_id"]))
+        if str((node.get("customer") or {}).get("id") or "") != str(chosen.get("customer_id") or ""):
+            # Reassigned or merged in Admin since: its door is somebody else's now.
+            raise ToolError(f"Order {source.get('order_number')} is not {chosen.get('name') or 'the customer'}'s order "
+                            "any more, so its delivery address is not theirs to send to; nothing was created. "
+                            "Choose where it goes.")
         address = _mailing(node.get("shippingAddress") or {})
         if not mailing_address_ok(address):
             raise ToolError(f"Order {source.get('order_number')} has no delivery address any more; nothing was created.")
@@ -2215,9 +2354,15 @@ def _field(ctx: CommandCtx) -> Outcome:
     ok, why = ws.type_into(workspace, FIELDS, name, str(ctx.args.get("value") or ""))
     if not ok:
         return Outcome.refused("unknown_field", why)
+    if name == "email":
+        # Typed for whoever the order is for now; a change of customer takes it off
+        # (`_email_for_customer`).
+        chosen = _chosen_customer(workspace) or {}
+        workspace["facts"]["email_for"] = {"customer_id": str(chosen.get("customer_id") or ""), "how": "typed"}
     if name == "customer" and ws.value(workspace, "customer") != was:
-        # The name moved: whoever the card said it was is now about the old one.
-        workspace["facts"].pop("customer", None)
+        # The name moved: whoever the card said it was is now about the old one, and so is
+        # the address read off them.
+        _set_customer(workspace, None)
         workspace["facts"].pop("candidates", None)
         workspace["facts"].pop("by_id", None)
         gone = _touch(ctx.session, workspace, before)
@@ -2411,7 +2556,7 @@ def _customer_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     ]
     wanted = str(ws.fact(workspace, "chose_customer") or "")
     workspace["facts"].pop("chose_customer", None)
-    workspace["facts"].pop("customer", None)
+    _set_customer(workspace, None)
     workspace["facts"].pop("by_id", None)
     one = next((c for c in workspace["facts"]["candidates"] if c["customer_id"] == wanted), None)
     if one is None and len(workspace["facts"]["candidates"]) == 1:
