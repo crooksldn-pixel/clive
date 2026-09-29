@@ -430,6 +430,27 @@ def recompose(shown: dict[str, Any], read: dict[str, Any] | None, *, session: An
 # ------------------------------------------------------------------ after the gesture
 
 
+#: What an answer does to the half's screen, said to the tablet on every /turn (`screen`).
+SCREEN_KEPT, SCREEN_NEW, SCREEN_CLEARED = "kept", "new", "cleared"
+
+
+def state_of(ui: list[dict[str, Any]]) -> str:
+    """Whether the half's screen stands, is replaced, or goes, from the answer as it will be
+    sent (round 12, the second pass). The tablet obeys this and guesses nothing.
+
+      kept     the answer carries the screen on: cards it kept or read again are in it;
+      new      the answer's cards are a screen of their own;
+      cleared  the answer drew nothing and carries nothing on — words about another order
+               (round 9's D2-05), a screen he closed, or nothing up to begin with.
+    """
+    cards = [item for item in ui or [] if isinstance(item, dict) and kind(item) and kind(item) not in BOOKKEEPING]
+    if not cards:
+        return SCREEN_CLEARED
+    if any(item.get("kept") or item.get("refreshed") for item in cards):
+        return SCREEN_KEPT
+    return SCREEN_NEW
+
+
 def listening_on_cursor(ui: list[dict[str, Any]], entity: Any) -> list[dict[str, Any]]:
     """The cards, with a listening control only on the card whose record is the half's cursor.
 

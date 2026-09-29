@@ -340,6 +340,8 @@ const DETAIL_WORDS = {
   screen_play: ['Finding', 'it on YouTube'], screen_video: ['Telling', 'the video'],
   // Round 12: putting back what this conversation already showed, read again (app/tools/show_again.py).
   show_again: ['Bringing back', 'what you had open'],
+  // Round 12, the second pass: "close that", "put it away" (app/tools/close_screen.py).
+  close_screen: ['Clearing', 'your screen'],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
@@ -1725,12 +1727,10 @@ function drawTapAnswer(items, words) {
   return true;
 }
 
-// An answer that drew nothing, over a screen that is up: the screen stays (round 12, H). The
-// Mac keeps it as this half's screen too — an empty answer never replaces `Branch.last_ui` —
-// so "has 1940 shipped?" answered in words over #1938 leaves #1938 up on both, and "pull that
-// back up" means the same thing to each. It used to drop to the orb here while the Mac still
-// held #1938, and the two disagreed about what "that" was. An answer too long for the band
-// goes on top of the screen, in a card of its own, rather than instead of it.
+// An answer the Mac says keeps the screen (`screen: "kept"`) and that drew nothing: the screen
+// stays (round 12, H). Only on the Mac's word — words about another order come back
+// `screen: "cleared"` and go to the orb on both sides (round 9's D2-05). An answer too long for
+// the band goes on top of the screen, in a card of its own, rather than instead of it.
 function keepForWords(answer) {
   if (historyIndex < 0 || !history[historyIndex] || el.body.dataset.mode !== 'context' || !el.cards.children.length) return false;
   const entry = history[historyIndex];
@@ -2454,10 +2454,14 @@ function renderTurn(data) {
     snapshotSoon(Object.assign({ patched: true }, renderInfo));
     return;
   }
+  // What the Mac says this answer does to the screen, which the glass obeys (round 12).
+  const landing = window.CrooksUI && typeof window.CrooksUI.answerLanding === 'function'
+    ? window.CrooksUI.answerLanding(data.ui, data.screen, historyIndex >= 0 && el.body.dataset.mode === 'context')
+    : 'draw';
   if (ui.hasContext) {
     pushContext(ui.nodes, data.ui, data.question);
-  } else if (keepForWords(answer)) {
-    // Nothing drawn, and a screen is up: it stays, as the Mac keeps it (round 12, H).
+  } else if (landing === 'keep' && keepForWords(answer)) {
+    // The Mac kept the screen and drew nothing: it stays (round 12, H).
     snapshotSoon(Object.assign({ kept: true }, renderInfo));
   } else if (answer.length > 200 && window.CrooksUI) {
     // Too long to read beneath the orb: give it a card and the room that comes with one.

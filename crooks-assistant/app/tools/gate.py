@@ -163,6 +163,10 @@ _KNOWN_TOOLS = frozenset({
     # nothing. The id it is handed must be an issued one (its ToolSpec names `ref`, which this
     # file checks like every issued-id argument).
     "show_again",
+    # Round 12, the second pass: "close that", "put it away" — clearing the owner's own app
+    # (app/tools/close_screen.py). It takes no arguments, reads nothing and writes nothing but
+    # the Mac's own record of what this half shows; no store, inbox or TV is reachable from it.
+    "close_screen",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

@@ -154,8 +154,13 @@ async function walk(browser, size, full) {
   await page.evaluate(() => { document.getElementById('cards').scrollTop = 120; });
   await sleep(200);
   const scrolled = (await glass()).scroll;
+  const keptSaid = [];
+  const onKept = async (r) => { if (r.url().endsWith('/turn')) { try { keptSaid.push((await r.json()).screen); } catch { /* checked below */ } } };
+  page.on('response', onKept);
   const inWords = await slowly(() => askWatching("what's the note on it?"));
+  page.off('response', onKept);
   seen = await glass();
+  check(at('an answer in words about the order that is up: the Mac says the screen is kept'), keptSaid[keptSaid.length - 1] === 'kept', JSON.stringify(keptSaid));
   check(at('an answer in words, slow to arrive, never takes the order away'), inWords.every((f) => f.order && f.mode === 'context'),
     `${inWords.filter((f) => !f.order || f.mode !== 'context').length} of ${inWords.length} frames without it`);
   check(at('an answer in words keeps the order up, the same card'), seen.mode === 'context' && seen.orders.length === 1 && seen.marked[0] === true, JSON.stringify(seen));
@@ -192,18 +197,21 @@ async function walk(browser, size, full) {
   check(at('and nothing else asks for a tap'), !seen.types.includes('confirmation'), JSON.stringify(seen.types));
   await shot('04-note-applied');
 
-  // ---- 4b. a question about another order, answered in words (the round-12 check, H): the
-  // screen he is on stays — the same card — and the Mac holds the same screen.
-  await mark();
-  const beforeWords = await glass();
+  // ---- 4b. a question about ANOTHER order, answered in words (round 9's D2-05, round 12's
+  // second pass): the Mac says the screen goes (`screen: "cleared"`), and the glass obeys — #1938
+  // does not stand under an answer about #1940 — and the Mac holds no screen either. (Words about
+  // the record that is up, step 2, keep it.)
+  const said = [];
+  const onTurn = async (r) => { if (r.url().endsWith('/turn')) { try { said.push((await r.json()).screen); } catch { /* checked below */ } } };
+  page.on('response', onTurn);
   await ask('has 1940 shipped?');
+  await sleep(200);
+  page.off('response', onTurn);
   seen = await glass();
-  check(at('an answer in words about another order leaves his screen up, the same card'),
-    seen.mode === 'context' && seen.orders.length === 1 && /1938/.test(seen.orders[0]) && seen.marked[0] === true,
-    `${beforeWords.types} -> ${seen.mode} ${JSON.stringify(seen.types)}`);
+  check(at('an answer in words about another order: the Mac says the screen goes, and the glass goes to the orb'),
+    said[said.length - 1] === 'cleared' && seen.mode === 'orb', `${JSON.stringify(said)} ${seen.mode} ${JSON.stringify(seen.types)}`);
   const held = await macScreen();
-  check(at('and the Mac holds the screen the glass shows'), held.length === 1 && /1938/.test(held[0]) && seen.mode === 'context' && /1938/.test(seen.text),
-    `mac ${JSON.stringify(held)} glass ${JSON.stringify(seen.orders)}`);
+  check(at('and the Mac holds no screen either'), held.length === 0, `mac ${JSON.stringify(held)} glass ${seen.mode}`);
   await shot('04b-words-about-another');
 
   if (full) {
@@ -277,6 +285,14 @@ async function walk(browser, size, full) {
     page.off('request', onRequest);
     check(at('Add a note on the card he opened binds #1940'), pressed && binds.join(',') === '1940', JSON.stringify({ pressed, binds }));
     await shot('09-opened-the-other');
+
+    // ---- 10. "close that": the model's close_screen clears the screen, on the Mac and the glass
+    await ask('close that');
+    seen = await glass();
+    const closedMac = await macScreen();
+    check(at('"close that" takes the screen away: the orb, and nothing held on the Mac'), seen.mode === 'orb' && closedMac.length === 0,
+      `${seen.mode} ${JSON.stringify(seen.types)} mac ${JSON.stringify(closedMac)}`);
+    await shot('10-closed');
   }
 
   check(at('no page errors'), errors.length === 0, errors.join(' | '));

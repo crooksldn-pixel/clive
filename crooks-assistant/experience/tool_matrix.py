@@ -373,6 +373,7 @@ def load() -> None:
     import app.families  # noqa: F401
     import app.tools.analytics_tools  # noqa: F401
     import app.tools.batch_tools  # noqa: F401
+    import app.tools.close_screen  # noqa: F401
     import app.tools.display_tools  # noqa: F401
     import app.tools.engineering_tools  # noqa: F401
     import app.tools.gmail_tools  # noqa: F401

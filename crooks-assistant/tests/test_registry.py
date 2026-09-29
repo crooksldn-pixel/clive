@@ -130,6 +130,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     from app.tools import (  # noqa: F401
         analytics_tools,
         batch_tools,
+        close_screen,
         display_tools,
         engineering_tools,
         gmail_tools,
@@ -358,7 +359,13 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     #
     # Together, as merged for round 12: 42,441 bytes measured (38,420 + 2,018 + 474 + 1,529 — the
     # three add exactly, as none of them touched another's tool).
-    assert total <= 42_445, f"the tool block is {total} bytes"
+    #
+    # 42_706 is putting the screen away (round 12's second pass, app/tools/close_screen.py,
+    # tests/test_r12_surfaces.py), +261 bytes measured (42,423 before, 42,684 after): close_screen,
+    # no arguments. What it buys is "close that", "clear the screen" and "put it away" doing it,
+    # now that an answer in words leaves the screen he is working on up. The ceiling is raised by
+    # exactly what was measured.
+    assert total <= 42_706, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

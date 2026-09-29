@@ -1484,6 +1484,8 @@ async def _answer(
         # the newer turn's. What it read is still kept where a replay finds it — reads are
         # facts, and Back onto that order later need not ask the shop again.
         ui: list[dict[str, Any]] = []
+        # The newer turn's answer says what happens to the screen; this one leaves it alone.
+        screen_state = screen.SCREEN_KEPT
         scene = None
         timings["workspace"] = (time.perf_counter() - started) * 1000
         if branch is not None and not replaced:
@@ -1556,8 +1558,17 @@ async def _answer(
             # that IS the cursor keeps one; every other card's chip primes its words and binds
             # nothing, and those words name its own record (D2-04, D1-02).
             ui = screen.listening_on_cursor(ui, getattr(branch, "entity", None))
+        # Whether the half's screen stands, is replaced or goes — said to the tablet on every
+        # answer, so the glass obeys rather than guesses, and held the same way on the Mac
+        # (round 12, the second pass: words about #1940 must not leave #1938 standing on one
+        # side of the two and not the other).
+        screen_state = screen.state_of(ui)
+        if branch is not None:
             # What this half now shows, kept on the Mac so tapping it later draws it (branch.show).
-            branch.shown(ui, answer, question)
+            if screen_state == screen.SCREEN_CLEARED:
+                branch.cleared(answer, question)
+            else:
+                branch.shown(ui, answer, question)
         for call in calls or []:
             if branch is not None and getattr(call, "ok", False):
                 branch.remember_result(call.name, summary=_call_summary(call), ref=_call_ref(call), ms=float(getattr(call, "duration_ms", 0.0) or 0.0))
@@ -1651,6 +1662,9 @@ async def _answer(
         "transcript": transcript,
         "timings_ms": {k: round(v, 1) for k, v in timings.items()},
         "ui": ui,
+        # What this answer does to the half's screen: "kept", "new" or "cleared" (app/screen.py
+        # `state_of`). The tablet obeys it (web/app.js `renderTurn`).
+        "screen": screen_state,
         # Which lane answered — always the model's on this route; a tap is TOUCH on /command —
         # and where the conversation now is. The tablet renders its navigation from this
         # rather than from what it can see on screen.

@@ -348,6 +348,16 @@ class Branch:
             entry.ui = kept[:MAX_STOP_UI]
             entry.answer = self.last_answer
 
+    def cleared(self, answer: str, question: str, *, clock=time.time) -> None:
+        """This half's screen goes (round 12): an answer that drew nothing and does not carry
+        the screen on — words about another order — or the owner closing it (`close_screen`).
+        What it showed stays on `shown_before`, so "pull that back up" still finds it; the
+        cursor and the trail are untouched."""
+        self.last_ui = []
+        self.last_answer = str(answer or "")[:400]
+        self.last_question = str(question or "")[:200]
+        self.last_at = clock()
+
     # How many screens a half remembers having shown. A handful: "the order I had up before the
     # email" is a question about the last few minutes, not about the morning.
     MAX_SHOWN_BEFORE: ClassVar[int] = 8

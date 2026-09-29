@@ -50,6 +50,7 @@ async def _run(out: str) -> dict:
                   ("shopify_order_note_append", {"order_id": order_1938, "note": "Gift wrap it"}),
                   reply="The note is ready on the card; tap to apply.")
     provider.will("has 1940 shipped?", reply="Yes, it went out yesterday.")
+    provider.will("close that", ("close_screen", {}), reply="Done.")
     provider.will("show me order 1940", *_order_reads("1940"), reply="Order 1940.")
     provider.will("pull that up again", ("show_again", {}), reply="Order 1938 is back.")
     provider.will("put 1938 and 1940 side by side", *_order_reads("1938"), *_order_reads("1940"), reply="Both are up.")
