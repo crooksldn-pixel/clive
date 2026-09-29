@@ -26,7 +26,19 @@ import pytest
 from app.tools.dispatch import dispatch
 from tests import test_r11_turn
 from tests.test_r11_turn import MIA_JONES, bind_note, confirmation, no_confirmation, notes
-from tests.test_turn_boundary import DANIEL, MIA, A, B, _order, found_customer, found_order, reads, say, show_order, tap
+from tests.test_turn_boundary import (
+    DANIEL,
+    MIA,
+    A,
+    B,
+    _order,
+    found_customer,
+    found_order,
+    reads,
+    say,
+    show_order,
+    tap,
+)
 
 # The desk of tests/test_r11_turn.py: two orders (#1938 Daniel's, #1940 Mia Kowalski's), their
 # customers, a second Mia, store credit, and one change the shop will take, an order's note.
