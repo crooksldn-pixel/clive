@@ -238,7 +238,9 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     added one read; the screens added their tools (app/tools/display_tools.py; screen_pair in
     round 8, B-02; screen_off and screen_remote in round 9, then YouTube's screen_play and
     screen_video, which carry nobody's details) and one issued-id rule, so a slip is only ever
-    drawn from an order this conversation looked up. Every other table is as it was: the same mutation verbs, the same
+    drawn from an order this conversation looked up. Round 12 added one read, shopify_order_build,
+    which changes only the Mac's copy of an order being built (app/families/order_create.py).
+    Every other table is as it was: the same mutation verbs, the same
     personal-data reads, the same id kinds, the same bounds."""
     from app.tools import gate
 
@@ -246,8 +248,10 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     assert {"screen_list", "screen_show", "screen_pair"} <= gate._KNOWN_TOOLS
     assert {"screen_off", "screen_remote"} <= gate._KNOWN_TOOLS
     assert {"screen_play", "screen_video"} <= gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 41, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
-                                          "screen_off and screen_remote, then screen_play and screen_video")
+    assert "shopify_order_build" in gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 42, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+                                          "screen_off and screen_remote, then screen_play and screen_video, "
+                                          "then round 12's shopify_order_build")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",

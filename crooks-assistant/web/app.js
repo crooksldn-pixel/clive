@@ -292,7 +292,8 @@ function setState(state, label, sub) {
 const DETAIL_WORDS = {
   // Reading the shop
   shopify_find_order: ['Finding', 'the order'], shopify_order_detail: ['Reading', 'the order'], shopify_list_orders: ['Listing', 'orders'],
-  shopify_order_open: ['Opening', 'the order'], shopify_order_address: ['Reading', "the order's address"],
+  shopify_order_open: ['Opening', 'the order'], shopify_order_build: ['Changing', 'the new order'],
+  shopify_order_address: ['Reading', "the order's address"],
   shopify_find_customer: ['Finding', 'the customer'], shopify_customer_history: ['Reading', 'their history'],
   shopify_sales_summary: ['Adding up', 'sales'], shopify_inventory: ['Checking', 'stock'],
   shopify_product_info: ['Reading', 'the product'], shopify_variant_search: ['Finding', 'the size'],

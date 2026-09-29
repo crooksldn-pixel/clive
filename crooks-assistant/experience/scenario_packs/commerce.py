@@ -116,9 +116,13 @@ async def order_new(h: Harness) -> Result:
     r.checks.append(deterministic(e))
     if grounded(h):
         price = float(data.VARIANTS[CAP]["price"])
+        # The order's lines are rows of their own on the card (round 12), each with its
+        # quantity and its money; the facts beneath them are the order's.
+        lines = [r for r in (_ws(e).get("rows") or []) if isinstance(r, dict)]
         r.checks.append(check("the line is on it at the catalogue's price",
-                              any("2 x Crooks Cap" in v and f"{price:.2f}" in v for v in _labelled(e, "Item")),
-                              f"items={_labelled(e, 'Item')}"))
+                              any(line.get("title") == "Crooks Cap" and line.get("quantity") == "× 2"
+                                  and _amount(line.get("amount")) == round(price * 2, 2) for line in lines),
+                              f"lines={[(line.get('title'), line.get('quantity'), line.get('amount')) for line in lines]}"))
         r.checks.append(check("and the goods add up",
                               _amount(next(iter(_labelled(e, "Goods")), "")) == round(price * 2, 2),
                               f"goods={_labelled(e, 'Goods')}"))
@@ -210,6 +214,86 @@ async def order_new_ambiguous(h: Harness) -> Result:
                           and not getattr(h.store, "drafts", [])
                           and not [p for p in h.runtime.sessions.get(session).proposals if p.status.value == "PENDING"],
                           f"drafts={getattr(h.store, 'drafts', None)}"))
+    return r
+
+
+# ------------------------------------------------------- the same, said (round 12)
+
+THE_SENTENCE = ("find the customer who ordered the black medium hoodie to SL4 1QN and make a new order "
+                "for them in the next size up")
+HOODIE_L = "gid://shopify/ProductVariant/9103"   # Convict Hoodie, Black / L — one up from #1938's M
+
+
+def _found_then_opened(calls):
+    """Claude reading the found order off the search, as it reads any id off a result: the
+    order, and the variant of the line that matched, one size up."""
+    order = calls[0].result["orders"][0]
+    return {"order_id": order["order_id"], "variant_id": order["matched_items"][0]["variant_id"], "size_step": 1}
+
+
+async def order_by_voice(h: Harness) -> Result:
+    """The owner's own sentence (29 September): find who ordered it from an item and a
+    postcode, and make them a new order in the next size up — then a custom item and a line
+    discount said onto the same card, and the draft Shopify is asked for is exactly that."""
+    r = Result("order_by_voice", "Find the customer from what they ordered and where, and order the next size up")
+    session = "ovoice1"
+    h.configure()
+
+    a = await h.ask(THE_SENTENCE, ("shopify_find_order", {"item": "black medium hoodie", "address": "SL4 1QN"}),
+                    ("shopify_order_open", _found_then_opened), reply="Mia Jones, #1938. A new order in the large is on screen.",
+                    scenario="order_by_voice", session_id=session)
+    r.captures.append(a)
+    r.checks.append(check("every call is one Claude could make", not a.unmakeable, f"unmakeable={a.unmakeable}"))
+    r.checks += a_surface(a, "workspace", what="lands on the new order")
+    r.checks.append(check("the new order is the first thing on the screen, not a customer screen",
+                          a.surface_types[:1] == ["workspace"] and "customer" not in a.surface_types,
+                          f"surfaces={a.surface_types}"))
+    lines = [x for x in (_ws(a).get("rows") or []) if isinstance(x, dict)]
+    ident = str(_ws(a).get("workspace_id") or "")
+    if grounded(h):
+        r.checks.append(check("it is for the customer who ordered it, going where that order went",
+                              _ws(a).get("title") == MIA.name
+                              and any("as on #1938" in v for v in _labelled(a, "Address")),
+                              f"title={_ws(a).get('title')!r} address={_labelled(a, 'Address')}"))
+        r.checks.append(check("with the same hoodie one size up — M was ordered, L is on it",
+                              [x.get("detail", "").split(" · ")[0] for x in lines] == ["Black / L"], f"lines={lines}"))
+    r.checks.append(check("and it is ready for Prepare", not str(_ws(a).get("blocked") or "") and _red_enabled(a) == [True],
+                          f"blocked={_ws(a).get('blocked')!r}"))
+
+    b = await h.ask("add a custom back print at twelve pounds and take ten percent off the hoodie",
+                    ("shopify_order_build", {"add": [{"title": "Custom back print", "price": 12}],
+                                             "lines": [{"line": 1, "percent_off": 10}]}),
+                    reply="Added.", scenario="order_by_voice", session_id=session)
+    r.captures.append(b)
+    r.checks.append(check("every call is one Claude could make", not b.unmakeable, f"unmakeable={b.unmakeable}"))
+    r.checks += a_surface(b, "workspace", what="redraws the same order")
+    rows = [x for x in (_ws(b).get("rows") or []) if isinstance(x, dict)]
+    r.checks.append(check("the same order, with the print on it and the discount on the hoodie",
+                          _ws(b).get("workspace_id") == ident and len(rows) == 2
+                          and rows[0].get("discount") == "10% off" and rows[1].get("title") == "Custom back print",
+                          f"rows={[(x.get('title'), x.get('discount'), x.get('amount')) for x in rows]}"))
+
+    f = await h.touch("order.stage", scenario="order_by_voice", session_id=session, workspace_id=ident)
+    r.captures.append(f)
+    r.checks += a_surface(f, "confirmation", what="draws the card that has to be authorised")
+    drafts = getattr(h.store, "drafts", None) or []
+    sent = drafts[-1] if drafts else {}
+    if grounded(h):
+        r.checks.append(check("the draft carries exactly those lines and that discount",
+                              sent.get("lineItems") == [
+                                  {"variantId": HOODIE_L, "quantity": 1,
+                                   "appliedDiscount": {"title": "Discount", "value": 10.0, "valueType": "PERCENTAGE"}},
+                                  {"title": "Custom back print", "originalUnitPrice": "12.00", "quantity": 1}],
+                              f"lineItems={sent.get('lineItems')}"))
+        r.checks.append(check("and goes to the address on the order it came from",
+                              (sent.get("shippingAddress") or {}).get("zip") == "SL4 1QN"
+                              and sent.get("useCustomerDefaultAddress") is False,
+                              f"shippingAddress={sent.get('shippingAddress')}"))
+        r.checks.append(check("the card's total is the draft's own arithmetic: £54 + £12",
+                              _amount(_card_facts(f).get("Total")) == 66.0, f"total={_card_facts(f).get('Total')!r}"))
+    r.checks.append(check("and no order was created: the fixture refuses the completion outright",
+                          getattr(h.store, "mutations_sent", -1) == 0,
+                          f"mutations_sent={getattr(h.store, 'mutations_sent', 'NO COUNTER')}"))
     return r
 
 
@@ -353,6 +437,7 @@ async def store_credit_not_on_this_store(h: Harness) -> Result:
 SCENARIOS = (
     ("order_new", order_new),
     ("order_new_ambiguous", order_new_ambiguous),
+    ("order_by_voice", order_by_voice),
     ("store_credit_give", store_credit_give),
     ("store_credit_not_on_this_store", store_credit_not_on_this_store),
 )

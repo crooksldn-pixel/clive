@@ -94,7 +94,7 @@ ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_q
 # The read tools that put a workspace on the owner's screen (app/families/_workspace.py).
 # Each returns the Mac's own card under `_surfaces`, and `_from_result` below takes it as it
 # is rather than re-shaping state that never came from the shop.
-WORKSPACE_TOOLS = frozenset({"shopify_discount_open", "shopify_order_open", "shopify_store_credit"})
+WORKSPACE_TOOLS = frozenset({"shopify_discount_open", "shopify_order_open", "shopify_order_build", "shopify_store_credit"})
 
 # One of the owner's screens (app/displays/store.py _ID).
 _SCREEN_ID = re.compile(r"^scr_[0-9a-f]{12}$")
@@ -232,6 +232,11 @@ def present(
     # Everything the workspace now contains comes out of the deck: a customer touched by
     # three reads is one customer (§6), not a card each.
     items = _compose_workspace(items, calls, session=session, question=question, pending=pending)
+    # Something being BUILT this turn — an order, a discount, a credit — is the task, and the
+    # records read to build it are its evidence. The owner asked for a new order for the
+    # customer who bought the hoodie; the order that proves who that is sits under the new one,
+    # not over it (round 12: "it tries to pull up a customer screen first").
+    items = [i for i in items if i["type"] == "workspace"] + [i for i in items if i["type"] != "workspace"]
     if session is not None:
         _remember(items, session)
         # §18, as a SWEEP rather than one renderer at a time. After `_remember`, which is
@@ -524,9 +529,13 @@ def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
         if len(orders) == 1:
             out.append(_ui("order", orders[0]))
         elif orders:
+            # Found by what the owner remembered, and more than one fits: the card is the
+            # choice he is being asked to make (app/tools/shopify_tools.py _find_by_evidence).
+            evidence = isinstance(result.get("asked"), dict)
             out.append(_ui("order_list", {
-                "title": "Orders", "query": _text(result.get("query")), "orders": orders,
-                "count": len(orders), "truncated": False,
+                "title": "Which order?" if evidence and result.get("ambiguous") else "Orders",
+                "query": _text(result.get("query")), "orders": orders,
+                "count": len(orders), "truncated": bool(result.get("truncated")) if evidence else False,
             }))
         matched = _list(result.get("customers_matched"), MAX_CUSTOMERS)
         if result.get("ambiguous") and matched:
@@ -536,8 +545,10 @@ def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
             }))
         if not out:
             # Looked for, and not found. There is nothing else to say and it still gets said
-            # on the screen — see `_empty` and D-15.
-            out.append(_empty("order_list", "Orders", f"Nothing matched {_text(result.get('query'), 40)}." if result.get("query") else "No order matched."))
+            # on the screen — see `_empty` and D-15. Found by evidence, the tool's own sentence
+            # says which fact nothing had, and that is what the card says.
+            said = _text(result.get("note"), MAX_TEXT_CHARS) if isinstance(result.get("asked"), dict) else ""
+            out.append(_empty("order_list", "Orders", said or (f"Nothing matched {_text(result.get('query'), 40)}." if result.get("query") else "No order matched.")))
         return out
     if name == "shopify_list_orders":
         orders = [_order(o) for o in _list(result.get("orders"), MAX_ORDERS)]
@@ -1508,7 +1519,16 @@ def _merge(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     yields the detail card only; the summary is a strict subset of it."""
     out: list[dict[str, Any]] = []
     seen_orders: dict[str, int] = {}
+    seen_workspaces: dict[str, int] = {}
     for item in items:
+        if item["type"] == "workspace":
+            # Opened and then changed in the same turn ("a new order for Mia, and add a
+            # print"): one card, as it stands after the last change.
+            ident = str((item.get("data") or {}).get("workspace_id") or "")
+            if ident in seen_workspaces:
+                out[seen_workspaces[ident]] = item
+                continue
+            seen_workspaces[ident] = len(out)
         if item["type"] == "order":
             ref = item["data"].get("order_id") or item["data"].get("order_number")
             if ref in seen_orders:
