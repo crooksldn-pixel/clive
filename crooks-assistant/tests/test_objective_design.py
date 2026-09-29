@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 
 from app.objectives import store as store_module
-from app.objectives.store import ObjectiveError, ObjectiveStore
+from app.objectives.store import RECORD_FIELDS, ObjectiveError, ObjectiveStore
 from experience.harness import harness
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "objectives"
@@ -94,7 +94,7 @@ async def test_samples_have_started_is_a_project_at_its_sampling_stage(desk):
     assert obj.people == [{"name": "Northfield", "role": "factory"}]
     assert obj.tasks == [] and obj.items == [], "a project, not a to-do list"
     # The one thing it could not fill, for the one short question in the reply.
-    assert obj.missing() == [{"field": "deadline", "means": "the date it has to be finished by"}]
+    assert obj.missing() == ["deadline"], "the stage was said; only the date was not"
     # What the tablet is sent: the project, stage by stage, with the one it is at.
     assert said.surface_types[:1] == ["objective"]
     card = card_of(said)
@@ -139,6 +139,48 @@ async def test_the_two_sentences_no_longer_show_the_same_thing(desk):
     rows = {o["kind"]: o for o in (await desk.client.get("/objectives", headers=_owner())).json()["objectives"]}
     assert rows["project"]["stage"]["name"] == "Sampling" and rows["project"]["people_tasks"] == []
     assert rows["tasks"]["stage"] is None and [p["who"] for p in rows["tasks"]["people_tasks"]] == ["Rosa", "Kit"]
+
+
+def handed(into: list):
+    """A last scripted call that reads nothing new: it keeps what the model was handed for the
+    objective_open before it, exactly as dispatch renders it for the model."""
+    def args(calls):
+        from app.tools.dispatch import _render
+
+        into.extend(json.loads(_render(c.result)) for c in calls if c.name == "objective_open" and c.ok)
+        return {}
+    return ("objective_list", args)
+
+
+ASK_DATE = "Ask only for the date it has to be done by, in one short question; nothing else."
+ASK_NOTHING = "Nothing essential is missing: ask no question about it."
+
+
+@pytest.mark.parametrize(("said", "opened", "missing", "ask"), [
+    # The stage was said, the date was not: the date, and only the date.
+    (SAMPLES, {"kind": "project", "stages": STAGES, "stage": "Sampling", "waiting_on": "Northfield"}, ["deadline"], ASK_DATE),
+    # Everything a drop needs was said: nothing to ask.
+    ("Samples have started for the AW drop with Northfield, it lands on the 14th of November",
+     {"kind": "project", "stages": STAGES, "stage": "Sampling", "waiting_on": "Northfield", "deadline": "2026-11-14"}, [], ASK_NOTHING),
+    # Not started is not a question: only the date.
+    ("Plan the SS27 drop: sampling, approval, production, delivery", {"kind": "project", "stages": STAGES}, ["deadline"], ASK_DATE),
+    # Tasks for later need no date.
+    (DELEGATE, {"kind": "tasks", "tasks": [{"who": "Rosa", "text": "Steam the AW samples"},
+                                           {"who": "Kit", "text": "Update the size chart"}]}, [], ASK_NOTHING),
+    # Any other goal asks what it needs as questions on the record, not here.
+    ("Get the SS26 lookbook shot", {"kind": "business"}, [], ASK_NOTHING),
+])
+async def test_the_model_is_handed_exactly_what_is_missing_and_nothing_else(desk, said, opened, missing, ask):
+    """The checker's finding: a new project always ended in a question about the stage AND the
+    date. What the model reads back from objective_open now names only what is actually missing,
+    with the one line to ask it by, and says to ask nothing when nothing essential is missing."""
+    seen: list = []
+    capture = await desk.ask(said, ("objective_list", {}),
+                             ("objective_open", {"title": "t", "request": said, **opened}), handed(seen))
+    assert capture.status == 200 and capture.unmakeable == {}, capture.unmakeable
+    (result,) = seen
+    assert result["missing"] == missing and result["ask"] == ask
+    assert "stage" not in result["missing"] and "_surfaces" not in result
 
 
 # ------------------------------------------------------------------ editable by voice
@@ -264,9 +306,9 @@ def test_a_project_needs_its_stages_and_tasks_need_their_people(s):
     assert s.all() == [], "a refused objective is not half-written"
 
 
-def test_a_project_not_yet_started_asks_where_it_is_and_finishing_every_stage_is_not_closing_it(s):
+def test_a_project_not_yet_started_is_not_started_and_finishing_every_stage_is_not_closing_it(s):
     obj = s.create(title="SS27 drop", request="Plan the SS27 drop", kind="project", stages=STAGES)
-    assert [m["field"] for m in obj.missing()] == ["stage", "deadline"]
+    assert obj.missing() == ["deadline"], "where it is is not a question: it has not started"
     assert obj.summary()["stage"] is None and obj.summary()["attention"] == "idle"
     s.move_stage(obj.id, "next")                    # not started: next is the first stage
     assert s.get(obj.id).current_stage()[1]["name"] == "Sampling"
@@ -377,7 +419,8 @@ def test_the_tools_return_the_card_and_what_is_missing_and_the_model_never_reads
     from app.tools.dispatch import _render
 
     opened = asyncio.run(tools.objective_open("AW drop", SAMPLES, kind="project", stages=STAGES, stage="Sampling"))
-    assert opened["missing"] == [{"field": "deadline", "means": "the date it has to be finished by"}]
+    assert opened["missing"] == ["deadline"]
+    assert opened["ask"] == "Ask only for the date it has to be done by, in one short question; nothing else."
     assert opened["_surfaces"][0]["type"] == "objective" and "_surfaces" not in json.loads(_render(opened))
     noted = asyncio.run(tools.objective_note(opened["id"], "stage", stage="next"))
     assert noted["_surfaces"][0]["data"]["stages"][1]["state"] == "current"
@@ -414,7 +457,8 @@ def test_the_prompt_teaches_the_kinds_by_what_the_thing_is(tmp_path):
                    "never a list of to-dos", "one task per job, each with who",
                    "nothing is sent to them, so never say you told them", "ONE short question",
                    "never a list or a form", "orders, books and pays for nothing", "only from what he said",
-                   "never propose them again as work items"):
+                   "never propose them again as work items", "when missing is empty, ask nothing",
+                   "never where it is, anything he already said, or a date for tasks for later"):
         assert phrase in prompt, phrase
 
 
@@ -439,10 +483,14 @@ def test_a_record_written_before_round_12_reads_exactly_as_it_did(tmp_path, name
     assert now["stage"] is None and now["people_tasks"] == [] and now["check_in"] is None
     assert {k: v for k, v in loaded.to_dict().items() if k in raw} == raw, "nothing already there was touched"
     assert ObjectiveStore(root).all()[0].id == raw["id"]
-    # The first change writes it in the current format, keeping all of it.
+    # The first change keeps the record in the keys it had, and puts an empty design beside it.
     ObjectiveStore(root).progress(raw["id"], "Still going")
     rewritten = json.loads((root / f"{raw['id']}.json").read_text(encoding="utf-8"))
-    assert rewritten["version"] == 2 and rewritten["facts"] == raw["facts"] and rewritten["items"] == raw["items"]
+    assert list(rewritten) == list(RECORD_FIELDS)
+    assert rewritten["facts"] == raw["facts"] and rewritten["items"] == raw["items"]
+    design = json.loads((root / "design" / f"{raw['id']}.json").read_text(encoding="utf-8"))
+    assert design == {"version": 2, "purpose": None, "done_when": None, "people": [], "stages": [], "tasks": [],
+                      "check_every_days": None}
 
 
 def test_a_record_older_still_without_kind_loads_as_business(tmp_path):

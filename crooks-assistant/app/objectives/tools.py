@@ -49,8 +49,7 @@ def _full(obj) -> dict[str, Any]:
     name="objective_open",
     description=(
         "Open a real-world objective the owner wants kept alive, in his words, shaped by its kind. "
-        "Only when objective_list has nothing covering it. Ask for what `missing` lists in one "
-        "short question."
+        "Only when objective_list has nothing covering it. Then ask exactly what `ask` says."
     ),
     input_schema={
         "type": "object",
@@ -83,7 +82,7 @@ async def objective_open(title: str, request: str, kind: str = "business", deadl
                              stages=stages, stage=stage, waiting_on=waiting_on, tasks=tasks)
     except ObjectiveError as exc:
         raise ToolError(str(exc)) from exc
-    return {**_full(obj), "missing": obj.missing()}
+    return {**_full(obj), "missing": obj.missing(), "ask": obj.ask()}
 
 
 @tool(

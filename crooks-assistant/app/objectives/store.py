@@ -38,8 +38,14 @@ deadline and a check-in cadence. The cadence is not a scheduler: nothing runs be
 conversations. It is a promise the record keeps by itself: when an objective has gone quiet for
 longer than the owner asked, its headline says a check-in is due (``attention_``).
 
-A record written before round 12 (version 1) has none of the design fields; ``_from_record``
-reads it as it always read, and the fields are written the next time it changes.
+Where the design lives, and why (rollback safety). A deploy that fails rolls back to the
+previous build, and the owner can roll back by hand; the store before round 12 reads a record with
+``Objective(**data)``, which refuses any key it does not know. So ``obj_x.json`` keeps exactly the
+keys that store knows (``RECORD_FIELDS``), and the design is written beside it, atomically and
+first, to ``design/obj_x.json``: a folder the old store never lists, since it reads only
+``obj_*.json`` at the top. After a rollback every objective still lists and opens, as a plain one;
+rolled forward again, its design is where it was. A record with no design file (written before
+round 12, or by an older build after a rollback) is whole without one (``_from_record``).
 """
 
 from __future__ import annotations
@@ -73,14 +79,22 @@ KINDS = ("business", "build", "project", "tasks")
 STAGE_STATES = ("done", "current", "upcoming")
 _ID = re.compile(r"^obj_[0-9a-f]{8}$")
 MAX_TEXT = 2000
-# The record's own format. 1: Objective V0 and the build kind; 2: the design fields (round 12).
+# The design file's own format. 2: the design fields of round 12 (1 is a record without one).
 VERSION = 2
+# The keys of obj_x.json: exactly what the store before round 12 reads (547f652f), in that order.
+RECORD_FIELDS = ("id", "title", "request", "created_at", "updated_at", "status", "status_set_by", "deadline",
+                 "facts", "unknowns", "blockers", "items", "attention", "events", "kind", "engineering")
+# The keys of design/obj_x.json, beside ``version``.
+DESIGN_FIELDS = ("purpose", "done_when", "people", "stages", "tasks", "check_every_days")
+DESIGN_DIR = "design"
 # Bounds that keep a record a thing a person reads, not a spreadsheet.
 MAX_STAGES = 10
 MAX_TASKS = 60
 MAX_PEOPLE = 12
 MAX_NAME = 60
 MAX_CHECK_EVERY = 90
+# What each field `missing` can name means, in the words the model asks in.
+_MEANS = {"deadline": "the date it has to be done by", "tasks": "who is to do what"}
 _ROLE = re.compile(r"^(?P<name>[^()]+?)\s*\((?P<role>[^()]*)\)\s*$")
 
 
@@ -198,7 +212,6 @@ class Objective:
     # Jobs for named people: {id, who, text, due, done, done_at, at}.
     tasks: list[dict] = field(default_factory=list)
     check_every_days: int | None = None
-    version: int = VERSION
 
     def __post_init__(self) -> None:
         # Legacy JSON written before status_set_by existed has no such field, so the dataclass
@@ -292,19 +305,24 @@ class Objective:
             return "idle", "every task is done"
         return "idle", "nothing open"
 
-    def missing(self) -> list[dict[str, str]]:
-        """What the shape of this kind still lacks and only the owner can say, for the one short
-        question CLIVE asks when it opens the objective. Business and build objectives ask what
-        they need as questions on the record (ask_owner), as they always have."""
-        out: list[dict[str, str]] = []
-        if self.kind == "project":
-            if not any(s.get("state") in ("current", "done") for s in self.stages):
-                out.append({"field": "stage", "means": "which stage it is at now"})
-            if not self.deadline:
-                out.append({"field": "deadline", "means": "the date it has to be finished by"})
-        elif self.kind == "tasks" and not self.tasks:
-            out.append({"field": "tasks", "means": "who is to do what"})
-        return out
+    def missing(self) -> list[str]:
+        """What this kind cannot do without and the owner has not said: the only things CLIVE may
+        ask when it opens the objective, and nothing else. A drop, a sample round or a shoot has a
+        date, so a project without a deadline asks for one. Where a project is now is not asked:
+        one he has not said has started is simply not started. Tasks "for later" need no date,
+        and a business or build objective asks what it needs as questions on the record."""
+        if self.kind == "project" and not self.deadline:
+            return ["deadline"]
+        if self.kind == "tasks" and not self.tasks:
+            return ["tasks"]
+        return []
+
+    def ask(self) -> str:
+        """The one line the model is handed with `missing`, so that it asks exactly that."""
+        wanted = self.missing()
+        if not wanted:
+            return "Nothing essential is missing: ask no question about it."
+        return f"Ask only for {' and '.join(_MEANS[f] for f in wanted)}, in one short question; nothing else."
 
     def summary(self) -> dict[str, Any]:
         """What the home screen and the model's list need: short, current, no history."""
@@ -353,34 +371,57 @@ class Objective:
 
 
 _FIELDS = frozenset(f.name for f in fields(Objective))
+assert _FIELDS == set(RECORD_FIELDS) | set(DESIGN_FIELDS)
 
 
-def _from_record(raw: Any) -> Objective:
-    """A record as any version of the store wrote it, as an Objective of this version.
+def _from_record(raw: Any, design: Any = None) -> Objective:
+    """An objective from its record and its design file, as any build of the store wrote them.
 
-    Version 1 (no ``version`` key) was written by Objective V0 and by the build kind: it has no
-    purpose, done_when, people, stages, tasks or cadence, and records older still have no kind,
-    engineering or status_set_by. Each missing field is given the value that means "none", the
-    kind a record without one always had ("business") is written in, and nothing already there
-    is touched, so an old objective reads exactly as it did. A key this store does not know
-    (a record from a newer build) is refused as the whole record is, like a damaged file,
-    rather than dropped on the next write.
+    The record (obj_x.json) is read as it always was: one written before kinds existed has no
+    kind, engineering or status_set_by, and gets "business", none and None. The design
+    (design/obj_x.json) may be absent — a record from before round 12, or one an older build made
+    after a rollback — and every design field then means "none", so the objective reads exactly
+    as it did. A record that carries the design inline (round 12's first cut, never deployed) is
+    read too, and split on its next write. A key in the record that no build of this store writes
+    is refused, as a damaged file is, rather than dropped on the next write; a design key this
+    build does not know is kept and written back as it was, under the version that wrote it
+    (``Objective._design_extra``, ``_design_version``).
     """
     if not isinstance(raw, dict):
         raise ValueError("an objective record is a JSON object")
+    if design is not None and not isinstance(design, dict):
+        raise ValueError("an objective's design is a JSON object")
     data = dict(raw)
-    if int(data.get("version") or 1) < 2:
-        data.setdefault("kind", "business")
-        data.setdefault("engineering", [])
-        for name in ("people", "stages", "tasks"):
-            data[name] = list(data.get(name) or [])
-        for name in ("purpose", "done_when", "check_every_days"):
-            data.setdefault(name, None)
-        data["version"] = VERSION
-    unknown = set(data) - _FIELDS
+    inline = {k: data.pop(k) for k in (*DESIGN_FIELDS, "version") if k in data}
+    unknown = set(data) - set(RECORD_FIELDS)
     if unknown:
         raise ValueError(f"unknown fields {sorted(unknown)}")
-    return Objective(**data)
+    data.setdefault("kind", "business")
+    data.setdefault("engineering", [])
+    shape = {**inline, **(design or {})}
+    try:
+        written_as = int(shape.pop("version", None) or VERSION)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("an objective's design has no readable version") from exc
+    extra = {k: v for k, v in shape.items() if k not in DESIGN_FIELDS}
+    for name in ("people", "stages", "tasks"):
+        data[name] = list(shape.get(name) or [])
+    for name in ("purpose", "done_when", "check_every_days"):
+        data[name] = shape.get(name)
+    obj = Objective(**data)
+    obj._design_extra = extra
+    obj._design_version = max(VERSION, written_as)
+    return obj
+
+
+def _split(obj: Objective) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The two files an objective is written as: the record the store before round 12 can read,
+    key for key, and its design."""
+    data = obj.to_dict()
+    record = {k: data[k] for k in RECORD_FIELDS}
+    design = {"version": getattr(obj, "_design_version", VERSION), **getattr(obj, "_design_extra", {}),
+              **{k: data[k] for k in DESIGN_FIELDS}}
+    return record, design
 
 
 def _days_left(deadline: str | None) -> int | None:
@@ -403,18 +444,34 @@ class ObjectiveStore:
             raise ObjectiveError(f"There is no objective {objective_id!r}.")
         return self.root / f"{objective_id}.json"
 
-    def _write(self, obj: Objective) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        path = self._path(obj.id)
+    def _design_path(self, objective_id: str) -> Path:
+        return self._path(objective_id).parent / DESIGN_DIR / f"{objective_id}.json"
+
+    @staticmethod
+    def _atomic(path: Path, data: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(obj.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, path)
+
+    def _write(self, obj: Objective) -> None:
+        """The design first, then the record: a write cut short between the two leaves the
+        record's history saying less than the design, never more."""
+        record, design = _split(obj)
+        self._atomic(self._design_path(obj.id), design)
+        self._atomic(self._path(obj.id), record)
+
+    def _read(self, path: Path) -> Objective:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        beside = self._design_path(path.stem) if _ID.fullmatch(path.stem) else None
+        design = json.loads(beside.read_text(encoding="utf-8")) if beside is not None and beside.exists() else None
+        return _from_record(raw, design)
 
     def get(self, objective_id: str) -> Objective:
         path = self._path(objective_id)
         if not path.exists():
             raise ObjectiveError(f"There is no objective {objective_id!r}.")
-        return _from_record(json.loads(path.read_text(encoding="utf-8")))
+        return self._read(path)
 
     def all(self) -> list[Objective]:
         if not self.root.exists():
@@ -422,7 +479,7 @@ class ObjectiveStore:
         out = []
         for path in sorted(self.root.glob("obj_*.json")):
             try:
-                out.append(_from_record(json.loads(path.read_text(encoding="utf-8"))))
+                out.append(self._read(path))
             except (ValueError, TypeError):
                 continue  # a damaged file is skipped, never silently rewritten
         return sorted(out, key=lambda o: o.updated_at, reverse=True)
