@@ -14,7 +14,14 @@ class ClassList {
   add(...names) { const s = this._set(); names.forEach((n) => s.add(n)); this._write(s); }
   remove(...names) { const s = this._set(); names.forEach((n) => s.delete(n)); this._write(s); }
   contains(name) { return this._set().has(name); }
-  toggle(name) { const s = this._set(); const had = s.has(name); if (had) s.delete(name); else s.add(name); this._write(s); return !had; }
+  // As the DOM's: with `force`, added when it is true and removed when it is false.
+  toggle(name, force) {
+    const s = this._set();
+    const on = force === undefined ? !s.has(name) : !!force;
+    if (on) s.add(name); else s.delete(name);
+    this._write(s);
+    return on;
+  }
 }
 
 class Node {

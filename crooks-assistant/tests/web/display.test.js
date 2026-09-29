@@ -86,7 +86,7 @@ function engines() {
         next.fn();
       }
     };
-    for (const name of ['idleIntro', 'idleNow', 'clockTo', 'push', 'sweepOut', 'place', 'packOut', 'packIn', 'clear', 'forget', 'nameIntro',
+    for (const name of ['idleIntro', 'idleNow', 'clockTo', 'push', 'sweepOut', 'place', 'packOut', 'packIn', 'clear', 'forget', 'swap', 'nameIntro',
       'nameTo', 'nameToOrb', 'boot', 'quick', 'setHome', 'handoff', 'stillGlint', 'freeze', 'setSpeed']) {
       e[name] = () => { e.calls.push(name); };
     }
@@ -157,9 +157,13 @@ function paintContext(canvas) {
 }
 // The colour the page's letters are drawn in, with the real engine: a customer's details pure red.
 const CUSTOMER_TEXT = ['Sam Carter', '14 Sample Road', 'E8 1AA'];
+// Round 12: the customer of the slip that replaces it, drawn in pure blue, so a frame can tell the
+// two apart.
+const NEXT_CUSTOMER_TEXT = ['Alex Doe', '9 Test Street', 'N1 9ZZ'];
 function styleOf(el) {
   const own = el && typeof el.allText === 'function' ? el.allText() : '';
-  return CUSTOMER_TEXT.some((c) => own.includes(c)) ? 'rgb(255, 0, 0)' : '#ffffff';
+  if (CUSTOMER_TEXT.some((c) => own.includes(c))) return 'rgb(255, 0, 0)';
+  return NEXT_CUSTOMER_TEXT.some((c) => own.includes(c)) ? 'rgb(0, 0, 255)' : '#ffffff';
 }
 
 const IDS = ['board', 'ui', 'idle', 'namer', 'mark', 'pairing', 'scan', 'status', 'hint', 'bloom', 'dots', 'fx', 'meta', 'online',
@@ -168,7 +172,7 @@ const IDS = ['board', 'ui', 'idle', 'namer', 'mark', 'pairing', 'scan', 'status'
 
 // One screen page: its elements, a clock and timers that move only when told, a stored screen,
 // and CLIVE answering as `answer(request)` says.
-function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0), calm = true, build = '', real = false } = {}) {
+function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0), calm = true, build = '', real = false, weak = real } = {}) {
   MODE.real = real;
   const reloads = [];
   const clock = { now: start };
@@ -255,7 +259,7 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
   const sandbox = {
     window, document, console, Math, JSON, Date: FakeDate, Promise, Set, Map, Array, Number, Object, String, Error, TypeError,
     Uint8ClampedArray, Uint32Array, isNaN, parseFloat, encodeURIComponent, AbortController,
-    navigator: { hardwareConcurrency: real ? 2 : 8 },
+    navigator: { hardwareConcurrency: weak ? 2 : 8 },
     location: { search: '', origin: 'https://clive.example', reload: () => reloads.push(clock.now) },
     NodeFilter: { SHOW_TEXT: 4 },
     localStorage: {
@@ -278,8 +282,10 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
   vm.createContext(sandbox);
   if (real) {
     // The real engine (web/dots.js), each one made kept for the test to look at: with the fewest
-    // dots it takes (3,000), so a test runs quickly; what it does with them is the same.
-    vm.runInContext(DOTS, sandbox, { filename: 'dots.js' });
+    // dots it takes (3,000), so a test runs quickly; what it does with them is the same. Round 12:
+    // its dots, each with where it is, where it is going and what it holds, are the test's to
+    // look at too (`window.__dotsP`, the last engine's), as the page's own state is.
+    vm.runInContext(DOTS.replace('const P = [], ORBS = []', 'const P = root.__dotsP = [], ORBS = []'), sandbox, { filename: 'dots.js' });
     const make = window.CliveDots.create;
     window.CliveDots.create = (o) => { const e = make(Object.assign({}, o, { density: 3000 })); dots.made.push(e); return e; };
   }
@@ -327,7 +333,7 @@ function page({ stored = SCREEN, answer, start = Date.UTC(2026, 8, 27, 12, 0, 0)
     await flush();
   };
   return { els, clock, requests, storage, writes, dots, load, advance, play, flush, frame, engine, docListeners, winListeners, reloads,
-    state: () => window.__screen };
+    state: () => window.__screen, dotsOf: () => window.__dotsP || [] };
 }
 
 // An answer CLIVE gives only when the test says: `let` it go with what it says.
@@ -1159,9 +1165,9 @@ test('the same build never reloads the screen', async () => {
 
 // A screen with the real dots engine, up on the clock after its start-up, then showing what
 // `state(at)` says CLIVE shows.
-async function realUp(state, extra, settle = 9000) {
+async function realUp(state, extra, settle = 9000, options = {}) {
   const box = { state };
-  const pg = page({ answer: (r) => box.answer(r), calm: false, real: true });
+  const pg = page(Object.assign({ answer: (r) => box.answer(r), calm: false, real: true }, options));
   const at = new Date(pg.clock.now - 60 * 1000).toISOString();
   box.answer = screenOf(pg, () => (typeof box.state === 'function' ? box.state(at) : box.state), extra);
   await pg.load();
@@ -1198,15 +1204,16 @@ test('a slip whose time runs out while its dots are still forming it comes down 
 
 // Closes NEW-B-LOCAL-SLIP (round 11): the moment is the limit, and nothing waits for an animation.
 test('a slip past its time comes down within a second of it, at once, while the screen is mid-dissolve or mid-journey', async () => {
-  // Mid-dissolve: the owner puts another slip up, and the old one's time runs out while it dissolves.
+  // Mid-dissolve: the owner turns the screen off, and the slip's time runs out while it dissolves
+  // back to the clock. (Round 12: a slip replaced by another no longer dissolves home first — it
+  // leaves as the new one comes, see the round-12 section — so the dissolve here is the one a
+  // screen still makes, when nothing is left to show.)
   const put = Date.UTC(2026, 8, 27, 12, 0, 0) - 12 * 3600 * 1000 + 20 * 1000;   // twenty seconds to run
   let state = null;
   const { pg } = await upWith(() => state || { version: 1, showing: Object.assign(slip(new Date(put).toISOString()), { v: 1 }) }, null, { calm: false });
   assert.ok(pg.els.ui.allText().includes('Sam Carter'));
   pg.dots.ctl.held = true;                         // what the dots were asked to do later waits: a slow TV
-  const other = slip(new Date(pg.clock.now).toISOString());
-  other.title = 'Order #1052'; other.order.customer = 'Alex Doe';
-  state = { version: 2, showing: Object.assign(other, { v: 2 }) };
+  state = { version: 2, showing: null };
   await pg.advance(2100);
   assert.ok(pg.els.ui.classList.contains('is-dissolving'), 'the old slip is dissolving');
   assert.ok(pg.els.ui.allText().includes('Sam Carter'), 'and, dissolving, is still on the page');
@@ -1394,4 +1401,269 @@ test('reloaded before CLIVE took the old key back, the screen is named again and
   assert.equal(again.storage['clive.screen'], undefined, 'the old record is forgotten');
   for (const r of again.requests) assert.equal(r.headers['X-Screen-Key'], undefined, 'no key in ' + r.url);
   assert.equal(again.els.ui.allText(), '');
+});
+
+
+/* Round 12: the owner, 29 September — "the tv screen is also somewhere where visual flow is
+ * broken. i can ask to put xyz on screen, if i ask for something new, it reverts to home screen
+ * for a second then reverts to the new screen. why is the home animation happening it just adds
+ * delays and makes things clunky."
+ *
+ * - Something new in place of what is up is one change: straight from the old to the new, with
+ *   no clock (the screen's home) in between, nothing blank, and readable within two seconds of
+ *   the answer arriving (it took seven: two and a half dissolving home, four and a half coming
+ *   back out of the orb). Every kind: order to order, to an objective, a list, a video and back.
+ * - A pane that stays across a change (one beside it came or went) stays up: the same pane, its
+ *   video the same player, never paused. A video replaced is paused at once and dropped.
+ * - The clock comes back only when nothing is left to show.
+ * - Round 11 holds: no dot of the old slip draws the new one; the old slip on its way out comes
+ *   down at once when its time runs out; a refusal mid-change takes everything down.
+ * - Reduced motion: the new thing is there at once. A weak screen: the same change, lighter.
+ */
+function nextSlip(at, v) {
+  const s = slip(at);
+  s.ref = 'gid://shopify/Order/1052'; s.title = 'Order #1052'; s.v = v;
+  s.order = Object.assign({}, s.order, { number: '#1052', customer: 'Alex Doe', address: ['9 Test Street', 'London', 'N1 9ZZ'] });
+  return s;
+}
+function goal(at, v) {
+  return { kind: 'objective', ref: 'obj_0001', title: 'Autumn samples', at, by: 'clive', v,
+    objective: { deadline: '2026-10-10', days_left: 11, doing: 'Fitting the second hoodie', next: ['Photograph the tees'], needs_you: [], blocked_by: [] } };
+}
+// Everything on the screen as text: the page, and whatever of an old page is still on its way out.
+const onBoard = (pg) => pg.els.ui.allText() + pg.els.board.allText();
+
+// Time passes a frame at a time until the new thing is up and has settled, and each frame says
+// what the screen showed: whether its home (the clock) was up, what the page was doing, and
+// whether anything of the old and of the new thing was on it. `arrived` is when the page took
+// CLIVE's new answer in (`isNew`); `ready`, when the new thing was up with nothing still forming
+// and nothing of the old one still leaving.
+async function watch(pg, { isNew, newText, oldText, real = false, ms = 10000 }) {
+  const frames = [];
+  let arrived = null, ready = null;
+  const until = pg.clock.now + ms;
+  while (pg.clock.now < until && (ready === null || pg.clock.now - ready < 700)) {
+    if (real) await pg.play(66); else await pg.advance(66);
+    const S = pg.state();
+    if (arrived === null && isNew(S)) arrived = pg.clock.now;
+    if (arrived === null) continue;
+    const text = onBoard(pg);
+    const f = { t: pg.clock.now, clock: !pg.els.idle.classList.contains('is-out'), phase: S.phase,
+      old: oldText.some((x) => text.includes(x)), neu: text.includes(newText) };
+    frames.push(f);
+    if (ready === null && S.phase === 'shown' && f.neu && !(S.drawnView || []).some((P) => P.forming) && !S.leaving) ready = pg.clock.now;
+  }
+  return { frames, arrived, ready };
+}
+const isOrder1052 = (S) => !!S.showing && S.showing.title === 'Order #1052';
+
+// The owner's complaint, reproduced: on the old page every one of these failed — the clock came
+// up in the middle, and the new slip was readable some seven seconds after it arrived.
+for (const weak of [false, true]) {
+  test('something new in place of a slip goes straight there: never the clock, never blank, readable within two seconds' + (weak ? ' (a weak screen)' : '') + ' (the real engine)', async () => {
+    const box = {};
+    const { pg, at } = await realUp((when) => box.state || { version: 1, showing: Object.assign(slip(when), { v: 1 }) }, null, 9000, { weak });
+    assert.equal(pg.state().phase, 'shown');
+    assert.ok(pg.els.ui.allText().includes('Sam Carter'));
+    assert.equal(pg.els.board.classList.contains('is-weak'), weak, 'the weak path is the one under test');
+    const frames = pg.els.dots.frames, from = frames.length;
+    box.state = { version: 2, showing: nextSlip(at, 2) };
+    const seen = await watch(pg, { real: true, isNew: isOrder1052, newText: 'Alex Doe', oldText: ['Sam Carter'] });
+    assert.ok(seen.arrived !== null && seen.ready !== null, 'the new slip arrived and came up');
+    const took = seen.ready - seen.arrived;
+    assert.ok(took <= 2000, 'readable ' + took + ' ms after it arrived');
+    assert.equal(seen.frames.filter((f) => f.clock).length, 0, 'the clock never came up');
+    assert.ok(seen.frames.every((f) => f.phase === 'swapping' || f.phase === 'shown'), 'never home: ' + [...new Set(seen.frames.map((f) => f.phase))].join(', '));
+    assert.ok(seen.frames.every((f) => f.old || f.neu), 'something on the screen in every frame');
+    assert.ok(pg.els.ui.allText().includes('Alex Doe') && !onBoard(pg).includes('Sam Carter'), 'the new slip, and nothing of the old');
+    assert.equal(redFrames(frames.slice(from)), 0, 'no frame since draws the old customer in dots');
+    assert.ok(frames.slice(from).some((f) => f.red === 0), 'and the screen went on drawing');
+  });
+}
+
+// Round 11's rule for the change itself: a replacement keeps no dot of the old slip.
+test('a replacement keeps no dot of the old slip: they let go first, and every dot that draws the new one comes out of the orb (the real engine)', async () => {
+  const box = {};
+  const { pg, at } = await realUp((when) => box.state || { version: 1, showing: Object.assign(slip(when), { v: 1 }) });
+  const red = (t) => !!t && t.r === 255 && t.g === 0 && t.b === 0;
+  const blue = (t) => !!t && t.r === 0 && t.g === 0 && t.b === 255;
+  assert.ok(pg.dotsOf().some((p) => red(p.uiT)), 'the slip’s dots hold its customer’s places: the test can see them');
+  const frames = pg.els.dots.frames, from = frames.length;
+  box.state = { version: 2, showing: nextSlip(at, 2) };
+  const mini = { cx: 94, cy: 62, R: 15 };            // where the orb sits while something is shown (display.js layout)
+  let looked = false;
+  for (let i = 0; i < 120 && !looked; i++) {
+    await pg.play(66);
+    const dots = pg.dotsOf();
+    if (!dots.some((p) => blue(p.uiT))) continue;
+    looked = true;
+    assert.equal(dots.filter((p) => red(p.uiT)).length, 0, 'no dot keeps a place of the old slip');
+    assert.equal(dots.filter((p) => p.a > 0.004 && p.r === 255 && p.g === 0 && p.b === 0).length, 0, 'nor its colour');
+    const bound = dots.filter((p) => blue(p.uiT));
+    for (const p of bound) {
+      const start = p.seg ? [p.seg.sx, p.seg.sy] : p.q[0].from;
+      assert.ok(start && Math.hypot(start[0] - mini.cx, start[1] - mini.cy) <= mini.R * 2 + 2, 'set off from the orb, not from the old page: ' + start);
+    }
+  }
+  assert.ok(looked, 'the new slip’s dots set off');
+  await pg.play(3000);
+  assert.equal(redFrames(frames.slice(from)), 0, 'no frame from the change on shows the old customer in dots');
+  assert.equal(pg.dotsOf().filter((p) => red(p.uiT)).length, 0);
+  assert.ok(pg.els.ui.allText().includes('Alex Doe'));
+});
+
+// Every kind of change the owner makes, one after another, as a day has them.
+test('every kind of change is one change: order, objective, list, video and back; a pane beside, a pane taken off; the clock only when nothing is left', async () => {
+  let state = null;
+  const { pg, at } = await upWith((when) => state || { version: 1, showing: Object.assign(slip(when), { v: 1 }) }, null, { calm: false });
+  const calls = () => pg.engine().calls;
+  const step = async (next, isNew, newText, oldText) => {
+    const before = calls().length;
+    state = next;
+    const seen = await watch(pg, { isNew, newText, oldText });
+    const made = calls().slice(before);
+    assert.ok(seen.arrived !== null && seen.ready !== null, newText + ' came up');
+    assert.equal(seen.frames.filter((f) => f.clock).length, 0, newText + ': the clock never came up');
+    for (const home of ['clear', 'clockTo', 'idleNow', 'push']) assert.ok(!made.includes(home), newText + ': no ' + home + ' (' + made.join(', ') + ')');
+    return made;
+  };
+  const titled = (title) => (S) => !!S.showing && S.showing.title === title;
+  // Order to objective, objective to list, list to video: each forms from the orb as the old one goes.
+  for (const [next, title, old] of [[goal(at, 2), 'Autumn samples', 'Order #1047'], [list(at, 3), 'Sam Carter’s alterations', 'Autumn samples'],
+    [clip(at, 4), 'Heat | Official Trailer', 'Sam Carter’s alterations']]) {
+    const made = await step({ version: next.v, showing: next }, titled(title), title, [old]);
+    assert.ok(made.indexOf('forget') !== -1 && made.indexOf('forget') < made.indexOf('swap'), title + ': the old page let go of, then the new formed: ' + made.join(', '));
+    assert.ok(!onBoard(pg).includes(old), title + ': nothing of ' + old + ' left');
+  }
+  const yt = player(pg);
+  yt.frame.dispatch('load');
+  yt.say({ event: 'onReady' });
+  assert.deepEqual(yt.commands().slice(2), [['unMute'], ['playVideo']], 'the video plays');
+  // A list beside the video: the video's pane stays, the same player, never paused.
+  const videoPane = pg.state().drawnView[0];
+  yt.sent.length = 0;
+  await step({ version: 5, showing: clip(at, 4), beside: list(at, 5) }, (S) => !!S.beside, 'Hem the trousers', []);
+  assert.equal(pg.state().drawnView[0], videoPane, 'the video’s pane is the same pane');
+  assert.equal(pg.els.board.querySelector('.cs-vhost'), yt.host, 'the same player');
+  assert.equal(yt.host.querySelector('iframe'), yt.frame, 'never loaded again');
+  assert.ok(!yt.commands().some((c) => c[0] === 'pauseVideo'), 'never paused: ' + JSON.stringify(yt.commands()));
+  assert.ok(yt.host.classList.contains('is-in'));
+  const listPane = pg.state().drawnView[1];
+  // An order in place of the video: the video is paused at once and dropped; the list stays.
+  yt.sent.length = 0;
+  await step({ version: 6, showing: nextSlip(at, 6), beside: list(at, 5) }, isOrder1052, 'Alex Doe', ['Heat | Official Trailer']);
+  assert.ok(yt.commands().some((c) => c[0] === 'pauseVideo'), 'the video paused');
+  assert.ok(!yt.host.classList.contains('is-in'), 'and on its way out');
+  assert.equal(pg.state().drawnView[1], listPane, 'the list beside it is the same pane');
+  await pg.advance(10000);
+  assert.equal(yt.host.parentNode, null, 'the player dropped');
+  // The order taken off: the list fills the screen, the same pane, now the first.
+  const made = await step({ version: 7, showing: list(at, 5), beside: null }, (S) => !S.beside && !!S.showing && S.showing.kind === 'list', 'Hem the trousers', ['Alex Doe']);
+  assert.ok(!made.includes('swap'), 'nothing new to form: ' + made.join(', '));
+  assert.equal(pg.state().drawnView.length, 1);
+  assert.equal(pg.state().drawnView[0], listPane, 'the list stayed up');
+  assert.equal(listPane.index, 0, 'and is the first pane now');
+  assert.ok(!pg.els.ui.classList.contains('cs-two') && !onBoard(pg).includes('Alex Doe'));
+  // Nothing left: now, and only now, the clock.
+  const before = calls().length;
+  state = { version: 8, showing: null, beside: null };
+  await pg.advance(6000);
+  assert.ok(calls().slice(before).includes('clear'), 'dissolved home');
+  assert.ok(!pg.els.idle.classList.contains('is-out'), 'the clock is up');
+  assert.equal(pg.els.ui.allText(), '');
+});
+
+// NEW-B-LOCAL-SLIP (round 11) through a change: the old slip on its way out, past its time.
+test('the old slip on its way out of a change comes down the moment its time runs out, and what replaced it stays', async () => {
+  const start = Date.UTC(2026, 8, 27, 12, 0, 0);
+  const limit = start + 20000 - 50;                 // fifty milliseconds before a second's check
+  const gate = { hold: null };
+  let state = null;
+  const { pg, at } = await upWith((when) => state || { version: 1, showing: Object.assign(slip(new Date(limit - 12 * 3600 * 1000).toISOString()), { v: 1 }) },
+    (request) => { if (request.method === 'GET' && gate.hold) { const h = gate.hold; gate.hold = null; return h.promise; } return null; }, { calm: false });
+  assert.ok(pg.els.ui.allText().includes('Sam Carter'));
+  await pg.advance(start + 17000 - pg.clock.now);
+  const late = held();
+  gate.hold = late;
+  pg.dots.ctl.held = true;                           // a slow TV: the change is still under way
+  await pg.advance(start + 19900 - pg.clock.now);    // the screen's ask is on its way meanwhile
+  late.let({ status: 200, body: { id: SCREEN.id, name: SCREEN.name, version: 2, pending: false, beside: null, last_done: null,
+    showing: nextSlip(at, 2), now: new Date(pg.clock.now).toISOString() } });
+  await pg.flush();
+  assert.ok(pg.state().leaving, 'the old slip is on its way out');
+  assert.ok(onBoard(pg).includes('Sam Carter') && pg.els.ui.allText().includes('Alex Doe'));
+  await pg.advance(60);
+  assert.ok(pg.clock.now > limit && onBoard(pg).includes('Sam Carter'), 'its time has just run out; the next check is the moment it goes');
+  await pg.advance(50);
+  assert.ok(!onBoard(pg).includes('Sam Carter'), 'gone at its time, not when its dissolve would have ended');
+  assert.equal(pg.state().leaving, null);
+  assert.ok(pg.els.ui.allText().includes('Alex Doe'), 'what replaced it is within its own time, and stays');
+  assert.equal(pg.state().phase, 'swapping');
+});
+
+// NEW-B-LOCAL-SLIP (round 8) through a change: a refusal mid-change takes the old and the new down.
+test('a refusal in the middle of a change takes the old slip and the new one down at once, dots and all', async () => {
+  let state = null;
+  const { pg, at } = await upWith((when) => state || { version: 1, showing: Object.assign(slip(when), { v: 1 }) }, null, { calm: false });
+  pg.dots.ctl.held = true;
+  state = { version: 2, showing: nextSlip(at, 2) };
+  for (let i = 0; i < 40 && !isOrder1052(pg.state()); i++) await pg.advance(66);
+  assert.equal(pg.state().phase, 'swapping', 'the change is under way');
+  assert.ok(pg.state().leaving && onBoard(pg).includes('Sam Carter') && pg.els.ui.allText().includes('Alex Doe'), 'the old slip leaving, the new one forming');
+  const drewWith = pg.engine();
+  // Refused on the very next ask, while the old slip is still on its way out: the screen is
+  // looked at again, as it asks when it is woken (visibilitychange).
+  state = { status: 403, body: { code: 'refused', detail: 'not allowed' } };
+  for (const fn of pg.docListeners.visibilitychange || []) fn();
+  await pg.flush();
+  assert.equal(onBoard(pg).includes('Sam Carter') || onBoard(pg).includes('Alex Doe'), false, 'nothing of either left');
+  assert.equal(pg.els.board.querySelector('.cs-leave'), null);
+  assert.equal(pg.state().leaving, null);
+  assert.ok(drewWith.destroyed, 'the dots that were drawing them are gone');
+  assert.equal(pg.els.line.textContent, REFUSED_LINE);
+  assert.equal(pg.state().phase, 'idle');
+});
+
+// Reduced motion: the same one change, simpler — there at once, nothing flying.
+test('with reduced motion something new is there at once: nothing flies, and no clock', async () => {
+  let state = null;
+  const { pg, at } = await upWith((when) => state || { version: 1, showing: Object.assign(slip(when), { v: 1 }) });
+  const before = pg.engine().calls.length;
+  state = { version: 2, showing: nextSlip(at, 2) };
+  const seen = await watch(pg, { isNew: isOrder1052, newText: 'Alex Doe', oldText: ['Sam Carter'] });
+  assert.ok(seen.arrived !== null && seen.ready === seen.arrived, 'up in the same moment it arrived');
+  assert.ok(!onBoard(pg).includes('Sam Carter'));
+  assert.deepEqual(pg.engine().calls.slice(before), ['forget'], 'the old page’s dots let go of, and nothing else asked of the dots');
+  assert.equal(seen.frames.filter((f) => f.clock).length, 0);
+});
+
+// Asked for something else while the first thing is still coming out of the orb: no waiting for
+// that journey to end first (on the page as it was, it waited, then went home to the clock).
+test('something new while the first thing is still forming overtakes it at once: its dots let go, and the new one forms', async () => {
+  const box = { state: { version: 1, showing: null } };
+  const pg = page({ answer: (r) => box.answer(r), calm: false });
+  box.answer = screenOf(pg, () => box.state);
+  await pg.load();
+  await pg.advance(3000);
+  assert.equal(pg.state().phase, 'idle');
+  pg.dots.ctl.held = true;                           // a slow TV: the journey is still under way
+  const at = new Date(pg.clock.now - 60000).toISOString();
+  box.state = { version: 2, showing: Object.assign(slip(at), { v: 2 }) };
+  await pg.advance(2100);
+  assert.equal(pg.state().phase, 'forming', 'the first slip’s dots are on their way');
+  const before = pg.engine().calls.length;
+  box.state = { version: 3, showing: nextSlip(at, 3) };
+  for (let i = 0; i < 40 && !isOrder1052(pg.state()); i++) await pg.advance(66);
+  await pg.advance(66);
+  const made = pg.engine().calls.slice(before);
+  assert.equal(pg.state().phase, 'swapping', 'straight into the change, not waiting for the journey');
+  assert.ok(made[0] === 'forget' && made.includes('swap'), 'the journey’s dots let go of, then the new slip formed: ' + made.join(', '));
+  assert.ok(!made.includes('clear') && !made.includes('clockTo'), 'never home first');
+  assert.ok(pg.els.idle.classList.contains('is-out'), 'the clock never came up');
+  assert.ok(pg.els.ui.allText().includes('Alex Doe') && !onBoard(pg).includes('Sam Carter'), 'the new slip, and nothing of the one never shown');
+  // Once the dots catch up, it is up and settled like any change.
+  pg.dots.ctl.held = false;
+  await pg.advance(3000);
+  assert.equal(pg.state().phase, 'shown');
+  assert.ok(!(pg.state().drawnView || []).some((P) => P.forming));
 });
