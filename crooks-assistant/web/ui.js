@@ -3655,6 +3655,30 @@
     return 'hold';
   }
 
+  // Whether a control is on the card of the half's cursor (round 12, C3). A listening chip —
+  // Add a note, Reply — binds the CURSOR, never the card it is drawn on (web/app.js
+  // `primeAction`), so on any other card it must not listen. The Mac takes the family off such
+  // a chip and has the card redrawn (app/screen.py `listening_on_cursor`); this is the glass's
+  // own check, for a node it kept from before the cursor moved. A control that is not on a
+  // record's card has nothing to disagree with; a record's card with no cursor is not his.
+  function onCursor(node, entity) {
+    let card = node;
+    while (card && !(card.dataset && card.dataset.render)) card = card.parentNode;
+    if (!card || !text(card.dataset.ref)) return true;
+    const here = entity && typeof entity === 'object' ? entity : null;
+    if (!here || !text(here.ref)) return false;
+    return sameRecord(text(card.dataset.ref), text(here.ref));
+  }
+
+  // One record, whether its id came with a query or not ("gid://shopify/Order/1938").
+  function sameRecord(a, b) {
+    if (a === b) return true;
+    const gid = /^gid:\/\/[^/]+\/([^/]+)\/([^/?#]+)/;
+    const x = gid.exec(a);
+    const y = gid.exec(b);
+    return Boolean(x && y && x[1] === y[1] && x[2] === y[2]);
+  }
+
   function render(items, opts) {
     const out = { nodes: [], skipped: [], stack: null, errors: [], hasContext: false };
     const moved = [];
@@ -3696,7 +3720,7 @@
     applyPatches, surfaceId, KEY_OF,
     // What stays on the glass (round 12): an answer that continues the screen, and whether a
     // new turn's first patches replace it (web/app.js, tests/web/keep.test.js).
-    continueScreen, landingOf, renderIdOf,
+    continueScreen, landingOf, renderIdOf, onCursor,
     // The email workspace's own seams: a proven archive applied to the deck on screen, and
     // the unsaved-typing store a redraw must not delete (web/app.js, tests/web/email.test.js).
     settleThread, clearFieldDrafts, ageFieldDrafts, fieldDraft, FIELD_DRAFT_TTL_MS,

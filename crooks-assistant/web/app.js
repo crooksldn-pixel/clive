@@ -1725,6 +1725,43 @@ function drawTapAnswer(items, words) {
   return true;
 }
 
+// An answer that drew nothing, over a screen that is up: the screen stays (round 12, H). The
+// Mac keeps it as this half's screen too — an empty answer never replaces `Branch.last_ui` —
+// so "has 1940 shipped?" answered in words over #1938 leaves #1938 up on both, and "pull that
+// back up" means the same thing to each. It used to drop to the orb here while the Mac still
+// held #1938, and the two disagreed about what "that" was. An answer too long for the band
+// goes on top of the screen, in a card of its own, rather than instead of it.
+function keepForWords(answer) {
+  if (historyIndex < 0 || !history[historyIndex] || el.body.dataset.mode !== 'context' || !el.cards.children.length) return false;
+  const entry = history[historyIndex];
+  const top = el.cards.firstElementChild;
+  if (top && top.dataset && top.dataset.type === 'assistant' && top.dataset.said === '1') {
+    // The last long answer's card is not part of the screen he is working on.
+    el.cards.removeChild(top);
+    entry.nodes = entry.nodes.filter((node) => node !== top);
+  }
+  if (answer.length > 200 && window.CrooksUI) {
+    const said = window.CrooksUI.renderItem({ type: 'assistant', data: { text: answer } });
+    if (said) {
+      said.dataset.said = '1';
+      el.cards.insertBefore(said, el.cards.firstChild);
+      entry.nodes.unshift(said);
+      bringIntoView(said);
+    }
+  }
+  armDeckExpiry();
+  T.record('navigate', { nav: 'carried', index: historyIndex, kept: el.cards.children.length });
+  return true;
+}
+
+// Whether a chip on the glass may listen: only on the card of the half's cursor, which is the
+// record `voice.bind` names (round 12, C3). A node the glass kept from before the cursor moved
+// can still carry a family the Mac has since taken off; this is the glass's own check of it.
+function listensHere(chip) {
+  if (!window.CrooksUI || typeof window.CrooksUI.onCursor !== 'function') return true;
+  return window.CrooksUI.onCursor(chip, branchState && branchState.entity ? branchState.entity : null);
+}
+
 /* ------------------------------------------- the workspace, as it arrives (§7, D-5)
  *
  * The Mac stages the screen in pieces now: a skeleton the moment it knows what kind of thing
@@ -2391,7 +2428,7 @@ function renderTurn(data) {
       // Too long to read in the band above the cards: it gets a card of its own, on top of the
       // screen it is about rather than instead of it.
       const said = window.CrooksUI.renderItem({ type: 'assistant', data: { text: answer } });
-      if (said) { el.cards.insertBefore(said, el.cards.firstChild); carried.nodes.unshift(said); carried.first = said; }
+      if (said) { said.dataset.said = '1'; el.cards.insertBefore(said, el.cards.firstChild); carried.nodes.unshift(said); carried.first = said; }
     }
     carryContext(carried, data.ui, data.question);
     snapshotSoon(Object.assign({ kept: true }, renderInfo));
@@ -2419,6 +2456,9 @@ function renderTurn(data) {
   }
   if (ui.hasContext) {
     pushContext(ui.nodes, data.ui, data.question);
+  } else if (keepForWords(answer)) {
+    // Nothing drawn, and a screen is up: it stays, as the Mac keeps it (round 12, H).
+    snapshotSoon(Object.assign({ kept: true }, renderInfo));
   } else if (answer.length > 200 && window.CrooksUI) {
     // Too long to read beneath the orb: give it a card and the room that comes with one.
     const node = window.CrooksUI.renderItem({ type: 'assistant', data: { text: answer } });
@@ -3113,7 +3153,7 @@ function drawArmed(listening) {
   // border, no aria-pressed. The one the finger touched is the one that should look touched.
   let armedChip = null;
   for (const chip of document.querySelectorAll('#cards .rail-chip[data-family]')) {
-    const armed = on && chip.dataset.family === String(listening.family);
+    const armed = on && chip.dataset.family === String(listening.family) && listensHere(chip);
     chip.dataset.primed = armed ? '1' : '';
     chip.setAttribute('aria-pressed', armed ? 'true' : 'false');
     if (armed && !armedChip) armedChip = chip;
@@ -3284,7 +3324,8 @@ async function primeAction(action, chip) {
   // mechanism posted the bind through the harness, so nothing caught it.
   //
   // A chip with no family is unchanged: it primes the words and binds nothing.
-  const family = String(action && action.family || '').trim();
+  // A chip on any card but the cursor's primes its words and binds nothing (C3, `listensHere`).
+  const family = listensHere(chip) ? String(action && action.family || '').trim() : '';
   const entity = branchState && branchState.entity ? branchState.entity : null;
   if (!family) {
     // No spoken control behind this chip: it primes the words and binds nothing, which is
