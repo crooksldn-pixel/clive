@@ -41,6 +41,8 @@ body.alpha .sheet.alpha-sheet{background:#111114;-webkit-backdrop-filter:none;ba
 .alpha-scroll{padding:6px 16px 28px}
 .alpha-sheet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px}
 .alpha-sheet .alpha-sheet-head h2{margin:0;font-size:22px;line-height:1.25;letter-spacing:0;text-transform:none;color:var(--ink)}
+/* Done keeps its own width beside a long title (style.css gives every .btn flex:1) */
+.alpha-sheet-head > .btn{flex:none;min-width:0;padding:0 20px}
 .alpha-sheet h3{margin:18px 0 6px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.6)}
 .alpha-item,.alpha-ask{padding:10px 12px;border-radius:14px;background:var(--glass);border:1px solid var(--border-subtle);margin-bottom:8px}
 .alpha-item p,.alpha-ask p{margin:0 0 4px}
@@ -131,7 +133,7 @@ body.alpha .sheet{border:0;border-radius:38px 38px 0 0;background:linear-gradien
 body.alpha .sheet h2{font-size:22px;letter-spacing:-.01em;text-transform:none;color:#fff;font-weight:700}
 body.alpha .sheet h3{font-size:13px;letter-spacing:.02em;text-transform:uppercase;color:var(--ink-3)}
 body.alpha .sheet .sheet-grip{width:36px;height:5px;border-radius:3px;background:rgba(255,255,255,.3)}
-body.alpha.alpha .sheet.alpha-sheet{background:linear-gradient(180deg,rgba(40,39,46,.98),rgba(22,22,26,1))}
+body.alpha.alpha .sheet.alpha-sheet{background:linear-gradient(180deg,rgb(40,39,46),rgb(22,22,26))}
 .alpha-item,.alpha-ask{border:0;border-radius:18px;background:rgba(255,255,255,.07)}
 .alpha-field,.alpha-text{border:0;border-radius:16px;background:rgba(255,255,255,.08);font-size:17px}
 .alpha-needs{color:rgb(var(--acc))}
