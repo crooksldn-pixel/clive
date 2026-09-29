@@ -88,6 +88,10 @@ UI_TYPES = frozenset({
     # name only. The tablet opens its remote when it draws this card (web/remote.js), and the
     # card stays to open it again.
     "screen_remote",
+    # one of the owner's objectives, in the shape of its kind (round 12, app/objectives/cards.py):
+    # a project's stages with the one it is at, delegated tasks by person, or what CLIVE is doing
+    # and what is next. Drawn when the model opens, shows or changes one, by web/objective-cards.js.
+    "objective",
 })
 MAX_BATCH_ROWS = 50
 ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_query", "email_query"})
@@ -95,6 +99,9 @@ ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_q
 # Each returns the Mac's own card under `_surfaces`, and `_from_result` below takes it as it
 # is rather than re-shaping state that never came from the shop.
 WORKSPACE_TOOLS = frozenset({"shopify_discount_open", "shopify_order_open", "shopify_store_credit"})
+# The objective tools that open, show or change one objective, each returning its card under
+# `_surfaces` (app/objectives/tools.py). objective_list returns none: it is the model's lookup.
+OBJECTIVE_TOOLS = frozenset({"objective_open", "objective_show", "objective_note"})
 
 # One of the owner's screens (app/displays/store.py _ID).
 _SCREEN_ID = re.compile(r"^scr_[0-9a-f]{12}$")
@@ -512,6 +519,11 @@ def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
         # taken, and `present()` filters against UI_TYPES again on the way out.
         return [item for item in (result.get("_surfaces") or [])
                 if isinstance(item, dict) and item.get("type") == "workspace" and isinstance(item.get("data"), dict)]
+    if name in OBJECTIVE_TOOLS:
+        # The objective's card, for the same reason again: built by app/objectives/cards.py from
+        # CLIVE's own record, bounded key by key there, and taken here as it is.
+        return [item for item in (result.get("_surfaces") or [])
+                if isinstance(item, dict) and item.get("type") == "objective" and isinstance(item.get("data"), dict)]
     if name in ANALYTIC_TOOLS:
         from app.analytics.present import build, working_set_items
 
@@ -1505,10 +1517,20 @@ SECONDARY_KINDS = frozenset({"ranking", "order_list", "email_list", "table", "me
 
 def _merge(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One card per entity. A find followed by a detail lookup of the same order in one turn
-    yields the detail card only; the summary is a strict subset of it."""
+    yields the detail card only; the summary is a strict subset of it. An objective changed
+    several times in one turn is one card, as the last change left it."""
     out: list[dict[str, Any]] = []
     seen_orders: dict[str, int] = {}
+    seen_objectives: dict[str, int] = {}
     for item in items:
+        if item["type"] == "objective":
+            # Opened and then noted on in one turn is one objective: the last card is the whole
+            # record as the turn left it, drawn where the first one was.
+            ref = str(item["data"].get("objective_id") or "")
+            if ref in seen_objectives:
+                out[seen_objectives[ref]] = item
+                continue
+            seen_objectives[ref] = len(out)
         if item["type"] == "order":
             ref = item["data"].get("order_id") or item["data"].get("order_number")
             if ref in seen_orders:

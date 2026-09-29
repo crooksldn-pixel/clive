@@ -3139,6 +3139,13 @@
     ], opts);
   }
 
+  // One of the owner's objectives, in the shape of its kind (round 12). Drawn by
+  // web/objective-cards.js, which the page loads beside this file; without it nothing is drawn.
+  function renderObjective(d, opts) {
+    const cards = typeof window !== 'undefined' ? window.CliveObjectiveCards : globalThis.CliveObjectiveCards;
+    return cards ? cards.card(d, opts) : null;
+  }
+
   const RENDERERS = {
     assistant: renderAssistant,
     order: renderOrder,
@@ -3174,6 +3181,7 @@
     workspace: renderWorkspace,
     workspace_plan: renderWorkspacePlan,
     screen_remote: renderScreenRemote,
+    objective: renderObjective,
   };
   const TYPES = Object.keys(RENDERERS).concat(['context_stack']);
   // Both Phase 5 workstreams added to this list and the merge produced two declarations of
@@ -3182,7 +3190,9 @@
   const CONTEXT_TYPES = ['order', 'order_list', 'customer', 'customer_list', 'customer_workspace', 'order_workspace', 'product', 'inventory', 'sales_summary', 'email_list', 'email_thread', 'email_draft', 'attention', 'confirmation', 'success', 'assistant',
     'metric_group', 'ranking', 'table', 'comparison', 'variant_matrix', 'trend', 'working_set', 'batch_action', 'batch_result', 'capability', 'summary_list',
     // The remote's card stays in the deck behind the remote, to open it again (round 9).
-    'screen_remote'];
+    'screen_remote',
+    // An objective opened, shown or changed by voice is what the owner asked to see (round 12).
+    'objective'];
 
   function isValid(item) {
     return Boolean(item) && typeof item === 'object' && typeof item.type === 'string'
@@ -3277,6 +3287,7 @@
     trend: ['title', 'metric'],
     working_set: ['set_id'],
     screen_remote: ['screen_id'],
+    objective: ['objective_id'],
     capability: ['build'],
     summary_list: ['task', 'title'],
     reply_state: ['thread_id'],

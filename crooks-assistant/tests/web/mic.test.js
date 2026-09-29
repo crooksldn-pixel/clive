@@ -222,7 +222,13 @@ test('web/alpha.js never asks for the microphone, itself or through app.js', () 
   for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(']) {
     assert.ok(!ALPHA.includes(name), `web/alpha.js has ${JSON.stringify(name)}`);
   }
-  assert.deepEqual([...new Set(ALPHA.match(/\bwindow\.\w+/g))], ['window.CliveAlpha']);
+  // Its second door, round 12: window.CliveObjectiveCards draws an objective's shape
+  // (web/objective-cards.js), and that file is held to the same rule as this one.
+  assert.deepEqual([...new Set(ALPHA.match(/\bwindow\.\w+/g))].sort(), ['window.CliveAlpha', 'window.CliveObjectiveCards']);
+  const CARDS = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'objective-cards.js'), 'utf8');
+  for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(', 'CliveAlpha']) {
+    assert.ok(!CARDS.includes(name), `web/objective-cards.js has ${JSON.stringify(name)}`);
+  }
   assert.deepEqual([...new Set(ALPHA.match(/\bCliveAlpha\.\w+/g))].sort(), ['CliveAlpha.ask', 'CliveAlpha.isBusy']);
 
   const door = cut('window.CliveAlpha = {', '\n};');

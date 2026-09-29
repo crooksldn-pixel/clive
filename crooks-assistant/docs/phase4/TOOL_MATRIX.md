@@ -50,10 +50,10 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_send_reply` | RED | yes | yes | yes | gmail.compose | write | prepared from a fresh read, held as gmail_send_reply, tap_commit | a predicate over the re-read, after settling | the change's own card | gmail | — |
 | `gmail_thread_archive` | AMBER | yes | yes | yes | gmail.modify | write | prepared from a fresh read, held as gmail_thread_archive, tap_commit | the re-read must equal what was expected | the change's own card | gmail | — |
 | `inventory_query` | GREEN | yes | yes | yes | none needed | read | — | — | the read layer's cards | — | read |
-| `objective_list` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
-| `objective_note` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
-| `objective_open` | GREEN | yes | yes | — | none needed | read | — | — | — | — | — |
-| `objective_show` | GREEN | yes | yes | — | none needed | read | — | — | — | — | — |
+| `objective_list` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
+| `objective_note` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
+| `objective_open` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
+| `objective_show` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `screen_list` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `screen_off` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `screen_pair` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
@@ -118,9 +118,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_thread_archive` | command:a tapped control, family:email_archive | test_gmail_writes.py | — |
 | `inventory_query` | recipe:landing_products, family:product_reads | test_analytics_tools.py | landing_products |
 | `objective_list` | family:objectives | test_displays.py, test_tool_boundary.py | — |
-| `objective_note` | family:objectives | test_objectives.py, test_tool_boundary.py | — |
-| `objective_open` | family:objectives | — | — |
-| `objective_show` | family:objectives | — | — |
+| `objective_note` | family:objectives | test_objective_design.py, test_objectives.py, test_tool_boundary.py | — |
+| `objective_open` | family:objectives | test_objective_design.py | — |
+| `objective_show` | family:objectives | test_objective_design.py | — |
 | `screen_list` | family:screens | test_displays.py, test_r11_screens_server.py, test_screens_r10.py, test_tool_boundary.py | — |
 | `screen_off` | family:screens | test_displays.py, test_screens_r10.py | — |
 | `screen_pair` | family:screens | test_displays.py | — |
@@ -160,9 +160,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 ## What this matrix cannot vouch for
 
-**no test calls it (4)**
+**no test calls it (2)**
 
-`commerce_capabilities`, `objective_open`, `objective_show`, `shopify_order_address`
+`commerce_capabilities`, `shopify_order_address`
 
 **no golden scenario reaches it (41)**
 
@@ -172,9 +172,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 `batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`
 
-**no card is drawn from it (14)**
+**no card is drawn from it (10)**
 
-`commerce_capabilities`, `engineering_status`, `gmail_find_in_email`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_show`, `screen_video`, `shopify_discount_check`, `shopify_order_address`
+`commerce_capabilities`, `engineering_status`, `gmail_find_in_email`, `screen_list`, `screen_off`, `screen_pair`, `screen_show`, `screen_video`, `shopify_discount_check`, `shopify_order_address`
 
 **no named error card (24)**
 

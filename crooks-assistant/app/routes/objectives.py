@@ -1,4 +1,4 @@
-"""The owner's screen onto objectives: list, read, create, answer, authorise, close.
+"""The owner's screen onto objectives: list, read, create, answer, authorise, tick a task, close.
 
 These are the only callers that act as the owner (``by="owner"``): authorising a work item and
 closing an objective are refused to the model's tools by the store itself. Access is the
@@ -32,6 +32,10 @@ class TextBody(BaseModel):
     text: str = Field(default="", max_length=2000)
 
 
+class TaskBody(BaseModel):
+    done: bool
+
+
 class StatusBody(BaseModel):
     status: str = Field(max_length=20)
     text: str = Field(default="", max_length=2000)
@@ -42,7 +46,11 @@ def _refused(exc: ObjectiveError) -> JSONResponse:
 
 
 def _full(obj) -> dict:
-    return {**obj.to_dict(), "summary": obj.summary()}
+    # `card` is what the sheet draws the objective's shape from: the same payload as the
+    # conversation's card (app/objectives/cards.py), so the two cannot show it differently.
+    from app.objectives import cards
+
+    return {**obj.to_dict(), "summary": obj.summary(), "card": cards.data(obj)}
 
 
 @router.get("")
@@ -119,6 +127,16 @@ async def answer(objective_id: str, entry_id: str, body: TextBody) -> dict | JSO
 async def authorise(objective_id: str, item_id: str) -> dict | JSONResponse:
     try:
         return _full(store().authorise(objective_id, item_id))
+    except ObjectiveError as exc:
+        return _refused(exc)
+
+
+@router.post("/{objective_id}/tasks/{task_id}", response_model=None)
+async def tick(objective_id: str, task_id: str, body: TaskBody) -> dict | JSONResponse:
+    """The owner ticks one of the delegated tasks done, or back to not done, on his screen. It
+    changes CLIVE's list and nothing else: nobody is told."""
+    try:
+        return _full(store().task(objective_id, item_id=task_id, done=body.done, by="owner"))
     except ObjectiveError as exc:
         return _refused(exc)
 

@@ -63,6 +63,8 @@ KEY_OF: dict[str, tuple[str, ...]] = {
     "working_set": ("set_id",),
     # The remote for one of the owner's screens (round 9): one card per screen.
     "screen_remote": ("screen_id",),
+    # One of the owner's objectives (round 12): one card per objective, patched as it changes.
+    "objective": ("objective_id",),
     "capability": ("build",),
     # A summary is identified by the TASK it answers, not by its title: "Orders today" asked
     # twice is one card, and the returning-customers summary is never the same card as the

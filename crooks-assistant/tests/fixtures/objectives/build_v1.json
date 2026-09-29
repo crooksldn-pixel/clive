@@ -1,0 +1,54 @@
+{
+  "id": "obj_9881b68d",
+  "title": "Packing screen",
+  "request": "Show today's packing list big on the Mac",
+  "created_at": "2026-09-29T00:57:49Z",
+  "updated_at": "2026-09-29T00:57:49Z",
+  "status": "active",
+  "status_set_by": null,
+  "deadline": null,
+  "facts": [],
+  "unknowns": [],
+  "blockers": [],
+  "items": [
+    {
+      "id": "w_862f0c56",
+      "text": "Build it with the engineering loop (request eng_1a2b3c)",
+      "state": "started",
+      "needs_owner": false,
+      "evidence": null,
+      "engineering": "eng_1a2b3c",
+      "history": [
+        {
+          "state": "started",
+          "at": "2026-09-29T00:57:49Z",
+          "by": "clive"
+        }
+      ]
+    }
+  ],
+  "attention": [],
+  "events": [
+    {
+      "at": "2026-09-29T00:57:49Z",
+      "kind": "created",
+      "text": "Objective recorded from the owner's request.",
+      "by": "clive"
+    },
+    {
+      "at": "2026-09-29T00:57:49Z",
+      "kind": "engineering",
+      "text": "Filed engineering request eng_1a2b3c with the clive-worker-01 loop; its work lands on clive/objective/packing-screen.",
+      "by": "clive"
+    }
+  ],
+  "kind": "build",
+  "engineering": [
+    {
+      "request_id": "eng_1a2b3c",
+      "host": "clive-worker-01",
+      "target_branch": "clive/objective/packing-screen",
+      "filed_at": "2026-09-29T00:57:49Z"
+    }
+  ]
+}

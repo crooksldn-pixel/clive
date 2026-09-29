@@ -53,6 +53,9 @@ const SHELL = [
   // Round 9: the remote for the screens. Code and styles only; what it shows is asked for.
   '/static/remote.js',
   '/static/remote.css',
+  // Round 12: an objective in the shape of its kind (web/objective-cards.js).
+  '/static/objective-cards.js',
+  '/static/objective-cards.css',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',
