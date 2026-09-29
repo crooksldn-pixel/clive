@@ -12,8 +12,15 @@
   -webkit-font-smoothing:antialiased;
 }
 
-/* A record under a still finger: no selection, no system menu. Lifted, its place stays, dimmed. */
+/* A record under a still finger: no selection, no system menu. From 300 ms it begins to rise —
+   a row lights as a pressed cell does, a card's rim lights in the accent — so the hold feels
+   immediate though it lifts only at 500; it settles back at once if the finger moves or lets go.
+   Colour only, drawn inside the item, so nothing grows past a rounded group's edge. Lifted, its
+   place stays, dimmed. */
 .lift-pressing{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html body .lift-priming{transition:background-color 200ms ease-out,box-shadow 200ms ease-out}
+html body .lift-priming:not(.card){background-color:rgba(255,255,255,.08)}
+html body .card.lift-priming{box-shadow:inset 0 0 0 1.5px rgba(10,132,255,.6),inset 0 0 0 .5px rgba(255,255,255,.08)}
 html.lift-dragging,html.lift-dragging *{-webkit-user-select:none!important;user-select:none!important;cursor:grabbing}
 .lift-source{opacity:.4;transition:opacity 180ms ease}
 
@@ -133,4 +140,5 @@ html[data-lite] .lift-chip{box-shadow:0 0 0 1.5px rgba(var(--lift-acc),.85),0 12
   .lift-screen,.lift-screen.is-over{transform:none;transition:none}
   .lift-chip.is-up .lift-chip-glyph,.lift-chip.is-up .lift-chip-words,.lift-tray.is-done .lift-done{animation:none}
   .lift-screen.is-busy .lift-state::after{animation:none}
+  html body .lift-priming{transition:none}
 }

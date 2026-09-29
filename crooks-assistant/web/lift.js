@@ -13,10 +13,15 @@
  * tray from the keyboard. An email or a customer has no view a screen draws
  * (app/displays/views.py), so holding one lifts nothing and says so in a line.
  *
- * The hold does not fight scrolling: it starts only after HOLD_MS of a press that has stayed within
- * a few pixels. A flick moves further than that first, or the browser takes it for a scroll and
- * cancels the pointer, and the press is forgotten; the list scrolls as it always did, and a quick
- * tap is still a tap. Once lifted, a move is the drag's and not a scroll's.
+ * The hold does not fight scrolling: it lifts only after HOLD_MS — about Android's own long press —
+ * of a press that has stayed within a few pixels, so a thumb resting on a card before it scrolls
+ * lifts nothing. The item begins to rise under the finger from PRIME_MS, so the hold still feels
+ * immediate, and settles back if the finger moves or lets go first. A flick moves further than
+ * that first, or the browser takes it for a scroll and cancels the pointer, and the press is
+ * forgotten; the list scrolls as it always did, and a quick tap is still a tap. Once lifted, a
+ * move is the drag's and not a scroll's: a listener that can stop the scroll is attached for that
+ * gesture only, as it begins, and taken off when it ends (iOS decides before a touch begins
+ * whether a page can stop it scrolling, so there alone it stays attached).
  *
  * The drop is one POST to the owner's own route, `/displays/{id}/show`, naming the conversation
  * and the record as its card carries it — kind and id, nothing else (app/routes/displays.py). The
@@ -32,7 +37,8 @@
 
 (function (root) {
   // ---- the rules, as plain values and functions (tests/web/lift.test.js) --------------------
-  const HOLD_MS = 350;              // a press held this still, this long, lifts
+  const HOLD_MS = 500;              // a press held this still, this long, lifts (Android's long press)
+  const PRIME_MS = 300;             // from here the item begins to rise under the finger
   const SLOP = { touch: 10, pen: 8, mouse: 5 };   // how far it may wander while it is being still
   const PICK_PX = 24;               // let go within this of where it lifted: the tray stays, to tap
   const SWALLOW_MS = 450;           // the click a lift's release makes is not a tap on the card
@@ -47,6 +53,7 @@
   // What can be held, as the renderers mark it (web/ui.js, web/alpha.js). The nearest one to the
   // finger is the one meant: a row inside a card is the row.
   const ORDERS = '[data-kind="order"][data-ref], .card[data-type="order"][data-ref], .card[data-type="order_workspace"][data-ref]';
+  // An objective: its row on the home, its card in the conversation, and its sheet's head and shape.
   const OBJECTIVES = '[data-objective]';
   const EMAILS = '[data-kind="email_thread"][data-ref], .card[data-type="email_thread"]';
   const CUSTOMERS = '[data-kind="customer"][data-ref], .card[data-type="customer"], .card[data-type="customer_workspace"]';
@@ -127,14 +134,22 @@
     if (!rest && found) rest = said.slice(found.index + number.length).split('·')[0].trim();
     return { title, sub: rest.slice(0, 60) };
   }
+  // Whether the scroll guard must be attached before any touch begins: on iOS (every browser there
+  // is WebKit, and an iPad says it is a Mac with a touch screen) a touch whose page had no such
+  // listener as it began cannot be kept from scrolling. Everywhere else it is attached for the
+  // gesture alone, so no ordinary scroll waits on this page's script.
+  function guardsFromStart(ua, platform, touchPoints) {
+    return /iP(hone|ad|od)/.test(String(ua || '')) || (String(platform || '') === 'MacIntel' && Number(touchPoints) > 1);
+  }
   // Only a record a screen can show, with an id of that record's shape, is ever lifted.
   function screenable(kind, ref) {
     return (kind === 'order' && ORDER_REF.test(ref)) || (kind === 'objective' && OBJECTIVE_REF.test(ref));
   }
 
   const rules = {
-    HOLD_MS, SLOP, PICK_PX, SWALLOW_MS, SETTLE_MS, HOLDABLE, SAY, LINKED,
+    HOLD_MS, PRIME_MS, SLOP, PICK_PX, SWALLOW_MS, SETTLE_MS, HOLDABLE, SAY, LINKED,
     wandered, release, hitTest, placeChip, stateLine, overLine, confirmation, refusal, bodyFor, orderWords, screenable,
+    guardsFromStart,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = rules;
   root.CliveLift = rules;
@@ -151,6 +166,7 @@
   const P = {
     press: null,       // a finger or pointer down on something that can be held, not yet lifted
     said: null,        // the pointer whose hold was answered with a line: its release is not a tap
+    guarded: false,    // whether the scroll guard is attached for a gesture now
     lift: null,        // what is lifted, and the tray's state
     screens: null, screensAt: 0, screensError: '', asking: null,
     swallowUntil: 0, frame: 0, sayTimer: 0, closeTimer: 0,
@@ -196,7 +212,8 @@
   function holdableAt(target) {
     const start = target && target.nodeType === 1 ? target : target && target.parentElement;
     if (!start || typeof start.closest !== 'function') return null;
-    if (start.closest('.lift-tray, .lift-chip, .lift-layer, .rm, dialog[open]')) return null;
+    // Not the tray itself, the remote, or a sample card drawn for the developer view.
+    if (start.closest('.lift-tray, .lift-chip, .lift-layer, .rm, .is-fixture')) return null;
     const item = start.closest(HOLDABLE);
     if (!item) return null;
     const touch = root.CrooksTouch;
@@ -206,7 +223,9 @@
     if (item.matches(OBJECTIVES)) {
       const ref = String(item.dataset.objective || '');
       if (!screenable('objective', ref)) return null;
-      const title = text(item.querySelector('.alpha-row-title')) || 'Objective';
+      // Its title: on the row, on the card, or at the head of the sheet it is in.
+      const sheet = item.closest('dialog');
+      const title = text(item.querySelector('.alpha-row-title, .card-title, h2')) || text(sheet && sheet.querySelector('h2')) || 'Objective';
       return { item, lift: { kind: 'objective', ref, title: title.slice(0, 80), sub: 'Objective' } };
     }
     if (item.matches(ORDERS)) {
@@ -290,6 +309,16 @@
     P.ui = { tray, hint, cancel, list, note, done, doneWords, layer };
     return P.ui;
   }
+  // Where the tray, the chip and the line are put: in the open sheet the record was held in (a
+  // sheet is a modal dialog, above everything, and the page beneath it takes no touch while it is
+  // open), otherwise on the page itself.
+  function hostOf(item) {
+    return (item && item.closest && item.closest('dialog[open]')) || doc.body;
+  }
+  function mount(host) {
+    const U = build();
+    for (const node of [U.layer, U.tray]) if (node.parentNode !== host) host.appendChild(node);
+  }
 
   function drawScreens() {
     const U = build();
@@ -369,7 +398,7 @@
     askScreens(false);
   }
 
-  function makeChip(what) {
+  function makeChip(what, host) {
     const chip = el('div', 'lift-chip');
     chip.setAttribute('aria-hidden', 'true');
     const glyph = el('span', 'lift-chip-glyph');
@@ -379,7 +408,7 @@
     if (what.sub) words.appendChild(el('span', 'lift-chip-sub', what.sub));
     chip.appendChild(glyph);
     chip.appendChild(words);
-    doc.body.appendChild(chip);
+    host.appendChild(chip);
     return chip;
   }
   function view() { return { w: root.innerWidth || html.clientWidth || 0, h: root.innerHeight || html.clientHeight || 0 }; }
@@ -427,16 +456,32 @@
     const type = event.pointerType === 'mouse' || event.pointerType === 'pen' ? event.pointerType : 'touch';
     P.press = { id: event.pointerId, type, x: event.clientX, y: event.clientY, found, timer: 0 };
     // A finger held on text would start a selection or the system's own menu: not on these.
-    if (type !== 'mouse') found.item.classList.add('lift-pressing');
+    if (type !== 'mouse') { found.item.classList.add('lift-pressing'); guardScroll(true); }
     if (found.lift) askScreens(false);
-    P.press.timer = setTimeout(held, HOLD_MS);
+    const press = P.press;
+    press.prime = setTimeout(() => { if (P.press === press && found.lift) found.item.classList.add('lift-priming'); }, PRIME_MS);
+    press.timer = setTimeout(held, HOLD_MS);
+  }
+  // The listener that keeps a lifted finger from scrolling, for this gesture alone.
+  function stopScroll(event) {
+    if (P.lift && P.lift.mode === 'drag' && event.cancelable) event.preventDefault();
+  }
+  const FROM_START = guardsFromStart(root.navigator && root.navigator.userAgent, root.navigator && root.navigator.platform,
+    root.navigator && root.navigator.maxTouchPoints);
+  function guardScroll(on) {
+    if (FROM_START || P.guarded === on) return;
+    P.guarded = on;
+    if (on) doc.addEventListener('touchmove', stopScroll, { passive: false });
+    else doc.removeEventListener('touchmove', stopScroll, { passive: false });
   }
   function forget() {
     const press = P.press;
     P.press = null;
     if (!press) return;
     clearTimeout(press.timer);
-    press.found.item.classList.remove('lift-pressing');
+    clearTimeout(press.prime);
+    press.found.item.classList.remove('lift-pressing', 'lift-priming');
+    if (!P.lift) guardScroll(false);
   }
   function onMove(event) {
     const press = P.press;
@@ -503,17 +548,18 @@
     const press = P.press;
     P.press = null;
     if (!press) return;
-    press.found.item.classList.remove('lift-pressing');
+    clearTimeout(press.prime);
+    press.found.item.classList.remove('lift-pressing', 'lift-priming');
     let found = press.found;
     if (!found.item.isConnected) {
       // Redrawn under the finger (the home asks for its objectives every few seconds): the same
       // record, if it is still there.
       const again = found.lift && found.lift.kind === 'objective'
         ? doc.querySelector('[data-objective="' + found.lift.ref + '"]') : null;
-      if (!again) return;
+      if (!again) { guardScroll(false); return; }
       found = { item: again, lift: found.lift };
     }
-    if (found.say) { say(found.say, press.x, press.y); haptic(12); P.said = press.id; return; }
+    if (found.say) { guardScroll(false); say(found.say, press.x, press.y, hostOf(found.item)); haptic(12); P.said = press.id; return; }
     lift(found, { mode: 'drag', type: press.type, pointerId: press.id, x: press.x, y: press.y });
   }
 
@@ -527,13 +573,15 @@
     clearSay();
     try { const sel = root.getSelection && root.getSelection(); if (sel && sel.removeAllRanges) sel.removeAllRanges(); } catch (e) { /* none */ }
     found.item.classList.add('lift-source');
+    const host = hostOf(found.item);
+    mount(host);
     if (L.mode === 'drag') {
       haptic(12);
       html.classList.add('lift-dragging');
       const U = build();
       U.layer.hidden = false;
       try { U.layer.setPointerCapture(L.pointerId); } catch (e) { /* the pointer is already gone */ }
-      L.chip = makeChip(L.what);
+      L.chip = makeChip(L.what, host);
       moveChip(L);
       const shown = () => { if (L.chip) L.chip.classList.add('is-up'); };
       if (typeof root.requestAnimationFrame === 'function') root.requestAnimationFrame(shown); else shown();
@@ -542,6 +590,7 @@
   }
   function releaseLayer(L) {
     html.classList.remove('lift-dragging');
+    guardScroll(false);
     const U = P.ui;
     if (!U) return;
     try { if (U.layer.hasPointerCapture && U.layer.hasPointerCapture(L.pointerId)) U.layer.releasePointerCapture(L.pointerId); } catch (e) { /* released */ }
@@ -665,11 +714,11 @@
     const old = doc.querySelector('.lift-say');
     if (old) old.remove();
   }
-  function say(words, x, y) {
+  function say(words, x, y, host) {
     clearSay();
     const note = el('p', 'lift-say', words);
     note.setAttribute('role', 'status');
-    doc.body.appendChild(note);
+    (host || doc.body).appendChild(note);
     const w = Math.min(note.offsetWidth || 280, view().w - 24);
     const h = note.offsetHeight || 44;
     const at = placeChip(x, y, w, h, view(), 'touch');
@@ -691,7 +740,7 @@
     if (!found) return;
     event.preventDefault();
     const r = found.item.getBoundingClientRect();
-    if (found.say) { say(found.say, r.left + r.width / 2, r.top + 8); return; }
+    if (found.say) { say(found.say, r.left + r.width / 2, r.top + 8, hostOf(found.item)); return; }
     lift(found, { mode: 'pick', type: 'keyboard', keyboard: true, x: r.left + r.width / 2, y: r.top });
   }
   function onTrayKey(event) {
@@ -726,12 +775,10 @@
   doc.addEventListener('selectstart', (event) => {
     if ((P.press && P.press.type !== 'mouse') || (P.lift && P.lift.mode === 'drag')) event.preventDefault();
   }, true);
-  // Once lifted, a move is the drag's, not a scroll's. Present from the start, and not passive, so
-  // the browser lets it keep a held finger from scrolling (iOS decides that as the touch begins);
-  // it does nothing at all unless something is lifted.
-  doc.addEventListener('touchmove', (event) => {
-    if (P.lift && P.lift.mode === 'drag' && event.cancelable) event.preventDefault();
-  }, { passive: false });
+  // Once lifted, a move is the drag's, not a scroll's (stopScroll). Attached as a press on something
+  // that can be held begins and taken off when it ends (guardScroll); on iOS, which decides before a
+  // touch begins whether the page may stop it scrolling, it is attached once, here.
+  if (FROM_START) doc.addEventListener('touchmove', stopScroll, { passive: false });
   // A scroll that starts under a waiting press, in what holds the pressed record, is a scroll.
   doc.addEventListener('scroll', (event) => {
     const press = P.press;

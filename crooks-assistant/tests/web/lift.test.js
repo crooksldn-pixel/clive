@@ -15,8 +15,12 @@ const path = require('node:path');
 const L = require(path.join(__dirname, '..', '..', 'web', 'lift.js'));
 const WEB = path.join(__dirname, '..', '..', 'web');
 
-test('a hold is a still press of about a third of a second; a flick wanders out of it first', () => {
-  assert.equal(L.HOLD_MS, 350);
+test('a hold lifts at Android\'s own long press, rising from 300 ms; a flick wanders out of it first', () => {
+  // A thumb resting on a card before it scrolls is not a hold (the round-12 check): it lifts at
+  // about Android's long press, and the item begins to rise before that so it feels immediate.
+  assert.equal(L.HOLD_MS, 500);
+  assert.equal(L.PRIME_MS, 300);
+  assert.ok(L.PRIME_MS < L.HOLD_MS);
   const finger = { type: 'touch', x: 100, y: 400 };
   // A thumb is never perfectly still: a few pixels is still a hold.
   assert.equal(L.wandered(finger, 106, 404), false);
@@ -127,6 +131,50 @@ test('the chip names an order by its number and whose it is, from what its card 
   assert.deepEqual(L.orderWords('Order #1962'), { title: 'Order #1962', sub: '' });
   assert.deepEqual(L.orderWords('1938'), { title: 'Order #1938', sub: '' });
   assert.deepEqual(L.orderWords(''), { title: 'Order', sub: '' });
+});
+
+test('only iOS keeps the scroll guard from the start; everywhere else it is attached for a gesture alone', () => {
+  // WebKit decides as a touch begins whether the page may stop it scrolling; Chrome (the owner's
+  // tablet) honours a guard attached as the press begins, so no ordinary scroll waits on it there.
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  const TAB_A = 'Mozilla/5.0 (Linux; Android 11; SM-T290) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
+  assert.equal(L.guardsFromStart(IPHONE, 'iPhone', 5), true);
+  assert.equal(L.guardsFromStart('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15', 'MacIntel', 5), true, 'an iPad says it is a Mac');
+  assert.equal(L.guardsFromStart(TAB_A, 'Linux armv8l', 10), false);
+  assert.equal(L.guardsFromStart('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 'MacIntel', 0), false, 'a Mac with a mouse');
+  const source = fs.readFileSync(path.join(WEB, 'lift.js'), 'utf8');
+  // One non-passive touchmove listener at load, and only behind the iOS rule.
+  const atLoad = source.split('\n').filter((line) => /addEventListener\('touchmove'/.test(line));
+  assert.equal(atLoad.length, 2, atLoad.join('\n'));
+  assert.ok(atLoad.some((line) => line.trim().startsWith('if (FROM_START) doc.addEventListener(\'touchmove\'')), atLoad.join('\n'));
+  assert.ok(atLoad.some((line) => line.includes('if (on) doc.addEventListener(\'touchmove\', stopScroll')), atLoad.join('\n'));
+  assert.ok(source.includes("else doc.removeEventListener('touchmove', stopScroll, { passive: false });"));
+});
+
+test('an objective is holdable wherever it is drawn: its home row, its card, and its sheet', () => {
+  const alpha = fs.readFileSync(path.join(WEB, 'alpha.js'), 'utf8');
+  assert.ok(alpha.includes("'data-objective': o.id, onclick: () => openObjective(o.id)"), 'the home row');
+  // The files these hooks live in still parse (a read of their source says nothing about that).
+  const vm = require('node:vm');
+  for (const file of ['alpha.js', 'objective-cards.js', 'lift.js']) {
+    assert.doesNotThrow(() => new vm.Script(fs.readFileSync(path.join(WEB, file), 'utf8'), { filename: file }), file);
+  }
+  assert.ok(alpha.includes('lead.dataset.objective = o.id;'), 'the sheet\'s head');
+  assert.ok(alpha.includes("h('div', { class: 'alpha-shape', 'data-objective': o.id }, body)"), 'the sheet\'s shape');
+  // The conversation's card, drawn under Node from the Mac's payload.
+  const shim = require('./dom-shim');
+  const was = globalThis.document;
+  globalThis.document = shim.document;
+  try {
+    const cards = require(path.join(WEB, 'objective-cards.js'));
+    const card = cards.card({ objective_id: 'obj_0123abcd', kind: 'business', title: 'Autumn drop shoot' }, {});
+    assert.equal(card.dataset.objective, 'obj_0123abcd');
+    assert.equal(card.getAttribute('tabindex'), '0', 'focusable for the context-menu key');
+    const odd = cards.card({ objective_id: 'gid://shopify/Order/1', kind: 'business', title: 'x' }, {});
+    assert.equal(odd.dataset.objective, undefined, 'only an id of an objective\'s own shape');
+  } finally {
+    globalThis.document = was;
+  }
 });
 
 test('the page loads the tray and its styles, and the app shell keeps them for when CLIVE is away', () => {
