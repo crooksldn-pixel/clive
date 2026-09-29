@@ -7,6 +7,9 @@
 .app-dots.is-on{display:block}
 /* No fill after it ends: the card's own opacity (an archived thread is dimmed) applies again. */
 #cards > .card.dots-forming{animation:dots-card-in 340ms linear backwards}
+/* The weak path's brisker clock (0.7 of it, web/dots-app.js BRISK): the tablet lays a new deck out
+   for most of 200ms before its first frame, and the whole must stay close to 400ms. */
+#cards > .card.dots-forming.dots-brisk{animation-duration:238ms}
 @keyframes dots-card-in{
   0%,55.9%{opacity:0;animation-timing-function:cubic-bezier(.2,.7,.2,1)}
   100%{opacity:1}

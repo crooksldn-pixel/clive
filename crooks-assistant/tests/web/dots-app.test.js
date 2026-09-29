@@ -41,20 +41,29 @@ function canvasEl() {
   const c = { width: 0, height: 0, classList: new Classes(), attrs: {}, fills: [], clears: 0, reads: 0, texts: [] };
   c.setAttribute = (k, v) => { c.attrs[k] = v; };
   let ink = new Uint8ClampedArray(0);
+  let tf = [1, 0, 0, 1, 0, 0];
   const ctx = {
     fillStyle: '', globalAlpha: 1, globalCompositeOperation: '', font: '', textBaseline: '', letterSpacing: '0px',
-    setTransform() {}, clearRect() { c.clears++; },
+    setTransform(...m) { tf = m; }, clearRect() { c.clears++; },
     fillRect(x, y, w, h) { c.fills.push({ x, y, w, h, style: ctx.fillStyle, a: ctx.globalAlpha }); },
     measureText: (t) => ({ width: String(t).length * 8, fontBoundingBoxAscent: 16, fontBoundingBoxDescent: 4 }),
-    fillText(t, x, y) {
+    fillText(t, x0, y0) {
+      // Where the text lands with the transform it was drawn under, at 8px a letter in its size.
+      const x = tf[0] * x0 + tf[4], y = tf[3] * y0 + tf[5];
       c.texts.push({ t, x, y });
       if (ink.length !== c.width * c.height * 4) ink = new Uint8ClampedArray(c.width * c.height * 4);
-      const w = String(t).length * 8;
+      const w = String(t).length * 8 * tf[0] * 1.3;
       for (let yy = Math.max(0, Math.floor(y - 14)); yy < Math.min(c.height, Math.floor(y)); yy++) {
         for (let xx = Math.max(0, Math.floor(x)); xx < Math.min(c.width, Math.floor(x + w)); xx++) ink[(yy * c.width + xx) * 4 + 3] = 255;
       }
     },
-    getImageData(x, y, w, h) { c.reads++; return { data: ink.length === w * h * 4 ? ink : new Uint8ClampedArray(w * h * 4) }; },
+    getImageData(x, y, w, h) {
+      c.reads++;
+      const out = new Uint8ClampedArray(w * h * 4);
+      if (ink.length !== c.width * c.height * 4) return { data: out };
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) out[(yy * w + xx) * 4 + 3] = ink[((y + yy) * c.width + x + xx) * 4 + 3];
+      return { data: out };
+    },
   };
   c.getContext = () => ctx;
   return c;
@@ -165,6 +174,9 @@ test('the stylesheet shows the card from 190ms and fully by 340ms, and holds not
   assert.ok(Math.abs(runs * hidden / 100 - D.TIMING.SHOW_FROM) < 2, 'hidden while the dots fly, on the same clock as the dots');
   assert.equal(D.TIMING.SHOWN_BY, runs);
   assert.match(css, /prefers-reduced-motion:reduce\)\{#cards > \.card\.dots-forming\{animation:none\}/);
+  // The weak path's brisker clock: the same entrance in 0.7 of the time, on both sides.
+  const brisk = Number(css.match(/\.dots-forming\.dots-brisk\{animation-duration:(\d+)ms\}/)[1]);
+  assert.equal(brisk, Math.round(runs * D.BRISK));
 });
 
 test('the dots follow the card while the deck moves under it', () => {
@@ -248,19 +260,21 @@ test('reduced motion: no card forms from dots and no canvas is ever made', () =>
   assert.equal(w.canvases.length, 0);
 });
 
-test('the weak path: at most 700 dots, no letter shapes read back, a canvas at the tablet\'s own pixels', () => {
+test('the weak path: at most 700 dots, no letter shapes read back, a canvas at the tablet\'s own pixels, a brisker clock', () => {
   const w = world({ cores: 4 });
   const many = [order(), order(), order()];
   many[1].rect.y = 520; many[2].rect.y = 860;
   for (const c of many) w.put(c);
+  assert.ok(many.every((c) => c.classList.contains('dots-brisk')), 'the stylesheet runs the brisker clock for these cards');
   w.play(16);
   assert.ok(w.E.stats().weak);
   assert.ok(w.E.dotCount() <= 700 && w.E.dotCount() > 100, `${w.E.dotCount()} dots`);
   assert.ok(w.canvases.every((c) => c.reads === 0 && c.texts.length === 0), 'no text drawn to be read back');
   const cv = overlay(w);
   assert.ok(cv.width <= Math.round(601 * 1.34) && cv.height <= Math.round(889 * 1.34));
-  w.play(500);
-  assert.equal(w.E.dotCount(), 0);
+  w.play(300);
+  assert.equal(w.E.dotCount(), 0, 'gone by 0.7 of 430ms');
+  assert.ok(many.every((c) => !w.E.isForming(c)));
 });
 
 test('the strong path draws the words as letter shapes', () => {

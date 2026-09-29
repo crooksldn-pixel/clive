@@ -460,10 +460,11 @@ async function weakBudget(browser) {
   check('tablet · weak path: every frame of dots drawn in under 16ms, with no more than 700 dots',
     s.weak === true && s.frames > 3 && s.maxMs < 16 && s.lastDots <= 700, JSON.stringify(s));
   check('tablet · weak path: sampling the cards costs the first frame under 16ms', s.sampleMs < 16, JSON.stringify(s));
-  // The card is shown 340ms after the first frame that draws it, whatever the dots do; how late
-  // that first frame is belongs to the page's own layout on a slowed CPU, and is reported.
-  check('tablet · weak path: the card is fully shown 340ms after the frame that first draws it',
-    tm.runs === 340 && tm.readableBy - tm.firstFrame === 340, JSON.stringify(tm));
+  // The card is shown 238ms after the first frame that draws it on the weak path's brisker clock,
+  // whatever the dots do; how late that first frame is belongs to the page's own layout on a slowed
+  // CPU, and is reported with the whole.
+  check('tablet · weak path: the card is fully shown 238ms after the frame that first draws it',
+    tm.runs === 238 && tm.readableBy - tm.firstFrame === 238, JSON.stringify(tm));
 }
 
 async function reducedMotion(browser) {

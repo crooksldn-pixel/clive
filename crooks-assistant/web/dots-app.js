@@ -18,9 +18,10 @@
  *
  * One canvas over the page, shown only while there are dots on it and emptied the moment there are
  * none. On the weak path (four cores or fewer, or a device web/app.js marks lite: the Galaxy Tab
- * A) there are at most 700 dots, drawn at no more than the tablet's own pixels, and the words are
- * sampled as the lines they sit on rather than letter by letter; the sampling and every frame's
- * drawing are timed (stats) so a browser check can hold them under 16ms. Under
+ * A) there are at most 700 dots, drawn at no more than the tablet's own pixels, the words are
+ * sampled as the lines they sit on rather than letter by letter, and the whole entrance runs on a
+ * brisker clock (BRISK); the sampling and every frame's drawing are timed (stats) so a browser
+ * check can hold them under 16ms. Under
  * prefers-reduced-motion none of this runs: the cards appear as they always have.
  *
  * Privacy. The deck is the owner's own screen, so a customer's name drawn in dots there is drawn
@@ -54,6 +55,11 @@
     GO_MIN: 300,        // a card going back: each dot's drift
     GO_MAX: 420,
   };
+  // The weak path runs the same entrance on a brisker clock (0.7 of it: the card fully there 238ms
+  // after its first frame, not 340). On the tablet the page's own layout of a new deck can take
+  // most of 200ms before that first frame, and the whole must stay close to 400ms from the moment
+  // the card is put in. The stylesheet has the same clock for it (`.dots-brisk`).
+  const BRISK = 0.7;
   // How many dots one arrival may use at most, all its cards together.
   const BUDGET = { strong: 2200, weak: 700 };
   // Colours: the words are white, the outline and the going shape steel (as the screens have them).
@@ -121,6 +127,9 @@
     const raf = env.raf || ((fn) => win.requestAnimationFrame(fn));
     const rnd = env.random || Math.random;
     const weak = typeof env.weak === 'boolean' ? env.weak : isWeak(win, doc);
+    // This engine's clock: the design's, or the weak path's brisker one.
+    const C = {};
+    for (const k of Object.keys(T)) C[k] = T[k] * (weak ? BRISK : 1);
     const reducedQuery = safeMatch(win, '(prefers-reduced-motion: reduce)');
     const reduced = () => (typeof env.reduced === 'function' ? env.reduced() : !!(reducedQuery && reducedQuery.matches));
 
@@ -128,6 +137,11 @@
     let dots = [];                 // { sx, sy, tx, ty, rx, ry, kx, ky, t0, d, a, s, ink, quick, card, going, born }
     let frameAsked = 0, drawing = false;
     const glyph = { el: null, ctx: null, metrics: new Map() };   // the letter-shape canvas, kept
+    function makeGlyph() {
+      if (glyph.ctx) return;
+      glyph.el = doc.createElement('canvas');
+      glyph.ctx = glyph.el.getContext('2d', { willReadFrequently: true });
+    }
     const pending = [];            // cards waiting for the next frame to be sampled
     const forming = new Map();     // card -> when it was put in, then the first frame that drew it
     const geom = new WeakMap();    // card -> its last measured rectangle, and the deck's scroll then
@@ -241,41 +255,68 @@
       }
       return out;
     }
+    // The one size letter shapes are drawn at before scaling, and where a font's letters sit in its
+    // line at that size (measured once per font, then remembered).
+    const REF = 32;
+    function refFont(fontStyle, weight, family) { return `${fontStyle || 'normal'} ${weight || '400'} ${REF}px ${family}`; }
+    function refMetrics(g, font) {
+      if (!glyph.metrics.has(font)) {
+        const m = g.measureText('Hg');
+        glyph.metrics.set(font, { asc: m.fontBoundingBoxAscent || REF * 0.8, dsc: m.fontBoundingBoxDescent || REF * 0.2 });
+      }
+      return glyph.metrics.get(font);
+    }
+    // Made ready while the page is idle, on the strong path: the app's type in each weight a card
+    // uses, and its monospace (order numbers). The first use of a font was most of the cost of
+    // sampling a card's letters; this moves it out of the frame that draws the card.
+    function warmFonts() {
+      if (weak || !glyph.ctx) return;
+      const g = glyph.ctx;
+      let body = '', mono = '';
+      try {
+        body = win.getComputedStyle(doc.body).fontFamily;
+        mono = win.getComputedStyle(doc.documentElement).getPropertyValue('--mono').trim();
+      } catch (e) { return; }
+      for (const family of [body, mono]) {
+        if (!family) continue;
+        for (const weight of ['400', '500', '600', '700']) {
+          g.font = refFont('normal', weight, family);
+          refMetrics(g, g.font);
+        }
+      }
+    }
     // Letter shapes: text drawn as the browser drew it (its font, weight, size, spacing, case) onto
     // a canvas the size of the card, then read back as points on a grid.
     function glyphCanvas(r, v) {
       const x0 = Math.max(0, Math.floor(r.x)), y0 = Math.max(0, Math.floor(r.y));
       const w = Math.min(Math.ceil(r.w), Math.ceil(v.w) - x0), h = Math.min(Math.ceil(r.h), Math.ceil(v.h) - y0);
       if (w <= 0 || h <= 0) return null;
-      // One canvas for this, kept between arrivals: making a 2D context is a cost on the tablet.
+      // One canvas for this, kept between arrivals: making a 2D context is a cost.
       let g = null;
       try {
-        if (!glyph.ctx) {
-          glyph.el = doc.createElement('canvas');
-          glyph.ctx = glyph.el.getContext('2d', { willReadFrequently: true });
-        }
+        makeGlyph();
         glyph.el.width = w; glyph.el.height = h;       // sized afresh, which also empties it
         g = glyph.ctx;
       } catch (e) { g = null; }
       if (!g || typeof g.fillText !== 'function' || typeof g.getImageData !== 'function') return null;
-      let drew = 0, styled = null, font = '';
+      let drew = 0, styled = null, k = 1;
+      const inked = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };   // what was drawn on
+      // Every size of a weight is drawn from the one font at REF px, scaled to the size wanted, so a
+      // card needs a font per weight and family rather than one per size (and those few can be made
+      // ready while the page is idle: warmFonts).
       function style(cs) {
         if (styled === cs) return;
         styled = cs;
-        font = `${cs.fontStyle || 'normal'} ${cs.fontWeight || '400'} ${cs.fontSize} ${cs.fontFamily}`;
-        g.font = font;
-        if ('letterSpacing' in g) g.letterSpacing = cs.letterSpacing && cs.letterSpacing !== 'normal' ? cs.letterSpacing : '0px';
+        const size = parseFloat(cs.fontSize) || 16;
+        k = size / REF;
+        const font = refFont(cs.fontStyle, cs.fontWeight, cs.fontFamily);
+        if (g.font !== font) g.font = font;
+        if ('letterSpacing' in g) {
+          const ls = parseFloat(cs.letterSpacing);
+          g.letterSpacing = cs.letterSpacing && cs.letterSpacing !== 'normal' && ls ? `${ls / k}px` : '0px';
+        }
         g.fillStyle = '#fff';
         g.textBaseline = 'alphabetic';
-      }
-      // Where a font's letters sit in its line: measured once per font, then remembered.
-      function metrics(cs) {
-        if (!glyph.metrics.has(font)) {
-          const m = g.measureText('Hg');
-          const size = parseFloat(cs.fontSize) || 16;
-          glyph.metrics.set(font, { asc: m.fontBoundingBoxAscent || size * 0.8, dsc: m.fontBoundingBoxDescent || size * 0.2 });
-        }
-        return glyph.metrics.get(font);
       }
       // `text` set in the box `q` (a line box the browser gave it), on its baseline.
       function put(text, q, cs) {
@@ -284,16 +325,22 @@
         else if (cs.textTransform === 'lowercase') t = t.toLowerCase();
         if (!t) return false;
         style(cs);
-        const { asc, dsc } = metrics(cs);
-        g.fillText(t, q.x - x0, q.y - y0 + (q.h - asc - dsc) / 2 + asc);
+        const m = refMetrics(g, g.font);
+        const asc = m.asc * k, dsc = m.dsc * k;
+        g.setTransform(k, 0, 0, k, q.x - x0, q.y - y0 + (q.h - asc - dsc) / 2 + asc);
+        g.fillText(t, 0, 0);
+        g.setTransform(1, 0, 0, 1, 0, 0);
         drew++;
+        // Where ink can be: the box, a little wider for letters that lean or spread past it.
+        inked.x0 = Math.min(inked.x0, q.x - x0 - 4); inked.y0 = Math.min(inked.y0, q.y - y0 - 2);
+        inked.x1 = Math.max(inked.x1, q.x - x0 + q.w + 4); inked.y1 = Math.max(inked.y1, q.y - y0 + q.h + 2);
         return true;
       }
       return {
         draw(value, q, cs) {
           // Leading spaces take no ink but do take room at the start of the box.
           const lead = value.length - value.trimStart().length;
-          if (lead) { style(cs); q = { x: q.x + g.measureText(value.slice(0, lead)).width, y: q.y, w: q.w, h: q.h }; }
+          if (lead) { style(cs); q = { x: q.x + g.measureText(value.slice(0, lead)).width * k, y: q.y, w: q.w, h: q.h }; }
           return put(value, q, cs);
         },
         // A run that wraps: each word where the browser put it.
@@ -310,13 +357,17 @@
           }
           return n > 0;
         },
+        // Read back only the part that was drawn on, not the whole card.
         points(step) {
           if (!drew) return [];
-          const d = g.getImageData(0, 0, w, h).data;
+          const bx = Math.max(0, Math.floor(inked.x0)), by = Math.max(0, Math.floor(inked.y0));
+          const bw = Math.min(w, Math.ceil(inked.x1)) - bx, bh = Math.min(h, Math.ceil(inked.y1)) - by;
+          if (bw <= 0 || bh <= 0) return [];
+          const d = g.getImageData(bx, by, bw, bh).data;
           const out = [];
-          for (let yy = 0; yy < h; yy += step) {
-            for (let xx = 0; xx < w; xx += step) {
-              if (d[(yy * w + xx) * 4 + 3] > 110) out.push({ x: x0 + xx, y: y0 + yy });
+          for (let yy = 0; yy < bh; yy += step) {
+            for (let xx = 0; xx < bw; xx += step) {
+              if (d[(yy * bw + xx) * 4 + 3] > 110) out.push({ x: x0 + bx + xx, y: y0 + by + yy });
             }
           }
           return out;
@@ -333,6 +384,7 @@
     function form(card) {
       if (!enabled()) return;
       card.classList.add('dots-forming');
+      if (weak) card.classList.add('dots-brisk');
       forming.set(card, now());
       pending.push(card);
       ask();
@@ -373,8 +425,8 @@
             sx: from.x + Math.cos(a) * rr, sy: from.y + Math.sin(a) * rr, tx: p.x, ty: p.y,
             rx: p.x - got.rect.x, ry: p.y - got.rect.y,
             kx: (-dy / dist) * bend, ky: (dx / dist) * bend,
-            t0: t + clamp01((p.y - top) / span) * T.STAGGER + rnd() * T.JITTER,
-            d: T.FLY_MIN + rnd() * (T.FLY_MAX - T.FLY_MIN), a: p.a, s: p.s, ink: p.ink, quick: !!p.quick, card, going: false, born: t,
+            t0: t + clamp01((p.y - top) / span) * C.STAGGER + rnd() * C.JITTER,
+            d: C.FLY_MIN + rnd() * (C.FLY_MAX - C.FLY_MIN), a: p.a, s: p.s, ink: p.ink, quick: !!p.quick, card, going: false, born: t,
           });
         }
         stats.formed++;
@@ -424,7 +476,7 @@
       forming.delete(card);
       const i = pending.indexOf(card);
       if (i !== -1) pending.splice(i, 1);
-      if (card.classList) card.classList.remove('dots-forming');
+      if (card.classList) { card.classList.remove('dots-forming'); card.classList.remove('dots-brisk'); }
       const before = dots.length;
       if (before) dots = dots.filter((d) => d.card !== card);
       if (was || dots.length !== before) paint(now());
@@ -456,7 +508,7 @@
       if (measureAsked) { measureAsked = false; measureDeck(); }
       const t = now();
       paint(t);
-      for (const [card, born] of Array.from(forming)) if (t - born >= T.DONE) settle(card);
+      for (const [card, born] of Array.from(forming)) if (t - born >= C.DONE) settle(card);
       if (dots.length || forming.size) ask();
     }
     function paint(t) {
@@ -493,14 +545,14 @@
           a = d.a * (1 - ease.out(clamp01(k)));
         } else {
           const age = t - d.born;
-          if (age >= T.DONE) continue;
+          if (age >= C.DONE) continue;
           const kk = clamp01(k), e = ease.inout(kk), u = 1 - e;
           const mx = (d.sx + d.tx) / 2 + d.kx, my = (d.sy + d.ty) / 2 + d.ky;
           x = u * u * d.sx + 2 * u * e * mx + e * e * d.tx;
           y = u * u * d.sy + 2 * u * e * my + e * e * d.ty;
           // Dots on a line of words (not its letters) go first, before the words they stand for
           // are fully there; letters stay a moment longer, over their own letters.
-          const f0 = d.quick ? T.QUICK_FROM : T.FADE_FROM, f1 = d.quick ? T.QUICK_DONE : T.DONE;
+          const f0 = d.quick ? C.QUICK_FROM : C.FADE_FROM, f1 = d.quick ? C.QUICK_DONE : C.DONE;
           if (age >= f1) continue;
           const out = age <= f0 ? 1 : 1 - ease.in(clamp01((age - f0) / (f1 - f0)));
           a = k <= 0 ? 0 : d.a * clamp01(kk / 0.35) * out;
@@ -583,6 +635,20 @@
       if (reducedQuery && typeof reducedQuery.addEventListener === 'function') reducedQuery.addEventListener('change', () => { if (reduced()) stopAll(); });
       measureAsked = true;
       ask();
+      // The canvas is made and first drawn to while the page is idle, once: the first draw to a
+      // new canvas is where its memory is found, and on the tablet that was the slowest frame of a
+      // card's first arrival. Never under reduced motion, where it is never needed.
+      if (!reduced()) {
+        const warm = () => {
+          try {
+            if (reduced()) return;
+            ensureCanvas(); blank();
+            if (!weak) { makeGlyph(); warmFonts(); }
+          } catch (e) { /* made when first needed */ }
+        };
+        if (typeof win.requestIdleCallback === 'function') win.requestIdleCallback(warm, { timeout: 4000 });
+        else if (typeof win.setTimeout === 'function') win.setTimeout(warm, 2500);
+      }
     }
 
     return {
@@ -608,7 +674,7 @@
     try { return typeof win.matchMedia === 'function' ? win.matchMedia(q) : null; } catch (e) { return null; }
   }
 
-  const api = { create, outline, body, lineDots, thin, TIMING: T, BUDGET, isWeak };
+  const api = { create, outline, body, lineDots, thin, TIMING: T, BRISK, BUDGET, isWeak };
   root.CliveAppDots = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   // In the page: watch the deck from now on.
