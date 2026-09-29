@@ -223,7 +223,9 @@ test('web/alpha.js never asks for the microphone, itself or through app.js', () 
     assert.ok(!ALPHA.includes(name), `web/alpha.js has ${JSON.stringify(name)}`);
   }
   assert.deepEqual([...new Set(ALPHA.match(/\bwindow\.\w+/g))], ['window.CliveAlpha']);
-  assert.deepEqual([...new Set(ALPHA.match(/\bCliveAlpha\.\w+/g))].sort(), ['CliveAlpha.ask', 'CliveAlpha.isBusy']);
+  // Round 12: it also reads which conversation the page is in, to list objectives to it (web/lift.js
+  // puts them on screens). A string, and nothing near the microphone: the loop below holds the door.
+  assert.deepEqual([...new Set(ALPHA.match(/\bCliveAlpha\.\w+/g))].sort(), ['CliveAlpha.ask', 'CliveAlpha.isBusy', 'CliveAlpha.sessionId']);
 
   const door = cut('window.CliveAlpha = {', '\n};');
   assert.match(door, /submit\(\{ text: value, [^\n]*\}, false\)/, 'a typed ask is a text turn');

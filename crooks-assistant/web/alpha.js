@@ -155,7 +155,10 @@
   async function refresh() {
     let needsYou = 0;
     try {
-      const data = await api('/objectives');
+      // With this page's conversation, so each objective listed is one it has been shown: held, it
+      // can be put on a screen (web/lift.js, app/displays/put.py).
+      const conversation = window.CliveAlpha && window.CliveAlpha.sessionId ? window.CliveAlpha.sessionId() : '';
+      const data = await api(conversation ? `/objectives?session_id=${encodeURIComponent(conversation)}` : '/objectives');
       objectives = data.objectives || [];
       needsYou = data.needs_you || 0;
       renderHome(needsYou);
@@ -238,7 +241,8 @@
         : needs.indexOf(o) >= 0
         ? h('span', { class: `alpha-tile${blocked ? ' is-blocked' : ''}` }, icon(blocked ? ICON.wait : ICON.ask, 18))
         : h('span', { class: `alpha-state is-${o.attention}` }, o.attention === 'done' ? icon(ICON.tick, 15) : null);
-      return h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'objective', 'data-attention': o.attention, onclick: () => openObjective(o.id) },
+      // `data-objective`: which objective the row is, for holding it and putting it on a screen (web/lift.js).
+      return h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'objective', 'data-attention': o.attention, 'data-objective': o.id, onclick: () => openObjective(o.id) },
         lead, rowMain(o.title, sub, when), icon(ICON.chev, 16));
     };
 

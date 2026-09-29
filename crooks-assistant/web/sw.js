@@ -53,6 +53,9 @@ const SHELL = [
   // Round 9: the remote for the screens. Code and styles only; what it shows is asked for.
   '/static/remote.js',
   '/static/remote.css',
+  // Round 12: holding a record to put it on a screen. Code and styles only, like the remote.
+  '/static/lift.js',
+  '/static/lift.css',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',

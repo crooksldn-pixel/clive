@@ -1,0 +1,135 @@
+/* The Displays tray, the lifted chip, and the line said for something a screen cannot show
+   (web/lift.js, round 12). CLIVE's design v1 (web/alpha.css): iOS type, grouped cells, the one
+   accent in iOS blue, glass only on what floats — and solid on a weak device (html[data-lite]).
+   Motion says where a thing came from and where it went: the tray rises from the bottom edge, the
+   chip goes back into its card or into the screen it was dropped on. Only transform and opacity
+   move while a finger is down, and under prefers-reduced-motion nothing travels at all. */
+
+.lift-tray,.lift-chip,.lift-say{
+  --lift-acc:10,132,255;
+  --lift-spring:cubic-bezier(.32,.72,0,1);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",system-ui,"Helvetica Neue",Helvetica,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* A record under a still finger: no selection, no system menu. Lifted, its place stays, dimmed. */
+.lift-pressing{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html.lift-dragging,html.lift-dragging *{-webkit-user-select:none!important;user-select:none!important;cursor:grabbing}
+.lift-source{opacity:.4;transition:opacity 180ms ease}
+
+/* While the tray is up, the bar it rises over is put away: seen through the tray it was a ghost of
+   a control, and a finger let go on it is not a question. It comes back as the tray goes. */
+body.alpha .alpha-composer,.app > .bottom{transition:opacity 200ms ease}
+html.lift-open body.alpha .alpha-composer,html.lift-open .app > .bottom{opacity:0;pointer-events:none}
+
+/* Holds the drag while a finger is down: every move comes here, whatever is redrawn beneath. */
+.lift-layer{position:fixed;inset:0;z-index:29;background:transparent;touch-action:none}
+
+/* ---- the tray ---- */
+.lift-tray{
+  position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:30;
+  box-sizing:border-box;max-width:560px;margin:0 auto;padding:14px 12px 12px;border-radius:30px;overflow:hidden;
+  color:#fff;background:rgba(30,30,34,.9);
+  -webkit-backdrop-filter:blur(30px) saturate(170%);backdrop-filter:blur(30px) saturate(170%);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.18),inset 0 0 0 .5px rgba(255,255,255,.1),0 24px 60px -12px rgba(0,0,0,.72);
+  transform:translateY(calc(100% + 40px));opacity:0;
+  transition:transform 420ms var(--lift-spring),opacity 240ms ease,height 360ms var(--lift-spring);
+}
+.lift-tray.is-open{transform:none;opacity:1}
+.lift-tray.is-leaving{transform:translateY(calc(100% + 40px));opacity:0;transition:transform 360ms var(--lift-spring),opacity 260ms ease}
+html[data-lite] .lift-tray{-webkit-backdrop-filter:none;backdrop-filter:none;background:#1f1f23;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 16px 36px -12px rgba(0,0,0,.8)}
+
+.lift-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:0 6px 10px}
+.lift-words{min-width:0}
+.lift-title{margin:0;font-size:13px;line-height:18px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:rgba(235,235,245,.6)}
+.lift-hint{margin:2px 0 0;font-size:17px;line-height:22px;font-weight:600;letter-spacing:-.01em;color:#fff;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.lift-cancel{all:unset;box-sizing:border-box;flex:none;display:flex;align-items:center;min-height:44px;margin:-8px -4px 0 0;padding:0 12px;
+  border-radius:22px;cursor:pointer;font-size:17px;letter-spacing:-.01em;color:rgb(var(--lift-acc));
+  transition:background-color 160ms ease,color 160ms ease}
+.lift-tray[data-mode="drag"] .lift-cancel{color:rgba(235,235,245,.6)}
+.lift-tray[data-mode="busy"] .lift-cancel{visibility:hidden}
+.lift-cancel.is-over,.lift-cancel:active{background:rgba(255,255,255,.12);color:#fff}
+.lift-cancel:focus-visible{outline:2px solid rgb(var(--lift-acc));outline-offset:2px}
+
+/* One tile per screen: a large, separate target, not a hairline row. The list keeps room around its
+   tiles (and gives it back in its margin), so a lit tile's ring and its slight lift are never cut
+   at the list's own edge. */
+.lift-list{display:flex;flex-direction:column;gap:8px;max-height:min(52vh,420px);overflow-y:auto;overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;padding:6px;margin:-6px}
+/* A list longer than the tray fades at its edges as it scrolls; nothing is cut at an edge. */
+.lift-list.is-long{padding:12px 6px;
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 16px,#000 calc(100% - 16px),transparent 100%);
+  mask-image:linear-gradient(180deg,transparent 0,#000 16px,#000 calc(100% - 16px),transparent 100%)}
+.lift-screen{all:unset;box-sizing:border-box;flex:none;display:flex;align-items:center;gap:14px;min-height:64px;padding:10px 14px;
+  border-radius:20px;cursor:pointer;color:#fff;background:rgba(118,118,128,.2);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.08);
+  -webkit-tap-highlight-color:transparent;
+  transition:background-color 160ms ease,box-shadow 160ms ease,transform 220ms var(--lift-spring)}
+.lift-screen:active{background:rgba(118,118,128,.32)}
+.lift-screen:focus-visible{outline:2px solid rgb(var(--lift-acc));outline-offset:-2px}
+.lift-screen.is-over{background:rgba(var(--lift-acc),.24);transform:scale(1.02);
+  box-shadow:inset 0 0 0 2px rgba(var(--lift-acc),.95),0 12px 30px -14px rgba(var(--lift-acc),.8)}
+.lift-screen.is-done{background:rgba(var(--lift-acc),.2);box-shadow:inset 0 0 0 1px rgba(var(--lift-acc),.6)}
+.lift-glyph{position:relative;flex:none;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;
+  color:rgba(235,235,245,.7);background:rgba(255,255,255,.09)}
+.lift-screen.is-on .lift-glyph{color:#fff;background:linear-gradient(180deg,rgb(64,156,255),rgb(0,113,227));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
+.lift-glyph svg{width:22px;height:22px}
+.lift-dot{position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;background:#8e8e93;
+  box-shadow:0 0 0 2.5px #242428}
+.lift-screen.is-on .lift-dot{background:#30d158}
+.lift-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.lift-name{font-size:17px;line-height:22px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lift-state{font-size:14px;line-height:19px;color:rgba(235,235,245,.62);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lift-screen.is-over .lift-state,.lift-screen.is-done .lift-state{color:#fff}
+/* Waiting on CLIVE: three dots that breathe, the dots the screens are drawn in. */
+.lift-screen.is-busy .lift-state::after{content:"";display:inline-block;width:18px;height:4px;margin-left:6px;vertical-align:middle;
+  background:radial-gradient(circle,#fff 1.6px,transparent 2px) 0 0/6px 4px repeat-x;animation:lift-breathe 1s ease-in-out infinite}
+@keyframes lift-breathe{50%{opacity:.35}}
+.lift-empty{margin:2px 6px 6px;font-size:15px;line-height:1.4;color:rgba(235,235,245,.72)}
+.lift-note{margin:10px 6px 0;font-size:14px;line-height:1.35;color:rgba(235,235,245,.62)}
+.lift-note:empty{display:none}
+.lift-note.is-bad{color:#ff8a80}
+
+/* What went where: the tray gathers into one line, then goes. */
+.lift-done{margin:0;padding:0 6px;display:none;align-items:center;gap:12px;font-size:17px;line-height:22px;font-weight:600;letter-spacing:-.01em}
+.lift-tray.is-done{padding:14px 16px}
+.lift-tray.is-done .lift-head,.lift-tray.is-done .lift-list,.lift-tray.is-done .lift-note{display:none}
+.lift-tray.is-done .lift-done{display:flex;animation:lift-arrive 320ms var(--lift-spring) both}
+.lift-done-mark{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#fff;background:rgb(var(--lift-acc))}
+.lift-done-mark svg{width:18px;height:18px}
+.lift-done-words{min-width:0}
+@keyframes lift-arrive{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---- the chip under the finger ---- */
+.lift-chip{position:fixed;left:0;top:0;z-index:31;pointer-events:none;will-change:transform;opacity:0;transition:opacity 160ms ease}
+.lift-chip.is-up{opacity:1}
+.lift-chip.is-going{opacity:0;transition:transform 250ms var(--lift-spring),opacity 250ms ease}
+.lift-chip.is-gone{opacity:0;transition:opacity 180ms ease}
+.lift-chip{display:flex;align-items:center;gap:12px;box-sizing:border-box;max-width:min(300px,calc(100vw - 24px));padding:9px 18px 9px 9px;
+  border-radius:18px;color:#fff;background:rgba(44,44,50,.95);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.2),0 0 0 1.5px rgba(var(--lift-acc),.85),0 22px 44px -14px rgba(0,0,0,.78)}
+.lift-chip.is-up .lift-chip-glyph,.lift-chip.is-up .lift-chip-words{animation:lift-pop 260ms var(--lift-spring) both}
+@keyframes lift-pop{from{transform:scale(.86);opacity:.2}to{transform:none;opacity:1}}
+.lift-chip-glyph{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:#fff;
+  background:linear-gradient(180deg,rgb(64,156,255),rgb(0,113,227));box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
+.lift-chip-glyph svg{width:22px;height:22px}
+.lift-chip-words{min-width:0;display:flex;flex-direction:column}
+.lift-chip-title{font-size:16px;line-height:21px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lift-chip-sub{font-size:13px;line-height:17px;color:rgba(235,235,245,.62);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html[data-lite] .lift-chip{box-shadow:0 0 0 1.5px rgba(var(--lift-acc),.85),0 12px 24px -10px rgba(0,0,0,.85)}
+
+/* ---- the line for something a screen cannot show ---- */
+.lift-say{position:fixed;left:0;top:0;z-index:31;margin:0;box-sizing:border-box;max-width:min(320px,calc(100vw - 24px));padding:11px 16px;
+  border-radius:16px;pointer-events:none;font-size:15px;line-height:20px;color:#fff;background:rgba(44,44,50,.96);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.16),0 16px 36px -14px rgba(0,0,0,.8);opacity:0;transition:opacity 220ms ease}
+.lift-say.is-up{opacity:1}
+
+/* Nothing travels under reduced motion: the tray and the chip appear and go, in place. */
+@media (prefers-reduced-motion:reduce){
+  .lift-tray,.lift-tray.is-leaving{transform:none;transition:opacity 120ms linear}
+  .lift-screen,.lift-screen.is-over{transform:none;transition:none}
+  .lift-chip.is-up .lift-chip-glyph,.lift-chip.is-up .lift-chip-words,.lift-tray.is-done .lift-done{animation:none}
+  .lift-screen.is-busy .lift-state::after{animation:none}
+}

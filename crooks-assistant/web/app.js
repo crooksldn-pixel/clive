@@ -4744,6 +4744,9 @@ window.CliveAlpha = {
     return Promise.resolve(submit({ text: value, session_id: sessionId, turns, speak: el.speakToggle.checked }, false)).then(() => true);
   },
   isBusy() { return busy; },
+  // The conversation this page is in: the home lists objectives to it, and a record held and put
+  // on a screen names it (web/alpha.js, web/lift.js).
+  sessionId() { return sessionId; },
 };
 
 // ------------------------------------------------------------------ the ask bar
