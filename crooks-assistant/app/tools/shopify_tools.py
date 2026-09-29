@@ -620,12 +620,14 @@ async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, A
         "looked_through": len(checked),
         "orders": rows[:limit],
         "count": len(rows),
-        "one": len(rows) == 1,
+        # One is one only when Shopify had nothing past the page: a single match on a page cut
+        # short may have another behind it, for somebody else (round 13, T1-02).
+        "one": len(rows) == 1 and not more,
     }
     if partial:
         result["partial"] = partial
     people = {r["customer_id"] for r in rows if r.get("customer_id")}
-    if len(people) == 1:
+    if len(people) == 1 and not more:
         first = rows[0]
         result["customer"] = {"customer_id": first["customer_id"], "customer_name": first["customer_name"],
                               "customer_email": first["customer_email"]}
@@ -646,6 +648,13 @@ async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, A
             result["coverage"] = (f"Checked the newest {len(checked)} orders"
                                   + (f" with {_said(evidence, searched)}" if searched else "")
                                   + "; an older one would not be here.")
+    if more:
+        # Shopify has more than the page, whatever was checked where: said every time, so a
+        # short list is never taken for the whole answer.
+        result["incomplete"] = True
+        result.setdefault("coverage", (
+            f"Shopify has more orders{f' with {_said(evidence, searched)}' if searched else ''} than the "
+            f"{len(checked)} order{'s' if len(checked) != 1 else ''} I checked; an older one that fits would not be here."))
     if bounded:
         # The name's customers ran past the bound: the ones looked at are said, whatever was found.
         result["coverage"] = " ".join(p for p in (_bounded_words(evidence["name"]), result.get("coverage")) if p)
