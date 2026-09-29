@@ -1,0 +1,39 @@
+{
+  "schema": "clive.venture_candidate.v1",
+  "name": "Magnetic cable organiser",
+  "note": "Illustrative figures for tests; not a real quote.",
+  "market": "UK",
+  "costs": {
+    "product": "2.10",
+    "shipping": "2.60",
+    "duty": "0",
+    "per_order_fixed": "0.30",
+    "payment_rate": "0.019",
+    "payment_fixed": "0.25",
+    "returns_rate": "0.04",
+    "commission_rate": "0"
+  },
+  "target_cpa": "8.00",
+  "target_margin": "0.15",
+  "price_style": "charm",
+  "product": {
+    "categories": [],
+    "for_children": false,
+    "documents": [],
+    "listing_text": "Silicone clips that keep charging cables on the desk edge."
+  },
+  "signals": {
+    "search_growth_4w": "0.22",
+    "daily_orders": 60,
+    "lifetime_orders": 9000,
+    "advertisers": 6,
+    "complaint_rate": "0.05"
+  },
+  "tests": {"hook_rate": "0.31", "ctr": "0.014", "add_to_cart_rate": "0.06"},
+  "delivery_days": 9,
+  "concepts": [
+    {"name": "desk before and after", "spend": "96.00", "purchases": 14},
+    {"name": "cable chaos POV", "spend": "30.00", "purchases": 0},
+    {"name": "gift for a desk worker", "spend": "40.00", "purchases": 1}
+  ]
+}

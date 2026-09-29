@@ -1324,6 +1324,16 @@ Self mode found register entries that disagree with the code: FEAT-033 (anticipa
 
 ---
 
+## IDEA-094 — A venture engine: one button from a product idea to a running business
+**Date:** 2026-09-29  
+**Status:** APPROVED — the owner: "start building it into clive" (DEC-061)  
+**Theme:** new businesses, commerce, autonomy  
+**Source:** the owner in a Claude Code session ([OWNER_DECISIONS_2026-09-29.md](./OWNER_DECISIONS_2026-09-29.md))
+
+The owner wants CLIVE to generate and run product businesses of the kind the owner pointed to (a one-product store for a flint plate that makes riding boots throw sparks, lie-flat baby car beds, costumes): research what sells and which content spreads or flops, choose products and suppliers, build the store, price, make the videos, schedule and publish on every platform, market, handle customer support and manage the company, with as close to zero human involvement as possible. Constraints the research found: identity, KYC and account ownership stay the owner's; spend, stores, listings, posts and customer messages are owner-gated action classes; median advertising loses money, so the engine is a testing machine with fixed kill rules; AI presenters never pose as customers; children's categories carry certification duties. Spec: [VENTURE_ENGINE_V1.md](./VENTURE_ENGINE_V1.md).
+
+---
+
 # Capture policy
 
 New ideas should be appended with:

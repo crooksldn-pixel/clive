@@ -1,0 +1,28 @@
+{
+  "schema": "clive.venture_candidate.v1",
+  "name": "Toddler biker costume",
+  "note": "Illustrative figures for tests; not a real quote.",
+  "market": "US",
+  "costs": {
+    "product": "6.10",
+    "shipping": "4.20",
+    "duty": "1.95",
+    "per_order_fixed": "0.40",
+    "payment_rate": "0.029",
+    "payment_fixed": "0.30",
+    "returns_rate": "0.08",
+    "commission_rate": "0"
+  },
+  "target_cpa": "22.00",
+  "target_margin": "0.15",
+  "product": {
+    "categories": ["costume"],
+    "for_children": true,
+    "documents": [],
+    "hood_or_neck_drawstrings": true,
+    "listing_text": "Leather-look jacket, bandana and shades for little riders."
+  },
+  "signals": {"search_growth_4w": "0.40", "daily_orders": 30, "lifetime_orders": 2100},
+  "delivery_days": 20,
+  "event": "halloween"
+}

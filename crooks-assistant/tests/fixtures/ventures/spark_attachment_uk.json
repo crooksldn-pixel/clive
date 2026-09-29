@@ -1,0 +1,35 @@
+{
+  "schema": "clive.venture_candidate.v1",
+  "name": "Spark attachment for motorcycle boots",
+  "note": "Illustrative figures for tests; not a real quote.",
+  "market": "UK",
+  "costs": {
+    "product": "3.80",
+    "shipping": "3.40",
+    "duty": "0",
+    "per_order_fixed": "0.35",
+    "payment_rate": "0.019",
+    "payment_fixed": "0.25",
+    "returns_rate": "0.05",
+    "commission_rate": "0"
+  },
+  "target_cpa": "9.00",
+  "target_margin": "0.15",
+  "price_style": "charm",
+  "product": {
+    "categories": ["footwear", "spark_device"],
+    "for_children": false,
+    "documents": [],
+    "listing_text": "Clip-on flint plate for riding boots: throws a trail of sparks at night."
+  },
+  "signals": {
+    "search_growth_4w": "0.08",
+    "daily_orders": 40,
+    "lifetime_orders": 3800,
+    "advertisers": 12,
+    "price_change_8w": "-0.05",
+    "complaint_rate": "0.09"
+  },
+  "delivery_days": 14,
+  "event": "christmas"
+}

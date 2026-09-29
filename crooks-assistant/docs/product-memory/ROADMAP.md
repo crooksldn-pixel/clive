@@ -50,6 +50,11 @@ The owner's image for this phase is agar.io: CLIVE grows by absorbing what it me
 
 **How the build system is judged (owner-agreed, IDEA-084):** hours from asking to seeing it on the phone, and minutes of the owner's attention per change. If the loop does not clearly beat asking a model directly on both, it is cut back to the one trunk, the tests and reviewed deploys.
 
+## VE1. Venture engine
+**Status:** APPROVED by the owner on 2026-09-29 ("start building it into clive", DEC-061); the first increment is BUILDING as a read-only candidate. Where it sits against F0 and the approved next phase is the owner's to rule ([OWNER_DECISIONS_2026-09-29.md](./OWNER_DECISIONS_2026-09-29.md)).
+
+CLIVE researches, launches and runs new product businesses from one button, in increments ([VENTURE_ENGINE_V1.md](./VENTURE_ENGINE_V1.md)): the read-only planning core first; then read-only research connectors, store building on development stores, the content pipeline, owner mandates for spend, publishing and advertising, and support and back office, each behind its own owner decision.
+
 ---
 
 # NOW — make the current CROOKS product genuinely reliable

@@ -905,3 +905,17 @@ The unrestricted-English prose-freeze parser experiment is therefore parked as h
 **Reason:** the owner wanted routine repository-only engineering to stop depending on relayed terminal commands (DEC-015), without giving up the evidence gates.
 
 **Consequences:** The authority has since been used: the remote engineering loop is running (see [CURRENT_TRUTH.md](./CURRENT_TRUTH.md)). It covered that one bounded activation only. It grants no deploy, runtime, secrets, permissions or business-write authority; later changes to the loop, its hosts or its privileges follow their own owner decisions (DEC-058).
+
+---
+
+## DEC-061 — A venture engine is built into CLIVE, read-only first
+
+**Date:** 2026-09-29
+**Status:** ACTIVE — owner direction; the first increment is a repository-only candidate, not accepted and not deployed
+**Source:** the owner's words, recorded verbatim in [OWNER_DECISIONS_2026-09-29.md](./OWNER_DECISIONS_2026-09-29.md): "start building it into clive", after asking for a one-button generator of product businesses
+
+**Decision:** CLIVE gains a venture engine that researches, plans and, in later increments, launches and runs new product businesses ([VENTURE_ENGINE_V1.md](./VENTURE_ENGINE_V1.md)). It is built in increments. The first is a deterministic, read-only planning core in `app/ventures/` that nothing in CLIVE calls. Every later increment that reaches outside the host, spends, creates a store or listing, publishes, or contacts anyone is its own owner decision and a reviewed mutation behind the owner's switches.
+
+**Reason:** the owner asked for a button that produces and runs whole businesses with as little human involvement as possible. The 2026-09-29 research found that median advertising loses money (so the engine must be a disciplined testing machine), that identity, KYC and account ownership stay with a verified person, and that fake AI testimonials, uncertified children's products and automated account creation are unlawful or forbidden. Its lawful form of near-zero involvement is a decision package plus standing, capped owner mandates, which is CLIVE's own rule: models propose, deterministic capabilities execute, the owner holds authority.
+
+**Consequences:** No new authority is created by this entry. DEC-005, DEC-007, DEC-008 and DEC-027 apply unchanged. Exposing the planning core to the model edits the protected gate and is the owner's change. Where this work sits against F0 (ROADMAP) is the owner's to rule, with the other open questions in the owner-decisions record.

@@ -64,6 +64,8 @@ ChatGPT, Claude, future model workers, and human contributors should treat these
 - [KNOWLEDGE_DIGESTER_V1.md](./KNOWLEDGE_DIGESTER_V1.md) — how CLIVE digests any artifact (repositories, skills, documents, API specifications, data, websites, themes, media, applications, itself) into provenance-tagged, reversible units, relates them to its self-model, and proves or drops what it absorbs.
 - [DIGESTIONS_2026-09-26.md](./DIGESTIONS_2026-09-26.md) — the digester's first real digestions (Vercel's interface guidelines, anthropics/skills, Playwright CLI, Taste Skill, CLIVE itself): what each is, what came out, what CLIVE should absorb, the defects found and fixed, and what the digester is and is not good at yet.
 - [PLAN_2026-09-26.md](./PLAN_2026-09-26.md) — the day's plan: the deploy and owner steps, digester waves, loop update part 2, and how the day is judged.
+- [OWNER_DECISIONS_2026-09-29.md](./OWNER_DECISIONS_2026-09-29.md) — the venture engine: the owner's words asking CLIVE to research, launch and run new product businesses from one button, the start of its read-only first increment, and what the owner has not yet ruled.
+- [VENTURE_ENGINE_V1.md](./VENTURE_ENGINE_V1.md) — the venture engine: what the research found, the read-only planning core (price floor, kill and scale rules, score, compliance screen, launch timing, decision brief), the proposed change that would expose it to the model, the later increments and the owner's open rulings.
 
 ## Status model
 
